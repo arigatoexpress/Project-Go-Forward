@@ -1,0 +1,169 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "{{BUSINESS_SHORT}} Inventory Item",
+    "description": "Schema for {{BUSINESS_NAME}} manufactured home inventory",
+    "type": "object",
+    "required": [
+        "id",
+        "manufacturer",
+        "model_name",
+        "classification",
+        "status",
+        "specs",
+        "pricing"
+    ],
+    "properties": {
+        "id": {
+            "type": "string",
+            "description": "Unique identifier (e.g., {{BUSINESS_SHORT}}-2024-001)",
+            "pattern": "^{{BUSINESS_SHORT}}-[0-9]{4}-[0-9]{3}$"
+        },
+        "manufacturer": {
+            "type": "string",
+            "description": "Home manufacturer name",
+            "examples": [
+                "Jessup Housing",
+                "TRU",
+                "Clayton",
+                "Champion"
+            ]
+        },
+        "model_name": {
+            "type": "string",
+            "description": "Model name (e.g., The Nassau, The Delight)"
+        },
+        "classification": {
+            "type": "string",
+            "enum": [
+                "Single Wide",
+                "Double Wide",
+                "Modular",
+                "Triple Wide"
+            ],
+            "description": "Type of manufactured home"
+        },
+        "status": {
+            "type": "string",
+            "enum": [
+                "Available",
+                "Pending",
+                "Sold",
+                "Clearance",
+                "Red Tag"
+            ],
+            "description": "Current availability status"
+        },
+        "specs": {
+            "type": "object",
+            "required": [
+                "beds",
+                "baths",
+                "sq_ft"
+            ],
+            "properties": {
+                "beds": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 6
+                },
+                "baths": {
+                    "type": "number",
+                    "minimum": 1,
+                    "maximum": 4
+                },
+                "sq_ft": {
+                    "type": "integer",
+                    "minimum": 400,
+                    "maximum": 3500
+                },
+                "dimensions": {
+                    "type": "object",
+                    "properties": {
+                        "width_ft": {
+                            "type": "number"
+                        },
+                        "length_ft": {
+                            "type": "number"
+                        }
+                    }
+                }
+            }
+        },
+        "pricing": {
+            "type": "object",
+            "properties": {
+                "display_price": {
+                    "type": "string",
+                    "description": "Display-formatted price (e.g., $89,900)"
+                },
+                "price_value": {
+                    "type": "number",
+                    "description": "Numeric price value"
+                },
+                "financing_estimate": {
+                    "type": "number",
+                    "description": "Estimated monthly payment"
+                },
+                "price_tier": {
+                    "type": "string",
+                    "enum": [
+                        "Under $50k",
+                        "$50k-$75k",
+                        "$75k-$100k",
+                        "$100k-$150k",
+                        "$150k+"
+                    ]
+                }
+            }
+        },
+        "features": {
+            "type": "array",
+            "items": {
+                "type": "string"
+            },
+            "description": "List of notable features",
+            "examples": [
+                [
+                    "Island Kitchen",
+                    "Walk-in Closet",
+                    "Garden Tub",
+                    "Energy Star"
+                ]
+            ]
+        },
+        "marketing_tags": {
+            "type": "array",
+            "items": {
+                "type": "string"
+            },
+            "examples": [
+                [
+                    "Red Tag",
+                    "Year End Clearance",
+                    "New Arrival",
+                    "Featured"
+                ]
+            ]
+        },
+        "media": {
+            "type": "object",
+            "properties": {
+                "floor_plan": {
+                    "type": "string",
+                    "format": "uri"
+                },
+                "virtual_tour": {
+                    "type": "string",
+                    "format": "uri"
+                },
+                "photos": {
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "format": "uri"
+                    }
+                }
+            }
+        }
+    }
+}

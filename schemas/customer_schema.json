@@ -1,0 +1,148 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "{{BUSINESS_SHORT}} Customer Profile",
+    "description": "Schema for {{BUSINESS_NAME}} customer profiles with warranty and service tracking",
+    "type": "object",
+    "required": [
+        "customer_id",
+        "intent_stage"
+    ],
+    "properties": {
+        "customer_id": {
+            "type": "string",
+            "description": "Unique customer identifier"
+        },
+        "contact_info": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "email": {
+                    "type": "string",
+                    "format": "email"
+                },
+                "phone": {
+                    "type": "string"
+                },
+                "address": {
+                    "type": "string"
+                }
+            }
+        },
+        "intent_stage": {
+            "type": "string",
+            "enum": [
+                "Browsing",
+                "High Intent",
+                "Pre-Qualified",
+                "Owner",
+                "Past Customer"
+            ],
+            "description": "Current stage in customer journey"
+        },
+        "preferences": {
+            "type": "object",
+            "properties": {
+                "min_beds": {
+                    "type": "integer"
+                },
+                "max_beds": {
+                    "type": "integer"
+                },
+                "min_baths": {
+                    "type": "number"
+                },
+                "max_budget": {
+                    "type": "number"
+                },
+                "preferred_type": {
+                    "type": "string",
+                    "enum": [
+                        "Single Wide",
+                        "Double Wide",
+                        "Modular",
+                        "Any"
+                    ]
+                },
+                "has_land": {
+                    "type": "boolean"
+                },
+                "land_location": {
+                    "type": "string"
+                },
+                "financing_needed": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "purchase_info": {
+            "type": "object",
+            "properties": {
+                "home_id": {
+                    "type": "string"
+                },
+                "purchase_date": {
+                    "type": "string",
+                    "format": "date"
+                },
+                "delivery_address": {
+                    "type": "string"
+                }
+            }
+        },
+        "warranty_status": {
+            "type": "object",
+            "properties": {
+                "start_date": {
+                    "type": "string",
+                    "format": "date"
+                },
+                "structural_expires": {
+                    "type": "string",
+                    "format": "date"
+                },
+                "cosmetic_expires": {
+                    "type": "string",
+                    "format": "date"
+                },
+                "cosmetic_expired": {
+                    "type": "boolean"
+                },
+                "structural_expired": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "service_history": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "request_id": {
+                        "type": "string"
+                    },
+                    "date": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "issue_type": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "type": "string",
+                        "enum": [
+                            "Open",
+                            "In Progress",
+                            "Resolved",
+                            "Denied"
+                        ]
+                    },
+                    "resolution": {
+                        "type": "string"
+                    }
+                }
+            }
+        }
+    }
+}

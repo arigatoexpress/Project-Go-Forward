@@ -1,0 +1,102 @@
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Project Go Forward — Business Configuration
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Edit this file to configure the AI agent for YOUR business.
+# All other code reads from this config — no need to touch source files.
+
+business:
+  name: "Your Business Name"
+  tagline: "Your Business Tagline"
+  industry: "retail"  # retail, real_estate, hospitality, automotive, etc.
+  
+  # Physical location (used by the agent in responses)
+  address: "123 Main Street, City, ST 00000"
+  phone: "(555) 000-0000"
+  email: "info@yourbusiness.com"
+  website: "https://www.yourbusiness.com"
+  
+  # Operating hours
+  hours:
+    weekday: "Mon-Fri 9:00 AM - 6:00 PM"
+    saturday: "Sat 9:00 AM - 5:00 PM"
+    sunday: "Sun 12:00 PM - 3:00 PM"
+
+agent:
+  # The name your AI assistant goes by
+  assistant_name: "AI Assistant"
+  
+  # Model to use (Gemini via Vertex AI)
+  model: "gemini-2.0-flash-001"
+  
+  # Agent personality and communication style
+  personality: "friendly and professional"
+  greeting: "Welcome! How can I help you today?"
+  
+  # What your agent specializes in
+  specializations:
+    - "Product search and recommendations"
+    - "Pricing and payment calculations"
+    - "Appointment booking"
+    - "Service and warranty support"
+
+product:
+  # What you sell (used in agent prompts and search)
+  type: "products"  # products, homes, vehicles, services, listings
+  singular: "product"
+  plural: "products"
+  
+  # Attributes your products have (mapped to inventory schema)
+  primary_attributes:
+    - name: "category"
+      label: "Category"
+      type: "string"
+    - name: "size"
+      label: "Size" 
+      type: "string"
+    - name: "color"
+      label: "Color"
+      type: "string"
+  
+  # Spec fields shown on product cards
+  spec_fields:
+    - key: "beds"
+      label: "Beds"
+      icon: "🛏️"
+    - key: "baths"
+      label: "Baths"
+      icon: "🚿"
+    - key: "sq_ft"
+      label: "Sq Ft"
+      icon: "📐"
+
+  # Pricing
+  financing_available: true
+  default_interest_rate: 7.5
+  default_loan_term_months: 240
+
+frontend:
+  # Branding
+  primary_color: "#1a56db"
+  accent_color: "#e74c3c"
+  logo_path: "public/logo.svg"
+  
+  # Chat interface
+  placeholder_text: "Ask about products, pricing, or services..."
+  disclaimer: "AI can make mistakes. Please verify details with a human agent."
+
+deployment:
+  # Google Cloud
+  project_id: "your-gcp-project-id"
+  region: "us-central1"
+  service_name: "ai-agent"
+  
+scraper:
+  # Website to scrape inventory from
+  target_url: "https://www.yourbusiness.com/inventory"
+  # CSS selectors for scraping (customize per website)
+  selectors:
+    card: ".product-card"
+    name: ".product-name"
+    price: ".product-price"
+    image: "img"
+    link: "a"

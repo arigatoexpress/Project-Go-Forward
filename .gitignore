@@ -1,0 +1,58 @@
+# Environment
+.env
+.env.local
+.env.production
+
+# Data files (business-specific, not committed)
+data/leads.json
+data/inventory.json
+data/scraped_inventory.json
+data/*.xlsx
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+
+# Node
+node_modules/
+frontend/node_modules/
+frontend/dist/
+
+# Build output
+frontend_build/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Sessions and databases
+*.db
+.adk/
+root_agent/.adk/
+tools/.adk/
+tools/tmp/
+
+# Scraper temp
+tools/page1.html
+
+# Firebase
+.firebaserc
+frontend/.firebaserc
+frontend/.firebase/
+
+# GCloud
+.gcloudignore
+
+# Setup script (one-time use)
+setup_framework.py
