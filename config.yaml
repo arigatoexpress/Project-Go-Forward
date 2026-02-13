@@ -5,15 +5,15 @@
 # All other code reads from this config — no need to touch source files.
 
 business:
-  name: "Your Business Name"
-  tagline: "Your Business Tagline"
-  industry: "retail"  # retail, real_estate, hospitality, automotive, etc.
+  name: "Texas Home Outlet"
+  tagline: "Your Dream Home, Our Mission"
+  industry: "real_estate"
   
   # Physical location (used by the agent in responses)
-  address: "123 Main Street, City, ST 00000"
-  phone: "(555) 000-0000"
-  email: "info@yourbusiness.com"
-  website: "https://www.yourbusiness.com"
+  address: "2915 FM 1960 E, Houston, TX 77073"
+  phone: "(281) 555-0199"
+  email: "sales@texashomeoutlet.com"
+  website: "https://www.texashomeoutlet.com"
   
   # Operating hours
   hours:
@@ -86,9 +86,9 @@ frontend:
 
 deployment:
   # Google Cloud
-  project_id: "your-gcp-project-id"
+  project_id: "tho-ai-agent"
   region: "us-central1"
-  service_name: "ai-agent"
+  service_name: "tho-agent"
   
 scraper:
   # Website to scrape inventory from

@@ -1,5 +1,5 @@
 """
-Structured Logging Utilities for {{BUSINESS_SHORT}} AI Agent
+Structured Logging Utilities for THO AI Agent
 Provides JSON-formatted logging with request context
 """
 
@@ -13,7 +13,7 @@ import uuid
 class StructuredLogger:
     """JSON-structured logger for Cloud Run"""
     
-    def __init__(self, name: str = "{{GCP_PROJECT_ID}}"):
+    def __init__(self, name: str = "tho-agent"):
         self.logger = logging.getLogger(name)
         self.logger.setLevel(logging.INFO)
         

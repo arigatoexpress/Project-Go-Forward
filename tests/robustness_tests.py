@@ -4,7 +4,7 @@ import json
 import uuid
 import time
 
-BASE_URL = "https://{{BUSINESS_SHORT}}-agent-backend-267358751314.us-central1.run.app"
+BASE_URL = "https://tho-agent-691674245427.us-central1.run.app"
 RUN_ENDPOINT = f"{BASE_URL}/run"
 
 async def send_message(session, user_id, session_id, text):

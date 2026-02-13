@@ -1,5 +1,5 @@
 """
-CRM Tools for {{BUSINESS_NAME}} AI Agent.
+CRM Tools for Texas Home Outlet AI Agent.
 
 These tools allow the agent to capture customer leads and store them
 for follow-up by the sales team.
@@ -83,7 +83,7 @@ def save_lead(
             try:
                 with open(leads_file, 'r') as f:
                     leads = json.load(f)
-            except:
+            except (json.JSONDecodeError, IOError):
                 leads = []
                 
         leads.append(lead_data)
@@ -95,7 +95,7 @@ def save_lead(
                 
     except Exception as e:
         # Don't fail the tool execution if file write fails (expected in some envs)
-        print(f"[CRM] Warning: Could not write to local file: {e}")
+        logger.warning(f"Could not write to local file: {e}")
 
     return {
         "success": True,
@@ -133,7 +133,7 @@ def get_business_hours(tool_context: ToolContext = None) -> dict:
         Hours schedule string
     """
     return {
-        "location": "{{BUSINESS_NAME}}, 2915 FM 1960 E, {{BUSINESS_CITY}}",
+        "location": "Texas Home Outlet, 10685 FM 1960 East, Huffman",
         "hours": "Mon-Fri: 9am-6pm, Sat: 9am-5pm, Sun: 12pm-3pm",
-        "phone": "{{BUSINESS_PHONE}}"
+        "phone": "(281) 324-3020"
     }

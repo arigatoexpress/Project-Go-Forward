@@ -13,7 +13,7 @@ import sys
 # Configuration
 # Default to local, but allow override or easy switch to prod
 DEFAULT_URL = "http://localhost:8080"
-PROD_URL = "https://{{BUSINESS_SHORT}}-agent-backend-267358751314.us-central1.run.app"
+PROD_URL = "https://tho-agent-691674245427.us-central1.run.app"
 
 # Use first arg as URL if provided, otherwise check env, otherwise default
 if len(sys.argv) > 1:

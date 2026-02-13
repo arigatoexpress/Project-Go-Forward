@@ -1,5 +1,5 @@
 """
-Lead Capture and Management System for {{BUSINESS_SHORT}} AI Agent
+Lead Capture and Management System for THO AI Agent
 Stores lead information in Firestore and provides export capabilities
 """
 

@@ -1,5 +1,5 @@
 """
-Document Generation Tools for {{BUSINESS_NAME}}.
+Document Generation Tools for Texas Home Outlet.
 
 Generates professional PDFs for invoices, work orders, and customer communications.
 """
@@ -7,8 +7,110 @@ Generates professional PDFs for invoices, work orders, and customer communicatio
 from google.adk.tools import ToolContext
 from typing import Optional
 from datetime import datetime
-import uuid
 import base64
+import logging
+import os
+from typing import Optional, Dict, Any
+import uuid
+
+from google.adk.tools import ToolContext
+from pypdf import PdfReader, PdfWriter
+from pypdf.generic import NameObject, TextStringObject
+
+from schemas.document_schemas import SalesContractForm
+
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import letter
+from io import BytesIO
+
+DOCUMENTS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "tho_documents")
+OUTPUT_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data/generated_docs")
+
+if not os.path.exists(OUTPUT_DIR):
+    os.makedirs(OUTPUT_DIR)
+
+def create_summary_pdf(data_dict: Dict[str, Any], output_path: str):
+    """Creates a simple summary PDF with key-value pairs."""
+    c = canvas.Canvas(output_path, pagesize=letter)
+    width, height = letter
+    c.setFont("Helvetica-Bold", 16)
+    c.drawString(50, height - 50, "Sales Contract Data Summary")
+    
+    c.setFont("Helvetica", 10)
+    y = height - 80
+    for key, value in data_dict.items():
+        if y < 50:
+            c.showPage()
+            y = height - 50
+            c.setFont("Helvetica", 10)
+        
+        # Clean key for display
+        clean_key = key.split('.')[-1].replace('[0]', '').replace('_', ' ')
+        c.drawString(50, y, f"{clean_key}: {value}")
+        y -= 15
+        
+    c.save()
+
+_logger = logging.getLogger(__name__)
+
+def fill_pdf_form(template_path: str, data_dict: Dict[str, Any], output_filename: str) -> str:
+    """
+    Fills a PDF form with data. Fallback to summary page if not fillable.
+    """
+    _logger.info(f"fill_pdf_form called for {output_filename}")
+    output_path = os.path.join(OUTPUT_DIR, output_filename)
+
+    try:
+        reader = PdfReader(template_path)
+        writer = PdfWriter()
+
+        # Check if form exists (naive check)
+        if "/AcroForm" not in reader.trailer["/Root"]:
+            _logger.info("No AcroForm found, using fallback summary PDF")
+            raise ValueError("No AcroForm found")
+
+        # Copy all pages
+        for page in reader.pages:
+            writer.add_page(page)
+
+        # Update fields
+        for page in writer.pages:
+            writer.update_page_form_field_values(
+                page, data_dict, auto_regenerate=False
+            )
+
+        with open(output_path, "wb") as output_stream:
+            writer.write(output_stream)
+
+        _logger.info("fill_pdf_form success (PDF filled)")
+        return output_path
+
+    except Exception as e:
+        _logger.warning(f"fill_pdf_form failed: {e}. Generating summary.")
+        # Fallback
+        try:
+            create_summary_pdf(data_dict, output_path)
+            return output_path
+        except Exception as e2:
+             _logger.error(f"Summary generation failed too: {e2}")
+             raise e2
+
+def generate_sales_contract_pdf(data: SalesContractForm) -> dict:
+    """
+    Generates a Sales Contract PDF using the TMHA template.
+    Backward-compatible wrapper — delegates to the data-driven document engine.
+    """
+    from tools.document_engine import generate_document
+
+    # Convert Pydantic model to dict for the engine
+    data_dict = data.model_dump()
+    # Ensure string conversions match legacy behavior
+    for key in ("sales_price", "down_payment", "unpaid_balance"):
+        if data_dict.get(key) is not None:
+            data_dict[key] = str(data_dict[key])
+
+    return generate_document("TMHA_SalesContract.pdf", data_dict)
+
 
 
 # HTML Template for Work Order/Invoice
@@ -40,7 +142,7 @@ WORK_ORDER_TEMPLATE = """
 <body>
     <div class="header">
         <div>
-            <div class="logo">🏠 {{BUSINESS_NAME}}</div>
+            <div class="logo">🏠 Texas Home Outlet</div>
             <div class="tagline">Family Owned • Veteran Owned • Since 2010</div>
         </div>
         <div class="doc-type">
@@ -79,8 +181,8 @@ WORK_ORDER_TEMPLATE = """
     {cost_section}
     
     <div class="footer">
-        <p>{{BUSINESS_NAME}} • 2915 FM 1960 E, {{BUSINESS_CITY}} • {{BUSINESS_PHONE}}</p>
-        <p>Thank you for choosing {{BUSINESS_NAME}}!</p>
+        <p>Texas Home Outlet • 2915 FM 1960 E, Huffman • (281) 324-3020</p>
+        <p>Thank you for choosing Texas Home Outlet!</p>
     </div>
 </body>
 </html>
@@ -316,15 +418,15 @@ def generate_customer_email(
     
     templates = {
         "appointment_confirmation": {
-            "subject": "Your {{BUSINESS_NAME}} Appointment is Confirmed! 🏠",
+            "subject": "Your Texas Home Outlet Appointment is Confirmed! 🏠",
             "body": f"""
 Hi {first_name},
 
-Great news! Your appointment at {{BUSINESS_NAME}} is confirmed.
+Great news! Your appointment at Texas Home Outlet is confirmed.
 
 📅 Date: {appointment_details.get('date', 'TBD') if appointment_details else 'TBD'}
 🕐 Time: {appointment_details.get('time', 'TBD') if appointment_details else 'TBD'}
-📍 Location: 2915 FM 1960 E, {{BUSINESS_CITY}}
+📍 Location: 2915 FM 1960 E, Huffman
 
 When you arrive, ask for Ben or Mark - they're excited to meet you!
 
@@ -336,8 +438,8 @@ What to bring:
 We can't wait to help you find your dream home!
 
 Warm regards,
-The {{BUSINESS_NAME}} Family
-{{BUSINESS_PHONE}}
+The Texas Home Outlet Family
+(281) 324-3020
 """
         },
         "service_update": {
@@ -352,16 +454,16 @@ We wanted to update you on your service request{f' ({ticket_id})' if ticket_id e
 If you have any questions, don't hesitate to reach out!
 
 Best regards,
-{{BUSINESS_NAME}} Service Team
-{{BUSINESS_PHONE}}
+Texas Home Outlet Service Team
+(281) 324-3020
 """
         },
         "welcome": {
-            "subject": "Welcome to the {{BUSINESS_NAME}} Family! 🎉",
+            "subject": "Welcome to the Texas Home Outlet Family! 🎉",
             "body": f"""
 Hi {first_name},
 
-Congratulations on your new home! Welcome to the {{BUSINESS_NAME}} family.
+Congratulations on your new home! Welcome to the Texas Home Outlet family.
 
 Here are some important things to know:
 
@@ -371,17 +473,17 @@ Here are some important things to know:
 • Appliances: Contact manufacturer directly
 
 🔧 NEED SERVICE?
-Chat with our AI assistant anytime, or call us at {{BUSINESS_PHONE}}
+Chat with our AI assistant anytime, or call us at (281) 324-3020
 
 📚 HOME CARE TIPS:
 • Keep your home's skirting ventilated
 • Check caulking around windows seasonally
 • Test smoke detectors monthly
 
-Thank you for choosing {{BUSINESS_NAME}}. We're honored to be part of your journey!
+Thank you for choosing Texas Home Outlet. We're honored to be part of your journey!
 
 God bless,
-The {{BUSINESS_NAME}} Family
+The Texas Home Outlet Family
 """
         },
         "follow_up": {
@@ -396,8 +498,8 @@ We wanted to check in and see how everything is going{f' since your recent servi
 Your satisfaction is our top priority. If you have any concerns or just want to say hi, we're always here!
 
 Warm regards,
-{{BUSINESS_NAME}}
-{{BUSINESS_PHONE}}
+Texas Home Outlet
+(281) 324-3020
 
 P.S. If you're happy with your experience, we'd love a Google review! ⭐
 """

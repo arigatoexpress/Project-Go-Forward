@@ -1,6 +1,6 @@
 """
-{{BUSINESS_SHORT}} Database Models - Firestore Data Layer
-Pydantic models matching the database schema for {{BUSINESS_NAME}}
+THO Database Models - Firestore Data Layer
+Pydantic models matching the database schema for Texas Home Outlet
 """
 
 from datetime import date, datetime

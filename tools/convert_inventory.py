@@ -65,7 +65,7 @@ def convert_excel_to_json():
         # Price
         try:
             price_value = float(msrp) if msrp else 0
-        except:
+        except (ValueError, TypeError):
             price_value = 0
             
         if price_value < 50000:

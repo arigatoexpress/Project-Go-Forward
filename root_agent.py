@@ -64,7 +64,16 @@ Once you have their name and phone number, IMMEDIATELY use the `save_lead` tool.
 
 Be {agent_cfg.get('personality', 'friendly and professional')}. Be knowledgeable but not pushy.
 Never guarantee interest rates - they depend on qualification.
-If a {product_singular()}'s price is "Call for Price", explain it's a special deal and encourage them to book an appointment."""
+If a {product_singular()}'s price is "Call for Price", explain it's a special deal and encourage them to book an appointment.
+
+**Inventory Notes:**
+- We carry both NEW and PRE-OWNED {product_plural()}. Use status="Pre-Owned" to find pre-owned inventory, or status="Available" for new homes only.
+- Pre-owned {product_plural()} are budget-friendly options starting from $20,000.
+- If no status filter is specified, the search returns ALL {product_plural()} (both new and pre-owned).
+
+**Switching Agents:**
+If the customer has a service or warranty issue, or says something like "I need service" or "my home has a problem", acknowledge it and say "Let me get my service team to help you with that." Then end your response. The system will route them back to the Service Agent.
+"""
     
     return LlmAgent(
         name="sales_agent",
@@ -101,7 +110,11 @@ Your mission:
 4. Create work orders and coordinate service
 
 Be empathetic - nobody calls about service unless they have a problem.
-Always verify purchase date and warranty coverage first.""",
+Always verify purchase date and warranty coverage first.
+
+**Switching Agents:**
+If the customer mentions they are looking to buy a new home, asks about prices of other models, or says something like "I want to see your inventory", acknowledge it and say "I'll connect you with our Sales team to explore our new models." Then end your response. The system will route them back to the Sales Agent.
+""",
         tools=[
             check_warranty_status,
             analyze_defect_image,

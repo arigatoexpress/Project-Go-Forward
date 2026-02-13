@@ -97,7 +97,7 @@ def audit_inventory_data():
                 valid_price_records += 1
             else:
                 zero_price_records += 1
-        except:
+        except (ValueError, TypeError):
             zero_price_records += 1
     
     # Print summary

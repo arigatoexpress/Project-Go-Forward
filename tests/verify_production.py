@@ -5,7 +5,7 @@ import sys
 import os
 
 # Configuration
-PROD_URL = "https://{{BUSINESS_SHORT}}-agent-backend-267358751314.us-central1.run.app"
+PROD_URL = "https://tho-agent-691674245427.us-central1.run.app"
 BASE_URL = os.environ.get("AGENT_API_URL", PROD_URL)
 
 def run_query(query_text, verify_lambda=None):

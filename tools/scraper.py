@@ -5,7 +5,7 @@ import time
 import os
 import re
 
-BASE_URL = "https://www.{{BUSINESS_DOMAIN}}"
+BASE_URL = "https://www.texashomeoutlet.com"
 INVENTORY_URL = f"{BASE_URL}/inventory/"
 OUTPUT_FILE = "../data/scraped_inventory.json"
 

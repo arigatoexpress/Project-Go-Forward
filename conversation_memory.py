@@ -1,5 +1,5 @@
 """
-Conversation Memory System for {{BUSINESS_SHORT}} AI Agent
+Conversation Memory System for THO AI Agent
 Tracks user preferences and conversation context within a session
 """
 

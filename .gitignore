@@ -7,7 +7,9 @@
 data/leads.json
 data/inventory.json
 data/scraped_inventory.json
+data/scraped_fresh.json
 data/*.xlsx
+data/generated_docs/
 
 # Python
 __pycache__/
@@ -53,6 +55,9 @@ frontend/.firebase/
 
 # GCloud
 .gcloudignore
+
+# PDF templates (copied from tho_data for Docker deploy, not version controlled)
+tho_documents/
 
 # Setup script (one-time use)
 setup_framework.py

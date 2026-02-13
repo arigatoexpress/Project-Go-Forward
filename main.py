@@ -19,11 +19,12 @@ import logging
 import time
 import uuid
 
+from starlette.middleware.base import BaseHTTPMiddleware
 from config_loader import get_deployment_config, business_name
 
 # Initialize Vertex AI
 deploy_cfg = get_deployment_config()
-project_id = os.environ.get("GOOGLE_CLOUD_PROJECT", deploy_cfg.get("project_id", ""))
+project_id = os.environ.get("GOOGLE_CLOUD_PROJECT", deploy_cfg.get("project_id", "tho-ai-agent"))
 location = os.environ.get("GOOGLE_CLOUD_LOCATION", deploy_cfg.get("region", "us-central1"))
 vertexai.init(project=project_id, location=location)
 
@@ -42,12 +43,33 @@ app = FastAPI(title=f"{business_name()} AI Agent")
 conversation_memory = ConversationMemory(project_id=project_id)
 lead_manager = LeadManager(project_id=project_id)
 
-# Add CORS
+# Security headers middleware
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+        return response
+
+app.add_middleware(SecurityHeadersMiddleware)
+
+# Add CORS — production origins only; add localhost in dev
+IS_LOCAL = os.environ.get("K_SERVICE") is None  # K_SERVICE is set by Cloud Run
+ALLOWED_ORIGINS = [
+    "https://tho-agent-691674245427.us-central1.run.app",
+    "https://tho-agent-trgi34bxuq-uc.a.run.app",
+]
+if IS_LOCAL:
+    ALLOWED_ORIGINS += ["http://localhost:8080", "http://localhost:5173"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=ALLOWED_ORIGINS,
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type", "Accept"],
 )
 
 # Initialize ADK Runner
@@ -180,7 +202,8 @@ async def run_agent(request: Request):
     except Exception as e:
         duration_ms = (time.time() - start_time) * 1000
         struct_logger.error("Request failed", request_id=request_id, error=str(e), duration_ms=duration_ms)
-        return {"error": str(e)}
+        user_message = "Something went wrong. Please try again." if not IS_LOCAL else str(e)
+        return {"error": user_message}
 
 
 @app.get("/leads/export")
@@ -217,7 +240,7 @@ async def export_leads(status: str = None):
 async def get_lead_stats():
     """Get lead statistics."""
     try:
-        all_leads = await lead_manager.list_leads(limit=10000)
+        all_leads = await lead_manager.list_leads(limit=500)
         stats = {
             "total": len(all_leads),
             "by_status": {},
@@ -236,7 +259,7 @@ async def get_lead_stats():
         return stats
     except Exception as e:
         struct_logger.error("Lead stats failed", error=str(e))
-        return {"error": str(e)}, 500
+        return {"error": "Failed to load lead statistics"}
 
 
 @app.get("/health")
@@ -257,12 +280,254 @@ async def create_session(app_name: str, user_id: str, session_id: str):
         return {"status": "error", "message": str(e)}
 
 
+
+# Document Generation Endpoints
+from schemas.document_schemas import SalesContractForm, GenerateDocumentRequest, GeneratePacketRequest
+from tools.document_tools import generate_sales_contract_pdf, OUTPUT_DIR
+from tools.document_engine import (
+    generate_document as engine_generate_document,
+    generate_packet as engine_generate_packet,
+    list_available_templates as engine_list_templates,
+    list_available_packets as engine_list_packets,
+    get_template_fields as engine_get_template_fields,
+)
+
+# --- Phase 2: Generic Document Engine Endpoints ---
+
+@app.get("/api/documents/templates")
+async def list_templates():
+    """List all available document templates with metadata."""
+    try:
+        templates = engine_list_templates()
+        packets = engine_list_packets()
+        return {"templates": templates, "packets": packets}
+    except Exception as e:
+        struct_logger.error("Template listing failed", error=str(e))
+        return {"error": str(e)}
+
+@app.get("/api/documents/templates/{template_name}/fields")
+async def get_template_fields(template_name: str):
+    """Get field definitions for a specific template (drives SmartForm)."""
+    try:
+        fields = engine_get_template_fields(template_name)
+        if fields is None:
+            return {"error": f"Template '{template_name}' not found"}
+        return fields
+    except Exception as e:
+        struct_logger.error("Template field lookup failed", error=str(e))
+        return {"error": str(e)}
+
+@app.post("/api/documents/generate")
+async def generate_document_endpoint(request: GenerateDocumentRequest):
+    """Generate any mapped document template."""
+    try:
+        result = engine_generate_document(
+            template_name=request.template_name,
+            data=request.data,
+        )
+        if result["success"]:
+            return {
+                "success": True,
+                "download_url": f"/api/documents/download/{result['filename']}",
+                "filename": result["filename"],
+                "message": result["message"],
+            }
+        return {"success": False, "error": result["message"]}
+    except Exception as e:
+        struct_logger.error("Document generation failed", error=str(e))
+        return {"success": False, "error": str(e)}
+
+@app.post("/api/documents/generate-packet")
+async def generate_packet_endpoint(request: GeneratePacketRequest):
+    """Generate a closing packet (multiple merged PDFs)."""
+    try:
+        result = engine_generate_packet(
+            packet_name=request.packet_name,
+            data=request.data,
+        )
+        if result["success"]:
+            return {
+                "success": True,
+                "download_url": f"/api/documents/download/{result['filename']}",
+                "filename": result["filename"],
+                "message": result["message"],
+                "page_count": result.get("page_count", 0),
+                "documents_included": result.get("documents_included", []),
+            }
+        return {"success": False, "error": result["message"]}
+    except Exception as e:
+        struct_logger.error("Packet generation failed", error=str(e))
+        return {"success": False, "error": str(e)}
+
+@app.post("/api/documents/extract-fields")
+async def extract_fields_from_chat(request: Request):
+    """Extract form field data from chat conversation history using AI."""
+    try:
+        data = await request.json()
+        session_id = data.get("session_id")
+        template_name = data.get("template_name")
+
+        if not session_id or not template_name:
+            return {"extracted_data": {}, "message": "session_id and template_name required"}
+
+        from tools.form_extraction import extract_form_data_from_session
+        result = await extract_form_data_from_session(
+            session_id=session_id,
+            template_name=template_name,
+            runner=runner if 'runner' in dir() else None,
+        )
+        return result
+    except Exception as e:
+        struct_logger.error("Field extraction failed", error=str(e))
+        return {"extracted_data": {}, "message": str(e)}
+
+# --- Legacy Endpoint (Phase 1 backward compatibility) ---
+
+@app.post("/api/documents/sales-contract")
+async def create_sales_contract(form_data: SalesContractForm):
+    """Generate a Sales Contract PDF (legacy endpoint — use /api/documents/generate instead)."""
+    try:
+        result = generate_sales_contract_pdf(form_data)
+        if result["success"]:
+            return {
+                "success": True,
+                "download_url": f"/api/documents/download/{result['filename']}",
+                "filename": result['filename']
+            }
+        else:
+            return {"success": False, "error": result["message"]}
+    except Exception as e:
+        struct_logger.error("Document generation failed", error=str(e))
+        return {"success": False, "error": str(e)}
+
+@app.get("/api/documents/download/{filename}")
+async def download_document(filename: str):
+    """Download a generated document."""
+    # Security: sanitize filename to prevent path traversal attacks
+    safe_filename = os.path.basename(filename)
+    if safe_filename != filename or ".." in filename:
+        return {"error": "Invalid filename"}, 400
+    file_path = os.path.join(OUTPUT_DIR, safe_filename)
+    if os.path.exists(file_path):
+        return FileResponse(file_path, filename=safe_filename, media_type='application/pdf')
+    return {"error": "File not found"}, 404
+
+
+# ─── Marketing API (Tex's Ad Studio) ───
+from tools.marketing_tools import (
+    generate_content_script,
+    get_trending_content_ideas,
+    schedule_social_post,
+    analyze_content_performance
+)
+
+@app.post("/api/marketing/generate-script")
+async def api_generate_script(request: Request):
+    """Generate a viral-ready video script for social media."""
+    try:
+        data = await request.json()
+        result = generate_content_script(
+            home_name=data.get("home_name"),
+            home_price=data.get("home_price"),
+            home_specs=data.get("home_specs"),
+            content_theme=data.get("content_theme", "home_tour"),
+            platform=data.get("platform", "tiktok"),
+            custom_hook=data.get("custom_hook"),
+            language=data.get("language", "en"),
+            avatar=data.get("avatar", "tex_classic"),
+            custom_avatar_prompt=data.get("custom_avatar_prompt")
+        )
+        return result
+    except Exception as e:
+        struct_logger.error("Script generation failed", error=str(e))
+        return {"error": str(e)}
+
+@app.get("/api/marketing/trending-ideas")
+async def api_trending_ideas():
+    """Get AI-generated trending content ideas."""
+    try:
+        result = get_trending_content_ideas()
+        return result
+    except Exception as e:
+        struct_logger.error("Trending ideas failed", error=str(e))
+        return {"error": str(e)}
+
+@app.post("/api/marketing/schedule")
+async def api_schedule_post(request: Request):
+    """Schedule a post for publishing."""
+    try:
+        data = await request.json()
+        result = schedule_social_post(
+            platform=data.get("platform", "tiktok"),
+            content_type=data.get("content_type", "video"),
+            script_id=data.get("script_id"),
+            post_time=data.get("post_time"),
+            caption=data.get("caption"),
+            hashtags=data.get("hashtags"),
+            video_url=data.get("video_url")
+        )
+        return result
+    except Exception as e:
+        struct_logger.error("Post scheduling failed", error=str(e))
+        return {"error": str(e)}
+
+@app.get("/api/marketing/analytics")
+async def api_content_analytics():
+    """Get content performance analytics."""
+    try:
+        result = analyze_content_performance()
+        return result
+    except Exception as e:
+        struct_logger.error("Analytics load failed", error=str(e))
+        return {"error": str(e)}
+
+# ─── Contact Form API ───
+
+@app.post("/api/contact")
+async def submit_contact_form(request: Request):
+    """Receive contact form submissions and log as leads."""
+    try:
+        data = await request.json()
+        name = data.get("name", "").strip()
+        phone = data.get("phone", "").strip()
+        message = data.get("message", "").strip()
+
+        if not name or not phone:
+            return {"success": False, "error": "Name and phone are required"}
+
+        struct_logger.info("Contact form submitted", name=name, has_phone=bool(phone))
+
+        # Create a lead from the contact form
+        try:
+            new_lead = Lead(
+                lead_id=f"contact_{int(time.time())}_{uuid.uuid4().hex[:4]}",
+                user_id="contact_form",
+                session_id=f"contact_{int(time.time())}",
+                source="contact_form",
+                name=name,
+                phone=phone,
+            )
+            await lead_manager.create_lead(new_lead)
+        except Exception as e:
+            struct_logger.warning("Contact lead creation failed", error=str(e))
+
+        return {"success": True, "message": "Thank you! We'll be in touch shortly."}
+    except Exception as e:
+        struct_logger.error("Contact form failed", error=str(e))
+        return {"success": False, "error": str(e)}
+
+
 # Serve Frontend — Must be last to avoid catching API routes
-app.mount("/assets", StaticFiles(directory="frontend_build/assets"), name="assets")
+app.mount("/assets", StaticFiles(directory="frontend/dist/assets"), name="assets")
 
 @app.get("/{full_path:path}")
 async def serve_spa(full_path: str):
-    return FileResponse("frontend_build/index.html")
+    # Serve actual files from dist if they exist (e.g., tex-icon.svg, vite.svg)
+    if full_path:
+        file_path = os.path.join("frontend/dist", full_path)
+        if os.path.isfile(file_path):
+            return FileResponse(file_path)
+    return FileResponse("frontend/dist/index.html")
 
 
 if __name__ == "__main__":

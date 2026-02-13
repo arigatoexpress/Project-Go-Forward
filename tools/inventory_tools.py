@@ -1,5 +1,5 @@
 """
-Inventory Tools for {{BUSINESS_NAME}} Sales Agent.
+Inventory Tools for Texas Home Outlet Sales Agent.
 
 These tools enable the Sales Agent to search inventory and calculate financing.
 Uses real data from House Orders spreadsheet (converted to JSON for speed).
@@ -83,7 +83,9 @@ def _load_inventory_from_firestore():
                     "invoice_amount": item.get("invoice_amount")
                 },
                 "features": item.get("features", []),
-                "marketing_tags": item.get("marketing_tags", [])
+                "marketing_tags": item.get("marketing_tags", []),
+                "image_url": item.get("image_url", ""),
+                "gallery_images": item.get("gallery_images", [])
             })
         
         return inventory
@@ -153,7 +155,7 @@ def _get_sample_inventory():
     """Fallback sample inventory"""
     return [
         {
-            "id": "{{BUSINESS_SHORT}}-2024-001",
+            "id": "tho-2024-001",
             "manufacturer": "Jessup Housing",
             "model_name": "The Nassau",
             "classification": "Double Wide",
@@ -177,18 +179,18 @@ def search_inventory(
     tool_context: ToolContext = None
 ) -> dict:
     """
-    Search {{BUSINESS_SHORT}} inventory based on customer preferences.
-    
+    Search THO inventory based on customer preferences.
+
     Args:
         min_beds: Minimum number of bedrooms
-        max_beds: Maximum number of bedrooms  
+        max_beds: Maximum number of bedrooms
         min_baths: Minimum number of bathrooms
-        max_budget: Maximum price budget
-        classification: Home type (Single Wide, Double Wide, Modular)
-        status: Availability status (Available, Clearance, Red Tag)
-        features: Required features list
+        max_budget: Maximum price budget in dollars
+        classification: Home type - "Single Wide" or "Double Wide"
+        status: Home condition - "Available" (new homes) or "Pre-Owned" (used homes). Leave empty to search all.
+        features: Required features list (e.g., ["Pre-Owned", "4 Bedroom"])
         tool_context: ADK tool context
-    
+
     Returns:
         Dictionary with matching homes and search summary
     """
@@ -213,8 +215,12 @@ def search_inventory(
             continue
         if classification and home.get("classification", "").lower() != classification.lower():
             continue
-        if status and home.get("status", "").lower() != status.lower():
-            continue
+        if status:
+            home_status = home.get("status", "").lower()
+            search_status = status.lower()
+            # Support partial matching: "pre-owned" matches "Pre-Owned", "available" matches "Available"
+            if search_status not in home_status and home_status not in search_status:
+                continue
         if features:
             home_features = [f.lower() for f in home.get("features", [])]
             if not all(f.lower() in home_features for f in features):

@@ -1,5 +1,5 @@
 """
-Service Tools for {{BUSINESS_NAME}} Service Agent.
+Service Tools for Texas Home Outlet Service Agent.
 
 These tools enable the Service Agent to validate warranties, analyze defect photos,
 and generate contractor invoices.
@@ -62,7 +62,7 @@ def check_warranty_status(
             "success": True,
             "covered": False,
             "coverage_type": "Manufacturer",
-            "message": "Appliances are covered directly by the manufacturer (Whirlpool, Frigidaire, etc.), not by {{BUSINESS_NAME}}. Please contact the appliance manufacturer for warranty service.",
+            "message": "Appliances are covered directly by the manufacturer (Whirlpool, Frigidaire, etc.), not by Texas Home Outlet. Please contact the appliance manufacturer for warranty service.",
             "appliance_contacts": {
                 "Whirlpool": "1-800-253-1301",
                 "Frigidaire": "1-800-374-4432",

@@ -1,5 +1,5 @@
 """
-Firestore Client for {{BUSINESS_SHORT}} Database
+Firestore Client for THO Database
 Handles all database operations for the AI agents
 """
 
@@ -10,7 +10,7 @@ from google.cloud import firestore
 
 
 class THODatabase:
-    """Firestore database client for {{BUSINESS_NAME}}"""
+    """Firestore database client for Texas Home Outlet"""
     
     def __init__(self, project_id: Optional[str] = None):
         self.project_id = project_id or os.getenv("GCP_PROJECT_ID", "texas-home-outlet")
