@@ -61,3 +61,11 @@ tho_documents/
 
 # Setup script (one-time use)
 setup_framework.py
+
+# Dev/debug utilities
+debug_pdf.py
+inspect_pdf.py
+rename_ad_classes.py
+verify_system.py
+client_email.md
+scripts/
