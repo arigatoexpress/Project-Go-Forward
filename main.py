@@ -453,7 +453,9 @@ async def create_deal(request: Request):
             if key in deal_data and deal_data[key]:
                 deal_data[key] = deal_data[key].isoformat() if hasattr(deal_data[key], 'isoformat') else str(deal_data[key])
         deal_id = _deal_db.create_deal(deal_data)
-        return {"success": True, "deal_id": deal_id, "message": "Deal created successfully"}
+        # Return full deal object so frontend can navigate to detail view
+        created_deal = _deal_db.get_deal(deal_id)
+        return {"success": True, "deal_id": deal_id, "deal": created_deal, "message": "Deal created successfully"}
     except Exception as e:
         struct_logger.error("Deal creation failed", error=str(e))
         return {"success": False, "error": str(e)}
