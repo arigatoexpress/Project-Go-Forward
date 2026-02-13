@@ -1,0 +1,228 @@
+"""
+Appointment Scheduling System for THO AI Agent
+Manages showroom appointment booking with Firestore persistence.
+"""
+
+from dataclasses import dataclass, asdict, field
+from datetime import datetime, date, timedelta
+from typing import Dict, List, Optional
+from collections import Counter
+from zoneinfo import ZoneInfo
+from google.cloud import firestore
+import logging
+
+logger = logging.getLogger(__name__)
+
+TIMEZONE = ZoneInfo("America/Chicago")
+MAX_PER_SLOT = 2
+BOOKING_WINDOW_DAYS = 30
+SLOT_DURATION_MINUTES = 60
+
+# Business hours: (open_hour, close_hour) — last bookable slot is close - 1
+HOURS_BY_DAY = {
+    0: (9, 18),   # Monday
+    1: (9, 18),   # Tuesday
+    2: (9, 18),   # Wednesday
+    3: (9, 18),   # Thursday
+    4: (9, 18),   # Friday
+    5: (9, 17),   # Saturday
+    6: (12, 15),  # Sunday
+}
+
+
+@dataclass
+class Appointment:
+    """Appointment information for showroom visits"""
+    appointment_id: str
+
+    # Customer info
+    name: str
+    phone: str
+    email: Optional[str] = None
+
+    # Scheduling
+    date: str = ""            # "2026-02-15"
+    time_slot: str = ""       # "10:00 AM"
+    duration_minutes: int = SLOT_DURATION_MINUTES
+
+    # Details
+    notes: Optional[str] = None
+    source: str = "website"   # "website" | "chat" | "phone"
+
+    # Status
+    status: str = "confirmed"  # "confirmed" | "cancelled" | "completed" | "no_show"
+
+    # Metadata
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+    def __post_init__(self):
+        now = datetime.now(TIMEZONE).isoformat()
+        if self.created_at is None:
+            self.created_at = now
+        self.updated_at = now
+
+    def to_dict(self) -> Dict:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: Dict) -> 'Appointment':
+        valid_fields = {f.name for f in __import__('dataclasses').fields(cls)}
+        filtered = {k: v for k, v in data.items() if k in valid_fields}
+        return cls(**filtered)
+
+
+def _get_hours_for_date(d: date) -> Optional[tuple]:
+    """Return (open_hour, close_hour) for a given date, or None if closed."""
+    return HOURS_BY_DAY.get(d.weekday())
+
+
+def _generate_slots(open_hour: int, close_hour: int) -> List[str]:
+    """Generate hourly time slot strings between open and close - 1."""
+    slots = []
+    for hour in range(open_hour, close_hour):
+        dt = datetime(2000, 1, 1, hour, 0)
+        slots.append(dt.strftime("%-I:%M %p"))
+    return slots
+
+
+class AppointmentManager:
+    """Manages appointment storage and retrieval via Firestore"""
+
+    def __init__(self, project_id: str = None):
+        self.db = firestore.Client(project=project_id)
+        self.collection_name = "appointments"
+
+    def _collection(self):
+        return self.db.collection(self.collection_name)
+
+    async def create_appointment(self, appt: Appointment) -> Appointment:
+        """Create appointment with double-booking protection via transaction."""
+        doc_ref = self._collection().document(appt.appointment_id)
+
+        @firestore.transactional
+        def txn_create(transaction):
+            # Check current bookings for this date+slot
+            query = (
+                self._collection()
+                .where("date", "==", appt.date)
+                .where("time_slot", "==", appt.time_slot)
+                .where("status", "==", "confirmed")
+            )
+            existing = list(query.stream())
+            if len(existing) >= MAX_PER_SLOT:
+                raise ValueError(
+                    f"Time slot {appt.time_slot} on {appt.date} is fully booked."
+                )
+            transaction.set(doc_ref, appt.to_dict())
+
+        transaction = self.db.transaction()
+        txn_create(transaction)
+        return appt
+
+    async def cancel_appointment(self, appointment_id: str) -> Optional['Appointment']:
+        """Cancel an appointment, freeing the slot."""
+        doc_ref = self._collection().document(appointment_id)
+        doc = doc_ref.get()
+        if not doc.exists:
+            return None
+
+        appt = Appointment.from_dict(doc.to_dict())
+        appt.status = "cancelled"
+        appt.updated_at = datetime.now(TIMEZONE).isoformat()
+        doc_ref.update({"status": "cancelled", "updated_at": appt.updated_at})
+        return appt
+
+    async def get_appointment(self, appointment_id: str) -> Optional[Appointment]:
+        """Retrieve appointment by ID."""
+        doc = self._collection().document(appointment_id).get()
+        if doc.exists:
+            return Appointment.from_dict(doc.to_dict())
+        return None
+
+    async def get_appointments_by_date(self, date_str: str) -> List[Appointment]:
+        """Get all confirmed appointments for a date."""
+        query = (
+            self._collection()
+            .where("date", "==", date_str)
+            .where("status", "==", "confirmed")
+        )
+        return [Appointment.from_dict(doc.to_dict()) for doc in query.stream()]
+
+    async def get_appointments_by_phone(self, phone: str) -> List[Appointment]:
+        """Get appointments for a customer by phone number."""
+        query = (
+            self._collection()
+            .where("phone", "==", phone)
+            .where("status", "==", "confirmed")
+            .order_by("date")
+        )
+        return [Appointment.from_dict(doc.to_dict()) for doc in query.stream()]
+
+    async def get_available_slots(self, date_str: str) -> Dict:
+        """
+        Get available time slots for a given date.
+        Returns dict with date, day_name, slots list, and business hours.
+        """
+        try:
+            d = date.fromisoformat(date_str)
+        except ValueError:
+            return {"error": f"Invalid date format: {date_str}. Use YYYY-MM-DD."}
+
+        today = datetime.now(TIMEZONE).date()
+
+        if d < today:
+            return {"error": "Cannot book appointments in the past."}
+        if d > today + timedelta(days=BOOKING_WINDOW_DAYS):
+            return {"error": f"Appointments can only be booked up to {BOOKING_WINDOW_DAYS} days in advance."}
+
+        hours = _get_hours_for_date(d)
+        if hours is None:
+            return {
+                "date": date_str,
+                "day_name": d.strftime("%A"),
+                "available_slots": [],
+                "message": "We are closed on this day."
+            }
+
+        open_hour, close_hour = hours
+        all_slots = _generate_slots(open_hour, close_hour)
+
+        # If booking for today, filter out past time slots
+        if d == today:
+            now = datetime.now(TIMEZONE)
+            current_hour = now.hour
+            all_slots = [
+                s for s in all_slots
+                if datetime.strptime(s, "%I:%M %p").hour > current_hour
+            ]
+
+        # Get existing bookings
+        existing = await self.get_appointments_by_date(date_str)
+        slot_counts = Counter(appt.time_slot for appt in existing)
+
+        available = [s for s in all_slots if slot_counts.get(s, 0) < MAX_PER_SLOT]
+
+        open_time = datetime(2000, 1, 1, open_hour).strftime("%-I:%M %p")
+        close_time = datetime(2000, 1, 1, close_hour).strftime("%-I:%M %p")
+
+        return {
+            "date": date_str,
+            "day_name": d.strftime("%A"),
+            "business_hours": f"{open_time} - {close_time}",
+            "available_slots": available,
+            "total_slots": len(all_slots),
+            "booked_slots": len(all_slots) - len(available),
+        }
+
+    async def list_appointments(
+        self,
+        status: Optional[str] = None,
+        limit: int = 100
+    ) -> List[Appointment]:
+        """List appointments with optional status filter."""
+        query = self._collection()
+        if status:
+            query = query.where("status", "==", status)
+        query = query.order_by("date", direction=firestore.Query.DESCENDING).limit(limit)
+        return [Appointment.from_dict(doc.to_dict()) for doc in query.stream()]

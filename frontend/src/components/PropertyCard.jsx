@@ -179,9 +179,6 @@ const PropertyCard = ({ property, onToggleCompare, isSelected }) => {
                             <div className="font-bold text-blue-600 text-base whitespace-nowrap">
                                 {pricing?.display_price || 'Call for Price'}
                             </div>
-                            {pricing?.monthly_payment && (
-                                <div className="text-xs text-gray-400">{pricing.monthly_payment}/mo</div>
-                            )}
                         </div>
                     </div>
 

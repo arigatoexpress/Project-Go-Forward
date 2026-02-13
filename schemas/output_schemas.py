@@ -19,7 +19,7 @@ class ProductSearchResult(BaseModel):
     manufacturer: str = Field(description="Manufacturer or brand name")
     classification: str = Field(description="Product category or classification")
     specs: Dict[str, str] = Field(description="Key specifications as key-value pairs")
-    pricing: Dict[str, str] = Field(description="Pricing info with display_price and optional monthly_payment")
+    pricing: Dict[str, str] = Field(description="Pricing info with display_price")
     image_url: Optional[str] = Field(default=None, description="Primary image URL")
     gallery_images: List[str] = Field(default=[], description="List of additional image URLs")
     detail_url: Optional[str] = Field(default=None, description="Link to full detail page")
@@ -65,18 +65,6 @@ class ServiceRequest(BaseModel):
     issue_category: str = Field(description="Category: warranty, repair, maintenance, other")
     severity: str = Field(default="medium", description="Severity: low, medium, high, critical")
     photos_provided: bool = Field(default=False, description="Whether customer provided photos")
-
-
-class PaymentCalculation(BaseModel):
-    """Schema for structured payment/financing calculations."""
-    product_name: str = Field(description="Name of the product")
-    total_price: float = Field(description="Total price in USD")
-    down_payment: float = Field(description="Down payment amount")
-    loan_amount: float = Field(description="Financed amount")
-    interest_rate: float = Field(description="Annual interest rate percentage")
-    term_months: int = Field(description="Loan term in months")
-    monthly_payment: float = Field(description="Estimated monthly payment")
-    disclaimer: str = Field(default="Rates subject to credit approval", description="Legal disclaimer")
 
 
 class RoutingDecision(BaseModel):

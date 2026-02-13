@@ -1,0 +1,16 @@
+{
+  "hosting": {
+    "site": "tho-ai-agent",
+    "public": "firebase_public",
+    "ignore": ["firebase.json", "**/.*"],
+    "rewrites": [
+      {
+        "source": "**",
+        "run": {
+          "serviceId": "tho-agent",
+          "region": "us-central1"
+        }
+      }
+    ]
+  }
+}

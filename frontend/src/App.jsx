@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, lazy, Suspense } from 'react';
-import { Send, Home, Menu, X, Phone, MapPin, Loader2, User, Bot, FileText, Video, Lock, ShieldCheck } from 'lucide-react';
+import { Send, Home, Menu, X, Phone, MapPin, Loader2, User, Bot, FileText, Video, Lock, ShieldCheck, CalendarDays } from 'lucide-react';
 import SafeMarkdown from './components/SafeMarkdown';
 import SearchFilters from './components/SearchFilters';
 import QuickActions from './components/QuickActions';
@@ -13,6 +13,7 @@ const Analytics = lazy(() => import('./pages/Analytics'));
 const DocumentCenter = lazy(() => import('./pages/DocumentCenter'));
 const AdStudio = lazy(() => import('./pages/AdStudio'));
 const Contact = lazy(() => import('./pages/Contact'));
+const Appointments = lazy(() => import('./pages/Appointments'));
 
 const BUSINESS_NAME = "Texas Home Outlet";
 const BUSINESS_SHORT = "tho";
@@ -80,7 +81,7 @@ function App() {
   const [comparisonList, setComparisonList] = useState([]);
 
   // Single page state instead of multiple booleans
-  const [activePage, setActivePage] = useState('chat'); // 'chat' | 'documents' | 'adstudio' | 'contact' | 'analytics'
+  const [activePage, setActivePage] = useState('chat'); // 'chat' | 'documents' | 'adstudio' | 'contact' | 'appointments' | 'analytics'
 
   // Admin PIN gate
   const [adminAuthed, setAdminAuthed] = useState(() => sessionStorage.getItem('tho_admin') === 'true');
@@ -316,6 +317,16 @@ function App() {
     );
   }
 
+  if (activePage === 'appointments') {
+    return (
+      <div className="bg-gray-50 min-h-screen">
+        <Suspense fallback={<PageLoader />}>
+          <Appointments onBack={() => navigateTo('chat')} />
+        </Suspense>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col h-screen bg-gray-50 font-sans text-gray-900">
       {pinModal}
@@ -338,6 +349,9 @@ function App() {
                 <Video size={16} className="mr-1" /> Ad Studio
               </button>
               <button onClick={() => navigateTo('contact')} className={`hover:text-red-400 transition ${activePage === 'contact' ? 'text-red-400' : ''}`}>Contact</button>
+              <button onClick={() => navigateTo('appointments')} className={`flex items-center hover:text-red-400 transition ${activePage === 'appointments' ? 'text-red-400' : ''}`}>
+                <CalendarDays size={16} className="mr-1" /> Book Visit
+              </button>
             </nav>
 
             {/* Search Filters */}
@@ -381,9 +395,15 @@ function App() {
             </button>
             <button
               onClick={() => navigateTo('contact')}
-              className="flex items-center w-full py-2 hover:text-red-400 transition"
+              className="flex items-center w-full py-2 hover:text-red-400 transition border-b border-blue-800"
             >
               <Phone size={18} className="mr-3" /> Contact
+            </button>
+            <button
+              onClick={() => navigateTo('appointments')}
+              className="flex items-center w-full py-2 hover:text-red-400 transition"
+            >
+              <CalendarDays size={18} className="mr-3" /> Book Visit
             </button>
           </nav>
         )}
@@ -500,6 +520,7 @@ function App() {
           <button onClick={() => navigateTo('documents')} className="hover:text-blue-600 transition-colors">Documents</button>
           <button onClick={() => navigateTo('adstudio')} className="hover:text-blue-600 transition-colors">Ad Studio</button>
           <button onClick={() => navigateTo('contact')} className="hover:text-blue-600 transition-colors">Contact</button>
+          <button onClick={() => navigateTo('appointments')} className="hover:text-blue-600 transition-colors">Book Visit</button>
         </div>
       </footer>
     </div>

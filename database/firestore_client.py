@@ -13,7 +13,7 @@ class THODatabase:
     """Firestore database client for Texas Home Outlet"""
     
     def __init__(self, project_id: Optional[str] = None):
-        self.project_id = project_id or os.getenv("GCP_PROJECT_ID", "texas-home-outlet")
+        self.project_id = project_id or os.getenv("GCP_PROJECT_ID") or os.getenv("GOOGLE_CLOUD_PROJECT", "tho-ai-agent")
         self._db = None
     
     @property
@@ -258,6 +258,84 @@ class THODatabase:
         self.db.collection("service_requests").document(request_id).update(data)
         return True
     
+    # ============ DEALS (replaces fastcontractdocs.com) ============
+
+    def create_deal(self, data: Dict) -> str:
+        """Create new deal/application, returns deal ID"""
+        data["created_at"] = datetime.utcnow()
+        data["updated_at"] = datetime.utcnow()
+        data.setdefault("status", "pending")
+        deal_id = data.pop("id", None)
+        if deal_id:
+            doc_ref = self.db.collection("deals").document(deal_id)
+            doc_ref.set(data)
+            return deal_id
+        else:
+            doc_ref = self.db.collection("deals").document()
+            doc_ref.set(data)
+            return doc_ref.id
+
+    def get_deal(self, deal_id: str) -> Optional[Dict]:
+        """Get deal by ID"""
+        doc = self.db.collection("deals").document(deal_id).get()
+        if doc.exists:
+            data = doc.to_dict()
+            data["id"] = doc.id
+            return data
+        return None
+
+    def update_deal(self, deal_id: str, data: Dict) -> bool:
+        """Update deal record"""
+        data["updated_at"] = datetime.utcnow()
+        self.db.collection("deals").document(deal_id).update(data)
+        return True
+
+    def search_deals(
+        self,
+        status: Optional[str] = None,
+        salesrep: Optional[str] = None,
+        buyer_name: Optional[str] = None,
+        limit: int = 50
+    ) -> List[Dict]:
+        """Search deals by status, salesrep, or buyer name.
+        When text search is active, scans more records since Firestore has no LIKE operator."""
+        query = self.db.collection("deals")
+
+        if status:
+            query = query.where("status", "==", status)
+
+        # When doing text search, scan more records to find matches across the full dataset
+        needs_text_filter = bool(buyer_name or salesrep)
+        scan_limit = 3000 if needs_text_filter else limit * 3
+
+        results = []
+        for doc in query.order_by("updated_at", direction=firestore.Query.DESCENDING).limit(scan_limit).stream():
+            data = doc.to_dict()
+            data["id"] = doc.id
+
+            # Client-side filtering for name and salesrep (Firestore doesn't support LIKE)
+            if salesrep and salesrep.lower() not in (data.get("salesrep") or "").lower():
+                continue
+
+            if buyer_name:
+                full_name = f"{data.get('buyer_first_name', '')} {data.get('buyer_last_name', '')}".strip().lower()
+                if buyer_name.lower() not in full_name:
+                    continue
+
+            results.append(data)
+            if len(results) >= limit:
+                break
+
+        return results
+
+    def archive_deal(self, deal_id: str) -> bool:
+        """Archive a deal (soft delete — sets status to archived)"""
+        self.db.collection("deals").document(deal_id).update({
+            "status": "archived",
+            "updated_at": datetime.utcnow()
+        })
+        return True
+
     # ============ TAX PAYMENTS ============
     
     def get_tax_history(self, property_id: str) -> List[Dict]:

@@ -32,6 +32,7 @@ from root_agent import root_agent
 from structured_logging import logger as struct_logger
 from conversation_memory import ConversationMemory
 from lead_management import LeadManager, Lead
+from appointment_manager import AppointmentManager, Appointment
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -42,6 +43,7 @@ app = FastAPI(title=f"{business_name()} AI Agent")
 # Initialize services
 conversation_memory = ConversationMemory(project_id=project_id)
 lead_manager = LeadManager(project_id=project_id)
+appointment_manager = AppointmentManager(project_id=project_id)
 
 # Security headers middleware
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -61,6 +63,8 @@ IS_LOCAL = os.environ.get("K_SERVICE") is None  # K_SERVICE is set by Cloud Run
 ALLOWED_ORIGINS = [
     "https://tho-agent-691674245427.us-central1.run.app",
     "https://tho-agent-trgi34bxuq-uc.a.run.app",
+    "https://tho-ai-agent.web.app",
+    "https://tho-ai-agent.firebaseapp.com",
 ]
 if IS_LOCAL:
     ALLOWED_ORIGINS += ["http://localhost:8080", "http://localhost:5173"]
@@ -413,20 +417,186 @@ async def download_document(filename: str):
     return {"error": "File not found"}, 404
 
 
+# ─── Deals API (replaces fastcontractdocs.com) ───
+from database.firestore_client import get_database
+from database.models import Deal, DealStatus
+
+_deal_db = get_database()
+
+
+@app.get("/api/deals")
+async def list_deals(status: str = None, salesrep: str = None, q: str = None, limit: int = 50):
+    """List deals with optional filters."""
+    try:
+        deals = _deal_db.search_deals(
+            status=status,
+            salesrep=salesrep,
+            buyer_name=q,
+            limit=limit
+        )
+        return {"success": True, "deals": deals, "count": len(deals)}
+    except Exception as e:
+        struct_logger.error("Deal listing failed", error=str(e))
+        return {"success": False, "error": str(e)}
+
+
+@app.post("/api/deals")
+async def create_deal(request: Request):
+    """Create a new deal/application."""
+    try:
+        data = await request.json()
+        # Generate ID if not provided
+        deal = Deal(**data)
+        deal_data = deal.model_dump()
+        # Convert datetime to string for Firestore
+        for key in ["created_at", "updated_at"]:
+            if key in deal_data and deal_data[key]:
+                deal_data[key] = deal_data[key].isoformat() if hasattr(deal_data[key], 'isoformat') else str(deal_data[key])
+        deal_id = _deal_db.create_deal(deal_data)
+        return {"success": True, "deal_id": deal_id, "message": "Deal created successfully"}
+    except Exception as e:
+        struct_logger.error("Deal creation failed", error=str(e))
+        return {"success": False, "error": str(e)}
+
+
+@app.get("/api/deals/{deal_id}")
+async def get_deal(deal_id: str):
+    """Get deal details."""
+    try:
+        deal = _deal_db.get_deal(deal_id)
+        if not deal:
+            return {"success": False, "error": "Deal not found"}
+        return {"success": True, "deal": deal}
+    except Exception as e:
+        struct_logger.error("Deal fetch failed", error=str(e))
+        return {"success": False, "error": str(e)}
+
+
+@app.put("/api/deals/{deal_id}")
+async def update_deal(deal_id: str, request: Request):
+    """Update deal data."""
+    try:
+        data = await request.json()
+        # Don't allow overwriting id or timestamps
+        data.pop("id", None)
+        data.pop("created_at", None)
+        _deal_db.update_deal(deal_id, data)
+        return {"success": True, "message": "Deal updated successfully"}
+    except Exception as e:
+        struct_logger.error("Deal update failed", error=str(e))
+        return {"success": False, "error": str(e)}
+
+
+@app.put("/api/deals/{deal_id}/status")
+async def update_deal_status(deal_id: str, request: Request):
+    """Change deal status."""
+    try:
+        data = await request.json()
+        new_status = data.get("status")
+        valid_statuses = [s.value for s in DealStatus]
+        if new_status not in valid_statuses:
+            return {"success": False, "error": f"Invalid status. Must be one of: {valid_statuses}"}
+        _deal_db.update_deal(deal_id, {"status": new_status})
+        return {"success": True, "message": f"Deal status changed to {new_status}"}
+    except Exception as e:
+        struct_logger.error("Deal status update failed", error=str(e))
+        return {"success": False, "error": str(e)}
+
+
+@app.post("/api/deals/{deal_id}/generate-document")
+async def generate_document_from_deal(deal_id: str, request: Request):
+    """Generate a document pre-filled with deal data."""
+    try:
+        data = await request.json()
+        template_name = data.get("template_name")
+        if not template_name:
+            return {"success": False, "error": "template_name is required"}
+
+        # Fetch deal and convert to document data
+        deal_data = _deal_db.get_deal(deal_id)
+        if not deal_data:
+            return {"success": False, "error": "Deal not found"}
+
+        deal = Deal(**{k: v for k, v in deal_data.items() if k != "id" or k == "id"})
+        doc_data = deal.to_document_data()
+
+        # Allow overrides from request body
+        overrides = data.get("overrides", {})
+        doc_data.update(overrides)
+
+        result = engine_generate_document(
+            template_name=template_name,
+            data=doc_data,
+        )
+        if result["success"]:
+            return {
+                "success": True,
+                "download_url": f"/api/documents/download/{result['filename']}",
+                "filename": result["filename"],
+                "message": result["message"],
+            }
+        return {"success": False, "error": result["message"]}
+    except Exception as e:
+        struct_logger.error("Deal document generation failed", error=str(e))
+        return {"success": False, "error": str(e)}
+
+
+@app.post("/api/deals/{deal_id}/generate-packet")
+async def generate_packet_from_deal(deal_id: str, request: Request):
+    """Generate a closing packet pre-filled with deal data."""
+    try:
+        data = await request.json()
+        packet_name = data.get("packet_name", "standard_closing")
+
+        # Fetch deal and convert to document data
+        deal_data = _deal_db.get_deal(deal_id)
+        if not deal_data:
+            return {"success": False, "error": "Deal not found"}
+
+        deal = Deal(**{k: v for k, v in deal_data.items() if k != "id" or k == "id"})
+        doc_data = deal.to_document_data()
+
+        # Allow overrides
+        overrides = data.get("overrides", {})
+        doc_data.update(overrides)
+
+        result = engine_generate_packet(
+            packet_name=packet_name,
+            data=doc_data,
+        )
+        if result["success"]:
+            return {
+                "success": True,
+                "download_url": f"/api/documents/download/{result['filename']}",
+                "filename": result["filename"],
+                "message": result["message"],
+                "page_count": result.get("page_count", 0),
+                "documents_included": result.get("documents_included", []),
+            }
+        return {"success": False, "error": result["message"]}
+    except Exception as e:
+        struct_logger.error("Deal packet generation failed", error=str(e))
+        return {"success": False, "error": str(e)}
+
+
 # ─── Marketing API (Tex's Ad Studio) ───
 from tools.marketing_tools import (
     generate_content_script,
     get_trending_content_ideas,
     schedule_social_post,
-    analyze_content_performance
+    analyze_content_performance,
+    generate_ad_image,
+    get_inventory_for_ads,
+    GENERATED_ADS_DIR
 )
 
 @app.post("/api/marketing/generate-script")
 async def api_generate_script(request: Request):
-    """Generate a viral-ready video script for social media."""
+    """Generate viral-ready video scripts for social media with optional A/B variations."""
     try:
         data = await request.json()
         result = generate_content_script(
+            home_id=data.get("home_id"),
             home_name=data.get("home_name"),
             home_price=data.get("home_price"),
             home_specs=data.get("home_specs"),
@@ -435,7 +605,8 @@ async def api_generate_script(request: Request):
             custom_hook=data.get("custom_hook"),
             language=data.get("language", "en"),
             avatar=data.get("avatar", "tex_classic"),
-            custom_avatar_prompt=data.get("custom_avatar_prompt")
+            custom_avatar_prompt=data.get("custom_avatar_prompt"),
+            variations=data.get("variations", 1)
         )
         return result
     except Exception as e:
@@ -481,6 +652,52 @@ async def api_content_analytics():
         struct_logger.error("Analytics load failed", error=str(e))
         return {"error": str(e)}
 
+
+@app.post("/api/marketing/generate-image")
+async def api_generate_image(request: Request):
+    """Generate a marketing image using Google Imagen."""
+    try:
+        data = await request.json()
+        prompt = data.get("prompt", "").strip()
+        if not prompt:
+            return {"success": False, "error": "A prompt is required to generate an image."}
+
+        result = generate_ad_image(
+            prompt=prompt,
+            home_name=data.get("home_name"),
+            platform=data.get("platform", "tiktok"),
+            style=data.get("style", "photorealistic"),
+            aspect_ratio=data.get("aspect_ratio"),
+        )
+        return result
+    except Exception as e:
+        struct_logger.error("Image generation failed", error=str(e))
+        return {"success": False, "error": str(e)}
+
+
+@app.get("/api/marketing/inventory-context")
+async def api_inventory_context():
+    """Get inventory highlights for ad creation."""
+    try:
+        result = get_inventory_for_ads(limit=10)
+        return result
+    except Exception as e:
+        struct_logger.error("Inventory context failed", error=str(e))
+        return {"success": False, "error": str(e)}
+
+
+@app.get("/api/marketing/images/{filename}")
+async def download_ad_image(filename: str):
+    """Download a generated ad image."""
+    safe_filename = os.path.basename(filename)
+    if safe_filename != filename or ".." in filename:
+        return {"error": "Invalid filename"}, 400
+    file_path = os.path.join(GENERATED_ADS_DIR, safe_filename)
+    if os.path.exists(file_path):
+        return FileResponse(file_path, filename=safe_filename, media_type='image/png')
+    return {"error": "Image not found"}, 404
+
+
 # ─── Contact Form API ───
 
 @app.post("/api/contact")
@@ -514,6 +731,120 @@ async def submit_contact_form(request: Request):
         return {"success": True, "message": "Thank you! We'll be in touch shortly."}
     except Exception as e:
         struct_logger.error("Contact form failed", error=str(e))
+        return {"success": False, "error": str(e)}
+
+
+# ─── Appointment Scheduling API ───
+
+@app.get("/api/appointments/slots")
+async def get_available_slots(date: str):
+    """Get available appointment slots for a given date."""
+    try:
+        result = await appointment_manager.get_available_slots(date)
+        return result
+    except Exception as e:
+        struct_logger.error("Slots lookup failed", error=str(e))
+        return {"error": str(e)}
+
+
+@app.post("/api/appointments")
+async def create_appointment(request: Request):
+    """Book a new appointment."""
+    try:
+        data = await request.json()
+        name = data.get("name", "").strip()
+        phone = data.get("phone", "").strip()
+        appt_date = data.get("date", "").strip()
+        time_slot = data.get("time_slot", "").strip()
+
+        if not name or not phone or not appt_date or not time_slot:
+            return {"success": False, "error": "Name, phone, date, and time_slot are required."}
+
+        import re
+        phone_digits = re.sub(r'\D', '', phone)
+        if len(phone_digits) < 10:
+            return {"success": False, "error": "Please provide a valid 10-digit phone number."}
+
+        appt = Appointment(
+            appointment_id=f"appt_{int(time.time())}_{uuid.uuid4().hex[:6]}",
+            name=name,
+            phone=phone,
+            email=data.get("email", "").strip() or None,
+            date=appt_date,
+            time_slot=time_slot,
+            notes=data.get("notes", "").strip() or None,
+            source=data.get("source", "website"),
+        )
+
+        created = await appointment_manager.create_appointment(appt)
+
+        # Also create a lead for the CRM funnel
+        try:
+            lead = Lead(
+                lead_id=f"appt_lead_{int(time.time())}_{uuid.uuid4().hex[:4]}",
+                user_id="appointment",
+                session_id=f"appt_{int(time.time())}",
+                source="appointment",
+                name=name,
+                phone=phone,
+                email=appt.email,
+                appointment_requested=True,
+            )
+            await lead_manager.create_lead(lead)
+        except Exception as e:
+            struct_logger.warning("Appointment lead creation failed", error=str(e))
+
+        return {
+            "success": True,
+            "appointment": created.to_dict(),
+            "message": f"Appointment confirmed for {appt_date} at {time_slot}. We look forward to seeing you!"
+        }
+    except ValueError as e:
+        return {"success": False, "error": str(e)}
+    except Exception as e:
+        struct_logger.error("Appointment creation failed", error=str(e))
+        return {"success": False, "error": str(e)}
+
+
+@app.get("/api/appointments/{appointment_id}")
+async def get_appointment(appointment_id: str):
+    """Get appointment details by ID."""
+    try:
+        appt = await appointment_manager.get_appointment(appointment_id)
+        if not appt:
+            return {"error": "Appointment not found."}
+        return appt.to_dict()
+    except Exception as e:
+        struct_logger.error("Appointment lookup failed", error=str(e))
+        return {"error": str(e)}
+
+
+@app.post("/api/appointments/{appointment_id}/cancel")
+async def cancel_appointment(appointment_id: str, request: Request):
+    """Cancel an appointment."""
+    try:
+        data = await request.json()
+        phone = data.get("phone", "").strip()
+
+        appt = await appointment_manager.get_appointment(appointment_id)
+        if not appt:
+            return {"success": False, "error": "Appointment not found."}
+
+        # Simple verification: phone must match
+        if phone:
+            import re
+            appt_digits = re.sub(r'\D', '', appt.phone)
+            req_digits = re.sub(r'\D', '', phone)
+            if appt_digits != req_digits:
+                return {"success": False, "error": "Phone number does not match this appointment."}
+
+        cancelled = await appointment_manager.cancel_appointment(appointment_id)
+        return {
+            "success": True,
+            "message": f"Appointment on {cancelled.date} at {cancelled.time_slot} has been cancelled."
+        }
+    except Exception as e:
+        struct_logger.error("Appointment cancellation failed", error=str(e))
         return {"success": False, "error": str(e)}
 
 
