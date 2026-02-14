@@ -4,9 +4,11 @@ Marketing Tools for Texas Home Outlet AI Marketing Agent ("Tex").
 Enhanced with Google GenAI capabilities:
 - Imagen image generation for ad visuals
 - Gemini 2.5 Flash for smarter script generation
-- Real inventory integration for accurate ad content
+- Real inventory integration with actual property photos & Matterport tours
+- Two-pass quality scoring to eliminate AI slop
 - A/B script variations
 - Platform-specific optimization
+- Brand style guide enforcement
 """
 
 from google.adk.tools import ToolContext
@@ -20,6 +22,47 @@ import base64
 import logging
 
 logger = logging.getLogger(__name__)
+
+# ─── Brand Style Guide ───
+# These constants enforce THO's brand voice and prevent AI slop
+
+BANNED_WORDS = [
+    "nestled", "journey", "elevate", "reimagine", "unlock", "embark",
+    "curated", "bespoke", "artisanal", "synergy", "seamless", "leverage",
+    "revolutionize", "transformative", "paradigm", "holistic", "robust",
+    "cutting-edge", "state-of-the-art", "game-changer", "next-level",
+    "step into", "discover the magic", "dream home awaits", "luxurious living",
+    "turn-key", "world-class", "unparalleled", "breathtaking",
+]
+
+THO_BRAND_VOICE = """
+TEXAS HOME OUTLET BRAND VOICE — MANDATORY:
+
+TONE: Casual, warm, specific, Texas-friendly. Talk like a real person, not a marketing brochure.
+
+DO:
+- Use exact numbers: "$89,900", "1,680 sqft", "3 bed/2 bath"
+- Reference specific rooms and features: "granite countertops in the kitchen", "walk-in closet in the master"
+- Sound like you're telling a friend about a great deal
+- Use simple, punchy language
+- Be genuinely enthusiastic without being fake
+- Mention Texas-specific context (Houston, weather, land, etc.)
+
+DON'T:
+- Use corporate buzzwords or AI-sounding phrases
+- Use vague superlatives without proof ("stunning", "amazing" need context)
+- Write like a press release or real estate listing
+- Use any of these banned words/phrases: """ + ", ".join(BANNED_WORDS[:15]) + """
+- Start scripts with "Are you looking for..." or "Have you ever dreamed..."
+- Use emojis excessively (max 2-3 per script)
+
+EXAMPLES OF GOOD HOOKS:
+- "This 3 bed/2 bath just hit the lot at $89,900. Yeah, you read that right."
+- "Your apartment rent could literally buy you THIS house. Let me show you."
+- "I'm standing inside a $65,000 home and people keep thinking it's $200K."
+- "POV: You stopped paying rent and bought a whole house instead."
+- "Everyone told me manufactured homes were ugly. Then I walked into this one."
+"""
 
 
 # ─── Inventory Integration ───
@@ -72,9 +115,15 @@ def get_inventory_for_ads(limit: int = 5) -> dict:
     sorted_inv = priced + unpriced
     top_homes = sorted_inv[:limit]
 
+    # Load real property assets (photos + Matterport tours from website)
+    try:
+        from tools.asset_scraper import get_assets_for_home, get_matterport_url
+    except ImportError:
+        from .asset_scraper import get_assets_for_home, get_matterport_url
+
     homes_for_ads = []
     for h in top_homes:
-        homes_for_ads.append({
+        home_data = {
             "id": h.get("id", ""),
             "model_name": h.get("model_name", "Unknown"),
             "manufacturer": h.get("manufacturer", ""),
@@ -85,8 +134,24 @@ def get_inventory_for_ads(limit: int = 5) -> dict:
             "specs": h.get("specs", {}),
             "features": h.get("features", [])[:5],
             "image_url": h.get("image_url", ""),
-            "gallery_images": h.get("gallery_images", [])[:3]
-        })
+            "gallery_images": h.get("gallery_images", [])[:3],
+            # New: real property assets from website
+            "real_photos": [],
+            "floor_plan_url": None,
+            "matterport_id": None,
+            "matterport_url": None,
+        }
+
+        # Try to match this inventory home to scraped website assets
+        assets = get_assets_for_home(h.get("model_name", ""))
+        if assets:
+            home_data["real_photos"] = assets.get("images", [])
+            home_data["floor_plan_url"] = assets.get("floor_plan")
+            if assets.get("matterport_id"):
+                home_data["matterport_id"] = assets["matterport_id"]
+                home_data["matterport_url"] = get_matterport_url(assets["matterport_id"])
+
+        homes_for_ads.append(home_data)
 
     # Stats
     total = len(inventory)
@@ -302,6 +367,148 @@ PLATFORM_PROMPTS = {
 }
 
 
+def _score_script_quality(script_data: dict, home_name: str = None) -> dict:
+    """
+    Score a generated script for quality. Returns score breakdown and pass/fail.
+
+    Scoring criteria (1-10 each):
+    - hook_strength: Is the hook punchy and pattern-interrupting?
+    - specificity: Does it use real numbers, features, room names?
+    - authenticity: Does it sound human, not AI-generated?
+    - cta_strength: Is the CTA actionable and compelling?
+    - banned_word_check: Penalty for using banned words
+
+    Returns dict with scores, total, passed (bool), and issues list.
+    """
+    hook = (script_data.get("hook") or "").lower()
+    body = (script_data.get("body") or "").lower()
+    cta = (script_data.get("cta") or "").lower()
+    full_text = f"{hook} {body} {cta}"
+
+    scores = {}
+    issues = []
+
+    # 1. Hook strength (1-10)
+    hook_score = 5
+    if len(hook.split()) <= 10:
+        hook_score += 2  # Short hooks are better
+    if any(w in hook for w in ["$", "sqft", "bed", "bath", "%"]):
+        hook_score += 1  # Numbers in hook = good
+    if hook.startswith("are you") or hook.startswith("have you ever"):
+        hook_score -= 4  # Terrible generic opens
+        issues.append("Hook starts with generic question pattern")
+    if "pov:" in hook or "wait" in hook or "i'm standing" in hook:
+        hook_score += 1  # Trending format bonus
+    scores["hook_strength"] = min(10, max(1, hook_score))
+
+    # 2. Specificity (1-10)
+    spec_score = 3
+    import re as _re
+    numbers_found = _re.findall(r'\$[\d,]+|\d{3,}[\s]?sq|[\d]+\s?bed|[\d]+\s?bath|\d{3,}\s?sqft', full_text)
+    spec_score += min(4, len(numbers_found))  # Up to +4 for specific numbers
+    if home_name and home_name.lower() in full_text:
+        spec_score += 2  # References the actual home name
+    room_words = ["kitchen", "master", "bedroom", "bathroom", "living room", "porch", "closet", "garage"]
+    rooms_mentioned = sum(1 for r in room_words if r in full_text)
+    spec_score += min(2, rooms_mentioned)
+    scores["specificity"] = min(10, max(1, spec_score))
+
+    # 3. Authenticity (1-10) — penalize AI slop
+    auth_score = 8
+    banned_found = [w for w in BANNED_WORDS if w in full_text]
+    auth_score -= len(banned_found) * 2
+    if banned_found:
+        issues.append(f"Banned words found: {', '.join(banned_found[:5])}")
+    # Penalize overuse of exclamation marks
+    excl_count = full_text.count("!")
+    if excl_count > 4:
+        auth_score -= 1
+        issues.append("Too many exclamation marks (reads as fake enthusiasm)")
+    scores["authenticity"] = min(10, max(1, auth_score))
+
+    # 4. CTA strength (1-10)
+    cta_score = 5
+    action_words = ["call", "visit", "text", "dm", "comment", "save", "link", "bio", "tap", "click"]
+    if any(w in cta for w in action_words):
+        cta_score += 3
+    if "?" in cta:
+        cta_score += 1  # Questions drive engagement
+    if len(cta.split()) < 3:
+        cta_score -= 2  # Too short CTA
+        issues.append("CTA too short — needs clear action")
+    scores["cta_strength"] = min(10, max(1, cta_score))
+
+    # Total
+    total = sum(scores.values())
+    avg = total / len(scores)
+    passed = avg >= 6.0 and len(banned_found) == 0
+
+    return {
+        "scores": scores,
+        "average": round(avg, 1),
+        "total": total,
+        "max_possible": len(scores) * 10,
+        "passed": passed,
+        "issues": issues,
+        "banned_words_found": banned_found,
+    }
+
+
+def _refine_script_if_needed(client, model_name, script_data: dict, quality: dict, platform: str) -> dict:
+    """
+    Second pass: If quality score is too low, send script back for refinement.
+    Returns the refined script data or original if already good.
+    """
+    from google.genai import types
+
+    if quality["passed"]:
+        return script_data  # Already good
+
+    issues_str = "\n".join(f"- {issue}" for issue in quality["issues"])
+    banned_str = ", ".join(quality["banned_words_found"]) if quality["banned_words_found"] else "none"
+
+    refine_prompt = f"""You are a script editor for Texas Home Outlet. Review and IMPROVE this script.
+
+ORIGINAL SCRIPT:
+Hook: {script_data.get('hook', '')}
+Body: {script_data.get('body', '')}
+CTA: {script_data.get('cta', '')}
+
+QUALITY ISSUES FOUND:
+{issues_str}
+
+BANNED WORDS USED (MUST REMOVE): {banned_str}
+
+RULES FOR IMPROVEMENT:
+- Fix all quality issues listed above
+- Remove ALL banned words and replace with natural alternatives
+- Keep the same general structure and intent
+- Make it sound like a real person talking, not AI
+- Maintain specific numbers and home details
+- Keep the hook under 10 words
+
+Return ONLY the improved script as JSON:
+{{"hook": "...", "body": "...", "cta": "...", "hashtags": {json.dumps(script_data.get('hashtags', []))}, "duration_estimate": "{script_data.get('duration_estimate', '30s')}", "suggested_image_prompts": {json.dumps(script_data.get('suggested_image_prompts', []))}, "tone": "{script_data.get('tone', 'authentic')}"}}
+"""
+
+    try:
+        response = client.models.generate_content(
+            model=model_name,
+            contents=refine_prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                temperature=0.6,
+            )
+        )
+        refined = json.loads(response.text)
+        if isinstance(refined, list):
+            refined = refined[0] if refined else script_data
+        return refined
+    except Exception as e:
+        logger.warning(f"Script refinement failed, using original: {e}")
+        return script_data
+
+
 def generate_content_script(
     home_id: Optional[str] = None,
     home_name: Optional[str] = None,
@@ -362,6 +569,33 @@ def generate_content_script(
         "tex_custom": custom_avatar_prompt or "A personalized AI presenter."
     }.get(avatar, "Classic Tex")
 
+    # ─── Load real property assets for photo-backed scripts ───
+    try:
+        from tools.asset_scraper import get_assets_for_home, get_matterport_url
+    except ImportError:
+        from .asset_scraper import get_assets_for_home, get_matterport_url
+
+    real_photos = []
+    matterport_context = ""
+    photo_context = ""
+    assets = None
+
+    if home_name:
+        assets = get_assets_for_home(home_name)
+        if assets:
+            real_photos = assets.get("images", [])
+            if assets.get("matterport_id"):
+                matterport_context = f"\n3D TOUR AVAILABLE: https://my.matterport.com/show/?m={assets['matterport_id']}&play=1\nMention the 3D tour in the CTA — viewers can walk through this home from their phone!"
+            if real_photos:
+                photo_labels = [f"  Photo {i+1}: {url.split('/')[-1]}" for i, url in enumerate(real_photos[:6])]
+                photo_context = f"""
+REAL PROPERTY PHOTOS AVAILABLE ({len(real_photos)} photos):
+{chr(10).join(photo_labels)}
+
+Your [SHOT] descriptions should reference these ACTUAL photos. When you write [SHOT: kitchen],
+the viewer will see the REAL kitchen from these photos, not a stock image.
+"""
+
     # ─── Build inventory context ───
     inventory_context = ""
     if not home_name:
@@ -391,6 +625,8 @@ FEATURED HOME:
 - Name: {home_name}
 - Price: {home_price or 'Call for Price'}
 - Specs: {json.dumps(home_specs or {})}
+{photo_context}
+{matterport_context}
 
 Use these EXACT details in the script. Do not make up specifications.
 """
@@ -431,7 +667,15 @@ Return them as a JSON array of {variations} script objects.
     else:
         json_format = f'{{\n{script_obj_template}\n}}'
 
+    # ─── Build banned words list for prompt ───
+    banned_words_str = ", ".join(BANNED_WORDS)
+
     prompt = f"""You are Tex, the AI content creator for Texas Home Outlet — a manufactured home dealership in Houston, TX.
+
+{THO_BRAND_VOICE}
+
+ABSOLUTELY BANNED WORDS/PHRASES (never use ANY of these):
+{banned_words_str}
 
 PLATFORM GUIDELINES:
 {platform_guidance}
@@ -451,6 +695,8 @@ VIRAL CONTENT PRINCIPLES FOR MANUFACTURED HOMES:
 4. Use comparison framing: apartment vs. home ownership
 5. Create FOMO: "This home won't last at this price"
 6. End with engagement hooks: questions, polls, "comment if..."
+7. NEVER start with "Are you looking for..." or "Have you ever dreamed of..."
+8. EVERY script MUST include at least one specific number (price, sqft, beds/baths)
 
 Output as JSON format:
 {json_format}
@@ -458,6 +704,7 @@ Output as JSON format:
 
     try:
         # Try Gemini 2.5 Flash first, fall back to 2.0
+        # Temperature 0.7 for consistency; brand voice + prompt handle creativity
         model_name = "gemini-2.5-flash-preview-05-20"
         try:
             response = client.models.generate_content(
@@ -465,7 +712,7 @@ Output as JSON format:
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     response_mime_type="application/json",
-                    temperature=0.9,
+                    temperature=0.7,
                 )
             )
         except Exception:
@@ -481,18 +728,34 @@ Output as JSON format:
         data = json.loads(response.text)
         script_id = f"SCRIPT-{uuid.uuid4().hex[:6].upper()}"
 
+        # ─── Two-pass quality scoring & refinement ───
+        def _process_script(item):
+            """Score, refine if needed, and return processed script with quality data."""
+            quality = _score_script_quality(item, home_name)
+            if not quality["passed"]:
+                logger.info(f"Script quality {quality['average']}/10 — refining (issues: {quality['issues']})")
+                refined = _refine_script_if_needed(client, model_name, item, quality, platform)
+                # Re-score the refined version
+                quality = _score_script_quality(refined, home_name)
+                return refined, quality
+            return item, quality
+
         # Handle single vs multiple variations
         if variations > 1 and isinstance(data, list):
             scripts = []
+            quality_scores = []
             for i, item in enumerate(data[:variations]):
+                processed, quality = _process_script(item)
+                quality_scores.append(quality)
                 scripts.append({
                     "variation": i + 1,
-                    "hook": item.get("hook", ""),
-                    "body": item.get("body", ""),
-                    "cta": item.get("cta", ""),
-                    "duration_estimate": item.get("duration_estimate", "30s"),
-                    "tone": item.get("tone", ""),
-                    "suggested_image_prompts": item.get("suggested_image_prompts", []),
+                    "hook": processed.get("hook", ""),
+                    "body": processed.get("body", ""),
+                    "cta": processed.get("cta", ""),
+                    "duration_estimate": processed.get("duration_estimate", "30s"),
+                    "tone": processed.get("tone", ""),
+                    "suggested_image_prompts": processed.get("suggested_image_prompts", []),
+                    "quality_score": quality["average"],
                 })
             hashtags = data[0].get("hashtags", []) if data else []
 
@@ -506,10 +769,15 @@ Output as JSON format:
                 "model_used": model_name,
                 "variations": len(scripts),
                 "scripts": scripts,
-                "script": scripts[0] if scripts else None,  # Primary for backward compat
+                "script": scripts[0] if scripts else None,
                 "hashtags": hashtags,
                 "platform_specs": PLATFORM_SPECS.get(platform, {}),
                 "home_featured": home_name,
+                "real_photos": real_photos,
+                "matterport_url": get_matterport_url(assets["matterport_id"]) if (home_name and assets and assets.get("matterport_id")) else None,
+                "matterport_id": assets.get("matterport_id") if (home_name and assets) else None,
+                "quality_scores": [q["average"] for q in quality_scores],
+                "quality_details": quality_scores,
                 "created_at": datetime.now().isoformat(),
                 "status": "ready_for_production"
             }
@@ -517,6 +785,8 @@ Output as JSON format:
             # Single script (or array with one item)
             if isinstance(data, list):
                 data = data[0] if data else {}
+
+            processed, quality = _process_script(data)
 
             return {
                 "success": True,
@@ -528,16 +798,21 @@ Output as JSON format:
                 "model_used": model_name,
                 "variations": 1,
                 "script": {
-                    "hook": data.get("hook", ""),
-                    "body": data.get("body", ""),
-                    "cta": data.get("cta", ""),
-                    "duration_estimate": data.get("duration_estimate", "30s"),
-                    "tone": data.get("tone", ""),
-                    "suggested_image_prompts": data.get("suggested_image_prompts", []),
+                    "hook": processed.get("hook", ""),
+                    "body": processed.get("body", ""),
+                    "cta": processed.get("cta", ""),
+                    "duration_estimate": processed.get("duration_estimate", "30s"),
+                    "tone": processed.get("tone", ""),
+                    "suggested_image_prompts": processed.get("suggested_image_prompts", []),
+                    "quality_score": quality["average"],
                 },
-                "hashtags": data.get("hashtags", []),
+                "hashtags": processed.get("hashtags", data.get("hashtags", [])),
                 "platform_specs": PLATFORM_SPECS.get(platform, {}),
                 "home_featured": home_name,
+                "real_photos": real_photos,
+                "matterport_url": get_matterport_url(assets["matterport_id"]) if (home_name and assets and assets.get("matterport_id")) else None,
+                "matterport_id": assets.get("matterport_id") if (home_name and assets) else None,
+                "quality": quality,
                 "created_at": datetime.now().isoformat(),
                 "status": "ready_for_production"
             }

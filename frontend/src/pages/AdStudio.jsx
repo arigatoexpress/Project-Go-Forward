@@ -5,7 +5,8 @@ import {
     Play, Clock, Hash, Zap, Home, MessageCircle,
     Flame, DollarSign, AlertTriangle, Clapperboard,
     BookOpen, Users, RefreshCw, Send, Eye, Image,
-    Download, Layers, Search, ChevronRight
+    Download, Layers, Search, ChevronRight, Camera,
+    Box, Star, ExternalLink, ChevronLeft
 } from 'lucide-react';
 import './AdStudio.css';
 
@@ -155,6 +156,14 @@ export default function AdStudio({ onBack }) {
     const [showInventoryPicker, setShowInventoryPicker] = useState(false);
     const [selectedHome, setSelectedHome] = useState(null);
 
+    // Real property photos & Matterport
+    const [realPhotos, setRealPhotos] = useState([]);
+    const [matterportUrl, setMatterportUrl] = useState(null);
+    const [matterportId, setMatterportId] = useState(null);
+    const [showMatterport, setShowMatterport] = useState(false);
+    const [selectedPhotoIdx, setSelectedPhotoIdx] = useState(0);
+    const [imageMode, setImageMode] = useState('real'); // 'real' or 'ai'
+
     // Image generation
     const [imagePrompt, setImagePrompt] = useState('');
     const [imageStyle, setImageStyle] = useState('photorealistic');
@@ -208,6 +217,15 @@ export default function AdStudio({ onBack }) {
             } else {
                 setScript(result);
                 setShowPreview(true);
+                // Capture real photos and Matterport from response
+                if (result.real_photos?.length > 0) {
+                    setRealPhotos(result.real_photos);
+                    setSelectedPhotoIdx(0);
+                }
+                if (result.matterport_url) {
+                    setMatterportUrl(result.matterport_url);
+                    setMatterportId(result.matterport_id);
+                }
                 // Pre-fill image prompt from first suggestion
                 const currentScr = result.scripts?.[0] || result.script;
                 if (currentScr?.suggested_image_prompts?.length > 0) {
@@ -294,6 +312,11 @@ export default function AdStudio({ onBack }) {
         setHomePrice(home.display_price);
         setHomeSpecs(home.specs);
         setShowInventoryPicker(false);
+        // Set real photos and Matterport from inventory data
+        setRealPhotos(home.real_photos || []);
+        setMatterportUrl(home.matterport_url || null);
+        setMatterportId(home.matterport_id || null);
+        setSelectedPhotoIdx(0);
     };
 
     const handleGenerateImage = async () => {
@@ -356,8 +379,35 @@ export default function AdStudio({ onBack }) {
                 <div className="tho-preview-phone">
                     <div className="tho-phone-screen">
                         <div className="tho-phone-content">
-                            {/* Generated image background */}
-                            {generatedImages.length > 0 && (
+                            {/* Image mode toggle */}
+                            {realPhotos.length > 0 && (
+                                <div className="tho-image-mode-toggle">
+                                    <button
+                                        className={`tho-mode-btn ${imageMode === 'real' ? 'active' : ''}`}
+                                        onClick={() => setImageMode('real')}
+                                    >
+                                        <Camera size={12} /> Real Photo
+                                    </button>
+                                    <button
+                                        className={`tho-mode-btn ${imageMode === 'ai' ? 'active' : ''}`}
+                                        onClick={() => setImageMode('ai')}
+                                    >
+                                        <Sparkles size={12} /> AI Image
+                                    </button>
+                                </div>
+                            )}
+
+                            {/* Background image — real photo or AI generated */}
+                            {imageMode === 'real' && realPhotos.length > 0 ? (
+                                <div className="tho-preview-bg-image" style={{
+                                    backgroundImage: `url(${realPhotos[selectedPhotoIdx] || realPhotos[0]})`,
+                                    backgroundSize: 'cover',
+                                    backgroundPosition: 'center',
+                                    position: 'absolute',
+                                    inset: 0,
+                                    opacity: 0.4
+                                }} />
+                            ) : generatedImages.length > 0 && (
                                 <div className="tho-preview-bg-image" style={{
                                     backgroundImage: `url(data:image/png;base64,${generatedImages[0].image_base64})`,
                                     backgroundSize: 'cover',
@@ -366,6 +416,29 @@ export default function AdStudio({ onBack }) {
                                     inset: 0,
                                     opacity: 0.3
                                 }} />
+                            )}
+
+                            {/* Real photo navigation in preview */}
+                            {imageMode === 'real' && realPhotos.length > 1 && (
+                                <div className="tho-preview-photo-nav">
+                                    <button
+                                        className="tho-photo-nav-btn"
+                                        onClick={() => setSelectedPhotoIdx(Math.max(0, selectedPhotoIdx - 1))}
+                                        disabled={selectedPhotoIdx === 0}
+                                    >
+                                        <ChevronLeft size={16} />
+                                    </button>
+                                    <span className="tho-photo-counter">
+                                        {selectedPhotoIdx + 1} / {realPhotos.length}
+                                    </span>
+                                    <button
+                                        className="tho-photo-nav-btn"
+                                        onClick={() => setSelectedPhotoIdx(Math.min(realPhotos.length - 1, selectedPhotoIdx + 1))}
+                                        disabled={selectedPhotoIdx === realPhotos.length - 1}
+                                    >
+                                        <ChevronRight size={16} />
+                                    </button>
+                                </div>
                             )}
                             {/* Avatar Visualization */}
                             <div className="tho-preview-avatar-overlay">
@@ -483,6 +556,66 @@ export default function AdStudio({ onBack }) {
                         </div>
                     )}
 
+                    {/* Quality Score Display */}
+                    {script?.quality && (
+                        <div className="tho-quality-panel">
+                            <h4><Star size={16} /> Script Quality Score</h4>
+                            <div className="tho-quality-overall">
+                                <span className={`tho-quality-number ${script.quality.average >= 7 ? 'good' : script.quality.average >= 5 ? 'fair' : 'poor'}`}>
+                                    {script.quality.average}/10
+                                </span>
+                                <span className="tho-quality-status">
+                                    {script.quality.passed ? '✅ Passed' : '⚠️ Refined'}
+                                </span>
+                            </div>
+                            <div className="tho-quality-breakdown">
+                                {Object.entries(script.quality.scores || {}).map(([key, val]) => (
+                                    <div key={key} className="tho-quality-row">
+                                        <span className="tho-quality-label">{key.replace('_', ' ')}</span>
+                                        <div className="tho-quality-bar-bg">
+                                            <div
+                                                className={`tho-quality-bar-fill ${val >= 7 ? 'good' : val >= 5 ? 'fair' : 'poor'}`}
+                                                style={{ width: `${val * 10}%` }}
+                                            />
+                                        </div>
+                                        <span className="tho-quality-val">{val}</span>
+                                    </div>
+                                ))}
+                            </div>
+                            {script.quality.issues?.length > 0 && (
+                                <div className="tho-quality-issues">
+                                    {script.quality.issues.map((issue, i) => (
+                                        <span key={i} className="tho-quality-issue">⚠ {issue}</span>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {/* Matterport CTA */}
+                    {matterportUrl && (
+                        <div className="tho-ai-feedback-box mt-4">
+                            <h4><Box size={16} /> 3D Tour Available</h4>
+                            <p className="text-xs text-gray-400 mb-2">This home has a Matterport 3D tour. Include the link in your CTA!</p>
+                            <div className="tho-matterport-link-row">
+                                <input
+                                    type="text"
+                                    className="tho-input"
+                                    value={matterportUrl}
+                                    readOnly
+                                    style={{ fontSize: '0.7rem' }}
+                                />
+                                <button
+                                    className="tho-btn tho-btn-secondary"
+                                    onClick={() => { navigator.clipboard.writeText(matterportUrl); }}
+                                    title="Copy tour link"
+                                >
+                                    <Copy size={12} />
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
                     {/* Prompt Improvement */}
                     <div className="tho-ai-feedback-box mt-4">
                         <h4>💡 Tweak Script</h4>
@@ -540,15 +673,31 @@ export default function AdStudio({ onBack }) {
                             className={`tho-inventory-item ${selectedHome?.id === home.id ? 'selected' : ''}`}
                             onClick={() => handleSelectHome(home)}
                         >
-                            {home.image_url && (
+                            {(home.real_photos?.length > 0 ? (
+                                <img src={home.real_photos[0]} alt={home.model_name} className="tho-inv-thumb" />
+                            ) : home.image_url ? (
                                 <img src={home.image_url} alt={home.model_name} className="tho-inv-thumb" />
-                            )}
+                            ) : (
+                                <div className="tho-inv-thumb tho-inv-thumb-placeholder"><Home size={20} /></div>
+                            ))}
                             <div className="tho-inv-details">
                                 <span className="tho-inv-name">{home.model_name}</span>
                                 <span className="tho-inv-mfr">{home.manufacturer}</span>
                                 <span className="tho-inv-specs">
                                     {home.specs?.beds}BR / {home.specs?.baths}BA • {home.specs?.sq_ft} sqft
                                 </span>
+                                <div className="tho-inv-badges">
+                                    {home.real_photos?.length > 0 && (
+                                        <span className="tho-inv-badge tho-badge-photos">
+                                            <Camera size={10} /> {home.real_photos.length} Photos
+                                        </span>
+                                    )}
+                                    {home.matterport_id && (
+                                        <span className="tho-inv-badge tho-badge-3d">
+                                            <Box size={10} /> 3D Tour
+                                        </span>
+                                    )}
+                                </div>
                             </div>
                             <div className="tho-inv-price">
                                 <span className="tho-inv-price-val">{home.display_price}</span>
@@ -672,25 +821,84 @@ export default function AdStudio({ onBack }) {
                     <h3 className="tho-card-title">Feature a Home <span className="tho-optional">(Optional)</span></h3>
 
                     {selectedHome && (
-                        <div className="tho-selected-home">
-                            {selectedHome.image_url && (
-                                <img src={selectedHome.image_url} alt={selectedHome.model_name} className="tho-selected-thumb" />
-                            )}
-                            <div className="tho-selected-info">
-                                <span className="tho-selected-name">{selectedHome.model_name}</span>
-                                <span className="tho-selected-price">{selectedHome.display_price}</span>
-                                <span className="tho-selected-specs">
-                                    {selectedHome.specs?.beds}BR / {selectedHome.specs?.baths}BA • {selectedHome.specs?.sq_ft} sqft
-                                </span>
+                        <div className="tho-selected-home-section">
+                            <div className="tho-selected-home">
+                                {realPhotos.length > 0 ? (
+                                    <img src={realPhotos[0]} alt={selectedHome.model_name} className="tho-selected-thumb" />
+                                ) : selectedHome.image_url ? (
+                                    <img src={selectedHome.image_url} alt={selectedHome.model_name} className="tho-selected-thumb" />
+                                ) : null}
+                                <div className="tho-selected-info">
+                                    <span className="tho-selected-name">{selectedHome.model_name}</span>
+                                    <span className="tho-selected-price">{selectedHome.display_price}</span>
+                                    <span className="tho-selected-specs">
+                                        {selectedHome.specs?.beds}BR / {selectedHome.specs?.baths}BA • {selectedHome.specs?.sq_ft} sqft
+                                    </span>
+                                </div>
+                                <button className="tho-clear-home" onClick={() => {
+                                    setSelectedHome(null);
+                                    setHomeName('');
+                                    setHomePrice('');
+                                    setHomeSpecs(null);
+                                    setRealPhotos([]);
+                                    setMatterportUrl(null);
+                                    setMatterportId(null);
+                                }}>
+                                    <X size={14} />
+                                </button>
                             </div>
-                            <button className="tho-clear-home" onClick={() => {
-                                setSelectedHome(null);
-                                setHomeName('');
-                                setHomePrice('');
-                                setHomeSpecs(null);
-                            }}>
-                                <X size={14} />
-                            </button>
+
+                            {/* Real photo gallery strip */}
+                            {realPhotos.length > 1 && (
+                                <div className="tho-photo-strip">
+                                    <span className="tho-photo-strip-label">
+                                        <Camera size={12} /> {realPhotos.length} real photos available
+                                    </span>
+                                    <div className="tho-photo-strip-scroll">
+                                        {realPhotos.map((url, i) => (
+                                            <img
+                                                key={i}
+                                                src={url}
+                                                alt={`Photo ${i + 1}`}
+                                                className={`tho-photo-strip-img ${selectedPhotoIdx === i ? 'active' : ''}`}
+                                                onClick={() => setSelectedPhotoIdx(i)}
+                                            />
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Matterport 3D tour button */}
+                            {matterportUrl && (
+                                <button
+                                    className="tho-matterport-btn"
+                                    onClick={() => setShowMatterport(!showMatterport)}
+                                >
+                                    <Box size={14} />
+                                    {showMatterport ? 'Hide 3D Tour' : 'Preview 3D Tour'}
+                                    <ExternalLink size={12} />
+                                </button>
+                            )}
+
+                            {/* Matterport embed */}
+                            {showMatterport && matterportUrl && (
+                                <div className="tho-matterport-embed">
+                                    <iframe
+                                        src={matterportUrl}
+                                        title="Matterport 3D Tour"
+                                        className="tho-matterport-iframe"
+                                        allowFullScreen
+                                    />
+                                    <a
+                                        href={matterportUrl}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="tho-matterport-link"
+                                    >
+                                        Open full 3D tour <ExternalLink size={12} />
+                                    </a>
+                                </div>
+                            )}
                         </div>
                     )}
 
@@ -778,12 +986,31 @@ export default function AdStudio({ onBack }) {
                     <div className="tho-phone-screen">
                         {currentScript && !script?.error ? (
                             <div className="tho-script-preview">
-                                {/* Model badge */}
-                                {script?.model_used && (
-                                    <div className="tho-model-badge">
-                                        <Sparkles size={10} /> {script.model_used.includes('2.5') ? 'Gemini 2.5 Flash' : 'Gemini 2.0 Flash'}
-                                    </div>
+                                {/* Real photo background in phone preview */}
+                                {realPhotos.length > 0 && (
+                                    <div className="tho-preview-real-bg" style={{
+                                        backgroundImage: `url(${realPhotos[selectedPhotoIdx] || realPhotos[0]})`,
+                                        backgroundSize: 'cover',
+                                        backgroundPosition: 'center',
+                                        position: 'absolute',
+                                        inset: 0,
+                                        opacity: 0.15,
+                                        borderRadius: 'inherit',
+                                    }} />
                                 )}
+                                {/* Model + quality badges */}
+                                <div className="tho-preview-badges">
+                                    {script?.model_used && (
+                                        <div className="tho-model-badge">
+                                            <Sparkles size={10} /> {script.model_used.includes('2.5') ? 'Gemini 2.5 Flash' : 'Gemini 2.0 Flash'}
+                                        </div>
+                                    )}
+                                    {(currentScript?.quality_score || script?.quality?.average) && (
+                                        <div className={`tho-quality-badge ${(currentScript?.quality_score || script?.quality?.average) >= 7 ? 'good' : 'fair'}`}>
+                                            <Star size={10} /> {currentScript?.quality_score || script?.quality?.average}/10
+                                        </div>
+                                    )}
+                                </div>
 
                                 {/* Variation tabs */}
                                 {script?.scripts?.length > 1 && (
