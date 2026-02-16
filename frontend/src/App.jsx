@@ -9,6 +9,7 @@ import { v4 as uuidv4 } from 'uuid';
 const API_URL = '/run'; // Relative path for single-container deployment
 
 // Lazy-load heavy page components for code-splitting
+const InventoryBrowse = lazy(() => import('./pages/InventoryBrowse'));
 const Analytics = lazy(() => import('./pages/Analytics'));
 const DocumentCenter = lazy(() => import('./pages/DocumentCenter'));
 const AdStudio = lazy(() => import('./pages/AdStudio'));
@@ -81,7 +82,7 @@ function App() {
   const [comparisonList, setComparisonList] = useState([]);
 
   // Single page state instead of multiple booleans
-  const [activePage, setActivePage] = useState('chat'); // 'chat' | 'documents' | 'adstudio' | 'contact' | 'appointments' | 'analytics'
+  const [activePage, setActivePage] = useState('inventory'); // 'inventory' | 'chat' | 'documents' | 'adstudio' | 'contact' | 'appointments' | 'analytics'
 
   // Admin PIN gate
   const [adminAuthed, setAdminAuthed] = useState(() => sessionStorage.getItem('tho_admin') === 'true');
@@ -327,6 +328,93 @@ function App() {
     );
   }
 
+  if (activePage === 'inventory') {
+    return (
+      <div className="bg-gray-50 min-h-screen">
+        {pinModal}
+        {/* Sticky Header */}
+        <header className="bg-blue-900 text-white shadow-md z-30 sticky top-0">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+            <div className="flex items-center space-x-3 cursor-pointer" onClick={() => navigateTo('inventory')} role="button" aria-label="Go to home page">
+              <Home className="h-8 w-8 text-red-500" />
+              <h1 className="text-xl font-bold tracking-tight">{BUSINESS_NAME}</h1>
+            </div>
+            <div className="flex items-center gap-4">
+              <nav className="hidden md:flex space-x-6 text-sm font-medium" aria-label="Main navigation">
+                <button onClick={() => navigateTo('inventory')} className="text-red-400">Inventory</button>
+                <button onClick={() => navigateTo('documents')} className="flex items-center hover:text-red-400 transition">
+                  <FileText size={16} className="mr-1" /> Documents
+                </button>
+                <button onClick={() => navigateTo('adstudio')} className="flex items-center hover:text-red-400 transition">
+                  <Video size={16} className="mr-1" /> Ad Studio
+                </button>
+                <button onClick={() => navigateTo('contact')} className="hover:text-red-400 transition">Contact</button>
+                <button onClick={() => navigateTo('appointments')} className="flex items-center hover:text-red-400 transition">
+                  <CalendarDays size={16} className="mr-1" /> Book Visit
+                </button>
+              </nav>
+              <button
+                className="md:hidden p-2 hover:bg-white/10 rounded-lg transition"
+                onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+                aria-label={isMobileMenuOpen ? 'Close menu' : 'Open menu'}
+              >
+                {isMobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
+              </button>
+            </div>
+          </div>
+          {isMobileMenuOpen && (
+            <nav className="md:hidden bg-blue-900 border-t border-blue-800 py-4 px-4 space-y-4" aria-label="Mobile navigation">
+              <button onClick={() => navigateTo('inventory')} className="flex items-center w-full py-2 text-red-400 border-b border-blue-800"><Home size={18} className="mr-3" /> Inventory</button>
+              <button onClick={() => navigateTo('chat')} className="flex items-center w-full py-2 hover:text-red-400 transition border-b border-blue-800"><Send size={18} className="mr-3" /> Chat with Tex</button>
+              <button onClick={() => navigateTo('documents')} className="flex items-center w-full py-2 hover:text-red-400 transition border-b border-blue-800"><FileText size={18} className="mr-3" /> Documents</button>
+              <button onClick={() => navigateTo('adstudio')} className="flex items-center w-full py-2 hover:text-red-400 transition border-b border-blue-800"><Video size={18} className="mr-3" /> Ad Studio</button>
+              <button onClick={() => navigateTo('contact')} className="flex items-center w-full py-2 hover:text-red-400 transition border-b border-blue-800"><Phone size={18} className="mr-3" /> Contact</button>
+              <button onClick={() => navigateTo('appointments')} className="flex items-center w-full py-2 hover:text-red-400 transition"><CalendarDays size={18} className="mr-3" /> Book Visit</button>
+            </nav>
+          )}
+        </header>
+
+        <Suspense fallback={<PageLoader />}>
+          <InventoryBrowse
+            onAskTex={(message) => {
+              // Switch to chat and pre-fill + send the message
+              navigateTo('chat');
+              setMessages(prev => [...prev, { role: 'user', text: message }]);
+              handleQuickAction(message);
+            }}
+            onBack={() => navigateTo('chat')}
+          />
+        </Suspense>
+
+        {/* Floating Chat Bubble */}
+        <button
+          onClick={() => navigateTo('chat')}
+          className="fixed bottom-6 right-6 z-50 bg-blue-600 text-white p-4 rounded-full shadow-xl hover:bg-blue-700 hover:scale-110 transition-all duration-200 group"
+          aria-label="Chat with Tex"
+          title="Chat with Tex"
+        >
+          <Send size={22} />
+          <span className="absolute -top-2 -left-2 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full shadow group-hover:scale-110 transition">
+            Tex
+          </span>
+        </button>
+
+        {/* Footer */}
+        <footer className="bg-white border-t border-gray-200 py-4 text-center text-xs text-gray-500 hidden md:block">
+          <div className="flex justify-center space-x-6">
+            <span className="flex items-center"><MapPin size={12} className="mr-1" /> {BUSINESS_ADDRESS} East, {BUSINESS_CITY}</span>
+            <span className="flex items-center"><Phone size={12} className="mr-1" /> {BUSINESS_PHONE}</span>
+            <span>Mon-Fri 9-6, Sat 9-5</span>
+            <button onClick={handleAdminAccess} className="flex items-center hover:text-blue-600 transition-colors">
+              {adminAuthed ? <ShieldCheck size={12} className="mr-1" /> : <Lock size={12} className="mr-1" />}
+              Admin
+            </button>
+          </div>
+        </footer>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col h-screen bg-gray-50 font-sans text-gray-900">
       {pinModal}
@@ -334,14 +422,15 @@ function App() {
       {/* Header */}
       <header className="bg-blue-900 text-white shadow-md z-10">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <div className="flex items-center space-x-3 cursor-pointer" onClick={() => navigateTo('chat')} role="button" aria-label="Go to home page">
+          <div className="flex items-center space-x-3 cursor-pointer" onClick={() => navigateTo('inventory')} role="button" aria-label="Go to home page">
             <Home className="h-8 w-8 text-red-500" />
             <h1 className="text-xl font-bold tracking-tight">{BUSINESS_NAME}</h1>
           </div>
 
           <div className="flex items-center gap-4">
             <nav className="hidden md:flex space-x-6 text-sm font-medium" aria-label="Main navigation">
-              <button onClick={() => navigateTo('chat')} className={`hover:text-red-400 transition ${activePage === 'chat' ? 'text-red-400' : ''}`}>Inventory</button>
+              <button onClick={() => navigateTo('inventory')} className="hover:text-red-400 transition">Inventory</button>
+              <button onClick={() => navigateTo('chat')} className={`hover:text-red-400 transition ${activePage === 'chat' ? 'text-red-400' : ''}`}>Chat</button>
               <button onClick={() => navigateTo('documents')} className={`flex items-center hover:text-red-400 transition ${activePage === 'documents' ? 'text-red-400' : ''}`}>
                 <FileText size={16} className="mr-1" /> Documents
               </button>
@@ -375,34 +464,22 @@ function App() {
         {/* Mobile Menu Overlay */}
         {isMobileMenuOpen && (
           <nav className="md:hidden bg-blue-900 border-t border-blue-800 py-4 px-4 space-y-4 animate-in slide-in-from-top duration-200" aria-label="Mobile navigation">
-            <button
-              onClick={() => navigateTo('chat')}
-              className="flex items-center w-full py-2 hover:text-red-400 transition border-b border-blue-800"
-            >
-              <Home size={18} className="mr-3" /> Inventory
+            <button onClick={() => navigateTo('inventory')} className="flex items-center w-full py-2 hover:text-red-400 transition border-b border-blue-800">
+              <Home size={18} className="mr-3" /> Browse Inventory
             </button>
-            <button
-              onClick={() => navigateTo('documents')}
-              className="flex items-center w-full py-2 hover:text-red-400 transition border-b border-blue-800"
-            >
+            <button onClick={() => navigateTo('chat')} className="flex items-center w-full py-2 text-red-400 border-b border-blue-800">
+              <Send size={18} className="mr-3" /> Chat with Tex
+            </button>
+            <button onClick={() => navigateTo('documents')} className="flex items-center w-full py-2 hover:text-red-400 transition border-b border-blue-800">
               <FileText size={18} className="mr-3" /> Documents
             </button>
-            <button
-              onClick={() => navigateTo('adstudio')}
-              className="flex items-center w-full py-2 hover:text-red-400 transition border-b border-blue-800"
-            >
+            <button onClick={() => navigateTo('adstudio')} className="flex items-center w-full py-2 hover:text-red-400 transition border-b border-blue-800">
               <Video size={18} className="mr-3" /> Ad Studio
             </button>
-            <button
-              onClick={() => navigateTo('contact')}
-              className="flex items-center w-full py-2 hover:text-red-400 transition border-b border-blue-800"
-            >
+            <button onClick={() => navigateTo('contact')} className="flex items-center w-full py-2 hover:text-red-400 transition border-b border-blue-800">
               <Phone size={18} className="mr-3" /> Contact
             </button>
-            <button
-              onClick={() => navigateTo('appointments')}
-              className="flex items-center w-full py-2 hover:text-red-400 transition"
-            >
+            <button onClick={() => navigateTo('appointments')} className="flex items-center w-full py-2 hover:text-red-400 transition">
               <CalendarDays size={18} className="mr-3" /> Book Visit
             </button>
           </nav>
