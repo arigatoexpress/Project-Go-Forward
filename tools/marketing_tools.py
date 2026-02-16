@@ -137,6 +137,7 @@ def get_inventory_for_ads(limit: int = 5) -> dict:
             "gallery_images": h.get("gallery_images", [])[:3],
             # New: real property assets from website
             "real_photos": [],
+            "image_categories": {},
             "floor_plan_url": None,
             "matterport_id": None,
             "matterport_url": None,
@@ -146,6 +147,7 @@ def get_inventory_for_ads(limit: int = 5) -> dict:
         assets = get_assets_for_home(h.get("model_name", ""))
         if assets:
             home_data["real_photos"] = assets.get("images", [])
+            home_data["image_categories"] = assets.get("image_categories", {})
             home_data["floor_plan_url"] = assets.get("floor_plan")
             if assets.get("matterport_id"):
                 home_data["matterport_id"] = assets["matterport_id"]
@@ -774,6 +776,7 @@ Output as JSON format:
                 "platform_specs": PLATFORM_SPECS.get(platform, {}),
                 "home_featured": home_name,
                 "real_photos": real_photos,
+                "image_categories": assets.get("image_categories", {}) if (home_name and assets) else {},
                 "matterport_url": get_matterport_url(assets["matterport_id"]) if (home_name and assets and assets.get("matterport_id")) else None,
                 "matterport_id": assets.get("matterport_id") if (home_name and assets) else None,
                 "quality_scores": [q["average"] for q in quality_scores],
@@ -810,6 +813,7 @@ Output as JSON format:
                 "platform_specs": PLATFORM_SPECS.get(platform, {}),
                 "home_featured": home_name,
                 "real_photos": real_photos,
+                "image_categories": assets.get("image_categories", {}) if (home_name and assets) else {},
                 "matterport_url": get_matterport_url(assets["matterport_id"]) if (home_name and assets and assets.get("matterport_id")) else None,
                 "matterport_id": assets.get("matterport_id") if (home_name and assets) else None,
                 "quality": quality,

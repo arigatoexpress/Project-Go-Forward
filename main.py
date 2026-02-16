@@ -591,6 +591,7 @@ from tools.marketing_tools import (
     get_inventory_for_ads,
     GENERATED_ADS_DIR
 )
+from tools.asset_scraper import get_all_assets, PROPERTY_ASSETS, get_matterport_url
 
 @app.post("/api/marketing/generate-script")
 async def api_generate_script(request: Request):
@@ -679,9 +680,49 @@ async def api_generate_image(request: Request):
 
 @app.get("/api/marketing/inventory-context")
 async def api_inventory_context():
-    """Get inventory highlights for ad creation."""
+    """Get inventory highlights for ad creation — combines Firestore inventory + website assets."""
     try:
-        result = get_inventory_for_ads(limit=10)
+        # Get Firestore inventory (FCD-imported homes)
+        result = get_inventory_for_ads(limit=30)
+        firestore_homes = result.get("homes", [])
+        firestore_names = {h["model_name"].lower() for h in firestore_homes}
+
+        # Get website homes from asset catalog (THO lot homes)
+        website_homes = []
+        for slug, asset in PROPERTY_ASSETS.items():
+            # Skip if already matched from Firestore
+            if asset["name"].lower() in firestore_names:
+                continue
+            home_data = {
+                "id": slug,
+                "model_name": asset["name"],
+                "manufacturer": asset.get("manufacturer", "New Vision Manufacturing"),
+                "classification": "Manufactured Home",
+                "status": "Available" if asset.get("is_new") else "Pre-Owned",
+                "display_price": "Call for Price",
+                "price_value": 0,
+                "specs": {
+                    "beds": asset.get("beds"),
+                    "baths": asset.get("baths"),
+                    "sq_ft": asset.get("sqft"),
+                    "dimensions": asset.get("dims"),
+                },
+                "features": [],
+                "image_url": asset.get("floor_plan", ""),
+                "gallery_images": asset.get("images", [])[:3],
+                "real_photos": asset.get("images", []),
+                "image_categories": asset.get("image_categories", {}),
+                "floor_plan_url": asset.get("floor_plan"),
+                "matterport_id": asset.get("matterport_id"),
+                "matterport_url": get_matterport_url(asset["matterport_id"]) if asset.get("matterport_id") else None,
+            }
+            website_homes.append(home_data)
+
+        # Merge: website homes (with photos) first, then Firestore homes
+        all_homes = website_homes + firestore_homes
+        result["homes"] = all_homes
+        result["total_inventory"] = len(all_homes)
+        result["website_homes"] = len(website_homes)
         return result
     except Exception as e:
         struct_logger.error("Inventory context failed", error=str(e))
