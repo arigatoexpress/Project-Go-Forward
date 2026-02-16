@@ -125,29 +125,93 @@ def _load_inventory_from_json():
         return None
 
 
+def _load_website_homes():
+    """Load website homes from asset_scraper.py catalog (New Vision models + pre-owned with galleries)."""
+    try:
+        from tools.asset_scraper import PROPERTY_ASSETS, get_matterport_url
+    except ImportError:
+        try:
+            from .asset_scraper import PROPERTY_ASSETS, get_matterport_url
+        except ImportError:
+            return []
+
+    homes = []
+    for slug, asset in PROPERTY_ASSETS.items():
+        width = 0
+        dims = asset.get("dims", "")
+        if "x" in dims:
+            try:
+                width = int(dims.split("x")[0])
+            except ValueError:
+                pass
+        classification = "Double Wide" if width >= 28 else "Single Wide"
+
+        price_value = 0
+        homes.append({
+            "id": slug,
+            "manufacturer": asset.get("manufacturer", "New Vision Manufacturing"),
+            "model_name": asset["name"],
+            "classification": classification,
+            "status": "Available" if asset.get("is_new") else "Pre-Owned",
+            "specs": {
+                "beds": asset.get("beds"),
+                "baths": asset.get("baths"),
+                "sq_ft": asset.get("sqft"),
+                "dimensions": asset.get("dims"),
+            },
+            "pricing": {
+                "price_value": price_value,
+                "display_price": "Call for Price",
+                "price_tier": "Call for Price",
+            },
+            "features": [],
+            "marketing_tags": [],
+            "image_url": asset.get("floor_plan", ""),
+            "gallery_images": asset.get("images", [])[:3],
+            "real_photos": asset.get("images", []),
+            "image_categories": asset.get("image_categories", {}),
+            "matterport_id": asset.get("matterport_id"),
+            "matterport_url": get_matterport_url(asset["matterport_id"]) if asset.get("matterport_id") else None,
+            "source": "website",
+        })
+    return homes
+
+
 def _load_inventory():
-    """Load inventory with cloud-first strategy and caching"""
+    """Load inventory with cloud-first strategy and caching.
+
+    Merges on-lot inventory (from JSON/Firestore) with website catalog homes
+    (from asset_scraper.py) so the agent can find ANY home the user sees.
+    """
     # Check cache (Redis or Local)
     cached_data = cache_get(INVENTORY_CACHE_KEY)
     if cached_data:
         return cached_data
-    
+
     # Strategy 1: Try Firestore (cloud-native)
     # inventory = _load_inventory_from_firestore()
     inventory = None
-    
+
     # Strategy 2: Try local JSON (fast fallback)
     if not inventory:
         inventory = _load_inventory_from_json()
-    
+
     # Strategy 3: Use sample data (ultimate fallback)
     if not inventory:
         inventory = _get_sample_inventory()
-    
+
+    # Merge website homes — avoid duplicates by checking model names
+    existing_names = {h["model_name"].lower() for h in inventory}
+    website_homes = _load_website_homes()
+    for wh in website_homes:
+        if wh["model_name"].lower() not in existing_names:
+            inventory.append(wh)
+            existing_names.add(wh["model_name"].lower())
+
     # Save to cache if found
     if inventory:
         cache_set(INVENTORY_CACHE_KEY, inventory, ttl_seconds=300)
-        
+
     return inventory
 
 
@@ -211,8 +275,10 @@ def search_inventory(
             continue
         if min_baths and (baths is None or baths < min_baths):
             continue
-        if max_budget and home["pricing"]["price_value"] > max_budget:
-            continue
+        if max_budget:
+            price_val = home.get("pricing", {}).get("price_value", 0)
+            if price_val > 0 and price_val > max_budget:
+                continue
         if classification and home.get("classification", "").lower() != classification.lower():
             continue
         if status:
@@ -228,8 +294,8 @@ def search_inventory(
         
         results.append(home)
     
-    # Sort by price
-    results.sort(key=lambda x: x["pricing"]["price_value"])
+    # Sort by price (homes without pricing go last)
+    results.sort(key=lambda x: x.get("pricing", {}).get("price_value", 0) or 999999999)
     
     return {
         "success": True,
