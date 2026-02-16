@@ -105,12 +105,14 @@ python main.py
 ### 5. Deploy to Cloud Run
 
 ```bash
-gcloud run deploy your-service-name \
+export GCP_PROJECT_ID="your-gcp-project-id"
+
+gcloud run deploy project-go-forward \
   --source . \
   --region us-central1 \
-  --project your-gcp-project \
+  --project "$GCP_PROJECT_ID" \
   --allow-unauthenticated \
-  --set-env-vars GOOGLE_GENAI_USE_VERTEXAI=true,GOOGLE_CLOUD_PROJECT=your-project,GOOGLE_CLOUD_LOCATION=us-central1 \
+  --set-env-vars GOOGLE_GENAI_USE_VERTEXAI=true,GOOGLE_CLOUD_PROJECT="$GCP_PROJECT_ID",GOOGLE_CLOUD_LOCATION=us-central1 \
   --memory 1Gi
 ```
 
