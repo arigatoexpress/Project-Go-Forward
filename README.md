@@ -4,6 +4,8 @@
 
 Turn any business into an AI-powered operation with conversational sales, service, and lead management — in minutes, not months.
 
+> See `AGENTS.md` for agentic navigation.
+
 ---
 
 ## ✨ Features
