@@ -33,6 +33,13 @@ from structured_logging import logger as struct_logger
 from conversation_memory import ConversationMemory
 from lead_management import LeadManager, Lead
 from appointment_manager import AppointmentManager, Appointment
+from email_service import (
+    send_appointment_confirmation,
+    send_lead_welcome,
+    send_deal_status_update,
+    send_custom_email,
+    get_email_log,
+)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -499,6 +506,23 @@ async def update_deal_status(deal_id: str, request: Request):
         if new_status not in valid_statuses:
             return {"success": False, "error": f"Invalid status. Must be one of: {valid_statuses}"}
         _deal_db.update_deal(deal_id, {"status": new_status})
+
+        # Send status update email if buyer has email
+        try:
+            deal_data = _deal_db.get_deal(deal_id)
+            buyer_email = deal_data.get("buyer_email") if deal_data else None
+            if buyer_email and new_status in ("approved", "contract", "funded", "complete"):
+                buyer_name = f"{deal_data.get('buyer_first_name', '')} {deal_data.get('buyer_last_name', '')}".strip()
+                send_deal_status_update(
+                    to=buyer_email,
+                    customer_name=buyer_name or "Valued Customer",
+                    deal_id=deal_id,
+                    new_status=new_status,
+                    home_name=deal_data.get("model"),
+                )
+        except Exception as e:
+            struct_logger.warning("Deal status email failed", error=str(e))
+
         return {"success": True, "message": f"Deal status changed to {new_status}"}
     except Exception as e:
         struct_logger.error("Deal status update failed", error=str(e))
@@ -752,24 +776,36 @@ async def submit_contact_form(request: Request):
         phone = data.get("phone", "").strip()
         message = data.get("message", "").strip()
 
+        email = data.get("email", "").strip()
+
         if not name or not phone:
             return {"success": False, "error": "Name and phone are required"}
 
         struct_logger.info("Contact form submitted", name=name, has_phone=bool(phone))
 
+        lead_id = f"contact_{int(time.time())}_{uuid.uuid4().hex[:4]}"
+
         # Create a lead from the contact form
         try:
             new_lead = Lead(
-                lead_id=f"contact_{int(time.time())}_{uuid.uuid4().hex[:4]}",
+                lead_id=lead_id,
                 user_id="contact_form",
                 session_id=f"contact_{int(time.time())}",
-                source="contact_form",
+                source=data.get("source", "contact_form"),
                 name=name,
                 phone=phone,
+                email=email or None,
             )
             await lead_manager.create_lead(new_lead)
         except Exception as e:
             struct_logger.warning("Contact lead creation failed", error=str(e))
+
+        # Send welcome email if email provided
+        if email:
+            try:
+                send_lead_welcome(to=email, customer_name=name, lead_id=lead_id)
+            except Exception as e:
+                struct_logger.warning("Lead welcome email failed", error=str(e))
 
         return {"success": True, "message": "Thank you! We'll be in touch shortly."}
     except Exception as e:
@@ -820,6 +856,20 @@ async def create_appointment(request: Request):
         )
 
         created = await appointment_manager.create_appointment(appt)
+
+        # Send confirmation email if email provided
+        if appt.email:
+            try:
+                send_appointment_confirmation(
+                    to=appt.email,
+                    customer_name=name,
+                    date=appt_date,
+                    time_slot=time_slot,
+                    appointment_id=appt.appointment_id,
+                    notes=appt.notes,
+                )
+            except Exception as e:
+                struct_logger.warning("Appointment confirmation email failed", error=str(e))
 
         # Also create a lead for the CRM funnel
         try:
@@ -888,6 +938,92 @@ async def cancel_appointment(appointment_id: str, request: Request):
         }
     except Exception as e:
         struct_logger.error("Appointment cancellation failed", error=str(e))
+        return {"success": False, "error": str(e)}
+
+
+# ─── CRM API (leads, email, activity) ───
+
+@app.get("/api/leads")
+async def list_leads_api(status: str = None, limit: int = 100):
+    """List leads for CRM dashboard."""
+    try:
+        leads = await lead_manager.list_leads(status=status, limit=limit)
+        return {"success": True, "leads": [l.to_dict() for l in leads], "count": len(leads)}
+    except Exception as e:
+        struct_logger.error("Lead listing failed", error=str(e))
+        return {"success": False, "error": str(e)}
+
+
+@app.get("/api/leads/{lead_id}")
+async def get_lead_api(lead_id: str):
+    """Get a single lead by ID."""
+    try:
+        lead = await lead_manager.get_lead(lead_id)
+        if not lead:
+            return {"success": False, "error": "Lead not found"}
+        return {"success": True, "lead": lead.to_dict()}
+    except Exception as e:
+        struct_logger.error("Lead fetch failed", error=str(e))
+        return {"success": False, "error": str(e)}
+
+
+@app.put("/api/leads/{lead_id}")
+async def update_lead_api(lead_id: str, request: Request):
+    """Update lead status or data."""
+    try:
+        data = await request.json()
+        lead = await lead_manager.get_lead(lead_id)
+        if not lead:
+            return {"success": False, "error": "Lead not found"}
+        for key, value in data.items():
+            if hasattr(lead, key) and key not in ("lead_id", "created_at"):
+                setattr(lead, key, value)
+        await lead_manager.update_lead(lead)
+        return {"success": True, "message": "Lead updated"}
+    except Exception as e:
+        struct_logger.error("Lead update failed", error=str(e))
+        return {"success": False, "error": str(e)}
+
+
+@app.get("/api/crm/appointments")
+async def list_appointments_api(status: str = None, limit: int = 100):
+    """List appointments for CRM dashboard."""
+    try:
+        appts = await appointment_manager.list_appointments(status=status, limit=limit)
+        return {"success": True, "appointments": [a.to_dict() for a in appts], "count": len(appts)}
+    except Exception as e:
+        struct_logger.error("Appointment listing failed", error=str(e))
+        return {"success": False, "error": str(e)}
+
+
+@app.post("/api/email/send")
+async def send_email_api(request: Request):
+    """Send a custom email from the CRM."""
+    try:
+        data = await request.json()
+        to = data.get("to", "").strip()
+        customer_name = data.get("customer_name", "").strip()
+        subject = data.get("subject", "").strip()
+        message = data.get("message", "").strip()
+
+        if not to or not subject or not message:
+            return {"success": False, "error": "to, subject, and message are required"}
+
+        result = send_custom_email(to=to, customer_name=customer_name, subject=subject, message=message)
+        return result
+    except Exception as e:
+        struct_logger.error("Email send failed", error=str(e))
+        return {"success": False, "error": str(e)}
+
+
+@app.get("/api/email/log")
+async def get_email_log_api(limit: int = 50, email_type: str = None):
+    """Get email activity log for CRM timeline."""
+    try:
+        log = get_email_log(limit=limit, email_type=email_type)
+        return {"success": True, "emails": log, "count": len(log)}
+    except Exception as e:
+        struct_logger.error("Email log fetch failed", error=str(e))
         return {"success": False, "error": str(e)}
 
 

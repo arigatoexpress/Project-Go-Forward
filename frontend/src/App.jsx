@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, lazy, Suspense } from 'react';
-import { Send, Home, Menu, X, Phone, MapPin, Loader2, User, Bot, FileText, Video, Lock, ShieldCheck, CalendarDays } from 'lucide-react';
+import { Send, Home, Menu, X, Phone, MapPin, Loader2, User, Bot, FileText, Video, Lock, ShieldCheck, CalendarDays, Users } from 'lucide-react';
 import SafeMarkdown from './components/SafeMarkdown';
 import SearchFilters from './components/SearchFilters';
 import QuickActions from './components/QuickActions';
@@ -15,6 +15,7 @@ const DocumentCenter = lazy(() => import('./pages/DocumentCenter'));
 const AdStudio = lazy(() => import('./pages/AdStudio'));
 const Contact = lazy(() => import('./pages/Contact'));
 const Appointments = lazy(() => import('./pages/Appointments'));
+const CRM = lazy(() => import('./pages/CRM'));
 
 const BUSINESS_NAME = "Texas Home Outlet";
 const BUSINESS_SHORT = "tho";
@@ -82,7 +83,7 @@ function App() {
   const [comparisonList, setComparisonList] = useState([]);
 
   // Single page state instead of multiple booleans
-  const [activePage, setActivePage] = useState('inventory'); // 'inventory' | 'chat' | 'documents' | 'adstudio' | 'contact' | 'appointments' | 'analytics'
+  const [activePage, setActivePage] = useState('inventory'); // 'inventory' | 'chat' | 'documents' | 'adstudio' | 'contact' | 'appointments' | 'analytics' | 'crm'
 
   // Admin PIN gate
   const [adminAuthed, setAdminAuthed] = useState(() => sessionStorage.getItem('tho_admin') === 'true');
@@ -281,6 +282,16 @@ function App() {
     );
   }
 
+  if (activePage === 'crm' && adminAuthed) {
+    return (
+      <div className="bg-gray-50 min-h-screen">
+        <Suspense fallback={<PageLoader />}>
+          <CRM onBack={() => navigateTo('inventory')} />
+        </Suspense>
+      </div>
+    );
+  }
+
   if (activePage === 'documents') {
     return (
       <div className="bg-gray-50 min-h-screen">
@@ -352,6 +363,11 @@ function App() {
                 <button onClick={() => navigateTo('appointments')} className="flex items-center hover:text-red-400 transition">
                   <CalendarDays size={16} className="mr-1" /> Book Visit
                 </button>
+                {adminAuthed && (
+                  <button onClick={() => navigateTo('crm')} className="flex items-center hover:text-red-400 transition">
+                    <Users size={16} className="mr-1" /> CRM
+                  </button>
+                )}
               </nav>
               <button
                 className="md:hidden p-2 hover:bg-white/10 rounded-lg transition"
@@ -369,7 +385,10 @@ function App() {
               <button onClick={() => navigateTo('documents')} className="flex items-center w-full py-2 hover:text-red-400 transition border-b border-blue-800"><FileText size={18} className="mr-3" /> Documents</button>
               <button onClick={() => navigateTo('adstudio')} className="flex items-center w-full py-2 hover:text-red-400 transition border-b border-blue-800"><Video size={18} className="mr-3" /> Ad Studio</button>
               <button onClick={() => navigateTo('contact')} className="flex items-center w-full py-2 hover:text-red-400 transition border-b border-blue-800"><Phone size={18} className="mr-3" /> Contact</button>
-              <button onClick={() => navigateTo('appointments')} className="flex items-center w-full py-2 hover:text-red-400 transition"><CalendarDays size={18} className="mr-3" /> Book Visit</button>
+              <button onClick={() => navigateTo('appointments')} className="flex items-center w-full py-2 hover:text-red-400 transition border-b border-blue-800"><CalendarDays size={18} className="mr-3" /> Book Visit</button>
+              {adminAuthed && (
+                <button onClick={() => navigateTo('crm')} className="flex items-center w-full py-2 hover:text-red-400 transition"><Users size={18} className="mr-3" /> CRM Dashboard</button>
+              )}
             </nav>
           )}
         </header>
@@ -444,6 +463,11 @@ function App() {
               <button onClick={() => navigateTo('appointments')} className={`flex items-center hover:text-red-400 transition ${activePage === 'appointments' ? 'text-red-400' : ''}`}>
                 <CalendarDays size={16} className="mr-1" /> Book Visit
               </button>
+              {adminAuthed && (
+                <button onClick={() => navigateTo('crm')} className={`flex items-center hover:text-red-400 transition ${activePage === 'crm' ? 'text-red-400' : ''}`}>
+                  <Users size={16} className="mr-1" /> CRM
+                </button>
+              )}
             </nav>
 
             {/* Search Filters */}
@@ -482,9 +506,14 @@ function App() {
             <button onClick={() => navigateTo('contact')} className="flex items-center w-full py-2 hover:text-red-400 transition border-b border-blue-800">
               <Phone size={18} className="mr-3" /> Contact
             </button>
-            <button onClick={() => navigateTo('appointments')} className="flex items-center w-full py-2 hover:text-red-400 transition">
+            <button onClick={() => navigateTo('appointments')} className="flex items-center w-full py-2 hover:text-red-400 transition border-b border-blue-800">
               <CalendarDays size={18} className="mr-3" /> Book Visit
             </button>
+            {adminAuthed && (
+              <button onClick={() => navigateTo('crm')} className="flex items-center w-full py-2 hover:text-red-400 transition">
+                <Users size={18} className="mr-3" /> CRM Dashboard
+              </button>
+            )}
           </nav>
         )}
       </header>
@@ -601,6 +630,7 @@ function App() {
           <button onClick={() => navigateTo('adstudio')} className="hover:text-blue-600 transition-colors">Ad Studio</button>
           <button onClick={() => navigateTo('contact')} className="hover:text-blue-600 transition-colors">Contact</button>
           <button onClick={() => navigateTo('appointments')} className="hover:text-blue-600 transition-colors">Book Visit</button>
+          {adminAuthed && <button onClick={() => navigateTo('crm')} className="hover:text-blue-600 transition-colors">CRM</button>}
         </div>
       </footer>
     </div>
