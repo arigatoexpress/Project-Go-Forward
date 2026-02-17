@@ -1,9 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Calendar, Clock, User, CheckCircle, ArrowLeft, ArrowRight, MapPin, Phone, Loader2, Download } from 'lucide-react';
+import { BUSINESS_NAME, BUSINESS_PHONE, BUSINESS_ADDRESS, BUSINESS_CITY, BUSINESS_STATE } from '../constants';
 
-const BUSINESS_NAME = "Texas Home Outlet";
-const BUSINESS_PHONE = "(281) 324-3020";
-const BUSINESS_ADDRESS = "10685 FM 1960 East, Huffman, TX";
+const BUSINESS_FULL_ADDRESS = `${BUSINESS_ADDRESS}, ${BUSINESS_CITY}, ${BUSINESS_STATE}`;
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
@@ -297,7 +296,7 @@ function generateICS(date, timeSlot, name) {
     `DTSTART:${fmt(startDate)}`,
     `DTEND:${fmt(endDate)}`,
     `SUMMARY:Showroom Visit - ${BUSINESS_NAME}`,
-    `LOCATION:${BUSINESS_ADDRESS}`,
+    `LOCATION:${BUSINESS_FULL_ADDRESS}`,
     `DESCRIPTION:Appointment for ${name} at ${BUSINESS_NAME}. Call ${BUSINESS_PHONE} with questions.`,
     'END:VEVENT',
     'END:VCALENDAR'
@@ -396,7 +395,7 @@ const Appointments = ({ onBack }) => {
             </div>
             <div className="flex items-center text-sm">
               <MapPin size={16} className="text-blue-600 mr-3 flex-shrink-0" />
-              <span>{BUSINESS_ADDRESS}</span>
+              <span>{BUSINESS_FULL_ADDRESS}</span>
             </div>
             <div className="flex items-center text-sm">
               <Phone size={16} className="text-blue-600 mr-3 flex-shrink-0" />
@@ -501,7 +500,7 @@ const Appointments = ({ onBack }) => {
             )}
             <div className="flex justify-between py-2">
               <span className="text-gray-500 text-sm">Location</span>
-              <span className="font-medium text-sm">{BUSINESS_ADDRESS}</span>
+              <span className="font-medium text-sm">{BUSINESS_FULL_ADDRESS}</span>
             </div>
           </div>
 

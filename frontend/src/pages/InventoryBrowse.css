@@ -11,6 +11,65 @@
   min-height: 60vh;
 }
 
+/* ─── Skeleton Grid ─── */
+.tho-skeleton-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 1.5rem;
+  padding: 1.5rem;
+  max-width: 1280px;
+  margin: 0 auto;
+}
+
+.tho-skeleton-card {
+  background: white;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid var(--tho-border, #e2e8f0);
+}
+
+.tho-skeleton-card .tho-sk-image {
+  width: 100%;
+  height: 200px;
+}
+
+.tho-skeleton-card .tho-sk-body {
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.tho-skeleton-card .tho-sk-line {
+  height: 14px;
+}
+
+.tho-skeleton-card .tho-sk-line.short {
+  width: 40%;
+}
+
+.tho-skeleton-card .tho-sk-line.medium {
+  width: 65%;
+}
+
+.tho-skeleton-card .tho-sk-price {
+  height: 20px;
+  width: 35%;
+  margin-top: 0.25rem;
+}
+
+.tho-skeleton-card .tho-sk-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.tho-skeleton-card .tho-sk-btn {
+  flex: 1;
+  height: 36px;
+  border-radius: 8px;
+}
+
 /* ─── Main Container ─── */
 .tho-browse {
   min-height: 100vh;
@@ -30,7 +89,7 @@
 }
 
 .tho-browse-hero-title {
-  font-size: 2rem;
+  font-size: clamp(1.5rem, 4vw, 2.25rem);
   font-weight: 800;
   color: white;
   margin-bottom: 0.5rem;
@@ -280,6 +339,26 @@
   opacity: 0;
 }
 
+/* Image loading shimmer placeholder */
+.tho-card-image-wrap::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+  z-index: 0;
+}
+
+.tho-card-image {
+  position: relative;
+  z-index: 1;
+}
+
+.tho-card-image-wrap .tho-card-image[src] {
+  background: transparent;
+}
+
 .tho-card-badges {
   position: absolute;
   top: 0.75rem;
@@ -346,7 +425,7 @@
 
 .tho-card-manufacturer {
   font-size: 0.75rem;
-  color: #94a3b8;
+  color: #64748b;
   margin-bottom: 0.625rem;
 }
 
@@ -403,8 +482,9 @@
 }
 
 .tho-call-price {
-  color: #3b82f6;
+  color: #475569;
   font-size: 0.9375rem;
+  font-style: italic;
 }
 
 .tho-card-actions {
@@ -434,6 +514,8 @@
   background: #1e3a5f;
   color: white;
   border-color: #1e3a5f;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(30, 58, 95, 0.2);
 }
 
 .tho-card-tour-btn {
@@ -445,6 +527,13 @@
   background: #22c55e;
   color: white;
   border-color: #22c55e;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(34, 197, 94, 0.2);
+}
+
+.tho-card-view-btn:active,
+.tho-card-tour-btn:active {
+  transform: translateY(0) scale(0.98);
 }
 
 /* ─── Empty State ─── */
@@ -722,7 +811,7 @@
 
 .tho-detail-manufacturer {
   font-size: 0.8125rem;
-  color: #94a3b8;
+  color: #64748b;
 }
 
 .tho-detail-status {
@@ -1160,26 +1249,42 @@
     padding: 1.5rem 1rem;
   }
 
-  .tho-browse-hero-title {
-    font-size: 1.5rem;
-  }
-
   .tho-browse-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
     padding: 1rem;
     gap: 1rem;
   }
 
   .tho-browse-toolbar {
     padding: 0.75rem 1rem;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.5rem;
+  }
+
+  .tho-browse-toolbar-left {
+    justify-content: space-between;
+  }
+
+  .tho-browse-toolbar-right {
+    justify-content: flex-end;
   }
 
   .tho-browse-status-tabs {
-    display: none;
+    font-size: 0.75rem;
+  }
+
+  .tho-status-tab {
+    padding: 0.25rem 0.625rem;
+    font-size: 0.75rem;
   }
 
   .tho-sort-wrap {
-    display: none;
+    font-size: 0.75rem;
+  }
+
+  .tho-sort-select {
+    font-size: 0.75rem;
   }
 
   .tho-detail-overlay {
@@ -1224,6 +1329,12 @@
     align-items: flex-start;
     gap: 0.5rem;
   }
+
+  .tho-skeleton-grid {
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    padding: 1rem;
+    gap: 1rem;
+  }
 }
 
 @media (max-width: 480px) {
@@ -1237,5 +1348,25 @@
 
   .tho-filter-grid {
     grid-template-columns: 1fr;
+  }
+
+  .tho-skeleton-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .tho-browse-status-tabs {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+/* Tablet: ensure 2-column grid */
+@media (min-width: 481px) and (max-width: 768px) {
+  .tho-browse-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .tho-skeleton-grid {
+    grid-template-columns: repeat(2, 1fr);
   }
 }

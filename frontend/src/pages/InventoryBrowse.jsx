@@ -5,6 +5,7 @@ import {
   MessageCircle, Grid3X3, Loader2, Eye, ArrowUpDown, Calendar,
   DollarSign, Video, CheckCircle2, AlertCircle
 } from 'lucide-react';
+import { BUSINESS_PHONE, BUSINESS_PHONE_RAW, BUSINESS_ADDRESS, BUSINESS_CITY, BUSINESS_HOURS } from '../constants';
 import './InventoryBrowse.css';
 
 const CDN_BASE = "https://d132mt2yijm03y.cloudfront.net";
@@ -241,9 +242,32 @@ export default function InventoryBrowse({ onAskTex, onBack, onCreateAd }) {
 
   if (loading) {
     return (
-      <div className="tho-browse-loading">
-        <Loader2 className="h-10 w-10 animate-spin text-blue-600" />
-        <p className="mt-4 text-gray-500">Loading inventory...</p>
+      <div className="tho-browse">
+        {/* Skeleton hero */}
+        <div className="tho-browse-hero">
+          <div className="tho-browse-hero-content">
+            <div className="tho-skeleton" style={{ width: '60%', height: 32, margin: '0 auto 12px' }} />
+            <div className="tho-skeleton" style={{ width: '80%', height: 16, margin: '0 auto 24px' }} />
+            <div className="tho-skeleton" style={{ width: '100%', height: 48, borderRadius: 12 }} />
+          </div>
+        </div>
+        {/* Skeleton cards */}
+        <div className="tho-skeleton-grid">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="tho-skeleton-card">
+              <div className="tho-skeleton tho-sk-image" />
+              <div className="tho-sk-body">
+                <div className="tho-skeleton tho-sk-line medium" />
+                <div className="tho-skeleton tho-sk-line short" />
+                <div className="tho-skeleton tho-sk-price" />
+                <div className="tho-sk-actions">
+                  <div className="tho-skeleton tho-sk-btn" />
+                  <div className="tho-skeleton tho-sk-btn" />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
     );
   }
@@ -251,10 +275,15 @@ export default function InventoryBrowse({ onAskTex, onBack, onCreateAd }) {
   if (error) {
     return (
       <div className="tho-browse-loading">
-        <p className="text-red-500">Error: {error}</p>
-        <button onClick={fetchInventory} className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg">
-          Retry
+        <AlertCircle size={40} className="text-red-400 mb-3" />
+        <p className="text-gray-700 font-medium mb-1">Unable to load inventory</p>
+        <p className="text-gray-500 text-sm mb-4">{error}</p>
+        <button onClick={fetchInventory} className="px-6 py-2.5 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 active:scale-95 transition">
+          Try Again
         </button>
+        <a href={`tel:${BUSINESS_PHONE_RAW}`} className="mt-3 text-sm text-blue-600 hover:underline">
+          Or call us at {BUSINESS_PHONE}
+        </a>
       </div>
     );
   }
@@ -419,10 +448,16 @@ export default function InventoryBrowse({ onAskTex, onBack, onCreateAd }) {
 
       {sortedHomes.length === 0 && !loading && (
         <div className="tho-browse-empty">
-          <Home size={48} className="text-gray-300" />
-          <p className="text-gray-500 mt-4">No homes match your search.</p>
-          <button onClick={clearFilters} className="mt-2 text-blue-600 hover:underline">
-            Clear filters
+          <div style={{ background: '#f1f5f9', borderRadius: '50%', padding: 20, marginBottom: 12 }}>
+            <Search size={36} className="text-gray-400" />
+          </div>
+          <p className="text-gray-700 font-medium text-lg">No homes match your search</p>
+          <p className="text-gray-500 text-sm mt-1 mb-4">Try adjusting your filters or search terms</p>
+          <button
+            onClick={clearFilters}
+            className="px-5 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 active:scale-95 transition"
+          >
+            Clear All Filters
           </button>
         </div>
       )}
@@ -785,8 +820,8 @@ function HomeDetailModal({
           </div>
 
           <div className="tho-detail-secondary-actions">
-            <a href="tel:+12813243020" className="tho-detail-call-btn">
-              <Phone size={16} /> Call (281) 324-3020
+            <a href={`tel:${BUSINESS_PHONE_RAW}`} className="tho-detail-call-btn">
+              <Phone size={16} /> Call {BUSINESS_PHONE}
             </a>
             {onCreateAd && (
               <button
@@ -804,7 +839,7 @@ function HomeDetailModal({
           {/* Location */}
           <div className="tho-detail-location">
             <MapPin size={14} />
-            <span>10685 FM 1960 East, Huffman, TX — Mon-Fri 9-6, Sat 9-5</span>
+            <span>{BUSINESS_ADDRESS} East, {BUSINESS_CITY} — {BUSINESS_HOURS}</span>
           </div>
         </div>
       </div>
@@ -843,7 +878,7 @@ function LeadCaptureForm({ home, type, onClose }) {
       setSubmitted(true);
       trackEvent('lead_captured', { home: home.model_name, type });
     } catch {
-      setError('Something went wrong. Please call us at (281) 324-3020.');
+      setError(`Something went wrong. Please call us at ${BUSINESS_PHONE}.`);
     } finally {
       setSubmitting(false);
     }
