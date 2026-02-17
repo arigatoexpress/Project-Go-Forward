@@ -5,6 +5,7 @@ import {
   DollarSign, Briefcase, MapPin, Phone, Mail, ClipboardList
 } from 'lucide-react';
 import SmartForm from '../components/SmartForm';
+import adminFetch from '../adminFetch';
 
 // ─── Constants ───────────────────────────────────────────────────────
 const CATEGORY_ORDER = ['TMHA', 'TDHCA', 'State', 'Internal'];
@@ -143,7 +144,7 @@ const DocumentCenter = ({ onBack, sessionId }) => {
       const params = new URLSearchParams();
       if (dealStatusFilter) params.set('status', dealStatusFilter);
       if (dealSearch) params.set('q', dealSearch);
-      const res = await fetch(`/api/deals?${params}`);
+      const res = await adminFetch(`/api/deals?${params}`);
       const data = await res.json();
       if (data.error) throw new Error(data.error);
       setDeals(data.deals || []);
@@ -158,7 +159,7 @@ const DocumentCenter = ({ onBack, sessionId }) => {
     setDealSaving(true);
     setDealError('');
     try {
-      const res = await fetch('/api/deals', {
+      const res = await adminFetch('/api/deals', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(dealFormData),
@@ -184,7 +185,7 @@ const DocumentCenter = ({ onBack, sessionId }) => {
     // Strip read-only fields
     const { id, created_at, ...updateData } = payload;
     try {
-      const res = await fetch(`/api/deals/${dealId}`, {
+      const res = await adminFetch(`/api/deals/${dealId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updateData),
@@ -202,7 +203,7 @@ const DocumentCenter = ({ onBack, sessionId }) => {
     const dealId = selectedDeal?.id;
     if (!dealId) return;
     try {
-      const res = await fetch(`/api/deals/${dealId}/status`, {
+      const res = await adminFetch(`/api/deals/${dealId}/status`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: newStatus }),
@@ -251,7 +252,7 @@ const DocumentCenter = ({ onBack, sessionId }) => {
     setDealDocError('');
     setDealDocResult(null);
     try {
-      const res = await fetch(`/api/deals/${dealId}/generate-document`, {
+      const res = await adminFetch(`/api/deals/${dealId}/generate-document`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ template_name: templateName }),
@@ -274,7 +275,7 @@ const DocumentCenter = ({ onBack, sessionId }) => {
     setDealDocError('');
     setDealDocResult(null);
     try {
-      const res = await fetch(`/api/deals/${dealId}/generate-packet`, {
+      const res = await adminFetch(`/api/deals/${dealId}/generate-packet`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ packet_name: packetName }),
