@@ -4,6 +4,7 @@ import {
   Search, RefreshCw, Send, X, Clock, Home, DollarSign,
   CheckCircle, AlertCircle, Filter, ArrowLeft,
 } from 'lucide-react';
+import adminFetch from '../adminFetch';
 import './CRM.css';
 
 const STATUS_COLORS = {
@@ -98,10 +99,10 @@ export default function CRM({ onBack }) {
     setLoading(true);
     try {
       const [leadsRes, dealsRes, apptsRes, emailsRes] = await Promise.all([
-        fetch('/api/leads?limit=200').then(r => r.json()),
-        fetch('/api/deals?limit=200').then(r => r.json()),
-        fetch('/api/crm/appointments?limit=200').then(r => r.json()),
-        fetch('/api/email/log?limit=100').then(r => r.json()),
+        adminFetch('/api/leads?limit=200').then(r => r.json()),
+        adminFetch('/api/deals?limit=200').then(r => r.json()),
+        adminFetch('/api/crm/appointments?limit=200').then(r => r.json()),
+        adminFetch('/api/email/log?limit=100').then(r => r.json()),
       ]);
       if (leadsRes.success) setLeads(leadsRes.leads || []);
       if (dealsRes.success) setDeals(dealsRes.deals || []);
@@ -118,7 +119,7 @@ export default function CRM({ onBack }) {
 
   const handleUpdateLeadStatus = async (leadId, newStatus) => {
     try {
-      const res = await fetch(`/api/leads/${leadId}`, {
+      const res = await adminFetch(`/api/leads/${leadId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: newStatus }),
@@ -137,7 +138,7 @@ export default function CRM({ onBack }) {
 
   const handleUpdateDealStatus = async (dealId, newStatus) => {
     try {
-      await fetch(`/api/deals/${dealId}/status`, {
+      await adminFetch(`/api/deals/${dealId}/status`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: newStatus }),
@@ -153,7 +154,7 @@ export default function CRM({ onBack }) {
     setEmailSending(true);
     setEmailResult(null);
     try {
-      const res = await fetch('/api/email/send', {
+      const res = await adminFetch('/api/email/send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(emailForm),
@@ -163,7 +164,7 @@ export default function CRM({ onBack }) {
       if (data.success) {
         setEmailForm({ to: '', customer_name: '', subject: '', message: '' });
         // Refresh email log
-        const emailsRes = await fetch('/api/email/log?limit=100').then(r => r.json());
+        const emailsRes = await adminFetch('/api/email/log?limit=100').then(r => r.json());
         if (emailsRes.success) setEmails(emailsRes.emails || []);
       }
     } catch (err) {

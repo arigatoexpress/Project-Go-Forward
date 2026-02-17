@@ -7,8 +7,10 @@ All business-specific config is loaded from config.yaml.
 
 import os
 import uvicorn
+import hashlib
+import secrets
 from collections import defaultdict
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -75,6 +77,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         self._hits: dict[str, list[float]] = defaultdict(list)
 
     async def dispatch(self, request: Request, call_next):
+        # Exempt health check from rate limiting (load balancer probes)
+        if request.url.path == "/health":
+            return await call_next(request)
         client_ip = request.client.host if request.client else "unknown"
         now = time.time()
         window = self._hits[client_ip]
@@ -113,8 +118,8 @@ if IS_LOCAL:
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
-    allow_methods=["GET", "POST"],
-    allow_headers=["Content-Type", "Accept"],
+    allow_methods=["GET", "POST", "PUT"],
+    allow_headers=["Content-Type", "Accept", "X-Admin-Token"],
 )
 
 # Initialize ADK Runner
@@ -251,7 +256,7 @@ async def run_agent(request: Request):
         return {"error": user_message}
 
 
-@app.get("/leads/export")
+@app.get("/leads/export", dependencies=[Depends(require_admin)])
 async def export_leads(status: str = None):
     """Export leads to CSV format."""
     try:
@@ -281,7 +286,7 @@ async def export_leads(status: str = None):
         return {"error": str(e)}, 500
 
 
-@app.get("/leads/stats")
+@app.get("/leads/stats", dependencies=[Depends(require_admin)])
 async def get_lead_stats():
     """Get lead statistics."""
     try:
@@ -448,14 +453,15 @@ async def create_sales_contract(form_data: SalesContractForm):
 @app.get("/api/documents/download/{filename}")
 async def download_document(filename: str):
     """Download a generated document."""
-    # Security: sanitize filename to prevent path traversal attacks
     safe_filename = os.path.basename(filename)
     if safe_filename != filename or ".." in filename:
-        return {"error": "Invalid filename"}, 400
-    file_path = os.path.join(OUTPUT_DIR, safe_filename)
-    if os.path.exists(file_path):
-        return FileResponse(file_path, filename=safe_filename, media_type='application/pdf')
-    return {"error": "File not found"}, 404
+        return JSONResponse({"error": "Invalid filename"}, status_code=400)
+    resolved = os.path.abspath(os.path.join(OUTPUT_DIR, safe_filename))
+    if not resolved.startswith(os.path.abspath(OUTPUT_DIR)):
+        return JSONResponse({"error": "Invalid filename"}, status_code=403)
+    if os.path.isfile(resolved):
+        return FileResponse(resolved, filename=safe_filename, media_type='application/pdf')
+    return JSONResponse({"error": "File not found"}, status_code=404)
 
 
 # ─── Deals API (replaces fastcontractdocs.com) ───
@@ -465,7 +471,7 @@ from database.models import Deal, DealStatus
 _deal_db = get_database()
 
 
-@app.get("/api/deals")
+@app.get("/api/deals", dependencies=[Depends(require_admin)])
 async def list_deals(status: str = None, salesrep: str = None, q: str = None, limit: int = 50):
     """List deals with optional filters."""
     try:
@@ -481,7 +487,7 @@ async def list_deals(status: str = None, salesrep: str = None, q: str = None, li
         return {"success": False, "error": str(e)}
 
 
-@app.post("/api/deals")
+@app.post("/api/deals", dependencies=[Depends(require_admin)])
 async def create_deal(request: Request):
     """Create a new deal/application."""
     try:
@@ -502,7 +508,7 @@ async def create_deal(request: Request):
         return {"success": False, "error": str(e)}
 
 
-@app.get("/api/deals/{deal_id}")
+@app.get("/api/deals/{deal_id}", dependencies=[Depends(require_admin)])
 async def get_deal(deal_id: str):
     """Get deal details."""
     try:
@@ -515,7 +521,7 @@ async def get_deal(deal_id: str):
         return {"success": False, "error": str(e)}
 
 
-@app.put("/api/deals/{deal_id}")
+@app.put("/api/deals/{deal_id}", dependencies=[Depends(require_admin)])
 async def update_deal(deal_id: str, request: Request):
     """Update deal data."""
     try:
@@ -530,7 +536,7 @@ async def update_deal(deal_id: str, request: Request):
         return {"success": False, "error": str(e)}
 
 
-@app.put("/api/deals/{deal_id}/status")
+@app.put("/api/deals/{deal_id}/status", dependencies=[Depends(require_admin)])
 async def update_deal_status(deal_id: str, request: Request):
     """Change deal status."""
     try:
@@ -563,7 +569,7 @@ async def update_deal_status(deal_id: str, request: Request):
         return {"success": False, "error": str(e)}
 
 
-@app.post("/api/deals/{deal_id}/generate-document")
+@app.post("/api/deals/{deal_id}/generate-document", dependencies=[Depends(require_admin)])
 async def generate_document_from_deal(deal_id: str, request: Request):
     """Generate a document pre-filled with deal data."""
     try:
@@ -601,7 +607,7 @@ async def generate_document_from_deal(deal_id: str, request: Request):
         return {"success": False, "error": str(e)}
 
 
-@app.post("/api/deals/{deal_id}/generate-packet")
+@app.post("/api/deals/{deal_id}/generate-packet", dependencies=[Depends(require_admin)])
 async def generate_packet_from_deal(deal_id: str, request: Request):
     """Generate a closing packet pre-filled with deal data."""
     try:
@@ -651,7 +657,7 @@ from tools.marketing_tools import (
 )
 from tools.asset_scraper import get_all_assets, PROPERTY_ASSETS, get_matterport_url
 
-@app.post("/api/marketing/generate-script")
+@app.post("/api/marketing/generate-script", dependencies=[Depends(require_admin)])
 async def api_generate_script(request: Request):
     """Generate viral-ready video scripts for social media with optional A/B variations."""
     try:
@@ -674,7 +680,7 @@ async def api_generate_script(request: Request):
         struct_logger.error("Script generation failed", error=str(e))
         return {"error": str(e)}
 
-@app.get("/api/marketing/trending-ideas")
+@app.get("/api/marketing/trending-ideas", dependencies=[Depends(require_admin)])
 async def api_trending_ideas():
     """Get AI-generated trending content ideas."""
     try:
@@ -684,7 +690,7 @@ async def api_trending_ideas():
         struct_logger.error("Trending ideas failed", error=str(e))
         return {"error": str(e)}
 
-@app.post("/api/marketing/schedule")
+@app.post("/api/marketing/schedule", dependencies=[Depends(require_admin)])
 async def api_schedule_post(request: Request):
     """Schedule a post for publishing."""
     try:
@@ -703,7 +709,7 @@ async def api_schedule_post(request: Request):
         struct_logger.error("Post scheduling failed", error=str(e))
         return {"error": str(e)}
 
-@app.get("/api/marketing/analytics")
+@app.get("/api/marketing/analytics", dependencies=[Depends(require_admin)])
 async def api_content_analytics():
     """Get content performance analytics."""
     try:
@@ -714,7 +720,7 @@ async def api_content_analytics():
         return {"error": str(e)}
 
 
-@app.post("/api/marketing/generate-image")
+@app.post("/api/marketing/generate-image", dependencies=[Depends(require_admin)])
 async def api_generate_image(request: Request):
     """Generate a marketing image using Google Imagen."""
     try:
@@ -787,16 +793,18 @@ async def api_inventory_context():
         return {"success": False, "error": str(e)}
 
 
-@app.get("/api/marketing/images/{filename}")
+@app.get("/api/marketing/images/{filename}", dependencies=[Depends(require_admin)])
 async def download_ad_image(filename: str):
     """Download a generated ad image."""
     safe_filename = os.path.basename(filename)
     if safe_filename != filename or ".." in filename:
-        return {"error": "Invalid filename"}, 400
-    file_path = os.path.join(GENERATED_ADS_DIR, safe_filename)
-    if os.path.exists(file_path):
-        return FileResponse(file_path, filename=safe_filename, media_type='image/png')
-    return {"error": "Image not found"}, 404
+        return JSONResponse({"error": "Invalid filename"}, status_code=400)
+    resolved = os.path.abspath(os.path.join(GENERATED_ADS_DIR, safe_filename))
+    if not resolved.startswith(os.path.abspath(GENERATED_ADS_DIR)):
+        return JSONResponse({"error": "Invalid filename"}, status_code=403)
+    if os.path.isfile(resolved):
+        return FileResponse(resolved, filename=safe_filename, media_type='image/png')
+    return JSONResponse({"error": "Image not found"}, status_code=404)
 
 
 # ─── Contact Form API ───
@@ -977,7 +985,7 @@ async def cancel_appointment(appointment_id: str, request: Request):
 
 # ─── CRM API (leads, email, activity) ───
 
-@app.get("/api/leads")
+@app.get("/api/leads", dependencies=[Depends(require_admin)])
 async def list_leads_api(status: str = None, limit: int = 100):
     """List leads for CRM dashboard."""
     try:
@@ -988,7 +996,7 @@ async def list_leads_api(status: str = None, limit: int = 100):
         return {"success": False, "error": str(e)}
 
 
-@app.get("/api/leads/{lead_id}")
+@app.get("/api/leads/{lead_id}", dependencies=[Depends(require_admin)])
 async def get_lead_api(lead_id: str):
     """Get a single lead by ID."""
     try:
@@ -1001,7 +1009,7 @@ async def get_lead_api(lead_id: str):
         return {"success": False, "error": str(e)}
 
 
-@app.put("/api/leads/{lead_id}")
+@app.put("/api/leads/{lead_id}", dependencies=[Depends(require_admin)])
 async def update_lead_api(lead_id: str, request: Request):
     """Update lead status or data."""
     try:
@@ -1019,7 +1027,7 @@ async def update_lead_api(lead_id: str, request: Request):
         return {"success": False, "error": str(e)}
 
 
-@app.get("/api/crm/appointments")
+@app.get("/api/crm/appointments", dependencies=[Depends(require_admin)])
 async def list_appointments_api(status: str = None, limit: int = 100):
     """List appointments for CRM dashboard."""
     try:
@@ -1030,7 +1038,7 @@ async def list_appointments_api(status: str = None, limit: int = 100):
         return {"success": False, "error": str(e)}
 
 
-@app.post("/api/email/send")
+@app.post("/api/email/send", dependencies=[Depends(require_admin)])
 async def send_email_api(request: Request):
     """Send a custom email from the CRM."""
     try:
@@ -1050,7 +1058,7 @@ async def send_email_api(request: Request):
         return {"success": False, "error": str(e)}
 
 
-@app.get("/api/email/log")
+@app.get("/api/email/log", dependencies=[Depends(require_admin)])
 async def get_email_log_api(limit: int = 50, email_type: str = None):
     """Get email activity log for CRM timeline."""
     try:
@@ -1062,17 +1070,28 @@ async def get_email_log_api(limit: int = 50, email_type: str = None):
 
 
 # ─── Admin Auth API ───
-import hashlib
-import secrets
 
-ADMIN_PIN_HASH = os.environ.get(
-    "ADMIN_PIN_HASH",
-    hashlib.sha256("4832".encode()).hexdigest(),  # default for dev; override in production
-)
+# In production, ADMIN_PIN_HASH must be set as an environment variable.
+# Generate with: python -c "import hashlib; print(hashlib.sha256(b'YOUR_PIN').hexdigest())"
+_default_pin_hash = hashlib.sha256("4832".encode()).hexdigest() if IS_LOCAL else ""
+ADMIN_PIN_HASH = os.environ.get("ADMIN_PIN_HASH", _default_pin_hash)
+if not ADMIN_PIN_HASH and not IS_LOCAL:
+    logger.critical("ADMIN_PIN_HASH env var is required in production. Admin auth will reject all requests.")
 
-# Simple token store (in-memory; resets on restart which is fine for admin sessions)
+# Simple token store (in-memory; resets on restart which is acceptable for admin sessions)
 _admin_tokens: dict[str, float] = {}
-ADMIN_TOKEN_TTL = 8 * 60 * 60  # 8 hours
+ADMIN_TOKEN_TTL = int(os.environ.get("ADMIN_TOKEN_TTL", str(2 * 60 * 60)))  # 2 hours default
+
+
+async def require_admin(request: Request):
+    """FastAPI dependency that validates the X-Admin-Token header."""
+    token = request.headers.get("X-Admin-Token", "")
+    if not token:
+        raise HTTPException(status_code=401, detail="Admin authentication required")
+    issued = _admin_tokens.get(token)
+    if not issued or (time.time() - issued) >= ADMIN_TOKEN_TTL:
+        _admin_tokens.pop(token, None)
+        raise HTTPException(status_code=401, detail="Admin session expired. Please re-authenticate.")
 
 
 @app.post("/api/admin/verify")
@@ -1080,11 +1099,16 @@ async def verify_admin_pin(request: Request):
     """Validate admin PIN server-side and return a session token."""
     data = await request.json()
     pin = data.get("pin", "")
+    if not ADMIN_PIN_HASH:
+        struct_logger.warning("Admin login rejected: ADMIN_PIN_HASH not configured")
+        return JSONResponse({"success": False, "error": "Admin auth not configured."}, status_code=503)
     pin_hash = hashlib.sha256(pin.encode()).hexdigest()
     if not secrets.compare_digest(pin_hash, ADMIN_PIN_HASH):
+        struct_logger.warning("Admin login failed", client_ip=request.client.host if request.client else "unknown")
         return JSONResponse({"success": False, "error": "Incorrect PIN."}, status_code=401)
     token = secrets.token_urlsafe(32)
     _admin_tokens[token] = time.time()
+    struct_logger.info("Admin login succeeded", client_ip=request.client.host if request.client else "unknown")
     return {"success": True, "token": token}
 
 

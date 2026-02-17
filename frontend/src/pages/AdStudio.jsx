@@ -8,6 +8,7 @@ import {
     Download, Layers, Search, ChevronRight, Camera,
     Box, Star, ExternalLink, ChevronLeft
 } from 'lucide-react';
+import adminFetch from '../adminFetch';
 import './AdStudio.css';
 
 /* ─────────────────── constants ─────────────────── */
@@ -81,7 +82,7 @@ const IMAGE_STYLES = [
 
 /* ─────────────────── API helpers ─────────────────── */
 async function apiGenerateScript(params) {
-    const resp = await fetch('/api/marketing/generate-script', {
+    const resp = await adminFetch('/api/marketing/generate-script', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(params)
@@ -91,13 +92,13 @@ async function apiGenerateScript(params) {
 }
 
 async function apiGetIdeas() {
-    const resp = await fetch('/api/marketing/trending-ideas');
+    const resp = await adminFetch('/api/marketing/trending-ideas');
     if (!resp.ok) throw new Error('Failed to load ideas');
     return resp.json();
 }
 
 async function apiSchedulePost(params) {
-    const resp = await fetch('/api/marketing/schedule', {
+    const resp = await adminFetch('/api/marketing/schedule', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(params)
@@ -107,19 +108,19 @@ async function apiSchedulePost(params) {
 }
 
 async function apiGetAnalytics() {
-    const resp = await fetch('/api/marketing/analytics');
+    const resp = await adminFetch('/api/marketing/analytics');
     if (!resp.ok) throw new Error('Analytics load failed');
     return resp.json();
 }
 
 async function apiGetInventory() {
-    const resp = await fetch('/api/marketing/inventory-context');
+    const resp = await adminFetch('/api/marketing/inventory-context');
     if (!resp.ok) throw new Error('Failed to load inventory');
     return resp.json();
 }
 
 async function apiGenerateImage(params) {
-    const resp = await fetch('/api/marketing/generate-image', {
+    const resp = await adminFetch('/api/marketing/generate-image', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(params)

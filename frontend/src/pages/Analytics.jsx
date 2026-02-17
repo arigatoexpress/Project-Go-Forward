@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, PieChart, Pie, Cell } from 'recharts';
 import { Users, Search, MessageSquare, TrendingUp, ArrowUp, Phone, Calendar, DollarSign, Loader2, RefreshCw, AlertCircle } from 'lucide-react';
+import adminFetch from '../adminFetch';
 
 const PIE_COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6'];
 
@@ -31,7 +32,7 @@ export default function Analytics() {
         setLoading(true);
         setError('');
         try {
-            const resp = await fetch('/leads/stats');
+            const resp = await adminFetch('/leads/stats');
             if (!resp.ok) throw new Error(`Server returned ${resp.status}`);
             const data = await resp.json();
             if (data.error) throw new Error(data.error);
