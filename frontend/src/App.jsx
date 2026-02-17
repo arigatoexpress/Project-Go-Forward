@@ -7,7 +7,7 @@ import ComparisonDrawer from './components/ComparisonDrawer';
 import { v4 as uuidv4 } from 'uuid';
 import {
   BUSINESS_NAME, BUSINESS_PHONE, BUSINESS_PHONE_RAW, BUSINESS_ADDRESS,
-  BUSINESS_CITY, BUSINESS_HOURS, ADMIN_PIN
+  BUSINESS_CITY, BUSINESS_HOURS
 } from './constants';
 
 const API_URL = '/run'; // Relative path for single-container deployment
@@ -219,11 +219,21 @@ function App() {
   // Single page state
   const [activePage, setActivePage] = useState('inventory');
 
-  // Admin PIN gate
-  const [adminAuthed, setAdminAuthed] = useState(() => sessionStorage.getItem('tho_admin') === 'true');
+  // Admin auth — token validated by backend
+  const [adminAuthed, setAdminAuthed] = useState(false);
+  const [adminToken, setAdminToken] = useState(() => sessionStorage.getItem('tho_admin_token') || '');
   const [showPinModal, setShowPinModal] = useState(false);
   const [pinInput, setPinInput] = useState('');
   const [pinError, setPinError] = useState('');
+  const [pinLoading, setPinLoading] = useState(false);
+
+  // Verify stored token on mount
+  useEffect(() => {
+    if (!adminToken) return;
+    fetch('/api/admin/check', { headers: { 'X-Admin-Token': adminToken } })
+      .then(r => { if (r.ok) setAdminAuthed(true); else { setAdminToken(''); sessionStorage.removeItem('tho_admin_token'); } })
+      .catch(() => {});
+  }, [adminToken]);
 
   const messagesEndRef = useRef(null);
 
@@ -281,18 +291,32 @@ function App() {
     }
   };
 
-  const handlePinSubmit = (e) => {
+  const handlePinSubmit = async (e) => {
     e.preventDefault();
-    if (pinInput === ADMIN_PIN) {
-      setAdminAuthed(true);
-      sessionStorage.setItem('tho_admin', 'true');
-      setShowPinModal(false);
-      setPinInput('');
-      setPinError('');
-      navigateTo('analytics');
-    } else {
-      setPinError('Incorrect PIN. Please try again.');
-      setPinInput('');
+    setPinLoading(true);
+    setPinError('');
+    try {
+      const res = await fetch('/api/admin/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pin: pinInput }),
+      });
+      const data = await res.json();
+      if (data.success && data.token) {
+        setAdminAuthed(true);
+        setAdminToken(data.token);
+        sessionStorage.setItem('tho_admin_token', data.token);
+        setShowPinModal(false);
+        setPinInput('');
+        navigateTo('analytics');
+      } else {
+        setPinError(data.error || 'Incorrect PIN. Please try again.');
+        setPinInput('');
+      }
+    } catch {
+      setPinError('Unable to verify. Please try again.');
+    } finally {
+      setPinLoading(false);
     }
   };
 
@@ -392,10 +416,10 @@ function App() {
           {pinError && <p className="text-red-500 text-sm text-center mt-2">{pinError}</p>}
           <button
             type="submit"
-            disabled={!pinInput.trim()}
+            disabled={!pinInput.trim() || pinLoading}
             className="w-full mt-4 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition"
           >
-            Unlock
+            {pinLoading ? 'Verifying...' : 'Unlock'}
           </button>
           <button
             type="button"

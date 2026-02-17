@@ -10,12 +10,17 @@
 ## Directory Layout
 ```
 project-go-forward/
-├── main.py                    # FastAPI server, all API endpoints
+├── main.py                    # FastAPI server, all API endpoints, middleware
 ├── root_agent.py              # Multi-agent orchestration (Sales + Service agents)
 ├── config.yaml                # Business config (name, hours, agent settings, deployment)
 ├── config_loader.py           # YAML config loader with caching
 ├── conversation_memory.py     # Session context tracking + preference extraction
 ├── lead_management.py         # Lead capture and Firestore CRM
+├── appointment_manager.py     # Appointment slot management + booking
+├── email_service.py           # Transactional email via Resend
+├── analytics_service.py       # Usage analytics tracking
+├── structured_logging.py      # Request/response logging with IDs
+├── caching.py                 # Dual-layer caching (Redis + local fallback)
 ├── config/
 │   ├── field_map.json         # Central PDF template mapping registry
 │   └── field_map_loader.py    # JSON loader + accessors for field_map
@@ -27,7 +32,9 @@ project-go-forward/
 │   ├── crm_tools.py           # Appointments, business hours, leads
 │   ├── service_tools.py       # Warranty checks, defect analysis
 │   ├── form_extraction.py     # AI-powered chat-to-form data extraction
-│   └── pii_guard.py           # PII protection for logging and LLM calls
+│   ├── pii_guard.py           # PII protection for logging and LLM calls
+│   ├── asset_scraper.py       # Property photo/asset catalog
+│   └── scraper.py             # Website inventory scraper
 ├── schemas/
 │   ├── document_schemas.py    # Pydantic models for document requests/responses
 │   ├── output_schemas.py      # ADK structured output schemas
@@ -35,13 +42,17 @@ project-go-forward/
 │   └── customer_schema.json   # Customer data validation
 ├── database/
 │   ├── firestore_client.py    # Firestore CRUD (THODatabase singleton)
-│   └── models.py              # Pydantic data models (Customer, Property, Sale, etc.)
+│   └── models.py              # Pydantic data models (Customer, Property, Sale, Deal, etc.)
 ├── frontend/src/
 │   ├── App.jsx                # Main SPA with chat interface + page routing
+│   ├── constants.js           # Shared business constants (name, phone, hours)
 │   ├── pages/
+│   │   ├── InventoryBrowse.jsx # Home browsing with photos + 3D tours
 │   │   ├── DocumentCenter.jsx # Document template browser + generation UI
 │   │   ├── AdStudio.jsx       # AI marketing content creator
 │   │   ├── Analytics.jsx      # Usage analytics dashboard
+│   │   ├── CRM.jsx            # Lead + deal management dashboard
+│   │   ├── Appointments.jsx   # Appointment scheduling page
 │   │   └── Contact.jsx        # Contact form
 │   └── components/
 │       ├── SmartForm.jsx      # Dynamic form fields driven by field_map.json
@@ -49,9 +60,10 @@ project-go-forward/
 │       ├── ComparisonDrawer.jsx # Side-by-side home comparison
 │       ├── SafeMarkdown.jsx   # Markdown renderer with property card detection
 │       ├── QuickActions.jsx   # Predefined action buttons
-│       └── SearchFilters.jsx  # Inventory search filter panel
+│       ├── SearchFilters.jsx  # Inventory search filter panel
+│       └── ErrorBoundary.jsx  # React error boundary
 ├── scripts/
-│   └── batch_inspect_pdfs.py  # PDF AcroForm field discovery utility
+│   └── import_fcd_deals.py    # FCD deal import utility
 ├── tests/                     # Test files
 ├── data/generated_docs/       # Output directory for generated PDFs
 └── Dockerfile                 # Python 3.11-slim, port 8080
@@ -94,7 +106,12 @@ python scripts/batch_inspect_pdfs.py
 ```
 
 ## API Endpoints
+
+### Core
 - `POST /run` — Main chat interaction (ADK agent)
+- `GET /health` — Health check
+
+### Documents
 - `GET /api/documents/templates` — List available document templates
 - `GET /api/documents/templates/{name}/fields` — Field definitions for a template
 - `POST /api/documents/generate` — Generate any mapped document
@@ -102,7 +119,43 @@ python scripts/batch_inspect_pdfs.py
 - `POST /api/documents/sales-contract` — Legacy: TMHA sales contract only
 - `GET /api/documents/download/{filename}` — Download generated PDF
 - `POST /api/documents/extract-fields` — AI-extract form data from chat history
+
+### Deals (CRM)
+- `GET /api/deals` — List deals with filters
+- `POST /api/deals` — Create a new deal
+- `GET /api/deals/{id}` — Get deal details
+- `PUT /api/deals/{id}` — Update deal data
+- `PUT /api/deals/{id}/status` — Change deal status
+- `POST /api/deals/{id}/generate-document` — Generate document from deal data
+- `POST /api/deals/{id}/generate-packet` — Generate closing packet from deal data
+
+### Marketing
 - `POST /api/marketing/generate-script` — Ad Studio script generation
 - `GET /api/marketing/trending-ideas` — Trending content ideas
+- `POST /api/marketing/schedule` — Schedule social post
+- `GET /api/marketing/analytics` — Content performance analytics
+- `POST /api/marketing/generate-image` — AI image generation
+- `GET /api/marketing/inventory-context` — Inventory data for ad creation
+
+### Leads
+- `GET /api/leads` — List leads
+- `GET /api/leads/{id}` — Get lead details
+- `PUT /api/leads/{id}` — Update lead
 - `GET /leads/export` — CSV export of leads
 - `GET /leads/stats` — Lead statistics
+
+### Appointments
+- `GET /api/appointments/slots` — Available appointment slots
+- `POST /api/appointments` — Book appointment
+- `GET /api/appointments/{id}` — Get appointment details
+- `POST /api/appointments/{id}/cancel` — Cancel appointment
+- `GET /api/crm/appointments` — List appointments (CRM view)
+
+### Email & Contact
+- `POST /api/email/send` — Send custom email from CRM
+- `GET /api/email/log` — Email activity log
+- `POST /api/contact` — Contact form submission
+
+### Admin
+- `POST /api/admin/verify` — Validate admin PIN (returns session token)
+- `GET /api/admin/check` — Verify admin session token

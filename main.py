@@ -7,8 +7,10 @@ All business-specific config is loaded from config.yaml.
 
 import os
 import uvicorn
+from collections import defaultdict
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from google.adk.runners import InMemoryRunner
@@ -63,15 +65,47 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
         return response
 
-app.add_middleware(SecurityHeadersMiddleware)
+# Rate limiting middleware — per-IP sliding window
+MAX_REQUESTS_PER_MINUTE = int(os.environ.get("RATE_LIMIT_RPM", "60"))
+MAX_REQUEST_BODY_BYTES = int(os.environ.get("MAX_REQUEST_BODY_BYTES", str(1 * 1024 * 1024)))  # 1 MB default
 
-# Add CORS — production origins only; add localhost in dev
+class RateLimitMiddleware(BaseHTTPMiddleware):
+    def __init__(self, app):
+        super().__init__(app)
+        self._hits: dict[str, list[float]] = defaultdict(list)
+
+    async def dispatch(self, request: Request, call_next):
+        client_ip = request.client.host if request.client else "unknown"
+        now = time.time()
+        window = self._hits[client_ip]
+        # Prune entries older than 60s
+        self._hits[client_ip] = window = [t for t in window if now - t < 60]
+        if len(window) >= MAX_REQUESTS_PER_MINUTE:
+            return JSONResponse({"error": "Rate limit exceeded. Please try again shortly."}, status_code=429)
+        window.append(now)
+        return await call_next(request)
+
+class RequestSizeLimitMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        content_length = request.headers.get("content-length")
+        if content_length and int(content_length) > MAX_REQUEST_BODY_BYTES:
+            return JSONResponse({"error": "Request body too large."}, status_code=413)
+        return await call_next(request)
+
+app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(RateLimitMiddleware)
+app.add_middleware(RequestSizeLimitMiddleware)
+
+# Add CORS — production origins from env, with sensible defaults
 IS_LOCAL = os.environ.get("K_SERVICE") is None  # K_SERVICE is set by Cloud Run
+_default_origins = (
+    "https://tho-agent-691674245427.us-central1.run.app,"
+    "https://tho-agent-trgi34bxuq-uc.a.run.app,"
+    "https://tho-ai-agent.web.app,"
+    "https://tho-ai-agent.firebaseapp.com"
+)
 ALLOWED_ORIGINS = [
-    "https://tho-agent-691674245427.us-central1.run.app",
-    "https://tho-agent-trgi34bxuq-uc.a.run.app",
-    "https://tho-ai-agent.web.app",
-    "https://tho-ai-agent.firebaseapp.com",
+    o.strip() for o in os.environ.get("ALLOWED_ORIGINS", _default_origins).split(",") if o.strip()
 ]
 if IS_LOCAL:
     ALLOWED_ORIGINS += ["http://localhost:8080", "http://localhost:5173"]
@@ -1025,6 +1059,44 @@ async def get_email_log_api(limit: int = 50, email_type: str = None):
     except Exception as e:
         struct_logger.error("Email log fetch failed", error=str(e))
         return {"success": False, "error": str(e)}
+
+
+# ─── Admin Auth API ───
+import hashlib
+import secrets
+
+ADMIN_PIN_HASH = os.environ.get(
+    "ADMIN_PIN_HASH",
+    hashlib.sha256("4832".encode()).hexdigest(),  # default for dev; override in production
+)
+
+# Simple token store (in-memory; resets on restart which is fine for admin sessions)
+_admin_tokens: dict[str, float] = {}
+ADMIN_TOKEN_TTL = 8 * 60 * 60  # 8 hours
+
+
+@app.post("/api/admin/verify")
+async def verify_admin_pin(request: Request):
+    """Validate admin PIN server-side and return a session token."""
+    data = await request.json()
+    pin = data.get("pin", "")
+    pin_hash = hashlib.sha256(pin.encode()).hexdigest()
+    if not secrets.compare_digest(pin_hash, ADMIN_PIN_HASH):
+        return JSONResponse({"success": False, "error": "Incorrect PIN."}, status_code=401)
+    token = secrets.token_urlsafe(32)
+    _admin_tokens[token] = time.time()
+    return {"success": True, "token": token}
+
+
+@app.get("/api/admin/check")
+async def check_admin_token(request: Request):
+    """Verify that an admin token is still valid."""
+    token = request.headers.get("X-Admin-Token", "")
+    issued = _admin_tokens.get(token)
+    if issued and (time.time() - issued) < ADMIN_TOKEN_TTL:
+        return {"valid": True}
+    _admin_tokens.pop(token, None)
+    return JSONResponse({"valid": False}, status_code=401)
 
 
 # Serve Frontend — Must be last to avoid catching API routes
