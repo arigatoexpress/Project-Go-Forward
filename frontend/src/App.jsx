@@ -383,6 +383,9 @@ function App() {
               handleQuickAction(message);
             }}
             onBack={() => navigateTo('chat')}
+            onCreateAd={adminAuthed ? (homeName) => {
+              navigateTo('adstudio');
+            } : undefined}
           />
         </Suspense>
 

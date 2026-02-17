@@ -1,15 +1,39 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Search, SlidersHorizontal, X, Home, Bed, Bath, Maximize2,
   Camera, Box, ChevronLeft, ChevronRight, MapPin, Phone,
-  MessageCircle, Grid3X3, LayoutList, Loader2, Eye
+  MessageCircle, Grid3X3, Loader2, Eye, ArrowUpDown, Calendar,
+  DollarSign, Video, CheckCircle2, AlertCircle
 } from 'lucide-react';
 import './InventoryBrowse.css';
 
 const CDN_BASE = "https://d132mt2yijm03y.cloudfront.net";
 const MATTERPORT_BASE = "https://my.matterport.com/show/?m=";
 
-export default function InventoryBrowse({ onAskTex, onBack }) {
+// ─── Analytics helper ───
+function trackEvent(event, data = {}) {
+  try {
+    fetch('/api/contact', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ _event: event, ...data }),
+    }).catch(() => {}); // fire and forget
+  } catch {}
+}
+
+// ─── Sort options ───
+const SORT_OPTIONS = [
+  { value: 'default', label: 'Default' },
+  { value: 'price_low', label: 'Price: Low to High' },
+  { value: 'price_high', label: 'Price: High to Low' },
+  { value: 'sqft_high', label: 'Largest First' },
+  { value: 'sqft_low', label: 'Smallest First' },
+  { value: 'beds_high', label: 'Most Bedrooms' },
+  { value: 'photos', label: 'Most Photos' },
+];
+
+
+export default function InventoryBrowse({ onAskTex, onBack, onCreateAd }) {
   const [homes, setHomes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -18,16 +42,23 @@ export default function InventoryBrowse({ onAskTex, onBack }) {
   const [activePhotoIndex, setActivePhotoIndex] = useState(0);
   const [activeCategory, setActiveCategory] = useState('all');
   const [showTour, setShowTour] = useState(false);
+  const [sortBy, setSortBy] = useState('default');
 
   // Filters
   const [filters, setFilters] = useState({
-    status: '', // '' | 'Available' | 'Pre-Owned'
+    status: '',
     beds: '',
     baths: '',
     minPrice: '',
     maxPrice: '',
+    classification: '',
   });
   const [showFilters, setShowFilters] = useState(false);
+
+  // Lead capture form
+  const [showLeadForm, setShowLeadForm] = useState(false);
+  const [leadFormHome, setLeadFormHome] = useState(null);
+  const [leadFormType, setLeadFormType] = useState('tour'); // 'tour' | 'price'
 
   useEffect(() => {
     fetchInventory();
@@ -47,28 +78,44 @@ export default function InventoryBrowse({ onAskTex, onBack }) {
     }
   };
 
+  // Enhanced search — matches name, manufacturer, features, classification, specs
+  const matchesSearch = (home, q) => {
+    const query = q.toLowerCase();
+    const name = (home.model_name || '').toLowerCase();
+    const mfr = (home.manufacturer || '').toLowerCase();
+    const classification = (home.classification || '').toLowerCase();
+    const features = (home.features || []).join(' ').toLowerCase();
+    const dims = (home.specs?.dimensions || '').toLowerCase();
+    const beds = String(home.specs?.beds || '');
+    const baths = String(home.specs?.baths || '');
+
+    return (
+      name.includes(query) ||
+      mfr.includes(query) ||
+      classification.includes(query) ||
+      features.includes(query) ||
+      dims.includes(query) ||
+      (query.match(/^\d+\s*bed/) && beds === query.match(/^(\d+)/)[1]) ||
+      (query.match(/^\d+\s*bath/) && baths === query.match(/^(\d+)/)[1]) ||
+      (query === 'single wide' && classification === 'single wide') ||
+      (query === 'double wide' && classification === 'double wide') ||
+      (query === 'park model' && name.includes('park model')) ||
+      (query === '3d tour' && !!home.matterport_id)
+    );
+  };
+
   // Filter and search logic
   const filteredHomes = homes.filter(home => {
-    // Search query
-    if (searchQuery) {
-      const q = searchQuery.toLowerCase();
-      const name = (home.model_name || '').toLowerCase();
-      const mfr = (home.manufacturer || '').toLowerCase();
-      if (!name.includes(q) && !mfr.includes(q)) return false;
-    }
-    // Status filter
+    if (searchQuery && !matchesSearch(home, searchQuery)) return false;
     if (filters.status && home.status !== filters.status) return false;
-    // Beds filter
     if (filters.beds) {
       const beds = home.specs?.beds || 0;
       if (beds < parseInt(filters.beds)) return false;
     }
-    // Baths filter
     if (filters.baths) {
       const baths = home.specs?.baths || 0;
       if (baths < parseInt(filters.baths)) return false;
     }
-    // Price range
     if (filters.minPrice) {
       const price = home.price_value || 0;
       if (price > 0 && price < parseFloat(filters.minPrice)) return false;
@@ -77,12 +124,46 @@ export default function InventoryBrowse({ onAskTex, onBack }) {
       const price = home.price_value || 0;
       if (price > 0 && price > parseFloat(filters.maxPrice)) return false;
     }
+    if (filters.classification) {
+      if ((home.classification || '').toLowerCase() !== filters.classification.toLowerCase()) return false;
+    }
     return true;
   });
 
+  // Sort
+  const sortedHomes = [...filteredHomes].sort((a, b) => {
+    const priceA = a.price_value || 0;
+    const priceB = b.price_value || 0;
+    const sqftA = a.specs?.sq_ft || 0;
+    const sqftB = b.specs?.sq_ft || 0;
+    const bedsA = a.specs?.beds || 0;
+    const bedsB = b.specs?.beds || 0;
+    const photosA = (a.real_photos || a.gallery_images || []).length;
+    const photosB = (b.real_photos || b.gallery_images || []).length;
+
+    switch (sortBy) {
+      case 'price_low':
+        if (!priceA && !priceB) return 0;
+        if (!priceA) return 1;
+        if (!priceB) return -1;
+        return priceA - priceB;
+      case 'price_high':
+        if (!priceA && !priceB) return 0;
+        if (!priceA) return 1;
+        if (!priceB) return -1;
+        return priceB - priceA;
+      case 'sqft_high': return sqftB - sqftA;
+      case 'sqft_low': return sqftA - sqftB;
+      case 'beds_high': return bedsB - bedsA;
+      case 'photos': return photosB - photosA;
+      default: return 0;
+    }
+  });
+
   const clearFilters = () => {
-    setFilters({ status: '', beds: '', baths: '', minPrice: '', maxPrice: '' });
+    setFilters({ status: '', beds: '', baths: '', minPrice: '', maxPrice: '', classification: '' });
     setSearchQuery('');
+    setSortBy('default');
   };
 
   const hasActiveFilters = Object.values(filters).some(v => v !== '') || searchQuery;
@@ -96,12 +177,8 @@ export default function InventoryBrowse({ onAskTex, onBack }) {
     const catFiles = home.image_categories[activeCategory] || [];
     if (catFiles.length === 0) return allPhotos;
 
-    // Build full URLs from filenames
-    const planId = home.id ? null : null; // Website homes have full URLs already
     return catFiles.map(f => {
-      // If already a full URL, return as-is
       if (f.startsWith('http')) return f;
-      // Try to find matching full URL from allPhotos
       const match = allPhotos.find(url => url.includes(f));
       return match || f;
     });
@@ -112,6 +189,7 @@ export default function InventoryBrowse({ onAskTex, onBack }) {
     setActivePhotoIndex(0);
     setActiveCategory('all');
     setShowTour(false);
+    trackEvent('home_viewed', { home: home.model_name, status: home.status });
   };
 
   const closeDetail = () => {
@@ -135,7 +213,7 @@ export default function InventoryBrowse({ onAskTex, onBack }) {
     }
   };
 
-  // Keyboard navigation for photo gallery
+  // Keyboard navigation
   useEffect(() => {
     if (!selectedHome) return;
     const handler = (e) => {
@@ -147,10 +225,17 @@ export default function InventoryBrowse({ onAskTex, onBack }) {
     return () => window.removeEventListener('keydown', handler);
   }, [selectedHome, photos.length]);
 
-  // Reset photo index when category changes
   useEffect(() => {
     setActivePhotoIndex(0);
   }, [activeCategory]);
+
+  // Lead capture handlers
+  const openLeadForm = (home, type) => {
+    setLeadFormHome(home);
+    setLeadFormType(type);
+    setShowLeadForm(true);
+    trackEvent('lead_form_opened', { home: home.model_name, type });
+  };
 
   // --- RENDER ---
 
@@ -174,6 +259,11 @@ export default function InventoryBrowse({ onAskTex, onBack }) {
     );
   }
 
+  // Stats for hero
+  const newCount = homes.filter(h => h.status === 'Available').length;
+  const preOwnedCount = homes.filter(h => h.status === 'Pre-Owned').length;
+  const tourCount = homes.filter(h => h.matterport_id).length;
+
   return (
     <div className="tho-browse">
       {/* Hero Section */}
@@ -181,7 +271,7 @@ export default function InventoryBrowse({ onAskTex, onBack }) {
         <div className="tho-browse-hero-content">
           <h1 className="tho-browse-hero-title">Find Your Perfect Home</h1>
           <p className="tho-browse-hero-subtitle">
-            Browse {homes.length} manufactured homes — new and pre-owned — with real photos, floor plans, and 3D tours
+            Browse {homes.length} manufactured homes — {newCount} new, {preOwnedCount} pre-owned — with real photos and {tourCount} 3D virtual tours
           </p>
 
           {/* Search Bar */}
@@ -191,7 +281,7 @@ export default function InventoryBrowse({ onAskTex, onBack }) {
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search by name, manufacturer..."
+              placeholder="Search by name, manufacturer, beds, type..."
               className="tho-browse-search-input"
             />
             {searchQuery && (
@@ -203,11 +293,11 @@ export default function InventoryBrowse({ onAskTex, onBack }) {
         </div>
       </div>
 
-      {/* Filter Bar */}
+      {/* Toolbar */}
       <div className="tho-browse-toolbar">
         <div className="tho-browse-toolbar-left">
           <span className="tho-browse-count">
-            {filteredHomes.length} home{filteredHomes.length !== 1 ? 's' : ''}
+            {sortedHomes.length} home{sortedHomes.length !== 1 ? 's' : ''}
           </span>
 
           {/* Quick status toggles */}
@@ -219,15 +309,29 @@ export default function InventoryBrowse({ onAskTex, onBack }) {
             <button
               onClick={() => setFilters(f => ({ ...f, status: 'Available' }))}
               className={`tho-status-tab ${filters.status === 'Available' ? 'active' : ''}`}
-            >New</button>
+            >New ({newCount})</button>
             <button
               onClick={() => setFilters(f => ({ ...f, status: 'Pre-Owned' }))}
               className={`tho-status-tab ${filters.status === 'Pre-Owned' ? 'active' : ''}`}
-            >Pre-Owned</button>
+            >Pre-Owned ({preOwnedCount})</button>
           </div>
         </div>
 
         <div className="tho-browse-toolbar-right">
+          {/* Sort dropdown */}
+          <div className="tho-sort-wrap">
+            <ArrowUpDown size={14} />
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value)}
+              className="tho-sort-select"
+            >
+              {SORT_OPTIONS.map(opt => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+          </div>
+
           <button
             onClick={() => setShowFilters(!showFilters)}
             className={`tho-filter-btn ${hasActiveFilters ? 'active' : ''}`}
@@ -272,6 +376,14 @@ export default function InventoryBrowse({ onAskTex, onBack }) {
               </select>
             </div>
             <div className="tho-filter-group">
+              <label><Home size={14} /> Type</label>
+              <select value={filters.classification} onChange={e => setFilters(f => ({ ...f, classification: e.target.value }))}>
+                <option value="">Any</option>
+                <option value="Single Wide">Single Wide</option>
+                <option value="Double Wide">Double Wide</option>
+              </select>
+            </div>
+            <div className="tho-filter-group">
               <label>Min Price</label>
               <input
                 type="number"
@@ -295,12 +407,17 @@ export default function InventoryBrowse({ onAskTex, onBack }) {
 
       {/* Home Cards Grid */}
       <div className="tho-browse-grid">
-        {filteredHomes.map((home, idx) => (
-          <HomeCard key={home.id || idx} home={home} onClick={() => openDetail(home)} />
+        {sortedHomes.map((home, idx) => (
+          <HomeCard
+            key={home.id || idx}
+            home={home}
+            onClick={() => openDetail(home)}
+            onScheduleTour={() => openLeadForm(home, 'tour')}
+          />
         ))}
       </div>
 
-      {filteredHomes.length === 0 && !loading && (
+      {sortedHomes.length === 0 && !loading && (
         <div className="tho-browse-empty">
           <Home size={48} className="text-gray-300" />
           <p className="text-gray-500 mt-4">No homes match your search.</p>
@@ -321,10 +438,28 @@ export default function InventoryBrowse({ onAskTex, onBack }) {
           onClose={closeDetail}
           onPrevPhoto={prevPhoto}
           onNextPhoto={nextPhoto}
-          onSetPhotoIndex={setActivePhotoIndex}
+          onSetPhotoIndex={(idx) => {
+            setActivePhotoIndex(idx);
+            trackEvent('photo_clicked', { home: selectedHome.model_name, index: idx });
+          }}
           onSetCategory={(cat) => setActiveCategory(cat)}
-          onToggleTour={() => setShowTour(!showTour)}
+          onToggleTour={() => {
+            setShowTour(!showTour);
+            if (!showTour) trackEvent('tour_opened', { home: selectedHome.model_name });
+          }}
           onAskTex={onAskTex}
+          onScheduleTour={() => openLeadForm(selectedHome, 'tour')}
+          onGetPrice={() => openLeadForm(selectedHome, 'price')}
+          onCreateAd={onCreateAd}
+        />
+      )}
+
+      {/* Lead Capture Modal */}
+      {showLeadForm && leadFormHome && (
+        <LeadCaptureForm
+          home={leadFormHome}
+          type={leadFormType}
+          onClose={() => { setShowLeadForm(false); setLeadFormHome(null); }}
         />
       )}
     </div>
@@ -333,7 +468,7 @@ export default function InventoryBrowse({ onAskTex, onBack }) {
 
 
 // ─── Home Card Component ───
-function HomeCard({ home, onClick }) {
+function HomeCard({ home, onClick, onScheduleTour }) {
   const photoCount = (home.real_photos || home.gallery_images || []).length;
   const heroImage = (home.real_photos?.[0]) || home.image_url || home.floor_plan_url || '';
   const hasTour = !!home.matterport_id;
@@ -342,9 +477,9 @@ function HomeCard({ home, onClick }) {
   const isNew = home.status === 'Available';
 
   return (
-    <div className="tho-home-card" onClick={onClick}>
-      {/* Image */}
-      <div className="tho-card-image-wrap">
+    <div className="tho-home-card">
+      {/* Image — click opens detail */}
+      <div className="tho-card-image-wrap" onClick={onClick}>
         {heroImage ? (
           <img
             src={heroImage}
@@ -382,7 +517,7 @@ function HomeCard({ home, onClick }) {
 
       {/* Info */}
       <div className="tho-card-info">
-        <h3 className="tho-card-name">{home.model_name}</h3>
+        <h3 className="tho-card-name" onClick={onClick}>{home.model_name}</h3>
         <p className="tho-card-manufacturer">{home.manufacturer || 'New Vision Manufacturing'}</p>
 
         <div className="tho-card-specs">
@@ -413,9 +548,18 @@ function HomeCard({ home, onClick }) {
           }
         </div>
 
-        <button className="tho-card-view-btn">
-          <Eye size={16} /> View Details
-        </button>
+        {/* Dual action buttons */}
+        <div className="tho-card-actions">
+          <button className="tho-card-view-btn" onClick={onClick}>
+            <Eye size={16} /> View Details
+          </button>
+          <button
+            className="tho-card-tour-btn"
+            onClick={(e) => { e.stopPropagation(); onScheduleTour(); }}
+          >
+            <Calendar size={16} /> Schedule Tour
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -426,13 +570,27 @@ function HomeCard({ home, onClick }) {
 function HomeDetailModal({
   home, photos, activePhotoIndex, activeCategory, showTour,
   onClose, onPrevPhoto, onNextPhoto, onSetPhotoIndex, onSetCategory,
-  onToggleTour, onAskTex
+  onToggleTour, onAskTex, onScheduleTour, onGetPrice, onCreateAd
 }) {
   const specs = home.specs || {};
   const categories = home.image_categories || {};
   const categoryKeys = Object.keys(categories);
   const hasTour = !!home.matterport_id;
   const floorPlan = home.floor_plan_url;
+  const isCallForPrice = !home.display_price || home.display_price === 'Call for Price';
+
+  // Touch swipe for mobile
+  const touchStart = useRef(null);
+  const handleTouchStart = (e) => { touchStart.current = e.touches[0].clientX; };
+  const handleTouchEnd = (e) => {
+    if (touchStart.current === null) return;
+    const diff = touchStart.current - e.changedTouches[0].clientX;
+    if (Math.abs(diff) > 50) {
+      if (diff > 0) onNextPhoto();
+      else onPrevPhoto();
+    }
+    touchStart.current = null;
+  };
 
   return (
     <div className="tho-detail-overlay" onClick={onClose}>
@@ -454,7 +612,11 @@ function HomeDetailModal({
               />
             </div>
           ) : photos.length > 0 ? (
-            <div className="tho-detail-photo-main">
+            <div
+              className="tho-detail-photo-main"
+              onTouchStart={handleTouchStart}
+              onTouchEnd={handleTouchEnd}
+            >
               <img
                 src={photos[activePhotoIndex]}
                 alt={`${home.model_name} photo ${activePhotoIndex + 1}`}
@@ -484,7 +646,6 @@ function HomeDetailModal({
 
           {/* Category Tabs + Thumbnail Strip */}
           <div className="tho-detail-gallery-controls">
-            {/* View toggle: Photos vs 3D Tour */}
             <div className="tho-detail-view-toggle">
               <button
                 className={`tho-view-tab ${!showTour ? 'active' : ''}`}
@@ -507,7 +668,6 @@ function HomeDetailModal({
               )}
             </div>
 
-            {/* Category filter tabs */}
             {categoryKeys.length > 0 && !showTour && (
               <div className="tho-detail-cat-tabs">
                 <button
@@ -526,7 +686,6 @@ function HomeDetailModal({
               </div>
             )}
 
-            {/* Thumbnail strip */}
             {!showTour && photos.length > 1 && (
               <div className="tho-detail-thumbs">
                 {photos.map((photo, idx) => (
@@ -590,11 +749,13 @@ function HomeDetailModal({
           {/* Price */}
           <div className="tho-detail-price-section">
             <span className="tho-detail-price">
-              {home.display_price && home.display_price !== 'Call for Price'
-                ? home.display_price
-                : 'Call for Price'
-              }
+              {!isCallForPrice ? home.display_price : 'Call for Price'}
             </span>
+            {isCallForPrice && (
+              <button className="tho-get-price-btn" onClick={onGetPrice}>
+                <DollarSign size={16} /> Get Price Quote
+              </button>
+            )}
           </div>
 
           {/* Features */}
@@ -618,9 +779,26 @@ function HomeDetailModal({
             >
               <MessageCircle size={18} /> Ask Tex About This Home
             </button>
+            <button className="tho-detail-schedule-btn" onClick={onScheduleTour}>
+              <Calendar size={18} /> Schedule a Tour
+            </button>
+          </div>
+
+          <div className="tho-detail-secondary-actions">
             <a href="tel:+12813243020" className="tho-detail-call-btn">
-              <Phone size={18} /> Call (281) 324-3020
+              <Phone size={16} /> Call (281) 324-3020
             </a>
+            {onCreateAd && (
+              <button
+                className="tho-detail-ad-btn"
+                onClick={() => {
+                  onClose();
+                  onCreateAd(home.model_name);
+                }}
+              >
+                <Video size={16} /> Create Ad
+              </button>
+            )}
           </div>
 
           {/* Location */}
@@ -629,6 +807,131 @@ function HomeDetailModal({
             <span>10685 FM 1960 East, Huffman, TX — Mon-Fri 9-6, Sat 9-5</span>
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+
+// ─── Lead Capture Form Modal ───
+function LeadCaptureForm({ home, type, onClose }) {
+  const [formData, setFormData] = useState({ name: '', phone: '', email: '', message: '' });
+  const [submitting, setSubmitting] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!formData.name || !formData.phone) {
+      setError('Name and phone number are required.');
+      return;
+    }
+    setSubmitting(true);
+    setError('');
+    try {
+      const resp = await fetch('/api/contact', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: formData.name,
+          phone: formData.phone,
+          email: formData.email,
+          message: `${type === 'tour' ? 'Tour Request' : 'Price Quote Request'} — ${home.model_name}. ${formData.message}`.trim(),
+        }),
+      });
+      if (!resp.ok) throw new Error('Submission failed');
+      setSubmitted(true);
+      trackEvent('lead_captured', { home: home.model_name, type });
+    } catch {
+      setError('Something went wrong. Please call us at (281) 324-3020.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="tho-lead-overlay" onClick={onClose}>
+      <div className="tho-lead-modal" onClick={e => e.stopPropagation()}>
+        <button onClick={onClose} className="tho-lead-close" aria-label="Close">
+          <X size={20} />
+        </button>
+
+        {submitted ? (
+          <div className="tho-lead-success">
+            <CheckCircle2 size={48} className="text-green-500" />
+            <h3>Thank You!</h3>
+            <p>We received your {type === 'tour' ? 'tour request' : 'price quote request'} for the <strong>{home.model_name}</strong>. Our team will contact you shortly.</p>
+            <button onClick={onClose} className="tho-lead-done-btn">Done</button>
+          </div>
+        ) : (
+          <>
+            <div className="tho-lead-header">
+              <h3>{type === 'tour' ? 'Schedule a Tour' : 'Get a Price Quote'}</h3>
+              <p className="tho-lead-home-name">
+                {type === 'tour' ? 'Visit' : 'Get pricing for'} the <strong>{home.model_name}</strong>
+                {home.specs?.beds && ` — ${home.specs.beds} Bed, ${home.specs.baths} Bath`}
+                {home.specs?.sq_ft && `, ${home.specs.sq_ft.toLocaleString()} sqft`}
+              </p>
+            </div>
+
+            <form onSubmit={handleSubmit} className="tho-lead-form">
+              <div className="tho-lead-field">
+                <label>Name *</label>
+                <input
+                  type="text"
+                  value={formData.name}
+                  onChange={e => setFormData(f => ({ ...f, name: e.target.value }))}
+                  placeholder="Your full name"
+                  required
+                />
+              </div>
+              <div className="tho-lead-field">
+                <label>Phone *</label>
+                <input
+                  type="tel"
+                  value={formData.phone}
+                  onChange={e => setFormData(f => ({ ...f, phone: e.target.value }))}
+                  placeholder="(555) 123-4567"
+                  required
+                />
+              </div>
+              <div className="tho-lead-field">
+                <label>Email</label>
+                <input
+                  type="email"
+                  value={formData.email}
+                  onChange={e => setFormData(f => ({ ...f, email: e.target.value }))}
+                  placeholder="you@email.com"
+                />
+              </div>
+              <div className="tho-lead-field">
+                <label>{type === 'tour' ? 'Preferred date/time' : 'Additional details'}</label>
+                <textarea
+                  value={formData.message}
+                  onChange={e => setFormData(f => ({ ...f, message: e.target.value }))}
+                  placeholder={type === 'tour' ? 'e.g., Saturday morning, weekday after 5pm...' : 'Any questions or preferences...'}
+                  rows={3}
+                />
+              </div>
+
+              {error && (
+                <div className="tho-lead-error">
+                  <AlertCircle size={14} /> {error}
+                </div>
+              )}
+
+              <button type="submit" className="tho-lead-submit-btn" disabled={submitting}>
+                {submitting ? (
+                  <><Loader2 size={16} className="animate-spin" /> Submitting...</>
+                ) : type === 'tour' ? (
+                  <><Calendar size={16} /> Request Tour</>
+                ) : (
+                  <><DollarSign size={16} /> Get Quote</>
+                )}
+              </button>
+            </form>
+          </>
+        )}
       </div>
     </div>
   );
