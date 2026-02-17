@@ -4,10 +4,13 @@ Tracks user preferences and conversation context within a session
 """
 
 import json
+import logging
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, asdict
 from datetime import datetime
 from google.cloud import firestore
+
+logger = logging.getLogger(__name__)
 
 @dataclass
 class UserPreferences:
@@ -231,5 +234,5 @@ class ConversationMemory:
                 return "\\n\\nConversation Context:\\n" + "\\n".join(f"- {p}" for p in parts)
             return ""
         except Exception as e:
-            print(f"Error getting context prompt: {e}")
+            logger.warning("Error getting context prompt: %s", e)
             return ""

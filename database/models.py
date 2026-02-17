@@ -7,7 +7,8 @@ from datetime import date, datetime
 from decimal import Decimal
 from enum import Enum
 from typing import Optional, List
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+import re
 import uuid
 
 
@@ -28,18 +29,32 @@ class InventoryStatus(str, Enum):
 class Customer(BaseModel):
     """Customer/Tenant record"""
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    full_name: str
+    full_name: str = Field(min_length=1)
     phone: Optional[str] = None
     email: Optional[str] = None
     status: CustomerStatus = CustomerStatus.LEAD
-    
+
     # Billing info
     billing_account: Optional[str] = None  # e.g., "Prosperity Acquisitions LLC - 15th"
-    
+
     # Timestamps
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
-    
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, v):
+        if v is not None and not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", v):
+            raise ValueError("Invalid email format")
+        return v
+
+    @field_validator("phone")
+    @classmethod
+    def validate_phone(cls, v):
+        if v is not None and len(re.sub(r"\D", "", v)) < 10:
+            raise ValueError("Phone must contain at least 10 digits")
+        return v
+
     class Config:
         use_enum_values = True
 
@@ -69,30 +84,30 @@ class Property(BaseModel):
 class Inventory(BaseModel):
     """Manufactured home inventory"""
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    serial_number: str
-    model_name: str
+    serial_number: str = Field(min_length=1)
+    model_name: str = Field(min_length=1)
     manufacturer: Optional[str] = None  # e.g., "Tru Belton", "Champion LA"
-    
+
     # Pricing
     invoice_date: Optional[date] = None
-    invoice_amount: Optional[float] = None
-    msrp: Optional[float] = None
-    
+    invoice_amount: Optional[float] = Field(default=None, ge=0)
+    msrp: Optional[float] = Field(default=None, ge=0)
+
     # Specs (parsed from model name)
-    bedrooms: Optional[int] = None
-    bathrooms: Optional[int] = None
-    sqft: Optional[int] = None
-    width: Optional[int] = None  # e.g., 14, 28, 32
-    length: Optional[int] = None  # e.g., 60, 66, 76
-    
+    bedrooms: Optional[int] = Field(default=None, ge=0, le=10)
+    bathrooms: Optional[int] = Field(default=None, ge=0, le=10)
+    sqft: Optional[int] = Field(default=None, ge=0)
+    width: Optional[int] = Field(default=None, ge=0)   # e.g., 14, 28, 32
+    length: Optional[int] = Field(default=None, ge=0)  # e.g., 60, 66, 76
+
     # Status
     status: InventoryStatus = InventoryStatus.AVAILABLE
     notes: Optional[str] = None
-    
+
     # Media
     photos: List[str] = Field(default_factory=list)
     video_tour_url: Optional[str] = None
-    
+
     class Config:
         use_enum_values = True
 
@@ -102,20 +117,20 @@ class Sale(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     customer_id: str
     inventory_id: str
-    
+
     # Sale details
     salesman: Optional[str] = None
     customer_number: Optional[str] = None  # 21st Mortgage customer #
     sale_date: Optional[date] = None
-    sale_price: Optional[float] = None
-    
+    sale_price: Optional[float] = Field(default=None, ge=0)
+
     # Financing
-    down_payment: Optional[float] = None
-    financed_amount: Optional[float] = None
-    monthly_payment: Optional[float] = None
-    loan_term_months: Optional[int] = None
-    interest_rate: Optional[float] = None
-    
+    down_payment: Optional[float] = Field(default=None, ge=0)
+    financed_amount: Optional[float] = Field(default=None, ge=0)
+    monthly_payment: Optional[float] = Field(default=None, ge=0)
+    loan_term_months: Optional[int] = Field(default=None, ge=0)
+    interest_rate: Optional[float] = Field(default=None, ge=0, le=100)
+
     # Status
     contract_status: str = "pending"  # pending, approved, funded, complete
     notes: Optional[str] = None
@@ -126,16 +141,16 @@ class Lease(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     customer_id: str
     property_id: str
-    
+
     # Terms
-    monthly_payment: float
+    monthly_payment: float = Field(ge=0)
     lease_start_date: Optional[date] = None
     lease_end_date: Optional[date] = None
-    
+
     # Billing
     billing_account: Optional[str] = None
-    payment_day: int = 1  # Day of month payment is due
-    
+    payment_day: int = Field(default=1, ge=1, le=31)  # Day of month payment is due
+
     # Status
     status: str = "active"  # active, delinquent, paid_off, terminated
 
@@ -246,8 +261,8 @@ class Deal(BaseModel):
     is_new: bool = True
 
     # ─── Pricing ───
-    sales_price: Optional[float] = None
-    down_payment: Optional[float] = None
+    sales_price: Optional[float] = Field(default=None, ge=0)
+    down_payment: Optional[float] = Field(default=None, ge=0)
 
     # ─── Financing / Loan ───
     creditor_name: Optional[str] = None
@@ -256,11 +271,11 @@ class Deal(BaseModel):
     creditor_phone: Optional[str] = None
     loan_term: Optional[str] = None
     apr: Optional[str] = None
-    finance_charge: Optional[float] = None
-    max_financed: Optional[float] = None
-    total_payments: Optional[float] = None
+    finance_charge: Optional[float] = Field(default=None, ge=0)
+    max_financed: Optional[float] = Field(default=None, ge=0)
+    total_payments: Optional[float] = Field(default=None, ge=0)
     payment_start_date: Optional[str] = None
-    insurance_premium: Optional[float] = None
+    insurance_premium: Optional[float] = Field(default=None, ge=0)
 
     # ─── Notes ───
     notes: Optional[str] = None
