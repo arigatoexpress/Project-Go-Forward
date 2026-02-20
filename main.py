@@ -35,6 +35,7 @@ vertexai.init(project=project_id, location=location)
 from root_agent import root_agent
 from structured_logging import logger as struct_logger
 from conversation_memory import ConversationMemory
+from tools.pii_guard import redact_pii_from_text, validate_no_pii_in_text
 from lead_management import LeadManager, Lead
 from appointment_manager import AppointmentManager, Appointment
 from email_service import (
@@ -65,6 +66,19 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["X-XSS-Protection"] = "1; mode=block"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+        # CSP: allow self, inline styles (Tailwind), Matterport iframes, CloudFront CDN images
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; "
+            "script-src 'self' 'unsafe-inline'; "
+            "style-src 'self' 'unsafe-inline'; "
+            "img-src 'self' https://d132mt2yijm03y.cloudfront.net https: data:; "
+            "frame-src https://my.matterport.com; "
+            "connect-src 'self'; "
+            "font-src 'self'; "
+            "frame-ancestors 'none'"
+        )
+        # HSTS: enforce HTTPS for 1 year (only effective on HTTPS connections)
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
         return response
 
 # Rate limiting middleware — per-IP sliding window
@@ -143,8 +157,16 @@ async def run_agent(request: Request):
         if new_message_dict and "parts" in new_message_dict:
             text_content = new_message_dict["parts"][0].get("text", "")
         
-        struct_logger.request(request_id, user_id, session_id, text_content)
-        
+        # Sanitize text before logging — never log raw PII
+        safe_text = redact_pii_from_text(text_content)
+        struct_logger.request(request_id, user_id, session_id, safe_text)
+
+        # Warn if user submitted PII (server-side only)
+        pii_check = validate_no_pii_in_text(text_content)
+        if not pii_check["clean"]:
+            struct_logger.warning("PII detected in user message",
+                request_id=request_id, findings=pii_check["findings"])
+
         # Get conversation context
         context = None
         try:
@@ -283,7 +305,7 @@ async def export_leads(status: str = None):
         )
     except Exception as e:
         struct_logger.error("Lead export failed", error=str(e))
-        return {"error": str(e)}, 500
+        return {"error": "Failed to export leads. Please try again."}, 500
 
 
 @app.get("/leads/stats", dependencies=[Depends(require_admin)])
@@ -327,7 +349,7 @@ async def create_session(app_name: str, user_id: str, session_id: str):
         return {"status": "created", "session_id": session_id}
     except Exception as e:
         logger.error(f"Error creating session: {str(e)}")
-        return {"status": "error", "message": str(e)}
+        return {"status": "error", "message": "Failed to create session. Please try again."}
 
 
 
@@ -355,7 +377,7 @@ async def list_templates():
         return {"templates": templates, "packets": packets}
     except Exception as e:
         struct_logger.error("Template listing failed", error=str(e))
-        return {"error": str(e)}
+        return {"error": "Failed to load templates. Please try again."}
 
 @app.get("/api/documents/templates/{template_name}/fields")
 async def get_template_fields(template_name: str):
@@ -367,7 +389,7 @@ async def get_template_fields(template_name: str):
         return fields
     except Exception as e:
         struct_logger.error("Template field lookup failed", error=str(e))
-        return {"error": str(e)}
+        return {"error": "Failed to load template fields. Please try again."}
 
 @app.post("/api/documents/generate")
 async def generate_document_endpoint(request: GenerateDocumentRequest):
@@ -387,7 +409,7 @@ async def generate_document_endpoint(request: GenerateDocumentRequest):
         return {"success": False, "error": result["message"]}
     except Exception as e:
         struct_logger.error("Document generation failed", error=str(e))
-        return {"success": False, "error": str(e)}
+        return {"success": False, "error": "Document generation failed. Please try again."}
 
 @app.post("/api/documents/generate-packet")
 async def generate_packet_endpoint(request: GeneratePacketRequest):
@@ -409,7 +431,7 @@ async def generate_packet_endpoint(request: GeneratePacketRequest):
         return {"success": False, "error": result["message"]}
     except Exception as e:
         struct_logger.error("Packet generation failed", error=str(e))
-        return {"success": False, "error": str(e)}
+        return {"success": False, "error": "Packet generation failed. Please try again."}
 
 @app.post("/api/documents/extract-fields")
 async def extract_fields_from_chat(request: Request):
@@ -431,7 +453,7 @@ async def extract_fields_from_chat(request: Request):
         return result
     except Exception as e:
         struct_logger.error("Field extraction failed", error=str(e))
-        return {"extracted_data": {}, "message": str(e)}
+        return {"extracted_data": {}, "message": "Field extraction failed. Please try again."}
 
 @app.get("/api/documents/fields", dependencies=[Depends(require_admin)])
 async def get_all_field_definitions():
@@ -440,7 +462,7 @@ async def get_all_field_definitions():
         return engine_get_all_field_definitions()
     except Exception as e:
         struct_logger.error("Field definitions lookup failed", error=str(e))
-        return {"error": str(e)}
+        return {"error": "Failed to load field definitions. Please try again."}
 
 
 @app.post("/api/documents/generate-batch", dependencies=[Depends(require_admin)])
@@ -459,7 +481,7 @@ async def generate_batch_endpoint(request: Request):
         return result
     except Exception as e:
         struct_logger.error("Batch generation failed", error=str(e))
-        return {"success": False, "error": str(e)}
+        return {"success": False, "error": "Batch generation failed. Please try again."}
 
 
 # --- Legacy Endpoint (Phase 1 backward compatibility) ---
@@ -479,7 +501,7 @@ async def create_sales_contract(form_data: SalesContractForm):
             return {"success": False, "error": result["message"]}
     except Exception as e:
         struct_logger.error("Document generation failed", error=str(e))
-        return {"success": False, "error": str(e)}
+        return {"success": False, "error": "Document generation failed. Please try again."}
 
 @app.get("/api/documents/download/{filename}")
 async def download_document(filename: str):
@@ -487,11 +509,15 @@ async def download_document(filename: str):
     safe_filename = os.path.basename(filename)
     if safe_filename != filename or ".." in filename:
         return JSONResponse({"error": "Invalid filename"}, status_code=400)
+    # Only allow PDF downloads from this endpoint
+    if not safe_filename.lower().endswith(".pdf"):
+        return JSONResponse({"error": "Only PDF files are available for download."}, status_code=400)
     resolved = os.path.abspath(os.path.join(OUTPUT_DIR, safe_filename))
     if not resolved.startswith(os.path.abspath(OUTPUT_DIR)):
         return JSONResponse({"error": "Invalid filename"}, status_code=403)
     if os.path.isfile(resolved):
-        return FileResponse(resolved, filename=safe_filename, media_type='application/pdf')
+        return FileResponse(resolved, filename=safe_filename, media_type="application/pdf",
+                            headers={"Content-Disposition": f'attachment; filename="{safe_filename}"'})
     return JSONResponse({"error": "File not found"}, status_code=404)
 
 
@@ -515,7 +541,7 @@ async def list_deals(status: str = None, salesrep: str = None, q: str = None, li
         return {"success": True, "deals": deals, "count": len(deals)}
     except Exception as e:
         struct_logger.error("Deal listing failed", error=str(e))
-        return {"success": False, "error": str(e)}
+        return {"success": False, "error": "Failed to load deals. Please try again."}
 
 
 @app.post("/api/deals", dependencies=[Depends(require_admin)])
@@ -536,7 +562,7 @@ async def create_deal(request: Request):
         return {"success": True, "deal_id": deal_id, "deal": created_deal, "message": "Deal created successfully"}
     except Exception as e:
         struct_logger.error("Deal creation failed", error=str(e))
-        return {"success": False, "error": str(e)}
+        return {"success": False, "error": "Failed to create deal. Please try again."}
 
 
 @app.get("/api/deals/{deal_id}", dependencies=[Depends(require_admin)])
@@ -549,7 +575,7 @@ async def get_deal(deal_id: str):
         return {"success": True, "deal": deal}
     except Exception as e:
         struct_logger.error("Deal fetch failed", error=str(e))
-        return {"success": False, "error": str(e)}
+        return {"success": False, "error": "Failed to load deal details. Please try again."}
 
 
 @app.put("/api/deals/{deal_id}", dependencies=[Depends(require_admin)])
@@ -564,7 +590,7 @@ async def update_deal(deal_id: str, request: Request):
         return {"success": True, "message": "Deal updated successfully"}
     except Exception as e:
         struct_logger.error("Deal update failed", error=str(e))
-        return {"success": False, "error": str(e)}
+        return {"success": False, "error": "Failed to update deal. Please try again."}
 
 
 @app.put("/api/deals/{deal_id}/status", dependencies=[Depends(require_admin)])
@@ -597,7 +623,7 @@ async def update_deal_status(deal_id: str, request: Request):
         return {"success": True, "message": f"Deal status changed to {new_status}"}
     except Exception as e:
         struct_logger.error("Deal status update failed", error=str(e))
-        return {"success": False, "error": str(e)}
+        return {"success": False, "error": "Failed to update deal status. Please try again."}
 
 
 @app.post("/api/deals/{deal_id}/generate-document", dependencies=[Depends(require_admin)])
@@ -635,7 +661,7 @@ async def generate_document_from_deal(deal_id: str, request: Request):
         return {"success": False, "error": result["message"]}
     except Exception as e:
         struct_logger.error("Deal document generation failed", error=str(e))
-        return {"success": False, "error": str(e)}
+        return {"success": False, "error": "Failed to generate document from deal. Please try again."}
 
 
 @app.post("/api/deals/{deal_id}/generate-packet", dependencies=[Depends(require_admin)])
@@ -673,7 +699,7 @@ async def generate_packet_from_deal(deal_id: str, request: Request):
         return {"success": False, "error": result["message"]}
     except Exception as e:
         struct_logger.error("Deal packet generation failed", error=str(e))
-        return {"success": False, "error": str(e)}
+        return {"success": False, "error": "Failed to generate closing packet. Please try again."}
 
 
 # ─── Marketing API (Tex's Ad Studio) ───
@@ -709,7 +735,7 @@ async def api_generate_script(request: Request):
         return result
     except Exception as e:
         struct_logger.error("Script generation failed", error=str(e))
-        return {"error": str(e)}
+        return {"error": "Script generation failed. Please try again."}
 
 @app.get("/api/marketing/trending-ideas", dependencies=[Depends(require_admin)])
 async def api_trending_ideas():
@@ -719,7 +745,7 @@ async def api_trending_ideas():
         return result
     except Exception as e:
         struct_logger.error("Trending ideas failed", error=str(e))
-        return {"error": str(e)}
+        return {"error": "Failed to load trending ideas. Please try again."}
 
 @app.post("/api/marketing/schedule", dependencies=[Depends(require_admin)])
 async def api_schedule_post(request: Request):
@@ -738,7 +764,7 @@ async def api_schedule_post(request: Request):
         return result
     except Exception as e:
         struct_logger.error("Post scheduling failed", error=str(e))
-        return {"error": str(e)}
+        return {"error": "Failed to schedule post. Please try again."}
 
 @app.get("/api/marketing/analytics", dependencies=[Depends(require_admin)])
 async def api_content_analytics():
@@ -748,7 +774,7 @@ async def api_content_analytics():
         return result
     except Exception as e:
         struct_logger.error("Analytics load failed", error=str(e))
-        return {"error": str(e)}
+        return {"error": "Failed to load analytics. Please try again."}
 
 
 @app.post("/api/marketing/generate-image", dependencies=[Depends(require_admin)])
@@ -770,7 +796,7 @@ async def api_generate_image(request: Request):
         return result
     except Exception as e:
         struct_logger.error("Image generation failed", error=str(e))
-        return {"success": False, "error": str(e)}
+        return {"success": False, "error": "Image generation failed. Please try again."}
 
 
 @app.get("/api/marketing/inventory-context")
@@ -821,7 +847,7 @@ async def api_inventory_context():
         return result
     except Exception as e:
         struct_logger.error("Inventory context failed", error=str(e))
-        return {"success": False, "error": str(e)}
+        return {"success": False, "error": "Failed to load inventory context. Please try again."}
 
 
 @app.get("/api/marketing/images/{filename}", dependencies=[Depends(require_admin)])
@@ -883,7 +909,7 @@ async def submit_contact_form(request: Request):
         return {"success": True, "message": "Thank you! We'll be in touch shortly."}
     except Exception as e:
         struct_logger.error("Contact form failed", error=str(e))
-        return {"success": False, "error": str(e)}
+        return {"success": False, "error": "Something went wrong. Please try again or call us directly."}
 
 
 # ─── Appointment Scheduling API ───
@@ -896,7 +922,7 @@ async def get_available_slots(date: str):
         return result
     except Exception as e:
         struct_logger.error("Slots lookup failed", error=str(e))
-        return {"error": str(e)}
+        return {"error": "Failed to load available slots. Please try again."}
 
 
 @app.post("/api/appointments")
@@ -969,7 +995,7 @@ async def create_appointment(request: Request):
         return {"success": False, "error": str(e)}
     except Exception as e:
         struct_logger.error("Appointment creation failed", error=str(e))
-        return {"success": False, "error": str(e)}
+        return {"success": False, "error": "Failed to book appointment. Please try again or call us."}
 
 
 @app.get("/api/appointments/{appointment_id}")
@@ -982,7 +1008,7 @@ async def get_appointment(appointment_id: str):
         return appt.to_dict()
     except Exception as e:
         struct_logger.error("Appointment lookup failed", error=str(e))
-        return {"error": str(e)}
+        return {"error": "Failed to load appointment details. Please try again."}
 
 
 @app.post("/api/appointments/{appointment_id}/cancel")
@@ -1011,7 +1037,7 @@ async def cancel_appointment(appointment_id: str, request: Request):
         }
     except Exception as e:
         struct_logger.error("Appointment cancellation failed", error=str(e))
-        return {"success": False, "error": str(e)}
+        return {"success": False, "error": "Failed to cancel appointment. Please try again."}
 
 
 # ─── CRM API (leads, email, activity) ───
@@ -1024,7 +1050,7 @@ async def list_leads_api(status: str = None, limit: int = 100):
         return {"success": True, "leads": [l.to_dict() for l in leads], "count": len(leads)}
     except Exception as e:
         struct_logger.error("Lead listing failed", error=str(e))
-        return {"success": False, "error": str(e)}
+        return {"success": False, "error": "Failed to load leads. Please try again."}
 
 
 @app.get("/api/leads/{lead_id}", dependencies=[Depends(require_admin)])
@@ -1037,7 +1063,7 @@ async def get_lead_api(lead_id: str):
         return {"success": True, "lead": lead.to_dict()}
     except Exception as e:
         struct_logger.error("Lead fetch failed", error=str(e))
-        return {"success": False, "error": str(e)}
+        return {"success": False, "error": "Failed to load lead details. Please try again."}
 
 
 @app.put("/api/leads/{lead_id}", dependencies=[Depends(require_admin)])
@@ -1055,7 +1081,7 @@ async def update_lead_api(lead_id: str, request: Request):
         return {"success": True, "message": "Lead updated"}
     except Exception as e:
         struct_logger.error("Lead update failed", error=str(e))
-        return {"success": False, "error": str(e)}
+        return {"success": False, "error": "Failed to update lead. Please try again."}
 
 
 @app.get("/api/crm/appointments", dependencies=[Depends(require_admin)])
@@ -1066,7 +1092,7 @@ async def list_appointments_api(status: str = None, limit: int = 100):
         return {"success": True, "appointments": [a.to_dict() for a in appts], "count": len(appts)}
     except Exception as e:
         struct_logger.error("Appointment listing failed", error=str(e))
-        return {"success": False, "error": str(e)}
+        return {"success": False, "error": "Failed to load appointments. Please try again."}
 
 
 @app.post("/api/email/send", dependencies=[Depends(require_admin)])
@@ -1086,7 +1112,7 @@ async def send_email_api(request: Request):
         return result
     except Exception as e:
         struct_logger.error("Email send failed", error=str(e))
-        return {"success": False, "error": str(e)}
+        return {"success": False, "error": "Failed to send email. Please try again."}
 
 
 @app.get("/api/email/log", dependencies=[Depends(require_admin)])
@@ -1097,7 +1123,7 @@ async def get_email_log_api(limit: int = 50, email_type: str = None):
         return {"success": True, "emails": log, "count": len(log)}
     except Exception as e:
         struct_logger.error("Email log fetch failed", error=str(e))
-        return {"success": False, "error": str(e)}
+        return {"success": False, "error": "Failed to load email log. Please try again."}
 
 
 # ─── Admin Auth API ───
@@ -1108,6 +1134,14 @@ _default_pin_hash = hashlib.sha256("4832".encode()).hexdigest() if IS_LOCAL else
 ADMIN_PIN_HASH = os.environ.get("ADMIN_PIN_HASH", _default_pin_hash)
 if not ADMIN_PIN_HASH and not IS_LOCAL:
     logger.critical("ADMIN_PIN_HASH env var is required in production. Admin auth will reject all requests.")
+    raise SystemExit("FATAL: ADMIN_PIN_HASH must be set in production. "
+                     "Generate with: python -c \"import hashlib; print(hashlib.sha256(b'YOUR_PIN').hexdigest())\"")
+
+# Warn loudly if email service is not configured (appointments/leads won't get confirmations)
+if not os.environ.get("RESEND_API_KEY") and not IS_LOCAL:
+    logger.critical("RESEND_API_KEY not set — appointment confirmations and lead emails will NOT be sent.")
+elif not os.environ.get("RESEND_API_KEY"):
+    logger.warning("RESEND_API_KEY not set — emails will run in dry-run mode (local dev).")
 
 # Simple token store (in-memory; resets on restart which is acceptable for admin sessions)
 _admin_tokens: dict[str, float] = {}
