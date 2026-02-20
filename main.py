@@ -149,7 +149,7 @@ async def run_agent(request: Request):
     try:
         data = await request.json()
         user_id = data.get("userId", "default_user")
-        session_id = data.get("sessionId", "default_session")
+        session_id = data.get("sessionId") or f"anon_{uuid.uuid4().hex[:12]}"
         new_message_dict = data.get("newMessage")
         
         # Extract text content
@@ -305,7 +305,7 @@ async def export_leads(status: str = None):
         )
     except Exception as e:
         struct_logger.error("Lead export failed", error=str(e))
-        return {"error": "Failed to export leads. Please try again."}, 500
+        return JSONResponse({"error": "Failed to export leads. Please try again."}, status_code=500)
 
 
 @app.get("/leads/stats", dependencies=[Depends(require_admin)])
@@ -1022,13 +1022,14 @@ async def cancel_appointment(appointment_id: str, request: Request):
         if not appt:
             return {"success": False, "error": "Appointment not found."}
 
-        # Simple verification: phone must match
-        if phone:
-            import re
-            appt_digits = re.sub(r'\D', '', appt.phone)
-            req_digits = re.sub(r'\D', '', phone)
-            if appt_digits != req_digits:
-                return {"success": False, "error": "Phone number does not match this appointment."}
+        # Require phone verification to prevent unauthorized cancellation
+        if not phone:
+            return {"success": False, "error": "Phone number is required to cancel an appointment."}
+        import re
+        appt_digits = re.sub(r'\D', '', appt.phone)
+        req_digits = re.sub(r'\D', '', phone)
+        if appt_digits != req_digits:
+            return {"success": False, "error": "Phone number does not match this appointment."}
 
         cancelled = await appointment_manager.cancel_appointment(appointment_id)
         return {
@@ -1159,9 +1160,30 @@ async def require_admin(request: Request):
         raise HTTPException(status_code=401, detail="Admin session expired. Please re-authenticate.")
 
 
+# Brute-force protection: track failed PIN attempts per IP
+_pin_attempts: dict[str, list[float]] = {}
+PIN_MAX_ATTEMPTS = 5
+PIN_LOCKOUT_SECONDS = 300  # 5-minute lockout after 5 failures
+
+
 @app.post("/api/admin/verify")
 async def verify_admin_pin(request: Request):
     """Validate admin PIN server-side and return a session token."""
+    client_ip = request.client.host if request.client else "unknown"
+
+    # Check brute-force lockout
+    now = time.time()
+    attempts = _pin_attempts.get(client_ip, [])
+    # Prune old attempts outside the lockout window
+    attempts = [t for t in attempts if now - t < PIN_LOCKOUT_SECONDS]
+    _pin_attempts[client_ip] = attempts
+    if len(attempts) >= PIN_MAX_ATTEMPTS:
+        struct_logger.warning("Admin login locked out", client_ip=client_ip, attempts=len(attempts))
+        return JSONResponse(
+            {"success": False, "error": "Too many failed attempts. Please wait 5 minutes."},
+            status_code=429
+        )
+
     data = await request.json()
     pin = data.get("pin", "")
     if not ADMIN_PIN_HASH:
@@ -1169,11 +1191,15 @@ async def verify_admin_pin(request: Request):
         return JSONResponse({"success": False, "error": "Admin auth not configured."}, status_code=503)
     pin_hash = hashlib.sha256(pin.encode()).hexdigest()
     if not secrets.compare_digest(pin_hash, ADMIN_PIN_HASH):
-        struct_logger.warning("Admin login failed", client_ip=request.client.host if request.client else "unknown")
+        _pin_attempts.setdefault(client_ip, []).append(now)
+        remaining = PIN_MAX_ATTEMPTS - len(_pin_attempts[client_ip])
+        struct_logger.warning("Admin login failed", client_ip=client_ip, remaining=remaining)
         return JSONResponse({"success": False, "error": "Incorrect PIN."}, status_code=401)
+    # Successful login — clear attempt history
+    _pin_attempts.pop(client_ip, None)
     token = secrets.token_urlsafe(32)
     _admin_tokens[token] = time.time()
-    struct_logger.info("Admin login succeeded", client_ip=request.client.host if request.client else "unknown")
+    struct_logger.info("Admin login succeeded", client_ip=client_ip)
     return {"success": True, "token": token}
 
 
