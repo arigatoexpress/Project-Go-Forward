@@ -337,9 +337,11 @@ from tools.document_tools import generate_sales_contract_pdf, OUTPUT_DIR
 from tools.document_engine import (
     generate_document as engine_generate_document,
     generate_packet as engine_generate_packet,
+    generate_batch as engine_generate_batch,
     list_available_templates as engine_list_templates,
     list_available_packets as engine_list_packets,
     get_template_fields as engine_get_template_fields,
+    get_all_field_definitions as engine_get_all_field_definitions,
 )
 
 # --- Phase 2: Generic Document Engine Endpoints ---
@@ -430,6 +432,35 @@ async def extract_fields_from_chat(request: Request):
     except Exception as e:
         struct_logger.error("Field extraction failed", error=str(e))
         return {"extracted_data": {}, "message": str(e)}
+
+@app.get("/api/documents/fields", dependencies=[Depends(require_admin)])
+async def get_all_field_definitions():
+    """Return all business data field definitions (drives the unified Document Center form)."""
+    try:
+        return engine_get_all_field_definitions()
+    except Exception as e:
+        struct_logger.error("Field definitions lookup failed", error=str(e))
+        return {"error": str(e)}
+
+
+@app.post("/api/documents/generate-batch", dependencies=[Depends(require_admin)])
+async def generate_batch_endpoint(request: Request):
+    """Generate multiple documents from shared data, optionally merged into one PDF."""
+    try:
+        body = await request.json()
+        templates = body.get("templates", [])
+        data = body.get("data", {})
+        merge = body.get("merge", True)
+
+        if not templates:
+            return {"success": False, "error": "No templates selected"}
+
+        result = engine_generate_batch(template_names=templates, data=data, merge=merge)
+        return result
+    except Exception as e:
+        struct_logger.error("Batch generation failed", error=str(e))
+        return {"success": False, "error": str(e)}
+
 
 # --- Legacy Endpoint (Phase 1 backward compatibility) ---
 

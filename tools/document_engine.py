@@ -270,6 +270,83 @@ def get_template_fields(template_name: str) -> Optional[Dict[str, Any]]:
     }
 
 
+def generate_batch(
+    template_names: List[str],
+    data: Dict[str, Any],
+    merge: bool = True,
+) -> Dict[str, Any]:
+    """
+    Generate multiple documents from a shared data dict and optionally merge.
+
+    Args:
+        template_names: List of PDF template filenames to generate.
+        data: Shared business data fields.
+        merge: If True, merge all successful PDFs into one file.
+
+    Returns:
+        Dict with keys: success, documents (per-template results), merged (optional).
+    """
+    results = []
+    successful_files = []
+
+    for template_name in template_names:
+        result = generate_document(
+            template_name,
+            dict(data),  # copy so required-field validation doesn't mutate across templates
+            f"_batch_{template_name.replace('.pdf', '')}_{datetime.now().strftime('%Y%m%d%H%M%S')}.pdf",
+        )
+        config = get_template_config(template_name) or {}
+        doc_result = {
+            "template_name": template_name,
+            "display_name": config.get("display_name", template_name),
+            "success": result["success"],
+            "filename": result.get("filename"),
+            "download_url": f"/api/documents/download/{result['filename']}" if result.get("filename") else None,
+            "message": result.get("message", ""),
+        }
+        results.append(doc_result)
+        if result["success"] and result.get("file_path"):
+            successful_files.append(result["file_path"])
+
+    merged = None
+    if merge and len(successful_files) > 1:
+        try:
+            writer = PdfWriter()
+            for fpath in successful_files:
+                reader = PdfReader(fpath)
+                for page in reader.pages:
+                    writer.add_page(page)
+
+            buyer = data.get("buyer_name", "Customer").replace(" ", "_")
+            date_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+            merged_filename = f"Documents_{buyer}_{date_str}.pdf"
+            merged_path = os.path.join(OUTPUT_DIR, merged_filename)
+            with open(merged_path, "wb") as f:
+                writer.write(f)
+
+            merged = {
+                "filename": merged_filename,
+                "download_url": f"/api/documents/download/{merged_filename}",
+                "page_count": len(writer.pages),
+                "document_count": len(successful_files),
+            }
+        except Exception as e:
+            logger.error(f"Batch merge failed: {e}")
+
+    return {
+        "success": len(successful_files) > 0,
+        "documents": results,
+        "merged": merged,
+        "total": len(template_names),
+        "successful": len(successful_files),
+    }
+
+
+def get_all_field_definitions() -> Dict[str, Any]:
+    """Return all data field definitions from field_map.json for the unified form."""
+    return get_field_definitions()
+
+
 def _compute_fields(data: Dict[str, Any]):
     """Compute derived field values in-place."""
     # unpaid_balance = sales_price - down_payment

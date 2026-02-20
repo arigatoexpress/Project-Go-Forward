@@ -34,12 +34,12 @@ function NavBar({ activePage, navigateTo, adminAuthed, onAdminAccess, isMobileMe
   const navItems = [
     { key: 'inventory', label: 'Inventory', icon: Home },
     { key: 'chat', label: 'Chat', icon: MessageSquare },
-    { key: 'documents', label: 'Documents', icon: FileText },
     { key: 'contact', label: 'Contact', icon: Phone },
     { key: 'appointments', label: 'Book Visit', icon: CalendarDays },
   ];
 
   const adminItems = adminAuthed ? [
+    { key: 'documents', label: 'Documents', icon: FileText },
     { key: 'adstudio', label: 'Ad Studio', icon: Video },
     { key: 'crm', label: 'CRM', icon: Users },
   ] : [];
@@ -466,7 +466,7 @@ function App() {
     );
   }
 
-  if (activePage === 'documents') {
+  if (activePage === 'documents' && adminAuthed) {
     return (
       <div className="bg-gray-50 min-h-screen">
         <NavBar {...navProps} />
@@ -477,7 +477,7 @@ function App() {
     );
   }
 
-  if (activePage === 'adstudio') {
+  if (activePage === 'adstudio' && adminAuthed) {
     return (
       <div className="bg-gray-50 min-h-screen">
         <NavBar {...navProps} />
