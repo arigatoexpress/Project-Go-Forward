@@ -3,17 +3,87 @@ AI Agent — Root Agent Entry Point (Config-Driven)
 
 This module creates the multi-agent system using Google ADK.
 All business-specific content is loaded from config.yaml via config_loader.
+
+Enhancements (Google Cloud course learnings):
+- GenerateContentConfig: temperature, max_output_tokens, safety settings
+- BuiltInPlanner + ThinkingConfig: extended reasoning for routing decisions
+- output_schema: Pydantic models available in schemas/output_schemas.py
+  (not applied to conversational agents — they produce markdown, not JSON)
 """
 
+import logging
 from google.adk.agents import LlmAgent
-import os
+from google.adk.planners import BuiltInPlanner
+from google.genai import types
 
 from config_loader import (
     business_name, business_address, business_phone,
     business_hours, agent_name, model_name,
     product_type, product_singular, product_plural,
-    get_agent_config, get_product_config
+    get_agent_config, get_product_config,
+    get_model_config, get_thinking_config,
 )
+
+logger = logging.getLogger(__name__)
+
+
+_SAFETY_LEVEL_MAP = {
+    "block_none": "BLOCK_NONE",
+    "block_low_and_above": "BLOCK_LOW_AND_ABOVE",
+    "block_medium_and_above": "BLOCK_MEDIUM_AND_ABOVE",
+    "block_only_high": "BLOCK_ONLY_HIGH",
+}
+
+
+def _build_generate_content_config() -> types.GenerateContentConfig:
+    """Build GenerateContentConfig from config.yaml model_config section."""
+    model_cfg = get_model_config()
+    agent_cfg = get_agent_config()
+
+    # Safety settings applied to all four harm categories
+    safety_level = agent_cfg.get("safety_level", "block_low_and_above")
+    threshold = _SAFETY_LEVEL_MAP.get(safety_level, "BLOCK_LOW_AND_ABOVE")
+
+    safety_settings = [
+        types.SafetySetting(category="HARM_CATEGORY_HATE_SPEECH", threshold=threshold),
+        types.SafetySetting(category="HARM_CATEGORY_DANGEROUS_CONTENT", threshold=threshold),
+        types.SafetySetting(category="HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold=threshold),
+        types.SafetySetting(category="HARM_CATEGORY_HARASSMENT", threshold=threshold),
+    ]
+
+    config = types.GenerateContentConfig(
+        temperature=model_cfg.get("temperature", 0.7),
+        max_output_tokens=model_cfg.get("max_output_tokens", 2048),
+        top_p=model_cfg.get("top_p", 0.95),
+        top_k=model_cfg.get("top_k", 40),
+        safety_settings=safety_settings,
+    )
+
+    logger.info(
+        "GenerateContentConfig: temp=%.1f, max_tokens=%d, top_p=%.2f, safety=%s",
+        config.temperature, config.max_output_tokens, config.top_p, threshold,
+    )
+    return config
+
+
+def _build_planner():
+    """Build BuiltInPlanner with ThinkingConfig if enabled in config.yaml."""
+    thinking_cfg = get_thinking_config()
+    if not thinking_cfg.get("enabled", False):
+        return None
+
+    planner = BuiltInPlanner(
+        thinking_config=types.ThinkingConfig(
+            include_thoughts=thinking_cfg.get("include_thoughts", True),
+            thinking_budget=thinking_cfg.get("thinking_budget", 1024),
+        )
+    )
+    logger.info(
+        "BuiltInPlanner enabled: include_thoughts=%s, budget=%d",
+        thinking_cfg.get("include_thoughts", True),
+        thinking_cfg.get("thinking_budget", 1024),
+    )
+    return planner
 
 
 def _create_sales_agent() -> LlmAgent:
@@ -97,6 +167,7 @@ If the customer has a service or warranty issue, or says something like "I need 
         model=model_name(),
         description=f"Senior Consultant specializing in {product_plural()}, pricing, and appointments at {business_name()}.",
         instruction=instruction,
+        generate_content_config=_build_generate_content_config(),
         tools=[
             search_inventory,
             check_available_slots,
@@ -119,6 +190,7 @@ def _create_service_agent() -> LlmAgent:
         name="service_agent",
         model=model_name(),
         description=f"Warranty and Service Coordinator handling support requests at {business_name()}.",
+        generate_content_config=_build_generate_content_config(),
         instruction=f"""You are the Warranty & Service Coordinator at {business_name()}. Your name is Tex.
 
 Your mission:
@@ -163,11 +235,18 @@ def _create_root_agent() -> LlmAgent:
     
     agent_cfg = get_agent_config()
     
-    return LlmAgent(
+    planner = _build_planner()
+
+    kwargs = dict(
         name="root_agent",
         model=model_name(),
         description=f"Front desk receptionist and router for {business_name()}, directing customers to specialized agents.",
-        instruction=f"""# Your Identity
+        generate_content_config=_build_generate_content_config(),
+    )
+    if planner:
+        kwargs["planner"] = planner
+
+    kwargs["instruction"] = f"""# Your Identity
 You are the virtual Front Desk receptionist for {business_name()}. Your name is Tex.
 
 # Your Mission
@@ -197,15 +276,12 @@ Route to SERVICE when: "warranty", "repair", "issue", "damage", "problem", "fix"
 # Boundaries
 - Never share other customers' information
 - Escalate billing/refund requests to management
-- If you can't help, offer to have someone call back""",
-        sub_agents=[
-            sales_agent,
-            service_agent
-        ],
-        tools=[
-            get_business_hours
-        ]
-    )
+- If you can't help, offer to have someone call back"""
+
+    kwargs["sub_agents"] = [sales_agent, service_agent]
+    kwargs["tools"] = [get_business_hours]
+
+    return LlmAgent(**kwargs)
 
 
 # Export the root agent for ADK

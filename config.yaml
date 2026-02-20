@@ -24,14 +24,31 @@ business:
 agent:
   # The name your AI assistant goes by
   assistant_name: "AI Assistant"
-  
+
   # Model to use (Gemini via Vertex AI)
-  model: "gemini-2.0-flash-001"
-  
+  # gemini-2.5-flash supports thinking/planning for better multi-step reasoning
+  model: "gemini-2.5-flash"
+
+  # Model generation parameters
+  model_config:
+    temperature: 0.7          # 0.0 = deterministic, 1.0 = creative
+    max_output_tokens: 2048   # Max response length in tokens
+    top_p: 0.95               # Nucleus sampling threshold
+    top_k: 40                 # Top-k sampling
+
+  # Thinking/planning config (requires gemini-2.5-flash or newer)
+  thinking:
+    enabled: true
+    include_thoughts: true    # Include reasoning in responses
+    thinking_budget: 1024     # Token budget for internal reasoning
+
+  # Safety filter level for all agents
+  safety_level: "block_low_and_above"  # block_none, block_low_and_above, block_medium_and_above, block_only_high
+
   # Agent personality and communication style
   personality: "warm, down-to-earth, and conversational — like a friendly neighbor who happens to know everything about manufactured homes. Use casual language, contractions, and a touch of Texas charm. Be genuinely empathetic and human in tone"
   greeting: "Hey there! Welcome to Texas Home Outlet. What can I help you with today?"
-  
+
   # What your agent specializes in
   specializations:
     - "Product search and recommendations"
