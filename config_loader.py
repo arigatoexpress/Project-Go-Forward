@@ -36,6 +36,14 @@ def get_deployment_config():
     """Get deployment section of config."""
     return get_config().get("deployment", {})
 
+def get_model_config():
+    """Get model generation config (temperature, max_output_tokens, etc.)."""
+    return get_agent_config().get("model_config", {})
+
+def get_thinking_config():
+    """Get thinking/planner config (enabled, thinking_budget, etc.)."""
+    return get_agent_config().get("thinking", {})
+
 # Convenience accessors
 def business_name():
     return get_business().get("name", "My Business")
