@@ -173,6 +173,7 @@ export default function AdStudio({ onBack }) {
     const [generatingImage, setGeneratingImage] = useState(false);
     const [generatedImages, setGeneratedImages] = useState([]);
     const [expandedImage, setExpandedImage] = useState(null);
+    const [imageError, setImageError] = useState(null);
 
     // Ideas tab
     const [ideas, setIdeas] = useState(null);
@@ -181,6 +182,7 @@ export default function AdStudio({ onBack }) {
     // Scheduled tab
     const [scheduledPosts, setScheduledPosts] = useState([]);
     const [scheduling, setScheduling] = useState(false);
+    const [matterportCopied, setMatterportCopied] = useState(false);
 
     // Analytics tab
     const [analytics, setAnalytics] = useState(null);
@@ -330,6 +332,7 @@ export default function AdStudio({ onBack }) {
     const handleGenerateImage = async () => {
         if (!imagePrompt.trim()) return;
         setGeneratingImage(true);
+        setImageError(null);
         try {
             const result = await apiGenerateImage({
                 prompt: imagePrompt,
@@ -340,10 +343,10 @@ export default function AdStudio({ onBack }) {
             if (result.success) {
                 setGeneratedImages(prev => [result, ...prev]);
             } else {
-                alert(result.error || 'Image generation failed');
+                setImageError(result.error || 'Image generation failed. Try a different prompt.');
             }
         } catch (err) {
-            alert('Image generation failed: ' + err.message);
+            setImageError('Image generation failed: ' + err.message);
         } finally {
             setGeneratingImage(false);
         }
@@ -536,6 +539,13 @@ export default function AdStudio({ onBack }) {
                                 <><Image size={14} /> Generate Image</>
                             )}
                         </button>
+                        {imageError && (
+                            <div className="tho-image-error">
+                                <AlertTriangle size={12} />
+                                <span>{imageError}</span>
+                                <button onClick={() => setImageError(null)} className="tho-error-dismiss"><X size={12} /></button>
+                            </div>
+                        )}
                     </div>
 
                     {/* Generated Images Gallery */}
@@ -615,10 +625,14 @@ export default function AdStudio({ onBack }) {
                                 />
                                 <button
                                     className="tho-btn tho-btn-secondary"
-                                    onClick={() => { navigator.clipboard.writeText(matterportUrl); }}
+                                    onClick={() => {
+                                        navigator.clipboard.writeText(matterportUrl);
+                                        setMatterportCopied(true);
+                                        setTimeout(() => setMatterportCopied(false), 2000);
+                                    }}
                                     title="Copy tour link"
                                 >
-                                    <Copy size={12} />
+                                    {matterportCopied ? <Check size={12} /> : <Copy size={12} />}
                                 </button>
                             </div>
                         </div>
@@ -634,9 +648,20 @@ export default function AdStudio({ onBack }) {
                     </div>
 
                     <div className="tho-post-actions mt-4">
-                        <button className="tho-btn tho-btn-primary w-full flex items-center justify-center gap-2" onClick={() => setActiveTab('scheduled')}>
-                            <Send size={18} />
-                            Looks Good! Continue to Post
+                        <button
+                            className="tho-btn tho-btn-primary w-full flex items-center justify-center gap-2"
+                            onClick={async () => {
+                                await handleSchedule();
+                                setShowPreview(false);
+                                setActiveTab('scheduled');
+                            }}
+                            disabled={scheduling}
+                        >
+                            {scheduling ? (
+                                <><Loader2 size={18} className="spin" /> Scheduling...</>
+                            ) : (
+                                <><Send size={18} /> Schedule Post</>
+                            )}
                         </button>
                     </div>
                 </div>
