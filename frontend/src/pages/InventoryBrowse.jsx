@@ -839,7 +839,7 @@ function HomeDetailModal({
           {/* Location */}
           <div className="tho-detail-location">
             <MapPin size={14} />
-            <span>{BUSINESS_ADDRESS} East, {BUSINESS_CITY} — {BUSINESS_HOURS}</span>
+            <span>{BUSINESS_ADDRESS}, {BUSINESS_CITY} — {BUSINESS_HOURS}</span>
           </div>
         </div>
       </div>

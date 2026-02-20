@@ -154,7 +154,7 @@ function Footer({ navigateTo, adminAuthed, onAdminAccess }) {
   return (
     <footer className="bg-white border-t border-gray-200 py-4 text-center text-xs text-gray-500 hidden md:block">
       <div className="flex items-center justify-center gap-6 flex-wrap">
-        <span className="flex items-center"><MapPin size={12} className="mr-1" aria-hidden="true" /> {BUSINESS_ADDRESS} East, {BUSINESS_CITY}</span>
+        <span className="flex items-center"><MapPin size={12} className="mr-1" aria-hidden="true" /> {BUSINESS_ADDRESS}, {BUSINESS_CITY}</span>
         <a href={`tel:${BUSINESS_PHONE_RAW}`} className="flex items-center hover:text-blue-600 transition-colors">
           <Phone size={12} className="mr-1" aria-hidden="true" /> {BUSINESS_PHONE}
         </a>
@@ -234,6 +234,18 @@ function App() {
       .then(r => { if (r.ok) setAdminAuthed(true); else { setAdminToken(''); sessionStorage.removeItem('tho_admin_token'); } })
       .catch(() => {});
   }, [adminToken]);
+
+  // Listen for expired admin session (fired by adminFetch on 401)
+  useEffect(() => {
+    const handleExpired = () => {
+      setAdminAuthed(false);
+      setAdminToken('');
+      setShowPinModal(true);
+      setPinError('Session expired — please re-enter PIN');
+    };
+    window.addEventListener('admin-session-expired', handleExpired);
+    return () => window.removeEventListener('admin-session-expired', handleExpired);
+  }, []);
 
   const messagesEndRef = useRef(null);
 
