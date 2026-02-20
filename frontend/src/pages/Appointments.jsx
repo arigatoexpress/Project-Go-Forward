@@ -181,7 +181,7 @@ const TimeSlotPicker = ({ date, onSelect, onBack }) => {
         <span className="text-sm text-gray-500">{slots.business_hours}</span>
       </div>
       <h3 className="text-lg font-bold text-gray-900 mb-1">{dateLabel}</h3>
-      <p className="text-sm text-gray-500 mb-4">Select a time for your visit</p>
+      <p className="text-sm text-gray-500 mb-4">Select a time for your visit <span className="text-gray-400">(Central Time)</span></p>
 
       {slots.available_slots.length === 0 ? (
         <div className="text-center py-8">
@@ -233,9 +233,12 @@ const ContactForm = ({ formData, onChange, onSubmit, onBack, submitting }) => {
             required
             value={formData.phone}
             onChange={(e) => onChange({ ...formData, phone: e.target.value })}
-            className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+            className={`w-full px-4 py-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none ${formData.phone && formData.phone.replace(/\D/g, '').length < 10 ? 'border-red-300' : 'border-gray-300'}`}
             placeholder="(281) 000-0000"
           />
+          {formData.phone && formData.phone.replace(/\D/g, '').length < 10 && (
+            <p className="text-xs text-red-500 mt-1">Enter a valid 10-digit phone number</p>
+          )}
         </div>
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Email (optional)</label>

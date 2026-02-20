@@ -152,7 +152,7 @@ function NavBar({ activePage, navigateTo, adminAuthed, onAdminAccess, isMobileMe
 // ─── Footer Component ───
 function Footer({ navigateTo, adminAuthed, onAdminAccess }) {
   return (
-    <footer className="bg-white border-t border-gray-200 py-4 text-center text-xs text-gray-500 hidden md:block">
+    <footer className="bg-white border-t border-gray-200 py-4 text-center text-xs text-gray-500">
       <div className="flex items-center justify-center gap-6 flex-wrap">
         <span className="flex items-center"><MapPin size={12} className="mr-1" aria-hidden="true" /> {BUSINESS_ADDRESS}, {BUSINESS_CITY}</span>
         <a href={`tel:${BUSINESS_PHONE_RAW}`} className="flex items-center hover:text-blue-600 transition-colors">

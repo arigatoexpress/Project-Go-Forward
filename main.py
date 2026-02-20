@@ -44,6 +44,8 @@ from email_service import (
     send_deal_status_update,
     send_custom_email,
     get_email_log,
+    notify_new_lead,
+    notify_new_appointment,
 )
 
 # Configure logging
@@ -81,6 +83,13 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
         return response
 
+def _get_client_ip(request: Request) -> str:
+    """Get real client IP, checking X-Forwarded-For for reverse proxy (Cloud Run)."""
+    forwarded = request.headers.get("x-forwarded-for", "")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
 # Rate limiting middleware — per-IP sliding window
 MAX_REQUESTS_PER_MINUTE = int(os.environ.get("RATE_LIMIT_RPM", "60"))
 MAX_REQUEST_BODY_BYTES = int(os.environ.get("MAX_REQUEST_BODY_BYTES", str(1 * 1024 * 1024)))  # 1 MB default
@@ -94,7 +103,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         # Exempt health check from rate limiting (load balancer probes)
         if request.url.path == "/health":
             return await call_next(request)
-        client_ip = request.client.host if request.client else "unknown"
+        client_ip = _get_client_ip(request)
         now = time.time()
         window = self._hits[client_ip]
         # Prune entries older than 60s
@@ -945,6 +954,12 @@ async def submit_contact_form(request: Request):
             except Exception as e:
                 struct_logger.warning("Lead welcome email failed", error=str(e))
 
+        # Notify owner of new lead
+        try:
+            notify_new_lead(customer_name=name, phone=phone, email=email, source=data.get("source", "contact_form"))
+        except Exception as e:
+            struct_logger.warning("Lead admin notification failed", error=str(e))
+
         return {"success": True, "message": "Thank you! We'll be in touch shortly."}
     except Exception as e:
         struct_logger.error("Contact form failed", error=str(e))
@@ -1008,6 +1023,15 @@ async def create_appointment(request: Request):
                 )
             except Exception as e:
                 struct_logger.warning("Appointment confirmation email failed", error=str(e))
+
+        # Notify owner of new appointment
+        try:
+            notify_new_appointment(
+                customer_name=name, phone=phone, date=appt_date,
+                time_slot=time_slot, email=appt.email, notes=appt.notes,
+            )
+        except Exception as e:
+            struct_logger.warning("Appointment admin notification failed", error=str(e))
 
         # Also create a lead for the CRM funnel
         try:
@@ -1169,7 +1193,7 @@ async def get_email_log_api(limit: int = 50, email_type: str = None):
 @app.post("/api/admin/verify")
 async def verify_admin_pin(request: Request):
     """Validate admin PIN server-side and return a session token."""
-    client_ip = request.client.host if request.client else "unknown"
+    client_ip = _get_client_ip(request)
 
     # Check brute-force lockout
     now = time.time()

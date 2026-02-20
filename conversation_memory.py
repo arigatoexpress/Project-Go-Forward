@@ -210,28 +210,27 @@ class ConversationMemory:
         await self.save_context(context)
         return context
     
-    def get_context_prompt(self, session_id: str, user_id: str) -> str:
-        """Get context string to inject into agent prompt"""
+    async def get_context_prompt(self, session_id: str, user_id: str) -> str:
+        """Get context string to inject into agent prompt."""
         try:
-            import asyncio
-            context = asyncio.run(self.get_context(session_id, user_id))
-            
+            context = await self.get_context(session_id, user_id)
+
             parts = []
             pref_context = context.preferences.to_prompt_context()
             if pref_context:
                 parts.append(pref_context)
-            
+
             if context.homes_discussed:
                 parts.append(f"Previously discussed: {', '.join(context.homes_discussed[:3])}")
-            
+
             if context.appointment_intent:
                 parts.append("User has shown interest in scheduling an appointment")
-            
+
             if context.financing_questions > 0:
                 parts.append(f"User has asked {context.financing_questions} financing question(s)")
-            
+
             if parts:
-                return "\\n\\nConversation Context:\\n" + "\\n".join(f"- {p}" for p in parts)
+                return "\n\nConversation Context:\n" + "\n".join(f"- {p}" for p in parts)
             return ""
         except Exception as e:
             logger.warning("Error getting context prompt: %s", e)
