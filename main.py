@@ -141,6 +141,45 @@ adk_app = App(name="root_agent", root_agent=root_agent)
 runner = InMemoryRunner(app=adk_app)
 
 
+# ─── Admin Auth Setup ───
+
+# In production, ADMIN_PIN_HASH must be set as an environment variable.
+# Generate with: python -c "import hashlib; print(hashlib.sha256(b'YOUR_PIN').hexdigest())"
+_default_pin_hash = hashlib.sha256("4832".encode()).hexdigest() if IS_LOCAL else ""
+ADMIN_PIN_HASH = os.environ.get("ADMIN_PIN_HASH", _default_pin_hash)
+if not ADMIN_PIN_HASH and not IS_LOCAL:
+    logger.critical("ADMIN_PIN_HASH env var is required in production. Admin auth will reject all requests.")
+    raise SystemExit("FATAL: ADMIN_PIN_HASH must be set in production. "
+                     "Generate with: python -c \"import hashlib; print(hashlib.sha256(b'YOUR_PIN').hexdigest())\"")
+
+# Warn loudly if email service is not configured (appointments/leads won't get confirmations)
+if not os.environ.get("RESEND_API_KEY") and not IS_LOCAL:
+    logger.critical("RESEND_API_KEY not set — appointment confirmations and lead emails will NOT be sent.")
+elif not os.environ.get("RESEND_API_KEY"):
+    logger.warning("RESEND_API_KEY not set — emails will run in dry-run mode (local dev).")
+
+# Simple token store (in-memory; resets on restart which is acceptable for admin sessions)
+_admin_tokens: dict[str, float] = {}
+ADMIN_TOKEN_TTL = int(os.environ.get("ADMIN_TOKEN_TTL", str(2 * 60 * 60)))  # 2 hours default
+
+
+async def require_admin(request: Request):
+    """FastAPI dependency that validates the X-Admin-Token header."""
+    token = request.headers.get("X-Admin-Token", "")
+    if not token:
+        raise HTTPException(status_code=401, detail="Admin authentication required")
+    issued = _admin_tokens.get(token)
+    if not issued or (time.time() - issued) >= ADMIN_TOKEN_TTL:
+        _admin_tokens.pop(token, None)
+        raise HTTPException(status_code=401, detail="Admin session expired. Please re-authenticate.")
+
+
+# Brute-force protection: track failed PIN attempts per IP
+_pin_attempts: dict[str, list[float]] = {}
+PIN_MAX_ATTEMPTS = 5
+PIN_LOCKOUT_SECONDS = 300  # 5-minute lockout after 5 failures
+
+
 @app.post("/run")
 async def run_agent(request: Request):
     request_id = str(uuid.uuid4())
@@ -448,7 +487,7 @@ async def extract_fields_from_chat(request: Request):
         result = await extract_form_data_from_session(
             session_id=session_id,
             template_name=template_name,
-            runner=runner if 'runner' in dir() else None,
+            runner=runner,
         )
         return result
     except Exception as e:
@@ -1125,45 +1164,6 @@ async def get_email_log_api(limit: int = 50, email_type: str = None):
     except Exception as e:
         struct_logger.error("Email log fetch failed", error=str(e))
         return {"success": False, "error": "Failed to load email log. Please try again."}
-
-
-# ─── Admin Auth API ───
-
-# In production, ADMIN_PIN_HASH must be set as an environment variable.
-# Generate with: python -c "import hashlib; print(hashlib.sha256(b'YOUR_PIN').hexdigest())"
-_default_pin_hash = hashlib.sha256("4832".encode()).hexdigest() if IS_LOCAL else ""
-ADMIN_PIN_HASH = os.environ.get("ADMIN_PIN_HASH", _default_pin_hash)
-if not ADMIN_PIN_HASH and not IS_LOCAL:
-    logger.critical("ADMIN_PIN_HASH env var is required in production. Admin auth will reject all requests.")
-    raise SystemExit("FATAL: ADMIN_PIN_HASH must be set in production. "
-                     "Generate with: python -c \"import hashlib; print(hashlib.sha256(b'YOUR_PIN').hexdigest())\"")
-
-# Warn loudly if email service is not configured (appointments/leads won't get confirmations)
-if not os.environ.get("RESEND_API_KEY") and not IS_LOCAL:
-    logger.critical("RESEND_API_KEY not set — appointment confirmations and lead emails will NOT be sent.")
-elif not os.environ.get("RESEND_API_KEY"):
-    logger.warning("RESEND_API_KEY not set — emails will run in dry-run mode (local dev).")
-
-# Simple token store (in-memory; resets on restart which is acceptable for admin sessions)
-_admin_tokens: dict[str, float] = {}
-ADMIN_TOKEN_TTL = int(os.environ.get("ADMIN_TOKEN_TTL", str(2 * 60 * 60)))  # 2 hours default
-
-
-async def require_admin(request: Request):
-    """FastAPI dependency that validates the X-Admin-Token header."""
-    token = request.headers.get("X-Admin-Token", "")
-    if not token:
-        raise HTTPException(status_code=401, detail="Admin authentication required")
-    issued = _admin_tokens.get(token)
-    if not issued or (time.time() - issued) >= ADMIN_TOKEN_TTL:
-        _admin_tokens.pop(token, None)
-        raise HTTPException(status_code=401, detail="Admin session expired. Please re-authenticate.")
-
-
-# Brute-force protection: track failed PIN attempts per IP
-_pin_attempts: dict[str, list[float]] = {}
-PIN_MAX_ATTEMPTS = 5
-PIN_LOCKOUT_SECONDS = 300  # 5-minute lockout after 5 failures
 
 
 @app.post("/api/admin/verify")

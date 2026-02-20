@@ -20,8 +20,9 @@ except ImportError:
         # Try relative import
         from ..caching import cache_get, cache_set
     except ImportError:
-        # Fallback for direct script execution from package root
-        from my_config_agent.caching import cache_get, cache_set
+        # Fallback: define no-ops if caching unavailable
+        def cache_get(key): return None
+        def cache_set(key, value, ttl=None): pass
 
 # Cache Key
 INVENTORY_CACHE_KEY = "inventory_dataset"
@@ -34,7 +35,7 @@ def _load_inventory_from_firestore():
         try:
             from ..database.firestore_client import get_database
         except ImportError:
-            from my_config_agent.database.firestore_client import get_database
+            from database.firestore_client import get_database
         db = get_database()
         
         # Query all available inventory

@@ -98,6 +98,22 @@ class AppointmentManager:
 
     async def create_appointment(self, appt: Appointment) -> Appointment:
         """Create appointment with double-booking protection via transaction."""
+        # Validate date is not in the past
+        try:
+            appt_date = datetime.strptime(appt.date, "%Y-%m-%d").date()
+        except ValueError:
+            raise ValueError(f"Invalid date format: {appt.date}. Use YYYY-MM-DD.")
+
+        now = datetime.now(TIMEZONE)
+        if appt_date < now.date():
+            raise ValueError("Cannot book appointments in the past.")
+
+        # If booking today, ensure the time slot hasn't passed
+        if appt_date == now.date() and appt.time_slot:
+            slot_hour = datetime.strptime(appt.time_slot, "%I:%M %p").hour
+            if slot_hour <= now.hour:
+                raise ValueError(f"Time slot {appt.time_slot} has already passed today.")
+
         doc_ref = self._collection().document(appt.appointment_id)
 
         @firestore.transactional
@@ -188,13 +204,12 @@ class AppointmentManager:
         open_hour, close_hour = hours
         all_slots = _generate_slots(open_hour, close_hour)
 
-        # If booking for today, filter out past time slots
+        # If booking for today, filter out past time slots (include buffer for current hour)
         if d == today:
             now = datetime.now(TIMEZONE)
-            current_hour = now.hour
             all_slots = [
                 s for s in all_slots
-                if datetime.strptime(s, "%I:%M %p").hour > current_hour
+                if datetime.strptime(s, "%I:%M %p").hour > now.hour
             ]
 
         # Get existing bookings
