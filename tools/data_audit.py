@@ -16,7 +16,7 @@ def audit_inventory_data():
         os.path.join(os.path.dirname(__file__), "..", "data", "House Orders.xlsx"),
         os.path.join(os.path.dirname(__file__), "data", "House Orders.xlsx"),
         "data/House Orders.xlsx",
-        "my_config_agent/data/House Orders.xlsx",
+        "tho_data/House Orders.xlsx",
     ]
     
     xlsx_path = None

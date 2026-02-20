@@ -6,7 +6,7 @@ import re
 
 def convert_excel_to_json():
     # Define paths
-    base_dir = os.path.dirname(os.path.dirname(__file__)) # Up one level from tools/ to my_config_agent/
+    base_dir = os.path.dirname(os.path.dirname(__file__))  # Up one level from tools/ to project root
     excel_path = os.path.join(base_dir, "data", "House Orders.xlsx")
     json_path = os.path.join(base_dir, "data", "inventory.json")
     

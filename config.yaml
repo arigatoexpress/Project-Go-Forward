@@ -94,10 +94,10 @@ frontend:
   # Branding
   primary_color: "#1a56db"
   accent_color: "#e74c3c"
-  logo_path: "public/logo.svg"
+  logo_path: "public/tex-icon.svg"
   
   # Chat interface
-  placeholder_text: "Ask about products, pricing, or services..."
+  placeholder_text: "Ask about homes, pricing, financing, or schedule a visit..."
   disclaimer: "AI can make mistakes. Please verify details with a human agent."
 
 deployment:
@@ -108,7 +108,7 @@ deployment:
   
 scraper:
   # Website to scrape inventory from
-  target_url: "https://www.yourbusiness.com/inventory"
+  target_url: "https://www.texashomeoutlet.com/inventory"
   # CSS selectors for scraping (customize per website)
   selectors:
     card: ".product-card"
