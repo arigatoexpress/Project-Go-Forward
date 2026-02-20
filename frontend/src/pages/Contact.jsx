@@ -74,7 +74,7 @@ const Contact = ({ onBack }) => {
                             </div>
                             <div>
                                 <h3 className="text-lg font-bold text-gray-900">Visit Our Showroom</h3>
-                                <p className="text-gray-600 mt-1">{BUSINESS_ADDRESS} East<br />{BUSINESS_CITY}</p>
+                                <p className="text-gray-600 mt-1">{BUSINESS_ADDRESS}<br />{BUSINESS_CITY}</p>
                             </div>
                         </div>
                     </div>

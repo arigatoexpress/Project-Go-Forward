@@ -98,12 +98,13 @@ export default function CRM({ onBack }) {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [leadsRes, dealsRes, apptsRes, emailsRes] = await Promise.all([
+      const results = await Promise.allSettled([
         adminFetch('/api/leads?limit=200').then(r => r.json()),
         adminFetch('/api/deals?limit=200').then(r => r.json()),
         adminFetch('/api/crm/appointments?limit=200').then(r => r.json()),
         adminFetch('/api/email/log?limit=100').then(r => r.json()),
       ]);
+      const [leadsRes, dealsRes, apptsRes, emailsRes] = results.map(r => r.status === 'fulfilled' ? r.value : {});
       if (leadsRes.success) setLeads(leadsRes.leads || []);
       if (dealsRes.success) setDeals(dealsRes.deals || []);
       if (apptsRes.success) setAppointments(apptsRes.appointments || []);
