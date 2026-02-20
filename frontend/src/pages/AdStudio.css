@@ -2282,3 +2282,36 @@
   cursor: not-allowed;
   transform: none !important;
 }
+
+/* ─── Image Generation Error ─── */
+.tho-image-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 8px;
+  color: #fca5a5;
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
+.tho-image-error span {
+  flex: 1;
+}
+
+.tho-error-dismiss {
+  background: none;
+  border: none;
+  color: #fca5a5;
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.tho-error-dismiss:hover {
+  background: rgba(239, 68, 68, 0.2);
+}
