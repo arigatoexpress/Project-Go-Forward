@@ -103,7 +103,7 @@ def _load_inventory_from_json():
         os.path.join(os.path.dirname(__file__), "..", "data", "inventory.json"),
         os.path.join(os.path.dirname(__file__), "data", "inventory.json"),
         "data/inventory.json",
-        # "my_config_agent/data/inventory.json", # Handled by relative path above
+        # Relative path handled above
         "/app/data/inventory.json"
     ]
     

@@ -4,11 +4,9 @@ import os
 
 # Add project root to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../my_config_agent')))
-
 print("Initial modules:", len(sys.modules))
 
-from my_config_agent.tools import inventory_tools
+from tools import inventory_tools
 
 print("After import inventory_tools:", len(sys.modules))
 

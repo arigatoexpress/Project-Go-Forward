@@ -5,7 +5,7 @@ import os
 
 # Add project root to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../my_config_agent')))
+# project root already on path
 
 def profile_import(module_name):
     start = time.time()
@@ -26,6 +26,6 @@ profile_import('pandas')
 profile_import('tools') # This triggers tools/__init__.py
 profile_import('root_agent')
 # Add main.py directory to path to allow import
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../my_config_agent')))
+# project root already on path
 profile_import('main')
 profile_import('main')
