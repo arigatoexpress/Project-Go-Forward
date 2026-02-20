@@ -8,6 +8,7 @@ from google.adk.tools import ToolContext
 from typing import Optional
 from datetime import datetime
 import base64
+import html
 import logging
 import os
 from typing import Optional, Dict, Any
@@ -296,16 +297,16 @@ def generate_work_order_pdf(
     # Generate HTML
     html_content = WORK_ORDER_TEMPLATE.format(
         doc_type="WORK ORDER",
-        doc_number=doc_id,
+        doc_number=html.escape(doc_id),
         date=datetime.now().strftime("%B %d, %Y"),
-        customer_name=customer_name,
-        customer_address=customer_address,
-        customer_phone=customer_phone,
-        contractor_name=contractor_name,
-        contractor_email=contractor_email,
-        contractor_phone=contractor_phone,
-        work_description=work_description,
-        issue_type=issue_type,
+        customer_name=html.escape(customer_name),
+        customer_address=html.escape(customer_address),
+        customer_phone=html.escape(customer_phone),
+        contractor_name=html.escape(contractor_name),
+        contractor_email=html.escape(contractor_email),
+        contractor_phone=html.escape(contractor_phone),
+        work_description=html.escape(work_description),
+        issue_type=html.escape(issue_type),
         billing_type=billing_type,
         status_class=status_class,
         cost_section=cost_section
@@ -364,21 +365,21 @@ def generate_service_ticket(
     for item in timeline:
         timeline_html += f"""
         <div class="timeline-item">
-            <div class="timeline-date">{item['date']}</div>
-            <div>{item['event']}</div>
+            <div class="timeline-date">{html.escape(str(item['date']))}</div>
+            <div>{html.escape(str(item['event']))}</div>
         </div>
         """
     
     html_content = SERVICE_TICKET_TEMPLATE.format(
-        ticket_id=ticket_id,
-        status=status,
+        ticket_id=html.escape(ticket_id),
+        status=html.escape(status),
         created_date=datetime.now().strftime("%B %d, %Y %I:%M %p"),
-        customer_name=customer_name,
-        customer_phone=customer_phone,
-        customer_address=customer_address,
-        issue_description=issue_description,
-        issue_type=issue_type,
-        warranty_status=warranty_status,
+        customer_name=html.escape(customer_name),
+        customer_phone=html.escape(customer_phone),
+        customer_address=html.escape(customer_address),
+        issue_description=html.escape(issue_description),
+        issue_type=html.escape(issue_type),
+        warranty_status=html.escape(warranty_status),
         timeline_items=timeline_html
     )
     

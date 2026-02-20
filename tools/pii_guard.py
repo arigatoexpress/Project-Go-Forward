@@ -76,4 +76,5 @@ def redact_pii_from_text(text: str) -> str:
     """
     text = SSN_PATTERN.sub('[SSN-REDACTED]', text)
     text = CREDIT_CARD_PATTERN.sub('[CC-REDACTED]', text)
+    text = BANK_ACCOUNT_PATTERN.sub('[ACCT-REDACTED]', text)
     return text
