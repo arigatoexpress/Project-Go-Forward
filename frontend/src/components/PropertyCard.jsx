@@ -109,6 +109,7 @@ const PropertyCard = ({ property, onToggleCompare, isSelected }) => {
                             <img
                                 src={allImages[currentImageIndex]}
                                 alt={model_name}
+                                loading="lazy"
                                 className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
                                 onError={() => setImageError(true)}
                             />

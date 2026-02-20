@@ -5,11 +5,18 @@ import { BUSINESS_NAME, BUSINESS_URL, BUSINESS_PHONE, BUSINESS_PHONE_RAW, BUSINE
 const Contact = ({ onBack }) => {
     const [submitted, setSubmitted] = useState(false);
     const [submitting, setSubmitting] = useState(false);
-    const [formData, setFormData] = useState({ name: '', phone: '', message: '' });
+    const [formData, setFormData] = useState({ name: '', phone: '', email: '', message: '' });
     const [submitError, setSubmitError] = useState('');
+
+    const phoneDigits = formData.phone.replace(/\D/g, '');
+    const isPhoneValid = phoneDigits.length >= 10;
 
     const handleSubmit = async (e) => {
         e.preventDefault();
+        if (!isPhoneValid) {
+            setSubmitError('Please enter a valid 10-digit phone number.');
+            return;
+        }
         setSubmitting(true);
         setSubmitError('');
         try {
@@ -108,6 +115,7 @@ const Contact = ({ onBack }) => {
                 {/* Contact Form */}
                 <div className="bg-white p-8 rounded-2xl shadow-xl border border-gray-100">
                     <h3 className="text-xl font-bold text-gray-900 mb-6">Send a Message</h3>
+                    <fieldset disabled={submitting}>
                     <form onSubmit={handleSubmit} className="space-y-4">
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">Your Name</label>
@@ -126,9 +134,25 @@ const Contact = ({ onBack }) => {
                                 type="tel"
                                 required
                                 value={formData.phone}
-                                onChange={(e) => setFormData(prev => ({ ...prev, phone: e.target.value }))}
-                                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                                onChange={(e) => {
+                                    setFormData(prev => ({ ...prev, phone: e.target.value }));
+                                    if (submitError) setSubmitError('');
+                                }}
+                                className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none ${formData.phone && !isPhoneValid ? 'border-red-300' : 'border-gray-300'}`}
                                 placeholder="(281) 000-0000"
+                            />
+                            {formData.phone && !isPhoneValid && (
+                                <p className="text-xs text-red-500 mt-1">Enter a valid 10-digit phone number</p>
+                            )}
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Email (optional)</label>
+                            <input
+                                type="email"
+                                value={formData.email}
+                                onChange={(e) => setFormData(prev => ({ ...prev, email: e.target.value }))}
+                                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                                placeholder="john@example.com"
                             />
                         </div>
                         <div>
@@ -140,7 +164,9 @@ const Contact = ({ onBack }) => {
                                 onChange={(e) => setFormData(prev => ({ ...prev, message: e.target.value }))}
                                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
                                 placeholder="Tell us about the home you are looking for..."
+                                maxLength={2000}
                             ></textarea>
+                            <p className="text-xs text-gray-400 text-right mt-1">{formData.message.length}/2000</p>
                         </div>
                         {submitError && (
                             <p className="text-sm text-red-600 bg-red-50 p-3 rounded-lg">{submitError}</p>
@@ -154,6 +180,7 @@ const Contact = ({ onBack }) => {
                             <span>{submitting ? 'Sending...' : 'Send Message'}</span>
                         </button>
                     </form>
+                    </fieldset>
                 </div>
             </div>
         </div>

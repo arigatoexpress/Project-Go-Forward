@@ -10,6 +10,7 @@ Setup:
   3. For production: verify texashomeoutlet.com domain in Resend dashboard
 """
 
+import html as html_mod
 import os
 import logging
 from datetime import datetime
@@ -24,6 +25,7 @@ TIMEZONE = ZoneInfo("America/Chicago")
 # Test sender works immediately — no domain verification needed
 RESEND_FROM = os.environ.get("RESEND_FROM", "Texas Home Outlet <onboarding@resend.dev>")
 RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
+NOTIFICATION_EMAIL = os.environ.get("NOTIFICATION_EMAIL", "aribspector@gmail.com")
 BUSINESS_PHONE = "(281) 324-3020"
 BUSINESS_ADDRESS = "10685 FM 1960 East, Huffman, TX"
 
@@ -144,7 +146,7 @@ def send_appointment_confirmation(
     notes: str = None,
 ) -> dict:
     """Send appointment confirmation email."""
-    first_name = customer_name.split()[0] if customer_name else "Friend"
+    first_name = html_mod.escape(customer_name.split()[0]) if customer_name else "Friend"
 
     content = f"""
     <h2 style="color: #1e3a5f; margin-top: 0;">Your Visit is Confirmed!</h2>
@@ -190,7 +192,7 @@ def send_appointment_confirmation(
 
 def send_lead_welcome(to: str, customer_name: str, lead_id: str = None) -> dict:
     """Send welcome email to new lead who submitted contact/quote form."""
-    first_name = customer_name.split()[0] if customer_name else "Friend"
+    first_name = html_mod.escape(customer_name.split()[0]) if customer_name else "Friend"
 
     content = f"""
     <h2 style="color: #1e3a5f; margin-top: 0;">Thanks for Reaching Out!</h2>
@@ -230,7 +232,7 @@ def send_deal_status_update(
     home_name: str = None,
 ) -> dict:
     """Send email when a deal status changes (approved, contract, funded, etc.)."""
-    first_name = customer_name.split()[0] if customer_name else "Friend"
+    first_name = html_mod.escape(customer_name.split()[0]) if customer_name else "Friend"
 
     status_messages = {
         "approved": {
@@ -289,10 +291,10 @@ def send_deal_status_update(
 
 def send_custom_email(to: str, customer_name: str, subject: str, message: str) -> dict:
     """Send a custom one-off email from the CRM."""
-    first_name = customer_name.split()[0] if customer_name else "Friend"
+    first_name = html_mod.escape(customer_name.split()[0]) if customer_name else "Friend"
 
-    # Convert plain text line breaks to HTML
-    html_message = message.replace("\n", "<br>")
+    # Convert plain text line breaks to HTML (escape first to prevent XSS)
+    html_message = html_mod.escape(message).replace("\n", "<br>")
 
     content = f"""
     <p>Hi {first_name},</p>
@@ -309,6 +311,68 @@ def send_custom_email(to: str, customer_name: str, subject: str, message: str) -
         subject=subject,
         html=_base_wrapper(content),
         email_type="custom",
+    )
+
+
+# ── Admin Notifications ─────────────────────────────────────────
+
+def notify_new_lead(customer_name: str, phone: str, email: str = None, source: str = "website") -> dict:
+    """Notify owner when a new lead comes in."""
+    if not NOTIFICATION_EMAIL:
+        return {"success": False, "error": "No notification email configured"}
+
+    esc = html_mod.escape
+    content = f"""
+    <h2 style="color: #1e3a5f; margin-top: 0;">New Lead Alert</h2>
+    <div style="background: #eff6ff; border-left: 4px solid #3b82f6; padding: 16px; margin: 16px 0; border-radius: 0 8px 8px 0;">
+      <p style="margin: 4px 0; color: #374151;"><strong>Name:</strong> {esc(customer_name)}</p>
+      <p style="margin: 4px 0; color: #374151;"><strong>Phone:</strong> {esc(phone)}</p>
+      {f'<p style="margin: 4px 0; color: #374151;"><strong>Email:</strong> {esc(email)}</p>' if email else ''}
+      <p style="margin: 4px 0; color: #374151;"><strong>Source:</strong> {esc(source)}</p>
+      <p style="margin: 4px 0; color: #6b7280; font-size: 13px;">{datetime.now(TIMEZONE).strftime("%B %d, %Y at %I:%M %p")}</p>
+    </div>
+    <p style="color: #374151;">Log into the <strong>CRM dashboard</strong> to follow up.</p>
+    """
+
+    return send_email(
+        to=NOTIFICATION_EMAIL,
+        subject=f"New Lead: {customer_name} — {phone}",
+        html=_base_wrapper(content),
+        email_type="admin_lead_notification",
+    )
+
+
+def notify_new_appointment(
+    customer_name: str,
+    phone: str,
+    date: str,
+    time_slot: str,
+    email: str = None,
+    notes: str = None,
+) -> dict:
+    """Notify owner when a new appointment is booked."""
+    if not NOTIFICATION_EMAIL:
+        return {"success": False, "error": "No notification email configured"}
+
+    esc = html_mod.escape
+    content = f"""
+    <h2 style="color: #1e3a5f; margin-top: 0;">New Appointment Booked</h2>
+    <div style="background: #f0fdf4; border-left: 4px solid #22c55e; padding: 16px; margin: 16px 0; border-radius: 0 8px 8px 0;">
+      <p style="margin: 4px 0; color: #374151;"><strong>Customer:</strong> {esc(customer_name)}</p>
+      <p style="margin: 4px 0; color: #374151;"><strong>Phone:</strong> {esc(phone)}</p>
+      {f'<p style="margin: 4px 0; color: #374151;"><strong>Email:</strong> {esc(email)}</p>' if email else ''}
+      <p style="margin: 4px 0; color: #374151;"><strong>Date:</strong> {esc(date)}</p>
+      <p style="margin: 4px 0; color: #374151;"><strong>Time:</strong> {esc(time_slot)}</p>
+      {f'<p style="margin: 4px 0; color: #6b7280;"><strong>Notes:</strong> {esc(notes)}</p>' if notes else ''}
+    </div>
+    <p style="color: #374151;">Check the <strong>Appointments</strong> page in the CRM for details.</p>
+    """
+
+    return send_email(
+        to=NOTIFICATION_EMAIL,
+        subject=f"Appointment: {customer_name} — {date} {time_slot}",
+        html=_base_wrapper(content),
+        email_type="admin_appointment_notification",
     )
 
 
