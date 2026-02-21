@@ -226,7 +226,16 @@ This v1 slice is designed for:
 
 ## CI/CD Integration
 
-### GitHub Actions Example
+### GitHub Actions (Included)
+
+This repository includes ready-to-use GitHub Actions workflows:
+
+- **`.github/workflows/test.yml`** - Runs tests on every PR
+- **`.github/workflows/deploy.yml`** - Full CI/CD pipeline on push to main
+
+See [DEPLOYMENT.md](DEPLOYMENT.md) for setup instructions.
+
+### Manual CI/CD Example
 
 ```yaml
 name: Deploy to Cloud Run
