@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <!-- Background circle -->
+  <circle cx="50" cy="50" r="48" fill="#1e3a5f"/>
+  
+  <!-- Face -->
+  <ellipse cx="50" cy="55" rx="25" ry="22" fill="#f5d0a9"/>
+  
+  <!-- Cowboy hat brim -->
+  <ellipse cx="50" cy="32" rx="35" ry="8" fill="#8B4513"/>
+  
+  <!-- Cowboy hat top -->
+  <path d="M 30 32 Q 35 15 50 12 Q 65 15 70 32 Z" fill="#A0522D"/>
+  <path d="M 35 32 Q 38 22 50 20 Q 62 22 65 32" fill="none" stroke="#6B3E26" stroke-width="1.5"/>
+  
+  <!-- Hat band with star -->
+  <rect x="30" y="28" width="40" height="5" fill="#6B3E26"/>
+  <polygon points="50,28 51.5,31 55,31 52.5,33 53.5,36 50,34 46.5,36 47.5,33 45,31 48.5,31" fill="#FFD700"/>
+  
+  <!-- Eyes -->
+  <ellipse cx="42" cy="52" rx="4" ry="5" fill="white"/>
+  <ellipse cx="58" cy="52" rx="4" ry="5" fill="white"/>
+  <circle cx="43" cy="53" r="2.5" fill="#4a3728"/>
+  <circle cx="59" cy="53" r="2.5" fill="#4a3728"/>
+  <circle cx="44" cy="52" r="1" fill="white"/>
+  <circle cx="60" cy="52" r="1" fill="white"/>
+  
+  <!-- Eyebrows -->
+  <path d="M 37 47 Q 42 45 47 47" fill="none" stroke="#6B3E26" stroke-width="1.5" stroke-linecap="round"/>
+  <path d="M 53 47 Q 58 45 63 47" fill="none" stroke="#6B3E26" stroke-width="1.5" stroke-linecap="round"/>
+  
+  <!-- Nose -->
+  <ellipse cx="50" cy="60" rx="3" ry="2" fill="#e8b896"/>
+  
+  <!-- Big friendly smile -->
+  <path d="M 38 66 Q 50 78 62 66" fill="none" stroke="#A0522D" stroke-width="2.5" stroke-linecap="round"/>
+  
+  <!-- Rosy cheeks -->
+  <circle cx="35" cy="62" r="4" fill="#ffb6c1" opacity="0.5"/>
+  <circle cx="65" cy="62" r="4" fill="#ffb6c1" opacity="0.5"/>
+  
+  <!-- Ears -->
+  <ellipse cx="25" cy="55" rx="4" ry="6" fill="#f5d0a9"/>
+  <ellipse cx="75" cy="55" rx="4" ry="6" fill="#f5d0a9"/>
+</svg>

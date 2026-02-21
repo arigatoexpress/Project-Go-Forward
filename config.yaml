@@ -1,0 +1,100 @@
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Project Go Forward — Business Configuration
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Edit this file to configure the AI agent for YOUR business.
+# All other code reads from this config — no need to touch source files.
+
+business:
+  name: "Texas Home Outlet"
+  tagline: "Your Dream Home, Our Mission"
+  industry: "real_estate"
+  
+  # Physical location (used by the agent in responses)
+  address: "2915 FM 1960 E, Houston, TX 77073"
+  phone: "(281) 555-0199"
+  email: "sales@texashomeoutlet.com"
+  website: "https://www.texashomeoutlet.com"
+  
+  # Operating hours
+  hours:
+    weekday: "Mon-Fri 9:00 AM - 6:00 PM"
+    saturday: "Sat 9:00 AM - 5:00 PM"
+    sunday: "Sun 12:00 PM - 3:00 PM"
+
+agent:
+  # The name your AI assistant goes by
+  assistant_name: "AI Assistant"
+  
+  # Model to use (Gemini via Vertex AI)
+  model: "gemini-2.0-flash-001"
+  
+  # Agent personality and communication style
+  personality: "warm, down-to-earth, and conversational — like a friendly neighbor who happens to know everything about manufactured homes. Use casual language, contractions, and a touch of Texas charm. Be genuinely empathetic and human in tone"
+  greeting: "Hey there! Welcome to Texas Home Outlet. What can I help you with today?"
+  
+  # What your agent specializes in
+  specializations:
+    - "Product search and recommendations"
+    - "Pricing information"
+    - "Appointment booking"
+    - "Service and warranty support"
+
+product:
+  # What you sell (used in agent prompts and search)
+  type: "products"  # products, homes, vehicles, services, listings
+  singular: "product"
+  plural: "products"
+  
+  # Attributes your products have (mapped to inventory schema)
+  primary_attributes:
+    - name: "category"
+      label: "Category"
+      type: "string"
+    - name: "size"
+      label: "Size" 
+      type: "string"
+    - name: "color"
+      label: "Color"
+      type: "string"
+  
+  # Spec fields shown on product cards
+  spec_fields:
+    - key: "beds"
+      label: "Beds"
+      icon: "🛏️"
+    - key: "baths"
+      label: "Baths"
+      icon: "🚿"
+    - key: "sq_ft"
+      label: "Sq Ft"
+      icon: "📐"
+
+  # Pricing
+  financing_available: false
+
+frontend:
+  # Branding
+  primary_color: "#1a56db"
+  accent_color: "#e74c3c"
+  logo_path: "public/logo.svg"
+  
+  # Chat interface
+  placeholder_text: "Ask about products, pricing, or services..."
+  disclaimer: "AI can make mistakes. Please verify details with a human agent."
+
+deployment:
+  # Google Cloud
+  project_id: "tho-ai-agent"
+  region: "us-central1"
+  service_name: "tho-agent"
+  
+scraper:
+  # Website to scrape inventory from
+  target_url: "https://www.yourbusiness.com/inventory"
+  # CSS selectors for scraping (customize per website)
+  selectors:
+    card: ".product-card"
+    name: ".product-name"
+    price: ".product-price"
+    image: "img"
+    link: "a"

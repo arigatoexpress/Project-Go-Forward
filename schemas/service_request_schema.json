@@ -1,0 +1,140 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "{{BUSINESS_SHORT}} Service Request",
+    "description": "Schema for service requests and work orders",
+    "type": "object",
+    "required": [
+        "request_id",
+        "customer_id",
+        "issue_type",
+        "status",
+        "created_at"
+    ],
+    "properties": {
+        "request_id": {
+            "type": "string",
+            "description": "Unique service request ID",
+            "pattern": "^SR-[0-9]{8}-[0-9]{4}$"
+        },
+        "customer_id": {
+            "type": "string"
+        },
+        "home_id": {
+            "type": "string"
+        },
+        "issue_type": {
+            "type": "string",
+            "enum": [
+                "Structural",
+                "Plumbing",
+                "Electrical",
+                "HVAC",
+                "Cosmetic",
+                "Appliance",
+                "Other"
+            ]
+        },
+        "issue_description": {
+            "type": "string"
+        },
+        "photos": {
+            "type": "array",
+            "items": {
+                "type": "string",
+                "format": "uri"
+            }
+        },
+        "analysis": {
+            "type": "object",
+            "properties": {
+                "cause": {
+                    "type": "string",
+                    "enum": [
+                        "Manufacturing Defect",
+                        "Installation Error",
+                        "Normal Wear",
+                        "Customer Damage",
+                        "Unknown"
+                    ]
+                },
+                "severity": {
+                    "type": "string",
+                    "enum": [
+                        "Low",
+                        "Medium",
+                        "High",
+                        "Critical"
+                    ]
+                },
+                "warranty_covered": {
+                    "type": "boolean"
+                },
+                "reasoning": {
+                    "type": "string"
+                }
+            }
+        },
+        "status": {
+            "type": "string",
+            "enum": [
+                "Submitted",
+                "Under Review",
+                "Approved",
+                "Denied",
+                "Scheduled",
+                "In Progress",
+                "Completed"
+            ]
+        },
+        "contractor": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "email": {
+                    "type": "string",
+                    "format": "email"
+                },
+                "phone": {
+                    "type": "string"
+                },
+                "scheduled_date": {
+                    "type": "string",
+                    "format": "date"
+                }
+            }
+        },
+        "invoice": {
+            "type": "object",
+            "properties": {
+                "invoice_id": {
+                    "type": "string"
+                },
+                "amount": {
+                    "type": "number"
+                },
+                "status": {
+                    "type": "string",
+                    "enum": [
+                        "Draft",
+                        "Sent",
+                        "Paid"
+                    ]
+                },
+                "pdf_url": {
+                    "type": "string",
+                    "format": "uri"
+                }
+            }
+        },
+        "created_at": {
+            "type": "string",
+            "format": "date-time"
+        },
+        "updated_at": {
+            "type": "string",
+            "format": "date-time"
+        }
+    }
+}

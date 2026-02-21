@@ -1,0 +1,67 @@
+[
+    {
+        "id": "10001",
+        "website_id": "10001",
+        "serial_number": "10001",
+        "manufacturer": "Example Manufacturer",
+        "model_name": "Sample Home Model A",
+        "classification": "Double Wide",
+        "status": "Available",
+        "specs": {
+            "beds": 3,
+            "baths": 2,
+            "sq_ft": 1400
+        },
+        "pricing": {
+            "price_value": 95000,
+            "display_price": "$95,000",
+            "price_tier": "$75k-$100k"
+        },
+        "features": [
+            "Open-concept living",
+            "Modern finishes"
+        ],
+        "marketing_tags": [
+            "family",
+            "value"
+        ],
+        "image_url": "https://example.com/images/home-a.jpg",
+        "gallery_images": [
+            "https://example.com/images/home-a.jpg",
+            "https://example.com/images/home-a-interior.jpg"
+        ],
+        "floorplan_url": "https://example.com/images/home-a-floorplan.jpg",
+        "detail_url": "https://example.com/inventory/10001"
+    },
+    {
+        "id": "10002",
+        "website_id": "10002",
+        "serial_number": "10002",
+        "manufacturer": "Example Manufacturer",
+        "model_name": "Sample Home Model B",
+        "classification": "Single Wide",
+        "status": "Available",
+        "specs": {
+            "beds": 2,
+            "baths": 1,
+            "sq_ft": 850
+        },
+        "pricing": {
+            "price_value": 45000,
+            "display_price": "$45,000",
+            "price_tier": "Under $50k"
+        },
+        "features": [
+            "Starter Home",
+            "Budget Friendly"
+        ],
+        "marketing_tags": [
+            "budget",
+            "starter"
+        ],
+        "image_url": "https://example.com/images/home-b.jpg",
+        "gallery_images": [],
+        "floorplan_url": null,
+        "detail_url": "https://example.com/inventory/10002"
+    }
+]

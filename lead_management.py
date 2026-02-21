@@ -1,0 +1,180 @@
+"""
+Lead Capture and Management System for THO AI Agent
+Stores lead information in Firestore and provides export capabilities
+"""
+
+from dataclasses import dataclass, asdict
+from datetime import datetime
+from typing import Dict, List, Optional
+from google.cloud import firestore
+import json
+
+@dataclass
+class Lead:
+    """Lead information captured during conversation"""
+    lead_id: str
+    user_id: str
+    session_id: str
+    
+    # Contact information
+    name: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    
+    # Preferences from conversation
+    bedrooms: Optional[int] = None
+    bathrooms: Optional[int] = None
+    budget_max: Optional[float] = None
+    home_type: Optional[str] = None
+    
+    # Engagement tracking
+    homes_viewed: List[str] = None
+    appointment_requested: bool = False
+    financing_discussed: bool = False
+    
+    # Metadata
+    source: str = "chat"  # "chat", "appointment", "calculator"
+    status: str = "new"  # "new", "contacted", "qualified", "converted"
+    created_at: str = None
+    updated_at: str = None
+    
+    def __post_init__(self):
+        if self.homes_viewed is None:
+            self.homes_viewed = []
+        if self.created_at is None:
+            self.created_at = datetime.utcnow().isoformat()
+        self.updated_at = datetime.utcnow().isoformat()
+    
+    def to_dict(self) -> Dict:
+        """Convert to dictionary for storage"""
+        return asdict(self)
+    
+    @classmethod
+    def from_dict(cls, data: Dict) -> 'Lead':
+        """Create from dictionary"""
+        return cls(**data)
+    
+    def to_csv_row(self) -> Dict:
+        """Convert to CSV-friendly format"""
+        return {
+            'Lead ID': self.lead_id,
+            'Name': self.name or '',
+            'Email': self.email or '',
+            'Phone': self.phone or '',
+            'Bedrooms': self.bedrooms or '',
+            'Bathrooms': self.bathrooms or '',
+            'Max Budget': f'${int(self.budget_max):,}' if self.budget_max else '',
+            'Home Type': self.home_type or '',
+            'Homes Viewed': ', '.join(self.homes_viewed[:3]) if self.homes_viewed else '',
+            'Appointment Requested': 'Yes' if self.appointment_requested else 'No',
+            'Status': self.status,
+            'Created': self.created_at,
+            'Source': self.source
+        }
+
+
+class LeadManager:
+    """Manages lead storage and retrieval"""
+    
+    def __init__(self, project_id: str = None):
+        """Initialize Firestore client"""
+        self.db = firestore.Client(project=project_id)
+        self.collection_name = "leads"
+    
+    async def create_lead(self, lead: Lead) -> Lead:
+        """Create a new lead"""
+        doc_ref = self.db.collection(self.collection_name).document(lead.lead_id)
+        doc_ref.set(lead.to_dict())
+        return lead
+    
+    async def update_lead(self, lead: Lead) -> Lead:
+        """Update existing lead"""
+        lead.updated_at = datetime.utcnow().isoformat()
+        doc_ref = self.db.collection(self.collection_name).document(lead.lead_id)
+        doc_ref.set(lead.to_dict(), merge=True)
+        return lead
+    
+    async def get_lead(self, lead_id: str) -> Optional[Lead]:
+        """Retrieve lead by ID"""
+        doc_ref = self.db.collection(self.collection_name).document(lead_id)
+        doc = doc_ref.get()
+        
+        if doc.exists:
+            return Lead.from_dict(doc.to_dict())
+        return None
+    
+    async def get_lead_by_session(self, session_id: str) -> Optional[Lead]:
+        """Retrieve lead by session ID"""
+        query = self.db.collection(self.collection_name).where('session_id', '==', session_id).limit(1)
+        docs = query.stream()
+        
+        for doc in docs:
+            return Lead.from_dict(doc.to_dict())
+        return None
+    
+    async def list_leads(
+        self, 
+        status: Optional[str] = None,
+        limit: int = 100
+    ) -> List[Lead]:
+        """List leads with optional status filter"""
+        query = self.db.collection(self.collection_name)
+        
+        if status:
+            query = query.where('status', '==', status)
+        
+        query = query.order_by('created_at', direction=firestore.Query.DESCENDING).limit(limit)
+        docs = query.stream()
+        
+        return [Lead.from_dict(doc.to_dict()) for doc in docs]
+    
+    def export_to_csv(self, leads: List[Lead], filename: str = "leads_export.csv") -> str:
+        """Export leads to CSV file"""
+        import csv
+        
+        if not leads:
+            return None
+        
+        fieldnames = list(leads[0].to_csv_row().keys())
+        
+        with open(filename, 'w', newline='') as csvfile:
+            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+            writer.writeheader()
+            for lead in leads:
+                writer.writerow(lead.to_csv_row())
+        
+        return filename
+
+
+# Tool functions for Google ADK agents
+def capture_contact_info(name: str, email: str = None, phone: str = None) -> str:
+    """
+    Tool to capture contact information from a user during conversation.
+    
+    Args:
+        name: User's full name
+        email: User's email address (optional)
+        phone: User's phone number (optional)
+    
+    Returns:
+        Confirmation message
+    """
+    # This will be called by the agent and processed in main.py
+    return json.dumps({
+        "action": "capture_contact",
+        "name": name,
+        "email": email,
+        "phone": phone
+    })
+
+
+def mark_appointment_intent() -> str:
+    """
+    Tool to mark that a user has expressed intent to schedule an appointment.
+    
+    Returns:
+        Confirmation message
+    """
+    return json.dumps({
+        "action": "mark_appointment_intent"
+    })

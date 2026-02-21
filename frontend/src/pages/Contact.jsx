@@ -1,0 +1,168 @@
+import React, { useState } from 'react';
+import { Mail, Phone, MapPin, Send, CheckCircle } from 'lucide-react';
+
+const BUSINESS_NAME = "Texas Home Outlet";
+const BUSINESS_URL = "texashomeoutlet.com";
+const BUSINESS_PHONE = "(281) 324-3020";
+const BUSINESS_ADDRESS = "10685 FM 1960 East";
+const BUSINESS_CITY = "Huffman";
+
+const Contact = ({ onBack }) => {
+    const [submitted, setSubmitted] = useState(false);
+    const [submitting, setSubmitting] = useState(false);
+    const [formData, setFormData] = useState({ name: '', phone: '', message: '' });
+    const [submitError, setSubmitError] = useState('');
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        setSubmitting(true);
+        setSubmitError('');
+        try {
+            const resp = await fetch('/api/contact', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(formData),
+            });
+            const data = await resp.json();
+            if (data.success) {
+                setSubmitted(true);
+            } else {
+                setSubmitError(data.error || 'Something went wrong. Please try again.');
+            }
+        } catch {
+            setSubmitError('Unable to send your message. Please call us instead.');
+        } finally {
+            setSubmitting(false);
+        }
+    };
+
+    if (submitted) {
+        return (
+            <div className="max-w-4xl mx-auto p-6 text-center py-20">
+                <div className="bg-white p-8 rounded-2xl shadow-xl inline-block">
+                    <CheckCircle className="h-16 w-16 text-green-500 mx-auto mb-4" />
+                    <h2 className="text-2xl font-bold text-gray-900 mb-2">Message Received!</h2>
+                    <p className="text-gray-600 mb-6">Thank you for reaching out. A member of the {BUSINESS_NAME} family will contact you shortly.</p>
+                    <button
+                        onClick={onBack}
+                        className="bg-blue-600 text-white px-6 py-2 rounded-full hover:bg-blue-700 transition"
+                    >
+                        Return Home
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
+    return (
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+            <div className="mb-8 flex items-center justify-between">
+                <div>
+                    <h2 className="text-3xl font-bold text-blue-900">Contact Us</h2>
+                    <p className="text-gray-600">We're here to help you find your dream home.</p>
+                </div>
+                <button
+                    onClick={onBack}
+                    className="text-sm font-medium text-blue-600 hover:text-blue-800"
+                >
+                    &larr; Back to Chat
+                </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
+                {/* Contact Info */}
+                <div className="space-y-8">
+                    <div className="bg-white p-6 rounded-xl shadow-md border border-gray-100">
+                        <div className="flex items-start space-x-4">
+                            <div className="bg-blue-100 p-3 rounded-full">
+                                <MapPin className="h-6 w-6 text-blue-600" />
+                            </div>
+                            <div>
+                                <h3 className="text-lg font-bold text-gray-900">Visit Our Showroom</h3>
+                                <p className="text-gray-600 mt-1">{BUSINESS_ADDRESS} East<br />{BUSINESS_CITY}</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="bg-white p-6 rounded-xl shadow-md border border-gray-100">
+                        <div className="flex items-start space-x-4">
+                            <div className="bg-red-100 p-3 rounded-full">
+                                <Phone className="h-6 w-6 text-red-600" />
+                            </div>
+                            <div>
+                                <h3 className="text-lg font-bold text-gray-900">Call Us Directly</h3>
+                                <p className="text-gray-600 mt-1">{BUSINESS_PHONE}</p>
+                                <p className="text-xs text-gray-400 mt-1">Mon-Fri 9am-6pm, Sat 9am-5pm</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="bg-white p-6 rounded-xl shadow-md border border-gray-100">
+                        <div className="flex items-start space-x-4">
+                            <div className="bg-green-100 p-3 rounded-full">
+                                <Mail className="h-6 w-6 text-green-600" />
+                            </div>
+                            <div>
+                                <h3 className="text-lg font-bold text-gray-900">Email Our Team</h3>
+                                <p className="text-gray-600 mt-1">sales@{BUSINESS_URL}</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Contact Form */}
+                <div className="bg-white p-8 rounded-2xl shadow-xl border border-gray-100">
+                    <h3 className="text-xl font-bold text-gray-900 mb-6">Send a Message</h3>
+                    <form onSubmit={handleSubmit} className="space-y-4">
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Your Name</label>
+                            <input
+                                type="text"
+                                required
+                                value={formData.name}
+                                onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
+                                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                                placeholder="John Doe"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Phone Number</label>
+                            <input
+                                type="tel"
+                                required
+                                value={formData.phone}
+                                onChange={(e) => setFormData(prev => ({ ...prev, phone: e.target.value }))}
+                                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                                placeholder="(281) 000-0000"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">What can we help with?</label>
+                            <textarea
+                                rows="4"
+                                required
+                                value={formData.message}
+                                onChange={(e) => setFormData(prev => ({ ...prev, message: e.target.value }))}
+                                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                                placeholder="Tell us about the home you are looking for..."
+                            ></textarea>
+                        </div>
+                        {submitError && (
+                            <p className="text-sm text-red-600 bg-red-50 p-3 rounded-lg">{submitError}</p>
+                        )}
+                        <button
+                            type="submit"
+                            disabled={submitting}
+                            className="w-full bg-blue-900 text-white font-bold py-3 rounded-lg hover:bg-blue-800 transition shadow-lg flex items-center justify-center space-x-2 disabled:opacity-50"
+                        >
+                            <Send size={18} />
+                            <span>{submitting ? 'Sending...' : 'Send Message'}</span>
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+export default Contact;
