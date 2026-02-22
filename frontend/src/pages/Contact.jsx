@@ -1,6 +1,11 @@
 import React, { useState } from 'react';
-import { Mail, Phone, MapPin, Send, CheckCircle, Loader2 } from 'lucide-react';
-import { BUSINESS_NAME, BUSINESS_URL, BUSINESS_PHONE, BUSINESS_PHONE_RAW, BUSINESS_ADDRESS, BUSINESS_CITY, BUSINESS_HOURS } from '../constants';
+import { Mail, Phone, MapPin, Send, CheckCircle } from 'lucide-react';
+
+const BUSINESS_NAME = "Texas Home Outlet";
+const BUSINESS_URL = "texashomeoutlet.com";
+const BUSINESS_PHONE = "(281) 324-3020";
+const BUSINESS_ADDRESS = "10685 FM 1960 East";
+const BUSINESS_CITY = "Huffman";
 
 const Contact = ({ onBack }) => {
     const [submitted, setSubmitted] = useState(false);
@@ -86,8 +91,8 @@ const Contact = ({ onBack }) => {
                             </div>
                             <div>
                                 <h3 className="text-lg font-bold text-gray-900">Call Us Directly</h3>
-                                <a href={`tel:${BUSINESS_PHONE_RAW}`} className="text-gray-600 mt-1 block hover:text-blue-600 transition-colors">{BUSINESS_PHONE}</a>
-                                <p className="text-xs text-gray-400 mt-1">{BUSINESS_HOURS}</p>
+                                <p className="text-gray-600 mt-1">{BUSINESS_PHONE}</p>
+                                <p className="text-xs text-gray-400 mt-1">Mon-Fri 9am-6pm, Sat 9am-5pm</p>
                             </div>
                         </div>
                     </div>
@@ -148,9 +153,9 @@ const Contact = ({ onBack }) => {
                         <button
                             type="submit"
                             disabled={submitting}
-                            className="w-full bg-blue-900 text-white font-bold py-3 rounded-lg hover:bg-blue-800 active:scale-[0.98] transition shadow-lg flex items-center justify-center space-x-2 disabled:opacity-40 disabled:cursor-not-allowed"
+                            className="w-full bg-blue-900 text-white font-bold py-3 rounded-lg hover:bg-blue-800 transition shadow-lg flex items-center justify-center space-x-2 disabled:opacity-50"
                         >
-                            {submitting ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
+                            <Send size={18} />
                             <span>{submitting ? 'Sending...' : 'Send Message'}</span>
                         </button>
                     </form>

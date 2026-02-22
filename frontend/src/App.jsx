@@ -1,174 +1,38 @@
 import React, { useState, useEffect, useRef, lazy, Suspense } from 'react';
-import { Send, Home, Menu, X, Phone, MapPin, Loader2, User, Bot, FileText, Video, Lock, ShieldCheck, CalendarDays, Users, MessageSquare } from 'lucide-react';
+import { Send, Home, Menu, X, Phone, MapPin, Loader2, User, Bot, FileText, Video, Lock, ShieldCheck, CalendarDays } from 'lucide-react';
 import SafeMarkdown from './components/SafeMarkdown';
 import SearchFilters from './components/SearchFilters';
 import QuickActions from './components/QuickActions';
 import ComparisonDrawer from './components/ComparisonDrawer';
 import { v4 as uuidv4 } from 'uuid';
-import {
-  BUSINESS_NAME, BUSINESS_PHONE, BUSINESS_PHONE_RAW, BUSINESS_ADDRESS,
-  BUSINESS_CITY, BUSINESS_HOURS, ADMIN_PIN
-} from './constants';
 
 const API_URL = '/run'; // Relative path for single-container deployment
 
 // Lazy-load heavy page components for code-splitting
-const InventoryBrowse = lazy(() => import('./pages/InventoryBrowse'));
 const Analytics = lazy(() => import('./pages/Analytics'));
 const DocumentCenter = lazy(() => import('./pages/DocumentCenter'));
 const AdStudio = lazy(() => import('./pages/AdStudio'));
 const Contact = lazy(() => import('./pages/Contact'));
 const Appointments = lazy(() => import('./pages/Appointments'));
-const CRM = lazy(() => import('./pages/CRM'));
 
-// Page loading fallback with skeleton
+const BUSINESS_NAME = "Texas Home Outlet";
+const BUSINESS_SHORT = "tho";
+const BUSINESS_URL = "texashomeoutlet.com";
+const BUSINESS_PHONE = "(281) 324-3020";
+const BUSINESS_ADDRESS = "10685 FM 1960 East";
+const BUSINESS_CITY = "Huffman";
+
+// Admin PIN for analytics access (simple gate — not a full auth system)
+const ADMIN_PIN = "4832";
+
+// Page loading fallback
 const PageLoader = () => (
-  <div className="flex flex-col items-center justify-center min-h-[50vh] gap-3">
+  <div className="flex items-center justify-center min-h-[50vh]">
     <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-    <span className="text-sm text-gray-400 font-medium">Loading...</span>
   </div>
 );
 
-// ─── Shared Navigation Component ───
-function NavBar({ activePage, navigateTo, adminAuthed, onAdminAccess, isMobileMenuOpen, setIsMobileMenuOpen, showSearchFilters, onApplyFilters, onClearFilters }) {
-  const navItems = [
-    { key: 'inventory', label: 'Inventory', icon: Home },
-    { key: 'chat', label: 'Chat', icon: MessageSquare },
-    { key: 'documents', label: 'Documents', icon: FileText },
-    { key: 'contact', label: 'Contact', icon: Phone },
-    { key: 'appointments', label: 'Book Visit', icon: CalendarDays },
-  ];
-
-  const adminItems = adminAuthed ? [
-    { key: 'adstudio', label: 'Ad Studio', icon: Video },
-    { key: 'crm', label: 'CRM', icon: Users },
-  ] : [];
-
-  const allItems = [...navItems, ...adminItems];
-
-  return (
-    <header className="bg-blue-900 text-white shadow-md z-30 sticky top-0">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-        {/* Logo */}
-        <div
-          className="flex items-center space-x-3 cursor-pointer"
-          onClick={() => navigateTo('inventory')}
-          role="button"
-          aria-label="Go to home page"
-        >
-          <Home className="h-7 w-7 text-red-400" />
-          <h1 className="text-lg font-bold tracking-tight">{BUSINESS_NAME}</h1>
-        </div>
-
-        <div className="flex items-center gap-3">
-          {/* Desktop nav */}
-          <nav className="hidden md:flex items-center space-x-1 text-sm font-medium" aria-label="Main navigation">
-            {allItems.map(item => {
-              const Icon = item.icon;
-              const isActive = activePage === item.key;
-              return (
-                <button
-                  key={item.key}
-                  onClick={() => navigateTo(item.key)}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md transition-colors ${
-                    isActive
-                      ? 'bg-white/15 text-white'
-                      : 'text-blue-200 hover:text-white hover:bg-white/10'
-                  }`}
-                  aria-current={isActive ? 'page' : undefined}
-                >
-                  <Icon size={15} />
-                  {item.label}
-                </button>
-              );
-            })}
-          </nav>
-
-          {/* Search filters — only on chat page */}
-          {showSearchFilters && (
-            <SearchFilters onApplyFilters={onApplyFilters} onClear={onClearFilters} />
-          )}
-
-          {/* Admin button — desktop */}
-          <button
-            onClick={onAdminAccess}
-            className="hidden md:flex items-center gap-1 px-2 py-1.5 text-xs text-blue-300 hover:text-white hover:bg-white/10 rounded-md transition-colors"
-            aria-label="Admin access"
-          >
-            {adminAuthed ? <ShieldCheck size={14} /> : <Lock size={14} />}
-          </button>
-
-          {/* Mobile menu button */}
-          <button
-            className="md:hidden p-2 hover:bg-white/10 rounded-lg transition"
-            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-            aria-label={isMobileMenuOpen ? 'Close menu' : 'Open menu'}
-            aria-expanded={isMobileMenuOpen}
-          >
-            {isMobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
-          </button>
-        </div>
-      </div>
-
-      {/* Mobile Menu */}
-      {isMobileMenuOpen && (
-        <nav
-          className="md:hidden bg-blue-900 border-t border-blue-800 py-2 px-4"
-          aria-label="Mobile navigation"
-          style={{ animation: 'tho-slide-up 0.15s ease' }}
-        >
-          {allItems.map(item => {
-            const Icon = item.icon;
-            const isActive = activePage === item.key;
-            return (
-              <button
-                key={item.key}
-                onClick={() => navigateTo(item.key)}
-                className={`flex items-center w-full py-3 px-2 rounded-lg transition-colors ${
-                  isActive
-                    ? 'bg-white/15 text-white'
-                    : 'text-blue-200 hover:text-white hover:bg-white/10'
-                }`}
-                aria-current={isActive ? 'page' : undefined}
-              >
-                <Icon size={18} className="mr-3" />
-                {item.label}
-              </button>
-            );
-          })}
-          <button
-            onClick={onAdminAccess}
-            className="flex items-center w-full py-3 px-2 text-blue-300 hover:text-white hover:bg-white/10 rounded-lg transition-colors mt-1 border-t border-blue-800 pt-3"
-          >
-            {adminAuthed ? <ShieldCheck size={18} className="mr-3" /> : <Lock size={18} className="mr-3" />}
-            {adminAuthed ? 'Analytics' : 'Admin'}
-          </button>
-        </nav>
-      )}
-    </header>
-  );
-}
-
-// ─── Footer Component ───
-function Footer({ navigateTo, adminAuthed, onAdminAccess }) {
-  return (
-    <footer className="bg-white border-t border-gray-200 py-4 text-center text-xs text-gray-500 hidden md:block">
-      <div className="flex items-center justify-center gap-6 flex-wrap">
-        <span className="flex items-center"><MapPin size={12} className="mr-1" aria-hidden="true" /> {BUSINESS_ADDRESS} East, {BUSINESS_CITY}</span>
-        <a href={`tel:${BUSINESS_PHONE_RAW}`} className="flex items-center hover:text-blue-600 transition-colors">
-          <Phone size={12} className="mr-1" aria-hidden="true" /> {BUSINESS_PHONE}
-        </a>
-        <span>{BUSINESS_HOURS}</span>
-        <button onClick={onAdminAccess} className="flex items-center hover:text-blue-600 transition-colors">
-          {adminAuthed ? <ShieldCheck size={12} className="mr-1" /> : <Lock size={12} className="mr-1" />}
-          Admin
-        </button>
-      </div>
-    </footer>
-  );
-}
-
-// ─── Shared API call helper ───
+// Shared API call helper — DRYs up handleSubmit and handleQuickAction
 async function sendToAgent(sessionId, text) {
   const response = await fetch(API_URL, {
     method: 'POST',
@@ -191,6 +55,7 @@ async function sendToAgent(sessionId, text) {
 
   const data = await response.json();
 
+  // Normalize response — backend may return in different shapes
   if (data.error) return `System Error: ${data.error}`;
   if (data.text) return data.text;
   if (data.content) return typeof data.content === 'string' ? data.content : JSON.stringify(data.content);
@@ -200,12 +65,11 @@ async function sendToAgent(sessionId, text) {
   return "I apologize, I didn't catch that. Could you rephrase?";
 }
 
-
 function App() {
   const [messages, setMessages] = useState([
     {
       role: 'model',
-      text: `Howdy! Welcome to ${BUSINESS_NAME}. I'm Tex, your virtual housing consultant. How can I help you today?`,
+      text: `Howdy! 🤠 Welcome to ${BUSINESS_NAME}. I'm Tex, your virtual housing consultant. How can I help you today?`,
       showQuickActions: true
     }
   ]);
@@ -216,8 +80,8 @@ function App() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [comparisonList, setComparisonList] = useState([]);
 
-  // Single page state
-  const [activePage, setActivePage] = useState('inventory');
+  // Single page state instead of multiple booleans
+  const [activePage, setActivePage] = useState('chat'); // 'chat' | 'documents' | 'adstudio' | 'contact' | 'appointments' | 'analytics'
 
   // Admin PIN gate
   const [adminAuthed, setAdminAuthed] = useState(() => sessionStorage.getItem('tho_admin') === 'true');
@@ -228,6 +92,7 @@ function App() {
   const messagesEndRef = useRef(null);
 
   useEffect(() => {
+    // Check for admin query param
     const params = new URLSearchParams(window.location.search);
     if (params.get('admin') === 'true') {
       if (adminAuthed) {
@@ -236,25 +101,9 @@ function App() {
         setShowPinModal(true);
       }
     }
+
     localStorage.setItem('tho_session_id', sessionId);
   }, [sessionId]);
-
-  // Update page title per page
-  useEffect(() => {
-    const titles = {
-      inventory: 'Browse Homes',
-      chat: 'Chat with Tex',
-      documents: 'Documents',
-      adstudio: 'Ad Studio',
-      contact: 'Contact Us',
-      appointments: 'Book a Visit',
-      analytics: 'Analytics',
-      crm: 'CRM Dashboard',
-    };
-    document.title = titles[activePage]
-      ? `${titles[activePage]} | ${BUSINESS_NAME}`
-      : BUSINESS_NAME;
-  }, [activePage]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -264,10 +113,10 @@ function App() {
     scrollToBottom();
   }, [messages]);
 
+  // Navigation helper — cleans up repetitive setter calls
   const navigateTo = (page) => {
     setActivePage(page);
     setIsMobileMenuOpen(false);
-    window.scrollTo({ top: 0 });
   };
 
   // Admin PIN handlers
@@ -316,6 +165,7 @@ function App() {
     }
   };
 
+  // Handle quick action button clicks
   const handleQuickAction = async (message) => {
     setIsLoading(true);
     try {
@@ -356,9 +206,12 @@ function App() {
   const handleToggleCompare = (property) => {
     setComparisonList(prev => {
       const exists = prev.some(p => p.id === property.id);
-      if (exists) return prev.filter(p => p.id !== property.id);
-      if (prev.length >= 3) return prev;
-      return [...prev, property];
+      if (exists) {
+        return prev.filter(p => p.id !== property.id);
+      } else {
+        if (prev.length >= 3) return prev;
+        return [...prev, property];
+      }
     });
   };
 
@@ -368,15 +221,15 @@ function App() {
 
   // --- PIN Modal ---
   const pinModal = showPinModal && (
-    <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4" style={{ animation: 'tho-fade-in 0.15s ease' }}>
-      <div className="bg-white rounded-xl shadow-2xl p-8 max-w-sm w-full" style={{ animation: 'tho-slide-up 0.2s ease' }}>
+    <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4">
+      <div className="bg-white rounded-xl shadow-2xl p-8 max-w-sm w-full">
         <div className="flex items-center justify-center mb-4">
           <div className="p-3 bg-blue-100 rounded-full">
             <Lock size={24} className="text-blue-600" />
           </div>
         </div>
         <h2 className="text-xl font-bold text-center text-gray-900 mb-2">Admin Access</h2>
-        <p className="text-sm text-gray-500 text-center mb-6">Enter your PIN to access the admin dashboard.</p>
+        <p className="text-sm text-gray-500 text-center mb-6">Enter your PIN to access the analytics dashboard.</p>
         <form onSubmit={handlePinSubmit}>
           <input
             type="password"
@@ -393,7 +246,7 @@ function App() {
           <button
             type="submit"
             disabled={!pinInput.trim()}
-            className="w-full mt-4 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition"
+            className="w-full mt-4 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
           >
             Unlock
           </button>
@@ -409,34 +262,19 @@ function App() {
     </div>
   );
 
-  // --- Shared nav props ---
-  const navProps = {
-    activePage,
-    navigateTo,
-    adminAuthed,
-    onAdminAccess: handleAdminAccess,
-    isMobileMenuOpen,
-    setIsMobileMenuOpen,
-  };
-
-  // --- Page renders ---
+  // --- Page renders with Suspense ---
   if (activePage === 'analytics' && adminAuthed) {
     return (
       <div className="bg-gray-50 min-h-screen">
-        <NavBar {...navProps} />
+        <button
+          onClick={() => navigateTo('chat')}
+          className="fixed bottom-4 right-4 z-50 bg-gray-800 text-white px-4 py-2 rounded-full shadow-lg hover:bg-gray-700 transition"
+          aria-label="Exit Analytics"
+        >
+          Exit Analytics
+        </button>
         <Suspense fallback={<PageLoader />}>
           <Analytics />
-        </Suspense>
-      </div>
-    );
-  }
-
-  if (activePage === 'crm' && adminAuthed) {
-    return (
-      <div className="bg-gray-50 min-h-screen">
-        <NavBar {...navProps} />
-        <Suspense fallback={<PageLoader />}>
-          <CRM onBack={() => navigateTo('inventory')} />
         </Suspense>
       </div>
     );
@@ -445,7 +283,6 @@ function App() {
   if (activePage === 'documents') {
     return (
       <div className="bg-gray-50 min-h-screen">
-        <NavBar {...navProps} />
         <Suspense fallback={<PageLoader />}>
           <DocumentCenter onBack={() => navigateTo('chat')} sessionId={sessionId} />
         </Suspense>
@@ -456,7 +293,13 @@ function App() {
   if (activePage === 'adstudio') {
     return (
       <div className="bg-gray-50 min-h-screen">
-        <NavBar {...navProps} />
+        <button
+          onClick={() => navigateTo('chat')}
+          className="fixed bottom-4 right-4 z-50 bg-gray-800 text-white px-4 py-2 rounded-full shadow-lg hover:bg-gray-700 transition"
+          aria-label="Exit Ad Studio"
+        >
+          Exit Ad Studio
+        </button>
         <Suspense fallback={<PageLoader />}>
           <AdStudio onBack={() => navigateTo('chat')} />
         </Suspense>
@@ -467,9 +310,8 @@ function App() {
   if (activePage === 'contact') {
     return (
       <div className="bg-gray-50 min-h-screen">
-        <NavBar {...navProps} />
         <Suspense fallback={<PageLoader />}>
-          <Contact onBack={() => navigateTo('inventory')} />
+          <Contact onBack={() => navigateTo('chat')} />
         </Suspense>
       </div>
     );
@@ -478,64 +320,100 @@ function App() {
   if (activePage === 'appointments') {
     return (
       <div className="bg-gray-50 min-h-screen">
-        <NavBar {...navProps} />
         <Suspense fallback={<PageLoader />}>
-          <Appointments onBack={() => navigateTo('inventory')} />
+          <Appointments onBack={() => navigateTo('chat')} />
         </Suspense>
       </div>
     );
   }
 
-  if (activePage === 'inventory') {
-    return (
-      <div className="bg-gray-50 min-h-screen flex flex-col">
-        {pinModal}
-        <NavBar {...navProps} />
-
-        <Suspense fallback={<PageLoader />}>
-          <InventoryBrowse
-            onAskTex={(message) => {
-              navigateTo('chat');
-              setMessages(prev => [...prev, { role: 'user', text: message }]);
-              handleQuickAction(message);
-            }}
-            onBack={() => navigateTo('chat')}
-            onCreateAd={adminAuthed ? (homeName) => {
-              navigateTo('adstudio');
-            } : undefined}
-          />
-        </Suspense>
-
-        {/* Floating Chat Bubble */}
-        <button
-          onClick={() => navigateTo('chat')}
-          className="fixed bottom-6 right-6 z-50 bg-blue-600 text-white p-4 rounded-full hover:bg-blue-700 hover:scale-105 active:scale-95 transition-all duration-200 group"
-          aria-label="Chat with Tex"
-          title="Chat with Tex"
-          style={{ boxShadow: '0 4px 20px rgba(37, 99, 235, 0.4)' }}
-        >
-          <MessageSquare size={22} />
-          <span className="absolute -top-1 -left-1 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full shadow">
-            Tex
-          </span>
-        </button>
-
-        <Footer navigateTo={navigateTo} adminAuthed={adminAuthed} onAdminAccess={handleAdminAccess} />
-      </div>
-    );
-  }
-
-  // ─── Chat Page (default) ───
   return (
     <div className="flex flex-col h-screen bg-gray-50 font-sans text-gray-900">
       {pinModal}
-      <NavBar {...navProps} showSearchFilters onApplyFilters={handleApplyFilters} onClearFilters={handleClearFilters} />
+
+      {/* Header */}
+      <header className="bg-blue-900 text-white shadow-md z-10">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+          <div className="flex items-center space-x-3 cursor-pointer" onClick={() => navigateTo('chat')} role="button" aria-label="Go to home page">
+            <Home className="h-8 w-8 text-red-500" />
+            <h1 className="text-xl font-bold tracking-tight">{BUSINESS_NAME}</h1>
+          </div>
+
+          <div className="flex items-center gap-4">
+            <nav className="hidden md:flex space-x-6 text-sm font-medium" aria-label="Main navigation">
+              <button onClick={() => navigateTo('chat')} className={`hover:text-red-400 transition ${activePage === 'chat' ? 'text-red-400' : ''}`}>Inventory</button>
+              <button onClick={() => navigateTo('documents')} className={`flex items-center hover:text-red-400 transition ${activePage === 'documents' ? 'text-red-400' : ''}`}>
+                <FileText size={16} className="mr-1" /> Documents
+              </button>
+              <button onClick={() => navigateTo('adstudio')} className={`flex items-center hover:text-red-400 transition ${activePage === 'adstudio' ? 'text-red-400' : ''}`}>
+                <Video size={16} className="mr-1" /> Ad Studio
+              </button>
+              <button onClick={() => navigateTo('contact')} className={`hover:text-red-400 transition ${activePage === 'contact' ? 'text-red-400' : ''}`}>Contact</button>
+              <button onClick={() => navigateTo('appointments')} className={`flex items-center hover:text-red-400 transition ${activePage === 'appointments' ? 'text-red-400' : ''}`}>
+                <CalendarDays size={16} className="mr-1" /> Book Visit
+              </button>
+            </nav>
+
+            {/* Search Filters */}
+            <SearchFilters
+              onApplyFilters={handleApplyFilters}
+              onClear={handleClearFilters}
+            />
+
+            {/* Mobile menu button */}
+            <button
+              className="md:hidden p-2 hover:bg-white/10 rounded-lg transition"
+              onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+              aria-label={isMobileMenuOpen ? 'Close menu' : 'Open menu'}
+              aria-expanded={isMobileMenuOpen}
+            >
+              {isMobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
+            </button>
+          </div>
+        </div>
+
+        {/* Mobile Menu Overlay */}
+        {isMobileMenuOpen && (
+          <nav className="md:hidden bg-blue-900 border-t border-blue-800 py-4 px-4 space-y-4 animate-in slide-in-from-top duration-200" aria-label="Mobile navigation">
+            <button
+              onClick={() => navigateTo('chat')}
+              className="flex items-center w-full py-2 hover:text-red-400 transition border-b border-blue-800"
+            >
+              <Home size={18} className="mr-3" /> Inventory
+            </button>
+            <button
+              onClick={() => navigateTo('documents')}
+              className="flex items-center w-full py-2 hover:text-red-400 transition border-b border-blue-800"
+            >
+              <FileText size={18} className="mr-3" /> Documents
+            </button>
+            <button
+              onClick={() => navigateTo('adstudio')}
+              className="flex items-center w-full py-2 hover:text-red-400 transition border-b border-blue-800"
+            >
+              <Video size={18} className="mr-3" /> Ad Studio
+            </button>
+            <button
+              onClick={() => navigateTo('contact')}
+              className="flex items-center w-full py-2 hover:text-red-400 transition border-b border-blue-800"
+            >
+              <Phone size={18} className="mr-3" /> Contact
+            </button>
+            <button
+              onClick={() => navigateTo('appointments')}
+              className="flex items-center w-full py-2 hover:text-red-400 transition"
+            >
+              <CalendarDays size={18} className="mr-3" /> Book Visit
+            </button>
+          </nav>
+        )}
+      </header>
 
       {/* Main Chat Area */}
       <main className="flex-1 overflow-hidden flex flex-col max-w-4xl mx-auto w-full bg-white shadow-xl md:my-4 md:rounded-lg relative">
 
         {/* Messages List */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-6 scrollbar-thin pb-20">
+        <div className="flex-1 overflow-y-auto p-4 space-y-6 scrollbar-thin scrollbar-thumb-gray-300 pb-20">
           {messages.map((msg, index) => (
             <div key={index} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
               <div className={`flex max-w-[95%] md:max-w-[85%] ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
@@ -552,9 +430,9 @@ function App() {
 
                 {/* Bubble */}
                 <div className="flex flex-col">
-                  <div className={`p-4 rounded-2xl text-sm leading-relaxed
+                  <div className={`p-4 rounded-2xl shadow-sm text-sm leading-relaxed
                      ${msg.role === 'user'
-                      ? 'bg-blue-600 text-white rounded-tr-none shadow-sm'
+                      ? 'bg-blue-600 text-white rounded-tr-none'
                       : 'bg-gray-100 text-gray-800 rounded-tl-none border border-gray-200'
                     }`}>
                     <SafeMarkdown
@@ -563,13 +441,15 @@ function App() {
                       onToggleCompare={handleToggleCompare}
                     />
                   </div>
-                  {/* Quick Actions — only after initial greeting */}
+                  {/* Quick Action Buttons - show after initial greeting */}
                   {msg.showQuickActions && !isLoading && messages.length === 1 && (
                     <QuickActions
                       onActionClick={(message) => {
                         setInput(message);
+                        // Auto-submit the message
                         setMessages(prev => [...prev, { role: 'user', text: message }]);
                         setInput('');
+                        // Send to API
                         handleQuickAction(message);
                       }}
                       disabled={isLoading}
@@ -584,7 +464,7 @@ function App() {
             <div className="flex justify-start">
               <div className="flex flex-row items-center ml-12 space-x-2 bg-gray-50 p-3 rounded-xl" role="status" aria-label="Loading response">
                 <Loader2 className="h-4 w-4 animate-spin text-gray-400" />
-                <span className="text-xs text-gray-400 font-medium">Tex is thinking...</span>
+                <span className="text-xs text-gray-400 font-medium">Thinking...</span>
               </div>
             </div>
           )}
@@ -606,7 +486,7 @@ function App() {
             <button
               type="submit"
               disabled={!input.trim() || isLoading}
-              className="absolute right-2 p-2 bg-blue-600 text-white rounded-full hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              className="absolute right-2 p-2 bg-blue-600 text-white rounded-full hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               aria-label="Send message"
             >
               <Send size={18} />
@@ -627,7 +507,22 @@ function App() {
 
       </main>
 
-      <Footer navigateTo={navigateTo} adminAuthed={adminAuthed} onAdminAccess={handleAdminAccess} />
+      {/* Footer Info */}
+      <footer className="bg-white border-t border-gray-200 py-4 text-center text-xs text-gray-500 hidden md:block">
+        <div className="flex justify-center space-x-6">
+          <span className="flex items-center"><MapPin size={12} className="mr-1" aria-hidden="true" /> {BUSINESS_ADDRESS} East, {BUSINESS_CITY}</span>
+          <span className="flex items-center"><Phone size={12} className="mr-1" aria-hidden="true" /> {BUSINESS_PHONE}</span>
+          <span>Mon-Fri 9-6, Sat 9-5</span>
+          <button onClick={handleAdminAccess} className="flex items-center hover:text-blue-600 transition-colors">
+            {adminAuthed ? <ShieldCheck size={12} className="mr-1" /> : <Lock size={12} className="mr-1" />}
+            Admin
+          </button>
+          <button onClick={() => navigateTo('documents')} className="hover:text-blue-600 transition-colors">Documents</button>
+          <button onClick={() => navigateTo('adstudio')} className="hover:text-blue-600 transition-colors">Ad Studio</button>
+          <button onClick={() => navigateTo('contact')} className="hover:text-blue-600 transition-colors">Contact</button>
+          <button onClick={() => navigateTo('appointments')} className="hover:text-blue-600 transition-colors">Book Visit</button>
+        </div>
+      </footer>
     </div>
   );
 }
