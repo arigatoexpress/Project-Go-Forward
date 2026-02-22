@@ -158,6 +158,8 @@ export default function AdStudio({ onBack }) {
 
     // Real property photos & Matterport
     const [realPhotos, setRealPhotos] = useState([]);
+    const [imageCategories, setImageCategories] = useState({});
+    const [activeCategory, setActiveCategory] = useState('all');
     const [matterportUrl, setMatterportUrl] = useState(null);
     const [matterportId, setMatterportId] = useState(null);
     const [showMatterport, setShowMatterport] = useState(false);
@@ -221,6 +223,9 @@ export default function AdStudio({ onBack }) {
                 if (result.real_photos?.length > 0) {
                     setRealPhotos(result.real_photos);
                     setSelectedPhotoIdx(0);
+                }
+                if (result.image_categories) {
+                    setImageCategories(result.image_categories);
                 }
                 if (result.matterport_url) {
                     setMatterportUrl(result.matterport_url);
@@ -314,6 +319,8 @@ export default function AdStudio({ onBack }) {
         setShowInventoryPicker(false);
         // Set real photos and Matterport from inventory data
         setRealPhotos(home.real_photos || []);
+        setImageCategories(home.image_categories || {});
+        setActiveCategory('all');
         setMatterportUrl(home.matterport_url || null);
         setMatterportId(home.matterport_id || null);
         setSelectedPhotoIdx(0);
@@ -692,6 +699,15 @@ export default function AdStudio({ onBack }) {
                                             <Camera size={10} /> {home.real_photos.length} Photos
                                         </span>
                                     )}
+                                    {home.image_categories?.bedroom && (
+                                        <span className="tho-inv-badge tho-badge-bedroom">Bed</span>
+                                    )}
+                                    {home.image_categories?.kitchen && (
+                                        <span className="tho-inv-badge tho-badge-kitchen">Kit</span>
+                                    )}
+                                    {home.image_categories?.bathroom && (
+                                        <span className="tho-inv-badge tho-badge-bath">Bath</span>
+                                    )}
                                     {home.matterport_id && (
                                         <span className="tho-inv-badge tho-badge-3d">
                                             <Box size={10} /> 3D Tour
@@ -841,6 +857,8 @@ export default function AdStudio({ onBack }) {
                                     setHomePrice('');
                                     setHomeSpecs(null);
                                     setRealPhotos([]);
+                                    setImageCategories({});
+                                    setActiveCategory('all');
                                     setMatterportUrl(null);
                                     setMatterportId(null);
                                 }}>
@@ -848,18 +866,40 @@ export default function AdStudio({ onBack }) {
                                 </button>
                             </div>
 
-                            {/* Real photo gallery strip */}
+                            {/* Real photo gallery strip with category filters */}
                             {realPhotos.length > 1 && (
                                 <div className="tho-photo-strip">
-                                    <span className="tho-photo-strip-label">
-                                        <Camera size={12} /> {realPhotos.length} real photos available
-                                    </span>
+                                    <div className="tho-photo-strip-header">
+                                        <span className="tho-photo-strip-label">
+                                            <Camera size={12} /> {realPhotos.length} real photos
+                                        </span>
+                                        {Object.keys(imageCategories).length > 1 && (
+                                            <div className="tho-category-tabs">
+                                                <button
+                                                    className={`tho-cat-tab ${activeCategory === 'all' ? 'active' : ''}`}
+                                                    onClick={() => { setActiveCategory('all'); setSelectedPhotoIdx(0); }}
+                                                >All</button>
+                                                {Object.entries(imageCategories).map(([cat, files]) => (
+                                                    <button
+                                                        key={cat}
+                                                        className={`tho-cat-tab ${activeCategory === cat ? 'active' : ''}`}
+                                                        onClick={() => { setActiveCategory(cat); setSelectedPhotoIdx(0); }}
+                                                    >
+                                                        {cat.charAt(0).toUpperCase() + cat.slice(1)} ({files.length})
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
                                     <div className="tho-photo-strip-scroll">
-                                        {realPhotos.map((url, i) => (
+                                        {(activeCategory === 'all' ? realPhotos : (imageCategories[activeCategory] || []).map(f => {
+                                            const asset = selectedHome && realPhotos.find(url => url.includes(f.replace(/%20/g, '%20')));
+                                            return asset || `https://d132mt2yijm03y.cloudfront.net/manufacturer/3335/floorplan/${selectedHome?.plan_id || ''}/${f}`;
+                                        })).map((url, i) => (
                                             <img
                                                 key={i}
                                                 src={url}
-                                                alt={`Photo ${i + 1}`}
+                                                alt={`${activeCategory !== 'all' ? activeCategory + ' ' : ''}Photo ${i + 1}`}
                                                 className={`tho-photo-strip-img ${selectedPhotoIdx === i ? 'active' : ''}`}
                                                 onClick={() => setSelectedPhotoIdx(i)}
                                             />

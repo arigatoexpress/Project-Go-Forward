@@ -1,7 +1,36 @@
 # Legacy Business Clone - Archived
 
 **Archive Date:** 2026-02-21  
+**Merge Date:** 2026-02-21  
 **Reason:** Consolidated into v1 deployable vertical slice
+
+## Merge Notes
+
+This archive was updated with unmerged changes from the legacy business clone at:
+`/Users/aribs/Documents/Business/Kadima Digital Strategies 2026/THO_MASTER/project-go-forward`
+
+### Merged Commits (from legacy/main)
+
+| Commit | Description |
+|--------|-------------|
+| `3f2afd7` | Polish frontend: unified nav, design tokens, loading skeletons, mobile UX |
+| `b606ac9` | Add email service (Resend) and CRM Dashboard |
+| `2c50549` | Add sort, search, lead capture, and mobile UX to Inventory Browse |
+| `72860d3` | Sync inventory across browse page and chat agent, add 12 missing homes |
+| `a62c106` | Add Inventory Browse page as new homepage with photo galleries and 3D tours |
+| `1ca2e5d` | Expand photo galleries: 185 real photos across 15 homes with room categories |
+| `c371829` | Ad Studio overhaul: real property photos, Matterport 3D tours, anti-slop quality scoring |
+| `a020963` | Phase 4: Deal management, full PDF mapping, FCD data import, agent personality |
+| `582caab` | Phase 2-3: Document engine, security hardening, UI enhancements, real inventory |
+
+### Key New Components
+
+- **email_service.py** - Resend email integration
+- **tools/document_engine.py** - PDF document processing
+- **tools/crm_tools.py** - CRM integration tools
+- **frontend/src/pages/CRM.jsx** - CRM Dashboard UI
+- **frontend/src/pages/InventoryBrowse.jsx** - Inventory browsing with search/filters
+- **scripts/import_fcd_deals.py** - FCD data import script
 
 ## Contents
 
