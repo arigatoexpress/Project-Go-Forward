@@ -3,10 +3,10 @@ import os
 import json
 
 # Add parent directory to path
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from my_config_agent.structured_logging import logger
-from my_config_agent.analytics_service import get_analytics_summary
+from structured_logging import logger
+from analytics_service import get_analytics_summary
 
 def test_analytics_logging():
     print("Testing Analytics Logging...")
