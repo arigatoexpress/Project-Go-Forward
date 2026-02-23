@@ -15,10 +15,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
-from google.adk.runners import InMemoryRunner
-from google.adk.apps import App
-import google.genai
-import vertexai
 import logging
 import time
 import uuid
@@ -26,13 +22,47 @@ import uuid
 from starlette.middleware.base import BaseHTTPMiddleware
 from config_loader import get_deployment_config, business_name
 
-# Initialize Vertex AI
-deploy_cfg = get_deployment_config()
-project_id = os.environ.get("GOOGLE_CLOUD_PROJECT", deploy_cfg.get("project_id", "tho-ai-agent"))
-location = os.environ.get("GOOGLE_CLOUD_LOCATION", deploy_cfg.get("region", "us-central1"))
-vertexai.init(project=project_id, location=location)
+# Lazy initialization placeholders - will be loaded on first use
+_adk_app = None
+_runner = None
+_vertexai_initialized = False
+_root_agent = None
 
-from root_agent import root_agent
+def _init_vertex_ai():
+    """Lazy initialization of Vertex AI."""
+    global _vertexai_initialized
+    if _vertexai_initialized:
+        return
+    try:
+        import vertexai
+        deploy_cfg = get_deployment_config()
+        project_id = os.environ.get("GOOGLE_CLOUD_PROJECT", deploy_cfg.get("project_id", "tho-ai-agent"))
+        location = os.environ.get("GOOGLE_CLOUD_LOCATION", deploy_cfg.get("region", "us-central1"))
+        vertexai.init(project=project_id, location=location)
+        _vertexai_initialized = True
+        logger.info("Vertex AI initialized successfully")
+    except Exception as e:
+        logger.warning(f"Vertex AI initialization failed: {e}")
+        # Don't raise - allow server to start without AI
+
+def _get_runner():
+    """Lazy initialization of ADK runner."""
+    global _adk_app, _runner, _root_agent
+    if _runner is None:
+        try:
+            _init_vertex_ai()
+            from google.adk.runners import InMemoryRunner
+            from google.adk.apps import App
+            from root_agent import root_agent
+            _root_agent = root_agent
+            _adk_app = App(name="root_agent", root_agent=_root_agent)
+            _runner = InMemoryRunner(app=_adk_app)
+            logger.info("ADK Runner initialized successfully")
+        except Exception as e:
+            logger.error(f"Failed to initialize ADK runner: {e}")
+            raise RuntimeError("AI services not available. Please try again later.")
+    return _runner
+
 from structured_logging import logger as struct_logger
 from conversation_memory import ConversationMemory
 from tools.pii_guard import redact_pii_from_text, validate_no_pii_in_text
@@ -54,7 +84,9 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title=f"{business_name()} AI Agent")
 
-# Initialize services
+# Initialize services (these don't require Vertex AI)
+deploy_cfg = get_deployment_config()
+project_id = os.environ.get("GOOGLE_CLOUD_PROJECT", deploy_cfg.get("project_id", "tho-ai-agent"))
 conversation_memory = ConversationMemory(project_id=project_id)
 lead_manager = LeadManager(project_id=project_id)
 appointment_manager = AppointmentManager(project_id=project_id)
@@ -145,10 +177,6 @@ app.add_middleware(
     allow_headers=["Content-Type", "Accept", "X-Admin-Token"],
 )
 
-# Initialize ADK Runner
-adk_app = App(name="root_agent", root_agent=root_agent)
-runner = InMemoryRunner(app=adk_app)
-
 
 # ─── Admin Auth Setup ───
 
@@ -230,6 +258,13 @@ async def run_agent(request: Request):
             role="user",
             parts=[types.Part(text=text_content)]
         )
+
+        # Get runner (lazy initialization)
+        try:
+            runner = _get_runner()
+        except RuntimeError as e:
+            struct_logger.error("AI service unavailable", request_id=request_id, error=str(e))
+            return {"error": "AI service temporarily unavailable. Please try again later."}
 
         # Ensure session exists
         existing_session = await runner.session_service.get_session(
@@ -391,10 +426,13 @@ def health():
 async def create_session(app_name: str, user_id: str, session_id: str):
     logger.info(f"Creating session: {session_id} for user: {user_id}")
     try:
+        runner = _get_runner()
         await runner.session_service.create_session(
             app_name=app_name, user_id=user_id, session_id=session_id
         )
         return {"status": "created", "session_id": session_id}
+    except RuntimeError as e:
+        return {"status": "error", "message": "AI service temporarily unavailable."}
     except Exception as e:
         logger.error(f"Error creating session: {str(e)}")
         return {"status": "error", "message": "Failed to create session. Please try again."}
@@ -493,6 +531,10 @@ async def extract_fields_from_chat(request: Request):
             return {"extracted_data": {}, "message": "session_id and template_name required"}
 
         from tools.form_extraction import extract_form_data_from_session
+        try:
+            runner = _get_runner()
+        except RuntimeError:
+            return {"extracted_data": {}, "message": "AI service temporarily unavailable"}
         result = await extract_form_data_from_session(
             session_id=session_id,
             template_name=template_name,
