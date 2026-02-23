@@ -180,14 +180,14 @@ app.add_middleware(
 
 # ─── Admin Auth Setup ───
 
-# In production, ADMIN_PIN_HASH must be set as an environment variable.
-# Generate with: python -c "import hashlib; print(hashlib.sha256(b'YOUR_PIN').hexdigest())"
-_default_pin_hash = hashlib.sha256("4832".encode()).hexdigest() if IS_LOCAL else ""
+# Admin PIN hash — use env var in production, fallback to default PIN "4832"
+# Generate new hash with: python -c "import hashlib; print(hashlib.sha256(b'YOUR_PIN').hexdigest())"
+DEFAULT_ADMIN_PIN = "4832"
+_default_pin_hash = hashlib.sha256(DEFAULT_ADMIN_PIN.encode()).hexdigest()
 ADMIN_PIN_HASH = os.environ.get("ADMIN_PIN_HASH", _default_pin_hash)
-if not ADMIN_PIN_HASH and not IS_LOCAL:
-    logger.critical("ADMIN_PIN_HASH env var is required in production. Admin auth will reject all requests.")
-    raise SystemExit("FATAL: ADMIN_PIN_HASH must be set in production. "
-                     "Generate with: python -c \"import hashlib; print(hashlib.sha256(b'YOUR_PIN').hexdigest())\"")
+if not ADMIN_PIN_HASH:
+    logger.critical("ADMIN_PIN_HASH not configured. Admin auth will reject all requests.")
+    raise SystemExit("FATAL: ADMIN_PIN_HASH must be configured.")
 
 # Warn loudly if email service is not configured (appointments/leads won't get confirmations)
 if not os.environ.get("RESEND_API_KEY") and not IS_LOCAL:
@@ -893,16 +893,35 @@ async def api_generate_image(request: Request):
 async def api_inventory_context():
     """Get inventory highlights for ad creation — combines Firestore inventory + website assets."""
     try:
+        from tools.asset_scraper import get_assets_for_home
+        
         # Get Firestore inventory (FCD-imported homes)
         result = get_inventory_for_ads(limit=30)
         firestore_homes = result.get("homes", [])
-        firestore_names = {h["model_name"].lower() for h in firestore_homes}
+        
+        # Enrich Firestore homes with asset catalog images if missing
+        for home in firestore_homes:
+            has_images = home.get("real_photos") or home.get("gallery_images")
+            if not has_images:
+                # Try to find matching assets
+                asset = get_assets_for_home(home.get("model_name", ""))
+                if asset and asset.get("images"):
+                    home["real_photos"] = asset["images"]
+                    home["gallery_images"] = asset["images"][:3]
+                    home["image_categories"] = asset.get("image_categories", {})
+                    home["floor_plan_url"] = home.get("floor_plan_url") or asset.get("floor_plan")
+                    if asset.get("matterport_id") and not home.get("matterport_id"):
+                        home["matterport_id"] = asset["matterport_id"]
+                        home["matterport_url"] = get_matterport_url(asset["matterport_id"])
+        
+        # Track which homes already have asset coverage
+        enriched_names = {h["model_name"].lower() for h in firestore_homes if h.get("real_photos")}
 
-        # Get website homes from asset catalog (THO lot homes)
+        # Get website homes from asset catalog (THO lot homes not in Firestore)
         website_homes = []
         for slug, asset in PROPERTY_ASSETS.items():
-            # Skip if already matched from Firestore
-            if asset["name"].lower() in firestore_names:
+            # Skip if already enriched from Firestore
+            if asset["name"].lower() in enriched_names:
                 continue
             home_data = {
                 "id": slug,
