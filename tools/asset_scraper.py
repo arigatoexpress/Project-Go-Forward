@@ -753,6 +753,38 @@ PROPERTY_ASSETS = {
         "matterport_id": None,
         "is_new": False,
     },
+    # ──── JESSUP HOUSING MODELS ────
+    "the-nassau": {
+        "name": "The Nassau",
+        "beds": 3, "baths": 2, "sqft": 1264, "dims": "28x48",
+        "manufacturer": "Jessup Housing",
+        "manufacturer_id": "3326", "plan_id": "224001",
+        "floor_plan": f"{CDN_BASE}/manufacturer/3326/floorplan/224001/The-Nassau-floor-plan.jpg",
+        "images": [
+            f"{CDN_BASE}/manufacturer/3326/floorplan/224001/The-Nassau-1.jpg",
+            f"{CDN_BASE}/manufacturer/3326/floorplan/224001/The-Nassau-2.jpg",
+            f"{CDN_BASE}/manufacturer/3326/floorplan/224001/The-Nassau-3.jpg",
+            f"{CDN_BASE}/manufacturer/3326/floorplan/224001/The-Nassau-4.jpg",
+            f"{CDN_BASE}/manufacturer/3326/floorplan/224001/The-Nassau-5.jpg",
+            f"{CDN_BASE}/manufacturer/3326/floorplan/224001/The-Nassau-6.jpg",
+            f"{CDN_BASE}/manufacturer/3326/floorplan/224001/The-Nassau-7.jpg",
+            f"{CDN_BASE}/manufacturer/3326/floorplan/224001/The-Nassau-8.jpg",
+            f"{CDN_BASE}/manufacturer/3326/floorplan/224001/The-Nassau-kit-1.jpg",
+            f"{CDN_BASE}/manufacturer/3326/floorplan/224001/The-Nassau-kit-2.jpg",
+            f"{CDN_BASE}/manufacturer/3326/floorplan/224001/The-Nassau-kit-3.jpg",
+            f"{CDN_BASE}/manufacturer/3326/floorplan/224001/The-Nassau-bed-1.jpg",
+        ],
+        "image_categories": {
+            "interior": [
+                "The-Nassau-1.jpg", "The-Nassau-2.jpg", "The-Nassau-3.jpg", "The-Nassau-4.jpg",
+                "The-Nassau-5.jpg", "The-Nassau-6.jpg", "The-Nassau-7.jpg", "The-Nassau-8.jpg",
+            ],
+            "kitchen": ["The-Nassau-kit-1.jpg", "The-Nassau-kit-2.jpg", "The-Nassau-kit-3.jpg"],
+            "bedroom": ["The-Nassau-bed-1.jpg"],
+        },
+        "matterport_id": "XkVpR9MzLq2",
+        "is_new": True,
+    },
 }
 
 
@@ -783,6 +815,8 @@ INVENTORY_ALIASES = {
     # Map known inventory model numbers to asset scraper slugs
     # Add more as inventory/website correlation is discovered
     "select legacy s-2468-42a": "select-legacy-s-2468",
+    "the nassau": "the-nassau",
+    "nassau": "the-nassau",
 }
 
 
