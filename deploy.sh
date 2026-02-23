@@ -1,14 +1,17 @@
 #!/bin/bash
 # Deploy Script for THO (Project Go Forward)
 # Usage: ./deploy.sh [local|cloud|test|build]
+#
+# This script deploys the v1 vertical slice - a minimal, tested, deployable
+# core product with FastAPI, tests, and Cloud Run deployment.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_DIR="$SCRIPT_DIR"
+PROJECT_DIR="$SCRIPT_DIR/v1"  # Point to v1 vertical slice
 GCP_PROJECT_ID="${GCP_PROJECT_ID:-tho-ai-agent}"
 GCP_REGION="${GCP_REGION:-us-central1}"
-SERVICE_NAME="${SERVICE_NAME:-tho-agent}"
+SERVICE_NAME="${SERVICE_NAME:-project-go-forward-v1}"
 
 # Colors for output
 RED='\033[0;31m'
@@ -76,48 +79,20 @@ run_tests() {
     cd "$PROJECT_DIR"
     
     # Install pytest if not present
-    .venv/bin/python -m pip install pytest -q 2>/dev/null || true
+    .venv/bin/python -m pip install pytest pytest-asyncio httpx -q 2>/dev/null || true
     
     # Run pytest with the venv Python
-    if .venv/bin/python -m pytest tests/test_crm.py tests/test_analytics.py tests/test_caching.py -v --tb=short 2>&1; then
-        log_info "Core tests passed!"
+    if .venv/bin/python -m pytest tests/ -v --tb=short 2>&1; then
+        log_info "All tests passed!"
     else
-        log_warn "Some tests failed - check output above"
+        log_error "Some tests failed - check output above"
+        exit 1
     fi
-    
-    # Run standalone CRM test
-    log_info "Running CRM validation..."
-    .venv/bin/python tests/test_crm.py
 }
 
-# Build frontend
+# Build frontend (placeholder for v1 - no frontend in vertical slice)
 build_frontend() {
-    log_info "Building frontend..."
-    
-    cd "$PROJECT_DIR"
-    
-    if [[ -d "frontend" ]]; then
-        if [[ -f "frontend/package.json" ]]; then
-            cd frontend
-            if [[ ! -d "node_modules" ]]; then
-                log_info "Installing npm dependencies..."
-                npm install
-            fi
-            npm run build
-            cd ..
-            
-            # Copy build to frontend_build for serving
-            if [[ -d "frontend/dist" ]]; then
-                rm -rf frontend_build
-                cp -r frontend/dist frontend_build
-                log_info "Frontend built and copied to frontend_build/"
-            fi
-        else
-            log_warn "No package.json found in frontend/"
-        fi
-    else
-        log_warn "No frontend directory found"
-    fi
+    log_info "Skipping frontend build (v1 vertical slice has no frontend)"
 }
 
 # Deploy locally
@@ -131,12 +106,10 @@ deploy_local() {
     build_frontend
     
     log_info "Starting local server on http://localhost:8080"
+    log_info "API docs available at http://localhost:8080/docs"
     log_info "Press Ctrl+C to stop"
     
-    export GOOGLE_CLOUD_PROJECT="${GCP_PROJECT_ID}"
-    export GOOGLE_CLOUD_LOCATION="${GCP_REGION}"
-    
-    .venv/bin/python main.py
+    .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload
 }
 
 # Deploy to Cloud Run
@@ -159,10 +132,13 @@ deploy_cloud() {
         --region "$GCP_REGION" \
         --project "$GCP_PROJECT_ID" \
         --allow-unauthenticated \
-        --set-env-vars "GOOGLE_GENAI_USE_VERTEXAI=true,GOOGLE_CLOUD_PROJECT=$GCP_PROJECT_ID,GOOGLE_CLOUD_LOCATION=$GCP_REGION" \
-        --memory 1Gi \
+        --memory 512Mi \
+        --cpu 1 \
+        --concurrency 80 \
+        --max-instances 10 \
+        --min-instances 0 \
         --timeout 300 \
-        --max-instances 10
+        --port 8080
     
     log_info "Deployment complete!"
     
@@ -173,6 +149,7 @@ deploy_cloud() {
         --format 'value(status.url)')
     
     log_info "Service URL: $SERVICE_URL"
+    log_info "Health check: $SERVICE_URL/health"
 }
 
 # Main execution
