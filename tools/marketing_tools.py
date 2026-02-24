@@ -1332,56 +1332,47 @@ def analyze_content_performance(
     }
 
 
-# ─── Text-to-Speech for Voiceover Generation ───
+# ─── Text-to-Speech for Voiceover Generation (Google Cloud) ───
 
 def generate_script_voiceover(
     script_text: str,
-    voice: str = "alloy",
-    model: str = "tts-1",
+    voice: str = "en-US-Neural2-D",
+    speaking_rate: float = 1.0,
     tool_context: ToolContext = None
 ) -> dict:
     """
-    Generate voiceover audio from a script using OpenAI TTS.
+    Generate voiceover audio from a script using Google Cloud Text-to-Speech.
+    Uses Neural2 and Studio-quality voices.
     
     Args:
         script_text: The script to convert to speech (hook + body + cta)
-        voice: Voice to use (alloy, echo, fable, onyx, nova, shimmer)
-        model: TTS model (tts-1, tts-1-hd)
+        voice: Voice name (e.g., en-US-Neural2-D, en-US-Studio-O)
+        speaking_rate: Speed of speech (0.25 to 4.0, default 1.0)
         
     Returns:
         Dict with base64-encoded MP3 audio and metadata
     """
     import os
     
-    api_key = os.environ.get("OPENAI_API_KEY")
-    if not api_key:
-        return {
-            "success": False,
-            "error": "OPENAI_API_KEY not configured. Set it to enable voiceover generation.",
-            "setup_instructions": "Add OPENAI_API_KEY to your environment variables or Cloud Run service."
-        }
+    # Check if we're running on GCP with default credentials
+    project_id = os.environ.get("GOOGLE_CLOUD_PROJECT")
     
     try:
-        import requests
+        from google.cloud import texttospeech
         
-        # Clean up script text for TTS (remove [SHOT] markers, timestamps, etc.)
+        # Initialize client (uses ADC on Cloud Run)
+        client = texttospeech.TextToSpeechClient()
+        
+        # Clean up script text for TTS
         clean_text = script_text
-        
-        # Remove [SHOT: ...] markers
         import re
         clean_text = re.sub(r'\[SHOT:[^\]]*\]', '', clean_text)
-        
-        # Remove timing markers like (0:00-0:03)
         clean_text = re.sub(r'\(\d+:\d+[^\)]*\)', '', clean_text)
-        
-        # Remove multiple newlines
         clean_text = re.sub(r'\n+', ' ', clean_text)
-        
-        # Clean up extra spaces
         clean_text = ' '.join(clean_text.split())
         
-        if len(clean_text) > 4000:
-            clean_text = clean_text[:4000]  # OpenAI TTS limit
+        if len(clean_text) > 5000:
+            clean_text = clean_text[:5000]  # Google TTS limit
         
         if len(clean_text) < 10:
             return {
@@ -1389,68 +1380,74 @@ def generate_script_voiceover(
                 "error": "Script text too short for voiceover (need at least 10 characters)"
             }
         
-        # Call OpenAI TTS API
-        response = requests.post(
-            "https://api.openai.com/v1/audio/speech",
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json"
-            },
-            json={
-                "model": model,
-                "input": clean_text,
-                "voice": voice,
-                "response_format": "mp3"
-            },
-            timeout=60
+        # Set up the voice and audio config
+        voice_params = texttospeech.VoiceSelectionParams(
+            language_code="en-US",
+            name=voice
         )
         
-        if response.status_code != 200:
-            error_msg = "TTS API error"
-            try:
-                error_data = response.json()
-                error_msg = error_data.get("error", {}).get("message", error_msg)
-            except:
-                pass
-            return {
-                "success": False,
-                "error": f"Voice generation failed: {error_msg}",
-                "status_code": response.status_code
-            }
+        audio_config = texttospeech.AudioConfig(
+            audio_encoding=texttospeech.AudioEncoding.MP3,
+            speaking_rate=speaking_rate,
+            pitch=0.0,
+            volume_gain_db=0.0
+        )
         
-        # Encode audio to base64 for JSON transport
-        audio_base64 = base64.b64encode(response.content).decode('utf-8')
+        # Synthesize speech
+        synthesis_input = texttospeech.SynthesisInput(text=clean_text)
+        response = client.synthesize_speech(
+            input=synthesis_input,
+            voice=voice_params,
+            audio_config=audio_config
+        )
         
-        # Estimate duration (rough: ~150 words per minute)
+        # Encode audio to base64
+        audio_base64 = base64.b64encode(response.audio_content).decode('utf-8')
+        
+        # Estimate duration (rough: ~150 words per minute at 1.0 rate)
         word_count = len(clean_text.split())
-        duration_seconds = int((word_count / 150) * 60)
+        duration_seconds = int((word_count / 150) * 60 / speaking_rate)
         
         return {
             "success": True,
             "audio_base64": audio_base64,
             "filename": f"voiceover_{uuid.uuid4().hex[:8]}.mp3",
             "voice": voice,
-            "model": model,
+            "provider": "google-cloud-tts",
             "word_count": word_count,
             "estimated_duration_seconds": duration_seconds,
             "content_preview": clean_text[:100] + "..." if len(clean_text) > 100 else clean_text,
-            "generated_at": datetime.now().isoformat()
+            "generated_at": __import__('datetime').datetime.now().isoformat()
         }
         
     except Exception as e:
         logger.error(f"Voiceover generation failed: {e}")
         return {
             "success": False,
-            "error": f"Voiceover generation failed: {str(e)}"
+            "error": f"Voiceover generation failed: {str(e)}",
+            "setup_instructions": "Ensure GOOGLE_CLOUD_PROJECT is set and Text-to-Speech API is enabled."
         }
 
 
-# Voice options for frontend
+# Google Cloud TTS Voice options for frontend
 TTS_VOICES = [
-    {"id": "alloy", "name": "Alloy", "description": "Neutral, balanced", "style": "Versatile"},
-    {"id": "echo", "name": "Echo", "description": "Male, friendly", "style": "Conversational"},
-    {"id": "fable", "name": "Fable", "description": "Male, British", "style": "Narrative"},
-    {"id": "onyx", "name": "Onyx", "description": "Male, deep", "style": "Professional"},
-    {"id": "nova", "name": "Nova", "description": "Female, warm", "style": "Friendly"},
-    {"id": "shimmer", "name": "Shimmer", "description": "Female, clear", "style": "Energetic"},
+    # Neural2 Voices - High quality, natural sounding
+    {"id": "en-US-Neural2-A", "name": "Neural2-A", "description": "Female, professional", "style": "Conversational", "tier": "Neural2"},
+    {"id": "en-US-Neural2-C", "name": "Neural2-C", "description": "Male, professional", "style": "Conversational", "tier": "Neural2"},
+    {"id": "en-US-Neural2-D", "name": "Neural2-D", "description": "Male, warm", "style": "Friendly", "tier": "Neural2"},
+    {"id": "en-US-Neural2-E", "name": "Neural2-E", "description": "Female, upbeat", "style": "Energetic", "tier": "Neural2"},
+    {"id": "en-US-Neural2-F", "name": "Neural2-F", "description": "Female, clear", "style": "Professional", "tier": "Neural2"},
+    {"id": "en-US-Neural2-G", "name": "Neural2-G", "description": "Female, warm", "style": "Friendly", "tier": "Neural2"},
+    {"id": "en-US-Neural2-H", "name": "Neural2-H", "description": "Female, calm", "style": "Narrative", "tier": "Neural2"},
+    {"id": "en-US-Neural2-I", "name": "Neural2-I", "description": "Male, authoritative", "style": "Professional", "tier": "Neural2"},
+    {"id": "en-US-Neural2-J", "name": "Neural2-J", "description": "Male, casual", "style": "Conversational", "tier": "Neural2"},
+    # Studio Voices - Broadcast quality
+    {"id": "en-US-Studio-O", "name": "Studio-O", "description": "Female, broadcast", "style": "Professional", "tier": "Studio"},
+    {"id": "en-US-Studio-Q", "name": "Studio-Q", "description": "Male, broadcast", "style": "Professional", "tier": "Studio"},
+    # News Voices - Optimized for news content
+    {"id": "en-US-News-K", "name": "News-K", "description": "Female, news anchor", "style": "Authoritative", "tier": "News"},
+    {"id": "en-US-News-L", "name": "News-L", "description": "Male, news anchor", "style": "Authoritative", "tier": "News"},
+    # Wavenet Voices - Legacy but still good
+    {"id": "en-US-Wavenet-D", "name": "Wavenet-D", "description": "Male, warm", "style": "Friendly", "tier": "Wavenet"},
+    {"id": "en-US-Wavenet-E", "name": "Wavenet-E", "description": "Female, clear", "style": "Professional", "tier": "Wavenet"},
 ]

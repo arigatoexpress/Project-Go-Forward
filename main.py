@@ -870,7 +870,7 @@ async def api_content_analytics():
 
 @app.post("/api/marketing/generate-voiceover", dependencies=[Depends(require_admin)])
 async def api_generate_voiceover(request: Request):
-    """Generate voiceover audio from script using OpenAI TTS."""
+    """Generate voiceover audio from script using Google Cloud Text-to-Speech."""
     try:
         from tools.marketing_tools import generate_script_voiceover, TTS_VOICES
         data = await request.json()
@@ -881,8 +881,8 @@ async def api_generate_voiceover(request: Request):
         
         result = generate_script_voiceover(
             script_text=script_text,
-            voice=data.get("voice", "alloy"),
-            model=data.get("model", "tts-1")
+            voice=data.get("voice", "en-US-Neural2-D"),
+            speaking_rate=data.get("speaking_rate", 1.0)
         )
         return result
     except Exception as e:
