@@ -867,6 +867,39 @@ async def api_content_analytics():
         return {"error": "Failed to load analytics. Please try again."}
 
 
+@app.post("/api/marketing/generate-voiceover", dependencies=[Depends(require_admin)])
+async def api_generate_voiceover(request: Request):
+    """Generate voiceover audio from script using OpenAI TTS."""
+    try:
+        from tools.marketing_tools import generate_script_voiceover, TTS_VOICES
+        data = await request.json()
+        
+        script_text = data.get("script_text", "")
+        if not script_text:
+            return {"success": False, "error": "script_text is required"}
+        
+        result = generate_script_voiceover(
+            script_text=script_text,
+            voice=data.get("voice", "alloy"),
+            model=data.get("model", "tts-1")
+        )
+        return result
+    except Exception as e:
+        struct_logger.error("Voiceover generation failed", error=str(e))
+        return {"success": False, "error": "Voiceover generation failed. Please try again."}
+
+
+@app.get("/api/marketing/voiceover-voices", dependencies=[Depends(require_admin)])
+async def api_get_voiceover_voices():
+    """Get available TTS voices."""
+    try:
+        from tools.marketing_tools import TTS_VOICES
+        return {"success": True, "voices": TTS_VOICES}
+    except Exception as e:
+        struct_logger.error("Voice list failed", error=str(e))
+        return {"success": False, "error": "Failed to load voices"}
+
+
 @app.post("/api/marketing/generate-image", dependencies=[Depends(require_admin)])
 async def api_generate_image(request: Request):
     """Generate a marketing image using Google Imagen."""

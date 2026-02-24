@@ -2315,3 +2315,109 @@
 .tho-error-dismiss:hover {
   background: rgba(239, 68, 68, 0.2);
 }
+
+/* ─── Voiceover Generation ─── */
+.tho-voice-selector {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.tho-voice-selector span {
+  flex-shrink: 0;
+}
+
+.tho-select {
+  flex: 1;
+  padding: 0.5rem;
+  font-size: 0.8rem;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(100, 116, 139, 0.3);
+  border-radius: 8px;
+  color: #e2e8f0;
+  cursor: pointer;
+}
+
+.tho-select:focus {
+  outline: none;
+  border-color: #3b82f6;
+}
+
+.tho-select option {
+  background: #1e293b;
+  color: #e2e8f0;
+}
+
+.tho-voiceover-player {
+  margin-top: 1rem;
+  padding: 0.75rem;
+  background: rgba(15, 23, 42, 0.4);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  border-radius: 12px;
+}
+
+.tho-voiceover-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.tho-play-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  border: none;
+  border-radius: 50%;
+  color: white;
+  cursor: pointer;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+.tho-play-btn:hover {
+  transform: scale(1.05);
+  box-shadow: 0 0 15px rgba(59, 130, 246, 0.4);
+}
+
+.tho-voiceover-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.tho-voiceover-voice {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #f1f5f9;
+  text-transform: capitalize;
+}
+
+.tho-voiceover-duration {
+  font-size: 0.7rem;
+  color: #94a3b8;
+}
+
+.tho-download-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  background: rgba(30, 41, 59, 0.6);
+  border: 1px solid rgba(100, 116, 139, 0.3);
+  border-radius: 8px;
+  color: #94a3b8;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.tho-download-btn:hover {
+  background: rgba(59, 130, 246, 0.15);
+  border-color: rgba(59, 130, 246, 0.5);
+  color: #3b82f6;
+}

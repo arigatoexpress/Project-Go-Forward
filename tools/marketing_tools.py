@@ -1306,3 +1306,151 @@ def analyze_content_performance(
         ],
         "generated_at": datetime.now().isoformat()
     }
+    return {
+        "success": True,
+        "date_range": date_range,
+        "source": "simulated_data" if not tiktok_handler.is_configured() else "api_connected",
+        "summary": {
+            "total_views": "15.2K",
+            "total_engagement": "2.1K",
+            "new_followers": 127,
+            "dms_received": 34,
+            "leads_generated": 12
+        },
+        "top_performing_content": [
+            {"type": "home_tour", "views": "8.3K", "engagement_rate": "14.2%"},
+            {"type": "myth_busting", "views": "4.1K", "engagement_rate": "11.8%"},
+            {"type": "clearance_alert", "views": "2.8K", "engagement_rate": "18.5%"}
+        ],
+        "recommendations": [
+            "Home tour content is performing best — increase frequency",
+            "Clearance alerts have highest engagement rate — use for time-sensitive promos",
+            "Post more during 7-8 PM CST — that's your peak engagement window",
+            "Pre-owned home content drives the most DMs — lean into budget-friendly messaging"
+        ],
+        "generated_at": datetime.now().isoformat()
+    }
+
+
+# ─── Text-to-Speech for Voiceover Generation ───
+
+def generate_script_voiceover(
+    script_text: str,
+    voice: str = "alloy",
+    model: str = "tts-1",
+    tool_context: ToolContext = None
+) -> dict:
+    """
+    Generate voiceover audio from a script using OpenAI TTS.
+    
+    Args:
+        script_text: The script to convert to speech (hook + body + cta)
+        voice: Voice to use (alloy, echo, fable, onyx, nova, shimmer)
+        model: TTS model (tts-1, tts-1-hd)
+        
+    Returns:
+        Dict with base64-encoded MP3 audio and metadata
+    """
+    import os
+    
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        return {
+            "success": False,
+            "error": "OPENAI_API_KEY not configured. Set it to enable voiceover generation.",
+            "setup_instructions": "Add OPENAI_API_KEY to your environment variables or Cloud Run service."
+        }
+    
+    try:
+        import requests
+        
+        # Clean up script text for TTS (remove [SHOT] markers, timestamps, etc.)
+        clean_text = script_text
+        
+        # Remove [SHOT: ...] markers
+        import re
+        clean_text = re.sub(r'\[SHOT:[^\]]*\]', '', clean_text)
+        
+        # Remove timing markers like (0:00-0:03)
+        clean_text = re.sub(r'\(\d+:\d+[^\)]*\)', '', clean_text)
+        
+        # Remove multiple newlines
+        clean_text = re.sub(r'\n+', ' ', clean_text)
+        
+        # Clean up extra spaces
+        clean_text = ' '.join(clean_text.split())
+        
+        if len(clean_text) > 4000:
+            clean_text = clean_text[:4000]  # OpenAI TTS limit
+        
+        if len(clean_text) < 10:
+            return {
+                "success": False,
+                "error": "Script text too short for voiceover (need at least 10 characters)"
+            }
+        
+        # Call OpenAI TTS API
+        response = requests.post(
+            "https://api.openai.com/v1/audio/speech",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "model": model,
+                "input": clean_text,
+                "voice": voice,
+                "response_format": "mp3"
+            },
+            timeout=60
+        )
+        
+        if response.status_code != 200:
+            error_msg = "TTS API error"
+            try:
+                error_data = response.json()
+                error_msg = error_data.get("error", {}).get("message", error_msg)
+            except:
+                pass
+            return {
+                "success": False,
+                "error": f"Voice generation failed: {error_msg}",
+                "status_code": response.status_code
+            }
+        
+        # Encode audio to base64 for JSON transport
+        audio_base64 = base64.b64encode(response.content).decode('utf-8')
+        
+        # Estimate duration (rough: ~150 words per minute)
+        word_count = len(clean_text.split())
+        duration_seconds = int((word_count / 150) * 60)
+        
+        return {
+            "success": True,
+            "audio_base64": audio_base64,
+            "filename": f"voiceover_{uuid.uuid4().hex[:8]}.mp3",
+            "voice": voice,
+            "model": model,
+            "word_count": word_count,
+            "estimated_duration_seconds": duration_seconds,
+            "content_preview": clean_text[:100] + "..." if len(clean_text) > 100 else clean_text,
+            "generated_at": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Voiceover generation failed: {e}")
+        return {
+            "success": False,
+            "error": f"Voiceover generation failed: {str(e)}"
+        }
+
+
+# Voice options for frontend
+TTS_VOICES = [
+    {"id": "alloy", "name": "Alloy", "description": "Neutral, balanced", "style": "Versatile"},
+    {"id": "echo", "name": "Echo", "description": "Male, friendly", "style": "Conversational"},
+    {"id": "fable", "name": "Fable", "description": "Male, British", "style": "Narrative"},
+    {"id": "onyx", "name": "Onyx", "description": "Male, deep", "style": "Professional"},
+    {"id": "nova", "name": "Nova", "description": "Female, warm", "style": "Friendly"},
+    {"id": "shimmer", "name": "Shimmer", "description": "Female, clear", "style": "Energetic"},
+]
