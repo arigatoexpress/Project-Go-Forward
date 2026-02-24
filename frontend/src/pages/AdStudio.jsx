@@ -6,7 +6,8 @@ import {
     Flame, DollarSign, AlertTriangle, Clapperboard,
     BookOpen, Users, RefreshCw, Send, Eye, Image,
     Download, Layers, Search, ChevronRight, Camera,
-    Box, Star, ExternalLink, ChevronLeft
+    Box, Star, ExternalLink, ChevronLeft, Volume2,
+    Pause
 } from 'lucide-react';
 import adminFetch from '../adminFetch';
 import './AdStudio.css';
@@ -129,6 +130,22 @@ async function apiGenerateImage(params) {
     return resp.json();
 }
 
+async function apiGenerateVoiceover(params) {
+    const resp = await adminFetch('/api/marketing/generate-voiceover', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(params)
+    });
+    if (!resp.ok) throw new Error('Voiceover generation failed');
+    return resp.json();
+}
+
+async function apiGetVoices() {
+    const resp = await adminFetch('/api/marketing/voiceover-voices');
+    if (!resp.ok) throw new Error('Failed to load voices');
+    return resp.json();
+}
+
 /* ─────────────────── Component ─────────────────── */
 export default function AdStudio({ onBack }) {
     // Tabs
@@ -174,6 +191,15 @@ export default function AdStudio({ onBack }) {
     const [generatedImages, setGeneratedImages] = useState([]);
     const [expandedImage, setExpandedImage] = useState(null);
     const [imageError, setImageError] = useState(null);
+
+    // Voiceover generation
+    const [voices, setVoices] = useState([]);
+    const [selectedVoice, setSelectedVoice] = useState('alloy');
+    const [generatingVoiceover, setGeneratingVoiceover] = useState(false);
+    const [voiceover, setVoiceover] = useState(null);
+    const [voiceoverError, setVoiceoverError] = useState(null);
+    const [isPlaying, setIsPlaying] = useState(false);
+    const audioRef = React.useRef(null);
 
     // Ideas tab
     const [ideas, setIdeas] = useState(null);
@@ -358,6 +384,75 @@ export default function AdStudio({ onBack }) {
         link.download = img.filename || 'ad-image.png';
         link.click();
     };
+
+    // Voiceover handlers
+    const handleLoadVoices = async () => {
+        try {
+            const result = await apiGetVoices();
+            if (result.success) {
+                setVoices(result.voices);
+            }
+        } catch (err) {
+            console.error('Failed to load voices:', err);
+        }
+    };
+
+    const handleGenerateVoiceover = async () => {
+        const s = getCurrentScript();
+        if (!s) return;
+        
+        const fullScript = `${s.hook}\n\n${s.body}\n\n${s.cta}`;
+        setGeneratingVoiceover(true);
+        setVoiceoverError(null);
+        
+        try {
+            const result = await apiGenerateVoiceover({
+                script_text: fullScript,
+                voice: selectedVoice,
+                model: 'tts-1'
+            });
+            
+            if (result.success) {
+                setVoiceover(result);
+                // Auto-play the new voiceover
+                setTimeout(() => {
+                    if (audioRef.current) {
+                        audioRef.current.play();
+                        setIsPlaying(true);
+                    }
+                }, 100);
+            } else {
+                setVoiceoverError(result.error || 'Voiceover generation failed');
+            }
+        } catch (err) {
+            setVoiceoverError('Voiceover generation failed: ' + err.message);
+        } finally {
+            setGeneratingVoiceover(false);
+        }
+    };
+
+    const handleDownloadVoiceover = () => {
+        if (!voiceover?.audio_base64) return;
+        const link = document.createElement('a');
+        link.href = `data:audio/mp3;base64,${voiceover.audio_base64}`;
+        link.download = voiceover.filename || 'voiceover.mp3';
+        link.click();
+    };
+
+    const togglePlayback = () => {
+        if (!audioRef.current) return;
+        if (isPlaying) {
+            audioRef.current.pause();
+        } else {
+            audioRef.current.play();
+        }
+        setIsPlaying(!isPlaying);
+    };
+
+    // Load voices on mount
+    useEffect(() => {
+        handleLoadVoices();
+    }, []);
 
     // Auto-load data when switching tabs
     useEffect(() => {
@@ -573,6 +668,81 @@ export default function AdStudio({ onBack }) {
                             </div>
                         </div>
                     )}
+
+                    {/* Voiceover Generation Section */}
+                    <div className="tho-ai-feedback-box mt-4" style={{borderTop: '1px solid #374151', paddingTop: '1rem'}}>
+                        <h4><Volume2 size={16} /> Generate Voiceover</h4>
+                        <p className="text-xs text-gray-400 mb-2">Create AI voiceover audio from your script (OpenAI TTS)</p>
+                        
+                        {/* Voice selector */}
+                        <div className="tho-voice-selector">
+                            <span className="text-xs text-gray-500">Voice:</span>
+                            <select 
+                                className="tho-input tho-select"
+                                value={selectedVoice}
+                                onChange={e => setSelectedVoice(e.target.value)}
+                            >
+                                {voices.map(v => (
+                                    <option key={v.id} value={v.id}>
+                                        {v.name} — {v.description} ({v.style})
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+                        
+                        {/* Generate button */}
+                        <button
+                            className="tho-btn tho-btn-secondary w-full mt-2 flex items-center justify-center gap-2"
+                            onClick={handleGenerateVoiceover}
+                            disabled={generatingVoiceover || !currentScript}
+                        >
+                            {generatingVoiceover ? (
+                                <><Loader2 size={14} className="spin" /> Generating Voice...</>
+                            ) : (
+                                <><Volume2 size={14} /> Generate Voiceover</>
+                            )}
+                        </button>
+                        
+                        {voiceoverError && (
+                            <div className="tho-image-error">
+                                <AlertTriangle size={12} />
+                                <span>{voiceoverError}</span>
+                                <button onClick={() => setVoiceoverError(null)} className="tho-error-dismiss"><X size={12} /></button>
+                            </div>
+                        )}
+                        
+                        {/* Voiceover player */}
+                        {voiceover?.success && (
+                            <div className="tho-voiceover-player">
+                                <audio 
+                                    ref={audioRef}
+                                    src={`data:audio/mp3;base64,${voiceover.audio_base64}`}
+                                    onEnded={() => setIsPlaying(false)}
+                                    onPause={() => setIsPlaying(false)}
+                                    onPlay={() => setIsPlaying(true)}
+                                />
+                                <div className="tho-voiceover-controls">
+                                    <button 
+                                        className="tho-play-btn"
+                                        onClick={togglePlayback}
+                                    >
+                                        {isPlaying ? <Pause size={16} /> : <Play size={16} />}
+                                    </button>
+                                    <div className="tho-voiceover-info">
+                                        <span className="tho-voiceover-voice">{voiceover.voice}</span>
+                                        <span className="tho-voiceover-duration">~{voiceover.estimated_duration_seconds}s</span>
+                                    </div>
+                                    <button 
+                                        className="tho-download-btn"
+                                        onClick={handleDownloadVoiceover}
+                                        title="Download MP3"
+                                    >
+                                        <Download size={14} />
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                    </div>
 
                     {/* Quality Score Display */}
                     {script?.quality && (
