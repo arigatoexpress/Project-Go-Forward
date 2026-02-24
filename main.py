@@ -803,6 +803,7 @@ from tools.marketing_tools import (
     GENERATED_ADS_DIR
 )
 from tools.asset_scraper import get_all_assets, PROPERTY_ASSETS, get_matterport_url
+from tools.video_generator import generate_ad_video, GENERATED_VIDEOS_DIR
 
 @app.post("/api/marketing/generate-script", dependencies=[Depends(require_admin)])
 async def api_generate_script(request: Request):
@@ -920,6 +921,64 @@ async def api_generate_image(request: Request):
     except Exception as e:
         struct_logger.error("Image generation failed", error=str(e))
         return {"success": False, "error": "Image generation failed. Please try again."}
+
+
+@app.post("/api/marketing/generate-video", dependencies=[Depends(require_admin)])
+async def api_generate_video(request: Request):
+    """Generate an MP4 video from photos, voiceover, and script."""
+    try:
+        from tools.video_generator import generate_ad_video
+        data = await request.json()
+        
+        photos = data.get("photos", [])
+        voiceover_base64 = data.get("voiceover_base64", "")
+        script_text = data.get("script_text", "")
+        home_name = data.get("home_name", "ad")
+        
+        if not photos:
+            return {"success": False, "error": "At least one photo is required"}
+        if not voiceover_base64:
+            return {"success": False, "error": "Voiceover audio is required"}
+        
+        result = generate_ad_video(
+            photos=photos,
+            voiceover_base64=voiceover_base64,
+            script_text=script_text,
+            home_name=home_name,
+            platform=data.get("platform", "tiktok"),
+            duration_per_photo=data.get("duration_per_photo", 3.0)
+        )
+        return result
+    except Exception as e:
+        struct_logger.error("Video generation failed", error=str(e))
+        return {"success": False, "error": f"Video generation failed: {str(e)}"}
+
+
+@app.get("/api/marketing/videos/{filename}", dependencies=[Depends(require_admin)])
+async def download_generated_video(filename: str):
+    """Download a generated video."""
+    import os
+    from fastapi.responses import FileResponse
+    
+    safe_filename = os.path.basename(filename)
+    if safe_filename != filename or ".." in filename:
+        return {"error": "Invalid filename"}
+    
+    if not safe_filename.lower().endswith(".mp4"):
+        return {"error": "Only MP4 files allowed"}
+    
+    resolved = os.path.abspath(os.path.join(GENERATED_VIDEOS_DIR, safe_filename))
+    if not resolved.startswith(os.path.abspath(GENERATED_VIDEOS_DIR)):
+        return {"error": "Invalid path"}
+    
+    if os.path.isfile(resolved):
+        return FileResponse(
+            resolved, 
+            filename=safe_filename,
+            media_type="video/mp4",
+            headers={"Content-Disposition": f'attachment; filename="{safe_filename}"'}
+        )
+    return {"error": "File not found"}
 
 
 @app.get("/api/marketing/inventory-context")

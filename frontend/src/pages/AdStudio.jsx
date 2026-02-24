@@ -130,6 +130,16 @@ async function apiGenerateImage(params) {
     return resp.json();
 }
 
+async function apiGenerateVideo(params) {
+    const resp = await adminFetch('/api/marketing/generate-video', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(params)
+    });
+    if (!resp.ok) throw new Error('Video generation failed');
+    return resp.json();
+}
+
 async function apiGenerateVoiceover(params) {
     const resp = await adminFetch('/api/marketing/generate-voiceover', {
         method: 'POST',
@@ -200,6 +210,11 @@ export default function AdStudio({ onBack }) {
     const [voiceoverError, setVoiceoverError] = useState(null);
     const [isPlaying, setIsPlaying] = useState(false);
     const audioRef = React.useRef(null);
+
+    // Video generation
+    const [generatingVideo, setGeneratingVideo] = useState(false);
+    const [generatedVideo, setGeneratedVideo] = useState(null);
+    const [videoError, setVideoError] = useState(null);
 
     // Ideas tab
     const [ideas, setIdeas] = useState(null);
@@ -447,6 +462,47 @@ export default function AdStudio({ onBack }) {
             audioRef.current.play();
         }
         setIsPlaying(!isPlaying);
+    };
+
+    const handleGenerateVideo = async () => {
+        if (!voiceover?.audio_base64 || !realPhotos.length) {
+            setVideoError('Need voiceover and photos to generate video');
+            return;
+        }
+        
+        const s = getCurrentScript();
+        const fullScript = s ? `${s.hook}\n\n${s.body}\n\n${s.cta}` : '';
+        
+        setGeneratingVideo(true);
+        setVideoError(null);
+        setGeneratedVideo(null);
+        
+        try {
+            const result = await apiGenerateVideo({
+                photos: realPhotos,
+                voiceover_base64: voiceover.audio_base64,
+                script_text: fullScript,
+                home_name: homeName || 'ad',
+                platform: platform,
+                duration_per_photo: 3.0
+            });
+            
+            if (result.success) {
+                setGeneratedVideo(result);
+            } else {
+                setVideoError(result.error || 'Video generation failed');
+            }
+        } catch (err) {
+            setVideoError('Video generation failed: ' + err.message);
+        } finally {
+            setGeneratingVideo(false);
+        }
+    };
+
+    const handleDownloadVideo = () => {
+        if (!generatedVideo?.download_url) return;
+        // Open in new tab for download
+        window.open(`https://tho-ai-agent.web.app${generatedVideo.download_url}`, '_blank');
     };
 
     // Load voices on mount
@@ -738,6 +794,66 @@ export default function AdStudio({ onBack }) {
                                         title="Download MP3"
                                     >
                                         <Download size={14} />
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Video Generation Section */}
+                    <div className="tho-ai-feedback-box mt-4" style={{borderTop: '1px solid #374151', paddingTop: '1rem'}}>
+                        <h4><Film size={16} /> Generate Video</h4>
+                        <p className="text-xs text-gray-400 mb-2">
+                            Create MP4 video from photos + voiceover (slideshow with transitions)
+                        </p>
+                        
+                        <div className="tho-video-info text-xs text-gray-500 mb-2">
+                            {realPhotos.length > 0 ? (
+                                <span>✓ {realPhotos.length} photos ready</span>
+                            ) : (
+                                <span>⚠ Select a home with photos first</span>
+                            )}
+                            {voiceover?.success ? (
+                                <span className="ml-3">✓ Voiceover ready (~{voiceover.estimated_duration_seconds}s)</span>
+                            ) : (
+                                <span className="ml-3">⚠ Generate voiceover first</span>
+                            )}
+                        </div>
+                        
+                        <button
+                            className="tho-btn tho-btn-primary w-full mt-2 flex items-center justify-center gap-2"
+                            onClick={handleGenerateVideo}
+                            disabled={generatingVideo || !voiceover?.success || realPhotos.length === 0}
+                        >
+                            {generatingVideo ? (
+                                <><Loader2 size={14} className="spin" /> Creating Video...</>
+                            ) : (
+                                <><Film size={14} /> Generate MP4 Video</>
+                            )}
+                        </button>
+                        
+                        {videoError && (
+                            <div className="tho-image-error">
+                                <AlertTriangle size={12} />
+                                <span>{videoError}</span>
+                                <button onClick={() => setVideoError(null)} className="tho-error-dismiss"><X size={12} /></button>
+                            </div>
+                        )}
+                        
+                        {generatedVideo?.success && (
+                            <div className="tho-video-result mt-3 p-3 bg-green-900/20 border border-green-700/30 rounded-lg">
+                                <div className="flex items-center justify-between">
+                                    <div>
+                                        <div className="text-sm font-medium text-green-400">✓ Video Created!</div>
+                                        <div className="text-xs text-gray-400">
+                                            {generatedVideo.resolution} • {generatedVideo.duration_seconds}s • {generatedVideo.file_size_mb}MB
+                                        </div>
+                                    </div>
+                                    <button 
+                                        className="tho-btn tho-btn-primary flex items-center gap-2"
+                                        onClick={handleDownloadVideo}
+                                    >
+                                        <Download size={14} /> Download MP4
                                     </button>
                                 </div>
                             </div>
