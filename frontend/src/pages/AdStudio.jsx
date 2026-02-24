@@ -204,7 +204,7 @@ export default function AdStudio({ onBack }) {
 
     // Voiceover generation
     const [voices, setVoices] = useState([]);
-    const [selectedVoice, setSelectedVoice] = useState('alloy');
+    const [selectedVoice, setSelectedVoice] = useState('en-US-Neural2-D');
     const [generatingVoiceover, setGeneratingVoiceover] = useState(false);
     const [voiceover, setVoiceover] = useState(null);
     const [voiceoverError, setVoiceoverError] = useState(null);
@@ -730,7 +730,7 @@ export default function AdStudio({ onBack }) {
                         <h4><Volume2 size={16} /> Generate Voiceover</h4>
                         <p className="text-xs text-gray-400 mb-2">Create AI voiceover audio from your script (OpenAI TTS)</p>
                         
-                        {/* Voice selector */}
+                        {/* Voice selector - grouped by tier */}
                         <div className="tho-voice-selector">
                             <span className="text-xs text-gray-500">Voice:</span>
                             <select 
@@ -738,10 +738,14 @@ export default function AdStudio({ onBack }) {
                                 value={selectedVoice}
                                 onChange={e => setSelectedVoice(e.target.value)}
                             >
-                                {voices.map(v => (
-                                    <option key={v.id} value={v.id}>
-                                        {v.name} — {v.description} ({v.style})
-                                    </option>
+                                {['Studio', 'Neural2', 'News', 'Wavenet'].map(tier => (
+                                    <optgroup key={tier} label={tier === 'Neural2' ? 'Neural2 (Recommended)' : tier}>
+                                        {voices.filter(v => v.tier === tier).map(v => (
+                                            <option key={v.id} value={v.id}>
+                                                {v.name} — {v.description} ({v.style})
+                                            </option>
+                                        ))}
+                                    </optgroup>
                                 ))}
                             </select>
                         </div>
