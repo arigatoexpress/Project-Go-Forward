@@ -6,7 +6,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     libsm6 \
     libxext6 \
-    libgl1-mesa-glx \
+    libgl1 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
@@ -24,6 +24,14 @@ RUN npm run build
 
 # ── Stage 3: Production image ──
 FROM python:3.11-slim
+
+# Install runtime dependencies for moviepy/opencv
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg \
+    libsm6 \
+    libxext6 \
+    libgl1 \
+    && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user
 RUN groupadd -r appuser && useradd -r -g appuser -d /app appuser
