@@ -1,0 +1,446 @@
+{
+  "generated_at": "2026-02-25T09:15:27.441395",
+  "summary": {
+    "total_homes_on_website": 20,
+    "in_database": 0,
+    "in_asset_catalog": 0,
+    "with_adequate_photos": 0,
+    "with_matterport": 0
+  },
+  "gaps": {
+    "missing_from_database": [
+      "NEW YEAR CLEARANCE SALE / TRU Single Section Delight",
+      "NEW YEAR CLEARANCE SALE / TRU Single Section Glory",
+      "The Promotional Series / The Nassau FAC28483A",
+      "The Elite Series / The Jackson ELS16763D",
+      "Independent / Anatolia XL SLT28683AH",
+      "Epic Experience / The Mariner CEE16763EH",
+      "Premier / Creole 3256H32447",
+      "Premier / Bourbon 3276H42398",
+      "Alpine Series / El Capitan 32SAP32563AH",
+      "TRU Multi Section / Triumph TRU28765AH",
+      "TRU Multi Section / Satisfaction TRU28483RH",
+      "Solution / The Pt 78 SLT28563D",
+      "PRE-OWNED / Big Blue",
+      "The Promotional Series / The Rosewood FAC28644A",
+      "PRE-OWNED / Heritage 1672-32C",
+      "PRE-OWNED / Select Legacy S-1672-32B",
+      "PRE-OWNED / Select Legacy S-2468-42A",
+      "PRE-OWNED / Select S-1272-32A",
+      "PRE-OWNED / Select S-1256-21A",
+      "PRE-OWNED / Heritage 1684-32A"
+    ],
+    "missing_from_asset_catalog": [
+      "NEW YEAR CLEARANCE SALE / TRU Single Section Delight",
+      "NEW YEAR CLEARANCE SALE / TRU Single Section Glory",
+      "The Promotional Series / The Nassau FAC28483A",
+      "The Elite Series / The Jackson ELS16763D",
+      "Independent / Anatolia XL SLT28683AH",
+      "Epic Experience / The Mariner CEE16763EH",
+      "Premier / Creole 3256H32447",
+      "Premier / Bourbon 3276H42398",
+      "Alpine Series / El Capitan 32SAP32563AH",
+      "TRU Multi Section / Triumph TRU28765AH",
+      "TRU Multi Section / Satisfaction TRU28483RH",
+      "Solution / The Pt 78 SLT28563D",
+      "PRE-OWNED / Big Blue",
+      "The Promotional Series / The Rosewood FAC28644A",
+      "PRE-OWNED / Heritage 1672-32C",
+      "PRE-OWNED / Select Legacy S-1672-32B",
+      "PRE-OWNED / Select Legacy S-2468-42A",
+      "PRE-OWNED / Select S-1272-32A",
+      "PRE-OWNED / Select S-1256-21A",
+      "PRE-OWNED / Heritage 1684-32A"
+    ],
+    "need_more_photos": [
+      "NEW YEAR CLEARANCE SALE / TRU Single Section Delight",
+      "NEW YEAR CLEARANCE SALE / TRU Single Section Glory",
+      "The Promotional Series / The Nassau FAC28483A",
+      "The Elite Series / The Jackson ELS16763D",
+      "Independent / Anatolia XL SLT28683AH",
+      "Epic Experience / The Mariner CEE16763EH",
+      "Premier / Creole 3256H32447",
+      "Premier / Bourbon 3276H42398",
+      "Alpine Series / El Capitan 32SAP32563AH",
+      "TRU Multi Section / Triumph TRU28765AH",
+      "TRU Multi Section / Satisfaction TRU28483RH",
+      "Solution / The Pt 78 SLT28563D",
+      "PRE-OWNED / Big Blue",
+      "The Promotional Series / The Rosewood FAC28644A",
+      "PRE-OWNED / Heritage 1672-32C",
+      "PRE-OWNED / Select Legacy S-1672-32B",
+      "PRE-OWNED / Select Legacy S-2468-42A",
+      "PRE-OWNED / Select S-1272-32A",
+      "PRE-OWNED / Select S-1256-21A",
+      "PRE-OWNED / Heritage 1684-32A"
+    ]
+  },
+  "actions": [
+    "Add 20 homes to Firestore database",
+    "Add 20 homes to asset_scraper.py",
+    "Source additional photos for 20 homes"
+  ],
+  "manufacturers": {},
+  "detailed_results": [
+    {
+      "model_name": "NEW YEAR CLEARANCE SALE / TRU Single Section Delight",
+      "in_database": false,
+      "in_asset_catalog": false,
+      "on_website": true,
+      "db_photos_count": 0,
+      "asset_photos_count": 0,
+      "website_photos_count": 1,
+      "has_matterport": false,
+      "missing_from": [
+        "database",
+        "asset_catalog"
+      ],
+      "actions_needed": [
+        "Need more photos (only have 0)",
+        "Get Matterport tour"
+      ]
+    },
+    {
+      "model_name": "NEW YEAR CLEARANCE SALE / TRU Single Section Glory",
+      "in_database": false,
+      "in_asset_catalog": false,
+      "on_website": true,
+      "db_photos_count": 0,
+      "asset_photos_count": 0,
+      "website_photos_count": 1,
+      "has_matterport": false,
+      "missing_from": [
+        "database",
+        "asset_catalog"
+      ],
+      "actions_needed": [
+        "Need more photos (only have 0)",
+        "Get Matterport tour"
+      ]
+    },
+    {
+      "model_name": "The Promotional Series / The Nassau FAC28483A",
+      "in_database": false,
+      "in_asset_catalog": false,
+      "on_website": true,
+      "db_photos_count": 0,
+      "asset_photos_count": 0,
+      "website_photos_count": 1,
+      "has_matterport": false,
+      "missing_from": [
+        "database",
+        "asset_catalog"
+      ],
+      "actions_needed": [
+        "Need more photos (only have 0)",
+        "Get Matterport tour"
+      ]
+    },
+    {
+      "model_name": "The Elite Series / The Jackson ELS16763D",
+      "in_database": false,
+      "in_asset_catalog": false,
+      "on_website": true,
+      "db_photos_count": 0,
+      "asset_photos_count": 0,
+      "website_photos_count": 1,
+      "has_matterport": false,
+      "missing_from": [
+        "database",
+        "asset_catalog"
+      ],
+      "actions_needed": [
+        "Need more photos (only have 0)",
+        "Get Matterport tour"
+      ]
+    },
+    {
+      "model_name": "Independent / Anatolia XL SLT28683AH",
+      "in_database": false,
+      "in_asset_catalog": false,
+      "on_website": true,
+      "db_photos_count": 0,
+      "asset_photos_count": 0,
+      "website_photos_count": 1,
+      "has_matterport": false,
+      "missing_from": [
+        "database",
+        "asset_catalog"
+      ],
+      "actions_needed": [
+        "Need more photos (only have 0)",
+        "Get Matterport tour"
+      ]
+    },
+    {
+      "model_name": "Epic Experience / The Mariner CEE16763EH",
+      "in_database": false,
+      "in_asset_catalog": false,
+      "on_website": true,
+      "db_photos_count": 0,
+      "asset_photos_count": 0,
+      "website_photos_count": 1,
+      "has_matterport": false,
+      "missing_from": [
+        "database",
+        "asset_catalog"
+      ],
+      "actions_needed": [
+        "Need more photos (only have 0)",
+        "Get Matterport tour"
+      ]
+    },
+    {
+      "model_name": "Premier / Creole 3256H32447",
+      "in_database": false,
+      "in_asset_catalog": false,
+      "on_website": true,
+      "db_photos_count": 0,
+      "asset_photos_count": 0,
+      "website_photos_count": 1,
+      "has_matterport": false,
+      "missing_from": [
+        "database",
+        "asset_catalog"
+      ],
+      "actions_needed": [
+        "Need more photos (only have 0)",
+        "Get Matterport tour"
+      ]
+    },
+    {
+      "model_name": "Premier / Bourbon 3276H42398",
+      "in_database": false,
+      "in_asset_catalog": false,
+      "on_website": true,
+      "db_photos_count": 0,
+      "asset_photos_count": 0,
+      "website_photos_count": 1,
+      "has_matterport": false,
+      "missing_from": [
+        "database",
+        "asset_catalog"
+      ],
+      "actions_needed": [
+        "Need more photos (only have 0)",
+        "Get Matterport tour"
+      ]
+    },
+    {
+      "model_name": "Alpine Series / El Capitan 32SAP32563AH",
+      "in_database": false,
+      "in_asset_catalog": false,
+      "on_website": true,
+      "db_photos_count": 0,
+      "asset_photos_count": 0,
+      "website_photos_count": 1,
+      "has_matterport": false,
+      "missing_from": [
+        "database",
+        "asset_catalog"
+      ],
+      "actions_needed": [
+        "Need more photos (only have 0)",
+        "Get Matterport tour"
+      ]
+    },
+    {
+      "model_name": "TRU Multi Section / Triumph TRU28765AH",
+      "in_database": false,
+      "in_asset_catalog": false,
+      "on_website": true,
+      "db_photos_count": 0,
+      "asset_photos_count": 0,
+      "website_photos_count": 1,
+      "has_matterport": false,
+      "missing_from": [
+        "database",
+        "asset_catalog"
+      ],
+      "actions_needed": [
+        "Need more photos (only have 0)",
+        "Get Matterport tour"
+      ]
+    },
+    {
+      "model_name": "TRU Multi Section / Satisfaction TRU28483RH",
+      "in_database": false,
+      "in_asset_catalog": false,
+      "on_website": true,
+      "db_photos_count": 0,
+      "asset_photos_count": 0,
+      "website_photos_count": 1,
+      "has_matterport": false,
+      "missing_from": [
+        "database",
+        "asset_catalog"
+      ],
+      "actions_needed": [
+        "Need more photos (only have 0)",
+        "Get Matterport tour"
+      ]
+    },
+    {
+      "model_name": "Solution / The Pt 78 SLT28563D",
+      "in_database": false,
+      "in_asset_catalog": false,
+      "on_website": true,
+      "db_photos_count": 0,
+      "asset_photos_count": 0,
+      "website_photos_count": 1,
+      "has_matterport": false,
+      "missing_from": [
+        "database",
+        "asset_catalog"
+      ],
+      "actions_needed": [
+        "Need more photos (only have 0)",
+        "Get Matterport tour"
+      ]
+    },
+    {
+      "model_name": "PRE-OWNED / Big Blue",
+      "in_database": false,
+      "in_asset_catalog": false,
+      "on_website": true,
+      "db_photos_count": 0,
+      "asset_photos_count": 0,
+      "website_photos_count": 1,
+      "has_matterport": false,
+      "missing_from": [
+        "database",
+        "asset_catalog"
+      ],
+      "actions_needed": [
+        "Need more photos (only have 0)",
+        "Get Matterport tour"
+      ]
+    },
+    {
+      "model_name": "The Promotional Series / The Rosewood FAC28644A",
+      "in_database": false,
+      "in_asset_catalog": false,
+      "on_website": true,
+      "db_photos_count": 0,
+      "asset_photos_count": 0,
+      "website_photos_count": 1,
+      "has_matterport": false,
+      "missing_from": [
+        "database",
+        "asset_catalog"
+      ],
+      "actions_needed": [
+        "Need more photos (only have 0)",
+        "Get Matterport tour"
+      ]
+    },
+    {
+      "model_name": "PRE-OWNED / Heritage 1672-32C",
+      "in_database": false,
+      "in_asset_catalog": false,
+      "on_website": true,
+      "db_photos_count": 0,
+      "asset_photos_count": 0,
+      "website_photos_count": 1,
+      "has_matterport": false,
+      "missing_from": [
+        "database",
+        "asset_catalog"
+      ],
+      "actions_needed": [
+        "Need more photos (only have 0)",
+        "Get Matterport tour"
+      ]
+    },
+    {
+      "model_name": "PRE-OWNED / Select Legacy S-1672-32B",
+      "in_database": false,
+      "in_asset_catalog": false,
+      "on_website": true,
+      "db_photos_count": 0,
+      "asset_photos_count": 0,
+      "website_photos_count": 1,
+      "has_matterport": false,
+      "missing_from": [
+        "database",
+        "asset_catalog"
+      ],
+      "actions_needed": [
+        "Need more photos (only have 0)",
+        "Get Matterport tour"
+      ]
+    },
+    {
+      "model_name": "PRE-OWNED / Select Legacy S-2468-42A",
+      "in_database": false,
+      "in_asset_catalog": false,
+      "on_website": true,
+      "db_photos_count": 0,
+      "asset_photos_count": 0,
+      "website_photos_count": 1,
+      "has_matterport": false,
+      "missing_from": [
+        "database",
+        "asset_catalog"
+      ],
+      "actions_needed": [
+        "Need more photos (only have 0)",
+        "Get Matterport tour"
+      ]
+    },
+    {
+      "model_name": "PRE-OWNED / Select S-1272-32A",
+      "in_database": false,
+      "in_asset_catalog": false,
+      "on_website": true,
+      "db_photos_count": 0,
+      "asset_photos_count": 0,
+      "website_photos_count": 1,
+      "has_matterport": false,
+      "missing_from": [
+        "database",
+        "asset_catalog"
+      ],
+      "actions_needed": [
+        "Need more photos (only have 0)",
+        "Get Matterport tour"
+      ]
+    },
+    {
+      "model_name": "PRE-OWNED / Select S-1256-21A",
+      "in_database": false,
+      "in_asset_catalog": false,
+      "on_website": true,
+      "db_photos_count": 0,
+      "asset_photos_count": 0,
+      "website_photos_count": 1,
+      "has_matterport": false,
+      "missing_from": [
+        "database",
+        "asset_catalog"
+      ],
+      "actions_needed": [
+        "Need more photos (only have 0)",
+        "Get Matterport tour"
+      ]
+    },
+    {
+      "model_name": "PRE-OWNED / Heritage 1684-32A",
+      "in_database": false,
+      "in_asset_catalog": false,
+      "on_website": true,
+      "db_photos_count": 0,
+      "asset_photos_count": 0,
+      "website_photos_count": 1,
+      "has_matterport": false,
+      "missing_from": [
+        "database",
+        "asset_catalog"
+      ],
+      "actions_needed": [
+        "Need more photos (only have 0)",
+        "Get Matterport tour"
+      ]
+    }
+  ]
+}
