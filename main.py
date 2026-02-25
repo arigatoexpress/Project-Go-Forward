@@ -445,6 +445,194 @@ async def get_lead_stats():
         return {"error": "Failed to load lead statistics"}
 
 
+@app.get("/api/analytics/leads", dependencies=[Depends(require_admin)])
+async def get_lead_analytics(range: str = "30d"):
+    """Get detailed lead analytics with time series data."""
+    try:
+        from datetime import datetime, timedelta
+        
+        all_leads = await lead_manager.list_leads(limit=1000)
+        
+        # Calculate date range
+        now = datetime.now()
+        if range == "7d":
+            start_date = now - timedelta(days=7)
+        elif range == "30d":
+            start_date = now - timedelta(days=30)
+        elif range == "90d":
+            start_date = now - timedelta(days=90)
+        else:
+            start_date = datetime.min
+        
+        # Filter leads by date
+        filtered_leads = [l for l in all_leads if hasattr(l, 'created_at') and l.created_at]
+        if range != "all":
+            filtered_leads = [l for l in filtered_leads if l.created_at >= start_date]
+        
+        # Calculate stats
+        stats = {
+            "total": len(filtered_leads),
+            "by_status": {},
+            "with_contact_info": 0,
+            "appointment_requested": 0,
+            "financing_discussed": 0,
+            "new_this_week": 0,
+            "trend": "0%",
+            "trend_up": True,
+            "status_trends": {}
+        }
+        
+        for lead in filtered_leads:
+            stats["by_status"][lead.status] = stats["by_status"].get(lead.status, 0) + 1
+            if lead.email or lead.phone:
+                stats["with_contact_info"] += 1
+            if lead.appointment_requested:
+                stats["appointment_requested"] += 1
+            if lead.financing_discussed:
+                stats["financing_discussed"] += 1
+            
+            # Count new this week
+            if hasattr(lead, 'created_at') and lead.created_at and lead.created_at >= now - timedelta(days=7):
+                stats["new_this_week"] += 1
+        
+        # Generate time series data
+        time_series = []
+        date_range = 7 if range == "7d" else 30 if range == "30d" else 90 if range == "90d" else min(30, len(filtered_leads) or 1)
+        
+        for i in range(date_range):
+            date = now - timedelta(days=date_range - i - 1)
+            date_str = date.strftime("%Y-%m-%d")
+            count = sum(1 for l in filtered_leads if hasattr(l, 'created_at') and l.created_at and l.created_at.date() == date.date())
+            time_series.append({"date": date_str, "count": count})
+        
+        stats["time_series"] = time_series
+        
+        return stats
+    except Exception as e:
+        struct_logger.error("Lead analytics failed", error=str(e))
+        return {"error": "Failed to load lead analytics"}
+
+
+@app.get("/api/analytics/documents", dependencies=[Depends(require_admin)])
+async def get_document_analytics(range: str = "30d"):
+    """Get document generation analytics."""
+    try:
+        from datetime import datetime, timedelta
+        import os
+        import json
+        
+        # This would ideally come from a database
+        # For now, we'll provide placeholder data structure
+        output_dir = OUTPUT_DIR
+        
+        stats = {
+            "total_generated": 0,
+            "this_month": 0,
+            "by_type": {},
+            "pages_this_month": 0,
+            "most_popular": {"name": "TMHA Sales Contract", "count": 0},
+            "recent": []
+        }
+        
+        # Scan output directory for generated documents
+        if os.path.exists(output_dir):
+            all_files = []
+            for root, dirs, files in os.walk(output_dir):
+                for file in files:
+                    if file.endswith('.pdf'):
+                        filepath = os.path.join(root, file)
+                        stat = os.stat(filepath)
+                        all_files.append({
+                            "name": file,
+                            "created": datetime.fromtimestamp(stat.st_mtime),
+                            "size": stat.st_size
+                        })
+            
+            now = datetime.now()
+            month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+            
+            stats["total_generated"] = len(all_files)
+            stats["this_month"] = sum(1 for f in all_files if f["created"] >= month_start)
+            
+            # Categorize by document type
+            for f in all_files:
+                doc_type = "Other"
+                if "TMHA" in f["name"] or "Sales" in f["name"]:
+                    doc_type = "Sales Contracts"
+                elif "TDHCA" in f["name"]:
+                    doc_type = "TDHCA Forms"
+                elif "packet" in f["name"].lower() or "closing" in f["name"].lower():
+                    doc_type = "Closing Packets"
+                elif "work_order" in f["name"].lower():
+                    doc_type = "Service Documents"
+                
+                stats["by_type"][doc_type] = stats["by_type"].get(doc_type, 0) + 1
+            
+            # Recent documents
+            recent_files = sorted(all_files, key=lambda x: x["created"], reverse=True)[:10]
+            stats["recent"] = [
+                {
+                    "template_name": f["name"],
+                    "buyer_name": "Customer",
+                    "created_at": f["created"].isoformat()
+                }
+                for f in recent_files
+            ]
+            
+            # Most popular
+            if stats["by_type"]:
+                most_popular = max(stats["by_type"].items(), key=lambda x: x[1])
+                stats["most_popular"] = {"name": most_popular[0], "count": most_popular[1]}
+        
+        return stats
+    except Exception as e:
+        struct_logger.error("Document analytics failed", error=str(e))
+        return {"error": "Failed to load document analytics"}
+
+
+@app.get("/api/analytics/inventory", dependencies=[Depends(require_admin)])
+async def get_inventory_analytics():
+    """Get inventory analytics."""
+    try:
+        inventory = _deal_db.search_inventory(limit=200)
+        
+        stats = {
+            "total": len(inventory),
+            "new_count": sum(1 for h in inventory if h.get("is_new", True)),
+            "used_count": sum(1 for h in inventory if not h.get("is_new", True)),
+            "with_photos": sum(1 for h in inventory if h.get("image_url") or h.get("photos")),
+            "new_with_photos": sum(1 for h in inventory if h.get("is_new", True) and (h.get("image_url") or h.get("photos"))),
+            "used_with_photos": sum(1 for h in inventory if not h.get("is_new", True) and (h.get("image_url") or h.get("photos"))),
+            "with_tours": sum(1 for h in inventory if h.get("matterport_id")),
+            "top_viewed": sorted(inventory, key=lambda x: x.get("view_count", 0), reverse=True)[:10]
+        }
+        
+        return stats
+    except Exception as e:
+        struct_logger.error("Inventory analytics failed", error=str(e))
+        return {"error": "Failed to load inventory analytics"}
+
+
+@app.get("/api/analytics/chat", dependencies=[Depends(require_admin)])
+async def get_chat_analytics(range: str = "30d"):
+    """Get chat conversation analytics."""
+    try:
+        # This would ideally track actual chat sessions
+        # For now, return placeholder structure
+        stats = {
+            "total_conversations": 0,
+            "avg_per_day": 0,
+            "unique_users": 0,
+            "top_questions": [],
+            "conversion_to_lead": 0
+        }
+        
+        return stats
+    except Exception as e:
+        struct_logger.error("Chat analytics failed", error=str(e))
+        return {"error": "Failed to load chat analytics"}
+
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
