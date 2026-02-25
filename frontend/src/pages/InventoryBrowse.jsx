@@ -486,6 +486,8 @@ export default function InventoryBrowse({ onAskTex, onBack, onCreateAd }) {
           onScheduleTour={() => openLeadForm(selectedHome, 'tour')}
           onGetPrice={() => openLeadForm(selectedHome, 'price')}
           onCreateAd={onCreateAd}
+          allHomes={homes}
+          onSelectSimilar={setSelectedHome}
         />
       )}
 
@@ -605,7 +607,8 @@ function HomeCard({ home, onClick, onScheduleTour }) {
 function HomeDetailModal({
   home, photos, activePhotoIndex, activeCategory, showTour,
   onClose, onPrevPhoto, onNextPhoto, onSetPhotoIndex, onSetCategory,
-  onToggleTour, onAskTex, onScheduleTour, onGetPrice, onCreateAd
+  onToggleTour, onAskTex, onScheduleTour, onGetPrice, onCreateAd,
+  allHomes, onSelectSimilar
 }) {
   const specs = home.specs || {};
   const categories = home.image_categories || {};
@@ -841,7 +844,103 @@ function HomeDetailModal({
             <MapPin size={14} />
             <span>{BUSINESS_ADDRESS}, {BUSINESS_CITY} — {BUSINESS_HOURS}</span>
           </div>
+          
+          {/* Similar Homes */}
+          <SimilarHomes 
+            currentHome={home}
+            allHomes={allHomes}
+            onSelectHome={(newHome) => {
+              onSelectSimilar(newHome);
+              onSetPhotoIndex(0);
+            }}
+          />
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Similar Homes Component ───
+function SimilarHomes({ currentHome, allHomes, onSelectHome }) {
+  if (!currentHome || !allHomes?.length) return null;
+  
+  const currentSpecs = currentHome.specs || {};
+  
+  // Calculate similarity score
+  const scored = allHomes
+    .filter(h => h.id !== currentHome.id)
+    .map(h => {
+      const specs = h.specs || {};
+      let score = 0;
+      
+      // Same manufacturer
+      if (h.manufacturer === currentHome.manufacturer) score += 3;
+      
+      // Same classification
+      if (h.classification === currentHome.classification) score += 2;
+      
+      // Similar beds
+      const bedDiff = Math.abs((specs.beds || 0) - (currentSpecs.beds || 0));
+      if (bedDiff === 0) score += 3;
+      else if (bedDiff === 1) score += 1;
+      
+      // Similar baths
+      const bathDiff = Math.abs((specs.baths || 0) - (currentSpecs.baths || 0));
+      if (bathDiff === 0) score += 2;
+      else if (bathDiff <= 0.5) score += 1;
+      
+      // Similar sqft (within 200)
+      const sqftDiff = Math.abs((specs.sq_ft || 0) - (currentSpecs.sq_ft || 0));
+      if (sqftDiff <= 200) score += 2;
+      else if (sqftDiff <= 400) score += 1;
+      
+      // Similar price range
+      const priceA = currentHome.price_value || 0;
+      const priceB = h.price_value || 0;
+      if (priceA && priceB) {
+        const priceDiff = Math.abs(priceA - priceB) / priceA;
+        if (priceDiff <= 0.1) score += 2;
+        else if (priceDiff <= 0.2) score += 1;
+      }
+      
+      return { home: h, score };
+    })
+    .filter(item => item.score >= 4) // Only show if reasonably similar
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 3);
+  
+  if (scored.length === 0) return null;
+  
+  return (
+    <div className="tho-similar-homes">
+      <h4 className="tho-similar-title">
+        <Box size={16} /> Similar Homes
+      </h4>
+      <div className="tho-similar-grid">
+        {scored.map(({ home }) => (
+          <button
+            key={home.id}
+            className="tho-similar-card"
+            onClick={() => onSelectHome(home)}
+          >
+            <div className="tho-similar-img-wrap">
+              {home.image_url ? (
+                <img src={home.image_url} alt={home.model_name} loading="lazy" />
+              ) : (
+                <Home size={24} className="text-gray-300" />
+              )}
+            </div>
+            <div className="tho-similar-info">
+              <div className="tho-similar-name">{home.model_name}</div>
+              <div className="tho-similar-specs">
+                {home.specs?.beds}BR · {home.specs?.baths}BA · {home.specs?.sq_ft?.toLocaleString()} sqft
+              </div>
+              <div className="tho-similar-price">
+                {home.display_price || 'Call for Price'}
+              </div>
+            </div>
+          </button>
+        ))}
       </div>
     </div>
   );
