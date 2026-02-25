@@ -299,20 +299,32 @@ async def run_agent(request: Request):
             event_count += 1
             event_type = type(event).__name__
             has_content = hasattr(event, "content") and event.content is not None
-            content_role = event.content.role if has_content else None
+            content_role = None
+            content_text = None
+            
+            if has_content:
+                content_role = getattr(event.content, "role", None)
+                # Log full content details for debugging
+                if hasattr(event.content, "parts") and event.content.parts:
+                    for i, part in enumerate(event.content.parts):
+                        if hasattr(part, "text") and part.text:
+                            content_text = part.text[:200]  # First 200 chars
+                            break
             
             struct_logger.info(f"Event {event_count}", 
                 request_id=request_id,
                 event_type=event_type,
                 content_role=content_role,
-                has_content=has_content)
+                has_content=has_content,
+                content_preview=content_text)
             
             # Log error events
             if event_type == "ErrorEvent" or (has_content and content_role == "error"):
                 error_msg = getattr(event, "error_message", "Unknown error")
                 struct_logger.error("Agent error event", request_id=request_id, error=error_msg)
             
-            if has_content and content_role == "model":
+            # Check for model response - ADK uses "model" role for assistant responses
+            if has_content and content_role in ("model", "assistant"):
                 for i, part in enumerate(event.content.parts):
                     has_text = hasattr(part, "text") and bool(part.text)
                     if has_text:
