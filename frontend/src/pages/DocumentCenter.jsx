@@ -217,9 +217,74 @@ function Badge({ children, color = 'blue' }) {
   );
 }
 
+/* ─── Duplicate Warning Component ────────────────────────── */
+
+function DuplicateWarning({ warning, onViewDeal }) {
+  if (!warning) return null;
+  
+  return (
+    <div className="bg-amber-50 border-2 border-amber-300 rounded-xl p-4 mb-6">
+      <div className="flex items-start gap-3">
+        <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+        <div className="flex-1">
+          <h4 className="font-bold text-amber-800">Potential Duplicate Deal Found</h4>
+          <p className="text-sm text-amber-700 mt-1">
+            {warning.count} existing deal{warning.count > 1 ? 's' : ''} found with similar information.
+          </p>
+          <div className="mt-3 space-y-2">
+            {warning.deals.map((deal, i) => (
+              <button
+                key={deal.id || i}
+                onClick={() => onViewDeal(deal)}
+                className="w-full text-left p-3 bg-white rounded-lg border border-amber-200 hover:border-amber-400 transition-colors"
+              >
+                <div className="font-medium text-gray-800">
+                  {deal.buyer_first_name} {deal.buyer_last_name}
+                </div>
+                {deal.model && <div className="text-sm text-gray-500">{deal.model}</div>}
+                <div className="text-xs text-gray-400 mt-1">
+                  Created: {new Date(deal.created_at).toLocaleDateString()}
+                </div>
+              </button>
+            ))}
+          </div>
+          <p className="text-xs text-amber-600 mt-3">
+            Click a deal above to load it, or continue with new information.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─── Validation Errors Component ────────────────────────── */
+
+function ValidationErrors({ errors }) {
+  if (!errors || errors.length === 0) return null;
+  
+  return (
+    <div className="bg-red-50 border-2 border-red-200 rounded-xl p-4 mb-6">
+      <div className="flex items-start gap-3">
+        <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
+        <div>
+          <h4 className="font-bold text-red-800">Please fix the following:</h4>
+          <ul className="mt-2 space-y-1">
+            {errors.map((error, i) => (
+              <li key={i} className="text-sm text-red-700 flex items-center gap-2">
+                <span className="w-1.5 h-1.5 bg-red-400 rounded-full" />
+                {error}
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ─── Step 1: Customer Info ──────────────────────────────── */
 
-function Step1({ data, onChange, deals, dealsLoading, onLoadDeal, onNext }) {
+function Step1({ data, onChange, deals, dealsLoading, onLoadDeal, onNext, validationErrors, duplicateWarning, onViewDuplicate }) {
   const [q, setQ] = useState('');
   const [showPicker, setShowPicker] = useState(false);
 
@@ -237,6 +302,12 @@ function Step1({ data, onChange, deals, dealsLoading, onLoadDeal, onNext }) {
 
   return (
     <div className="space-y-6">
+      {/* Validation Errors */}
+      <ValidationErrors errors={validationErrors} />
+      
+      {/* Duplicate Warning */}
+      <DuplicateWarning warning={duplicateWarning} onViewDeal={onViewDuplicate} />
+      
       {/* Quick Load from Deal */}
       <Card className="p-6 bg-gradient-to-r from-blue-50 to-blue-100 border-blue-200">
         <div className="flex items-center justify-between mb-4">
@@ -386,7 +457,7 @@ function Step1({ data, onChange, deals, dealsLoading, onLoadDeal, onNext }) {
 
 /* ─── Step 2: Choose Home from Inventory ─────────────────── */
 
-function Step2({ data, onChange, inventory, inventoryLoading, onNext, onBack }) {
+function Step2({ data, onChange, inventory, inventoryLoading, onNext, onBack, validationErrors }) {
   const [filter, setFilter] = useState('all'); // all, new, used
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedHome, setSelectedHome] = useState(null);
@@ -439,6 +510,9 @@ function Step2({ data, onChange, inventory, inventoryLoading, onNext, onBack }) 
 
   return (
     <div className="space-y-6">
+      {/* Validation Errors */}
+      <ValidationErrors errors={validationErrors} />
+      
       {/* Header */}
       <div className="text-center mb-6">
         <h2 className="text-2xl font-bold text-gray-800">Select a Home from Inventory</h2>
@@ -1052,6 +1126,28 @@ function Step4({ results, generating, error, onBack, onReset }) {
   );
 }
 
+/* ─── Form Validation ────────────────────────────────────── */
+
+function validateForm(form, step) {
+  const errors = [];
+  
+  if (step === 1) {
+    if (!form.buyer_first_name?.trim()) errors.push('Buyer first name is required');
+    if (!form.buyer_last_name?.trim()) errors.push('Buyer last name is required');
+    if (form.buyer_email && !form.buyer_email.includes('@')) errors.push('Invalid email address');
+    if (form.buyer_phone && form.buyer_phone.length < 10) errors.push('Phone number should be at least 10 digits');
+  }
+  
+  if (step === 2) {
+    if (!form.manufacturer?.trim()) errors.push('Manufacturer is required');
+    if (!form.model?.trim()) errors.push('Model name is required');
+    if (!form.serial_number_1?.trim()) errors.push('Serial number is required');
+    if (form.sales_price && isNaN(parseFloat(form.sales_price))) errors.push('Sales price must be a number');
+  }
+  
+  return errors;
+}
+
 /* ─── Main Component ─────────────────────────────────────── */
 
 export default function DocumentCenter() {
@@ -1067,6 +1163,9 @@ export default function DocumentCenter() {
   const [generating, setGenerating] = useState(false);
   const [results, setResults] = useState(null);
   const [genErr, setGenErr] = useState('');
+  const [validationErrors, setValidationErrors] = useState([]);
+  const [lastSaved, setLastSaved] = useState(null);
+  const [showDuplicateWarning, setShowDuplicateWarning] = useState(null);
 
   // Load initial data
   useEffect(() => {
@@ -1092,9 +1191,83 @@ export default function DocumentCenter() {
       .then(d => setInventory(d.inventory || []))
       .catch(() => { })
       .finally(() => setInventoryLoading(false));
+    
+    // Load draft from localStorage
+    const saved = localStorage.getItem('document_center_draft');
+    if (saved) {
+      try {
+        const draft = JSON.parse(saved);
+        if (draft.form) setForm(draft.form);
+        if (draft.selDocs) setSelDocs(draft.selDocs);
+        if (draft.step) setStep(draft.step);
+        setLastSaved(new Date(draft.timestamp));
+      } catch (e) {
+        console.error('Failed to load draft:', e);
+      }
+    }
   }, []);
 
-  const chg = useCallback((n, v) => setForm(p => ({ ...p, [n]: v })), []);
+  // Auto-save to localStorage
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      const draft = {
+        form,
+        selDocs,
+        step,
+        timestamp: new Date().toISOString()
+      };
+      localStorage.setItem('document_center_draft', JSON.stringify(draft));
+      setLastSaved(new Date());
+    }, 3000); // Save 3 seconds after last change
+    
+    return () => clearTimeout(timeout);
+  }, [form, selDocs, step]);
+
+  const chg = useCallback((n, v) => {
+    setForm(p => ({ ...p, [n]: v }));
+    setValidationErrors([]); // Clear errors on change
+    
+    // Check for duplicate deals when buyer name changes
+    if (n === 'buyer_first_name' || n === 'buyer_last_name' || n === 'buyer_phone') {
+      checkForDuplicates(n === 'buyer_first_name' ? v : form.buyer_first_name, 
+                         n === 'buyer_last_name' ? v : form.buyer_last_name,
+                         n === 'buyer_phone' ? v : form.buyer_phone);
+    }
+  }, [form, deals]);
+  
+  // Check for duplicate deals
+  const checkForDuplicates = (firstName, lastName, phone) => {
+    if (!firstName && !lastName && !phone) {
+      setShowDuplicateWarning(null);
+      return;
+    }
+    
+    const matches = deals.filter(d => {
+      const nameMatch = firstName && lastName && 
+        d.buyer_first_name?.toLowerCase() === firstName.toLowerCase() &&
+        d.buyer_last_name?.toLowerCase() === lastName.toLowerCase();
+      const phoneMatch = phone && d.buyer_phone === phone.replace(/\D/g, '');
+      return nameMatch || phoneMatch;
+    });
+    
+    if (matches.length > 0) {
+      setShowDuplicateWarning({
+        count: matches.length,
+        deals: matches.slice(0, 3)
+      });
+    } else {
+      setShowDuplicateWarning(null);
+    }
+  };
+  
+  // Clear draft
+  const clearDraft = () => {
+    localStorage.removeItem('document_center_draft');
+    setForm({ ...INITIAL_FORM });
+    setSelDocs([]);
+    setStep(1);
+    setLastSaved(null);
+  };
 
   const loadDeal = useCallback(d => {
     const m = { ...INITIAL_FORM };
@@ -1158,13 +1331,36 @@ export default function DocumentCenter() {
     <div className="max-w-5xl mx-auto px-4 py-6">
       {/* Header */}
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-3">
-          <div className="w-12 h-12 bg-blue-600 rounded-xl flex items-center justify-center">
-            <FileText size={28} className="text-white" />
+        <div className="flex items-start justify-between">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-3">
+              <div className="w-12 h-12 bg-blue-600 rounded-xl flex items-center justify-center">
+                <FileText size={28} className="text-white" />
+              </div>
+              Document Center
+            </h1>
+            <p className="text-gray-500 mt-2 text-lg">Generate sales contracts, closing packets, and more</p>
           </div>
-          Document Center
-        </h1>
-        <p className="text-gray-500 mt-2 text-lg">Generate sales contracts, closing packets, and more</p>
+          
+          {/* Auto-save indicator and clear draft */}
+          <div className="flex items-center gap-3">
+            {lastSaved && (
+              <span className="text-sm text-gray-400">
+                Auto-saved {lastSaved.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              </span>
+            )}
+            {step < 4 && (
+              <button
+                onClick={clearDraft}
+                className="text-sm text-gray-400 hover:text-red-600 transition-colors flex items-center gap-1"
+                title="Clear all fields and start over"
+              >
+                <RotateCcw size={14} />
+                Reset
+              </button>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Step Bar */}
@@ -1178,7 +1374,21 @@ export default function DocumentCenter() {
           deals={deals}
           dealsLoading={dealsLoading}
           onLoadDeal={loadDeal}
-          onNext={() => setStep(2)}
+          onNext={() => {
+            const errors = validateForm(form, 1);
+            if (errors.length > 0) {
+              setValidationErrors(errors);
+            } else {
+              setValidationErrors([]);
+              setStep(2);
+            }
+          }}
+          validationErrors={validationErrors}
+          duplicateWarning={showDuplicateWarning}
+          onViewDuplicate={(deal) => {
+            loadDeal(deal);
+            setShowDuplicateWarning(null);
+          }}
         />
       )}
 
@@ -1188,8 +1398,17 @@ export default function DocumentCenter() {
           onChange={chg}
           inventory={inventory}
           inventoryLoading={inventoryLoading}
-          onNext={() => setStep(3)}
+          onNext={() => {
+            const errors = validateForm(form, 2);
+            if (errors.length > 0) {
+              setValidationErrors(errors);
+            } else {
+              setValidationErrors([]);
+              setStep(3);
+            }
+          }}
           onBack={() => setStep(1)}
+          validationErrors={validationErrors}
         />
       )}
 
