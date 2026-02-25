@@ -358,7 +358,7 @@ class InventoryPictureAuditor:
         
         gaps = report["gaps"]
         if gaps["missing_from_database"]:
-            print(f"\n  Missing from database ({len(gaps['missing_from_db'])}):")
+            print(f"\n  Missing from database ({len(gaps['missing_from_database'])}):")
             for name in gaps["missing_from_database"][:10]:
                 print(f"    - {name}")
             if len(gaps["missing_from_database"]) > 10:
@@ -414,20 +414,17 @@ def generate_markdown_report(report: Dict) -> str:
         md += f"- [ ] {action}\n"
     
     if gaps["missing_from_database"]:
-        md += f"\n## Homes Missing from Database ({len(gaps['missing_from_database'])})
-\n"
+        md += f"\n## Homes Missing from Database ({len(gaps['missing_from_database'])}\n\n"
         for name in gaps["missing_from_database"]:
             md += f"- {name}\n"
     
     if gaps["missing_from_asset_catalog"]:
-        md += f"\n## Homes Missing from Asset Catalog ({len(gaps['missing_from_asset_catalog'])})
-\n"
+        md += f"\n## Homes Missing from Asset Catalog ({len(gaps['missing_from_asset_catalog'])}\n\n"
         for name in gaps["missing_from_asset_catalog"]:
             md += f"- {name}\n"
     
     if gaps["need_more_photos"]:
-        md += f"\n## Homes Needing More Photos ({len(gaps['need_more_photos'])})
-\n"
+        md += f"\n## Homes Needing More Photos ({len(gaps['need_more_photos'])}\n\n"
         for name in gaps["need_more_photos"]:
             # Find the result to get photo count
             for r in report["detailed_results"]:
