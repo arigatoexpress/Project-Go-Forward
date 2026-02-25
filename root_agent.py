@@ -67,23 +67,26 @@ def _build_generate_content_config() -> types.GenerateContentConfig:
 
 
 def _build_planner():
-    """Build BuiltInPlanner with ThinkingConfig if enabled in config.yaml."""
-    thinking_cfg = get_thinking_config()
-    if not thinking_cfg.get("enabled", False):
-        return None
-
-    planner = BuiltInPlanner(
-        thinking_config=types.ThinkingConfig(
-            include_thoughts=thinking_cfg.get("include_thoughts", True),
-            thinking_budget=thinking_cfg.get("thinking_budget", 1024),
-        )
-    )
-    logger.info(
-        "BuiltInPlanner enabled: include_thoughts=%s, budget=%d",
-        thinking_cfg.get("include_thoughts", True),
-        thinking_cfg.get("thinking_budget", 1024),
-    )
-    return planner
+    """Build BuiltInPlanner with ThinkingConfig if enabled in config.yaml.
+    
+    NOTE: Disabled for production - the thinking output was being shown to users.
+    Re-enable only after fixing the config to include_thoughts=False
+    """
+    return None  # DISABLED - was causing internal monologue in user-facing output
+    
+    # Original code (disabled):
+    # thinking_cfg = get_thinking_config()
+    # if not thinking_cfg.get("enabled", False):
+    #     return None
+    # 
+    # planner = BuiltInPlanner(
+    #     thinking_config=types.ThinkingConfig(
+    #         include_thoughts=thinking_cfg.get("include_thoughts", True),
+    #         thinking_budget=thinking_cfg.get("thinking_budget", 1024),
+    #     )
+    # )
+    # logger.info(...)
+    # return planner
 
 
 def _create_sales_agent() -> LlmAgent:
