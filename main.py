@@ -70,6 +70,7 @@ def _get_runner():
 
 from structured_logging import logger as struct_logger
 from conversation_memory import ConversationMemory
+from chat_history import ChatHistory
 from tools.pii_guard import redact_pii_from_text, validate_no_pii_in_text
 from lead_management import LeadManager, Lead
 from appointment_manager import AppointmentManager, Appointment
@@ -93,6 +94,7 @@ app = FastAPI(title=f"{business_name()} AI Agent")
 deploy_cfg = get_deployment_config()
 project_id = os.environ.get("GOOGLE_CLOUD_PROJECT", deploy_cfg.get("project_id", "tho-ai-agent"))
 conversation_memory = ConversationMemory(project_id=project_id)
+chat_history = ChatHistory(project_id=project_id)
 lead_manager = LeadManager(project_id=project_id)
 appointment_manager = AppointmentManager(project_id=project_id)
 
@@ -334,6 +336,14 @@ async def run_agent(request: Request):
         if not final_text:
             struct_logger.warning("No text generated", request_id=request_id, event_count=event_count)
             final_text = "I apologize, but I couldn't generate a response. Please try again."
+
+        # Save to chat history (full conversation persistence)
+        try:
+            await chat_history.add_message(session_id, user_id, "user", text_content)
+            await chat_history.add_message(session_id, user_id, "model", final_text)
+            struct_logger.info("Chat history saved", request_id=request_id, message_count=2)
+        except Exception as e:
+            struct_logger.warning("Chat history save failed", request_id=request_id, error=str(e))
 
         # Update conversation context
         try:
@@ -1691,6 +1701,83 @@ async def get_email_log_api(limit: int = 50, email_type: str = None):
     except Exception as e:
         struct_logger.error("Email log fetch failed", error=str(e))
         return {"success": False, "error": "Failed to load email log. Please try again."}
+
+
+# ─── Chat History API ────────────────────────────────────
+
+@app.get("/api/chat/history/{session_id}", dependencies=[Depends(require_admin)])
+async def get_chat_history(session_id: str):
+    """Get full chat history for a session (admin only)."""
+    try:
+        session = await chat_history.get_session(session_id)
+        if session:
+            return {
+                "success": True,
+                "session": {
+                    "session_id": session.session_id,
+                    "user_id": session.user_id,
+                    "status": session.status,
+                    "created_at": session.created_at,
+                    "updated_at": session.updated_at,
+                    "message_count": len(session.messages),
+                    "messages": [
+                        {
+                            "role": m.role,
+                            "text": m.text[:200] + "..." if len(m.text) > 200 else m.text,
+                            "timestamp": m.timestamp
+                        }
+                        for m in session.messages[-50:]  # Last 50 messages
+                    ]
+                }
+            }
+        return {"success": False, "error": "Session not found"}
+    except Exception as e:
+        struct_logger.error("Chat history fetch failed", error=str(e), session_id=session_id)
+        return {"success": False, "error": "Failed to load chat history"}
+
+
+@app.get("/api/chat/sessions", dependencies=[Depends(require_admin)])
+async def get_chat_sessions(hours: int = 24, limit: int = 50):
+    """Get recent chat sessions (admin only)."""
+    try:
+        sessions = await chat_history.get_recent_sessions(hours=hours, limit=limit)
+        return {
+            "success": True,
+            "sessions": [
+                {
+                    "session_id": s.session_id,
+                    "user_id": s.user_id,
+                    "status": s.status,
+                    "created_at": s.created_at,
+                    "updated_at": s.updated_at,
+                    "message_count": len(s.messages),
+                    "summary": s.get_summary(),
+                    "lead_id": s.lead_id
+                }
+                for s in sessions
+            ],
+            "count": len(sessions)
+        }
+    except Exception as e:
+        struct_logger.error("Chat sessions fetch failed", error=str(e))
+        return {"success": False, "error": "Failed to load chat sessions"}
+
+
+@app.post("/api/chat/search", dependencies=[Depends(require_admin)])
+async def search_chat_conversations(request: Request):
+    """Search through chat conversations (admin only)."""
+    try:
+        data = await request.json()
+        query = data.get("query", "")
+        
+        if not query:
+            return {"success": False, "error": "Query required"}
+        
+        results = await chat_history.search_conversations(query=query)
+        return {"success": True, "results": results, "count": len(results)}
+    except Exception as e:
+        struct_logger.error("Chat search failed", error=str(e))
+        return {"success": False, "error": "Search failed"}
 
 
 @app.post("/api/admin/verify")
