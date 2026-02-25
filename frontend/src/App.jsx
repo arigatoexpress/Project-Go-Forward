@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, lazy, Suspense, useCallback } from 'react';
-import { Send, Home, Menu, X, Phone, MapPin, Loader2, User, Bot, FileText, Video, Lock, ShieldCheck, CalendarDays, Users, MessageSquare, RotateCcw, WifiOff } from 'lucide-react';
+import { Send, Home, Menu, X, Phone, MapPin, Loader2, User, Bot, FileText, Video, Lock, ShieldCheck, CalendarDays, Users, MessageSquare, MessageCircle, RotateCcw, WifiOff } from 'lucide-react';
 import SafeMarkdown from './components/SafeMarkdown';
 import SearchFilters from './components/SearchFilters';
 import QuickActions from './components/QuickActions';
@@ -22,6 +22,7 @@ const AdStudio = lazy(() => import('./pages/AdStudio'));
 const Contact = lazy(() => import('./pages/Contact'));
 const Appointments = lazy(() => import('./pages/Appointments'));
 const CRM = lazy(() => import('./pages/CRM'));
+const ChatHistory = lazy(() => import('./pages/ChatHistory'));
 
 // Page loading fallback with skeleton
 const PageLoader = () => (
@@ -42,8 +43,9 @@ function NavBar({ activePage, navigateTo, adminAuthed, onAdminAccess, isMobileMe
 
   const adminItems = adminAuthed ? [
     { key: 'documents', label: 'Documents', icon: FileText },
-    { key: 'adstudio', label: 'Ad Studio', icon: Video },
     { key: 'crm', label: 'CRM', icon: Users },
+    { key: 'chat-history', label: 'Chat History', icon: MessageCircle },
+    { key: 'adstudio', label: 'Ad Studio', icon: Video },
   ] : [];
 
   const allItems = [...navItems, ...adminItems];
@@ -568,6 +570,17 @@ function App() {
         <NavBar {...navProps} />
         <Suspense fallback={<PageLoader />}>
           <CRM onBack={() => navigateTo('inventory')} />
+        </Suspense>
+      </div>
+    );
+  }
+
+  if (activePage === 'chat-history' && adminAuthed) {
+    return (
+      <div className="bg-gray-50 min-h-screen">
+        <NavBar {...navProps} />
+        <Suspense fallback={<PageLoader />}>
+          <ChatHistory />
         </Suspense>
       </div>
     );
