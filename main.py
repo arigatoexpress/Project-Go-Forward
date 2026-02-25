@@ -639,11 +639,55 @@ async def download_document(filename: str):
     return JSONResponse({"error": "File not found"}, status_code=404)
 
 
-# ─── Deals API (replaces fastcontractdocs.com) ───
+# ─── Inventory API ───
 from database.firestore_client import get_database
 from database.models import Deal, DealStatus
 
-_deal_db = get_database()
+_db = get_database()
+
+
+@app.get("/api/inventory", dependencies=[Depends(require_admin)])
+async def list_inventory(
+    status: str = "AVAILABLE",
+    limit: int = 100,
+    is_new: bool = None
+):
+    """List inventory for document generation."""
+    try:
+        inventory = _db.search_inventory(status=status, limit=limit)
+
+        # Transform for frontend
+        results = []
+        for item in inventory:
+            # Filter by is_new if specified
+            if is_new is not None and item.get("is_new") != is_new:
+                continue
+
+            results.append({
+                "id": item.get("id"),
+                "model_name": item.get("model_name") or item.get("model"),
+                "manufacturer": item.get("manufacturer"),
+                "year": item.get("year"),
+                "is_new": item.get("is_new", True),
+                "serial_number": item.get("serial_number"),
+                "label_number": item.get("label_number"),
+                "sections": item.get("sections") or item.get("no_of_sections"),
+                "beds": item.get("bedrooms"),
+                "baths": item.get("bathrooms"),
+                "sqft": item.get("sqft"),
+                "sale_price": item.get("sale_price") or item.get("msrp"),
+                "image_url": item.get("image_url") or item.get("hero_image"),
+                "status": item.get("status", "AVAILABLE"),
+            })
+
+        return {"success": True, "inventory": results, "count": len(results)}
+    except Exception as e:
+        struct_logger.error("Inventory listing failed", error=str(e))
+        return {"success": False, "error": "Failed to load inventory. Please try again."}
+
+
+# ─── Deals API (replaces fastcontractdocs.com) ───
+_deal_db = _db
 
 
 @app.get("/api/deals", dependencies=[Depends(require_admin)])
