@@ -6,7 +6,7 @@ import {
   ArrowRight, ArrowLeft, RotateCcw, Check, FileCheck,
   Building2, Phone, Mail, Calendar, Hash, MapPinned,
   CreditCard, BadgeDollarSign, ClipboardList, FolderOpen,
-  Info, Eye, HelpCircle
+  Info, Eye, HelpCircle, Calculator
 } from 'lucide-react';
 import adminFetch from '../adminFetch';
 
@@ -284,7 +284,7 @@ function ValidationErrors({ errors }) {
 
 /* ─── Step 1: Customer Info ──────────────────────────────── */
 
-function Step1({ data, onChange, deals, dealsLoading, onLoadDeal, onNext, validationErrors, duplicateWarning, onViewDuplicate }) {
+function Step1({ data, onChange, deals, dealsLoading, onLoadDeal, onNext, validationErrors, duplicateWarning, onViewDuplicate, onOpenTradeInCalculator }) {
   const [q, setQ] = useState('');
   const [showPicker, setShowPicker] = useState(false);
 
@@ -691,6 +691,37 @@ function Step2({ data, onChange, inventory, inventoryLoading, onNext, onBack, va
             ✓ Pre-Owned
           </button>
         </div>
+
+        {/* Trade-In Calculator - Only for Pre-Owned */}
+        {!data.is_new && (
+          <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-xl">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-amber-100 rounded-lg flex items-center justify-center">
+                  <Calculator size={20} className="text-amber-600" />
+                </div>
+                <div>
+                  <h4 className="font-semibold text-amber-800">Trade-In Calculator</h4>
+                  <p className="text-sm text-amber-600">Evaluate trade-in value for pre-owned homes</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={onOpenTradeInCalculator}
+                className="px-4 py-2 bg-amber-600 text-white rounded-lg font-semibold hover:bg-amber-700 flex items-center gap-2"
+              >
+                <BadgeDollarSign size={18} />
+                Open Calculator
+              </button>
+            </div>
+            {data.trade_in_value > 0 && (
+              <div className="mt-3 pt-3 border-t border-amber-200 flex items-center justify-between">
+                <span className="text-amber-700">Trade-In Value Applied:</span>
+                <span className="text-xl font-bold text-amber-800">${parseInt(data.trade_in_value).toLocaleString()}</span>
+              </div>
+            )}
+          </div>
+        )}
 
         <Row>
           <Field label="Manufacturer" name="manufacturer" value={data.manufacturer} onChange={c} half required icon={Building2} />
@@ -1126,6 +1157,253 @@ function Step4({ results, generating, error, onBack, onReset }) {
   );
 }
 
+/* ─── Trade-In Calculator (Pre-Owned Workflow) ───────────── */
+
+function TradeInCalculator({ onClose, onApply, initialValue = 0 }) {
+  const [calculator, setCalculator] = useState({
+    year: 2020,
+    make: '',
+    model: '',
+    condition: 'good',
+    mileage: 50000,
+    baseValue: 15000,
+    adjustments: {
+      exterior: 0,
+      interior: 0,
+      mechanical: 0,
+      tires: 0,
+      appliances: 0
+    },
+    notes: ''
+  });
+
+  const conditions = [
+    { id: 'excellent', label: 'Excellent', multiplier: 1.1, desc: 'Like new, no repairs needed' },
+    { id: 'good', label: 'Good', multiplier: 1.0, desc: 'Minor wear, minor repairs needed' },
+    { id: 'fair', label: 'Fair', multiplier: 0.85, desc: 'Visible wear, some repairs needed' },
+    { id: 'poor', label: 'Poor', multiplier: 0.7, desc: 'Significant issues, major repairs' }
+  ];
+
+  const adjustmentItems = [
+    { key: 'exterior', label: 'Exterior Condition', options: [
+      { value: 0, label: 'Good - No deduction' },
+      { value: -500, label: 'Minor damage - $500' },
+      { value: -1000, label: 'Major damage - $1,000' },
+      { value: -2000, label: 'Needs replacement - $2,000' }
+    ]},
+    { key: 'interior', label: 'Interior Condition', options: [
+      { value: 0, label: 'Good - No deduction' },
+      { value: -300, label: 'Minor wear - $300' },
+      { value: -800, label: 'Major wear - $800' },
+      { value: -1500, label: 'Needs renovation - $1,500' }
+    ]},
+    { key: 'mechanical', label: 'Mechanical Systems', options: [
+      { value: 0, label: 'All working - No deduction' },
+      { value: -500, label: 'Minor issues - $500' },
+      { value: -1500, label: 'Major issues - $1,500' },
+      { value: -3000, label: 'Non-functional - $3,000' }
+    ]},
+    { key: 'tires', label: 'Tires & Wheels', options: [
+      { value: 0, label: 'Good condition - No deduction' },
+      { value: -400, label: 'Need replacement - $400' }
+    ]},
+    { key: 'appliances', label: 'Appliances', options: [
+      { value: 0, label: 'All working - No deduction' },
+      { value: -200, label: '1 needs repair - $200' },
+      { value: -500, label: 'Multiple issues - $500' },
+      { value: -1000, label: 'Need replacement - $1,000' }
+    ]}
+  ];
+
+  const calculateValue = () => {
+    const conditionMultiplier = conditions.find(c => c.id === calculator.condition)?.multiplier || 1;
+    const baseAdjusted = calculator.baseValue * conditionMultiplier;
+    const totalAdjustments = Object.values(calculator.adjustments).reduce((a, b) => a + b, 0);
+    return Math.max(0, Math.round(baseAdjusted + totalAdjustments));
+  };
+
+  const tradeInValue = calculateValue();
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+        {/* Header */}
+        <div className="sticky top-0 bg-white border-b px-6 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-amber-100 rounded-xl flex items-center justify-center">
+              <BadgeDollarSign size={24} className="text-amber-600" />
+            </div>
+            <div>
+              <h2 className="text-xl font-bold text-gray-800">Trade-In Calculator</h2>
+              <p className="text-sm text-gray-500">Evaluate pre-owned home trade-in value</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg">
+            <X size={24} className="text-gray-400" />
+          </button>
+        </div>
+
+        <div className="p-6 grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Left Column - Home Details */}
+          <div className="space-y-6">
+            <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+              <h3 className="font-semibold text-blue-800 mb-3 flex items-center gap-2">
+                <Home size={18} />
+                Home Details
+              </h3>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-sm font-medium text-gray-600">Year</label>
+                  <input
+                    type="number"
+                    value={calculator.year}
+                    onChange={e => setCalculator(c => ({ ...c, year: parseInt(e.target.value) }))}
+                    className="w-full mt-1 px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-600">Base Value ($)</label>
+                  <input
+                    type="number"
+                    value={calculator.baseValue}
+                    onChange={e => setCalculator(c => ({ ...c, baseValue: parseInt(e.target.value) }))}
+                    className="w-full mt-1 px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+              <div className="mt-3">
+                <label className="text-sm font-medium text-gray-600">Manufacturer</label>
+                <input
+                  type="text"
+                  value={calculator.make}
+                  onChange={e => setCalculator(c => ({ ...c, make: e.target.value }))}
+                  placeholder="e.g., Clayton, Fleetwood"
+                  className="w-full mt-1 px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div className="mt-3">
+                <label className="text-sm font-medium text-gray-600">Model</label>
+                <input
+                  type="text"
+                  value={calculator.model}
+                  onChange={e => setCalculator(c => ({ ...c, model: e.target.value }))}
+                  placeholder="e.g., The Big Steve"
+                  className="w-full mt-1 px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            </div>
+
+            <div>
+              <h3 className="font-semibold text-gray-800 mb-3">Overall Condition</h3>
+              <div className="space-y-2">
+                {conditions.map(cond => (
+                  <label
+                    key={cond.id}
+                    className={`flex items-center gap-3 p-3 rounded-xl border-2 cursor-pointer transition-all ${
+                      calculator.condition === cond.id
+                        ? 'border-blue-500 bg-blue-50'
+                        : 'border-gray-200 hover:border-gray-300'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="condition"
+                      value={cond.id}
+                      checked={calculator.condition === cond.id}
+                      onChange={e => setCalculator(c => ({ ...c, condition: e.target.value }))}
+                      className="w-4 h-4 text-blue-600"
+                    />
+                    <div className="flex-1">
+                      <div className="font-medium text-gray-800">{cond.label}</div>
+                      <div className="text-sm text-gray-500">{cond.desc}</div>
+                    </div>
+                    <div className="text-sm font-semibold text-blue-600">
+                      {cond.multiplier >= 1 ? '+' : ''}{Math.round((cond.multiplier - 1) * 100)}%
+                    </div>
+                  </label>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Right Column - Adjustments */}
+          <div className="space-y-6">
+            <div>
+              <h3 className="font-semibold text-gray-800 mb-3">Condition Adjustments</h3>
+              <div className="space-y-3">
+                {adjustmentItems.map(item => (
+                  <div key={item.key} className="bg-gray-50 rounded-xl p-3">
+                    <label className="text-sm font-medium text-gray-700 mb-2 block">
+                      {item.label}
+                    </label>
+                    <select
+                      value={calculator.adjustments[item.key]}
+                      onChange={e => setCalculator(c => ({
+                        ...c,
+                        adjustments: { ...c.adjustments, [item.key]: parseInt(e.target.value) }
+                      }))}
+                      className="w-full px-3 py-2 border rounded-lg text-sm"
+                    >
+                      {item.options.map(opt => (
+                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <label className="text-sm font-medium text-gray-700 mb-2 block">Notes</label>
+              <textarea
+                value={calculator.notes}
+                onChange={e => setCalculator(c => ({ ...c, notes: e.target.value }))}
+                placeholder="Additional notes about condition, special features, etc."
+                rows={4}
+                className="w-full px-3 py-2 border rounded-lg resize-none"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Footer with Value */}
+        <div className="sticky bottom-0 bg-gray-50 border-t px-6 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div className="text-sm text-gray-500">
+                <div>Base: ${calculator.baseValue.toLocaleString()}</div>
+                <div>Condition: {conditions.find(c => c.id === calculator.condition)?.label}</div>
+                <div>Adjustments: ${Object.values(calculator.adjustments).reduce((a,b) => a+b, 0).toLocaleString()}</div>
+              </div>
+            </div>
+            <div className="flex items-center gap-6">
+              <div className="text-right">
+                <div className="text-sm text-gray-500">Trade-In Value</div>
+                <div className="text-3xl font-bold text-green-600">${tradeInValue.toLocaleString()}</div>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={onClose}
+                  className="px-6 py-3 border-2 border-gray-300 rounded-xl font-semibold text-gray-600 hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => onApply({ value: tradeInValue, details: calculator })}
+                  className="px-6 py-3 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700 flex items-center gap-2"
+                >
+                  <Check size={20} />
+                  Apply to Deal
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ─── Form Validation ────────────────────────────────────── */
 
 function validateForm(form, step) {
@@ -1166,6 +1444,7 @@ export default function DocumentCenter() {
   const [validationErrors, setValidationErrors] = useState([]);
   const [lastSaved, setLastSaved] = useState(null);
   const [showDuplicateWarning, setShowDuplicateWarning] = useState(null);
+  const [showTradeInCalculator, setShowTradeInCalculator] = useState(false);
 
   // Load initial data
   useEffect(() => {
@@ -1389,6 +1668,7 @@ export default function DocumentCenter() {
             loadDeal(deal);
             setShowDuplicateWarning(null);
           }}
+          onOpenTradeInCalculator={() => setShowTradeInCalculator(true)}
         />
       )}
 
@@ -1432,6 +1712,24 @@ export default function DocumentCenter() {
           error={genErr}
           onBack={() => setStep(3)}
           onReset={reset}
+        />
+      )}
+
+      {/* Trade-In Calculator Modal */}
+      {showTradeInCalculator && (
+        <TradeInCalculator
+          onClose={() => setShowTradeInCalculator(false)}
+          onApply={({ value, details }) => {
+            setForm(p => ({
+              ...p,
+              trade_in_value: value,
+              trade_in_details: details,
+              // Also update down payment if trade-in is applied
+              down_payment: (parseInt(p.down_payment) || 0) + value
+            }));
+            setShowTradeInCalculator(false);
+          }}
+          initialValue={form.trade_in_value || 0}
         />
       )}
     </div>
