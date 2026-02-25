@@ -86,6 +86,10 @@ class THODatabase:
         doc = self.db.collection("inventory").document(inventory_id).get()
         return doc.to_dict() if doc.exists else None
     
+    def get_inventory_by_id(self, inventory_id: str) -> Optional[Dict]:
+        """Alias for get_inventory"""
+        return self.get_inventory(inventory_id)
+    
     def get_inventory_by_serial(self, serial_number: str) -> Optional[Dict]:
         """Get inventory by serial number"""
         docs = self.db.collection("inventory").where(

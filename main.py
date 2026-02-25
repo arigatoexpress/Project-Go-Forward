@@ -22,6 +22,7 @@ from fastapi.responses import FileResponse
 import logging
 import time
 import uuid
+from datetime import datetime
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from config_loader import get_deployment_config, business_name
@@ -872,6 +873,95 @@ async def list_inventory(
     except Exception as e:
         struct_logger.error("Inventory listing failed", error=str(e))
         return {"success": False, "error": "Failed to load inventory. Please try again."}
+
+
+@app.post("/api/inventory/bulk-import", dependencies=[Depends(require_admin)])
+async def bulk_import_inventory(request: Request):
+    """
+    Bulk import inventory items to Firestore.
+    Used by inventory_sync.py to import scraped website inventory.
+    """
+    try:
+        data = await request.json()
+        items = data.get("items", [])
+        
+        if not items:
+            return {"success": False, "error": "No items provided"}
+        
+        imported = 0
+        updated = 0
+        errors = []
+        
+        for item in items:
+            try:
+                inventory_id = item.get("id")
+                if not inventory_id:
+                    errors.append(f"Skipping item without ID: {item.get('model_name', 'unknown')}")
+                    continue
+                
+                # Check if exists
+                existing = _db.get_inventory_by_id(inventory_id)
+                
+                # Prepare data for Firestore
+                firestore_data = {
+                    "model_name": item.get("model_name"),
+                    "manufacturer": item.get("manufacturer"),
+                    "manufacturer_id": item.get("manufacturer_id"),
+                    "plan_id": item.get("plan_id"),
+                    "year": item.get("year", 2026),
+                    "is_new": item.get("is_new", True),
+                    "bedrooms": item.get("bedrooms", 0),
+                    "bathrooms": item.get("bathrooms", 0),
+                    "sqft": item.get("sqft", 0),
+                    "msrp": item.get("msrp", 0),
+                    "sale_price": item.get("sale_price", item.get("msrp", 0)),
+                    "status": item.get("status", "AVAILABLE"),
+                    "serial_number": item.get("serial_number"),
+                    "sections": item.get("sections"),
+                    "condition": item.get("condition", "New" if item.get("is_new") else "Used"),
+                    "image_url": item.get("image_url") or item.get("hero_image"),
+                    "hero_image": item.get("hero_image"),
+                    "photos": item.get("photos", []),
+                    "floorplan_url": item.get("floorplan_url"),
+                    "description": item.get("description"),
+                    "features": item.get("features", []),
+                    "location": item.get("location", "San Antonio, TX"),
+                    "date_added": item.get("date_added") or datetime.now().isoformat(),
+                    "source_url": item.get("source_url"),
+                    "last_synced": datetime.now().isoformat(),
+                }
+                
+                # Save to Firestore
+                doc_ref = _db.db.collection("inventory").document(inventory_id)
+                
+                if existing:
+                    doc_ref.update(firestore_data)
+                    updated += 1
+                else:
+                    doc_ref.set(firestore_data)
+                    imported += 1
+                    
+            except Exception as e:
+                struct_logger.error(f"Failed to import item {item.get('id')}", error=str(e))
+                errors.append(f"{item.get('model_name', item.get('id'))}: {str(e)}")
+        
+        struct_logger.info(
+            "Bulk inventory import completed",
+            imported=imported,
+            updated=updated,
+            errors=len(errors)
+        )
+        
+        return {
+            "success": True,
+            "imported": imported,
+            "updated": updated,
+            "errors": errors if errors else None
+        }
+        
+    except Exception as e:
+        struct_logger.error("Bulk import failed", error=str(e))
+        return {"success": False, "error": str(e)}
 
 
 # ─── Deals API (replaces fastcontractdocs.com) ───
