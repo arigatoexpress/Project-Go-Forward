@@ -1,42 +1,88 @@
 import React, { useState, useEffect } from 'react';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, PieChart, Pie, Cell } from 'recharts';
-import { Users, Search, MessageSquare, TrendingUp, ArrowUp, Phone, Calendar, DollarSign, Loader2, RefreshCw, AlertCircle } from 'lucide-react';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, PieChart, Pie, Cell, LineChart, Line, AreaChart, Area } from 'recharts';
+import { Users, Search, MessageSquare, TrendingUp, ArrowUp, ArrowDown, Phone, Calendar, DollarSign, Loader2, RefreshCw, AlertCircle, FileText, Home, Clock, Target, Zap } from 'lucide-react';
 import adminFetch from '../adminFetch';
 
-const PIE_COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6'];
+const PIE_COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899'];
+const AREA_COLORS = ['#3B82F6', '#10B981', '#F59E0B'];
 
-const MetricCard = ({ title, value, icon: Icon, trend, accent }) => (
-    <div className={`bg-white p-6 rounded-xl shadow-sm border ${accent ? 'border-blue-200 bg-blue-50' : 'border-gray-100'} flex items-start justify-between`}>
+const MetricCard = ({ title, value, icon: Icon, trend, trendUp, accent, subtitle }) => (
+    <div className={`bg-white p-6 rounded-xl shadow-sm border ${accent ? 'border-blue-200 bg-gradient-to-br from-blue-50 to-white' : 'border-gray-100'} flex items-start justify-between hover:shadow-md transition-shadow`}>
         <div>
             <p className="text-sm font-medium text-gray-500 mb-1">{title}</p>
             <h3 className="text-2xl font-bold text-gray-900">{value}</h3>
             {trend && (
-                <div className="flex items-center mt-2 text-sm text-green-600">
-                    <ArrowUp size={14} className="mr-1" />
+                <div className={`flex items-center mt-2 text-sm ${trendUp ? 'text-green-600' : 'text-red-600'}`}>
+                    {trendUp ? <ArrowUp size={14} className="mr-1" /> : <ArrowDown size={14} className="mr-1" />}
                     <span>{trend}</span>
                 </div>
             )}
+            {subtitle && <p className="text-xs text-gray-400 mt-1">{subtitle}</p>}
         </div>
-        <div className={`p-3 ${accent ? 'bg-blue-100' : 'bg-blue-50'} rounded-lg text-blue-600`}>
+        <div className={`p-3 ${accent ? 'bg-blue-100' : 'bg-gray-50'} rounded-lg ${accent ? 'text-blue-600' : 'text-gray-600'}`}>
             <Icon size={24} />
         </div>
     </div>
 );
 
+const TimeRangeSelector = ({ value, onChange }) => (
+    <div className="flex bg-gray-100 rounded-lg p-1">
+        {['7d', '30d', '90d', 'all'].map((range) => (
+            <button
+                key={range}
+                onClick={() => onChange(range)}
+                className={`px-3 py-1.5 rounded-md text-sm font-medium transition-all ${
+                    value === range 
+                        ? 'bg-white text-gray-900 shadow-sm' 
+                        : 'text-gray-500 hover:text-gray-700'
+                }`}
+            >
+                {range === '7d' ? '7 Days' : range === '30d' ? '30 Days' : range === '90d' ? '90 Days' : 'All Time'}
+            </button>
+        ))}
+    </div>
+);
+
 export default function Analytics() {
     const [leadStats, setLeadStats] = useState(null);
+    const [documentStats, setDocumentStats] = useState(null);
+    const [inventoryStats, setInventoryStats] = useState(null);
+    const [chatStats, setChatStats] = useState(null);
+    const [timeSeriesData, setTimeSeriesData] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
+    const [timeRange, setTimeRange] = useState('30d');
+    const [activeTab, setActiveTab] = useState('overview');
 
     const fetchData = async () => {
         setLoading(true);
         setError('');
         try {
-            const resp = await adminFetch('/leads/stats');
-            if (!resp.ok) throw new Error(`Server returned ${resp.status}`);
-            const data = await resp.json();
-            if (data.error) throw new Error(data.error);
-            setLeadStats(data);
+            // Fetch all stats in parallel
+            const [leadsResp, docsResp, invResp, chatResp] = await Promise.all([
+                adminFetch(`/api/analytics/leads?range=${timeRange}`).catch(() => null),
+                adminFetch(`/api/analytics/documents?range=${timeRange}`).catch(() => null),
+                adminFetch('/api/analytics/inventory').catch(() => null),
+                adminFetch(`/api/analytics/chat?range=${timeRange}`).catch(() => null),
+            ]);
+
+            if (leadsResp?.ok) {
+                const data = await leadsResp.json();
+                setLeadStats(data);
+                setTimeSeriesData(data.time_series || []);
+            }
+            if (docsResp?.ok) {
+                const data = await docsResp.json();
+                setDocumentStats(data);
+            }
+            if (invResp?.ok) {
+                const data = await invResp.json();
+                setInventoryStats(data);
+            }
+            if (chatResp?.ok) {
+                const data = await chatResp.json();
+                setChatStats(data);
+            }
         } catch (e) {
             console.error('Analytics fetch failed:', e);
             setError('Unable to load analytics data. Please try again.');
@@ -47,11 +93,24 @@ export default function Analytics() {
 
     useEffect(() => {
         fetchData();
-    }, []);
+    }, [timeRange]);
 
-    // Derive chart data from real stats
+    // Calculate metrics
+    const conversionRate = leadStats?.total > 0
+        ? ((leadStats.with_contact_info / leadStats.total) * 100).toFixed(1)
+        : '0.0';
+    
+    const appointmentRate = leadStats?.total > 0
+        ? ((leadStats.appointment_requested / leadStats.total) * 100).toFixed(1)
+        : '0.0';
+    
+    const financingRate = leadStats?.total > 0
+        ? ((leadStats.financing_discussed / leadStats.total) * 100).toFixed(1)
+        : '0.0';
+
+    // Chart data preparation
     const statusChartData = leadStats
-        ? Object.entries(leadStats.by_status).map(([status, count]) => ({
+        ? Object.entries(leadStats.by_status || {}).map(([status, count]) => ({
             name: status.charAt(0).toUpperCase() + status.slice(1),
             value: count
         }))
@@ -59,16 +118,20 @@ export default function Analytics() {
 
     const engagementData = leadStats
         ? [
-            { label: 'Contact Info Shared', count: leadStats.with_contact_info },
-            { label: 'Appointment Requested', count: leadStats.appointment_requested },
-            { label: 'Financing Discussed', count: leadStats.financing_discussed },
-            { label: 'No Engagement Yet', count: Math.max(0, leadStats.total - leadStats.with_contact_info - leadStats.appointment_requested) },
+            { label: 'Contact Info', count: leadStats.with_contact_info || 0, color: '#3B82F6' },
+            { label: 'Appointments', count: leadStats.appointment_requested || 0, color: '#10B981' },
+            { label: 'Financing', count: leadStats.financing_discussed || 0, color: '#F59E0B' },
         ].filter(d => d.count > 0)
         : [];
 
-    const conversionRate = leadStats && leadStats.total > 0
-        ? ((leadStats.with_contact_info / leadStats.total) * 100).toFixed(1)
-        : '0.0';
+    const documentTypeData = documentStats?.by_type
+        ? Object.entries(documentStats.by_type).map(([type, count]) => ({
+            name: type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
+            value: count
+        }))
+        : [];
+
+    const topHomesData = inventoryStats?.top_viewed?.slice(0, 5) || [];
 
     if (loading) {
         return (
@@ -103,158 +166,421 @@ export default function Analytics() {
             <div className="max-w-7xl mx-auto space-y-8">
 
                 {/* Header */}
-                <div className="flex justify-between items-center">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                     <div>
                         <h1 className="text-3xl font-bold text-gray-900">Analytics Dashboard</h1>
-                        <p className="text-sm text-gray-500 mt-1">Live data from Firestore leads</p>
+                        <p className="text-sm text-gray-500 mt-1">Real-time insights into your business</p>
                     </div>
-                    <button
-                        onClick={fetchData}
-                        className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition text-sm text-gray-600"
-                        aria-label="Refresh analytics data"
-                    >
-                        <RefreshCw size={16} />
-                        Refresh
-                    </button>
-                </div>
-
-                {/* Metrics Grid */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                    <MetricCard
-                        title="Total Leads"
-                        value={leadStats.total}
-                        icon={Users}
-                        accent
-                    />
-                    <MetricCard
-                        title="With Contact Info"
-                        value={leadStats.with_contact_info}
-                        icon={Phone}
-                    />
-                    <MetricCard
-                        title="Appointments Requested"
-                        value={leadStats.appointment_requested}
-                        icon={Calendar}
-                    />
-                    <MetricCard
-                        title="Financing Discussed"
-                        value={leadStats.financing_discussed}
-                        icon={DollarSign}
-                    />
-                </div>
-
-                {/* Conversion + Lead Quality */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                    <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 text-center">
-                        <p className="text-sm text-gray-500 mb-2">Lead Conversion Rate</p>
-                        <p className="text-4xl font-bold text-blue-600">{conversionRate}%</p>
-                        <p className="text-xs text-gray-400 mt-1">Leads that shared contact info</p>
-                    </div>
-                    <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 text-center">
-                        <p className="text-sm text-gray-500 mb-2">Appointment Intent Rate</p>
-                        <p className="text-4xl font-bold text-green-600">
-                            {leadStats.total > 0 ? ((leadStats.appointment_requested / leadStats.total) * 100).toFixed(1) : '0.0'}%
-                        </p>
-                        <p className="text-xs text-gray-400 mt-1">Leads requesting showroom visits</p>
-                    </div>
-                    <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 text-center">
-                        <p className="text-sm text-gray-500 mb-2">Financing Interest Rate</p>
-                        <p className="text-4xl font-bold text-amber-600">
-                            {leadStats.total > 0 ? ((leadStats.financing_discussed / leadStats.total) * 100).toFixed(1) : '0.0'}%
-                        </p>
-                        <p className="text-xs text-gray-400 mt-1">Leads asking about financing</p>
+                    <div className="flex items-center gap-3">
+                        <TimeRangeSelector value={timeRange} onChange={setTimeRange} />
+                        <button
+                            onClick={fetchData}
+                            className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition text-sm text-gray-600"
+                            aria-label="Refresh analytics data"
+                        >
+                            <RefreshCw size={16} />
+                            Refresh
+                        </button>
                     </div>
                 </div>
 
-                {/* Charts Area */}
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                {/* Tab Navigation */}
+                <div className="flex gap-2 border-b border-gray-200">
+                    {[
+                        { id: 'overview', label: 'Overview', icon: TrendingUp },
+                        { id: 'leads', label: 'Leads', icon: Users },
+                        { id: 'documents', label: 'Documents', icon: FileText },
+                        { id: 'inventory', label: 'Inventory', icon: Home },
+                    ].map(tab => (
+                        <button
+                            key={tab.id}
+                            onClick={() => setActiveTab(tab.id)}
+                            className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+                                activeTab === tab.id
+                                    ? 'border-blue-600 text-blue-600'
+                                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                            }`}
+                        >
+                            <tab.icon size={16} />
+                            {tab.label}
+                        </button>
+                    ))}
+                </div>
 
-                    {/* Engagement Breakdown */}
-                    <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-                        <h3 className="text-lg font-bold text-gray-900 mb-6">Lead Engagement Breakdown</h3>
-                        <div className="h-72 w-full">
-                            <ResponsiveContainer width="100%" height="100%">
-                                <BarChart data={engagementData} layout="vertical">
-                                    <CartesianGrid strokeDasharray="3 3" horizontal={false} />
-                                    <XAxis type="number" axisLine={false} tickLine={false} />
-                                    <YAxis type="category" dataKey="label" axisLine={false} tickLine={false} width={140} tick={{ fontSize: 12 }} />
-                                    <Tooltip
-                                        contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' }}
-                                    />
-                                    <Bar dataKey="count" fill="#3B82F6" radius={[0, 4, 4, 0]} />
-                                </BarChart>
-                            </ResponsiveContainer>
+                {/* OVERVIEW TAB */}
+                {activeTab === 'overview' && (
+                    <>
+                        {/* Key Metrics */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                            <MetricCard
+                                title="Total Leads"
+                                value={leadStats?.total || 0}
+                                icon={Users}
+                                trend={leadStats?.trend}
+                                trendUp={leadStats?.trend_up}
+                                accent
+                                subtitle={`${leadStats?.new_this_week || 0} new this week`}
+                            />
+                            <MetricCard
+                                title="Documents Generated"
+                                value={documentStats?.total_generated || 0}
+                                icon={FileText}
+                                subtitle={`${documentStats?.this_month || 0} this month`}
+                            />
+                            <MetricCard
+                                title="Chat Conversations"
+                                value={chatStats?.total_conversations || 0}
+                                icon={MessageSquare}
+                                subtitle={`${chatStats?.avg_per_day || 0} avg per day`}
+                            />
+                            <MetricCard
+                                title="Homes in Inventory"
+                                value={inventoryStats?.total || 0}
+                                icon={Home}
+                                subtitle={`${inventoryStats?.with_photos || 0} with photos`}
+                            />
                         </div>
-                    </div>
 
-                    {/* Status Distribution */}
-                    <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-                        <h3 className="text-lg font-bold text-gray-900 mb-6">Lead Status Distribution</h3>
-                        {statusChartData.length > 0 ? (
-                            <div className="h-72 w-full flex items-center justify-center">
-                                <ResponsiveContainer width="100%" height="100%">
-                                    <PieChart>
-                                        <Pie
-                                            data={statusChartData}
-                                            cx="50%"
-                                            cy="50%"
-                                            labelLine={false}
-                                            outerRadius={100}
-                                            dataKey="value"
-                                            label={({ name, value, percent }) => `${name}: ${value} (${(percent * 100).toFixed(0)}%)`}
-                                        >
-                                            {statusChartData.map((entry, index) => (
-                                                <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
-                                            ))}
-                                        </Pie>
-                                        <Tooltip />
-                                    </PieChart>
-                                </ResponsiveContainer>
+                        {/* Conversion Rates */}
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 text-center">
+                                <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                                    <Target className="text-blue-600" size={24} />
+                                </div>
+                                <p className="text-sm text-gray-500 mb-1">Lead Conversion Rate</p>
+                                <p className="text-4xl font-bold text-blue-600">{conversionRate}%</p>
+                                <p className="text-xs text-gray-400 mt-1">Share contact info</p>
                             </div>
-                        ) : (
-                            <div className="h-72 flex items-center justify-center text-gray-400">
-                                <p>No status data available</p>
+                            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 text-center">
+                                <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                                    <Calendar className="text-green-600" size={24} />
+                                </div>
+                                <p className="text-sm text-gray-500 mb-1">Appointment Rate</p>
+                                <p className="text-4xl font-bold text-green-600">{appointmentRate}%</p>
+                                <p className="text-xs text-gray-400 mt-1">Request showroom visits</p>
+                            </div>
+                            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 text-center">
+                                <div className="w-12 h-12 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                                    <DollarSign className="text-amber-600" size={24} />
+                                </div>
+                                <p className="text-sm text-gray-500 mb-1">Financing Interest</p>
+                                <p className="text-4xl font-bold text-amber-600">{financingRate}%</p>
+                                <p className="text-xs text-gray-400 mt-1">Ask about financing</p>
+                            </div>
+                        </div>
+
+                        {/* Time Series Chart */}
+                        {timeSeriesData.length > 0 && (
+                            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                                <h3 className="text-lg font-bold text-gray-900 mb-6">Lead Activity Over Time</h3>
+                                <div className="h-80 w-full">
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <AreaChart data={timeSeriesData}>
+                                            <defs>
+                                                <linearGradient id="colorLeads" x1="0" y1="0" x2="0" y2="1">
+                                                    <stop offset="5%" stopColor="#3B82F6" stopOpacity={0.3}/>
+                                                    <stop offset="95%" stopColor="#3B82F6" stopOpacity={0}/>
+                                                </linearGradient>
+                                            </defs>
+                                            <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
+                                            <XAxis 
+                                                dataKey="date" 
+                                                stroke="#9CA3AF"
+                                                fontSize={12}
+                                                tickFormatter={(value) => new Date(value).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                                            />
+                                            <YAxis stroke="#9CA3AF" fontSize={12} />
+                                            <Tooltip 
+                                                contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' }}
+                                                formatter={(value) => [value, 'Leads']}
+                                                labelFormatter={(label) => new Date(label).toLocaleDateString()}
+                                            />
+                                            <Area 
+                                                type="monotone" 
+                                                dataKey="count" 
+                                                stroke="#3B82F6" 
+                                                fillOpacity={1} 
+                                                fill="url(#colorLeads)" 
+                                                strokeWidth={2}
+                                            />
+                                        </AreaChart>
+                                    </ResponsiveContainer>
+                                </div>
                             </div>
                         )}
-                    </div>
-                </div>
+                    </>
+                )}
 
-                {/* Quick Stats Table */}
-                <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-                    <h3 className="text-lg font-bold text-gray-900 mb-4">Lead Pipeline Summary</h3>
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-sm">
-                            <thead>
-                                <tr className="text-left text-gray-500 border-b border-gray-100">
-                                    <th className="pb-3 font-medium">Status</th>
-                                    <th className="pb-3 font-medium text-right">Count</th>
-                                    <th className="pb-3 font-medium text-right">% of Total</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {Object.entries(leadStats.by_status).map(([status, count]) => (
-                                    <tr key={status} className="border-b border-gray-50 hover:bg-gray-50 transition">
-                                        <td className="py-3">
-                                            <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${
-                                                status === 'new' ? 'bg-blue-100 text-blue-700' :
-                                                status === 'contacted' ? 'bg-yellow-100 text-yellow-700' :
-                                                status === 'qualified' ? 'bg-green-100 text-green-700' :
-                                                status === 'converted' ? 'bg-purple-100 text-purple-700' :
-                                                'bg-gray-100 text-gray-700'
-                                            }`}>
-                                                {status.charAt(0).toUpperCase() + status.slice(1)}
+                {/* LEADS TAB */}
+                {activeTab === 'leads' && (
+                    <>
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                            {/* Status Distribution */}
+                            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                                <h3 className="text-lg font-bold text-gray-900 mb-6">Lead Status Distribution</h3>
+                                {statusChartData.length > 0 ? (
+                                    <div className="h-80 w-full">
+                                        <ResponsiveContainer width="100%" height="100%">
+                                            <PieChart>
+                                                <Pie
+                                                    data={statusChartData}
+                                                    cx="50%"
+                                                    cy="50%"
+                                                    labelLine={false}
+                                                    outerRadius={120}
+                                                    dataKey="value"
+                                                    label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
+                                                >
+                                                    {statusChartData.map((entry, index) => (
+                                                        <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
+                                                    ))}
+                                                </Pie>
+                                                <Tooltip />
+                                            </PieChart>
+                                        </ResponsiveContainer>
+                                    </div>
+                                ) : (
+                                    <div className="h-80 flex items-center justify-center text-gray-400">
+                                        <p>No status data available</p>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Engagement Breakdown */}
+                            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                                <h3 className="text-lg font-bold text-gray-900 mb-6">Lead Engagement</h3>
+                                <div className="h-80 w-full">
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <BarChart data={engagementData} layout="vertical">
+                                            <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#E5E7EB" />
+                                            <XAxis type="number" axisLine={false} tickLine={false} />
+                                            <YAxis 
+                                                type="category" 
+                                                dataKey="label" 
+                                                axisLine={false} 
+                                                tickLine={false} 
+                                                width={100} 
+                                                tick={{ fontSize: 12 }} 
+                                            />
+                                            <Tooltip 
+                                                contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' }}
+                                            />
+                                            <Bar dataKey="count" radius={[0, 4, 4, 0]}>
+                                                {engagementData.map((entry, index) => (
+                                                    <Cell key={`cell-${index}`} fill={entry.color} />
+                                                ))}
+                                            </Bar>
+                                        </BarChart>
+                                    </ResponsiveContainer>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Lead Pipeline Table */}
+                        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                            <h3 className="text-lg font-bold text-gray-900 mb-4">Lead Pipeline Summary</h3>
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-sm">
+                                    <thead>
+                                        <tr className="text-left text-gray-500 border-b border-gray-100">
+                                            <th className="pb-3 font-medium">Status</th>
+                                            <th className="pb-3 font-medium text-right">Count</th>
+                                            <th className="pb-3 font-medium text-right">% of Total</th>
+                                            <th className="pb-3 font-medium text-right">Trend</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {Object.entries(leadStats?.by_status || {}).map(([status, count]) => (
+                                            <tr key={status} className="border-b border-gray-50 hover:bg-gray-50 transition">
+                                                <td className="py-3">
+                                                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${
+                                                        status === 'new' ? 'bg-blue-100 text-blue-700' :
+                                                        status === 'contacted' ? 'bg-yellow-100 text-yellow-700' :
+                                                        status === 'qualified' ? 'bg-green-100 text-green-700' :
+                                                        status === 'converted' ? 'bg-purple-100 text-purple-700' :
+                                                        'bg-gray-100 text-gray-700'
+                                                    }`}>
+                                                        <div className={`w-1.5 h-1.5 rounded-full ${
+                                                            status === 'new' ? 'bg-blue-500' :
+                                                            status === 'contacted' ? 'bg-yellow-500' :
+                                                            status === 'qualified' ? 'bg-green-500' :
+                                                            status === 'converted' ? 'bg-purple-500' :
+                                                            'bg-gray-500'
+                                                        }`} />
+                                                        {status.charAt(0).toUpperCase() + status.slice(1)}
+                                                    </span>
+                                                </td>
+                                                <td className="py-3 text-right font-medium">{count}</td>
+                                                <td className="py-3 text-right text-gray-500">
+                                                    {leadStats?.total > 0 ? ((count / leadStats.total) * 100).toFixed(1) : '0.0'}%
+                                                </td>
+                                                <td className="py-3 text-right">
+                                                    {leadStats?.status_trends?.[status] > 0 ? (
+                                                        <span className="text-green-600 text-xs">↑ {leadStats.status_trends[status]}</span>
+                                                    ) : leadStats?.status_trends?.[status] < 0 ? (
+                                                        <span className="text-red-600 text-xs">↓ {Math.abs(leadStats.status_trends[status])}</span>
+                                                    ) : (
+                                                        <span className="text-gray-400 text-xs">—</span>
+                                                    )}
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </>
+                )}
+
+                {/* DOCUMENTS TAB */}
+                {activeTab === 'documents' && (
+                    <>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                            <MetricCard
+                                title="Total Documents"
+                                value={documentStats?.total_generated || 0}
+                                icon={FileText}
+                                subtitle="All time"
+                            />
+                            <MetricCard
+                                title="This Month"
+                                value={documentStats?.this_month || 0}
+                                icon={Calendar}
+                                subtitle={`${documentStats?.pages_this_month?.toLocaleString() || 0} pages`}
+                            />
+                            <MetricCard
+                                title="Most Popular"
+                                value={documentStats?.most_popular?.name || '—'}
+                                icon={TrendingUp}
+                                subtitle={`${documentStats?.most_popular?.count || 0} generated`}
+                            />
+                        </div>
+
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                            {/* Document Types */}
+                            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                                <h3 className="text-lg font-bold text-gray-900 mb-6">Documents by Type</h3>
+                                {documentTypeData.length > 0 ? (
+                                    <div className="h-80 w-full">
+                                        <ResponsiveContainer width="100%" height="100%">
+                                            <BarChart data={documentTypeData}>
+                                                <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
+                                                <XAxis dataKey="name" stroke="#9CA3AF" fontSize={11} interval={0} angle={-45} textAnchor="end" height={80} />
+                                                <YAxis stroke="#9CA3AF" fontSize={12} />
+                                                <Tooltip contentStyle={{ borderRadius: '8px', border: 'none' }} />
+                                                <Bar dataKey="value" fill="#3B82F6" radius={[4, 4, 0, 0]} />
+                                            </BarChart>
+                                        </ResponsiveContainer>
+                                    </div>
+                                ) : (
+                                    <div className="h-80 flex items-center justify-center text-gray-400">
+                                        <p>No document data available</p>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Recent Activity */}
+                            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                                <h3 className="text-lg font-bold text-gray-900 mb-6">Recent Document Activity</h3>
+                                <div className="space-y-4">
+                                    {(documentStats?.recent || []).slice(0, 5).map((doc, i) => (
+                                        <div key={i} className="flex items-center gap-4 p-3 bg-gray-50 rounded-lg">
+                                            <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
+                                                <FileText size={20} className="text-blue-600" />
+                                            </div>
+                                            <div className="flex-1 min-w-0">
+                                                <p className="font-medium text-gray-900 truncate">{doc.template_name}</p>
+                                                <p className="text-sm text-gray-500">{doc.buyer_name}</p>
+                                            </div>
+                                            <span className="text-xs text-gray-400">
+                                                {new Date(doc.created_at).toLocaleDateString()}
                                             </span>
-                                        </td>
-                                        <td className="py-3 text-right font-medium">{count}</td>
-                                        <td className="py-3 text-right text-gray-500">
-                                            {leadStats.total > 0 ? ((count / leadStats.total) * 100).toFixed(1) : '0.0'}%
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
+                                        </div>
+                                    ))}
+                                    {(!documentStats?.recent || documentStats.recent.length === 0) && (
+                                        <p className="text-center text-gray-400 py-8">No recent activity</p>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    </>
+                )}
+
+                {/* INVENTORY TAB */}
+                {activeTab === 'inventory' && (
+                    <>
+                        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                            <MetricCard
+                                title="Total Homes"
+                                value={inventoryStats?.total || 0}
+                                icon={Home}
+                                accent
+                            />
+                            <MetricCard
+                                title="New Homes"
+                                value={inventoryStats?.new_count || 0}
+                                icon={Zap}
+                                subtitle={`${inventoryStats?.new_with_photos || 0} with photos`}
+                            />
+                            <MetricCard
+                                title="Pre-Owned"
+                                value={inventoryStats?.used_count || 0}
+                                icon={Clock}
+                                subtitle={`${inventoryStats?.used_with_photos || 0} with photos`}
+                            />
+                            <MetricCard
+                                title="With 3D Tours"
+                                value={inventoryStats?.with_tours || 0}
+                                icon={Target}
+                            />
+                        </div>
+
+                        {/* Top Viewed Homes */}
+                        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                            <h3 className="text-lg font-bold text-gray-900 mb-4">Most Viewed Homes</h3>
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-sm">
+                                    <thead>
+                                        <tr className="text-left text-gray-500 border-b border-gray-100">
+                                            <th className="pb-3 font-medium">Home</th>
+                                            <th className="pb-3 font-medium">Manufacturer</th>
+                                            <th className="pb-3 font-medium text-right">Views</th>
+                                            <th className="pb-3 font-medium text-right">Inquiries</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {topHomesData.map((home, i) => (
+                                            <tr key={i} className="border-b border-gray-50 hover:bg-gray-50 transition">
+                                                <td className="py-3">
+                                                    <div className="flex items-center gap-3">
+                                                        {home.image_url ? (
+                                                            <img src={home.image_url} alt="" className="w-10 h-10 rounded-lg object-cover" />
+                                                        ) : (
+                                                            <div className="w-10 h-10 bg-gray-100 rounded-lg flex items-center justify-center">
+                                                                <Home size={16} className="text-gray-400" />
+                                                            </div>
+                                                        )}
+                                                        <span className="font-medium">{home.model_name}</span>
+                                                    </div>
+                                                </td>
+                                                <td className="py-3 text-gray-500">{home.manufacturer}</td>
+                                                <td className="py-3 text-right font-medium">{home.view_count?.toLocaleString()}</td>
+                                                <td className="py-3 text-right">{home.inquiry_count || 0}</td>
+                                            </tr>
+                                        ))}
+                                        {topHomesData.length === 0 && (
+                                            <tr>
+                                                <td colSpan="4" className="py-8 text-center text-gray-400">
+                                                    No view data available
+                                                </td>
+                                            </tr>
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </>
+                )}
 
             </div>
         </div>
