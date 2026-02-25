@@ -293,19 +293,29 @@ async def run_agent(request: Request):
         
         async for event in result_generator:
             event_count += 1
+            event_type = type(event).__name__
+            has_content = hasattr(event, "content") and event.content is not None
+            content_role = event.content.role if has_content else None
+            
             struct_logger.info(f"Event {event_count}", 
                 request_id=request_id,
-                event_type=type(event).__name__,
-                has_content=hasattr(event, "content") and event.content is not None)
+                event_type=event_type,
+                content_role=content_role,
+                has_content=has_content)
             
-            if hasattr(event, "content") and event.content and event.content.role == "model":
+            # Log error events
+            if event_type == "ErrorEvent" or (has_content and content_role == "error"):
+                error_msg = getattr(event, "error_message", "Unknown error")
+                struct_logger.error("Agent error event", request_id=request_id, error=error_msg)
+            
+            if has_content and content_role == "model":
                 for i, part in enumerate(event.content.parts):
                     has_text = hasattr(part, "text") and bool(part.text)
                     if has_text:
                         final_text += part.text
         
         if not final_text:
-            struct_logger.warning("No text generated", request_id=request_id)
+            struct_logger.warning("No text generated", request_id=request_id, event_count=event_count)
             final_text = "I apologize, but I couldn't generate a response. Please try again."
 
         # Update conversation context
