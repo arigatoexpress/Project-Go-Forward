@@ -6,6 +6,10 @@ All business-specific config is loaded from config.yaml.
 """
 
 import os
+
+# Configure Vertex AI before importing any ADK modules
+os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "TRUE"
+
 import uvicorn
 import hashlib
 import secrets
