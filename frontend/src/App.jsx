@@ -1,9 +1,11 @@
-import React, { useState, useEffect, useRef, lazy, Suspense } from 'react';
-import { Send, Home, Menu, X, Phone, MapPin, Loader2, User, Bot, FileText, Video, Lock, ShieldCheck, CalendarDays, Users, MessageSquare } from 'lucide-react';
+import React, { useState, useEffect, useRef, lazy, Suspense, useCallback } from 'react';
+import { Send, Home, Menu, X, Phone, MapPin, Loader2, User, Bot, FileText, Video, Lock, ShieldCheck, CalendarDays, Users, MessageSquare, RotateCcw, WifiOff } from 'lucide-react';
 import SafeMarkdown from './components/SafeMarkdown';
 import SearchFilters from './components/SearchFilters';
 import QuickActions from './components/QuickActions';
 import ComparisonDrawer from './components/ComparisonDrawer';
+import { useToast } from './components/Toast';
+import { useNetworkStatus } from './components/NetworkStatus';
 import { v4 as uuidv4 } from 'uuid';
 import {
   BUSINESS_NAME, BUSINESS_PHONE, BUSINESS_PHONE_RAW, BUSINESS_ADDRESS,
@@ -168,40 +170,67 @@ function Footer({ navigateTo, adminAuthed, onAdminAccess }) {
   );
 }
 
-// ─── Shared API call helper ───
-async function sendToAgent(sessionId, text) {
-  const response = await fetch(API_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Accept': 'application/json'
-    },
-    body: JSON.stringify({
-      appName: 'root_agent',
-      userId: `web_user_${sessionId}`,
-      sessionId: sessionId,
-      newMessage: {
-        role: 'user',
-        parts: [{ text }]
+// ─── Shared API call helper with retry logic ───
+async function sendToAgent(sessionId, text, maxRetries = 2) {
+  let lastError;
+  
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const response = await fetch(API_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify({
+          appName: 'root_agent',
+          userId: `web_user_${sessionId}`,
+          sessionId: sessionId,
+          newMessage: {
+            role: 'user',
+            parts: [{ text }]
+          }
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
-    })
-  });
 
-  if (!response.ok) throw new Error('Network response was not ok');
+      const data = await response.json();
 
-  const data = await response.json();
-
-  if (data.error) return `System Error: ${data.error}`;
-  if (data.text) return data.text;
-  if (data.content) return typeof data.content === 'string' ? data.content : JSON.stringify(data.content);
-  if (data.candidates?.[0]?.content?.parts) {
-    return data.candidates[0].content.parts.map(p => p.text).join(' ');
+      if (data.error) return `System Error: ${data.error}`;
+      if (data.text) return data.text;
+      if (data.content) return typeof data.content === 'string' ? data.content : JSON.stringify(data.content);
+      if (data.candidates?.[0]?.content?.parts) {
+        return data.candidates[0].content.parts.map(p => p.text).join(' ');
+      }
+      return "I apologize, I didn't catch that. Could you rephrase?";
+      
+    } catch (error) {
+      lastError = error;
+      console.warn(`API call attempt ${attempt + 1} failed:`, error.message);
+      
+      // Don't retry on client errors (4xx)
+      if (error.message.includes('HTTP 4')) {
+        break;
+      }
+      
+      // Wait before retry (exponential backoff)
+      if (attempt < maxRetries) {
+        await new Promise(resolve => setTimeout(resolve, Math.pow(2, attempt) * 1000));
+      }
+    }
   }
-  return "I apologize, I didn't catch that. Could you rephrase?";
+  
+  throw lastError;
 }
 
 
 function App() {
+  const { addToast } = useToast();
+  const isOnline = useNetworkStatus();
+  
   const [messages, setMessages] = useState([
     {
       role: 'model',
@@ -226,6 +255,9 @@ function App() {
   const [pinInput, setPinInput] = useState('');
   const [pinError, setPinError] = useState('');
   const [pinLoading, setPinLoading] = useState(false);
+  
+  // Retry failed messages
+  const [failedMessages, setFailedMessages] = useState([]);
 
   // Verify stored token on mount
   useEffect(() => {
@@ -259,7 +291,33 @@ function App() {
       }
     }
     localStorage.setItem('tho_session_id', sessionId);
-  }, [sessionId]);
+  }, [sessionId, adminAuthed]);
+  
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      // Ctrl/Cmd + K to focus chat input
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault();
+        document.querySelector('input[aria-label="Chat message"]')?.focus();
+      }
+      
+      // Escape to close mobile menu
+      if (e.key === 'Escape') {
+        setIsMobileMenuOpen(false);
+        setShowPinModal(false);
+      }
+      
+      // Ctrl/Cmd + / to show keyboard shortcuts
+      if ((e.ctrlKey || e.metaKey) && e.key === '/') {
+        e.preventDefault();
+        addToast('Keyboard shortcuts: Ctrl+K = Focus chat, Esc = Close menus, Ctrl+/ = This help', 'info', 5000);
+      }
+    };
+    
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [addToast]);
 
   // Update page title per page
   useEffect(() => {
@@ -346,20 +404,57 @@ function App() {
       setMessages(prev => [...prev, { role: 'model', text: botText }]);
     } catch (error) {
       console.error('Error sending message:', error);
-      setMessages(prev => [...prev, { role: 'model', text: `I'm having trouble connecting to the home base right now. Please try again or call us at ${BUSINESS_PHONE}.` }]);
+      
+      // Store failed message for retry
+      const failedMsg = { ...userMessage, timestamp: Date.now() };
+      setFailedMessages(prev => [...prev, failedMsg]);
+      
+      // Show error with retry option
+      setMessages(prev => [...prev, { 
+        role: 'model', 
+        text: `I'm having trouble connecting right now. This might be a temporary issue.\n\n[Click to retry](/retry)`,
+        isError: true,
+        originalMessage: userMessage.text
+      }]);
+      
+      addToast('Message failed to send. Click "Retry" to try again.', 'error', 8000);
     } finally {
       setIsLoading(false);
     }
   };
+  
+  // Retry failed message
+  const handleRetry = useCallback(async (originalMessage) => {
+    setIsLoading(true);
+    try {
+      const botText = await sendToAgent(sessionId, originalMessage);
+      setMessages(prev => [...prev, { role: 'model', text: botText }]);
+      addToast('Message sent successfully!', 'success');
+    } catch (error) {
+      addToast('Still having trouble connecting. Please try again later.', 'error');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [sessionId, addToast]);
 
   const handleQuickAction = async (message) => {
+    if (!isOnline) {
+      addToast('You appear to be offline. Please check your connection.', 'warning');
+      return;
+    }
+    
     setIsLoading(true);
     try {
       const botText = await sendToAgent(sessionId, message);
       setMessages(prev => [...prev, { role: 'model', text: botText }]);
     } catch (error) {
       console.error('Error sending quick action:', error);
-      setMessages(prev => [...prev, { role: 'model', text: `I'm having trouble connecting right now. Please try again or call us at ${BUSINESS_PHONE}.` }]);
+      setMessages(prev => [...prev, { 
+        role: 'model', 
+        text: `I'm having trouble connecting right now. Please try again or call us at ${BUSINESS_PHONE}.`,
+        isError: true 
+      }]);
+      addToast('Quick action failed. Please try again.', 'error');
     } finally {
       setIsLoading(false);
     }
@@ -591,13 +686,26 @@ function App() {
                   <div className={`p-4 rounded-2xl text-sm leading-relaxed
                      ${msg.role === 'user'
                       ? 'bg-blue-600 text-white rounded-tr-none shadow-sm'
-                      : 'bg-gray-100 text-gray-800 rounded-tl-none border border-gray-200'
+                      : msg.isError 
+                        ? 'bg-red-50 text-red-800 rounded-tl-none border border-red-200'
+                        : 'bg-gray-100 text-gray-800 rounded-tl-none border border-gray-200'
                     }`}>
                     <SafeMarkdown
                       content={msg.text}
                       comparisonList={comparisonList}
                       onToggleCompare={handleToggleCompare}
                     />
+                    {/* Retry button for failed messages */}
+                    {msg.isError && msg.originalMessage && (
+                      <button
+                        onClick={() => handleRetry(msg.originalMessage)}
+                        disabled={isLoading}
+                        className="mt-2 flex items-center gap-1.5 text-xs font-medium text-red-600 hover:text-red-800 disabled:opacity-50 transition-colors"
+                      >
+                        <RotateCcw size={12} />
+                        {isLoading ? 'Retrying...' : 'Retry'}
+                      </button>
+                    )}
                   </div>
                   {/* Quick Actions — only after initial greeting */}
                   {msg.showQuickActions && !isLoading && messages.length === 1 && (
@@ -618,9 +726,12 @@ function App() {
 
           {isLoading && (
             <div className="flex justify-start">
-              <div className="flex flex-row items-center ml-12 space-x-2 bg-gray-50 p-3 rounded-xl" role="status" aria-label="Loading response">
-                <Loader2 className="h-4 w-4 animate-spin text-gray-400" />
-                <span className="text-xs text-gray-400 font-medium">Tex is thinking...</span>
+              <div className="flex flex-row items-center ml-12 space-x-3 bg-blue-50 p-4 rounded-xl border border-blue-100 shadow-sm" role="status" aria-label="Loading response">
+                <div className="relative">
+                  <Loader2 className="h-5 w-5 animate-spin text-blue-600" />
+                  <div className="absolute inset-0 bg-blue-400 rounded-full animate-ping opacity-20"></div>
+                </div>
+                <span className="text-sm text-blue-700 font-medium">Tex is thinking...</span>
               </div>
             </div>
           )}
@@ -629,27 +740,37 @@ function App() {
 
         {/* Input Area */}
         <div className="border-t border-gray-200 p-4 bg-white z-20">
+          {!isOnline && (
+            <div className="mb-3 flex items-center justify-center gap-2 text-xs text-amber-600 bg-amber-50 px-3 py-2 rounded-lg">
+              <WifiOff size={14} />
+              <span>You're offline. Messages will be sent when you reconnect.</span>
+            </div>
+          )}
           <form onSubmit={handleSubmit} className="relative flex items-center">
             <input
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="Ask about homes or pricing..."
-              className="w-full pl-4 pr-12 py-3 border border-gray-300 rounded-full focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition shadow-sm"
-              disabled={isLoading}
+              placeholder={isOnline ? "Ask about homes or pricing... (Ctrl+K to focus)" : "Waiting for connection..."}
+              className="w-full pl-4 pr-12 py-3 border border-gray-300 rounded-full focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition shadow-sm disabled:bg-gray-100"
+              disabled={isLoading || !isOnline}
               aria-label="Chat message"
             />
             <button
               type="submit"
-              disabled={!input.trim() || isLoading}
+              disabled={!input.trim() || isLoading || !isOnline}
               className="absolute right-2 p-2 bg-blue-600 text-white rounded-full hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               aria-label="Send message"
             >
               <Send size={18} />
             </button>
           </form>
-          <div className="mt-2 text-center text-xs text-gray-400">
-            AI can make mistakes. Please verify pricing and details with a human agent.
+          <div className="mt-2 flex items-center justify-center gap-4 text-xs text-gray-400">
+            <span>AI can make mistakes. Please verify pricing with an agent.</span>
+            <span className="hidden sm:inline">•</span>
+            <span className="hidden sm:inline">Ctrl+K to focus</span>
+            <span className="hidden sm:inline">•</span>
+            <span className="hidden sm:inline">Ctrl+/ for help</span>
           </div>
         </div>
 
