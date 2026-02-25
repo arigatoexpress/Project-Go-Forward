@@ -70,9 +70,130 @@ function timeAgo(iso) {
 const TABS = [
   { id: 'leads', label: 'Leads', icon: Users },
   { id: 'deals', label: 'Pipeline', icon: DollarSign },
+  { id: 'tasks', label: 'Tasks', icon: CheckCircle },
   { id: 'appointments', label: 'Appointments', icon: Calendar },
   { id: 'emails', label: 'Email Log', icon: Mail },
 ];
+
+// Email Templates
+const EMAIL_TEMPLATES = [
+  {
+    id: 'welcome',
+    name: 'Welcome Email',
+    subject: 'Welcome to Texas Home Outlet!',
+    body: `Hi {{name}},
+
+Thank you for your interest in Texas Home Outlet! We're excited to help you find your perfect home.
+
+A few things we can help with:
+• Browse our current inventory
+• Schedule a showroom visit
+• Answer questions about financing
+• Compare different home models
+
+Feel free to reply to this email or call us at (210) 555-0123.
+
+Best regards,
+Texas Home Outlet Team`
+  },
+  {
+    id: 'followup',
+    name: 'Follow-up',
+    subject: 'Following up on your home search',
+    body: `Hi {{name}},
+
+I wanted to follow up on your recent inquiry about manufactured homes. 
+
+Have you had a chance to think about:
+• Your preferred number of bedrooms/bathrooms?
+• Your budget range?
+• When you'd like to schedule a visit?
+
+We're here to help make the process easy. Let me know if you have any questions!
+
+Best,
+Texas Home Outlet`
+  },
+  {
+    id: 'appointment_confirmation',
+    name: 'Appointment Confirmed',
+    subject: 'Your appointment is confirmed - {{date}}',
+    body: `Hi {{name}},
+
+Your appointment is confirmed!
+
+📅 Date: {{date}}
+🕐 Time: {{time}}
+📍 Location: 123 Main Street, San Antonio, TX 78201
+
+What to bring:
+• Valid ID
+• Proof of income (if interested in financing)
+• Any questions you have!
+
+If you need to reschedule, please call us at (210) 555-0123.
+
+Looking forward to meeting you!
+
+Texas Home Outlet Team`
+  },
+  {
+    id: 'price_quote',
+    name: 'Price Quote',
+    subject: 'Your price quote for {{model}}',
+    body: `Hi {{name}},
+
+Thank you for your interest in the {{model}}. Here's your personalized quote:
+
+Home: {{model}}
+Manufacturer: {{manufacturer}}
+Base Price: {{price}}
+
+Additional options and delivery costs can be discussed during your showroom visit.
+
+Would you like to schedule a time to see this home in person?
+
+Best regards,
+Texas Home Outlet Team`
+  },
+];
+
+// Calculate lead score
+function calculateLeadScore(lead) {
+  let score = 0;
+  
+  // Contact info provided (+20)
+  if (lead.email) score += 10;
+  if (lead.phone) score += 10;
+  
+  // Specific preferences shown (+30)
+  if (lead.bedrooms) score += 10;
+  if (lead.bathrooms) score += 10;
+  if (lead.budget_max) score += 10;
+  
+  // Engagement signals (+40)
+  if (lead.appointment_requested) score += 15;
+  if (lead.financing_discussed) score += 10;
+  if (lead.homes_viewed?.length > 0) score += 10;
+  
+  // Status progression (+10)
+  if (lead.status === 'qualified') score += 10;
+  if (lead.status === 'converted') score += 10;
+  
+  return Math.min(score, 100);
+}
+
+function getLeadScoreColor(score) {
+  if (score >= 80) return '#22c55e'; // Green - Hot
+  if (score >= 50) return '#f59e0b'; // Yellow - Warm
+  return '#94a3b8'; // Gray - Cold
+}
+
+function getLeadScoreLabel(score) {
+  if (score >= 80) return 'Hot';
+  if (score >= 50) return 'Warm';
+  return 'Cold';
+}
 
 // ─── Main CRM Component ─────────────────────────────
 
@@ -82,6 +203,7 @@ export default function CRM({ onBack }) {
   const [deals, setDeals] = useState([]);
   const [appointments, setAppointments] = useState([]);
   const [emails, setEmails] = useState([]);
+  const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -91,9 +213,22 @@ export default function CRM({ onBack }) {
   const [emailForm, setEmailForm] = useState({ to: '', customer_name: '', subject: '', message: '' });
   const [emailSending, setEmailSending] = useState(false);
   const [emailResult, setEmailResult] = useState(null);
+  const [selectedTemplate, setSelectedTemplate] = useState('');
 
   // Lead detail
   const [selectedLead, setSelectedLead] = useState(null);
+  
+  // Task management
+  const [showTaskModal, setShowTaskModal] = useState(false);
+  const [taskForm, setTaskForm] = useState({
+    title: '',
+    description: '',
+    due_date: '',
+    priority: 'medium',
+    assigned_to: '',
+    related_lead: '',
+    related_deal: ''
+  });
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -103,12 +238,14 @@ export default function CRM({ onBack }) {
         adminFetch('/api/deals?limit=200').then(r => r.json()),
         adminFetch('/api/crm/appointments?limit=200').then(r => r.json()),
         adminFetch('/api/email/log?limit=100').then(r => r.json()),
+        adminFetch('/api/crm/tasks?limit=200').then(r => r.json()),
       ]);
-      const [leadsRes, dealsRes, apptsRes, emailsRes] = results.map(r => r.status === 'fulfilled' ? r.value : {});
+      const [leadsRes, dealsRes, apptsRes, emailsRes, tasksRes] = results.map(r => r.status === 'fulfilled' ? r.value : {});
       if (leadsRes.success) setLeads(leadsRes.leads || []);
       if (dealsRes.success) setDeals(dealsRes.deals || []);
       if (apptsRes.success) setAppointments(apptsRes.appointments || []);
       if (emailsRes.success) setEmails(emailsRes.emails || []);
+      if (tasksRes.success) setTasks(tasksRes.tasks || []);
     } catch (err) {
       console.error('CRM data fetch failed:', err);
     } finally {
@@ -182,7 +319,71 @@ export default function CRM({ onBack }) {
       subject: '',
       message: '',
     });
+    setSelectedTemplate('');
     setShowEmailCompose(true);
+  };
+  
+  const applyEmailTemplate = (templateId) => {
+    const template = EMAIL_TEMPLATES.find(t => t.id === templateId);
+    if (!template) return;
+    
+    let body = template.body;
+    let subject = template.subject;
+    
+    // Replace variables
+    body = body.replace(/{{name}}/g, emailForm.customer_name || 'Customer');
+    subject = subject.replace(/{{name}}/g, emailForm.customer_name || 'Customer');
+    
+    setEmailForm(prev => ({
+      ...prev,
+      subject,
+      message: body
+    }));
+    setSelectedTemplate(templateId);
+  };
+  
+  // Task management functions
+  const handleCreateTask = async (e) => {
+    e.preventDefault();
+    try {
+      const res = await adminFetch('/api/crm/tasks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(taskForm),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setTasks(prev => [data.task, ...prev]);
+        setShowTaskModal(false);
+        setTaskForm({
+          title: '',
+          description: '',
+          due_date: '',
+          priority: 'medium',
+          assigned_to: '',
+          related_lead: '',
+          related_deal: ''
+        });
+      }
+    } catch (err) {
+      console.error('Task creation failed:', err);
+    }
+  };
+  
+  const handleUpdateTaskStatus = async (taskId, status) => {
+    try {
+      const res = await adminFetch(`/api/crm/tasks/${taskId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setTasks(prev => prev.map(t => t.task_id === taskId ? { ...t, status } : t));
+      }
+    } catch (err) {
+      console.error('Task update failed:', err);
+    }
   };
 
   // ─── Filtering ──────────────
@@ -217,6 +418,7 @@ export default function CRM({ onBack }) {
     activeDeals: deals.filter(d => !['complete', 'denied', 'archived'].includes(d.status)).length,
     upcomingAppts: appointments.filter(a => a.status === 'confirmed').length,
     emailsSent: emails.length,
+    pendingTasks: tasks.filter(t => t.status === 'pending').length,
   };
 
   return (
@@ -256,6 +458,10 @@ export default function CRM({ onBack }) {
         <div className="crm-stat">
           <span className="crm-stat-value" style={{ color: '#f59e0b' }}>{stats.emailsSent}</span>
           <span className="crm-stat-label">Emails Sent</span>
+        </div>
+        <div className="crm-stat">
+          <span className="crm-stat-value" style={{ color: '#ec4899' }}>{stats.pendingTasks}</span>
+          <span className="crm-stat-label">Pending Tasks</span>
         </div>
       </div>
 
@@ -427,6 +633,58 @@ export default function CRM({ onBack }) {
           </>
         )}
 
+        {/* TASKS TAB */}
+        {activeTab === 'tasks' && !loading && (
+          <>
+            <div className="crm-toolbar">
+              <button 
+                className="crm-btn-primary" 
+                onClick={() => setShowTaskModal(true)}
+              >
+                + New Task
+              </button>
+            </div>
+            <div className="crm-list">
+              {tasks.length === 0 && <div className="crm-empty">No tasks yet</div>}
+              {tasks.map(task => (
+                <div 
+                  key={task.task_id} 
+                  className={`crm-task-card ${task.status === 'completed' ? 'crm-task-completed' : ''}`}
+                >
+                  <div className="crm-task-checkbox">
+                    <input
+                      type="checkbox"
+                      checked={task.status === 'completed'}
+                      onChange={() => handleUpdateTaskStatus(task.task_id, task.status === 'completed' ? 'pending' : 'completed')}
+                    />
+                  </div>
+                  <div className="crm-task-info">
+                    <div className="crm-task-title">{task.title}</div>
+                    <div className="crm-task-meta">
+                      {task.due_date && (
+                        <span className={new Date(task.due_date) < new Date() && task.status !== 'completed' ? 'crm-task-overdue' : ''}>
+                          <Calendar size={12} /> Due: {formatDate(task.due_date)}
+                        </span>
+                      )}
+                      <span className={`crm-task-priority crm-task-priority-${task.priority}`}>
+                        {task.priority}
+                      </span>
+                      {task.related_lead && (
+                        <span className="crm-task-related">
+                          Lead: {leads.find(l => l.lead_id === task.related_lead)?.name || task.related_lead}
+                        </span>
+                      )}
+                    </div>
+                    {task.description && (
+                      <div className="crm-task-desc">{task.description}</div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+
         {/* EMAIL LOG TAB */}
         {activeTab === 'emails' && !loading && (
           <div className="crm-list">
@@ -461,6 +719,20 @@ export default function CRM({ onBack }) {
               </button>
             </div>
             <form onSubmit={handleSendEmail} className="crm-email-form">
+              {/* Template Selector */}
+              <div className="crm-email-field">
+                <label>Template</label>
+                <select 
+                  value={selectedTemplate} 
+                  onChange={e => applyEmailTemplate(e.target.value)}
+                  className="crm-template-select"
+                >
+                  <option value="">Select a template...</option>
+                  {EMAIL_TEMPLATES.map(t => (
+                    <option key={t.id} value={t.id}>{t.name}</option>
+                  ))}
+                </select>
+              </div>
               <div className="crm-email-field">
                 <label>To</label>
                 <input
@@ -496,7 +768,7 @@ export default function CRM({ onBack }) {
                   value={emailForm.message}
                   onChange={e => setEmailForm(f => ({ ...f, message: e.target.value }))}
                   placeholder="Write your message..."
-                  rows={6}
+                  rows={8}
                   required
                 />
               </div>
@@ -512,6 +784,77 @@ export default function CRM({ onBack }) {
               <button type="submit" className="crm-email-send-btn" disabled={emailSending}>
                 <Send size={16} />
                 {emailSending ? 'Sending...' : 'Send Email'}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+      
+      {/* Task Modal */}
+      {showTaskModal && (
+        <div className="crm-modal-overlay" onClick={() => setShowTaskModal(false)}>
+          <div className="crm-task-modal" onClick={e => e.stopPropagation()}>
+            <div className="crm-modal-header">
+              <h3>Create New Task</h3>
+              <button onClick={() => setShowTaskModal(false)} className="crm-modal-close">
+                <X size={20} />
+              </button>
+            </div>
+            <form onSubmit={handleCreateTask} className="crm-task-form">
+              <div className="crm-form-field">
+                <label>Title *</label>
+                <input
+                  type="text"
+                  value={taskForm.title}
+                  onChange={e => setTaskForm(f => ({ ...f, title: e.target.value }))}
+                  placeholder="e.g., Follow up with John about financing"
+                  required
+                />
+              </div>
+              <div className="crm-form-field">
+                <label>Description</label>
+                <textarea
+                  value={taskForm.description}
+                  onChange={e => setTaskForm(f => ({ ...f, description: e.target.value }))}
+                  placeholder="Additional details..."
+                  rows={3}
+                />
+              </div>
+              <div className="crm-form-row">
+                <div className="crm-form-field">
+                  <label>Due Date</label>
+                  <input
+                    type="date"
+                    value={taskForm.due_date}
+                    onChange={e => setTaskForm(f => ({ ...f, due_date: e.target.value }))}
+                  />
+                </div>
+                <div className="crm-form-field">
+                  <label>Priority</label>
+                  <select
+                    value={taskForm.priority}
+                    onChange={e => setTaskForm(f => ({ ...f, priority: e.target.value }))}
+                  >
+                    <option value="low">Low</option>
+                    <option value="medium">Medium</option>
+                    <option value="high">High</option>
+                  </select>
+                </div>
+              </div>
+              <div className="crm-form-field">
+                <label>Related Lead (optional)</label>
+                <select
+                  value={taskForm.related_lead}
+                  onChange={e => setTaskForm(f => ({ ...f, related_lead: e.target.value }))}
+                >
+                  <option value="">None</option>
+                  {leads.map(l => (
+                    <option key={l.lead_id} value={l.lead_id}>{l.name || l.email || l.phone}</option>
+                  ))}
+                </select>
+              </div>
+              <button type="submit" className="crm-btn-primary">
+                Create Task
               </button>
             </form>
           </div>
