@@ -356,8 +356,10 @@ async def run_agent(request: Request):
         
     except Exception as e:
         duration_ms = (time.time() - start_time) * 1000
-        struct_logger.error("Request failed", request_id=request_id, error=str(e), duration_ms=duration_ms)
-        user_message = "Something went wrong. Please try again." if not IS_LOCAL else str(e)
+        import traceback
+        error_detail = f"{str(e)}\n{traceback.format_exc()}"
+        struct_logger.error("Request failed", request_id=request_id, error=error_detail, duration_ms=duration_ms)
+        user_message = f"Error: {str(e)}" if not IS_LOCAL else f"Error: {str(e)}\n{traceback.format_exc()}"
         return {"error": user_message}
 
 
