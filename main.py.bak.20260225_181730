@@ -1844,7 +1844,3 @@ async def serve_spa(full_path: str):
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
     uvicorn.run(app, host="0.0.0.0", port=port)
-
-
-# Trading project routes
-app.include_router(trading_project_router)
