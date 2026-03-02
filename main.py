@@ -1846,5 +1846,6 @@ if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=port)
 
 
-# Trading project routes
-app.include_router(trading_project_router)
+# AI PM Manager Routes (Linear-inspired)
+from pm_routes import router as pm_router
+app.include_router(pm_router)

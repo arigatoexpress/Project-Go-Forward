@@ -482,3 +482,227 @@ class ServiceRequest(BaseModel):
     # Timestamps
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# LINEAR-INSPIRED PROJECT MANAGEMENT MODELS (AI PM Manager Core)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class WorkflowState(str, Enum):
+    """Linear-inspired workflow states for any project/task"""
+    BACKLOG = "backlog"           # Not ready to start
+    TODO = "todo"                 # Ready to start
+    IN_PROGRESS = "in_progress"   # Actively being worked
+    IN_REVIEW = "in_review"       # Needs review/approval
+    DONE = "done"                 # Completed
+    CANCELLED = "cancelled"       # Won't do
+    BLOCKED = "blocked"           # Blocked by dependency
+
+
+class TaskPriority(int, Enum):
+    """Priority levels - like Linear"""
+    NO_PRIORITY = 0
+    LOW = 1
+    MEDIUM = 2
+    HIGH = 3
+    URGENT = 4
+
+
+class ProjectType(str, Enum):
+    """Types of projects the AI PM can manage"""
+    SOFTWARE = "software"         # Code repos (Sapphire, etc.)
+    BUSINESS = "business"         # Business operations (THO)
+    RESEARCH = "research"         # R&D, experiments
+    INFRASTRUCTURE = "infrastructure"  # DevOps, deployments
+
+
+class Project(BaseModel):
+    """
+    A project managed by the AI PM - like a Linear project/workspace
+    Can represent a GitHub repo, business initiative, etc.
+    """
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    
+    # Identity
+    name: str = Field(min_length=1)
+    description: Optional[str] = None
+    project_type: ProjectType = ProjectType.BUSINESS
+    
+    # External links
+    github_repo: Optional[str] = None       # e.g., "arigatoexpress/Sapphire"
+    cloud_run_service: Optional[str] = None # e.g., "sapphire-dashboard"
+    notion_url: Optional[str] = None
+    
+    # Status
+    status: str = "active"  # active, paused, archived
+    
+    # Team
+    owner: Optional[str] = None
+    members: List[str] = Field(default_factory=list)
+    
+    # Stats
+    total_tasks: int = 0
+    completed_tasks: int = 0
+    
+    # For software projects
+    default_branch: str = "main"
+    deployment_url: Optional[str] = None
+    
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class Task(BaseModel):
+    """
+    Universal task model - like a Linear issue
+    Works for software tasks, business tasks, service requests
+    """
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    
+    # Content
+    title: str = Field(min_length=1)
+    description: Optional[str] = None
+    
+    # Organization
+    project_id: str  # Links to Project
+    state: WorkflowState = WorkflowState.BACKLOG
+    priority: TaskPriority = TaskPriority.NO_PRIORITY
+    labels: List[str] = Field(default_factory=list)  # e.g., ["bug", "urgent"]
+    
+    # Assignment
+    assignee: Optional[str] = None
+    creator: Optional[str] = None
+    
+    # Relations
+    parent_task_id: Optional[str] = None      # Subtasks
+    related_github_issue: Optional[int] = None
+    related_github_pr: Optional[int] = None
+    related_deal_id: Optional[str] = None     # Link to business deal
+    
+    # Estimation (like Linear)
+    estimate_hours: Optional[float] = None
+    actual_hours: Optional[float] = None
+    
+    # Timing
+    due_date: Optional[datetime] = None
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    
+    # State history for audit trail
+    state_history: List[Dict] = Field(default_factory=list)
+    # [{"from": "backlog", "to": "in_progress", "at": "2026-03-02T...", "by": "user"}]
+    
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    
+    def transition_to(self, new_state: WorkflowState, changed_by: Optional[str] = None):
+        """Record state transition with audit trail"""
+        self.state_history.append({
+            "from": self.state,
+            "to": new_state,
+            "at": datetime.utcnow().isoformat(),
+            "by": changed_by or "system"
+        })
+        self.state = new_state
+        self.updated_at = datetime.utcnow()
+        
+        if new_state == WorkflowState.IN_PROGRESS and not self.started_at:
+            self.started_at = datetime.utcnow()
+        if new_state == WorkflowState.DONE and not self.completed_at:
+            self.completed_at = datetime.utcnow()
+
+
+class Cycle(BaseModel):
+    """
+    Time-boxed planning period - like Linear's cycles
+    """
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    
+    name: str = Field(min_length=1)  # e.g., "Week 9", "March Sprint"
+    description: Optional[str] = None
+    
+    # Timing
+    start_date: datetime
+    end_date: datetime
+    
+    # Status
+    status: str = "planning"  # planning, active, completed
+    
+    # Goals
+    goals: List[str] = Field(default_factory=list)
+    
+    # Projects included in this cycle
+    project_ids: List[str] = Field(default_factory=list)
+    
+    # Stats
+    total_tasks: int = 0
+    completed_tasks: int = 0
+    
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    
+    def is_active(self) -> bool:
+        now = datetime.utcnow()
+        return self.start_date <= now <= self.end_date and self.status == "active"
+
+
+class Activity(BaseModel):
+    """
+    Activity log - like Linear's issue history
+    Tracks everything that happens across all projects
+    """
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    
+    # What happened
+    activity_type: str  # "task_created", "state_changed", "comment_added", "assigned"
+    description: str    # Human-readable summary
+    
+    # Where
+    project_id: str
+    task_id: Optional[str] = None
+    
+    # Who
+    actor: Optional[str] = None  # User or "AI PM"
+    
+    # Details
+    metadata: Dict = Field(default_factory=dict)
+    # e.g., {"from_state": "backlog", "to_state": "in_progress"}
+    
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class View(BaseModel):
+    """
+    Saved view configuration - like Linear's custom views
+    """
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    name: str = Field(min_length=1)
+    
+    # Filters
+    project_id: Optional[str] = None
+    filter_states: List[WorkflowState] = Field(default_factory=list)
+    filter_labels: List[str] = Field(default_factory=list)
+    filter_assignee: Optional[str] = None
+    filter_priority: Optional[TaskPriority] = None
+    
+    # Grouping & sorting
+    group_by: str = "state"  # state, assignee, priority, project
+    sort_by: str = "priority"
+    sort_order: str = "desc"  # asc, desc
+    
+    # Owner
+    owner_id: str
+    is_shared: bool = False
+    
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+# Default label suggestions for AI PM
+DEFAULT_PM_LABELS = [
+    ("bug", "#ef4444"),
+    ("feature", "#22c55e"),
+    ("improvement", "#3b82f6"),
+    ("documentation", "#a855f7"),
+    ("urgent", "#f97316"),
+    ("debt", "#6b7280"),
+    ("research", "#ec4899"),
+]
