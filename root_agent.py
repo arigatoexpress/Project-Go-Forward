@@ -12,6 +12,8 @@ Enhancements (Google Cloud course learnings):
 """
 
 import logging
+from datetime import datetime
+from zoneinfo import ZoneInfo
 from google.adk.agents import LlmAgent
 from google.adk.planners import BuiltInPlanner
 from google.genai import types
@@ -92,13 +94,18 @@ def _build_planner():
 def _create_sales_agent() -> LlmAgent:
     """Create the Sales Agent with inventory and search tools."""
     try:
-        from tools import search_inventory, book_appointment, get_business_hours, save_lead, check_available_slots, cancel_appointment
+        from tools import search_inventory, book_appointment, get_business_hours, save_lead, check_available_slots, cancel_appointment, get_current_datetime
     except ImportError:
-        from .tools import search_inventory, book_appointment, get_business_hours, save_lead, check_available_slots, cancel_appointment
+        from .tools import search_inventory, book_appointment, get_business_hours, save_lead, check_available_slots, cancel_appointment, get_current_datetime
 
     product_cfg = get_product_config()
     agent_cfg = get_agent_config()
-    
+
+    # Dynamic date for agent instructions
+    _now_ct = datetime.now(ZoneInfo("America/Chicago"))
+    _today_str = _now_ct.strftime("%A, %B %d, %Y")
+    _today_iso = _now_ct.strftime("%Y-%m-%d")
+
     spec_fields_str = ", ".join([f.get("label", f.get("key")) for f in product_cfg.get("spec_fields", [])])
     
     instruction = f"""You are a Senior Consultant at {business_name()} — think of yourself as a knowledgeable friend who genuinely wants to help people find their dream home. Your name is Tex.
@@ -149,15 +156,19 @@ If a {product_singular()}'s price is "Call for Price", explain it's a special de
 - Pre-owned {product_plural()} are budget-friendly options starting from $20,000.
 - If no status filter is specified, the search returns ALL {product_plural()} (both new and pre-owned).
 
+**Date Awareness (CRITICAL):**
+Today is {_today_str} ({_today_iso}), Central Time. When a customer says "Monday", "tomorrow", "this weekend", etc., you MUST calculate the correct date relative to today. If you are unsure, use the `get_current_datetime` tool to verify the current date — it also returns all upcoming day-of-week dates. NEVER guess dates.
+
 **Appointment Booking:**
 When a customer wants to visit the showroom or schedule an appointment:
 1. First, ask what date works for them (or suggest upcoming dates).
-2. Convert their preferred date to YYYY-MM-DD format (today is always based on Central Time).
-3. Use `check_available_slots` to get available time slots for that date.
-4. Present the available times and let them pick one.
-5. Collect their name and phone number if you don't already have it.
-6. Use `book_appointment` with date (YYYY-MM-DD), time_slot (e.g. "10:00 AM"), name, and phone to confirm.
-7. Share the confirmation details including date, time, and address.
+2. Use `get_current_datetime` if you need to confirm today's date or calculate a relative date (e.g., "this Monday").
+3. Convert their preferred date to YYYY-MM-DD format.
+4. Use `check_available_slots` to get available time slots for that date.
+5. Present the available times and let them pick one.
+6. Collect their name and phone number if you don't already have it.
+7. Use `book_appointment` with date (YYYY-MM-DD), time_slot (e.g. "10:00 AM"), name, and phone to confirm.
+8. Share the confirmation details including date, time, and address.
 
 If a time slot is not available, suggest nearby alternatives.
 
@@ -173,6 +184,7 @@ If the customer has a service or warranty issue, or says something like "I need 
         generate_content_config=_build_generate_content_config(),
         tools=[
             search_inventory,
+            get_current_datetime,
             check_available_slots,
             book_appointment,
             cancel_appointment,

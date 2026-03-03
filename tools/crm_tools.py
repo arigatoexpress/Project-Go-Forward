@@ -102,6 +102,37 @@ def save_lead(
     }
 
 
+def get_current_datetime(tool_context: ToolContext = None) -> dict:
+    """
+    Get the current date and time in Central Time (America/Chicago).
+
+    Use this tool BEFORE interpreting relative dates like "Monday", "tomorrow",
+    "next week", etc. This ensures you always know today's actual date.
+
+    Returns:
+        Dictionary with current date, time, day of week, and helpful context.
+    """
+    now = datetime.now(TIMEZONE)
+    today = now.date()
+
+    # Find next Monday through Sunday
+    upcoming = {}
+    for days_ahead in range(0, 7):
+        future = today + timedelta(days=days_ahead)
+        day_name = future.strftime("%A")
+        if day_name not in upcoming:
+            upcoming[day_name] = future.isoformat()
+
+    return {
+        "current_date": today.isoformat(),
+        "current_time": now.strftime("%-I:%M %p"),
+        "day_of_week": now.strftime("%A"),
+        "formatted": now.strftime("%A, %B %d, %Y at %-I:%M %p CT"),
+        "upcoming_days": upcoming,
+        "note": "All dates are in Central Time (America/Chicago)."
+    }
+
+
 def check_available_slots(
     date_str: str,
     tool_context: ToolContext = None
