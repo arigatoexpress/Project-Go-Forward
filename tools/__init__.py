@@ -1,7 +1,7 @@
 # Tools Package
 from .inventory_tools import search_inventory
 from .service_tools import check_warranty_status, analyze_defect_image, generate_invoice_pdf
-from .crm_tools import book_appointment, get_business_hours, save_lead, check_available_slots, cancel_appointment
+from .crm_tools import book_appointment, get_business_hours, save_lead, check_available_slots, cancel_appointment, get_current_datetime
 from .document_tools import generate_work_order_pdf, generate_service_ticket, generate_customer_email
 from .document_engine import generate_document, generate_packet, list_available_templates, list_available_packets, get_template_fields
 from .marketing_tools import (
@@ -26,6 +26,7 @@ __all__ = [
     "save_lead",
     "check_available_slots",
     "cancel_appointment",
+    "get_current_datetime",
     # Documents (legacy)
     "generate_work_order_pdf",
     "generate_service_ticket",
