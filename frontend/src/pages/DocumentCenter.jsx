@@ -288,6 +288,61 @@ function Step1({ data, onChange, deals, dealsLoading, onLoadDeal, onNext, valida
   const [q, setQ] = useState('');
   const [showPicker, setShowPicker] = useState(false);
 
+  // Legacy customer search (FastContract migration)
+  const [custSearch, setCustSearch] = useState('');
+  const [custResults, setCustResults] = useState([]);
+  const [custLoading, setCustLoading] = useState(false);
+  const [showCustPicker, setShowCustPicker] = useState(false);
+
+  const searchCustomers = async (query) => {
+    if (!query || query.length < 2) { setCustResults([]); return; }
+    setCustLoading(true);
+    try {
+      const token = sessionStorage.getItem('tho_admin_token');
+      const res = await fetch(`/api/customers/search?q=${encodeURIComponent(query)}&limit=8`, {
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setCustResults(data.customers || []);
+      }
+    } catch (e) { console.error('Customer search error:', e); }
+    setCustLoading(false);
+  };
+
+  const loadCustomer = (cust) => {
+    const names = (cust.full_name || '').split(' ');
+    const first = names[0] || '';
+    const last = names.slice(1).join(' ') || '';
+    onChange('buyer_first_name', first);
+    onChange('buyer_last_name', last);
+    if (cust.phone) onChange('buyer_phone', cust.phone);
+    if (cust.email) onChange('buyer_email', cust.email);
+    if (cust.ssn_masked) onChange('buyer_ssn', cust.ssn_masked);
+    if (cust.employer) onChange('employer_name', cust.employer);
+    if (cust.occupation) onChange('occupation', cust.occupation);
+    if (cust.salesrep) onChange('salesrep', cust.salesrep);
+    if (cust.marital_status) onChange('buyer_marital_status', cust.marital_status);
+    // Address
+    if (cust.address) {
+      const parts = cust.address.split(',').map(s => s.trim());
+      if (parts[0]) onChange('mailing_address', parts[0]);
+    }
+    if (cust.city) onChange('mailing_city', cust.city);
+    if (cust.state) onChange('mailing_state', cust.state);
+    if (cust.zip_code) onChange('mailing_zip', cust.zip_code);
+    // Co-buyer
+    if (cust.co_buyer) {
+      const coNames = (cust.co_buyer.full_name || '').split(' ');
+      onChange('co_buyer_first_name', coNames[0] || '');
+      onChange('co_buyer_last_name', coNames.slice(1).join(' ') || '');
+      if (cust.co_buyer.phone) onChange('co_buyer_phone', cust.co_buyer.phone);
+      if (cust.co_buyer.ssn_masked) onChange('co_buyer_ssn', cust.co_buyer.ssn_masked);
+    }
+    setShowCustPicker(false);
+    setCustSearch('');
+  };
+
   const filtered = (deals || []).filter(d => {
     if (!q) return true;
     const s = q.toLowerCase();
@@ -374,6 +429,72 @@ function Step1({ data, onChange, deals, dealsLoading, onLoadDeal, onNext, valida
                 <Search size={48} className="mx-auto mb-3 text-gray-300" />
                 <p className="text-lg">No deals found matching &quot;{q}&quot;</p>
               </div>
+            )}
+          </div>
+        )}
+      </Card>
+
+      {/* Load from Legacy Customer (FastContract migration) */}
+      <Card className="p-6 bg-gradient-to-r from-green-50 to-emerald-100 border-green-200">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 bg-green-600 rounded-xl flex items-center justify-center">
+              <User size={24} className="text-white" />
+            </div>
+            <div>
+              <h3 className="font-bold text-gray-800 text-lg">Load from Customer Records</h3>
+              <p className="text-sm text-gray-600">Search 1,963 migrated FastContract customers</p>
+            </div>
+          </div>
+          <BigButton
+            variant="secondary"
+            onClick={() => setShowCustPicker(!showCustPicker)}
+            icon={showCustPicker ? ChevronDown : ChevronRight}
+          >
+            {showCustPicker ? 'Hide' : 'Find Customer'}
+          </BigButton>
+        </div>
+
+        {showCustPicker && (
+          <div className="mt-4 pt-4 border-t border-green-200">
+            <div className="relative mb-4">
+              <Search size={20} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input
+                type="text"
+                value={custSearch}
+                onChange={e => { setCustSearch(e.target.value); searchCustomers(e.target.value); }}
+                placeholder="Search by name, phone, email, or legacy ID..."
+                className="w-full pl-12 pr-4 py-4 border-2 border-green-300 rounded-xl text-lg bg-white focus:ring-4 focus:ring-green-200 outline-none"
+              />
+            </div>
+            {custLoading && <div className="flex items-center gap-2 text-gray-500 py-2"><Loader2 size={16} className="animate-spin" /> Searching...</div>}
+            {custResults.length > 0 && (
+              <div className="space-y-2 max-h-72 overflow-y-auto">
+                {custResults.map((cust, i) => (
+                  <button
+                    key={cust.id || i}
+                    onClick={() => loadCustomer(cust)}
+                    className="w-full text-left p-4 bg-white rounded-xl border border-green-200 hover:border-green-500 hover:shadow-md transition-all"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <span className="font-semibold text-gray-800">{cust.full_name}</span>
+                        <span className={`ml-3 text-xs px-2 py-0.5 rounded-full ${cust.status === 'ENROLLED' ? 'bg-green-100 text-green-700' : cust.status === 'SOLD' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'}`}>{cust.status}</span>
+                      </div>
+                      <ArrowRight size={16} className="text-green-500" />
+                    </div>
+                    <div className="text-sm text-gray-500 mt-1 flex gap-4 flex-wrap">
+                      {cust.phone && <span className="flex items-center gap-1"><Phone size={12} /> {cust.phone}</span>}
+                      {cust.email && <span className="flex items-center gap-1"><Mail size={12} /> {cust.email}</span>}
+                      {cust.salesrep && <span className="flex items-center gap-1"><User size={12} /> {cust.salesrep}</span>}
+                      {cust.legacy_id && <span className="flex items-center gap-1"><Hash size={12} /> {cust.legacy_id}</span>}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+            {custSearch.length >= 2 && !custLoading && custResults.length === 0 && (
+              <p className="text-sm text-gray-500 py-2">No customers found for "{custSearch}"</p>
             )}
           </div>
         )}

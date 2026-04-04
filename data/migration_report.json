@@ -1,0 +1,90 @@
+{
+  "timestamp": "2026-04-04T18:43:21.074717+00:00",
+  "source": "/Users/aribs/Documents/Business/Kadima Digital Strategies 2026/THO_MASTER/full_migration_export.csv",
+  "raw_records": 1969,
+  "imported": 1963,
+  "skipped": 6,
+  "errors": 0,
+  "stats": {
+    "with_email": 703,
+    "with_phone": 1228,
+    "with_ssn": 1080,
+    "with_address": 1963,
+    "with_co_buyer": 827
+  },
+  "status_breakdown": {
+    "ENROLLED": 1326,
+    "LEAD": 629,
+    "CLOSED": 8
+  },
+  "salesrep_breakdown": {
+    "Website": 582,
+    "Adriana Squyres": 309,
+    "Unknown": 291,
+    "Lee Aswell": 200,
+    "adriana squyres": 141,
+    "lee@texashomeoutlet.com": 131,
+    "celeste@texashomeoutlet.com": 83,
+    "Miriam": 78,
+    "ADRIANA SQUYRES": 20,
+    "adriana": 19,
+    "Maria": 16,
+    "ADRIANA": 12,
+    "XOCHITL A squyres": 11,
+    "MARIA": 10,
+    "Sergio": 8,
+    "LEE ASWELL": 8,
+    "Miriam Bahena": 8,
+    "Adriana": 6,
+    "Ben": 6,
+    "Mario Tangarife": 3,
+    "Mario": 3,
+    "Lee": 2,
+    "Conley": 2,
+    "adriana Squyres": 2,
+    "Con": 2,
+    "Rox": 1,
+    "MRW": 1,
+    "Ben Spector": 1,
+    "Lee aswell": 1,
+    "miriam": 1,
+    "Mark Willcott": 1,
+    "A squyres": 1,
+    "ben": 1,
+    "MARIA S.": 1,
+    "XOCHITL A squyre": 1
+  },
+  "skipped_details": [
+    {
+      "row": 4,
+      "reason": "empty name or test record",
+      "name": "Jermaine Test"
+    },
+    {
+      "row": 790,
+      "reason": "empty name or test record",
+      "name": "Jermaine Test"
+    },
+    {
+      "row": 1205,
+      "reason": "empty name or test record",
+      "name": " "
+    },
+    {
+      "row": 1330,
+      "reason": "empty name or test record",
+      "name": "jane doe"
+    },
+    {
+      "row": 1471,
+      "reason": "empty name or test record",
+      "name": "Jermaine Test"
+    },
+    {
+      "row": 1589,
+      "reason": "empty name or test record",
+      "name": "jane doe"
+    }
+  ],
+  "error_details": []
+}

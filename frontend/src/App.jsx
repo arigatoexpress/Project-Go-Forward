@@ -247,8 +247,17 @@ function App() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [comparisonList, setComparisonList] = useState([]);
 
-  // Single page state
-  const [activePage, setActivePage] = useState('inventory');
+  // URL-based routing — support standalone access via /documents, /studio
+  const getInitialPage = () => {
+    const path = window.location.pathname.toLowerCase();
+    if (path.startsWith('/documents') || path.startsWith('/app/documents')) return 'documents';
+    if (path.startsWith('/studio') || path.startsWith('/app/studio')) return 'adstudio';
+    if (path.startsWith('/crm')) return 'crm';
+    if (path.startsWith('/analytics')) return 'analytics';
+    return 'inventory';
+  };
+  const [activePage, setActivePage] = useState(getInitialPage);
+  const isStandaloneMode = window.location.pathname.startsWith('/app/') || window.location.search.includes('standalone=1');
 
   // Admin auth — token validated by backend
   const [adminAuthed, setAdminAuthed] = useState(false);
@@ -350,6 +359,13 @@ function App() {
     setActivePage(page);
     setIsMobileMenuOpen(false);
     window.scrollTo({ top: 0 });
+    // Update URL for bookmarkable routes
+    const urlMap = { documents: '/documents', adstudio: '/studio', crm: '/crm', analytics: '/analytics' };
+    if (urlMap[page]) {
+      window.history.pushState({}, '', urlMap[page]);
+    } else if (window.location.pathname !== '/') {
+      window.history.pushState({}, '', '/');
+    }
   };
 
   // Admin PIN handlers
@@ -589,9 +605,20 @@ function App() {
   if (activePage === 'documents' && adminAuthed) {
     return (
       <div className="bg-gray-50 min-h-screen">
-        <NavBar {...navProps} />
+        {!isStandaloneMode && <NavBar {...navProps} />}
+        {isStandaloneMode && (
+          <header className="bg-blue-900 text-white shadow-md z-30 sticky top-0">
+            <div className="max-w-7xl mx-auto px-4 h-14 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <FileText className="h-5 w-5" />
+                <span className="font-bold text-lg">{BUSINESS_NAME} — Document Center</span>
+              </div>
+              <a href="/" className="text-sm text-blue-200 hover:text-white">← Main App</a>
+            </div>
+          </header>
+        )}
         <Suspense fallback={<PageLoader />}>
-          <DocumentCenter onBack={() => navigateTo('chat')} sessionId={sessionId} />
+          <DocumentCenter onBack={() => navigateTo('chat')} sessionId={sessionId} standalone={isStandaloneMode} />
         </Suspense>
       </div>
     );
@@ -600,9 +627,20 @@ function App() {
   if (activePage === 'adstudio' && adminAuthed) {
     return (
       <div className="bg-gray-50 min-h-screen">
-        <NavBar {...navProps} />
+        {!isStandaloneMode && <NavBar {...navProps} />}
+        {isStandaloneMode && (
+          <header className="bg-blue-900 text-white shadow-md z-30 sticky top-0">
+            <div className="max-w-7xl mx-auto px-4 h-14 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <Video className="h-5 w-5" />
+                <span className="font-bold text-lg">{BUSINESS_NAME} — Ad Studio</span>
+              </div>
+              <a href="/" className="text-sm text-blue-200 hover:text-white">← Main App</a>
+            </div>
+          </header>
+        )}
         <Suspense fallback={<PageLoader />}>
-          <AdStudio onBack={() => navigateTo('chat')} />
+          <AdStudio onBack={() => navigateTo('chat')} standalone={isStandaloneMode} />
         </Suspense>
       </div>
     );
