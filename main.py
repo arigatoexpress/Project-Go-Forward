@@ -1828,6 +1828,80 @@ async def check_admin_token(request: Request):
     return JSONResponse({"valid": False}, status_code=401)
 
 
+# ─── Customer API (migrated FastContract records) ────────────────────────────
+
+@app.get("/api/customers/search", dependencies=[Depends(require_admin)])
+async def search_customers(q: str = "", status: str = "", limit: int = 50):
+    """Search migrated customer records by name, phone, email, or legacy ID."""
+    import json as _json
+    customers_path = os.path.join(os.path.dirname(__file__), "data", "migrated_customers.json")
+
+    if not os.path.exists(customers_path):
+        return {"customers": [], "total": 0, "source": "none"}
+
+    with open(customers_path) as f:
+        all_customers = _json.load(f)
+
+    results = all_customers
+    if q:
+        q_lower = q.lower().strip()
+        results = [
+            c for c in results
+            if q_lower in (c.get("full_name") or "").lower()
+            or q_lower in (c.get("email") or "").lower()
+            or q_lower in (c.get("phone") or "").replace("-", "")
+            or q_lower in (c.get("legacy_id") or "").lower()
+            or q_lower in (c.get("salesrep") or "").lower()
+        ]
+    if status:
+        results = [c for c in results if c.get("status") == status.upper()]
+
+    # Don't send SSN hashes to frontend
+    safe_results = []
+    for c in results[:limit]:
+        safe = {k: v for k, v in c.items() if k not in ("ssn_hash", "co_buyer")}
+        if c.get("co_buyer"):
+            safe["co_buyer"] = {k: v for k, v in c["co_buyer"].items() if k != "ssn_hash"}
+        safe_results.append(safe)
+
+    return {"customers": safe_results, "total": len(results), "source": "fastcontract_migration"}
+
+
+@app.get("/api/customers/{customer_id}", dependencies=[Depends(require_admin)])
+async def get_customer(customer_id: str):
+    """Get a single customer record by ID or legacy_id."""
+    import json as _json
+    customers_path = os.path.join(os.path.dirname(__file__), "data", "migrated_customers.json")
+
+    if not os.path.exists(customers_path):
+        raise HTTPException(404, "Customer data not loaded")
+
+    with open(customers_path) as f:
+        all_customers = _json.load(f)
+
+    for c in all_customers:
+        if c["id"] == customer_id or c.get("legacy_id") == customer_id:
+            safe = {k: v for k, v in c.items() if k not in ("ssn_hash",)}
+            if c.get("co_buyer"):
+                safe["co_buyer"] = {k: v for k, v in c["co_buyer"].items() if k != "ssn_hash"}
+            return safe
+
+    raise HTTPException(404, "Customer not found")
+
+
+@app.get("/api/customers/stats", dependencies=[Depends(require_admin)])
+async def customer_stats():
+    """Get customer migration statistics."""
+    import json as _json
+    report_path = os.path.join(os.path.dirname(__file__), "data", "migration_report.json")
+
+    if not os.path.exists(report_path):
+        return {"migrated": False}
+
+    with open(report_path) as f:
+        return _json.load(f)
+
+
 # Serve Frontend — Must be last to avoid catching API routes
 app.mount("/assets", StaticFiles(directory="frontend/dist/assets"), name="assets")
 
