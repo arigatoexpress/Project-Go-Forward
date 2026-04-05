@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, lazy, Suspense, useCallback } from 'react';
-import { Send, Home, Menu, X, Phone, MapPin, Loader2, User, Bot, FileText, Video, Lock, ShieldCheck, CalendarDays, Users, MessageSquare, MessageCircle, RotateCcw, WifiOff } from 'lucide-react';
+import { Send, Home, Menu, X, Phone, MapPin, Loader2, User, Bot, FileText, Video, Lock, ShieldCheck, CalendarDays, Users, MessageSquare, MessageCircle, RotateCcw, WifiOff, Moon, Sun } from 'lucide-react';
+import { useDarkMode } from './hooks/useDarkMode';
 import SafeMarkdown from './components/SafeMarkdown';
 import SearchFilters from './components/SearchFilters';
 import QuickActions from './components/QuickActions';
@@ -33,7 +34,7 @@ const PageLoader = () => (
 );
 
 // ─── Shared Navigation Component ───
-function NavBar({ activePage, navigateTo, adminAuthed, onAdminAccess, isMobileMenuOpen, setIsMobileMenuOpen, showSearchFilters, onApplyFilters, onClearFilters }) {
+function NavBar({ activePage, navigateTo, adminAuthed, onAdminAccess, isMobileMenuOpen, setIsMobileMenuOpen, showSearchFilters, onApplyFilters, onClearFilters, darkMode, onToggleDarkMode }) {
   const navItems = [
     { key: 'inventory', label: 'Inventory', icon: Home },
     { key: 'chat', label: 'Chat', icon: MessageSquare },
@@ -91,6 +92,18 @@ function NavBar({ activePage, navigateTo, adminAuthed, onAdminAccess, isMobileMe
           {/* Search filters — only on chat page */}
           {showSearchFilters && (
             <SearchFilters onApplyFilters={onApplyFilters} onClear={onClearFilters} />
+          )}
+
+          {/* Dark mode toggle — desktop */}
+          {onToggleDarkMode && (
+            <button
+              onClick={onToggleDarkMode}
+              className="hidden md:flex items-center gap-1 px-2 py-1.5 text-xs text-blue-300 hover:text-white hover:bg-white/10 rounded-md transition-colors"
+              aria-label="Toggle dark mode"
+              title="Toggle dark mode (Ctrl+D)"
+            >
+              {darkMode ? <Sun size={14} /> : <Moon size={14} />}
+            </button>
           )}
 
           {/* Admin button — desktop */}
@@ -246,6 +259,25 @@ function App() {
   const [activeFilters, setActiveFilters] = useState({});
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [comparisonList, setComparisonList] = useState([]);
+  const [darkMode, setDarkMode] = useDarkMode();
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handler = (e) => {
+      // Ctrl+D / Cmd+D — toggle dark mode
+      if ((e.ctrlKey || e.metaKey) && e.key === 'd') {
+        e.preventDefault();
+        setDarkMode(prev => !prev);
+      }
+      // Ctrl+K / Cmd+K — focus search/chat input
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault();
+        document.querySelector('input[type="text"], textarea')?.focus();
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [setDarkMode]);
 
   // URL-based routing — support standalone access via /documents, /studio
   const getInitialPage = () => {
@@ -566,6 +598,8 @@ function App() {
     onAdminAccess: handleAdminAccess,
     isMobileMenuOpen,
     setIsMobileMenuOpen,
+    darkMode,
+    onToggleDarkMode: () => setDarkMode(prev => !prev),
   };
 
   // --- Page renders ---
