@@ -17,10 +17,6 @@ import os
 from typing import Optional, Dict, Any
 import uuid
 
-try:
-    from google.adk.tools import ToolContext
-except ImportError:
-    ToolContext = None  # Allow running without ADK for local/standalone mode
 from pypdf import PdfReader, PdfWriter
 from pypdf.generic import NameObject, TextStringObject
 

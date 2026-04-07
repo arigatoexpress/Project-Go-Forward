@@ -6,7 +6,7 @@ Pydantic models matching the database schema for Texas Home Outlet
 from datetime import date, datetime
 from decimal import Decimal
 from enum import Enum
-from typing import Optional, List
+from typing import Dict, List, Optional
 from pydantic import BaseModel, Field, field_validator
 import re
 import uuid
