@@ -133,7 +133,7 @@ function Section({ title, icon: Icon, children, open: initOpen = true, badge, he
   );
 }
 
-function Field({ label, name, value, onChange, type = 'text', placeholder, half, third, required, readOnly, icon: Icon }) {
+const Field = React.memo(function Field({ label, name, value, onChange, type = 'text', placeholder, half, third, required, readOnly, icon: Icon }) {
   const inputClasses = `
     w-full px-4 py-3 border-2 rounded-xl text-base transition-all
     focus:ring-4 focus:ring-blue-200 focus:border-blue-500 outline-none
@@ -163,7 +163,7 @@ function Field({ label, name, value, onChange, type = 'text', placeholder, half,
       </div>
     </div>
   );
-}
+});
 
 function Row({ children }) {
   return <div className="flex flex-wrap -mx-2">{children}</div>;
@@ -1646,7 +1646,8 @@ export default function DocumentCenter() {
     }
   }, []);
 
-  // Auto-save to localStorage
+  // Auto-save to localStorage — use ref for lastSaved to avoid re-render
+  const lastSavedRef = useRef(lastSaved);
   useEffect(() => {
     const timeout = setTimeout(() => {
       const draft = {
@@ -1656,24 +1657,35 @@ export default function DocumentCenter() {
         timestamp: new Date().toISOString()
       };
       localStorage.setItem('document_center_draft', JSON.stringify(draft));
-      setLastSaved(new Date());
-    }, 3000); // Save 3 seconds after last change
-    
+      // Use ref to avoid triggering a re-render during typing
+      const now = new Date();
+      lastSavedRef.current = now;
+      // Only update state (causing re-render) if NOT actively typing
+      // by debouncing the state update further
+      setTimeout(() => setLastSaved(now), 1000);
+    }, 5000); // Save 5 seconds after last change (was 3s)
+
     return () => clearTimeout(timeout);
   }, [form, selDocs, step]);
+
+  // Debounce timer ref for duplicate check
+  const dupCheckTimer = useRef(null);
 
   const chg = useCallback((n, v) => {
     setForm(p => ({ ...p, [n]: v }));
     setValidationErrors([]); // Clear errors on change
 
-    // Check for duplicate deals when buyer name changes
-    // Read from refs to avoid depending on form/deals (which change every keystroke)
+    // Debounce duplicate check — only run 500ms after user stops typing
+    // This prevents re-renders on every keystroke
     if (n === 'buyer_first_name' || n === 'buyer_last_name' || n === 'buyer_phone') {
-      const currentForm = formRef.current;
-      const firstName = n === 'buyer_first_name' ? v : currentForm.buyer_first_name;
-      const lastName = n === 'buyer_last_name' ? v : currentForm.buyer_last_name;
-      const phone = n === 'buyer_phone' ? v : currentForm.buyer_phone;
-      checkForDuplicates(firstName, lastName, phone);
+      if (dupCheckTimer.current) clearTimeout(dupCheckTimer.current);
+      dupCheckTimer.current = setTimeout(() => {
+        const currentForm = formRef.current;
+        const firstName = n === 'buyer_first_name' ? v : currentForm.buyer_first_name;
+        const lastName = n === 'buyer_last_name' ? v : currentForm.buyer_last_name;
+        const phone = n === 'buyer_phone' ? v : currentForm.buyer_phone;
+        checkForDuplicates(firstName, lastName, phone);
+      }, 500);
     }
   }, []); // stable — no dependencies that change on every keystroke
 
