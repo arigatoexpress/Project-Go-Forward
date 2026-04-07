@@ -3,7 +3,7 @@ AI PM Manager Routes - Linear-Inspired Project Management API
 Manages tasks, projects, and cycles across all repos
 """
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from typing import List, Optional
 from datetime import datetime, timedelta
 import uuid
