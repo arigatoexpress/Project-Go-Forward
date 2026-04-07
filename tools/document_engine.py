@@ -106,16 +106,18 @@ def generate_document(
     static = get_template_static_values(template_name)
     pdf_data.update(static)
 
-    # Generate output filename
+    # Generate output filename (sanitized to prevent path traversal)
     if not output_filename:
+        import re
         safe_name = template_name.replace(".pdf", "")
-        # Try multiple fields for a meaningful name
         buyer = (
             data.get("buyer_name")
             or data.get("buyer_city")
             or data.get("manufacturer")
             or "Doc"
-        ).replace(" ", "_")
+        )
+        # Strip everything except alphanumeric, spaces, hyphens
+        buyer = re.sub(r"[^a-zA-Z0-9\s\-]", "", buyer).replace(" ", "_")[:50]
         date_str = datetime.now().strftime("%Y%m%d")
         output_filename = f"{safe_name}_{buyer}_{date_str}.pdf"
 

@@ -187,14 +187,13 @@ app.add_middleware(
 
 # ─── Admin Auth Setup ───
 
-# Admin PIN hash — use env var in production, fallback to default PIN "4832"
-# Generate new hash with: python -c "import hashlib; print(hashlib.sha256(b'YOUR_PIN').hexdigest())"
-DEFAULT_ADMIN_PIN = "4832"
-_default_pin_hash = hashlib.sha256(DEFAULT_ADMIN_PIN.encode()).hexdigest()
-ADMIN_PIN_HASH = os.environ.get("ADMIN_PIN_HASH", _default_pin_hash)
-if not ADMIN_PIN_HASH:
-    logger.critical("ADMIN_PIN_HASH not configured. Admin auth will reject all requests.")
-    raise SystemExit("FATAL: ADMIN_PIN_HASH must be configured.")
+# Admin PIN hash — MUST be set via ADMIN_PIN_HASH env var in production.
+# Generate hash: python -c "import hashlib; print(hashlib.sha256(b'YOUR_PIN').hexdigest())"
+# If not set, falls back to a default for local dev only (NOT for production).
+_FALLBACK_PIN_HASH = hashlib.sha256(b"4832").hexdigest()  # Local dev only
+ADMIN_PIN_HASH = os.environ.get("ADMIN_PIN_HASH", _FALLBACK_PIN_HASH)
+if os.environ.get("K_SERVICE") and "ADMIN_PIN_HASH" not in os.environ:
+    logger.warning("ADMIN_PIN_HASH not set in Cloud Run — using fallback. Set a secure PIN hash.")
 
 # Warn loudly if email service is not configured (appointments/leads won't get confirmations)
 if not os.environ.get("RESEND_API_KEY") and not IS_LOCAL:
@@ -396,7 +395,8 @@ async def run_agent(request: Request):
         import traceback
         error_detail = f"{str(e)}\n{traceback.format_exc()}"
         struct_logger.error("Request failed", request_id=request_id, error=error_detail, duration_ms=duration_ms)
-        user_message = f"Error: {str(e)}" if not IS_LOCAL else f"Error: {str(e)}\n{traceback.format_exc()}"
+        # Never send stack traces to users — log server-side only
+        user_message = "Something went wrong. Please try again or report this issue."
         return {"error": user_message}
 
 
@@ -692,7 +692,7 @@ async def list_templates():
         struct_logger.error("Template listing failed", error=str(e))
         return {"error": "Failed to load templates. Please try again."}
 
-@app.get("/api/documents/templates/{template_name}/fields")
+@app.get("/api/documents/templates/{template_name}/fields", dependencies=[Depends(require_admin)])
 async def get_template_fields(template_name: str):
     """Get field definitions for a specific template (drives SmartForm)."""
     try:
@@ -704,7 +704,7 @@ async def get_template_fields(template_name: str):
         struct_logger.error("Template field lookup failed", error=str(e))
         return {"error": "Failed to load template fields. Please try again."}
 
-@app.post("/api/documents/generate")
+@app.post("/api/documents/generate", dependencies=[Depends(require_admin)])
 async def generate_document_endpoint(request: GenerateDocumentRequest):
     """Generate any mapped document template."""
     try:
@@ -724,7 +724,7 @@ async def generate_document_endpoint(request: GenerateDocumentRequest):
         struct_logger.error("Document generation failed", error=str(e))
         return {"success": False, "error": "Document generation failed. Please try again."}
 
-@app.post("/api/documents/generate-packet")
+@app.post("/api/documents/generate-packet", dependencies=[Depends(require_admin)])
 async def generate_packet_endpoint(request: GeneratePacketRequest):
     """Generate a closing packet (multiple merged PDFs)."""
     try:
@@ -746,7 +746,7 @@ async def generate_packet_endpoint(request: GeneratePacketRequest):
         struct_logger.error("Packet generation failed", error=str(e))
         return {"success": False, "error": "Packet generation failed. Please try again."}
 
-@app.post("/api/documents/extract-fields")
+@app.post("/api/documents/extract-fields", dependencies=[Depends(require_admin)])
 async def extract_fields_from_chat(request: Request):
     """Extract form field data from chat conversation history using AI."""
     try:
@@ -803,7 +803,7 @@ async def generate_batch_endpoint(request: Request):
 
 # --- Legacy Endpoint (Phase 1 backward compatibility) ---
 
-@app.post("/api/documents/sales-contract")
+@app.post("/api/documents/sales-contract", dependencies=[Depends(require_admin)])
 async def create_sales_contract(form_data: SalesContractForm):
     """Generate a Sales Contract PDF (legacy endpoint — use /api/documents/generate instead)."""
     try:
@@ -988,7 +988,7 @@ async def list_deals(status: str = None, salesrep: str = None, q: str = None, li
             buyer_name=q,
             limit=limit
         )
-        return {"success": True, "deals": deals, "count": len(deals)}
+        return {"success": True, "deals": [_strip_pii_from_deal(d) for d in deals], "count": len(deals)}
     except Exception as e:
         struct_logger.error("Deal listing failed", error=str(e))
         return {"success": False, "error": "Failed to load deals. Please try again."}
@@ -1015,14 +1015,21 @@ async def create_deal(request: Request):
         return {"success": False, "error": "Failed to create deal. Please try again."}
 
 
+def _strip_pii_from_deal(deal: dict) -> dict:
+    """Remove raw SSN from deal data before sending to frontend."""
+    if isinstance(deal, dict):
+        return {k: v for k, v in deal.items() if k not in ("buyer_ssn", "co_buyer_ssn")}
+    return deal
+
+
 @app.get("/api/deals/{deal_id}", dependencies=[Depends(require_admin)])
 async def get_deal(deal_id: str):
-    """Get deal details."""
+    """Get deal details (SSN stripped)."""
     try:
         deal = _deal_db.get_deal(deal_id)
         if not deal:
             return {"success": False, "error": "Deal not found"}
-        return {"success": True, "deal": deal}
+        return {"success": True, "deal": _strip_pii_from_deal(deal)}
     except Exception as e:
         struct_logger.error("Deal fetch failed", error=str(e))
         return {"success": False, "error": "Failed to load deal details. Please try again."}
@@ -2076,4 +2083,4 @@ if __name__ == "__main__":
 
 # AI PM Manager Routes (Linear-inspired)
 from pm_routes import router as pm_router
-app.include_router(pm_router)
+app.include_router(pm_router, dependencies=[Depends(require_admin)])

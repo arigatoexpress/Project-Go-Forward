@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "tho-app",
+      "runtimeExecutable": "/usr/local/bin/python3",
+      "runtimeArgs": ["main.py"],
+      "port": 8080
+    }
+  ]
+}
