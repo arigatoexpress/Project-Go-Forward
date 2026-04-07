@@ -4,7 +4,10 @@ Document Generation Tools for Texas Home Outlet.
 Generates professional PDFs for invoices, work orders, and customer communications.
 """
 
-from google.adk.tools import ToolContext
+try:
+    from google.adk.tools import ToolContext
+except ImportError:
+    ToolContext = None  # Allow running without ADK for local/standalone mode
 from typing import Optional
 from datetime import datetime
 import base64
@@ -14,7 +17,10 @@ import os
 from typing import Optional, Dict, Any
 import uuid
 
-from google.adk.tools import ToolContext
+try:
+    from google.adk.tools import ToolContext
+except ImportError:
+    ToolContext = None  # Allow running without ADK for local/standalone mode
 from pypdf import PdfReader, PdfWriter
 from pypdf.generic import NameObject, TextStringObject
 
