@@ -18,7 +18,7 @@ from typing import Optional, Dict, Any
 import uuid
 
 from pypdf import PdfReader, PdfWriter
-from pypdf.generic import NameObject, TextStringObject
+from pypdf.generic import ArrayObject, DecodedStreamObject, NameObject, TextStringObject
 
 from schemas.document_schemas import SalesContractForm
 
@@ -58,7 +58,10 @@ _logger = logging.getLogger(__name__)
 
 def fill_pdf_form(template_path: str, data_dict: Dict[str, Any], output_filename: str) -> str:
     """
-    Fills a PDF form with data. Fallback to summary page if not fillable.
+    Fills a PDF form with data. Supports XFA (Adobe LiveCycle) and standard AcroForm.
+
+    THO templates use XFA — we inject data into the XFA datasets XML stream.
+    Falls back to standard AcroForm field update, then to summary page.
     """
     _logger.info(f"fill_pdf_form called for {output_filename}")
     output_path = os.path.join(OUTPUT_DIR, output_filename)
@@ -66,37 +69,112 @@ def fill_pdf_form(template_path: str, data_dict: Dict[str, Any], output_filename
     try:
         reader = PdfReader(template_path)
         writer = PdfWriter()
+        writer.append(reader)
 
-        # Check if form exists (naive check)
-        if "/AcroForm" not in reader.trailer["/Root"]:
-            _logger.info("No AcroForm found, using fallback summary PDF")
+        root = reader.trailer.get("/Root", {})
+        acroform = root.get("/AcroForm") if root else None
+
+        if not acroform:
             raise ValueError("No AcroForm found")
 
-        # Copy all pages
-        for page in reader.pages:
-            writer.add_page(page)
+        filled = False
 
-        # Update fields
-        for page in writer.pages:
-            writer.update_page_form_field_values(
-                page, data_dict, auto_regenerate=False
-            )
+        # Method 1: XFA form filling (THO templates use this)
+        xfa = acroform.get("/XFA")
+        if xfa and isinstance(xfa, ArrayObject):
+            filled = _fill_xfa(writer, xfa, data_dict)
 
-        with open(output_path, "wb") as output_stream:
-            writer.write(output_stream)
+        # Method 2: Standard AcroForm field update (fallback)
+        if not filled:
+            try:
+                for page in writer.pages:
+                    writer.update_page_form_field_values(
+                        page, data_dict, auto_regenerate=False
+                    )
+                filled = True
+            except Exception:
+                pass
 
-        _logger.info("fill_pdf_form success (PDF filled)")
-        return output_path
+        if filled:
+            with open(output_path, "wb") as output_stream:
+                writer.write(output_stream)
+            _logger.info("fill_pdf_form success (PDF filled)")
+            return output_path
+
+        raise ValueError("Could not fill form with any method")
 
     except Exception as e:
         _logger.warning(f"fill_pdf_form failed: {e}. Generating summary.")
-        # Fallback
         try:
             create_summary_pdf(data_dict, output_path)
             return output_path
         except Exception as e2:
-             _logger.error(f"Summary generation failed too: {e2}")
-             raise e2
+            _logger.error(f"Summary generation failed too: {e2}")
+            raise e2
+
+
+def _fill_xfa(writer: PdfWriter, xfa: ArrayObject, data_dict: Dict[str, Any]) -> bool:
+    """Fill XFA form by injecting data into the datasets XML stream.
+
+    XFA PDFs (created by Adobe LiveCycle) store form data as XML.
+    We rebuild the datasets XML with our field values.
+    """
+    try:
+        # Find the datasets stream in the XFA array
+        datasets_idx = None
+        for i in range(0, len(xfa), 2):
+            if str(xfa[i]) == "datasets":
+                datasets_idx = i + 1
+                break
+
+        if datasets_idx is None:
+            return False
+
+        # Build new datasets XML with filled data
+        xml_parts = [
+            '<xfa:datasets xmlns:xfa="http://www.xfa.org/schema/xfa-data/1.0/">',
+            '<xfa:data><topmostSubform>',
+        ]
+
+        for field_name, value in data_dict.items():
+            # Strip XFA path prefixes — use just the field name
+            clean_name = field_name
+            if "." in clean_name:
+                # Extract the actual field name from paths like
+                # topmostSubform[0].Page1[0].Seller_Name[0]
+                clean_name = clean_name.split(".")[-1]
+                # Remove array indices like [0]
+                if "[" in clean_name:
+                    clean_name = clean_name.split("[")[0]
+
+            if value is not None and str(value).strip():
+                # Escape XML special chars
+                safe_val = str(value).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                xml_parts.append(f"<{clean_name}>{safe_val}</{clean_name}>")
+            else:
+                xml_parts.append(f"<{clean_name}/>")
+
+        xml_parts.append("</topmostSubform></xfa:data></xfa:datasets>")
+        new_xml = "".join(xml_parts)
+
+        # Replace the datasets stream in the writer's AcroForm
+        writer_acroform = writer._root_object.get("/AcroForm")
+        if writer_acroform:
+            writer_xfa = writer_acroform.get("/XFA")
+            if writer_xfa and isinstance(writer_xfa, ArrayObject):
+                for i in range(0, len(writer_xfa), 2):
+                    if str(writer_xfa[i]) == "datasets":
+                        new_stream = DecodedStreamObject()
+                        new_stream.set_data(new_xml.encode("utf-8"))
+                        writer_xfa[i + 1] = new_stream
+                        _logger.info(f"XFA datasets replaced with {len(data_dict)} fields")
+                        return True
+
+        return False
+
+    except Exception as e:
+        _logger.warning(f"XFA fill failed: {e}")
+        return False
 
 def generate_sales_contract_pdf(data: SalesContractForm) -> dict:
     """
