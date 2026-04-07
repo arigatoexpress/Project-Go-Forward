@@ -1902,6 +1902,123 @@ async def customer_stats():
         return _json.load(f)
 
 
+# ─── Customer CRUD (create, update) ──────────────────────────────────────────
+
+def _load_customers():
+    """Load customer records from JSON file."""
+    import json as _json
+    path = os.path.join(os.path.dirname(__file__), "data", "migrated_customers.json")
+    if not os.path.exists(path):
+        return []
+    with open(path) as f:
+        return _json.load(f)
+
+
+def _save_customers(customers):
+    """Save customer records back to JSON file."""
+    import json as _json
+    path = os.path.join(os.path.dirname(__file__), "data", "migrated_customers.json")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as f:
+        _json.dump(customers, f, indent=2)
+
+
+@app.post("/api/customers", dependencies=[Depends(require_admin)])
+async def create_customer(request: Request):
+    """Create a new customer record."""
+    data = await request.json()
+
+    if not data.get("full_name") or len(data["full_name"].strip()) < 2:
+        raise HTTPException(400, "full_name is required (min 2 chars)")
+
+    import uuid as _uuid
+    customer = {
+        "id": str(_uuid.uuid4()),
+        "legacy_id": "",
+        "legacy_source": "manual",
+        "full_name": data["full_name"].strip(),
+        "email": (data.get("email") or "").strip().lower() or None,
+        "phone": (data.get("phone") or "").strip() or None,
+        "status": data.get("status", "LEAD"),
+        "address": (data.get("address") or "").strip() or None,
+        "city": (data.get("city") or "").strip() or None,
+        "state": (data.get("state") or "TX").strip(),
+        "zip_code": (data.get("zip_code") or "").strip() or None,
+        "employer": (data.get("employer") or "").strip() or None,
+        "occupation": (data.get("occupation") or "").strip() or None,
+        "salesrep": (data.get("salesrep") or "").strip() or None,
+        "notes": (data.get("notes") or "").strip() or None,
+        "ssn_masked": "",
+        "co_buyer": data.get("co_buyer"),
+        "references": data.get("references", []),
+        "created_at": datetime.utcnow().isoformat(),
+        "updated_at": datetime.utcnow().isoformat(),
+    }
+
+    customers = _load_customers()
+    customers.append(customer)
+    _save_customers(customers)
+
+    return {"success": True, "customer": customer, "total_customers": len(customers)}
+
+
+@app.put("/api/customers/{customer_id}", dependencies=[Depends(require_admin)])
+async def update_customer(customer_id: str, request: Request):
+    """Update an existing customer record."""
+    data = await request.json()
+    customers = _load_customers()
+
+    for i, c in enumerate(customers):
+        if c["id"] == customer_id or c.get("legacy_id") == customer_id:
+            # Update only provided fields
+            updatable = ["full_name", "email", "phone", "status", "address", "city",
+                         "state", "zip_code", "employer", "occupation", "salesrep",
+                         "notes", "co_buyer", "references"]
+            for field in updatable:
+                if field in data:
+                    customers[i][field] = data[field]
+            customers[i]["updated_at"] = datetime.utcnow().isoformat()
+            _save_customers(customers)
+            return {"success": True, "customer": customers[i]}
+
+    raise HTTPException(404, "Customer not found")
+
+
+@app.get("/api/customers/count", dependencies=[Depends(require_admin)])
+async def customer_count():
+    """Get total customer count."""
+    customers = _load_customers()
+    statuses = {}
+    for c in customers:
+        s = c.get("status", "UNKNOWN")
+        statuses[s] = statuses.get(s, 0) + 1
+    return {"total": len(customers), "by_status": statuses}
+
+
+# ─── Document History ────────────────────────────────────────────────────────
+
+@app.get("/api/documents/history", dependencies=[Depends(require_admin)])
+async def document_history():
+    """List all generated documents with timestamps."""
+    docs_dir = os.path.join(os.path.dirname(__file__), "data", "generated_docs")
+    if not os.path.exists(docs_dir):
+        return {"documents": [], "total": 0}
+
+    docs = []
+    for f in sorted(os.listdir(docs_dir), reverse=True):
+        if f.endswith(".pdf"):
+            path = os.path.join(docs_dir, f)
+            stat = os.stat(path)
+            docs.append({
+                "filename": f,
+                "size_bytes": stat.st_size,
+                "created_at": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                "download_url": f"/api/documents/download/{f}",
+            })
+
+    return {"documents": docs[:50], "total": len(docs)}
+
+
 # Serve Frontend — Must be last to avoid catching API routes
 app.mount("/assets", StaticFiles(directory="frontend/dist/assets"), name="assets")
 
