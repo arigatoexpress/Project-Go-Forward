@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   FileText, Download, CheckCircle, AlertCircle, Search,
   Loader2, ChevronRight, ChevronDown, Home, Plus, X,
@@ -1567,6 +1567,12 @@ export default function DocumentCenter() {
   const [showDuplicateWarning, setShowDuplicateWarning] = useState(null);
   const [showTradeInCalculator, setShowTradeInCalculator] = useState(false);
 
+  // Refs to avoid stale closures in useCallback (prevents re-render on every keystroke)
+  const formRef = useRef(form);
+  formRef.current = form;
+  const dealsRef = useRef(deals);
+  dealsRef.current = deals;
+
   // Load initial data
   useEffect(() => {
     adminFetch('/api/documents/templates')
@@ -1626,30 +1632,34 @@ export default function DocumentCenter() {
   const chg = useCallback((n, v) => {
     setForm(p => ({ ...p, [n]: v }));
     setValidationErrors([]); // Clear errors on change
-    
+
     // Check for duplicate deals when buyer name changes
+    // Read from refs to avoid depending on form/deals (which change every keystroke)
     if (n === 'buyer_first_name' || n === 'buyer_last_name' || n === 'buyer_phone') {
-      checkForDuplicates(n === 'buyer_first_name' ? v : form.buyer_first_name, 
-                         n === 'buyer_last_name' ? v : form.buyer_last_name,
-                         n === 'buyer_phone' ? v : form.buyer_phone);
+      const currentForm = formRef.current;
+      const firstName = n === 'buyer_first_name' ? v : currentForm.buyer_first_name;
+      const lastName = n === 'buyer_last_name' ? v : currentForm.buyer_last_name;
+      const phone = n === 'buyer_phone' ? v : currentForm.buyer_phone;
+      checkForDuplicates(firstName, lastName, phone);
     }
-  }, [form, deals]);
-  
-  // Check for duplicate deals
-  const checkForDuplicates = (firstName, lastName, phone) => {
+  }, []); // stable — no dependencies that change on every keystroke
+
+  // Check for duplicate deals (reads deals from ref for stability)
+  const checkForDuplicates = useCallback((firstName, lastName, phone) => {
     if (!firstName && !lastName && !phone) {
       setShowDuplicateWarning(null);
       return;
     }
-    
-    const matches = deals.filter(d => {
-      const nameMatch = firstName && lastName && 
+
+    const currentDeals = dealsRef.current;
+    const matches = currentDeals.filter(d => {
+      const nameMatch = firstName && lastName &&
         d.buyer_first_name?.toLowerCase() === firstName.toLowerCase() &&
         d.buyer_last_name?.toLowerCase() === lastName.toLowerCase();
       const phoneMatch = phone && d.buyer_phone === phone.replace(/\D/g, '');
       return nameMatch || phoneMatch;
     });
-    
+
     if (matches.length > 0) {
       setShowDuplicateWarning({
         count: matches.length,
@@ -1658,7 +1668,7 @@ export default function DocumentCenter() {
     } else {
       setShowDuplicateWarning(null);
     }
-  };
+  }, []);
   
   // Clear draft
   const clearDraft = () => {
