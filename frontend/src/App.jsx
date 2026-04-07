@@ -7,6 +7,7 @@ import QuickActions from './components/QuickActions';
 import ComparisonDrawer from './components/ComparisonDrawer';
 import { useToast } from './components/Toast';
 import { useNetworkStatus } from './components/NetworkStatus';
+import ReportIssue from './components/ReportIssue';
 import { v4 as uuidv4 } from 'uuid';
 import {
   BUSINESS_NAME, BUSINESS_PHONE, BUSINESS_PHONE_RAW, BUSINESS_ADDRESS,
@@ -870,6 +871,7 @@ function App() {
       </main>
 
       <Footer navigateTo={navigateTo} adminAuthed={adminAuthed} onAdminAccess={handleAdminAccess} />
+      <ReportIssue />
     </div>
   );
 }

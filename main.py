@@ -1995,6 +1995,32 @@ async def customer_count():
     return {"total": len(customers), "by_status": statuses}
 
 
+# ─── Feedback / Report Issue ──────────────────────────────────────────────────
+
+@app.post("/api/feedback")
+async def submit_feedback(request: Request):
+    """Receive issue reports from the Report Issue button."""
+    data = await request.json()
+    feedback = {
+        "timestamp": datetime.utcnow().isoformat(),
+        "description": data.get("description", ""),
+        "page": data.get("page", ""),
+        "url": data.get("url", ""),
+        "userAgent": data.get("userAgent", ""),
+        "screenSize": data.get("screenSize", ""),
+    }
+
+    # Save to feedback log
+    import json as _json
+    feedback_path = os.path.join(os.path.dirname(__file__), "data", "feedback.jsonl")
+    os.makedirs(os.path.dirname(feedback_path), exist_ok=True)
+    with open(feedback_path, "a") as f:
+        f.write(_json.dumps(feedback) + "\n")
+
+    logger.info(f"Feedback received: {feedback['description'][:100]}")
+    return {"success": True, "message": "Thank you for your feedback!"}
+
+
 # ─── Document History ────────────────────────────────────────────────────────
 
 @app.get("/api/documents/history", dependencies=[Depends(require_admin)])

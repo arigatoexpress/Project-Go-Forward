@@ -555,8 +555,41 @@ function Step1({ data, onChange, deals, dealsLoading, onLoadDeal, onNext, valida
         </Row>
       </Section>
 
-      {/* Next Button */}
-      <div className="flex justify-end pt-4">
+      {/* Save + Next Buttons */}
+      <div className="flex justify-between items-center pt-4 gap-4">
+        {canProceed && (
+          <button
+            onClick={async () => {
+              try {
+                const token = sessionStorage.getItem('tho_admin_token');
+                const name = `${data.buyer_first_name} ${data.buyer_last_name}`.trim();
+                const res = await fetch('/api/customers', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json', ...(token ? { 'Authorization': `Bearer ${token}` } : {}) },
+                  body: JSON.stringify({
+                    full_name: name,
+                    email: data.buyer_email || null,
+                    phone: data.buyer_phone || null,
+                    address: data.mailing_address || null,
+                    city: data.mailing_city || null,
+                    state: data.mailing_state || 'TX',
+                    zip_code: data.mailing_zip || null,
+                    employer: data.employer_name || null,
+                    occupation: data.occupation || null,
+                    salesrep: data.salesrep || null,
+                  }),
+                });
+                if (res.ok) {
+                  const result = await res.json();
+                  alert(`Customer "${name}" saved! (${result.total_customers} total records)`);
+                }
+              } catch (e) { console.error('Save customer error:', e); }
+            }}
+            className="flex items-center gap-2 px-5 py-3 text-sm font-medium text-green-700 bg-green-50 border border-green-300 rounded-xl hover:bg-green-100 transition-colors"
+          >
+            <Check size={16} /> Save as New Customer
+          </button>
+        )}
         <BigButton
           onClick={onNext}
           disabled={!canProceed}
