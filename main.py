@@ -681,7 +681,7 @@ from tools.document_engine import (
 
 # --- Phase 2: Generic Document Engine Endpoints ---
 
-@app.get("/api/documents/templates")
+@app.get("/api/documents/templates", dependencies=[Depends(require_admin)])
 async def list_templates():
     """List all available document templates with metadata."""
     try:
@@ -820,7 +820,7 @@ async def create_sales_contract(form_data: SalesContractForm):
         struct_logger.error("Document generation failed", error=str(e))
         return {"success": False, "error": "Document generation failed. Please try again."}
 
-@app.get("/api/documents/download/{filename}")
+@app.get("/api/documents/download/{filename}", dependencies=[Depends(require_admin)])
 async def download_document(filename: str):
     """Download a generated document."""
     safe_filename = os.path.basename(filename)
@@ -2001,13 +2001,24 @@ async def customer_count():
 async def submit_feedback(request: Request):
     """Receive issue reports from the Report Issue button."""
     data = await request.json()
+
+    # Input validation — prevent abuse
+    description = (data.get("description") or "")[:2000]  # Max 2000 chars
+    if not description.strip():
+        raise HTTPException(400, "Description is required")
+
+    # Sanitize — strip HTML tags from all fields
+    import re
+    def sanitize(s: str) -> str:
+        return re.sub(r'<[^>]+>', '', s)[:500]
+
     feedback = {
         "timestamp": datetime.utcnow().isoformat(),
-        "description": data.get("description", ""),
-        "page": data.get("page", ""),
-        "url": data.get("url", ""),
-        "userAgent": data.get("userAgent", ""),
-        "screenSize": data.get("screenSize", ""),
+        "description": sanitize(description),
+        "page": sanitize(data.get("page") or "")[:100],
+        "url": sanitize(data.get("url") or "")[:200],
+        "userAgent": sanitize(data.get("userAgent") or "")[:300],
+        "screenSize": sanitize(data.get("screenSize") or "")[:20],
     }
 
     # Save to feedback log
