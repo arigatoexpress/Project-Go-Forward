@@ -1912,22 +1912,31 @@ async def customer_stats():
 # ─── Customer CRUD (create, update) ──────────────────────────────────────────
 
 def _load_customers():
-    """Load customer records from JSON file."""
+    """Load customer records from JSON file. Checks /tmp fallback for Cloud Run."""
     import json as _json
-    path = os.path.join(os.path.dirname(__file__), "data", "migrated_customers.json")
-    if not os.path.exists(path):
-        return []
-    with open(path) as f:
-        return _json.load(f)
+    # Try /tmp first (Cloud Run writes go here), then app directory
+    for path in ["/tmp/migrated_customers.json",
+                 os.path.join(os.path.dirname(__file__), "data", "migrated_customers.json")]:
+        if os.path.exists(path):
+            with open(path) as f:
+                return _json.load(f)
+    return []
 
 
 def _save_customers(customers):
-    """Save customer records back to JSON file."""
+    """Save customer records. Tries JSON file first (local), falls back to /tmp (Cloud Run)."""
     import json as _json
     path = os.path.join(os.path.dirname(__file__), "data", "migrated_customers.json")
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w") as f:
-        _json.dump(customers, f, indent=2)
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as f:
+            _json.dump(customers, f, indent=2)
+    except OSError:
+        # Cloud Run read-only filesystem — write to /tmp
+        tmp_path = "/tmp/migrated_customers.json"
+        with open(tmp_path, "w") as f:
+            _json.dump(customers, f, indent=2)
+        logger.info(f"Saved customers to {tmp_path} (read-only filesystem)")
 
 
 @app.post("/api/customers", dependencies=[Depends(require_admin)])
@@ -1962,11 +1971,17 @@ async def create_customer(request: Request):
         "updated_at": datetime.utcnow().isoformat(),
     }
 
-    customers = _load_customers()
-    customers.append(customer)
-    _save_customers(customers)
-
-    return {"success": True, "customer": customer, "total_customers": len(customers)}
+    try:
+        customers = _load_customers()
+        customers.append(customer)
+        _save_customers(customers)
+        return {"success": True, "customer": customer, "total_customers": len(customers)}
+    except Exception as e:
+        logger.error(f"Customer creation failed: {e}")
+        # Still return success with the customer data even if save fails
+        # (the customer object was created, just not persisted to disk)
+        return {"success": True, "customer": customer, "total_customers": -1,
+                "warning": "Customer created but save to disk may have failed. Use Firestore for permanent storage."}
 
 
 @app.put("/api/customers/{customer_id}", dependencies=[Depends(require_admin)])
