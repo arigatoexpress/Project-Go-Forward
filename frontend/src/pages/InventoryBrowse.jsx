@@ -335,8 +335,8 @@ export default function InventoryBrowse({ onAskTex, onBack, onCreateAd }) {
       </div>
 
       {/* Toolbar */}
-      <div className="tho-browse-toolbar">
-        <div className="tho-browse-toolbar-left">
+      <div className="tho-browse-toolbar" style={{display:'flex', flexDirection:'column', alignItems:'center', gap:'0.75rem', padding:'1rem 1rem 0.5rem'}}>
+        <div className="tho-browse-toolbar-left" style={{display:'flex', alignItems:'center', gap:'0.75rem', justifyContent:'center', flexWrap:'wrap'}}>
           <span className="tho-browse-count">
             {sortedHomes.length} home{sortedHomes.length !== 1 ? 's' : ''}
           </span>
@@ -358,7 +358,7 @@ export default function InventoryBrowse({ onAskTex, onBack, onCreateAd }) {
           </div>
         </div>
 
-        <div className="tho-browse-toolbar-right">
+        <div className="tho-browse-toolbar-right" style={{display:'flex', alignItems:'center', gap:'0.5rem', justifyContent:'center'}}>
           {/* Sort dropdown */}
           <div className="tho-sort-wrap">
             <ArrowUpDown size={14} />
