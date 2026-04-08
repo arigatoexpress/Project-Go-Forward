@@ -2059,14 +2059,13 @@ async def submit_feedback(request: Request):
 @app.get("/api/documents/history", dependencies=[Depends(require_admin)])
 async def document_history():
     """List all generated documents with timestamps."""
-    docs_dir = os.path.join(os.path.dirname(__file__), "data", "generated_docs")
-    if not os.path.exists(docs_dir):
+    if not os.path.exists(OUTPUT_DIR):
         return {"documents": [], "total": 0}
 
     docs = []
-    for f in sorted(os.listdir(docs_dir), reverse=True):
+    for f in sorted(os.listdir(OUTPUT_DIR), reverse=True):
         if f.endswith(".pdf"):
-            path = os.path.join(docs_dir, f)
+            path = os.path.join(OUTPUT_DIR, f)
             stat = os.stat(path)
             docs.append({
                 "filename": f,

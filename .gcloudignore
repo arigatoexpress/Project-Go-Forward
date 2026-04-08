@@ -1,0 +1,24 @@
+# .gcloudignore — controls what gcloud uploads to Cloud Build
+# Without this file, gcloud falls back to .gitignore which excludes tho_documents/
+
+.git
+.github
+.env
+.env.*
+!.env.example
+__pycache__
+*.pyc
+.pytest_cache
+.coverage
+.venv
+venv
+node_modules
+tests
+*.log
+*.md
+!CLAUDE.md
+data/generated_docs/*
+data/generated_ads/*
+
+# NOTE: tho_documents/ is NOT excluded here — it must be in the Docker image
+# for document generation to work on Cloud Run
