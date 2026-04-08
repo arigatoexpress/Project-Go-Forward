@@ -133,7 +133,18 @@ function Section({ title, icon: Icon, children, open: initOpen = true, badge, he
   );
 }
 
-const Field = React.memo(function Field({ label, name, value, onChange, type = 'text', placeholder, half, third, required, readOnly, icon: Icon }) {
+/**
+ * Field — uses uncontrolled input (defaultValue) to ELIMINATE focus loss.
+ *
+ * React controlled inputs (value={state}) re-render on every keystroke,
+ * which causes focus loss when parent state changes. This component uses
+ * defaultValue + onChange → parent ref update (no state, no re-render).
+ *
+ * The input DOM element owns its own value. React never touches it during typing.
+ * We use a key={name + '-' + resetKey} to force re-mount only when loading a customer.
+ */
+const Field = React.memo(function Field({ label, name, value, onChange, type = 'text', placeholder, half, third, required, readOnly, icon: Icon, resetKey }) {
+  const inputRef = React.useRef(null);
   const inputClasses = `
     w-full px-4 py-3 border-2 rounded-xl text-base transition-all
     focus:ring-4 focus:ring-blue-200 focus:border-blue-500 outline-none
@@ -151,10 +162,12 @@ const Field = React.memo(function Field({ label, name, value, onChange, type = '
       <div className="relative">
         {Icon && <Icon size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />}
         <input
+          key={`${name}-${resetKey || 0}`}
+          ref={inputRef}
           type={type === 'ssn' ? 'password' : type === 'currency' ? 'text' : type}
           inputMode={type === 'currency' ? 'decimal' : type === 'phone' ? 'tel' : undefined}
           name={name}
-          value={value || ''}
+          defaultValue={value || ''}
           onChange={e => onChange(name, e.target.value)}
           placeholder={placeholder}
           readOnly={readOnly}
@@ -284,7 +297,7 @@ function ValidationErrors({ errors }) {
 
 /* ─── Step 1: Customer Info ──────────────────────────────── */
 
-function Step1({ data, onChange, deals, dealsLoading, onLoadDeal, onNext, validationErrors, duplicateWarning, onViewDuplicate, onOpenTradeInCalculator }) {
+function Step1({ data, onChange, resetKey, deals, dealsLoading, onLoadDeal, onNext, validationErrors, duplicateWarning, onViewDuplicate, onOpenTradeInCalculator }) {
   const [q, setQ] = useState('');
   const [showPicker, setShowPicker] = useState(false);
 
@@ -503,17 +516,17 @@ function Step1({ data, onChange, deals, dealsLoading, onLoadDeal, onNext, valida
       {/* Buyer Information */}
       <Section title="Buyer Information" icon={User} helpText="Enter the primary buyer's personal details">
         <Row>
-          <Field label="First Name" name="buyer_first_name" value={data.buyer_first_name} onChange={c} half required icon={User} />
-          <Field label="Last Name" name="buyer_last_name" value={data.buyer_last_name} onChange={c} half required icon={User} />
+          <Field label="First Name" name="buyer_first_name" value={data.buyer_first_name} onChange={c} resetKey={resetKey} half required icon={User} />
+          <Field label="Last Name" name="buyer_last_name" value={data.buyer_last_name} onChange={c} resetKey={resetKey} half required icon={User} />
         </Row>
         <Row>
-          <Field label="Phone Number" name="buyer_phone" value={data.buyer_phone} onChange={c} half type="phone" icon={Phone} />
-          <Field label="Email Address" name="buyer_email" value={data.buyer_email} onChange={c} half type="email" icon={Mail} />
+          <Field label="Phone Number" name="buyer_phone" value={data.buyer_phone} onChange={c} resetKey={resetKey} half type="phone" icon={Phone} />
+          <Field label="Email Address" name="buyer_email" value={data.buyer_email} onChange={c} resetKey={resetKey} half type="email" icon={Mail} />
         </Row>
         <Row>
-          <Field label="Social Security #" name="buyer_ssn" value={data.buyer_ssn} onChange={c} third type="ssn" icon={Hash} />
-          <Field label="Date of Birth" name="buyer_dob" value={data.buyer_dob} onChange={c} third type="date" icon={Calendar} />
-          <Field label="Marital Status" name="buyer_marital_status" value={data.buyer_marital_status} onChange={c} third />
+          <Field label="Social Security #" name="buyer_ssn" value={data.buyer_ssn} onChange={c} resetKey={resetKey} third type="ssn" icon={Hash} />
+          <Field label="Date of Birth" name="buyer_dob" value={data.buyer_dob} onChange={c} resetKey={resetKey} third type="date" icon={Calendar} />
+          <Field label="Marital Status" name="buyer_marital_status" value={data.buyer_marital_status} onChange={c} resetKey={resetKey} third />
         </Row>
       </Section>
 
@@ -521,37 +534,37 @@ function Step1({ data, onChange, deals, dealsLoading, onLoadDeal, onNext, valida
       <Section title="Co-Buyer (Optional)" icon={User} open={false}
         badge={data.co_buyer_first_name ? <Badge color="green">Added</Badge> : null}>
         <Row>
-          <Field label="First Name" name="co_buyer_first_name" value={data.co_buyer_first_name} onChange={c} half icon={User} />
-          <Field label="Last Name" name="co_buyer_last_name" value={data.co_buyer_last_name} onChange={c} half icon={User} />
+          <Field label="First Name" name="co_buyer_first_name" value={data.co_buyer_first_name} onChange={c} resetKey={resetKey} half icon={User} />
+          <Field label="Last Name" name="co_buyer_last_name" value={data.co_buyer_last_name} onChange={c} resetKey={resetKey} half icon={User} />
         </Row>
         <Row>
-          <Field label="Phone" name="co_buyer_phone" value={data.co_buyer_phone} onChange={c} third type="phone" icon={Phone} />
-          <Field label="SSN" name="co_buyer_ssn" value={data.co_buyer_ssn} onChange={c} third type="ssn" icon={Hash} />
-          <Field label="Marital Status" name="co_buyer_marital_status" value={data.co_buyer_marital_status} onChange={c} third />
+          <Field label="Phone" name="co_buyer_phone" value={data.co_buyer_phone} onChange={c} resetKey={resetKey} third type="phone" icon={Phone} />
+          <Field label="SSN" name="co_buyer_ssn" value={data.co_buyer_ssn} onChange={c} resetKey={resetKey} third type="ssn" icon={Hash} />
+          <Field label="Marital Status" name="co_buyer_marital_status" value={data.co_buyer_marital_status} onChange={c} resetKey={resetKey} third />
         </Row>
       </Section>
 
       {/* Mailing Address */}
       <Section title="Mailing Address" icon={MapPin} open={false}>
         <Row>
-          <Field label="Street Address" name="mailing_address" value={data.mailing_address} onChange={c} icon={MapPinned} />
+          <Field label="Street Address" name="mailing_address" value={data.mailing_address} onChange={c} resetKey={resetKey} icon={MapPinned} />
         </Row>
         <Row>
-          <Field label="City" name="mailing_city" value={data.mailing_city} onChange={c} third />
-          <Field label="State" name="mailing_state" value={data.mailing_state} onChange={c} third />
-          <Field label="ZIP Code" name="mailing_zip" value={data.mailing_zip} onChange={c} third />
+          <Field label="City" name="mailing_city" value={data.mailing_city} onChange={c} resetKey={resetKey} third />
+          <Field label="State" name="mailing_state" value={data.mailing_state} onChange={c} resetKey={resetKey} third />
+          <Field label="ZIP Code" name="mailing_zip" value={data.mailing_zip} onChange={c} resetKey={resetKey} third />
         </Row>
       </Section>
 
       {/* Employment */}
       <Section title="Employment Information" icon={Briefcase} open={false}>
         <Row>
-          <Field label="Employer Name" name="employer_name" value={data.employer_name} onChange={c} half icon={Building2} />
-          <Field label="Occupation" name="occupation" value={data.occupation} onChange={c} half />
+          <Field label="Employer Name" name="employer_name" value={data.employer_name} onChange={c} resetKey={resetKey} half icon={Building2} />
+          <Field label="Occupation" name="occupation" value={data.occupation} onChange={c} resetKey={resetKey} half />
         </Row>
         <Row>
-          <Field label="Length of Employment" name="occupation_length" value={data.occupation_length} onChange={c} half />
-          <Field label="Work Phone" name="work_phone" value={data.work_phone} onChange={c} half type="phone" icon={Phone} />
+          <Field label="Length of Employment" name="occupation_length" value={data.occupation_length} onChange={c} resetKey={resetKey} half />
+          <Field label="Work Phone" name="work_phone" value={data.work_phone} onChange={c} resetKey={resetKey} half type="phone" icon={Phone} />
         </Row>
       </Section>
 
@@ -878,41 +891,41 @@ function Step2({ data, onChange, inventory, inventoryLoading, onNext, onBack, va
         )}
 
         <Row>
-          <Field label="Manufacturer" name="manufacturer" value={data.manufacturer} onChange={c} half required icon={Building2} />
-          <Field label="Model Name" name="model" value={data.model} onChange={c} half required icon={Home} />
+          <Field label="Manufacturer" name="manufacturer" value={data.manufacturer} onChange={c} resetKey={resetKey} half required icon={Building2} />
+          <Field label="Model Name" name="model" value={data.model} onChange={c} resetKey={resetKey} half required icon={Home} />
         </Row>
         <Row>
-          <Field label="Year" name="year" value={data.year} onChange={c} third />
-          <Field label="Serial # 1" name="serial_number_1" value={data.serial_number_1} onChange={c} third required icon={Hash} />
-          <Field label="Serial # 2" name="serial_number_2" value={data.serial_number_2} onChange={c} third icon={Hash} />
+          <Field label="Year" name="year" value={data.year} onChange={c} resetKey={resetKey} third />
+          <Field label="Serial # 1" name="serial_number_1" value={data.serial_number_1} onChange={c} resetKey={resetKey} third required icon={Hash} />
+          <Field label="Serial # 2" name="serial_number_2" value={data.serial_number_2} onChange={c} resetKey={resetKey} third icon={Hash} />
         </Row>
         <Row>
-          <Field label="Label # 1" name="label_number_1" value={data.label_number_1} onChange={c} third />
-          <Field label="Label # 2" name="label_number_2" value={data.label_number_2} onChange={c} third />
-          <Field label="# of Sections" name="no_of_sections" value={data.no_of_sections} onChange={c} third />
+          <Field label="Label # 1" name="label_number_1" value={data.label_number_1} onChange={c} resetKey={resetKey} third />
+          <Field label="Label # 2" name="label_number_2" value={data.label_number_2} onChange={c} resetKey={resetKey} third />
+          <Field label="# of Sections" name="no_of_sections" value={data.no_of_sections} onChange={c} resetKey={resetKey} third />
         </Row>
       </Card>
 
       {/* Installation Site */}
       <Section title="Installation Site Address" icon={MapPin}>
         <Row>
-          <Field label="Street Address" name="buyer_address" value={data.buyer_address} onChange={c} required icon={MapPinned} />
+          <Field label="Street Address" name="buyer_address" value={data.buyer_address} onChange={c} resetKey={resetKey} required icon={MapPinned} />
         </Row>
         <Row>
-          <Field label="City" name="buyer_city" value={data.buyer_city} onChange={c} third required />
-          <Field label="County" name="buyer_county" value={data.buyer_county} onChange={c} third />
-          <Field label="State" name="buyer_state" value={data.buyer_state} onChange={c} third />
+          <Field label="City" name="buyer_city" value={data.buyer_city} onChange={c} resetKey={resetKey} third required />
+          <Field label="County" name="buyer_county" value={data.buyer_county} onChange={c} resetKey={resetKey} third />
+          <Field label="State" name="buyer_state" value={data.buyer_state} onChange={c} resetKey={resetKey} third />
         </Row>
         <Row>
-          <Field label="ZIP Code" name="buyer_zip" value={data.buyer_zip} onChange={c} half />
+          <Field label="ZIP Code" name="buyer_zip" value={data.buyer_zip} onChange={c} resetKey={resetKey} half />
         </Row>
       </Section>
 
       {/* Pricing */}
       <Section title="Pricing Information" icon={BadgeDollarSign}>
         <Row>
-          <Field label="Sales Price" name="sales_price" value={data.sales_price} onChange={c} third type="currency" required icon={DollarSign} />
-          <Field label="Down Payment" name="down_payment" value={data.down_payment} onChange={c} third type="currency" icon={DollarSign} />
+          <Field label="Sales Price" name="sales_price" value={data.sales_price} onChange={c} resetKey={resetKey} third type="currency" required icon={DollarSign} />
+          <Field label="Down Payment" name="down_payment" value={data.down_payment} onChange={c} resetKey={resetKey} third type="currency" icon={DollarSign} />
           <Field
             label="Unpaid Balance"
             name="_ub"
@@ -928,17 +941,17 @@ function Step2({ data, onChange, inventory, inventoryLoading, onNext, onBack, va
       {/* Financing */}
       <Section title="Financing Details (Optional)" icon={CreditCard} open={false}>
         <Row>
-          <Field label="Creditor Name" name="creditor_name" value={data.creditor_name} onChange={c} half />
-          <Field label="Creditor Phone" name="creditor_phone" value={data.creditor_phone} onChange={c} half type="phone" icon={Phone} />
+          <Field label="Creditor Name" name="creditor_name" value={data.creditor_name} onChange={c} resetKey={resetKey} half />
+          <Field label="Creditor Phone" name="creditor_phone" value={data.creditor_phone} onChange={c} resetKey={resetKey} half type="phone" icon={Phone} />
         </Row>
         <Row>
-          <Field label="Loan Term (months)" name="loan_term" value={data.loan_term} onChange={c} third />
-          <Field label="APR (%)" name="apr" value={data.apr} onChange={c} third />
-          <Field label="Monthly Payment" name="monthly_payment" value={data.monthly_payment} onChange={c} third type="currency" icon={DollarSign} />
+          <Field label="Loan Term (months)" name="loan_term" value={data.loan_term} onChange={c} resetKey={resetKey} third />
+          <Field label="APR (%)" name="apr" value={data.apr} onChange={c} resetKey={resetKey} third />
+          <Field label="Monthly Payment" name="monthly_payment" value={data.monthly_payment} onChange={c} resetKey={resetKey} third type="currency" icon={DollarSign} />
         </Row>
         <Row>
-          <Field label="Sales Representative" name="salesrep" value={data.salesrep} onChange={c} half />
-          <Field label="Payment Start Date" name="payment_start_date" value={data.payment_start_date} onChange={c} half type="date" icon={Calendar} />
+          <Field label="Sales Representative" name="salesrep" value={data.salesrep} onChange={c} resetKey={resetKey} half />
+          <Field label="Payment Start Date" name="payment_start_date" value={data.payment_start_date} onChange={c} resetKey={resetKey} half type="date" icon={Calendar} />
         </Row>
       </Section>
 
@@ -1585,6 +1598,7 @@ function validateForm(form, step) {
 export default function DocumentCenter() {
   const [step, setStep] = useState(1);
   const [form, setForm] = useState({ ...INITIAL_FORM });
+  const [formResetKey, setFormResetKey] = useState(0); // Increment to force Field re-mount
   const [selDocs, setSelDocs] = useState([]);
   const [templates, setTemplates] = useState([]);
   const [packets, setPackets] = useState([]);
@@ -1722,6 +1736,7 @@ export default function DocumentCenter() {
     setSelDocs([]);
     setStep(1);
     setLastSaved(null);
+    setFormResetKey(k => k + 1); // Force Fields to clear
   };
 
   const loadDeal = useCallback(d => {
@@ -1730,6 +1745,7 @@ export default function DocumentCenter() {
       if (d[k] != null) m[k] = d[k];
     });
     setForm(m);
+    setFormResetKey(k => k + 1); // Force all Fields to re-mount with new defaultValues
   }, []);
 
   const toggleDoc = useCallback(t => {
@@ -1826,6 +1842,7 @@ export default function DocumentCenter() {
         <Step1
           data={form}
           onChange={chg}
+          resetKey={formResetKey}
           deals={deals}
           dealsLoading={dealsLoading}
           onLoadDeal={loadDeal}
@@ -1852,6 +1869,7 @@ export default function DocumentCenter() {
         <Step2
           data={form}
           onChange={chg}
+          resetKey={formResetKey}
           inventory={inventory}
           inventoryLoading={inventoryLoading}
           onNext={() => {
