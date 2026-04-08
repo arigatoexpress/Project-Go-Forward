@@ -668,7 +668,7 @@ async def create_session(app_name: str, user_id: str, session_id: str):
 
 # Document Generation Endpoints
 from schemas.document_schemas import SalesContractForm, GenerateDocumentRequest, GeneratePacketRequest
-from tools.document_tools import generate_sales_contract_pdf, OUTPUT_DIR
+from tools.document_tools import generate_sales_contract_pdf, OUTPUT_DIR, download_from_gcs, list_gcs_documents
 from tools.document_engine import (
     generate_document as engine_generate_document,
     generate_packet as engine_generate_packet,
@@ -822,19 +822,27 @@ async def create_sales_contract(form_data: SalesContractForm):
 
 @app.get("/api/documents/download/{filename}", dependencies=[Depends(require_admin)])
 async def download_document(filename: str):
-    """Download a generated document."""
+    """Download a generated document. Tries local disk first, then GCS."""
     safe_filename = os.path.basename(filename)
     if safe_filename != filename or ".." in filename:
         return JSONResponse({"error": "Invalid filename"}, status_code=400)
-    # Only allow PDF downloads from this endpoint
     if not safe_filename.lower().endswith(".pdf"):
         return JSONResponse({"error": "Only PDF files are available for download."}, status_code=400)
+
     resolved = os.path.abspath(os.path.join(OUTPUT_DIR, safe_filename))
     if not resolved.startswith(os.path.abspath(OUTPUT_DIR)):
         return JSONResponse({"error": "Invalid filename"}, status_code=403)
+
+    # Try local first
     if os.path.isfile(resolved):
         return FileResponse(resolved, filename=safe_filename, media_type="application/pdf",
                             headers={"Content-Disposition": f'attachment; filename="{safe_filename}"'})
+
+    # Fall back to GCS (local file may have been lost on Cloud Run restart)
+    if download_from_gcs(safe_filename, resolved):
+        return FileResponse(resolved, filename=safe_filename, media_type="application/pdf",
+                            headers={"Content-Disposition": f'attachment; filename="{safe_filename}"'})
+
     return JSONResponse({"error": "File not found"}, status_code=404)
 
 
@@ -1837,121 +1845,81 @@ async def check_admin_token(request: Request):
 
 # ─── Customer API (migrated FastContract records) ────────────────────────────
 
+def _strip_ssn_from_customer(c: dict) -> dict:
+    """Remove SSN hashes from customer data before sending to frontend."""
+    safe = {k: v for k, v in c.items() if k not in ("ssn_hash",)}
+    if c.get("co_buyer") and isinstance(c["co_buyer"], dict):
+        safe["co_buyer"] = {k: v for k, v in c["co_buyer"].items() if k != "ssn_hash"}
+    return safe
+
+
 @app.get("/api/customers/search", dependencies=[Depends(require_admin)])
 async def search_customers(q: str = "", status: str = "", limit: int = 50):
-    """Search migrated customer records by name, phone, email, or legacy ID."""
-    import json as _json
-    customers_path = os.path.join(os.path.dirname(__file__), "data", "migrated_customers.json")
-
-    if not os.path.exists(customers_path):
-        return {"customers": [], "total": 0, "source": "none"}
-
-    with open(customers_path) as f:
-        all_customers = _json.load(f)
-
-    results = all_customers
-    if q:
-        q_lower = q.lower().strip()
-        results = [
-            c for c in results
-            if q_lower in (c.get("full_name") or "").lower()
-            or q_lower in (c.get("email") or "").lower()
-            or q_lower in (c.get("phone") or "").replace("-", "")
-            or q_lower in (c.get("legacy_id") or "").lower()
-            or q_lower in (c.get("salesrep") or "").lower()
-        ]
-    if status:
-        results = [c for c in results if c.get("status") == status.upper()]
-
-    # Don't send SSN hashes to frontend
-    safe_results = []
-    for c in results[:limit]:
-        safe = {k: v for k, v in c.items() if k not in ("ssn_hash", "co_buyer")}
-        if c.get("co_buyer"):
-            safe["co_buyer"] = {k: v for k, v in c["co_buyer"].items() if k != "ssn_hash"}
-        safe_results.append(safe)
-
-    return {"customers": safe_results, "total": len(results), "source": "fastcontract_migration"}
-
-
-@app.get("/api/customers/{customer_id}", dependencies=[Depends(require_admin)])
-async def get_customer(customer_id: str):
-    """Get a single customer record by ID or legacy_id."""
-    import json as _json
-    customers_path = os.path.join(os.path.dirname(__file__), "data", "migrated_customers.json")
-
-    if not os.path.exists(customers_path):
-        raise HTTPException(404, "Customer data not loaded")
-
-    with open(customers_path) as f:
-        all_customers = _json.load(f)
-
-    for c in all_customers:
-        if c["id"] == customer_id or c.get("legacy_id") == customer_id:
-            safe = {k: v for k, v in c.items() if k not in ("ssn_hash",)}
-            if c.get("co_buyer"):
-                safe["co_buyer"] = {k: v for k, v in c["co_buyer"].items() if k != "ssn_hash"}
-            return safe
-
-    raise HTTPException(404, "Customer not found")
+    """Search customer records in Firestore by name, phone, email, or legacy ID."""
+    try:
+        results = _db.search_customers(
+            query_text=q or None,
+            status=status or None,
+            limit=limit,
+        )
+        safe_results = [_strip_ssn_from_customer(c) for c in results]
+        return {"customers": safe_results, "total": len(safe_results), "source": "firestore"}
+    except Exception as e:
+        logger.error(f"Customer search failed: {e}")
+        return {"customers": [], "total": 0, "source": "firestore", "error": str(e)}
 
 
 @app.get("/api/customers/stats", dependencies=[Depends(require_admin)])
 async def customer_stats():
-    """Get customer migration statistics."""
-    import json as _json
-    report_path = os.path.join(os.path.dirname(__file__), "data", "migration_report.json")
+    """Get customer statistics from Firestore."""
+    try:
+        counts = _db.count_customers()
+        return {"migrated": True, **counts}
+    except Exception as e:
+        logger.error(f"Customer stats failed: {e}")
+        return {"migrated": False, "error": str(e)}
 
-    if not os.path.exists(report_path):
-        return {"migrated": False}
 
-    with open(report_path) as f:
-        return _json.load(f)
+@app.get("/api/customers/count", dependencies=[Depends(require_admin)])
+async def customer_count():
+    """Get total customer count from Firestore."""
+    try:
+        return _db.count_customers()
+    except Exception as e:
+        logger.error(f"Customer count failed: {e}")
+        return {"total": 0, "by_status": {}, "error": str(e)}
+
+
+@app.get("/api/customers/{customer_id}", dependencies=[Depends(require_admin)])
+async def get_customer(customer_id: str):
+    """Get a single customer record by document ID or legacy_id."""
+    try:
+        c = _db.get_customer(customer_id)
+        if c is None:
+            raise HTTPException(404, "Customer not found")
+        return _strip_ssn_from_customer(c)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Customer get failed: {e}")
+        raise HTTPException(500, "Failed to retrieve customer")
 
 
 # ─── Customer CRUD (create, update) ──────────────────────────────────────────
 
-def _load_customers():
-    """Load customer records from JSON file. Checks /tmp fallback for Cloud Run."""
-    import json as _json
-    # Try /tmp first (Cloud Run writes go here), then app directory
-    for path in ["/tmp/migrated_customers.json",
-                 os.path.join(os.path.dirname(__file__), "data", "migrated_customers.json")]:
-        if os.path.exists(path):
-            with open(path) as f:
-                return _json.load(f)
-    return []
-
-
-def _save_customers(customers):
-    """Save customer records. Tries JSON file first (local), falls back to /tmp (Cloud Run)."""
-    import json as _json
-    path = os.path.join(os.path.dirname(__file__), "data", "migrated_customers.json")
-    try:
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w") as f:
-            _json.dump(customers, f, indent=2)
-    except OSError:
-        # Cloud Run read-only filesystem — write to /tmp
-        tmp_path = "/tmp/migrated_customers.json"
-        with open(tmp_path, "w") as f:
-            _json.dump(customers, f, indent=2)
-        logger.info(f"Saved customers to {tmp_path} (read-only filesystem)")
-
-
 @app.post("/api/customers", dependencies=[Depends(require_admin)])
 async def create_customer(request: Request):
-    """Create a new customer record."""
+    """Create a new customer record in Firestore."""
     data = await request.json()
 
     if not data.get("full_name") or len(data["full_name"].strip()) < 2:
         raise HTTPException(400, "full_name is required (min 2 chars)")
 
     import uuid as _uuid
+    customer_id = str(_uuid.uuid4())
     customer = {
-        "id": str(_uuid.uuid4()),
-        "legacy_id": "",
-        "legacy_source": "manual",
+        "legacy_id": data.get("legacy_id", ""),
+        "legacy_source": data.get("legacy_source", "manual"),
         "full_name": data["full_name"].strip(),
         "email": (data.get("email") or "").strip().lower() or None,
         "phone": (data.get("phone") or "").strip() or None,
@@ -1959,62 +1927,50 @@ async def create_customer(request: Request):
         "address": (data.get("address") or "").strip() or None,
         "city": (data.get("city") or "").strip() or None,
         "state": (data.get("state") or "TX").strip(),
-        "zip_code": (data.get("zip_code") or "").strip() or None,
+        "zip_code": (data.get("zip_code") or data.get("zip") or "").strip() or None,
         "employer": (data.get("employer") or "").strip() or None,
         "occupation": (data.get("occupation") or "").strip() or None,
         "salesrep": (data.get("salesrep") or "").strip() or None,
         "notes": (data.get("notes") or "").strip() or None,
-        "ssn_masked": "",
+        "ssn_masked": data.get("ssn_masked", ""),
         "co_buyer": data.get("co_buyer"),
         "references": data.get("references", []),
-        "created_at": datetime.utcnow().isoformat(),
-        "updated_at": datetime.utcnow().isoformat(),
     }
 
     try:
-        customers = _load_customers()
-        customers.append(customer)
-        _save_customers(customers)
-        return {"success": True, "customer": customer, "total_customers": len(customers)}
+        doc_id = _db.create_customer(customer, doc_id=customer_id)
+        customer["id"] = doc_id
+        return {"success": True, "customer": _strip_ssn_from_customer(customer)}
     except Exception as e:
         logger.error(f"Customer creation failed: {e}")
-        # Still return success with the customer data even if save fails
-        # (the customer object was created, just not persisted to disk)
-        return {"success": True, "customer": customer, "total_customers": -1,
-                "warning": "Customer created but save to disk may have failed. Use Firestore for permanent storage."}
+        raise HTTPException(500, "Failed to create customer")
 
 
 @app.put("/api/customers/{customer_id}", dependencies=[Depends(require_admin)])
 async def update_customer(customer_id: str, request: Request):
-    """Update an existing customer record."""
+    """Update an existing customer record in Firestore."""
     data = await request.json()
-    customers = _load_customers()
 
-    for i, c in enumerate(customers):
-        if c["id"] == customer_id or c.get("legacy_id") == customer_id:
-            # Update only provided fields
-            updatable = ["full_name", "email", "phone", "status", "address", "city",
-                         "state", "zip_code", "employer", "occupation", "salesrep",
-                         "notes", "co_buyer", "references"]
-            for field in updatable:
-                if field in data:
-                    customers[i][field] = data[field]
-            customers[i]["updated_at"] = datetime.utcnow().isoformat()
-            _save_customers(customers)
-            return {"success": True, "customer": customers[i]}
+    # Verify exists
+    existing = _db.get_customer(customer_id)
+    if existing is None:
+        raise HTTPException(404, "Customer not found")
 
-    raise HTTPException(404, "Customer not found")
+    updatable = ["full_name", "email", "phone", "status", "address", "city",
+                 "state", "zip_code", "employer", "occupation", "salesrep",
+                 "notes", "co_buyer", "references"]
+    update_data = {k: data[k] for k in updatable if k in data}
 
+    if not update_data:
+        raise HTTPException(400, "No updatable fields provided")
 
-@app.get("/api/customers/count", dependencies=[Depends(require_admin)])
-async def customer_count():
-    """Get total customer count."""
-    customers = _load_customers()
-    statuses = {}
-    for c in customers:
-        s = c.get("status", "UNKNOWN")
-        statuses[s] = statuses.get(s, 0) + 1
-    return {"total": len(customers), "by_status": statuses}
+    try:
+        _db.update_customer(customer_id, update_data)
+        updated = _db.get_customer(customer_id)
+        return {"success": True, "customer": _strip_ssn_from_customer(updated)}
+    except Exception as e:
+        logger.error(f"Customer update failed: {e}")
+        raise HTTPException(500, "Failed to update customer")
 
 
 # ─── Feedback / Report Issue ──────────────────────────────────────────────────
@@ -2058,22 +2014,30 @@ async def submit_feedback(request: Request):
 
 @app.get("/api/documents/history", dependencies=[Depends(require_admin)])
 async def document_history():
-    """List all generated documents with timestamps."""
-    if not os.path.exists(OUTPUT_DIR):
-        return {"documents": [], "total": 0}
-
+    """List all generated documents. Merges local and GCS results."""
+    seen = set()
     docs = []
-    for f in sorted(os.listdir(OUTPUT_DIR), reverse=True):
-        if f.endswith(".pdf"):
-            path = os.path.join(OUTPUT_DIR, f)
-            stat = os.stat(path)
-            docs.append({
-                "filename": f,
-                "size_bytes": stat.st_size,
-                "created_at": datetime.fromtimestamp(stat.st_mtime).isoformat(),
-                "download_url": f"/api/documents/download/{f}",
-            })
 
+    # Local files (current instance)
+    if os.path.exists(OUTPUT_DIR):
+        for f in os.listdir(OUTPUT_DIR):
+            if f.endswith(".pdf"):
+                path = os.path.join(OUTPUT_DIR, f)
+                stat = os.stat(path)
+                docs.append({
+                    "filename": f,
+                    "size_bytes": stat.st_size,
+                    "created_at": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                    "download_url": f"/api/documents/download/{f}",
+                })
+                seen.add(f)
+
+    # GCS documents (persisted across instances)
+    for gcs_doc in list_gcs_documents():
+        if gcs_doc["filename"] not in seen:
+            docs.append(gcs_doc)
+
+    docs.sort(key=lambda d: d.get("created_at") or "", reverse=True)
     return {"documents": docs[:50], "total": len(docs)}
 
 
