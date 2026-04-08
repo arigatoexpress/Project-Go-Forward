@@ -33,7 +33,6 @@ _TMP_OUTPUT_DIR = "/tmp/generated_docs"
 # Use /tmp fallback for Cloud Run (read-only filesystem)
 try:
     os.makedirs(_DEFAULT_OUTPUT_DIR, exist_ok=True)
-    # Test write access
     _test = os.path.join(_DEFAULT_OUTPUT_DIR, ".write_test")
     with open(_test, "w") as f:
         f.write("ok")
@@ -42,6 +41,77 @@ try:
 except OSError:
     os.makedirs(_TMP_OUTPUT_DIR, exist_ok=True)
     OUTPUT_DIR = _TMP_OUTPUT_DIR
+
+# ─── GCS for durable PDF storage ────────────────────────────────────────────
+_GCS_BUCKET_NAME = os.getenv("GCS_DOCUMENTS_BUCKET", "tho-secure-documents")
+_gcs_client = None
+_gcs_bucket = None
+
+
+def _get_gcs_bucket():
+    """Lazy-load GCS bucket for document storage."""
+    global _gcs_client, _gcs_bucket
+    if _gcs_bucket is None:
+        try:
+            from google.cloud import storage
+            _gcs_client = storage.Client()
+            _gcs_bucket = _gcs_client.bucket(_GCS_BUCKET_NAME)
+        except Exception as e:
+            logging.getLogger(__name__).warning(f"GCS unavailable: {e}")
+            return None
+    return _gcs_bucket
+
+
+def upload_to_gcs(local_path: str, filename: str) -> Optional[str]:
+    """Upload a generated PDF to GCS. Returns the GCS URI or None."""
+    bucket = _get_gcs_bucket()
+    if bucket is None:
+        return None
+    try:
+        blob = bucket.blob(f"generated_docs/{filename}")
+        blob.upload_from_filename(local_path, content_type="application/pdf")
+        return f"gs://{_GCS_BUCKET_NAME}/generated_docs/{filename}"
+    except Exception as e:
+        logging.getLogger(__name__).error(f"GCS upload failed for {filename}: {e}")
+        return None
+
+
+def download_from_gcs(filename: str, local_path: str) -> bool:
+    """Download a PDF from GCS to a local path. Returns True on success."""
+    bucket = _get_gcs_bucket()
+    if bucket is None:
+        return False
+    try:
+        blob = bucket.blob(f"generated_docs/{filename}")
+        if not blob.exists():
+            return False
+        blob.download_to_filename(local_path)
+        return True
+    except Exception as e:
+        logging.getLogger(__name__).error(f"GCS download failed for {filename}: {e}")
+        return False
+
+
+def list_gcs_documents() -> list:
+    """List all generated documents in GCS."""
+    bucket = _get_gcs_bucket()
+    if bucket is None:
+        return []
+    try:
+        blobs = bucket.list_blobs(prefix="generated_docs/")
+        docs = []
+        for blob in blobs:
+            if blob.name.endswith(".pdf"):
+                docs.append({
+                    "filename": blob.name.split("/")[-1],
+                    "size_bytes": blob.size,
+                    "created_at": blob.time_created.isoformat() if blob.time_created else None,
+                    "download_url": f"/api/documents/download/{blob.name.split('/')[-1]}",
+                })
+        return sorted(docs, key=lambda d: d.get("created_at") or "", reverse=True)
+    except Exception as e:
+        logging.getLogger(__name__).error(f"GCS list failed: {e}")
+        return []
 
 def create_summary_pdf(data_dict: Dict[str, Any], output_path: str):
     """Creates a simple summary PDF with key-value pairs."""
@@ -110,6 +180,8 @@ def fill_pdf_form(template_path: str, data_dict: Dict[str, Any], output_filename
             with open(output_path, "wb") as output_stream:
                 writer.write(output_stream)
             _logger.info("fill_pdf_form success (PDF filled)")
+            # Durable storage: upload to GCS
+            upload_to_gcs(output_path, output_filename)
             return output_path
 
         raise ValueError("Could not fill form with any method")
@@ -118,6 +190,7 @@ def fill_pdf_form(template_path: str, data_dict: Dict[str, Any], output_filename
         _logger.warning(f"fill_pdf_form failed: {e}. Generating summary.")
         try:
             create_summary_pdf(data_dict, output_path)
+            upload_to_gcs(output_path, output_filename)
             return output_path
         except Exception as e2:
             _logger.error(f"Summary generation failed too: {e2}")

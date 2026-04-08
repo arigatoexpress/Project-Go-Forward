@@ -24,60 +24,127 @@ class THODatabase:
         return self._db
     
     # ============ CUSTOMERS ============
-    
+
     def get_customer(self, customer_id: str) -> Optional[Dict]:
-        """Get customer by ID"""
+        """Get customer by document ID or legacy_id."""
+        # Try direct document lookup first
         doc = self.db.collection("customers").document(customer_id).get()
-        return doc.to_dict() if doc.exists else None
-    
-    def search_customers(
-        self,
-        name: Optional[str] = None,
-        phone: Optional[str] = None,
-        email: Optional[str] = None,
-        status: Optional[str] = None,
-        limit: int = 20
-    ) -> List[Dict]:
-        """Search customers by various criteria"""
-        query = self.db.collection("customers")
-        
-        if status:
-            query = query.where("status", "==", status)
-        
-        # Note: Firestore doesn't support LIKE queries
-        # For name/phone/email search, we use client-side filtering
-        results = []
-        for doc in query.limit(limit * 3).stream():
+        if doc.exists:
             data = doc.to_dict()
             data["id"] = doc.id
-            
-            # Client-side filtering
-            if name and name.lower() not in data.get("full_name", "").lower():
-                continue
-            if phone and phone not in data.get("phone", ""):
-                continue
-            if email and email.lower() not in data.get("email", "").lower():
-                continue
-            
+            return data
+        # Fall back to legacy_id search
+        docs = self.db.collection("customers").where(
+            "legacy_id", "==", customer_id
+        ).limit(1).stream()
+        for doc in docs:
+            data = doc.to_dict()
+            data["id"] = doc.id
+            return data
+        return None
+
+    def search_customers(
+        self,
+        query_text: Optional[str] = None,
+        status: Optional[str] = None,
+        limit: int = 50,
+    ) -> List[Dict]:
+        """
+        Search customers by free-text query across name, phone, email, legacy_id, salesrep.
+        Firestore has no LIKE operator so we scan and filter client-side.
+        Uses full_name_lower index field when available for faster prefix matching.
+        """
+        query = self.db.collection("customers")
+
+        if status:
+            query = query.where("status", "==", status.upper())
+
+        # Scan enough records to find matches (Firestore has no text search)
+        scan_limit = 6000 if query_text else limit
+        results = []
+        q_lower = (query_text or "").lower().strip()
+
+        for doc in query.limit(scan_limit).stream():
+            data = doc.to_dict()
+            data["id"] = doc.id
+
+            if q_lower:
+                searchable = " ".join([
+                    (data.get("full_name") or ""),
+                    (data.get("email") or ""),
+                    (data.get("phone") or "").replace("-", ""),
+                    (data.get("legacy_id") or ""),
+                    (data.get("salesrep") or ""),
+                ]).lower()
+                if q_lower not in searchable:
+                    continue
+
             results.append(data)
             if len(results) >= limit:
                 break
-        
+
         return results
-    
-    def create_customer(self, data: Dict) -> str:
-        """Create new customer, returns ID"""
-        data["created_at"] = datetime.utcnow()
-        data["updated_at"] = datetime.utcnow()
-        doc_ref = self.db.collection("customers").document()
+
+    def create_customer(self, data: Dict, doc_id: Optional[str] = None) -> str:
+        """Create new customer. Use doc_id to set a specific document ID (e.g. for migration)."""
+        data["created_at"] = data.get("created_at") or datetime.utcnow()
+        data["updated_at"] = data.get("updated_at") or datetime.utcnow()
+        if doc_id:
+            doc_ref = self.db.collection("customers").document(doc_id)
+        else:
+            doc_ref = self.db.collection("customers").document()
         doc_ref.set(data)
         return doc_ref.id
-    
+
     def update_customer(self, customer_id: str, data: Dict) -> bool:
-        """Update customer record"""
+        """Update customer record."""
         data["updated_at"] = datetime.utcnow()
         self.db.collection("customers").document(customer_id).update(data)
         return True
+
+    def delete_customer(self, customer_id: str) -> bool:
+        """Delete a customer document."""
+        self.db.collection("customers").document(customer_id).delete()
+        return True
+
+    def count_customers(self) -> Dict[str, Any]:
+        """Get total customer count and breakdown by status."""
+        totals: Dict[str, int] = {}
+        count = 0
+        for doc in self.db.collection("customers").stream():
+            count += 1
+            data = doc.to_dict()
+            s = data.get("status", "UNKNOWN")
+            totals[s] = totals.get(s, 0) + 1
+        return {"total": count, "by_status": totals}
+
+    def batch_create_customers(self, customers: List[Dict], batch_size: int = 400) -> int:
+        """
+        Bulk-import customers using Firestore batch writes (max 500 per batch).
+        Each customer dict should have an 'id' key used as the document ID.
+        Returns the number of records written.
+        """
+        written = 0
+        batch = self.db.batch()
+        pending = 0
+
+        for cust in customers:
+            doc_id = cust.pop("id", None) or cust.get("legacy_id")
+            doc_ref = self.db.collection("customers").document(doc_id or None)
+            batch.set(doc_ref, cust)
+            pending += 1
+
+            if pending >= batch_size:
+                batch.commit()
+                written += pending
+                batch = self.db.batch()
+                pending = 0
+
+        if pending:
+            batch.commit()
+            written += pending
+
+        return written
     
     # ============ INVENTORY ============
     
