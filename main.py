@@ -1907,32 +1907,45 @@ async def get_customer(customer_id: str):
 
 # ─── Customer CRUD (create, update) ──────────────────────────────────────────
 
+def _sanitize_text(val: str, max_len: int = 500) -> str:
+    """Strip HTML tags and limit length for customer input fields."""
+    import re
+    return re.sub(r'<[^>]+>', '', val).strip()[:max_len]
+
+
 @app.post("/api/customers", dependencies=[Depends(require_admin)])
 async def create_customer(request: Request):
     """Create a new customer record in Firestore."""
     data = await request.json()
 
-    if not data.get("full_name") or len(data["full_name"].strip()) < 2:
+    name = _sanitize_text(data.get("full_name") or "")
+    if len(name) < 2:
         raise HTTPException(400, "full_name is required (min 2 chars)")
+
+    # Validate status against allowed values
+    allowed_statuses = {"LEAD", "ENROLLED", "NON_ENROLLED", "SOLD", "CLOSED"}
+    status = (data.get("status") or "LEAD").upper()
+    if status not in allowed_statuses:
+        status = "LEAD"
 
     import uuid as _uuid
     customer_id = str(_uuid.uuid4())
     customer = {
-        "legacy_id": data.get("legacy_id", ""),
-        "legacy_source": data.get("legacy_source", "manual"),
-        "full_name": data["full_name"].strip(),
-        "email": (data.get("email") or "").strip().lower() or None,
-        "phone": (data.get("phone") or "").strip() or None,
-        "status": data.get("status", "LEAD"),
-        "address": (data.get("address") or "").strip() or None,
-        "city": (data.get("city") or "").strip() or None,
-        "state": (data.get("state") or "TX").strip(),
-        "zip_code": (data.get("zip_code") or data.get("zip") or "").strip() or None,
-        "employer": (data.get("employer") or "").strip() or None,
-        "occupation": (data.get("occupation") or "").strip() or None,
-        "salesrep": (data.get("salesrep") or "").strip() or None,
-        "notes": (data.get("notes") or "").strip() or None,
-        "ssn_masked": data.get("ssn_masked", ""),
+        "legacy_id": _sanitize_text(data.get("legacy_id") or "", 50),
+        "legacy_source": data.get("legacy_source", "manual") if data.get("legacy_source") in ("manual", "fastcontract", "import") else "manual",
+        "full_name": name,
+        "email": (data.get("email") or "").strip().lower()[:200] or None,
+        "phone": (data.get("phone") or "").strip()[:20] or None,
+        "status": status,
+        "address": _sanitize_text(data.get("address") or "", 300) or None,
+        "city": _sanitize_text(data.get("city") or "", 100) or None,
+        "state": _sanitize_text(data.get("state") or "TX", 2) or "TX",
+        "zip_code": _sanitize_text(data.get("zip_code") or data.get("zip") or "", 10) or None,
+        "employer": _sanitize_text(data.get("employer") or "", 200) or None,
+        "occupation": _sanitize_text(data.get("occupation") or "", 200) or None,
+        "salesrep": _sanitize_text(data.get("salesrep") or "", 100) or None,
+        "notes": _sanitize_text(data.get("notes") or "", 2000) or None,
+        "ssn_masked": _sanitize_text(data.get("ssn_masked") or "", 20),
         "co_buyer": data.get("co_buyer"),
         "references": data.get("references", []),
     }
