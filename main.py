@@ -2068,12 +2068,18 @@ app.mount("/assets", StaticFiles(directory="frontend/dist/assets"), name="assets
 
 @app.get("/{full_path:path}")
 async def serve_spa(full_path: str):
+    from starlette.responses import Response
     # Serve actual files from dist if they exist (e.g., tex-icon.svg, vite.svg)
     if full_path:
         file_path = os.path.join("frontend/dist", full_path)
         if os.path.isfile(file_path):
             return FileResponse(file_path)
-    return FileResponse("frontend/dist/index.html")
+    # No-cache on index.html so clients always get latest JS chunk references
+    response = FileResponse("frontend/dist/index.html")
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
 
 
 if __name__ == "__main__":
