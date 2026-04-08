@@ -27,10 +27,21 @@ from reportlab.lib.pagesizes import letter
 from io import BytesIO
 
 DOCUMENTS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "tho_documents")
-OUTPUT_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data/generated_docs")
+_DEFAULT_OUTPUT_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data/generated_docs")
+_TMP_OUTPUT_DIR = "/tmp/generated_docs"
 
-if not os.path.exists(OUTPUT_DIR):
-    os.makedirs(OUTPUT_DIR)
+# Use /tmp fallback for Cloud Run (read-only filesystem)
+try:
+    os.makedirs(_DEFAULT_OUTPUT_DIR, exist_ok=True)
+    # Test write access
+    _test = os.path.join(_DEFAULT_OUTPUT_DIR, ".write_test")
+    with open(_test, "w") as f:
+        f.write("ok")
+    os.remove(_test)
+    OUTPUT_DIR = _DEFAULT_OUTPUT_DIR
+except OSError:
+    os.makedirs(_TMP_OUTPUT_DIR, exist_ok=True)
+    OUTPUT_DIR = _TMP_OUTPUT_DIR
 
 def create_summary_pdf(data_dict: Dict[str, Any], output_path: str):
     """Creates a simple summary PDF with key-value pairs."""
