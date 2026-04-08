@@ -92,27 +92,47 @@
 
 /* ─── Hero Section ─── */
 .tho-browse-hero {
-  background: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%);
-  padding: 2.5rem 1rem;
+  background: linear-gradient(135deg, #1e3a5f 0%, #1e40af 40%, #3b82f6 100%);
+  padding: 3rem 1.5rem 2.5rem;
   color: white;
+  position: relative;
+  overflow: hidden;
+}
+
+.tho-browse-hero::before {
+  content: '';
+  position: absolute;
+  top: -50%;
+  right: -20%;
+  width: 400px;
+  height: 400px;
+  background: radial-gradient(circle, rgba(255,255,255,0.08) 0%, transparent 70%);
+  border-radius: 50%;
 }
 
 .tho-browse-hero-content {
   max-width: 800px;
   margin: 0 auto;
   text-align: center;
+  position: relative;
+  z-index: 1;
 }
 
+.tho-browse-hero-title,
+.tho-browse-hero h1,
 .tho-browse-hero h2 {
-  font-size: 1.875rem;
-  font-weight: 700;
-  margin-bottom: 0.5rem;
+  font-size: 2.25rem;
+  font-weight: 800;
+  margin-bottom: 0.75rem;
+  letter-spacing: -0.02em;
 }
 
+.tho-browse-hero-subtitle,
 .tho-browse-hero p {
-  font-size: 1rem;
+  font-size: 1.1rem;
   opacity: 0.9;
-  margin-bottom: 1.5rem;
+  margin-bottom: 1.75rem;
+  line-height: 1.6;
 }
 
 /* ─── Stats Bar ─── */
@@ -1311,3 +1331,27 @@
 .tho-animate-slide-up {
   animation: tho-slide-up 0.3s ease;
 }
+
+/* ─── Card Category Badges ─── */
+.tho-card-categories {
+  display: flex;
+  gap: 0.375rem;
+  flex-wrap: wrap;
+  padding: 0 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.tho-cat-badge {
+  display: inline-block;
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 0.15rem 0.5rem;
+  border-radius: 9999px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.tho-cat-badge.kitchen { background: #fef3c7; color: #92400e; }
+.tho-cat-badge.bedroom { background: #dbeafe; color: #1e40af; }
+.tho-cat-badge.bathroom { background: #d1fae5; color: #065f46; }
+

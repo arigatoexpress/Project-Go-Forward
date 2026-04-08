@@ -310,7 +310,7 @@ export default function InventoryBrowse({ onAskTex, onBack, onCreateAd }) {
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search by name, manufacturer, beds, type..."
+              placeholder="Search by name, manufacturer, beds, baths, type..."
               className="tho-browse-search-input"
             />
             {searchQuery && (
@@ -319,6 +319,18 @@ export default function InventoryBrowse({ onAskTex, onBack, onCreateAd }) {
               </button>
             )}
           </div>
+
+          {/* Hero CTA */}
+          {onAskTex && (
+            <div className="flex justify-center gap-3 mt-4">
+              <button
+                onClick={() => onAskTex("I'm looking for a new home. What do you recommend?")}
+                className="inline-flex items-center gap-2 px-6 py-3 bg-white text-blue-700 font-bold rounded-full shadow-lg hover:shadow-xl hover:scale-105 transition-all text-sm"
+              >
+                <MessageCircle size={18} /> Talk to Tex — AI Home Advisor
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
