@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   Users, Phone, Mail, Calendar, ChevronRight, ChevronDown,
   Search, RefreshCw, Send, X, Clock, Home, DollarSign,
-  CheckCircle, AlertCircle, Filter, ArrowLeft,
+  CheckCircle, AlertCircle, Filter, ArrowLeft, FileText, Package, Download, Loader,
 } from 'lucide-react';
 import adminFetch from '../adminFetch';
 import './CRM.css';
@@ -1004,9 +1004,58 @@ function LeadDetail({ lead, onClose, onUpdateStatus, onEmail, appointments, emai
 
 function DealCard({ deal, onUpdateStatus, statusOrder }) {
   const [expanded, setExpanded] = useState(false);
+  const [generating, setGenerating] = useState(null); // 'doc' | 'packet' | null
+  const [genResult, setGenResult] = useState(null);
   const currentIdx = statusOrder.indexOf(deal.status);
   const nextStatus = currentIdx >= 0 && currentIdx < statusOrder.length - 1 ? statusOrder[currentIdx + 1] : null;
   const buyerName = `${deal.buyer_first_name || ''} ${deal.buyer_last_name || ''}`.trim();
+
+  const handleGenerateDoc = async (templateName) => {
+    setGenerating('doc');
+    setGenResult(null);
+    try {
+      const res = await adminFetch(`/api/deals/${deal.id}/generate-document`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ template_name: templateName }),
+      });
+      const data = await res.json();
+      setGenResult(data);
+    } catch (err) {
+      setGenResult({ success: false, error: 'Generation failed' });
+    }
+    setGenerating(null);
+  };
+
+  const handleGeneratePacket = async () => {
+    setGenerating('packet');
+    setGenResult(null);
+    try {
+      const res = await adminFetch(`/api/deals/${deal.id}/generate-packet`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ packet_name: 'standard_closing' }),
+      });
+      const data = await res.json();
+      setGenResult(data);
+    } catch (err) {
+      setGenResult({ success: false, error: 'Packet generation failed' });
+    }
+    setGenerating(null);
+  };
+
+  const handleDownload = (url) => {
+    const token = localStorage.getItem('adminToken');
+    // Use fetch to download with auth header
+    fetch(url, { headers: { 'X-Admin-Token': token } })
+      .then(res => res.blob())
+      .then(blob => {
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = url.split('/').pop();
+        a.click();
+      });
+  };
 
   return (
     <div className="crm-deal-card">
@@ -1029,10 +1078,67 @@ function DealCard({ deal, onUpdateStatus, statusOrder }) {
           {deal.buyer_phone && <div><Phone size={12} /> {deal.buyer_phone}</div>}
           {deal.buyer_email && <div><Mail size={12} /> {deal.buyer_email}</div>}
           {deal.salesrep && <div>Rep: {deal.salesrep}</div>}
-          {deal.manufacturer && <div>{deal.manufacturer}</div>}
+          {deal.manufacturer && <div>{deal.manufacturer} {deal.model}</div>}
+          {deal.serial_number_1 && <div>S/N: {deal.serial_number_1}</div>}
+          {deal.buyer_address && <div>{deal.buyer_address}, {deal.buyer_city} {deal.buyer_state} {deal.buyer_zip}</div>}
           <div className="crm-deal-dates">
             Created: {formatDate(deal.created_at)}
           </div>
+
+          {/* Document Generation Actions */}
+          <div className="crm-deal-actions" style={{ marginTop: '12px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            <button
+              className="crm-deal-doc-btn"
+              onClick={() => handleGenerateDoc('TMHA_SalesContract.pdf')}
+              disabled={generating !== null}
+              style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '6px 12px', fontSize: '12px',
+                       background: '#1a1a2e', border: '1px solid #3b82f6', color: '#3b82f6', borderRadius: '6px', cursor: 'pointer' }}
+            >
+              {generating === 'doc' ? <Loader size={12} className="spin" /> : <FileText size={12} />}
+              Sales Contract
+            </button>
+            <button
+              className="crm-deal-doc-btn"
+              onClick={handleGeneratePacket}
+              disabled={generating !== null}
+              style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '6px 12px', fontSize: '12px',
+                       background: '#1a1a2e', border: '1px solid #22c55e', color: '#22c55e', borderRadius: '6px', cursor: 'pointer' }}
+            >
+              {generating === 'packet' ? <Loader size={12} className="spin" /> : <Package size={12} />}
+              Closing Packet
+            </button>
+          </div>
+
+          {/* Generation Result */}
+          {genResult && (
+            <div style={{ marginTop: '8px', padding: '8px', borderRadius: '6px', fontSize: '12px',
+                          background: genResult.success ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)',
+                          border: `1px solid ${genResult.success ? '#22c55e' : '#ef4444'}` }}>
+              {genResult.success ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <CheckCircle size={14} color="#22c55e" />
+                  <span>{genResult.message}</span>
+                  <button
+                    onClick={() => handleDownload(genResult.download_url)}
+                    style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '4px',
+                             padding: '4px 8px', background: '#22c55e', color: '#000', border: 'none',
+                             borderRadius: '4px', cursor: 'pointer', fontSize: '11px', fontWeight: 600 }}
+                  >
+                    <Download size={12} /> Download
+                  </button>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#ef4444' }}>
+                  <AlertCircle size={14} /> {genResult.error || 'Generation failed'}
+                </div>
+              )}
+              {genResult.documents_included && (
+                <div style={{ marginTop: '6px', color: '#888', fontSize: '11px' }}>
+                  {genResult.page_count} pages • {genResult.documents_included.length} documents
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
