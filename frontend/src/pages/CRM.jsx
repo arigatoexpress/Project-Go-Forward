@@ -73,6 +73,7 @@ const TABS = [
   { id: 'tasks', label: 'Tasks', icon: CheckCircle },
   { id: 'appointments', label: 'Appointments', icon: Calendar },
   { id: 'emails', label: 'Email Log', icon: Mail },
+  { id: 'customers', label: 'Customers', icon: Users },
 ];
 
 // Email Templates
@@ -706,6 +707,8 @@ export default function CRM({ onBack }) {
             ))}
           </div>
         )}
+
+        {activeTab === 'customers' && <CustomerAnalytics />}
       </div>
 
       {/* Email Compose Modal */}
@@ -999,6 +1002,105 @@ function LeadDetail({ lead, onClose, onUpdateStatus, onEmail, appointments, emai
     </div>
   );
 }
+
+// ─── Customer Analytics Panel ────────────────────────
+
+function CustomerAnalytics() {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [searchQ, setSearchQ] = useState('');
+  const [results, setResults] = useState([]);
+
+  useEffect(() => {
+    adminFetch('/api/analytics/customers').then(r => r.json()).then(setData).catch(() => {}).finally(() => setLoading(false));
+  }, []);
+
+  const handleSearch = async () => {
+    if (!searchQ.trim()) return;
+    try {
+      const r = await adminFetch(`/api/customers/search?q=${encodeURIComponent(searchQ)}&limit=20`);
+      const d = await r.json();
+      setResults(d.customers || []);
+    } catch { setResults([]); }
+  };
+
+  if (loading) return <div className="crm-empty">Loading customer analytics...</div>;
+  if (!data) return <div className="crm-empty">Failed to load analytics</div>;
+
+  return (
+    <div style={{ padding: '0 4px' }}>
+      {/* Metrics bar */}
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
+        {[
+          { label: 'Total Customers', value: data.total?.toLocaleString(), color: '#00aaff' },
+          { label: 'Enrolled', value: data.by_status?.ENROLLED?.toLocaleString(), color: '#22c55e' },
+          { label: 'Leads', value: data.by_status?.LEAD?.toLocaleString(), color: '#f59e0b' },
+          { label: 'Conversion', value: `${data.conversion_rate}%`, color: '#8b5cf6' },
+        ].map(m => (
+          <div key={m.label} style={{ flex: '1 1 120px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, padding: '12px 16px' }}>
+            <div style={{ fontSize: 10, color: '#888', textTransform: 'uppercase', letterSpacing: 1 }}>{m.label}</div>
+            <div style={{ fontSize: 24, fontWeight: 700, color: m.color, marginTop: 4 }}>{m.value}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Search */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+        <input
+          placeholder="Search customers by name, phone, email..."
+          value={searchQ}
+          onChange={e => setSearchQ(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && handleSearch()}
+          style={{ flex: 1, padding: '10px 14px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, color: '#fff', fontSize: 13 }}
+        />
+        <button onClick={handleSearch} style={{ padding: '10px 20px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 600 }}>
+          <Search size={14} /> Search
+        </button>
+      </div>
+
+      {/* Search results */}
+      {results.length > 0 && (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 11, color: '#888', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 1 }}>
+            {results.length} results
+          </div>
+          {results.map((c, i) => (
+            <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 12px', borderBottom: '1px solid rgba(255,255,255,0.05)', fontSize: 13 }}>
+              <div>
+                <span style={{ color: '#fff', fontWeight: 600 }}>{c.full_name}</span>
+                {c.phone && <span style={{ color: '#666', marginLeft: 12 }}>{c.phone}</span>}
+              </div>
+              <span style={{ color: c.status === 'ENROLLED' ? '#22c55e' : c.status === 'LEAD' ? '#f59e0b' : '#888', fontSize: 11, fontWeight: 600 }}>{c.status}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Top cities + salesreps */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        <div style={{ background: 'rgba(255,255,255,0.02)', borderRadius: 8, padding: 14, border: '1px solid rgba(255,255,255,0.06)' }}>
+          <div style={{ fontSize: 11, color: '#888', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 }}>Top Cities</div>
+          {(data.top_cities || []).slice(0, 8).map((c, i) => (
+            <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 12 }}>
+              <span style={{ color: '#ccc' }}>{c.city}</span>
+              <span style={{ color: '#666' }}>{c.count}</span>
+            </div>
+          ))}
+        </div>
+        <div style={{ background: 'rgba(255,255,255,0.02)', borderRadius: 8, padding: 14, border: '1px solid rgba(255,255,255,0.06)' }}>
+          <div style={{ fontSize: 11, color: '#888', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 }}>Sales Reps</div>
+          {(data.top_salesreps || []).slice(0, 8).map((r, i) => (
+            <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 12 }}>
+              <span style={{ color: '#ccc' }}>{r.name}</span>
+              <span style={{ color: '#666' }}>{r.count}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 
 // ─── Deal Card (Pipeline) ───────────────────────────
 
