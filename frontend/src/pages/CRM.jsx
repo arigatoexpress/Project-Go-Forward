@@ -1086,7 +1086,8 @@ function DealCard({ deal, onUpdateStatus, statusOrder }) {
           </div>
 
           {/* Document Generation Actions */}
-          <div className="crm-deal-actions" style={{ marginTop: '12px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          <div style={{ marginTop: '10px', fontSize: '11px', color: '#666', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Generate Documents</div>
+          <div className="crm-deal-actions" style={{ marginTop: '6px', display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
             <button
               className="crm-deal-doc-btn"
               onClick={() => handleGenerateDoc('TMHA_SalesContract.pdf')}
@@ -1097,15 +1098,30 @@ function DealCard({ deal, onUpdateStatus, statusOrder }) {
               {generating === 'doc' ? <Loader size={12} className="spin" /> : <FileText size={12} />}
               Sales Contract
             </button>
+            {[
+              { template: 'TDHCA_1038_Consumer_Disclosure.pdf', label: 'Consumer Disclosure', color: '#f59e0b' },
+              { template: 'TDHCA_1054_Habitability_Warranty.pdf', label: 'Warranty', color: '#8b5cf6' },
+              { template: 'Internal_Homestead.pdf', label: 'Homestead', color: '#ec4899' },
+            ].map(({ template, label, color }) => (
+              <button
+                key={template}
+                onClick={() => handleGenerateDoc(template)}
+                disabled={generating !== null}
+                style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '6px 10px', fontSize: '11px',
+                         background: '#1a1a2e', border: `1px solid ${color}`, color, borderRadius: '6px', cursor: 'pointer' }}
+              >
+                <FileText size={11} /> {label}
+              </button>
+            ))}
             <button
               className="crm-deal-doc-btn"
               onClick={handleGeneratePacket}
               disabled={generating !== null}
               style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '6px 12px', fontSize: '12px',
-                       background: '#1a1a2e', border: '1px solid #22c55e', color: '#22c55e', borderRadius: '6px', cursor: 'pointer' }}
+                       background: '#1a1a2e', border: '1px solid #22c55e', color: '#22c55e', borderRadius: '6px', cursor: 'pointer', fontWeight: 600 }}
             >
               {generating === 'packet' ? <Loader size={12} className="spin" /> : <Package size={12} />}
-              Closing Packet
+              Full Closing Packet (9 docs)
             </button>
           </div>
 
