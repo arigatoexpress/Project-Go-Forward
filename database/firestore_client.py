@@ -51,18 +51,36 @@ class THODatabase:
     ) -> List[Dict]:
         """
         Search customers by free-text query across name, phone, email, legacy_id, salesrep.
-        Firestore has no LIKE operator so we scan and filter client-side.
-        Uses full_name_lower index field when available for faster prefix matching.
+
+        Optimization: if the query looks like a name (alphabetic), use Firestore's native
+        range query on the `_name_lower` indexed field for prefix matching. This avoids
+        scanning all documents. Falls back to client-side filtering for phone/email/id queries.
         """
         query = self.db.collection("customers")
 
         if status:
             query = query.where("status", "==", status.upper())
 
-        # Scan enough records to find matches (Firestore has no text search)
-        scan_limit = 6000 if query_text else limit
-        results = []
         q_lower = (query_text or "").lower().strip()
+
+        # Fast path: name prefix search using Firestore index
+        if q_lower and q_lower.isalpha() and len(q_lower) >= 2:
+            name_query = query.where("_name_lower", ">=", q_lower).where(
+                "_name_lower", "<", q_lower + "\uf8ff"
+            ).limit(limit)
+            results = []
+            for doc in name_query.stream():
+                data = doc.to_dict()
+                data["id"] = doc.id
+                results.append(data)
+            if results:
+                return results
+            # If no results from prefix index, fall through to full scan
+            # (handles cases where _name_lower hasn't been backfilled yet)
+
+        # Slow path: full scan with client-side filtering
+        scan_limit = 6000 if q_lower else limit
+        results = []
 
         for doc in query.limit(scan_limit).stream():
             data = doc.to_dict()
@@ -89,6 +107,9 @@ class THODatabase:
         """Create new customer. Use doc_id to set a specific document ID (e.g. for migration)."""
         data["created_at"] = data.get("created_at") or datetime.utcnow()
         data["updated_at"] = data.get("updated_at") or datetime.utcnow()
+        # Indexed field for fast prefix search
+        if data.get("full_name"):
+            data["_name_lower"] = data["full_name"].lower().strip()
         if doc_id:
             doc_ref = self.db.collection("customers").document(doc_id)
         else:

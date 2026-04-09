@@ -201,19 +201,50 @@ if not os.environ.get("RESEND_API_KEY") and not IS_LOCAL:
 elif not os.environ.get("RESEND_API_KEY"):
     logger.warning("RESEND_API_KEY not set — emails will run in dry-run mode (local dev).")
 
-# Simple token store (in-memory; resets on restart which is acceptable for admin sessions)
-_admin_tokens: dict[str, float] = {}
-ADMIN_TOKEN_TTL = int(os.environ.get("ADMIN_TOKEN_TTL", str(2 * 60 * 60)))  # 2 hours default
+# JWT-based admin tokens — works across multiple Cloud Run instances.
+# Uses HMAC-SHA256 with a shared secret derived from the PIN hash.
+import base64
+import hmac
+import struct
+
+ADMIN_TOKEN_TTL = int(os.environ.get("ADMIN_TOKEN_TTL", str(2 * 60 * 60)))  # 2 hours
+_JWT_SECRET = hashlib.sha256(f"sapphire-jwt-{ADMIN_PIN_HASH[:16]}".encode()).digest()
+
+
+def _create_admin_token() -> str:
+    """Create an HMAC-signed JWT-like token with embedded expiration."""
+    expires = int(time.time()) + ADMIN_TOKEN_TTL
+    payload = struct.pack(">Q", expires)  # 8 bytes, big-endian uint64
+    sig = hmac.new(_JWT_SECRET, payload, hashlib.sha256).digest()[:16]  # 16-byte signature
+    return base64.urlsafe_b64encode(payload + sig).decode().rstrip("=")
+
+
+def _verify_admin_token(token: str) -> bool:
+    """Verify an HMAC-signed admin token. Stateless — works across instances."""
+    try:
+        # Pad base64 if needed
+        padding = 4 - len(token) % 4
+        if padding != 4:
+            token += "=" * padding
+        raw = base64.urlsafe_b64decode(token)
+        if len(raw) != 24:  # 8 bytes payload + 16 bytes signature
+            return False
+        payload, sig = raw[:8], raw[8:]
+        expected_sig = hmac.new(_JWT_SECRET, payload, hashlib.sha256).digest()[:16]
+        if not hmac.compare_digest(sig, expected_sig):
+            return False
+        expires = struct.unpack(">Q", payload)[0]
+        return time.time() < expires
+    except Exception:
+        return False
 
 
 async def require_admin(request: Request):
-    """FastAPI dependency that validates the X-Admin-Token header."""
+    """FastAPI dependency that validates the X-Admin-Token header (stateless JWT)."""
     token = request.headers.get("X-Admin-Token", "")
     if not token:
         raise HTTPException(status_code=401, detail="Admin authentication required")
-    issued = _admin_tokens.get(token)
-    if not issued or (time.time() - issued) >= ADMIN_TOKEN_TTL:
-        _admin_tokens.pop(token, None)
+    if not _verify_admin_token(token):
         raise HTTPException(status_code=401, detail="Admin session expired. Please re-authenticate.")
 
 
@@ -1826,20 +1857,17 @@ async def verify_admin_pin(request: Request):
         return JSONResponse({"success": False, "error": "Incorrect PIN."}, status_code=401)
     # Successful login — clear attempt history
     _pin_attempts.pop(client_ip, None)
-    token = secrets.token_urlsafe(32)
-    _admin_tokens[token] = time.time()
+    token = _create_admin_token()
     struct_logger.info("Admin login succeeded", client_ip=client_ip)
     return {"success": True, "token": token}
 
 
 @app.get("/api/admin/check")
 async def check_admin_token(request: Request):
-    """Verify that an admin token is still valid."""
+    """Verify that an admin token is still valid (stateless — works across instances)."""
     token = request.headers.get("X-Admin-Token", "")
-    issued = _admin_tokens.get(token)
-    if issued and (time.time() - issued) < ADMIN_TOKEN_TTL:
+    if _verify_admin_token(token):
         return {"valid": True}
-    _admin_tokens.pop(token, None)
     return JSONResponse({"valid": False}, status_code=401)
 
 
