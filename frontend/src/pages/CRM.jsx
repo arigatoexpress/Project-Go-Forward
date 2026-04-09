@@ -566,6 +566,8 @@ export default function CRM({ onBack }) {
 
         {/* PIPELINE TAB */}
         {activeTab === 'deals' && !loading && (
+          <div>
+          <NewDealForm onCreated={() => fetchData()} />
           <div className="crm-pipeline">
             {DEAL_STATUS_ORDER.map(status => {
               const statusDeals = filteredDeals.filter(d => d.status === status);
@@ -591,6 +593,7 @@ export default function CRM({ onBack }) {
                 </div>
               );
             })}
+          </div>
           </div>
         )}
 
@@ -1002,6 +1005,111 @@ function LeadDetail({ lead, onClose, onUpdateStatus, onEmail, appointments, emai
     </div>
   );
 }
+
+// ─── New Deal Form ──────────────────────────────────
+
+function NewDealForm({ onCreated }) {
+  const [open, setOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [result, setResult] = useState(null);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setSaving(true);
+    setResult(null);
+    const fd = new FormData(e.target);
+    const data = {};
+    for (const [k, v] of fd.entries()) {
+      if (v.trim()) data[k] = k === 'sales_price' || k === 'down_payment' ? parseFloat(v) : v.trim();
+    }
+
+    try {
+      const res = await adminFetch('/api/deals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      const d = await res.json();
+      if (d.success || d.deal_id) {
+        setResult({ ok: true, msg: `Deal created for ${data.buyer_first_name} ${data.buyer_last_name}` });
+        e.target.reset();
+        onCreated();
+        setTimeout(() => { setOpen(false); setResult(null); }, 2000);
+      } else {
+        setResult({ ok: false, msg: d.error || 'Failed to create deal' });
+      }
+    } catch {
+      setResult({ ok: false, msg: 'Network error' });
+    }
+    setSaving(false);
+  };
+
+  if (!open) {
+    return (
+      <div style={{ marginBottom: 12 }}>
+        <button onClick={() => setOpen(true)}
+          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 20px', background: '#22c55e',
+                   color: '#000', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 700, fontSize: 13 }}>
+          + New Deal
+        </button>
+      </div>
+    );
+  }
+
+  const field = (label, name, opts = {}) => (
+    <div style={{ flex: opts.half ? '1 1 45%' : '1 1 100%' }}>
+      <label style={{ fontSize: 10, color: '#888', textTransform: 'uppercase', letterSpacing: 1 }}>{label}</label>
+      <input name={name} type={opts.type || 'text'} required={opts.req} placeholder={opts.ph || ''}
+        style={{ width: '100%', padding: '8px 10px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
+                 borderRadius: 6, color: '#fff', fontSize: 13, marginTop: 2 }} />
+    </div>
+  );
+
+  return (
+    <div style={{ background: '#111118', border: '1px solid #22c55e33', borderRadius: 10, padding: 16, marginBottom: 14 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
+        <span style={{ fontSize: 14, fontWeight: 700, color: '#22c55e' }}>New Deal</span>
+        <button onClick={() => setOpen(false)} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', fontSize: 18 }}>×</button>
+      </div>
+      <form onSubmit={handleSubmit}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 10 }}>
+          {field('First Name', 'buyer_first_name', { half: true, req: true, ph: 'John' })}
+          {field('Last Name', 'buyer_last_name', { half: true, req: true, ph: 'Smith' })}
+          {field('Phone', 'buyer_phone', { half: true, ph: '555-123-4567' })}
+          {field('Email', 'buyer_email', { half: true, type: 'email', ph: 'john@example.com' })}
+        </div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 10 }}>
+          {field('Address', 'buyer_address', { ph: '123 Main St' })}
+          {field('City', 'buyer_city', { half: true, ph: 'Houston' })}
+          {field('County', 'buyer_county', { half: true, ph: 'Harris' })}
+          {field('State', 'buyer_state', { half: true, ph: 'TX' })}
+          {field('Zip', 'buyer_zip', { half: true, ph: '77001' })}
+        </div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 10 }}>
+          {field('Manufacturer', 'manufacturer', { half: true, ph: 'Clayton Homes' })}
+          {field('Model', 'model', { half: true, ph: 'The Breeze' })}
+          {field('Serial #', 'serial_number_1', { half: true, ph: 'CLT-2026-001' })}
+          {field('Sales Rep', 'salesrep', { half: true, ph: 'Adriana Squyres' })}
+          {field('Sales Price', 'sales_price', { half: true, type: 'number', ph: '72000' })}
+          {field('Down Payment', 'down_payment', { half: true, type: 'number', ph: '8000' })}
+        </div>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+          <button type="submit" disabled={saving}
+            style={{ padding: '10px 24px', background: '#22c55e', color: '#000', border: 'none',
+                     borderRadius: 8, cursor: 'pointer', fontWeight: 700, fontSize: 13, opacity: saving ? 0.5 : 1 }}>
+            {saving ? 'Creating...' : 'Create Deal'}
+          </button>
+          {result && (
+            <span style={{ fontSize: 12, color: result.ok ? '#22c55e' : '#ef4444' }}>
+              {result.ok ? '✅' : '❌'} {result.msg}
+            </span>
+          )}
+        </div>
+      </form>
+    </div>
+  );
+}
+
 
 // ─── Customer Analytics Panel ────────────────────────
 
