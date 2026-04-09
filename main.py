@@ -1918,6 +1918,74 @@ async def customer_count():
         return {"total": 0, "by_status": {}, "error": str(e)}
 
 
+@app.get("/api/analytics/customers", dependencies=[Depends(require_admin)])
+async def customer_analytics():
+    """Customer segmentation analytics — status, geography, timeline, salesrep performance."""
+    try:
+        # Scan all customers for analytics
+        all_custs = _db.search_customers(limit=5000)
+
+        # Status breakdown
+        by_status = {}
+        by_city = {}
+        by_salesrep = {}
+        by_month = {}
+        recent_leads = []
+
+        for c in all_custs:
+            # Status
+            s = c.get("status", "UNKNOWN")
+            by_status[s] = by_status.get(s, 0) + 1
+
+            # Geography
+            city = c.get("city", "Unknown") or "Unknown"
+            by_city[city] = by_city.get(city, 0) + 1
+
+            # Salesrep
+            rep = c.get("salesrep") or "Unassigned"
+            if rep and rep != "None":
+                by_salesrep[rep] = by_salesrep.get(rep, 0) + 1
+
+            # Timeline (by month of creation)
+            created = c.get("created_at", "")
+            if created:
+                month = str(created)[:7]  # YYYY-MM
+                by_month[month] = by_month.get(month, 0) + 1
+
+            # Recent leads
+            if s == "LEAD" and len(recent_leads) < 10:
+                recent_leads.append({
+                    "name": c.get("full_name"),
+                    "phone": c.get("phone"),
+                    "city": city,
+                    "created": str(created)[:10] if created else None,
+                })
+
+        # Top cities
+        top_cities = sorted(by_city.items(), key=lambda x: x[1], reverse=True)[:15]
+
+        # Top salesreps
+        top_reps = sorted(by_salesrep.items(), key=lambda x: x[1], reverse=True)[:10]
+
+        # Conversion rate
+        total = len(all_custs)
+        enrolled = by_status.get("ENROLLED", 0)
+        conversion_rate = (enrolled / total * 100) if total else 0
+
+        return {
+            "total": total,
+            "by_status": by_status,
+            "conversion_rate": round(conversion_rate, 1),
+            "top_cities": [{"city": c, "count": n} for c, n in top_cities],
+            "top_salesreps": [{"name": r, "count": n} for r, n in top_reps],
+            "by_month": dict(sorted(by_month.items())),
+            "recent_leads": recent_leads,
+        }
+    except Exception as e:
+        logger.error(f"Customer analytics failed: {e}")
+        return {"error": str(e)}
+
+
 @app.get("/api/customers/{customer_id}", dependencies=[Depends(require_admin)])
 async def get_customer(customer_id: str):
     """Get a single customer record by document ID or legacy_id."""
