@@ -1941,8 +1941,8 @@ async def customer_analytics():
             city = c.get("city", "Unknown") or "Unknown"
             by_city[city] = by_city.get(city, 0) + 1
 
-            # Salesrep
-            rep = c.get("salesrep") or "Unassigned"
+            # Salesrep (normalize case for deduplication)
+            rep = (c.get("salesrep") or "").strip().title() or "Unassigned"
             if rep and rep != "None":
                 by_salesrep[rep] = by_salesrep.get(rep, 0) + 1
 
