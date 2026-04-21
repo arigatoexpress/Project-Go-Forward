@@ -62,7 +62,7 @@ class StructuredLogger:
     def request(self, request_id: str, user_id: str, session_id: str, message: str):
         """Log incoming request"""
         self.info(
-            f"Incoming request",
+            "Incoming request",
             request_id=request_id,
             user_id=user_id,
             session_id=session_id,
@@ -72,7 +72,7 @@ class StructuredLogger:
     def response(self, request_id: str, response_length: int, duration_ms: float):
         """Log response"""
         self.info(
-            f"Response sent",
+            "Response sent",
             request_id=request_id,
             response_length=response_length,
             duration_ms=round(duration_ms, 2)

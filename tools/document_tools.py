@@ -14,7 +14,7 @@ import base64
 import html
 import logging
 import os
-from typing import Optional, Dict, Any
+from typing import Dict, Any
 import uuid
 
 from pypdf import PdfReader, PdfWriter
@@ -656,7 +656,7 @@ The Texas Home Outlet Family
             "body": f"""
 Hi {first_name},
 
-We wanted to check in and see how everything is going{f' since your recent service visit' if ticket_id else ''}.
+We wanted to check in and see how everything is going{' since your recent service visit' if ticket_id else ''}.
 
 {custom_content or 'Is there anything else we can help you with?'}
 

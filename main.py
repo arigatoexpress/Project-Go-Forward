@@ -439,7 +439,8 @@ async def export_leads(status: str = None):
         if not leads:
             return {"message": "No leads found", "count": 0}
         
-        import io, csv
+        import io
+        import csv
         from fastapi.responses import StreamingResponse
         
         output = io.StringIO()

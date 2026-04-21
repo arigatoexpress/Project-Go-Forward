@@ -126,7 +126,7 @@ def merge():
     with open(output_path, "w") as f:
         json.dump(merged, f, indent=2)
     
-    print(f"Merge complete!")
+    print("Merge complete!")
     print(f"  Updated: {updated_count} existing entries with scraper images")
     print(f"  Added: {added_count} new entries from scraper")
     print(f"  Total: {len(merged)} entries in inventory.json")

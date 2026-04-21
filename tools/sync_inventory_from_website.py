@@ -287,7 +287,7 @@ def generate_sync_report(results: Dict, dry_run: bool = True):
     logger.info(f"Created: {results['created']}")
     logger.info(f"Updated: {results['updated']}")
     logger.info(f"Errors: {len(results['errors'])}")
-    logger.info(f"\nReports saved:")
+    logger.info("\nReports saved:")
     logger.info(f"  - {json_path}")
     logger.info(f"  - {summary_path}")
     
