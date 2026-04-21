@@ -574,11 +574,10 @@ function Step1({ data, onChange, resetKey, deals, dealsLoading, onLoadDeal, onNe
           <button
             onClick={async () => {
               try {
-                const token = sessionStorage.getItem('tho_admin_token');
                 const name = `${data.buyer_first_name} ${data.buyer_last_name}`.trim();
-                const res = await fetch('/api/customers', {
+                const res = await adminFetch('/api/customers', {
                   method: 'POST',
-                  headers: { 'Content-Type': 'application/json', ...(token ? { 'Authorization': `Bearer ${token}` } : {}) },
+                  headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({
                     full_name: name,
                     email: data.buyer_email || null,
@@ -594,9 +593,12 @@ function Step1({ data, onChange, resetKey, deals, dealsLoading, onLoadDeal, onNe
                 });
                 if (res.ok) {
                   const result = await res.json();
-                  alert(`Customer "${name}" saved! (${result.total_customers} total records)`);
+                  alert(`Customer "${name}" saved successfully!`);
+                } else {
+                  const err = await res.json().catch(() => ({}));
+                  alert(`Failed to save customer: ${err.detail || res.statusText}`);
                 }
-              } catch (e) { console.error('Save customer error:', e); }
+              } catch (e) { console.error('Save customer error:', e); alert('Failed to save customer. Please try again.'); }
             }}
             className="flex items-center gap-2 px-5 py-3 text-sm font-medium text-green-700 bg-green-50 border border-green-300 rounded-xl hover:bg-green-100 transition-colors"
           >
@@ -624,7 +626,7 @@ function Step1({ data, onChange, resetKey, deals, dealsLoading, onLoadDeal, onNe
 
 /* ─── Step 2: Choose Home from Inventory ─────────────────── */
 
-function Step2({ data, onChange, inventory, inventoryLoading, onNext, onBack, validationErrors }) {
+function Step2({ data, onChange, resetKey, inventory, inventoryLoading, onNext, onBack, validationErrors, onOpenTradeInCalculator }) {
   const [filter, setFilter] = useState('all'); // all, new, used
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedHome, setSelectedHome] = useState(null);
@@ -1883,6 +1885,7 @@ export default function DocumentCenter() {
           }}
           onBack={() => setStep(1)}
           validationErrors={validationErrors}
+          onOpenTradeInCalculator={() => setShowTradeInCalculator(true)}
         />
       )}
 
