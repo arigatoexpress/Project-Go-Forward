@@ -57,7 +57,6 @@ frontend/.firebase/
 .gcloudignore
 
 # PDF templates (copied from tho_data for Docker deploy, not version controlled)
-tho_documents/
 
 # Setup script (one-time use)
 setup_framework.py
