@@ -3,10 +3,6 @@ import requests
 import uuid
 import statistics
 
-import time
-import requests
-import uuid
-import statistics
 import os
 import sys
 

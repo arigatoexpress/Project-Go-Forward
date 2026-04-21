@@ -51,7 +51,7 @@ class UserPreferences:
             parts.append(f"{self.home_type} homes")
         
         if parts:
-            return f"User is looking for: " + ", ".join(parts)
+            return "User is looking for: " + ", ".join(parts)
         return ""
 
 

@@ -26,7 +26,7 @@ def audit_inventory_data():
             break
     
     if not xlsx_path:
-        print(f"❌ ERROR: Data file not found in any of these locations:")
+        print("❌ ERROR: Data file not found in any of these locations:")
         for p in possible_paths:
             print(f"  - {p}")
         return
@@ -101,12 +101,12 @@ def audit_inventory_data():
             zero_price_records += 1
     
     # Print summary
-    print(f"\n📈 AUDIT SUMMARY")
-    print(f"=" * 60)
+    print("\n📈 AUDIT SUMMARY")
+    print("=" * 60)
     print(f"✅ Valid records loaded:     {valid_records:>4} ({valid_records/total_rows*100:.1f}%)")
     print(f"⚠️  Zero/missing price:       {zero_price_records:>4}")
     print(f"💰 Valid price:              {valid_price_records:>4}")
-    print(f"\n❌ SKIPPED RECORDS")
+    print("\n❌ SKIPPED RECORDS")
     print(f"   No serial number:         {skipped_no_serial:>4}")
     print(f"   Header/separator:         {skipped_header:>4}")
     print(f"   Serial has no digits:     {skipped_no_digits:>4}")
@@ -114,20 +114,20 @@ def audit_inventory_data():
     print(f"   TOTAL SKIPPED:            {len(skipped_rows):>4} ({len(skipped_rows)/total_rows*100:.1f}%)")
     
     # Sample valid records
-    print(f"\n📋 SAMPLE VALID RECORDS (first 5):")
+    print("\n📋 SAMPLE VALID RECORDS (first 5):")
     for idx, serial, model, msrp in valid_rows[:5]:
         print(f"   Row {idx+2}: {serial} | {model[:30]:<30} | ${msrp if not pd.isna(msrp) else 'N/A'}")
     
     # Sample skipped records
     if skipped_rows:
-        print(f"\n⚠️  SAMPLE SKIPPED RECORDS (first 5):")
+        print("\n⚠️  SAMPLE SKIPPED RECORDS (first 5):")
         for idx, reason, row in skipped_rows[:5]:
             serial = row.get("Serial #", "N/A")
             model = row.get("Model", "N/A")
             print(f"   Row {idx+2}: {reason} | Serial: {serial} | Model: {model}")
     
     # Look for suspicious patterns
-    print(f"\n🔍 DATA QUALITY CHECKS")
+    print("\n🔍 DATA QUALITY CHECKS")
     
     # Check for duplicate serials
     serials = [s for _, s, _, _ in valid_rows]
@@ -137,7 +137,7 @@ def audit_inventory_data():
         for dup in duplicates[:3]:
             print(f"      - {dup}")
     else:
-        print(f"   ✅ No duplicate serial numbers")
+        print("   ✅ No duplicate serial numbers")
     
     # Check for missing dimensions
     missing_dims = 0
@@ -155,7 +155,7 @@ def audit_inventory_data():
             missing_bb += 1
     print(f"   {'⚠️' if missing_bb > 0 else '✅'} Missing bed/bath: {missing_bb}/{valid_records}")
     
-    print(f"\n✅ Audit complete!")
+    print("\n✅ Audit complete!")
     print(f"   Recommendation: {'All good!' if valid_records > 50 and len(skipped_rows) < 20 else 'Review skipped records above.'}")
 
 if __name__ == "__main__":

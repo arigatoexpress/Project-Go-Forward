@@ -244,22 +244,22 @@ def migrate(load_to_firestore: bool = False, save_json: bool = False) -> dict:
     }
 
     print(f"\n{'='*60}")
-    print(f"  MIGRATION REPORT")
+    print("  MIGRATION REPORT")
     print(f"{'='*60}")
     print(f"  Raw records:  {len(rows)}")
     print(f"  Imported:     {len(customers)}")
     print(f"  Skipped:      {len(skipped)}")
     print(f"  Errors:       {len(errors)}")
-    print(f"\n  Coverage:")
+    print("\n  Coverage:")
     print(f"    With email:    {with_email} ({with_email*100//len(customers)}%)")
     print(f"    With phone:    {with_phone} ({with_phone*100//len(customers)}%)")
     print(f"    With SSN:      {with_ssn} ({with_ssn*100//len(customers)}%)")
     print(f"    With address:  {with_address} ({with_address*100//len(customers)}%)")
     print(f"    With co-buyer: {with_co_buyer}")
-    print(f"\n  Status breakdown:")
+    print("\n  Status breakdown:")
     for status, count in sorted(status_counts.items(), key=lambda x: -x[1]):
         print(f"    {status}: {count}")
-    print(f"\n  Top salesreps:")
+    print("\n  Top salesreps:")
     for rep, count in list(sorted(salesrep_counts.items(), key=lambda x: -x[1]))[:5]:
         print(f"    {rep}: {count}")
 

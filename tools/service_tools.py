@@ -235,6 +235,6 @@ def generate_invoice_pdf(
         "success": True,
         "message": f"Work order {invoice_id} has been generated and sent to {contractor_name} at {contractor_email}.",
         "work_order": work_order,
-        "customer_notification": f"A copy has been emailed to the customer. The contractor will reach out within 24-48 hours to schedule the service visit.",
+        "customer_notification": "A copy has been emailed to the customer. The contractor will reach out within 24-48 hours to schedule the service visit.",
         "follow_up": "Would you like me to schedule a follow-up check-in for next week?"
     }
