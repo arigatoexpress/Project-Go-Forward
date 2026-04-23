@@ -116,8 +116,9 @@ Case matters. Customer status is uppercase; Deal/ServiceRequest are lowercase.
 | GET | `/api/v1/leads` | List leads |
 | POST | `/api/v1/webhooks/notify` | Accept inbound webhook from Notion or n8n |
 | GET | `/api/v1/stats` | Topline counts for dashboarding |
+| POST | `/api/v1/rag/query` | Semantic search over the 63 regulatory PDF templates. See [RAG_INTEGRATION.md](RAG_INTEGRATION.md). |
 
-**Merge plan**: the `/api/v1/*` surface now lives on `feat/api-v1-integration` and is tracked in [PR #4](https://github.com/arigatoexpress/Project-Go-Forward/pull/4) against `main`.
+**Merge plan**: the `/api/v1/*` surface now lives on `feat/api-v1-integration` and is tracked in [PR #4](https://github.com/arigatoexpress/Project-Go-Forward/pull/4) against `main`. The RAG endpoint is stacked on top in `feat/rag-document-search`.
 
 ### Webhook flow (THO → Notion)
 
