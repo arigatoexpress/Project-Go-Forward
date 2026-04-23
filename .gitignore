@@ -10,7 +10,9 @@ data/scraped_inventory.json
 data/scraped_fresh.json
 data/*.xlsx
 data/generated_docs/
-data/rag_index/
+# data/rag_index/ IS committed — it's the canonical pre-built index the
+# /api/v1/rag/query endpoint loads. Rebuild with scripts/build_rag_index.py
+# when templates in tho_documents/ change, then commit the updated files.
 
 # Python
 __pycache__/
