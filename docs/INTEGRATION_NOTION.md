@@ -102,8 +102,10 @@ Case matters. Customer status is uppercase; Deal/ServiceRequest are lowercase.
 ### Authentication
 
 - Bearer token via `Authorization: Bearer <key>` or `X-API-Key` header.
-- Secret: `THO_API_KEY` (scoped per partner; Etai gets his own, not the default).
+- Primary secret: `THO_API_KEY`.
+- Per-partner secrets: any env var matching `THO_API_KEY_*` (e.g., `THO_API_KEY_ETAI`, `THO_API_KEY_N8N`) is also accepted. Each one is independently revocable — rotate its Secret Manager entry and the others keep working. The audit log records the matched env var name as `partner_id` so per-partner usage is traceable.
 - All `/api/v1/*` requests require a valid key (fail-closed).
+- Storage: all keys live in GCP Secret Manager in the `tho-ai-agent` project (e.g., `tho-api-key`, `tho-api-key-etai`). Cloud Run mounts each via `secretKeyRef`; no plaintext env values.
 
 ### Endpoints (status: implemented on `feat/api-v1-integration`; see [PR #4](https://github.com/arigatoexpress/Project-Go-Forward/pull/4))
 
