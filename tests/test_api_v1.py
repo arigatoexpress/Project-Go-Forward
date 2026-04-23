@@ -9,7 +9,7 @@ import importlib
 import sys
 import types
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 
@@ -79,8 +79,8 @@ class FakeLead:
     financing_discussed: bool = False
     source: str = "chat"
     status: str = "new"
-    created_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
-    updated_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+    created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    updated_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
     def to_dict(self) -> dict:
         return {
@@ -141,6 +141,43 @@ class FakeDocumentRef:
         return types.SimpleNamespace(exists=True, id=self.id, to_dict=lambda: dict(data))
 
 
+class FakeQuery:
+    """Tiny subset of Firestore query chaining used by v1 endpoints."""
+
+    def __init__(self, store: dict, filters: list[tuple[str, str, object]] | None = None, limit: int | None = None):
+        self._store = store
+        self._filters = filters or []
+        self._limit = limit
+
+    def where(self, field: str, op: str, value: object) -> "FakeQuery":
+        return FakeQuery(self._store, self._filters + [(field, op, value)], self._limit)
+
+    def limit(self, n: int) -> "FakeQuery":
+        return FakeQuery(self._store, list(self._filters), n)
+
+    @staticmethod
+    def _resolve(doc: dict, field: str):
+        cur: object = doc
+        for part in field.split("."):
+            if not isinstance(cur, dict):
+                return None
+            cur = cur.get(part)
+        return cur
+
+    def get(self):
+        results = []
+        for doc_id, data in self._store.items():
+            matched = all(
+                (self._resolve(data, f) == v) if op == "==" else False
+                for f, op, v in self._filters
+            )
+            if matched:
+                results.append(FakeDocSnapshot(doc_id, data))
+                if self._limit is not None and len(results) >= self._limit:
+                    break
+        return results
+
+
 class FakeCollection:
     def __init__(self, collections: dict[str, dict[str, dict]], name: str):
         self._collections = collections
@@ -154,6 +191,9 @@ class FakeCollection:
     def document(self, doc_id: str | None = None):
         doc_id = doc_id or f"{self._name}-{len(self._store) + 1}"
         return FakeDocumentRef(self._store, doc_id)
+
+    def where(self, field: str, op: str, value: object) -> FakeQuery:
+        return FakeQuery(self._store).where(field, op, value)
 
 
 class FakeFirestoreDB:
@@ -507,7 +547,7 @@ def load_app(monkeypatch, tho_api_key: str | None = "tho-secret", rate_limit_rpm
     crm_tools_module.save_lead = lambda *args, **kwargs: {}
     crm_tools_module.check_available_slots = lambda *args, **kwargs: []
     crm_tools_module.cancel_appointment = lambda *args, **kwargs: {"success": True}
-    crm_tools_module.get_current_datetime = lambda *args, **kwargs: datetime.utcnow().isoformat()
+    crm_tools_module.get_current_datetime = lambda *args, **kwargs: datetime.now(timezone.utc).isoformat()
     monkeypatch.setitem(sys.modules, "tools.crm_tools", crm_tools_module)
 
     marketing_tools_module = types.ModuleType("tools.marketing_tools")
@@ -582,11 +622,11 @@ def test_valid_key_returns_redacted_customer_data(monkeypatch):
     customer = body["customers"][0]
     assert customer["id"] == "cust-1"
     assert customer["status"] == "LEAD"
+    assert customer["full_name"] == "Alice Example"
     assert "phone" not in customer
     assert "email" not in customer
     assert "ssn_hash" not in customer
     assert "ssn_masked" not in customer
-    assert "full_name" not in customer
 
 
 def test_single_customer_accepts_x_api_key_and_stays_redacted(monkeypatch):
@@ -614,7 +654,6 @@ def test_create_customer_returns_201_and_id(monkeypatch):
             "status": "ENROLLED",
             "city": "Houston",
             "state": "TX",
-            "ssn_masked": "***-**-1111",
         },
     )
 
@@ -624,6 +663,42 @@ def test_create_customer_returns_201_and_id(monkeypatch):
     assert stored_customer is not None
     assert stored_customer["full_name"] == "Created Customer"
     assert stored_customer["phone"] == "5551239999"
+
+
+def test_create_customer_drops_ssn_fields_from_partner_input(monkeypatch):
+    """Partner API must never persist SSN data, even if clients try to send it."""
+    client, _main, fake_db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
+
+    response = client.post(
+        "/api/v1/customers",
+        headers={"Authorization": "Bearer tho-secret"},
+        json={
+            "full_name": "No SSN Here",
+            "status": "LEAD",
+            "ssn_masked": "***-**-1111",
+            "ssn": "123-45-6789",
+            "co_buyer": {
+                "name": "Co",
+                "ssn": "987-65-4321",
+                "ssn_masked": "***-**-4321",
+                "phone": "5550001111",
+            },
+            "references": [
+                {"name": "Ref1", "ssn_last4": "6789"},
+            ],
+        },
+    )
+
+    assert response.status_code == 201
+    stored = fake_db.get_customer(response.json()["id"])
+    assert "ssn_masked" not in stored
+    assert "ssn" not in stored
+    # Nested co_buyer / references also stripped of any ssn-shaped fields
+    co_buyer = stored.get("co_buyer") or {}
+    assert all("ssn" not in k.lower() for k in co_buyer.keys())
+    for ref in stored.get("references") or []:
+        if isinstance(ref, dict):
+            assert all("ssn" not in k.lower() for k in ref.keys())
 
 
 def test_inventory_leads_and_stats_use_partner_safe_shapes(monkeypatch):
@@ -673,6 +748,36 @@ def test_webhook_notify_records_activity(monkeypatch):
     assert stored["deal_id"] == "deal-2"
     assert stored["metadata"]["event"] == "deal.status_changed"
     assert stored["metadata"]["payload"] == {"from": "approved", "to": "funded"}
+    assert response.json().get("idempotent_replay") is False
+
+
+def test_webhook_notify_is_idempotent_when_key_repeated(monkeypatch):
+    """Same idempotency_key from the same API key must not create duplicates."""
+    client, _main, fake_db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
+    headers = {"Authorization": "Bearer tho-secret"}
+
+    body = {
+        "event": "deal.funded",
+        "deal_id": "deal-3",
+        "payload": {"funded_at": "2026-04-23T00:00:00Z"},
+        "idempotency_key": "notion-run-abc123",
+    }
+
+    first = client.post("/api/v1/webhooks/notify", headers=headers, json=body)
+    second = client.post("/api/v1/webhooks/notify", headers=headers, json=body)
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    # Same activity id returned both times
+    assert first.json()["id"] == second.json()["id"]
+    assert first.json()["idempotent_replay"] is False
+    assert second.json()["idempotent_replay"] is True
+    # Only one activities record was written
+    matching = [
+        a for a in fake_db.collections["activities"].values()
+        if a.get("deal_id") == "deal-3"
+    ]
+    assert len(matching) == 1
 
 
 def test_rate_limiting_still_applies(monkeypatch):

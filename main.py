@@ -24,7 +24,7 @@ from fastapi.responses import FileResponse
 import logging
 import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from config_loader import get_deployment_config, business_name
@@ -2222,12 +2222,18 @@ def _json_safe(value):
 
 
 def _redact_customer_for_partner(customer: dict) -> dict:
-    """Return the non-PII subset of a customer record for partner integrations."""
+    """Return the non-PII subset of a customer record for partner integrations.
+
+    Names are included because they appear on signed contracts and county
+    records already — not treating them as high-risk PII here. SSN, phone,
+    email stay redacted.
+    """
     safe = _strip_ssn_from_customer(customer)
     allowed_fields = (
         "id",
         "legacy_id",
         "legacy_source",
+        "full_name",
         "status",
         "billing_account",
         "city",
@@ -2352,6 +2358,21 @@ async def v1_create_customer(request: Request):
     if status not in allowed_statuses:
         status = "LEAD"
 
+    # Partner API explicitly does NOT accept SSN (masked or otherwise).
+    # Historical FCD imports that populated ssn_masked go through the admin
+    # route, not this one. Defensively drop any SSN-shaped fields from
+    # nested co_buyer / references as well.
+    def _drop_ssn(obj):
+        if isinstance(obj, dict):
+            return {
+                k: _drop_ssn(v)
+                for k, v in obj.items()
+                if "ssn" not in str(k).lower()
+            }
+        if isinstance(obj, list):
+            return [_drop_ssn(item) for item in obj]
+        return obj
+
     customer_id = str(uuid.uuid4())
     customer = {
         "legacy_id": _sanitize_text(data.get("legacy_id") or "", 50),
@@ -2370,9 +2391,8 @@ async def v1_create_customer(request: Request):
         "occupation": _sanitize_text(data.get("occupation") or "", 200) or None,
         "salesrep": _sanitize_text(data.get("salesrep") or "", 100) or None,
         "notes": _sanitize_text(data.get("notes") or "", 2000) or None,
-        "ssn_masked": _sanitize_text(data.get("ssn_masked") or "", 20),
-        "co_buyer": data.get("co_buyer"),
-        "references": data.get("references", []),
+        "co_buyer": _drop_ssn(data.get("co_buyer")),
+        "references": _drop_ssn(data.get("references", [])),
     }
 
     try:
@@ -2429,7 +2449,14 @@ async def v1_list_leads(limit: int = 50, offset: int = 0, status: str = None):
 
 @app.post("/api/v1/webhooks/notify", dependencies=[Depends(require_partner_api_key)])
 async def v1_webhook_notify(request: Request):
-    """Accept a partner webhook and log it to the Firestore activities collection."""
+    """Accept a partner webhook and log it to the Firestore activities collection.
+
+    Idempotency: if the request body includes `idempotency_key`, we check the
+    `activities/` collection for a prior record with the same key and return
+    the existing activity ID instead of creating a duplicate. The key is
+    scoped to the calling API key's fingerprint so two partners can't collide
+    on a shared key value.
+    """
     try:
         data = await request.json()
     except Exception as e:
@@ -2438,11 +2465,43 @@ async def v1_webhook_notify(request: Request):
     event = _sanitize_text(str(data.get("event") or ""), 100)
     deal_id = _sanitize_text(str(data.get("deal_id") or ""), 100)
     payload = data.get("payload") if isinstance(data.get("payload"), dict) else {}
+    idempotency_key = _sanitize_text(str(data.get("idempotency_key") or ""), 200)
 
     if not event:
         raise HTTPException(status_code=400, detail="event is required")
     if not deal_id:
         raise HTTPException(status_code=400, detail="deal_id is required")
+
+    key_fingerprint = _partner_api_key_fingerprint(_extract_partner_api_key(request))
+
+    if idempotency_key:
+        scoped_key = f"{key_fingerprint}:{idempotency_key}"
+        try:
+            existing = (
+                _db.db.collection("activities")
+                .where("metadata.idempotency_scope", "==", scoped_key)
+                .limit(1)
+                .get()
+            )
+            existing_list = list(existing)
+            if existing_list:
+                activity_doc = existing_list[0].to_dict() or {}
+                struct_logger.info(
+                    "Partner webhook idempotent replay",
+                    activity_id=activity_doc.get("id"),
+                    deal_id=deal_id,
+                    idempotency_scope=scoped_key,
+                )
+                return {
+                    "id": activity_doc.get("id"),
+                    "logged": True,
+                    "idempotent_replay": True,
+                }
+        except Exception as e:
+            struct_logger.warning(
+                "Idempotency lookup failed; proceeding with new activity",
+                error=str(e),
+            )
 
     activity_id = str(uuid.uuid4())
     activity = {
@@ -2456,15 +2515,16 @@ async def v1_webhook_notify(request: Request):
             "payload": payload,
             "endpoint": request.url.path,
             "client_ip": _get_client_ip(request),
-            "api_key_fingerprint": _partner_api_key_fingerprint(_extract_partner_api_key(request)),
+            "api_key_fingerprint": key_fingerprint,
+            "idempotency_scope": f"{key_fingerprint}:{idempotency_key}" if idempotency_key else None,
         },
-        "created_at": datetime.utcnow().isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
     }
 
     try:
         _db.db.collection("activities").document(activity_id).set(activity)
         struct_logger.info("Partner webhook activity logged", activity_id=activity_id, deal_id=deal_id)
-        return {"id": activity_id, "logged": True}
+        return {"id": activity_id, "logged": True, "idempotent_replay": False}
     except Exception as e:
         struct_logger.error("Partner webhook logging failed", error=str(e))
         raise HTTPException(status_code=500, detail="Failed to record webhook activity")
