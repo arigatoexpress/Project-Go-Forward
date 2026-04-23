@@ -2544,6 +2544,95 @@ async def v1_stats():
         raise HTTPException(status_code=500, detail="Failed to load stats")
 
 
+# ─── RAG over regulatory documents ───────────────────────────────────────────
+# Lazy-loaded singleton; first request to /api/v1/rag/query incurs index load.
+# If the index hasn't been built, the endpoint returns 503 and tells the caller
+# how to build it.
+_rag_instance = None
+
+
+def _get_document_rag():
+    """Lazy-load the DocumentRAG singleton."""
+    global _rag_instance
+    if _rag_instance is not None:
+        return _rag_instance
+    from tools.document_rag import DocumentRAG
+
+    instance = DocumentRAG()
+    try:
+        instance.load()
+    except FileNotFoundError as e:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "RAG index not built. Run `python scripts/build_rag_index.py` "
+                "and redeploy, or mount a prebuilt index at data/rag_index/."
+            ),
+        ) from e
+    _rag_instance = instance
+    return _rag_instance
+
+
+@app.post("/api/v1/rag/query", dependencies=[Depends(require_partner_api_key)])
+async def v1_rag_query(request: Request):
+    """Semantic search over the regulatory document corpus.
+
+    Request body:
+        {"query": "Who signs the sales contract?", "k": 5}
+
+    Response:
+        {
+          "query": "...",
+          "count": 5,
+          "results": [
+            {"chunk_id": "TMHA_SalesContract.pdf#p1#c0",
+             "template": "TMHA_SalesContract.pdf",
+             "page": 1,
+             "score": 0.82,
+             "text": "..."},
+            ...
+          ]
+        }
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON payload")
+
+    query = _sanitize_text(str(body.get("query") or ""), 1000).strip()
+    if not query:
+        raise HTTPException(status_code=400, detail="query is required")
+
+    k_raw = body.get("k", 5)
+    try:
+        k = int(k_raw)
+    except (TypeError, ValueError):
+        k = 5
+    k = max(1, min(k, 20))
+
+    rag = _get_document_rag()
+    try:
+        results = rag.query(query, k=k)
+    except Exception as e:
+        struct_logger.error("RAG query failed", error=str(e), query_len=len(query))
+        raise HTTPException(status_code=500, detail="RAG query failed")
+
+    return {
+        "query": query,
+        "count": len(results),
+        "results": [
+            {
+                "chunk_id": r.chunk_id,
+                "template": r.template,
+                "page": r.page,
+                "score": round(r.score, 4),
+                "text": r.text[:500],
+            }
+            for r in results
+        ],
+    }
+
+
 # Serve Frontend — Must be last to avoid catching API routes
 app.mount("/assets", StaticFiles(directory="frontend/dist/assets"), name="assets")
 
