@@ -3,6 +3,8 @@ FastAPI Application — Config-Driven AI Agent Server
 
 Serves the AI agent backend and static frontend.
 All business-specific config is loaded from config.yaml.
+Admin routes use `X-Admin-Token`; partner integrations live under `/api/v1/*`
+and authenticate with `THO_API_KEY`.
 """
 
 import os
@@ -22,7 +24,7 @@ from fastapi.responses import FileResponse
 import logging
 import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from config_loader import get_deployment_config, business_name
@@ -2149,6 +2151,397 @@ async def document_history():
 
     docs.sort(key=lambda d: d.get("created_at") or "", reverse=True)
     return {"documents": docs[:50], "total": len(docs)}
+
+
+# ─── Partner Integration API v1 ──────────────────────────────────────────────
+# External partners authenticate separately from the admin UI. This surface is
+# intended for automation clients such as Notion or n8n and must stay
+# fail-closed plus PII-redacted by default.
+
+def _get_partner_api_key() -> str:
+    """Read the partner API key at request time so tests and env updates work."""
+    return (os.environ.get("THO_API_KEY") or "").strip()
+
+
+def _extract_partner_api_key(request: Request) -> str | None:
+    """Accept either Authorization: Bearer <token> or X-API-Key: <token>."""
+    authorization = request.headers.get("Authorization", "")
+    if authorization.lower().startswith("bearer "):
+        token = authorization.split(" ", 1)[1].strip()
+        if token:
+            return token
+
+    x_api_key = request.headers.get("X-API-Key", "").strip()
+    return x_api_key or None
+
+
+def _partner_api_key_fingerprint(api_key: str | None) -> str:
+    """Return the first 8 chars of the SHA256 hex digest for audit logging."""
+    if not api_key:
+        return "missing"
+    return hashlib.sha256(api_key.encode("utf-8")).hexdigest()[:8]
+
+
+def _log_partner_api_request(request: Request, api_key: str | None, auth_status: str):
+    """Structured audit log for every /api/v1 request without exposing the raw key."""
+    struct_logger.info(
+        "Partner API request",
+        api_key_fingerprint=_partner_api_key_fingerprint(api_key),
+        endpoint=request.url.path,
+        method=request.method,
+        client_ip=_get_client_ip(request),
+        auth_status=auth_status,
+    )
+
+
+async def require_partner_api_key(request: Request):
+    """Validate the partner API key and fail closed when THO_API_KEY is unset."""
+    configured_key = _get_partner_api_key()
+    provided_key = _extract_partner_api_key(request)
+
+    if not configured_key:
+        _log_partner_api_request(request, provided_key, "unconfigured")
+        raise HTTPException(status_code=503, detail="API key auth not configured")
+
+    if not provided_key:
+        _log_partner_api_request(request, provided_key, "missing")
+        raise HTTPException(status_code=401, detail="Missing API key")
+
+    if not hmac.compare_digest(provided_key, configured_key):
+        _log_partner_api_request(request, provided_key, "invalid")
+        raise HTTPException(status_code=401, detail="Invalid API key")
+
+    _log_partner_api_request(request, provided_key, "accepted")
+
+
+def _json_safe(value):
+    """Convert datetime-like values to JSON-safe ISO strings."""
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    return value
+
+
+def _redact_customer_for_partner(customer: dict) -> dict:
+    """Return the non-PII subset of a customer record for partner integrations.
+
+    Names are included because they appear on signed contracts and county
+    records already — not treating them as high-risk PII here. SSN, phone,
+    email stay redacted.
+    """
+    safe = _strip_ssn_from_customer(customer)
+    allowed_fields = (
+        "id",
+        "legacy_id",
+        "legacy_source",
+        "full_name",
+        "status",
+        "billing_account",
+        "city",
+        "state",
+        "created_at",
+        "updated_at",
+    )
+    return {
+        field: _json_safe(safe.get(field))
+        for field in allowed_fields
+        if field in safe
+    }
+
+
+def _redact_lead_for_partner(lead: dict) -> dict:
+    """Remove direct contact details from lead responses."""
+    allowed_fields = (
+        "lead_id",
+        "status",
+        "source",
+        "bedrooms",
+        "bathrooms",
+        "budget_max",
+        "home_type",
+        "homes_viewed",
+        "appointment_requested",
+        "financing_discussed",
+        "created_at",
+        "updated_at",
+    )
+    return {
+        field: _json_safe(lead.get(field))
+        for field in allowed_fields
+        if field in lead
+    }
+
+
+def _serialize_inventory_for_partner(item: dict) -> dict:
+    """Normalize inventory records for the external API."""
+    return {
+        "id": item.get("id"),
+        "model_name": item.get("model_name") or item.get("model"),
+        "manufacturer": item.get("manufacturer"),
+        "year": item.get("year"),
+        "is_new": item.get("is_new", True),
+        "serial_number": item.get("serial_number"),
+        "label_number": item.get("label_number"),
+        "sections": item.get("sections") or item.get("no_of_sections"),
+        "bedrooms": item.get("bedrooms"),
+        "bathrooms": item.get("bathrooms"),
+        "sqft": item.get("sqft"),
+        "msrp": item.get("msrp") or item.get("sale_price"),
+        "image_url": item.get("image_url") or item.get("hero_image"),
+        "status": item.get("status", "AVAILABLE"),
+    }
+
+
+def _count_collection_by_status(collection_name: str, status_field: str = "status") -> dict:
+    """Count Firestore documents by status for simple dashboard summaries."""
+    total = 0
+    by_status: dict[str, int] = {}
+
+    for doc in _db.db.collection(collection_name).stream():
+        total += 1
+        data = doc.to_dict() or {}
+        status = data.get(status_field) or "UNKNOWN"
+        by_status[status] = by_status.get(status, 0) + 1
+
+    return {"total": total, "by_status": by_status}
+
+
+@app.get("/api/v1/customers", dependencies=[Depends(require_partner_api_key)])
+async def v1_list_customers(limit: int = 50, offset: int = 0, status: str = None, q: str = None):
+    """List customers with pagination and default PII redaction."""
+    limit = max(1, min(limit, 200))
+    offset = max(0, offset)
+
+    try:
+        customers = _db.search_customers(
+            query_text=q or None,
+            status=status or None,
+            limit=offset + limit,
+        )
+        page = customers[offset:offset + limit]
+        return {
+            "customers": [_redact_customer_for_partner(customer) for customer in page],
+            "count": len(page),
+            "limit": limit,
+            "offset": offset,
+        }
+    except Exception as e:
+        struct_logger.error("Partner API customer list failed", error=str(e))
+        raise HTTPException(status_code=500, detail="Failed to list customers")
+
+
+@app.get("/api/v1/customers/{customer_id}", dependencies=[Depends(require_partner_api_key)])
+async def v1_get_customer(customer_id: str):
+    """Get one customer with PII removed."""
+    try:
+        customer = _db.get_customer(customer_id)
+        if customer is None:
+            raise HTTPException(status_code=404, detail="Customer not found")
+        return {"customer": _redact_customer_for_partner(customer)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        struct_logger.error("Partner API customer fetch failed", error=str(e))
+        raise HTTPException(status_code=500, detail="Failed to retrieve customer")
+
+
+@app.post("/api/v1/customers", dependencies=[Depends(require_partner_api_key)], status_code=201)
+async def v1_create_customer(request: Request):
+    """Create a customer using the same accepted body shape as the admin route."""
+    data = await request.json()
+
+    name = _sanitize_text(data.get("full_name") or "")
+    if len(name) < 2:
+        raise HTTPException(status_code=400, detail="full_name is required (min 2 chars)")
+
+    allowed_statuses = {"LEAD", "ENROLLED", "NON_ENROLLED", "SOLD", "CLOSED"}
+    status = (data.get("status") or "LEAD").upper()
+    if status not in allowed_statuses:
+        status = "LEAD"
+
+    # Partner API explicitly does NOT accept SSN (masked or otherwise).
+    # Historical FCD imports that populated ssn_masked go through the admin
+    # route, not this one. Defensively drop any SSN-shaped fields from
+    # nested co_buyer / references as well.
+    def _drop_ssn(obj):
+        if isinstance(obj, dict):
+            return {
+                k: _drop_ssn(v)
+                for k, v in obj.items()
+                if "ssn" not in str(k).lower()
+            }
+        if isinstance(obj, list):
+            return [_drop_ssn(item) for item in obj]
+        return obj
+
+    customer_id = str(uuid.uuid4())
+    customer = {
+        "legacy_id": _sanitize_text(data.get("legacy_id") or "", 50),
+        "legacy_source": data.get("legacy_source", "manual")
+        if data.get("legacy_source") in ("manual", "fastcontract", "import", "n8n", "notion")
+        else "manual",
+        "full_name": name,
+        "email": (data.get("email") or "").strip().lower()[:200] or None,
+        "phone": (data.get("phone") or "").strip()[:20] or None,
+        "status": status,
+        "address": _sanitize_text(data.get("address") or "", 300) or None,
+        "city": _sanitize_text(data.get("city") or "", 100) or None,
+        "state": _sanitize_text(data.get("state") or "TX", 2) or "TX",
+        "zip_code": _sanitize_text(data.get("zip_code") or data.get("zip") or "", 10) or None,
+        "employer": _sanitize_text(data.get("employer") or "", 200) or None,
+        "occupation": _sanitize_text(data.get("occupation") or "", 200) or None,
+        "salesrep": _sanitize_text(data.get("salesrep") or "", 100) or None,
+        "notes": _sanitize_text(data.get("notes") or "", 2000) or None,
+        "co_buyer": _drop_ssn(data.get("co_buyer")),
+        "references": _drop_ssn(data.get("references", [])),
+    }
+
+    try:
+        created_id = _db.create_customer(customer, doc_id=customer_id)
+        return {"id": created_id}
+    except Exception as e:
+        struct_logger.error("Partner API customer create failed", error=str(e))
+        raise HTTPException(status_code=500, detail="Failed to create customer")
+
+
+@app.get("/api/v1/inventory", dependencies=[Depends(require_partner_api_key)])
+async def v1_list_inventory(limit: int = 50, offset: int = 0, status: str = None, manufacturer: str = None):
+    """List inventory with simple pagination and partner-safe response fields."""
+    limit = max(1, min(limit, 200))
+    offset = max(0, offset)
+
+    try:
+        inventory = _db.search_inventory(
+            status=status.upper() if status else None,
+            manufacturer=manufacturer or None,
+            limit=offset + limit,
+        )
+        page = inventory[offset:offset + limit]
+        return {
+            "inventory": [_serialize_inventory_for_partner(item) for item in page],
+            "count": len(page),
+            "limit": limit,
+            "offset": offset,
+        }
+    except Exception as e:
+        struct_logger.error("Partner API inventory list failed", error=str(e))
+        raise HTTPException(status_code=500, detail="Failed to list inventory")
+
+
+@app.get("/api/v1/leads", dependencies=[Depends(require_partner_api_key)])
+async def v1_list_leads(limit: int = 50, offset: int = 0, status: str = None):
+    """List leads with direct contact details removed."""
+    limit = max(1, min(limit, 200))
+    offset = max(0, offset)
+
+    try:
+        leads = await lead_manager.list_leads(status=status, limit=offset + limit)
+        page = leads[offset:offset + limit]
+        return {
+            "leads": [_redact_lead_for_partner(lead.to_dict()) for lead in page],
+            "count": len(page),
+            "limit": limit,
+            "offset": offset,
+        }
+    except Exception as e:
+        struct_logger.error("Partner API lead list failed", error=str(e))
+        raise HTTPException(status_code=500, detail="Failed to list leads")
+
+
+@app.post("/api/v1/webhooks/notify", dependencies=[Depends(require_partner_api_key)])
+async def v1_webhook_notify(request: Request):
+    """Accept a partner webhook and log it to the Firestore activities collection.
+
+    Idempotency: if the request body includes `idempotency_key`, we check the
+    `activities/` collection for a prior record with the same key and return
+    the existing activity ID instead of creating a duplicate. The key is
+    scoped to the calling API key's fingerprint so two partners can't collide
+    on a shared key value.
+    """
+    try:
+        data = await request.json()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail="Invalid JSON payload") from e
+
+    event = _sanitize_text(str(data.get("event") or ""), 100)
+    deal_id = _sanitize_text(str(data.get("deal_id") or ""), 100)
+    payload = data.get("payload") if isinstance(data.get("payload"), dict) else {}
+    idempotency_key = _sanitize_text(str(data.get("idempotency_key") or ""), 200)
+
+    if not event:
+        raise HTTPException(status_code=400, detail="event is required")
+    if not deal_id:
+        raise HTTPException(status_code=400, detail="deal_id is required")
+
+    key_fingerprint = _partner_api_key_fingerprint(_extract_partner_api_key(request))
+
+    if idempotency_key:
+        scoped_key = f"{key_fingerprint}:{idempotency_key}"
+        try:
+            existing = (
+                _db.db.collection("activities")
+                .where("metadata.idempotency_scope", "==", scoped_key)
+                .limit(1)
+                .get()
+            )
+            existing_list = list(existing)
+            if existing_list:
+                activity_doc = existing_list[0].to_dict() or {}
+                struct_logger.info(
+                    "Partner webhook idempotent replay",
+                    activity_id=activity_doc.get("id"),
+                    deal_id=deal_id,
+                    idempotency_scope=scoped_key,
+                )
+                return {
+                    "id": activity_doc.get("id"),
+                    "logged": True,
+                    "idempotent_replay": True,
+                }
+        except Exception as e:
+            struct_logger.warning(
+                "Idempotency lookup failed; proceeding with new activity",
+                error=str(e),
+            )
+
+    activity_id = str(uuid.uuid4())
+    activity = {
+        "id": activity_id,
+        "activity_type": f"partner_webhook.{event}",
+        "description": f"Partner webhook received for deal {deal_id}",
+        "deal_id": deal_id,
+        "actor": "partner_api",
+        "metadata": {
+            "event": event,
+            "payload": payload,
+            "endpoint": request.url.path,
+            "client_ip": _get_client_ip(request),
+            "api_key_fingerprint": key_fingerprint,
+            "idempotency_scope": f"{key_fingerprint}:{idempotency_key}" if idempotency_key else None,
+        },
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    try:
+        _db.db.collection("activities").document(activity_id).set(activity)
+        struct_logger.info("Partner webhook activity logged", activity_id=activity_id, deal_id=deal_id)
+        return {"id": activity_id, "logged": True, "idempotent_replay": False}
+    except Exception as e:
+        struct_logger.error("Partner webhook logging failed", error=str(e))
+        raise HTTPException(status_code=500, detail="Failed to record webhook activity")
+
+
+@app.get("/api/v1/stats", dependencies=[Depends(require_partner_api_key)])
+async def v1_stats():
+    """Return partner-safe topline counts by status."""
+    try:
+        return {
+            "customers": _db.count_customers(),
+            "deals": _count_collection_by_status("deals"),
+            "inventory": _count_collection_by_status("inventory"),
+        }
+    except Exception as e:
+        struct_logger.error("Partner API stats failed", error=str(e))
+        raise HTTPException(status_code=500, detail="Failed to load stats")
 
 
 # Serve Frontend — Must be last to avoid catching API routes
