@@ -3,9 +3,8 @@ Conversation Memory System for THO AI Agent
 Tracks user preferences and conversation context within a session
 """
 
-import json
 import logging
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional
 from dataclasses import dataclass, asdict
 from datetime import datetime
 from google.cloud import firestore

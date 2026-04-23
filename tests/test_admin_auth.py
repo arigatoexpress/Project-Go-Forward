@@ -10,9 +10,7 @@ import time
 import base64
 import struct
 from pathlib import Path
-from unittest.mock import patch
 
-import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -25,7 +23,6 @@ class TestJWTTokens:
         # Import just the token functions
         import hashlib
         import hmac
-        import secrets
 
         PIN_HASH = hashlib.sha256(b"4832").hexdigest()
         JWT_SECRET = hashlib.sha256(f"sapphire-jwt-{PIN_HASH[:16]}".encode()).digest()

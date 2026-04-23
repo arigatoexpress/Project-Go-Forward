@@ -15,7 +15,6 @@ from google.adk.tools import ToolContext
 from typing import Optional, List
 from datetime import datetime
 import uuid
-import random
 import os
 import json
 import base64
@@ -1191,7 +1190,6 @@ def get_trending_content_ideas(
 
 # ─── Social Media Posting ───
 
-import requests
 
 class TikTokHandler:
     """Handles interactions with TikTok for Business API."""

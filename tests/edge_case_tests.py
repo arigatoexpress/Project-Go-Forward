@@ -5,7 +5,6 @@ Tests system behavior under unusual conditions
 
 import asyncio
 import aiohttp
-import json
 import time
 
 API_URL = "https://{{BUSINESS_SHORT}}-ai-agent-suy7mgxwyq-uc.a.run.app/run"

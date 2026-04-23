@@ -28,7 +28,7 @@ class TestDocumentTools:
             assert len(pdfs) >= 60
 
     def test_fill_pdf_form_creates_file(self):
-        from tools.document_tools import fill_pdf_form, DOCUMENTS_DIR, OUTPUT_DIR
+        from tools.document_tools import fill_pdf_form, DOCUMENTS_DIR
         template = os.path.join(DOCUMENTS_DIR, "TDHCA_1038_Consumer_Disclosure.pdf")
         if not os.path.exists(template):
             pytest.skip("Template not available locally")
@@ -41,7 +41,7 @@ class TestDocumentTools:
 
     def test_fill_pdf_form_summary_fallback(self):
         """If template has no forms, should create summary PDF."""
-        from tools.document_tools import fill_pdf_form, OUTPUT_DIR
+        from tools.document_tools import OUTPUT_DIR
         # Use a known simple PDF that might not have forms
         from tools.document_tools import create_summary_pdf
         out_path = os.path.join(OUTPUT_DIR, "test_summary.pdf")

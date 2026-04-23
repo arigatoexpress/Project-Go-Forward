@@ -3,15 +3,14 @@ AI PM Manager Routes - Linear-Inspired Project Management API
 Manages tasks, projects, and cycles across all repos
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query
 from typing import List, Optional
 from datetime import datetime, timedelta
 import uuid
 
 from database.models import (
     Project, Task, Cycle, Activity, View,
-    WorkflowState, TaskPriority, ProjectType,
-    DEFAULT_PM_LABELS
+    WorkflowState, TaskPriority, ProjectType
 )
 
 router = APIRouter(prefix="/api/pm", tags=["pm"])

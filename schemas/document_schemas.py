@@ -1,6 +1,5 @@
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
-from datetime import date
 
 class DocumentRequest(BaseModel):
     """Request schema for generating a document."""

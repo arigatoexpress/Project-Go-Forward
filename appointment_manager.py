@@ -3,7 +3,7 @@ Appointment Scheduling System for THO AI Agent
 Manages showroom appointment booking with Firestore persistence.
 """
 
-from dataclasses import dataclass, asdict, field
+from dataclasses import dataclass, asdict
 from datetime import datetime, date, timedelta
 from typing import Dict, List, Optional
 from collections import Counter
