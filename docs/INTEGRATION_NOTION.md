@@ -105,7 +105,7 @@ Case matters. Customer status is uppercase; Deal/ServiceRequest are lowercase.
 - Secret: `THO_API_KEY` (scoped per partner; Etai gets his own, not the default).
 - All `/api/v1/*` requests require a valid key (fail-closed).
 
-### Endpoints (status: implemented on `feat/api-v1-integration`; PR link to be recorded before merge)
+### Endpoints (status: implemented on `feat/api-v1-integration`; see [PR #4](https://github.com/arigatoexpress/Project-Go-Forward/pull/4))
 
 | Method | Path | Purpose |
 |-----|-----|-----|
@@ -117,7 +117,7 @@ Case matters. Customer status is uppercase; Deal/ServiceRequest are lowercase.
 | POST | `/api/v1/webhooks/notify` | Accept inbound webhook from Notion or n8n |
 | GET | `/api/v1/stats` | Topline counts for dashboarding |
 
-**Merge plan**: the `/api/v1/*` surface now lives on `feat/api-v1-integration` and should land through the dedicated partner API PR against `main`.
+**Merge plan**: the `/api/v1/*` surface now lives on `feat/api-v1-integration` and is tracked in [PR #4](https://github.com/arigatoexpress/Project-Go-Forward/pull/4) against `main`.
 
 ### Webhook flow (THO → Notion)
 
