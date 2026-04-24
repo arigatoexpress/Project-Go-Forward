@@ -22,6 +22,16 @@ def test_healthz_returns_structured_probe(monkeypatch):
     assert body["uptime_s"] >= 0
 
 
+def test_healthz_trailing_slash_returns_structured_probe(monkeypatch):
+    monkeypatch.setenv("APP_VERSION", "test-sha")
+    client, _main, _db, _logger = create_client(monkeypatch)
+
+    response = client.get("/healthz/")
+
+    assert response.status_code == 200
+    assert response.json()["version"] == "test-sha"
+
+
 def test_healthz_is_not_rate_limited(monkeypatch):
     client, _main, _db, _logger = create_client(monkeypatch, rate_limit_rpm="1")
 

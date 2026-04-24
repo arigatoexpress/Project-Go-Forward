@@ -7,7 +7,7 @@ This repo is the Texas Home Outlet app (`arigatoexpress/Project-Go-Forward`): a 
 - Production URL: `https://project-go-forward-trgi34bxuq-uc.a.run.app`
 - Health checks:
   - Readiness: `curl -fsS https://project-go-forward-trgi34bxuq-uc.a.run.app/health`
-  - Cloud Run liveness: `curl -fsS https://project-go-forward-trgi34bxuq-uc.a.run.app/healthz`
+  - Cloud Run liveness: `curl -fsS https://project-go-forward-trgi34bxuq-uc.a.run.app/healthz/`
 - Logs live in Google Cloud Logging for Cloud Run service `project-go-forward` in project `tho-ai-agent`
 - CLI log check:
   - `gcloud logging read 'resource.type="cloud_run_revision" AND resource.labels.service_name="project-go-forward"' --project tho-ai-agent --limit 50`
