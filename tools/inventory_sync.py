@@ -21,11 +21,10 @@ import requests
 import re
 import sys
 import os
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 from dataclasses import dataclass, asdict
 from datetime import datetime
 from bs4 import BeautifulSoup
-from urllib.parse import urljoin, urlparse
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

@@ -14,7 +14,6 @@ import html as html_mod
 import os
 import logging
 from datetime import datetime
-from typing import Optional
 from zoneinfo import ZoneInfo
 
 logger = logging.getLogger(__name__)

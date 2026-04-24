@@ -12,7 +12,6 @@ from datetime import datetime
 from typing import Dict, List, Optional
 
 from scraper import scrape_inventory, get_soup
-from bs4 import BeautifulSoup
 import re
 
 logging.basicConfig(level=logging.INFO)

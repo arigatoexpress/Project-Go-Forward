@@ -134,8 +134,7 @@ class TestStartup:
 
     def test_imports_work(self):
         """All critical imports should succeed."""
-        from tools.document_engine import generate_document, list_available_templates
-        from tools.document_tools import fill_pdf_form, DOCUMENTS_DIR, OUTPUT_DIR
+        from tools.document_tools import DOCUMENTS_DIR
         assert os.path.isdir(DOCUMENTS_DIR), f"Templates dir missing: {DOCUMENTS_DIR}"
 
     def test_field_map_valid(self):

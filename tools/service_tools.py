@@ -9,7 +9,6 @@ from google.adk.tools import ToolContext
 from typing import Optional
 from datetime import datetime, date
 from dateutil.relativedelta import relativedelta
-import json
 import uuid
 
 

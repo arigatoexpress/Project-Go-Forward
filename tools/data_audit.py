@@ -6,7 +6,6 @@ This script audits the inventory data to ensure all valid records are being load
 
 import pandas as pd
 import os
-import sys
 
 def audit_inventory_data():
     """Audit the House Orders spreadsheet and report statistics."""

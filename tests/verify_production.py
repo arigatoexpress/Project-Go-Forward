@@ -1,12 +1,13 @@
-import requests
-import uuid
 import json
-import sys
 import os
+import uuid
+
+import requests
 
 # Configuration
 PROD_URL = "https://tho-agent-691674245427.us-central1.run.app"
 BASE_URL = os.environ.get("AGENT_API_URL", PROD_URL)
+
 
 def run_query(query_text, verify_lambda=None):
     session_id = str(uuid.uuid4())
@@ -15,10 +16,7 @@ def run_query(query_text, verify_lambda=None):
     payload = {
         "userId": f"test_user_{session_id[:8]}",
         "sessionId": session_id,
-        "newMessage": {
-            "role": "user",
-            "parts": [{"text": query_text}]
-        }
+        "newMessage": {"role": "user", "parts": [{"text": query_text}]},
     }
 
     try:
@@ -33,7 +31,7 @@ def run_query(query_text, verify_lambda=None):
             print(f"[FAIL] Status code {start_time.status_code}")
             return False
 
-        print(f"[RESPONSE RAW] {json.dumps(response)[:200]}...") # Log beginning of response
+        print(f"[RESPONSE RAW] {json.dumps(response)[:200]}...")  # Log beginning of response
 
         if verify_lambda:
             if verify_lambda(response):
@@ -48,15 +46,23 @@ def run_query(query_text, verify_lambda=None):
         print(f"[ERROR] {e}")
         return False
 
+
 def verify_inventory(response):
     # Check if response contains "bedroom" or specific home details
     text = str(response)
     return "bedroom" in text.lower() or "price" in text.lower() or "sq ft" in text.lower()
 
+
 def verify_appointment(response):
     # Check for appointment-related terms
     text = str(response)
-    return "appointment" in text.lower() or "schedule" in text.lower() or "book" in text.lower() or "visit" in text.lower()
+    return (
+        "appointment" in text.lower()
+        or "schedule" in text.lower()
+        or "book" in text.lower()
+        or "visit" in text.lower()
+    )
+
 
 def main():
     print(f"Starting Functional Verification against {BASE_URL}...")
@@ -72,6 +78,7 @@ def main():
     # 3. Appointment Booking
     print("\n--- Test 3: Appointment Booking ---")
     run_query("I'd like to schedule a visit to see your homes this weekend", verify_appointment)
+
 
 if __name__ == "__main__":
     main()

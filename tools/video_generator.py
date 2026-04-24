@@ -13,8 +13,7 @@ import os
 import uuid
 import tempfile
 import base64
-from typing import List, Optional
-from pathlib import Path
+from typing import List
 import logging
 
 logger = logging.getLogger(__name__)

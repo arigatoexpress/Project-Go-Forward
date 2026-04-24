@@ -1,6 +1,5 @@
 import asyncio
 import aiohttp
-import json
 import uuid
 import time
 

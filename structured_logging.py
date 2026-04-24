@@ -8,7 +8,6 @@ import json
 import sys
 from datetime import datetime
 from typing import Any, Dict, Optional
-import uuid
 
 class StructuredLogger:
     """JSON-structured logger for Cloud Run"""

@@ -7,7 +7,7 @@ PII fields are explicitly excluded from the extraction prompt.
 import logging
 from typing import Dict, Any, Optional
 
-from config.field_map_loader import get_fields_for_template, get_field_definitions
+from config.field_map_loader import get_fields_for_template
 
 logger = logging.getLogger(__name__)
 

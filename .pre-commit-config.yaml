@@ -1,0 +1,36 @@
+default_install_hook_types: [pre-commit]
+fail_fast: false
+exclude: |
+  (?x)^(
+    \.claude/worktrees/|
+    \.venv/|
+    frontend/dist/|
+    frontend/node_modules/|
+    data/generated_ads/|
+    data/generated_docs/|
+    data/generated_videos/|
+    data/rag_index/
+  )
+
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.7.4
+    hooks:
+      - id: ruff
+        args: [--fix, --exit-non-zero-on-fix]
+      - id: ruff-format
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: check-yaml
+        args: [--allow-multiple-documents]
+      - id: check-toml
+      - id: check-added-large-files
+        args: [--maxkb=5120]
+
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.5.0
+    hooks:
+      - id: detect-secrets
+        args: [--baseline, .secrets.baseline]
