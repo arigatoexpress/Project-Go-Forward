@@ -109,7 +109,8 @@ python scripts/batch_inspect_pdfs.py
 
 ### Core
 - `POST /run` — Main chat interaction (ADK agent)
-- `GET /health` — Health check
+- `GET /health` — Readiness health check
+- `GET /healthz` — Cloud Run liveness probe with status, version, and uptime
 
 ### Documents
 - `GET /api/documents/templates` — List available document templates
