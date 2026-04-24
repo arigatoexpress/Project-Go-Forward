@@ -684,6 +684,7 @@ def health():
 
 
 @app.get("/healthz")
+@app.get("/healthz/")
 def healthz():
     version = (
         os.environ.get("APP_VERSION")

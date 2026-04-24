@@ -110,7 +110,7 @@ python scripts/batch_inspect_pdfs.py
 ### Core
 - `POST /run` — Main chat interaction (ADK agent)
 - `GET /health` — Readiness health check
-- `GET /healthz` — Cloud Run liveness probe with status, version, and uptime
+- `GET /healthz` and `GET /healthz/` — Cloud Run liveness probe with status, version, and uptime. External smoke checks use `/healthz/` because Google Frontend reserves exact `/healthz` before it reaches FastAPI.
 
 ### Documents
 - `GET /api/documents/templates` — List available document templates

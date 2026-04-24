@@ -87,6 +87,6 @@ jobs:
           STATUS=$(curl -s -o /dev/null -w '%{http_code}' "$URL/health")
           echo "Health check: HTTP $STATUS"
           [ "$STATUS" = "200" ] || exit 1
-          STATUS=$(curl -s -o /dev/null -w '%{http_code}' "$URL/healthz")
+          STATUS=$(curl -s -o /dev/null -w '%{http_code}' "$URL/healthz/")
           echo "Healthz check: HTTP $STATUS"
           [ "$STATUS" = "200" ] || exit 1
