@@ -86,7 +86,7 @@ gcloud run services update project-go-forward \
 ## 5. Rate limiting
 
 - Per-IP in-memory counter, default 60 RPM (`RATE_LIMIT_RPM`).
-- `/health` exempt.
+- `/health` and `/healthz` exempt.
 - 429 on exceed.
 - Max request body: 1 MB (`MAX_REQUEST_BODY_BYTES`).
 

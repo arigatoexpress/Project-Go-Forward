@@ -89,6 +89,7 @@ from email_service import (
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+APP_STARTED_AT = time.monotonic()
 
 app = FastAPI(title=f"{business_name()} AI Agent")
 
@@ -142,7 +143,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next):
         # Exempt health check from rate limiting (load balancer probes)
-        if request.url.path == "/health":
+        if request.url.path in {"/health", "/healthz"}:
             return await call_next(request)
         client_ip = _get_client_ip(request)
         now = time.time()
@@ -680,6 +681,22 @@ async def get_chat_analytics(range: str = "30d"):
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/healthz")
+def healthz():
+    version = (
+        os.environ.get("APP_VERSION")
+        or os.environ.get("GIT_SHA")
+        or os.environ.get("SOURCE_COMMIT")
+        or os.environ.get("K_REVISION")
+        or "local"
+    )
+    return {
+        "status": "ok",
+        "version": version,
+        "uptime_s": int(time.monotonic() - APP_STARTED_AT),
+    }
 
 
 @app.post("/apps/{app_name}/users/{user_id}/sessions/{session_id}")

@@ -39,7 +39,7 @@ jobs:
 
       - name: Run unit tests (no Firestore/GCS)
         run: |
-          python -m pytest tests/test_admin_auth.py tests/test_smoke.py -v --tb=short
+          python -m pytest tests/test_admin_auth.py tests/test_smoke.py tests/test_healthz.py -v --tb=short
         env:
           PYTHONPATH: .
 
@@ -68,6 +68,8 @@ jobs:
             --source . \
             --region ${{ env.REGION }} \
             --project ${{ env.PROJECT_ID }} \
+            --update-env-vars=APP_VERSION=${{ github.sha }} \
+            --liveness-probe=httpGet.path=/healthz,httpGet.port=8080,periodSeconds=30,timeoutSeconds=5,failureThreshold=3 \
             --quiet
 
       - name: Verify deployment
@@ -78,4 +80,7 @@ jobs:
             --format='value(status.url)')
           STATUS=$(curl -s -o /dev/null -w '%{http_code}' "$URL/health")
           echo "Health check: HTTP $STATUS"
+          [ "$STATUS" = "200" ] || exit 1
+          STATUS=$(curl -s -o /dev/null -w '%{http_code}' "$URL/healthz")
+          echo "Healthz check: HTTP $STATUS"
           [ "$STATUS" = "200" ] || exit 1
