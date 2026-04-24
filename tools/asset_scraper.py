@@ -9,12 +9,9 @@ Pre-owned:   https://d132mt2yijm03y.cloudfront.net/dealer/3522/inventory/{id}/{f
 Matterport:  https://my.matterport.com/show/?m={TOUR_ID}
 """
 
-import re
-import json
 import logging
 import os
 from typing import Optional
-from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 

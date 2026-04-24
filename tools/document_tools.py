@@ -10,7 +10,6 @@ except ImportError:
     ToolContext = None  # Allow running without ADK for local/standalone mode
 from typing import Optional
 from datetime import datetime
-import base64
 import html
 import logging
 import os
@@ -18,13 +17,12 @@ from typing import Dict, Any
 import uuid
 
 from pypdf import PdfReader, PdfWriter
-from pypdf.generic import ArrayObject, DecodedStreamObject, NameObject, TextStringObject
+from pypdf.generic import ArrayObject, DecodedStreamObject
 
 from schemas.document_schemas import SalesContractForm
 
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter
-from io import BytesIO
 
 DOCUMENTS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "tho_documents")
 _DEFAULT_OUTPUT_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data/generated_docs")

@@ -15,15 +15,14 @@ import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from google.adk.agents import LlmAgent
-from google.adk.planners import BuiltInPlanner
 from google.genai import types
 
 from config_loader import (
     business_name, business_address, business_phone,
-    business_hours, agent_name, model_name,
-    product_type, product_singular, product_plural,
+    business_hours, model_name,
+    product_singular, product_plural,
     get_agent_config, get_product_config,
-    get_model_config, get_thinking_config,
+    get_model_config,
 )
 
 logger = logging.getLogger(__name__)

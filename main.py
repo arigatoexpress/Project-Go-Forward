@@ -562,9 +562,8 @@ async def get_lead_analytics(range: str = "30d"):
 async def get_document_analytics(range: str = "30d"):
     """Get document generation analytics."""
     try:
-        from datetime import datetime, timedelta
+        from datetime import datetime
         import os
-        import json
         
         # This would ideally come from a database
         # For now, we'll provide placeholder data structure
@@ -692,7 +691,7 @@ async def create_session(app_name: str, user_id: str, session_id: str):
             app_name=app_name, user_id=user_id, session_id=session_id
         )
         return {"status": "created", "session_id": session_id}
-    except RuntimeError as e:
+    except RuntimeError:
         return {"status": "error", "message": "AI service temporarily unavailable."}
     except Exception as e:
         logger.error(f"Error creating session: {str(e)}")
@@ -1211,8 +1210,8 @@ from tools.marketing_tools import (
     get_inventory_for_ads,
     GENERATED_ADS_DIR
 )
-from tools.asset_scraper import get_all_assets, PROPERTY_ASSETS, get_matterport_url
-from tools.video_generator import generate_ad_video, GENERATED_VIDEOS_DIR
+from tools.asset_scraper import PROPERTY_ASSETS, get_matterport_url
+from tools.video_generator import GENERATED_VIDEOS_DIR
 
 @app.post("/api/marketing/generate-script", dependencies=[Depends(require_admin)])
 async def api_generate_script(request: Request):
@@ -1281,7 +1280,7 @@ async def api_content_analytics():
 async def api_generate_voiceover(request: Request):
     """Generate voiceover audio from script using Google Cloud Text-to-Speech."""
     try:
-        from tools.marketing_tools import generate_script_voiceover, TTS_VOICES
+        from tools.marketing_tools import generate_script_voiceover
         data = await request.json()
         
         script_text = data.get("script_text", "")
@@ -2638,7 +2637,6 @@ app.mount("/assets", StaticFiles(directory="frontend/dist/assets"), name="assets
 
 @app.get("/{full_path:path}")
 async def serve_spa(full_path: str):
-    from starlette.responses import Response
     # Serve actual files from dist if they exist (e.g., tex-icon.svg, vite.svg)
     if full_path:
         file_path = os.path.join("frontend/dist", full_path)
