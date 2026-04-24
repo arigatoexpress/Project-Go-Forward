@@ -124,13 +124,72 @@ Case matters. Customer status is uppercase; Deal/ServiceRequest are lowercase.
 
 ### Webhook flow (THO → Notion)
 
-Events to fire so Notion stays in sync:
+Events fired by THO to partner webhooks:
 
-- **`deal.funded`** — when `Deal.status` transitions to `funded`. Payload: `{deal_id, inventory_id, customer_id, funded_at, drive_folder, thor_deal_url}`. Notion's automation creates Installation phase 1.
-- **`deal.status_changed`** — any transition. Payload: `{deal_id, from, to, at}`.
-- **`service_request.created`** — warranty-flagged service requests trigger the Notion Warranty DB.
+- **`deal.status_changed`** — any Deal status transition. Always fired.
+- **`deal.funded`** — additional event when `Deal.status` transitions to `funded`. Notion's automation should create Installation phase 1 on this event.
+- **`deal.complete`** — additional event when `Deal.status` transitions to `complete`.
+- **`service_request.created`** *(not yet implemented)* — warranty-flagged service requests will trigger the Notion Warranty DB.
 
-Delivery via n8n workflow (already wired server-side via `N8N_API_TOKEN`) OR direct POST to a Notion integration endpoint Etai provides.
+**Partner registration**: each partner gets a URL slot via env var. Example — to register Etai:
+
+```bash
+gcloud run services update project-go-forward \
+  --region=us-central1 --project=tho-ai-agent \
+  --update-env-vars=PARTNER_WEBHOOK_URL_ETAI=https://notion.example.com/hooks/deals
+```
+
+**Request shape** (JSON body):
+
+```json
+{
+  "event": "deal.funded",
+  "delivered_at": "2026-04-24T00:31:00.123456+00:00",
+  "idempotency_key": "<uuid4 — same key in retries>",
+  "data": {
+    "deal_id": "<Firestore UUID>",
+    "from": "approved",
+    "to": "funded",
+    "inventory_id": "...",
+    "customer_id": "...",
+    "manufacturer": "...",
+    "model": "...",
+    "salesrep": "...",
+    "updated_at": "..."
+  }
+}
+```
+
+**Headers**:
+
+```
+Content-Type: application/json
+X-THO-Event: deal.funded
+X-THO-Partner: etai
+X-THO-Delivery: <delivery uuid>
+X-THO-Signature: sha256=<hmac-sha256 hex of the raw body using PARTNER_WEBHOOK_SIGNING_KEY>
+```
+
+**Signature verification** (Python):
+
+```python
+import hmac, hashlib
+expected = "sha256=" + hmac.new(
+    signing_key.encode(),
+    raw_body,
+    hashlib.sha256,
+).hexdigest()
+if not hmac.compare_digest(expected, request.headers["X-THO-Signature"]):
+    reject()
+```
+
+**Delivery semantics**:
+
+- Fire-and-forget (partner endpoint should respond in ≤ 8 s).
+- No retry — partners should be idempotent; reconcile via `GET /api/v1/stats` or poll on the canonical Deal ID.
+- Every attempt is logged to the Firestore `activities/` collection as `activity_type = "partner_webhook_delivery.<event>"` with `success`, `status_code`, and `error` fields.
+
+**Alternative path (n8n)**: if a partner prefers workflow-builder semantics, the existing `N8N_API_TOKEN` is wired server-side; dispatch can route through an n8n instance instead of hitting the partner's endpoint directly.
 
 ### Webhook flow (Notion → THO)
 

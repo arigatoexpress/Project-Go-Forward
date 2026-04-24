@@ -1100,6 +1100,10 @@ async def update_deal_status(deal_id: str, request: Request):
         valid_statuses = [s.value for s in DealStatus]
         if new_status not in valid_statuses:
             return {"success": False, "error": f"Invalid status. Must be one of: {valid_statuses}"}
+
+        # Capture prior status before writing so the webhook carries {from, to}.
+        prior_deal = _deal_db.get_deal(deal_id) or {}
+        prior_status = prior_deal.get("status")
         _deal_db.update_deal(deal_id, {"status": new_status})
 
         # Send status update email if buyer has email
@@ -1117,6 +1121,30 @@ async def update_deal_status(deal_id: str, request: Request):
                 )
         except Exception as e:
             struct_logger.warning("Deal status email failed", error=str(e))
+
+        # Dispatch partner webhooks (fire-and-forget; PII-safe payload).
+        try:
+            from tools.partner_webhooks import dispatch_partner_event
+
+            deal_snapshot = _deal_db.get_deal(deal_id) or {}
+            base_payload = {
+                "deal_id": deal_id,
+                "from": prior_status,
+                "to": new_status,
+                "inventory_id": deal_snapshot.get("inventory_id"),
+                "customer_id": deal_snapshot.get("customer_id"),
+                "manufacturer": deal_snapshot.get("manufacturer"),
+                "model": deal_snapshot.get("model"),
+                "salesrep": deal_snapshot.get("salesrep"),
+                "updated_at": deal_snapshot.get("updated_at"),
+            }
+            dispatch_partner_event("deal.status_changed", base_payload, db=_db)
+            if new_status == "funded":
+                dispatch_partner_event("deal.funded", base_payload, db=_db)
+            elif new_status == "complete":
+                dispatch_partner_event("deal.complete", base_payload, db=_db)
+        except Exception as e:
+            struct_logger.warning("Partner webhook dispatch failed", error=str(e))
 
         return {"success": True, "message": f"Deal status changed to {new_status}"}
     except Exception as e:
