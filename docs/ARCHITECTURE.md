@@ -64,7 +64,7 @@ Two GCP projects are in play. **Do not conflate them.**
 
 - **Trigger**: push to `main`
 - **Auth**: Workload Identity Federation (no service account keys)
-- **Steps**: lint → test (admin auth + smoke, no Firestore) → build container → deploy to Cloud Run → health check
+- **Steps**: lint → test (admin auth + smoke + healthz, no Firestore) → build container → deploy to Cloud Run → readiness + liveness health checks
 - **Workflow file**: `.github/workflows/deploy.yml`
 
 ### Environment variables (production)
@@ -129,7 +129,7 @@ Project-Go-Forward/
 
 - **Structured logging**: `structured_logging.py` tags every request with a request ID and user session ID.
 - **Security headers**: CSP, HSTS, X-Frame-Options, X-Content-Type-Options set in middleware (main.py ~lines 100–127).
-- **Rate limit**: in-memory RPM counter per IP (default 60); `/health` exempt.
+- **Rate limit**: in-memory RPM counter per IP (default 60); `/health` and `/healthz` exempt.
 - **Analytics**: `analytics_service.py` tracks endpoint usage, surfaced at `/api/analytics/*`.
 
 ## 7. Guardrails
