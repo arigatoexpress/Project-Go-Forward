@@ -44,7 +44,7 @@ jobs:
 
       - name: Run unit tests (no Firestore/GCS)
         run: |
-          python -m pytest tests/test_admin_auth.py tests/test_smoke.py tests/test_healthz.py -v --tb=short
+          python -m pytest tests/test_*.py -v --tb=short
         env:
           PYTHONPATH: .
 
