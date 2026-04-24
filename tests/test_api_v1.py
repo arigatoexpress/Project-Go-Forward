@@ -6,6 +6,7 @@ Run: python -m pytest tests/test_api_v1.py -v
 from __future__ import annotations
 
 import importlib
+import os
 import sys
 import types
 from dataclasses import dataclass, field
@@ -814,3 +815,76 @@ def test_fingerprint_logging_is_present_and_never_logs_the_raw_key(monkeypatch):
     assert latest["method"] == "GET"
     assert latest["auth_status"] == "accepted"
     assert raw_key not in repr(latest)
+
+
+# ─── Multi-key (partner-scoped) auth ────────────────────────────────────────
+
+
+def test_multiple_partner_keys_each_accepted(monkeypatch):
+    """THO_API_KEY_* env vars should each authenticate independently."""
+    client, _main, _db, fake_logger = create_client(
+        monkeypatch,
+        tho_api_key="primary-secret",
+    )
+    monkeypatch.setenv("THO_API_KEY_ETAI", "etai-secret")
+    monkeypatch.setenv("THO_API_KEY_N8N", "n8n-secret")
+
+    # Primary
+    r1 = client.get("/api/v1/stats", headers={"Authorization": "Bearer primary-secret"})
+    # Etai's key
+    r2 = client.get("/api/v1/stats", headers={"Authorization": "Bearer etai-secret"})
+    # n8n's key
+    r3 = client.get("/api/v1/stats", headers={"X-API-Key": "n8n-secret"})
+
+    assert r1.status_code == 200
+    assert r2.status_code == 200
+    assert r3.status_code == 200
+
+    # Audit log should record which partner slot matched
+    partner_logs = [
+        e for e in fake_logger.entries
+        if e["message"] == "Partner API request" and e["auth_status"] == "accepted"
+    ]
+    matched_slots = {e.get("partner_id") for e in partner_logs[-3:]}
+    assert matched_slots == {"THO_API_KEY", "THO_API_KEY_ETAI", "THO_API_KEY_N8N"}
+
+
+def test_revoking_one_partner_key_does_not_affect_others(monkeypatch):
+    """Simulate removing THO_API_KEY_ETAI — primary key keeps working."""
+    client, _main, _db, _logger = create_client(
+        monkeypatch,
+        tho_api_key="primary-secret",
+    )
+    monkeypatch.setenv("THO_API_KEY_ETAI", "etai-secret")
+
+    # Both work while configured
+    assert client.get("/api/v1/stats", headers={"Authorization": "Bearer etai-secret"}).status_code == 200
+
+    # Revoke Etai's slot
+    monkeypatch.delenv("THO_API_KEY_ETAI")
+
+    # Etai's key now invalid, primary still works
+    assert client.get("/api/v1/stats", headers={"Authorization": "Bearer etai-secret"}).status_code == 401
+    assert client.get("/api/v1/stats", headers={"Authorization": "Bearer primary-secret"}).status_code == 200
+
+
+def test_503_when_no_partner_keys_configured(monkeypatch):
+    """All partner keys removed → fail-closed."""
+    client, _main, _db, _logger = create_client(monkeypatch, tho_api_key=None)
+    # Also strip any THO_API_KEY_* the test env might have inherited
+    for name in list(os.environ):
+        if name.startswith("THO_API_KEY_"):
+            monkeypatch.delenv(name, raising=False)
+
+    response = client.get("/api/v1/stats", headers={"Authorization": "Bearer anything"})
+    assert response.status_code == 503
+    assert response.json() == {"detail": "API key auth not configured"}
+
+
+def test_only_partner_scoped_key_configured_still_authenticates(monkeypatch):
+    """If only THO_API_KEY_ETAI is set (no primary), partner can still auth."""
+    client, _main, _db, _logger = create_client(monkeypatch, tho_api_key=None)
+    monkeypatch.setenv("THO_API_KEY_ETAI", "etai-only-secret")
+
+    assert client.get("/api/v1/stats", headers={"Authorization": "Bearer etai-only-secret"}).status_code == 200
+    assert client.get("/api/v1/stats", headers={"Authorization": "Bearer wrong"}).status_code == 401
