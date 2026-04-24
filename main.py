@@ -2157,8 +2157,33 @@ async def document_history():
 # intended for automation clients such as Notion or n8n and must stay
 # fail-closed plus PII-redacted by default.
 
+def _get_partner_api_keys() -> dict[str, str]:
+    """Return all valid partner API keys keyed by their env var name.
+
+    The primary key is `THO_API_KEY`. Additional per-partner keys are exposed
+    via env vars prefixed `THO_API_KEY_` (e.g., `THO_API_KEY_ETAI`). Each one
+    is independently revocable — rotate its Secret Manager entry and the
+    others keep working.
+
+    Returned dict: {env_var_name: key_value}. Order is not significant; the
+    env var name is recorded as `partner_id` in audit logs so you can tell
+    which partner is calling.
+    """
+    keys: dict[str, str] = {}
+    for name, value in os.environ.items():
+        if name != "THO_API_KEY" and not name.startswith("THO_API_KEY_"):
+            continue
+        stripped = (value or "").strip()
+        if stripped:
+            keys[name] = stripped
+    return keys
+
+
 def _get_partner_api_key() -> str:
-    """Read the partner API key at request time so tests and env updates work."""
+    """Backwards-compat shim for the single-key pattern. Returns the primary
+    `THO_API_KEY` value or empty string. New code should use
+    `_get_partner_api_keys()` so per-partner keys work.
+    """
     return (os.environ.get("THO_API_KEY") or "").strip()
 
 
@@ -2181,11 +2206,17 @@ def _partner_api_key_fingerprint(api_key: str | None) -> str:
     return hashlib.sha256(api_key.encode("utf-8")).hexdigest()[:8]
 
 
-def _log_partner_api_request(request: Request, api_key: str | None, auth_status: str):
+def _log_partner_api_request(
+    request: Request,
+    api_key: str | None,
+    auth_status: str,
+    partner_id: str | None = None,
+):
     """Structured audit log for every /api/v1 request without exposing the raw key."""
     struct_logger.info(
         "Partner API request",
         api_key_fingerprint=_partner_api_key_fingerprint(api_key),
+        partner_id=partner_id,
         endpoint=request.url.path,
         method=request.method,
         client_ip=_get_client_ip(request),
@@ -2194,11 +2225,16 @@ def _log_partner_api_request(request: Request, api_key: str | None, auth_status:
 
 
 async def require_partner_api_key(request: Request):
-    """Validate the partner API key and fail closed when THO_API_KEY is unset."""
-    configured_key = _get_partner_api_key()
+    """Validate the partner API key against any configured partner slot.
+
+    Fail-closed if no partner keys are configured (503). Any valid key from
+    THO_API_KEY or THO_API_KEY_* env vars is accepted; audit log records
+    which env var name matched so per-partner revocation stays auditable.
+    """
+    valid_keys = _get_partner_api_keys()
     provided_key = _extract_partner_api_key(request)
 
-    if not configured_key:
+    if not valid_keys:
         _log_partner_api_request(request, provided_key, "unconfigured")
         raise HTTPException(status_code=503, detail="API key auth not configured")
 
@@ -2206,11 +2242,17 @@ async def require_partner_api_key(request: Request):
         _log_partner_api_request(request, provided_key, "missing")
         raise HTTPException(status_code=401, detail="Missing API key")
 
-    if not hmac.compare_digest(provided_key, configured_key):
+    matched_partner: str | None = None
+    for env_name, valid_key in valid_keys.items():
+        if hmac.compare_digest(provided_key, valid_key):
+            matched_partner = env_name
+            break
+
+    if not matched_partner:
         _log_partner_api_request(request, provided_key, "invalid")
         raise HTTPException(status_code=401, detail="Invalid API key")
 
-    _log_partner_api_request(request, provided_key, "accepted")
+    _log_partner_api_request(request, provided_key, "accepted", partner_id=matched_partner)
 
 
 def _json_safe(value):
