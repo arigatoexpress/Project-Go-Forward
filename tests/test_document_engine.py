@@ -151,6 +151,67 @@ class TestPacketGeneration:
         assert "not found" in result["message"]
 
 
+class TestMergedDocumentPersistence:
+    """Tests that merged PDFs are persisted to durable storage."""
+
+    @staticmethod
+    def _write_pdf(path):
+        from pypdf import PdfWriter
+
+        writer = PdfWriter()
+        writer.add_blank_page(width=72, height=72)
+        with open(path, "wb") as f:
+            writer.write(f)
+
+    def test_generate_packet_uploads_merged_pdf(self, monkeypatch, tmp_path):
+        import tools.document_engine as engine
+
+        calls = []
+
+        def fake_generate_document(template_name, data, output_filename=None):
+            filename = output_filename or f"{template_name}.pdf"
+            path = tmp_path / filename
+            self._write_pdf(path)
+            return {"success": True, "file_path": str(path), "filename": filename}
+
+        monkeypatch.setattr(engine, "OUTPUT_DIR", str(tmp_path))
+        monkeypatch.setattr(
+            engine,
+            "get_packet_config",
+            lambda _name: {"display_name": "Test Packet", "templates": ["one.pdf", "two.pdf"]},
+        )
+        monkeypatch.setattr(engine, "get_template_config", lambda _name: {"display_name": _name})
+        monkeypatch.setattr(engine, "generate_document", fake_generate_document)
+        monkeypatch.setattr(engine, "upload_to_gcs", lambda path, filename: calls.append((path, filename)))
+
+        result = engine.generate_packet("test_packet", {"buyer_name": "Durable Buyer"})
+
+        assert result["success"] is True
+        assert calls == [(result["file_path"], result["filename"])]
+
+    def test_generate_batch_uploads_merged_pdf(self, monkeypatch, tmp_path):
+        import tools.document_engine as engine
+
+        calls = []
+
+        def fake_generate_document(template_name, data, output_filename=None):
+            filename = output_filename or f"{template_name}.pdf"
+            path = tmp_path / filename
+            self._write_pdf(path)
+            return {"success": True, "file_path": str(path), "filename": filename}
+
+        monkeypatch.setattr(engine, "OUTPUT_DIR", str(tmp_path))
+        monkeypatch.setattr(engine, "get_template_config", lambda _name: {"display_name": _name})
+        monkeypatch.setattr(engine, "generate_document", fake_generate_document)
+        monkeypatch.setattr(engine, "upload_to_gcs", lambda path, filename: calls.append((path, filename)))
+
+        result = engine.generate_batch(["one.pdf", "two.pdf"], {"buyer_name": "Durable Buyer"}, merge=True)
+
+        assert result["success"] is True
+        assert result["merged"] is not None
+        assert calls == [(str(tmp_path / result["merged"]["filename"]), result["merged"]["filename"])]
+
+
 class TestTemplateFields:
     """Tests for the template field API."""
 

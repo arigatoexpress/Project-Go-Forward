@@ -3,8 +3,8 @@ FastAPI Application — Config-Driven AI Agent Server
 
 Serves the AI agent backend and static frontend.
 All business-specific config is loaded from config.yaml.
-Admin routes use `X-Admin-Token`; partner integrations live under `/api/v1/*`
-and authenticate with `THO_API_KEY`.
+Admin routes use `X-Admin-Token` or `Authorization: Bearer <token>`;
+partner integrations live under `/api/v1/*` and authenticate with `THO_API_KEY`.
 """
 
 import os
@@ -184,7 +184,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
     allow_methods=["GET", "POST", "PUT"],
-    allow_headers=["Content-Type", "Accept", "X-Admin-Token"],
+    allow_headers=["Content-Type", "Accept", "X-Admin-Token", "Authorization"],
 )
 
 
@@ -242,9 +242,22 @@ def _verify_admin_token(token: str) -> bool:
         return False
 
 
+def _admin_token_from_request(request: Request) -> str:
+    """Read an admin token from the supported employee UI auth headers."""
+    token = request.headers.get("X-Admin-Token", "").strip()
+    if token:
+        return token
+
+    authorization = request.headers.get("Authorization", "").strip()
+    scheme, _, value = authorization.partition(" ")
+    if scheme.lower() == "bearer" and value:
+        return value.strip()
+    return ""
+
+
 async def require_admin(request: Request):
-    """FastAPI dependency that validates the X-Admin-Token header (stateless JWT)."""
-    token = request.headers.get("X-Admin-Token", "")
+    """FastAPI dependency that validates the stateless admin token."""
+    token = _admin_token_from_request(request)
     if not token:
         raise HTTPException(status_code=401, detail="Admin authentication required")
     if not _verify_admin_token(token):
@@ -730,6 +743,44 @@ from tools.document_engine import (
     get_all_field_definitions as engine_get_all_field_definitions,
 )
 
+
+def _collect_generated_documents():
+    """Return generated PDF metadata without exposing document contents."""
+    seen = set()
+    docs = []
+    local_count = 0
+
+    if os.path.exists(OUTPUT_DIR):
+        for filename in os.listdir(OUTPUT_DIR):
+            if not filename.lower().endswith(".pdf"):
+                continue
+            path = os.path.join(OUTPUT_DIR, filename)
+            if not os.path.isfile(path):
+                continue
+            stat = os.stat(path)
+            docs.append({
+                "filename": filename,
+                "size_bytes": stat.st_size,
+                "created_at": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
+                "download_url": f"/api/documents/download/{filename}",
+                "source": "local",
+            })
+            seen.add(filename)
+            local_count += 1
+
+    gcs_docs = list_gcs_documents()
+    gcs_count = len(gcs_docs)
+    for gcs_doc in gcs_docs:
+        filename = gcs_doc.get("filename")
+        if not filename or filename in seen:
+            continue
+        docs.append({**gcs_doc, "source": "gcs"})
+        seen.add(filename)
+
+    docs.sort(key=lambda d: d.get("created_at") or "", reverse=True)
+    return docs, local_count, gcs_count
+
+
 # --- Phase 2: Generic Document Engine Endpoints ---
 
 @app.get("/api/documents/templates", dependencies=[Depends(require_admin)])
@@ -742,6 +793,43 @@ async def list_templates():
     except Exception as e:
         struct_logger.error("Template listing failed", error=str(e))
         return {"error": "Failed to load templates. Please try again."}
+
+
+@app.get("/api/documents/readiness", dependencies=[Depends(require_admin)])
+async def document_readiness():
+    """Summarize document-system readiness for the employee UI."""
+    try:
+        templates = engine_list_templates()
+        packets = engine_list_packets()
+        docs, local_count, gcs_count = _collect_generated_documents()
+        categories: dict[str, int] = {}
+        for template in templates:
+            category = template.get("category") or "Other"
+            categories[category] = categories.get(category, 0) + 1
+
+        output_dir_exists = os.path.isdir(OUTPUT_DIR)
+        output_dir_writable = os.access(OUTPUT_DIR, os.W_OK) if output_dir_exists else False
+        required_ready = bool(templates) and bool(packets) and output_dir_exists
+
+        return {
+            "status": "ready" if required_ready else "degraded",
+            "template_count": len(templates),
+            "packet_count": len(packets),
+            "category_counts": categories,
+            "generated_document_count": len(docs),
+            "local_document_count": local_count,
+            "gcs_document_count": gcs_count,
+            "output_dir": "available" if output_dir_exists else "missing",
+            "output_dir_writable": output_dir_writable,
+            "latest_document_at": docs[0].get("created_at") if docs else None,
+        }
+    except Exception as e:
+        struct_logger.error("Document readiness failed", error=str(e))
+        return JSONResponse(
+            {"status": "degraded", "error": "Document readiness check failed."},
+            status_code=500,
+        )
+
 
 @app.get("/api/documents/templates/{template_name}/fields", dependencies=[Depends(require_admin)])
 async def get_template_fields(template_name: str):
@@ -1913,7 +2001,7 @@ async def verify_admin_pin(request: Request):
 @app.get("/api/admin/check")
 async def check_admin_token(request: Request):
     """Verify that an admin token is still valid (stateless — works across instances)."""
-    token = request.headers.get("X-Admin-Token", "")
+    token = _admin_token_from_request(request)
     if _verify_admin_token(token):
         return {"valid": True}
     return JSONResponse({"valid": False}, status_code=401)
@@ -2172,29 +2260,7 @@ async def submit_feedback(request: Request):
 @app.get("/api/documents/history", dependencies=[Depends(require_admin)])
 async def document_history():
     """List all generated documents. Merges local and GCS results."""
-    seen = set()
-    docs = []
-
-    # Local files (current instance)
-    if os.path.exists(OUTPUT_DIR):
-        for f in os.listdir(OUTPUT_DIR):
-            if f.endswith(".pdf"):
-                path = os.path.join(OUTPUT_DIR, f)
-                stat = os.stat(path)
-                docs.append({
-                    "filename": f,
-                    "size_bytes": stat.st_size,
-                    "created_at": datetime.fromtimestamp(stat.st_mtime).isoformat(),
-                    "download_url": f"/api/documents/download/{f}",
-                })
-                seen.add(f)
-
-    # GCS documents (persisted across instances)
-    for gcs_doc in list_gcs_documents():
-        if gcs_doc["filename"] not in seen:
-            docs.append(gcs_doc)
-
-    docs.sort(key=lambda d: d.get("created_at") or "", reverse=True)
+    docs, _local_count, _gcs_count = _collect_generated_documents()
     return {"documents": docs[:50], "total": len(docs)}
 
 
