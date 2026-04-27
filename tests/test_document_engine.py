@@ -298,6 +298,46 @@ class TestPIIGuard:
         assert "[CC-REDACTED]" in redacted
 
 
+def _values_in_pdf(pdf_path, needles):
+    """
+    Verify text values are present in a generated PDF.
+
+    Searches the raw PDF bytes — values rendered with auto_regenerate=True
+    end up in field appearance streams that get baked into page content,
+    surviving the merge step that strips the AcroForm structure.
+    """
+    with open(pdf_path, "rb") as f:
+        raw = f.read()
+    return {n: n.encode() in raw for n in needles}
+
+
+class TestFilledValuesRenderInStaticContent:
+    """
+    Regression: customer (Joe Blo, Apr 2026) reported that generated docs
+    showed no populated values. Root cause: fill_pdf_form only injected XFA
+    datasets, which are invisible in non-Acrobat viewers AND get stripped
+    when PdfWriter.add_page merges multiple PDFs into a closing packet.
+    Fix: also fill the AcroForm layer with auto_regenerate=True so values
+    are baked into the page content streams.
+    """
+
+    # TMHA Sales Contract maps the buyer through Install_Address rather than
+    # a buyer_name field, so we check fields that are actually mapped.
+    NEEDLES = ["Clayton Homes", "The Freedom 3256", "CLH123456TX", "Houston"]
+
+    def test_single_document_contains_filled_values(self):
+        result = generate_document("TMHA_SalesContract.pdf", SAMPLE_DATA.copy())
+        assert result["success"] is True
+        found = _values_in_pdf(result["file_path"], self.NEEDLES)
+        assert all(found.values()), f"Missing in single doc: {found}"
+
+    def test_merged_packet_contains_filled_values(self):
+        result = generate_packet("standard_closing", SAMPLE_DATA.copy())
+        assert result["success"] is True
+        found = _values_in_pdf(result["file_path"], self.NEEDLES)
+        assert all(found.values()), f"Missing in merged packet: {found}"
+
+
 class TestBackwardCompatibility:
     """Tests for Phase 1 backward compatibility."""
 
