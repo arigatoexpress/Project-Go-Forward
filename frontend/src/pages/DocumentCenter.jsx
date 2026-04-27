@@ -6,9 +6,10 @@ import {
   ArrowRight, ArrowLeft, RotateCcw, Check, FileCheck,
   Building2, Phone, Mail, Calendar, Hash, MapPinned,
   CreditCard, BadgeDollarSign, ClipboardList, FolderOpen,
-  Info, Eye, HelpCircle, Calculator
+  Info, HelpCircle, Calculator, RefreshCw, ShieldCheck, Clock
 } from 'lucide-react';
 import adminFetch from '../adminFetch';
+import downloadAdminFile from '../downloadAdminFile';
 
 /* ─── Constants ──────────────────────────────────────────── */
 
@@ -64,6 +65,26 @@ function toDocumentData(f) {
     co_buyer_name: coBuyer || undefined,
     buyer_city_state_zip: f.buyer_city ? `${f.buyer_city}, ${f.buyer_state || 'TX'} ${f.buyer_zip}`.trim() : undefined
   };
+}
+
+function formatBytes(bytes) {
+  if (!bytes) return '0 KB';
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function formatDateTime(value) {
+  if (!value) return 'Not yet';
+  try {
+    return new Date(value).toLocaleString([], {
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit'
+    });
+  } catch {
+    return value;
+  }
 }
 
 /* ─── Reusable Components ────────────────────────────────── */
@@ -230,6 +251,122 @@ function Badge({ children, color = 'blue' }) {
   );
 }
 
+function DocumentDesk({ readiness, history, loading, error, downloadingDoc, downloadError, onRefresh, onDownload }) {
+  const statusReady = readiness?.status === 'ready';
+  const recentDocs = (history || []).slice(0, 4);
+
+  return (
+    <div className="mb-8 grid grid-cols-1 lg:grid-cols-[1.1fr_1fr] gap-4">
+      <Card className="p-5">
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex items-start gap-3">
+            <div className={`w-11 h-11 rounded-xl flex items-center justify-center ${statusReady ? 'bg-green-100' : 'bg-amber-100'}`}>
+              <ShieldCheck size={22} className={statusReady ? 'text-green-700' : 'text-amber-700'} />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="text-lg font-bold text-gray-900">Production Document Desk</h2>
+                {readiness && (
+                  <Badge color={statusReady ? 'green' : 'amber'}>
+                    {statusReady ? 'Ready' : 'Needs Review'}
+                  </Badge>
+                )}
+              </div>
+              <p className="text-sm text-gray-500 mt-1">
+                Templates, packets, storage, and recent generated PDFs in one place.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onRefresh}
+            disabled={loading}
+            className="p-2 rounded-lg border border-gray-200 text-gray-500 hover:text-blue-700 hover:border-blue-300 disabled:opacity-50"
+            title="Refresh document status"
+            aria-label="Refresh document status"
+          >
+            <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
+          </button>
+        </div>
+
+        <div className="mt-5 grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="rounded-xl bg-blue-50 border border-blue-100 p-3">
+            <div className="text-2xl font-bold text-blue-800">{readiness?.template_count ?? '—'}</div>
+            <div className="text-xs font-medium text-blue-700">Templates</div>
+          </div>
+          <div className="rounded-xl bg-purple-50 border border-purple-100 p-3">
+            <div className="text-2xl font-bold text-purple-800">{readiness?.packet_count ?? '—'}</div>
+            <div className="text-xs font-medium text-purple-700">Packets</div>
+          </div>
+          <div className="rounded-xl bg-green-50 border border-green-100 p-3">
+            <div className="text-2xl font-bold text-green-800">{readiness?.generated_document_count ?? '—'}</div>
+            <div className="text-xs font-medium text-green-700">Generated</div>
+          </div>
+          <div className="rounded-xl bg-gray-50 border border-gray-200 p-3">
+            <div className="text-2xl font-bold text-gray-800">{readiness?.gcs_document_count ?? '—'}</div>
+            <div className="text-xs font-medium text-gray-600">Cloud PDFs</div>
+          </div>
+        </div>
+
+        <div className="mt-4 flex flex-wrap gap-2 text-xs text-gray-500">
+          <span className="inline-flex items-center gap-1">
+            <Clock size={13} />
+            Latest: {formatDateTime(readiness?.latest_document_at)}
+          </span>
+          <span>Storage: {readiness?.output_dir || 'checking'}</span>
+          {error && <span className="text-red-600">{error}</span>}
+        </div>
+      </Card>
+
+      <Card className="p-5">
+        <div className="flex items-center justify-between gap-3 mb-4">
+          <div>
+            <h2 className="text-lg font-bold text-gray-900">Recent PDFs</h2>
+            <p className="text-sm text-gray-500">Quickly re-download generated paperwork.</p>
+          </div>
+          {loading && <Loader2 size={18} className="animate-spin text-blue-600" />}
+        </div>
+
+        {recentDocs.length > 0 ? (
+          <div className="space-y-2">
+            {recentDocs.map(doc => (
+              <button
+                type="button"
+                key={`${doc.source || 'doc'}-${doc.filename}`}
+                onClick={() => onDownload(doc.download_url, doc.filename)}
+                disabled={downloadingDoc === doc.download_url}
+                className="w-full flex items-center justify-between gap-3 rounded-xl border border-gray-200 px-3 py-2 text-left hover:border-blue-300 hover:bg-blue-50 disabled:opacity-60"
+              >
+                <span className="min-w-0">
+                  <span className="block truncate font-semibold text-gray-800">{doc.filename}</span>
+                  <span className="text-xs text-gray-500">
+                    {formatDateTime(doc.created_at)} · {formatBytes(doc.size_bytes)}
+                  </span>
+                </span>
+                {downloadingDoc === doc.download_url ? (
+                  <Loader2 size={18} className="animate-spin text-blue-600 flex-shrink-0" />
+                ) : (
+                  <Download size={18} className="text-blue-600 flex-shrink-0" />
+                )}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-xl bg-gray-50 border border-dashed border-gray-300 p-5 text-center text-sm text-gray-500">
+            No generated documents found yet.
+          </div>
+        )}
+
+        {downloadError && (
+          <div className="mt-3 rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">
+            {downloadError}
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+}
+
 /* ─── Duplicate Warning Component ────────────────────────── */
 
 function DuplicateWarning({ warning, onViewDeal }) {
@@ -297,7 +434,7 @@ function ValidationErrors({ errors }) {
 
 /* ─── Step 1: Customer Info ──────────────────────────────── */
 
-function Step1({ data, onChange, resetKey, deals, dealsLoading, onLoadDeal, onNext, validationErrors, duplicateWarning, onViewDuplicate, onOpenTradeInCalculator }) {
+function Step1({ data, onChange, resetKey, deals, dealsLoading, onLoadDeal, onNext, validationErrors, duplicateWarning, onViewDuplicate }) {
   const [q, setQ] = useState('');
   const [showPicker, setShowPicker] = useState(false);
 
@@ -592,7 +729,6 @@ function Step1({ data, onChange, resetKey, deals, dealsLoading, onLoadDeal, onNe
                   }),
                 });
                 if (res.ok) {
-                  const result = await res.json();
                   alert(`Customer "${name}" saved successfully!`);
                 } else {
                   const err = await res.json().catch(() => ({}));
@@ -1205,7 +1341,7 @@ function Step3({ templates, packets, selected, onToggle, onSelectPacket, isNew, 
 
 /* ─── Step 4: Generate & Download ────────────────────────── */
 
-function Step4({ results, generating, error, onBack, onReset }) {
+function Step4({ results, generating, error, onBack, onReset, onDownload, downloadingDoc, downloadError }) {
   if (generating) {
     return (
       <div className="flex flex-col items-center justify-center py-20">
@@ -1257,14 +1393,21 @@ function Step4({ results, generating, error, onBack, onReset }) {
 
       {/* Download All Button */}
       {results.merged && (
-        <a
-          href={results.merged.download_url}
-          download
-          className="flex items-center justify-center gap-3 w-full py-5 bg-blue-600 text-white rounded-xl font-bold text-xl hover:bg-blue-700 transition-all shadow-lg shadow-blue-200"
+        <button
+          type="button"
+          onClick={() => onDownload(results.merged.download_url, results.merged.filename)}
+          disabled={downloadingDoc === results.merged.download_url}
+          className="flex items-center justify-center gap-3 w-full py-5 bg-blue-600 text-white rounded-xl font-bold text-xl hover:bg-blue-700 transition-all shadow-lg shadow-blue-200 disabled:bg-blue-300"
         >
-          <Download size={28} />
+          {downloadingDoc === results.merged.download_url ? <Loader2 size={28} className="animate-spin" /> : <Download size={28} />}
           Download All Documents ({results.merged.page_count} pages)
-        </a>
+        </button>
+      )}
+
+      {downloadError && (
+        <div className="rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
+          {downloadError}
+        </div>
       )}
 
       {/* Individual Documents */}
@@ -1285,14 +1428,15 @@ function Step4({ results, generating, error, onBack, onReset }) {
               </div>
               <span className="font-medium text-gray-800 truncate">{d.display_name}</span>
             </div>
-            <a
-              href={d.download_url}
-              download
-              className="flex items-center gap-2 px-4 py-2 bg-blue-100 text-blue-700 rounded-lg font-bold hover:bg-blue-200 transition-colors flex-shrink-0"
+            <button
+              type="button"
+              onClick={() => onDownload(d.download_url, d.filename)}
+              disabled={downloadingDoc === d.download_url}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-100 text-blue-700 rounded-lg font-bold hover:bg-blue-200 transition-colors flex-shrink-0 disabled:opacity-60"
             >
-              <Download size={18} />
+              {downloadingDoc === d.download_url ? <Loader2 size={18} className="animate-spin" /> : <Download size={18} />}
               PDF
-            </a>
+            </button>
           </div>
         ))}
 
@@ -1335,7 +1479,7 @@ function TradeInCalculator({ onClose, onApply, initialValue = 0 }) {
     model: '',
     condition: 'good',
     mileage: 50000,
-    baseValue: 15000,
+    baseValue: initialValue || 15000,
     adjustments: {
       exterior: 0,
       interior: 0,
@@ -1615,12 +1759,53 @@ export default function DocumentCenter() {
   const [lastSaved, setLastSaved] = useState(null);
   const [showDuplicateWarning, setShowDuplicateWarning] = useState(null);
   const [showTradeInCalculator, setShowTradeInCalculator] = useState(false);
+  const [readiness, setReadiness] = useState(null);
+  const [docHistory, setDocHistory] = useState([]);
+  const [deskLoading, setDeskLoading] = useState(false);
+  const [deskError, setDeskError] = useState('');
+  const [downloadingDoc, setDownloadingDoc] = useState('');
+  const [downloadError, setDownloadError] = useState('');
 
   // Refs to avoid stale closures in useCallback (prevents re-render on every keystroke)
   const formRef = useRef(form);
   formRef.current = form;
   const dealsRef = useRef(deals);
   dealsRef.current = deals;
+
+  const loadDocumentDesk = useCallback(async () => {
+    setDeskLoading(true);
+    setDeskError('');
+    try {
+      const [readinessResponse, historyResponse] = await Promise.all([
+        adminFetch('/api/documents/readiness'),
+        adminFetch('/api/documents/history'),
+      ]);
+
+      if (!readinessResponse.ok) throw new Error('Document readiness check failed');
+      if (!historyResponse.ok) throw new Error('Document history failed to load');
+
+      const readinessData = await readinessResponse.json();
+      const historyData = await historyResponse.json();
+      setReadiness(readinessData);
+      setDocHistory(historyData.documents || []);
+    } catch (e) {
+      setDeskError(e.message || 'Document status unavailable');
+    } finally {
+      setDeskLoading(false);
+    }
+  }, []);
+
+  const handleDocumentDownload = useCallback(async (url, filename) => {
+    setDownloadError('');
+    setDownloadingDoc(url);
+    try {
+      await downloadAdminFile(url, filename);
+    } catch (e) {
+      setDownloadError(e.message || 'Download failed');
+    } finally {
+      setDownloadingDoc('');
+    }
+  }, []);
 
   // Load initial data
   useEffect(() => {
@@ -1646,6 +1831,8 @@ export default function DocumentCenter() {
       .then(d => setInventory(d.inventory || []))
       .catch(() => { })
       .finally(() => setInventoryLoading(false));
+
+    loadDocumentDesk();
     
     // Load draft from localStorage
     const saved = localStorage.getItem('document_center_draft');
@@ -1660,7 +1847,7 @@ export default function DocumentCenter() {
         console.error('Failed to load draft:', e);
       }
     }
-  }, []);
+  }, [loadDocumentDesk]);
 
   // Auto-save to localStorage — use ref for lastSaved to avoid re-render
   const lastSavedRef = useRef(lastSaved);
@@ -1687,24 +1874,6 @@ export default function DocumentCenter() {
   // Debounce timer ref for duplicate check
   const dupCheckTimer = useRef(null);
 
-  const chg = useCallback((n, v) => {
-    setForm(p => ({ ...p, [n]: v }));
-    setValidationErrors([]); // Clear errors on change
-
-    // Debounce duplicate check — only run 500ms after user stops typing
-    // This prevents re-renders on every keystroke
-    if (n === 'buyer_first_name' || n === 'buyer_last_name' || n === 'buyer_phone') {
-      if (dupCheckTimer.current) clearTimeout(dupCheckTimer.current);
-      dupCheckTimer.current = setTimeout(() => {
-        const currentForm = formRef.current;
-        const firstName = n === 'buyer_first_name' ? v : currentForm.buyer_first_name;
-        const lastName = n === 'buyer_last_name' ? v : currentForm.buyer_last_name;
-        const phone = n === 'buyer_phone' ? v : currentForm.buyer_phone;
-        checkForDuplicates(firstName, lastName, phone);
-      }, 500);
-    }
-  }, []); // stable — no dependencies that change on every keystroke
-
   // Check for duplicate deals (reads deals from ref for stability)
   const checkForDuplicates = useCallback((firstName, lastName, phone) => {
     if (!firstName && !lastName && !phone) {
@@ -1730,6 +1899,24 @@ export default function DocumentCenter() {
       setShowDuplicateWarning(null);
     }
   }, []);
+
+  const chg = useCallback((n, v) => {
+    setForm(p => ({ ...p, [n]: v }));
+    setValidationErrors([]); // Clear errors on change
+
+    // Debounce duplicate check — only run 500ms after user stops typing
+    // This prevents re-renders on every keystroke
+    if (n === 'buyer_first_name' || n === 'buyer_last_name' || n === 'buyer_phone') {
+      if (dupCheckTimer.current) clearTimeout(dupCheckTimer.current);
+      dupCheckTimer.current = setTimeout(() => {
+        const currentForm = formRef.current;
+        const firstName = n === 'buyer_first_name' ? v : currentForm.buyer_first_name;
+        const lastName = n === 'buyer_last_name' ? v : currentForm.buyer_last_name;
+        const phone = n === 'buyer_phone' ? v : currentForm.buyer_phone;
+        checkForDuplicates(firstName, lastName, phone);
+      }, 500);
+    }
+  }, [checkForDuplicates]); // stable — no dependencies that change on every keystroke
   
   // Clear draft
   const clearDraft = () => {
@@ -1769,6 +1956,7 @@ export default function DocumentCenter() {
   const generate = async () => {
     setGenerating(true);
     setGenErr('');
+    setDownloadError('');
     setResults(null);
     setStep(4);
 
@@ -1785,6 +1973,7 @@ export default function DocumentCenter() {
       const d = await r.json();
       if (d.error) throw new Error(d.error);
       setResults(d);
+      loadDocumentDesk();
     } catch (e) {
       setGenErr(e.message || 'Generation failed');
     } finally {
@@ -1798,6 +1987,7 @@ export default function DocumentCenter() {
     setSelDocs([]);
     setResults(null);
     setGenErr('');
+    setDownloadError('');
   };
 
   return (
@@ -1836,6 +2026,17 @@ export default function DocumentCenter() {
         </div>
       </div>
 
+      <DocumentDesk
+        readiness={readiness}
+        history={docHistory}
+        loading={deskLoading}
+        error={deskError}
+        downloadingDoc={downloadingDoc}
+        downloadError={downloadError}
+        onRefresh={loadDocumentDesk}
+        onDownload={handleDocumentDownload}
+      />
+
       {/* Step Bar */}
       <StepBar step={step} />
 
@@ -1863,7 +2064,6 @@ export default function DocumentCenter() {
             loadDeal(deal);
             setShowDuplicateWarning(null);
           }}
-          onOpenTradeInCalculator={() => setShowTradeInCalculator(true)}
         />
       )}
 
@@ -1909,6 +2109,9 @@ export default function DocumentCenter() {
           error={genErr}
           onBack={() => setStep(3)}
           onReset={reset}
+          onDownload={handleDocumentDownload}
+          downloadingDoc={downloadingDoc}
+          downloadError={downloadError}
         />
       )}
 

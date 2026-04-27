@@ -23,7 +23,7 @@ from config.field_map_loader import (
     list_packets as _list_packets,
     get_fields_for_template,
 )
-from tools.document_tools import fill_pdf_form, DOCUMENTS_DIR, OUTPUT_DIR
+from tools.document_tools import fill_pdf_form, upload_to_gcs, DOCUMENTS_DIR, OUTPUT_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -205,6 +205,7 @@ def generate_packet(
 
         with open(packet_path, "wb") as f:
             writer.write(f)
+        upload_to_gcs(packet_path, packet_filename)
 
         # Clean up individual files
         for file_path in generated_files:
@@ -325,6 +326,7 @@ def generate_batch(
             merged_path = os.path.join(OUTPUT_DIR, merged_filename)
             with open(merged_path, "wb") as f:
                 writer.write(f)
+            upload_to_gcs(merged_path, merged_filename)
 
             merged = {
                 "filename": merged_filename,
