@@ -38,3 +38,16 @@ def test_healthz_is_not_rate_limited(monkeypatch):
     responses = [client.get("/healthz") for _ in range(3)]
 
     assert [response.status_code for response in responses] == [200, 200, 200]
+
+
+def test_unknown_api_paths_do_not_fall_back_to_spa(monkeypatch):
+    client, _main, _db, _logger = create_client(monkeypatch)
+
+    response = client.get("/api/not-real")
+    normalized_traversal = client.get("/api/documents/download/../secret.txt")
+
+    assert response.status_code == 404
+    assert response.headers["content-type"].startswith("application/json")
+    assert "<!doctype html>" not in response.text.lower()
+    assert normalized_traversal.status_code == 404
+    assert normalized_traversal.headers["content-type"].startswith("application/json")
