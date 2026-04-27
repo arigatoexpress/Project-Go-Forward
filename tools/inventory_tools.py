@@ -5,10 +5,13 @@ These tools enable the Sales Agent to search inventory and calculate financing.
 Uses real data from House Orders spreadsheet (converted to JSON for speed).
 """
 
-from google.adk.tools import ToolContext
-from typing import Optional
 import json
 import os
+
+try:
+    from google.adk.tools import ToolContext
+except ImportError:
+    ToolContext = None
 
 # Import caching
 try:
@@ -20,8 +23,12 @@ except ImportError:
         from ..caching import cache_get, cache_set
     except ImportError:
         # Fallback: define no-ops if caching unavailable
-        def cache_get(key): return None
-        def cache_set(key, value, ttl=None): pass
+        def cache_get(key):
+            return None
+
+        def cache_set(key, value, ttl_seconds=None):
+            pass
+
 
 # Cache Key
 INVENTORY_CACHE_KEY = "inventory_dataset"
@@ -36,18 +43,18 @@ def _load_inventory_from_firestore():
         except ImportError:
             from database.firestore_client import get_database
         db = get_database()
-        
+
         # Query all available inventory
         results = db.search_inventory(status="AVAILABLE", limit=100)
-        
+
         if not results:
             return None
-        
+
         # Convert Firestore format to tool format
         inventory = []
         for item in results:
-            price_value = item.get("msrp", 0) or 0
-            
+            price_value = item.get("sale_price") or item.get("msrp", 0) or 0
+
             # Price tier
             if price_value < 50000:
                 price_tier = "Under $50k"
@@ -59,35 +66,56 @@ def _load_inventory_from_firestore():
                 price_tier = "$100k-$150k"
             else:
                 price_tier = "$150k+"
-            
+
             # Determine classification from width
-            width = item.get("width", 0)
-            classification = "Double Wide" if width >= 28 else "Single Wide"
-            
-            inventory.append({
-                "id": item.get("id", item.get("serial_number", "")),
-                "serial_number": item.get("serial_number", ""),
-                "manufacturer": item.get("manufacturer", "Unknown"),
-                "model_name": item.get("model_name", ""),
-                "classification": classification,
-                "status": "Available",
-                "specs": {
-                    "beds": item.get("bedrooms"),
-                    "baths": item.get("bathrooms"),
-                    "sq_ft": item.get("sq_ft")
-                },
-                "pricing": {
-                    "price_value": price_value,
-                    "display_price": f"${price_value:,.0f}" if price_value > 0 else "Call for Price",
-                    "price_tier": price_tier,
-                    "invoice_amount": item.get("invoice_amount")
-                },
-                "features": item.get("features", []),
-                "marketing_tags": item.get("marketing_tags", []),
-                "image_url": item.get("image_url", ""),
-                "gallery_images": item.get("gallery_images", [])
-            })
-        
+            width = item.get("width", 0) or 0
+            classification = item.get("classification") or (
+                "Double Wide" if width >= 24 else "Single Wide"
+            )
+            status = (
+                "Available"
+                if item.get("status") == "AVAILABLE"
+                else item.get("status", "Available")
+            )
+            if item.get("is_new") is False and status == "Available":
+                status = "Pre-Owned"
+            gallery_images = item.get("gallery_images") or item.get("photos") or []
+
+            inventory.append(
+                {
+                    "id": item.get("id", item.get("serial_number", "")),
+                    "serial_number": item.get("serial_number", ""),
+                    "manufacturer": item.get("manufacturer", "Unknown"),
+                    "model_name": item.get("model_name", ""),
+                    "classification": classification,
+                    "status": status,
+                    "specs": {
+                        "beds": item.get("bedrooms"),
+                        "baths": item.get("bathrooms"),
+                        "sq_ft": item.get("sqft") or item.get("sq_ft"),
+                        "dimensions": f"{item.get('width')}x{item.get('length')}"
+                        if item.get("width") and item.get("length")
+                        else "",
+                    },
+                    "pricing": {
+                        "price_value": price_value,
+                        "display_price": f"${price_value:,.0f}"
+                        if price_value > 0
+                        else "Call for Price",
+                        "price_tier": price_tier,
+                        "invoice_amount": item.get("invoice_amount"),
+                    },
+                    "features": item.get("features", []),
+                    "marketing_tags": item.get("marketing_tags", []),
+                    "image_url": item.get("image_url") or item.get("hero_image") or "",
+                    "gallery_images": gallery_images[:3],
+                    "real_photos": gallery_images,
+                    "image_categories": item.get("image_categories", {}),
+                    "floor_plan_url": item.get("floorplan_url") or item.get("floor_plan_url"),
+                    "matterport_id": item.get("matterport_id"),
+                }
+            )
+
         return inventory
     except Exception as e:
         # Firestore not available or error - return None to try fallback
@@ -103,21 +131,21 @@ def _load_inventory_from_json():
         os.path.join(os.path.dirname(__file__), "data", "inventory.json"),
         "data/inventory.json",
         # Relative path handled above
-        "/app/data/inventory.json"
+        "/app/data/inventory.json",
     ]
-    
+
     json_path = None
     for path in possible_paths:
         if os.path.exists(path):
             json_path = path
             break
-            
+
     if not json_path:
         print(f"[Inventory] JSON data file not found in: {possible_paths}")
         return None
-        
+
     try:
-        with open(json_path, 'r') as f:
+        with open(json_path) as f:
             inventory = json.load(f)
         return inventory
     except Exception as e:
@@ -147,33 +175,37 @@ def _load_website_homes():
         classification = "Double Wide" if width >= 28 else "Single Wide"
 
         price_value = 0
-        homes.append({
-            "id": slug,
-            "manufacturer": asset.get("manufacturer", "New Vision Manufacturing"),
-            "model_name": asset["name"],
-            "classification": classification,
-            "status": "Available" if asset.get("is_new") else "Pre-Owned",
-            "specs": {
-                "beds": asset.get("beds"),
-                "baths": asset.get("baths"),
-                "sq_ft": asset.get("sqft"),
-                "dimensions": asset.get("dims"),
-            },
-            "pricing": {
-                "price_value": price_value,
-                "display_price": "Call for Price",
-                "price_tier": "Call for Price",
-            },
-            "features": [],
-            "marketing_tags": [],
-            "image_url": asset.get("floor_plan", ""),
-            "gallery_images": asset.get("images", [])[:3],
-            "real_photos": asset.get("images", []),
-            "image_categories": asset.get("image_categories", {}),
-            "matterport_id": asset.get("matterport_id"),
-            "matterport_url": get_matterport_url(asset["matterport_id"]) if asset.get("matterport_id") else None,
-            "source": "website",
-        })
+        homes.append(
+            {
+                "id": slug,
+                "manufacturer": asset.get("manufacturer", "New Vision Manufacturing"),
+                "model_name": asset["name"],
+                "classification": classification,
+                "status": "Available" if asset.get("is_new") else "Pre-Owned",
+                "specs": {
+                    "beds": asset.get("beds"),
+                    "baths": asset.get("baths"),
+                    "sq_ft": asset.get("sqft"),
+                    "dimensions": asset.get("dims"),
+                },
+                "pricing": {
+                    "price_value": price_value,
+                    "display_price": "Call for Price",
+                    "price_tier": "Call for Price",
+                },
+                "features": [],
+                "marketing_tags": [],
+                "image_url": asset.get("floor_plan", ""),
+                "gallery_images": asset.get("images", [])[:3],
+                "real_photos": asset.get("images", []),
+                "image_categories": asset.get("image_categories", {}),
+                "matterport_id": asset.get("matterport_id"),
+                "matterport_url": get_matterport_url(asset["matterport_id"])
+                if asset.get("matterport_id")
+                else None,
+                "source": "website",
+            }
+        )
     return homes
 
 
@@ -189,8 +221,7 @@ def _load_inventory():
         return cached_data
 
     # Strategy 1: Try Firestore (cloud-native)
-    # inventory = _load_inventory_from_firestore()
-    inventory = None
+    inventory = _load_inventory_from_firestore()
 
     # Strategy 2: Try local JSON (fast fallback)
     if not inventory:
@@ -225,22 +256,26 @@ def _get_sample_inventory():
             "classification": "Double Wide",
             "status": "Available",
             "specs": {"beds": 3, "baths": 2, "sq_ft": 1264},
-            "pricing": {"price_value": 89900, "display_price": "$89,900", "price_tier": "$75k-$100k"},
+            "pricing": {
+                "price_value": 89900,
+                "display_price": "$89,900",
+                "price_tier": "$75k-$100k",
+            },
             "features": ["Island Kitchen", "Walk-in Closet"],
-            "marketing_tags": ["Featured"]
+            "marketing_tags": ["Featured"],
         }
     ]
 
 
 def search_inventory(
-    min_beds: Optional[int] = None,
-    max_beds: Optional[int] = None,
-    min_baths: Optional[float] = None,
-    max_budget: Optional[float] = None,
-    classification: Optional[str] = None,
-    status: Optional[str] = None,
-    features: Optional[list[str]] = None,
-    tool_context: ToolContext = None
+    min_beds: int | None = None,
+    max_beds: int | None = None,
+    min_baths: float | None = None,
+    max_budget: float | None = None,
+    classification: str | None = None,
+    status: str | None = None,
+    features: list[str] | None = None,
+    tool_context: ToolContext = None,
 ) -> dict:
     """
     Search THO inventory based on customer preferences.
@@ -259,16 +294,16 @@ def search_inventory(
         Dictionary with matching homes and search summary
     """
     results = []
-    
+
     # Load inventory with cloud-first strategy (cached)
     inventory = _load_inventory()
-    
+
     for home in inventory:
         # Apply filters
         # Note: JSON data already has integer/float types for specs
         beds = home["specs"].get("beds")
         baths = home["specs"].get("baths")
-        
+
         if min_beds and (beds is None or beds < min_beds):
             continue
         if max_beds and (beds is None or beds > max_beds):
@@ -291,18 +326,18 @@ def search_inventory(
             home_features = [f.lower() for f in home.get("features", [])]
             if not all(f.lower() in home_features for f in features):
                 continue
-        
+
         results.append(home)
-    
+
     # Sort by price (homes without pricing go last)
     results.sort(key=lambda x: x.get("pricing", {}).get("price_value", 0) or 999999999)
-    
+
     return {
         "success": True,
         "count": len(results),
         "homes": results,
         "search_summary": f"Found {len(results)} homes matching your criteria.",
-        "tip": "Book an appointment to visit our showroom!" if results else "Try broadening your search criteria."
+        "tip": "Book an appointment to visit our showroom!"
+        if results
+        else "Try broadening your search criteria.",
     }
-
-
