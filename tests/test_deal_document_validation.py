@@ -197,20 +197,43 @@ def _build_test_client(monkeypatch, deal_record: dict | None):
     if not index_html.exists():
         index_html.write_text("<html><body>test</body></html>")
 
-    # main.py:1025 calls `_db = get_database()` at import time, which spins
-    # up a real Firestore client and triggers Google ADC lookup. CI runs
-    # without GCP credentials, so we install a fake `database.firestore_client`
-    # module before the main import so `get_database()` returns a stub.
+    # main.py spins up several Firestore-backed services at import time
+    # (conversation_memory, chat_history, lead_manager, appointment_manager,
+    # and `_db = get_database()`). All of these instantiate
+    # `firestore.Client(project=...)` eagerly, which triggers Google
+    # Application Default Credentials lookup. CI has no GCP credentials.
+    #
+    # Strategy: patch `google.cloud.firestore.Client` to a no-op stub so
+    # every constructor that lazily touches it succeeds without ADC, then
+    # also fake the `database.firestore_client.get_database` callable so
+    # `_db` ends up as our test stub.
     fake_db = types.SimpleNamespace(
         get_deal=lambda deal_id: deal_record,
     )
-    fake_firestore_module = types.ModuleType("database.firestore_client")
-    fake_firestore_module.get_database = lambda: fake_db
-    fake_firestore_module.THODatabase = type("THODatabase", (), {})
-    monkeypatch.setitem(sys.modules, "database.firestore_client", fake_firestore_module)
+
+    class _FakeFirestoreClient:  # noqa: D401
+        """Stub Firestore client that ignores arguments and never calls GCP."""
+
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def collection(self, *args, **kwargs):  # pragma: no cover - unused in these tests
+            raise RuntimeError("Tests must not exercise live Firestore queries")
+
+    from google.cloud import firestore as _firestore_module
+
+    monkeypatch.setattr(_firestore_module, "Client", _FakeFirestoreClient)
+
+    fake_firestore_client_module = types.ModuleType("database.firestore_client")
+    fake_firestore_client_module.get_database = lambda: fake_db
+    fake_firestore_client_module.THODatabase = type("THODatabase", (), {})
+    monkeypatch.setitem(
+        sys.modules, "database.firestore_client", fake_firestore_client_module
+    )
 
     # Force a fresh import so previous tests do not leak module state and
-    # so the freshly imported `main` picks up our faked firestore_client.
+    # so the freshly imported `main` picks up our patched firestore client
+    # plus the faked `database.firestore_client`.
     sys.modules.pop("main", None)
     main_module = importlib.import_module("main")
 
