@@ -2823,6 +2823,9 @@ app.mount("/assets", StaticFiles(directory="frontend/dist/assets"), name="assets
 
 @app.get("/{full_path:path}")
 async def serve_spa(full_path: str):
+    if full_path == "api" or full_path.startswith("api/"):
+        return JSONResponse({"detail": "Not Found"}, status_code=404)
+
     # Serve actual files from dist if they exist (e.g., tex-icon.svg, vite.svg)
     if full_path:
         file_path = os.path.join("frontend/dist", full_path)
