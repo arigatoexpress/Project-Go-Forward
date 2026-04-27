@@ -508,25 +508,49 @@ async def get_lead_stats():
 async def get_lead_analytics(range: str = "30d"):
     """Get detailed lead analytics with time series data."""
     try:
-        from datetime import datetime, timedelta
+        import builtins
+        from datetime import datetime, timedelta, timezone
+
+        def parse_created_at(lead):
+            value = getattr(lead, "created_at", None)
+            if isinstance(value, datetime):
+                dt = value
+            elif isinstance(value, str):
+                raw = value.strip()
+                if not raw:
+                    return None
+                if raw.endswith("Z"):
+                    raw = f"{raw[:-1]}+00:00"
+                try:
+                    dt = datetime.fromisoformat(raw)
+                except ValueError:
+                    return None
+            else:
+                return None
+
+            if dt.tzinfo:
+                return dt.astimezone(timezone.utc).replace(tzinfo=None)
+            return dt
         
         all_leads = await lead_manager.list_leads(limit=1000)
         
         # Calculate date range
         now = datetime.now()
-        if range == "7d":
+        range_key = range
+        if range_key == "7d":
             start_date = now - timedelta(days=7)
-        elif range == "30d":
+        elif range_key == "30d":
             start_date = now - timedelta(days=30)
-        elif range == "90d":
+        elif range_key == "90d":
             start_date = now - timedelta(days=90)
         else:
             start_date = datetime.min
         
         # Filter leads by date
-        filtered_leads = [l for l in all_leads if hasattr(l, 'created_at') and l.created_at]
-        if range != "all":
-            filtered_leads = [l for l in filtered_leads if l.created_at >= start_date]
+        dated_leads = [(lead, created_at) for lead in all_leads if (created_at := parse_created_at(lead))]
+        if range_key != "all":
+            dated_leads = [(lead, created_at) for lead, created_at in dated_leads if created_at >= start_date]
+        filtered_leads = [lead for lead, _created_at in dated_leads]
         
         # Calculate stats
         stats = {
@@ -541,7 +565,7 @@ async def get_lead_analytics(range: str = "30d"):
             "status_trends": {}
         }
         
-        for lead in filtered_leads:
+        for lead, created_at in dated_leads:
             stats["by_status"][lead.status] = stats["by_status"].get(lead.status, 0) + 1
             if lead.email or lead.phone:
                 stats["with_contact_info"] += 1
@@ -551,17 +575,17 @@ async def get_lead_analytics(range: str = "30d"):
                 stats["financing_discussed"] += 1
             
             # Count new this week
-            if hasattr(lead, 'created_at') and lead.created_at and lead.created_at >= now - timedelta(days=7):
+            if created_at >= now - timedelta(days=7):
                 stats["new_this_week"] += 1
         
         # Generate time series data
         time_series = []
-        date_range = 7 if range == "7d" else 30 if range == "30d" else 90 if range == "90d" else min(30, len(filtered_leads) or 1)
+        date_range = 7 if range_key == "7d" else 30 if range_key == "30d" else 90 if range_key == "90d" else min(30, len(filtered_leads) or 1)
         
-        for i in range(date_range):
+        for i in builtins.range(date_range):
             date = now - timedelta(days=date_range - i - 1)
             date_str = date.strftime("%Y-%m-%d")
-            count = sum(1 for l in filtered_leads if hasattr(l, 'created_at') and l.created_at and l.created_at.date() == date.date())
+            count = sum(1 for _lead, created_at in dated_leads if created_at.date() == date.date())
             time_series.append({"date": date_str, "count": count})
         
         stats["time_series"] = time_series

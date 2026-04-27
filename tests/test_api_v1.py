@@ -604,6 +604,49 @@ def test_admin_token_accepts_supported_employee_headers(monkeypatch):
     assert protected_route.status_code == 200
 
 
+def test_admin_lead_analytics_handles_string_and_datetime_created_at(monkeypatch):
+    client, main, _db, logger = create_client(monkeypatch, tho_api_key="tho-secret")
+    token = main._create_admin_token()
+    now = datetime.now(timezone.utc)
+    main.lead_manager.leads = [
+        FakeLead(
+            lead_id="lead-string-date",
+            user_id="user-1",
+            session_id="session-1",
+            name="String Date",
+            email="string@example.test",
+            status="new",
+            created_at=now.isoformat(),
+        ),
+        FakeLead(
+            lead_id="lead-datetime",
+            user_id="user-2",
+            session_id="session-2",
+            name="Datetime Date",
+            phone="555-000-1111",
+            status="contacted",
+            appointment_requested=True,
+            created_at=now,
+        ),
+    ]
+
+    response = client.get("/api/analytics/leads?range=30d", headers={"X-Admin-Token": token})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert "error" not in body
+    assert body["total"] == 2
+    assert body["by_status"] == {"new": 1, "contacted": 1}
+    assert body["with_contact_info"] == 2
+    assert body["appointment_requested"] == 1
+    assert body["new_this_week"] == 2
+    assert len(body["time_series"]) == 30
+    assert not [
+        entry for entry in logger.entries
+        if entry["level"] == "error" and entry["message"] == "Lead analytics failed"
+    ]
+
+
 def test_document_readiness_reports_safe_counts(monkeypatch, tmp_path):
     client, main, _db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
     token = main._create_admin_token()
