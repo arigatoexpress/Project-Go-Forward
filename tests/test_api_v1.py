@@ -604,6 +604,21 @@ def test_admin_token_accepts_supported_employee_headers(monkeypatch):
     assert protected_route.status_code == 200
 
 
+def test_cloud_run_admin_auth_fails_closed_without_pin_hash(monkeypatch):
+    monkeypatch.setenv("K_SERVICE", "project-go-forward")
+    monkeypatch.delenv("ADMIN_PIN_HASH", raising=False)
+    client, main, _db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
+
+    login = client.post("/api/admin/verify", json={"pin": "4832"})
+    check = client.get("/api/admin/check", headers={"X-Admin-Token": "not-a-token"})
+
+    assert main.ADMIN_PIN_HASH == ""
+    assert login.status_code == 503
+    assert login.json() == {"success": False, "error": "Admin auth not configured."}
+    assert check.status_code == 401
+    assert main._verify_admin_token("not-a-token") is False
+
+
 def test_admin_lead_analytics_handles_string_and_datetime_created_at(monkeypatch):
     client, main, _db, logger = create_client(monkeypatch, tho_api_key="tho-secret")
     token = main._create_admin_token()

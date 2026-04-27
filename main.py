@@ -192,11 +192,15 @@ app.add_middleware(
 
 # Admin PIN hash — MUST be set via ADMIN_PIN_HASH env var in production.
 # Generate hash: python -c "import hashlib; print(hashlib.sha256(b'YOUR_PIN').hexdigest())"
-# If not set, falls back to a default for local dev only (NOT for production).
+# Local development falls back to the default PIN; Cloud Run fails closed.
 _FALLBACK_PIN_HASH = hashlib.sha256(b"4832").hexdigest()  # Local dev only
-ADMIN_PIN_HASH = os.environ.get("ADMIN_PIN_HASH", _FALLBACK_PIN_HASH)
-if os.environ.get("K_SERVICE") and "ADMIN_PIN_HASH" not in os.environ:
-    logger.warning("ADMIN_PIN_HASH not set in Cloud Run — using fallback. Set a secure PIN hash.")
+_CONFIGURED_ADMIN_PIN_HASH = os.environ.get("ADMIN_PIN_HASH")
+if os.environ.get("K_SERVICE"):
+    ADMIN_PIN_HASH = _CONFIGURED_ADMIN_PIN_HASH or ""
+    if not ADMIN_PIN_HASH:
+        logger.critical("ADMIN_PIN_HASH not set in Cloud Run — admin auth disabled.")
+else:
+    ADMIN_PIN_HASH = _CONFIGURED_ADMIN_PIN_HASH or _FALLBACK_PIN_HASH
 
 # Warn loudly if email service is not configured (appointments/leads won't get confirmations)
 if not os.environ.get("RESEND_API_KEY") and not IS_LOCAL:
@@ -216,6 +220,8 @@ _JWT_SECRET = hashlib.sha256(f"sapphire-jwt-{ADMIN_PIN_HASH[:16]}".encode()).dig
 
 def _create_admin_token() -> str:
     """Create an HMAC-signed JWT-like token with embedded expiration."""
+    if not ADMIN_PIN_HASH:
+        raise RuntimeError("Admin auth not configured")
     expires = int(time.time()) + ADMIN_TOKEN_TTL
     payload = struct.pack(">Q", expires)  # 8 bytes, big-endian uint64
     sig = hmac.new(_JWT_SECRET, payload, hashlib.sha256).digest()[:16]  # 16-byte signature
@@ -224,6 +230,8 @@ def _create_admin_token() -> str:
 
 def _verify_admin_token(token: str) -> bool:
     """Verify an HMAC-signed admin token. Stateless — works across instances."""
+    if not ADMIN_PIN_HASH:
+        return False
     try:
         # Pad base64 if needed
         padding = 4 - len(token) % 4
