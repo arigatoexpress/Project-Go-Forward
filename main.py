@@ -1557,12 +1557,13 @@ async def download_generated_video(filename: str):
 
 @app.get("/api/marketing/inventory-context")
 async def api_inventory_context():
-    """Get inventory highlights for ad creation — combines Firestore inventory + website assets."""
+    """Get inventory highlights for ad creation and the public browse page."""
     try:
         from tools.asset_scraper import get_assets_for_home
         
-        # Get Firestore inventory (FCD-imported homes)
-        result = get_inventory_for_ads(limit=30)
+        # Firestore is the live source of truth. Website assets are enrichment
+        # and fallback only; they should not create stale duplicate listings.
+        result = get_inventory_for_ads(limit=100)
         firestore_homes = result.get("homes", [])
         
         # Enrich Firestore homes with asset catalog images if missing
@@ -1579,45 +1580,39 @@ async def api_inventory_context():
                     if asset.get("matterport_id") and not home.get("matterport_id"):
                         home["matterport_id"] = asset["matterport_id"]
                         home["matterport_url"] = get_matterport_url(asset["matterport_id"])
-        
-        # Track which homes already have asset coverage
-        enriched_names = {h["model_name"].lower() for h in firestore_homes if h.get("real_photos")}
-
-        # Get website homes from asset catalog (THO lot homes not in Firestore)
         website_homes = []
-        for slug, asset in PROPERTY_ASSETS.items():
-            # Skip if already enriched from Firestore
-            if asset["name"].lower() in enriched_names:
-                continue
-            home_data = {
-                "id": slug,
-                "model_name": asset["name"],
-                "manufacturer": asset.get("manufacturer", "New Vision Manufacturing"),
-                "classification": "Manufactured Home",
-                "status": "Available" if asset.get("is_new") else "Pre-Owned",
-                "display_price": "Call for Price",
-                "price_value": 0,
-                "specs": {
-                    "beds": asset.get("beds"),
-                    "baths": asset.get("baths"),
-                    "sq_ft": asset.get("sqft"),
-                    "dimensions": asset.get("dims"),
-                },
-                "features": [],
-                "image_url": asset.get("floor_plan", ""),
-                "gallery_images": asset.get("images", [])[:3],
-                "real_photos": asset.get("images", []),
-                "image_categories": asset.get("image_categories", {}),
-                "floor_plan_url": asset.get("floor_plan"),
-                "matterport_id": asset.get("matterport_id"),
-                "matterport_url": get_matterport_url(asset["matterport_id"]) if asset.get("matterport_id") else None,
-            }
-            website_homes.append(home_data)
+        if not firestore_homes:
+            for slug, asset in PROPERTY_ASSETS.items():
+                home_data = {
+                    "id": slug,
+                    "model_name": asset["name"],
+                    "manufacturer": asset.get("manufacturer", "New Vision Manufacturing"),
+                    "classification": "Manufactured Home",
+                    "status": "Available" if asset.get("is_new") else "Pre-Owned",
+                    "display_price": "Call for Price",
+                    "price_value": 0,
+                    "specs": {
+                        "beds": asset.get("beds"),
+                        "baths": asset.get("baths"),
+                        "sq_ft": asset.get("sqft"),
+                        "dimensions": asset.get("dims"),
+                    },
+                    "features": [],
+                    "image_url": asset.get("floor_plan", ""),
+                    "gallery_images": asset.get("images", [])[:3],
+                    "real_photos": asset.get("images", []),
+                    "image_categories": asset.get("image_categories", {}),
+                    "floor_plan_url": asset.get("floor_plan"),
+                    "matterport_id": asset.get("matterport_id"),
+                    "matterport_url": get_matterport_url(asset["matterport_id"]) if asset.get("matterport_id") else None,
+                }
+                website_homes.append(home_data)
+            result["homes"] = website_homes
+            result["total_inventory"] = len(website_homes)
+        else:
+            result["homes"] = firestore_homes
+            result["total_inventory"] = result.get("total_inventory", len(firestore_homes))
 
-        # Merge: website homes (with photos) first, then Firestore homes
-        all_homes = website_homes + firestore_homes
-        result["homes"] = all_homes
-        result["total_inventory"] = len(all_homes)
         result["website_homes"] = len(website_homes)
         return result
     except Exception as e:

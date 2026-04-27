@@ -11,14 +11,18 @@ Enhanced with Google GenAI capabilities:
 - Brand style guide enforcement
 """
 
-from google.adk.tools import ToolContext
-from typing import Optional, List
-from datetime import datetime
-import uuid
-import os
-import json
 import base64
+import json
 import logging
+import os
+import uuid
+from datetime import datetime
+from typing import List, Optional
+
+try:
+    from google.adk.tools import ToolContext
+except ImportError:
+    ToolContext = None
 
 logger = logging.getLogger(__name__)
 
@@ -149,6 +153,14 @@ def get_inventory_for_ads(limit: int = 5) -> dict:
 
     homes_for_ads = []
     for h in top_homes:
+        gallery_images = h.get("gallery_images", []) or []
+        real_photos = h.get("real_photos", []) or gallery_images
+        floor_plan_url = h.get("floor_plan_url") or h.get("floorplan_url")
+        matterport_id = h.get("matterport_id")
+        matterport_url = h.get("matterport_url")
+        if matterport_id and not matterport_url:
+            matterport_url = get_matterport_url(matterport_id)
+
         home_data = {
             "id": h.get("id", ""),
             "model_name": h.get("model_name", "Unknown"),
@@ -160,22 +172,28 @@ def get_inventory_for_ads(limit: int = 5) -> dict:
             "specs": h.get("specs", {}),
             "features": h.get("features", [])[:5],
             "image_url": h.get("image_url", ""),
-            "gallery_images": h.get("gallery_images", [])[:3],
+            "gallery_images": gallery_images[:3],
             # New: real property assets from website
-            "real_photos": [],
-            "image_categories": {},
-            "floor_plan_url": None,
-            "matterport_id": None,
-            "matterport_url": None,
+            "real_photos": real_photos,
+            "image_categories": h.get("image_categories", {}),
+            "floor_plan_url": floor_plan_url,
+            "matterport_id": matterport_id,
+            "matterport_url": matterport_url,
         }
 
         # Try to match this inventory home to scraped website assets
         assets = get_assets_for_home(h.get("model_name", ""))
         if assets:
-            home_data["real_photos"] = assets.get("images", [])
-            home_data["image_categories"] = assets.get("image_categories", {})
-            home_data["floor_plan_url"] = assets.get("floor_plan")
-            if assets.get("matterport_id"):
+            asset_images = assets.get("images", [])
+            if asset_images and not home_data["real_photos"]:
+                home_data["real_photos"] = asset_images
+                home_data["gallery_images"] = asset_images[:3]
+            if assets.get("image_categories") and not home_data["image_categories"]:
+                home_data["image_categories"] = assets.get("image_categories", {})
+            home_data["floor_plan_url"] = (
+                home_data.get("floor_plan_url") or assets.get("floor_plan")
+            )
+            if assets.get("matterport_id") and not home_data.get("matterport_id"):
                 home_data["matterport_id"] = assets["matterport_id"]
                 home_data["matterport_url"] = get_matterport_url(assets["matterport_id"])
 
