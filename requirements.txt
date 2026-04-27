@@ -21,3 +21,7 @@ beautifulsoup4>=4.12
 pytest==8.3.4
 moviepy==1.0.3
 numpy==1.26.4
+
+# Drive floorplan sync (tools/drive_floorplan_sync.py)
+google-api-python-client>=2.140
+google-auth>=2.34
