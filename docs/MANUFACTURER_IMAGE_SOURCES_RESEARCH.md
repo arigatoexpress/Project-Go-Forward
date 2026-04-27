@@ -427,3 +427,65 @@ https://d132mt2yijm03y.cloudfront.net/manufacturer/{MFG_ID}/floorplan/{PLAN_ID}/
 *Document Version: 1.0*  
 *Last Updated: February 2026*  
 *Next Review: March 2026*
+
+---
+
+## Update — 2026-04-27 (from Mark Willcott's shared "THO" Drive folder)
+
+The shared Drive folder Mark gave us (top-level "THO", invitation Wed Mar 4)
+has dedicated subfolders per active manufacturer. The list below adds the
+ones not previously documented.
+
+### Active manufacturer subfolders observed in Drive
+
+| Drive folder name              | Canonical key (used in code)  | Notes |
+| ------------------------------ | ----------------------------- | ----- |
+| Cavco                          | `cavco`                       | New — not in prior research; floorplans + standards |
+| Champion Louisiana             | `champion_la`                 | Replaces "Champion" generic entry; LA plant |
+| Clayton Ebuilt Information     | `clayton_ebuilt`              | New — Clayton's eBuilt platform info |
+| New Vision New Retailer        | `new_vision`                  | Confirmed; subfolder has the retailer onboarding pack |
+| Skyline from Kansas            | `skyline_ks`                  | New — confirmed by Mark's "manufacturers" thread (Prairie Dune line) |
+| Skyline Louisiana              | `skyline_la`                  | New — second Skyline plant |
+| TRUmh Retail Partner           | `trumh`                       | Houses TRU/Tru Belton/Tru Alabama; covers everything Mark called "Tru" |
+
+### Floorplan-bearing files observed (Skyline from Kansas, sample)
+
+* `Floorplans.pdf`
+* `Galaxy Floorplans.pdf`
+* `GALAXY STANDARDS.pdf`
+* `MOUNTAIN DELIGHT.pdf`
+* `NEW 2020 Photo Guide.pdf`
+* `Prairie-Dune-SW-*.pdf` (matches "Prairie Dune line" Mark mentioned)
+* `Sample Order Form.xlsx`
+* `EXPRESSO SCHEME.pdf` (interior color scheme — not a floorplan, kept for completeness)
+* `2020 CARPET.pdf` (carpet samples — same caveat)
+
+### Known but not yet validated
+
+These show up in the operational `House Orders.xlsx` Mark sent (Mar 3) but
+are NOT visible as Drive subfolders, so we still need Mark to confirm they
+remain orderable:
+
+* Jessup Housing
+* Legacy Housing
+* Waco II Schult / Cavalier Home (TRU sub-line?)
+* Roverto 539
+
+### Folders we do NOT walk for floorplans
+
+Mark's Drive folder also contains people-named subfolders (Adriana, Lee,
+Mario, Mark, Rox, Sergio, Celeste, Ady) and form/operational subfolders
+(21st APPLICATION, 2016 Forms, Clearnow Forms, Current Inventory Invoices,
+Grounding Manuals, PRIOR Service ×2, Service, Texas Home Outlet Logo, THO
+Service Files, Titling, Triad Financial, WAP Enterprises). These are
+**explicitly excluded** by ``tools/drive_floorplan_sync.py`` to avoid
+ingesting customer files or non-floorplan content.
+
+### CDN
+
+Existing CDN base remains:
+
+    https://d132mt2yijm03y.cloudfront.net/
+
+Dealer ID: `3522`. The new manufacturers have not been individually
+verified against the CDN yet; that audit is a follow-up.

@@ -72,3 +72,9 @@ verify_system.py
 client_email.md
 scripts/
 DEPLOYMENT_CREDENTIALS.md
+
+# Floorplan + secrets bundles produced by drive_floorplan_sync / cowork
+data/floorplans/
+_SECRETS*
+INBOX_SWEEP_*.md
+MARK_ADMIN_REQUEST_DRAFT.md
