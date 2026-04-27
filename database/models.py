@@ -27,6 +27,7 @@ class InventoryStatus(str, Enum):
 
 class Customer(BaseModel):
     """Customer/Tenant record"""
+
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     full_name: str = Field(min_length=1)
     phone: Optional[str] = None
@@ -60,28 +61,30 @@ class Customer(BaseModel):
 
 class Property(BaseModel):
     """Physical property/land location"""
+
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     address: str
     city: Optional[str] = None
     state: str = "TX"
     zip_code: Optional[str] = None
-    
+
     # Tax info
     county: Optional[str] = None
     school_district: Optional[str] = None
     county_account_number: Optional[str] = None
     county_tax_link: Optional[str] = None
     isd_tax_link: Optional[str] = None
-    
+
     # Owner reference
     customer_id: Optional[str] = None
-    
+
     class Config:
         use_enum_values = True
 
 
 class Inventory(BaseModel):
     """Manufactured home inventory"""
+
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     serial_number: str = Field(min_length=1)
     model_name: str = Field(min_length=1)
@@ -91,12 +94,13 @@ class Inventory(BaseModel):
     invoice_date: Optional[date] = None
     invoice_amount: Optional[float] = Field(default=None, ge=0)
     msrp: Optional[float] = Field(default=None, ge=0)
+    sale_price: Optional[float] = Field(default=None, ge=0)
 
     # Specs (parsed from model name)
     bedrooms: Optional[int] = Field(default=None, ge=0, le=10)
     bathrooms: Optional[int] = Field(default=None, ge=0, le=10)
     sqft: Optional[int] = Field(default=None, ge=0)
-    width: Optional[int] = Field(default=None, ge=0)   # e.g., 14, 28, 32
+    width: Optional[int] = Field(default=None, ge=0)  # e.g., 14, 28, 32
     length: Optional[int] = Field(default=None, ge=0)  # e.g., 60, 66, 76
 
     # Status
@@ -107,12 +111,45 @@ class Inventory(BaseModel):
     photos: List[str] = Field(default_factory=list)
     video_tour_url: Optional[str] = None
 
+    @field_validator("bedrooms", "bathrooms", "sqft")
+    @classmethod
+    def validate_specs_non_negative(cls, v, info):
+        """Specs must be >= 0 when populated. Field-level ge=0 already guards
+        most cases; this validator gives a clearer error path for the spec
+        triple and protects against future changes that loosen the field
+        constraint (e.g., dropping ge=0)."""
+        if v is not None and v < 0:
+            raise ValueError(f"{info.field_name} must be >= 0 when populated, got {v}")
+        return v
+
+    @field_validator("status")
+    @classmethod
+    def validate_available_has_price(cls, v, info):
+        """If status is AVAILABLE, at least one of msrp / sale_price must be
+        populated and > 0. Production must not surface a buyable home with no
+        price.
+
+        Pydantic v2 runs field validators in declaration order, so by the
+        time this runs both msrp and sale_price are present in info.data."""
+        # Normalize status to its string value (use_enum_values=True returns str)
+        status_value = v.value if hasattr(v, "value") else v
+        if status_value == InventoryStatus.AVAILABLE.value:
+            msrp = info.data.get("msrp")
+            sale_price = info.data.get("sale_price")
+            has_price = (msrp is not None and msrp > 0) or (
+                sale_price is not None and sale_price > 0
+            )
+            if not has_price:
+                raise ValueError("AVAILABLE inventory must have msrp or sale_price > 0")
+        return v
+
     class Config:
         use_enum_values = True
 
 
 class Sale(BaseModel):
     """Links customer to purchased inventory"""
+
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     customer_id: str
     inventory_id: str
@@ -137,6 +174,7 @@ class Sale(BaseModel):
 
 class Lease(BaseModel):
     """Active lease/rent-to-own agreement"""
+
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     customer_id: str
     property_id: str
@@ -156,24 +194,26 @@ class Lease(BaseModel):
 
 class TaxPayment(BaseModel):
     """Annual property tax records"""
+
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     property_id: str
     tax_year: int
-    
+
     # Tax amounts
     county_taxes: Optional[float] = None
     school_taxes: Optional[float] = None
     total_taxes: Optional[float] = None
-    
+
     # Escrow tracking
     escrow_balance: Optional[float] = None
     payment_date: Optional[date] = None
-    
+
     notes: Optional[str] = None
 
 
 class DealStatus(str, Enum):
     """Deal/application lifecycle status — mirrors fastcontractdocs.com workflow"""
+
     PENDING = "pending"
     APPROVED = "approved"
     CONTRACT = "contract"
@@ -189,6 +229,7 @@ class Deal(BaseModel):
     Consolidates all buyer, co-buyer, home, loan, and transaction data
     into a single record that can be used to generate any document.
     """
+
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
 
     # ─── Assignment ───
@@ -300,8 +341,14 @@ class Deal(BaseModel):
         co_buyer_name = " ".join(co_buyer_parts) if co_buyer_parts else None
 
         # ─── Computed: Combined address strings ───
-        buyer_city_state_zip_parts = [p for p in [self.buyer_city, self.buyer_state, self.buyer_zip] if p]
-        buyer_city_state_zip = f"{self.buyer_city or ''}, {self.buyer_state or 'TX'} {self.buyer_zip or ''}".strip() if any([self.buyer_city, self.buyer_zip]) else None
+        buyer_city_state_zip_parts = [
+            p for p in [self.buyer_city, self.buyer_state, self.buyer_zip] if p
+        ]
+        buyer_city_state_zip = (
+            f"{self.buyer_city or ''}, {self.buyer_state or 'TX'} {self.buyer_zip or ''}".strip()
+            if any([self.buyer_city, self.buyer_zip])
+            else None
+        )
 
         buyer_full_address = None
         if self.buyer_address:
@@ -364,7 +411,6 @@ class Deal(BaseModel):
             "buyer_email": self.buyer_email,
             "buyer_ssn": self.buyer_ssn,
             "buyer_marital_status": self.buyer_marital_status,
-
             # ─── Co-Buyer ───
             "co_buyer_name": co_buyer_name,
             "co_buyer_first_name": self.co_buyer_first_name,
@@ -372,7 +418,6 @@ class Deal(BaseModel):
             "co_buyer_phone": self.co_buyer_phone,
             "co_buyer_ssn": self.co_buyer_ssn,
             "co_buyer_marital_status": self.co_buyer_marital_status,
-
             # ─── Employment (Buyer) ───
             "employer_name": self.employer_name,
             "occupation": self.occupation,
@@ -381,14 +426,12 @@ class Deal(BaseModel):
             "self_employed": self.self_employed,
             "previous_employer": self.previous_employer,
             "previous_occupation": self.previous_occupation,
-
             # ─── Employment (Co-Buyer) ───
             "co_buyer_employer": self.co_buyer_employer,
             "co_buyer_occupation": self.co_buyer_occupation,
             "co_buyer_occupation_length": self.co_buyer_occupation_length,
             "co_buyer_work_phone": self.co_buyer_work_phone,
             "co_buyer_self_employed": self.co_buyer_self_employed,
-
             # ─── Mailing Address ───
             "mailing_address": self.mailing_address,
             "mailing_city": self.mailing_city,
@@ -398,19 +441,16 @@ class Deal(BaseModel):
             "mailing_full_address": mailing_full_address,
             "mailing_length": self.mailing_length,
             "mailing_own_rent": self.mailing_own_rent,
-
             # ─── References ───
             "reference1_name": self.reference1_name,
             "reference1_phone": self.reference1_phone,
             "reference2_name": self.reference2_name,
             "reference2_phone": self.reference2_phone,
-
             # ─── Seller (defaults) ───
             "seller_name": "Texas Home Outlet",
             "seller_phone": "(281) 555-0199",
             "seller_email": "sales@texashomeoutlet.com",
             "salesrep": self.salesrep,
-
             # ─── Home ───
             "manufacturer": self.manufacturer,
             "model": self.model,
@@ -425,13 +465,11 @@ class Deal(BaseModel):
             "is_new": self.is_new,
             "is_used": not self.is_new,
             "new_used_text": new_used_text,
-
             # ─── Pricing ───
             "sales_price": self.sales_price,
             "down_payment": self.down_payment,
             "unpaid_balance": unpaid_balance,
             "total_unpaid_balance": unpaid_balance,
-
             # ─── Financing ───
             "creditor_name": self.creditor_name,
             "creditor_address": self.creditor_address,
@@ -445,7 +483,6 @@ class Deal(BaseModel):
             "total_payments": self.total_payments,
             "payment_start_date": self.payment_start_date,
             "insurance_premium": self.insurance_premium,
-
             # ─── Transaction ───
             "date_of_sale": self.created_at.strftime("%Y-%m-%d") if self.created_at else None,
             "notes": self.notes,
@@ -457,27 +494,28 @@ class Deal(BaseModel):
 
 class ServiceRequest(BaseModel):
     """Service/warranty requests from customers"""
+
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     customer_id: str
     property_id: Optional[str] = None
     inventory_id: Optional[str] = None  # For warranty lookup
-    
+
     # Issue details
     issue_type: str  # structural, plumbing, electrical, hvac, cosmetic, appliance
     description: str
     photos: List[str] = Field(default_factory=list)
-    
+
     # Warranty
     is_warranty_claim: bool = False
     warranty_status: Optional[str] = None  # covered, not_covered, pending
     warranty_notes: Optional[str] = None
-    
+
     # Resolution
     status: str = "open"  # open, in_progress, scheduled, resolved, closed
     assigned_contractor: Optional[str] = None
     resolution_notes: Optional[str] = None
     resolved_date: Optional[date] = None
-    
+
     # Timestamps
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
@@ -487,19 +525,22 @@ class ServiceRequest(BaseModel):
 # LINEAR-INSPIRED PROJECT MANAGEMENT MODELS (AI PM Manager Core)
 # ═══════════════════════════════════════════════════════════════════════════════
 
+
 class WorkflowState(str, Enum):
     """Linear-inspired workflow states for any project/task"""
-    BACKLOG = "backlog"           # Not ready to start
-    TODO = "todo"                 # Ready to start
-    IN_PROGRESS = "in_progress"   # Actively being worked
-    IN_REVIEW = "in_review"       # Needs review/approval
-    DONE = "done"                 # Completed
-    CANCELLED = "cancelled"       # Won't do
-    BLOCKED = "blocked"           # Blocked by dependency
+
+    BACKLOG = "backlog"  # Not ready to start
+    TODO = "todo"  # Ready to start
+    IN_PROGRESS = "in_progress"  # Actively being worked
+    IN_REVIEW = "in_review"  # Needs review/approval
+    DONE = "done"  # Completed
+    CANCELLED = "cancelled"  # Won't do
+    BLOCKED = "blocked"  # Blocked by dependency
 
 
 class TaskPriority(int, Enum):
     """Priority levels - like Linear"""
+
     NO_PRIORITY = 0
     LOW = 1
     MEDIUM = 2
@@ -509,9 +550,10 @@ class TaskPriority(int, Enum):
 
 class ProjectType(str, Enum):
     """Types of projects the AI PM can manage"""
-    SOFTWARE = "software"         # Code repos (Sapphire, etc.)
-    BUSINESS = "business"         # Business operations (THO)
-    RESEARCH = "research"         # R&D, experiments
+
+    SOFTWARE = "software"  # Code repos (Sapphire, etc.)
+    BUSINESS = "business"  # Business operations (THO)
+    RESEARCH = "research"  # R&D, experiments
     INFRASTRUCTURE = "infrastructure"  # DevOps, deployments
 
 
@@ -520,33 +562,34 @@ class Project(BaseModel):
     A project managed by the AI PM - like a Linear project/workspace
     Can represent a GitHub repo, business initiative, etc.
     """
+
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    
+
     # Identity
     name: str = Field(min_length=1)
     description: Optional[str] = None
     project_type: ProjectType = ProjectType.BUSINESS
-    
+
     # External links
-    github_repo: Optional[str] = None       # e.g., "arigatoexpress/Sapphire"
-    cloud_run_service: Optional[str] = None # e.g., "sapphire-dashboard"
+    github_repo: Optional[str] = None  # e.g., "arigatoexpress/Sapphire"
+    cloud_run_service: Optional[str] = None  # e.g., "sapphire-dashboard"
     notion_url: Optional[str] = None
-    
+
     # Status
     status: str = "active"  # active, paused, archived
-    
+
     # Team
     owner: Optional[str] = None
     members: List[str] = Field(default_factory=list)
-    
+
     # Stats
     total_tasks: int = 0
     completed_tasks: int = 0
-    
+
     # For software projects
     default_branch: str = "main"
     deployment_url: Optional[str] = None
-    
+
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
@@ -556,55 +599,58 @@ class Task(BaseModel):
     Universal task model - like a Linear issue
     Works for software tasks, business tasks, service requests
     """
+
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    
+
     # Content
     title: str = Field(min_length=1)
     description: Optional[str] = None
-    
+
     # Organization
     project_id: str  # Links to Project
     state: WorkflowState = WorkflowState.BACKLOG
     priority: TaskPriority = TaskPriority.NO_PRIORITY
     labels: List[str] = Field(default_factory=list)  # e.g., ["bug", "urgent"]
-    
+
     # Assignment
     assignee: Optional[str] = None
     creator: Optional[str] = None
-    
+
     # Relations
-    parent_task_id: Optional[str] = None      # Subtasks
+    parent_task_id: Optional[str] = None  # Subtasks
     related_github_issue: Optional[int] = None
     related_github_pr: Optional[int] = None
-    related_deal_id: Optional[str] = None     # Link to business deal
-    
+    related_deal_id: Optional[str] = None  # Link to business deal
+
     # Estimation (like Linear)
     estimate_hours: Optional[float] = None
     actual_hours: Optional[float] = None
-    
+
     # Timing
     due_date: Optional[datetime] = None
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
-    
+
     # State history for audit trail
     state_history: List[Dict] = Field(default_factory=list)
     # [{"from": "backlog", "to": "in_progress", "at": "2026-03-02T...", "by": "user"}]
-    
+
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
-    
+
     def transition_to(self, new_state: WorkflowState, changed_by: Optional[str] = None):
         """Record state transition with audit trail"""
-        self.state_history.append({
-            "from": self.state,
-            "to": new_state,
-            "at": datetime.utcnow().isoformat(),
-            "by": changed_by or "system"
-        })
+        self.state_history.append(
+            {
+                "from": self.state,
+                "to": new_state,
+                "at": datetime.utcnow().isoformat(),
+                "by": changed_by or "system",
+            }
+        )
         self.state = new_state
         self.updated_at = datetime.utcnow()
-        
+
         if new_state == WorkflowState.IN_PROGRESS and not self.started_at:
             self.started_at = datetime.utcnow()
         if new_state == WorkflowState.DONE and not self.completed_at:
@@ -615,30 +661,31 @@ class Cycle(BaseModel):
     """
     Time-boxed planning period - like Linear's cycles
     """
+
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    
+
     name: str = Field(min_length=1)  # e.g., "Week 9", "March Sprint"
     description: Optional[str] = None
-    
+
     # Timing
     start_date: datetime
     end_date: datetime
-    
+
     # Status
     status: str = "planning"  # planning, active, completed
-    
+
     # Goals
     goals: List[str] = Field(default_factory=list)
-    
+
     # Projects included in this cycle
     project_ids: List[str] = Field(default_factory=list)
-    
+
     # Stats
     total_tasks: int = 0
     completed_tasks: int = 0
-    
+
     created_at: datetime = Field(default_factory=datetime.utcnow)
-    
+
     def is_active(self) -> bool:
         now = datetime.utcnow()
         return self.start_date <= now <= self.end_date and self.status == "active"
@@ -649,23 +696,24 @@ class Activity(BaseModel):
     Activity log - like Linear's issue history
     Tracks everything that happens across all projects
     """
+
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    
+
     # What happened
     activity_type: str  # "task_created", "state_changed", "comment_added", "assigned"
-    description: str    # Human-readable summary
-    
+    description: str  # Human-readable summary
+
     # Where
     project_id: str
     task_id: Optional[str] = None
-    
+
     # Who
     actor: Optional[str] = None  # User or "AI PM"
-    
+
     # Details
     metadata: Dict = Field(default_factory=dict)
     # e.g., {"from_state": "backlog", "to_state": "in_progress"}
-    
+
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
@@ -673,25 +721,26 @@ class View(BaseModel):
     """
     Saved view configuration - like Linear's custom views
     """
+
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     name: str = Field(min_length=1)
-    
+
     # Filters
     project_id: Optional[str] = None
     filter_states: List[WorkflowState] = Field(default_factory=list)
     filter_labels: List[str] = Field(default_factory=list)
     filter_assignee: Optional[str] = None
     filter_priority: Optional[TaskPriority] = None
-    
+
     # Grouping & sorting
     group_by: str = "state"  # state, assignee, priority, project
     sort_by: str = "priority"
     sort_order: str = "desc"  # asc, desc
-    
+
     # Owner
     owner_id: str
     is_shared: bool = False
-    
+
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
