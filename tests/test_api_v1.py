@@ -557,12 +557,17 @@ def load_app(monkeypatch, tho_api_key: str | None = "tho-secret", rate_limit_rpm
     marketing_tools_module.schedule_social_post = lambda **kwargs: {"success": True}
     marketing_tools_module.analyze_content_performance = lambda **kwargs: {}
     marketing_tools_module.generate_ad_image = lambda **kwargs: {"success": True}
-    marketing_tools_module.get_inventory_for_ads = lambda **kwargs: []
+    marketing_tools_module.get_inventory_for_ads = lambda **kwargs: {
+        "success": True,
+        "homes": [],
+        "total_inventory": 0,
+    }
     marketing_tools_module.GENERATED_ADS_DIR = str(REPO_ROOT / "generated_ads")
     monkeypatch.setitem(sys.modules, "tools.marketing_tools", marketing_tools_module)
 
     asset_scraper_module = types.ModuleType("tools.asset_scraper")
     asset_scraper_module.get_all_assets = lambda *args, **kwargs: []
+    asset_scraper_module.get_assets_for_home = lambda *args, **kwargs: None
     asset_scraper_module.PROPERTY_ASSETS = {}
     asset_scraper_module.get_matterport_url = lambda *args, **kwargs: None
     monkeypatch.setitem(sys.modules, "tools.asset_scraper", asset_scraper_module)
@@ -589,6 +594,99 @@ def create_client(monkeypatch, tho_api_key: str | None = "tho-secret", rate_limi
     )
     client = TestClient(main.app)
     return client, main, fake_db, fake_logger
+
+
+def test_marketing_inventory_context_uses_firestore_as_source_of_truth(monkeypatch):
+    client, main, _db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
+
+    firestore_home = {
+        "id": "28102",
+        "model_name": "NEW YEAR CLEARANCE SALE / TRU Single Section Delight",
+        "gallery_images": ["https://example.com/live-photo.jpg"],
+        "real_photos": ["https://example.com/live-photo.jpg"],
+        "floor_plan_url": "https://example.com/live-floorplan.jpg",
+        "matterport_id": "SvVRKXdXUQq",
+        "matterport_url": "https://my.matterport.com/show/?m=SvVRKXdXUQq&play=1",
+    }
+
+    monkeypatch.setattr(
+        main,
+        "get_inventory_for_ads",
+        lambda **kwargs: {
+            "success": True,
+            "homes": [firestore_home.copy()],
+            "total_inventory": 1,
+        },
+    )
+    monkeypatch.setattr(
+        main,
+        "PROPERTY_ASSETS",
+        {
+            "stale-static-home": {
+                "name": "Stale Static Home",
+                "images": ["https://example.com/stale.jpg"],
+                "floor_plan": "https://example.com/stale-floorplan.jpg",
+                "matterport_id": "staleTour",
+                "is_new": True,
+            }
+        },
+    )
+
+    response = client.get("/api/marketing/inventory-context")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total_inventory"] == 1
+    assert data["website_homes"] == 0
+    assert [home["id"] for home in data["homes"]] == ["28102"]
+    assert data["homes"][0]["floor_plan_url"] == "https://example.com/live-floorplan.jpg"
+    assert data["homes"][0]["matterport_id"] == "SvVRKXdXUQq"
+
+
+def test_marketing_inventory_context_falls_back_to_asset_catalog_when_firestore_empty(monkeypatch):
+    client, main, _db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
+
+    monkeypatch.setattr(
+        main,
+        "get_inventory_for_ads",
+        lambda **kwargs: {
+            "success": False,
+            "homes": [],
+            "total_inventory": 0,
+        },
+    )
+    monkeypatch.setattr(
+        main,
+        "PROPERTY_ASSETS",
+        {
+            "fallback-home": {
+                "name": "Fallback Home",
+                "manufacturer": "THO",
+                "beds": 3,
+                "baths": 2,
+                "sqft": 1200,
+                "dims": "16x76",
+                "images": ["https://example.com/fallback.jpg"],
+                "floor_plan": "https://example.com/fallback-floorplan.jpg",
+                "matterport_id": "fallbackTour",
+                "is_new": True,
+            }
+        },
+    )
+    monkeypatch.setattr(
+        main,
+        "get_matterport_url",
+        lambda tour_id: f"https://my.matterport.com/show/?m={tour_id}&play=1",
+    )
+
+    response = client.get("/api/marketing/inventory-context")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total_inventory"] == 1
+    assert data["website_homes"] == 1
+    assert data["homes"][0]["id"] == "fallback-home"
+    assert data["homes"][0]["matterport_url"].endswith("fallbackTour&play=1")
 
 
 def test_admin_token_accepts_supported_employee_headers(monkeypatch):
