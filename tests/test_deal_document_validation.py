@@ -197,14 +197,28 @@ def _build_test_client(monkeypatch, deal_record: dict | None):
     if not index_html.exists():
         index_html.write_text("<html><body>test</body></html>")
 
-    # Force a fresh import so previous tests do not leak module state.
+    # main.py:1025 calls `_db = get_database()` at import time, which spins
+    # up a real Firestore client and triggers Google ADC lookup. CI runs
+    # without GCP credentials, so we install a fake `database.firestore_client`
+    # module before the main import so `get_database()` returns a stub.
+    fake_db = types.SimpleNamespace(
+        get_deal=lambda deal_id: deal_record,
+    )
+    fake_firestore_module = types.ModuleType("database.firestore_client")
+    fake_firestore_module.get_database = lambda: fake_db
+    fake_firestore_module.THODatabase = type("THODatabase", (), {})
+    monkeypatch.setitem(sys.modules, "database.firestore_client", fake_firestore_module)
+
+    # Force a fresh import so previous tests do not leak module state and
+    # so the freshly imported `main` picks up our faked firestore_client.
     sys.modules.pop("main", None)
     main_module = importlib.import_module("main")
 
-    fake_deal_db = types.SimpleNamespace(
-        get_deal=lambda deal_id: deal_record,
-    )
-    monkeypatch.setattr(main_module, "_deal_db", fake_deal_db)
+    # The faked `get_database` was used at module import to populate `_db`
+    # and `_deal_db`. Reassign explicitly so per-test overrides win even
+    # if the import order shifts.
+    monkeypatch.setattr(main_module, "_db", fake_db)
+    monkeypatch.setattr(main_module, "_deal_db", fake_db)
 
     # Fail loudly if the document engine is hit when validation should
     # short-circuit. Tests that exercise the happy path replace this.
