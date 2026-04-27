@@ -166,6 +166,129 @@ app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(RateLimitMiddleware)
 app.add_middleware(RequestSizeLimitMiddleware)
 
+
+# ─── Resilient Error Responses + Cache-Control ───
+#
+# All HTTPExceptions raised inside the API surface are wrapped in a uniform
+# {success, status_code, message} JSON envelope so the frontend can branch on
+# `success` rather than parsing FastAPI's default `{detail: ...}` shape.
+# The /api/v1/* partner contract is excluded — external partners parse the
+# legacy `{detail}` shape, and changing it requires a coordinated version bump.
+#
+# Cache-Control is applied consistently:
+#   * GET /api/inventory and GET /api/inventory/{id} (public read-side):
+#       max-age=3600, public, stale-while-revalidate=60
+#   * Any other /api/* path: no-cache (CRM data must never be cached)
+#   * Non-/api paths: header is left untouched so the SPA / static asset
+#     handlers can set their own caching policy.
+#
+# This is additive on top of PR #17 ("Return JSON 404 for unknown API paths"):
+# the SPA catch-all now raises HTTPException(404) for unknown /api/* paths so
+# they flow through this single envelope rather than emitting a bare detail.
+
+_PUBLIC_INVENTORY_CACHE = "max-age=3600, public, stale-while-revalidate=60"
+_DYNAMIC_API_CACHE = "no-cache"
+
+
+def _is_public_inventory_read(method: str, path: str) -> bool:
+    """True for GET /api/inventory and GET /api/inventory/{id} only.
+
+    Mutating verbs and the /api/v1/* partner surface are excluded so they
+    keep the no-cache default. /api/inventory/bulk-* admin endpoints are
+    explicitly excluded too (they're write-side, not read-side).
+    """
+    if method.upper() != "GET":
+        return False
+    if path == "/api/inventory" or path == "/api/inventory/":
+        return True
+    if path.startswith("/api/inventory/") and not path.startswith("/api/inventory/bulk-"):
+        return True
+    return False
+
+
+def _is_partner_api_path(path: str) -> bool:
+    """The /api/v1/* surface is a versioned public contract for external
+    partners; we MUST NOT change its error shape (`{detail: ...}`) without a
+    coordinated version bump.
+    """
+    return path == "/api/v1" or path.startswith("/api/v1/")
+
+
+def _apply_api_cache_headers(request: Request, response: JSONResponse) -> JSONResponse:
+    """Stamp Cache-Control on JSON responses for /api/* paths."""
+    path = request.url.path
+    if not (path.startswith("/api/") or path == "/api"):
+        return response
+    if _is_public_inventory_read(request.method, path):
+        response.headers["Cache-Control"] = _PUBLIC_INVENTORY_CACHE
+    else:
+        response.headers["Cache-Control"] = _DYNAMIC_API_CACHE
+    return response
+
+
+class APICacheControlMiddleware(BaseHTTPMiddleware):
+    """Stamp Cache-Control on all successful /api/* responses.
+
+    Errors (HTTPException) are handled separately by the exception handler so
+    we don't double-write the header. We skip responses that already carry an
+    explicit Cache-Control to respect handler-level overrides.
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        path = request.url.path
+        if not (path.startswith("/api/") or path == "/api"):
+            return response
+        if any(h.lower() == "cache-control" for h in response.headers.keys()):
+            return response
+        if _is_public_inventory_read(request.method, path):
+            response.headers["Cache-Control"] = _PUBLIC_INVENTORY_CACHE
+        else:
+            response.headers["Cache-Control"] = _DYNAMIC_API_CACHE
+        return response
+
+
+app.add_middleware(APICacheControlMiddleware)
+
+
+@app.exception_handler(HTTPException)
+async def resilient_http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
+    """Wrap HTTPExceptions in a uniform success/status_code/message envelope.
+
+    Scope:
+      * /api/v1/* (partner contract): keep FastAPI's default `{detail: ...}`
+        shape so external partners are not broken. Cache-Control still applied.
+      * Everything else (frontend-facing /api/* and unknown paths): wrap in
+        `{success, status_code, message}` so the SPA can branch on `success`.
+
+    Preserves any headers FastAPI already attached (e.g. WWW-Authenticate
+    from auth dependencies) and adds Cache-Control for /api/* paths.
+    """
+    if _is_partner_api_path(request.url.path):
+        body: dict = {"detail": exc.detail}
+    else:
+        detail = exc.detail
+        if isinstance(detail, str):
+            message = detail
+        elif detail is None:
+            message = "Error"
+        else:
+            # dict / list / pydantic-ish — stringify so the wrapper stays flat.
+            message = str(detail)
+        body = {
+            "success": False,
+            "status_code": exc.status_code,
+            "message": message,
+        }
+
+    response = JSONResponse(
+        body,
+        status_code=exc.status_code,
+        headers=getattr(exc, "headers", None) or None,
+    )
+    return _apply_api_cache_headers(request, response)
+
+
 # Add CORS — production origins from env, with sensible defaults
 IS_LOCAL = os.environ.get("K_SERVICE") is None  # K_SERVICE is set by Cloud Run
 _default_origins = (
@@ -2819,7 +2942,11 @@ app.mount("/assets", StaticFiles(directory="frontend/dist/assets"), name="assets
 @app.get("/{full_path:path}")
 async def serve_spa(full_path: str):
     if full_path == "api" or full_path.startswith("api/"):
-        return JSONResponse({"detail": "Not Found"}, status_code=404)
+        # Funnel unknown /api/* paths through the resilient HTTPException
+        # handler so they get the {success, status_code, message} envelope and
+        # the no-cache Cache-Control header. Preserves PR #17 behaviour
+        # (JSON 404, no SPA fallback).
+        raise HTTPException(status_code=404, detail="Not Found")
 
     # Serve actual files from dist if they exist (e.g., tex-icon.svg, vite.svg)
     if full_path:
