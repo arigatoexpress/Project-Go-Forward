@@ -26,9 +26,12 @@ from urllib.parse import parse_qs, urlparse
 
 import requests
 from bs4 import BeautifulSoup
+from pydantic import ValidationError
 
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from database.models import Inventory  # noqa: E402
 
 try:
     from google.cloud import firestore
@@ -170,7 +173,41 @@ class InventoryItem:
     source_url: str
 
     def to_firestore_dict(self) -> dict:
-        """Convert to Firestore document format."""
+        """Convert to Firestore document format.
+
+        Runs the Inventory Pydantic model as a soft validation gate before
+        returning the dict. Validation failures are logged at WARNING with
+        the violation reason and the legacy_inventory_id, but the dict is
+        still returned so production sync is never blocked. This is intentional
+        — see PR #18 / #19 context: surface data quality issues without
+        regressing the 43-home live sync.
+        """
+        # Soft validation — log violations but do not raise.
+        try:
+            Inventory(
+                serial_number=self.serial_number or self.id,
+                model_name=self.model_name,
+                manufacturer=self.manufacturer,
+                msrp=self.msrp if self.msrp else None,
+                sale_price=self.sale_price if self.sale_price else None,
+                bedrooms=self.bedrooms if self.bedrooms is not None else None,
+                bathrooms=int(self.bathrooms) if self.bathrooms is not None else None,
+                sqft=self.sqft if self.sqft is not None else None,
+                width=self.width if self.width is not None else None,
+                length=self.length if self.length is not None else None,
+                status=self.status,
+            )
+        except ValidationError as exc:
+            reasons = "; ".join(
+                f"{'.'.join(str(p) for p in err['loc'])}: {err['msg']}" for err in exc.errors()
+            )
+            logger.warning(
+                "Inventory validation failed for legacy_id=%s model=%r: %s",
+                self.id,
+                self.model_name,
+                reasons,
+            )
+
         return {
             "model_name": self.model_name,
             "manufacturer": self.manufacturer,
