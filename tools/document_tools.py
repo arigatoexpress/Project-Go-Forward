@@ -137,10 +137,18 @@ _logger = logging.getLogger(__name__)
 
 def fill_pdf_form(template_path: str, data_dict: Dict[str, Any], output_filename: str) -> str:
     """
-    Fills a PDF form with data. Supports XFA (Adobe LiveCycle) and standard AcroForm.
+    Fills a PDF form with data. THO templates are hybrid XFA + AcroForm.
 
-    THO templates use XFA — we inject data into the XFA datasets XML stream.
-    Falls back to standard AcroForm field update, then to summary page.
+    We fill BOTH layers so the result works everywhere:
+      - XFA datasets: rendered by Adobe Acrobat's XFA engine.
+      - AcroForm fields with regenerated appearances: rendered as static page
+        content by every PDF viewer (Preview, Chrome, Firefox, etc.) AND
+        survives merge into closing packets (PdfWriter.add_page strips XFA but
+        preserves AcroForm appearance streams).
+
+    Filling only XFA leaves the static page blank in non-Acrobat viewers and
+    the merged closing packet completely empty — see the Joe Blo customer
+    report (Apr 2026).
     """
     _logger.info(f"fill_pdf_form called for {output_filename}")
     output_path = os.path.join(OUTPUT_DIR, output_filename)
@@ -156,28 +164,31 @@ def fill_pdf_form(template_path: str, data_dict: Dict[str, Any], output_filename
         if not acroform:
             raise ValueError("No AcroForm found")
 
-        filled = False
+        xfa_filled = False
+        acroform_filled = False
 
-        # Method 1: XFA form filling (THO templates use this)
+        # XFA datasets fill — for Adobe Acrobat's XFA renderer.
         xfa = acroform.get("/XFA")
         if xfa and isinstance(xfa, ArrayObject):
-            filled = _fill_xfa(writer, xfa, data_dict)
+            xfa_filled = _fill_xfa(writer, xfa, data_dict)
 
-        # Method 2: Standard AcroForm field update (fallback)
-        if not filled:
-            try:
-                for page in writer.pages:
-                    writer.update_page_form_field_values(
-                        page, data_dict, auto_regenerate=False
-                    )
-                filled = True
-            except Exception:
-                pass
+        # AcroForm fill with appearance regeneration — bakes values into the
+        # page content stream so they render in any viewer and survive merge.
+        try:
+            for page in writer.pages:
+                writer.update_page_form_field_values(
+                    page, data_dict, auto_regenerate=True
+                )
+            acroform_filled = True
+        except Exception as e:
+            _logger.warning(f"AcroForm fill failed: {e}")
 
-        if filled:
+        if xfa_filled or acroform_filled:
             with open(output_path, "wb") as output_stream:
                 writer.write(output_stream)
-            _logger.info("fill_pdf_form success (PDF filled)")
+            _logger.info(
+                f"fill_pdf_form success (xfa={xfa_filled}, acroform={acroform_filled})"
+            )
             # Durable storage: upload to GCS
             upload_to_gcs(output_path, output_filename)
             return output_path
