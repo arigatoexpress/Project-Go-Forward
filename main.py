@@ -1141,6 +1141,7 @@ async def download_document(filename: str):
 
 
 # ─── Inventory API ───
+from database.deal_validation import validate_for_documents
 from database.firestore_client import get_database
 from database.models import Deal, DealStatus
 
@@ -1428,10 +1429,22 @@ async def generate_document_from_deal(deal_id: str, request: Request):
             return {"success": False, "error": "Deal not found"}
 
         deal = Deal(**{k: v for k, v in deal_data.items() if k != "id" or k == "id"})
-        doc_data = deal.to_document_data()
 
-        # Allow overrides from request body
+        # Validate before document generation so the user gets a structured
+        # report of which deal fields are missing instead of a cryptic
+        # "Missing required fields" error from the document engine.
+        # Overrides from the request body can satisfy missing fields, so
+        # apply them first and validate the merged view.
         overrides = data.get("overrides", {})
+        merged_for_validation = {**deal.model_dump(), **overrides}
+        missing = validate_for_documents(merged_for_validation)
+        if missing:
+            return JSONResponse(
+                {"error": "missing_required_fields", "missing": missing},
+                status_code=400,
+            )
+
+        doc_data = deal.to_document_data()
         doc_data.update(overrides)
 
         result = engine_generate_document(
