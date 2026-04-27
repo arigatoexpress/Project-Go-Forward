@@ -214,6 +214,16 @@ class TestCustomerSearch:
         results = _db.search_customers(query_text="5557773333")
         assert any("Phone Test" in r.get("full_name", "") for r in results)
 
+    def test_search_by_phone_with_common_formatting(self):
+        _db.create_customer(
+            {"full_name": f"{_TEST_PREFIX}Formatted Phone Test", "phone": "555-777-3333"},
+            doc_id=f"{_TEST_PREFIX}srch2formatted",
+        )
+
+        for query in ("555-777-3333", "(555) 777-3333", "555 777 3333"):
+            results = _db.search_customers(query_text=query)
+            assert any("Formatted Phone Test" in r.get("full_name", "") for r in results)
+
     def test_search_by_status(self):
         _db.create_customer(
             {"full_name": f"{_TEST_PREFIX}Status Enrolled", "status": "ENROLLED"},

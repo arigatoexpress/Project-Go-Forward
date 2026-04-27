@@ -4,6 +4,7 @@ Handles all database operations for the AI agents
 """
 
 import os
+import re
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 from google.cloud import firestore
@@ -62,6 +63,7 @@ class THODatabase:
             query = query.where("status", "==", status.upper())
 
         q_lower = (query_text or "").lower().strip()
+        q_digits = re.sub(r"\D", "", q_lower)
 
         # Fast path: name prefix search using Firestore index
         if q_lower and q_lower.isalpha() and len(q_lower) >= 2:
@@ -87,14 +89,16 @@ class THODatabase:
             data["id"] = doc.id
 
             if q_lower:
+                phone_digits = re.sub(r"\D", "", data.get("phone") or "")
                 searchable = " ".join([
                     (data.get("full_name") or ""),
                     (data.get("email") or ""),
-                    (data.get("phone") or "").replace("-", ""),
+                    (data.get("phone") or ""),
+                    phone_digits,
                     (data.get("legacy_id") or ""),
                     (data.get("salesrep") or ""),
                 ]).lower()
-                if q_lower not in searchable:
+                if q_lower not in searchable and (not q_digits or q_digits not in phone_digits):
                     continue
 
             results.append(data)
