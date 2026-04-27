@@ -5,6 +5,7 @@ import {
   CheckCircle, AlertCircle, Filter, ArrowLeft, FileText, Package, Download, Loader,
 } from 'lucide-react';
 import adminFetch from '../adminFetch';
+import downloadAdminFile from '../downloadAdminFile';
 import './CRM.css';
 
 const STATUS_COLORS = {
@@ -33,16 +34,6 @@ function formatDate(iso) {
     return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
   } catch {
     return iso;
-  }
-}
-
-function formatTime(iso) {
-  if (!iso) return '';
-  try {
-    const d = new Date(iso);
-    return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-  } catch {
-    return '';
   }
 }
 
@@ -158,43 +149,6 @@ Best regards,
 Texas Home Outlet Team`
   },
 ];
-
-// Calculate lead score
-function calculateLeadScore(lead) {
-  let score = 0;
-  
-  // Contact info provided (+20)
-  if (lead.email) score += 10;
-  if (lead.phone) score += 10;
-  
-  // Specific preferences shown (+30)
-  if (lead.bedrooms) score += 10;
-  if (lead.bathrooms) score += 10;
-  if (lead.budget_max) score += 10;
-  
-  // Engagement signals (+40)
-  if (lead.appointment_requested) score += 15;
-  if (lead.financing_discussed) score += 10;
-  if (lead.homes_viewed?.length > 0) score += 10;
-  
-  // Status progression (+10)
-  if (lead.status === 'qualified') score += 10;
-  if (lead.status === 'converted') score += 10;
-  
-  return Math.min(score, 100);
-}
-
-function getLeadScoreColor(score) {
-  if (score >= 80) return '#22c55e'; // Green - Hot
-  if (score >= 50) return '#f59e0b'; // Yellow - Warm
-  return '#94a3b8'; // Gray - Cold
-}
-
-function getLeadScoreLabel(score) {
-  if (score >= 80) return 'Hot';
-  if (score >= 50) return 'Warm';
-  return 'Cold';
-}
 
 // ─── Main CRM Component ─────────────────────────────
 
@@ -1231,7 +1185,7 @@ function DealCard({ deal, onUpdateStatus, statusOrder }) {
       });
       const data = await res.json();
       setGenResult(data);
-    } catch (err) {
+    } catch {
       setGenResult({ success: false, error: 'Generation failed' });
     }
     setGenerating(null);
@@ -1248,23 +1202,18 @@ function DealCard({ deal, onUpdateStatus, statusOrder }) {
       });
       const data = await res.json();
       setGenResult(data);
-    } catch (err) {
+    } catch {
       setGenResult({ success: false, error: 'Packet generation failed' });
     }
     setGenerating(null);
   };
 
-  const handleDownload = (url) => {
-    const token = localStorage.getItem('adminToken');
-    // Use fetch to download with auth header
-    fetch(url, { headers: { 'X-Admin-Token': token } })
-      .then(res => res.blob())
-      .then(blob => {
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = url.split('/').pop();
-        a.click();
-      });
+  const handleDownload = async (url) => {
+    try {
+      await downloadAdminFile(url, url.split('/').pop());
+    } catch (err) {
+      setGenResult({ success: false, error: err.message || 'Download failed' });
+    }
   };
 
   return (

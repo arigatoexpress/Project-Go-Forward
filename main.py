@@ -3,8 +3,8 @@ FastAPI Application — Config-Driven AI Agent Server
 
 Serves the AI agent backend and static frontend.
 All business-specific config is loaded from config.yaml.
-Admin routes use `X-Admin-Token`; partner integrations live under `/api/v1/*`
-and authenticate with `THO_API_KEY`.
+Admin routes use `X-Admin-Token` or `Authorization: Bearer <token>`;
+partner integrations live under `/api/v1/*` and authenticate with `THO_API_KEY`.
 """
 
 import os
@@ -184,7 +184,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
     allow_methods=["GET", "POST", "PUT"],
-    allow_headers=["Content-Type", "Accept", "X-Admin-Token"],
+    allow_headers=["Content-Type", "Accept", "X-Admin-Token", "Authorization"],
 )
 
 
@@ -242,9 +242,22 @@ def _verify_admin_token(token: str) -> bool:
         return False
 
 
+def _admin_token_from_request(request: Request) -> str:
+    """Read an admin token from the supported employee UI auth headers."""
+    token = request.headers.get("X-Admin-Token", "").strip()
+    if token:
+        return token
+
+    authorization = request.headers.get("Authorization", "").strip()
+    scheme, _, value = authorization.partition(" ")
+    if scheme.lower() == "bearer" and value:
+        return value.strip()
+    return ""
+
+
 async def require_admin(request: Request):
-    """FastAPI dependency that validates the X-Admin-Token header (stateless JWT)."""
-    token = request.headers.get("X-Admin-Token", "")
+    """FastAPI dependency that validates the stateless admin token."""
+    token = _admin_token_from_request(request)
     if not token:
         raise HTTPException(status_code=401, detail="Admin authentication required")
     if not _verify_admin_token(token):
@@ -495,25 +508,49 @@ async def get_lead_stats():
 async def get_lead_analytics(range: str = "30d"):
     """Get detailed lead analytics with time series data."""
     try:
-        from datetime import datetime, timedelta
+        import builtins
+        from datetime import datetime, timedelta, timezone
+
+        def parse_created_at(lead):
+            value = getattr(lead, "created_at", None)
+            if isinstance(value, datetime):
+                dt = value
+            elif isinstance(value, str):
+                raw = value.strip()
+                if not raw:
+                    return None
+                if raw.endswith("Z"):
+                    raw = f"{raw[:-1]}+00:00"
+                try:
+                    dt = datetime.fromisoformat(raw)
+                except ValueError:
+                    return None
+            else:
+                return None
+
+            if dt.tzinfo:
+                return dt.astimezone(timezone.utc).replace(tzinfo=None)
+            return dt
         
         all_leads = await lead_manager.list_leads(limit=1000)
         
         # Calculate date range
         now = datetime.now()
-        if range == "7d":
+        range_key = range
+        if range_key == "7d":
             start_date = now - timedelta(days=7)
-        elif range == "30d":
+        elif range_key == "30d":
             start_date = now - timedelta(days=30)
-        elif range == "90d":
+        elif range_key == "90d":
             start_date = now - timedelta(days=90)
         else:
             start_date = datetime.min
         
         # Filter leads by date
-        filtered_leads = [l for l in all_leads if hasattr(l, 'created_at') and l.created_at]
-        if range != "all":
-            filtered_leads = [l for l in filtered_leads if l.created_at >= start_date]
+        dated_leads = [(lead, created_at) for lead in all_leads if (created_at := parse_created_at(lead))]
+        if range_key != "all":
+            dated_leads = [(lead, created_at) for lead, created_at in dated_leads if created_at >= start_date]
+        filtered_leads = [lead for lead, _created_at in dated_leads]
         
         # Calculate stats
         stats = {
@@ -528,7 +565,7 @@ async def get_lead_analytics(range: str = "30d"):
             "status_trends": {}
         }
         
-        for lead in filtered_leads:
+        for lead, created_at in dated_leads:
             stats["by_status"][lead.status] = stats["by_status"].get(lead.status, 0) + 1
             if lead.email or lead.phone:
                 stats["with_contact_info"] += 1
@@ -538,17 +575,17 @@ async def get_lead_analytics(range: str = "30d"):
                 stats["financing_discussed"] += 1
             
             # Count new this week
-            if hasattr(lead, 'created_at') and lead.created_at and lead.created_at >= now - timedelta(days=7):
+            if created_at >= now - timedelta(days=7):
                 stats["new_this_week"] += 1
         
         # Generate time series data
         time_series = []
-        date_range = 7 if range == "7d" else 30 if range == "30d" else 90 if range == "90d" else min(30, len(filtered_leads) or 1)
+        date_range = 7 if range_key == "7d" else 30 if range_key == "30d" else 90 if range_key == "90d" else min(30, len(filtered_leads) or 1)
         
-        for i in range(date_range):
+        for i in builtins.range(date_range):
             date = now - timedelta(days=date_range - i - 1)
             date_str = date.strftime("%Y-%m-%d")
-            count = sum(1 for l in filtered_leads if hasattr(l, 'created_at') and l.created_at and l.created_at.date() == date.date())
+            count = sum(1 for _lead, created_at in dated_leads if created_at.date() == date.date())
             time_series.append({"date": date_str, "count": count})
         
         stats["time_series"] = time_series
@@ -730,6 +767,44 @@ from tools.document_engine import (
     get_all_field_definitions as engine_get_all_field_definitions,
 )
 
+
+def _collect_generated_documents():
+    """Return generated PDF metadata without exposing document contents."""
+    seen = set()
+    docs = []
+    local_count = 0
+
+    if os.path.exists(OUTPUT_DIR):
+        for filename in os.listdir(OUTPUT_DIR):
+            if not filename.lower().endswith(".pdf"):
+                continue
+            path = os.path.join(OUTPUT_DIR, filename)
+            if not os.path.isfile(path):
+                continue
+            stat = os.stat(path)
+            docs.append({
+                "filename": filename,
+                "size_bytes": stat.st_size,
+                "created_at": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
+                "download_url": f"/api/documents/download/{filename}",
+                "source": "local",
+            })
+            seen.add(filename)
+            local_count += 1
+
+    gcs_docs = list_gcs_documents()
+    gcs_count = len(gcs_docs)
+    for gcs_doc in gcs_docs:
+        filename = gcs_doc.get("filename")
+        if not filename or filename in seen:
+            continue
+        docs.append({**gcs_doc, "source": "gcs"})
+        seen.add(filename)
+
+    docs.sort(key=lambda d: d.get("created_at") or "", reverse=True)
+    return docs, local_count, gcs_count
+
+
 # --- Phase 2: Generic Document Engine Endpoints ---
 
 @app.get("/api/documents/templates", dependencies=[Depends(require_admin)])
@@ -742,6 +817,43 @@ async def list_templates():
     except Exception as e:
         struct_logger.error("Template listing failed", error=str(e))
         return {"error": "Failed to load templates. Please try again."}
+
+
+@app.get("/api/documents/readiness", dependencies=[Depends(require_admin)])
+async def document_readiness():
+    """Summarize document-system readiness for the employee UI."""
+    try:
+        templates = engine_list_templates()
+        packets = engine_list_packets()
+        docs, local_count, gcs_count = _collect_generated_documents()
+        categories: dict[str, int] = {}
+        for template in templates:
+            category = template.get("category") or "Other"
+            categories[category] = categories.get(category, 0) + 1
+
+        output_dir_exists = os.path.isdir(OUTPUT_DIR)
+        output_dir_writable = os.access(OUTPUT_DIR, os.W_OK) if output_dir_exists else False
+        required_ready = bool(templates) and bool(packets) and output_dir_exists
+
+        return {
+            "status": "ready" if required_ready else "degraded",
+            "template_count": len(templates),
+            "packet_count": len(packets),
+            "category_counts": categories,
+            "generated_document_count": len(docs),
+            "local_document_count": local_count,
+            "gcs_document_count": gcs_count,
+            "output_dir": "available" if output_dir_exists else "missing",
+            "output_dir_writable": output_dir_writable,
+            "latest_document_at": docs[0].get("created_at") if docs else None,
+        }
+    except Exception as e:
+        struct_logger.error("Document readiness failed", error=str(e))
+        return JSONResponse(
+            {"status": "degraded", "error": "Document readiness check failed."},
+            status_code=500,
+        )
+
 
 @app.get("/api/documents/templates/{template_name}/fields", dependencies=[Depends(require_admin)])
 async def get_template_fields(template_name: str):
@@ -1913,7 +2025,7 @@ async def verify_admin_pin(request: Request):
 @app.get("/api/admin/check")
 async def check_admin_token(request: Request):
     """Verify that an admin token is still valid (stateless — works across instances)."""
-    token = request.headers.get("X-Admin-Token", "")
+    token = _admin_token_from_request(request)
     if _verify_admin_token(token):
         return {"valid": True}
     return JSONResponse({"valid": False}, status_code=401)
@@ -2172,29 +2284,7 @@ async def submit_feedback(request: Request):
 @app.get("/api/documents/history", dependencies=[Depends(require_admin)])
 async def document_history():
     """List all generated documents. Merges local and GCS results."""
-    seen = set()
-    docs = []
-
-    # Local files (current instance)
-    if os.path.exists(OUTPUT_DIR):
-        for f in os.listdir(OUTPUT_DIR):
-            if f.endswith(".pdf"):
-                path = os.path.join(OUTPUT_DIR, f)
-                stat = os.stat(path)
-                docs.append({
-                    "filename": f,
-                    "size_bytes": stat.st_size,
-                    "created_at": datetime.fromtimestamp(stat.st_mtime).isoformat(),
-                    "download_url": f"/api/documents/download/{f}",
-                })
-                seen.add(f)
-
-    # GCS documents (persisted across instances)
-    for gcs_doc in list_gcs_documents():
-        if gcs_doc["filename"] not in seen:
-            docs.append(gcs_doc)
-
-    docs.sort(key=lambda d: d.get("created_at") or "", reverse=True)
+    docs, _local_count, _gcs_count = _collect_generated_documents()
     return {"documents": docs[:50], "total": len(docs)}
 
 

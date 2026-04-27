@@ -591,6 +591,108 @@ def create_client(monkeypatch, tho_api_key: str | None = "tho-secret", rate_limi
     return client, main, fake_db, fake_logger
 
 
+def test_admin_token_accepts_supported_employee_headers(monkeypatch):
+    client, main, _db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
+    token = main._create_admin_token()
+
+    x_header = client.get("/api/admin/check", headers={"X-Admin-Token": token})
+    bearer_header = client.get("/api/admin/check", headers={"Authorization": f"Bearer {token}"})
+    protected_route = client.get("/api/documents/templates", headers={"Authorization": f"Bearer {token}"})
+
+    assert x_header.status_code == 200
+    assert bearer_header.status_code == 200
+    assert protected_route.status_code == 200
+
+
+def test_admin_lead_analytics_handles_string_and_datetime_created_at(monkeypatch):
+    client, main, _db, logger = create_client(monkeypatch, tho_api_key="tho-secret")
+    token = main._create_admin_token()
+    now = datetime.now(timezone.utc)
+    main.lead_manager.leads = [
+        FakeLead(
+            lead_id="lead-string-date",
+            user_id="user-1",
+            session_id="session-1",
+            name="String Date",
+            email="string@example.test",
+            status="new",
+            created_at=now.isoformat(),
+        ),
+        FakeLead(
+            lead_id="lead-datetime",
+            user_id="user-2",
+            session_id="session-2",
+            name="Datetime Date",
+            phone="555-000-1111",
+            status="contacted",
+            appointment_requested=True,
+            created_at=now,
+        ),
+    ]
+
+    response = client.get("/api/analytics/leads?range=30d", headers={"X-Admin-Token": token})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert "error" not in body
+    assert body["total"] == 2
+    assert body["by_status"] == {"new": 1, "contacted": 1}
+    assert body["with_contact_info"] == 2
+    assert body["appointment_requested"] == 1
+    assert body["new_this_week"] == 2
+    assert len(body["time_series"]) == 30
+    assert not [
+        entry for entry in logger.entries
+        if entry["level"] == "error" and entry["message"] == "Lead analytics failed"
+    ]
+
+
+def test_document_readiness_reports_safe_counts(monkeypatch, tmp_path):
+    client, main, _db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
+    token = main._create_admin_token()
+    headers = {"X-Admin-Token": token}
+
+    (tmp_path / "local.pdf").write_bytes(b"%PDF-1.4\n%EOF\n")
+    monkeypatch.setattr(main, "OUTPUT_DIR", str(tmp_path))
+    monkeypatch.setattr(
+        main,
+        "engine_list_templates",
+        lambda: [
+            {"template_name": "TMHA_Test.pdf", "category": "TMHA"},
+            {"template_name": "State_Test.pdf", "category": "State"},
+        ],
+    )
+    monkeypatch.setattr(
+        main,
+        "engine_list_packets",
+        lambda: [{"packet_name": "standard_closing", "templates": ["TMHA_Test.pdf"]}],
+    )
+    monkeypatch.setattr(
+        main,
+        "list_gcs_documents",
+        lambda: [{
+            "filename": "cloud.pdf",
+            "size_bytes": 2048,
+            "created_at": "2026-04-26T10:00:00+00:00",
+            "download_url": "/api/documents/download/cloud.pdf",
+        }],
+    )
+
+    unauthenticated = client.get("/api/documents/readiness")
+    response = client.get("/api/documents/readiness", headers=headers)
+
+    assert unauthenticated.status_code == 401
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "ready"
+    assert body["template_count"] == 2
+    assert body["packet_count"] == 1
+    assert body["generated_document_count"] == 2
+    assert body["local_document_count"] == 1
+    assert body["gcs_document_count"] == 1
+    assert body["category_counts"] == {"TMHA": 1, "State": 1}
+
+
 def test_returns_503_when_tho_api_key_is_unset(monkeypatch):
     client, _main, _db, _logger = create_client(monkeypatch, tho_api_key=None)
 
