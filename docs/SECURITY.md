@@ -29,7 +29,7 @@ Two patterns drafted:
 | Secret | Storage | Status |
 |-----|-----|-----|
 | `PII_ENCRYPTION_KEY` | Secret Manager (`secretKeyRef`) | ✓ correct |
-| `ADMIN_PIN_HASH` | plaintext env | ⚠️ move to Secret Manager |
+| `ADMIN_PIN_HASH` | Secret Manager (`admin-pin-hash`) | ✓ correct |
 | `RESEND_API_KEY` | plaintext env | ⚠️ move to Secret Manager |
 | `N8N_API_TOKEN` | plaintext env | ⚠️ move to Secret Manager + rotate (exposed in prior tooling output) |
 | `THO_API_KEY` | plaintext env | ⚠️ move to Secret Manager + rotate (exposed in prior tooling output) |
@@ -38,7 +38,7 @@ Two patterns drafted:
 ### Plan
 
 1. Rotate `THO_API_KEY` and `N8N_API_TOKEN` — both have appeared in tool output / transcripts.
-2. Create Secret Manager secrets: `admin-pin-hash`, `resend-api-key`, `n8n-api-token`, `tho-api-key`.
+2. Create Secret Manager secrets: `resend-api-key`, `n8n-api-token`, `tho-api-key`.
 3. Update Cloud Run service with `secretKeyRef` bindings.
 4. Remove plaintext env vars.
 5. Grant Cloud Run's runtime service account `roles/secretmanager.secretAccessor` per secret (not project-wide).

@@ -76,7 +76,7 @@ Names only — values are in Cloud Run config.
 | `GOOGLE_CLOUD_PROJECT` | Firestore + Vertex AI project | plaintext env |
 | `GOOGLE_CLOUD_LOCATION` | Vertex AI region | plaintext env |
 | `GOOGLE_GENAI_USE_VERTEXAI` | Enable Vertex AI path | plaintext env |
-| `ADMIN_PIN_HASH` | SHA256 of admin PIN | **should be Secret Manager** |
+| `ADMIN_PIN_HASH` | SHA256 of admin PIN | ✓ Secret Manager (`admin-pin-hash`) |
 | `ADMIN_TOKEN_TTL` | JWT lifetime (default 2h) | plaintext env |
 | `RATE_LIMIT_RPM` | Requests/min (default 60) | plaintext env |
 | `MAX_REQUEST_BODY_BYTES` | Upload cap (default 1 MB) | plaintext env |
