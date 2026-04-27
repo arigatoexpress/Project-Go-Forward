@@ -443,15 +443,13 @@ function Step1({ data, onChange, resetKey, deals, dealsLoading, onLoadDeal, onNe
   const [custResults, setCustResults] = useState([]);
   const [custLoading, setCustLoading] = useState(false);
   const [showCustPicker, setShowCustPicker] = useState(false);
+  const [customerSaveState, setCustomerSaveState] = useState({ status: 'idle', message: '' });
 
   const searchCustomers = async (query) => {
     if (!query || query.length < 2) { setCustResults([]); return; }
     setCustLoading(true);
     try {
-      const token = sessionStorage.getItem('tho_admin_token');
-      const res = await fetch(`/api/customers/search?q=${encodeURIComponent(query)}&limit=8`, {
-        headers: token ? { 'Authorization': `Bearer ${token}` } : {},
-      });
+      const res = await adminFetch(`/api/customers/search?q=${encodeURIComponent(query)}&limit=8`);
       if (res.ok) {
         const data = await res.json();
         setCustResults(data.customers || []);
@@ -504,6 +502,51 @@ function Step1({ data, onChange, resetKey, deals, dealsLoading, onLoadDeal, onNe
   const c = (n, v) => onChange(n, v);
 
   const canProceed = data.buyer_first_name && data.buyer_last_name;
+  const savingCustomer = customerSaveState.status === 'saving';
+
+  const saveCurrentCustomer = async () => {
+    if (!canProceed || savingCustomer) return;
+    setCustomerSaveState({ status: 'saving', message: 'Saving customer...' });
+    const name = `${data.buyer_first_name} ${data.buyer_last_name}`.trim();
+    try {
+      const res = await adminFetch('/api/customers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          full_name: name,
+          email: data.buyer_email || null,
+          phone: data.buyer_phone || null,
+          address: data.mailing_address || null,
+          city: data.mailing_city || null,
+          state: data.mailing_state || 'TX',
+          zip_code: data.mailing_zip || null,
+          employer: data.employer_name || null,
+          occupation: data.occupation || null,
+          salesrep: data.salesrep || null,
+        }),
+      });
+      if (res.ok) {
+        const body = await res.json();
+        const saved = body.customer || {};
+        setCustomerSaveState({
+          status: 'saved',
+          message: `${saved.full_name || name} saved to customer records.`,
+        });
+        return;
+      }
+      const err = await res.json().catch(() => ({}));
+      setCustomerSaveState({
+        status: 'error',
+        message: `Failed to save customer: ${err.detail || res.statusText}`,
+      });
+    } catch (e) {
+      console.error('Save customer error:', e);
+      setCustomerSaveState({
+        status: 'error',
+        message: 'Failed to save customer. Please try again.',
+      });
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -593,7 +636,7 @@ function Step1({ data, onChange, resetKey, deals, dealsLoading, onLoadDeal, onNe
             </div>
             <div>
               <h3 className="font-bold text-gray-800 text-lg">Load from Customer Records</h3>
-              <p className="text-sm text-gray-600">Search 1,963 migrated FastContract customers</p>
+              <p className="text-sm text-gray-600">Search saved and migrated customer records</p>
             </div>
           </div>
           <BigButton
@@ -709,36 +752,13 @@ function Step1({ data, onChange, resetKey, deals, dealsLoading, onLoadDeal, onNe
       <div className="flex justify-between items-center pt-4 gap-4">
         {canProceed && (
           <button
-            onClick={async () => {
-              try {
-                const name = `${data.buyer_first_name} ${data.buyer_last_name}`.trim();
-                const res = await adminFetch('/api/customers', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    full_name: name,
-                    email: data.buyer_email || null,
-                    phone: data.buyer_phone || null,
-                    address: data.mailing_address || null,
-                    city: data.mailing_city || null,
-                    state: data.mailing_state || 'TX',
-                    zip_code: data.mailing_zip || null,
-                    employer: data.employer_name || null,
-                    occupation: data.occupation || null,
-                    salesrep: data.salesrep || null,
-                  }),
-                });
-                if (res.ok) {
-                  alert(`Customer "${name}" saved successfully!`);
-                } else {
-                  const err = await res.json().catch(() => ({}));
-                  alert(`Failed to save customer: ${err.detail || res.statusText}`);
-                }
-              } catch (e) { console.error('Save customer error:', e); alert('Failed to save customer. Please try again.'); }
-            }}
-            className="flex items-center gap-2 px-5 py-3 text-sm font-medium text-green-700 bg-green-50 border border-green-300 rounded-xl hover:bg-green-100 transition-colors"
+            type="button"
+            onClick={saveCurrentCustomer}
+            disabled={savingCustomer}
+            className="flex items-center gap-2 px-5 py-3 text-sm font-medium text-green-700 bg-green-50 border border-green-300 rounded-xl hover:bg-green-100 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
           >
-            <Check size={16} /> Save as New Customer
+            {savingCustomer ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}
+            {savingCustomer ? 'Saving Customer...' : 'Save Customer'}
           </button>
         )}
         <BigButton
@@ -749,6 +769,18 @@ function Step1({ data, onChange, resetKey, deals, dealsLoading, onLoadDeal, onNe
           Continue to Home Selection
         </BigButton>
       </div>
+
+      {customerSaveState.message && (
+        <div className={`rounded-xl p-4 text-sm font-medium ${
+          customerSaveState.status === 'saved'
+            ? 'bg-green-50 text-green-700 border border-green-200'
+            : customerSaveState.status === 'error'
+              ? 'bg-red-50 text-red-700 border border-red-200'
+              : 'bg-blue-50 text-blue-700 border border-blue-200'
+        }`}>
+          {customerSaveState.message}
+        </div>
+      )}
 
       {!canProceed && (
         <div className="text-center text-amber-600 bg-amber-50 rounded-xl p-4">
