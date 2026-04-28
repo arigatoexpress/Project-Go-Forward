@@ -5,7 +5,8 @@ Covers:
   * 500 raised inside a handler returns the same wrapper shape + no-cache
   * Non-/api 404 (SPA fallback for a missing static file) does NOT get
     Cache-Control stamped by the API middleware
-  * GET /api/inventory carries the long-cache header
+  * GET /api/marketing/inventory-context carries the long-cache header
+  * GET /api/inventory carries no-cache because it is admin-protected
   * GET /api/customers/* and /api/deals/* carry no-cache
 
 Run: python -m pytest tests/test_error_responses.py -v
@@ -102,11 +103,11 @@ def test_400_inherits_wrapper_envelope(monkeypatch):
     }
 
 
-# ─── Cache-Control on the public inventory read-side ─────────────────────────
+# ─── Cache-Control on inventory surfaces ─────────────────────────────────────
 
 
-def test_get_api_inventory_uses_long_cache_header(monkeypatch):
-    """Successful /api/inventory GET advertises 1h cache + SWR window."""
+def test_get_api_inventory_uses_no_cache_header(monkeypatch):
+    """Admin /api/inventory responses must never be public-cacheable."""
     client, main, _db, _logger = create_client(monkeypatch)
 
     # The handler is admin-protected, so inject a valid admin token.
@@ -118,14 +119,11 @@ def test_get_api_inventory_uses_long_cache_header(monkeypatch):
     )
 
     assert response.status_code == 200
-    cc = response.headers.get("Cache-Control", "")
-    assert "max-age=3600" in cc
-    assert "public" in cc
-    assert "stale-while-revalidate=60" in cc
+    assert response.headers.get("Cache-Control") == "no-cache"
 
 
-def test_get_api_inventory_item_uses_long_cache_header(monkeypatch):
-    """Stand up a /api/inventory/{id} stub on the same app and check headers."""
+def test_get_api_inventory_item_uses_no_cache_header(monkeypatch):
+    """Admin-style /api/inventory/{id} reads inherit no-cache."""
     client, main, _db, _logger = create_client(monkeypatch)
 
     async def _get_item(item_id: str):
@@ -136,14 +134,11 @@ def test_get_api_inventory_item_uses_long_cache_header(monkeypatch):
     response = client.get("/api/inventory/abc123")
 
     assert response.status_code == 200
-    cc = response.headers.get("Cache-Control", "")
-    assert "max-age=3600" in cc
-    assert "stale-while-revalidate=60" in cc
+    assert response.headers.get("Cache-Control") == "no-cache"
 
 
-def test_inventory_404_still_returns_long_cache_header(monkeypatch):
-    """A 404 on the public inventory surface should still be cacheable so we
-    don't hammer Firestore for known-missing IDs."""
+def test_inventory_404_still_returns_no_cache_header(monkeypatch):
+    """Admin inventory misses should not be retained by shared/browser caches."""
     client, main, _db, _logger = create_client(monkeypatch)
 
     async def _missing(item_id: str):
@@ -157,8 +152,20 @@ def test_inventory_404_still_returns_long_cache_header(monkeypatch):
     body = response.json()
     assert body["success"] is False
     assert body["status_code"] == 404
+    assert response.headers.get("Cache-Control") == "no-cache"
+
+
+def test_marketing_inventory_context_uses_long_cache_header(monkeypatch):
+    """The unauthenticated marketing inventory context remains public-cacheable."""
+    client, _main, _db, _logger = create_client(monkeypatch)
+
+    response = client.get("/api/marketing/inventory-context")
+
+    assert response.status_code == 200
     cc = response.headers.get("Cache-Control", "")
     assert "max-age=3600" in cc
+    assert "public" in cc
+    assert "stale-while-revalidate=60" in cc
 
 
 # ─── No-cache on the dynamic CRM surface ─────────────────────────────────────

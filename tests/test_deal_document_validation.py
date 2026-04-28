@@ -243,12 +243,16 @@ def _build_test_client(monkeypatch, deal_record: dict | None):
     monkeypatch.setattr(main_module, "_db", fake_db)
     monkeypatch.setattr(main_module, "_deal_db", fake_db)
 
-    # Fail loudly if the document engine is hit when validation should
-    # short-circuit. Tests that exercise the happy path replace this.
+    # Fail loudly if a document engine is hit when validation should
+    # short-circuit. Tests that exercise happy paths replace these.
     def _fail_engine(**_kwargs):
         raise AssertionError("engine_generate_document should not be called when validation fails")
 
+    def _fail_packet_engine(**_kwargs):
+        raise AssertionError("engine_generate_packet should not be called when validation fails")
+
     monkeypatch.setattr(main_module, "engine_generate_document", _fail_engine)
+    monkeypatch.setattr(main_module, "engine_generate_packet", _fail_packet_engine)
 
     token = _stub_admin_token(monkeypatch, main_module)
     client = TestClient(main_module.app)
@@ -387,3 +391,75 @@ class TestGenerateDocumentEndpointValidation:
         body = response.json()
         assert body["success"] is False
         assert "Deal not found" in body["error"]
+
+
+class TestGeneratePacketEndpointValidation:
+    """Deal-based packet generation should mirror single-document validation."""
+
+    def test_missing_required_fields_returns_400_with_envelope(self, monkeypatch):
+        deal_record = {"id": "deal-empty"}
+        client, _main, token = _build_test_client(monkeypatch, deal_record)
+
+        response = client.post(
+            "/api/deals/deal-empty/generate-packet",
+            headers={"X-Admin-Token": token},
+            json={"packet_name": "standard_closing"},
+        )
+
+        assert response.status_code == 400, response.text
+        body = response.json()
+        assert body["error"] == "missing_required_fields"
+        assert "buyer_identity" in body["missing"]
+        assert "home_identity" in body["missing"]
+
+    def test_overrides_can_satisfy_missing_fields_for_packet(self, monkeypatch):
+        deal_record = {"id": "deal-thin"}
+        client, main_module, token = _build_test_client(monkeypatch, deal_record)
+
+        captured = {}
+
+        def _engine(packet_name: str, data: dict):
+            captured["packet_name"] = packet_name
+            captured["data"] = data
+            return {
+                "success": True,
+                "filename": "packet.pdf",
+                "message": "ok",
+                "page_count": 3,
+                "documents_included": ["TMHA_SalesContract.pdf"],
+            }
+
+        monkeypatch.setattr(main_module, "engine_generate_packet", _engine)
+
+        full_overrides = {
+            "buyer_first_name": "Alice",
+            "buyer_last_name": "Buyer",
+            "buyer_address": "1 Test Way",
+            "buyer_city": "Houston",
+            "buyer_zip": "77001",
+            "manufacturer": "Clayton",
+            "model": "TruMH",
+            "serial_number_1": "SN-1",
+            "sales_price": 50000,
+            "down_payment": 1000,
+            "creditor_name": "21st Mortgage",
+            "loan_term": "240",
+            "apr": "8.5",
+        }
+
+        response = client.post(
+            "/api/deals/deal-thin/generate-packet",
+            headers={"X-Admin-Token": token},
+            json={
+                "packet_name": "standard_closing",
+                "overrides": full_overrides,
+            },
+        )
+
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["success"] is True
+        assert body["filename"] == "packet.pdf"
+        assert captured["packet_name"] == "standard_closing"
+        for key, value in full_overrides.items():
+            assert captured["data"].get(key) == value, f"{key} not propagated"

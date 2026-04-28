@@ -176,7 +176,7 @@ app.add_middleware(RequestSizeLimitMiddleware)
 # legacy `{detail}` shape, and changing it requires a coordinated version bump.
 #
 # Cache-Control is applied consistently:
-#   * GET /api/inventory and GET /api/inventory/{id} (public read-side):
+#   * GET /api/marketing/inventory-context (public read-side):
 #       max-age=3600, public, stale-while-revalidate=60
 #   * Any other /api/* path: no-cache (CRM data must never be cached)
 #   * Non-/api paths: header is left untouched so the SPA / static asset
@@ -191,19 +191,14 @@ _DYNAMIC_API_CACHE = "no-cache"
 
 
 def _is_public_inventory_read(method: str, path: str) -> bool:
-    """True for GET /api/inventory and GET /api/inventory/{id} only.
+    """True for unauthenticated public inventory views only.
 
-    Mutating verbs and the /api/v1/* partner surface are excluded so they
-    keep the no-cache default. /api/inventory/bulk-* admin endpoints are
-    explicitly excluded too (they're write-side, not read-side).
+    The admin inventory API exposes operational fields such as serial and label
+    numbers, so it must stay private/no-cache even for read requests.
     """
     if method.upper() != "GET":
         return False
-    if path == "/api/inventory" or path == "/api/inventory/":
-        return True
-    if path.startswith("/api/inventory/") and not path.startswith("/api/inventory/bulk-"):
-        return True
-    return False
+    return path in {"/api/marketing/inventory-context", "/api/marketing/inventory-context/"}
 
 
 def _is_partner_api_path(path: str) -> bool:
@@ -1143,7 +1138,7 @@ async def download_document(filename: str):
 # ─── Inventory API ───
 from database.deal_validation import validate_for_documents
 from database.firestore_client import get_database
-from database.models import Deal, DealStatus
+from database.models import Deal, DealStatus, Inventory
 
 _db = get_database()
 
@@ -1215,8 +1210,10 @@ async def bulk_import_inventory(request: Request):
                 # Check if exists
                 existing = _db.get_inventory_by_id(inventory_id)
                 
-                # Prepare data for Firestore
+                # Prepare data for Firestore, then validate through the shared
+                # Inventory model before writing to the production collection.
                 firestore_data = {
+                    "id": inventory_id,
                     "model_name": item.get("model_name"),
                     "manufacturer": item.get("manufacturer"),
                     "manufacturer_id": item.get("manufacturer_id"),
@@ -1229,7 +1226,7 @@ async def bulk_import_inventory(request: Request):
                     "msrp": item.get("msrp", 0),
                     "sale_price": item.get("sale_price", item.get("msrp", 0)),
                     "status": item.get("status", "AVAILABLE"),
-                    "serial_number": item.get("serial_number"),
+                    "serial_number": item.get("serial_number") or inventory_id,
                     "sections": item.get("sections"),
                     "condition": item.get("condition", "New" if item.get("is_new") else "Used"),
                     "image_url": item.get("image_url") or item.get("hero_image"),
@@ -1243,6 +1240,19 @@ async def bulk_import_inventory(request: Request):
                     "source_url": item.get("source_url"),
                     "last_synced": datetime.now().isoformat(),
                 }
+                Inventory(**{
+                    "id": firestore_data["id"],
+                    "serial_number": firestore_data["serial_number"],
+                    "model_name": firestore_data["model_name"],
+                    "manufacturer": firestore_data["manufacturer"],
+                    "msrp": firestore_data["msrp"],
+                    "sale_price": firestore_data["sale_price"],
+                    "bedrooms": firestore_data["bedrooms"],
+                    "bathrooms": firestore_data["bathrooms"],
+                    "sqft": firestore_data["sqft"],
+                    "status": firestore_data["status"],
+                    "photos": firestore_data["photos"],
+                })
                 
                 # Save to Firestore
                 doc_ref = _db.db.collection("inventory").document(inventory_id)
@@ -1477,10 +1487,20 @@ async def generate_packet_from_deal(deal_id: str, request: Request):
             return {"success": False, "error": "Deal not found"}
 
         deal = Deal(**{k: v for k, v in deal_data.items() if k != "id" or k == "id"})
-        doc_data = deal.to_document_data()
 
-        # Allow overrides
+        # Allow overrides and validate the merged deal view before packet
+        # generation so incomplete deals get the same structured response as
+        # single-document generation.
         overrides = data.get("overrides", {})
+        merged_for_validation = {**deal.model_dump(), **overrides}
+        missing = validate_for_documents(merged_for_validation)
+        if missing:
+            return JSONResponse(
+                {"error": "missing_required_fields", "missing": missing},
+                status_code=400,
+            )
+
+        doc_data = deal.to_document_data()
         doc_data.update(overrides)
 
         result = engine_generate_packet(
