@@ -4,35 +4,200 @@ Replaces hardcoded per-template functions with a single generic pipeline.
 Reuses fill_pdf_form() from document_tools.py for actual PDF writing.
 """
 
-import os
 import logging
+import os
 from datetime import datetime
-from typing import Dict, List, Optional, Any
+from typing import Any
 
 from pypdf import PdfReader, PdfWriter
 
 from config.field_map_loader import (
+    get_field_definitions,
+    get_fields_for_template,
+    get_packet_config,
+    get_template_checkbox_fields,
     get_template_config,
     get_template_field_map,
-    get_template_checkbox_fields,
-    get_template_static_values,
     get_template_required_fields,
-    get_field_definitions,
-    get_packet_config,
-    list_templates as _list_templates,
-    list_packets as _list_packets,
-    get_fields_for_template,
+    get_template_static_values,
 )
-from tools.document_tools import fill_pdf_form, upload_to_gcs, DOCUMENTS_DIR, OUTPUT_DIR
+from config.field_map_loader import (
+    list_packets as _list_packets,
+)
+from config.field_map_loader import (
+    list_templates as _list_templates,
+)
+from tools.document_tools import DOCUMENTS_DIR, OUTPUT_DIR, fill_pdf_form, upload_to_gcs
 
 logger = logging.getLogger(__name__)
 
 
+def _has_value(value: Any) -> bool:
+    """Return True for non-empty values; numeric zero is valid document data."""
+    if value is None:
+        return False
+    if isinstance(value, str) and not value.strip():
+        return False
+    return True
+
+
+def _set_if_missing(data: dict[str, Any], key: str, value: Any) -> None:
+    if not _has_value(data.get(key)) and _has_value(value):
+        data[key] = value
+
+
+def _join_name(first: Any, last: Any) -> str | None:
+    parts = [str(part).strip() for part in (first, last) if _has_value(part)]
+    return " ".join(parts) if parts else None
+
+
+def _city_state_zip(city: Any, state: Any, zip_code: Any) -> str | None:
+    if not (_has_value(city) or _has_value(zip_code)):
+        return None
+    city_part = str(city).strip() if _has_value(city) else ""
+    state_part = str(state).strip() if _has_value(state) else "TX"
+    zip_part = str(zip_code).strip() if _has_value(zip_code) else ""
+    prefix = f"{city_part}, " if city_part else ""
+    return f"{prefix}{state_part} {zip_part}".strip()
+
+
+def _full_address(address: Any, city_state_zip: Any) -> str | None:
+    if not _has_value(address):
+        return None
+    address_part = str(address).strip()
+    if _has_value(city_state_zip):
+        return f"{address_part}, {str(city_state_zip).strip()}"
+    return address_part
+
+
+def _join_nonempty(parts: list[Any], separator: str = " | ") -> str | None:
+    clean = [str(part).strip() for part in parts if _has_value(part)]
+    return separator.join(clean) if clean else None
+
+
+def _set_status_flags(
+    data: dict[str, Any],
+    status_key: str,
+    married_key: str,
+    unmarried_key: str,
+    separated_key: str,
+) -> None:
+    status = str(data.get(status_key, "")).strip().lower()
+    if not status:
+        return
+    if status == "married":
+        _set_if_missing(data, married_key, True)
+    elif status in {"single", "unmarried"}:
+        _set_if_missing(data, unmarried_key, True)
+    elif status == "separated":
+        _set_if_missing(data, separated_key, True)
+
+
+def _normalize_document_data(data: dict[str, Any]) -> dict[str, Any]:
+    """Fill derived document aliases expected by field_map.json.
+
+    Deal.to_document_data already computes these for deal-specific endpoints.
+    The Document Center batch endpoint can receive raw form-shaped data, so the
+    engine also normalizes at the generation boundary.
+    """
+    normalized = dict(data or {})
+
+    _set_if_missing(
+        normalized,
+        "buyer_name",
+        _join_name(normalized.get("buyer_first_name"), normalized.get("buyer_last_name")),
+    )
+    _set_if_missing(
+        normalized,
+        "co_buyer_name",
+        _join_name(
+            normalized.get("co_buyer_first_name"),
+            normalized.get("co_buyer_last_name"),
+        ),
+    )
+
+    buyer_city_state_zip = _city_state_zip(
+        normalized.get("buyer_city"),
+        normalized.get("buyer_state"),
+        normalized.get("buyer_zip"),
+    )
+    _set_if_missing(normalized, "buyer_city_state_zip", buyer_city_state_zip)
+    _set_if_missing(
+        normalized,
+        "buyer_full_address",
+        _full_address(normalized.get("buyer_address"), normalized.get("buyer_city_state_zip")),
+    )
+
+    mailing_city_state_zip = _city_state_zip(
+        normalized.get("mailing_city"),
+        normalized.get("mailing_state"),
+        normalized.get("mailing_zip"),
+    )
+    _set_if_missing(normalized, "mailing_city_state_zip", mailing_city_state_zip)
+    _set_if_missing(
+        normalized,
+        "mailing_full_address",
+        _full_address(
+            normalized.get("mailing_address"),
+            normalized.get("mailing_city_state_zip"),
+        ),
+    )
+
+    _set_if_missing(
+        normalized,
+        "manufacturer_model",
+        _join_nonempty([normalized.get("manufacturer"), normalized.get("model")], " "),
+    )
+    _set_if_missing(
+        normalized,
+        "serial_label_combined",
+        _join_nonempty(
+            [
+                f"S/N: {normalized['serial_number_1']}"
+                if _has_value(normalized.get("serial_number_1"))
+                else None,
+                f"S/N2: {normalized['serial_number_2']}"
+                if _has_value(normalized.get("serial_number_2"))
+                else None,
+                f"HUD: {normalized['label_number_1']}"
+                if _has_value(normalized.get("label_number_1"))
+                else None,
+                f"HUD2: {normalized['label_number_2']}"
+                if _has_value(normalized.get("label_number_2"))
+                else None,
+            ],
+        ),
+    )
+
+    own_rent = str(normalized.get("mailing_own_rent", "")).strip().lower()
+    if own_rent in {"own", "owns", "o"}:
+        _set_if_missing(normalized, "buyer_owns_residence", True)
+    elif own_rent in {"rent", "rents", "r"}:
+        _set_if_missing(normalized, "buyer_rents_residence", True)
+
+    _set_status_flags(
+        normalized,
+        "buyer_marital_status",
+        "buyer_married",
+        "buyer_unmarried",
+        "buyer_separated",
+    )
+    _set_status_flags(
+        normalized,
+        "co_buyer_marital_status",
+        "co_buyer_married",
+        "co_buyer_unmarried",
+        "co_buyer_separated",
+    )
+
+    return normalized
+
+
 def generate_document(
     template_name: str,
-    data: Dict[str, Any],
-    output_filename: Optional[str] = None,
-) -> Dict[str, Any]:
+    data: dict[str, Any],
+    output_filename: str | None = None,
+) -> dict[str, Any]:
     """
     Generate a filled PDF document from any mapped template.
 
@@ -44,6 +209,8 @@ def generate_document(
     Returns:
         Dict with keys: success, file_path, filename, message
     """
+    data = _normalize_document_data(data)
+
     # Load template config
     config = get_template_config(template_name)
     if config is None:
@@ -109,12 +276,10 @@ def generate_document(
     # Generate output filename (sanitized to prevent path traversal)
     if not output_filename:
         import re
+
         safe_name = template_name.replace(".pdf", "")
         buyer = (
-            data.get("buyer_name")
-            or data.get("buyer_city")
-            or data.get("manufacturer")
-            or "Doc"
+            data.get("buyer_name") or data.get("buyer_city") or data.get("manufacturer") or "Doc"
         )
         # Strip everything except alphanumeric, spaces, hyphens
         buyer = re.sub(r"[^a-zA-Z0-9\s\-]", "", buyer).replace(" ", "_")[:50]
@@ -139,8 +304,8 @@ def generate_document(
 
 def generate_packet(
     packet_name: str,
-    data: Dict[str, Any],
-) -> Dict[str, Any]:
+    data: dict[str, Any],
+) -> dict[str, Any]:
     """
     Generate a closing packet: multiple templates merged into a single PDF.
 
@@ -151,6 +316,8 @@ def generate_packet(
     Returns:
         Dict with keys: success, file_path, filename, message, page_count, documents_included
     """
+    data = _normalize_document_data(data)
+
     packet_config = get_packet_config(packet_name)
     if packet_config is None:
         return {
@@ -170,7 +337,9 @@ def generate_packet(
         cover_template = packet_config.get("cover_page_template", "All_Cover.pdf")
         cover_config = get_template_config(cover_template)
         if cover_config:
-            cover_result = generate_document(cover_template, data, f"_cover_{datetime.now().strftime('%Y%m%d%H%M%S')}.pdf")
+            cover_result = generate_document(
+                cover_template, data, f"_cover_{datetime.now().strftime('%Y%m%d%H%M%S')}.pdf"
+            )
             if cover_result["success"]:
                 generated_files.append(cover_result["file_path"])
                 documents_included.append(cover_template)
@@ -178,8 +347,9 @@ def generate_packet(
     # Generate each template
     for template_name in template_names:
         result = generate_document(
-            template_name, data,
-            f"_packet_{template_name.replace('.pdf', '')}_{datetime.now().strftime('%Y%m%d%H%M%S')}.pdf"
+            template_name,
+            data,
+            f"_packet_{template_name.replace('.pdf', '')}_{datetime.now().strftime('%Y%m%d%H%M%S')}.pdf",
         )
         if result["success"]:
             generated_files.append(result["file_path"])
@@ -227,17 +397,17 @@ def generate_packet(
         return {"success": False, "message": str(e)}
 
 
-def list_available_templates() -> List[Dict[str, Any]]:
+def list_available_templates() -> list[dict[str, Any]]:
     """List all available document templates with metadata."""
     return _list_templates()
 
 
-def list_available_packets() -> List[Dict[str, Any]]:
+def list_available_packets() -> list[dict[str, Any]]:
     """List all available document packets with metadata."""
     return _list_packets()
 
 
-def get_template_fields(template_name: str) -> Optional[Dict[str, Any]]:
+def get_template_fields(template_name: str) -> dict[str, Any] | None:
     """
     Get field definitions for a specific template (drives frontend SmartForm).
     Returns None if template not found.
@@ -255,15 +425,17 @@ def get_template_fields(template_name: str) -> Optional[Dict[str, Any]]:
         section = defn.get("section", "other")
         if section not in sections:
             sections[section] = []
-        sections[section].append({
-            "field_name": name,
-            "label": defn.get("label", name),
-            "type": defn.get("type", "string"),
-            "required": name in required,
-            "default": defn.get("default"),
-            "computed": defn.get("computed", False),
-            "pii": defn.get("pii", False),
-        })
+        sections[section].append(
+            {
+                "field_name": name,
+                "label": defn.get("label", name),
+                "type": defn.get("type", "string"),
+                "required": name in required,
+                "default": defn.get("default"),
+                "computed": defn.get("computed", False),
+                "pii": defn.get("pii", False),
+            }
+        )
 
     return {
         "template_name": template_name,
@@ -274,10 +446,10 @@ def get_template_fields(template_name: str) -> Optional[Dict[str, Any]]:
 
 
 def generate_batch(
-    template_names: List[str],
-    data: Dict[str, Any],
+    template_names: list[str],
+    data: dict[str, Any],
     merge: bool = True,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Generate multiple documents from a shared data dict and optionally merge.
 
@@ -289,6 +461,8 @@ def generate_batch(
     Returns:
         Dict with keys: success, documents (per-template results), merged (optional).
     """
+    data = _normalize_document_data(data)
+
     results = []
     successful_files = []
 
@@ -304,7 +478,9 @@ def generate_batch(
             "display_name": config.get("display_name", template_name),
             "success": result["success"],
             "filename": result.get("filename"),
-            "download_url": f"/api/documents/download/{result['filename']}" if result.get("filename") else None,
+            "download_url": f"/api/documents/download/{result['filename']}"
+            if result.get("filename")
+            else None,
             "message": result.get("message", ""),
         }
         results.append(doc_result)
@@ -346,12 +522,12 @@ def generate_batch(
     }
 
 
-def get_all_field_definitions() -> Dict[str, Any]:
+def get_all_field_definitions() -> dict[str, Any]:
     """Return all data field definitions from field_map.json for the unified form."""
     return get_field_definitions()
 
 
-def _compute_fields(data: Dict[str, Any]):
+def _compute_fields(data: dict[str, Any]):
     """Compute derived field values in-place."""
     # unpaid_balance = sales_price - down_payment
     sales_price = _to_float(data.get("sales_price"))
@@ -370,7 +546,7 @@ def _compute_fields(data: Dict[str, Any]):
         data.setdefault("buyer_city_state_zip", f"{city}, {state} {zip_code}".strip())
 
 
-def _format_value(value: Any, field_def: Dict) -> str:
+def _format_value(value: Any, field_def: dict) -> str:
     """Format a value based on its field definition type."""
     if value is None or value == "":
         return ""
@@ -391,7 +567,7 @@ def _format_value(value: Any, field_def: Dict) -> str:
     return str(value)
 
 
-def _to_float(value: Any) -> Optional[float]:
+def _to_float(value: Any) -> float | None:
     """Safely convert a value to float."""
     if value is None:
         return None
