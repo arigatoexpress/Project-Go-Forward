@@ -13,11 +13,16 @@ target the model contract so future refactors can rely on it.
 """
 
 import logging
+import sys
+from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
 
+sys.path.insert(0, str(Path(__file__).parent))
+
 from database.models import Inventory, InventoryStatus
+from test_api_v1 import create_client
 from tools.inventory_sync import InventoryItem
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -177,3 +182,75 @@ def test_to_firestore_dict_warns_but_returns_for_bad_item(caplog):
     warnings = [r for r in caplog.records if "Inventory validation failed" in r.message]
     assert warnings, "expected a WARNING log for invalid AVAILABLE inventory"
     assert "test-1" in warnings[0].getMessage()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# bulk-import endpoint hard-validation
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def test_bulk_import_rejects_invalid_available_inventory(monkeypatch):
+    client, main, fake_db, _logger = create_client(monkeypatch)
+    token = main._create_admin_token()
+
+    response = client.post(
+        "/api/inventory/bulk-import",
+        headers={"X-Admin-Token": token},
+        json={
+            "items": [
+                {
+                    "id": "bulk-bad",
+                    "model_name": "No Price Home",
+                    "serial_number": "SN-BAD",
+                    "status": "AVAILABLE",
+                    "msrp": 0,
+                    "sale_price": 0,
+                }
+            ]
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["success"] is True
+    assert body["imported"] == 0
+    assert body["updated"] == 0
+    assert body["errors"]
+    assert "AVAILABLE inventory must have msrp or sale_price > 0" in body["errors"][0]
+    assert "bulk-bad" not in fake_db.collections["inventory"]
+
+
+def test_bulk_import_writes_valid_inventory_after_model_validation(monkeypatch):
+    client, main, fake_db, _logger = create_client(monkeypatch)
+    token = main._create_admin_token()
+
+    response = client.post(
+        "/api/inventory/bulk-import",
+        headers={"X-Admin-Token": token},
+        json={
+            "items": [
+                {
+                    "id": "bulk-good",
+                    "model_name": "Priced Home",
+                    "manufacturer": "Champion",
+                    "serial_number": "SN-GOOD",
+                    "status": "AVAILABLE",
+                    "msrp": 75000,
+                    "sale_price": 69900,
+                    "bedrooms": 3,
+                    "bathrooms": 2,
+                    "sqft": 1200,
+                }
+            ]
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["success"] is True
+    assert body["imported"] == 1
+    assert body["updated"] == 0
+    stored = fake_db.collections["inventory"]["bulk-good"]
+    assert stored["id"] == "bulk-good"
+    assert stored["serial_number"] == "SN-GOOD"
+    assert stored["sale_price"] == 69900

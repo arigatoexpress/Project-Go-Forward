@@ -135,6 +135,11 @@ class FakeDocumentRef:
         else:
             self._store[self.id] = dict(data)
 
+    def update(self, data: dict):
+        merged = dict(self._store.get(self.id, {}))
+        merged.update(data)
+        self._store[self.id] = merged
+
     def get(self):
         data = self._store.get(self.id)
         if data is None:
@@ -304,6 +309,10 @@ class FakeTHODatabase:
             inventory = [item for item in inventory if item.get("manufacturer") == manufacturer]
         return inventory[:limit]
 
+    def get_inventory_by_id(self, inventory_id: str):
+        item = self.collections["inventory"].get(inventory_id)
+        return dict(item) if item else None
+
     def count_customers(self):
         by_status: dict[str, int] = {}
         for customer in self.collections["customers"].values():
@@ -438,6 +447,9 @@ def load_app(monkeypatch, tho_api_key: str | None = "tho-secret", rate_limit_rpm
     if not index_html.exists():
         index_html.write_text("<html><body>test</body></html>")
 
+    sys.modules.pop("database.models", None)
+    from database.models import Inventory as RealInventory
+
     fake_logger = FakeStructuredLogger()
     fake_db = FakeTHODatabase()
 
@@ -504,6 +516,7 @@ def load_app(monkeypatch, tho_api_key: str | None = "tho-secret", rate_limit_rpm
     database_models_module = types.ModuleType("database.models")
     database_models_module.Deal = FakeDeal
     database_models_module.DealStatus = FakeDealStatus
+    database_models_module.Inventory = RealInventory
     monkeypatch.setitem(sys.modules, "database.models", database_models_module)
 
     document_schemas_module = types.ModuleType("schemas.document_schemas")
