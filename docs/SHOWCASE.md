@@ -9,11 +9,14 @@ Verified on April 29, 2026:
 | Check | Result |
 |---|---|
 | `GET /health` | HTTP 200, `status: ok` |
-| `GET /healthz/` | HTTP 200, deployed version `3b543a72e37f1fdde7cf0a1577784d20b72952e3` |
+| `GET /healthz/` | HTTP 200, exposes `version`, `sha`, `uptime_s`, and dependency statuses |
 | `GET /api/marketing/inventory-context` | HTTP 200, `success: true`, 44 homes |
-| Repo `origin/main` during this doc refresh | `aa83efe9fea75eb852740a9179f3a40f2af718c1`, after PRs #25, #28, and #29 |
+| Repo `origin/main` during this doc refresh | after PRs #25, #27, #28, and #29 |
 
-Use `/healthz/` with the trailing slash for external smoke checks. Before an external demo, rerun the smoke and use `/healthz/` as the deployed-revision source of truth; do not claim the latest `main` is live unless the version matches.
+Use `/healthz/` with the trailing slash for external smoke checks. Before an
+external demo, rerun the smoke and use `/healthz/` as the deployed-revision
+source of truth; do not claim the latest `main` is live unless the `sha` value
+matches the commit you are discussing.
 
 ```bash
 export THO_PROD_URL="https://sapphirealpha.xyz"
