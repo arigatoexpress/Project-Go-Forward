@@ -5,32 +5,33 @@ Tests: document generation, packet merging, template listing, field validation, 
 
 import os
 import sys
+
 import pytest
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from tools.document_engine import (
-    generate_document,
-    generate_packet,
-    list_available_templates,
-    list_available_packets,
-    get_template_fields,
-)
 from config.field_map_loader import (
-    list_templates,
-    get_template_config,
     get_field_definitions,
+    get_template_config,
+    list_templates,
     reload,
 )
-from tools.pii_guard import (
-    sanitize_for_logging,
-    sanitize_for_llm,
-    validate_no_pii_in_text,
-    redact_pii_from_text,
-    get_pii_field_names,
+from tools.document_engine import (
+    generate_batch,
+    generate_document,
+    generate_packet,
+    get_template_fields,
+    list_available_packets,
+    list_available_templates,
 )
-
+from tools.pii_guard import (
+    get_pii_field_names,
+    redact_pii_from_text,
+    sanitize_for_llm,
+    sanitize_for_logging,
+    validate_no_pii_in_text,
+)
 
 # Force reload of field_map.json for fresh state
 reload()
@@ -182,7 +183,9 @@ class TestMergedDocumentPersistence:
         )
         monkeypatch.setattr(engine, "get_template_config", lambda _name: {"display_name": _name})
         monkeypatch.setattr(engine, "generate_document", fake_generate_document)
-        monkeypatch.setattr(engine, "upload_to_gcs", lambda path, filename: calls.append((path, filename)))
+        monkeypatch.setattr(
+            engine, "upload_to_gcs", lambda path, filename: calls.append((path, filename))
+        )
 
         result = engine.generate_packet("test_packet", {"buyer_name": "Durable Buyer"})
 
@@ -203,13 +206,19 @@ class TestMergedDocumentPersistence:
         monkeypatch.setattr(engine, "OUTPUT_DIR", str(tmp_path))
         monkeypatch.setattr(engine, "get_template_config", lambda _name: {"display_name": _name})
         monkeypatch.setattr(engine, "generate_document", fake_generate_document)
-        monkeypatch.setattr(engine, "upload_to_gcs", lambda path, filename: calls.append((path, filename)))
+        monkeypatch.setattr(
+            engine, "upload_to_gcs", lambda path, filename: calls.append((path, filename))
+        )
 
-        result = engine.generate_batch(["one.pdf", "two.pdf"], {"buyer_name": "Durable Buyer"}, merge=True)
+        result = engine.generate_batch(
+            ["one.pdf", "two.pdf"], {"buyer_name": "Durable Buyer"}, merge=True
+        )
 
         assert result["success"] is True
         assert result["merged"] is not None
-        assert calls == [(str(tmp_path / result["merged"]["filename"]), result["merged"]["filename"])]
+        assert calls == [
+            (str(tmp_path / result["merged"]["filename"]), result["merged"]["filename"])
+        ]
 
 
 class TestTemplateFields:
@@ -336,6 +345,63 @@ class TestFilledValuesRenderInStaticContent:
         assert result["success"] is True
         found = _values_in_pdf(result["file_path"], self.NEEDLES)
         assert all(found.values()), f"Missing in merged packet: {found}"
+
+    def test_batch_from_ui_shaped_joe_blo_data_fills_credit_application(
+        self, monkeypatch, tmp_path
+    ):
+        """Document Center sends form-shaped data; the engine should fill aliases.
+
+        The April 2026 Joe Blo report was a real UI-path failure mode: a
+        customer/deal could make it through batch generation while fields that
+        only exist as derived document aliases were blank in the generated PDF.
+        This uses synthetic data and disables GCS so the check stays local.
+        """
+        engine_globals = generate_batch.__globals__
+
+        monkeypatch.setitem(engine_globals, "OUTPUT_DIR", str(tmp_path))
+        monkeypatch.setitem(engine_globals, "upload_to_gcs", lambda *_args, **_kwargs: None)
+        monkeypatch.setitem(
+            engine_globals["fill_pdf_form"].__globals__, "OUTPUT_DIR", str(tmp_path)
+        )
+        monkeypatch.setitem(
+            engine_globals["fill_pdf_form"].__globals__,
+            "upload_to_gcs",
+            lambda *_args, **_kwargs: None,
+        )
+
+        joe_blo_ui_data = {
+            "buyer_first_name": "Joe",
+            "buyer_last_name": "Blo",
+            "buyer_phone": "(555) 010-0000",
+            "buyer_email": "joe.blo@example.test",
+            "mailing_address": "77 Test Loop",
+            "mailing_city": "Austin",
+            "mailing_state": "TX",
+            "mailing_zip": "78701",
+            "buyer_address": "88 Install Way",
+            "buyer_city": "Round Rock",
+            "buyer_county": "Williamson",
+            "buyer_state": "TX",
+            "buyer_zip": "78664",
+            "employer_name": "Synthetic Employer LLC",
+            "occupation": "Synthetic Tester",
+            "manufacturer": "Northstar",
+            "model": "Tempo",
+            "serial_number_1": "SYN-JOE-BLO-001",
+            "sales_price": "85000",
+            "down_payment": "5000",
+        }
+
+        result = generate_batch(["creditapp.pdf"], joe_blo_ui_data, merge=False)
+
+        assert result["success"] is True, result
+        assert result["successful"] == 1
+        output_path = tmp_path / result["documents"][0]["filename"]
+        found = _values_in_pdf(
+            output_path,
+            ["Joe Blo", "77 Test Loop, Austin, TX 78701", "Synthetic Employer LLC"],
+        )
+        assert all(found.values()), f"Missing in Joe Blo credit app: {found}"
 
 
 class TestBackwardCompatibility:

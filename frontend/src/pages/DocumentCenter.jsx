@@ -56,14 +56,62 @@ const CAT_ICONS = {
   Internal: FolderOpen,
 };
 
+const hasValue = v => v !== undefined && v !== null && String(v).trim() !== '';
+
+const joinName = (first, last) => [first, last].filter(hasValue).map(v => String(v).trim()).join(' ') || undefined;
+
+const cityStateZip = (city, state, zip) => {
+  if (!hasValue(city) && !hasValue(zip)) return undefined;
+  const cityPart = hasValue(city) ? `${String(city).trim()}, ` : '';
+  const statePart = hasValue(state) ? String(state).trim() : 'TX';
+  const zipPart = hasValue(zip) ? ` ${String(zip).trim()}` : '';
+  return `${cityPart}${statePart}${zipPart}`.trim();
+};
+
+const fullAddress = (address, cityZip) => {
+  if (!hasValue(address)) return undefined;
+  return hasValue(cityZip) ? `${String(address).trim()}, ${cityZip}` : String(address).trim();
+};
+
+const joinNonEmpty = (parts, separator = ' | ') => {
+  const clean = parts.filter(hasValue).map(v => String(v).trim());
+  return clean.length ? clean.join(separator) : undefined;
+};
+
+const statusFlags = (status, prefix) => {
+  const s = String(status || '').trim().toLowerCase();
+  if (s === 'married') return { [`${prefix}_married`]: true };
+  if (s === 'single' || s === 'unmarried') return { [`${prefix}_unmarried`]: true };
+  if (s === 'separated') return { [`${prefix}_separated`]: true };
+  return {};
+};
+
 function toDocumentData(f) {
-  const buyer = `${f.buyer_first_name} ${f.buyer_last_name}`.trim();
-  const coBuyer = `${f.co_buyer_first_name} ${f.co_buyer_last_name}`.trim();
+  const buyer = joinName(f.buyer_first_name, f.buyer_last_name);
+  const coBuyer = joinName(f.co_buyer_first_name, f.co_buyer_last_name);
+  const buyerCityStateZip = cityStateZip(f.buyer_city, f.buyer_state, f.buyer_zip);
+  const mailingCityStateZip = cityStateZip(f.mailing_city, f.mailing_state, f.mailing_zip);
+  const serialLabelCombined = joinNonEmpty([
+    hasValue(f.serial_number_1) ? `S/N: ${f.serial_number_1}` : null,
+    hasValue(f.serial_number_2) ? `S/N2: ${f.serial_number_2}` : null,
+    hasValue(f.label_number_1) ? `HUD: ${f.label_number_1}` : null,
+    hasValue(f.label_number_2) ? `HUD2: ${f.label_number_2}` : null,
+  ]);
+  const ownRent = String(f.mailing_own_rent || '').trim().toLowerCase();
   return {
     ...f,
-    buyer_name: buyer || undefined,
-    co_buyer_name: coBuyer || undefined,
-    buyer_city_state_zip: f.buyer_city ? `${f.buyer_city}, ${f.buyer_state || 'TX'} ${f.buyer_zip}`.trim() : undefined
+    buyer_name: buyer,
+    co_buyer_name: coBuyer,
+    buyer_city_state_zip: buyerCityStateZip,
+    buyer_full_address: fullAddress(f.buyer_address, buyerCityStateZip),
+    mailing_city_state_zip: mailingCityStateZip,
+    mailing_full_address: fullAddress(f.mailing_address, mailingCityStateZip),
+    manufacturer_model: joinNonEmpty([f.manufacturer, f.model], ' '),
+    serial_label_combined: serialLabelCombined,
+    buyer_owns_residence: ['own', 'owns', 'o'].includes(ownRent) || undefined,
+    buyer_rents_residence: ['rent', 'rents', 'r'].includes(ownRent) || undefined,
+    ...statusFlags(f.buyer_marital_status, 'buyer'),
+    ...statusFlags(f.co_buyer_marital_status, 'co_buyer'),
   };
 }
 
