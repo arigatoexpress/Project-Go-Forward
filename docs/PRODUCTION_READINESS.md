@@ -28,6 +28,8 @@ The smoke checks:
 - public SPA routes for the main app, documents, studio, CRM, and analytics
 - `/api/marketing/inventory-context` has a healthy inventory payload
 - admin API routes reject unauthenticated traffic
+- `/healthz/` surfaces dependency warnings, including transactional email
+  readiness, without exposing secret values
 
 Direct endpoint checks:
 
@@ -38,6 +40,48 @@ curl -fsS "$THO_PROD_URL/api/marketing/inventory-context" | python3 -m json.tool
 ```
 
 The deployed commit is the `version` field from `/healthz/`.
+
+## Transactional Email Readiness
+
+Appointment confirmations, lead welcome emails, deal-status emails, and CRM
+custom emails require `RESEND_API_KEY`. `/healthz/` reports this under
+`dependencies.email` and adds `email_not_configured` to `warnings` when the key
+is absent. The health endpoint stays HTTP 200 so Cloud Run liveness does not
+restart a healthy app because of an operator-owned email-provider setup gap.
+
+Bind the Resend key through Secret Manager:
+
+```bash
+read -rsp "Resend API key: " RESEND_API_KEY; echo
+printf '%s' "$RESEND_API_KEY" | gcloud secrets create resend-api-key \
+  --project "$THO_PROJECT" \
+  --replication-policy=automatic \
+  --data-file=-
+unset RESEND_API_KEY
+
+gcloud run services update "$THO_SERVICE" \
+  --project "$THO_PROJECT" \
+  --region "$THO_REGION" \
+  --update-secrets=RESEND_API_KEY=resend-api-key:latest
+```
+
+If `resend-api-key` already exists, add a new version instead of recreating the
+secret:
+
+```bash
+read -rsp "Resend API key: " RESEND_API_KEY; echo
+printf '%s' "$RESEND_API_KEY" | gcloud secrets versions add resend-api-key \
+  --project "$THO_PROJECT" \
+  --data-file=-
+unset RESEND_API_KEY
+```
+
+After binding, verify `dependencies.email` changes to `configured`:
+
+```bash
+curl -fsS "$THO_PROD_URL/healthz/" | python3 -m json.tool
+python3 scripts/production_smoke.py --base-url "$THO_PROD_URL"
+```
 
 ## Local Gates
 

@@ -82,7 +82,7 @@ Names only — values are in Cloud Run config.
 | `MAX_REQUEST_BODY_BYTES` | Upload cap (default 1 MB) | plaintext env |
 | `ALLOWED_ORIGINS` | CORS allowlist | plaintext env |
 | `GCS_DOCUMENTS_BUCKET` | PDF output bucket (`tho-secure-documents`) | plaintext env |
-| `RESEND_API_KEY` | Transactional email | **should be Secret Manager** |
+| `RESEND_API_KEY` | Transactional email | Secret Manager target: `resend-api-key`; `/healthz/` reports `dependencies.email` |
 | `PII_ENCRYPTION_KEY` | Field-level encryption | ✓ Secret Manager |
 | `N8N_API_TOKEN` | n8n webhook auth | **currently plaintext — rotate + move to Secret Manager** |
 | `THO_API_KEY` | External API v1 auth | **currently plaintext — rotate + move to Secret Manager** |

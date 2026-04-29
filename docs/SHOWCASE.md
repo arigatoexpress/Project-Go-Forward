@@ -9,7 +9,7 @@ Verified on April 29, 2026:
 | Check | Result |
 |---|---|
 | `GET /health` | HTTP 200, `status: ok` |
-| `GET /healthz/` | HTTP 200, exposes `version`, `sha`, `uptime_s`, and dependency statuses |
+| `GET /healthz/` | HTTP 200, exposes `version`, `sha`, `uptime_s`, dependency statuses, and non-secret readiness warnings |
 | `GET /api/marketing/inventory-context` | HTTP 200, `success: true`, 44 homes |
 | Repo `origin/main` during this doc refresh | after PRs #25, #26, #27, #28, #29, and #30 |
 
