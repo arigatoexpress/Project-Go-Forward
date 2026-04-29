@@ -168,7 +168,7 @@ function NavBar({ activePage, navigateTo, adminAuthed, onAdminAccess, isMobileMe
 }
 
 // ─── Footer Component ───
-function Footer({ navigateTo, adminAuthed, onAdminAccess }) {
+function Footer({ adminAuthed, onAdminAccess }) {
   return (
     <footer className="bg-white border-t border-gray-200 py-4 text-center text-xs text-gray-500">
       <div className="flex items-center justify-center gap-6 flex-wrap">
@@ -257,7 +257,6 @@ function App() {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [sessionId] = useState(() => localStorage.getItem('tho_session_id') || uuidv4());
-  const [activeFilters, setActiveFilters] = useState({});
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [comparisonList, setComparisonList] = useState([]);
   const [darkMode, setDarkMode] = useDarkMode();
@@ -300,9 +299,6 @@ function App() {
   const [pinError, setPinError] = useState('');
   const [pinLoading, setPinLoading] = useState(false);
   
-  // Retry failed messages
-  const [failedMessages, setFailedMessages] = useState([]);
-
   // Verify stored token on mount
   useEffect(() => {
     if (!adminToken) return;
@@ -456,10 +452,6 @@ function App() {
     } catch (error) {
       console.error('Error sending message:', error);
       
-      // Store failed message for retry
-      const failedMsg = { ...userMessage, timestamp: Date.now() };
-      setFailedMessages(prev => [...prev, failedMsg]);
-      
       // Show error with retry option
       setMessages(prev => [...prev, { 
         role: 'model', 
@@ -481,7 +473,7 @@ function App() {
       const botText = await sendToAgent(sessionId, originalMessage);
       setMessages(prev => [...prev, { role: 'model', text: botText }]);
       addToast('Message sent successfully!', 'success');
-    } catch (error) {
+    } catch {
       addToast('Still having trouble connecting. Please try again later.', 'error');
     } finally {
       setIsLoading(false);
@@ -512,7 +504,6 @@ function App() {
   };
 
   const handleApplyFilters = (filters) => {
-    setActiveFilters(filters);
     const filterParts = [];
     if (filters.bedrooms) filterParts.push(`${filters.bedrooms}+ bedrooms`);
     if (filters.bathrooms) filterParts.push(`${filters.bathrooms}+ bathrooms`);
@@ -532,7 +523,7 @@ function App() {
   };
 
   const handleClearFilters = () => {
-    setActiveFilters({});
+    setInput('');
   };
 
   const handleToggleCompare = (property) => {
@@ -717,7 +708,7 @@ function App() {
               handleQuickAction(message);
             }}
             onBack={() => navigateTo('chat')}
-            onCreateAd={adminAuthed ? (homeName) => {
+            onCreateAd={adminAuthed ? () => {
               navigateTo('adstudio');
             } : undefined}
           />
@@ -737,7 +728,7 @@ function App() {
           </span>
         </button>
 
-        <Footer navigateTo={navigateTo} adminAuthed={adminAuthed} onAdminAccess={handleAdminAccess} />
+        <Footer adminAuthed={adminAuthed} onAdminAccess={handleAdminAccess} />
       </div>
     );
   }
@@ -870,7 +861,7 @@ function App() {
 
       </main>
 
-      <Footer navigateTo={navigateTo} adminAuthed={adminAuthed} onAdminAccess={handleAdminAccess} />
+      <Footer adminAuthed={adminAuthed} onAdminAccess={handleAdminAccess} />
       <ReportIssue />
     </div>
   );

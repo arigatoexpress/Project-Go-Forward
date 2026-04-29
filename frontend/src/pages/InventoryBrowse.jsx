@@ -19,7 +19,9 @@ function trackEvent(event, data = {}) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ _event: event, ...data }),
     }).catch(() => {}); // fire and forget
-  } catch {}
+  } catch {
+    // Analytics should never interrupt the browsing flow.
+  }
 }
 
 // ─── Sort options ───
@@ -34,7 +36,7 @@ const SORT_OPTIONS = [
 ];
 
 
-export default function InventoryBrowse({ onAskTex, onBack, onCreateAd }) {
+export default function InventoryBrowse({ onAskTex, onCreateAd }) {
   const [homes, setHomes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -193,26 +195,26 @@ export default function InventoryBrowse({ onAskTex, onBack, onCreateAd }) {
     trackEvent('home_viewed', { home: home.model_name, status: home.status });
   };
 
-  const closeDetail = () => {
+  const closeDetail = useCallback(() => {
     setSelectedHome(null);
     setActivePhotoIndex(0);
     setActiveCategory('all');
     setShowTour(false);
-  };
+  }, []);
 
   const photos = getPhotosForCategory(selectedHome);
 
-  const nextPhoto = () => {
+  const nextPhoto = useCallback(() => {
     if (photos.length > 0) {
       setActivePhotoIndex((prev) => (prev + 1) % photos.length);
     }
-  };
+  }, [photos.length]);
 
-  const prevPhoto = () => {
+  const prevPhoto = useCallback(() => {
     if (photos.length > 0) {
       setActivePhotoIndex((prev) => (prev - 1 + photos.length) % photos.length);
     }
-  };
+  }, [photos.length]);
 
   // Keyboard navigation
   useEffect(() => {
@@ -224,7 +226,7 @@ export default function InventoryBrowse({ onAskTex, onBack, onCreateAd }) {
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [selectedHome, photos.length]);
+  }, [closeDetail, nextPhoto, prevPhoto, selectedHome]);
 
   useEffect(() => {
     setActivePhotoIndex(0);
