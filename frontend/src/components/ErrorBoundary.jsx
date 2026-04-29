@@ -19,7 +19,7 @@ class ErrorBoundary extends React.Component {
     };
   }
 
-  static getDerivedStateFromError(error) {
+  static getDerivedStateFromError(_error) {
     // Update state so the next render will show the fallback UI
     return { hasError: true };
   }
@@ -149,7 +149,7 @@ class ErrorBoundary extends React.Component {
 /**
  * Simple error fallback for smaller components
  */
-export function ComponentErrorFallback({ error, resetError }) {
+export function ComponentErrorFallback({ _error, resetError }) {
   return (
     <div className="p-4 bg-red-50 border border-red-200 rounded-xl">
       <div className="flex items-center gap-2 text-red-600 mb-2">

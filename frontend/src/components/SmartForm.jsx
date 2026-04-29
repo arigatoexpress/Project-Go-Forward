@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Loader2, Lock } from 'lucide-react';
 
 const SECTION_LABELS = {
@@ -14,8 +14,9 @@ const SECTION_LABELS = {
 };
 
 const SECTION_ORDER = ['buyer', 'seller', 'home', 'pricing', 'financing', 'creditor', 'insurance', 'transaction', 'other'];
+const EMPTY_INITIAL_DATA = {};
 
-const SmartForm = ({ templateName, title, sessionId, onSubmit, onCancel, initialData = {} }) => {
+const SmartForm = ({ templateName, title, sessionId, onSubmit, onCancel, initialData = EMPTY_INITIAL_DATA }) => {
   const [sections, setSections] = useState({});
   const [formData, setFormData] = useState({});
   const [loading, setLoading] = useState(true);
@@ -23,53 +24,7 @@ const SmartForm = ({ templateName, title, sessionId, onSubmit, onCancel, initial
   const [locked, setLocked] = useState(false);
   const [preFilling, setPreFilling] = useState(false);
 
-  useEffect(() => {
-    fetchFieldDefinitions();
-  }, [templateName]);
-
-  const fetchFieldDefinitions = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const response = await fetch(`/api/documents/templates/${encodeURIComponent(templateName)}/fields`);
-      const data = await response.json();
-
-      if (data.error) {
-        setError(data.error);
-        return;
-      }
-
-      setSections(data.sections || {});
-
-      // Initialize form data with defaults
-      const defaults = {};
-      Object.entries(data.sections || {}).forEach(([sectionKey, fields]) => {
-        fields.forEach(field => {
-          if (field.default !== null && field.default !== undefined) {
-            defaults[field.field_name] = field.default;
-          } else if (field.type === 'currency') {
-            defaults[field.field_name] = '';
-          } else if (field.type === 'checkbox') {
-            defaults[field.field_name] = false;
-          } else {
-            defaults[field.field_name] = '';
-          }
-        });
-      });
-      setFormData({ ...defaults, ...initialData });
-
-      // Try pre-filling from chat session
-      if (sessionId) {
-        tryPreFill(data.sections);
-      }
-    } catch (e) {
-      setError('Failed to load form fields: ' + e.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const tryPreFill = async (fieldSections) => {
+  const tryPreFill = useCallback(async () => {
     setPreFilling(true);
     try {
       const response = await fetch('/api/documents/extract-fields', {
@@ -88,9 +43,55 @@ const SmartForm = ({ templateName, title, sessionId, onSubmit, onCancel, initial
     } finally {
       setPreFilling(false);
     }
-  };
+  }, [sessionId, templateName]);
 
-  const handleChange = (fieldName, value, fieldType) => {
+  const fetchFieldDefinitions = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await fetch(`/api/documents/templates/${encodeURIComponent(templateName)}/fields`);
+      const data = await response.json();
+
+      if (data.error) {
+        setError(data.error);
+        return;
+      }
+
+      setSections(data.sections || {});
+
+      // Initialize form data with defaults
+      const defaults = {};
+      Object.values(data.sections || {}).forEach((fields) => {
+        fields.forEach(field => {
+          if (field.default !== null && field.default !== undefined) {
+            defaults[field.field_name] = field.default;
+          } else if (field.type === 'currency') {
+            defaults[field.field_name] = '';
+          } else if (field.type === 'checkbox') {
+            defaults[field.field_name] = false;
+          } else {
+            defaults[field.field_name] = '';
+          }
+        });
+      });
+      setFormData({ ...defaults, ...initialData });
+
+      // Try pre-filling from chat session
+      if (sessionId) {
+        tryPreFill();
+      }
+    } catch (e) {
+      setError('Failed to load form fields: ' + e.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [initialData, sessionId, templateName, tryPreFill]);
+
+  useEffect(() => {
+    fetchFieldDefinitions();
+  }, [fetchFieldDefinitions]);
+
+  const handleChange = (fieldName, value) => {
     if (locked) return;
     setFormData(prev => {
       const updated = { ...prev, [fieldName]: value };
@@ -125,7 +126,7 @@ const SmartForm = ({ templateName, title, sessionId, onSubmit, onCancel, initial
   };
 
   const renderField = (field) => {
-    const { field_name, label, type, required, computed, pii } = field;
+    const { field_name, label, type, required, computed } = field;
     const value = formData[field_name] ?? '';
 
     const inputClass = `mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm ${
@@ -139,7 +140,7 @@ const SmartForm = ({ templateName, title, sessionId, onSubmit, onCancel, initial
             type="checkbox"
             id={field_name}
             checked={!!value}
-            onChange={(e) => handleChange(field_name, e.target.checked, type)}
+            onChange={(e) => handleChange(field_name, e.target.checked)}
             disabled={locked}
             className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
           />
@@ -159,7 +160,7 @@ const SmartForm = ({ templateName, title, sessionId, onSubmit, onCancel, initial
             type="password"
             name={field_name}
             value={value}
-            onChange={(e) => handleChange(field_name, e.target.value, type)}
+            onChange={(e) => handleChange(field_name, e.target.value)}
             required={required}
             disabled={locked}
             placeholder="***-**-****"
@@ -184,7 +185,7 @@ const SmartForm = ({ templateName, title, sessionId, onSubmit, onCancel, initial
               type="number"
               name={field_name}
               value={value}
-              onChange={(e) => handleChange(field_name, e.target.value, type)}
+              onChange={(e) => handleChange(field_name, e.target.value)}
               required={required}
               readOnly={computed || locked}
               className={`block w-full rounded-md border-gray-300 pl-7 pr-4 focus:border-blue-500 focus:ring-blue-500 sm:text-sm ${
@@ -208,7 +209,7 @@ const SmartForm = ({ templateName, title, sessionId, onSubmit, onCancel, initial
             type="date"
             name={field_name}
             value={value}
-            onChange={(e) => handleChange(field_name, e.target.value, type)}
+            onChange={(e) => handleChange(field_name, e.target.value)}
             required={required}
             disabled={locked}
             className={inputClass}
@@ -227,7 +228,7 @@ const SmartForm = ({ templateName, title, sessionId, onSubmit, onCancel, initial
             type="tel"
             name={field_name}
             value={value}
-            onChange={(e) => handleChange(field_name, e.target.value, type)}
+            onChange={(e) => handleChange(field_name, e.target.value)}
             required={required}
             disabled={locked}
             className={inputClass}
@@ -246,7 +247,7 @@ const SmartForm = ({ templateName, title, sessionId, onSubmit, onCancel, initial
             type="email"
             name={field_name}
             value={value}
-            onChange={(e) => handleChange(field_name, e.target.value, type)}
+            onChange={(e) => handleChange(field_name, e.target.value)}
             required={required}
             disabled={locked}
             className={inputClass}
@@ -265,7 +266,7 @@ const SmartForm = ({ templateName, title, sessionId, onSubmit, onCancel, initial
           type="text"
           name={field_name}
           value={value}
-          onChange={(e) => handleChange(field_name, e.target.value, type)}
+          onChange={(e) => handleChange(field_name, e.target.value)}
           required={required}
           readOnly={computed || locked}
           disabled={locked && !computed}

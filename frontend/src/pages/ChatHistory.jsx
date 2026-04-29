@@ -4,7 +4,7 @@
  * View and search through customer chat conversations
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   MessageCircle, Search, Clock, User, Filter,
   ChevronRight, ChevronDown, ExternalLink, Loader2,
@@ -108,12 +108,7 @@ export default function ChatHistory() {
   const [searching, setSearching] = useState(false);
   const [timeRange, setTimeRange] = useState(24);
 
-  // Load sessions
-  useEffect(() => {
-    loadSessions();
-  }, [timeRange]);
-
-  const loadSessions = async () => {
+  const loadSessions = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -124,12 +119,17 @@ export default function ChatHistory() {
       } else {
         setError(data.error || 'Failed to load sessions');
       }
-    } catch (err) {
+    } catch {
       setError('Network error. Please try again.');
     } finally {
       setLoading(false);
     }
-  };
+  }, [timeRange]);
+
+  // Load sessions
+  useEffect(() => {
+    loadSessions();
+  }, [loadSessions]);
 
   // Load session details
   const loadSessionDetails = async (sessionId) => {

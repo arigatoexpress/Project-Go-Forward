@@ -11,7 +11,7 @@ class MarkdownErrorBoundary extends React.Component {
         this.state = { hasError: false };
     }
 
-    static getDerivedStateFromError(error) {
+    static getDerivedStateFromError(_error) {
         return { hasError: true };
     }
 
@@ -40,7 +40,7 @@ export default function SafeMarkdown({ content, comparisonList = [], onToggleCom
                 components={{
                     // Customize markdown rendering
                     code(props) {
-                        const { children, className, node, ...rest } = props;
+                        const { children, className, ...rest } = props;
                         const match = /language-(\w+)/.exec(className || '');
                         const language = match ? match[1] : '';
 
@@ -72,7 +72,7 @@ export default function SafeMarkdown({ content, comparisonList = [], onToggleCom
                                         />
                                     </div>
                                 );
-                            } catch (e) {
+                            } catch {
                                 // Fallback to normal code block if parsing fails or validation fails
                                 return <code {...rest} className={className}>{children}</code>;
                             }
@@ -88,12 +88,12 @@ export default function SafeMarkdown({ content, comparisonList = [], onToggleCom
                             </code>
                         );
                     },
-                    p: ({ node, ...props }) => <p className="mb-2 last:mb-0" {...props} />,
-                    ul: ({ node, ...props }) => <ul className="list-disc list-inside mb-2" {...props} />,
-                    ol: ({ node, ...props }) => <ol className="list-decimal list-inside mb-2" {...props} />,
-                    li: ({ node, ...props }) => <li className="mb-1" {...props} />,
-                    strong: ({ node, ...props }) => <strong className="font-bold" {...props} />,
-                    em: ({ node, ...props }) => <em className="italic" {...props} />,
+                    p: ({ node: _node, ...props }) => <p className="mb-2 last:mb-0" {...props} />,
+                    ul: ({ node: _node, ...props }) => <ul className="list-disc list-inside mb-2" {...props} />,
+                    ol: ({ node: _node, ...props }) => <ol className="list-decimal list-inside mb-2" {...props} />,
+                    li: ({ node: _node, ...props }) => <li className="mb-1" {...props} />,
+                    strong: ({ node: _node, ...props }) => <strong className="font-bold" {...props} />,
+                    em: ({ node: _node, ...props }) => <em className="italic" {...props} />,
                 }}
             >
                 {content}
