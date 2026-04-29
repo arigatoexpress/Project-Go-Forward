@@ -4,11 +4,14 @@ This folder holds the canonical documentation for the Project-Go-Forward / THO A
 
 ## Read in this order
 
-1. [ARCHITECTURE.md](ARCHITECTURE.md) — System overview, tech stack, cloud topology, deployment, repo layout, guardrails.
-2. [DATA_MODEL.md](DATA_MODEL.md) — Firestore collections, entity fields, relationships, canonical IDs.
-3. [WORKFLOWS.md](WORKFLOWS.md) — Business workflows with Mermaid diagrams (lead→funded, document generation, auth, CI/CD).
-4. [SECURITY.md](SECURITY.md) — Auth model, secret hygiene, PII handling, least-privilege access matrix, delete-protection posture.
-5. [INTEGRATION_NOTION.md](INTEGRATION_NOTION.md) — Integration plan for Etai's Notion workspace: division of responsibility, naming conventions, API contract, webhook flows, open decisions.
+1. [SHOWCASE.md](SHOWCASE.md) — Live demo path, verified URLs, audience-specific surfaces, and screenshot safety notes.
+2. [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md) — Read-only smoke checks, local gates, admin-token handling, and Cloud Run rollback path.
+3. [PIN_ROTATION_RUNBOOK.md](PIN_ROTATION_RUNBOOK.md) — Operator-only admin PIN hash rotation without exposing the PIN, token, or hash.
+4. [ARCHITECTURE.md](ARCHITECTURE.md) — System overview, tech stack, cloud topology, deployment, repo layout, guardrails.
+5. [DATA_MODEL.md](DATA_MODEL.md) — Firestore collections, entity fields, relationships, canonical IDs.
+6. [WORKFLOWS.md](WORKFLOWS.md) — Business workflows with Mermaid diagrams (lead to funded, document generation, auth, CI/CD).
+7. [SECURITY.md](SECURITY.md) — Auth model, secret hygiene, PII handling, least-privilege access matrix, delete-protection posture.
+8. [INTEGRATION_NOTION.md](INTEGRATION_NOTION.md) — Integration plan for Etai's Notion workspace: division of responsibility, naming conventions, API contract, webhook flows, open decisions.
 
 ## Older docs
 
