@@ -119,13 +119,14 @@ def check_spa_routes(base_url: str, *, timeout: float) -> list[Probe]:
     for path in PUBLIC_ROUTES:
         status, body, content_type, elapsed_ms = _read_url(base_url, path, timeout=timeout)
         text = body[:4096].decode("utf-8", errors="replace").lower()
-        ok = status == 200 and "text/html" in content_type and 'id="root"' in text
+        has_root = 'id="root"' in text
+        ok = status == 200 and "text/html" in content_type and has_root
         probes.append(
             Probe(
                 name=path,
                 ok=ok,
                 status=status,
-                evidence=f"content_type={content_type}; root={'yes' if 'id=\"root\"' in text else 'no'}",
+                evidence=f"content_type={content_type}; root={'yes' if has_root else 'no'}",
                 elapsed_ms=elapsed_ms,
             )
         )
