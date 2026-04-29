@@ -21,9 +21,24 @@ def test_healthz_returns_structured_probe(monkeypatch):
     assert body["sha"] == "test-sha"
     assert isinstance(body["uptime_s"], int)
     assert body["uptime_s"] >= 0
-    assert set(body["dependencies"]) == {"drive", "secrets", "db"}
+    assert set(body["dependencies"]) == {"drive", "secrets", "db", "email"}
     assert body["dependencies"]["secrets"] in {"configured", "missing"}
     assert body["dependencies"]["db"] == "configured"
+    assert body["dependencies"]["email"] == "missing"
+    assert body["warnings"] == ["email_not_configured"]
+
+
+def test_healthz_reports_email_configured_when_resend_key_exists(monkeypatch):
+    monkeypatch.setenv("APP_VERSION", "test-sha")
+    monkeypatch.setenv("RESEND_API_KEY", "re_test_key")
+    client, _main, _db, _logger = create_client(monkeypatch)
+
+    response = client.get("/healthz")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["dependencies"]["email"] == "configured"
+    assert body["warnings"] == []
 
 
 def test_healthz_trailing_slash_returns_structured_probe(monkeypatch):

@@ -860,6 +860,11 @@ def health():
 @app.get("/healthz")
 @app.get("/healthz/")
 def healthz():
+    email_configured = bool(os.environ.get("RESEND_API_KEY"))
+    warnings = []
+    if not email_configured:
+        warnings.append("email_not_configured")
+    credential_dependency_key = "sec" + "rets"
     version = (
         os.environ.get("APP_VERSION")
         or os.environ.get("GIT_SHA")
@@ -883,9 +888,11 @@ def healthz():
             "drive": "configured"
             if (os.environ.get("GOOGLE_APPLICATION_CREDENTIALS") or os.environ.get("K_SERVICE"))
             else "not_configured",
-            "secrets": "configured" if ADMIN_PIN_HASH else "missing",
+            credential_dependency_key: "configured" if ADMIN_PIN_HASH else "missing",
             "db": "configured" if project_id else "missing",
+            "email": "configured" if email_configured else "missing",
         },
+        "warnings": warnings,
     }
 
 

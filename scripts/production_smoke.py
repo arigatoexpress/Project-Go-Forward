@@ -69,6 +69,15 @@ def check_health(base_url: str, *, timeout: float) -> list[Probe]:
         evidence = f"status={payload.get('status')}"
         if path.startswith("/healthz"):
             evidence += f"; version={payload.get('version')}; uptime_s={payload.get('uptime_s')}"
+            dependencies = payload.get("dependencies")
+            if isinstance(dependencies, dict):
+                dependency_text = ",".join(
+                    f"{key}:{dependencies[key]}" for key in sorted(dependencies)
+                )
+                evidence += f"; deps={dependency_text}"
+            warnings = payload.get("warnings")
+            if isinstance(warnings, list) and warnings:
+                evidence += f"; warnings={','.join(str(item) for item in warnings)}"
         probes.append(
             Probe(name=path, ok=ok, status=status, evidence=evidence, elapsed_ms=elapsed_ms)
         )

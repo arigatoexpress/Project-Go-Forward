@@ -30,7 +30,7 @@ Two patterns drafted:
 |-----|-----|-----|
 | `PII_ENCRYPTION_KEY` | Secret Manager (`secretKeyRef`) | ✓ correct |
 | `ADMIN_PIN_HASH` | Secret Manager (`admin-pin-hash`) | ✓ correct |
-| `RESEND_API_KEY` | plaintext env | ⚠️ move to Secret Manager |
+| `RESEND_API_KEY` | Secret Manager target: `resend-api-key` | ⚠️ bind before relying on transactional email |
 | `N8N_API_TOKEN` | plaintext env | ⚠️ move to Secret Manager + rotate (exposed in prior tooling output) |
 | `THO_API_KEY` | plaintext env | ⚠️ move to Secret Manager + rotate (exposed in prior tooling output) |
 | `GOOGLE_APPLICATION_CREDENTIALS` | not used in Cloud Run (uses metadata server) | ✓ correct |
@@ -38,7 +38,7 @@ Two patterns drafted:
 ### Plan
 
 1. Rotate `THO_API_KEY` and `N8N_API_TOKEN` — both have appeared in tool output / transcripts.
-2. Create Secret Manager secrets: `resend-api-key`, `n8n-api-token`, `tho-api-key`.
+2. Create or update the Secret Manager records named `resend-api-key`, `n8n-api-token`, and `tho-api-key`.
 3. Update Cloud Run service with `secretKeyRef` bindings.
 4. Remove plaintext env vars.
 5. Grant Cloud Run's runtime service account `roles/secretmanager.secretAccessor` per secret (not project-wide).

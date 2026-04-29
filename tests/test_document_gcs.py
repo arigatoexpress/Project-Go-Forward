@@ -50,6 +50,29 @@ class TestDocumentTools:
         assert os.path.getsize(out_path) > 500
         os.remove(out_path)
 
+    def test_fill_pdf_form_creates_missing_output_dir(self, monkeypatch, tmp_path):
+        """Fresh worktrees may not have the ignored generated-docs directory."""
+        from reportlab.pdfgen import canvas
+        import tools.document_tools as document_tools
+
+        template_path = tmp_path / "blank-template.pdf"
+        c = canvas.Canvas(str(template_path))
+        c.drawString(72, 720, "Blank template")
+        c.save()
+
+        output_dir = tmp_path / "missing" / "generated_docs"
+        monkeypatch.setattr(document_tools, "OUTPUT_DIR", str(output_dir))
+
+        output = document_tools.fill_pdf_form(
+            str(template_path),
+            {"buyer_name": "Test Fill"},
+            "created_from_missing_dir.pdf",
+        )
+
+        assert output_dir.is_dir()
+        assert os.path.exists(output)
+        assert os.path.getsize(output) > 500
+
 
 class TestGCSFunctions:
     """Test GCS upload/download/list functions."""
