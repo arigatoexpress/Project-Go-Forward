@@ -11,7 +11,7 @@ Verified on April 29, 2026:
 | `GET /health` | HTTP 200, `status: ok` |
 | `GET /healthz/` | HTTP 200, exposes `version`, `sha`, `uptime_s`, and dependency statuses |
 | `GET /api/marketing/inventory-context` | HTTP 200, `success: true`, 44 homes |
-| Repo `origin/main` during this doc refresh | after PRs #25, #27, #28, and #29 |
+| Repo `origin/main` during this doc refresh | after PRs #25, #26, #27, #28, #29, and #30 |
 
 Use `/healthz/` with the trailing slash for external smoke checks. Before an
 external demo, rerun the smoke and use `/healthz/` as the deployed-revision
