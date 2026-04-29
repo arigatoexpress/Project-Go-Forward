@@ -25,6 +25,7 @@ import logging
 import time
 import uuid
 from datetime import datetime, timezone
+from urllib.parse import urlsplit, urlunsplit
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from config_loader import get_deployment_config, business_name
@@ -143,7 +144,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next):
         # Exempt health check from rate limiting (load balancer probes)
-        if request.url.path in {"/health", "/healthz"}:
+        if request.url.path in {"/health", "/healthz", "/healthz/"}:
             return await call_next(request)
         client_ip = _get_client_ip(request)
         now = time.time()
@@ -165,6 +166,16 @@ class RequestSizeLimitMiddleware(BaseHTTPMiddleware):
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(RateLimitMiddleware)
 app.add_middleware(RequestSizeLimitMiddleware)
+
+
+class ImmutableStaticFiles(StaticFiles):
+    """Serve Vite fingerprinted assets with long-lived immutable caching."""
+
+    async def get_response(self, path, scope):
+        response = await super().get_response(path, scope)
+        if response.status_code == 200:
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        return response
 
 
 # ─── Resilient Error Responses + Cache-Control ───
@@ -392,8 +403,8 @@ async def require_admin(request: Request):
 
 # Brute-force protection: track failed PIN attempts per IP
 _pin_attempts: dict[str, list[float]] = {}
-PIN_MAX_ATTEMPTS = 5
-PIN_LOCKOUT_SECONDS = 300  # 5-minute lockout after 5 failures
+PIN_MAX_ATTEMPTS = 10
+PIN_LOCKOUT_SECONDS = 300  # 5-minute lockout after 10 failures
 
 
 @app.post("/run")
@@ -856,10 +867,25 @@ def healthz():
         or os.environ.get("K_REVISION")
         or "local"
     )
+    sha = (
+        os.environ.get("GIT_SHA")
+        or os.environ.get("SOURCE_COMMIT")
+        or os.environ.get("APP_VERSION")
+        or os.environ.get("GITHUB_SHA")
+        or version
+    )
     return {
         "status": "ok",
         "version": version,
+        "sha": sha,
         "uptime_s": int(time.monotonic() - APP_STARTED_AT),
+        "dependencies": {
+            "drive": "configured"
+            if (os.environ.get("GOOGLE_APPLICATION_CREDENTIALS") or os.environ.get("K_SERVICE"))
+            else "not_configured",
+            "secrets": "configured" if ADMIN_PIN_HASH else "missing",
+            "db": "configured" if project_id else "missing",
+        },
     }
 
 
@@ -2160,7 +2186,8 @@ async def verify_admin_pin(request: Request):
         struct_logger.warning("Admin login locked out", client_ip=client_ip, attempts=len(attempts))
         return JSONResponse(
             {"success": False, "error": "Too many failed attempts. Please wait 5 minutes."},
-            status_code=429
+            status_code=429,
+            headers={"Retry-After": str(PIN_LOCKOUT_SECONDS)},
         )
 
     data = await request.json()
@@ -2415,16 +2442,36 @@ async def submit_feedback(request: Request):
 
     # Sanitize — strip HTML tags from all fields
     import re
-    def sanitize(s: str) -> str:
-        return re.sub(r'<[^>]+>', '', s)[:500]
+
+    def sanitize(s: str, max_len: int = 500) -> str:
+        stripped = re.sub(r"<[^>]+>", "", str(s or ""))
+        stripped = re.sub(
+            r"\b(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b",
+            "[PHONE-REDACTED]",
+            stripped,
+        )
+        stripped = re.sub(
+            r"\b(api[_-]?key|token|secret|pin|password)\s*[:=]\s*\S+",
+            r"\1=[SECRET-REDACTED]",
+            stripped,
+            flags=re.IGNORECASE,
+        )
+        return redact_pii_from_text(stripped)[:max_len]
+
+    def sanitize_url(url: str) -> str:
+        clean = sanitize(url, max_len=500)
+        parsed = urlsplit(clean)
+        if not parsed.scheme or not parsed.netloc:
+            return clean[:200]
+        return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", ""))[:200]
 
     feedback = {
         "timestamp": datetime.utcnow().isoformat(),
-        "description": sanitize(description),
-        "page": sanitize(data.get("page") or "")[:100],
-        "url": sanitize(data.get("url") or "")[:200],
-        "userAgent": sanitize(data.get("userAgent") or "")[:300],
-        "screenSize": sanitize(data.get("screenSize") or "")[:20],
+        "description": sanitize(description, max_len=2000),
+        "page": sanitize(data.get("page") or "", max_len=100),
+        "url": sanitize_url(data.get("url") or ""),
+        "userAgent": sanitize(data.get("userAgent") or "", max_len=300),
+        "screenSize": sanitize(data.get("screenSize") or "", max_len=20),
     }
 
     # Save to feedback log
@@ -2970,7 +3017,7 @@ async def v1_rag_query(request: Request):
 
 
 # Serve Frontend — Must be last to avoid catching API routes
-app.mount("/assets", StaticFiles(directory="frontend/dist/assets"), name="assets")
+app.mount("/assets", ImmutableStaticFiles(directory="frontend/dist/assets"), name="assets")
 
 @app.get("/{full_path:path}")
 async def serve_spa(full_path: str):
@@ -2985,7 +3032,12 @@ async def serve_spa(full_path: str):
     if full_path:
         file_path = os.path.join("frontend/dist", full_path)
         if os.path.isfile(file_path):
-            return FileResponse(file_path)
+            response = FileResponse(file_path)
+            if file_path.endswith(".html"):
+                response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+                response.headers["Pragma"] = "no-cache"
+                response.headers["Expires"] = "0"
+            return response
     # No-cache on index.html so clients always get latest JS chunk references
     response = FileResponse("frontend/dist/index.html")
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"

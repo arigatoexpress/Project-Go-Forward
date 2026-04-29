@@ -21,7 +21,7 @@ from fastapi import HTTPException
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from test_api_v1 import create_client  # noqa: E402
+from test_api_v1 import REPO_ROOT, create_client  # noqa: E402
 
 
 def _add_route_before_spa_catchall(app, path: str, handler, methods=("GET",)):
@@ -62,6 +62,28 @@ def test_unknown_api_path_carries_no_cache_header(monkeypatch):
     response = client.get("/api/nope")
 
     assert response.headers.get("Cache-Control") == "no-cache"
+
+
+def test_vite_assets_use_immutable_cache(monkeypatch):
+    client, _main, _db, _logger = create_client(monkeypatch)
+    asset = REPO_ROOT / "frontend" / "dist" / "assets" / "app.deadbeef.js"
+    asset.write_text("console.log('asset cache test')\n")
+
+    response = client.get("/assets/app.deadbeef.js")
+
+    assert response.status_code == 200
+    assert response.headers.get("Cache-Control") == "public, max-age=31536000, immutable"
+
+
+def test_direct_html_files_use_no_store(monkeypatch):
+    client, _main, _db, _logger = create_client(monkeypatch)
+    studio = REPO_ROOT / "frontend" / "dist" / "studio.html"
+    studio.write_text("<html><body>studio</body></html>")
+
+    response = client.get("/studio.html")
+
+    assert response.status_code == 200
+    assert response.headers.get("Cache-Control") == "no-cache, no-store, must-revalidate"
 
 
 def test_500_via_test_only_endpoint_uses_wrapper_envelope(monkeypatch):

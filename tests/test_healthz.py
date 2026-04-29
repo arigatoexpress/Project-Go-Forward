@@ -18,8 +18,12 @@ def test_healthz_returns_structured_probe(monkeypatch):
     body = response.json()
     assert body["status"] == "ok"
     assert body["version"] == "test-sha"
+    assert body["sha"] == "test-sha"
     assert isinstance(body["uptime_s"], int)
     assert body["uptime_s"] >= 0
+    assert set(body["dependencies"]) == {"drive", "secrets", "db"}
+    assert body["dependencies"]["secrets"] in {"configured", "missing"}
+    assert body["dependencies"]["db"] == "configured"
 
 
 def test_healthz_trailing_slash_returns_structured_probe(monkeypatch):
@@ -36,8 +40,10 @@ def test_healthz_is_not_rate_limited(monkeypatch):
     client, _main, _db, _logger = create_client(monkeypatch, rate_limit_rpm="1")
 
     responses = [client.get("/healthz") for _ in range(3)]
+    trailing_slash = client.get("/healthz/")
 
     assert [response.status_code for response in responses] == [200, 200, 200]
+    assert trailing_slash.status_code == 200
 
 
 def test_unknown_api_paths_do_not_fall_back_to_spa(monkeypatch):
@@ -51,3 +57,26 @@ def test_unknown_api_paths_do_not_fall_back_to_spa(monkeypatch):
     assert "<!doctype html>" not in response.text.lower()
     assert normalized_traversal.status_code == 404
     assert normalized_traversal.headers["content-type"].startswith("application/json")
+
+
+def test_admin_pin_locks_out_after_ten_bad_attempts(monkeypatch):
+    client, main, _db, _logger = create_client(monkeypatch)
+
+    bad_attempts = [client.post("/api/admin/verify", json={"pin": "0000"}) for _ in range(10)]
+    locked = client.post("/api/admin/verify", json={"pin": "0000"})
+
+    assert main.PIN_MAX_ATTEMPTS == 10
+    assert [response.status_code for response in bad_attempts] == [401] * 10
+    assert locked.status_code == 429
+    assert locked.headers["Retry-After"] == str(main.PIN_LOCKOUT_SECONDS)
+
+
+def test_successful_admin_login_clears_failed_attempts(monkeypatch):
+    client, main, _db, _logger = create_client(monkeypatch)
+
+    for _ in range(3):
+        assert client.post("/api/admin/verify", json={"pin": "0000"}).status_code == 401
+
+    success = client.post("/api/admin/verify", json={"pin": "4832"})
+    assert success.status_code == 200
+    assert main._pin_attempts == {}
