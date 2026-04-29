@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
     Sparkles, Film, TrendingUp, Calendar, BarChart3, X,
     ArrowLeft, Copy, Check, ChevronDown, Loader2,
@@ -189,7 +189,7 @@ export default function AdStudio({ onBack }) {
     const [imageCategories, setImageCategories] = useState({});
     const [activeCategory, setActiveCategory] = useState('all');
     const [matterportUrl, setMatterportUrl] = useState(null);
-    const [matterportId, setMatterportId] = useState(null);
+    const [_matterportId, setMatterportId] = useState(null);
     const [showMatterport, setShowMatterport] = useState(false);
     const [selectedPhotoIdx, setSelectedPhotoIdx] = useState(0);
     const [imageMode, setImageMode] = useState('real'); // 'real' or 'ai'
@@ -230,13 +230,13 @@ export default function AdStudio({ onBack }) {
     const [loadingAnalytics, setLoadingAnalytics] = useState(false);
 
     /* ─── get current script (handles variations) ─── */
-    const getCurrentScript = () => {
+    const getCurrentScript = useCallback(() => {
         if (!script) return null;
         if (script.scripts && script.scripts.length > 0) {
             return script.scripts[activeVariation] || script.scripts[0];
         }
         return script.script;
-    };
+    }, [activeVariation, script]);
 
     /* ─── handlers ─── */
     const handleGenerate = async () => {
@@ -297,7 +297,7 @@ export default function AdStudio({ onBack }) {
         setTimeout(() => setCopied(false), 2000);
     };
 
-    const handleLoadIdeas = async () => {
+    const handleLoadIdeas = useCallback(async () => {
         setLoadingIdeas(true);
         try {
             const result = await apiGetIdeas();
@@ -307,7 +307,7 @@ export default function AdStudio({ onBack }) {
         } finally {
             setLoadingIdeas(false);
         }
-    };
+    }, []);
 
     const handleSchedule = async () => {
         if (!script) return;
@@ -328,7 +328,7 @@ export default function AdStudio({ onBack }) {
         }
     };
 
-    const handleLoadAnalytics = async () => {
+    const handleLoadAnalytics = useCallback(async () => {
         setLoadingAnalytics(true);
         try {
             const result = await apiGetAnalytics();
@@ -338,7 +338,7 @@ export default function AdStudio({ onBack }) {
         } finally {
             setLoadingAnalytics(false);
         }
-    };
+    }, []);
 
     const handleLoadInventory = async () => {
         setLoadingInventory(true);
@@ -401,7 +401,7 @@ export default function AdStudio({ onBack }) {
     };
 
     // Voiceover handlers
-    const handleLoadVoices = async () => {
+    const handleLoadVoices = useCallback(async () => {
         try {
             const result = await apiGetVoices();
             if (result.success) {
@@ -410,7 +410,7 @@ export default function AdStudio({ onBack }) {
         } catch (err) {
             console.error('Failed to load voices:', err);
         }
-    };
+    }, []);
 
     const handleGenerateVoiceover = async () => {
         const s = getCurrentScript();
@@ -508,13 +508,13 @@ export default function AdStudio({ onBack }) {
     // Load voices on mount
     useEffect(() => {
         handleLoadVoices();
-    }, []);
+    }, [handleLoadVoices]);
 
     // Auto-load data when switching tabs
     useEffect(() => {
         if (activeTab === 'ideas' && !ideas) handleLoadIdeas();
         if (activeTab === 'analytics' && !analytics) handleLoadAnalytics();
-    }, [activeTab]);
+    }, [activeTab, analytics, handleLoadAnalytics, handleLoadIdeas, ideas]);
 
     // Update image prompt when switching variations
     useEffect(() => {
@@ -522,7 +522,7 @@ export default function AdStudio({ onBack }) {
         if (s?.suggested_image_prompts?.length > 0) {
             setImagePrompt(s.suggested_image_prompts[0]);
         }
-    }, [activeVariation]);
+    }, [activeVariation, getCurrentScript]);
 
     /* ─── render helpers ─── */
     const selectedPlatform = PLATFORMS.find(p => p.id === platform);

@@ -1,9 +1,78 @@
 import React, { useState } from 'react';
 import { Home, Bed, Bath, Maximize, Plus, Check, ChevronLeft, ChevronRight, X, Images } from 'lucide-react';
 
+function GalleryModal({
+    allImages,
+    currentImageIndex,
+    hasMultipleImages,
+    modelName,
+    onClose,
+    onNext,
+    onPrev,
+    onSelectImage,
+}) {
+    return (
+        <div
+            className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center"
+            onClick={onClose}
+        >
+            <button
+                onClick={(e) => { e.stopPropagation(); onClose(); }}
+                className="absolute top-4 right-4 text-white hover:text-gray-300 z-50"
+            >
+                <X size={32} />
+            </button>
+
+            <div className="relative w-full h-full flex items-center justify-center p-4" onClick={(e) => e.stopPropagation()}>
+                {hasMultipleImages && (
+                    <button
+                        onClick={onPrev}
+                        className="absolute left-4 z-10 p-2 bg-black/50 hover:bg-black/70 rounded-full text-white"
+                    >
+                        <ChevronLeft size={32} />
+                    </button>
+                )}
+
+                <img
+                    src={allImages[currentImageIndex]}
+                    alt={`${modelName} - Photo ${currentImageIndex + 1}`}
+                    className="max-w-full max-h-[85vh] object-contain rounded-lg"
+                />
+
+                {hasMultipleImages && (
+                    <button
+                        onClick={onNext}
+                        className="absolute right-4 z-10 p-2 bg-black/50 hover:bg-black/70 rounded-full text-white"
+                    >
+                        <ChevronRight size={32} />
+                    </button>
+                )}
+
+                {hasMultipleImages && (
+                    <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 flex gap-2 p-2 bg-black/50 rounded-lg max-w-[90vw] overflow-x-auto">
+                        {allImages.map((img, idx) => (
+                            <button
+                                key={idx}
+                                onClick={(e) => { e.stopPropagation(); onSelectImage(idx); }}
+                                className={`flex-shrink-0 w-16 h-12 rounded overflow-hidden border-2 transition-all ${idx === currentImageIndex ? 'border-blue-500' : 'border-transparent hover:border-white/50'
+                                    }`}
+                            >
+                                <img src={img} alt="" className="w-full h-full object-cover" />
+                            </button>
+                        ))}
+                    </div>
+                )}
+
+                <div className="absolute top-4 left-4 text-white text-sm bg-black/50 px-3 py-1 rounded-full">
+                    {currentImageIndex + 1} / {allImages.length}
+                </div>
+            </div>
+        </div>
+    );
+}
+
 const PropertyCard = ({ property, onToggleCompare, isSelected }) => {
     const {
-        id,
         model_name,
         specs,
         pricing,
@@ -33,67 +102,6 @@ const PropertyCard = ({ property, onToggleCompare, isSelected }) => {
         e?.stopPropagation();
         setCurrentImageIndex((prev) => (prev - 1 + allImages.length) % allImages.length);
     };
-
-    // Full screen gallery modal
-    const GalleryModal = () => (
-        <div
-            className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center"
-            onClick={() => setShowGallery(false)}
-        >
-            <button
-                onClick={(e) => { e.stopPropagation(); setShowGallery(false); }}
-                className="absolute top-4 right-4 text-white hover:text-gray-300 z-50"
-            >
-                <X size={32} />
-            </button>
-
-            <div className="relative w-full h-full flex items-center justify-center p-4" onClick={(e) => e.stopPropagation()}>
-                {hasMultipleImages && (
-                    <button
-                        onClick={prevImage}
-                        className="absolute left-4 z-10 p-2 bg-black/50 hover:bg-black/70 rounded-full text-white"
-                    >
-                        <ChevronLeft size={32} />
-                    </button>
-                )}
-
-                <img
-                    src={allImages[currentImageIndex]}
-                    alt={`${model_name} - Photo ${currentImageIndex + 1}`}
-                    className="max-w-full max-h-[85vh] object-contain rounded-lg"
-                />
-
-                {hasMultipleImages && (
-                    <button
-                        onClick={nextImage}
-                        className="absolute right-4 z-10 p-2 bg-black/50 hover:bg-black/70 rounded-full text-white"
-                    >
-                        <ChevronRight size={32} />
-                    </button>
-                )}
-
-                {/* Thumbnail strip */}
-                {hasMultipleImages && (
-                    <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 flex gap-2 p-2 bg-black/50 rounded-lg max-w-[90vw] overflow-x-auto">
-                        {allImages.map((img, idx) => (
-                            <button
-                                key={idx}
-                                onClick={(e) => { e.stopPropagation(); setCurrentImageIndex(idx); }}
-                                className={`flex-shrink-0 w-16 h-12 rounded overflow-hidden border-2 transition-all ${idx === currentImageIndex ? 'border-blue-500' : 'border-transparent hover:border-white/50'
-                                    }`}
-                            >
-                                <img src={img} alt="" className="w-full h-full object-cover" />
-                            </button>
-                        ))}
-                    </div>
-                )}
-
-                <div className="absolute top-4 left-4 text-white text-sm bg-black/50 px-3 py-1 rounded-full">
-                    {currentImageIndex + 1} / {allImages.length}
-                </div>
-            </div>
-        </div>
-    );
 
     return (
         <>
@@ -241,7 +249,18 @@ const PropertyCard = ({ property, onToggleCompare, isSelected }) => {
             </div>
 
             {/* Gallery Modal */}
-            {showGallery && <GalleryModal />}
+            {showGallery && (
+                <GalleryModal
+                    allImages={allImages}
+                    currentImageIndex={currentImageIndex}
+                    hasMultipleImages={hasMultipleImages}
+                    modelName={model_name}
+                    onClose={() => setShowGallery(false)}
+                    onNext={nextImage}
+                    onPrev={prevImage}
+                    onSelectImage={setCurrentImageIndex}
+                />
+            )}
         </>
     );
 };

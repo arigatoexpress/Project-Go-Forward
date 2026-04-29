@@ -5,6 +5,7 @@
 Turn any business into an AI-powered operation with conversational sales, service, and lead management — in minutes, not months.
 
 > See `AGENTS.md` for agentic navigation and `docs/DEV_SETUP.md` for Python 3.11 + pre-commit setup.
+> For live Texas Home Outlet operations, use `docs/PRODUCTION_READINESS.md` before touching production.
 
 ---
 
@@ -117,6 +118,29 @@ gcloud run deploy project-go-forward \
   --set-env-vars GOOGLE_GENAI_USE_VERTEXAI=true,GOOGLE_CLOUD_PROJECT="$GCP_PROJECT_ID",GOOGLE_CLOUD_LOCATION=us-central1 \
   --memory 1Gi
 ```
+
+---
+
+## ✅ Production Readiness
+
+Texas Home Outlet production runs on Cloud Run and is published at
+`https://sapphirealpha.xyz`.
+
+Use the production runbook for the current verification path:
+
+```bash
+export THO_PROD_URL="https://sapphirealpha.xyz"
+python3 scripts/production_smoke.py --base-url "$THO_PROD_URL"
+```
+
+The smoke is read-only: it checks `/health`, `/healthz/`, public SPA routes,
+inventory payload shape, and unauthenticated admin-route protection. Admin
+access is controlled by `ADMIN_PIN_HASH`; the plaintext PIN cannot be recovered
+from production and should never be sent through email or chat.
+
+See [`docs/PRODUCTION_READINESS.md`](docs/PRODUCTION_READINESS.md) for the full
+local gate list, admin token commands, rotation path, and Cloud Run rollback
+commands.
 
 ---
 

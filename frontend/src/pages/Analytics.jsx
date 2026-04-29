@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, PieChart, Pie, Cell, LineChart, Line, AreaChart, Area } from 'recharts';
 import { Users, Search, MessageSquare, TrendingUp, ArrowUp, ArrowDown, Phone, Calendar, DollarSign, Loader2, RefreshCw, AlertCircle, FileText, Home, Clock, Target, Zap } from 'lucide-react';
 import adminFetch from '../adminFetch';
@@ -6,7 +6,7 @@ import adminFetch from '../adminFetch';
 const PIE_COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899'];
 const AREA_COLORS = ['#3B82F6', '#10B981', '#F59E0B'];
 
-const MetricCard = ({ title, value, icon: Icon, trend, trendUp, accent, subtitle }) => (
+const MetricCard = ({ title, value, icon, trend, trendUp, accent, subtitle }) => (
     <div className={`bg-white p-6 rounded-xl shadow-sm border ${accent ? 'border-blue-200 bg-gradient-to-br from-blue-50 to-white' : 'border-gray-100'} flex items-start justify-between hover:shadow-md transition-shadow`}>
         <div>
             <p className="text-sm font-medium text-gray-500 mb-1">{title}</p>
@@ -20,7 +20,7 @@ const MetricCard = ({ title, value, icon: Icon, trend, trendUp, accent, subtitle
             {subtitle && <p className="text-xs text-gray-400 mt-1">{subtitle}</p>}
         </div>
         <div className={`p-3 ${accent ? 'bg-blue-100' : 'bg-gray-50'} rounded-lg ${accent ? 'text-blue-600' : 'text-gray-600'}`}>
-            <Icon size={24} />
+            {React.createElement(icon, { size: 24 })}
         </div>
     </div>
 );
@@ -54,7 +54,7 @@ export default function Analytics() {
     const [timeRange, setTimeRange] = useState('30d');
     const [activeTab, setActiveTab] = useState('overview');
 
-    const fetchData = async () => {
+    const fetchData = useCallback(async () => {
         setLoading(true);
         setError('');
         try {
@@ -89,11 +89,11 @@ export default function Analytics() {
         } finally {
             setLoading(false);
         }
-    };
+    }, [timeRange]);
 
     useEffect(() => {
         fetchData();
-    }, [timeRange]);
+    }, [fetchData]);
 
     // Calculate metrics
     const conversionRate = leadStats?.total > 0
