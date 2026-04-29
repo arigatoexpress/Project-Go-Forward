@@ -113,6 +113,7 @@ def list_gcs_documents() -> list:
 
 def create_summary_pdf(data_dict: Dict[str, Any], output_path: str):
     """Creates a simple summary PDF with key-value pairs."""
+    _ensure_parent_dir(output_path)
     c = canvas.Canvas(output_path, pagesize=letter)
     width, height = letter
     c.setFont("Helvetica-Bold", 16)
@@ -135,6 +136,11 @@ def create_summary_pdf(data_dict: Dict[str, Any], output_path: str):
 
 _logger = logging.getLogger(__name__)
 
+
+def _ensure_parent_dir(path: str) -> None:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+
+
 def fill_pdf_form(template_path: str, data_dict: Dict[str, Any], output_filename: str) -> str:
     """
     Fills a PDF form with data. THO templates are hybrid XFA + AcroForm.
@@ -152,6 +158,7 @@ def fill_pdf_form(template_path: str, data_dict: Dict[str, Any], output_filename
     """
     _logger.info(f"fill_pdf_form called for {output_filename}")
     output_path = os.path.join(OUTPUT_DIR, output_filename)
+    _ensure_parent_dir(output_path)
 
     try:
         reader = PdfReader(template_path)

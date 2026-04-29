@@ -367,6 +367,7 @@ def generate_packet(
     packet_path = os.path.join(OUTPUT_DIR, packet_filename)
 
     try:
+        os.makedirs(OUTPUT_DIR, exist_ok=True)
         writer = PdfWriter()
         for file_path in generated_files:
             reader = PdfReader(file_path)
@@ -500,6 +501,7 @@ def generate_batch(
             date_str = datetime.now().strftime("%Y%m%d_%H%M%S")
             merged_filename = f"Documents_{buyer}_{date_str}.pdf"
             merged_path = os.path.join(OUTPUT_DIR, merged_filename)
+            os.makedirs(OUTPUT_DIR, exist_ok=True)
             with open(merged_path, "wb") as f:
                 writer.write(f)
             upload_to_gcs(merged_path, merged_filename)
