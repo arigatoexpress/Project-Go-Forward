@@ -8,6 +8,7 @@ import ComparisonDrawer from './components/ComparisonDrawer';
 import { useToast } from './components/Toast';
 import { useNetworkStatus } from './components/NetworkStatus';
 import ReportIssue from './components/ReportIssue';
+import ErrorBoundary from './components/ErrorBoundary';
 import { v4 as uuidv4 } from 'uuid';
 import {
   BUSINESS_NAME, BUSINESS_PHONE, BUSINESS_PHONE_RAW, BUSINESS_ADDRESS,
@@ -599,9 +600,11 @@ function App() {
     return (
       <div className="bg-gray-50 min-h-screen">
         <NavBar {...navProps} />
-        <Suspense fallback={<PageLoader />}>
-          <Analytics />
-        </Suspense>
+        <ErrorBoundary scope="analytics">
+          <Suspense fallback={<PageLoader />}>
+            <Analytics />
+          </Suspense>
+        </ErrorBoundary>
       </div>
     );
   }
@@ -610,9 +613,11 @@ function App() {
     return (
       <div className="bg-gray-50 min-h-screen">
         <NavBar {...navProps} />
-        <Suspense fallback={<PageLoader />}>
-          <CRM onBack={() => navigateTo('inventory')} />
-        </Suspense>
+        <ErrorBoundary scope="crm">
+          <Suspense fallback={<PageLoader />}>
+            <CRM onBack={() => navigateTo('inventory')} />
+          </Suspense>
+        </ErrorBoundary>
       </div>
     );
   }
@@ -621,9 +626,11 @@ function App() {
     return (
       <div className="bg-gray-50 min-h-screen">
         <NavBar {...navProps} />
-        <Suspense fallback={<PageLoader />}>
-          <ChatHistory />
-        </Suspense>
+        <ErrorBoundary scope="chat-history">
+          <Suspense fallback={<PageLoader />}>
+            <ChatHistory />
+          </Suspense>
+        </ErrorBoundary>
       </div>
     );
   }
@@ -643,9 +650,11 @@ function App() {
             </div>
           </header>
         )}
-        <Suspense fallback={<PageLoader />}>
-          <DocumentCenter onBack={() => navigateTo('chat')} sessionId={sessionId} standalone={isStandaloneMode} />
-        </Suspense>
+        <ErrorBoundary scope="documents">
+          <Suspense fallback={<PageLoader />}>
+            <DocumentCenter onBack={() => navigateTo('chat')} sessionId={sessionId} standalone={isStandaloneMode} />
+          </Suspense>
+        </ErrorBoundary>
       </div>
     );
   }
@@ -665,9 +674,11 @@ function App() {
             </div>
           </header>
         )}
-        <Suspense fallback={<PageLoader />}>
-          <AdStudio onBack={() => navigateTo('chat')} standalone={isStandaloneMode} />
-        </Suspense>
+        <ErrorBoundary scope="adstudio">
+          <Suspense fallback={<PageLoader />}>
+            <AdStudio onBack={() => navigateTo('chat')} standalone={isStandaloneMode} />
+          </Suspense>
+        </ErrorBoundary>
       </div>
     );
   }
@@ -676,9 +687,11 @@ function App() {
     return (
       <div className="bg-gray-50 min-h-screen">
         <NavBar {...navProps} />
-        <Suspense fallback={<PageLoader />}>
-          <Contact onBack={() => navigateTo('inventory')} />
-        </Suspense>
+        <ErrorBoundary scope="contact">
+          <Suspense fallback={<PageLoader />}>
+            <Contact onBack={() => navigateTo('inventory')} />
+          </Suspense>
+        </ErrorBoundary>
       </div>
     );
   }
@@ -687,9 +700,11 @@ function App() {
     return (
       <div className="bg-gray-50 min-h-screen">
         <NavBar {...navProps} />
-        <Suspense fallback={<PageLoader />}>
-          <Appointments onBack={() => navigateTo('inventory')} />
-        </Suspense>
+        <ErrorBoundary scope="appointments">
+          <Suspense fallback={<PageLoader />}>
+            <Appointments onBack={() => navigateTo('inventory')} />
+          </Suspense>
+        </ErrorBoundary>
       </div>
     );
   }
@@ -700,19 +715,21 @@ function App() {
         {pinModal}
         <NavBar {...navProps} />
 
-        <Suspense fallback={<PageLoader />}>
-          <InventoryBrowse
-            onAskTex={(message) => {
-              navigateTo('chat');
-              setMessages(prev => [...prev, { role: 'user', text: message }]);
-              handleQuickAction(message);
-            }}
-            onBack={() => navigateTo('chat')}
-            onCreateAd={adminAuthed ? () => {
-              navigateTo('adstudio');
-            } : undefined}
-          />
-        </Suspense>
+        <ErrorBoundary scope="inventory">
+          <Suspense fallback={<PageLoader />}>
+            <InventoryBrowse
+              onAskTex={(message) => {
+                navigateTo('chat');
+                setMessages(prev => [...prev, { role: 'user', text: message }]);
+                handleQuickAction(message);
+              }}
+              onBack={() => navigateTo('chat')}
+              onCreateAd={adminAuthed ? () => {
+                navigateTo('adstudio');
+              } : undefined}
+            />
+          </Suspense>
+        </ErrorBoundary>
 
         {/* Floating Chat Bubble */}
         <button
