@@ -2265,6 +2265,45 @@ async def get_email_log_api(limit: int = 50, email_type: str = None):
         return {"success": False, "error": "Failed to load email log. Please try again."}
 
 
+@app.get("/api/admin/email/inbound-status", dependencies=[Depends(require_admin)])
+async def get_email_inbound_status():
+    """Readiness probe for the Gmail inbound sync scaffold.
+
+    Returns a snapshot of whether the inbound feature is **enabled** (env flag
+    on) and **configured** (service account + delegated user present). This
+    endpoint never calls the Gmail API; it only reflects environment + last
+    known state. Used by Mark/Celeste during the Workspace setup checklist.
+
+    Response shape:
+        {
+          "success": True,
+          "enabled": bool,           # GMAIL_INBOUND_ENABLED == "true"
+          "configured": bool,        # both env vars set (does not validate JSON)
+          "delegated_user": str,     # echoed from env, empty if unset
+          "label": str,              # filter label (default: "inbox")
+          "last_poll_at": str|None,  # placeholder; wired in a follow-up PR
+          "last_error": str|None,    # placeholder; wired in a follow-up PR
+        }
+    """
+    enabled = os.environ.get("GMAIL_INBOUND_ENABLED", "false").strip().lower() == "true"
+    sa_path = os.environ.get("GMAIL_SERVICE_ACCOUNT_JSON", "").strip()
+    delegated_user = os.environ.get("GMAIL_DELEGATED_USER", "").strip()
+    label = os.environ.get("GMAIL_INBOUND_LABEL", "inbox").strip() or "inbox"
+    configured = bool(sa_path and delegated_user)
+    return {
+        "success": True,
+        "enabled": enabled,
+        "configured": configured,
+        "delegated_user": delegated_user,
+        "label": label,
+        # Polling state lives in Firestore once a follow-up PR wires the loop.
+        # Until then these are explicit None so consumers can render a
+        # "not yet polled" state without guessing.
+        "last_poll_at": None,
+        "last_error": None,
+    }
+
+
 # ─── Chat History API ────────────────────────────────────
 
 @app.get("/api/chat/history/{session_id}", dependencies=[Depends(require_admin)])
