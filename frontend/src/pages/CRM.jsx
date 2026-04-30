@@ -975,32 +975,43 @@ export default function CRM({ onBack }) {
 
 function LeadDetail({ lead, onClose, onUpdateStatus, onEmail, appointments, emails }) {
   return (
-    <div className="crm-lead-detail">
-      <button onClick={onClose} className="crm-detail-back">
+    <div className="bg-white rounded-xl p-6">
+      <button
+        onClick={onClose}
+        className="flex items-center gap-1.5 bg-transparent border-0 text-blue-500 hover:text-blue-600 text-[13px] cursor-pointer p-0 mb-5"
+      >
         <ArrowLeft size={16} /> Back to leads
       </button>
 
-      <div className="crm-detail-header">
-        <div className="crm-detail-avatar" style={{ background: STATUS_COLORS[lead.status] || '#94a3b8' }}>
+      <div className="flex items-center gap-4 mb-6">
+        <div
+          className="w-14 h-14 rounded-full flex items-center justify-center text-white font-bold text-[22px] shrink-0"
+          style={{ background: STATUS_COLORS[lead.status] || '#94a3b8' }}
+        >
           {(lead.name || '?')[0].toUpperCase()}
         </div>
         <div>
-          <h2 className="crm-detail-name">{lead.name || 'Unknown'}</h2>
-          <div className="crm-detail-contact">
-            {lead.phone && <span><Phone size={14} /> {lead.phone}</span>}
-            {lead.email && <span><Mail size={14} /> {lead.email}</span>}
+          <h2 className="text-xl font-bold text-slate-800 m-0">{lead.name || 'Unknown'}</h2>
+          <div className="flex flex-wrap gap-4 mt-1 text-[13px] text-gray-500">
+            {lead.phone && <span className="flex items-center gap-1"><Phone size={14} /> {lead.phone}</span>}
+            {lead.email && <span className="flex items-center gap-1"><Mail size={14} /> {lead.email}</span>}
           </div>
         </div>
       </div>
 
       {/* Status Actions */}
-      <div className="crm-detail-section">
-        <h3>Status</h3>
-        <div className="crm-detail-status-row">
+      <div className="mb-5 pb-5 border-b border-gray-100">
+        <h3 className="text-xs uppercase tracking-wide text-gray-500 m-0 mb-2.5 font-semibold">Status</h3>
+        <div className="flex flex-wrap gap-2">
           {['new', 'contacted', 'qualified', 'converted'].map(s => (
             <button
               key={s}
-              className={`crm-detail-status-btn ${lead.status === s ? 'crm-detail-status-active' : ''}`}
+              className={
+                'px-4 py-1.5 rounded-lg text-[13px] cursor-pointer capitalize transition ' +
+                (lead.status === s
+                  ? 'border border-transparent text-white'
+                  : 'border border-gray-300 bg-white hover:border-gray-400 text-gray-700')
+              }
               style={lead.status === s ? { background: STATUS_COLORS[s], color: '#fff' } : {}}
               onClick={() => onUpdateStatus(lead.lead_id, s)}
             >
@@ -1012,41 +1023,52 @@ function LeadDetail({ lead, onClose, onUpdateStatus, onEmail, appointments, emai
 
       {/* Preferences */}
       {(lead.bedrooms || lead.bathrooms || lead.budget_max || lead.home_type) && (
-        <div className="crm-detail-section">
-          <h3>Preferences</h3>
-          <div className="crm-detail-prefs">
-            {lead.bedrooms && <span><Home size={14} /> {lead.bedrooms} bed</span>}
-            {lead.bathrooms && <span>{lead.bathrooms} bath</span>}
-            {lead.budget_max && <span><DollarSign size={14} /> {Number(lead.budget_max).toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })}</span>}
-            {lead.home_type && <span>{lead.home_type}</span>}
+        <div className="mb-5 pb-5 border-b border-gray-100">
+          <h3 className="text-xs uppercase tracking-wide text-gray-500 m-0 mb-2.5 font-semibold">Preferences</h3>
+          <div className="flex flex-wrap gap-4 text-[13px] text-gray-700">
+            {lead.bedrooms && <span className="flex items-center gap-1"><Home size={14} /> {lead.bedrooms} bed</span>}
+            {lead.bathrooms && <span className="flex items-center gap-1">{lead.bathrooms} bath</span>}
+            {lead.budget_max && (
+              <span className="flex items-center gap-1">
+                <DollarSign size={14} />
+                {Number(lead.budget_max).toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })}
+              </span>
+            )}
+            {lead.home_type && <span className="flex items-center gap-1">{lead.home_type}</span>}
           </div>
         </div>
       )}
 
       {/* Engagement */}
-      <div className="crm-detail-section">
-        <h3>Engagement</h3>
-        <div className="crm-detail-engagement">
-          <span>Source: <strong>{lead.source}</strong></span>
-          <span>Appointment: <strong>{lead.appointment_requested ? 'Yes' : 'No'}</strong></span>
-          <span>Financing: <strong>{lead.financing_discussed ? 'Discussed' : 'No'}</strong></span>
+      <div className="mb-5 pb-5 border-b border-gray-100">
+        <h3 className="text-xs uppercase tracking-wide text-gray-500 m-0 mb-2.5 font-semibold">Engagement</h3>
+        <div className="flex flex-wrap gap-4 text-[13px] text-gray-700">
+          <span className="flex items-center gap-1">Source: <strong>{lead.source}</strong></span>
+          <span className="flex items-center gap-1">Appointment: <strong>{lead.appointment_requested ? 'Yes' : 'No'}</strong></span>
+          <span className="flex items-center gap-1">Financing: <strong>{lead.financing_discussed ? 'Discussed' : 'No'}</strong></span>
           {lead.homes_viewed?.length > 0 && (
-            <span>Viewed: <strong>{lead.homes_viewed.join(', ')}</strong></span>
+            <span className="flex items-center gap-1">Viewed: <strong>{lead.homes_viewed.join(', ')}</strong></span>
           )}
         </div>
       </div>
 
       {/* Actions */}
-      <div className="crm-detail-section">
-        <h3>Actions</h3>
-        <div className="crm-detail-actions">
+      <div className="mb-5 pb-5 border-b border-gray-100">
+        <h3 className="text-xs uppercase tracking-wide text-gray-500 m-0 mb-2.5 font-semibold">Actions</h3>
+        <div className="flex flex-col sm:flex-row gap-2.5">
           {lead.phone && (
-            <a href={`tel:${lead.phone}`} className="crm-action-btn crm-action-call">
+            <a
+              href={`tel:${lead.phone}`}
+              className="flex items-center justify-center gap-1.5 px-5 py-2.5 rounded-lg text-sm font-medium border-0 bg-green-500 hover:bg-green-600 text-white no-underline transition-colors"
+            >
               <Phone size={16} /> Call
             </a>
           )}
           {lead.email && (
-            <button onClick={() => onEmail(lead)} className="crm-action-btn crm-action-email">
+            <button
+              onClick={() => onEmail(lead)}
+              className="flex items-center justify-center gap-1.5 px-5 py-2.5 rounded-lg text-sm font-medium border-0 bg-blue-500 hover:bg-blue-600 text-white cursor-pointer transition-colors"
+            >
               <Mail size={16} /> Email
             </button>
           )}
@@ -1054,51 +1076,61 @@ function LeadDetail({ lead, onClose, onUpdateStatus, onEmail, appointments, emai
       </div>
 
       {/* Activity Timeline */}
-      <div className="crm-detail-section">
-        <h3>Activity</h3>
-        <div className="crm-timeline">
+      <div className="mb-5 pb-5 border-b border-gray-100">
+        <h3 className="text-xs uppercase tracking-wide text-gray-500 m-0 mb-2.5 font-semibold">Activity</h3>
+        <div className="flex flex-col pl-3">
           {/* Created */}
-          <div className="crm-timeline-item">
-            <div className="crm-timeline-dot" style={{ background: '#3b82f6' }} />
-            <div className="crm-timeline-content">
-              <span className="crm-timeline-action">Lead created via {lead.source}</span>
-              <span className="crm-timeline-time">{formatDate(lead.created_at)}</span>
+          <div className="flex gap-3 py-2.5 pl-4 border-l-2 border-gray-200 relative">
+            <div
+              className="absolute -left-1.5 top-3.5 w-2.5 h-2.5 rounded-full border-2 border-white"
+              style={{ background: '#3b82f6' }}
+            />
+            <div className="flex flex-col gap-0.5">
+              <span className="text-[13px] text-gray-700">Lead created via {lead.source}</span>
+              <span className="text-[11px] text-gray-400">{formatDate(lead.created_at)}</span>
             </div>
           </div>
 
           {/* Related Appointments */}
           {appointments.map(appt => (
-            <div key={appt.appointment_id} className="crm-timeline-item">
-              <div className="crm-timeline-dot" style={{ background: '#22c55e' }} />
-              <div className="crm-timeline-content">
-                <span className="crm-timeline-action">
+            <div
+              key={appt.appointment_id}
+              className="flex gap-3 py-2.5 pl-4 border-l-2 border-gray-200 relative"
+            >
+              <div
+                className="absolute -left-1.5 top-3.5 w-2.5 h-2.5 rounded-full border-2 border-white"
+                style={{ background: '#22c55e' }}
+              />
+              <div className="flex flex-col gap-0.5">
+                <span className="text-[13px] text-gray-700">
                   Appointment {appt.status} — {appt.date} at {appt.time_slot}
                 </span>
-                <span className="crm-timeline-time">{formatDate(appt.created_at)}</span>
+                <span className="text-[11px] text-gray-400">{formatDate(appt.created_at)}</span>
               </div>
             </div>
           ))}
 
           {/* Related Emails */}
           {emails.map((email, idx) => (
-            <div key={idx} className="crm-timeline-item">
-              <div className="crm-timeline-dot" style={{ background: '#f59e0b' }} />
-              <div className="crm-timeline-content">
-                <span className="crm-timeline-action">
-                  Email sent: {email.subject}
-                </span>
-                <span className="crm-timeline-time">{formatDate(email.sent_at)}</span>
+            <div key={idx} className="flex gap-3 py-2.5 pl-4 border-l-2 border-gray-200 relative">
+              <div
+                className="absolute -left-1.5 top-3.5 w-2.5 h-2.5 rounded-full border-2 border-white"
+                style={{ background: '#f59e0b' }}
+              />
+              <div className="flex flex-col gap-0.5">
+                <span className="text-[13px] text-gray-700">Email sent: {email.subject}</span>
+                <span className="text-[11px] text-gray-400">{formatDate(email.sent_at)}</span>
               </div>
             </div>
           ))}
 
           {appointments.length === 0 && emails.length === 0 && (
-            <div className="crm-timeline-empty">No activity yet beyond lead creation</div>
+            <div className="text-[13px] text-gray-400 py-2">No activity yet beyond lead creation</div>
           )}
         </div>
       </div>
 
-      <div className="crm-detail-meta">
+      <div className="flex flex-wrap gap-4 text-[11px] text-gray-400 mt-4">
         <span>ID: {lead.lead_id}</span>
         <span>Created: {formatDate(lead.created_at)}</span>
         <span>Updated: {formatDate(lead.updated_at)}</span>
@@ -1233,8 +1265,8 @@ function CustomerAnalytics() {
     } catch { setResults([]); }
   };
 
-  if (loading) return <div className="crm-empty">Loading customer analytics...</div>;
-  if (!data) return <div className="crm-empty">Failed to load analytics</div>;
+  if (loading) return <div className="text-center py-12 text-gray-400 text-sm">Loading customer analytics...</div>;
+  if (!data) return <div className="text-center py-12 text-gray-400 text-sm">Failed to load analytics</div>;
 
   return (
     <div style={{ padding: '0 4px' }}>
@@ -1374,44 +1406,47 @@ function DealCard({ deal, onUpdateStatus, statusOrder }) {
   };
 
   return (
-    <div className="crm-deal-card">
-      <div className="crm-deal-header" onClick={() => setExpanded(!expanded)}>
+    <div className="bg-white rounded-lg p-3 shadow-sm">
+      <div className="flex justify-between items-start cursor-pointer" onClick={() => setExpanded(!expanded)}>
         <div>
-          <div className="crm-deal-name">{buyerName || 'No Name'}</div>
-          <div className="crm-deal-model">{homeLabel}</div>
+          <div className="font-semibold text-[13px] text-slate-800">{buyerName || 'No Name'}</div>
+          <div className="text-xs text-gray-500 mt-0.5">{homeLabel}</div>
         </div>
         {expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
       </div>
 
       {deal.sales_price && (
-        <div className="crm-deal-price">
+        <div className="text-[15px] font-bold text-emerald-600 mt-2">
           ${Number(deal.sales_price).toLocaleString()}
         </div>
       )}
 
       {expanded && (
-        <div className="crm-deal-details">
-          {deal.buyer_phone && <div><Phone size={12} /> {deal.buyer_phone}</div>}
-          {deal.buyer_email && <div><Mail size={12} /> {deal.buyer_email}</div>}
-          {deal.salesrep && <div>Rep: {deal.salesrep}</div>}
-          {detailManufacturerModel && <div>{detailManufacturerModel}</div>}
-          {dealSerial && <div>S/N: {dealSerial}</div>}
-          {deal.buyer_address && <div>{deal.buyer_address}, {deal.buyer_city} {deal.buyer_state} {deal.buyer_zip}</div>}
-          <div className="crm-deal-dates">
-            Created: {formatDate(deal.created_at)}
-          </div>
+        <div className="mt-2.5 pt-2.5 border-t border-gray-100 text-xs text-gray-500 flex flex-col gap-1">
+          {deal.buyer_phone && <div className="flex items-center gap-1"><Phone size={12} /> {deal.buyer_phone}</div>}
+          {deal.buyer_email && <div className="flex items-center gap-1"><Mail size={12} /> {deal.buyer_email}</div>}
+          {deal.salesrep && <div className="flex items-center gap-1">Rep: {deal.salesrep}</div>}
+          {detailManufacturerModel && <div className="flex items-center gap-1">{detailManufacturerModel}</div>}
+          {dealSerial && <div className="flex items-center gap-1">S/N: {dealSerial}</div>}
+          {deal.buyer_address && (
+            <div className="flex items-center gap-1">
+              {deal.buyer_address}, {deal.buyer_city} {deal.buyer_state} {deal.buyer_zip}
+            </div>
+          )}
+          <div className="text-gray-400 mt-1">Created: {formatDate(deal.created_at)}</div>
 
           {/* Document Generation Actions */}
-          <div style={{ marginTop: '10px', fontSize: '11px', color: '#666', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Generate Documents</div>
-          <div className="crm-deal-actions" style={{ marginTop: '6px', display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+          <div className="mt-2.5 text-[11px] text-gray-500 font-semibold uppercase tracking-wide">
+            Generate Documents
+          </div>
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
             <button
-              className="crm-deal-doc-btn"
               onClick={() => handleGenerateDoc('TMHA_SalesContract.pdf')}
               disabled={generating !== null}
-              style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '6px 12px', fontSize: '12px',
-                       background: '#1a1a2e', border: '1px solid #3b82f6', color: '#3b82f6', borderRadius: '6px', cursor: 'pointer' }}
+              style={{ background: '#1a1a2e', border: '1px solid #3b82f6', color: '#3b82f6' }}
+              className="flex items-center gap-1 px-3 py-1.5 text-xs rounded-md cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {generating === 'doc' ? <Loader size={12} className="spin" /> : <FileText size={12} />}
+              {generating === 'doc' ? <Loader size={12} className="animate-spin" /> : <FileText size={12} />}
               Sales Contract
             </button>
             {[
@@ -1423,49 +1458,51 @@ function DealCard({ deal, onUpdateStatus, statusOrder }) {
                 key={template}
                 onClick={() => handleGenerateDoc(template)}
                 disabled={generating !== null}
-                style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '6px 10px', fontSize: '11px',
-                         background: '#1a1a2e', border: `1px solid ${color}`, color, borderRadius: '6px', cursor: 'pointer' }}
+                style={{ background: '#1a1a2e', border: `1px solid ${color}`, color }}
+                className="flex items-center gap-1 px-2.5 py-1.5 text-[11px] rounded-md cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <FileText size={11} /> {label}
               </button>
             ))}
             <button
-              className="crm-deal-doc-btn"
               onClick={handleGeneratePacket}
               disabled={generating !== null}
-              style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '6px 12px', fontSize: '12px',
-                       background: '#1a1a2e', border: '1px solid #22c55e', color: '#22c55e', borderRadius: '6px', cursor: 'pointer', fontWeight: 600 }}
+              style={{ background: '#1a1a2e', border: '1px solid #22c55e', color: '#22c55e' }}
+              className="flex items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-md cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {generating === 'packet' ? <Loader size={12} className="spin" /> : <Package size={12} />}
+              {generating === 'packet' ? <Loader size={12} className="animate-spin" /> : <Package size={12} />}
               Full Closing Packet (9 docs)
             </button>
           </div>
 
           {/* Generation Result */}
           {genResult && (
-            <div style={{ marginTop: '8px', padding: '8px', borderRadius: '6px', fontSize: '12px',
-                          background: genResult.success ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)',
-                          border: `1px solid ${genResult.success ? '#22c55e' : '#ef4444'}` }}>
+            <div
+              className={
+                'mt-2 p-2 rounded-md text-xs border ' +
+                (genResult.success
+                  ? 'bg-green-500/10 border-green-500'
+                  : 'bg-red-500/10 border-red-500')
+              }
+            >
               {genResult.success ? (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <CheckCircle size={14} color="#22c55e" />
+                <div className="flex items-center gap-1.5">
+                  <CheckCircle size={14} className="text-green-500" />
                   <span>{genResult.message}</span>
                   <button
                     onClick={() => handleDownload(genResult.download_url)}
-                    style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '4px',
-                             padding: '4px 8px', background: '#22c55e', color: '#000', border: 'none',
-                             borderRadius: '4px', cursor: 'pointer', fontSize: '11px', fontWeight: 600 }}
+                    className="ml-auto flex items-center gap-1 px-2 py-1 bg-green-500 text-black border-0 rounded text-[11px] font-semibold cursor-pointer"
                   >
                     <Download size={12} /> Download
                   </button>
                 </div>
               ) : (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#ef4444' }}>
+                <div className="flex items-center gap-1.5 text-red-500">
                   <AlertCircle size={14} /> {genResult.error || 'Generation failed'}
                 </div>
               )}
               {genResult.documents_included && (
-                <div style={{ marginTop: '6px', color: '#888', fontSize: '11px' }}>
+                <div className="mt-1.5 text-gray-500 text-[11px]">
                   {genResult.page_count} pages • {genResult.documents_included.length} documents
                 </div>
               )}
@@ -1476,7 +1513,7 @@ function DealCard({ deal, onUpdateStatus, statusOrder }) {
 
       {nextStatus && (
         <button
-          className="crm-deal-advance"
+          className="mt-2.5 w-full px-2 py-1.5 border border-dashed border-gray-300 hover:border-blue-500 hover:bg-blue-50 bg-transparent rounded-md text-xs text-blue-500 cursor-pointer transition-colors"
           onClick={() => onUpdateStatus(deal.id, nextStatus)}
         >
           Move to {nextStatus} →
