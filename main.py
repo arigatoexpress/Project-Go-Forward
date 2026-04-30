@@ -27,7 +27,11 @@ import uuid
 from datetime import datetime, timezone
 from urllib.parse import urlsplit, urlunsplit
 
+from slowapi import Limiter
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
+
 from config_loader import get_deployment_config, business_name
 
 # Lazy initialization placeholders - will be loaded on first use
@@ -127,11 +131,50 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         return response
 
 def _get_client_ip(request: Request) -> str:
-    """Get real client IP, checking X-Forwarded-For for reverse proxy (Cloud Run)."""
+    """Get real client IP, checking X-Forwarded-For for reverse proxy (Cloud Run).
+
+    Reused as the slowapi ``key_func`` so per-IP rate limiting and the
+    ``_pin_attempts`` brute-force counter key the same client identity.
+    """
     forwarded = request.headers.get("x-forwarded-for", "")
     if forwarded:
         return forwarded.split(",")[0].strip()
     return request.client.host if request.client else "unknown"
+
+# slowapi per-IP rate limiter — layered on top of the legacy
+# RateLimitMiddleware below. Per-route caps are applied via @limiter.limit()
+# decorators on individual endpoints (admin, partner /api/v1/*, marketing
+# inventory-context). /health, /healthz, /healthz/ are exempted via
+# @limiter.exempt so Cloud Run liveness probes are never throttled.
+#
+# headers_enabled is intentionally left FALSE: slowapi's _inject_headers
+# raises when a route returns a dict (the common FastAPI shape) without an
+# explicit ``response: Response`` parameter in the signature. The custom
+# 429 handler below adds Retry-After by hand using the exception's limit
+# metadata so callers still get the standard rate-limit signal.
+limiter = Limiter(
+    key_func=_get_client_ip,
+    default_limits=["100/minute"],
+    headers_enabled=False,
+)
+app.state.limiter = limiter
+
+
+def _rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:
+    """JSON 429 handler with Retry-After. Replaces slowapi's default handler
+    so we don't depend on ``headers_enabled`` (see comment above)."""
+    try:
+        retry_after = int(exc.limit.limit.get_expiry())
+    except Exception:
+        retry_after = 60
+    return JSONResponse(
+        {"error": f"Rate limit exceeded: {exc.detail}"},
+        status_code=429,
+        headers={"Retry-After": str(retry_after)},
+    )
+
+
+app.add_exception_handler(RateLimitExceeded, _rate_limit_handler)
 
 # Rate limiting middleware — per-IP sliding window
 MAX_REQUESTS_PER_MINUTE = int(os.environ.get("RATE_LIMIT_RPM", "60"))
@@ -166,6 +209,11 @@ class RequestSizeLimitMiddleware(BaseHTTPMiddleware):
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(RateLimitMiddleware)
 app.add_middleware(RequestSizeLimitMiddleware)
+# slowapi middleware is registered last so it sits outermost and runs
+# before the legacy per-IP RateLimitMiddleware. Per-route caps via
+# @limiter.limit decorators short-circuit hot paths (e.g. /api/admin/verify
+# at 5/min) before they ever reach the brute-force _pin_attempts counter.
+app.add_middleware(SlowAPIMiddleware)
 
 
 class ImmutableStaticFiles(StaticFiles):
@@ -853,12 +901,14 @@ async def get_chat_analytics(range: str = "30d"):
 
 
 @app.get("/health")
+@limiter.exempt
 def health():
     return {"status": "ok"}
 
 
 @app.get("/healthz")
 @app.get("/healthz/")
+@limiter.exempt
 def healthz():
     email_configured = bool(os.environ.get("RESEND_API_KEY"))
     warnings = []
@@ -1745,7 +1795,8 @@ async def download_generated_video(filename: str):
 
 
 @app.get("/api/marketing/inventory-context")
-async def api_inventory_context():
+@limiter.limit("30/minute")
+async def api_inventory_context(request: Request):
     """Get inventory highlights for ad creation and the public browse page."""
     try:
         from tools.asset_scraper import get_assets_for_home
@@ -2179,8 +2230,18 @@ async def search_chat_conversations(request: Request):
 
 
 @app.post("/api/admin/verify")
+@limiter.limit("5/minute")
 async def verify_admin_pin(request: Request):
-    """Validate admin PIN server-side and return a session token."""
+    """Validate admin PIN server-side and return a session token.
+
+    Layered defenses:
+
+    * slowapi caps this endpoint at 5/min per IP — short-circuits a fast
+      brute-force attacker before they can spin through the 10-attempt
+      ``_pin_attempts`` window.
+    * The legacy ``_pin_attempts`` lockout (10 attempts → 5-minute cool-off)
+      still applies for clients staying under the 5/min slowapi cap.
+    """
     client_ip = _get_client_ip(request)
 
     # Check brute-force lockout
@@ -2216,6 +2277,7 @@ async def verify_admin_pin(request: Request):
 
 
 @app.get("/api/admin/check")
+@limiter.limit("30/minute")
 async def check_admin_token(request: Request):
     """Verify that an admin token is still valid (stateless — works across instances)."""
     token = _admin_token_from_request(request)
@@ -2696,7 +2758,8 @@ def _count_collection_by_status(collection_name: str, status_field: str = "statu
 
 
 @app.get("/api/v1/customers", dependencies=[Depends(require_partner_api_key)])
-async def v1_list_customers(limit: int = 50, offset: int = 0, status: str = None, q: str = None):
+@limiter.limit("60/minute")
+async def v1_list_customers(request: Request, limit: int = 50, offset: int = 0, status: str = None, q: str = None):
     """List customers with pagination and default PII redaction."""
     limit = max(1, min(limit, 200))
     offset = max(0, offset)
@@ -2720,7 +2783,8 @@ async def v1_list_customers(limit: int = 50, offset: int = 0, status: str = None
 
 
 @app.get("/api/v1/customers/{customer_id}", dependencies=[Depends(require_partner_api_key)])
-async def v1_get_customer(customer_id: str):
+@limiter.limit("60/minute")
+async def v1_get_customer(customer_id: str, request: Request):
     """Get one customer with PII removed."""
     try:
         customer = _db.get_customer(customer_id)
@@ -2735,6 +2799,7 @@ async def v1_get_customer(customer_id: str):
 
 
 @app.post("/api/v1/customers", dependencies=[Depends(require_partner_api_key)], status_code=201)
+@limiter.limit("60/minute")
 async def v1_create_customer(request: Request):
     """Create a customer using the same accepted body shape as the admin route."""
     data = await request.json()
@@ -2794,7 +2859,8 @@ async def v1_create_customer(request: Request):
 
 
 @app.get("/api/v1/inventory", dependencies=[Depends(require_partner_api_key)])
-async def v1_list_inventory(limit: int = 50, offset: int = 0, status: str = None, manufacturer: str = None):
+@limiter.limit("60/minute")
+async def v1_list_inventory(request: Request, limit: int = 50, offset: int = 0, status: str = None, manufacturer: str = None):
     """List inventory with simple pagination and partner-safe response fields."""
     limit = max(1, min(limit, 200))
     offset = max(0, offset)
@@ -2818,7 +2884,8 @@ async def v1_list_inventory(limit: int = 50, offset: int = 0, status: str = None
 
 
 @app.get("/api/v1/leads", dependencies=[Depends(require_partner_api_key)])
-async def v1_list_leads(limit: int = 50, offset: int = 0, status: str = None):
+@limiter.limit("60/minute")
+async def v1_list_leads(request: Request, limit: int = 50, offset: int = 0, status: str = None):
     """List leads with direct contact details removed."""
     limit = max(1, min(limit, 200))
     offset = max(0, offset)
@@ -2838,6 +2905,7 @@ async def v1_list_leads(limit: int = 50, offset: int = 0, status: str = None):
 
 
 @app.post("/api/v1/webhooks/notify", dependencies=[Depends(require_partner_api_key)])
+@limiter.limit("60/minute")
 async def v1_webhook_notify(request: Request):
     """Accept a partner webhook and log it to the Firestore activities collection.
 
@@ -2921,7 +2989,8 @@ async def v1_webhook_notify(request: Request):
 
 
 @app.get("/api/v1/stats", dependencies=[Depends(require_partner_api_key)])
-async def v1_stats():
+@limiter.limit("60/minute")
+async def v1_stats(request: Request):
     """Return partner-safe topline counts by status."""
     try:
         return {
@@ -2964,6 +3033,7 @@ def _get_document_rag():
 
 
 @app.post("/api/v1/rag/query", dependencies=[Depends(require_partner_api_key)])
+@limiter.limit("60/minute")
 async def v1_rag_query(request: Request):
     """Semantic search over the regulatory document corpus.
 
