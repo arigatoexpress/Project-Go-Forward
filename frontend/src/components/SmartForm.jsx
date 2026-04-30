@@ -128,23 +128,36 @@ const SmartForm = ({ templateName, title, sessionId, onSubmit, onCancel, initial
   const renderField = (field) => {
     const { field_name, label, type, required, computed } = field;
     const value = formData[field_name] ?? '';
+    const inputId = `smartform-${field_name}`;
 
-    const inputClass = `mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm ${
+    const inputClass = `mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 sm:text-sm ${
       locked ? 'bg-gray-50 cursor-not-allowed' : ''
     } ${computed ? 'bg-gray-50' : ''}`;
+
+    // Common label fragment with required-marker semantics. The asterisk is
+    // hidden from AT (we set aria-required on the input) so a screen reader
+    // doesn't read out "star".
+    const renderLabel = (extra = null) => (
+      <label htmlFor={inputId} className="block text-sm font-medium text-gray-700">
+        {label} {required && <span className="text-red-600" aria-hidden="true">*</span>}
+        {extra}
+      </label>
+    );
 
     if (type === 'checkbox') {
       return (
         <div key={field_name} className="flex items-center">
           <input
             type="checkbox"
-            id={field_name}
+            id={inputId}
+            name={field_name}
             checked={!!value}
             onChange={(e) => handleChange(field_name, e.target.checked)}
             disabled={locked}
-            className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+            aria-required={required ? 'true' : undefined}
+            className="h-4 w-4 text-blue-600 focus:ring-blue-500 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-blue-500 border-gray-300 rounded"
           />
-          <label htmlFor={field_name} className="ml-2 text-sm text-gray-700">{label}</label>
+          <label htmlFor={inputId} className="ml-2 text-sm text-gray-700">{label}</label>
         </div>
       );
     }
@@ -152,19 +165,19 @@ const SmartForm = ({ templateName, title, sessionId, onSubmit, onCancel, initial
     if (type === 'ssn') {
       return (
         <div key={field_name}>
-          <label className="block text-sm font-medium text-gray-700">
-            {label} {required && <span className="text-red-500">*</span>}
-            <span className="text-xs text-red-400 ml-1">(PII - Manual entry only)</span>
-          </label>
+          {renderLabel(<span className="text-xs text-red-600 ml-1">(PII - Manual entry only)</span>)}
           <input
+            id={inputId}
             type="password"
             name={field_name}
             value={value}
             onChange={(e) => handleChange(field_name, e.target.value)}
             required={required}
+            aria-required={required ? 'true' : undefined}
             disabled={locked}
             placeholder="***-**-****"
             maxLength={11}
+            autoComplete="off"
             className={inputClass}
           />
         </div>
@@ -174,21 +187,21 @@ const SmartForm = ({ templateName, title, sessionId, onSubmit, onCancel, initial
     if (type === 'currency') {
       return (
         <div key={field_name}>
-          <label className="block text-sm font-medium text-gray-700">
-            {label} {required && <span className="text-red-500">*</span>}
-          </label>
+          {renderLabel()}
           <div className="relative mt-1 rounded-md shadow-sm">
-            <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
+            <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3" aria-hidden="true">
               <span className="text-gray-500 sm:text-sm">$</span>
             </div>
             <input
+              id={inputId}
               type="number"
               name={field_name}
               value={value}
               onChange={(e) => handleChange(field_name, e.target.value)}
               required={required}
+              aria-required={required ? 'true' : undefined}
               readOnly={computed || locked}
-              className={`block w-full rounded-md border-gray-300 pl-7 pr-4 focus:border-blue-500 focus:ring-blue-500 sm:text-sm ${
+              className={`block w-full rounded-md border-gray-300 pl-7 pr-4 focus:border-blue-500 focus:ring-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 sm:text-sm ${
                 locked || computed ? 'bg-gray-50 cursor-not-allowed' : ''
               }`}
               placeholder="0.00"
@@ -202,15 +215,15 @@ const SmartForm = ({ templateName, title, sessionId, onSubmit, onCancel, initial
     if (type === 'date') {
       return (
         <div key={field_name}>
-          <label className="block text-sm font-medium text-gray-700">
-            {label} {required && <span className="text-red-500">*</span>}
-          </label>
+          {renderLabel()}
           <input
+            id={inputId}
             type="date"
             name={field_name}
             value={value}
             onChange={(e) => handleChange(field_name, e.target.value)}
             required={required}
+            aria-required={required ? 'true' : undefined}
             disabled={locked}
             className={inputClass}
           />
@@ -221,15 +234,16 @@ const SmartForm = ({ templateName, title, sessionId, onSubmit, onCancel, initial
     if (type === 'phone') {
       return (
         <div key={field_name}>
-          <label className="block text-sm font-medium text-gray-700">
-            {label} {required && <span className="text-red-500">*</span>}
-          </label>
+          {renderLabel()}
           <input
+            id={inputId}
             type="tel"
             name={field_name}
             value={value}
             onChange={(e) => handleChange(field_name, e.target.value)}
             required={required}
+            aria-required={required ? 'true' : undefined}
+            autoComplete="tel"
             disabled={locked}
             className={inputClass}
           />
@@ -240,15 +254,16 @@ const SmartForm = ({ templateName, title, sessionId, onSubmit, onCancel, initial
     if (type === 'email') {
       return (
         <div key={field_name}>
-          <label className="block text-sm font-medium text-gray-700">
-            {label} {required && <span className="text-red-500">*</span>}
-          </label>
+          {renderLabel()}
           <input
+            id={inputId}
             type="email"
             name={field_name}
             value={value}
             onChange={(e) => handleChange(field_name, e.target.value)}
             required={required}
+            aria-required={required ? 'true' : undefined}
+            autoComplete="email"
             disabled={locked}
             className={inputClass}
           />
@@ -259,15 +274,15 @@ const SmartForm = ({ templateName, title, sessionId, onSubmit, onCancel, initial
     // Default: text input
     return (
       <div key={field_name}>
-        <label className="block text-sm font-medium text-gray-700">
-          {label} {required && <span className="text-red-500">*</span>}
-        </label>
+        {renderLabel()}
         <input
+          id={inputId}
           type="text"
           name={field_name}
           value={value}
           onChange={(e) => handleChange(field_name, e.target.value)}
           required={required}
+          aria-required={required ? 'true' : undefined}
           readOnly={computed || locked}
           disabled={locked && !computed}
           className={inputClass}
@@ -278,18 +293,27 @@ const SmartForm = ({ templateName, title, sessionId, onSubmit, onCancel, initial
 
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center p-12 bg-white rounded-lg shadow-md">
-        <Loader2 className="h-8 w-8 animate-spin text-blue-600 mb-4" />
-        <p className="text-gray-600">Loading form fields...</p>
+      <div
+        className="flex flex-col items-center justify-center p-12 bg-white rounded-lg shadow-md"
+        role="status"
+        aria-live="polite"
+        aria-busy="true"
+      >
+        <Loader2 className="h-8 w-8 animate-spin text-blue-600 mb-4" aria-hidden="true" />
+        <p className="text-gray-700">Loading form fields...</p>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="p-8 bg-white rounded-lg shadow-md text-center">
-        <p className="text-red-600 mb-4">{error}</p>
-        <button onClick={onCancel} className="px-4 py-2 bg-gray-200 rounded-md hover:bg-gray-300">
+      <div className="p-8 bg-white rounded-lg shadow-md text-center" role="alert">
+        <p className="text-red-700 mb-4">{error}</p>
+        <button
+          type="button"
+          onClick={onCancel}
+          className="px-4 py-2 bg-gray-200 rounded-md hover:bg-gray-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-blue-500"
+        >
           Go Back
         </button>
       </div>
@@ -341,18 +365,18 @@ const SmartForm = ({ templateName, title, sessionId, onSubmit, onCancel, initial
         <button
           type="button"
           onClick={locked ? () => setLocked(false) : onCancel}
-          className="bg-white py-2 px-4 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 hover:bg-gray-50"
+          className="bg-white py-2 px-4 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-blue-500"
         >
           {locked ? 'Unlock & Edit' : 'Cancel'}
         </button>
         <button
           type="submit"
-          className="inline-flex items-center justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700"
+          className="inline-flex items-center justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-blue-500"
         >
           {locked ? (
             <>Generate PDF</>
           ) : (
-            <><Lock size={16} className="mr-1" /> Lock & Review</>
+            <><Lock size={16} className="mr-1" aria-hidden="true" /> Lock & Review</>
           )}
         </button>
       </div>

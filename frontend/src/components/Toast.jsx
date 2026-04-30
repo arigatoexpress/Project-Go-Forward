@@ -38,8 +38,16 @@ export function useToast() {
 }
 
 function ToastContainer({ toasts, onRemove }) {
+  // role="status" + aria-live="polite" makes screen readers announce new toasts
+  // without interrupting the user. aria-atomic ensures the full message is read
+  // each time, not just the diff.
   return (
-    <div className="fixed top-4 right-4 z-[200] space-y-2 w-full max-w-sm">
+    <div
+      className="fixed top-4 right-4 z-[200] space-y-2 w-full max-w-sm"
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
+    >
       {toasts.map(toast => (
         <Toast key={toast.id} {...toast} onRemove={onRemove} />
       ))}
@@ -62,19 +70,24 @@ function Toast({ id, message, type, onRemove }) {
     info: 'bg-blue-50 border-blue-200 text-blue-800',
   };
 
+  // Errors and warnings get role=alert (assertive); success/info inherit the
+  // container's polite live region.
+  const isAssertive = type === 'error' || type === 'warning';
+
   return (
     <div
       className={`flex items-start gap-3 p-4 rounded-lg border shadow-lg transform transition-all duration-300 animate-slide-in ${styles[type]}`}
-      role="alert"
+      role={isAssertive ? 'alert' : undefined}
     >
-      <div className="flex-shrink-0">{icons[type]}</div>
+      <div className="flex-shrink-0" aria-hidden="true">{icons[type]}</div>
       <div className="flex-1 text-sm font-medium">{message}</div>
       <button
+        type="button"
         onClick={() => onRemove(id)}
-        className="flex-shrink-0 hover:opacity-70 transition-opacity"
-        aria-label="Dismiss"
+        className="flex-shrink-0 rounded hover:opacity-70 transition-opacity focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-blue-500"
+        aria-label="Dismiss notification"
       >
-        <X className="w-4 h-4" />
+        <X className="w-4 h-4" aria-hidden="true" />
       </button>
     </div>
   );

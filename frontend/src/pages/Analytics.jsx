@@ -6,6 +6,10 @@ import adminFetch from '../adminFetch';
 const PIE_COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899'];
 const AREA_COLORS = ['#3B82F6', '#10B981', '#F59E0B'];
 
+// Shared focus ring class for all interactive elements on this page so
+// keyboard users get a consistent visual indicator (WCAG 2.4.7).
+const BUTTON_FOCUS = 'focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-blue-500';
+
 const MetricCard = ({ title, value, icon, trend, trendUp, accent, subtitle }) => (
     <div className={`bg-white p-6 rounded-xl shadow-sm border ${accent ? 'border-blue-200 bg-gradient-to-br from-blue-50 to-white' : 'border-gray-100'} flex items-start justify-between hover:shadow-md transition-shadow`}>
         <div>
@@ -26,20 +30,31 @@ const MetricCard = ({ title, value, icon, trend, trendUp, accent, subtitle }) =>
 );
 
 const TimeRangeSelector = ({ value, onChange }) => (
-    <div className="flex bg-gray-100 rounded-lg p-1">
-        {['7d', '30d', '90d', 'all'].map((range) => (
-            <button
-                key={range}
-                onClick={() => onChange(range)}
-                className={`px-3 py-1.5 rounded-md text-sm font-medium transition-all ${
-                    value === range 
-                        ? 'bg-white text-gray-900 shadow-sm' 
-                        : 'text-gray-500 hover:text-gray-700'
-                }`}
-            >
-                {range === '7d' ? '7 Days' : range === '30d' ? '30 Days' : range === '90d' ? '90 Days' : 'All Time'}
-            </button>
-        ))}
+    <div
+        className="flex bg-gray-100 rounded-lg p-1"
+        role="radiogroup"
+        aria-label="Analytics time range"
+    >
+        {['7d', '30d', '90d', 'all'].map((range) => {
+            const label = range === '7d' ? '7 Days' : range === '30d' ? '30 Days' : range === '90d' ? '90 Days' : 'All Time';
+            const isSelected = value === range;
+            return (
+                <button
+                    key={range}
+                    type="button"
+                    role="radio"
+                    aria-checked={isSelected}
+                    onClick={() => onChange(range)}
+                    className={`px-3 py-1.5 rounded-md text-sm font-medium transition-all ${BUTTON_FOCUS} ${
+                        isSelected
+                            ? 'bg-white text-gray-900 shadow-sm'
+                            : 'text-gray-700 hover:text-gray-900'
+                    }`}
+                >
+                    {label}
+                </button>
+            );
+        })}
     </div>
 );
 
@@ -135,81 +150,110 @@ export default function Analytics() {
 
     if (loading) {
         return (
-            <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-                <div className="text-center">
-                    <Loader2 className="h-10 w-10 animate-spin text-blue-600 mx-auto mb-3" />
-                    <p className="text-gray-500">Loading analytics...</p>
+            <main
+                className="min-h-screen bg-gray-50 flex items-center justify-center"
+                aria-labelledby="analytics-loading"
+            >
+                <div className="text-center" role="status" aria-live="polite">
+                    <Loader2 className="h-10 w-10 animate-spin text-blue-600 mx-auto mb-3" aria-hidden="true" />
+                    <p id="analytics-loading" className="text-gray-700">Loading analytics...</p>
                 </div>
-            </div>
+            </main>
         );
     }
 
     if (error) {
         return (
-            <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-                <div className="text-center">
-                    <AlertCircle size={48} className="text-red-400 mx-auto mb-4" />
-                    <p className="text-red-600 mb-4">{error}</p>
+            <main
+                className="min-h-screen bg-gray-50 flex items-center justify-center"
+                aria-labelledby="analytics-error-heading"
+            >
+                <div className="text-center" role="alert">
+                    <AlertCircle size={48} className="text-red-500 mx-auto mb-4" aria-hidden="true" />
+                    <h1 id="analytics-error-heading" className="sr-only">Analytics error</h1>
+                    <p className="text-red-700 mb-4">{error}</p>
                     <button
+                        type="button"
                         onClick={fetchData}
-                        className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition"
+                        className={`px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition ${BUTTON_FOCUS}`}
                     >
                         Retry
                     </button>
                 </div>
-            </div>
+            </main>
         );
     }
 
     return (
-        <div className="min-h-screen bg-gray-50 p-8">
+        <main
+            className="min-h-screen bg-gray-50 p-8"
+            aria-labelledby="analytics-heading"
+        >
             <div className="max-w-7xl mx-auto space-y-8">
 
                 {/* Header */}
-                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                     <div>
-                        <h1 className="text-3xl font-bold text-gray-900">Analytics Dashboard</h1>
-                        <p className="text-sm text-gray-500 mt-1">Real-time insights into your business</p>
+                        <h1 id="analytics-heading" className="text-3xl font-bold text-gray-900">Analytics Dashboard</h1>
+                        <p className="text-sm text-gray-600 mt-1">Real-time insights into your business</p>
                     </div>
                     <div className="flex items-center gap-3">
                         <TimeRangeSelector value={timeRange} onChange={setTimeRange} />
                         <button
+                            type="button"
                             onClick={fetchData}
-                            className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition text-sm text-gray-600"
+                            className={`flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition text-sm text-gray-700 ${BUTTON_FOCUS}`}
                             aria-label="Refresh analytics data"
                         >
-                            <RefreshCw size={16} />
+                            <RefreshCw size={16} aria-hidden="true" />
                             Refresh
                         </button>
                     </div>
-                </div>
+                </header>
 
                 {/* Tab Navigation */}
-                <div className="flex gap-2 border-b border-gray-200">
+                <nav
+                    className="flex gap-2 border-b border-gray-200"
+                    role="tablist"
+                    aria-label="Analytics sections"
+                >
                     {[
                         { id: 'overview', label: 'Overview', icon: TrendingUp },
                         { id: 'leads', label: 'Leads', icon: Users },
                         { id: 'documents', label: 'Documents', icon: FileText },
                         { id: 'inventory', label: 'Inventory', icon: Home },
-                    ].map(tab => (
-                        <button
-                            key={tab.id}
-                            onClick={() => setActiveTab(tab.id)}
-                            className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
-                                activeTab === tab.id
-                                    ? 'border-blue-600 text-blue-600'
-                                    : 'border-transparent text-gray-500 hover:text-gray-700'
-                            }`}
-                        >
-                            <tab.icon size={16} />
-                            {tab.label}
-                        </button>
-                    ))}
-                </div>
+                    ].map(tab => {
+                        const isSelected = activeTab === tab.id;
+                        return (
+                            <button
+                                key={tab.id}
+                                type="button"
+                                role="tab"
+                                id={`analytics-tab-${tab.id}`}
+                                aria-selected={isSelected}
+                                aria-controls={`analytics-panel-${tab.id}`}
+                                onClick={() => setActiveTab(tab.id)}
+                                className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${BUTTON_FOCUS} ${
+                                    isSelected
+                                        ? 'border-blue-600 text-blue-700'
+                                        : 'border-transparent text-gray-700 hover:text-gray-900'
+                                }`}
+                            >
+                                <tab.icon size={16} aria-hidden="true" />
+                                {tab.label}
+                            </button>
+                        );
+                    })}
+                </nav>
 
                 {/* OVERVIEW TAB */}
                 {activeTab === 'overview' && (
-                    <>
+                    <section
+                        id="analytics-panel-overview"
+                        role="tabpanel"
+                        aria-labelledby="analytics-tab-overview"
+                        className="space-y-8"
+                    >
                         {/* Key Metrics */}
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                             <MetricCard
@@ -308,12 +352,17 @@ export default function Analytics() {
                                 </div>
                             </div>
                         )}
-                    </>
+                    </section>
                 )}
 
                 {/* LEADS TAB */}
                 {activeTab === 'leads' && (
-                    <>
+                    <section
+                        id="analytics-panel-leads"
+                        role="tabpanel"
+                        aria-labelledby="analytics-tab-leads"
+                        className="space-y-8"
+                    >
                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                             {/* Status Distribution */}
                             <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
@@ -429,12 +478,17 @@ export default function Analytics() {
                                 </table>
                             </div>
                         </div>
-                    </>
+                    </section>
                 )}
 
                 {/* DOCUMENTS TAB */}
                 {activeTab === 'documents' && (
-                    <>
+                    <section
+                        id="analytics-panel-documents"
+                        role="tabpanel"
+                        aria-labelledby="analytics-tab-documents"
+                        className="space-y-8"
+                    >
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                             <MetricCard
                                 title="Total Documents"
@@ -503,12 +557,17 @@ export default function Analytics() {
                                 </div>
                             </div>
                         </div>
-                    </>
+                    </section>
                 )}
 
                 {/* INVENTORY TAB */}
                 {activeTab === 'inventory' && (
-                    <>
+                    <section
+                        id="analytics-panel-inventory"
+                        role="tabpanel"
+                        aria-labelledby="analytics-tab-inventory"
+                        className="space-y-8"
+                    >
                         <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                             <MetricCard
                                 title="Total Homes"
@@ -579,10 +638,10 @@ export default function Analytics() {
                                 </table>
                             </div>
                         </div>
-                    </>
+                    </section>
                 )}
 
             </div>
-        </div>
+        </main>
     );
 }
