@@ -5,12 +5,11 @@ Verifies token creation, verification, expiration, and tamper resistance.
 Run: python -m pytest tests/test_admin_auth.py -v
 """
 
-import sys
-import time
 import base64
 import struct
+import sys
+import time
 from pathlib import Path
-
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -115,8 +114,9 @@ class TestInputSanitization:
 
     def test_strip_html_tags(self):
         import re
+
         def sanitize(val, max_len=500):
-            return re.sub(r'<[^>]+>', '', val).strip()[:max_len]
+            return re.sub(r"<[^>]+>", "", val).strip()[:max_len]
 
         assert sanitize("<script>alert(1)</script>hello") == "alert(1)hello"
         assert sanitize("<b>bold</b> text") == "bold text"
@@ -124,16 +124,69 @@ class TestInputSanitization:
 
     def test_length_limit(self):
         import re
+
         def sanitize(val, max_len=500):
-            return re.sub(r'<[^>]+>', '', val).strip()[:max_len]
+            return re.sub(r"<[^>]+>", "", val).strip()[:max_len]
 
         long_input = "A" * 1000
         assert len(sanitize(long_input, max_len=100)) == 100
 
     def test_whitespace_stripped(self):
         import re
+
         def sanitize(val, max_len=500):
-            return re.sub(r'<[^>]+>', '', val).strip()[:max_len]
+            return re.sub(r"<[^>]+>", "", val).strip()[:max_len]
 
         assert sanitize("  hello  ") == "hello"
         assert sanitize("\n\tname\n\t") == "name"
+
+
+class TestAdminLoginAuditTrail:
+    """Successful /api/admin/verify must produce an admin.login audit entry."""
+
+    def _seed_audit_fake(self):
+        """Replace audit_log's Firestore client with an in-memory fake.
+
+        We import the helpers from tests/test_audit_log so we don't duplicate
+        the Firestore stand-in.
+        """
+        sys.path.insert(0, str(Path(__file__).parent))
+        from test_audit_log import FakeFirestore  # noqa: E402
+
+        import audit_log
+
+        fake = FakeFirestore()
+        audit_log._get_db = lambda: fake  # type: ignore[attr-defined]
+        return fake
+
+    def test_successful_login_emits_audit_entry(self, monkeypatch):
+        """End-to-end: POST /api/admin/verify with the right PIN writes an
+        admin.login row to the audit_log collection."""
+        import hashlib as _hashlib
+
+        # Force a known PIN hash so we know what to send.
+        monkeypatch.setenv("ADMIN_PIN_HASH", _hashlib.sha256(b"4832").hexdigest())
+
+        # Bring up the app via the existing test harness.
+        sys.path.insert(0, str(Path(__file__).parent))
+        from test_api_v1 import create_client  # noqa: E402
+
+        fake = self._seed_audit_fake()
+        client, _main, _db, _logger = create_client(monkeypatch)
+
+        response = client.post("/api/admin/verify", json={"pin": "4832"})
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["success"] is True
+
+        docs = fake.collections["audit_log"]._docs
+        # At least one admin.login row was written for this verify call.
+        login_rows = [d for d in docs if d.get("action") == "admin.login"]
+        assert len(login_rows) >= 1
+        row = login_rows[-1]
+        assert row["target_type"] == "session"
+        assert row["actor"].startswith("admin:")
+        # IP captured from the test client default.
+        assert "ip" in row
+        # PIN must NEVER appear in the audit row.
+        assert "4832" not in repr(row)
