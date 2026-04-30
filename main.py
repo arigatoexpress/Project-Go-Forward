@@ -1730,6 +1730,7 @@ from tools.marketing_tools import (
     GENERATED_ADS_DIR
 )
 from tools.asset_scraper import PROPERTY_ASSETS, get_matterport_url
+from tools.photo_classifier import apply_classifier_to_home
 from tools.video_generator import GENERATED_VIDEOS_DIR
 
 @app.post("/api/marketing/generate-script", dependencies=[Depends(require_admin)])
@@ -1965,6 +1966,13 @@ async def api_inventory_context():
         else:
             result["homes"] = firestore_homes
             result["total_inventory"] = result.get("total_inventory", len(firestore_homes))
+
+        # Apply URL-based floorplan classifier to every home before responding.
+        # 2026-04-30 prod audit: 35/44 homes had image_url pointing at a
+        # /floorplan/ URL. apply_classifier_to_home() promotes the first
+        # exterior to image_url and moves floorplans into floorplan_url.
+        for home in result.get("homes", []):
+            apply_classifier_to_home(home)
 
         result["website_homes"] = len(website_homes)
         return result
