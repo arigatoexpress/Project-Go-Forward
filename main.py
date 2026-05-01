@@ -84,10 +84,103 @@ from email_service import (
     send_lead_welcome,
     send_deal_status_update,
     send_custom_email,
+    send_document_email,
     get_email_log,
     notify_new_lead,
     notify_new_appointment,
 )
+
+# Optional audit logger — soft-import so we tolerate environments where the
+# audit_log module hasn't landed yet (PR #36 has not merged at the time this
+# PR was opened). Falls back to a no-op so main never crashes on import.
+try:  # pragma: no cover - exercised indirectly when audit_log lands
+    from audit_log import log_admin_action as _audit_log_admin_action  # type: ignore[import-not-found]
+except Exception:  # noqa: BLE001 - intentionally broad: any import error → no-op
+    def _audit_log_admin_action(*_args, **_kwargs):  # type: ignore[no-redef]
+        return None
+
+
+def _safe_audit(action: str, details: dict) -> None:
+    """Wrap audit_log to never raise into the request hot path."""
+    try:
+        _audit_log_admin_action(action, details)
+    except Exception as exc:  # noqa: BLE001
+        try:
+            struct_logger.warning("Audit log write failed", action=action, error=str(exc))
+        except Exception:
+            pass
+
+
+def _maybe_email_document(
+    *,
+    customer_email,
+    customer_name,
+    doc_filename: str,
+    doc_type: str,
+    download_url: str,
+    deal_id=None,
+    audit_action: str = "document.email_delivery",
+) -> None:
+    """Best-effort document delivery email.
+
+    Silently skips when the customer email is missing. Catches and warn-logs
+    every failure so the surrounding doc-generation request never breaks
+    because email is flaky.
+    """
+    if not customer_email:
+        try:
+            struct_logger.info(
+                "Document email skipped — no customer email",
+                doc_filename=doc_filename,
+                deal_id=deal_id,
+            )
+        except Exception:
+            pass
+        return
+
+    try:
+        result = send_document_email(
+            to=customer_email,
+            customer_name=customer_name or "",
+            doc_filename=doc_filename,
+            doc_type=doc_type,
+            download_url=download_url,
+            deal_id=deal_id,
+        )
+    except Exception as exc:  # noqa: BLE001
+        try:
+            struct_logger.warning(
+                "Document email send raised",
+                error=str(exc),
+                doc_filename=doc_filename,
+                deal_id=deal_id,
+            )
+        except Exception:
+            pass
+        return
+
+    _safe_audit(
+        audit_action,
+        {
+            "to": customer_email,
+            "doc_filename": doc_filename,
+            "doc_type": doc_type,
+            "deal_id": deal_id,
+            "delivery": "ok" if result.get("success") else "failed",
+            "error": result.get("error"),
+        },
+    )
+
+    if not result.get("success"):
+        try:
+            struct_logger.warning(
+                "Document email send returned non-success",
+                error=result.get("error"),
+                doc_filename=doc_filename,
+                deal_id=deal_id,
+            )
+        except Exception:
+            pass
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -1094,9 +1187,20 @@ async def generate_document_endpoint(request: GenerateDocumentRequest):
             data=request.data,
         )
         if result["success"]:
+            download_url = f"/api/documents/download/{result['filename']}"
+            # Best-effort customer delivery email — never blocks the response.
+            _maybe_email_document(
+                customer_email=request.customer_email,
+                customer_name=request.customer_name,
+                doc_filename=result["filename"],
+                doc_type=request.template_name,
+                download_url=download_url,
+                deal_id=None,
+                audit_action="document.generate.email_delivery",
+            )
             return {
                 "success": True,
-                "download_url": f"/api/documents/download/{result['filename']}",
+                "download_url": download_url,
                 "filename": result["filename"],
                 "message": result["message"],
             }
@@ -1114,9 +1218,19 @@ async def generate_packet_endpoint(request: GeneratePacketRequest):
             data=request.data,
         )
         if result["success"]:
+            download_url = f"/api/documents/download/{result['filename']}"
+            _maybe_email_document(
+                customer_email=request.customer_email,
+                customer_name=request.customer_name,
+                doc_filename=result["filename"],
+                doc_type=f"{request.packet_name} closing packet",
+                download_url=download_url,
+                deal_id=None,
+                audit_action="document.generate_packet.email_delivery",
+            )
             return {
                 "success": True,
-                "download_url": f"/api/documents/download/{result['filename']}",
+                "download_url": download_url,
                 "filename": result["filename"],
                 "message": result["message"],
                 "page_count": result.get("page_count", 0),
@@ -1659,9 +1773,29 @@ async def generate_document_from_deal(deal_id: str, request: Request):
             data=doc_data,
         )
         if result["success"]:
+            download_url = f"/api/documents/download/{result['filename']}"
+            # Caller can override the recipient (e.g. send to co-buyer) but
+            # the deal's buyer_email is the default target.
+            customer_email = data.get("customer_email") or getattr(deal, "buyer_email", None)
+            buyer_name = " ".join(
+                part for part in [
+                    getattr(deal, "buyer_first_name", None),
+                    getattr(deal, "buyer_last_name", None),
+                ] if part
+            ).strip() or None
+            customer_name = data.get("customer_name") or buyer_name
+            _maybe_email_document(
+                customer_email=customer_email,
+                customer_name=customer_name,
+                doc_filename=result["filename"],
+                doc_type=template_name,
+                download_url=download_url,
+                deal_id=deal_id,
+                audit_action="deal.generate_document.email_delivery",
+            )
             return {
                 "success": True,
-                "download_url": f"/api/documents/download/{result['filename']}",
+                "download_url": download_url,
                 "filename": result["filename"],
                 "message": result["message"],
             }
@@ -1705,9 +1839,27 @@ async def generate_packet_from_deal(deal_id: str, request: Request):
             data=doc_data,
         )
         if result["success"]:
+            download_url = f"/api/documents/download/{result['filename']}"
+            customer_email = data.get("customer_email") or getattr(deal, "buyer_email", None)
+            buyer_name = " ".join(
+                part for part in [
+                    getattr(deal, "buyer_first_name", None),
+                    getattr(deal, "buyer_last_name", None),
+                ] if part
+            ).strip() or None
+            customer_name = data.get("customer_name") or buyer_name
+            _maybe_email_document(
+                customer_email=customer_email,
+                customer_name=customer_name,
+                doc_filename=result["filename"],
+                doc_type=f"{packet_name} closing packet",
+                download_url=download_url,
+                deal_id=deal_id,
+                audit_action="deal.generate_packet.email_delivery",
+            )
             return {
                 "success": True,
-                "download_url": f"/api/documents/download/{result['filename']}",
+                "download_url": download_url,
                 "filename": result["filename"],
                 "message": result["message"],
                 "page_count": result.get("page_count", 0),
