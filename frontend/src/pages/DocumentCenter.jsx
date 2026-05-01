@@ -212,13 +212,15 @@ function Section({ title, icon: Icon, children, open: initOpen = true, badge, he
  * The input DOM element owns its own value. React never touches it during typing.
  * We use a key={name + '-' + resetKey} to force re-mount only when loading a customer.
  */
-const Field = React.memo(function Field({ label, name, value, onChange, type = 'text', placeholder, half, third, required, readOnly, icon: Icon, resetKey, error }) {
+const Field = React.memo(function Field({ label, name, value, onChange, type = 'text', placeholder, half, third, required, readOnly, icon: Icon, resetKey, error, autoFilled, helperText }) {
   const inputRef = React.useRef(null);
   const borderClass = readOnly
     ? 'bg-gray-100 text-gray-500 border-gray-200'
     : error
       ? 'bg-white border-red-400 hover:border-red-500'
-      : 'bg-white border-gray-300 hover:border-gray-400';
+      : autoFilled
+        ? 'bg-green-50 border-green-300 hover:border-green-400'
+        : 'bg-white border-gray-300 hover:border-gray-400';
   const focusRingClass = error
     ? 'focus:ring-red-200 focus:border-red-500'
     : 'focus:ring-blue-200 focus:border-blue-500';
@@ -235,6 +237,14 @@ const Field = React.memo(function Field({ label, name, value, onChange, type = '
       <label className="block text-sm font-bold text-gray-700 mb-2">
         {label}
         {required && <span className="text-red-500 ml-1">*</span>}
+        {autoFilled && (
+          <span
+            data-testid={`autofilled-${name}`}
+            className="ml-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-green-100 text-green-700 text-xs font-semibold"
+          >
+            <Check size={12} /> from inventory
+          </span>
+        )}
       </label>
       <div className="relative">
         {Icon && <Icon size={18} className={`absolute left-3 top-1/2 -translate-y-1/2 ${error ? 'text-red-400' : 'text-gray-400'}`} />}
@@ -254,6 +264,14 @@ const Field = React.memo(function Field({ label, name, value, onChange, type = '
       </div>
       {error && typeof error === 'string' && (
         <p className="mt-1 text-xs text-red-600 font-medium">{error}</p>
+      )}
+      {!error && helperText && (
+        <p
+          data-testid={`helper-${name}`}
+          className="mt-1 text-xs text-gray-500 italic"
+        >
+          {helperText}
+        </p>
       )}
     </div>
   );
@@ -858,12 +876,14 @@ function Step1({ data, onChange, resetKey, deals, dealsLoading, onLoadDeal, onNe
 
 /* ─── Step 2: Choose Home from Inventory ─────────────────── */
 
-function Step2({ data, onChange, resetKey, inventory, inventoryLoading, onNext, onBack, validationErrors, missingFields, onOpenTradeInCalculator }) {
+function Step2({ data, onChange, resetKey, inventory, inventoryLoading, onNext, onBack, validationErrors, missingFields, onOpenTradeInCalculator, onAutoFill, autoFilledFields }) {
   const [filter, setFilter] = useState('all'); // all, new, used
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedHome, setSelectedHome] = useState(null);
 
   const c = (n, v) => onChange(n, v);
+  const filled = autoFilledFields || new Set();
+  const isAutoFilled = (name) => filled.has(name) && hasValue(data[name]);
 
   // Filter inventory
   const filteredInventory = (inventory || []).filter(home => {
@@ -882,29 +902,47 @@ function Step2({ data, onChange, resetKey, inventory, inventoryLoading, onNext, 
 
   const handleSelectHome = (home) => {
     setSelectedHome(home);
-    // Auto-fill home details
+    // Build the patch from inventory (only fields with non-empty values get
+    // marked as auto-filled). Serial #, Label #, Sale Price are always null
+    // in the texashomeoutlet.com feed, so they fall through to manual entry
+    // even if the inventory record nominally exposes the keys.
+    const patch = {};
+    if (hasValue(home.manufacturer)) patch.manufacturer = String(home.manufacturer);
+    if (hasValue(home.model_name)) patch.model = String(home.model_name);
+    if (hasValue(home.year)) patch.year = String(home.year);
+    if (hasValue(home.serial_number)) patch.serial_number_1 = String(home.serial_number);
+    if (hasValue(home.label_number)) patch.label_number_1 = String(home.label_number);
+    if (hasValue(home.sections)) patch.no_of_sections = String(home.sections);
+    if (home.sale_price && Number(home.sale_price) > 0) {
+      patch.sales_price = String(home.sale_price);
+    }
+    // is_new is always meaningful (boolean toggle, not a Field)
     c('is_new', home.is_new !== false);
-    c('manufacturer', home.manufacturer || '');
-    c('model', home.model_name || '');
-    c('year', home.year || '');
-    c('serial_number_1', home.serial_number || '');
-    c('label_number_1', home.label_number || '');
-    c('no_of_sections', home.sections || '');
-    if (home.sale_price) {
-      c('sales_price', String(home.sale_price));
+    if (onAutoFill) {
+      onAutoFill(patch);
+    } else {
+      // Defensive fallback: still write fields one at a time
+      Object.entries(patch).forEach(([k, v]) => c(k, v));
     }
   };
 
   const handleClearSelection = () => {
     setSelectedHome(null);
-    c('manufacturer', '');
-    c('model', '');
-    c('year', '');
-    c('serial_number_1', '');
-    c('serial_number_2', '');
-    c('label_number_1', '');
-    c('label_number_2', '');
-    c('no_of_sections', '');
+    const cleared = {
+      manufacturer: '',
+      model: '',
+      year: '',
+      serial_number_1: '',
+      serial_number_2: '',
+      label_number_1: '',
+      label_number_2: '',
+      no_of_sections: '',
+    };
+    if (onAutoFill) {
+      onAutoFill(cleared, { clear: true });
+    } else {
+      Object.entries(cleared).forEach(([k, v]) => c(k, v));
+    }
   };
 
   const liveValidation = getValidationState(data, 2);
@@ -1138,18 +1176,39 @@ function Step2({ data, onChange, resetKey, inventory, inventoryLoading, onNext, 
         )}
 
         <Row>
-          <Field label="Manufacturer" name="manufacturer" value={data.manufacturer} onChange={c} resetKey={resetKey} half required icon={Building2} error={errOf('manufacturer')} />
-          <Field label="Model Name" name="model" value={data.model} onChange={c} resetKey={resetKey} half required icon={Home} error={errOf('model')} />
+          <Field label="Manufacturer" name="manufacturer" value={data.manufacturer} onChange={c} resetKey={resetKey} half required icon={Building2} error={errOf('manufacturer')} autoFilled={isAutoFilled('manufacturer')} />
+          <Field label="Model Name" name="model" value={data.model} onChange={c} resetKey={resetKey} half required icon={Home} error={errOf('model')} autoFilled={isAutoFilled('model')} />
         </Row>
         <Row>
-          <Field label="Year" name="year" value={data.year} onChange={c} resetKey={resetKey} third />
-          <Field label="Serial # 1" name="serial_number_1" value={data.serial_number_1} onChange={c} resetKey={resetKey} third required icon={Hash} error={errOf('serial_number_1')} />
+          <Field label="Year" name="year" value={data.year} onChange={c} resetKey={resetKey} third autoFilled={isAutoFilled('year')} />
+          <Field
+            label="Serial # 1"
+            name="serial_number_1"
+            value={data.serial_number_1}
+            onChange={c}
+            resetKey={resetKey}
+            third
+            required
+            icon={Hash}
+            error={errOf('serial_number_1')}
+            autoFilled={isAutoFilled('serial_number_1')}
+            helperText={selectedHome && !isAutoFilled('serial_number_1') ? 'Enter manually — not in inventory feed' : undefined}
+          />
           <Field label="Serial # 2" name="serial_number_2" value={data.serial_number_2} onChange={c} resetKey={resetKey} third icon={Hash} />
         </Row>
         <Row>
-          <Field label="Label # 1" name="label_number_1" value={data.label_number_1} onChange={c} resetKey={resetKey} third />
+          <Field
+            label="Label # 1"
+            name="label_number_1"
+            value={data.label_number_1}
+            onChange={c}
+            resetKey={resetKey}
+            third
+            autoFilled={isAutoFilled('label_number_1')}
+            helperText={selectedHome && !isAutoFilled('label_number_1') ? 'Enter manually — not in inventory feed' : undefined}
+          />
           <Field label="Label # 2" name="label_number_2" value={data.label_number_2} onChange={c} resetKey={resetKey} third />
-          <Field label="# of Sections" name="no_of_sections" value={data.no_of_sections} onChange={c} resetKey={resetKey} third />
+          <Field label="# of Sections" name="no_of_sections" value={data.no_of_sections} onChange={c} resetKey={resetKey} third autoFilled={isAutoFilled('no_of_sections')} />
         </Row>
       </Card>
 
@@ -1171,7 +1230,20 @@ function Step2({ data, onChange, resetKey, inventory, inventoryLoading, onNext, 
       {/* Pricing */}
       <Section title="Pricing Information" icon={BadgeDollarSign}>
         <Row>
-          <Field label="Sales Price" name="sales_price" value={data.sales_price} onChange={c} resetKey={resetKey} third type="currency" required icon={DollarSign} error={errOf('sales_price')} />
+          <Field
+            label="Sales Price"
+            name="sales_price"
+            value={data.sales_price}
+            onChange={c}
+            resetKey={resetKey}
+            third
+            type="currency"
+            required
+            icon={DollarSign}
+            error={errOf('sales_price')}
+            autoFilled={isAutoFilled('sales_price')}
+            helperText={selectedHome && !isAutoFilled('sales_price') ? 'Enter manually — not in inventory feed' : undefined}
+          />
           <Field label="Down Payment" name="down_payment" value={data.down_payment} onChange={c} resetKey={resetKey} third type="currency" icon={DollarSign} />
           <Field
             label="Unpaid Balance"
@@ -1887,6 +1959,7 @@ export default function DocumentCenter() {
   const [deskError, setDeskError] = useState('');
   const [downloadingDoc, setDownloadingDoc] = useState('');
   const [downloadError, setDownloadError] = useState('');
+  const [autoFilledFields, setAutoFilledFields] = useState(new Set());
 
   // Refs to avoid stale closures in useCallback (prevents re-render on every keystroke)
   const formRef = useRef(form);
@@ -2031,6 +2104,14 @@ export default function DocumentCenter() {
       next.delete(n);
       return next;
     });
+    // Once the user manually edits an auto-filled field, drop the badge —
+    // they own the value now.
+    setAutoFilledFields(prev => {
+      if (!prev.has(n)) return prev;
+      const next = new Set(prev);
+      next.delete(n);
+      return next;
+    });
 
     // Debounce duplicate check — only run 500ms after user stops typing
     // This prevents re-renders on every keystroke
@@ -2053,6 +2134,7 @@ export default function DocumentCenter() {
     setSelDocs([]);
     setStep(1);
     setLastSaved(null);
+    setAutoFilledFields(new Set());
     setFormResetKey(k => k + 1); // Force Fields to clear
   };
 
@@ -2062,7 +2144,38 @@ export default function DocumentCenter() {
       if (d[k] != null) m[k] = d[k];
     });
     setForm(m);
+    setAutoFilledFields(new Set()); // Clear auto-fill markers when loading a deal
     setFormResetKey(k => k + 1); // Force all Fields to re-mount with new defaultValues
+  }, []);
+
+  // Inventory auto-fill: applies a patch in one go, bumps resetKey so the
+  // uncontrolled <Field> inputs re-mount with the new defaultValue, and
+  // tracks which keys came from inventory so the Field can render a
+  // "✓ from inventory" badge.
+  const applyInventoryAutoFill = useCallback((patch, opts = {}) => {
+    setForm(p => ({ ...p, ...patch }));
+    setMissingFields(prev => {
+      const next = new Set(prev);
+      Object.entries(patch).forEach(([k, v]) => {
+        if (v !== undefined && v !== null && String(v).trim() !== '') {
+          next.delete(k);
+        }
+      });
+      return next;
+    });
+    if (opts.clear) {
+      setAutoFilledFields(new Set());
+    } else {
+      // Only mark fields that received a non-empty value
+      const filled = new Set();
+      Object.entries(patch).forEach(([k, v]) => {
+        if (v !== undefined && v !== null && String(v).trim() !== '') {
+          filled.add(k);
+        }
+      });
+      setAutoFilledFields(filled);
+    }
+    setFormResetKey(k => k + 1); // Force Fields to re-mount with the new defaultValues
   }, []);
 
   const toggleDoc = useCallback(t => {
@@ -2141,6 +2254,8 @@ export default function DocumentCenter() {
     setResults(null);
     setGenErr('');
     setDownloadError('');
+    setAutoFilledFields(new Set());
+    setFormResetKey(k => k + 1);
   };
 
   return (
@@ -2251,6 +2366,8 @@ export default function DocumentCenter() {
           validationErrors={validationErrors}
           missingFields={missingFields}
           onOpenTradeInCalculator={() => setShowTradeInCalculator(true)}
+          onAutoFill={applyInventoryAutoFill}
+          autoFilledFields={autoFilledFields}
         />
       )}
 
