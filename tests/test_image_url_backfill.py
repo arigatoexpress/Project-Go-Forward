@@ -23,39 +23,54 @@ import requests
 
 
 # ─── Load tools/image_url_backfill.py directly, bypassing tools/__init__.py ──
-# tools/__init__.py eagerly imports document_tools (pypdf) which is not installed
-# in the test environment. We load the module by file path to avoid that chain.
+# tools/__init__.py eagerly imports document_tools (pypdf). When running locally
+# without the full requirements installed, that chain would fail. We load the
+# module by file path so tests work in minimal envs too.
+#
+# IMPORTANT: we use setdefault for ALL sys.modules entries and never overwrite
+# real installed packages. The full test suite runs all test_*.py files in one
+# process, so clobbering google.cloud.* would break tests collected afterwards.
 
-def _stub_google_firestore():
-    google_mod = sys.modules.get("google") or types.ModuleType("google")
-    cloud_mod = types.ModuleType("google.cloud")
-    fs_mod = types.ModuleType("google.cloud.firestore")
-    fs_mod.Client = object
-    fs_mod.Query = types.SimpleNamespace(DESCENDING="DESCENDING")
-    google_mod.cloud = cloud_mod
-    cloud_mod.firestore = fs_mod
-    sys.modules.setdefault("google", google_mod)
-    sys.modules["google.cloud"] = cloud_mod
-    sys.modules["google.cloud.firestore"] = fs_mod
-
-
-_stub_google_firestore()
-
-# Inject the tools directory as a discoverable module without running __init__
 _TOOLS_DIR = os.path.join(os.path.dirname(__file__), "..", "tools")
 _REPO_ROOT = os.path.join(os.path.dirname(__file__), "..")
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 
+
+def _ensure_firestore_importable() -> None:
+    """Register minimal google.cloud.firestore stubs only when the real package
+    is absent.  Never replaces a real installed module."""
+    google_mod = sys.modules.get("google") or types.ModuleType("google")
+    sys.modules.setdefault("google", google_mod)
+
+    cloud_mod = sys.modules.get("google.cloud")
+    if cloud_mod is None:
+        cloud_mod = types.ModuleType("google.cloud")
+        if not hasattr(google_mod, "cloud"):
+            google_mod.cloud = cloud_mod
+        sys.modules["google.cloud"] = cloud_mod
+
+    if "google.cloud.firestore" not in sys.modules:
+        fs_mod = types.ModuleType("google.cloud.firestore")
+        fs_mod.Client = object
+        fs_mod.Query = types.SimpleNamespace(DESCENDING="DESCENDING")
+        cloud_mod.firestore = fs_mod
+        sys.modules["google.cloud.firestore"] = fs_mod
+
+
+_ensure_firestore_importable()
+
 # Pre-register a stub `tools` package so Python doesn't run tools/__init__.py
+# (only needed when tools hasn't been imported yet by an earlier test file).
 if "tools" not in sys.modules:
     _tools_stub = types.ModuleType("tools")
     _tools_stub.__path__ = [_TOOLS_DIR]
     _tools_stub.__package__ = "tools"
     sys.modules["tools"] = _tools_stub
 
-# Load asset_scraper directly (no problematic deps)
+
 def _load_direct(rel_path: str, module_name: str):
+    """Load a single .py file directly into sys.modules, bypassing __init__."""
     spec = importlib.util.spec_from_file_location(
         module_name,
         os.path.join(_REPO_ROOT, rel_path),
@@ -69,7 +84,7 @@ def _load_direct(rel_path: str, module_name: str):
 _load_direct("tools/asset_scraper.py", "tools.asset_scraper")
 _iub = _load_direct("tools/image_url_backfill.py", "tools.image_url_backfill")
 
-# Pull names directly from the loaded module
+# Bind names used throughout the test module
 CDN_BASE = _iub.CDN_BASE
 DEALER_ID = _iub.DEALER_ID
 build_new_home_url = _iub.build_new_home_url
@@ -78,17 +93,6 @@ probe_url = _iub.probe_url
 process_row = _iub.process_row
 resolve_candidate_url = _iub.resolve_candidate_url
 run = _iub.run
-
-from tools.image_url_backfill import (  # noqa: E402 — verify the names are importable
-    CDN_BASE,
-    DEALER_ID,
-    build_new_home_url,
-    build_preowned_url,
-    probe_url,
-    process_row,
-    resolve_candidate_url,
-    run,
-)
 
 
 # ─── URL construction ────────────────────────────────────────────────────────
