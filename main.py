@@ -17,10 +17,12 @@ import hashlib
 import secrets
 from collections import defaultdict
 from fastapi import FastAPI, Request, Depends, HTTPException
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from json import JSONDecodeError
 import logging
 import time
 import uuid
@@ -92,7 +94,20 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 APP_STARTED_AT = time.monotonic()
 
-app = FastAPI(title=f"{business_name()} AI Agent")
+# Disable FastAPI's auto-docs (/openapi.json, /docs, /redoc) in Cloud Run.
+# These endpoints expose the full API surface — every admin route, every
+# operation ID, every path parameter — to anonymous attackers, which makes
+# enumeration and targeted abuse trivial. They remain available locally so
+# developers can still spelunk the surface in dev. Override with
+# `EXPOSE_API_DOCS=1` if you really need them on a deployed env.
+_EXPOSE_API_DOCS = os.environ.get("EXPOSE_API_DOCS", "0") == "1"
+_DOCS_ENABLED = _EXPOSE_API_DOCS or os.environ.get("K_SERVICE") is None
+app = FastAPI(
+    title=f"{business_name()} AI Agent",
+    openapi_url="/openapi.json" if _DOCS_ENABLED else None,
+    docs_url="/docs" if _DOCS_ENABLED else None,
+    redoc_url="/redoc" if _DOCS_ENABLED else None,
+)
 
 # Initialize services (these don't require Vertex AI)
 deploy_cfg = get_deployment_config()
@@ -292,6 +307,46 @@ async def resilient_http_exception_handler(request: Request, exc: HTTPException)
         status_code=exc.status_code,
         headers=getattr(exc, "headers", None) or None,
     )
+    return _apply_api_cache_headers(request, response)
+
+
+@app.exception_handler(RequestValidationError)
+async def resilient_validation_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    """Funnel FastAPI body/query/path validation errors through the same
+    `{success, status_code, message}` envelope as HTTPException so the SPA
+    can branch on `success` and never sees FastAPI's default 422 shape.
+    Partner /api/v1/* keeps the default for contract stability.
+    """
+    if _is_partner_api_path(request.url.path):
+        body: dict = {"detail": exc.errors()}
+        status_code = 422
+    else:
+        body = {
+            "success": False,
+            "status_code": 400,
+            "message": "Invalid request payload.",
+        }
+        status_code = 400
+    response = JSONResponse(body, status_code=status_code)
+    return _apply_api_cache_headers(request, response)
+
+
+@app.exception_handler(JSONDecodeError)
+async def resilient_json_decode_handler(request: Request, exc: JSONDecodeError) -> JSONResponse:
+    """A `json.JSONDecodeError` raised inside a route — typically from
+    `await request.json()` on an empty/malformed body — would otherwise
+    surface as a Starlette 500 with `text/plain` "Internal Server Error",
+    breaking the JSON contract the SPA relies on. Wrap it.
+    """
+    if _is_partner_api_path(request.url.path):
+        body: dict = {"detail": "Malformed JSON body."}
+    else:
+        body = {
+            "success": False,
+            "status_code": 400,
+            "message": "Malformed JSON body.",
+        }
+    response = JSONResponse(body, status_code=400)
     return _apply_api_cache_headers(request, response)
 
 
@@ -2306,8 +2361,24 @@ async def verify_admin_pin(request: Request):
             headers={"Retry-After": str(PIN_LOCKOUT_SECONDS)},
         )
 
-    data = await request.json()
+    try:
+        data = await request.json()
+    except (JSONDecodeError, ValueError):
+        return JSONResponse(
+            {"success": False, "error": "Malformed JSON body."},
+            status_code=400,
+        )
+    if not isinstance(data, dict):
+        return JSONResponse(
+            {"success": False, "error": "Request body must be a JSON object."},
+            status_code=400,
+        )
     pin = data.get("pin", "")
+    if not isinstance(pin, str):
+        return JSONResponse(
+            {"success": False, "error": "PIN must be a string."},
+            status_code=400,
+        )
     if not ADMIN_PIN_HASH:
         struct_logger.warning("Admin login rejected: ADMIN_PIN_HASH not configured")
         return JSONResponse({"success": False, "error": "Admin auth not configured."}, status_code=503)
