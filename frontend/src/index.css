@@ -3,3 +3,16 @@
 body {
   background-color: #f3f4f6;
 }
+
+@layer components {
+  /* Shared button variants — apply Tailwind utility chains so consumers
+     (InventoryBrowse, EmptyState actions, future pages) don't repeat the
+     same five classes. Hover/focus states match the project's existing
+     blue-600 accent. */
+  .btn-primary {
+    @apply bg-blue-600 hover:bg-blue-700 text-white rounded-lg px-4 py-2 font-medium transition;
+  }
+  .btn-secondary {
+    @apply bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg px-4 py-2 transition;
+  }
+}
