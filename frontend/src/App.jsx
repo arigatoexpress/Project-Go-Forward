@@ -280,16 +280,33 @@ function App() {
   }, [setDarkMode]);
 
   // URL-based routing — support standalone access via /documents, /studio
-  const getInitialPage = () => {
-    const path = window.location.pathname.toLowerCase();
-    if (path.startsWith('/documents') || path.startsWith('/app/documents')) return 'documents';
-    if (path.startsWith('/studio') || path.startsWith('/app/studio')) return 'adstudio';
-    if (path.startsWith('/crm')) return 'crm';
-    if (path.startsWith('/analytics')) return 'analytics';
+  // and direct deep-links to /contact, /chat, /appointments, /crm, /analytics, etc.
+  const pageFromPath = (path) => {
+    const p = (path || '').toLowerCase();
+    if (p.startsWith('/documents') || p.startsWith('/app/documents')) return 'documents';
+    if (p.startsWith('/studio') || p.startsWith('/app/studio')) return 'adstudio';
+    if (p.startsWith('/crm')) return 'crm';
+    if (p.startsWith('/analytics')) return 'analytics';
+    if (p.startsWith('/contact')) return 'contact';
+    if (p.startsWith('/appointments')) return 'appointments';
+    if (p.startsWith('/chat-history')) return 'chat-history';
+    if (p.startsWith('/chat')) return 'chat';
+    if (p.startsWith('/inventory')) return 'inventory';
     return 'inventory';
   };
-  const [activePage, setActivePage] = useState(getInitialPage);
+  const [activePage, setActivePage] = useState(() => pageFromPath(window.location.pathname));
   const isStandaloneMode = window.location.pathname.startsWith('/app/') || window.location.search.includes('standalone=1');
+
+  // Keep activePage in sync with browser back/forward navigation
+  useEffect(() => {
+    const handlePopState = () => {
+      setActivePage(pageFromPath(window.location.pathname));
+      setIsMobileMenuOpen(false);
+      window.scrollTo({ top: 0 });
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   // Admin auth — token validated by backend
   const [adminAuthed, setAdminAuthed] = useState(false);
@@ -389,11 +406,20 @@ function App() {
     setIsMobileMenuOpen(false);
     window.scrollTo({ top: 0 });
     // Update URL for bookmarkable routes
-    const urlMap = { documents: '/documents', adstudio: '/studio', crm: '/crm', analytics: '/analytics' };
-    if (urlMap[page]) {
-      window.history.pushState({}, '', urlMap[page]);
-    } else if (window.location.pathname !== '/') {
-      window.history.pushState({}, '', '/');
+    const urlMap = {
+      inventory: '/',
+      chat: '/chat',
+      contact: '/contact',
+      appointments: '/appointments',
+      documents: '/documents',
+      adstudio: '/studio',
+      crm: '/crm',
+      analytics: '/analytics',
+      'chat-history': '/chat-history',
+    };
+    const targetUrl = urlMap[page] || '/';
+    if (window.location.pathname !== targetUrl) {
+      window.history.pushState({}, '', targetUrl);
     }
   };
 

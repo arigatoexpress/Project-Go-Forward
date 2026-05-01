@@ -639,10 +639,72 @@
   max-width: 900px;
   width: 100%;
   max-height: 90vh;
-  overflow: hidden;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   animation: tho-slide-up 0.3s ease;
+  position: relative;
+}
+
+.tho-detail-sticky-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.tho-detail-sticky-title {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  flex: 1;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.tho-detail-sticky-name {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #1e293b;
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.tho-detail-sticky-price {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #16a34a;
+  white-space: nowrap;
+}
+
+.tho-detail-sticky-close {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.08);
+  color: #1e293b;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+.tho-detail-sticky-close:hover {
+  background: rgba(0, 0, 0, 0.18);
 }
 
 @keyframes tho-slide-up {
@@ -829,7 +891,6 @@
 
 .tho-detail-info {
   padding: 1.5rem;
-  overflow-y: auto;
   flex: 1;
 }
 
@@ -1230,6 +1291,18 @@
   .tho-detail-modal {
     max-height: 95vh;
     margin: 0.5rem;
+  }
+
+  .tho-detail-sticky-header {
+    padding: 0.625rem 0.875rem;
+  }
+
+  .tho-detail-sticky-name {
+    font-size: 0.95rem;
+  }
+
+  .tho-detail-sticky-price {
+    font-size: 0.9rem;
   }
 
   .tho-detail-photo-main,
