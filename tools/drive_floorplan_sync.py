@@ -9,12 +9,23 @@ floorplans into ``data/floorplans/<manufacturer>/`` plus the
 Usage
 -----
 
+Manual CLI invocation::
+
     python3 tools/drive_floorplan_sync.py --dry-run \\
         --folder-id 0BwMsFgQWT3QvWWoxbWMtQXJfR0U
 
     python3 tools/drive_floorplan_sync.py --apply \\
         --folder-id 0BwMsFgQWT3QvWWoxbWMtQXJfR0U \\
         --gcs-bucket tho-secure-documents
+
+Headless / Cloud Run Job invocation::
+
+    DRIVE_FOLDER_ID=0BwMsFgQWT3QvWWoxbWMtQXJfR0U \\
+    GCS_DOCUMENTS_BUCKET=tho-secure-documents \\
+    python3 -c "from tools.drive_floorplan_sync import run_scheduled; print(run_scheduled())"
+
+See ``docs/integration/cloud-scheduler-drive-sync.md`` for the full Cloud Run
+Job + Cloud Scheduler manifests.
 
 Authentication
 --------------
@@ -40,8 +51,12 @@ PII Posture
 from __future__ import annotations
 
 import argparse
+import base64
+import binascii
+import hashlib
 import io
 import logging
+import os
 import re
 import sys
 from collections.abc import Iterator
@@ -262,11 +277,203 @@ def download_to_cache(svc, file: DriveFile) -> Path:
     return file.local_path
 
 
-def upload_to_gcs(bucket: storage.Bucket, file: DriveFile) -> str:
+def _local_md5_hex(path: Path) -> str:
+    """Compute the MD5 of a local file as a lowercase hex string."""
+    h = hashlib.md5(usedforsecurity=False)  # noqa: S324 - matches GCS blob.md5_hash
+    with path.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _decode_blob_md5(blob_md5: str | None) -> str | None:
+    """Convert ``blob.md5_hash`` (base64) to lowercase hex, or None on failure.
+
+    GCS exposes the MD5 of an uploaded object as a base64-encoded string.
+    Returning ``None`` means we cannot compare reliably and should re-upload.
+    """
+    if not blob_md5:
+        return None
+    try:
+        return binascii.hexlify(base64.b64decode(blob_md5)).decode("ascii").lower()
+    except (binascii.Error, ValueError):
+        return None
+
+
+def upload_to_gcs(bucket: storage.Bucket, file: DriveFile) -> tuple[str, bool]:
+    """Upload ``file`` to GCS if its md5 differs from the existing blob.
+
+    Returns ``(gs_uri, uploaded)`` where ``uploaded`` is False when the blob
+    already exists in GCS with a matching md5 (idempotent re-run).
+    """
     blob = bucket.blob(file.gcs_object_key)
+    local_md5 = _local_md5_hex(file.local_path)
+    try:
+        if blob.exists():
+            blob.reload()  # populate md5_hash
+            remote_md5 = _decode_blob_md5(getattr(blob, "md5_hash", None))
+            if remote_md5 and remote_md5 == local_md5:
+                LOG.debug(
+                    "Skipping gs://%s/%s — md5 match (%s)",
+                    bucket.name,
+                    file.gcs_object_key,
+                    local_md5,
+                )
+                return f"gs://{bucket.name}/{file.gcs_object_key}", False
+    except Exception:  # noqa: BLE001
+        # Fall through to upload — better to re-upload than silently skip.
+        LOG.exception("md5 precheck failed for gs://%s/%s", bucket.name, file.gcs_object_key)
+
     blob.upload_from_filename(str(file.local_path), content_type=file.mime_type)
     LOG.info("Uploaded gs://%s/%s", bucket.name, file.gcs_object_key)
-    return f"gs://{bucket.name}/{file.gcs_object_key}"
+    return f"gs://{bucket.name}/{file.gcs_object_key}", True
+
+
+# ---------------------------------------------------------------------------
+# Shared sync routine (used by both CLI --apply and run_scheduled)
+# ---------------------------------------------------------------------------
+
+
+def _run_sync(folder_id: str, gcs_bucket_name: str | None, *, dry_run: bool = False) -> dict:
+    """Walk Drive, optionally download + upload to GCS, return stats.
+
+    Returns a dict with shape::
+
+        {
+            "folder_id": "...",
+            "gcs_bucket": "tho-secure-documents",
+            "folders_walked": int,         # manufacturer keys touched
+            "files_seen": int,
+            "files_downloaded": int,
+            "files_uploaded": int,         # excludes md5-skipped
+            "files_skipped_md5": int,
+            "bytes_total": int,            # sum of declared file sizes
+            "errors": list[dict],          # [{"file": "...", "stage": "...", "error": "..."}]
+            "dry_run": bool,
+        }
+    """
+    svc = _drive_service()
+    bucket = None
+    if not dry_run and gcs_bucket_name:
+        try:
+            from google.cloud import storage as _storage
+        except ImportError as exc:  # pragma: no cover - runtime environment only
+            raise _missing_google_libs(exc) from exc
+
+        gcs_client = _storage.Client()
+        bucket = gcs_client.bucket(gcs_bucket_name)
+
+    counts: dict[str, int] = {}
+    bytes_total = 0
+    files_downloaded = 0
+    files_uploaded = 0
+    files_skipped_md5 = 0
+    errors: list[dict] = []
+
+    for file in walk_tho_folder(svc, folder_id):
+        counts[file.manufacturer_key] = counts.get(file.manufacturer_key, 0) + 1
+        bytes_total += file.size_bytes or 0
+        if dry_run:
+            continue
+        try:
+            download_to_cache(svc, file)
+            files_downloaded += 1
+        except Exception as exc:  # noqa: BLE001
+            LOG.exception("download failed for %s", file.name)
+            errors.append(
+                {
+                    "file": file.gcs_object_key,
+                    "stage": "download",
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
+            )
+            continue
+        if bucket is not None:
+            try:
+                _uri, uploaded = upload_to_gcs(bucket, file)
+                if uploaded:
+                    files_uploaded += 1
+                else:
+                    files_skipped_md5 += 1
+            except Exception as exc:  # noqa: BLE001
+                LOG.exception("upload failed for %s", file.gcs_object_key)
+                errors.append(
+                    {
+                        "file": file.gcs_object_key,
+                        "stage": "upload",
+                        "error": f"{type(exc).__name__}: {exc}",
+                    }
+                )
+
+    return {
+        "folder_id": folder_id,
+        "gcs_bucket": gcs_bucket_name,
+        "folders_walked": len(counts),
+        "files_seen": sum(counts.values()),
+        "files_downloaded": files_downloaded,
+        "files_uploaded": files_uploaded,
+        "files_skipped_md5": files_skipped_md5,
+        "bytes_total": bytes_total,
+        "manufacturer_counts": dict(sorted(counts.items())),
+        "errors": errors,
+        "dry_run": dry_run,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Headless / Cloud Run Job entrypoint
+# ---------------------------------------------------------------------------
+
+
+def run_scheduled() -> dict:
+    """Entrypoint for scheduled Cloud Run Job. Returns sync stats.
+
+    Reads configuration from environment variables:
+
+    * ``DRIVE_FOLDER_ID`` (required) — Drive folder ID for the THO root.
+    * ``GCS_DOCUMENTS_BUCKET`` (default ``tho-secure-documents``) — destination bucket.
+    * ``DRIVE_SYNC_DRY_RUN`` (default ``"0"``) — set to ``"1"`` to walk only.
+
+    Errors during individual file download/upload are captured in the returned
+    ``errors`` list; only configuration errors raise ``SystemExit``.
+    """
+    if not logging.getLogger().handlers:
+        # Cloud Run Jobs have no preconfigured handler — keep it structured.
+        logging.basicConfig(
+            level=logging.INFO,
+            format="%(asctime)s %(levelname)s %(name)s %(message)s",
+        )
+
+    folder_id = (os.environ.get("DRIVE_FOLDER_ID") or "").strip()
+    if not folder_id:
+        raise SystemExit("DRIVE_FOLDER_ID required for scheduled run")
+
+    gcs_bucket_name = (os.environ.get("GCS_DOCUMENTS_BUCKET") or "tho-secure-documents").strip()
+    dry_run = (os.environ.get("DRIVE_SYNC_DRY_RUN") or "0").strip() == "1"
+
+    stats = _run_sync(folder_id, gcs_bucket_name, dry_run=dry_run)
+    LOG.info(
+        "drive_sync_complete files_seen=%d uploaded=%d skipped_md5=%d errors=%d",
+        stats["files_seen"],
+        stats["files_uploaded"],
+        stats["files_skipped_md5"],
+        len(stats["errors"]),
+    )
+
+    # Soft-import Sentry for error reporting if available; never hard-fail on absence.
+    if stats["errors"]:
+        try:  # pragma: no cover - optional dep
+            import sentry_sdk
+
+            for err in stats["errors"]:
+                sentry_sdk.capture_message(
+                    f"drive_sync error: {err['stage']} {err['file']} {err['error']}",
+                    level="error",
+                )
+        except ImportError:
+            pass
+
+    return stats
 
 
 # ---------------------------------------------------------------------------
@@ -295,35 +502,37 @@ def main(argv: list[str] | None = None) -> int:
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
 
-    svc = _drive_service()
-    bucket = None
-    if args.apply:
-        try:
-            from google.cloud import storage
-        except ImportError as exc:  # pragma: no cover - runtime environment only
-            raise _missing_google_libs(exc) from exc
-
-        gcs_client = storage.Client()
-        bucket = gcs_client.bucket(args.gcs_bucket)
-
-    counts: dict[str, int] = {}
-    bytes_total = 0
-    for file in walk_tho_folder(svc, args.folder_id):
-        counts[file.manufacturer_key] = counts.get(file.manufacturer_key, 0) + 1
-        bytes_total += file.size_bytes or 0
-        if args.dry_run:
+    if args.dry_run:
+        # Preserve historic stdout shape for the dry-run case (per-file lines).
+        svc = _drive_service()
+        counts: dict[str, int] = {}
+        bytes_total = 0
+        for file in walk_tho_folder(svc, args.folder_id):
+            counts[file.manufacturer_key] = counts.get(file.manufacturer_key, 0) + 1
+            bytes_total += file.size_bytes or 0
             print(f"DRY  {file.manufacturer_key:18s}  {file.name}  ({file.size_bytes or '?'} B)")
-            continue
-        download_to_cache(svc, file)
-        if bucket is not None:
-            upload_to_gcs(bucket, file)
+        print()
+        print(f"Files seen: {sum(counts.values())}  (~{bytes_total / 1e6:.1f} MB)")
+        for k, v in sorted(counts.items()):
+            print(f"  {k:20s}  {v} files")
+        return 0
+
+    stats = _run_sync(args.folder_id, args.gcs_bucket, dry_run=False)
 
     print()
-    print(f"Files seen: {sum(counts.values())}  (~{bytes_total / 1e6:.1f} MB)")
-    for k, v in sorted(counts.items()):
+    print(
+        f"Files seen: {stats['files_seen']}  "
+        f"(~{stats['bytes_total'] / 1e6:.1f} MB)  "
+        f"uploaded={stats['files_uploaded']}  "
+        f"skipped_md5={stats['files_skipped_md5']}  "
+        f"errors={len(stats['errors'])}"
+    )
+    for k, v in stats["manufacturer_counts"].items():
         print(f"  {k:20s}  {v} files")
+    for err in stats["errors"]:
+        print(f"  ERROR {err['stage']:10s} {err['file']}: {err['error']}")
 
-    return 0
+    return 0 if not stats["errors"] else 1
 
 
 if __name__ == "__main__":  # pragma: no cover
