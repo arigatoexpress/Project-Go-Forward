@@ -364,7 +364,8 @@ export default function CRM({ onBack }) {
   const filteredDeals = deals.filter(d => {
     const q = searchQuery.toLowerCase();
     const name = `${d.buyer_first_name || ''} ${d.buyer_last_name || ''}`.toLowerCase();
-    const matchesQ = !q || name.includes(q) || (d.model || '').toLowerCase().includes(q) || (d.id || '').toLowerCase().includes(q);
+    const homeText = `${d.home_label || ''} ${d.model || ''} ${d.home_model || ''} ${d.serial_number_1 || ''} ${d.serial_number || ''}`.toLowerCase();
+    const matchesQ = !q || name.includes(q) || homeText.includes(q) || (d.id || '').toLowerCase().includes(q);
     const matchesStatus = !statusFilter || d.status === statusFilter;
     return matchesQ && matchesStatus;
   });
@@ -1215,6 +1216,16 @@ function DealCard({ deal, onUpdateStatus, statusOrder }) {
   const currentIdx = statusOrder.indexOf(deal.status);
   const nextStatus = currentIdx >= 0 && currentIdx < statusOrder.length - 1 ? statusOrder[currentIdx + 1] : null;
   const buyerName = `${deal.buyer_first_name || ''} ${deal.buyer_last_name || ''}`.trim();
+  // Display label: prefer the server-enriched `home_label` (joined from
+  // inventory by serial when the deal lacks model info), then any model
+  // field already on the deal record, then a Serial fallback so the user
+  // can still identify the home, then the empty-state copy.
+  const dealSerial = deal.serial_number_1 || deal.serial_number || null;
+  const homeLabel = deal.home_label || deal.model || deal.home_model || (dealSerial ? `Serial: ${dealSerial}` : 'No home selected');
+  const homeManufacturer = deal.home_manufacturer || deal.manufacturer || null;
+  const detailManufacturerModel = [homeManufacturer, deal.home_label || deal.model || deal.home_model]
+    .filter(Boolean)
+    .join(' ');
 
   const handleGenerateDoc = async (templateName) => {
     setGenerating('doc');
@@ -1263,7 +1274,7 @@ function DealCard({ deal, onUpdateStatus, statusOrder }) {
       <div className="crm-deal-header" onClick={() => setExpanded(!expanded)}>
         <div>
           <div className="crm-deal-name">{buyerName || 'No Name'}</div>
-          <div className="crm-deal-model">{deal.model || 'No home selected'}</div>
+          <div className="crm-deal-model">{homeLabel}</div>
         </div>
         {expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
       </div>
@@ -1279,8 +1290,8 @@ function DealCard({ deal, onUpdateStatus, statusOrder }) {
           {deal.buyer_phone && <div><Phone size={12} /> {deal.buyer_phone}</div>}
           {deal.buyer_email && <div><Mail size={12} /> {deal.buyer_email}</div>}
           {deal.salesrep && <div>Rep: {deal.salesrep}</div>}
-          {deal.manufacturer && <div>{deal.manufacturer} {deal.model}</div>}
-          {deal.serial_number_1 && <div>S/N: {deal.serial_number_1}</div>}
+          {detailManufacturerModel && <div>{detailManufacturerModel}</div>}
+          {dealSerial && <div>S/N: {dealSerial}</div>}
           {deal.buyer_address && <div>{deal.buyer_address}, {deal.buyer_city} {deal.buyer_state} {deal.buyer_zip}</div>}
           <div className="crm-deal-dates">
             Created: {formatDate(deal.created_at)}

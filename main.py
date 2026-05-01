@@ -1338,7 +1338,8 @@ async def list_deals(status: str = None, salesrep: str = None, q: str = None, li
             buyer_name=q,
             limit=limit
         )
-        return {"success": True, "deals": [_strip_pii_from_deal(d) for d in deals], "count": len(deals)}
+        enriched = _enrich_deals_with_home(deals, _deal_db)
+        return {"success": True, "deals": [_strip_pii_from_deal(d) for d in enriched], "count": len(enriched)}
     except Exception as e:
         struct_logger.error("Deal listing failed", error=str(e))
         return {"success": False, "error": "Failed to load deals. Please try again."}
@@ -1370,6 +1371,110 @@ def _strip_pii_from_deal(deal: dict) -> dict:
     if isinstance(deal, dict):
         return {k: v for k, v in deal.items() if k not in ("buyer_ssn", "co_buyer_ssn")}
     return deal
+
+
+def _deal_serial(deal: dict) -> str | None:
+    """Extract a usable home serial from a deal record.
+
+    Different ingest paths landed slightly different field names on the
+    `deals` collection:
+      * `import_fcd_deals.py` and the manual deal form use `serial_number_1`
+        (matches the Pydantic `Deal` model).
+      * The historical FCD bulk import used `serial_number` (singular).
+    We accept either and fall back to None.
+    """
+    if not isinstance(deal, dict):
+        return None
+    for key in ("serial_number_1", "serial_number"):
+        val = deal.get(key)
+        if val:
+            return str(val).strip() or None
+    return None
+
+
+def _enrich_deals_with_home(deals: list, db) -> list:
+    """Attach `home_label` and `home_manufacturer` to each deal.
+
+    Behaviour:
+      * If the deal already has `manufacturer` and (`model` or `home_model`)
+        populated, no inventory lookup is needed; we just normalize a
+        `home_label` for the frontend.
+      * Otherwise, if the deal has a serial number (`serial_number_1` or
+        `serial_number`), we batch-look-up the inventory and attach the
+        matching home's `model_name` + `manufacturer` as `home_label` and
+        `home_manufacturer`.
+      * If no inventory match exists, `home_label` stays unset so the
+        frontend can render the "Serial: XXXX" fallback.
+
+    The output is schema-additive: we never strip existing keys. New keys
+    only appear when we have a value to attach.
+    """
+    if not deals:
+        return deals
+
+    # Collect serials that need an inventory lookup. We skip deals that
+    # already carry a model — they don't need enrichment.
+    needs_lookup: dict[str, list[dict]] = {}
+    for deal in deals:
+        if not isinstance(deal, dict):
+            continue
+        existing_model = deal.get("model") or deal.get("home_model")
+        if existing_model and deal.get("manufacturer"):
+            continue
+        serial = _deal_serial(deal)
+        if not serial:
+            continue
+        needs_lookup.setdefault(serial, []).append(deal)
+
+    inventory_by_serial: dict = {}
+    if needs_lookup:
+        try:
+            getter = getattr(db, "get_inventory_by_serials", None)
+            if callable(getter):
+                inventory_by_serial = getter(list(needs_lookup.keys())) or {}
+            else:
+                # Fallback: per-serial lookup if the batched method is absent
+                # (e.g., older test stubs).
+                single = getattr(db, "get_inventory_by_serial", None)
+                if callable(single):
+                    for serial in needs_lookup:
+                        match = single(serial)
+                        if match:
+                            inventory_by_serial[serial] = match
+        except Exception as exc:  # noqa: BLE001 - never let enrichment break /api/deals
+            struct_logger.warning(
+                "Deal home enrichment failed; falling back to raw deals",
+                error=str(exc),
+            )
+            inventory_by_serial = {}
+
+    for serial, matched_deals in needs_lookup.items():
+        inv = inventory_by_serial.get(serial)
+        if not inv:
+            continue
+        label = inv.get("model_name") or inv.get("model")
+        manufacturer = inv.get("manufacturer")
+        for deal in matched_deals:
+            if label and not deal.get("home_label"):
+                deal["home_label"] = label
+            if manufacturer and not deal.get("home_manufacturer"):
+                deal["home_manufacturer"] = manufacturer
+
+    # For deals that already had model/manufacturer, surface a unified
+    # `home_label` so the frontend doesn't have to know about every field
+    # name. This is purely additive.
+    for deal in deals:
+        if not isinstance(deal, dict):
+            continue
+        if deal.get("home_label"):
+            continue
+        existing_model = deal.get("model") or deal.get("home_model")
+        if existing_model:
+            deal["home_label"] = existing_model
+        if not deal.get("home_manufacturer") and deal.get("manufacturer"):
+            deal["home_manufacturer"] = deal.get("manufacturer")
+
+    return deals
 
 
 @app.get("/api/deals/{deal_id}", dependencies=[Depends(require_admin)])
