@@ -2082,6 +2082,31 @@ export default function DocumentCenter() {
   }, []);
 
   const generate = async () => {
+    // Defense-in-depth: Step 3's Generate must not advance to backend if
+    // Step 1 or Step 2 is missing data. Backend would reject with cryptic
+    // "Generation failed" — instead, jump the user back to the offending
+    // step with the same inline-highlight / scroll-to-error UX.
+    const s1 = getValidationState(form, 1);
+    if (s1.errors.length > 0) {
+      setValidationErrors(s1.errors);
+      setMissingFields(s1.missing);
+      setStep(1);
+      if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+    const s2 = getValidationState(form, 2);
+    if (s2.errors.length > 0) {
+      setValidationErrors(s2.errors);
+      setMissingFields(s2.missing);
+      setStep(2);
+      if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
+    if (!selDocs || selDocs.length === 0) {
+      setGenErr('Select at least one document or packet to generate.');
+      return;
+    }
+
     setGenerating(true);
     setGenErr('');
     setDownloadError('');
