@@ -1,18 +1,21 @@
 """
 Email Service for Texas Home Outlet — Resend Integration
 
-Plug-and-play email delivery. Currently uses Resend's test sender.
-When domain admin access is available, swap RESEND_FROM to @texashomeoutlet.com.
+Plug-and-play email delivery. Sender domain comes from the RESEND_FROM env
+var; default points at the verified `noreply@texashomeoutlet.com` alias. The
+domain MUST be verified in the Resend dashboard (DKIM/SPF/DMARC) before
+deliverability is reliable.
 
 Setup:
   1. Sign up at resend.com → get API key
   2. Set env var: RESEND_API_KEY=re_xxxxx
-  3. For production: verify texashomeoutlet.com domain in Resend dashboard
+  3. Verify texashomeoutlet.com in Resend dashboard, then set:
+        RESEND_FROM="Texas Home Outlet <noreply@texashomeoutlet.com>"
 """
 
 import html as html_mod
-import os
 import logging
+import os
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -21,21 +24,31 @@ logger = logging.getLogger(__name__)
 TIMEZONE = ZoneInfo("America/Chicago")
 
 # ── Config ──────────────────────────────────────────────────────
-# Test sender works immediately — no domain verification needed
-RESEND_FROM = os.environ.get("RESEND_FROM", "Texas Home Outlet <onboarding@resend.dev>")
+# Default points at the verified Texas Home Outlet domain. The domain must be
+# verified in Resend (DKIM/SPF/DMARC) before send calls succeed in volume.
+# Override with RESEND_FROM env var if a different alias is preferred.
+RESEND_FROM = os.environ.get(
+    "RESEND_FROM",
+    "Texas Home Outlet <noreply@texashomeoutlet.com>",
+)
 RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
 NOTIFICATION_EMAIL = os.environ.get("NOTIFICATION_EMAIL", "aribspector@gmail.com")
 BUSINESS_PHONE = "(281) 324-3020"
 BUSINESS_ADDRESS = "10685 FM 1960 East, Huffman, TX"
+# Public site origin used to build absolute download URLs in document emails.
+# Falls back to the empty string so callers must pass an already-resolved URL.
+PUBLIC_SITE_URL = os.environ.get("PUBLIC_SITE_URL", "").rstrip("/")
 
 # Activity log — stored in Firestore for CRM timeline
 _firestore_client = None
+
 
 def _get_db():
     global _firestore_client
     if _firestore_client is None:
         try:
             from google.cloud import firestore
+
             project_id = os.environ.get("GOOGLE_CLOUD_PROJECT", "tho-ai-agent")
             _firestore_client = firestore.Client(project=project_id)
         except Exception as e:
@@ -49,21 +62,52 @@ def _log_email_activity(to: str, subject: str, email_type: str, related_id: str 
     if not db:
         return
     try:
-        db.collection("email_log").add({
-            "to": to,
-            "subject": subject,
-            "email_type": email_type,
-            "related_id": related_id,
-            "sent_at": datetime.now(TIMEZONE).isoformat(),
-            "from": RESEND_FROM,
-        })
+        db.collection("email_log").add(
+            {
+                "to": to,
+                "subject": subject,
+                "email_type": email_type,
+                "related_id": related_id,
+                "sent_at": datetime.now(TIMEZONE).isoformat(),
+                "from": _current_from(),
+            }
+        )
     except Exception as e:
         logger.warning(f"Failed to log email activity: {e}")
 
 
 # ── Send Email (core) ──────────────────────────────────────────
 
-def send_email(to: str, subject: str, html: str, email_type: str = "general", related_id: str = None) -> dict:
+
+def _current_from() -> str:
+    """Read RESEND_FROM at call time so env-var patches in tests are respected."""
+    return os.environ.get("RESEND_FROM", RESEND_FROM)
+
+
+def _html_to_text(html: str) -> str:
+    """Cheap HTML→text fallback for clients that prefer plain text. Strips tags
+    and unescapes entities. Not a perfect renderer but good enough for the
+    short transactional templates we send."""
+    import re
+
+    text = re.sub(r"(?is)<(script|style)[^>]*>.*?</\1>", "", html)
+    text = re.sub(r"(?is)<br\s*/?>", "\n", text)
+    text = re.sub(r"(?is)</(p|div|h[1-6]|li|tr)>", "\n", text)
+    text = re.sub(r"(?s)<[^>]+>", "", text)
+    text = html_mod.unescape(text)
+    # Collapse runs of blank lines.
+    text = re.sub(r"\n\s*\n+", "\n\n", text).strip()
+    return text
+
+
+def send_email(
+    to: str,
+    subject: str,
+    html: str,
+    email_type: str = "general",
+    related_id: str = None,
+    text: str = None,
+) -> dict:
     """
     Send an email via Resend.
 
@@ -73,6 +117,8 @@ def send_email(to: str, subject: str, html: str, email_type: str = "general", re
         html: HTML body content
         email_type: Type for logging (appointment_confirmation, lead_followup, etc.)
         related_id: Optional related entity ID (appointment_id, lead_id, deal_id)
+        text: Optional plain-text body. If not supplied a fallback is derived
+            from `html` so every send carries a multipart text alternative.
 
     Returns:
         dict with success status and Resend message ID or error
@@ -89,14 +135,18 @@ def send_email(to: str, subject: str, html: str, email_type: str = "general", re
 
     try:
         import resend
+
         resend.api_key = RESEND_API_KEY
 
-        result = resend.Emails.send({
-            "from": RESEND_FROM,
+        sender = _current_from()
+        payload = {
+            "from": sender,
             "to": [to],
             "subject": subject,
             "html": html,
-        })
+            "text": text if text is not None else _html_to_text(html),
+        }
+        result = resend.Emails.send(payload)
 
         _log_email_activity(to, subject, email_type, related_id)
 
@@ -114,6 +164,7 @@ def send_email(to: str, subject: str, html: str, email_type: str = "general", re
 
 
 # ── Email Templates ─────────────────────────────────────────────
+
 
 def _base_wrapper(content: str) -> str:
     """Wrap email content in branded HTML template."""
@@ -237,32 +288,39 @@ def send_deal_status_update(
         "approved": {
             "emoji": "✅",
             "title": "Your Application is Approved!",
-            "body": "Great news — your pre-qualification has been approved. The next step is to finalize your home selection and move to contract."
+            "body": "Great news — your pre-qualification has been approved. The next step is to finalize your home selection and move to contract.",
         },
         "contract": {
             "emoji": "📝",
             "title": "Contract Ready for Review",
-            "body": "Your purchase contract is ready. Please review the documents and let us know if you have any questions."
+            "body": "Your purchase contract is ready. Please review the documents and let us know if you have any questions.",
         },
         "funded": {
             "emoji": "🎉",
             "title": "Funding Complete!",
-            "body": "Congratulations! Your home financing has been funded. We're getting everything ready for delivery."
+            "body": "Congratulations! Your home financing has been funded. We're getting everything ready for delivery.",
         },
         "complete": {
             "emoji": "🏠",
             "title": "Welcome Home!",
-            "body": "Your home delivery and setup is complete. Welcome to the Texas Home Outlet family!"
+            "body": "Your home delivery and setup is complete. Welcome to the Texas Home Outlet family!",
         },
     }
 
-    info = status_messages.get(new_status, {
-        "emoji": "📋",
-        "title": f"Deal Update: {new_status.title()}",
-        "body": f"Your deal status has been updated to: {new_status}."
-    })
+    info = status_messages.get(
+        new_status,
+        {
+            "emoji": "📋",
+            "title": f"Deal Update: {new_status.title()}",
+            "body": f"Your deal status has been updated to: {new_status}.",
+        },
+    )
 
-    home_line = f'<p style="color: #374151; margin: 8px 0;"><strong>Home:</strong> {home_name}</p>' if home_name else ""
+    home_line = (
+        f'<p style="color: #374151; margin: 8px 0;"><strong>Home:</strong> {home_name}</p>'
+        if home_name
+        else ""
+    )
 
     content = f"""
     <h2 style="color: #1e3a5f; margin-top: 0;">{info['emoji']} {info['title']}</h2>
@@ -313,9 +371,126 @@ def send_custom_email(to: str, customer_name: str, subject: str, message: str) -
     )
 
 
+def _humanize_doc_type(doc_type: str) -> str:
+    """Render a document type slug like `sales_contract` as `Sales Contract`."""
+    if not doc_type:
+        return "document"
+    cleaned = doc_type.replace("_", " ").replace("-", " ").strip()
+    # Title-case while preserving common short acronyms (e.g. ID, TX).
+    return (
+        " ".join(
+            word.upper()
+            if len(word) <= 3 and word.isalpha() and word.isupper()
+            else word.capitalize()
+            for word in cleaned.split()
+        )
+        or "document"
+    )
+
+
+def send_document_email(
+    to: str,
+    customer_name: str,
+    doc_filename: str,
+    doc_type: str,
+    download_url: str,
+    deal_id: str = None,
+) -> dict:
+    """
+    Email a customer a link to a freshly generated document.
+
+    The download URL is included as a CTA button. For now the THO download
+    endpoint is admin-authenticated, so the customer experience requires a
+    login or a follow-up signed-URL endpoint. This helper sends the link
+    regardless — callers decide whether to invoke it.
+
+    Args:
+        to: Customer email
+        customer_name: Customer's full name (first name extracted for greeting)
+        doc_filename: Filename of the generated PDF (shown in body)
+        doc_type: Document slug (e.g. "sales_contract") used in subject + copy
+        download_url: Absolute or relative download URL. Relative URLs are
+            prefixed with PUBLIC_SITE_URL when that env var is set.
+        deal_id: Optional related deal id, used as `related_id` in the
+            email_log Firestore entry.
+
+    Returns:
+        dict (same shape as send_email).
+    """
+    first_name = html_mod.escape(customer_name.split()[0]) if customer_name else "Friend"
+    pretty_type = _humanize_doc_type(doc_type)
+
+    # Build absolute URL when caller passes a path-only URL.
+    if download_url and download_url.startswith("/") and PUBLIC_SITE_URL:
+        link = f"{PUBLIC_SITE_URL}{download_url}"
+    else:
+        link = download_url or ""
+    safe_link = html_mod.escape(link, quote=True)
+    safe_filename = html_mod.escape(doc_filename or "document.pdf")
+    safe_type = html_mod.escape(pretty_type)
+
+    cta_block = (
+        f"""
+        <p style="margin-top: 24px;">
+          <a href="{safe_link}" style="display: inline-block; background: #3b82f6; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: 600;">
+            Download Your Document
+          </a>
+        </p>
+        <p style="color: #6b7280; font-size: 12px; word-break: break-all;">
+          If the button does not work, copy this link into your browser:<br>
+          <span>{safe_link}</span>
+        </p>
+        """
+        if link
+        else """
+        <p style="color: #6b7280; font-size: 13px;">A team member will follow up shortly with your document.</p>
+        """
+    )
+
+    content = f"""
+    <h2 style="color: #1e3a5f; margin-top: 0;">Your {safe_type} is Ready</h2>
+    <p>Hi {first_name},</p>
+    <p>Your <strong>{safe_type}</strong> has been prepared and is ready for your review.</p>
+
+    <div style="background: #eff6ff; border-left: 4px solid #3b82f6; padding: 16px; margin: 20px 0; border-radius: 0 8px 8px 0;">
+      <p style="margin: 0 0 8px; font-weight: 600; color: #1e3a5f;">Document Details</p>
+      <p style="margin: 4px 0; color: #374151;">📄 <strong>{safe_filename}</strong></p>
+      <p style="margin: 4px 0; color: #374151;">Type: {safe_type}</p>
+    </div>
+
+    <p>Tap the button below to open the document. You may need to sign in to your Texas Home Outlet account to view it.</p>
+    {cta_block}
+
+    <p style="color: #6b7280; font-size: 13px; margin-top: 20px;">
+      Questions? Reply to this email or call {BUSINESS_PHONE} and ask for Ben or Mark.
+    </p>
+    """
+
+    plain_text = (
+        f"Hi {first_name},\n\n"
+        f"Your {pretty_type} ({doc_filename}) is ready.\n"
+        f"Open it here: {link or '(link unavailable — please contact us)'}\n\n"
+        f"You may need to sign in to your Texas Home Outlet account to view it.\n\n"
+        f"Questions? Call {BUSINESS_PHONE} and ask for Ben or Mark.\n\n"
+        f"— Texas Home Outlet"
+    )
+
+    return send_email(
+        to=to,
+        subject=f"Your {pretty_type} is ready, {first_name}",
+        html=_base_wrapper(content),
+        email_type="document_delivery",
+        related_id=deal_id,
+        text=plain_text,
+    )
+
+
 # ── Admin Notifications ─────────────────────────────────────────
 
-def notify_new_lead(customer_name: str, phone: str, email: str = None, source: str = "website") -> dict:
+
+def notify_new_lead(
+    customer_name: str, phone: str, email: str = None, source: str = "website"
+) -> dict:
     """Notify owner when a new lead comes in."""
     if not NOTIFICATION_EMAIL:
         return {"success": False, "error": "No notification email configured"}
