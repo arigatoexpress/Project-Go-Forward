@@ -647,10 +647,18 @@ function HomeDetailModal({
   return (
     <div className="tho-detail-overlay" onClick={onClose}>
       <div className="tho-detail-modal" onClick={e => e.stopPropagation()}>
-        {/* Close button */}
-        <button onClick={onClose} className="tho-detail-close" aria-label="Close">
-          <X size={24} />
-        </button>
+        {/* Sticky header — name, price, close */}
+        <div className="tho-detail-sticky-header">
+          <div className="tho-detail-sticky-title">
+            <h2 className="tho-detail-sticky-name">{home.model_name}</h2>
+            <span className="tho-detail-sticky-price">
+              {!isCallForPrice ? home.display_price : 'Call for Price'}
+            </span>
+          </div>
+          <button onClick={onClose} className="tho-detail-sticky-close" aria-label="Close">
+            <X size={20} />
+          </button>
+        </div>
 
         {/* Photo Gallery Section */}
         <div className="tho-detail-gallery">
