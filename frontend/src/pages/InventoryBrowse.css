@@ -823,6 +823,48 @@
   border: none;
 }
 
+/* Floorplan tab — peer of Photos / 3D Tour inside the gallery area. */
+.tho-detail-floorplan-wrap {
+  position: relative;
+  height: 400px;
+  background: #f8fafc;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.tho-detail-floorplan-img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  background: #fff;
+}
+
+.tho-detail-floorplan-img.tho-img-error {
+  display: none;
+}
+
+.tho-detail-floorplan-larger {
+  position: absolute;
+  bottom: 1rem;
+  right: 1rem;
+  padding: 0.5rem 0.875rem;
+  background: rgba(15, 23, 42, 0.85);
+  color: #fff;
+  border-radius: 9999px;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  text-decoration: none;
+  transition: background 0.15s ease;
+}
+
+.tho-detail-floorplan-larger:hover,
+.tho-detail-floorplan-larger:focus {
+  background: rgba(15, 23, 42, 1);
+  text-decoration: none;
+}
+
 .tho-detail-gallery-controls {
   background: #0f172a;
   padding: 0.75rem;
