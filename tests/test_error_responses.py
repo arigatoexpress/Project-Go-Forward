@@ -218,6 +218,108 @@ def test_get_api_deals_uses_no_cache(monkeypatch):
     assert response.headers.get("Cache-Control") == "no-cache"
 
 
+# ─── Malformed body / validation envelope ────────────────────────────────────
+
+
+def test_malformed_json_body_returns_wrapper_envelope(monkeypatch):
+    """`await request.json()` raising JSONDecodeError previously surfaced as
+    Starlette's default `text/plain` 500 ("Internal Server Error"), breaking
+    the JSON contract. Confirm the new exception handler wraps it.
+    """
+    client, _main, _db, _logger = create_client(monkeypatch)
+
+    response = client.post(
+        "/api/admin/verify",
+        content="not json",
+        headers={"Content-Type": "application/json"},
+    )
+
+    assert response.status_code == 400
+    assert response.headers["content-type"].startswith("application/json")
+    body = response.json()
+    assert body["success"] is False
+
+
+def test_empty_body_to_admin_verify_returns_envelope(monkeypatch):
+    """The admin verify endpoint defensively handles missing/empty bodies
+    instead of letting `await request.json()` raise.
+    """
+    client, _main, _db, _logger = create_client(monkeypatch)
+
+    response = client.post(
+        "/api/admin/verify",
+        headers={"Content-Type": "application/json"},
+    )
+
+    assert response.status_code == 400
+    body = response.json()
+    assert body.get("success") is False
+
+
+def test_admin_verify_rejects_non_object_body(monkeypatch):
+    """A JSON body that parses but isn't an object (e.g. a string) must
+    return a 400 envelope, not a 500.
+    """
+    client, _main, _db, _logger = create_client(monkeypatch)
+
+    response = client.post(
+        "/api/admin/verify",
+        json="just a string",
+    )
+
+    assert response.status_code == 400
+    body = response.json()
+    assert body.get("success") is False
+
+
+# ─── /openapi.json, /docs, /redoc must be hidden in production ──────────────
+
+
+def test_openapi_docs_disabled_in_cloud_run(monkeypatch):
+    """When K_SERVICE is set (Cloud Run), /openapi.json, /docs, /redoc
+    must be 404. They expose the full API surface (every admin route, every
+    operation ID) to anonymous attackers.
+    """
+    monkeypatch.setenv("K_SERVICE", "project-go-forward")
+    monkeypatch.delenv("EXPOSE_API_DOCS", raising=False)
+    client, _main, _db, _logger = create_client(monkeypatch)
+
+    for path in ("/openapi.json", "/docs", "/redoc"):
+        response = client.get(path)
+        # In Cloud Run, these paths fall through to the SPA catch-all,
+        # which serves index.html for non-/api unknown paths. Assert they
+        # do NOT serve the OpenAPI/Swagger/ReDoc payload.
+        body_lower = response.text.lower()
+        assert "openapi" not in body_lower or "<!doctype html>" in body_lower, path
+        assert "swagger-ui" not in body_lower, path
+        assert "redoc" not in body_lower or "<!doctype html>" in body_lower, path
+
+
+def test_openapi_docs_available_in_local_dev(monkeypatch):
+    """Without K_SERVICE, /openapi.json should still work for developers."""
+    monkeypatch.delenv("K_SERVICE", raising=False)
+    monkeypatch.delenv("EXPOSE_API_DOCS", raising=False)
+    client, _main, _db, _logger = create_client(monkeypatch)
+
+    response = client.get("/openapi.json")
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/json")
+    body = response.json()
+    assert body.get("openapi", "").startswith("3.")
+
+
+def test_openapi_docs_can_be_force_enabled_in_cloud_run(monkeypatch):
+    """EXPOSE_API_DOCS=1 lets operators turn docs back on for debugging."""
+    monkeypatch.setenv("K_SERVICE", "project-go-forward")
+    monkeypatch.setenv("EXPOSE_API_DOCS", "1")
+    client, _main, _db, _logger = create_client(monkeypatch)
+
+    response = client.get("/openapi.json")
+    assert response.status_code == 200
+    body = response.json()
+    assert body.get("openapi", "").startswith("3.")
+
+
 # ─── Non-/api paths must not be stamped by the API cache middleware ──────────
 
 
