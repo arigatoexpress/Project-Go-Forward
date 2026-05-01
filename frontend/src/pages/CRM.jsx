@@ -154,6 +154,7 @@ Texas Home Outlet Team`
 
 export default function CRM({ onBack }) {
   const [activeTab, setActiveTab] = useState('leads');
+  const [actionError, setActionError] = useState('');
   const [leads, setLeads] = useState([]);
   const [deals, setDeals] = useState([]);
   const [appointments, setAppointments] = useState([]);
@@ -211,6 +212,7 @@ export default function CRM({ onBack }) {
   useEffect(() => { fetchData(); }, [fetchData]);
 
   const handleUpdateLeadStatus = async (leadId, newStatus) => {
+    setActionError('');
     try {
       const res = await adminFetch(`/api/leads/${leadId}`, {
         method: 'PUT',
@@ -223,22 +225,31 @@ export default function CRM({ onBack }) {
         if (selectedLead?.lead_id === leadId) {
           setSelectedLead(prev => ({ ...prev, status: newStatus }));
         }
+      } else {
+        setActionError(data.error || `Failed to update lead status — please try again.`);
       }
     } catch (err) {
       console.error('Lead status update failed:', err);
+      setActionError('Lead status update failed. Check connection and try again.');
     }
   };
 
   const handleUpdateDealStatus = async (dealId, newStatus) => {
+    setActionError('');
     try {
-      await adminFetch(`/api/deals/${dealId}/status`, {
+      const res = await adminFetch(`/api/deals/${dealId}/status`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: newStatus }),
       });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.detail || data.error || `${res.status} ${res.statusText}`);
+      }
       setDeals(prev => prev.map(d => d.id === dealId ? { ...d, status: newStatus } : d));
     } catch (err) {
       console.error('Deal status update failed:', err);
+      setActionError(`Deal status update failed: ${err.message || 'unknown error'}. Try again or refresh.`);
     }
   };
 
@@ -391,6 +402,37 @@ export default function CRM({ onBack }) {
           Refresh
         </button>
       </header>
+
+      {actionError && (
+        <div
+          role="alert"
+          style={{
+            position: 'sticky',
+            top: 0,
+            zIndex: 50,
+            background: '#fef2f2',
+            border: '2px solid #fecaca',
+            color: '#991b1b',
+            padding: '0.75rem 1rem',
+            margin: '0.5rem',
+            borderRadius: '0.75rem',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            gap: '0.5rem',
+            fontWeight: 500,
+          }}
+        >
+          <span>{actionError}</span>
+          <button
+            onClick={() => setActionError('')}
+            style={{ background: 'transparent', border: 'none', color: '#991b1b', cursor: 'pointer', fontWeight: 700 }}
+            aria-label="Dismiss error"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* Stats Bar */}
       <div className="crm-stats-bar">
