@@ -92,7 +92,16 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 APP_STARTED_AT = time.monotonic()
 
-app = FastAPI(title=f"{business_name()} AI Agent")
+# Disable OpenAPI docs in production (Cloud Run sets K_SERVICE).
+# Exposing /openapi.json + /docs in prod risks a CDN serving the schema
+# description body instead of the real response (2026-05-01 schema-text bug).
+_is_cloud_run = bool(os.environ.get("K_SERVICE"))
+app = FastAPI(
+    title=f"{business_name()} AI Agent",
+    docs_url=None if _is_cloud_run else "/docs",
+    redoc_url=None if _is_cloud_run else "/redoc",
+    openapi_url=None if _is_cloud_run else "/openapi.json",
+)
 
 # Initialize services (these don't require Vertex AI)
 deploy_cfg = get_deployment_config()
@@ -163,6 +172,68 @@ class RequestSizeLimitMiddleware(BaseHTTPMiddleware):
             return JSONResponse({"error": "Request body too large."}, status_code=413)
         return await call_next(request)
 
+
+class _BodyShapeGuard:
+    """Pure ASGI middleware — logs ERROR when a watched JSON endpoint's response
+    body starts with ``{\\n`` (brace + newline) instead of ``{"`` (brace + quote).
+
+    Normal FastAPI JSONResponse bodies always start with ``{"`` because
+    json.dumps never adds whitespace before the first key.  The schema-text
+    body pattern (``{ status: string, ... }`` with unquoted keys and type-name
+    values, alphabetically sorted) starts with brace + newline and has been
+    observed on /healthz/ and /api/admin/verify on 2026-05-01.
+
+    This guard intercepts the first body chunk only (zero-copy for the rest)
+    so the overhead is negligible.  Being a pure ASGI class it does NOT share
+    the BaseHTTPMiddleware async buffering issues.
+    """
+
+    _WATCHED: frozenset = frozenset(
+        ["/healthz", "/healthz/", "/api/admin/verify", "/api/admin/check"]
+    )
+
+    def __init__(self, app) -> None:
+        self.app = app
+
+    async def __call__(self, scope, receive, send) -> None:
+        if scope["type"] != "http" or scope.get("path") not in self._WATCHED:
+            await self.app(scope, receive, send)
+            return
+
+        is_json: bool = False
+        peeked: bool = False
+
+        async def _send(message) -> None:
+            nonlocal is_json, peeked
+            if message["type"] == "http.response.start":
+                for name, value in message.get("headers", []):
+                    if name.lower() == b"content-type" and b"application/json" in value:
+                        is_json = True
+                        break
+            elif message["type"] == "http.response.body" and is_json and not peeked:
+                peeked = True
+                chunk: bytes = message.get("body", b"")
+                # Schema-text bodies start with { + non-quote (e.g. newline).
+                # Real JSONResponse bodies always start with {" or {} or [{.
+                if (
+                    len(chunk) >= 2
+                    and chunk[0:1] == b"{"
+                    and chunk[1:2] not in (b'"', b"}")
+                ):
+                    logger.error(
+                        "SCHEMA_TEXT_BODY_BUG detected on %s — first bytes: %r. "
+                        "Likely cause: CDN/GFE served a schema description instead "
+                        "of the live response.  Check trace context header and "
+                        "Cloud Logging for this request.",
+                        scope.get("path"),
+                        chunk[:60],
+                    )
+            await send(message)
+
+        await self.app(scope, receive, _send)
+
+
+app.add_middleware(_BodyShapeGuard)
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(RateLimitMiddleware)
 app.add_middleware(RequestSizeLimitMiddleware)
@@ -2321,7 +2392,7 @@ async def verify_admin_pin(request: Request):
     _pin_attempts.pop(client_ip, None)
     token = _create_admin_token()
     struct_logger.info("Admin login succeeded", client_ip=client_ip)
-    return {"success": True, "token": token}
+    return JSONResponse({"success": True, "token": token})
 
 
 @app.get("/api/admin/check")

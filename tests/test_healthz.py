@@ -131,3 +131,49 @@ def test_successful_admin_login_clears_failed_attempts(monkeypatch):
     success = client.post("/api/admin/verify", json={"pin": "4832"})
     assert success.status_code == 200
     assert main._pin_attempts == {}
+
+
+def test_admin_verify_body_is_strict_json_with_concrete_values(monkeypatch):
+    """Regression: /api/admin/verify must return parseable JSON with concrete
+    values, NEVER a schema-style description (``{success: bool, token: string}``).
+
+    Mirrors the healthz regression test. Sighting: 2026-05-01 ~19:30 UTC.
+    """
+    import json as _json
+
+    client, _main, _db, _logger = create_client(monkeypatch)
+
+    response = client.post("/api/admin/verify", json={"pin": "4832"})
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/json")
+
+    # Strict parse — schema-style bodies would raise here.
+    body = _json.loads(response.text)
+
+    assert body.get("success") is True, f"expected True, got {body.get('success')!r}"
+    assert isinstance(body.get("token"), str), f"token must be str, got {type(body.get('token'))}"
+    assert body.get("token") not in ("string", "str", ""), "token must be a real value, not a type name"
+    assert body.get("success") is not True or body.get("token"), "token must be non-empty on success"
+
+
+def test_openapi_docs_disabled_in_cloud_run(monkeypatch):
+    """Regression: /openapi.json, /docs, /redoc must be disabled in Cloud Run.
+
+    Exposing OpenAPI docs in production risks a CDN/GFE caching a schema
+    response and serving it for real API requests (2026-05-01 schema-text bug).
+    """
+    monkeypatch.setenv("K_SERVICE", "project-go-forward")
+    client, _main, _db, _logger = create_client(monkeypatch)
+
+    for path in ("/openapi.json", "/docs", "/redoc"):
+        response = client.get(path)
+        # Should either 404 (not found) or redirect to SPA — NOT return Swagger/OpenAPI content.
+        # We just assert it does not return the JSON schema.
+        if response.status_code == 200:
+            content_type = response.headers.get("content-type", "")
+            # Must NOT be application/json (that would be the schema)
+            assert "application/json" not in content_type, (
+                f"{path} returned application/json in Cloud Run mode — "
+                "OpenAPI schema must be disabled in production"
+            )
