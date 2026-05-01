@@ -2681,6 +2681,98 @@ async def document_history():
     return {"documents": docs[:50], "total": len(docs)}
 
 
+# ─── Signed-URL Document Share ───────────────────────────────────────────────
+# Lights up email-doc-delivery: returns a time-limited V4 signed URL for a
+# generated PDF in the `generated_docs/` GCS prefix so customers can be sent a
+# link instead of an authenticated path.
+
+_DOCUMENTS_SHARE_DEFAULT_TTL_HOURS = 24
+_DOCUMENTS_SHARE_MAX_TTL_HOURS = 72
+
+
+@app.get("/api/documents/share/{filename}", dependencies=[Depends(require_admin)])
+async def share_document(filename: str, request: Request, ttl_hours: int = _DOCUMENTS_SHARE_DEFAULT_TTL_HOURS):
+    """Mint a V4 GCS signed URL for a generated PDF (admin-only).
+
+    The filename is constrained to the `generated_docs/` prefix and bare basenames
+    only — no path traversal, no slashes. Default TTL is 24 hours; configurable
+    up to 72 hours via ``?ttl_hours=N``.
+    """
+    # ── Filename validation: bare basename only, must be a .pdf ──
+    safe_filename = os.path.basename(filename)
+    if not safe_filename or safe_filename != filename:
+        return JSONResponse({"error": "Invalid filename"}, status_code=400)
+    if "/" in filename or "\\" in filename or ".." in filename:
+        return JSONResponse({"error": "Invalid filename"}, status_code=400)
+    if not safe_filename.lower().endswith(".pdf"):
+        return JSONResponse({"error": "Only PDF files are shareable."}, status_code=400)
+
+    # ── TTL validation ──
+    if not isinstance(ttl_hours, int) or ttl_hours < 1 or ttl_hours > _DOCUMENTS_SHARE_MAX_TTL_HOURS:
+        return JSONResponse(
+            {
+                "error": (
+                    f"ttl_hours must be an integer between 1 and "
+                    f"{_DOCUMENTS_SHARE_MAX_TTL_HOURS}."
+                )
+            },
+            status_code=400,
+        )
+
+    # ── GCS lookup + sign ──
+    try:
+        from google.cloud import storage as _storage
+    except ImportError:
+        return JSONResponse({"error": "GCS client not available"}, status_code=503)
+
+    bucket_name = os.getenv("GCS_DOCUMENTS_BUCKET", "tho-secure-documents")
+    object_key = f"generated_docs/{safe_filename}"
+
+    try:
+        client = _storage.Client()
+        bucket = client.bucket(bucket_name)
+        blob = bucket.blob(object_key)
+        if not blob.exists():
+            return JSONResponse({"error": "File not found"}, status_code=404)
+        from datetime import timedelta as _timedelta
+
+        signed_url = blob.generate_signed_url(
+            version="v4",
+            expiration=_timedelta(hours=ttl_hours),
+            method="GET",
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("share_document failed for %s", object_key)
+        return JSONResponse(
+            {"error": f"Failed to generate signed URL: {type(exc).__name__}"},
+            status_code=500,
+        )
+
+    # ── Soft-import audit log; never hard-fail if it isn't deployed yet. ──
+    try:
+        from audit_log import log_admin_action  # type: ignore[import-not-found]
+
+        try:
+            log_admin_action(
+                action="documents.share",
+                actor_ip=getattr(request.client, "host", None) if request.client else None,
+                target=object_key,
+                details={"ttl_hours": ttl_hours, "bucket": bucket_name},
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception("audit_log.log_admin_action failed")
+    except ImportError:
+        pass
+
+    return {
+        "filename": safe_filename,
+        "gcs_uri": f"gs://{bucket_name}/{object_key}",
+        "signed_url": signed_url,
+        "ttl_hours": ttl_hours,
+        "expires_in_seconds": ttl_hours * 3600,
+    }
+
+
 # ─── Partner Integration API v1 ──────────────────────────────────────────────
 # External partners authenticate separately from the admin UI. This surface is
 # intended for automation clients such as Notion or n8n and must stay
