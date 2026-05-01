@@ -857,9 +857,9 @@ def health():
     return {"status": "ok"}
 
 
-@app.get("/healthz")
-@app.get("/healthz/")
-def healthz():
+@app.get("/healthz", response_class=JSONResponse)
+@app.get("/healthz/", response_class=JSONResponse)
+def healthz() -> JSONResponse:
     email_configured = bool(os.environ.get("RESEND_API_KEY"))
     warnings = []
     if not email_configured:
@@ -879,7 +879,7 @@ def healthz():
         or os.environ.get("GITHUB_SHA")
         or version
     )
-    return {
+    body = {
         "status": "ok",
         "version": version,
         "sha": sha,
@@ -894,6 +894,10 @@ def healthz():
         },
         "warnings": warnings,
     }
+    return JSONResponse(
+        body,
+        headers={"Cache-Control": "no-store, no-cache, must-revalidate", "Pragma": "no-cache"},
+    )
 
 
 @app.post("/apps/{app_name}/users/{user_id}/sessions/{session_id}")
