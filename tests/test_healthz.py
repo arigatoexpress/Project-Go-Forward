@@ -51,6 +51,42 @@ def test_healthz_trailing_slash_returns_structured_probe(monkeypatch):
     assert response.json()["version"] == "test-sha"
 
 
+def test_healthz_body_is_strict_json_with_concrete_values(monkeypatch):
+    """Regression: the body must be parseable JSON with concrete values, NEVER
+    a schema-style description (e.g. ``{ status: string, uptime_s: int }``).
+    Locks the contract: Cache-Control: no-store, JSON content-type, types
+    are values not type names.
+    """
+    import json as _json
+
+    monkeypatch.setenv("APP_VERSION", "test-sha")
+    client, _main, _db, _logger = create_client(monkeypatch)
+
+    for path in ("/healthz", "/healthz/"):
+        response = client.get(path)
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("application/json"), path
+
+        # Strict parse — schema-style bodies (unquoted keys / type-name values)
+        # would raise here.
+        body = _json.loads(response.text)
+
+        assert isinstance(body["status"], str) and body["status"] == "ok", path
+        assert isinstance(body["version"], str) and body["version"], path
+        assert isinstance(body["sha"], str) and body["sha"], path
+        assert isinstance(body["uptime_s"], int) and body["uptime_s"] >= 0, path
+        assert isinstance(body["dependencies"], dict), path
+        for dep in ("drive", "secrets", "db", "email"):
+            assert isinstance(body["dependencies"][dep], str), (path, dep)
+            assert body["dependencies"][dep] != "string", (path, dep)
+        assert isinstance(body["warnings"], list), path
+        for warning in body["warnings"]:
+            assert isinstance(warning, str) and warning != "string", (path, warning)
+
+        # Cache-Control must prevent any proxy/CDN caching of the probe.
+        assert "no-store" in response.headers.get("cache-control", "").lower(), path
+
+
 def test_healthz_is_not_rate_limited(monkeypatch):
     client, _main, _db, _logger = create_client(monkeypatch, rate_limit_rpm="1")
 
