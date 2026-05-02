@@ -11,6 +11,33 @@ import re
 import uuid
 
 
+class Role(str, Enum):
+    ADMIN = "admin"
+    STAFF = "staff"
+
+
+class User(BaseModel):
+    """Admin/staff user record — stored in Firestore collection `users`."""
+
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    email: str
+    display_name: str
+    role: Role = Role.STAFF
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    last_login_at: Optional[datetime] = None
+    disabled: bool = False
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, v: str) -> str:
+        if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", v):
+            raise ValueError("Invalid email format")
+        return v.lower().strip()
+
+    class Config:
+        use_enum_values = True
+
+
 class CustomerStatus(str, Enum):
     ENROLLED = "ENROLLED"
     NON_ENROLLED = "NON_ENROLLED"

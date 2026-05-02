@@ -22,6 +22,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+import json
 from json import JSONDecodeError
 import logging
 import time
@@ -403,13 +404,34 @@ _JWT_SECRET = hashlib.sha256(f"sapphire-jwt-{ADMIN_PIN_HASH[:16]}".encode()).dig
 
 
 def _create_admin_token() -> str:
-    """Create an HMAC-signed JWT-like token with embedded expiration."""
+    """Create an HMAC-signed legacy binary token (no user identity)."""
     if not ADMIN_PIN_HASH:
         raise RuntimeError("Admin auth not configured")
     expires = int(time.time()) + ADMIN_TOKEN_TTL
     payload = struct.pack(">Q", expires)  # 8 bytes, big-endian uint64
     sig = hmac.new(_JWT_SECRET, payload, hashlib.sha256).digest()[:16]  # 16-byte signature
     return base64.urlsafe_b64encode(payload + sig).decode().rstrip("=")
+
+
+def _create_admin_jwt(user_id: str) -> str:
+    """Create a JWT-format token that carries a user_id (sub claim).
+
+    Format: <header_b64>.<payload_b64>.<sig_b64>
+    Detected by the presence of exactly two '.' characters.
+    """
+    if not ADMIN_PIN_HASH:
+        raise RuntimeError("Admin auth not configured")
+    header = base64.urlsafe_b64encode(b'{"alg":"HS256","typ":"JWT"}').decode().rstrip("=")
+    payload_data = json.dumps(
+        {"exp": int(time.time()) + ADMIN_TOKEN_TTL, "sub": user_id},
+        separators=(",", ":"),
+    )
+    payload = base64.urlsafe_b64encode(payload_data.encode()).decode().rstrip("=")
+    signing_input = f"{header}.{payload}".encode()
+    sig = base64.urlsafe_b64encode(
+        hmac.new(_JWT_SECRET, signing_input, hashlib.sha256).digest()
+    ).decode().rstrip("=")
+    return f"{header}.{payload}.{sig}"
 
 
 def _verify_admin_token(token: str) -> bool:
@@ -434,6 +456,37 @@ def _verify_admin_token(token: str) -> bool:
         return False
 
 
+def _decode_admin_token(token: str) -> str | None:
+    """Return the user_id (sub) if *token* is valid, or None if invalid/expired.
+
+    Handles both token formats:
+    - JWT format (contains two dots): extracts sub claim.
+    - Legacy binary format: returns "admin" if the HMAC verifies.
+    """
+    if not ADMIN_PIN_HASH:
+        return None
+    if token.count(".") == 2:
+        # JWT format
+        try:
+            header_b64, payload_b64, sig_b64 = token.split(".")
+            signing_input = f"{header_b64}.{payload_b64}".encode()
+            expected_sig = hmac.new(_JWT_SECRET, signing_input, hashlib.sha256).digest()
+            pad = 4 - len(sig_b64) % 4
+            actual_sig = base64.urlsafe_b64decode(sig_b64 + ("=" * pad if pad != 4 else ""))
+            if not hmac.compare_digest(expected_sig, actual_sig):
+                return None
+            pad = 4 - len(payload_b64) % 4
+            payload_bytes = base64.urlsafe_b64decode(payload_b64 + ("=" * pad if pad != 4 else ""))
+            claims = json.loads(payload_bytes)
+            if time.time() >= claims.get("exp", 0):
+                return None
+            return claims.get("sub") or "admin"
+        except Exception:
+            return None
+    # Legacy binary format
+    return "admin" if _verify_admin_token(token) else None
+
+
 def _admin_token_from_request(request: Request) -> str:
     """Read an admin token from the supported employee UI auth headers."""
     token = request.headers.get("X-Admin-Token", "").strip()
@@ -448,12 +501,14 @@ def _admin_token_from_request(request: Request) -> str:
 
 
 async def require_admin(request: Request):
-    """FastAPI dependency that validates the stateless admin token."""
+    """FastAPI dependency that validates the admin token and sets request.state.user_id."""
     token = _admin_token_from_request(request)
     if not token:
         raise HTTPException(status_code=401, detail="Admin authentication required")
-    if not _verify_admin_token(token):
+    user_id = _decode_admin_token(token)
+    if user_id is None:
         raise HTTPException(status_code=401, detail="Admin session expired. Please re-authenticate.")
+    request.state.user_id = user_id
 
 
 # Brute-force protection: track failed PIN attempts per IP
@@ -2379,6 +2434,12 @@ async def verify_admin_pin(request: Request):
             {"success": False, "error": "PIN must be a string."},
             status_code=400,
         )
+    email: str | None = data.get("email") or None
+    if email is not None and not isinstance(email, str):
+        return JSONResponse(
+            {"success": False, "error": "email must be a string."},
+            status_code=400,
+        )
     if not ADMIN_PIN_HASH:
         struct_logger.warning("Admin login rejected: ADMIN_PIN_HASH not configured")
         return JSONResponse({"success": False, "error": "Admin auth not configured."}, status_code=503)
@@ -2390,6 +2451,26 @@ async def verify_admin_pin(request: Request):
         return JSONResponse({"success": False, "error": "Incorrect PIN."}, status_code=401)
     # Successful login — clear attempt history
     _pin_attempts.pop(client_ip, None)
+
+    if email:
+        # Per-user path: resolve or auto-create a User record and embed user_id in token.
+        try:
+            from auth.users import get_or_create_user
+            user = get_or_create_user(email=email)
+        except Exception as exc:
+            logger.warning("User lookup failed for %s: %s", email, exc)
+            user = None
+        if user is None:
+            struct_logger.warning("Admin login denied: unrecognised email", email=email, client_ip=client_ip)
+            return JSONResponse(
+                {"success": False, "error": "Email not authorised for admin access."},
+                status_code=403,
+            )
+        token = _create_admin_jwt(user.id)
+        struct_logger.info("Admin login succeeded (per-user)", client_ip=client_ip, user_id=user.id)
+        return {"success": True, "token": token, "user_id": user.id}
+
+    # Legacy path — no email supplied; backwards-compatible behaviour unchanged.
     token = _create_admin_token()
     struct_logger.info("Admin login succeeded", client_ip=client_ip)
     return {"success": True, "token": token}
@@ -2402,6 +2483,45 @@ async def check_admin_token(request: Request):
     if _verify_admin_token(token):
         return {"valid": True}
     return JSONResponse({"valid": False}, status_code=401)
+
+
+@app.get("/api/admin/me", dependencies=[Depends(require_admin)])
+async def get_admin_me(request: Request):
+    """Return identity for the currently authenticated admin from the JWT sub claim.
+
+    Returns a minimal user object suitable for the frontend Settings panel.
+    Legacy sessions (binary token, no email on login) return user_id='admin'.
+    """
+    user_id: str = getattr(request.state, "user_id", "admin")
+    if user_id == "admin":
+        return {
+            "user_id": "admin",
+            "email": None,
+            "display_name": "Admin",
+            "role": "admin",
+            "identity_source": "legacy_pin",
+        }
+    try:
+        from auth.users import get_user_by_id
+        user = get_user_by_id(user_id)
+        if user:
+            return {
+                "user_id": user.id,
+                "email": user.email,
+                "display_name": user.display_name,
+                "role": user.role,
+                "identity_source": "per_user_jwt",
+            }
+    except Exception as exc:
+        logger.warning("get_admin_me: user lookup failed for %s: %s", user_id, exc)
+    # User record missing but token was valid — return the bare user_id.
+    return {
+        "user_id": user_id,
+        "email": None,
+        "display_name": "Unknown",
+        "role": "admin",
+        "identity_source": "per_user_jwt",
+    }
 
 
 # ─── Customer API (migrated FastContract records) ────────────────────────────
