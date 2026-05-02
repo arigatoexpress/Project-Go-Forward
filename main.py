@@ -1509,6 +1509,32 @@ async def create_deal(request: Request):
         return {"success": False, "error": "Failed to create deal. Please try again."}
 
 
+def _parse_iso_datetime(value):
+    """Parse a Firestore-stored timestamp (datetime, iso string, or None).
+
+    Returns a tz-naive UTC datetime, or None on failure. Used by analytics
+    endpoints that need to diff created_at/updated_at without assuming a
+    consistent stored type.
+    """
+    from datetime import datetime, timezone
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.astimezone(timezone.utc).replace(tzinfo=None) if value.tzinfo else value
+    if not isinstance(value, str):
+        return None
+    raw = value.strip()
+    if not raw:
+        return None
+    if raw.endswith("Z"):
+        raw = f"{raw[:-1]}+00:00"
+    try:
+        dt = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    return dt.astimezone(timezone.utc).replace(tzinfo=None) if dt.tzinfo else dt
+
+
 def _strip_pii_from_deal(deal: dict) -> dict:
     """Remove raw SSN from deal data before sending to frontend."""
     if isinstance(deal, dict):
@@ -2613,6 +2639,128 @@ async def customer_analytics():
     except Exception as e:
         logger.error(f"Customer analytics failed: {e}")
         return {"error": str(e)}
+
+
+@app.get("/api/admin/crm/funnel", dependencies=[Depends(require_admin)])
+async def admin_crm_funnel():
+    """
+    CRM funnel analytics — customer counts per stage, conversion rates,
+    median time-in-stage. Pulls from `customers` and `deals` collections.
+
+    Response shape:
+      {
+        "stages": [
+          {"key": "LEAD", "label": "Lead", "count": N, "conversion_pct": 100.0},
+          {"key": "ENROLLED", "label": "Enrolled", "count": N, "conversion_pct": ...},
+          {"key": "DEAL", "label": "Deal (active)", "count": N, "conversion_pct": ...},
+          {"key": "CLOSED", "label": "Closed", "count": N, "conversion_pct": ...}
+        ],
+        "median_days_in_stage": {"LEAD_to_ENROLLED": ..., ...},
+        "totals": {...}
+      }
+
+    5-minute cache.
+    """
+    from caching import cache_get, cache_set
+    cache_key = "admin_crm_funnel_v1"
+    cached = cache_get(cache_key)
+    if cached:
+        return cached
+
+    try:
+        from datetime import datetime, timezone
+        import statistics as _stats
+
+        # Customers (1,963 docs in prod) — paged via search_customers helper
+        customers = _db.search_customers(limit=10000)
+
+        lead_count = 0
+        enrolled_count = 0
+        sold_customer_count = 0
+        # For median time LEAD → ENROLLED, we don't have per-stage timestamps;
+        # use updated_at - created_at as a coarse proxy when status != LEAD.
+        lead_to_enrolled_days: list[float] = []
+        for c in customers:
+            status = (c.get("status") or "").upper()
+            if status == "LEAD":
+                lead_count += 1
+            elif status == "ENROLLED":
+                enrolled_count += 1
+            elif status == "SOLD":
+                sold_customer_count += 1
+            if status in ("ENROLLED", "SOLD"):
+                created = _parse_iso_datetime(c.get("created_at"))
+                updated = _parse_iso_datetime(c.get("updated_at"))
+                if created and updated and updated >= created:
+                    lead_to_enrolled_days.append((updated - created).total_seconds() / 86400.0)
+
+        # Deals — count by status. Active deal stages: pending/approved/contract.
+        # Closed stages: funded/complete.
+        active_deal_count = 0
+        closed_deal_count = 0
+        denied_count = 0
+        deal_close_days: list[float] = []
+        # Stream deals collection directly to avoid the 50-record cap of search_deals
+        for doc in _db.db.collection("deals").stream():
+            data = doc.to_dict() or {}
+            status = (data.get("status") or "").lower()
+            if status in ("pending", "approved", "contract"):
+                active_deal_count += 1
+            elif status in ("funded", "complete"):
+                closed_deal_count += 1
+                created = _parse_iso_datetime(data.get("created_at"))
+                updated = _parse_iso_datetime(data.get("updated_at"))
+                if created and updated and updated >= created:
+                    deal_close_days.append((updated - created).total_seconds() / 86400.0)
+            elif status == "denied":
+                denied_count += 1
+
+        # Conversion percentages relative to lead_count (top of funnel).
+        # ENROLLED count includes everyone past lead; SOLD/closed deal counts
+        # include everyone who reached or passed the closed stage.
+        top = max(lead_count + enrolled_count + sold_customer_count, 1)
+        funnel_lead = lead_count + enrolled_count + sold_customer_count
+        funnel_enrolled = enrolled_count + sold_customer_count
+        funnel_deal = active_deal_count + closed_deal_count
+        funnel_closed = closed_deal_count + sold_customer_count
+
+        def pct(n: int, d: int) -> float:
+            return round(100.0 * n / d, 1) if d else 0.0
+
+        stages = [
+            {"key": "LEAD", "label": "Lead", "count": funnel_lead,
+             "conversion_pct": pct(funnel_lead, top)},
+            {"key": "ENROLLED", "label": "Enrolled", "count": funnel_enrolled,
+             "conversion_pct": pct(funnel_enrolled, top)},
+            {"key": "DEAL", "label": "Deal (active)", "count": funnel_deal,
+             "conversion_pct": pct(funnel_deal, top)},
+            {"key": "CLOSED", "label": "Closed", "count": funnel_closed,
+             "conversion_pct": pct(funnel_closed, top)},
+        ]
+
+        def _median(xs: list[float]):
+            return round(_stats.median(xs), 1) if xs else None
+
+        result = {
+            "success": True,
+            "stages": stages,
+            "median_days_in_stage": {
+                "LEAD_to_ENROLLED": _median(lead_to_enrolled_days),
+                "DEAL_to_CLOSED": _median(deal_close_days),
+            },
+            "totals": {
+                "customers_total": len(customers),
+                "deals_active": active_deal_count,
+                "deals_closed": closed_deal_count,
+                "deals_denied": denied_count,
+            },
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        cache_set(cache_key, result, ttl_seconds=300)
+        return result
+    except Exception as e:
+        struct_logger.error("CRM funnel analytics failed", error=str(e))
+        return {"success": False, "error": "Failed to compute CRM funnel."}
 
 
 @app.get("/api/customers/{customer_id}", dependencies=[Depends(require_admin)])
