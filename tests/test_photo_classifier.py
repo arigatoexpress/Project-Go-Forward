@@ -26,30 +26,49 @@ reorder_for_listing = photo_classifier.reorder_for_listing
 split_photos = photo_classifier.split_photos
 
 
-# ─── Real production sample URLs (2026-04-30 audit) ───
-FLOORPLAN_URL = (
-    "https://d132mt2yijm03y.cloudfront.net/manufacturer/3327/floorplan/224354/" "S-1672-32B-1.jpg"
-)
-FLOORPLAN_URL_2 = (
+# ─── Real production sample URLs ───
+# NOTE: The 2026-04-30 audit incorrectly classified URLs by path token
+# (``/floorplan/``). The manufacturer CDN puts every asset for a
+# floorplan-MODEL under ``/manufacturer/{id}/floorplan/{plan_id}/`` —
+# that's a NAMESPACE, not a content marker. Detection is now
+# filename-based (2026-05-02 fix).
+MFR_NAMESPACE_PHOTO = (
+    "https://d132mt2yijm03y.cloudfront.net/manufacturer/3327/floorplan/224354/"
+    "S-1672-32B-1.jpg"
+)  # exterior — filename has no floorplan token
+MFR_FLOORPLAN_DIAGRAM = (
     "https://d132mt2yijm03y.cloudfront.net/manufacturer/3335/floorplan/225053/"
     "the-big-steve-floor-plans.jpg"
+)  # actual floorplan — filename contains "floor-plans"
+MFR_FLOORPLAN_PDF = (
+    "https://d132mt2yijm03y.cloudfront.net/manufacturer/3335/floorplan/225053/"
+    "plans.pdf"
+)  # PDF in this domain = floorplan
+EXTERIOR_URL = (
+    "https://d132mt2yijm03y.cloudfront.net/dealer/3522/inventory/28102/photo_card.jpg"
 )
-EXTERIOR_URL = "https://d132mt2yijm03y.cloudfront.net/dealer/3522/inventory/28102/" "photo_card.jpg"
 EXTERIOR_URL_2 = (
-    "https://d132mt2yijm03y.cloudfront.net/dealer/3522/inventory/30643/" "exterior-front.jpg"
+    "https://d132mt2yijm03y.cloudfront.net/dealer/3522/inventory/30643/exterior-front.jpg"
 )
-INTERIOR_URL = "https://d132mt2yijm03y.cloudfront.net/dealer/3522/inventory/30643/" "kitchen.jpg"
+INTERIOR_URL = "https://d132mt2yijm03y.cloudfront.net/dealer/3522/inventory/30643/kitchen.jpg"
 
 
 # ─── is_floorplan_url ───
 
 
-def test_is_floorplan_url_detects_real_floorplan_path():
-    assert is_floorplan_url(FLOORPLAN_URL) is True
+def test_is_floorplan_url_detects_floor_plans_filename_token():
+    assert is_floorplan_url(MFR_FLOORPLAN_DIAGRAM) is True
 
 
-def test_is_floorplan_url_detects_second_real_floorplan():
-    assert is_floorplan_url(FLOORPLAN_URL_2) is True
+def test_is_floorplan_url_detects_pdf_extension():
+    assert is_floorplan_url(MFR_FLOORPLAN_PDF) is True
+
+
+def test_is_floorplan_url_rejects_mfr_namespace_indexed_photo():
+    """Manufacturer CDN indexed photos under /floorplan/{plan}/ are
+    exterior shots, NOT floorplan diagrams. The 2026-04-30 audit got
+    this backwards and 35/44 homes lost their hero image."""
+    assert is_floorplan_url(MFR_NAMESPACE_PHOTO) is False
 
 
 def test_is_floorplan_url_rejects_dealer_inventory_path():
@@ -69,7 +88,7 @@ def test_is_floorplan_url_handles_none():
 
 
 def test_is_floorplan_url_is_case_insensitive():
-    upper = FLOORPLAN_URL.replace("/floorplan/", "/FloorPlan/")
+    upper = MFR_FLOORPLAN_DIAGRAM.replace("floor-plans", "Floor-Plans")
     assert is_floorplan_url(upper) is True
 
 
@@ -82,17 +101,26 @@ def test_is_floorplan_url_rejects_non_string():
 
 
 def test_split_photos_separates_groups_and_preserves_order():
-    photos = [FLOORPLAN_URL, EXTERIOR_URL, FLOORPLAN_URL_2, INTERIOR_URL]
+    photos = [MFR_FLOORPLAN_DIAGRAM, EXTERIOR_URL, MFR_FLOORPLAN_PDF, INTERIOR_URL]
     exteriors, floorplans = split_photos(photos)
     assert exteriors == [EXTERIOR_URL, INTERIOR_URL]
-    assert floorplans == [FLOORPLAN_URL, FLOORPLAN_URL_2]
+    assert floorplans == [MFR_FLOORPLAN_DIAGRAM, MFR_FLOORPLAN_PDF]
+
+
+def test_split_photos_treats_mfr_namespace_photo_as_exterior():
+    """Regression: photos under /manufacturer/{id}/floorplan/{plan}/{n}.jpg
+    are exteriors, not floorplans."""
+    photos = [MFR_NAMESPACE_PHOTO, MFR_FLOORPLAN_DIAGRAM]
+    exteriors, floorplans = split_photos(photos)
+    assert exteriors == [MFR_NAMESPACE_PHOTO]
+    assert floorplans == [MFR_FLOORPLAN_DIAGRAM]
 
 
 def test_split_photos_drops_empty_and_none():
-    photos = [None, "", FLOORPLAN_URL, EXTERIOR_URL]
+    photos = [None, "", MFR_FLOORPLAN_DIAGRAM, EXTERIOR_URL]
     exteriors, floorplans = split_photos(photos)
     assert exteriors == [EXTERIOR_URL]
-    assert floorplans == [FLOORPLAN_URL]
+    assert floorplans == [MFR_FLOORPLAN_DIAGRAM]
 
 
 def test_split_photos_handles_empty_input():
@@ -105,24 +133,37 @@ def test_split_photos_handles_empty_input():
 
 
 def test_reorder_mix_puts_exteriors_first_floorplans_last():
-    photos = [FLOORPLAN_URL, EXTERIOR_URL, INTERIOR_URL]
-    result = reorder_for_listing(photos, current_image_url=FLOORPLAN_URL)
+    photos = [MFR_FLOORPLAN_DIAGRAM, EXTERIOR_URL, INTERIOR_URL]
+    result = reorder_for_listing(photos, current_image_url=MFR_FLOORPLAN_DIAGRAM)
 
     assert result["image_url"] == EXTERIOR_URL
-    assert result["real_photos"] == [EXTERIOR_URL, INTERIOR_URL, FLOORPLAN_URL]
-    assert result["floorplan_url"] == FLOORPLAN_URL
-    assert result["gallery_images"] == [EXTERIOR_URL, INTERIOR_URL, FLOORPLAN_URL]
+    assert result["real_photos"] == [EXTERIOR_URL, INTERIOR_URL, MFR_FLOORPLAN_DIAGRAM]
+    assert result["floorplan_url"] == MFR_FLOORPLAN_DIAGRAM
+    assert result["gallery_images"] == [EXTERIOR_URL, INTERIOR_URL, MFR_FLOORPLAN_DIAGRAM]
+
+
+def test_reorder_mfr_namespace_photos_become_hero():
+    """Regression for the 35/44 homes that lost their hero image: a list
+    of photos that all live under ``/manufacturer/{id}/floorplan/{plan}/``
+    should still produce a hero ``image_url`` (the first indexed photo),
+    NOT an empty image_url with everything dumped into floorplans."""
+    photos = [MFR_NAMESPACE_PHOTO, MFR_FLOORPLAN_DIAGRAM]
+    result = reorder_for_listing(photos, current_image_url=MFR_NAMESPACE_PHOTO)
+
+    assert result["image_url"] == MFR_NAMESPACE_PHOTO
+    assert result["floorplan_url"] == MFR_FLOORPLAN_DIAGRAM
+    assert result["real_photos"] == [MFR_NAMESPACE_PHOTO, MFR_FLOORPLAN_DIAGRAM]
 
 
 def test_reorder_all_floorplans_returns_none_image_url():
-    """The audit found 35/44 homes in this exact state."""
-    photos = [FLOORPLAN_URL, FLOORPLAN_URL_2]
-    result = reorder_for_listing(photos, current_image_url=FLOORPLAN_URL)
+    """When EVERY photo is an actual floorplan diagram, image_url is None."""
+    photos = [MFR_FLOORPLAN_DIAGRAM, MFR_FLOORPLAN_PDF]
+    result = reorder_for_listing(photos, current_image_url=MFR_FLOORPLAN_DIAGRAM)
 
     assert result["image_url"] is None
-    assert result["floorplan_url"] == FLOORPLAN_URL
-    assert result["real_photos"] == [FLOORPLAN_URL, FLOORPLAN_URL_2]
-    assert result["gallery_images"] == [FLOORPLAN_URL, FLOORPLAN_URL_2]
+    assert result["floorplan_url"] == MFR_FLOORPLAN_DIAGRAM
+    assert result["real_photos"] == [MFR_FLOORPLAN_DIAGRAM, MFR_FLOORPLAN_PDF]
+    assert result["gallery_images"] == [MFR_FLOORPLAN_DIAGRAM, MFR_FLOORPLAN_PDF]
 
 
 def test_reorder_all_exteriors_leaves_floorplan_url_empty():
@@ -156,8 +197,8 @@ def test_reorder_gallery_images_capped_at_three():
         EXTERIOR_URL,
         EXTERIOR_URL_2,
         INTERIOR_URL,
-        FLOORPLAN_URL,
-        FLOORPLAN_URL_2,
+        MFR_FLOORPLAN_DIAGRAM,
+        MFR_FLOORPLAN_PDF,
     ]
     result = reorder_for_listing(photos, current_image_url=None)
     assert len(result["gallery_images"]) == 3
@@ -166,25 +207,23 @@ def test_reorder_gallery_images_capped_at_three():
 # ─── apply_classifier_to_home ───
 
 
-def test_apply_classifier_fixes_audited_home_shape():
-    """Models the exact bug from the 2026-04-30 audit:
-    image_url is a floorplan, real_photos[0] is a floorplan, floorplan_url empty.
-    """
+def test_apply_classifier_fixes_floorplan_as_hero_bug():
+    """When image_url is an actual floorplan diagram and a real
+    exterior shot is available, swap them."""
     home = {
         "id": "test",
-        "image_url": FLOORPLAN_URL,
-        "real_photos": [FLOORPLAN_URL, EXTERIOR_URL, INTERIOR_URL],
-        "gallery_images": [FLOORPLAN_URL, EXTERIOR_URL, INTERIOR_URL],
+        "image_url": MFR_FLOORPLAN_DIAGRAM,
+        "real_photos": [MFR_FLOORPLAN_DIAGRAM, EXTERIOR_URL, INTERIOR_URL],
+        "gallery_images": [MFR_FLOORPLAN_DIAGRAM, EXTERIOR_URL, INTERIOR_URL],
         "floorplan_url": "",
     }
     result = apply_classifier_to_home(home)
 
     assert result is home  # mutates in-place
-    assert "/floorplan/" not in result["image_url"]
     assert result["image_url"] == EXTERIOR_URL
     assert result["real_photos"][0] == EXTERIOR_URL
-    assert result["floorplan_url"] == FLOORPLAN_URL
-    assert result["floor_plan_url"] == FLOORPLAN_URL  # legacy spelling kept in sync
+    assert result["floorplan_url"] == MFR_FLOORPLAN_DIAGRAM
+    assert result["floor_plan_url"] == MFR_FLOORPLAN_DIAGRAM  # legacy spelling kept in sync
 
 
 def test_apply_classifier_preserves_existing_floorplan_url_when_no_floorplan_in_photos():
@@ -199,12 +238,12 @@ def test_apply_classifier_preserves_existing_floorplan_url_when_no_floorplan_in_
 
 def test_apply_classifier_handles_missing_real_photos_falls_back_to_gallery():
     home = {
-        "image_url": FLOORPLAN_URL,
-        "gallery_images": [EXTERIOR_URL, FLOORPLAN_URL],
+        "image_url": MFR_FLOORPLAN_DIAGRAM,
+        "gallery_images": [EXTERIOR_URL, MFR_FLOORPLAN_DIAGRAM],
     }
     apply_classifier_to_home(home)
     assert home["image_url"] == EXTERIOR_URL
-    assert home["floorplan_url"] == FLOORPLAN_URL
+    assert home["floorplan_url"] == MFR_FLOORPLAN_DIAGRAM
 
 
 def test_apply_classifier_empty_home_no_crash():
@@ -221,5 +260,7 @@ def test_apply_classifier_non_dict_passthrough():
     assert apply_classifier_to_home(None) is None  # type: ignore[arg-type]
 
 
-def test_module_exports_path_token_constant():
-    assert photo_classifier.FLOORPLAN_URL_PATH_TOKEN == "/floorplan/"
+def test_module_exports_filename_token_constants():
+    assert "floorplan" in photo_classifier.FLOORPLAN_FILENAME_TOKENS
+    assert "floor-plan" in photo_classifier.FLOORPLAN_FILENAME_TOKENS
+    assert ".pdf" in photo_classifier.FLOORPLAN_FILE_EXTS
