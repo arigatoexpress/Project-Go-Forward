@@ -33,6 +33,12 @@ def test_firestore_inventory_loader_maps_current_firestore_fields(monkeypatch):
 
     homes = inventory_tools._load_inventory_from_firestore()
 
+    # NOTE — feat/inventory-photo-classification (2026-04-30):
+    # The Firestore loader now applies tools.photo_classifier so that
+    # image_url is the first exterior photo when one exists. The fixture
+    # input has no /floorplan/ URLs in `photos`, so both photos count as
+    # exteriors and the first one becomes image_url. The pre-existing
+    # floorplan_url is preserved.
     assert homes == [
         {
             "id": "44490",
@@ -50,7 +56,7 @@ def test_firestore_inventory_loader_maps_current_firestore_fields(monkeypatch):
             },
             "features": [],
             "marketing_tags": [],
-            "image_url": "",
+            "image_url": "https://example.com/1.jpg",
             "gallery_images": ["https://example.com/1.jpg", "https://example.com/2.jpg"],
             "real_photos": ["https://example.com/1.jpg", "https://example.com/2.jpg"],
             "image_categories": {},
