@@ -208,10 +208,37 @@ export default function InventoryBrowse({ onAskTex, onCreateAd }) {
 
   const hasActiveFilters = Object.values(filters).some(v => v !== '') || searchQuery;
 
-  // Photo helpers for detail modal
+  // Photo helpers for detail modal.
+  //
+  // After PR #43 (`feat/inventory-photo-classification`), the backend
+  // guarantees:
+  //   - `image_url` is a non-floorplan exterior URL (or empty string).
+  //   - `real_photos` lists exteriors first, then floorplans appended.
+  //   - `floorplan_url` / `floor_plan_url` is its own dedicated field.
+  //
+  // For the Photos gallery we want exteriors only — floorplans live in
+  // their own dedicated "Floorplan" tab. We exclude both spellings of the
+  // floorplan URL from the gallery so the user never sees a floorplan
+  // mixed in with the listing photos.
   const getPhotosForCategory = useCallback((home) => {
     if (!home) return [];
-    const allPhotos = home.real_photos || home.gallery_images || [];
+    const floorplanUrl = home.floorplan_url || home.floor_plan_url || '';
+    const rawPhotos = home.real_photos || home.gallery_images || [];
+
+    // Hero-first ordering: image_url is guaranteed-non-floorplan after
+    // PR #43, so it's safe to surface as the first gallery photo.
+    const heroSequence = [];
+    if (home.image_url) heroSequence.push(home.image_url);
+    for (const p of rawPhotos) {
+      if (p && !heroSequence.includes(p)) heroSequence.push(p);
+    }
+
+    // Defense-in-depth: even though PR #43's classifier removes the
+    // floorplan from image_url and pushes it to the tail of real_photos,
+    // explicitly drop the floorplan_url here so the gallery only shows
+    // listing photos.
+    const allPhotos = heroSequence.filter(p => p && p !== floorplanUrl);
+
     if (activeCategory === 'all' || !home.image_categories) return allPhotos;
 
     const catFiles = home.image_categories[activeCategory] || [];
@@ -560,8 +587,15 @@ export default function InventoryBrowse({ onAskTex, onCreateAd }) {
 
 // ─── Home Card Component ───
 function HomeCard({ home, onClick, onScheduleTour }) {
-  const photoCount = (home.real_photos || home.gallery_images || []).length;
-  const heroImage = (home.real_photos?.[0]) || home.image_url || home.floor_plan_url || '';
+  // image_url is guaranteed non-floorplan after PR #43's classifier;
+  // real_photos[0] is also non-floorplan (exteriors are listed first).
+  // We deliberately do NOT fall back to floor_plan_url here — floorplans
+  // belong in the dedicated Floorplan tab, not as the card hero.
+  const floorplanUrl = home.floorplan_url || home.floor_plan_url || '';
+  const galleryPhotos = (home.real_photos || home.gallery_images || [])
+    .filter(p => p && p !== floorplanUrl);
+  const photoCount = galleryPhotos.length;
+  const heroImage = home.image_url || galleryPhotos[0] || '';
   const hasTour = !!home.matterport_id;
   const specs = home.specs || {};
   const categories = home.image_categories || {};
@@ -668,11 +702,24 @@ function HomeDetailModal({
   const categories = home.image_categories || {};
   const categoryKeys = Object.keys(categories);
   const hasTour = !!home.matterport_id;
-  const floorPlan = home.floor_plan_url;
+  // After PR #43 the canonical field is `floorplan_url`. Fall back to the
+  // legacy `floor_plan_url` spelling for older Firestore docs.
+  const floorplan = home.floorplan_url || home.floor_plan_url || '';
   const isCallForPrice = !home.display_price || home.display_price === 'Call for Price';
 
   const modalRef = useRef(null);
   useFocusTrap(modalRef);
+
+  // Floorplan view is a peer of the Photos / 3D Tour view inside the
+  // gallery area. State is local to the modal because the parent already
+  // owns Photos<->Tour switching via showTour, and floorplan is purely a
+  // detail-modal concern.
+  const [showFloorplan, setShowFloorplan] = useState(false);
+  // If the user toggles into 3D Tour, reset the floorplan view so the
+  // gallery area only renders one thing at a time.
+  useEffect(() => {
+    if (showTour && showFloorplan) setShowFloorplan(false);
+  }, [showTour, showFloorplan]);
 
   // Touch swipe for mobile
   const touchStart = useRef(null);
@@ -721,6 +768,32 @@ function HomeDetailModal({
                 allowFullScreen
               />
             </div>
+          ) : showFloorplan ? (
+            <div className="tho-detail-floorplan-wrap">
+              {floorplan ? (
+                <>
+                  <img
+                    src={floorplan}
+                    alt={`${home.model_name} floorplan`}
+                    className="tho-detail-floorplan-img"
+                    onError={(e) => { e.target.classList.add('tho-img-error'); }}
+                  />
+                  <a
+                    href={floorplan}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="tho-detail-floorplan-larger"
+                  >
+                    View larger
+                  </a>
+                </>
+              ) : (
+                <div className="tho-detail-no-photo">
+                  <Grid3X3 size={48} className="text-gray-300" />
+                  <p>Floorplan unavailable</p>
+                </div>
+              )}
+            </div>
           ) : photos.length > 0 ? (
             <div
               className="tho-detail-photo-main"
@@ -758,27 +831,41 @@ function HomeDetailModal({
           <div className="tho-detail-gallery-controls">
             <div className="tho-detail-view-toggle">
               <button
-                className={`tho-view-tab ${!showTour ? 'active' : ''}`}
-                onClick={() => { if (showTour) onToggleTour(); }}
+                className={`tho-view-tab ${!showTour && !showFloorplan ? 'active' : ''}`}
+                onClick={() => {
+                  if (showTour) onToggleTour();
+                  if (showFloorplan) setShowFloorplan(false);
+                }}
               >
-                <Camera size={14} /> Photos ({(home.real_photos || home.gallery_images || []).length})
+                <Camera size={14} /> Photos ({photos.length})
               </button>
               {hasTour && (
                 <button
                   className={`tho-view-tab ${showTour ? 'active' : ''}`}
-                  onClick={() => { if (!showTour) onToggleTour(); }}
+                  onClick={() => {
+                    if (showFloorplan) setShowFloorplan(false);
+                    if (!showTour) onToggleTour();
+                  }}
                 >
                   <Box size={14} /> 3D Tour
                 </button>
               )}
-              {floorPlan && (
-                <a href={floorPlan} target="_blank" rel="noopener noreferrer" className="tho-view-tab">
-                  <Grid3X3 size={14} /> Floor Plan
-                </a>
-              )}
+              {/* Floorplan tab is always visible (after Photos and 3D
+                  Tour) so users always have a clear place to look — when
+                  no floorplan is on file the panel renders an
+                  "Floorplan unavailable" placeholder. */}
+              <button
+                className={`tho-view-tab ${showFloorplan ? 'active' : ''}`}
+                onClick={() => {
+                  if (showTour) onToggleTour();
+                  setShowFloorplan(prev => !prev);
+                }}
+              >
+                <Grid3X3 size={14} /> Floorplan
+              </button>
             </div>
 
-            {categoryKeys.length > 0 && !showTour && (
+            {categoryKeys.length > 0 && !showTour && !showFloorplan && (
               <div className="tho-detail-cat-tabs">
                 <button
                   className={`tho-dcat-tab ${activeCategory === 'all' ? 'active' : ''}`}
@@ -796,7 +883,7 @@ function HomeDetailModal({
               </div>
             )}
 
-            {!showTour && photos.length > 1 && (
+            {!showTour && !showFloorplan && photos.length > 1 && (
               <div className="tho-detail-thumbs">
                 {photos.map((photo, idx) => (
                   <button
