@@ -10,7 +10,7 @@ import os
 import sys
 import types
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from pathlib import Path
 
@@ -785,6 +785,96 @@ def test_admin_crm_funnel_returns_stage_counts_and_conversions(monkeypatch):
 def test_admin_crm_funnel_requires_auth(monkeypatch):
     client, _main, _db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
     response = client.get("/api/admin/crm/funnel")
+    assert response.status_code == 401
+
+
+def test_admin_lead_sources_categorizes_and_attributes(monkeypatch):
+    client, main, db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
+    token = main._create_admin_token()
+
+    from caching import clear_local_cache
+    clear_local_cache()
+
+    # Replace the in-memory leads with a controlled mix of sources
+    now = datetime.now(timezone.utc)
+    main.lead_manager.leads = [
+        FakeLead(lead_id="L1", user_id="u1", session_id="s1",
+                 source="chat", email="alice@example.com",
+                 created_at=now.isoformat()),
+        FakeLead(lead_id="L2", user_id="u2", session_id="s2",
+                 source="contact_form", phone="555-111-2222",
+                 created_at=now.isoformat()),
+        FakeLead(lead_id="L3", user_id="u3", session_id="s3",
+                 source="contact_form",
+                 created_at=now.isoformat()),
+        FakeLead(lead_id="L4", user_id="u4", session_id="s4",
+                 source="appointment",
+                 # Outside the 30-day window
+                 created_at=(now - timedelta(days=120)).isoformat()),
+    ]
+
+    # Funded deal that should attribute to L1 (email match)
+    db.collections["deals"].clear()
+    db.collections["deals"]["d-1"] = {
+        "id": "d-1", "status": "funded",
+        "buyer_email": "alice@example.com",
+        "sale_price": 75000,
+    }
+    # Funded deal that should attribute to L2 (phone match, last 10 digits)
+    db.collections["deals"]["d-2"] = {
+        "id": "d-2", "status": "complete",
+        "buyer_phone": "+1 (555) 111-2222",
+        "sale_price": 90000,
+    }
+    # Pending deal — should NOT attribute revenue
+    db.collections["deals"]["d-pending"] = {
+        "id": "d-pending", "status": "pending",
+        "buyer_email": "alice@example.com",
+        "sale_price": 999999,
+    }
+
+    response = client.get("/api/admin/crm/lead-sources?days=30", headers={"X-Admin-Token": token})
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["success"] is True
+    assert data["window_days"] == 30
+    assert data["total_leads"] == 3  # L4 outside window
+
+    cats = {c["category"]: c for c in data["categories"]}
+    assert cats["chat"]["count"] == 1
+    assert cats["contact_form"]["count"] == 2
+    assert "appointment" not in cats  # outside window
+
+    # Attribution
+    assert cats["chat"]["attributed_deals"] == 1
+    assert cats["chat"]["attributed_revenue"] == 75000.0
+    assert cats["contact_form"]["attributed_deals"] == 1
+    assert cats["contact_form"]["attributed_revenue"] == 90000.0
+
+    # pct sums approximately to 100 (within rounding)
+    total_pct = sum(c["pct"] for c in data["categories"])
+    assert 99.0 <= total_pct <= 101.0
+
+
+def test_admin_lead_sources_clamps_days_argument(monkeypatch):
+    client, main, _db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
+    token = main._create_admin_token()
+
+    from caching import clear_local_cache
+    clear_local_cache()
+
+    response = client.get("/api/admin/crm/lead-sources?days=9999", headers={"X-Admin-Token": token})
+    assert response.status_code == 200
+    assert response.json()["window_days"] == 365
+
+    response = client.get("/api/admin/crm/lead-sources?days=0", headers={"X-Admin-Token": token})
+    assert response.status_code == 200
+    assert response.json()["window_days"] == 1
+
+
+def test_admin_lead_sources_requires_auth(monkeypatch):
+    client, _main, _db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
+    response = client.get("/api/admin/crm/lead-sources")
     assert response.status_code == 401
 
 
