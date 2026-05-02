@@ -3233,6 +3233,88 @@ async def v1_rag_query(request: Request):
     }
 
 
+# ─── Lead Nurture (manual stale-lead re-engagement) ──────────────────────────
+# Wired here, not as a cron, so ops can preview the cohort with dry_run=true
+# before flipping to dry_run=false. Auto-schedule is a follow-up PR after Mark
+# approves the messaging copy in tools/lead_nurture.py:render_nurture_email.
+
+@app.post("/api/admin/lead-nurture/run", dependencies=[Depends(require_admin)])
+async def run_lead_nurture_endpoint(request: Request):
+    """Manual trigger for the stale-lead re-engagement batch.
+
+    Body (JSON, all optional):
+      * ``dry_run`` (bool, default True) — preview cohort without sending
+      * ``days_inactive`` (int, default 14) — staleness threshold
+      * ``max_results`` (int, default 50, clamped) — hard cohort cap
+
+    Returns the orchestrator dict from
+    ``tools.lead_nurture.run_nurture_batch``.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not isinstance(body, dict):
+        body = {}
+
+    # Default to dry_run=True so an accidental empty POST cannot send mail.
+    dry_run = bool(body.get("dry_run", True))
+    try:
+        days_inactive = int(body.get("days_inactive", 14))
+    except (TypeError, ValueError):
+        days_inactive = 14
+    try:
+        max_results = int(body.get("max_results", 50))
+    except (TypeError, ValueError):
+        max_results = 50
+
+    from tools.lead_nurture import run_nurture_batch
+
+    try:
+        result = run_nurture_batch(
+            dry_run=dry_run,
+            days_inactive=days_inactive,
+            max_results=max_results,
+        )
+    except Exception as exc:
+        struct_logger.error("Lead nurture batch failed", error=str(exc))
+        raise HTTPException(status_code=500, detail="Lead nurture batch failed")
+
+    # Audit-log every invocation. ``audit_log`` lives on PR #36; soft-import so
+    # this PR can land before that one. Falls back to structured logging.
+    try:
+        from audit_log import log_admin_action  # type: ignore
+
+        log_admin_action(
+            actor="admin",
+            action="customer.update",
+            target_type="customer",
+            target_id="lead_nurture_batch",
+            details={
+                "dry_run": dry_run,
+                "days_inactive": days_inactive,
+                "cohort_size": result.get("cohort_size", 0),
+                "sent": result.get("sent", 0),
+                "failed": result.get("failed", 0),
+            },
+            request=request,
+        )
+    except ImportError:
+        struct_logger.info(
+            "Lead nurture batch (audit_log not yet merged)",
+            dry_run=dry_run,
+            days_inactive=days_inactive,
+            cohort_size=result.get("cohort_size", 0),
+            sent=result.get("sent", 0),
+            failed=result.get("failed", 0),
+        )
+    except Exception as exc:
+        # Audit failures must never block the API response.
+        struct_logger.warning("Audit log write failed for lead_nurture", error=str(exc))
+
+    return result
+
+
 # Serve Frontend — Must be last to avoid catching API routes
 app.mount("/assets", ImmutableStaticFiles(directory="frontend/dist/assets"), name="assets")
 
