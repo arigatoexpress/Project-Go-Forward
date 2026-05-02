@@ -12,7 +12,9 @@ import StatusBadge, { STATUS_COLORS, DEAL_STATUS_COLORS } from '../components/St
 const DEAL_STATUS_ORDER = ['pending', 'approved', 'contract', 'funded', 'complete'];
 
 function formatDate(iso) {
-  if (!iso) return '—';
+  // Returns empty string for missing values — callers should hide the
+  // surrounding row/label rather than render a placeholder.
+  if (!iso) return '';
   try {
     const d = new Date(iso);
     return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
@@ -1088,7 +1090,9 @@ function LeadDetail({ lead, onClose, onUpdateStatus, onEmail, appointments, emai
             />
             <div className="flex flex-col gap-0.5">
               <span className="text-[13px] text-gray-700">Lead created via {lead.source}</span>
-              <span className="text-[11px] text-gray-400">{formatDate(lead.created_at)}</span>
+              {lead.created_at && (
+                <span className="text-[11px] text-gray-400">{formatDate(lead.created_at)}</span>
+              )}
             </div>
           </div>
 
@@ -1106,7 +1110,9 @@ function LeadDetail({ lead, onClose, onUpdateStatus, onEmail, appointments, emai
                 <span className="text-[13px] text-gray-700">
                   Appointment {appt.status} — {appt.date} at {appt.time_slot}
                 </span>
-                <span className="text-[11px] text-gray-400">{formatDate(appt.created_at)}</span>
+                {appt.created_at && (
+                  <span className="text-[11px] text-gray-400">{formatDate(appt.created_at)}</span>
+                )}
               </div>
             </div>
           ))}
@@ -1120,7 +1126,9 @@ function LeadDetail({ lead, onClose, onUpdateStatus, onEmail, appointments, emai
               />
               <div className="flex flex-col gap-0.5">
                 <span className="text-[13px] text-gray-700">Email sent: {email.subject}</span>
-                <span className="text-[11px] text-gray-400">{formatDate(email.sent_at)}</span>
+                {email.sent_at && (
+                  <span className="text-[11px] text-gray-400">{formatDate(email.sent_at)}</span>
+                )}
               </div>
             </div>
           ))}
@@ -1132,9 +1140,9 @@ function LeadDetail({ lead, onClose, onUpdateStatus, onEmail, appointments, emai
       </div>
 
       <div className="flex flex-wrap gap-4 text-[11px] text-gray-400 mt-4">
-        <span>ID: {lead.lead_id}</span>
-        <span>Created: {formatDate(lead.created_at)}</span>
-        <span>Updated: {formatDate(lead.updated_at)}</span>
+        {lead.lead_id && <span>ID: {lead.lead_id}</span>}
+        {lead.created_at && <span>Created: {formatDate(lead.created_at)}</span>}
+        {lead.updated_at && <span>Updated: {formatDate(lead.updated_at)}</span>}
       </div>
     </div>
   );
@@ -1616,7 +1624,9 @@ function DealCard({ deal, onUpdateStatus, statusOrder }) {
               {deal.buyer_address}, {deal.buyer_city} {deal.buyer_state} {deal.buyer_zip}
             </div>
           )}
-          <div className="text-gray-400 mt-1">Created: {formatDate(deal.created_at)}</div>
+          {deal.created_at && (
+            <div className="text-gray-400 mt-1">Created: {formatDate(deal.created_at)}</div>
+          )}
 
           {/* Document Generation Actions */}
           <div className="mt-2.5 text-[11px] text-gray-500 font-semibold uppercase tracking-wide">
