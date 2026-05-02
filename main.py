@@ -735,6 +735,168 @@ async def get_lead_stats():
         return {"error": "Failed to load lead statistics"}
 
 
+def _categorize_lead_source(lead) -> str:
+    """Map raw Lead.source (and any future utm/referrer fields) to a
+    coarse category used for attribution charts.
+
+    Buckets:
+      - chat            : in-app conversational agent
+      - contact_form    : website contact form
+      - appointment     : appointment widget / direct booking
+      - calculator      : financing calculator entry point
+      - referrer:<host> : explicit referrer host (truncated)
+      - utm:<source>    : utm_source value (lowercase)
+      - other           : everything else
+    """
+    raw = (getattr(lead, "source", None) or "").strip().lower()
+
+    # Future-proof: support utm_source / referrer fields if they ever
+    # land on the Lead dataclass without crashing on AttributeError.
+    utm = (getattr(lead, "utm_source", None) or "").strip().lower()
+    referrer = (getattr(lead, "referrer", None) or "").strip().lower()
+
+    if utm:
+        return f"utm:{utm}"
+    if referrer:
+        # Strip protocol + path → keep host
+        host = referrer.replace("https://", "").replace("http://", "").split("/", 1)[0][:40]
+        return f"referrer:{host}" if host else "referrer:direct"
+
+    if raw in {"chat", "appointment", "calculator", "contact_form", "chat_intake"}:
+        # Normalize chat_intake → chat for funnel parity
+        return "chat" if raw == "chat_intake" else raw
+    if not raw:
+        return "other"
+    return raw[:40]
+
+
+@app.get("/api/admin/crm/lead-sources", dependencies=[Depends(require_admin)])
+async def admin_lead_sources(days: int = 30):
+    """
+    Lead source attribution for the last `days` days.
+
+    Returns counts per category and a revenue-equivalent figure when
+    deals can be attributed (matched on email or phone). Default window
+    is 30 days; cap at 365.
+
+    Response shape:
+      {
+        "success": true,
+        "window_days": 30,
+        "total_leads": N,
+        "categories": [
+          {"category": "chat", "count": N, "pct": 12.5,
+           "attributed_deals": K, "attributed_revenue": $X}
+        ]
+      }
+    """
+    from caching import cache_get, cache_set
+    try:
+        days = int(days)
+    except (TypeError, ValueError):
+        days = 30
+    days = max(1, min(days, 365))
+    cache_key = f"admin_lead_sources_{days}d_v1"
+    cached = cache_get(cache_key)
+    if cached:
+        return cached
+
+    try:
+        from datetime import datetime, timedelta, timezone
+
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+        cutoff_naive = cutoff.replace(tzinfo=None)
+
+        all_leads = await lead_manager.list_leads(limit=2000)
+
+        # Collect deals once, index by email/phone for attribution lookup
+        deals_by_email: dict[str, list[dict]] = {}
+        deals_by_phone: dict[str, list[dict]] = {}
+        for doc in _db.db.collection("deals").stream():
+            data = doc.to_dict() or {}
+            status = (data.get("status") or "").lower()
+            if status not in ("funded", "complete", "approved", "contract"):
+                # Only count real revenue-equivalents. Skip pending/denied/archived.
+                if status not in ("funded", "complete"):
+                    continue
+            email = (data.get("buyer_email") or "").strip().lower()
+            phone_digits = "".join(c for c in (data.get("buyer_phone") or "") if c.isdigit())
+            # Normalize to last 10 digits to match the lead-side comparison
+            phone_digits = phone_digits[-10:] if len(phone_digits) >= 10 else phone_digits
+            if email:
+                deals_by_email.setdefault(email, []).append(data)
+            if phone_digits:
+                deals_by_phone.setdefault(phone_digits, []).append(data)
+
+        category_counts: dict[str, int] = {}
+        category_revenue: dict[str, float] = {}
+        category_deals: dict[str, int] = {}
+        seen_deal_ids: dict[str, set[str]] = {}
+
+        recent_lead_count = 0
+        for lead in all_leads:
+            created = _parse_iso_datetime(getattr(lead, "created_at", None))
+            if created and created < cutoff_naive:
+                continue
+            recent_lead_count += 1
+            cat = _categorize_lead_source(lead)
+            category_counts[cat] = category_counts.get(cat, 0) + 1
+
+            # Attribution: match by email OR last-10-digits phone
+            email = (getattr(lead, "email", None) or "").strip().lower()
+            phone_digits = "".join(c for c in (getattr(lead, "phone", None) or "") if c.isdigit())
+            phone_digits = phone_digits[-10:] if len(phone_digits) >= 10 else phone_digits
+
+            matched_deals: list[dict] = []
+            if email and email in deals_by_email:
+                matched_deals.extend(deals_by_email[email])
+            if phone_digits and phone_digits in deals_by_phone:
+                matched_deals.extend(deals_by_phone[phone_digits])
+
+            seen = seen_deal_ids.setdefault(cat, set())
+            for deal in matched_deals:
+                deal_id = deal.get("id") or deal.get("deal_id") or ""
+                if not deal_id or deal_id in seen:
+                    continue
+                seen.add(deal_id)
+                category_deals[cat] = category_deals.get(cat, 0) + 1
+                # Use sale_price → loan_amount → home_price as revenue proxy
+                revenue = (
+                    deal.get("sale_price")
+                    or deal.get("loan_amount")
+                    or deal.get("home_price")
+                    or 0
+                )
+                try:
+                    category_revenue[cat] = category_revenue.get(cat, 0.0) + float(revenue)
+                except (TypeError, ValueError):
+                    pass
+
+        total = max(recent_lead_count, 1)
+        categories = []
+        for cat, count in sorted(category_counts.items(), key=lambda kv: (-kv[1], kv[0])):
+            categories.append({
+                "category": cat,
+                "count": count,
+                "pct": round(100.0 * count / total, 1),
+                "attributed_deals": category_deals.get(cat, 0),
+                "attributed_revenue": round(category_revenue.get(cat, 0.0), 2),
+            })
+
+        result = {
+            "success": True,
+            "window_days": days,
+            "total_leads": recent_lead_count,
+            "categories": categories,
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        cache_set(cache_key, result, ttl_seconds=300)
+        return result
+    except Exception as e:
+        struct_logger.error("Lead source attribution failed", error=str(e))
+        return {"success": False, "error": "Failed to compute lead source attribution."}
+
+
 @app.get("/api/analytics/leads", dependencies=[Depends(require_admin)])
 async def get_lead_analytics(range: str = "30d"):
     """Get detailed lead analytics with time series data."""
