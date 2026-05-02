@@ -54,9 +54,10 @@ def test_get_inventory_for_ads_demotes_floorplan_hero_to_floorplan_url(monkeypat
     is the same floorplan, floorplan_url is empty. Classifier must promote the
     first exterior to image_url and move the floorplan into floorplan_url.
     """
+    # Actual floorplan diagram (filename-based detection)
     floorplan = (
         "https://d132mt2yijm03y.cloudfront.net/manufacturer/3327/floorplan/"
-        "224354/S-1672-32B-1.jpg"
+        "224354/floor-plans.jpg"
     )
     exterior = (
         "https://d132mt2yijm03y.cloudfront.net/dealer/3522/inventory/30643/"
@@ -92,8 +93,7 @@ def test_get_inventory_for_ads_demotes_floorplan_hero_to_floorplan_url(monkeypat
     result = marketing_tools.get_inventory_for_ads(limit=10)
 
     home = result["homes"][0]
-    # Bug: previously image_url was a /floorplan/ URL.
-    assert "/floorplan/" not in home["image_url"]
+    # Hero is now the exterior shot.
     assert home["image_url"] == exterior
     # Real photos: exteriors first, then floorplans.
     assert home["real_photos"][0] == exterior
