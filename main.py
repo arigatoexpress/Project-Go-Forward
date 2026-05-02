@@ -94,6 +94,45 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 APP_STARTED_AT = time.monotonic()
 
+# Sentry error tracking — opt-in; no-op when SENTRY_DSN is absent or under pytest.
+if os.environ.get('SENTRY_DSN') and not os.environ.get('PYTEST_CURRENT_TEST'):
+    import sentry_sdk
+    import re as _sentry_re
+
+    _SENTRY_SSN_RE = _sentry_re.compile(r'\b\d{3}[-\s]?\d{2}[-\s]?\d{4}\b')
+    _SENTRY_EMAIL_RE = _sentry_re.compile(r'\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b')
+
+    def _sentry_before_send(event, hint):
+        # Drop health-probe events — noisy and quota-wasting.
+        url = (event.get('request') or {}).get('url', '')
+        if '/healthz' in url or url.rstrip('/').endswith('/health'):
+            return None
+        # Scrub PII from request body (mirrors tools/pii_guard.py patterns).
+        body = (event.get('request') or {}).get('data', '')
+        if isinstance(body, str):
+            body = _SENTRY_SSN_RE.sub('[SSN-REDACTED]', body)
+            body = _SENTRY_EMAIL_RE.sub('[EMAIL-REDACTED]', body)
+            event.setdefault('request', {})['data'] = body
+        return event
+
+    def _sentry_traces_sampler(ctx):
+        # Exclude health probes from performance tracing.
+        path = (ctx.get('asgi_scope') or {}).get('path', '')
+        if path.startswith('/health'):
+            return 0
+        return 0.05
+
+    sentry_sdk.init(
+        dsn=os.environ['SENTRY_DSN'],
+        environment=os.environ.get('K_REVISION', 'local'),
+        release=os.environ.get('APP_VERSION', 'local'),
+        traces_sampler=_sentry_traces_sampler,
+        profiles_sample_rate=0.0,
+        send_default_pii=False,
+        before_send=_sentry_before_send,
+    )
+    logger.info("Sentry initialized (environment=%s)", os.environ.get('K_REVISION', 'local'))
+
 # Disable FastAPI's auto-docs (/openapi.json, /docs, /redoc) in Cloud Run.
 # These endpoints expose the full API surface — every admin route, every
 # operation ID, every path parameter — to anonymous attackers, which makes

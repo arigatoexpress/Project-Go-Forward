@@ -1,11 +1,24 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { resolve } from 'path'
+import { sentryVitePlugin } from '@sentry/vite-plugin'
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    react(),
+    // Upload source maps to Sentry during CI builds.
+    // Requires SENTRY_AUTH_TOKEN + SENTRY_ORG + SENTRY_PROJECT env vars.
+    ...(process.env.SENTRY_AUTH_TOKEN
+      ? [sentryVitePlugin({
+          org: process.env.SENTRY_ORG,
+          project: process.env.SENTRY_PROJECT,
+        })]
+      : []),
+  ],
   build: {
+    // Source maps are only generated when uploading to Sentry (saves bundle size otherwise).
+    sourcemap: !!process.env.SENTRY_AUTH_TOKEN,
     rollupOptions: {
       input: {
         main: resolve(__dirname, 'index.html'),
@@ -30,6 +43,10 @@ export default defineConfig({
           // Icon library — large but tree-shaken; keep separate for cache stability
           if (id.includes('node_modules/lucide-react')) {
             return 'vendor-lucide';
+          }
+          // Sentry SDK — isolated so it doesn't inflate the main bundle
+          if (id.includes('node_modules/@sentry/')) {
+            return 'vendor-sentry';
           }
         },
       },
