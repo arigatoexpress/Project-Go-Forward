@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, lazy, Suspense, useCallback } from 'react';
-import { Send, Home, Menu, X, Phone, MapPin, Loader2, User, Bot, FileText, Video, Lock, ShieldCheck, CalendarDays, Users, MessageSquare, MessageCircle, RotateCcw, WifiOff, Moon, Sun } from 'lucide-react';
+import { Send, Home, Menu, X, Phone, MapPin, Loader2, User, Bot, FileText, Video, Lock, ShieldCheck, CalendarDays, Users, MessageSquare, MessageCircle, RotateCcw, WifiOff, Moon, Sun, KeyRound } from 'lucide-react';
 import { useDarkMode } from './hooks/useDarkMode';
 import SafeMarkdown from './components/SafeMarkdown';
 import SearchFilters from './components/SearchFilters';
@@ -8,6 +8,8 @@ import ComparisonDrawer from './components/ComparisonDrawer';
 import { useToast } from './components/Toast';
 import { useNetworkStatus } from './components/NetworkStatus';
 import ReportIssue from './components/ReportIssue';
+import PasskeyLogin from './components/PasskeyLogin';
+import PasskeySettings from './components/PasskeySettings';
 import { v4 as uuidv4 } from 'uuid';
 import {
   BUSINESS_NAME, BUSINESS_PHONE, BUSINESS_PHONE_RAW, BUSINESS_ADDRESS,
@@ -35,7 +37,7 @@ const PageLoader = () => (
 );
 
 // ─── Shared Navigation Component ───
-function NavBar({ activePage, navigateTo, adminAuthed, onAdminAccess, isMobileMenuOpen, setIsMobileMenuOpen, showSearchFilters, onApplyFilters, onClearFilters, darkMode, onToggleDarkMode }) {
+function NavBar({ activePage, navigateTo, adminAuthed, onAdminAccess, onManagePasskeys, isMobileMenuOpen, setIsMobileMenuOpen, showSearchFilters, onApplyFilters, onClearFilters, darkMode, onToggleDarkMode }) {
   const navItems = [
     { key: 'inventory', label: 'Inventory', icon: Home },
     { key: 'chat', label: 'Chat', icon: MessageSquare },
@@ -115,6 +117,18 @@ function NavBar({ activePage, navigateTo, adminAuthed, onAdminAccess, isMobileMe
           >
             {adminAuthed ? <ShieldCheck size={14} /> : <Lock size={14} />}
           </button>
+
+          {/* Passkey settings button — desktop, only when authed */}
+          {adminAuthed && onManagePasskeys && (
+            <button
+              onClick={onManagePasskeys}
+              className="hidden md:flex items-center gap-1 px-2 py-1.5 text-xs text-blue-300 hover:text-white hover:bg-white/10 rounded-md transition-colors"
+              aria-label="Manage passkeys"
+              title="Manage passkeys"
+            >
+              <KeyRound size={14} />
+            </button>
+          )}
 
           {/* Mobile menu button */}
           <button
@@ -315,6 +329,9 @@ function App() {
   const [pinInput, setPinInput] = useState('');
   const [pinError, setPinError] = useState('');
   const [pinLoading, setPinLoading] = useState(false);
+  // Passkey state — default to passkey UI; user can toggle to PIN
+  const [usePinFallback, setUsePinFallback] = useState(false);
+  const [showPasskeySettings, setShowPasskeySettings] = useState(false);
   
   // Verify stored token on mount
   useEffect(() => {
@@ -423,15 +440,25 @@ function App() {
     }
   };
 
-  // Admin PIN handlers
+  // Admin access handler — opens the auth modal (passkey-first, PIN as fallback)
   const handleAdminAccess = () => {
     if (adminAuthed) {
       navigateTo('analytics');
     } else {
       setShowPinModal(true);
+      setUsePinFallback(false);
       setPinInput('');
       setPinError('');
     }
+  };
+
+  // Called by PasskeyLogin when authentication succeeds
+  const handlePasskeySuccess = (token) => {
+    setAdminAuthed(true);
+    setAdminToken(token);
+    sessionStorage.setItem('tho_admin_token', token);
+    setShowPinModal(false);
+    navigateTo('analytics');
   };
 
   const handlePinSubmit = async (e) => {
@@ -565,7 +592,7 @@ function App() {
     setComparisonList(prev => prev.filter(p => p.id !== id));
   };
 
-  // --- PIN Modal ---
+  // --- Admin Auth Modal (passkey-first; PIN as fallback) ---
   const pinModal = showPinModal && (
     <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4" style={{ animation: 'tho-fade-in 0.15s ease' }}>
       <div className="bg-white rounded-xl shadow-2xl p-8 max-w-sm w-full" style={{ animation: 'tho-slide-up 0.2s ease' }}>
@@ -575,37 +602,76 @@ function App() {
           </div>
         </div>
         <h2 className="text-xl font-bold text-center text-gray-900 mb-2">Admin Access</h2>
-        <p className="text-sm text-gray-500 text-center mb-6">Enter your PIN to access the admin dashboard.</p>
-        <form onSubmit={handlePinSubmit}>
-          <input
-            type="password"
-            inputMode="numeric"
-            maxLength={6}
-            value={pinInput}
-            onChange={(e) => { setPinInput(e.target.value); setPinError(''); }}
-            placeholder="Enter PIN"
-            className="w-full px-4 py-3 text-center text-xl tracking-widest border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-            autoFocus
-            aria-label="Admin PIN"
-          />
-          {pinError && <p className="text-red-500 text-sm text-center mt-2">{pinError}</p>}
-          <button
-            type="submit"
-            disabled={!pinInput.trim() || pinLoading}
-            className="w-full mt-4 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition"
-          >
-            {pinLoading ? 'Verifying...' : 'Unlock'}
-          </button>
-          <button
-            type="button"
-            onClick={() => setShowPinModal(false)}
-            className="w-full mt-2 py-2 text-gray-500 text-sm hover:text-gray-700 transition"
-          >
-            Cancel
-          </button>
-        </form>
+
+        {usePinFallback ? (
+          /* ── PIN fallback form (unchanged) ── */
+          <>
+            <p className="text-sm text-gray-500 text-center mb-6">Enter your PIN to access the admin dashboard.</p>
+            <form onSubmit={handlePinSubmit}>
+              <input
+                type="password"
+                inputMode="numeric"
+                maxLength={6}
+                value={pinInput}
+                onChange={(e) => { setPinInput(e.target.value); setPinError(''); }}
+                placeholder="Enter PIN"
+                className="w-full px-4 py-3 text-center text-xl tracking-widest border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                autoFocus
+                aria-label="Admin PIN"
+              />
+              {pinError && <p className="text-red-500 text-sm text-center mt-2">{pinError}</p>}
+              <button
+                type="submit"
+                disabled={!pinInput.trim() || pinLoading}
+                className="w-full mt-4 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition"
+              >
+                {pinLoading ? 'Verifying...' : 'Unlock'}
+              </button>
+              <button
+                type="button"
+                onClick={() => { setUsePinFallback(false); setPinInput(''); setPinError(''); }}
+                className="w-full mt-2 py-2 text-blue-600 text-sm hover:text-blue-800 transition"
+              >
+                ← Use passkey instead
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowPinModal(false)}
+                className="w-full mt-1 py-2 text-gray-500 text-sm hover:text-gray-700 transition"
+              >
+                Cancel
+              </button>
+            </form>
+          </>
+        ) : (
+          /* ── Passkey login (default) ── */
+          <>
+            <p className="text-sm text-gray-500 text-center mb-6">
+              Use TouchID, FaceID, or a security key to sign in.
+            </p>
+            <PasskeyLogin
+              onSuccess={handlePasskeySuccess}
+              onFallback={() => { setUsePinFallback(true); setPinInput(''); setPinError(''); }}
+            />
+            <button
+              type="button"
+              onClick={() => setShowPinModal(false)}
+              className="w-full mt-2 py-2 text-gray-500 text-sm hover:text-gray-700 transition"
+            >
+              Cancel
+            </button>
+          </>
+        )}
       </div>
     </div>
+  );
+
+  // --- Passkey Settings Modal ---
+  const passkeySettingsModal = showPasskeySettings && adminAuthed && (
+    <PasskeySettings
+      adminToken={adminToken}
+      onClose={() => setShowPasskeySettings(false)}
+    />
   );
 
   // --- Shared nav props ---
@@ -614,6 +680,7 @@ function App() {
     navigateTo,
     adminAuthed,
     onAdminAccess: handleAdminAccess,
+    onManagePasskeys: () => setShowPasskeySettings(true),
     isMobileMenuOpen,
     setIsMobileMenuOpen,
     darkMode,
@@ -724,6 +791,7 @@ function App() {
     return (
       <div className="bg-gray-50 min-h-screen flex flex-col">
         {pinModal}
+        {passkeySettingsModal}
         <NavBar {...navProps} />
 
         <Suspense fallback={<PageLoader />}>
@@ -763,6 +831,7 @@ function App() {
   return (
     <div className="flex flex-col h-screen bg-gray-50 font-sans text-gray-900">
       {pinModal}
+      {passkeySettingsModal}
       <NavBar {...navProps} showSearchFilters onApplyFilters={handleApplyFilters} onClearFilters={handleClearFilters} />
 
       {/* Main Chat Area */}

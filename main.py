@@ -401,6 +401,15 @@ async def require_admin(request: Request):
         raise HTTPException(status_code=401, detail="Admin session expired. Please re-authenticate.")
 
 
+# ─── WebAuthn / Passkey routes ───────────────────────────────────────────────
+# Parallel auth path alongside the PIN flow. PIN remains untouched.
+try:
+    from auth.webauthn_routes import router as _webauthn_router
+    app.include_router(_webauthn_router)
+    logger.info("WebAuthn passkey routes registered at /api/auth/webauthn/*")
+except ImportError as _wae:
+    logger.warning("webauthn package not installed — passkey routes unavailable: %s", _wae)
+
 # Brute-force protection: track failed PIN attempts per IP
 _pin_attempts: dict[str, list[float]] = {}
 PIN_MAX_ATTEMPTS = 10
