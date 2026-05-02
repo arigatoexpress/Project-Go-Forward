@@ -4,6 +4,7 @@ import {
   Search, RefreshCw, Send, X, Clock, Home, DollarSign,
   CheckCircle, AlertCircle, Filter, ArrowLeft, FileText, Package, Download, Loader,
 } from 'lucide-react';
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
 import adminFetch from '../adminFetch';
 import downloadAdminFile from '../downloadAdminFile';
 import StatusBadge, { STATUS_COLORS, DEAL_STATUS_COLORS } from '../components/StatusBadge';
@@ -1314,6 +1315,114 @@ function FunnelPanel() {
 }
 
 
+// Stable color palette for lead source categories
+const SOURCE_COLORS = [
+  '#3b82f6', '#22c55e', '#f59e0b', '#8b5cf6', '#ec4899',
+  '#14b8a6', '#ef4444', '#a3e635', '#06b6d4', '#f97316',
+];
+
+function LeadSourceChart() {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [days, setDays] = useState(30);
+
+  useEffect(() => {
+    let alive = true;
+    setLoading(true);
+    adminFetch(`/api/admin/crm/lead-sources?days=${days}`)
+      .then(r => r.json())
+      .then(d => { if (alive && d?.success) setData(d); })
+      .catch(() => {})
+      .finally(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+  }, [days]);
+
+  if (loading) return <div className="text-center py-4 text-gray-400 text-xs">Loading lead sources...</div>;
+  if (!data?.categories?.length) return null;
+
+  const chartData = data.categories.map((c, i) => ({
+    name: c.category,
+    value: c.count,
+    color: SOURCE_COLORS[i % SOURCE_COLORS.length],
+    revenue: c.attributed_revenue,
+    deals: c.attributed_deals,
+    pct: c.pct,
+  }));
+
+  const totalRevenue = chartData.reduce((s, c) => s + (c.revenue || 0), 0);
+
+  return (
+    <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, padding: 16, marginBottom: 16 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 12 }}>
+        <div style={{ fontSize: 12, color: '#aaa', textTransform: 'uppercase', letterSpacing: 1, fontWeight: 600 }}>
+          Lead Sources ({data.total_leads} leads)
+        </div>
+        <select
+          value={days}
+          onChange={e => setDays(Number(e.target.value))}
+          style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff', borderRadius: 6, padding: '4px 8px', fontSize: 11 }}
+        >
+          <option value={7}>Last 7 days</option>
+          <option value={30}>Last 30 days</option>
+          <option value={90}>Last 90 days</option>
+          <option value={365}>Last 365 days</option>
+        </select>
+      </div>
+      <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
+        <div style={{ width: 220, height: 220, flexShrink: 0 }}>
+          <ResponsiveContainer width="100%" height="100%">
+            <PieChart>
+              <Pie
+                data={chartData}
+                dataKey="value"
+                nameKey="name"
+                innerRadius={50}
+                outerRadius={90}
+                paddingAngle={2}
+              >
+                {chartData.map((entry, idx) => (
+                  <Cell key={idx} fill={entry.color} stroke="rgba(0,0,0,0.4)" />
+                ))}
+              </Pie>
+              <RechartsTooltip
+                contentStyle={{ background: '#1a1a1a', border: '1px solid #333', borderRadius: 6, fontSize: 12 }}
+                formatter={(value, _name, item) => [
+                  `${value} leads (${item.payload.pct}%)`,
+                  item.payload.name,
+                ]}
+              />
+            </PieChart>
+          </ResponsiveContainer>
+        </div>
+        <div style={{ flex: 1, minWidth: 200 }}>
+          {chartData.map((c) => (
+            <div key={c.name} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0', borderBottom: '1px solid rgba(255,255,255,0.04)', fontSize: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ width: 10, height: 10, background: c.color, borderRadius: 2, display: 'inline-block' }} />
+                <span style={{ color: '#fff', fontWeight: 500 }}>{c.name}</span>
+              </div>
+              <div style={{ display: 'flex', gap: 12, color: '#aaa' }}>
+                <span>{c.value} ({c.pct}%)</span>
+                {c.revenue > 0 && (
+                  <span style={{ color: '#22c55e', fontWeight: 500 }}>
+                    ${c.revenue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                  </span>
+                )}
+              </div>
+            </div>
+          ))}
+          {totalRevenue > 0 && (
+            <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid rgba(255,255,255,0.08)', fontSize: 11, color: '#888', textAlign: 'right' }}>
+              Total attributed revenue: <strong style={{ color: '#22c55e' }}>${totalRevenue.toLocaleString(undefined, { maximumFractionDigits: 0 })}</strong>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
 function CustomerAnalytics() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -1340,6 +1449,9 @@ function CustomerAnalytics() {
     <div style={{ padding: '0 4px' }}>
       {/* Funnel panel — counts + conversion + median time-in-stage */}
       <FunnelPanel />
+
+      {/* Lead source attribution donut chart */}
+      <LeadSourceChart />
 
       {/* Metrics bar */}
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
