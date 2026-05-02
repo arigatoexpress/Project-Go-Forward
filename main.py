@@ -1336,6 +1336,33 @@ async def list_inventory(
         return {"success": False, "error": "Failed to load inventory. Please try again."}
 
 
+@app.get("/api/admin/inventory/photo-audit", dependencies=[Depends(require_admin)])
+async def admin_inventory_photo_audit(limit: int = 5000):
+    """
+    Read-only photo dedup audit.
+
+    Aggregates inventory image fields (image_url, hero_image, floorplan_url,
+    gallery_images, photos, real_photos) and reports any URL referenced by
+    two or more distinct inventory documents. Does NOT mutate Firestore;
+    the operator decides which dedupes to apply.
+    """
+    try:
+        from tools.photo_dedup_audit import run_photo_dedup_audit
+        # Pull the raw inventory docs directly so list/single image fields
+        # are preserved (search_inventory's transform drops some).
+        docs = _db.db.collection("inventory").limit(limit).stream()
+        inventory = []
+        for doc in docs:
+            data = doc.to_dict()
+            data["id"] = doc.id
+            inventory.append(data)
+        report = run_photo_dedup_audit(inventory)
+        return {"success": True, **report}
+    except Exception as e:
+        struct_logger.error("Photo dedup audit failed", error=str(e))
+        return {"success": False, "error": "Failed to run photo dedup audit."}
+
+
 @app.post("/api/inventory/bulk-import", dependencies=[Depends(require_admin)])
 async def bulk_import_inventory(request: Request):
     """
