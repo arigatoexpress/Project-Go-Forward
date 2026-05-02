@@ -91,17 +91,33 @@ const PropertyCard = ({ property, onToggleCompare, isSelected }) => {
         classification,
         manufacturer,
         image_url,
-        gallery_images = []
+        gallery_images = [],
+        real_photos = [],
+        floorplan_url,
+        floor_plan_url,
     } = property;
 
     const [imageError, setImageError] = useState(false);
     const [currentImageIndex, setCurrentImageIndex] = useState(0);
     const [showGallery, setShowGallery] = useState(false);
 
-    // Combine primary image with gallery images
-    const allImages = image_url
-        ? [image_url, ...(gallery_images?.filter(img => img !== image_url) || [])]
-        : gallery_images || [];
+    // Hero-first ordering for the card image.
+    //
+    // After PR #43 (`feat/inventory-photo-classification`) the backend
+    // guarantees `image_url` is a non-floorplan exterior URL (or empty).
+    // We pick the primary image deterministically from
+    // `image_url -> real_photos[0] -> gallery_images[0]` so the card
+    // never surfaces a floorplan as its hero image.
+    const floorplanUrl = floorplan_url || floor_plan_url || '';
+    const primaryImage = image_url || real_photos?.[0] || gallery_images?.[0] || '';
+
+    // Build the gallery from primary + gallery_images, excluding the
+    // floorplan URL — floorplans belong in the dedicated InventoryBrowse
+    // Floorplan tab, not in PropertyCard's photo carousel.
+    const allImages = (primaryImage
+        ? [primaryImage, ...(gallery_images?.filter(img => img && img !== primaryImage) || [])]
+        : gallery_images || []
+    ).filter(img => img && img !== floorplanUrl);
 
     const hasMultipleImages = allImages.length > 1;
 
