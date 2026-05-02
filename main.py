@@ -1087,7 +1087,15 @@ async def get_template_fields(template_name: str):
 
 @app.post("/api/documents/generate", dependencies=[Depends(require_admin)])
 async def generate_document_endpoint(request: GenerateDocumentRequest):
-    """Generate any mapped document template."""
+    """Generate any mapped document template.
+
+    When the supplied ``data`` dict cannot satisfy the template's required
+    fields the response is a HTTP 400 with the structured envelope
+    ``{"error": "missing_required_fields", "message": "<engine message>"}``.
+    This prevents the historical "empty doc" class of bug where an almost
+    blank request silently produced a near-empty PDF that looked like a
+    real document.
+    """
     try:
         result = engine_generate_document(
             template_name=request.template_name,
@@ -1100,7 +1108,20 @@ async def generate_document_endpoint(request: GenerateDocumentRequest):
                 "filename": result["filename"],
                 "message": result["message"],
             }
-        return {"success": False, "error": result["message"]}
+        # Surface validation failures as 400s with a structured envelope so
+        # callers can react programmatically and so we never accidentally
+        # ship a 200 + empty PDF for an empty deal.
+        message = result.get("message", "")
+        if "Missing required fields" in message:
+            return JSONResponse(
+                {
+                    "success": False,
+                    "error": "missing_required_fields",
+                    "message": message,
+                },
+                status_code=400,
+            )
+        return {"success": False, "error": message}
     except Exception as e:
         struct_logger.error("Document generation failed", error=str(e))
         return {"success": False, "error": "Document generation failed. Please try again."}
@@ -1121,6 +1142,7 @@ async def generate_packet_endpoint(request: GeneratePacketRequest):
                 "message": result["message"],
                 "page_count": result.get("page_count", 0),
                 "documents_included": result.get("documents_included", []),
+                "documents_skipped": result.get("documents_skipped", []),
             }
         return {"success": False, "error": result["message"]}
     except Exception as e:
