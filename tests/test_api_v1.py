@@ -719,44 +719,72 @@ def test_marketing_inventory_context_falls_back_to_asset_catalog_when_firestore_
     assert data["homes"][0]["matterport_url"].endswith("fallbackTour&play=1")
 
 
-def test_admin_inventory_photo_audit_reports_cross_doc_dups(monkeypatch):
+def test_admin_crm_funnel_returns_stage_counts_and_conversions(monkeypatch):
     client, main, db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
     token = main._create_admin_token()
 
-    # Seed inventory with two homes that share a photo URL
-    db.collections["inventory"]["dup-1"] = {
-        "id": "dup-1",
-        "model_name": "Shared A",
-        "manufacturer": "Champion",
-        "image_url": "https://cdn.example.com/duplicated.jpg",
-        "gallery_images": ["https://cdn.example.com/unique-1.jpg"],
-    }
-    db.collections["inventory"]["dup-2"] = {
-        "id": "dup-2",
-        "model_name": "Shared B",
-        "manufacturer": "Clayton",
-        "image_url": "https://cdn.example.com/duplicated.jpg",
-        "gallery_images": ["https://cdn.example.com/unique-2.jpg"],
+    # Reset cache so prior tests don't pollute
+    from caching import clear_local_cache
+    clear_local_cache()
+
+    # Seed customers: 3 LEAD, 2 ENROLLED, 1 SOLD
+    db.collections["customers"].clear()
+    for i in range(3):
+        db.collections["customers"][f"lead-{i}"] = {
+            "id": f"lead-{i}", "full_name": f"Lead {i}", "status": "LEAD",
+            "created_at": "2026-04-01T00:00:00", "updated_at": "2026-04-01T00:00:00",
+        }
+    for i in range(2):
+        db.collections["customers"][f"enr-{i}"] = {
+            "id": f"enr-{i}", "full_name": f"Enrolled {i}", "status": "ENROLLED",
+            "created_at": "2026-04-01T00:00:00", "updated_at": "2026-04-08T00:00:00",
+        }
+    db.collections["customers"]["sold-0"] = {
+        "id": "sold-0", "full_name": "Sold Zero", "status": "SOLD",
+        "created_at": "2026-04-01T00:00:00", "updated_at": "2026-04-15T00:00:00",
     }
 
-    response = client.get(
-        "/api/admin/inventory/photo-audit",
-        headers={"X-Admin-Token": token},
-    )
+    # Seed deals: 2 active (pending, contract), 1 closed (funded), 1 denied
+    db.collections["deals"].clear()
+    db.collections["deals"]["d-pending"] = {"id": "d-pending", "status": "pending"}
+    db.collections["deals"]["d-contract"] = {"id": "d-contract", "status": "contract"}
+    db.collections["deals"]["d-funded"] = {
+        "id": "d-funded", "status": "funded",
+        "created_at": "2026-04-01T00:00:00", "updated_at": "2026-04-21T00:00:00",
+    }
+    db.collections["deals"]["d-denied"] = {"id": "d-denied", "status": "denied"}
 
-    assert response.status_code == 200
+    response = client.get("/api/admin/crm/funnel", headers={"X-Admin-Token": token})
+    assert response.status_code == 200, response.text
     data = response.json()
     assert data["success"] is True
-    assert data["summary"]["duplicate_urls"] == 1
-    assert data["summary"]["items_affected"] == 2
-    duped = data["duplicates"][0]
-    assert duped["url"] == "https://cdn.example.com/duplicated.jpg"
-    assert sorted(duped["inventory_ids"]) == ["dup-1", "dup-2"]
+
+    stages = {s["key"]: s for s in data["stages"]}
+    # Top of funnel = 3+2+1 = 6
+    assert stages["LEAD"]["count"] == 6
+    assert stages["LEAD"]["conversion_pct"] == 100.0
+    # Enrolled = 2 + 1 (sold) = 3
+    assert stages["ENROLLED"]["count"] == 3
+    # Deal active = 2 active + 1 closed = 3
+    assert stages["DEAL"]["count"] == 3
+    # Closed = 1 funded + 1 sold customer = 2
+    assert stages["CLOSED"]["count"] == 2
+
+    totals = data["totals"]
+    assert totals["customers_total"] == 6
+    assert totals["deals_active"] == 2
+    assert totals["deals_closed"] == 1
+    assert totals["deals_denied"] == 1
+
+    # Median time: enrolled = 7 days, sold = 14 days → median 7
+    assert data["median_days_in_stage"]["LEAD_to_ENROLLED"] == 7.0
+    # Deal closed: 20 days from 04-01 to 04-21
+    assert data["median_days_in_stage"]["DEAL_to_CLOSED"] == 20.0
 
 
-def test_admin_inventory_photo_audit_requires_auth(monkeypatch):
+def test_admin_crm_funnel_requires_auth(monkeypatch):
     client, _main, _db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
-    response = client.get("/api/admin/inventory/photo-audit")
+    response = client.get("/api/admin/crm/funnel")
     assert response.status_code == 401
 
 
