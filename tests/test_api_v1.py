@@ -878,6 +878,79 @@ def test_admin_lead_sources_requires_auth(monkeypatch):
     assert response.status_code == 401
 
 
+def test_admin_inventory_analytics_returns_full_report(monkeypatch):
+    client, main, db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
+    token = main._create_admin_token()
+
+    from caching import clear_local_cache
+    clear_local_cache()
+
+    now = datetime.now(timezone.utc)
+
+    db.collections["inventory"].clear()
+    # Available home, listed 30 days ago
+    db.collections["inventory"]["a-1"] = {
+        "id": "a-1", "model_name": "Avail A", "manufacturer": "Champion",
+        "status": "AVAILABLE", "msrp": 80000, "sale_price": 75000,
+        "date_added": (now - timedelta(days=30)).isoformat(),
+    }
+    # Available home, listed 10 days ago
+    db.collections["inventory"]["a-2"] = {
+        "id": "a-2", "model_name": "Avail B", "manufacturer": "Clayton",
+        "status": "AVAILABLE", "msrp": 95000,
+        "date_added": (now - timedelta(days=10)).isoformat(),
+    }
+    # Recently sold (within 30 days)
+    db.collections["inventory"]["s-1"] = {
+        "id": "s-1", "model_name": "Sold A", "manufacturer": "Champion",
+        "status": "SOLD", "sale_price": 70000,
+        "date_added": (now - timedelta(days=45)).isoformat(),
+        "updated_at": (now - timedelta(days=5)).isoformat(),
+    }
+    # Sold long ago (outside 30d window)
+    db.collections["inventory"]["s-2"] = {
+        "id": "s-2", "model_name": "Sold B", "manufacturer": "Clayton",
+        "status": "SOLD", "sale_price": 100000,
+        "date_added": (now - timedelta(days=200)).isoformat(),
+        "updated_at": (now - timedelta(days=100)).isoformat(),
+    }
+    # Reserved
+    db.collections["inventory"]["r-1"] = {
+        "id": "r-1", "model_name": "Reserved", "manufacturer": "Champion",
+        "status": "RESERVED", "sale_price": 90000,
+    }
+
+    response = client.get("/api/admin/inventory/analytics", headers={"X-Admin-Token": token})
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["success"] is True
+
+    totals = data["totals"]
+    assert totals["total"] == 5
+    assert totals["available"] == 2
+    assert totals["sold_total"] == 2
+    assert totals["sold_last_30d"] == 1  # only s-1
+    assert totals["reserved"] == 1
+
+    # Median sale price: [70000, 75000, 90000, 95000, 100000] → 90000
+    assert data["median_sale_price"] == 90000
+
+    mfr = {m["manufacturer"]: m for m in data["by_manufacturer"]}
+    assert mfr["Champion"]["count"] == 3
+    assert mfr["Champion"]["available"] == 1
+    assert mfr["Champion"]["sold"] == 1
+    assert mfr["Clayton"]["count"] == 2
+
+    # Time-on-lot only computed for SOLD + AVAILABLE entries
+    assert data["median_time_on_lot_days"] is not None
+
+
+def test_admin_inventory_analytics_requires_auth(monkeypatch):
+    client, _main, _db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
+    response = client.get("/api/admin/inventory/analytics")
+    assert response.status_code == 401
+
+
 def test_admin_token_accepts_supported_employee_headers(monkeypatch):
     client, main, _db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
     token = main._create_admin_token()

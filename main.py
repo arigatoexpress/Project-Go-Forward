@@ -1525,6 +1525,124 @@ async def admin_inventory_photo_audit(limit: int = 5000):
         return {"success": False, "error": "Failed to run photo dedup audit."}
 
 
+@app.get("/api/admin/inventory/analytics", dependencies=[Depends(require_admin)])
+async def admin_inventory_analytics():
+    """
+    Operational inventory analytics for the admin panel.
+
+    Pulls the full inventory collection and surfaces:
+      - total / available / sold-30d / pending / reserved counts
+      - median sale price (uses sale_price → msrp fallback)
+      - median time-on-lot (created_at / date_added → updated_at when sold,
+        else now-created_at for available units)
+      - by-manufacturer breakdown (count + median price)
+
+    5-minute cache.
+    """
+    from caching import cache_get, cache_set
+    cache_key = "admin_inventory_analytics_v1"
+    cached = cache_get(cache_key)
+    if cached:
+        return cached
+
+    try:
+        import statistics as _stats
+        from datetime import datetime, timedelta, timezone
+
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        thirty_days_ago = now - timedelta(days=30)
+
+        total = 0
+        available = 0
+        sold_total = 0
+        sold_last_30d = 0
+        pending = 0
+        reserved = 0
+
+        prices: list[float] = []
+        time_on_lot_days: list[float] = []
+        by_manufacturer: dict[str, dict] = {}
+
+        for doc in _db.db.collection("inventory").stream():
+            data = doc.to_dict() or {}
+            total += 1
+
+            status = (data.get("status") or "").upper()
+            if status == "AVAILABLE":
+                available += 1
+            elif status == "SOLD":
+                sold_total += 1
+                sold_at = _parse_iso_datetime(data.get("updated_at"))
+                if sold_at and sold_at >= thirty_days_ago:
+                    sold_last_30d += 1
+            elif status == "PENDING":
+                pending += 1
+            elif status == "RESERVED":
+                reserved += 1
+
+            price_value = data.get("sale_price") or data.get("msrp") or 0
+            try:
+                price_f = float(price_value)
+            except (TypeError, ValueError):
+                price_f = 0.0
+            if price_f > 0:
+                prices.append(price_f)
+
+            # Time on lot: SOLD → updated_at - created; AVAILABLE → now - created
+            created = _parse_iso_datetime(data.get("date_added")) or _parse_iso_datetime(data.get("created_at"))
+            if created:
+                if status == "SOLD":
+                    closed = _parse_iso_datetime(data.get("updated_at"))
+                    if closed and closed >= created:
+                        time_on_lot_days.append((closed - created).total_seconds() / 86400.0)
+                elif status == "AVAILABLE":
+                    if now >= created:
+                        time_on_lot_days.append((now - created).total_seconds() / 86400.0)
+
+            mfr = (data.get("manufacturer") or "").strip() or "Unknown"
+            entry = by_manufacturer.setdefault(mfr, {"count": 0, "available": 0, "sold": 0, "_prices": []})
+            entry["count"] += 1
+            if status == "AVAILABLE":
+                entry["available"] += 1
+            elif status == "SOLD":
+                entry["sold"] += 1
+            if price_f > 0:
+                entry["_prices"].append(price_f)
+
+        manufacturers = []
+        for mfr, entry in by_manufacturer.items():
+            median_price = round(_stats.median(entry["_prices"]), 0) if entry["_prices"] else None
+            manufacturers.append({
+                "manufacturer": mfr,
+                "count": entry["count"],
+                "available": entry["available"],
+                "sold": entry["sold"],
+                "median_price": median_price,
+            })
+        manufacturers.sort(key=lambda m: -m["count"])
+
+        result = {
+            "success": True,
+            "totals": {
+                "total": total,
+                "available": available,
+                "pending": pending,
+                "reserved": reserved,
+                "sold_total": sold_total,
+                "sold_last_30d": sold_last_30d,
+            },
+            "median_sale_price": round(_stats.median(prices), 0) if prices else None,
+            "median_time_on_lot_days": round(_stats.median(time_on_lot_days), 1) if time_on_lot_days else None,
+            "by_manufacturer": manufacturers,
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        cache_set(cache_key, result, ttl_seconds=300)
+        return result
+    except Exception as e:
+        struct_logger.error("Inventory analytics failed", error=str(e))
+        return {"success": False, "error": "Failed to compute inventory analytics."}
+
+
 @app.post("/api/inventory/bulk-import", dependencies=[Depends(require_admin)])
 async def bulk_import_inventory(request: Request):
     """
