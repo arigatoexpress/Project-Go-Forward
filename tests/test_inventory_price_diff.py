@@ -103,56 +103,99 @@ def _make_admin_token() -> str:
     return base64.urlsafe_b64encode(payload + sig).decode().rstrip("=")
 
 
-@pytest.fixture(scope="module")
-def app_client():
-    """TestClient for the FastAPI app with all GCP singletons mocked."""
-    fastapi = pytest.importorskip("fastapi")
+def _make_fresh_app():
+    """Import main.py fresh with all GCP / StaticFiles dependencies stubbed.
+
+    Follows the same pattern as test_deal_document_validation.py so CI
+    (which has no GCP credentials) can import the app without network calls.
+    Returns (TestClient, main_module, fake_db).
+    """
+    import importlib
+
     from fastapi.testclient import TestClient
+    from google.cloud import firestore as _fs_mod
 
-    # Patch google-cloud modules so main.py can be imported without credentials
-    gcp_stubs = {
-        "google": types.ModuleType("google"),
-        "google.cloud": types.ModuleType("google.cloud"),
-        "google.cloud.firestore": types.ModuleType("google.cloud.firestore"),
-        "google.cloud.aiplatform": types.ModuleType("google.cloud.aiplatform"),
-        "google.auth": types.ModuleType("google.auth"),
-    }
-    gcp_stubs["google.cloud.firestore"].Client = MagicMock(return_value=MagicMock())
+    REPO_ROOT = Path(__file__).resolve().parent.parent
 
-    with patch.dict(sys.modules, gcp_stubs):
-        # Prevent the real DB init in firestore_client
-        with patch("database.firestore_client.firestore.Client", return_value=MagicMock()):
-            import importlib
-            import main as app_module
+    # main.py mounts ImmutableStaticFiles on frontend/dist/assets at import
+    # time; ensure the directory and a stub index.html exist.
+    dist = REPO_ROOT / "frontend" / "dist"
+    (dist / "assets").mkdir(parents=True, exist_ok=True)
+    if not (dist / "index.html").exists():
+        (dist / "index.html").write_text("<html><body>test</body></html>")
 
-            yield TestClient(app_module.app), app_module
+    # Replace firestore.Client with a no-op so ADC lookup never happens.
+    orig_fs_client = _fs_mod.Client
+    fake_db = MagicMock()
+    _fs_mod.Client = MagicMock(return_value=fake_db)
+
+    # Swap in a fake database.firestore_client module so _db is our mock.
+    fake_fc_mod = types.ModuleType("database.firestore_client")
+    fake_fc_mod.get_database = lambda: fake_db
+    fake_fc_mod.THODatabase = type("THODatabase", (), {})
+    orig_fc = sys.modules.get("database.firestore_client")
+    sys.modules["database.firestore_client"] = fake_fc_mod
+
+    # Force a clean import so patches take effect.
+    sys.modules.pop("main", None)
+    main_mod = importlib.import_module("main")
+
+    # Explicitly set module-level db references to our mock.
+    main_mod._db = fake_db
+    main_mod._deal_db = fake_db
+
+    client = TestClient(main_mod.app)
+
+    # Restore originals after yielding (caller responsible for cleanup).
+    return client, main_mod, fake_db, orig_fs_client, orig_fc, _fs_mod
 
 
-def test_inventory_sync_endpoint_requires_auth(app_client):
+def test_inventory_sync_endpoint_requires_auth():
     """POST /api/admin/jobs/inventory-sync without a token must return 401."""
-    client, _ = app_client
-    response = client.post("/api/admin/jobs/inventory-sync")
-    assert response.status_code == 401
+    pytest.importorskip("fastapi")
+    client, main_mod, fake_db, orig_fs, orig_fc, fs_mod = _make_fresh_app()
+    try:
+        response = client.post("/api/admin/jobs/inventory-sync")
+        assert response.status_code == 401
+    finally:
+        fs_mod.Client = orig_fs
+        if orig_fc is not None:
+            sys.modules["database.firestore_client"] = orig_fc
+        else:
+            sys.modules.pop("database.firestore_client", None)
+        sys.modules.pop("main", None)
 
 
-def test_inventory_sync_circuit_breaker_returns_429(app_client):
+def test_inventory_sync_circuit_breaker_returns_429():
     """A second call within the 30-minute cooldown must return 429."""
     from datetime import datetime, timezone, timedelta
 
-    client, app_module = app_client
-    token = _make_admin_token()
-    headers = {"X-Admin-Token": token}
+    pytest.importorskip("fastapi")
+    client, main_mod, fake_db, orig_fs, orig_fc, fs_mod = _make_fresh_app()
+    try:
+        token = _make_admin_token()
+        # Patch _verify_admin_token so the token passes auth.
+        main_mod._verify_admin_token = lambda t: True
 
-    # Simulate a recent last_run_at (5 minutes ago)
-    recent_ts = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
-    state_doc = MagicMock()
-    state_doc.exists = True
-    state_doc.to_dict.return_value = {"last_run_at": recent_ts}
+        # Simulate a recent last_run_at (5 minutes ago) in Firestore state doc.
+        recent_ts = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
+        state_doc = MagicMock()
+        state_doc.exists = True
+        state_doc.to_dict.return_value = {"last_run_at": recent_ts}
+        fake_db.db.collection.return_value.document.return_value.get.return_value = state_doc
 
-    app_module._db.db.collection.return_value.document.return_value.get.return_value = state_doc
-
-    response = client.post("/api/admin/jobs/inventory-sync", headers=headers)
-    assert response.status_code == 429
-    body = response.json()
-    assert body["success"] is False
-    assert "throttled" in body["error"].lower()
+        response = client.post(
+            "/api/admin/jobs/inventory-sync",
+            headers={"X-Admin-Token": token},
+        )
+        assert response.status_code == 429
+        body = response.json()
+        assert body["success"] is False
+        assert "throttled" in body["error"].lower()
+    finally:
+        fs_mod.Client = orig_fs
+        if orig_fc is not None:
+            sys.modules["database.firestore_client"] = orig_fc
+        else:
+            sys.modules.pop("database.firestore_client", None)
+        sys.modules.pop("main", None)
