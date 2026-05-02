@@ -1056,8 +1056,8 @@ export default function AdStudio({ onBack }) {
             {showInventoryPicker && renderInventoryPicker()}
             <div className="tho-create-form">
                 {/* Step 0: Avatar & Language */}
-                <div className="tho-feature-row">
-                    <div className="tho-card tho-flex-1">
+                <div className="flex gap-4 mb-6">
+                    <div className="tho-card flex-1">
                         <div className="tho-step-label">AVATAR</div>
                         <h3 className="tho-card-title">Select Presenter</h3>
                         <div className="tho-avatar-grid">
@@ -1660,7 +1660,13 @@ export default function AdStudio({ onBack }) {
     );
 
     /* ─── main render ─── */
+    // The `dark` class on the outer wrapper opts this page into Tailwind's
+    // dark-mode utilities locally without flipping global state — AdStudio
+    // is intrinsically dark, so any future `dark:` utility chains used on
+    // descendants will resolve correctly here even when the rest of the app
+    // is rendered in light mode.
     return (
+        <div className="dark">
         <div className="tho-studio">
             {/* Sidebar */}
             <aside className="tho-sidebar">
@@ -1699,6 +1705,7 @@ export default function AdStudio({ onBack }) {
                 {activeTab === 'scheduled' && renderScheduled()}
                 {activeTab === 'analytics' && renderAnalytics()}
             </main>
+        </div>
         </div>
     );
 }

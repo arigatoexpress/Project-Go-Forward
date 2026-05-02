@@ -1126,7 +1126,15 @@ async def get_template_fields(template_name: str):
 
 @app.post("/api/documents/generate", dependencies=[Depends(require_admin)])
 async def generate_document_endpoint(request: GenerateDocumentRequest):
-    """Generate any mapped document template."""
+    """Generate any mapped document template.
+
+    When the supplied ``data`` dict cannot satisfy the template's required
+    fields the response is a HTTP 400 with the structured envelope
+    ``{"error": "missing_required_fields", "message": "<engine message>"}``.
+    This prevents the historical "empty doc" class of bug where an almost
+    blank request silently produced a near-empty PDF that looked like a
+    real document.
+    """
     try:
         result = engine_generate_document(
             template_name=request.template_name,
@@ -1139,7 +1147,20 @@ async def generate_document_endpoint(request: GenerateDocumentRequest):
                 "filename": result["filename"],
                 "message": result["message"],
             }
-        return {"success": False, "error": result["message"]}
+        # Surface validation failures as 400s with a structured envelope so
+        # callers can react programmatically and so we never accidentally
+        # ship a 200 + empty PDF for an empty deal.
+        message = result.get("message", "")
+        if "Missing required fields" in message:
+            return JSONResponse(
+                {
+                    "success": False,
+                    "error": "missing_required_fields",
+                    "message": message,
+                },
+                status_code=400,
+            )
+        return {"success": False, "error": message}
     except Exception as e:
         struct_logger.error("Document generation failed", error=str(e))
         return {"success": False, "error": "Document generation failed. Please try again."}
@@ -1160,6 +1181,7 @@ async def generate_packet_endpoint(request: GeneratePacketRequest):
                 "message": result["message"],
                 "page_count": result.get("page_count", 0),
                 "documents_included": result.get("documents_included", []),
+                "documents_skipped": result.get("documents_skipped", []),
             }
         return {"success": False, "error": result["message"]}
     except Exception as e:
@@ -1769,6 +1791,7 @@ from tools.marketing_tools import (
     GENERATED_ADS_DIR
 )
 from tools.asset_scraper import PROPERTY_ASSETS, get_matterport_url
+from tools.photo_classifier import apply_classifier_to_home
 from tools.video_generator import GENERATED_VIDEOS_DIR
 
 @app.post("/api/marketing/generate-script", dependencies=[Depends(require_admin)])
@@ -2004,6 +2027,13 @@ async def api_inventory_context():
         else:
             result["homes"] = firestore_homes
             result["total_inventory"] = result.get("total_inventory", len(firestore_homes))
+
+        # Apply URL-based floorplan classifier to every home before responding.
+        # 2026-04-30 prod audit: 35/44 homes had image_url pointing at a
+        # /floorplan/ URL. apply_classifier_to_home() promotes the first
+        # exterior to image_url and moves floorplans into floorplan_url.
+        for home in result.get("homes", []):
+            apply_classifier_to_home(home)
 
         result["website_homes"] = len(website_homes)
         return result
@@ -3240,6 +3270,88 @@ async def v1_rag_query(request: Request):
             for r in results
         ],
     }
+
+
+# ─── Lead Nurture (manual stale-lead re-engagement) ──────────────────────────
+# Wired here, not as a cron, so ops can preview the cohort with dry_run=true
+# before flipping to dry_run=false. Auto-schedule is a follow-up PR after Mark
+# approves the messaging copy in tools/lead_nurture.py:render_nurture_email.
+
+@app.post("/api/admin/lead-nurture/run", dependencies=[Depends(require_admin)])
+async def run_lead_nurture_endpoint(request: Request):
+    """Manual trigger for the stale-lead re-engagement batch.
+
+    Body (JSON, all optional):
+      * ``dry_run`` (bool, default True) — preview cohort without sending
+      * ``days_inactive`` (int, default 14) — staleness threshold
+      * ``max_results`` (int, default 50, clamped) — hard cohort cap
+
+    Returns the orchestrator dict from
+    ``tools.lead_nurture.run_nurture_batch``.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not isinstance(body, dict):
+        body = {}
+
+    # Default to dry_run=True so an accidental empty POST cannot send mail.
+    dry_run = bool(body.get("dry_run", True))
+    try:
+        days_inactive = int(body.get("days_inactive", 14))
+    except (TypeError, ValueError):
+        days_inactive = 14
+    try:
+        max_results = int(body.get("max_results", 50))
+    except (TypeError, ValueError):
+        max_results = 50
+
+    from tools.lead_nurture import run_nurture_batch
+
+    try:
+        result = run_nurture_batch(
+            dry_run=dry_run,
+            days_inactive=days_inactive,
+            max_results=max_results,
+        )
+    except Exception as exc:
+        struct_logger.error("Lead nurture batch failed", error=str(exc))
+        raise HTTPException(status_code=500, detail="Lead nurture batch failed")
+
+    # Audit-log every invocation. ``audit_log`` lives on PR #36; soft-import so
+    # this PR can land before that one. Falls back to structured logging.
+    try:
+        from audit_log import log_admin_action  # type: ignore
+
+        log_admin_action(
+            actor="admin",
+            action="customer.update",
+            target_type="customer",
+            target_id="lead_nurture_batch",
+            details={
+                "dry_run": dry_run,
+                "days_inactive": days_inactive,
+                "cohort_size": result.get("cohort_size", 0),
+                "sent": result.get("sent", 0),
+                "failed": result.get("failed", 0),
+            },
+            request=request,
+        )
+    except ImportError:
+        struct_logger.info(
+            "Lead nurture batch (audit_log not yet merged)",
+            dry_run=dry_run,
+            days_inactive=days_inactive,
+            cohort_size=result.get("cohort_size", 0),
+            sent=result.get("sent", 0),
+            failed=result.get("failed", 0),
+        )
+    except Exception as exc:
+        # Audit failures must never block the API response.
+        struct_logger.warning("Audit log write failed for lead_nurture", error=str(exc))
+
+    return result
 
 
 # Serve Frontend — Must be last to avoid catching API routes
