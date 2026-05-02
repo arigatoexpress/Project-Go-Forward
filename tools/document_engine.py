@@ -332,6 +332,7 @@ def generate_packet(
     # Generate cover page first if configured
     generated_files = []
     documents_included = []
+    documents_skipped: list[dict[str, str]] = []
 
     if packet_config.get("include_cover_page"):
         cover_template = packet_config.get("cover_page_template", "All_Cover.pdf")
@@ -343,6 +344,13 @@ def generate_packet(
             if cover_result["success"]:
                 generated_files.append(cover_result["file_path"])
                 documents_included.append(cover_template)
+            else:
+                documents_skipped.append(
+                    {"template": cover_template, "reason": cover_result.get("message", "")}
+                )
+                logger.warning(
+                    f"Skipping cover page {cover_template} in packet: {cover_result['message']}"
+                )
 
     # Generate each template
     for template_name in template_names:
@@ -355,10 +363,17 @@ def generate_packet(
             generated_files.append(result["file_path"])
             documents_included.append(template_name)
         else:
+            documents_skipped.append(
+                {"template": template_name, "reason": result.get("message", "")}
+            )
             logger.warning(f"Skipping {template_name} in packet: {result['message']}")
 
     if not generated_files:
-        return {"success": False, "message": "No documents were generated successfully"}
+        return {
+            "success": False,
+            "message": "No documents were generated successfully",
+            "documents_skipped": documents_skipped,
+        }
 
     # Merge all PDFs
     buyer = data.get("buyer_name", "Unknown").replace(" ", "_")
@@ -392,10 +407,11 @@ def generate_packet(
             "message": f"{packet_config.get('display_name', packet_name)} generated with {len(documents_included)} documents",
             "page_count": len(writer.pages),
             "documents_included": documents_included,
+            "documents_skipped": documents_skipped,
         }
     except Exception as e:
         logger.error(f"Packet merge failed for {packet_name}: {e}")
-        return {"success": False, "message": str(e)}
+        return {"success": False, "message": str(e), "documents_skipped": documents_skipped}
 
 
 def list_available_templates() -> list[dict[str, Any]]:
