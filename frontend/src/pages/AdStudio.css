@@ -16,16 +16,8 @@
   --tho-accent: #ec4899;
 }
 
-/* Feature Row (Avatar & Lang) */
-.tho-feature-row {
-  display: flex;
-  gap: 1rem;
-  margin-bottom: 1.5rem;
-}
-
-.tho-flex-1 {
-  flex: 1;
-}
+/* Feature Row (Avatar & Lang) layout migrated to Tailwind utility chain
+   `flex gap-4 mb-6` directly in AdStudio.jsx. */
 
 .tho-avatar-grid {
   display: grid;
