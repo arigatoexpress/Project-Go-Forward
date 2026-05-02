@@ -24,6 +24,7 @@ with patch("google.cloud.firestore.Client"):
         BOOKING_WINDOW_DAYS,
         HOURS_BY_DAY,
         MAX_PER_SLOT,
+        TIMEZONE,
         Appointment,
         AppointmentManager,
         _generate_slots,
@@ -170,7 +171,7 @@ class TestGetAvailableSlots:
 
     def test_past_date_returns_error(self):
         mgr = self._manager()
-        yesterday = (datetime.now().date() - timedelta(days=1)).isoformat()
+        yesterday = (datetime.now(TIMEZONE).date() - timedelta(days=1)).isoformat()
         result = run(mgr.get_available_slots(yesterday))
         assert "error" in result
         assert "past" in result["error"].lower()
@@ -279,7 +280,7 @@ class TestCreateAppointmentValidation:
 
     def test_past_date_raises(self):
         mgr = self._manager()
-        yesterday = (datetime.now().date() - timedelta(days=1)).isoformat()
+        yesterday = (datetime.now(TIMEZONE).date() - timedelta(days=1)).isoformat()
         with pytest.raises(ValueError, match="past"):
             run(mgr.create_appointment(self._appt(yesterday)))
 
