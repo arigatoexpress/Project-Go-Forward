@@ -201,6 +201,23 @@ class FakeCollection:
     def where(self, field: str, op: str, value: object) -> FakeQuery:
         return FakeQuery(self._store).where(field, op, value)
 
+    def limit(self, n: int) -> "FakeLimitedCollection":
+        return FakeLimitedCollection(self._store, n)
+
+
+class FakeLimitedCollection:
+    """Subset of FakeCollection that supports .limit(n).stream()."""
+
+    def __init__(self, store: dict, limit: int):
+        self._store = store
+        self._limit = limit
+
+    def stream(self):
+        for i, (doc_id, data) in enumerate(self._store.items()):
+            if i >= self._limit:
+                break
+            yield FakeDocSnapshot(doc_id, data)
+
 
 class FakeFirestoreDB:
     def __init__(self, collections: dict[str, dict[str, dict]]):
@@ -700,6 +717,47 @@ def test_marketing_inventory_context_falls_back_to_asset_catalog_when_firestore_
     assert data["website_homes"] == 1
     assert data["homes"][0]["id"] == "fallback-home"
     assert data["homes"][0]["matterport_url"].endswith("fallbackTour&play=1")
+
+
+def test_admin_inventory_photo_audit_reports_cross_doc_dups(monkeypatch):
+    client, main, db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
+    token = main._create_admin_token()
+
+    # Seed inventory with two homes that share a photo URL
+    db.collections["inventory"]["dup-1"] = {
+        "id": "dup-1",
+        "model_name": "Shared A",
+        "manufacturer": "Champion",
+        "image_url": "https://cdn.example.com/duplicated.jpg",
+        "gallery_images": ["https://cdn.example.com/unique-1.jpg"],
+    }
+    db.collections["inventory"]["dup-2"] = {
+        "id": "dup-2",
+        "model_name": "Shared B",
+        "manufacturer": "Clayton",
+        "image_url": "https://cdn.example.com/duplicated.jpg",
+        "gallery_images": ["https://cdn.example.com/unique-2.jpg"],
+    }
+
+    response = client.get(
+        "/api/admin/inventory/photo-audit",
+        headers={"X-Admin-Token": token},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is True
+    assert data["summary"]["duplicate_urls"] == 1
+    assert data["summary"]["items_affected"] == 2
+    duped = data["duplicates"][0]
+    assert duped["url"] == "https://cdn.example.com/duplicated.jpg"
+    assert sorted(duped["inventory_ids"]) == ["dup-1", "dup-2"]
+
+
+def test_admin_inventory_photo_audit_requires_auth(monkeypatch):
+    client, _main, _db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
+    response = client.get("/api/admin/inventory/photo-audit")
+    assert response.status_code == 401
 
 
 def test_admin_token_accepts_supported_employee_headers(monkeypatch):
