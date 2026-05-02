@@ -1246,6 +1246,74 @@ function NewDealForm({ onCreated }) {
 
 // ─── Customer Analytics Panel ────────────────────────
 
+function FunnelPanel() {
+  const [funnel, setFunnel] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    adminFetch('/api/admin/crm/funnel')
+      .then(r => r.json())
+      .then(d => { if (d?.success) setFunnel(d); })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return <div className="text-center py-6 text-gray-400 text-sm">Loading funnel...</div>;
+  if (!funnel?.stages?.length) return null;
+
+  const top = funnel.stages[0]?.count || 1;
+  const stageColors = {
+    LEAD: '#f59e0b',
+    ENROLLED: '#3b82f6',
+    DEAL: '#8b5cf6',
+    CLOSED: '#22c55e',
+  };
+
+  return (
+    <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, padding: 16, marginBottom: 16 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 12 }}>
+        <div style={{ fontSize: 12, color: '#aaa', textTransform: 'uppercase', letterSpacing: 1, fontWeight: 600 }}>
+          CRM Funnel
+        </div>
+        <div style={{ fontSize: 10, color: '#666' }}>cached 5m</div>
+      </div>
+      {funnel.stages.map(stage => {
+        const widthPct = top ? Math.max(2, (stage.count / top) * 100) : 0;
+        return (
+          <div key={stage.key} style={{ marginBottom: 8 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
+              <span style={{ color: '#fff', fontWeight: 600 }}>{stage.label}</span>
+              <span style={{ color: '#aaa' }}>
+                {stage.count.toLocaleString()} <span style={{ color: '#666' }}>({stage.conversion_pct}%)</span>
+              </span>
+            </div>
+            <div style={{ height: 18, background: 'rgba(255,255,255,0.04)', borderRadius: 4, overflow: 'hidden' }}>
+              <div style={{
+                width: `${widthPct}%`,
+                height: '100%',
+                background: stageColors[stage.key] || '#3b82f6',
+                transition: 'width 0.4s ease',
+              }} />
+            </div>
+          </div>
+        );
+      })}
+      {(funnel.median_days_in_stage?.LEAD_to_ENROLLED != null ||
+        funnel.median_days_in_stage?.DEAL_to_CLOSED != null) && (
+        <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,0.05)', display: 'flex', gap: 24, fontSize: 11, color: '#888' }}>
+          {funnel.median_days_in_stage.LEAD_to_ENROLLED != null && (
+            <span>Median Lead to Enrolled: <strong style={{ color: '#fff' }}>{funnel.median_days_in_stage.LEAD_to_ENROLLED}d</strong></span>
+          )}
+          {funnel.median_days_in_stage.DEAL_to_CLOSED != null && (
+            <span>Median Deal to Closed: <strong style={{ color: '#fff' }}>{funnel.median_days_in_stage.DEAL_to_CLOSED}d</strong></span>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
 function CustomerAnalytics() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -1270,6 +1338,9 @@ function CustomerAnalytics() {
 
   return (
     <div style={{ padding: '0 4px' }}>
+      {/* Funnel panel — counts + conversion + median time-in-stage */}
+      <FunnelPanel />
+
       {/* Metrics bar */}
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
         {[
