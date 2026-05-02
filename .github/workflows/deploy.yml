@@ -55,6 +55,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
+      statuses: write
 
     steps:
       - uses: actions/checkout@v4
@@ -68,6 +69,14 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
       - name: Build and deploy to Cloud Run
         run: |
           gcloud run deploy ${{ env.SERVICE }} \
@@ -80,14 +89,60 @@ jobs:
             --quiet
 
       - name: Verify deployment
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GH_SHA: ${{ github.sha }}
+          GH_REPO: ${{ github.repository }}
+          GH_SERVER: ${{ github.server_url }}
+          GH_RUN_ID: ${{ github.run_id }}
         run: |
+          set -euo pipefail
+
+          # 1. Resolve the live Cloud Run URL
           URL=$(gcloud run services describe ${{ env.SERVICE }} \
             --region ${{ env.REGION }} \
             --project ${{ env.PROJECT_ID }} \
             --format='value(status.url)')
-          STATUS=$(curl -s -o /dev/null -w '%{http_code}' "$URL/health")
-          echo "Health check: HTTP $STATUS"
-          [ "$STATUS" = "200" ] || exit 1
-          STATUS=$(curl -s -o /dev/null -w '%{http_code}' "$URL/healthz/")
-          echo "Healthz check: HTTP $STATUS"
-          [ "$STATUS" = "200" ] || exit 1
+          echo "Deployed URL: $URL"
+
+          # 2. Full production smoke: health, inventory >= 40 homes, SPA deep-links, admin protection
+          echo "=== Production smoke script ==="
+          python scripts/production_smoke.py \
+            --base-url "$URL" \
+            --min-homes 40 \
+            --timeout 30
+          echo "Smoke script: PASS"
+
+          # 3. 50-parallel healthz probes: Cache-Control: no-store + no schema-text placeholders
+          echo "=== 50-parallel healthz probes ==="
+          PROBE_URL="$URL" python scripts/probe_healthz.py
+          echo "50-probe healthz: PASS"
+
+          # 4. SHA verification — warn only, never fail (manual deploys won't match)
+          echo "=== SHA verification ==="
+          DEPLOYED_SHA=""
+          if HEALTHZ_BODY=$(curl -sf --max-time 15 "$URL/healthz/" 2>/dev/null); then
+            DEPLOYED_SHA=$(echo "$HEALTHZ_BODY" \
+              | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('version',''))" \
+              2>/dev/null) || DEPLOYED_SHA=""
+          fi
+          EXPECTED_SHA="$GH_SHA"
+          if [ "$DEPLOYED_SHA" = "$EXPECTED_SHA" ]; then
+            echo "SHA match: ${DEPLOYED_SHA:0:7}"
+            SHA_NOTE="SHA match: ${DEPLOYED_SHA:0:7}"
+          else
+            echo "WARNING: SHA mismatch deployed=${DEPLOYED_SHA:0:7} expected=${EXPECTED_SHA:0:7} (possible manual deploy)"
+            SHA_NOTE="SHA mismatch (deployed: ${DEPLOYED_SHA:0:7}, expected: ${EXPECTED_SHA:0:7})"
+          fi
+
+          # 5. Post commit status summarising all checks
+          echo "=== Posting commit status ==="
+          RUN_URL="${GH_SERVER}/${GH_REPO}/actions/runs/${GH_RUN_ID}"
+          SUMMARY="Deploy verified: smoke=PASS 50-probe-healthz=PASS ${SHA_NOTE}"
+          curl -sf -X POST \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -H "Content-Type: application/json" \
+            "https://api.github.com/repos/${GH_REPO}/statuses/${GH_SHA}" \
+            -d "{\"state\":\"success\",\"context\":\"post-deploy-verify\",\"description\":\"${SUMMARY:0:140}\",\"target_url\":\"${RUN_URL}\"}" \
+            || echo "WARNING: Failed to post commit status (non-blocking)"
+          echo "Verification complete."
