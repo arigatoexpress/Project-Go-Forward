@@ -3132,6 +3132,95 @@ async def v1_rag_query(request: Request):
     }
 
 
+# ─── Inventory Sync Job Endpoints ────────────────────────────────────────────
+
+_SYNC_COOLDOWN_SECONDS = 30 * 60  # circuit-breaker: min 30 min between runs
+
+
+@app.post("/api/admin/jobs/inventory-sync", dependencies=[Depends(require_admin)])
+async def trigger_inventory_sync():
+    """Trigger a full inventory scrape + Firestore sync.
+
+    Admin-only. Circuit-breaks if a run completed within the last 30 minutes to
+    prevent runaway Cloud Scheduler duplicates or accidental double-clicks.
+    Returns {success, added, updated, removed, errors, price_changes}.
+    """
+    import asyncio
+
+    # Circuit-breaker: check last_run_at in Firestore system_state
+    try:
+        state_ref = _db.db.collection("system_state").document("inventory_sync_job")
+        state_doc = state_ref.get()
+        if state_doc.exists:
+            last_run_str = state_doc.to_dict().get("last_run_at")
+            if last_run_str:
+                last_run_dt = datetime.fromisoformat(last_run_str)
+                if last_run_dt.tzinfo is None:
+                    last_run_dt = last_run_dt.replace(tzinfo=timezone.utc)
+                elapsed = (datetime.now(timezone.utc) - last_run_dt).total_seconds()
+                if elapsed < _SYNC_COOLDOWN_SECONDS:
+                    remaining = int(_SYNC_COOLDOWN_SECONDS - elapsed)
+                    return JSONResponse(
+                        {
+                            "success": False,
+                            "error": f"Sync throttled. Try again in {remaining // 60}m {remaining % 60}s.",
+                        },
+                        status_code=429,
+                        headers={"Retry-After": str(remaining)},
+                    )
+    except Exception as cb_err:
+        struct_logger.warning("Circuit-breaker check failed (proceeding)", error=str(cb_err))
+
+    try:
+        from tools.inventory_sync import run_sync as _run_inventory_sync
+
+        loop = asyncio.get_event_loop()
+        summary = await loop.run_in_executor(None, _run_inventory_sync)
+
+        # Record successful run timestamp
+        try:
+            state_ref.set({"last_run_at": datetime.now(timezone.utc).isoformat()}, merge=True)
+        except Exception as ts_err:
+            struct_logger.warning("Failed to record sync timestamp", error=str(ts_err))
+
+        struct_logger.info(
+            "Inventory sync completed",
+            added=summary["added"],
+            updated=summary["updated"],
+            errors=summary["errors"],
+            price_changes=summary["price_changes"],
+        )
+        return {"success": True, **summary}
+
+    except Exception as exc:
+        struct_logger.error("Inventory sync job failed", error=str(exc))
+        return JSONResponse({"success": False, "error": str(exc)}, status_code=500)
+
+
+@app.get("/api/admin/inventory/price-changes", dependencies=[Depends(require_admin)])
+async def get_inventory_price_changes(days: int = 7):
+    """Return inventory price-change audit records from the last N days (default 7).
+
+    Each record: {inventory_id, model_name, old_price, new_price, pct_change, detected_at}.
+    """
+    from datetime import timedelta
+
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    try:
+        docs = (
+            _db.db.collection("inventory_price_changes")
+            .where("detected_at", ">=", cutoff)
+            .order_by("detected_at", direction="DESCENDING")
+            .limit(200)
+            .stream()
+        )
+        changes = [doc.to_dict() for doc in docs]
+        return {"success": True, "days": days, "count": len(changes), "changes": changes}
+    except Exception as exc:
+        struct_logger.error("Failed to fetch price changes", error=str(exc))
+        return JSONResponse({"success": False, "error": str(exc)}, status_code=500)
+
+
 # Serve Frontend — Must be last to avoid catching API routes
 app.mount("/assets", ImmutableStaticFiles(directory="frontend/dist/assets"), name="assets")
 

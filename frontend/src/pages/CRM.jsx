@@ -3,6 +3,7 @@ import {
   Users, Phone, Mail, Calendar, ChevronRight, ChevronDown,
   Search, RefreshCw, Send, X, Clock, Home, DollarSign,
   CheckCircle, AlertCircle, Filter, ArrowLeft, FileText, Package, Download, Loader,
+  TrendingDown,
 } from 'lucide-react';
 import adminFetch from '../adminFetch';
 import downloadAdminFile from '../downloadAdminFile';
@@ -173,6 +174,10 @@ export default function CRM({ onBack }) {
 
   // Lead detail
   const [selectedLead, setSelectedLead] = useState(null);
+
+  // Price-change audit log
+  const [priceChanges, setPriceChanges] = useState([]);
+  const [showPriceChangesModal, setShowPriceChangesModal] = useState(false);
   
   // Task management
   const [showTaskModal, setShowTaskModal] = useState(false);
@@ -195,13 +200,15 @@ export default function CRM({ onBack }) {
         adminFetch('/api/crm/appointments?limit=200').then(r => r.json()),
         adminFetch('/api/email/log?limit=100').then(r => r.json()),
         adminFetch('/api/crm/tasks?limit=200').then(r => r.json()),
+        adminFetch('/api/admin/inventory/price-changes?days=7').then(r => r.json()),
       ]);
-      const [leadsRes, dealsRes, apptsRes, emailsRes, tasksRes] = results.map(r => r.status === 'fulfilled' ? r.value : {});
+      const [leadsRes, dealsRes, apptsRes, emailsRes, tasksRes, priceRes] = results.map(r => r.status === 'fulfilled' ? r.value : {});
       if (leadsRes.success) setLeads(leadsRes.leads || []);
       if (dealsRes.success) setDeals(dealsRes.deals || []);
       if (apptsRes.success) setAppointments(apptsRes.appointments || []);
       if (emailsRes.success) setEmails(emailsRes.emails || []);
       if (tasksRes.success) setTasks(tasksRes.tasks || []);
+      if (priceRes.success) setPriceChanges(priceRes.changes || []);
     } catch (err) {
       console.error('CRM data fetch failed:', err);
     } finally {
@@ -461,7 +468,85 @@ export default function CRM({ onBack }) {
           <span className="crm-stat-value" style={{ color: '#ec4899' }}>{stats.pendingTasks}</span>
           <span className="crm-stat-label">Pending Tasks</span>
         </div>
+        <button
+          className="crm-stat"
+          onClick={() => setShowPriceChangesModal(true)}
+          style={{ cursor: 'pointer', background: 'none', border: 'none', textAlign: 'center' }}
+          title="View inventory price changes (last 7 days)"
+        >
+          <span className="crm-stat-value" style={{ color: priceChanges.length > 0 ? '#f59e0b' : undefined, display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'center' }}>
+            <TrendingDown size={14} />
+            {priceChanges.length}
+          </span>
+          <span className="crm-stat-label">Price Changes</span>
+        </button>
       </div>
+
+      {/* Price-Changes Modal */}
+      {showPriceChangesModal && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Inventory price changes"
+          style={{
+            position: 'fixed', inset: 0, zIndex: 200,
+            background: 'rgba(0,0,0,0.5)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            padding: '1rem',
+          }}
+          onClick={e => { if (e.target === e.currentTarget) setShowPriceChangesModal(false); }}
+        >
+          <div style={{
+            background: '#fff', borderRadius: '1rem', width: '100%', maxWidth: 640,
+            maxHeight: '80vh', overflow: 'hidden', display: 'flex', flexDirection: 'column',
+            boxShadow: '0 25px 50px rgba(0,0,0,0.25)',
+          }}>
+            <div style={{ padding: '1.25rem 1.5rem', borderBottom: '1px solid #e5e7eb', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <TrendingDown size={18} style={{ color: '#f59e0b' }} />
+                Inventory Price Changes — Last 7 Days
+              </h3>
+              <button onClick={() => setShowPriceChangesModal(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6b7280' }} aria-label="Close">
+                <X size={20} />
+              </button>
+            </div>
+            <div style={{ overflowY: 'auto', flex: 1 }}>
+              {priceChanges.length === 0 ? (
+                <p style={{ padding: '2rem', textAlign: 'center', color: '#6b7280', margin: 0 }}>No price changes detected in the last 7 days.</p>
+              ) : (
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
+                  <thead>
+                    <tr style={{ background: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
+                      <th style={{ padding: '0.75rem 1rem', textAlign: 'left', fontWeight: 600, color: '#374151' }}>Model</th>
+                      <th style={{ padding: '0.75rem 1rem', textAlign: 'right', fontWeight: 600, color: '#374151' }}>Old Price</th>
+                      <th style={{ padding: '0.75rem 1rem', textAlign: 'right', fontWeight: 600, color: '#374151' }}>New Price</th>
+                      <th style={{ padding: '0.75rem 1rem', textAlign: 'right', fontWeight: 600, color: '#374151' }}>Change</th>
+                      <th style={{ padding: '0.75rem 1rem', textAlign: 'left', fontWeight: 600, color: '#374151' }}>Detected</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {priceChanges.map((c, i) => {
+                      const pct = Math.round((c.pct_change || 0) * 100);
+                      const isDown = pct < 0;
+                      return (
+                        <tr key={i} style={{ borderBottom: '1px solid #f3f4f6' }}>
+                          <td style={{ padding: '0.75rem 1rem', color: '#111827', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.model_name}</td>
+                          <td style={{ padding: '0.75rem 1rem', textAlign: 'right', color: '#6b7280' }}>${(c.old_price || 0).toLocaleString()}</td>
+                          <td style={{ padding: '0.75rem 1rem', textAlign: 'right', color: '#111827', fontWeight: 600 }}>${(c.new_price || 0).toLocaleString()}</td>
+                          <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontWeight: 700, color: isDown ? '#22c55e' : '#ef4444' }}>
+                            {pct > 0 ? '+' : ''}{pct}%
+                          </td>
+                          <td style={{ padding: '0.75rem 1rem', color: '#6b7280', fontSize: '0.8rem' }}>{timeAgo(c.detected_at)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Tab Navigation */}
       <div className="crm-tabs">

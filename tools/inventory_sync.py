@@ -44,6 +44,16 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
+
+def price_change_exceeds_threshold(old_price: float, new_price: float, threshold: float = 0.15) -> bool:
+    """Return True when the absolute price-change ratio strictly exceeds *threshold*.
+
+    Both prices must be positive; returns False if either is zero or negative.
+    """
+    if old_price <= 0 or new_price <= 0:
+        return False
+    return abs((new_price - old_price) / old_price) > threshold
+
 # Configuration
 OLD_SITE_URL = "https://www.texashomeoutlet.com"
 CDN_BASE = "https://d132mt2yijm03y.cloudfront.net"
@@ -250,7 +260,7 @@ class InventorySync:
     def __init__(self, dry_run: bool = False):
         self.dry_run = dry_run
         self.db = None
-        self.stats = {"scraped": 0, "added": 0, "updated": 0, "skipped": 0, "errors": 0}
+        self.stats = {"scraped": 0, "added": 0, "updated": 0, "skipped": 0, "errors": 0, "price_changes": 0}
 
         if not dry_run and GCP_AVAILABLE:
             self._init_firestore()
@@ -629,6 +639,46 @@ class InventorySync:
             logger.error(f"Error matching existing inventory by model: {e}")
         return None
 
+    def _log_price_change(
+        self,
+        inventory_id: str,
+        model_name: str,
+        old_price: float,
+        new_price: float,
+        pct_change: float,
+    ):
+        """Write a price-change audit record to the inventory_price_changes collection."""
+        if self.dry_run or not self.db:
+            logger.info(
+                "PRICE CHANGE (dry-run): %s old=%.2f new=%.2f pct=%.1f%%",
+                model_name,
+                old_price,
+                new_price,
+                pct_change * 100,
+            )
+            return
+        try:
+            self.db.collection("inventory_price_changes").add(
+                {
+                    "inventory_id": inventory_id,
+                    "model_name": model_name,
+                    "old_price": old_price,
+                    "new_price": new_price,
+                    "pct_change": round(pct_change, 4),
+                    "detected_at": datetime.now().isoformat(),
+                }
+            )
+            self.stats["price_changes"] += 1
+            logger.info(
+                "Price change logged: %s %.1f%% ($%.0f → $%.0f)",
+                model_name,
+                pct_change * 100,
+                old_price,
+                new_price,
+            )
+        except Exception as exc:
+            logger.error("Failed to log price change for %s: %s", model_name, exc)
+
     def sync_to_firestore(self, items: list[InventoryItem], force_update: bool = False):
         """Sync inventory items to Firestore."""
         if self.dry_run:
@@ -659,7 +709,14 @@ class InventorySync:
                 data = item.to_firestore_dict()
 
                 if existing:
-                    # Update existing
+                    # Check for significant price change before writing
+                    old_price = existing.get("sale_price") or 0
+                    new_price = item.sale_price or 0
+                    if price_change_exceeds_threshold(old_price, new_price):
+                        pct_change = (new_price - old_price) / old_price
+                        self._log_price_change(
+                            doc_id, item.model_name, old_price, new_price, pct_change
+                        )
                     doc_ref.update(data)
                     logger.info(f"Updated: {item.model_name}")
                     self.stats["updated"] += 1
@@ -728,6 +785,23 @@ class InventorySync:
         print(f"Skipped (exists):  {self.stats['skipped']}")
         print(f"Errors:            {self.stats['errors']}")
         print("=" * 60)
+
+
+def run_sync(dry_run: bool = False, force_update: bool = False) -> dict:
+    """Module-level wrapper called by the API endpoint and tests.
+
+    Returns a summary dict suitable for JSON serialisation:
+    {added, updated, removed, errors, price_changes}
+    """
+    sync = InventorySync(dry_run=dry_run)
+    stats = sync.run_sync(force_update=force_update)
+    return {
+        "added": stats.get("added", 0),
+        "updated": stats.get("updated", 0),
+        "removed": 0,  # Current sync does not soft-delete stale records
+        "errors": stats.get("errors", 0),
+        "price_changes": stats.get("price_changes", 0),
+    }
 
 
 def main():
