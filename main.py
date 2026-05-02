@@ -16,7 +16,7 @@ import uvicorn
 import hashlib
 import secrets
 from collections import defaultdict
-from fastapi import FastAPI, Request, Depends, HTTPException
+from fastapi import BackgroundTasks, FastAPI, Request, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -85,6 +85,10 @@ from email_service import (
     get_email_log,
     notify_new_lead,
     notify_new_appointment,
+    contact_form_customer_confirmation,
+    contact_form_team_alert,
+    appointment_booked_customer_confirmation,
+    appointment_booked_team_alert,
 )
 
 # Configure logging
@@ -1935,7 +1939,7 @@ async def download_ad_image(filename: str):
 # ─── Contact Form API ───
 
 @app.post("/api/contact")
-async def submit_contact_form(request: Request):
+async def submit_contact_form(request: Request, background_tasks: BackgroundTasks):
     """Receive contact form submissions and log as leads."""
     try:
         data = await request.json()
@@ -1967,18 +1971,23 @@ async def submit_contact_form(request: Request):
         except Exception as e:
             struct_logger.warning("Contact lead creation failed", error=str(e))
 
-        # Send welcome email if email provided
-        if email:
+        def _send_contact_emails():
             try:
-                send_lead_welcome(to=email, customer_name=name, lead_id=lead_id)
-            except Exception as e:
-                struct_logger.warning("Lead welcome email failed", error=str(e))
+                if email:
+                    contact_form_customer_confirmation(
+                        to=email, name=name, message_excerpt=message
+                    )
+            except Exception as exc:
+                struct_logger.warning("Contact customer confirmation email failed", error=str(exc))
+            try:
+                contact_form_team_alert(
+                    name=name, phone=phone, email=email or None,
+                    message=message, lead_id=lead_id,
+                )
+            except Exception as exc:
+                struct_logger.warning("Contact team alert email failed", error=str(exc))
 
-        # Notify owner of new lead
-        try:
-            notify_new_lead(customer_name=name, phone=phone, email=email, source=data.get("source", "contact_form"))
-        except Exception as e:
-            struct_logger.warning("Lead admin notification failed", error=str(e))
+        background_tasks.add_task(_send_contact_emails)
 
         return {"success": True, "message": "Thank you! We'll be in touch shortly."}
     except Exception as e:
@@ -2000,7 +2009,7 @@ async def get_available_slots(date: str):
 
 
 @app.post("/api/appointments")
-async def create_appointment(request: Request):
+async def create_appointment(request: Request, background_tasks: BackgroundTasks):
     """Book a new appointment."""
     try:
         data = await request.json()
@@ -2030,28 +2039,38 @@ async def create_appointment(request: Request):
 
         created = await appointment_manager.create_appointment(appt)
 
-        # Send confirmation email if email provided
-        if appt.email:
+        # Capture loop variables for the background closure
+        _appt_email = appt.email
+        _appt_id = appt.appointment_id
+
+        def _send_appointment_emails():
             try:
-                send_appointment_confirmation(
-                    to=appt.email,
-                    customer_name=name,
+                if _appt_email:
+                    appointment_booked_customer_confirmation(
+                        to=_appt_email,
+                        name=name,
+                        date=appt_date,
+                        time_slot=time_slot,
+                        appointment_id=_appt_id,
+                    )
+            except Exception as exc:
+                struct_logger.warning("Appointment customer confirmation email failed", error=str(exc))
+            try:
+                appointment_booked_team_alert(
+                    name=name,
                     date=appt_date,
                     time_slot=time_slot,
-                    appointment_id=appt.appointment_id,
-                    notes=appt.notes,
+                    contact_info={
+                        "phone": phone,
+                        "email": _appt_email or "",
+                        "notes": appt.notes or "",
+                        "appointment_id": _appt_id,
+                    },
                 )
-            except Exception as e:
-                struct_logger.warning("Appointment confirmation email failed", error=str(e))
+            except Exception as exc:
+                struct_logger.warning("Appointment team alert email failed", error=str(exc))
 
-        # Notify owner of new appointment
-        try:
-            notify_new_appointment(
-                customer_name=name, phone=phone, date=appt_date,
-                time_slot=time_slot, email=appt.email, notes=appt.notes,
-            )
-        except Exception as e:
-            struct_logger.warning("Appointment admin notification failed", error=str(e))
+        background_tasks.add_task(_send_appointment_emails)
 
         # Also create a lead for the CRM funnel
         try:

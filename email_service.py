@@ -25,8 +25,12 @@ TIMEZONE = ZoneInfo("America/Chicago")
 RESEND_FROM = os.environ.get("RESEND_FROM", "Texas Home Outlet <onboarding@resend.dev>")
 RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
 NOTIFICATION_EMAIL = os.environ.get("NOTIFICATION_EMAIL", "aribspector@gmail.com")
+# Comma-separated list of team addresses that receive contact/appointment alerts.
+TEAM_ALERT_EMAILS = os.environ.get("TEAM_ALERT_EMAILS", "sales@texashomeoutlet.com")
 BUSINESS_PHONE = "(281) 324-3020"
 BUSINESS_ADDRESS = "10685 FM 1960 East, Huffman, TX"
+BUSINESS_HOURS = "Mon–Fri 9 AM–6 PM, Sat 9 AM–5 PM, Sun 12–3 PM (Central)"
+PUBLIC_SITE_URL = os.environ.get("PUBLIC_SITE_URL", "").rstrip("/")
 
 # Activity log — stored in Firestore for CRM timeline
 _firestore_client = None
@@ -63,19 +67,27 @@ def _log_email_activity(to: str, subject: str, email_type: str, related_id: str 
 
 # ── Send Email (core) ──────────────────────────────────────────
 
-def send_email(to: str, subject: str, html: str, email_type: str = "general", related_id: str = None) -> dict:
+def send_email(
+    to,
+    subject: str,
+    html: str,
+    email_type: str = "general",
+    related_id: str = None,
+    attachments: list = None,
+) -> dict:
     """
     Send an email via Resend.
 
     Args:
-        to: Recipient email address
-        subject: Email subject line
-        html: HTML body content
-        email_type: Type for logging (appointment_confirmation, lead_followup, etc.)
-        related_id: Optional related entity ID (appointment_id, lead_id, deal_id)
+        to: Recipient address (str) or list of addresses.
+        subject: Email subject line.
+        html: HTML body content.
+        email_type: Type for logging.
+        related_id: Optional related entity ID.
+        attachments: Optional list of dicts with keys "filename" and "content" (bytes).
 
     Returns:
-        dict with success status and Resend message ID or error
+        dict with success status and Resend message ID or error.
     """
     if not RESEND_API_KEY:
         logger.warning("RESEND_API_KEY not set — email not sent")
@@ -87,20 +99,33 @@ def send_email(to: str, subject: str, html: str, email_type: str = "general", re
             "subject": subject,
         }
 
+    recipients = [to] if isinstance(to, str) else list(to)
+
     try:
         import resend
         resend.api_key = RESEND_API_KEY
 
-        result = resend.Emails.send({
+        payload = {
             "from": RESEND_FROM,
-            "to": [to],
+            "to": recipients,
             "subject": subject,
             "html": html,
-        })
+        }
+        if attachments:
+            payload["attachments"] = [
+                {
+                    "filename": a["filename"],
+                    "content": list(a["content"]) if isinstance(a["content"], (bytes, bytearray)) else a["content"],
+                }
+                for a in attachments
+            ]
 
-        _log_email_activity(to, subject, email_type, related_id)
+        result = resend.Emails.send(payload)
 
-        logger.info(f"Email sent: {email_type} to {to} (id: {result.get('id', 'unknown')})")
+        primary = recipients[0] if recipients else ""
+        _log_email_activity(primary, subject, email_type, related_id)
+
+        logger.info(f"Email sent: {email_type} to {recipients} (id: {result.get('id', 'unknown')})")
         return {
             "success": True,
             "message_id": result.get("id"),
@@ -372,6 +397,240 @@ def notify_new_appointment(
         subject=f"Appointment: {customer_name} — {date} {time_slot}",
         html=_base_wrapper(content),
         email_type="admin_appointment_notification",
+    )
+
+
+# ── New Customer Confirmation + Team Alert Templates ────────────
+
+
+def _team_alert_recipients() -> list:
+    """Parse TEAM_ALERT_EMAILS env var into a list of addresses."""
+    raw = os.environ.get("TEAM_ALERT_EMAILS", TEAM_ALERT_EMAILS)
+    return [addr.strip() for addr in raw.split(",") if addr.strip()]
+
+
+def _build_ics(summary: str, date_str: str, time_str: str, location: str = None) -> bytes | None:
+    """Build a minimal .ics calendar invite. Returns bytes or None on failure."""
+    try:
+        from icalendar import Calendar, Event
+        from datetime import timedelta
+        from dateutil import parser as du_parser
+
+        dt_start = du_parser.parse(f"{date_str} {time_str}", fuzzy=True)
+        dt_end = dt_start + timedelta(hours=1)
+
+        cal = Calendar()
+        cal.add("prodid", "-//Texas Home Outlet//AI Agent//EN")
+        cal.add("version", "2.0")
+        cal.add("method", "REQUEST")
+
+        event = Event()
+        event.add("summary", summary)
+        event.add("dtstart", dt_start)
+        event.add("dtend", dt_end)
+        if location:
+            event.add("location", location)
+        event.add("description", "Appointment with Texas Home Outlet")
+
+        cal.add_component(event)
+        return cal.to_ical()
+    except Exception as e:
+        logger.warning(f"ICS generation failed: {e}")
+        return None
+
+
+def contact_form_customer_confirmation(to: str, name: str, message_excerpt: str = "") -> dict:
+    """Send a friendly confirmation to a customer who submitted the contact form."""
+    esc = html_mod.escape
+    first_name = esc(name.split()[0]) if name else "Friend"
+    excerpt_html = (
+        f'<p style="color:#6b7280;font-size:13px;font-style:italic;">'
+        f'&ldquo;{esc(message_excerpt[:200])}&rdquo;</p>'
+        if message_excerpt
+        else ""
+    )
+
+    content = f"""
+    <h2 style="color:#1e3a5f;margin-top:0;">Thanks for Reaching Out, {first_name}!</h2>
+    <p>Hi {first_name},</p>
+    <p>We got your message and a team member will follow up with you shortly — typically within a few
+    hours during business hours.</p>
+    {excerpt_html}
+    <div style="background:#eff6ff;border-left:4px solid #3b82f6;padding:16px;margin:20px 0;border-radius:0 8px 8px 0;">
+      <p style="margin:0 0 6px;font-weight:600;color:#1e3a5f;">Our Office Hours</p>
+      <p style="margin:4px 0;color:#374151;">{esc(BUSINESS_HOURS)}</p>
+      <p style="margin:8px 0 0;color:#374151;">📞 <strong>{BUSINESS_PHONE}</strong></p>
+    </div>
+    <p>To make sure our replies land in your inbox, save
+    <strong>sales@texashomeoutlet.com</strong> to your contacts.</p>
+    <p style="color:#6b7280;font-size:12px;margin-top:24px;">
+      If you did not submit this form, you can ignore this email.<br>
+      To stop receiving messages from Texas Home Outlet, reply with <strong>STOP</strong>.
+    </p>
+    """
+
+    return send_email(
+        to=to,
+        subject=f"We got your message, {first_name} — Texas Home Outlet",
+        html=_base_wrapper(content),
+        email_type="contact_form_customer_confirmation",
+    )
+
+
+def contact_form_team_alert(
+    name: str,
+    phone: str,
+    email: str = None,
+    message: str = "",
+    lead_id: str = None,
+) -> dict:
+    """Send a new-contact alert to the sales team distribution list."""
+    recipients = _team_alert_recipients()
+    if not recipients:
+        return {"success": False, "error": "No team alert recipients configured"}
+
+    esc = html_mod.escape
+    crm_url = f"{PUBLIC_SITE_URL}/crm?lead_id={esc(lead_id or '')}" if lead_id else f"{PUBLIC_SITE_URL}/crm"
+    email_line = f'<p style="margin:4px 0;color:#374151;"><strong>Email:</strong> {esc(email)}</p>' if email else ""
+    message_block = (
+        f'<div style="margin-top:12px;padding:12px;background:#f9fafb;border-radius:6px;">'
+        f'<p style="margin:0 0 4px;font-weight:600;color:#374151;">Message:</p>'
+        f'<p style="margin:0;color:#374151;">{esc(message[:500])}</p>'
+        f"</div>"
+        if message
+        else ""
+    )
+
+    content = f"""
+    <h2 style="color:#1e3a5f;margin-top:0;">&#128204; New Contact Form Submission</h2>
+    <div style="background:#eff6ff;border-left:4px solid #3b82f6;padding:16px;margin:16px 0;border-radius:0 8px 8px 0;">
+      <p style="margin:4px 0;color:#374151;"><strong>Name:</strong> {esc(name)}</p>
+      <p style="margin:4px 0;color:#374151;"><strong>Phone:</strong> {esc(phone)}</p>
+      {email_line}
+      <p style="margin:4px 0;color:#6b7280;font-size:13px;">{datetime.now(TIMEZONE).strftime("%B %d, %Y at %I:%M %p CT")}</p>
+    </div>
+    {message_block}
+    <p style="margin-top:20px;">
+      <a href="{crm_url}" style="display:inline-block;background:#1e3a5f;color:white;padding:10px 20px;border-radius:6px;text-decoration:none;font-weight:600;">
+        View Lead in CRM &rarr;
+      </a>
+    </p>
+    """
+
+    return send_email(
+        to=recipients,
+        subject=f"New Contact: {name} — {phone}",
+        html=_base_wrapper(content),
+        email_type="contact_form_team_alert",
+        related_id=lead_id,
+    )
+
+
+def appointment_booked_customer_confirmation(
+    to: str,
+    name: str,
+    date: str,
+    time_slot: str,
+    location: str = None,
+    appointment_id: str = None,
+) -> dict:
+    """Send appointment confirmation to customer with an .ics calendar attachment."""
+    esc = html_mod.escape
+    first_name = esc(name.split()[0]) if name else "Friend"
+    appt_location = location or BUSINESS_ADDRESS
+
+    content = f"""
+    <h2 style="color:#1e3a5f;margin-top:0;">Your Visit is Confirmed! &#127968;</h2>
+    <p>Hi {first_name},</p>
+    <p>We&#8217;re looking forward to meeting you. Your showroom appointment is all set.</p>
+    <div style="background:#f0fdf4;border-left:4px solid #22c55e;padding:16px;margin:20px 0;border-radius:0 8px 8px 0;">
+      <p style="margin:0 0 8px;font-weight:600;color:#166534;">Appointment Details</p>
+      <p style="margin:4px 0;color:#374151;">&#128197; <strong>{esc(date)}</strong></p>
+      <p style="margin:4px 0;color:#374151;">&#128336; <strong>{esc(time_slot)}</strong></p>
+      <p style="margin:4px 0;color:#374151;">&#128205; {esc(appt_location)}</p>
+    </div>
+    <p><strong>What to bring:</strong> valid ID, proof of land ownership (if applicable), and any
+    financing pre-approval letters. Ask for <strong>Ben or Mark</strong> when you arrive.</p>
+    <p style="margin-top:20px;">
+      <a href="tel:+12813243020" style="display:inline-block;background:#3b82f6;color:white;padding:10px 20px;border-radius:6px;text-decoration:none;font-weight:600;">
+        Call Us: {BUSINESS_PHONE}
+      </a>
+    </p>
+    <p style="color:#6b7280;font-size:12px;margin-top:20px;">
+      Need to reschedule? Reply to this email or call us. The calendar invite attached to this email
+      will add the appointment to your calendar automatically.<br><br>
+      To stop receiving messages from Texas Home Outlet, reply with <strong>STOP</strong>.
+    </p>
+    """
+
+    ics_bytes = _build_ics(
+        summary="Texas Home Outlet Showroom Visit",
+        date_str=date,
+        time_str=time_slot,
+        location=appt_location,
+    )
+    attachments = [{"filename": "appointment.ics", "content": ics_bytes}] if ics_bytes else None
+
+    return send_email(
+        to=to,
+        subject=f"Appointment confirmed: {date} at {time_slot} — Texas Home Outlet",
+        html=_base_wrapper(content),
+        email_type="appointment_booked_customer_confirmation",
+        related_id=appointment_id,
+        attachments=attachments,
+    )
+
+
+def appointment_booked_team_alert(
+    name: str,
+    date: str,
+    time_slot: str,
+    contact_info: dict = None,
+) -> dict:
+    """Send a new-appointment alert to the sales team distribution list."""
+    recipients = _team_alert_recipients()
+    if not recipients:
+        return {"success": False, "error": "No team alert recipients configured"}
+
+    esc = html_mod.escape
+    info = contact_info or {}
+    phone = info.get("phone", "")
+    email = info.get("email", "")
+    notes = info.get("notes", "")
+    appointment_id = info.get("appointment_id", "")
+
+    crm_url = f"{PUBLIC_SITE_URL}/crm" if PUBLIC_SITE_URL else ""
+    phone_line = f'<p style="margin:4px 0;color:#374151;"><strong>Phone:</strong> {esc(phone)}</p>' if phone else ""
+    email_line = f'<p style="margin:4px 0;color:#374151;"><strong>Email:</strong> {esc(email)}</p>' if email else ""
+    notes_line = f'<p style="margin:4px 0;color:#6b7280;"><strong>Notes:</strong> {esc(notes)}</p>' if notes else ""
+    cta = (
+        f'<p style="margin-top:20px;"><a href="{esc(crm_url)}" style="display:inline-block;background:#1e3a5f;'
+        f'color:white;padding:10px 20px;border-radius:6px;text-decoration:none;font-weight:600;">'
+        f"View in CRM &rarr;</a></p>"
+        if crm_url
+        else ""
+    )
+
+    content = f"""
+    <h2 style="color:#1e3a5f;margin-top:0;">&#128197; New Appointment Booked</h2>
+    <div style="background:#f0fdf4;border-left:4px solid #22c55e;padding:16px;margin:16px 0;border-radius:0 8px 8px 0;">
+      <p style="margin:4px 0;color:#374151;"><strong>Customer:</strong> {esc(name)}</p>
+      {phone_line}
+      {email_line}
+      <p style="margin:4px 0;color:#374151;"><strong>Date:</strong> {esc(date)}</p>
+      <p style="margin:4px 0;color:#374151;"><strong>Time:</strong> {esc(time_slot)}</p>
+      {notes_line}
+      <p style="margin:8px 0 0;color:#6b7280;font-size:13px;">{datetime.now(TIMEZONE).strftime("%B %d, %Y at %I:%M %p CT")}</p>
+    </div>
+    {cta}
+    """
+
+    return send_email(
+        to=recipients,
+        subject=f"New Appointment: {name} — {date} {time_slot}",
+        html=_base_wrapper(content),
+        email_type="appointment_booked_team_alert",
+        related_id=appointment_id or None,
     )
 
 
