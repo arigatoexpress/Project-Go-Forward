@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useId } from 'react';
 import {
   Search, SlidersHorizontal, X, Home, Bed, Bath, Maximize2,
   Camera, Box, ChevronLeft, ChevronRight, MapPin, Phone,
@@ -10,6 +10,43 @@ import './InventoryBrowse.css';
 
 const CDN_BASE = "https://d132mt2yijm03y.cloudfront.net";
 const MATTERPORT_BASE = "https://my.matterport.com/show/?m=";
+
+// ─── Focus Trap Hook ───
+// Traps keyboard focus inside `ref` while the modal is mounted.
+// Restores focus to the previously-focused element on unmount.
+function useFocusTrap(ref) {
+  useEffect(() => {
+    const container = ref.current;
+    if (!container) return;
+    const previouslyFocused = document.activeElement;
+
+    const FOCUSABLE = 'button:not([disabled]),[href],input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
+    const getFocusable = () => Array.from(container.querySelectorAll(FOCUSABLE));
+
+    // Move focus into modal on open
+    const firstFocusable = getFocusable()[0];
+    if (firstFocusable) firstFocusable.focus();
+
+    const onKeyDown = (e) => {
+      if (e.key !== 'Tab') return;
+      const focusable = getFocusable();
+      if (focusable.length === 0) { e.preventDefault(); return; }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey) {
+        if (document.activeElement === first) { e.preventDefault(); last.focus(); }
+      } else {
+        if (document.activeElement === last) { e.preventDefault(); first.focus(); }
+      }
+    };
+
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
+      if (previouslyFocused && previouslyFocused.focus) previouslyFocused.focus();
+    };
+  }, [ref]);
+}
 
 // ─── Analytics helper ───
 function trackEvent(event, data = {}) {
@@ -307,17 +344,18 @@ export default function InventoryBrowse({ onAskTex, onCreateAd }) {
 
           {/* Search Bar */}
           <div className="tho-browse-search-bar">
-            <Search size={20} className="text-gray-400" />
+            <Search size={20} className="text-gray-400" aria-hidden="true" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search by name, manufacturer, beds, baths, type..."
               className="tho-browse-search-input"
+              aria-label="Search homes by name, manufacturer, beds, baths, or type"
             />
             {searchQuery && (
-              <button onClick={() => setSearchQuery('')} className="text-gray-400 hover:text-gray-600">
-                <X size={18} />
+              <button onClick={() => setSearchQuery('')} className="text-gray-400 hover:text-gray-600" aria-label="Clear search">
+                <X size={18} aria-hidden="true" />
               </button>
             )}
           </div>
@@ -400,8 +438,8 @@ export default function InventoryBrowse({ onAskTex, onCreateAd }) {
         <div className="tho-browse-filter-panel">
           <div className="tho-filter-grid">
             <div className="tho-filter-group">
-              <label><Bed size={14} /> Bedrooms</label>
-              <select value={filters.beds} onChange={e => setFilters(f => ({ ...f, beds: e.target.value }))}>
+              <label htmlFor="filter-beds"><Bed size={14} aria-hidden="true" /> Bedrooms</label>
+              <select id="filter-beds" value={filters.beds} onChange={e => setFilters(f => ({ ...f, beds: e.target.value }))}>
                 <option value="">Any</option>
                 <option value="1">1+</option>
                 <option value="2">2+</option>
@@ -410,8 +448,8 @@ export default function InventoryBrowse({ onAskTex, onCreateAd }) {
               </select>
             </div>
             <div className="tho-filter-group">
-              <label><Bath size={14} /> Bathrooms</label>
-              <select value={filters.baths} onChange={e => setFilters(f => ({ ...f, baths: e.target.value }))}>
+              <label htmlFor="filter-baths"><Bath size={14} aria-hidden="true" /> Bathrooms</label>
+              <select id="filter-baths" value={filters.baths} onChange={e => setFilters(f => ({ ...f, baths: e.target.value }))}>
                 <option value="">Any</option>
                 <option value="1">1+</option>
                 <option value="2">2+</option>
@@ -419,16 +457,17 @@ export default function InventoryBrowse({ onAskTex, onCreateAd }) {
               </select>
             </div>
             <div className="tho-filter-group">
-              <label><Home size={14} /> Type</label>
-              <select value={filters.classification} onChange={e => setFilters(f => ({ ...f, classification: e.target.value }))}>
+              <label htmlFor="filter-type"><Home size={14} aria-hidden="true" /> Type</label>
+              <select id="filter-type" value={filters.classification} onChange={e => setFilters(f => ({ ...f, classification: e.target.value }))}>
                 <option value="">Any</option>
                 <option value="Single Wide">Single Wide</option>
                 <option value="Double Wide">Double Wide</option>
               </select>
             </div>
             <div className="tho-filter-group">
-              <label>Min Price</label>
+              <label htmlFor="filter-min-price">Min Price</label>
               <input
+                id="filter-min-price"
                 type="number"
                 placeholder="$0"
                 value={filters.minPrice}
@@ -436,8 +475,9 @@ export default function InventoryBrowse({ onAskTex, onCreateAd }) {
               />
             </div>
             <div className="tho-filter-group">
-              <label>Max Price</label>
+              <label htmlFor="filter-max-price">Max Price</label>
               <input
+                id="filter-max-price"
                 type="number"
                 placeholder="No max"
                 value={filters.maxPrice}
@@ -631,6 +671,9 @@ function HomeDetailModal({
   const floorPlan = home.floor_plan_url;
   const isCallForPrice = !home.display_price || home.display_price === 'Call for Price';
 
+  const modalRef = useRef(null);
+  useFocusTrap(modalRef);
+
   // Touch swipe for mobile
   const touchStart = useRef(null);
   const handleTouchStart = (e) => { touchStart.current = e.touches[0].clientX; };
@@ -645,8 +688,15 @@ function HomeDetailModal({
   };
 
   return (
-    <div className="tho-detail-overlay" onClick={onClose}>
-      <div className="tho-detail-modal" onClick={e => e.stopPropagation()}>
+    <div className="tho-detail-overlay" onClick={onClose} aria-hidden="true">
+      <div
+        className="tho-detail-modal"
+        onClick={e => e.stopPropagation()}
+        ref={modalRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={`${home.model_name} details`}
+      >
         {/* Sticky header — name, price, close */}
         <div className="tho-detail-sticky-header">
           <div className="tho-detail-sticky-title">
@@ -975,6 +1025,8 @@ function LeadCaptureForm({ home, type, onClose }) {
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState('');
+  const modalRef = useRef(null);
+  useFocusTrap(modalRef);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -1006,10 +1058,17 @@ function LeadCaptureForm({ home, type, onClose }) {
   };
 
   return (
-    <div className="tho-lead-overlay" onClick={onClose}>
-      <div className="tho-lead-modal" onClick={e => e.stopPropagation()}>
-        <button onClick={onClose} className="tho-lead-close" aria-label="Close">
-          <X size={20} />
+    <div className="tho-lead-overlay" onClick={onClose} aria-hidden="true">
+      <div
+        className="tho-lead-modal"
+        onClick={e => e.stopPropagation()}
+        ref={modalRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={type === 'tour' ? 'Schedule a tour' : 'Get a price quote'}
+      >
+        <button onClick={onClose} className="tho-lead-close" aria-label="Close dialog">
+          <X size={20} aria-hidden="true" />
         </button>
 
         {submitted ? (
@@ -1032,8 +1091,9 @@ function LeadCaptureForm({ home, type, onClose }) {
 
             <form onSubmit={handleSubmit} className="tho-lead-form">
               <div className="tho-lead-field">
-                <label>Name *</label>
+                <label htmlFor="lead-name">Name *</label>
                 <input
+                  id="lead-name"
                   type="text"
                   value={formData.name}
                   onChange={e => setFormData(f => ({ ...f, name: e.target.value }))}
@@ -1042,8 +1102,9 @@ function LeadCaptureForm({ home, type, onClose }) {
                 />
               </div>
               <div className="tho-lead-field">
-                <label>Phone *</label>
+                <label htmlFor="lead-phone">Phone *</label>
                 <input
+                  id="lead-phone"
                   type="tel"
                   value={formData.phone}
                   onChange={e => setFormData(f => ({ ...f, phone: e.target.value }))}
@@ -1052,8 +1113,9 @@ function LeadCaptureForm({ home, type, onClose }) {
                 />
               </div>
               <div className="tho-lead-field">
-                <label>Email</label>
+                <label htmlFor="lead-email">Email</label>
                 <input
+                  id="lead-email"
                   type="email"
                   value={formData.email}
                   onChange={e => setFormData(f => ({ ...f, email: e.target.value }))}
@@ -1061,8 +1123,9 @@ function LeadCaptureForm({ home, type, onClose }) {
                 />
               </div>
               <div className="tho-lead-field">
-                <label>{type === 'tour' ? 'Preferred date/time' : 'Additional details'}</label>
+                <label htmlFor="lead-message">{type === 'tour' ? 'Preferred date/time' : 'Additional details'}</label>
                 <textarea
+                  id="lead-message"
                   value={formData.message}
                   onChange={e => setFormData(f => ({ ...f, message: e.target.value }))}
                   placeholder={type === 'tour' ? 'e.g., Saturday morning, weekday after 5pm...' : 'Any questions or preferences...'}

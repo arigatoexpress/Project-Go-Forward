@@ -1428,3 +1428,69 @@
 .tho-cat-badge.bedroom { background: #dbeafe; color: #1e40af; }
 .tho-cat-badge.bathroom { background: #d1fae5; color: #065f46; }
 
+/* ─── Focus Visible — keyboard navigation indicators ─── */
+.tho-browse button:focus-visible,
+.tho-browse a:focus-visible,
+.tho-browse select:focus-visible,
+.tho-browse input:focus-visible,
+.tho-browse textarea:focus-visible {
+  outline: 3px solid #2563eb;
+  outline-offset: 2px;
+}
+
+.tho-detail-overlay button:focus-visible,
+.tho-lead-overlay button:focus-visible {
+  outline: 3px solid #60a5fa;
+  outline-offset: 2px;
+}
+
+/* Ensure close button has adequate touch target */
+.tho-detail-sticky-close {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+.tho-detail-sticky-close:focus-visible {
+  outline: 3px solid #2563eb;
+  outline-offset: 2px;
+}
+
+/* Status tab focus */
+.tho-status-tab:focus-visible {
+  outline: 3px solid #2563eb;
+  outline-offset: 2px;
+}
+
+/* Sort select focus */
+.tho-sort-select:focus-visible {
+  outline: 3px solid #2563eb;
+  outline-offset: 2px;
+}
+
+/* Filter/clear button focus */
+.tho-filter-btn:focus-visible,
+.tho-clear-btn:focus-visible {
+  outline: 3px solid #2563eb;
+  outline-offset: 2px;
+}
+
+/* Card action button focus */
+.tho-card-view-btn:focus-visible,
+.tho-card-tour-btn:focus-visible {
+  outline: 3px solid #2563eb;
+  outline-offset: 2px;
+}
+
+/* Gallery nav focus */
+.tho-gallery-nav:focus-visible,
+.tho-thumb:focus-visible {
+  outline: 3px solid #60a5fa;
+  outline-offset: 2px;
+}
+
+/* Lead form focus */
+.tho-lead-submit-btn:focus-visible {
+  outline: 3px solid #2563eb;
+  outline-offset: 2px;
+}
+
