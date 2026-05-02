@@ -73,6 +73,98 @@ const SORT_OPTIONS = [
 ];
 
 
+// Admin-only inventory analytics panel. Renders only when a valid admin
+// token is present in sessionStorage. Uses /api/admin/inventory/analytics
+// (gated server-side by require_admin).
+function AdminInventoryPanel() {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  // Only attempt fetch if a token is in sessionStorage — otherwise this
+  // panel is invisible to the public browse page.
+  const hasToken = typeof window !== 'undefined' && !!sessionStorage.getItem('tho_admin_token');
+
+  useEffect(() => {
+    if (!hasToken) return;
+    let alive = true;
+    setLoading(true);
+    fetch('/api/admin/inventory/analytics', {
+      headers: { 'X-Admin-Token': sessionStorage.getItem('tho_admin_token') || '' },
+    })
+      .then(r => r.json())
+      .then(d => { if (alive && d?.success) setData(d); })
+      .catch(e => { if (alive) setError(String(e)); })
+      .finally(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+  }, [hasToken]);
+
+  if (!hasToken || (!data && !loading)) return null;
+
+  const fmtMoney = (n) => n == null ? '—' : `$${Math.round(n).toLocaleString()}`;
+
+  return (
+    <div style={{
+      maxWidth: 1200, margin: '12px auto', padding: 16,
+      background: 'rgba(0,0,0,0.04)', border: '1px solid rgba(0,0,0,0.08)', borderRadius: 8,
+    }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 12 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, color: '#666' }}>
+          Inventory Analytics (admin)
+        </div>
+        <div style={{ fontSize: 10, color: '#999' }}>cached 5m</div>
+      </div>
+      {loading && <div style={{ fontSize: 12, color: '#888' }}>Loading...</div>}
+      {error && <div style={{ fontSize: 12, color: '#ef4444' }}>Error: {error}</div>}
+      {data && (
+        <>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12, marginBottom: 12 }}>
+            {[
+              { label: 'Total', value: data.totals?.total },
+              { label: 'Available', value: data.totals?.available, color: '#22c55e' },
+              { label: 'Pending', value: data.totals?.pending, color: '#f59e0b' },
+              { label: 'Reserved', value: data.totals?.reserved, color: '#3b82f6' },
+              { label: 'Sold (30d)', value: data.totals?.sold_last_30d, color: '#8b5cf6' },
+              { label: 'Median Price', value: fmtMoney(data.median_sale_price), color: '#06b6d4' },
+              { label: 'Median Days On Lot', value: data.median_time_on_lot_days, color: '#14b8a6' },
+            ].map(m => (
+              <div key={m.label} style={{ background: '#fff', border: '1px solid rgba(0,0,0,0.08)', borderRadius: 6, padding: '8px 12px' }}>
+                <div style={{ fontSize: 10, color: '#999', textTransform: 'uppercase', letterSpacing: 0.5 }}>{m.label}</div>
+                <div style={{ fontSize: 18, fontWeight: 700, color: m.color || '#222', marginTop: 2 }}>
+                  {m.value ?? '—'}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {data.by_manufacturer?.length > 0 && (
+            <div>
+              <div style={{ fontSize: 11, color: '#666', marginBottom: 6, fontWeight: 600 }}>By Manufacturer</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr', fontSize: 11, color: '#666', padding: '4px 8px', borderBottom: '1px solid rgba(0,0,0,0.06)' }}>
+                <span>Manufacturer</span>
+                <span style={{ textAlign: 'right' }}>Total</span>
+                <span style={{ textAlign: 'right' }}>Available</span>
+                <span style={{ textAlign: 'right' }}>Sold</span>
+                <span style={{ textAlign: 'right' }}>Median Price</span>
+              </div>
+              {data.by_manufacturer.slice(0, 12).map(m => (
+                <div key={m.manufacturer} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr', fontSize: 12, padding: '4px 8px', borderBottom: '1px solid rgba(0,0,0,0.04)' }}>
+                  <span style={{ color: '#222', fontWeight: 500 }}>{m.manufacturer}</span>
+                  <span style={{ textAlign: 'right' }}>{m.count}</span>
+                  <span style={{ textAlign: 'right', color: '#22c55e' }}>{m.available}</span>
+                  <span style={{ textAlign: 'right', color: '#8b5cf6' }}>{m.sold}</span>
+                  <span style={{ textAlign: 'right' }}>{fmtMoney(m.median_price)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+
 export default function InventoryBrowse({ onAskTex, onCreateAd }) {
   const [homes, setHomes] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -400,6 +492,10 @@ export default function InventoryBrowse({ onAskTex, onCreateAd }) {
           )}
         </div>
       </div>
+
+      {/* Admin-only inventory analytics panel — only renders when an
+          admin token is present in sessionStorage. */}
+      <AdminInventoryPanel />
 
       {/* Toolbar */}
       <div className="tho-browse-toolbar" style={{display:'flex', flexDirection:'column', alignItems:'center', gap:'0.75rem', padding:'1rem 1rem 0.5rem'}}>
