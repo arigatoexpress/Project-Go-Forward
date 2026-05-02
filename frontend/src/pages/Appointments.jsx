@@ -102,10 +102,11 @@ const CalendarGrid = ({ selectedDate, onSelect }) => {
           }}
           disabled={!canGoPrev}
           className="p-2 rounded-full hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition"
+          aria-label="Previous month"
         >
-          <ArrowLeft size={20} />
+          <ArrowLeft size={20} aria-hidden="true" />
         </button>
-        <h3 className="text-lg font-bold text-gray-900">{MONTHS[viewMonth]} {viewYear}</h3>
+        <h3 className="text-lg font-bold text-gray-900" aria-live="polite">{MONTHS[viewMonth]} {viewYear}</h3>
         <button
           onClick={() => {
             if (viewMonth === 11) { setViewMonth(0); setViewYear(viewYear + 1); }
@@ -113,8 +114,9 @@ const CalendarGrid = ({ selectedDate, onSelect }) => {
           }}
           disabled={!canGoNext}
           className="p-2 rounded-full hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed transition"
+          aria-label="Next month"
         >
-          <ArrowRight size={20} />
+          <ArrowRight size={20} aria-hidden="true" />
         </button>
       </div>
       <div className="grid grid-cols-7 gap-1 mb-2">
@@ -216,8 +218,9 @@ const ContactForm = ({ formData, onChange, onSubmit, onBack, submitting }) => {
       <h3 className="text-lg font-bold text-gray-900 mb-4">Your Information</h3>
       <form onSubmit={onSubmit} className="space-y-4">
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Full Name *</label>
+          <label htmlFor="appt-name" className="block text-sm font-medium text-gray-700 mb-1">Full Name *</label>
           <input
+            id="appt-name"
             type="text"
             required
             value={formData.name}
@@ -227,22 +230,25 @@ const ContactForm = ({ formData, onChange, onSubmit, onBack, submitting }) => {
           />
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Phone Number *</label>
+          <label htmlFor="appt-phone" className="block text-sm font-medium text-gray-700 mb-1">Phone Number *</label>
           <input
+            id="appt-phone"
             type="tel"
             required
             value={formData.phone}
             onChange={(e) => onChange({ ...formData, phone: e.target.value })}
             className={`w-full px-4 py-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none ${formData.phone && formData.phone.replace(/\D/g, '').length < 10 ? 'border-red-300' : 'border-gray-300'}`}
             placeholder="(281) 000-0000"
+            aria-describedby={formData.phone && formData.phone.replace(/\D/g, '').length < 10 ? 'appt-phone-error' : undefined}
           />
           {formData.phone && formData.phone.replace(/\D/g, '').length < 10 && (
-            <p className="text-xs text-red-500 mt-1">Enter a valid 10-digit phone number</p>
+            <p id="appt-phone-error" className="text-xs text-red-500 mt-1">Enter a valid 10-digit phone number</p>
           )}
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Email (optional)</label>
+          <label htmlFor="appt-email" className="block text-sm font-medium text-gray-700 mb-1">Email (optional)</label>
           <input
+            id="appt-email"
             type="email"
             value={formData.email}
             onChange={(e) => onChange({ ...formData, email: e.target.value })}
@@ -251,8 +257,9 @@ const ContactForm = ({ formData, onChange, onSubmit, onBack, submitting }) => {
           />
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">What homes are you interested in?</label>
+          <label htmlFor="appt-notes" className="block text-sm font-medium text-gray-700 mb-1">What homes are you interested in?</label>
           <textarea
+            id="appt-notes"
             rows="3"
             value={formData.notes}
             onChange={(e) => onChange({ ...formData, notes: e.target.value })}

@@ -15,27 +15,36 @@ function GalleryModal({
         <div
             className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center"
             onClick={onClose}
+            aria-hidden="true"
         >
             <button
                 onClick={(e) => { e.stopPropagation(); onClose(); }}
                 className="absolute top-4 right-4 text-white hover:text-gray-300 z-50"
+                aria-label="Close photo gallery"
             >
-                <X size={32} />
+                <X size={32} aria-hidden="true" />
             </button>
 
-            <div className="relative w-full h-full flex items-center justify-center p-4" onClick={(e) => e.stopPropagation()}>
+            <div
+                className="relative w-full h-full flex items-center justify-center p-4"
+                onClick={(e) => e.stopPropagation()}
+                role="dialog"
+                aria-modal="true"
+                aria-label={`${modelName} photo gallery`}
+            >
                 {hasMultipleImages && (
                     <button
                         onClick={onPrev}
                         className="absolute left-4 z-10 p-2 bg-black/50 hover:bg-black/70 rounded-full text-white"
+                        aria-label="Previous photo"
                     >
-                        <ChevronLeft size={32} />
+                        <ChevronLeft size={32} aria-hidden="true" />
                     </button>
                 )}
 
                 <img
                     src={allImages[currentImageIndex]}
-                    alt={`${modelName} - Photo ${currentImageIndex + 1}`}
+                    alt={`${modelName} - Photo ${currentImageIndex + 1} of ${allImages.length}`}
                     className="max-w-full max-h-[85vh] object-contain rounded-lg"
                 />
 
@@ -43,8 +52,9 @@ function GalleryModal({
                     <button
                         onClick={onNext}
                         className="absolute right-4 z-10 p-2 bg-black/50 hover:bg-black/70 rounded-full text-white"
+                        aria-label="Next photo"
                     >
-                        <ChevronRight size={32} />
+                        <ChevronRight size={32} aria-hidden="true" />
                     </button>
                 )}
 
@@ -56,6 +66,8 @@ function GalleryModal({
                                 onClick={(e) => { e.stopPropagation(); onSelectImage(idx); }}
                                 className={`flex-shrink-0 w-16 h-12 rounded overflow-hidden border-2 transition-all ${idx === currentImageIndex ? 'border-blue-500' : 'border-transparent hover:border-white/50'
                                     }`}
+                                aria-label={`View photo ${idx + 1} of ${allImages.length}`}
+                                aria-current={idx === currentImageIndex ? 'true' : undefined}
                             >
                                 <img src={img} alt="" className="w-full h-full object-cover" />
                             </button>
@@ -136,14 +148,16 @@ const PropertyCard = ({ property, onToggleCompare, isSelected }) => {
                                     <button
                                         onClick={prevImage}
                                         className="absolute left-2 top-1/2 -translate-y-1/2 p-1.5 bg-black/50 hover:bg-black/70 rounded-full text-white opacity-0 group-hover:opacity-100 transition-opacity"
+                                        aria-label="Previous photo"
                                     >
-                                        <ChevronLeft size={20} />
+                                        <ChevronLeft size={20} aria-hidden="true" />
                                     </button>
                                     <button
                                         onClick={nextImage}
                                         className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 bg-black/50 hover:bg-black/70 rounded-full text-white opacity-0 group-hover:opacity-100 transition-opacity"
+                                        aria-label="Next photo"
                                     >
-                                        <ChevronRight size={20} />
+                                        <ChevronRight size={20} aria-hidden="true" />
                                     </button>
                                 </>
                             )}
@@ -157,6 +171,8 @@ const PropertyCard = ({ property, onToggleCompare, isSelected }) => {
                                             onClick={(e) => { e.stopPropagation(); setCurrentImageIndex(idx); }}
                                             className={`w-2 h-2 rounded-full transition-all ${idx === currentImageIndex ? 'bg-white w-4' : 'bg-white/60 hover:bg-white/80'
                                                 }`}
+                                            aria-label={`Photo ${idx + 1} of ${allImages.length}`}
+                                            aria-current={idx === currentImageIndex ? 'true' : undefined}
                                         />
                                     ))}
                                     {allImages.length > 5 && (
