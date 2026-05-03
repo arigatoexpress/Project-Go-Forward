@@ -1,0 +1,121 @@
+"""Tests for DocumentCenter Step 2 inventory auto-fill wiring.
+
+This is a static-source test: the React component is uncontrolled (`defaultValue`
++ `key={name + '-' + resetKey}`) so writing form state alone won't update the
+visible input — the resetKey must be bumped when handleSelectHome runs. These
+checks guarantee the wiring stays intact.
+"""
+
+from pathlib import Path
+
+import pytest
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+DOC_CENTER = REPO_ROOT / "frontend" / "src" / "pages" / "DocumentCenter.jsx"
+
+
+@pytest.fixture(scope="module")
+def source() -> str:
+    assert DOC_CENTER.exists(), f"Missing component file: {DOC_CENTER}"
+    return DOC_CENTER.read_text()
+
+
+def test_step2_exposes_onautofill_prop(source: str):
+    """Step2 must accept the onAutoFill callback so it can drive the
+    parent's resetKey-bump path on home selection."""
+    assert "onAutoFill" in source
+    assert "function Step2(" in source
+    # Every Step2 invocation in the parent component should now thread
+    # onAutoFill down (currently only one site, but guard it).
+    invocation_count = source.count("onAutoFill={applyInventoryAutoFill}")
+    assert invocation_count >= 1, "Step2 should receive applyInventoryAutoFill"
+
+
+def test_apply_inventory_autofill_bumps_reset_key(source: str):
+    """The auto-fill handler MUST bump formResetKey — without that, the
+    uncontrolled <input>s keep their stale defaultValue and the user
+    sees the card highlight but no field text."""
+    # Find applyInventoryAutoFill body
+    start = source.find("const applyInventoryAutoFill")
+    assert start != -1, "applyInventoryAutoFill not defined"
+    end = source.find("}, []);", start)
+    assert end != -1, "applyInventoryAutoFill body not closed"
+    body = source[start:end]
+    assert "setForm" in body
+    assert "setFormResetKey" in body, (
+        "applyInventoryAutoFill must bump formResetKey or Field inputs "
+        "won't refresh on home selection"
+    )
+    assert "setAutoFilledFields" in body
+
+
+def test_handleselecthome_uses_onautofill(source: str):
+    """Step2.handleSelectHome should route through onAutoFill (single
+    batched patch) rather than firing a per-key sequence of c() calls
+    that don't visually refresh the inputs."""
+    start = source.find("const handleSelectHome = (home)")
+    assert start != -1
+    # Slice up to the next sibling declaration to capture the full body
+    end = source.find("const handleClearSelection", start)
+    assert end != -1
+    body = source[start:end]
+    assert "onAutoFill" in body, "handleSelectHome must call onAutoFill"
+    assert "patch" in body, "handleSelectHome should build a patch object"
+    for key in ("manufacturer", "model", "year", "no_of_sections"):
+        assert key in body, f"handleSelectHome should populate {key}"
+
+
+def test_field_renders_autofilled_badge(source: str):
+    """Field component must render a 'from inventory' badge when autoFilled."""
+    field_start = source.find("const Field = React.memo")
+    assert field_start != -1
+    field_end = source.find("});", field_start)
+    field_body = source[field_start:field_end]
+    assert "autoFilled" in field_body, "Field must accept autoFilled prop"
+    assert "from inventory" in field_body, (
+        "Field must render the 'from inventory' confirmation tag"
+    )
+
+
+def test_field_renders_helper_text(source: str):
+    """Field must render helperText so we can show "Enter manually — not in
+    inventory feed" on serial/label/sales_price fields."""
+    field_start = source.find("const Field = React.memo")
+    field_end = source.find("});", field_start)
+    field_body = source[field_start:field_end]
+    assert "helperText" in field_body
+    assert "data-testid" in field_body and "helper-" in field_body
+
+
+def test_serial_number_field_has_manual_helper(source: str):
+    """Serial # 1 must show the manual-entry hint when a home is picked
+    but the inventory feed didn't supply a serial — the texashomeoutlet.com
+    feed always returns serial_number=null."""
+    # The exact wiring lives in Step2's JSX
+    assert (
+        'name="serial_number_1"' in source
+        and "Enter manually" in source
+        and "not in inventory feed" in source
+    ), "Serial #1 must show 'Enter manually — not in inventory feed' helper"
+
+
+def test_validation_state_unchanged_for_step2(source: str):
+    """Existing validator pattern must be preserved — Continue to
+    Documents stays gated on Serial #1 even with auto-fill in place."""
+    # The validator block itself is the canonical gate
+    assert "if (step === 2) {" in source
+    assert "Serial # 1 is required" in source
+    assert "form.serial_number_1?.trim()" in source
+
+
+def test_chg_clears_autofill_marker_on_manual_edit(source: str):
+    """When the user manually edits a field, the auto-fill badge must drop
+    so the user understands they own the value now."""
+    chg_start = source.find("const chg = useCallback")
+    assert chg_start != -1
+    chg_end = source.find("}, [checkForDuplicates]);", chg_start)
+    chg_body = source[chg_start:chg_end]
+    assert "setAutoFilledFields" in chg_body, (
+        "chg() must clear the auto-fill marker when the user types over a "
+        "previously auto-filled value"
+    )
