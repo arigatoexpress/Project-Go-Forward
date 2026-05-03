@@ -2519,6 +2519,152 @@ async def generate_packet_from_deal(deal_id: str, request: Request):
         return {"success": False, "error": "Failed to generate closing packet. Please try again."}
 
 
+# ─── DocuSeal e-sign endpoints ───────────────────────────────────────────────
+
+_DOCUSEAL_API_URL = os.environ.get("DOCUSEAL_API_URL", "")
+_DOCUSEAL_API_TOKEN = os.environ.get("DOCUSEAL_API_TOKEN", "")
+_DOCUSEAL_WEBHOOK_SECRET = os.environ.get("DOCUSEAL_WEBHOOK_SECRET", "")
+
+
+@app.post("/api/docuseal/send", dependencies=[Depends(require_admin)])
+async def docuseal_send(request: Request):
+    """Start a DocuSeal e-sign submission for a deal document.
+
+    Body: {deal_id, template_name, signer_email, signer_name}
+
+    Returns 501 until DOCUSEAL_API_URL + DOCUSEAL_API_TOKEN env vars are set.
+    """
+    if not _DOCUSEAL_API_URL or not _DOCUSEAL_API_TOKEN:
+        return JSONResponse(
+            {
+                "success": False,
+                "status": "not_configured",
+                "message": (
+                    "DocuSeal not configured — set DOCUSEAL_API_URL + "
+                    "DOCUSEAL_API_TOKEN env vars to enable."
+                ),
+            },
+            status_code=501,
+        )
+
+    import json as _json
+    import httpx
+
+    data = await request.json()
+    deal_id = data.get("deal_id")
+    template_name = data.get("template_name")
+    signer_email = data.get("signer_email")
+    signer_name = data.get("signer_name")
+
+    if not all([deal_id, template_name, signer_email, signer_name]):
+        raise HTTPException(
+            status_code=422,
+            detail="deal_id, template_name, signer_email, and signer_name are required",
+        )
+
+    payload = {
+        "template_id": template_name,
+        "send_email": True,
+        "submitters": [
+            {"role": "Buyer", "email": signer_email, "name": signer_name, "values": {}}
+        ],
+        "metadata": {"deal_id": deal_id, "template_name": template_name},
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.post(
+                f"{_DOCUSEAL_API_URL.rstrip('/')}/api/submissions",
+                headers={"X-Auth-Token": _DOCUSEAL_API_TOKEN, "Content-Type": "application/json"},
+                json=payload,
+            )
+        resp.raise_for_status()
+        return {"success": True, "submission": resp.json()}
+    except Exception as exc:
+        struct_logger.error("DocuSeal send failed", error=str(exc))
+        raise HTTPException(status_code=502, detail=f"DocuSeal error: {exc}")
+
+
+@app.post("/api/docuseal/webhook")
+async def docuseal_webhook(request: Request):
+    """Receive DocuSeal completion webhooks and mirror signed PDFs to GCS.
+
+    Validates the X-Docuseal-Signature HMAC-SHA256 header.
+    No-op (200) when DOCUSEAL_WEBHOOK_SECRET is unset.
+    Writes signed PDF to gs://tho-secure-documents/signed_documents/<deal_id>/<file>.
+    """
+    if not _DOCUSEAL_WEBHOOK_SECRET:
+        return {"status": "ignored", "reason": "webhook_secret_not_configured"}
+
+    body = await request.body()
+    incoming_sig = request.headers.get("X-Docuseal-Signature", "")
+    expected_sig = hmac.new(
+        _DOCUSEAL_WEBHOOK_SECRET.encode(), body, hashlib.sha256
+    ).hexdigest()
+    if not hmac.compare_digest(incoming_sig, expected_sig):
+        raise HTTPException(status_code=401, detail="Invalid webhook signature")
+
+    import json as _json
+
+    event = _json.loads(body)
+    event_type = event.get("event_type") or event.get("type", "")
+
+    if event_type not in ("form.completed", "submission.completed"):
+        return {"status": "ignored", "event_type": event_type}
+
+    data = event.get("data", event)
+    deal_id = (data.get("metadata") or {}).get("deal_id")
+    submission_id = data.get("id")
+    documents = data.get("documents") or []
+    document_url = documents[0].get("url") if documents else None
+
+    if not document_url or not deal_id:
+        struct_logger.warning("DocuSeal webhook missing document_url or deal_id", event=str(event))
+        return {"status": "ignored", "reason": "missing_document_url_or_deal_id"}
+
+    import httpx
+
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            dl = await client.get(document_url)
+        dl.raise_for_status()
+
+        filename = f"signed_{submission_id}.pdf"
+        gcs_path = f"signed_documents/{deal_id}/{filename}"
+        tmp_path = os.path.join("/tmp", filename)
+        with open(tmp_path, "wb") as f:
+            f.write(dl.content)
+
+        gcs_uri = None
+        try:
+            from google.cloud import storage as _gcs
+            _client = _gcs.Client()
+            _bucket = _client.bucket(os.getenv("GCS_DOCUMENTS_BUCKET", "tho-secure-documents"))
+            _bucket.blob(gcs_path).upload_from_filename(tmp_path, content_type="application/pdf")
+            gcs_uri = f"gs://{os.getenv('GCS_DOCUMENTS_BUCKET', 'tho-secure-documents')}/{gcs_path}"
+        except Exception as gcs_err:
+            struct_logger.warning("DocuSeal GCS mirror failed", error=str(gcs_err), path=gcs_path)
+
+        try:
+            db = get_database()
+            db.collection("deal_notes").document(f"{deal_id}_esign_{submission_id}").set({
+                "deal_id": deal_id,
+                "type": "esign_completed",
+                "submission_id": str(submission_id),
+                "gcs_path": gcs_uri or gcs_path,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            })
+        except Exception as note_err:
+            struct_logger.warning("DocuSeal deal note write failed", error=str(note_err))
+
+        struct_logger.info("DocuSeal signed PDF mirrored", deal_id=deal_id, gcs_uri=gcs_uri)
+        return {"status": "ok", "gcs_path": gcs_uri or gcs_path}
+
+    except Exception as exc:
+        struct_logger.error("DocuSeal webhook processing failed", error=str(exc))
+        raise HTTPException(status_code=500, detail=f"Webhook processing failed: {exc}")
+
+
 # ─── Marketing API (Tex's Ad Studio) ───
 from tools.asset_scraper import PROPERTY_ASSETS, get_matterport_url
 from tools.marketing_tools import (
