@@ -91,17 +91,33 @@ const PropertyCard = ({ property, onToggleCompare, isSelected }) => {
         classification,
         manufacturer,
         image_url,
-        gallery_images = []
+        gallery_images = [],
+        real_photos = [],
+        floorplan_url,
+        floor_plan_url,
     } = property;
 
     const [imageError, setImageError] = useState(false);
     const [currentImageIndex, setCurrentImageIndex] = useState(0);
     const [showGallery, setShowGallery] = useState(false);
 
-    // Combine primary image with gallery images
-    const allImages = image_url
-        ? [image_url, ...(gallery_images?.filter(img => img !== image_url) || [])]
-        : gallery_images || [];
+    // Hero-first ordering for the card image.
+    //
+    // After PR #43 (`feat/inventory-photo-classification`) the backend
+    // guarantees `image_url` is a non-floorplan exterior URL (or empty).
+    // We pick the primary image deterministically from
+    // `image_url -> real_photos[0] -> gallery_images[0]` so the card
+    // never surfaces a floorplan as its hero image.
+    const floorplanUrl = floorplan_url || floor_plan_url || '';
+    const primaryImage = image_url || real_photos?.[0] || gallery_images?.[0] || '';
+
+    // Build the gallery from primary + gallery_images, excluding the
+    // floorplan URL — floorplans belong in the dedicated InventoryBrowse
+    // Floorplan tab, not in PropertyCard's photo carousel.
+    const allImages = (primaryImage
+        ? [primaryImage, ...(gallery_images?.filter(img => img && img !== primaryImage) || [])]
+        : gallery_images || []
+    ).filter(img => img && img !== floorplanUrl);
 
     const hasMultipleImages = allImages.length > 1;
 
@@ -207,30 +223,54 @@ const PropertyCard = ({ property, onToggleCompare, isSelected }) => {
                         </div>
                     </div>
 
-                    {/* Specs Grid */}
-                    <div className="grid grid-cols-3 gap-1 py-3 border-t border-b border-gray-100">
-                        <div className="flex flex-col items-center">
-                            <div className="flex items-center text-gray-700 mb-0.5">
-                                <Bed size={14} className="mr-1 text-gray-400" />
-                                <span className="font-semibold text-sm">{specs?.beds || '-'}</span>
+                    {/* Specs Grid — hide individual spec when missing rather
+                        than rendering a "-" placeholder. Column count adjusts
+                        so the grid stays balanced. */}
+                    {(() => {
+                        const specCells = [];
+                        if (specs?.beds) {
+                            specCells.push(
+                                <div key="beds" className="flex flex-col items-center">
+                                    <div className="flex items-center text-gray-700 mb-0.5">
+                                        <Bed size={14} className="mr-1 text-gray-400" />
+                                        <span className="font-semibold text-sm">{specs.beds}</span>
+                                    </div>
+                                    <span className="text-xs text-gray-400">Beds</span>
+                                </div>
+                            );
+                        }
+                        if (specs?.baths) {
+                            specCells.push(
+                                <div key="baths" className="flex flex-col items-center">
+                                    <div className="flex items-center text-gray-700 mb-0.5">
+                                        <Bath size={14} className="mr-1 text-gray-400" />
+                                        <span className="font-semibold text-sm">{specs.baths}</span>
+                                    </div>
+                                    <span className="text-xs text-gray-400">Baths</span>
+                                </div>
+                            );
+                        }
+                        if (specs?.sq_ft) {
+                            specCells.push(
+                                <div key="sqft" className="flex flex-col items-center">
+                                    <div className="flex items-center text-gray-700 mb-0.5">
+                                        <Maximize size={14} className="mr-1 text-gray-400" />
+                                        <span className="font-semibold text-sm">{specs.sq_ft.toLocaleString()}</span>
+                                    </div>
+                                    <span className="text-xs text-gray-400">Sq Ft</span>
+                                </div>
+                            );
+                        }
+                        if (specCells.length === 0) return null;
+                        const colCls = specCells.length === 3 ? 'grid-cols-3'
+                            : specCells.length === 2 ? 'grid-cols-2'
+                            : 'grid-cols-1';
+                        return (
+                            <div className={`grid ${colCls} gap-1 py-3 border-t border-b border-gray-100`}>
+                                {specCells}
                             </div>
-                            <span className="text-xs text-gray-400">Beds</span>
-                        </div>
-                        <div className="flex flex-col items-center border-l border-gray-100">
-                            <div className="flex items-center text-gray-700 mb-0.5">
-                                <Bath size={14} className="mr-1 text-gray-400" />
-                                <span className="font-semibold text-sm">{specs?.baths || '-'}</span>
-                            </div>
-                            <span className="text-xs text-gray-400">Baths</span>
-                        </div>
-                        <div className="flex flex-col items-center border-l border-gray-100">
-                            <div className="flex items-center text-gray-700 mb-0.5">
-                                <Maximize size={14} className="mr-1 text-gray-400" />
-                                <span className="font-semibold text-sm">{specs?.sq_ft?.toLocaleString() || '-'}</span>
-                            </div>
-                            <span className="text-xs text-gray-400">Sq Ft</span>
-                        </div>
-                    </div>
+                        );
+                    })()}
 
                     {/* Action Buttons */}
                     <div className="mt-3 flex gap-2">

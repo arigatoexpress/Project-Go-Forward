@@ -4,31 +4,17 @@ import {
   Search, RefreshCw, Send, X, Clock, Home, DollarSign,
   CheckCircle, AlertCircle, Filter, ArrowLeft, FileText, Package, Download, Loader,
 } from 'lucide-react';
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
 import adminFetch from '../adminFetch';
 import downloadAdminFile from '../downloadAdminFile';
-import './CRM.css';
-
-const STATUS_COLORS = {
-  new: '#3b82f6',
-  contacted: '#f59e0b',
-  qualified: '#8b5cf6',
-  converted: '#22c55e',
-};
-
-const DEAL_STATUS_COLORS = {
-  pending: '#94a3b8',
-  approved: '#3b82f6',
-  contract: '#f59e0b',
-  funded: '#8b5cf6',
-  complete: '#22c55e',
-  denied: '#ef4444',
-  archived: '#6b7280',
-};
+import StatusBadge, { STATUS_COLORS, DEAL_STATUS_COLORS } from '../components/StatusBadge';
 
 const DEAL_STATUS_ORDER = ['pending', 'approved', 'contract', 'funded', 'complete'];
 
 function formatDate(iso) {
-  if (!iso) return '—';
+  // Returns empty string for missing values — callers should hide the
+  // surrounding row/label rather than render a placeholder.
+  if (!iso) return '';
   try {
     const d = new Date(iso);
     return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
@@ -388,18 +374,36 @@ export default function CRM({ onBack }) {
     pendingTasks: tasks.filter(t => t.status === 'pending').length,
   };
 
+  // Stat tile colors — inline so Tailwind picks them up at build time.
+  const STAT_TILES = [
+    { label: 'Total Leads', value: stats.totalLeads, valueClass: 'text-slate-800' },
+    { label: 'New', value: stats.newLeads, valueClass: 'text-blue-500' },
+    { label: 'Active Deals', value: stats.activeDeals, valueClass: 'text-violet-500' },
+    { label: 'Appointments', value: stats.upcomingAppts, valueClass: 'text-green-500' },
+    { label: 'Emails Sent', value: stats.emailsSent, valueClass: 'text-amber-500' },
+    { label: 'Pending Tasks', value: stats.pendingTasks, valueClass: 'text-pink-500' },
+  ];
+
   return (
-    <div className="crm-container">
+    <div className="min-h-screen bg-gray-100 font-sans">
       {/* Header */}
-      <header className="crm-header">
-        <div className="crm-header-left">
-          <button onClick={onBack} className="crm-back-btn" aria-label="Go back">
+      <header className="bg-slate-800 text-white px-6 py-4 flex items-center justify-between sticky top-0 z-30">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={onBack}
+            className="bg-white/10 hover:bg-white/20 text-white p-2 rounded-lg flex items-center"
+            aria-label="Go back"
+          >
             <ArrowLeft size={20} />
           </button>
-          <h1 className="crm-title">CRM Dashboard</h1>
+          <h1 className="text-xl font-bold m-0">CRM Dashboard</h1>
         </div>
-        <button onClick={fetchData} className="crm-refresh-btn" disabled={loading}>
-          <RefreshCw size={16} className={loading ? 'crm-spin' : ''} />
+        <button
+          onClick={fetchData}
+          disabled={loading}
+          className="flex items-center gap-1.5 bg-white/10 hover:bg-white/20 disabled:opacity-50 disabled:cursor-not-allowed text-white px-3.5 py-2 rounded-lg text-[13px]"
+        >
+          <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
           Refresh
         </button>
       </header>
@@ -436,64 +440,61 @@ export default function CRM({ onBack }) {
       )}
 
       {/* Stats Bar */}
-      <div className="crm-stats-bar">
-        <div className="crm-stat">
-          <span className="crm-stat-value">{stats.totalLeads}</span>
-          <span className="crm-stat-label">Total Leads</span>
-        </div>
-        <div className="crm-stat">
-          <span className="crm-stat-value" style={{ color: '#3b82f6' }}>{stats.newLeads}</span>
-          <span className="crm-stat-label">New</span>
-        </div>
-        <div className="crm-stat">
-          <span className="crm-stat-value" style={{ color: '#8b5cf6' }}>{stats.activeDeals}</span>
-          <span className="crm-stat-label">Active Deals</span>
-        </div>
-        <div className="crm-stat">
-          <span className="crm-stat-value" style={{ color: '#22c55e' }}>{stats.upcomingAppts}</span>
-          <span className="crm-stat-label">Appointments</span>
-        </div>
-        <div className="crm-stat">
-          <span className="crm-stat-value" style={{ color: '#f59e0b' }}>{stats.emailsSent}</span>
-          <span className="crm-stat-label">Emails Sent</span>
-        </div>
-        <div className="crm-stat">
-          <span className="crm-stat-value" style={{ color: '#ec4899' }}>{stats.pendingTasks}</span>
-          <span className="crm-stat-label">Pending Tasks</span>
-        </div>
+      <div className="flex flex-wrap gap-px bg-gray-200">
+        {STAT_TILES.map(tile => (
+          <div
+            key={tile.label}
+            className="flex-1 min-w-[33%] sm:min-w-0 bg-white p-4 text-center flex flex-col gap-1"
+          >
+            <span className={`text-2xl font-bold ${tile.valueClass}`}>{tile.value}</span>
+            <span className="text-[11px] text-gray-500 uppercase tracking-wider">{tile.label}</span>
+          </div>
+        ))}
       </div>
 
       {/* Tab Navigation */}
-      <div className="crm-tabs">
+      <div className="flex gap-0.5 px-6 pt-3 bg-white border-b border-gray-200 overflow-x-auto">
         {TABS.map(tab => (
           <button
             key={tab.id}
-            className={`crm-tab ${activeTab === tab.id ? 'crm-tab-active' : ''}`}
+            className={
+              'flex items-center gap-1.5 px-4 py-2.5 bg-transparent text-[13px] font-medium whitespace-nowrap border-b-2 transition-colors ' +
+              (activeTab === tab.id
+                ? 'text-blue-500 border-blue-500'
+                : 'text-gray-500 border-transparent hover:text-slate-800')
+            }
             onClick={() => { setActiveTab(tab.id); setStatusFilter(''); setSearchQuery(''); }}
           >
             <tab.icon size={16} />
             {tab.label}
           </button>
         ))}
-        <button className="crm-tab crm-compose-btn" onClick={() => setShowEmailCompose(true)}>
+        <button
+          className="hidden sm:flex items-center gap-1.5 ml-auto px-4 py-2.5 text-blue-500 font-semibold text-[13px] border-b-2 border-transparent hover:bg-blue-50 hover:rounded-t-lg whitespace-nowrap"
+          onClick={() => setShowEmailCompose(true)}
+        >
           <Send size={16} />
           Compose
         </button>
       </div>
 
       {/* Search & Filter */}
-      <div className="crm-toolbar">
-        <div className="crm-search-wrap">
-          <Search size={16} />
+      <div className="px-6 py-3 bg-white border-b border-gray-200">
+        <div className="flex items-center gap-2 bg-gray-100 border border-gray-200 rounded-lg px-3 py-2 max-w-md">
+          <Search size={16} className="text-gray-400 shrink-0" />
           <input
             type="text"
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
             placeholder="Search by name, phone, email..."
-            className="crm-search-input"
+            className="border-0 bg-transparent outline-none flex-1 text-sm text-slate-800 min-w-0"
           />
           {searchQuery && (
-            <button onClick={() => setSearchQuery('')} className="crm-search-clear">
+            <button
+              onClick={() => setSearchQuery('')}
+              className="bg-transparent border-0 text-gray-400 hover:text-gray-600 p-0.5 flex"
+              aria-label="Clear search"
+            >
               <X size={14} />
             </button>
           )}
@@ -501,17 +502,22 @@ export default function CRM({ onBack }) {
       </div>
 
       {/* Content */}
-      <div className="crm-content">
-        {loading && <div className="crm-loading">Loading...</div>}
+      <div className="px-6 pb-6">
+        {loading && <div className="text-center py-12 text-gray-500">Loading...</div>}
 
         {/* LEADS TAB */}
         {activeTab === 'leads' && !loading && (
           <>
-            <div className="crm-status-filters">
+            <div className="flex flex-wrap gap-2 py-3">
               {['', 'new', 'contacted', 'qualified', 'converted'].map(s => (
                 <button
                   key={s}
-                  className={`crm-status-chip ${statusFilter === s ? 'crm-status-chip-active' : ''}`}
+                  className={
+                    'px-3.5 py-1.5 text-xs rounded-full border transition-colors capitalize ' +
+                    (statusFilter === s
+                      ? 'border-blue-500 text-blue-500 bg-blue-50'
+                      : 'border-gray-300 text-gray-500 bg-white hover:border-gray-400')
+                  }
                   onClick={() => setStatusFilter(s)}
                   style={s && statusFilter === s ? { borderColor: STATUS_COLORS[s], color: STATUS_COLORS[s] } : {}}
                 >
@@ -532,28 +538,37 @@ export default function CRM({ onBack }) {
                 emails={emails.filter(e => e.to === selectedLead.email)}
               />
             ) : (
-              <div className="crm-list">
-                {filteredLeads.length === 0 && <div className="crm-empty">No leads found</div>}
+              <div className="flex flex-col gap-0.5">
+                {filteredLeads.length === 0 && (
+                  <div className="text-center py-12 text-gray-400 text-sm">No leads found</div>
+                )}
                 {filteredLeads.map(lead => (
-                  <div key={lead.lead_id} className="crm-lead-card" onClick={() => setSelectedLead(lead)}>
-                    <div className="crm-lead-avatar" style={{ background: STATUS_COLORS[lead.status] || '#94a3b8' }}>
+                  <div
+                    key={lead.lead_id}
+                    className="flex items-center gap-3 px-4 py-3.5 bg-white rounded-lg cursor-pointer transition hover:bg-slate-50 hover:shadow-sm"
+                    onClick={() => setSelectedLead(lead)}
+                  >
+                    <div
+                      className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-base shrink-0"
+                      style={{ background: STATUS_COLORS[lead.status] || '#94a3b8' }}
+                    >
                       {(lead.name || '?')[0].toUpperCase()}
                     </div>
-                    <div className="crm-lead-info">
-                      <div className="crm-lead-name">{lead.name || 'Unknown'}</div>
-                      <div className="crm-lead-meta">
-                        {lead.phone && <span><Phone size={12} /> {lead.phone}</span>}
-                        {lead.email && <span><Mail size={12} /> {lead.email}</span>}
-                        {lead.source && <span className="crm-lead-source">{lead.source}</span>}
+                    <div className="flex-1 min-w-0">
+                      <div className="font-semibold text-sm text-slate-800">{lead.name || 'Unknown'}</div>
+                      <div className="flex flex-wrap gap-3 mt-1 text-xs text-gray-500">
+                        {lead.phone && <span className="flex items-center gap-1"><Phone size={12} /> {lead.phone}</span>}
+                        {lead.email && <span className="flex items-center gap-1"><Mail size={12} /> {lead.email}</span>}
+                        {lead.source && (
+                          <span className="bg-gray-100 px-2 py-0.5 rounded text-[11px]">{lead.source}</span>
+                        )}
                       </div>
                     </div>
-                    <div className="crm-lead-right">
-                      <span className="crm-lead-status" style={{ background: STATUS_COLORS[lead.status] || '#94a3b8' }}>
-                        {lead.status}
-                      </span>
-                      <span className="crm-lead-time">{timeAgo(lead.created_at)}</span>
+                    <div className="flex flex-col items-end gap-1.5 shrink-0">
+                      <StatusBadge status={lead.status} kind="lead" size="sm" />
+                      <span className="text-[11px] text-gray-400">{timeAgo(lead.created_at)}</span>
                     </div>
-                    <ChevronRight size={16} className="crm-lead-chevron" />
+                    <ChevronRight size={16} className="text-gray-300 shrink-0" />
                   </div>
                 ))}
               </div>
@@ -565,16 +580,26 @@ export default function CRM({ onBack }) {
         {activeTab === 'deals' && !loading && (
           <div>
           <NewDealForm onCreated={() => fetchData()} />
-          <div className="crm-pipeline">
+          <div className="flex flex-col md:flex-row gap-3 overflow-x-auto py-3">
             {DEAL_STATUS_ORDER.map(status => {
               const statusDeals = filteredDeals.filter(d => d.status === status);
               return (
-                <div key={status} className="crm-pipeline-col">
-                  <div className="crm-pipeline-header" style={{ borderTopColor: DEAL_STATUS_COLORS[status] }}>
-                    <span className="crm-pipeline-status">{status.charAt(0).toUpperCase() + status.slice(1)}</span>
-                    <span className="crm-pipeline-count">{statusDeals.length}</span>
+                <div
+                  key={status}
+                  className="md:min-w-[240px] flex-1 bg-slate-50 rounded-lg flex flex-col"
+                >
+                  <div
+                    className="px-3.5 py-3 border-t-[3px] flex justify-between items-center"
+                    style={{ borderTopColor: DEAL_STATUS_COLORS[status] }}
+                  >
+                    <span className="text-[13px] font-semibold text-slate-800">
+                      {status.charAt(0).toUpperCase() + status.slice(1)}
+                    </span>
+                    <span className="bg-gray-200 text-gray-500 px-2 py-0.5 rounded-full text-xs font-semibold">
+                      {statusDeals.length}
+                    </span>
                   </div>
-                  <div className="crm-pipeline-cards">
+                  <div className="p-2 flex flex-col gap-2 min-h-[100px]">
                     {statusDeals.map(deal => (
                       <DealCard
                         key={deal.id}
@@ -584,7 +609,7 @@ export default function CRM({ onBack }) {
                       />
                     ))}
                     {statusDeals.length === 0 && (
-                      <div className="crm-pipeline-empty">No deals</div>
+                      <div className="text-center text-gray-400 text-[13px] py-6">No deals</div>
                     )}
                   </div>
                 </div>
@@ -597,37 +622,45 @@ export default function CRM({ onBack }) {
         {/* APPOINTMENTS TAB */}
         {activeTab === 'appointments' && !loading && (
           <>
-            <div className="crm-status-filters">
+            <div className="flex flex-wrap gap-2 py-3">
               {['', 'confirmed', 'completed', 'cancelled', 'no_show'].map(s => (
                 <button
                   key={s}
-                  className={`crm-status-chip ${statusFilter === s ? 'crm-status-chip-active' : ''}`}
+                  className={
+                    'px-3.5 py-1.5 text-xs rounded-full border transition-colors capitalize ' +
+                    (statusFilter === s
+                      ? 'border-blue-500 text-blue-500 bg-blue-50'
+                      : 'border-gray-300 text-gray-500 bg-white hover:border-gray-400')
+                  }
                   onClick={() => setStatusFilter(s)}
                 >
                   {s || 'All'} ({s ? appointments.filter(a => a.status === s).length : appointments.length})
                 </button>
               ))}
             </div>
-            <div className="crm-list">
-              {filteredAppointments.length === 0 && <div className="crm-empty">No appointments found</div>}
+            <div className="flex flex-col gap-0.5">
+              {filteredAppointments.length === 0 && (
+                <div className="text-center py-12 text-gray-400 text-sm">No appointments found</div>
+              )}
               {filteredAppointments.map(appt => (
-                <div key={appt.appointment_id} className="crm-appt-card">
-                  <div className="crm-appt-date">
+                <div
+                  key={appt.appointment_id}
+                  className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 px-4 py-3.5 bg-white rounded-lg"
+                >
+                  <div className="flex items-center gap-2 text-gray-700 text-[13px] sm:min-w-[180px]">
                     <Calendar size={16} />
                     <strong>{appt.date}</strong>
                     <span>{appt.time_slot}</span>
                   </div>
-                  <div className="crm-appt-info">
-                    <div className="crm-appt-name">{appt.name}</div>
-                    <div className="crm-appt-meta">
-                      <span><Phone size={12} /> {appt.phone}</span>
-                      {appt.email && <span><Mail size={12} /> {appt.email}</span>}
-                      {appt.notes && <span className="crm-appt-notes">{appt.notes}</span>}
+                  <div className="flex-1">
+                    <div className="font-semibold text-sm text-slate-800">{appt.name}</div>
+                    <div className="flex flex-wrap gap-3 text-xs text-gray-500 mt-1">
+                      <span className="flex items-center gap-1"><Phone size={12} /> {appt.phone}</span>
+                      {appt.email && <span className="flex items-center gap-1"><Mail size={12} /> {appt.email}</span>}
+                      {appt.notes && <span className="italic">{appt.notes}</span>}
                     </div>
                   </div>
-                  <span className={`crm-appt-status crm-appt-status-${appt.status}`}>
-                    {appt.status}
-                  </span>
+                  <StatusBadge status={appt.status} kind="appt" size="md" />
                 </div>
               ))}
             </div>
@@ -637,72 +670,101 @@ export default function CRM({ onBack }) {
         {/* TASKS TAB */}
         {activeTab === 'tasks' && !loading && (
           <>
-            <div className="crm-toolbar">
-              <button 
-                className="crm-btn-primary" 
+            <div className="py-3">
+              <button
                 onClick={() => setShowTaskModal(true)}
+                className="flex items-center justify-center gap-2 px-4 py-2.5 bg-blue-500 hover:bg-blue-600 text-white border-0 rounded-lg text-sm font-semibold transition-colors"
               >
                 + New Task
               </button>
             </div>
-            <div className="crm-list">
-              {tasks.length === 0 && <div className="crm-empty">No tasks yet</div>}
-              {tasks.map(task => (
-                <div 
-                  key={task.task_id} 
-                  className={`crm-task-card ${task.status === 'completed' ? 'crm-task-completed' : ''}`}
-                >
-                  <div className="crm-task-checkbox">
-                    <input
-                      type="checkbox"
-                      checked={task.status === 'completed'}
-                      onChange={() => handleUpdateTaskStatus(task.task_id, task.status === 'completed' ? 'pending' : 'completed')}
-                    />
-                  </div>
-                  <div className="crm-task-info">
-                    <div className="crm-task-title">{task.title}</div>
-                    <div className="crm-task-meta">
-                      {task.due_date && (
-                        <span className={new Date(task.due_date) < new Date() && task.status !== 'completed' ? 'crm-task-overdue' : ''}>
-                          <Calendar size={12} /> Due: {formatDate(task.due_date)}
+            <div className="flex flex-col gap-0.5">
+              {tasks.length === 0 && (
+                <div className="text-center py-12 text-gray-400 text-sm">No tasks yet</div>
+              )}
+              {tasks.map(task => {
+                const completed = task.status === 'completed';
+                const priorityClass =
+                  task.priority === 'high'
+                    ? 'bg-red-100 text-red-800'
+                    : task.priority === 'medium'
+                    ? 'bg-amber-100 text-amber-800'
+                    : 'bg-green-100 text-green-800';
+                return (
+                  <div
+                    key={task.task_id}
+                    className={
+                      'flex items-start gap-3 px-4 py-3.5 bg-white rounded-lg border border-transparent transition hover:border-gray-200 hover:shadow-sm ' +
+                      (completed ? 'opacity-60 bg-gray-50' : '')
+                    }
+                  >
+                    <div className="pt-0.5">
+                      <input
+                        type="checkbox"
+                        className="w-5 h-5 cursor-pointer accent-blue-500"
+                        checked={completed}
+                        onChange={() => handleUpdateTaskStatus(task.task_id, completed ? 'pending' : 'completed')}
+                      />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div
+                        className={
+                          'font-semibold text-sm mb-1 ' +
+                          (completed ? 'line-through text-gray-400' : 'text-slate-800')
+                        }
+                      >
+                        {task.title}
+                      </div>
+                      <div className="flex flex-wrap items-center gap-3 text-xs text-gray-500">
+                        {task.due_date && (
+                          <span
+                            className={
+                              'flex items-center gap-1 ' +
+                              (new Date(task.due_date) < new Date() && !completed ? 'text-red-600 font-semibold' : '')
+                            }
+                          >
+                            <Calendar size={12} /> Due: {formatDate(task.due_date)}
+                          </span>
+                        )}
+                        <span className={`px-2 py-0.5 rounded text-[11px] font-semibold uppercase ${priorityClass}`}>
+                          {task.priority}
                         </span>
-                      )}
-                      <span className={`crm-task-priority crm-task-priority-${task.priority}`}>
-                        {task.priority}
-                      </span>
-                      {task.related_lead && (
-                        <span className="crm-task-related">
-                          Lead: {leads.find(l => l.lead_id === task.related_lead)?.name || task.related_lead}
-                        </span>
+                        {task.related_lead && (
+                          <span className="bg-blue-50 text-blue-800 px-2 py-0.5 rounded">
+                            Lead: {leads.find(l => l.lead_id === task.related_lead)?.name || task.related_lead}
+                          </span>
+                        )}
+                      </div>
+                      {task.description && (
+                        <div className="text-[13px] text-gray-500 mt-1.5 leading-snug">{task.description}</div>
                       )}
                     </div>
-                    {task.description && (
-                      <div className="crm-task-desc">{task.description}</div>
-                    )}
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </>
         )}
 
         {/* EMAIL LOG TAB */}
         {activeTab === 'emails' && !loading && (
-          <div className="crm-list">
-            {emails.length === 0 && <div className="crm-empty">No emails sent yet</div>}
+          <div className="flex flex-col gap-0.5">
+            {emails.length === 0 && (
+              <div className="text-center py-12 text-gray-400 text-sm">No emails sent yet</div>
+            )}
             {emails.map((email, idx) => (
-              <div key={idx} className="crm-email-card">
-                <div className="crm-email-icon">
+              <div key={idx} className="flex items-center gap-3 px-4 py-3.5 bg-white rounded-lg">
+                <div className="w-9 h-9 rounded-lg bg-blue-50 flex items-center justify-center text-blue-500 shrink-0">
                   <Mail size={16} />
                 </div>
-                <div className="crm-email-info">
-                  <div className="crm-email-subject">{email.subject}</div>
-                  <div className="crm-email-meta">
+                <div className="flex-1 min-w-0">
+                  <div className="font-semibold text-[13px] text-slate-800 truncate">{email.subject}</div>
+                  <div className="flex flex-wrap gap-3 text-xs text-gray-500 mt-0.5">
                     <span>To: {email.to}</span>
-                    <span className="crm-email-type">{email.email_type}</span>
+                    <span className="bg-gray-100 px-2 py-0.5 rounded text-[11px]">{email.email_type}</span>
                   </div>
                 </div>
-                <div className="crm-email-time">{timeAgo(email.sent_at)}</div>
+                <div className="text-xs text-gray-400 shrink-0">{timeAgo(email.sent_at)}</div>
               </div>
             ))}
           </div>
@@ -713,22 +775,34 @@ export default function CRM({ onBack }) {
 
       {/* Email Compose Modal */}
       {showEmailCompose && (
-        <div className="crm-modal-overlay" onClick={() => { setShowEmailCompose(false); setEmailResult(null); }}>
-          <div className="crm-email-modal" onClick={e => e.stopPropagation()}>
-            <div className="crm-email-modal-header">
-              <h3>Compose Email</h3>
-              <button onClick={() => { setShowEmailCompose(false); setEmailResult(null); }} className="crm-modal-close">
+        <div
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-6"
+          onClick={() => { setShowEmailCompose(false); setEmailResult(null); }}
+        >
+          <div
+            className="bg-white rounded-2xl w-full max-w-[540px] shadow-2xl overflow-hidden"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex justify-between items-center px-6 py-4 border-b border-gray-200">
+              <h3 className="m-0 text-[17px] font-bold text-slate-800">Compose Email</h3>
+              <button
+                onClick={() => { setShowEmailCompose(false); setEmailResult(null); }}
+                className="bg-transparent border-0 text-gray-500 hover:text-gray-700 p-1 cursor-pointer"
+                aria-label="Close"
+              >
                 <X size={20} />
               </button>
             </div>
-            <form onSubmit={handleSendEmail} className="crm-email-form">
+            <form onSubmit={handleSendEmail} className="px-6 py-6 flex flex-col gap-3.5">
               {/* Template Selector */}
-              <div className="crm-email-field">
-                <label>Template</label>
-                <select 
-                  value={selectedTemplate} 
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">
+                  Template
+                </label>
+                <select
+                  value={selectedTemplate}
                   onChange={e => applyEmailTemplate(e.target.value)}
-                  className="crm-template-select"
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm text-slate-800 bg-white outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition"
                 >
                   <option value="">Select a template...</option>
                   {EMAIL_TEMPLATES.map(t => (
@@ -736,47 +810,56 @@ export default function CRM({ onBack }) {
                   ))}
                 </select>
               </div>
-              <div className="crm-email-field">
-                <label>To</label>
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">To</label>
                 <input
                   type="email"
                   value={emailForm.to}
                   onChange={e => setEmailForm(f => ({ ...f, to: e.target.value }))}
                   placeholder="customer@email.com"
                   required
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm text-slate-800 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition box-border"
                 />
               </div>
-              <div className="crm-email-field">
-                <label>Name</label>
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">Name</label>
                 <input
                   type="text"
                   value={emailForm.customer_name}
                   onChange={e => setEmailForm(f => ({ ...f, customer_name: e.target.value }))}
                   placeholder="Customer name"
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm text-slate-800 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition box-border"
                 />
               </div>
-              <div className="crm-email-field">
-                <label>Subject</label>
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">Subject</label>
                 <input
                   type="text"
                   value={emailForm.subject}
                   onChange={e => setEmailForm(f => ({ ...f, subject: e.target.value }))}
                   placeholder="Email subject"
                   required
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm text-slate-800 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition box-border"
                 />
               </div>
-              <div className="crm-email-field">
-                <label>Message</label>
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">Message</label>
                 <textarea
                   value={emailForm.message}
                   onChange={e => setEmailForm(f => ({ ...f, message: e.target.value }))}
                   placeholder="Write your message..."
                   rows={8}
                   required
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm text-slate-800 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition box-border resize-y font-inherit"
                 />
               </div>
               {emailResult && (
-                <div className={`crm-email-result ${emailResult.success ? 'crm-email-result-ok' : 'crm-email-result-err'}`}>
+                <div
+                  className={
+                    'flex items-center gap-2 px-3.5 py-2.5 rounded-lg text-[13px] ' +
+                    (emailResult.success ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800')
+                  }
+                >
                   {emailResult.success ? (
                     <><CheckCircle size={16} /> Email sent successfully</>
                   ) : (
@@ -784,7 +867,11 @@ export default function CRM({ onBack }) {
                   )}
                 </div>
               )}
-              <button type="submit" className="crm-email-send-btn" disabled={emailSending}>
+              <button
+                type="submit"
+                disabled={emailSending}
+                className="flex items-center justify-center gap-2 px-3 py-3 bg-blue-500 hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed text-white border-0 rounded-lg text-sm font-semibold cursor-pointer transition-colors"
+              >
                 <Send size={16} />
                 {emailSending ? 'Sending...' : 'Send Email'}
               </button>
@@ -792,51 +879,65 @@ export default function CRM({ onBack }) {
           </div>
         </div>
       )}
-      
+
       {/* Task Modal */}
       {showTaskModal && (
-        <div className="crm-modal-overlay" onClick={() => setShowTaskModal(false)}>
-          <div className="crm-task-modal" onClick={e => e.stopPropagation()}>
-            <div className="crm-modal-header">
-              <h3>Create New Task</h3>
-              <button onClick={() => setShowTaskModal(false)} className="crm-modal-close">
+        <div
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-6"
+          onClick={() => setShowTaskModal(false)}
+        >
+          <div
+            className="bg-white rounded-2xl w-full max-w-[480px] shadow-2xl overflow-hidden"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex justify-between items-center px-6 py-4 border-b border-gray-200">
+              <h3 className="m-0 text-[17px] font-bold text-slate-800">Create New Task</h3>
+              <button
+                onClick={() => setShowTaskModal(false)}
+                className="bg-transparent border-0 text-gray-500 hover:text-gray-700 p-1 cursor-pointer"
+                aria-label="Close"
+              >
                 <X size={20} />
               </button>
             </div>
-            <form onSubmit={handleCreateTask} className="crm-task-form">
-              <div className="crm-form-field">
-                <label>Title *</label>
+            <form onSubmit={handleCreateTask} className="px-6 py-6 flex flex-col gap-4">
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Title *</label>
                 <input
                   type="text"
                   value={taskForm.title}
                   onChange={e => setTaskForm(f => ({ ...f, title: e.target.value }))}
                   placeholder="e.g., Follow up with John about financing"
                   required
+                  className="px-3 py-2.5 border border-gray-300 rounded-lg text-sm text-slate-800 outline-none bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition"
                 />
               </div>
-              <div className="crm-form-field">
-                <label>Description</label>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Description</label>
                 <textarea
                   value={taskForm.description}
                   onChange={e => setTaskForm(f => ({ ...f, description: e.target.value }))}
                   placeholder="Additional details..."
                   rows={3}
+                  className="px-3 py-2.5 border border-gray-300 rounded-lg text-sm text-slate-800 outline-none bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition resize-y min-h-[80px] font-inherit"
                 />
               </div>
-              <div className="crm-form-row">
-                <div className="crm-form-field">
-                  <label>Due Date</label>
+              <div className="flex gap-4">
+                <div className="flex flex-col gap-1.5 flex-1">
+                  <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Due Date</label>
                   <input
                     type="date"
                     value={taskForm.due_date}
                     onChange={e => setTaskForm(f => ({ ...f, due_date: e.target.value }))}
+                    className="px-3 py-2.5 border border-gray-300 rounded-lg text-sm text-slate-800 outline-none bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition"
                   />
                 </div>
-                <div className="crm-form-field">
-                  <label>Priority</label>
+                <div className="flex flex-col gap-1.5 flex-1">
+                  <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Priority</label>
                   <select
                     value={taskForm.priority}
                     onChange={e => setTaskForm(f => ({ ...f, priority: e.target.value }))}
+                    className="px-3 py-2.5 border border-gray-300 rounded-lg text-sm text-slate-800 outline-none bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition"
                   >
                     <option value="low">Low</option>
                     <option value="medium">Medium</option>
@@ -844,11 +945,14 @@ export default function CRM({ onBack }) {
                   </select>
                 </div>
               </div>
-              <div className="crm-form-field">
-                <label>Related Lead (optional)</label>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                  Related Lead (optional)
+                </label>
                 <select
                   value={taskForm.related_lead}
                   onChange={e => setTaskForm(f => ({ ...f, related_lead: e.target.value }))}
+                  className="px-3 py-2.5 border border-gray-300 rounded-lg text-sm text-slate-800 outline-none bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition"
                 >
                   <option value="">None</option>
                   {leads.map(l => (
@@ -856,7 +960,10 @@ export default function CRM({ onBack }) {
                   ))}
                 </select>
               </div>
-              <button type="submit" className="crm-btn-primary">
+              <button
+                type="submit"
+                className="flex items-center justify-center gap-2 px-3 py-3 mt-2 bg-blue-500 hover:bg-blue-600 text-white border-0 rounded-lg text-sm font-semibold cursor-pointer transition-colors"
+              >
                 Create Task
               </button>
             </form>
@@ -871,32 +978,43 @@ export default function CRM({ onBack }) {
 
 function LeadDetail({ lead, onClose, onUpdateStatus, onEmail, appointments, emails }) {
   return (
-    <div className="crm-lead-detail">
-      <button onClick={onClose} className="crm-detail-back">
+    <div className="bg-white rounded-xl p-6">
+      <button
+        onClick={onClose}
+        className="flex items-center gap-1.5 bg-transparent border-0 text-blue-500 hover:text-blue-600 text-[13px] cursor-pointer p-0 mb-5"
+      >
         <ArrowLeft size={16} /> Back to leads
       </button>
 
-      <div className="crm-detail-header">
-        <div className="crm-detail-avatar" style={{ background: STATUS_COLORS[lead.status] || '#94a3b8' }}>
+      <div className="flex items-center gap-4 mb-6">
+        <div
+          className="w-14 h-14 rounded-full flex items-center justify-center text-white font-bold text-[22px] shrink-0"
+          style={{ background: STATUS_COLORS[lead.status] || '#94a3b8' }}
+        >
           {(lead.name || '?')[0].toUpperCase()}
         </div>
         <div>
-          <h2 className="crm-detail-name">{lead.name || 'Unknown'}</h2>
-          <div className="crm-detail-contact">
-            {lead.phone && <span><Phone size={14} /> {lead.phone}</span>}
-            {lead.email && <span><Mail size={14} /> {lead.email}</span>}
+          <h2 className="text-xl font-bold text-slate-800 m-0">{lead.name || 'Unknown'}</h2>
+          <div className="flex flex-wrap gap-4 mt-1 text-[13px] text-gray-500">
+            {lead.phone && <span className="flex items-center gap-1"><Phone size={14} /> {lead.phone}</span>}
+            {lead.email && <span className="flex items-center gap-1"><Mail size={14} /> {lead.email}</span>}
           </div>
         </div>
       </div>
 
       {/* Status Actions */}
-      <div className="crm-detail-section">
-        <h3>Status</h3>
-        <div className="crm-detail-status-row">
+      <div className="mb-5 pb-5 border-b border-gray-100">
+        <h3 className="text-xs uppercase tracking-wide text-gray-500 m-0 mb-2.5 font-semibold">Status</h3>
+        <div className="flex flex-wrap gap-2">
           {['new', 'contacted', 'qualified', 'converted'].map(s => (
             <button
               key={s}
-              className={`crm-detail-status-btn ${lead.status === s ? 'crm-detail-status-active' : ''}`}
+              className={
+                'px-4 py-1.5 rounded-lg text-[13px] cursor-pointer capitalize transition ' +
+                (lead.status === s
+                  ? 'border border-transparent text-white'
+                  : 'border border-gray-300 bg-white hover:border-gray-400 text-gray-700')
+              }
               style={lead.status === s ? { background: STATUS_COLORS[s], color: '#fff' } : {}}
               onClick={() => onUpdateStatus(lead.lead_id, s)}
             >
@@ -908,41 +1026,52 @@ function LeadDetail({ lead, onClose, onUpdateStatus, onEmail, appointments, emai
 
       {/* Preferences */}
       {(lead.bedrooms || lead.bathrooms || lead.budget_max || lead.home_type) && (
-        <div className="crm-detail-section">
-          <h3>Preferences</h3>
-          <div className="crm-detail-prefs">
-            {lead.bedrooms && <span><Home size={14} /> {lead.bedrooms} bed</span>}
-            {lead.bathrooms && <span>{lead.bathrooms} bath</span>}
-            {lead.budget_max && <span><DollarSign size={14} /> {Number(lead.budget_max).toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })}</span>}
-            {lead.home_type && <span>{lead.home_type}</span>}
+        <div className="mb-5 pb-5 border-b border-gray-100">
+          <h3 className="text-xs uppercase tracking-wide text-gray-500 m-0 mb-2.5 font-semibold">Preferences</h3>
+          <div className="flex flex-wrap gap-4 text-[13px] text-gray-700">
+            {lead.bedrooms && <span className="flex items-center gap-1"><Home size={14} /> {lead.bedrooms} bed</span>}
+            {lead.bathrooms && <span className="flex items-center gap-1">{lead.bathrooms} bath</span>}
+            {lead.budget_max && (
+              <span className="flex items-center gap-1">
+                <DollarSign size={14} />
+                {Number(lead.budget_max).toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })}
+              </span>
+            )}
+            {lead.home_type && <span className="flex items-center gap-1">{lead.home_type}</span>}
           </div>
         </div>
       )}
 
       {/* Engagement */}
-      <div className="crm-detail-section">
-        <h3>Engagement</h3>
-        <div className="crm-detail-engagement">
-          <span>Source: <strong>{lead.source}</strong></span>
-          <span>Appointment: <strong>{lead.appointment_requested ? 'Yes' : 'No'}</strong></span>
-          <span>Financing: <strong>{lead.financing_discussed ? 'Discussed' : 'No'}</strong></span>
+      <div className="mb-5 pb-5 border-b border-gray-100">
+        <h3 className="text-xs uppercase tracking-wide text-gray-500 m-0 mb-2.5 font-semibold">Engagement</h3>
+        <div className="flex flex-wrap gap-4 text-[13px] text-gray-700">
+          <span className="flex items-center gap-1">Source: <strong>{lead.source}</strong></span>
+          <span className="flex items-center gap-1">Appointment: <strong>{lead.appointment_requested ? 'Yes' : 'No'}</strong></span>
+          <span className="flex items-center gap-1">Financing: <strong>{lead.financing_discussed ? 'Discussed' : 'No'}</strong></span>
           {lead.homes_viewed?.length > 0 && (
-            <span>Viewed: <strong>{lead.homes_viewed.join(', ')}</strong></span>
+            <span className="flex items-center gap-1">Viewed: <strong>{lead.homes_viewed.join(', ')}</strong></span>
           )}
         </div>
       </div>
 
       {/* Actions */}
-      <div className="crm-detail-section">
-        <h3>Actions</h3>
-        <div className="crm-detail-actions">
+      <div className="mb-5 pb-5 border-b border-gray-100">
+        <h3 className="text-xs uppercase tracking-wide text-gray-500 m-0 mb-2.5 font-semibold">Actions</h3>
+        <div className="flex flex-col sm:flex-row gap-2.5">
           {lead.phone && (
-            <a href={`tel:${lead.phone}`} className="crm-action-btn crm-action-call">
+            <a
+              href={`tel:${lead.phone}`}
+              className="flex items-center justify-center gap-1.5 px-5 py-2.5 rounded-lg text-sm font-medium border-0 bg-green-500 hover:bg-green-600 text-white no-underline transition-colors"
+            >
               <Phone size={16} /> Call
             </a>
           )}
           {lead.email && (
-            <button onClick={() => onEmail(lead)} className="crm-action-btn crm-action-email">
+            <button
+              onClick={() => onEmail(lead)}
+              className="flex items-center justify-center gap-1.5 px-5 py-2.5 rounded-lg text-sm font-medium border-0 bg-blue-500 hover:bg-blue-600 text-white cursor-pointer transition-colors"
+            >
               <Mail size={16} /> Email
             </button>
           )}
@@ -950,54 +1079,70 @@ function LeadDetail({ lead, onClose, onUpdateStatus, onEmail, appointments, emai
       </div>
 
       {/* Activity Timeline */}
-      <div className="crm-detail-section">
-        <h3>Activity</h3>
-        <div className="crm-timeline">
+      <div className="mb-5 pb-5 border-b border-gray-100">
+        <h3 className="text-xs uppercase tracking-wide text-gray-500 m-0 mb-2.5 font-semibold">Activity</h3>
+        <div className="flex flex-col pl-3">
           {/* Created */}
-          <div className="crm-timeline-item">
-            <div className="crm-timeline-dot" style={{ background: '#3b82f6' }} />
-            <div className="crm-timeline-content">
-              <span className="crm-timeline-action">Lead created via {lead.source}</span>
-              <span className="crm-timeline-time">{formatDate(lead.created_at)}</span>
+          <div className="flex gap-3 py-2.5 pl-4 border-l-2 border-gray-200 relative">
+            <div
+              className="absolute -left-1.5 top-3.5 w-2.5 h-2.5 rounded-full border-2 border-white"
+              style={{ background: '#3b82f6' }}
+            />
+            <div className="flex flex-col gap-0.5">
+              <span className="text-[13px] text-gray-700">Lead created via {lead.source}</span>
+              {lead.created_at && (
+                <span className="text-[11px] text-gray-400">{formatDate(lead.created_at)}</span>
+              )}
             </div>
           </div>
 
           {/* Related Appointments */}
           {appointments.map(appt => (
-            <div key={appt.appointment_id} className="crm-timeline-item">
-              <div className="crm-timeline-dot" style={{ background: '#22c55e' }} />
-              <div className="crm-timeline-content">
-                <span className="crm-timeline-action">
+            <div
+              key={appt.appointment_id}
+              className="flex gap-3 py-2.5 pl-4 border-l-2 border-gray-200 relative"
+            >
+              <div
+                className="absolute -left-1.5 top-3.5 w-2.5 h-2.5 rounded-full border-2 border-white"
+                style={{ background: '#22c55e' }}
+              />
+              <div className="flex flex-col gap-0.5">
+                <span className="text-[13px] text-gray-700">
                   Appointment {appt.status} — {appt.date} at {appt.time_slot}
                 </span>
-                <span className="crm-timeline-time">{formatDate(appt.created_at)}</span>
+                {appt.created_at && (
+                  <span className="text-[11px] text-gray-400">{formatDate(appt.created_at)}</span>
+                )}
               </div>
             </div>
           ))}
 
           {/* Related Emails */}
           {emails.map((email, idx) => (
-            <div key={idx} className="crm-timeline-item">
-              <div className="crm-timeline-dot" style={{ background: '#f59e0b' }} />
-              <div className="crm-timeline-content">
-                <span className="crm-timeline-action">
-                  Email sent: {email.subject}
-                </span>
-                <span className="crm-timeline-time">{formatDate(email.sent_at)}</span>
+            <div key={idx} className="flex gap-3 py-2.5 pl-4 border-l-2 border-gray-200 relative">
+              <div
+                className="absolute -left-1.5 top-3.5 w-2.5 h-2.5 rounded-full border-2 border-white"
+                style={{ background: '#f59e0b' }}
+              />
+              <div className="flex flex-col gap-0.5">
+                <span className="text-[13px] text-gray-700">Email sent: {email.subject}</span>
+                {email.sent_at && (
+                  <span className="text-[11px] text-gray-400">{formatDate(email.sent_at)}</span>
+                )}
               </div>
             </div>
           ))}
 
           {appointments.length === 0 && emails.length === 0 && (
-            <div className="crm-timeline-empty">No activity yet beyond lead creation</div>
+            <div className="text-[13px] text-gray-400 py-2">No activity yet beyond lead creation</div>
           )}
         </div>
       </div>
 
-      <div className="crm-detail-meta">
-        <span>ID: {lead.lead_id}</span>
-        <span>Created: {formatDate(lead.created_at)}</span>
-        <span>Updated: {formatDate(lead.updated_at)}</span>
+      <div className="flex flex-wrap gap-4 text-[11px] text-gray-400 mt-4">
+        {lead.lead_id && <span>ID: {lead.lead_id}</span>}
+        {lead.created_at && <span>Created: {formatDate(lead.created_at)}</span>}
+        {lead.updated_at && <span>Updated: {formatDate(lead.updated_at)}</span>}
       </div>
     </div>
   );
@@ -1110,6 +1255,182 @@ function NewDealForm({ onCreated }) {
 
 // ─── Customer Analytics Panel ────────────────────────
 
+function FunnelPanel() {
+  const [funnel, setFunnel] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    adminFetch('/api/admin/crm/funnel')
+      .then(r => r.json())
+      .then(d => { if (d?.success) setFunnel(d); })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return <div className="text-center py-6 text-gray-400 text-sm">Loading funnel...</div>;
+  if (!funnel?.stages?.length) return null;
+
+  const top = funnel.stages[0]?.count || 1;
+  const stageColors = {
+    LEAD: '#f59e0b',
+    ENROLLED: '#3b82f6',
+    DEAL: '#8b5cf6',
+    CLOSED: '#22c55e',
+  };
+
+  return (
+    <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, padding: 16, marginBottom: 16 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 12 }}>
+        <div style={{ fontSize: 12, color: '#aaa', textTransform: 'uppercase', letterSpacing: 1, fontWeight: 600 }}>
+          CRM Funnel
+        </div>
+        <div style={{ fontSize: 10, color: '#666' }}>cached 5m</div>
+      </div>
+      {funnel.stages.map(stage => {
+        const widthPct = top ? Math.max(2, (stage.count / top) * 100) : 0;
+        return (
+          <div key={stage.key} style={{ marginBottom: 8 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
+              <span style={{ color: '#fff', fontWeight: 600 }}>{stage.label}</span>
+              <span style={{ color: '#aaa' }}>
+                {stage.count.toLocaleString()} <span style={{ color: '#666' }}>({stage.conversion_pct}%)</span>
+              </span>
+            </div>
+            <div style={{ height: 18, background: 'rgba(255,255,255,0.04)', borderRadius: 4, overflow: 'hidden' }}>
+              <div style={{
+                width: `${widthPct}%`,
+                height: '100%',
+                background: stageColors[stage.key] || '#3b82f6',
+                transition: 'width 0.4s ease',
+              }} />
+            </div>
+          </div>
+        );
+      })}
+      {(funnel.median_days_in_stage?.LEAD_to_ENROLLED != null ||
+        funnel.median_days_in_stage?.DEAL_to_CLOSED != null) && (
+        <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,0.05)', display: 'flex', gap: 24, fontSize: 11, color: '#888' }}>
+          {funnel.median_days_in_stage.LEAD_to_ENROLLED != null && (
+            <span>Median Lead to Enrolled: <strong style={{ color: '#fff' }}>{funnel.median_days_in_stage.LEAD_to_ENROLLED}d</strong></span>
+          )}
+          {funnel.median_days_in_stage.DEAL_to_CLOSED != null && (
+            <span>Median Deal to Closed: <strong style={{ color: '#fff' }}>{funnel.median_days_in_stage.DEAL_to_CLOSED}d</strong></span>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+// Stable color palette for lead source categories
+const SOURCE_COLORS = [
+  '#3b82f6', '#22c55e', '#f59e0b', '#8b5cf6', '#ec4899',
+  '#14b8a6', '#ef4444', '#a3e635', '#06b6d4', '#f97316',
+];
+
+function LeadSourceChart() {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [days, setDays] = useState(30);
+
+  useEffect(() => {
+    let alive = true;
+    setLoading(true);
+    adminFetch(`/api/admin/crm/lead-sources?days=${days}`)
+      .then(r => r.json())
+      .then(d => { if (alive && d?.success) setData(d); })
+      .catch(() => {})
+      .finally(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+  }, [days]);
+
+  if (loading) return <div className="text-center py-4 text-gray-400 text-xs">Loading lead sources...</div>;
+  if (!data?.categories?.length) return null;
+
+  const chartData = data.categories.map((c, i) => ({
+    name: c.category,
+    value: c.count,
+    color: SOURCE_COLORS[i % SOURCE_COLORS.length],
+    revenue: c.attributed_revenue,
+    deals: c.attributed_deals,
+    pct: c.pct,
+  }));
+
+  const totalRevenue = chartData.reduce((s, c) => s + (c.revenue || 0), 0);
+
+  return (
+    <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, padding: 16, marginBottom: 16 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 12 }}>
+        <div style={{ fontSize: 12, color: '#aaa', textTransform: 'uppercase', letterSpacing: 1, fontWeight: 600 }}>
+          Lead Sources ({data.total_leads} leads)
+        </div>
+        <select
+          value={days}
+          onChange={e => setDays(Number(e.target.value))}
+          style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff', borderRadius: 6, padding: '4px 8px', fontSize: 11 }}
+        >
+          <option value={7}>Last 7 days</option>
+          <option value={30}>Last 30 days</option>
+          <option value={90}>Last 90 days</option>
+          <option value={365}>Last 365 days</option>
+        </select>
+      </div>
+      <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
+        <div style={{ width: 220, height: 220, flexShrink: 0 }}>
+          <ResponsiveContainer width="100%" height="100%">
+            <PieChart>
+              <Pie
+                data={chartData}
+                dataKey="value"
+                nameKey="name"
+                innerRadius={50}
+                outerRadius={90}
+                paddingAngle={2}
+              >
+                {chartData.map((entry, idx) => (
+                  <Cell key={idx} fill={entry.color} stroke="rgba(0,0,0,0.4)" />
+                ))}
+              </Pie>
+              <RechartsTooltip
+                contentStyle={{ background: '#1a1a1a', border: '1px solid #333', borderRadius: 6, fontSize: 12 }}
+                formatter={(value, _name, item) => [
+                  `${value} leads (${item.payload.pct}%)`,
+                  item.payload.name,
+                ]}
+              />
+            </PieChart>
+          </ResponsiveContainer>
+        </div>
+        <div style={{ flex: 1, minWidth: 200 }}>
+          {chartData.map((c) => (
+            <div key={c.name} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0', borderBottom: '1px solid rgba(255,255,255,0.04)', fontSize: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ width: 10, height: 10, background: c.color, borderRadius: 2, display: 'inline-block' }} />
+                <span style={{ color: '#fff', fontWeight: 500 }}>{c.name}</span>
+              </div>
+              <div style={{ display: 'flex', gap: 12, color: '#aaa' }}>
+                <span>{c.value} ({c.pct}%)</span>
+                {c.revenue > 0 && (
+                  <span style={{ color: '#22c55e', fontWeight: 500 }}>
+                    ${c.revenue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                  </span>
+                )}
+              </div>
+            </div>
+          ))}
+          {totalRevenue > 0 && (
+            <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid rgba(255,255,255,0.08)', fontSize: 11, color: '#888', textAlign: 'right' }}>
+              Total attributed revenue: <strong style={{ color: '#22c55e' }}>${totalRevenue.toLocaleString(undefined, { maximumFractionDigits: 0 })}</strong>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
 function CustomerAnalytics() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -1129,11 +1450,17 @@ function CustomerAnalytics() {
     } catch { setResults([]); }
   };
 
-  if (loading) return <div className="crm-empty">Loading customer analytics...</div>;
-  if (!data) return <div className="crm-empty">Failed to load analytics</div>;
+  if (loading) return <div className="text-center py-12 text-gray-400 text-sm">Loading customer analytics...</div>;
+  if (!data) return <div className="text-center py-12 text-gray-400 text-sm">Failed to load analytics</div>;
 
   return (
     <div style={{ padding: '0 4px' }}>
+      {/* Funnel panel — counts + conversion + median time-in-stage */}
+      <FunnelPanel />
+
+      {/* Lead source attribution donut chart */}
+      <LeadSourceChart />
+
       {/* Metrics bar */}
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 16 }}>
         {[
@@ -1270,44 +1597,49 @@ function DealCard({ deal, onUpdateStatus, statusOrder }) {
   };
 
   return (
-    <div className="crm-deal-card">
-      <div className="crm-deal-header" onClick={() => setExpanded(!expanded)}>
+    <div className="bg-white rounded-lg p-3 shadow-sm">
+      <div className="flex justify-between items-start cursor-pointer" onClick={() => setExpanded(!expanded)}>
         <div>
-          <div className="crm-deal-name">{buyerName || 'No Name'}</div>
-          <div className="crm-deal-model">{homeLabel}</div>
+          <div className="font-semibold text-[13px] text-slate-800">{buyerName || 'No Name'}</div>
+          <div className="text-xs text-gray-500 mt-0.5">{homeLabel}</div>
         </div>
         {expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
       </div>
 
       {deal.sales_price && (
-        <div className="crm-deal-price">
+        <div className="text-[15px] font-bold text-emerald-600 mt-2">
           ${Number(deal.sales_price).toLocaleString()}
         </div>
       )}
 
       {expanded && (
-        <div className="crm-deal-details">
-          {deal.buyer_phone && <div><Phone size={12} /> {deal.buyer_phone}</div>}
-          {deal.buyer_email && <div><Mail size={12} /> {deal.buyer_email}</div>}
-          {deal.salesrep && <div>Rep: {deal.salesrep}</div>}
-          {detailManufacturerModel && <div>{detailManufacturerModel}</div>}
-          {dealSerial && <div>S/N: {dealSerial}</div>}
-          {deal.buyer_address && <div>{deal.buyer_address}, {deal.buyer_city} {deal.buyer_state} {deal.buyer_zip}</div>}
-          <div className="crm-deal-dates">
-            Created: {formatDate(deal.created_at)}
-          </div>
+        <div className="mt-2.5 pt-2.5 border-t border-gray-100 text-xs text-gray-500 flex flex-col gap-1">
+          {deal.buyer_phone && <div className="flex items-center gap-1"><Phone size={12} /> {deal.buyer_phone}</div>}
+          {deal.buyer_email && <div className="flex items-center gap-1"><Mail size={12} /> {deal.buyer_email}</div>}
+          {deal.salesrep && <div className="flex items-center gap-1">Rep: {deal.salesrep}</div>}
+          {detailManufacturerModel && <div className="flex items-center gap-1">{detailManufacturerModel}</div>}
+          {dealSerial && <div className="flex items-center gap-1">S/N: {dealSerial}</div>}
+          {deal.buyer_address && (
+            <div className="flex items-center gap-1">
+              {deal.buyer_address}, {deal.buyer_city} {deal.buyer_state} {deal.buyer_zip}
+            </div>
+          )}
+          {deal.created_at && (
+            <div className="text-gray-400 mt-1">Created: {formatDate(deal.created_at)}</div>
+          )}
 
           {/* Document Generation Actions */}
-          <div style={{ marginTop: '10px', fontSize: '11px', color: '#666', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Generate Documents</div>
-          <div className="crm-deal-actions" style={{ marginTop: '6px', display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+          <div className="mt-2.5 text-[11px] text-gray-500 font-semibold uppercase tracking-wide">
+            Generate Documents
+          </div>
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
             <button
-              className="crm-deal-doc-btn"
               onClick={() => handleGenerateDoc('TMHA_SalesContract.pdf')}
               disabled={generating !== null}
-              style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '6px 12px', fontSize: '12px',
-                       background: '#1a1a2e', border: '1px solid #3b82f6', color: '#3b82f6', borderRadius: '6px', cursor: 'pointer' }}
+              style={{ background: '#1a1a2e', border: '1px solid #3b82f6', color: '#3b82f6' }}
+              className="flex items-center gap-1 px-3 py-1.5 text-xs rounded-md cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {generating === 'doc' ? <Loader size={12} className="spin" /> : <FileText size={12} />}
+              {generating === 'doc' ? <Loader size={12} className="animate-spin" /> : <FileText size={12} />}
               Sales Contract
             </button>
             {[
@@ -1319,49 +1651,51 @@ function DealCard({ deal, onUpdateStatus, statusOrder }) {
                 key={template}
                 onClick={() => handleGenerateDoc(template)}
                 disabled={generating !== null}
-                style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '6px 10px', fontSize: '11px',
-                         background: '#1a1a2e', border: `1px solid ${color}`, color, borderRadius: '6px', cursor: 'pointer' }}
+                style={{ background: '#1a1a2e', border: `1px solid ${color}`, color }}
+                className="flex items-center gap-1 px-2.5 py-1.5 text-[11px] rounded-md cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <FileText size={11} /> {label}
               </button>
             ))}
             <button
-              className="crm-deal-doc-btn"
               onClick={handleGeneratePacket}
               disabled={generating !== null}
-              style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '6px 12px', fontSize: '12px',
-                       background: '#1a1a2e', border: '1px solid #22c55e', color: '#22c55e', borderRadius: '6px', cursor: 'pointer', fontWeight: 600 }}
+              style={{ background: '#1a1a2e', border: '1px solid #22c55e', color: '#22c55e' }}
+              className="flex items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-md cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {generating === 'packet' ? <Loader size={12} className="spin" /> : <Package size={12} />}
+              {generating === 'packet' ? <Loader size={12} className="animate-spin" /> : <Package size={12} />}
               Full Closing Packet (9 docs)
             </button>
           </div>
 
           {/* Generation Result */}
           {genResult && (
-            <div style={{ marginTop: '8px', padding: '8px', borderRadius: '6px', fontSize: '12px',
-                          background: genResult.success ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)',
-                          border: `1px solid ${genResult.success ? '#22c55e' : '#ef4444'}` }}>
+            <div
+              className={
+                'mt-2 p-2 rounded-md text-xs border ' +
+                (genResult.success
+                  ? 'bg-green-500/10 border-green-500'
+                  : 'bg-red-500/10 border-red-500')
+              }
+            >
               {genResult.success ? (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <CheckCircle size={14} color="#22c55e" />
+                <div className="flex items-center gap-1.5">
+                  <CheckCircle size={14} className="text-green-500" />
                   <span>{genResult.message}</span>
                   <button
                     onClick={() => handleDownload(genResult.download_url)}
-                    style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '4px',
-                             padding: '4px 8px', background: '#22c55e', color: '#000', border: 'none',
-                             borderRadius: '4px', cursor: 'pointer', fontSize: '11px', fontWeight: 600 }}
+                    className="ml-auto flex items-center gap-1 px-2 py-1 bg-green-500 text-black border-0 rounded text-[11px] font-semibold cursor-pointer"
                   >
                     <Download size={12} /> Download
                   </button>
                 </div>
               ) : (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#ef4444' }}>
+                <div className="flex items-center gap-1.5 text-red-500">
                   <AlertCircle size={14} /> {genResult.error || 'Generation failed'}
                 </div>
               )}
               {genResult.documents_included && (
-                <div style={{ marginTop: '6px', color: '#888', fontSize: '11px' }}>
+                <div className="mt-1.5 text-gray-500 text-[11px]">
                   {genResult.page_count} pages • {genResult.documents_included.length} documents
                 </div>
               )}
@@ -1372,7 +1706,7 @@ function DealCard({ deal, onUpdateStatus, statusOrder }) {
 
       {nextStatus && (
         <button
-          className="crm-deal-advance"
+          className="mt-2.5 w-full px-2 py-1.5 border border-dashed border-gray-300 hover:border-blue-500 hover:bg-blue-50 bg-transparent rounded-md text-xs text-blue-500 cursor-pointer transition-colors"
           onClick={() => onUpdateStatus(deal.id, nextStatus)}
         >
           Move to {nextStatus} →
