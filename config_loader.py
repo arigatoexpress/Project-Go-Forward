@@ -16,6 +16,7 @@ def get_config():
             _config = yaml.safe_load(f)
     return _config
 
+
 def get_business():
     """Get business section of config."""
     return get_config().get("business", {})
