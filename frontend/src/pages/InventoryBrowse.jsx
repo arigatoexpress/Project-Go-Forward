@@ -3,9 +3,12 @@ import {
   Search, SlidersHorizontal, X, Home, Bed, Bath, Maximize2,
   Camera, Box, ChevronLeft, ChevronRight, MapPin, Phone,
   MessageCircle, Grid3X3, Loader2, Eye, ArrowUpDown, Calendar,
-  DollarSign, Video, CheckCircle2, AlertCircle
+  DollarSign, Video, CheckCircle2, AlertCircle, RefreshCw
 } from 'lucide-react';
 import { BUSINESS_PHONE, BUSINESS_PHONE_RAW, BUSINESS_ADDRESS, BUSINESS_CITY, BUSINESS_HOURS } from '../constants';
+import StatusBadge from '../components/StatusBadge';
+import EmptyState from '../components/EmptyState';
+import Card from '../components/Card';
 import './InventoryBrowse.css';
 
 const CDN_BASE = "https://d132mt2yijm03y.cloudfront.net";
@@ -308,30 +311,30 @@ export default function InventoryBrowse({ onAskTex, onCreateAd }) {
 
   if (loading) {
     return (
-      <div className="tho-browse">
+      <div className="min-h-screen bg-slate-50 font-sans">
         {/* Skeleton hero */}
-        <div className="tho-browse-hero">
-          <div className="tho-browse-hero-content">
-            <div className="tho-skeleton" style={{ width: '60%', height: 32, margin: '0 auto 12px' }} />
-            <div className="tho-skeleton" style={{ width: '80%', height: 16, margin: '0 auto 24px' }} />
-            <div className="tho-skeleton" style={{ width: '100%', height: 48, borderRadius: 12 }} />
+        <div className="bg-gradient-to-br from-blue-900 via-blue-800 to-blue-600 px-6 py-16 text-center">
+          <div className="max-w-3xl mx-auto space-y-4 animate-pulse">
+            <div className="h-10 bg-white/20 rounded-full w-2/3 mx-auto" />
+            <div className="h-5 bg-white/10 rounded-full w-4/5 mx-auto" />
+            <div className="h-12 bg-white/10 rounded-2xl w-full" />
           </div>
         </div>
         {/* Skeleton cards */}
-        <div className="tho-skeleton-grid">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 p-6 max-w-7xl mx-auto">
           {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="tho-skeleton-card">
-              <div className="tho-skeleton tho-sk-image" />
-              <div className="tho-sk-body">
-                <div className="tho-skeleton tho-sk-line medium" />
-                <div className="tho-skeleton tho-sk-line short" />
-                <div className="tho-skeleton tho-sk-price" />
-                <div className="tho-sk-actions">
-                  <div className="tho-skeleton tho-sk-btn" />
-                  <div className="tho-skeleton tho-sk-btn" />
+            <Card key={i} className="animate-pulse shadow-none">
+              <div className="h-52 bg-slate-200" />
+              <div className="p-5 space-y-3">
+                <div className="h-4 bg-slate-200 rounded w-2/3" />
+                <div className="h-3 bg-slate-100 rounded w-1/2" />
+                <div className="h-8 bg-slate-100 rounded w-1/3 mt-4" />
+                <div className="flex gap-2 pt-2">
+                  <div className="h-10 bg-slate-200 rounded-lg flex-1" />
+                  <div className="h-10 bg-slate-200 rounded-lg flex-1" />
                 </div>
               </div>
-            </div>
+            </Card>
           ))}
         </div>
       </div>
@@ -340,16 +343,27 @@ export default function InventoryBrowse({ onAskTex, onCreateAd }) {
 
   if (error) {
     return (
-      <div className="tho-browse-loading">
-        <AlertCircle size={40} className="text-red-400 mb-3" />
-        <p className="text-gray-700 font-medium mb-1">Unable to load inventory</p>
-        <p className="text-gray-500 text-sm mb-4">{error}</p>
-        <button onClick={fetchInventory} className="px-6 py-2.5 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 active:scale-95 transition">
-          Try Again
-        </button>
-        <a href={`tel:${BUSINESS_PHONE_RAW}`} className="mt-3 text-sm text-blue-600 hover:underline">
-          Or call us at {BUSINESS_PHONE}
-        </a>
+      <div className="flex flex-col items-center justify-center min-h-[60vh] p-6 text-center">
+        <EmptyState 
+          icon={AlertCircle}
+          title="Unable to load inventory"
+          description={error}
+        >
+          <div className="flex flex-col sm:flex-row gap-3">
+            <button 
+              onClick={fetchInventory} 
+              className="flex items-center gap-2 px-6 py-2.5 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 active:scale-95 transition-all shadow-lg shadow-blue-200"
+            >
+              <RefreshCw size={18} /> Try Again
+            </button>
+            <a 
+              href={`tel:${BUSINESS_PHONE_RAW}`} 
+              className="px-6 py-2.5 bg-white text-slate-700 border border-slate-200 rounded-xl font-bold hover:bg-slate-50 transition-all"
+            >
+              Call {BUSINESS_PHONE}
+            </a>
+          </div>
+        </EmptyState>
       </div>
     );
   }
@@ -360,41 +374,53 @@ export default function InventoryBrowse({ onAskTex, onCreateAd }) {
   const tourCount = homes.filter(h => h.matterport_id).length;
 
   return (
-    <div className="tho-browse">
+    <div className="min-h-screen bg-slate-50 font-sans pb-20">
       {/* Hero Section */}
-      <div className="tho-browse-hero">
-        <div className="tho-browse-hero-content">
-          <h1 className="tho-browse-hero-title">Find Your Perfect Home</h1>
-          <p className="tho-browse-hero-subtitle">
+      <div className="bg-gradient-to-br from-blue-950 via-blue-900 to-blue-700 px-6 py-12 md:py-20 text-center relative overflow-hidden">
+        {/* Subtle decorative circles */}
+        <div className="absolute top-0 right-0 w-96 h-96 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/2 blur-3xl pointer-events-none" />
+        <div className="absolute bottom-0 left-0 w-64 h-64 bg-blue-400/10 rounded-full translate-y-1/2 -translate-x-1/2 blur-2xl pointer-events-none" />
+        
+        <div className="max-w-4xl mx-auto relative z-10">
+          <h1 className="text-4xl md:text-5xl font-extrabold text-white mb-4 tracking-tight">
+            Find Your Perfect Home
+          </h1>
+          <p className="text-lg md:text-xl text-blue-100/90 mb-8 max-w-3xl mx-auto leading-relaxed font-medium">
             Browse {homes.length} manufactured homes — {newCount} new, {preOwnedCount} pre-owned — with real photos and {tourCount} 3D virtual tours
           </p>
 
           {/* Search Bar */}
-          <div className="tho-browse-search-bar">
-            <Search size={20} className="text-gray-400" aria-hidden="true" />
+          <div className="max-w-2xl mx-auto relative group">
+            <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-slate-400 group-focus-within:text-blue-500 transition-colors">
+              <Search size={22} />
+            </div>
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search by name, manufacturer, beds, baths, type..."
-              className="tho-browse-search-input"
-              aria-label="Search homes by name, manufacturer, beds, baths, or type"
+              className="w-full pl-12 pr-12 py-4 bg-white rounded-2xl shadow-2xl shadow-blue-950/20 text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-4 focus:ring-blue-500/20 transition-all border-0 text-lg"
+              aria-label="Search homes"
             />
             {searchQuery && (
-              <button onClick={() => setSearchQuery('')} className="text-gray-400 hover:text-gray-600" aria-label="Clear search">
-                <X size={18} aria-hidden="true" />
+              <button 
+                onClick={() => setSearchQuery('')} 
+                className="absolute inset-y-0 right-4 flex items-center text-slate-300 hover:text-slate-600"
+                aria-label="Clear search"
+              >
+                <X size={20} />
               </button>
             )}
           </div>
 
           {/* Hero CTA */}
           {onAskTex && (
-            <div className="flex justify-center gap-3 mt-4">
+            <div className="flex justify-center gap-3 mt-8">
               <button
                 onClick={() => onAskTex("I'm looking for a new home. What do you recommend?")}
-                className="inline-flex items-center gap-2 px-6 py-3 bg-white text-blue-700 font-bold rounded-full shadow-lg hover:shadow-xl hover:scale-105 transition-all text-sm"
+                className="inline-flex items-center gap-2.5 px-8 py-3.5 bg-white text-blue-800 font-bold rounded-full shadow-xl shadow-blue-950/30 hover:shadow-blue-950/40 hover:-translate-y-0.5 transition-all text-base border-2 border-blue-50/50"
               >
-                <MessageCircle size={18} /> Talk to Tex — AI Home Advisor
+                <MessageCircle size={20} className="text-blue-600" /> Talk to Tex — AI Advisor
               </button>
             </div>
           )}
@@ -402,37 +428,39 @@ export default function InventoryBrowse({ onAskTex, onCreateAd }) {
       </div>
 
       {/* Toolbar */}
-      <div className="tho-browse-toolbar" style={{display:'flex', flexDirection:'column', alignItems:'center', gap:'0.75rem', padding:'1rem 1rem 0.5rem'}}>
-        <div className="tho-browse-toolbar-left" style={{display:'flex', alignItems:'center', gap:'0.75rem', justifyContent:'center', flexWrap:'wrap'}}>
-          <span className="tho-browse-count">
-            {sortedHomes.length} home{sortedHomes.length !== 1 ? 's' : ''}
+      <div className="max-w-7xl mx-auto px-6 pt-10 pb-6 flex flex-col md:flex-row md:items-center justify-between gap-6">
+        <div className="flex flex-col sm:flex-row items-center gap-6">
+          <span className="text-slate-500 font-semibold text-sm whitespace-nowrap bg-white px-4 py-2 rounded-xl shadow-sm border border-slate-100">
+            {sortedHomes.length} home{sortedHomes.length !== 1 ? 's' : ''} found
           </span>
 
           {/* Quick status toggles */}
-          <div className="tho-browse-status-tabs">
+          <div className="flex bg-slate-200/50 p-1.5 rounded-2xl border border-slate-200 shadow-inner">
             <button
               onClick={() => setFilters(f => ({ ...f, status: '' }))}
-              className={`tho-status-tab ${filters.status === '' ? 'active' : ''}`}
+              className={`px-5 py-2 rounded-xl text-sm font-bold transition-all ${filters.status === '' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
             >All</button>
             <button
               onClick={() => setFilters(f => ({ ...f, status: 'Available' }))}
-              className={`tho-status-tab ${filters.status === 'Available' ? 'active' : ''}`}
+              className={`px-5 py-2 rounded-xl text-sm font-bold transition-all ${filters.status === 'Available' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
             >New ({newCount})</button>
             <button
               onClick={() => setFilters(f => ({ ...f, status: 'Pre-Owned' }))}
-              className={`tho-status-tab ${filters.status === 'Pre-Owned' ? 'active' : ''}`}
-            >Pre-Owned ({preOwnedCount})</button>
+              className={`px-5 py-2 rounded-xl text-sm font-bold transition-all ${filters.status === 'Pre-Owned' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+            >Used ({preOwnedCount})</button>
           </div>
         </div>
 
-        <div className="tho-browse-toolbar-right" style={{display:'flex', alignItems:'center', gap:'0.5rem', justifyContent:'center'}}>
+        <div className="flex items-center gap-3">
           {/* Sort dropdown */}
-          <div className="tho-sort-wrap">
-            <ArrowUpDown size={14} />
+          <div className="relative group">
+            <div className="absolute inset-y-0 left-3.5 flex items-center pointer-events-none text-slate-400">
+              <ArrowUpDown size={15} />
+            </div>
             <select
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value)}
-              className="tho-sort-select"
+              className="pl-10 pr-10 py-3 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-700 focus:outline-none focus:ring-4 focus:ring-blue-500/10 transition-all appearance-none shadow-sm min-w-[180px]"
             >
               {SORT_OPTIONS.map(opt => (
                 <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -442,19 +470,22 @@ export default function InventoryBrowse({ onAskTex, onCreateAd }) {
 
           <button
             onClick={() => setShowFilters(!showFilters)}
-            className={`tho-filter-btn ${hasActiveFilters ? 'active' : ''}`}
+            className={`flex items-center gap-2 px-5 py-3 rounded-xl text-sm font-bold border transition-all shadow-sm ${showFilters || hasActiveFilters ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'}`}
           >
             <SlidersHorizontal size={16} />
             Filters
             {hasActiveFilters && (
-              <span className="tho-filter-badge">
+              <span className="flex items-center justify-center w-5 h-5 bg-blue-600 text-white text-[10px] rounded-full">
                 {Object.values(filters).filter(v => v !== '').length + (searchQuery ? 1 : 0)}
               </span>
             )}
           </button>
           {hasActiveFilters && (
-            <button onClick={clearFilters} className="tho-clear-btn">
-              Clear All
+            <button 
+              onClick={clearFilters} 
+              className="text-sm font-bold text-slate-400 hover:text-red-500 transition-colors px-2"
+            >
+              Clear
             </button>
           )}
         </div>
@@ -462,84 +493,122 @@ export default function InventoryBrowse({ onAskTex, onCreateAd }) {
 
       {/* Expandable Filter Panel */}
       {showFilters && (
-        <div className="tho-browse-filter-panel">
-          <div className="tho-filter-grid">
-            <div className="tho-filter-group">
-              <label htmlFor="filter-beds"><Bed size={14} aria-hidden="true" /> Bedrooms</label>
-              <select id="filter-beds" value={filters.beds} onChange={e => setFilters(f => ({ ...f, beds: e.target.value }))}>
-                <option value="">Any</option>
-                <option value="1">1+</option>
-                <option value="2">2+</option>
-                <option value="3">3+</option>
-                <option value="4">4+</option>
-              </select>
+        <div className="max-w-7xl mx-auto px-6 mb-8 animate-in fade-in slide-in-from-top-4 duration-200">
+          <Card className="p-8 border-blue-100 shadow-lg shadow-blue-900/5 ring-1 ring-blue-50">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
+              <div className="space-y-3">
+                <label className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                  <Bed size={14} /> Bedrooms
+                </label>
+                <select 
+                  className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                  value={filters.beds} 
+                  onChange={e => setFilters(f => ({ ...f, beds: e.target.value }))}
+                >
+                  <option value="">Any</option>
+                  <option value="1">1+</option>
+                  <option value="2">2+</option>
+                  <option value="3">3+</option>
+                  <option value="4">4+</option>
+                </select>
+              </div>
+              <div className="space-y-3">
+                <label className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                  <Bath size={14} /> Bathrooms
+                </label>
+                <select 
+                  className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                  value={filters.baths} 
+                  onChange={e => setFilters(f => ({ ...f, baths: e.target.value }))}
+                >
+                  <option value="">Any</option>
+                  <option value="1">1+</option>
+                  <option value="2">2+</option>
+                  <option value="3">3+</option>
+                </select>
+              </div>
+              <div className="space-y-3">
+                <label className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                  <Home size={14} /> Type
+                </label>
+                <select 
+                  className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                  value={filters.classification} 
+                  onChange={e => setFilters(f => ({ ...f, classification: e.target.value }))}
+                >
+                  <option value="">Any</option>
+                  <option value="Single Wide">Single Wide</option>
+                  <option value="Double Wide">Double Wide</option>
+                </select>
+              </div>
+              <div className="space-y-3">
+                <label className="text-xs font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                  <DollarSign size={14} /> Price Range
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    placeholder="Min"
+                    className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    value={filters.minPrice}
+                    onChange={e => setFilters(f => ({ ...f, minPrice: e.target.value }))}
+                  />
+                  <span className="text-slate-300">—</span>
+                  <input
+                    type="number"
+                    placeholder="Max"
+                    className="w-full p-3 bg-slate-50 border border-slate-100 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    value={filters.maxPrice}
+                    onChange={e => setFilters(f => ({ ...f, maxPrice: e.target.value }))}
+                  />
+                </div>
+              </div>
             </div>
-            <div className="tho-filter-group">
-              <label htmlFor="filter-baths"><Bath size={14} aria-hidden="true" /> Bathrooms</label>
-              <select id="filter-baths" value={filters.baths} onChange={e => setFilters(f => ({ ...f, baths: e.target.value }))}>
-                <option value="">Any</option>
-                <option value="1">1+</option>
-                <option value="2">2+</option>
-                <option value="3">3+</option>
-              </select>
+            
+            <div className="mt-8 pt-6 border-t border-slate-100 flex justify-end">
+              <button 
+                onClick={clearFilters}
+                className="px-6 py-2.5 text-slate-500 font-bold hover:text-slate-900 transition-colors"
+              >
+                Reset All
+              </button>
+              <button 
+                onClick={() => setShowFilters(false)}
+                className="px-8 py-2.5 bg-blue-600 text-white rounded-xl font-bold shadow-lg shadow-blue-200 hover:bg-blue-700 transition-all ml-4"
+              >
+                Show {sortedHomes.length} Homes
+              </button>
             </div>
-            <div className="tho-filter-group">
-              <label htmlFor="filter-type"><Home size={14} aria-hidden="true" /> Type</label>
-              <select id="filter-type" value={filters.classification} onChange={e => setFilters(f => ({ ...f, classification: e.target.value }))}>
-                <option value="">Any</option>
-                <option value="Single Wide">Single Wide</option>
-                <option value="Double Wide">Double Wide</option>
-              </select>
-            </div>
-            <div className="tho-filter-group">
-              <label htmlFor="filter-min-price">Min Price</label>
-              <input
-                id="filter-min-price"
-                type="number"
-                placeholder="$0"
-                value={filters.minPrice}
-                onChange={e => setFilters(f => ({ ...f, minPrice: e.target.value }))}
-              />
-            </div>
-            <div className="tho-filter-group">
-              <label htmlFor="filter-max-price">Max Price</label>
-              <input
-                id="filter-max-price"
-                type="number"
-                placeholder="No max"
-                value={filters.maxPrice}
-                onChange={e => setFilters(f => ({ ...f, maxPrice: e.target.value }))}
-              />
-            </div>
-          </div>
+          </Card>
         </div>
       )}
 
       {/* Home Cards Grid */}
-      <div className="tho-browse-grid">
-        {sortedHomes.map((home, idx) => (
-          <HomeCard
-            key={home.id || idx}
-            home={home}
-            onClick={() => openDetail(home)}
-            onScheduleTour={() => openLeadForm(home, 'tour')}
-          />
-        ))}
-      </div>
-
-      {sortedHomes.length === 0 && !loading && (
-        <div className="tho-browse-empty">
-          <div style={{ background: '#f1f5f9', borderRadius: '50%', padding: 20, marginBottom: 12 }}>
-            <Search size={36} className="text-gray-400" />
-          </div>
-          <p className="text-gray-700 font-medium text-lg">No homes match your search</p>
-          <p className="text-gray-500 text-sm mt-1 mb-4">Try adjusting your filters or search terms</p>
-          <button
-            onClick={clearFilters}
-            className="px-5 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 active:scale-95 transition"
+      {sortedHomes.length > 0 ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8 px-6 max-w-7xl mx-auto">
+          {sortedHomes.map((home, idx) => (
+            <HomeCard
+              key={home.id || idx}
+              home={home}
+              onClick={() => openDetail(home)}
+              onScheduleTour={() => openLeadForm(home, 'tour')}
+            />
+          ))}
+        </div>
+      ) : (
+        <div className="max-w-xl mx-auto px-6 mt-12">
+          <EmptyState
+            icon={Search}
+            title="No matches found"
+            description="We couldn't find any homes matching your current filters. Try adjusting your search or clearing the filters."
           >
-            Clear All Filters
-          </button>
+            <button
+              onClick={clearFilters}
+              className="px-8 py-3 bg-blue-600 text-white rounded-2xl font-bold shadow-lg shadow-blue-200 hover:bg-blue-700 transition-all"
+            >
+              Clear All Filters
+            </button>
+          </EmptyState>
         </div>
       )}
 
@@ -587,10 +656,6 @@ export default function InventoryBrowse({ onAskTex, onCreateAd }) {
 
 // ─── Home Card Component ───
 function HomeCard({ home, onClick, onScheduleTour }) {
-  // image_url is guaranteed non-floorplan after PR #43's classifier;
-  // real_photos[0] is also non-floorplan (exteriors are listed first).
-  // We deliberately do NOT fall back to floor_plan_url here — floorplans
-  // belong in the dedicated Floorplan tab, not as the card hero.
   const floorplanUrl = home.floorplan_url || home.floor_plan_url || '';
   const galleryPhotos = (home.real_photos || home.gallery_images || [])
     .filter(p => p && p !== floorplanUrl);
@@ -601,92 +666,95 @@ function HomeCard({ home, onClick, onScheduleTour }) {
   const categories = home.image_categories || {};
   const isNew = home.status === 'Available';
 
+  const [imageError, setImageError] = useState(false);
+
   return (
-    <div className="tho-home-card">
-      {/* Image — click opens detail */}
-      <div className="tho-card-image-wrap" onClick={onClick}>
-        {heroImage ? (
+    <Card className="group hover:-translate-y-1" onClick={onClick}>
+      <div className="relative h-64 overflow-hidden bg-slate-100">
+        {!imageError && heroImage ? (
           <img
             src={heroImage}
             alt={home.model_name}
-            className="tho-card-image"
+            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+            onError={() => setImageError(true)}
             loading="lazy"
-            onError={(e) => { e.target.src = ''; e.target.classList.add('tho-img-error'); }}
           />
         ) : (
-          <div className="tho-card-image-placeholder">
-            <Home size={32} className="text-gray-300" />
+          <div className="w-full h-full flex flex-col items-center justify-center text-slate-300 gap-3">
+            <Home size={48} strokeWidth={1} />
+            <span className="text-xs font-bold uppercase tracking-widest">Image Coming Soon</span>
           </div>
         )}
 
-        {/* Badges overlay */}
-        <div className="tho-card-badges">
-          <span className={`tho-card-status ${isNew ? 'new' : 'preowned'}`}>
-            {isNew ? 'New' : 'Pre-Owned'}
-          </span>
+        {/* Badges */}
+        <div className="absolute top-4 left-4 flex flex-col gap-2">
+          <StatusBadge variant={isNew ? 'new' : 'used'}>
+            {isNew ? 'New' : 'Used'}
+          </StatusBadge>
+          {hasTour && (
+            <StatusBadge variant="tour">
+              <Video size={10} /> 3D Tour
+            </StatusBadge>
+          )}
         </div>
 
-        <div className="tho-card-bottom-badges">
-          {photoCount > 1 && (
-            <span className="tho-card-photo-count">
-              <Camera size={12} /> {photoCount}
-            </span>
-          )}
-          {hasTour && (
-            <span className="tho-card-tour-badge">
-              <Box size={12} /> 3D Tour
-            </span>
-          )}
-        </div>
+        {/* Photo Count */}
+        {photoCount > 1 && (
+          <div className="absolute bottom-4 right-4 px-2 py-1 bg-black/50 text-white text-[10px] font-bold rounded flex items-center gap-1.5 backdrop-blur-md">
+            <Camera size={12} /> {photoCount}
+          </div>
+        )}
       </div>
 
-      {/* Info */}
-      <div className="tho-card-info">
-        <h3 className="tho-card-name" onClick={onClick}>{home.model_name}</h3>
-        <p className="tho-card-manufacturer">{home.manufacturer || 'New Vision Manufacturing'}</p>
+      <div className="p-6">
+        <div className="mb-4">
+          <h3 className="text-lg font-bold text-slate-900 leading-tight mb-1 group-hover:text-blue-600 transition-colors truncate" title={home.model_name}>
+            {home.model_name}
+          </h3>
+          <p className="text-sm font-semibold text-slate-400 uppercase tracking-wider truncate">
+            {home.manufacturer || 'New Vision Manufacturing'}
+          </p>
+        </div>
 
-        <div className="tho-card-specs">
-          {specs.beds && (
-            <span><Bed size={14} /> {specs.beds} Bed</span>
-          )}
-          {specs.baths && (
-            <span><Bath size={14} /> {specs.baths} Bath</span>
-          )}
-          {specs.sq_ft && (
-            <span><Maximize2 size={14} /> {specs.sq_ft.toLocaleString()} sqft</span>
-          )}
+        <div className="flex items-center justify-between py-4 border-y border-slate-100 mb-4">
+          <div className="flex flex-col items-center flex-1">
+            <span className="text-sm font-black text-slate-900">{specs.beds || '-'}</span>
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest text-center">Beds</span>
+          </div>
+          <div className="w-px h-8 bg-slate-100" />
+          <div className="flex flex-col items-center flex-1">
+            <span className="text-sm font-black text-slate-900">{specs.baths || '-'}</span>
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest text-center">Baths</span>
+          </div>
+          <div className="w-px h-8 bg-slate-100" />
+          <div className="flex flex-col items-center flex-1">
+            <span className="text-sm font-black text-slate-900">{specs.sq_ft?.toLocaleString() || '-'}</span>
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest text-center">Sq Ft</span>
+          </div>
         </div>
 
         {/* Room category badges */}
         {Object.keys(categories).length > 0 && (
-          <div className="tho-card-categories">
-            {categories.kitchen && <span className="tho-cat-badge kitchen">Kitchen</span>}
-            {categories.bedroom && <span className="tho-cat-badge bedroom">Bedroom</span>}
-            {categories.bathroom && <span className="tho-cat-badge bathroom">Bathroom</span>}
+          <div className="flex flex-wrap gap-2 mb-6">
+            {categories.kitchen && <StatusBadge variant="kitchen">Kitchen</StatusBadge>}
+            {categories.bedroom && <StatusBadge variant="bedroom">Bedroom</StatusBadge>}
+            {categories.bathroom && <StatusBadge variant="bathroom">Bathroom</StatusBadge>}
           </div>
         )}
 
-        <div className="tho-card-price">
-          {home.display_price && home.display_price !== 'Call for Price'
-            ? home.display_price
-            : <span className="tho-call-price">Call for Price</span>
-          }
-        </div>
-
-        {/* Dual action buttons */}
-        <div className="tho-card-actions">
-          <button className="tho-card-view-btn" onClick={onClick}>
-            <Eye size={16} /> View Details
-          </button>
+        <div className="flex gap-3">
           <button
-            className="tho-card-tour-btn"
             onClick={(e) => { e.stopPropagation(); onScheduleTour(); }}
+            className="flex-1 py-3 bg-slate-50 text-slate-600 rounded-xl text-sm font-bold hover:bg-blue-50 hover:text-blue-600 transition-all border border-transparent hover:border-blue-100 flex items-center justify-center gap-2"
           >
-            <Calendar size={16} /> Schedule Tour
+            <Calendar size={16} /> Tour
+          </button>
+          <button className="flex-1 py-3 bg-blue-600 text-white rounded-xl text-sm font-bold shadow-lg shadow-blue-200 hover:bg-blue-700 hover:shadow-blue-300 transition-all">
+            {home.display_price || 'Call for Price'}
           </button>
         </div>
       </div>
-    </div>
+    </Card>
   );
 }
 
@@ -702,26 +770,17 @@ function HomeDetailModal({
   const categories = home.image_categories || {};
   const categoryKeys = Object.keys(categories);
   const hasTour = !!home.matterport_id;
-  // After PR #43 the canonical field is `floorplan_url`. Fall back to the
-  // legacy `floor_plan_url` spelling for older Firestore docs.
   const floorplan = home.floorplan_url || home.floor_plan_url || '';
   const isCallForPrice = !home.display_price || home.display_price === 'Call for Price';
 
   const modalRef = useRef(null);
   useFocusTrap(modalRef);
 
-  // Floorplan view is a peer of the Photos / 3D Tour view inside the
-  // gallery area. State is local to the modal because the parent already
-  // owns Photos<->Tour switching via showTour, and floorplan is purely a
-  // detail-modal concern.
   const [showFloorplan, setShowFloorplan] = useState(false);
-  // If the user toggles into 3D Tour, reset the floorplan view so the
-  // gallery area only renders one thing at a time.
   useEffect(() => {
     if (showTour && showFloorplan) setShowFloorplan(false);
   }, [showTour, showFloorplan]);
 
-  // Touch swipe for mobile
   const touchStart = useRef(null);
   const handleTouchStart = (e) => { touchStart.current = e.touches[0].clientX; };
   const handleTouchEnd = (e) => {
@@ -735,373 +794,310 @@ function HomeDetailModal({
   };
 
   return (
-    <div className="tho-detail-overlay" onClick={onClose} aria-hidden="true">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/90 backdrop-blur-sm animate-in fade-in duration-200" onClick={onClose} aria-hidden="true">
       <div
-        className="tho-detail-modal"
+        className="relative w-full max-w-5xl max-h-[95vh] bg-white rounded-3xl shadow-2xl overflow-y-auto animate-in slide-in-from-bottom-8 duration-300 ring-1 ring-white/20"
         onClick={e => e.stopPropagation()}
         ref={modalRef}
         role="dialog"
         aria-modal="true"
-        aria-label={`${home.model_name} details`}
       >
-        {/* Sticky header — name, price, close */}
-        <div className="tho-detail-sticky-header">
-          <div className="tho-detail-sticky-title">
-            <h2 className="tho-detail-sticky-name">{home.model_name}</h2>
-            <span className="tho-detail-sticky-price">
-              {!isCallForPrice ? home.display_price : 'Call for Price'}
-            </span>
+        {/* Sticky header */}
+        <div className="sticky top-0 z-30 flex items-center justify-between px-6 py-4 bg-white/90 backdrop-blur-md border-b border-slate-100">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
+            <h2 className="text-xl font-black text-slate-900 leading-tight">{home.model_name}</h2>
+            <div className="flex items-center gap-3">
+              <StatusBadge variant={home.status === 'Available' ? 'new' : 'used'}>
+                {home.status === 'Available' ? 'New' : 'Used'}
+              </StatusBadge>
+              <span className="text-lg font-bold text-green-600">
+                {!isCallForPrice ? home.display_price : 'Call for Price'}
+              </span>
+            </div>
           </div>
-          <button onClick={onClose} className="tho-detail-sticky-close" aria-label="Close">
+          <button 
+            onClick={onClose} 
+            className="p-2.5 bg-slate-100 text-slate-400 hover:bg-slate-200 hover:text-slate-900 rounded-full transition-all"
+            aria-label="Close"
+          >
             <X size={20} />
           </button>
         </div>
 
-        {/* Photo Gallery Section */}
-        <div className="tho-detail-gallery">
+        {/* Gallery Section */}
+        <div className="bg-slate-950 relative aspect-video sm:aspect-auto sm:h-[500px]">
           {showTour && hasTour ? (
-            <div className="tho-detail-tour-wrap">
+            <div className="w-full h-full">
               <iframe
                 src={`${MATTERPORT_BASE}${home.matterport_id}&play=1`}
                 title={`${home.model_name} 3D Tour`}
-                className="tho-detail-tour-iframe"
+                className="w-full h-full border-0"
                 allowFullScreen
               />
             </div>
           ) : showFloorplan ? (
-            <div className="tho-detail-floorplan-wrap">
+            <div className="w-full h-full flex items-center justify-center bg-white p-4">
               {floorplan ? (
                 <>
                   <img
                     src={floorplan}
-                    alt={`${home.model_name} floorplan`}
-                    className="tho-detail-floorplan-img"
-                    onError={(e) => { e.target.classList.add('tho-img-error'); }}
+                    alt="Floorplan"
+                    className="max-w-full max-h-full object-contain"
                   />
                   <a
                     href={floorplan}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="tho-detail-floorplan-larger"
+                    className="absolute bottom-6 right-6 px-6 py-2.5 bg-slate-900 text-white rounded-full text-xs font-bold uppercase tracking-widest hover:scale-105 transition-transform"
                   >
-                    View larger
+                    View Larger
                   </a>
                 </>
               ) : (
-                <div className="tho-detail-no-photo">
-                  <Grid3X3 size={48} className="text-gray-300" />
-                  <p>Floorplan unavailable</p>
-                </div>
+                <EmptyState icon={Grid3X3} title="Floorplan coming soon" description="We are currently processing the floorplan for this model." />
               )}
             </div>
           ) : photos.length > 0 ? (
             <div
-              className="tho-detail-photo-main"
+              className="w-full h-full relative group"
               onTouchStart={handleTouchStart}
               onTouchEnd={handleTouchEnd}
             >
               <img
                 src={photos[activePhotoIndex]}
-                alt={`${home.model_name} photo ${activePhotoIndex + 1}`}
-                className="tho-detail-main-img"
-                onError={(e) => { e.target.classList.add('tho-img-error'); }}
+                alt="Property"
+                className="w-full h-full object-contain"
               />
               {photos.length > 1 && (
                 <>
-                  <button onClick={onPrevPhoto} className="tho-gallery-nav left" aria-label="Previous photo">
-                    <ChevronLeft size={24} />
+                  <button onClick={onPrevPhoto} className="absolute left-4 top-1/2 -translate-y-1/2 p-3 bg-white/10 hover:bg-white text-white hover:text-slate-900 rounded-full backdrop-blur-md transition-all opacity-0 group-hover:opacity-100">
+                    <ChevronLeft size={28} />
                   </button>
-                  <button onClick={onNextPhoto} className="tho-gallery-nav right" aria-label="Next photo">
-                    <ChevronRight size={24} />
+                  <button onClick={onNextPhoto} className="absolute right-4 top-1/2 -translate-y-1/2 p-3 bg-white/10 hover:bg-white text-white hover:text-slate-900 rounded-full backdrop-blur-md transition-all opacity-0 group-hover:opacity-100">
+                    <ChevronRight size={28} />
                   </button>
-                  <span className="tho-photo-counter">
+                  <div className="absolute bottom-6 right-6 px-3 py-1.5 bg-black/40 text-white text-xs font-bold rounded-full backdrop-blur-md border border-white/10">
                     {activePhotoIndex + 1} / {photos.length}
-                  </span>
+                  </div>
                 </>
               )}
             </div>
           ) : (
-            <div className="tho-detail-no-photo">
-              <Home size={48} className="text-gray-300" />
-              <p>No photos available</p>
-            </div>
+            <EmptyState icon={Camera} title="No Photos" description="Check back soon for interior photos." className="bg-slate-900 text-white border-0" />
           )}
-
-          {/* Category Tabs + Thumbnail Strip */}
-          <div className="tho-detail-gallery-controls">
-            <div className="tho-detail-view-toggle">
-              <button
-                className={`tho-view-tab ${!showTour && !showFloorplan ? 'active' : ''}`}
-                onClick={() => {
-                  if (showTour) onToggleTour();
-                  if (showFloorplan) setShowFloorplan(false);
-                }}
-              >
-                <Camera size={14} /> Photos ({photos.length})
-              </button>
-              {hasTour && (
-                <button
-                  className={`tho-view-tab ${showTour ? 'active' : ''}`}
-                  onClick={() => {
-                    if (showFloorplan) setShowFloorplan(false);
-                    if (!showTour) onToggleTour();
-                  }}
-                >
-                  <Box size={14} /> 3D Tour
-                </button>
-              )}
-              {/* Floorplan tab is always visible (after Photos and 3D
-                  Tour) so users always have a clear place to look — when
-                  no floorplan is on file the panel renders an
-                  "Floorplan unavailable" placeholder. */}
-              <button
-                className={`tho-view-tab ${showFloorplan ? 'active' : ''}`}
-                onClick={() => {
-                  if (showTour) onToggleTour();
-                  setShowFloorplan(prev => !prev);
-                }}
-              >
-                <Grid3X3 size={14} /> Floorplan
-              </button>
-            </div>
-
-            {categoryKeys.length > 0 && !showTour && !showFloorplan && (
-              <div className="tho-detail-cat-tabs">
-                <button
-                  className={`tho-dcat-tab ${activeCategory === 'all' ? 'active' : ''}`}
-                  onClick={() => onSetCategory('all')}
-                >All</button>
-                {categoryKeys.map(cat => (
-                  <button
-                    key={cat}
-                    className={`tho-dcat-tab ${activeCategory === cat ? 'active' : ''}`}
-                    onClick={() => onSetCategory(cat)}
-                  >
-                    {cat.charAt(0).toUpperCase() + cat.slice(1)} ({categories[cat].length})
-                  </button>
-                ))}
-              </div>
-            )}
-
-            {!showTour && !showFloorplan && photos.length > 1 && (
-              <div className="tho-detail-thumbs">
-                {photos.map((photo, idx) => (
-                  <button
-                    key={idx}
-                    className={`tho-thumb ${idx === activePhotoIndex ? 'active' : ''}`}
-                    onClick={() => onSetPhotoIndex(idx)}
-                  >
-                    <img src={photo} alt={`Thumb ${idx + 1}`} loading="lazy" />
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
         </div>
 
-        {/* Info Section */}
-        <div className="tho-detail-info">
-          <div className="tho-detail-header">
-            <div>
-              <h2 className="tho-detail-name">{home.model_name}</h2>
-              <p className="tho-detail-manufacturer">{home.manufacturer || 'New Vision Manufacturing'}</p>
-            </div>
-            <span className={`tho-detail-status ${home.status === 'Available' ? 'new' : 'preowned'}`}>
-              {home.status === 'Available' ? 'New' : 'Pre-Owned'}
-            </span>
-          </div>
-
-          {/* Specs Row */}
-          <div className="tho-detail-specs-row">
-            {specs.beds && (
-              <div className="tho-detail-spec">
-                <Bed size={20} />
-                <span className="tho-spec-value">{specs.beds}</span>
-                <span className="tho-spec-label">Beds</span>
-              </div>
-            )}
-            {specs.baths && (
-              <div className="tho-detail-spec">
-                <Bath size={20} />
-                <span className="tho-spec-value">{specs.baths}</span>
-                <span className="tho-spec-label">Baths</span>
-              </div>
-            )}
-            {specs.sq_ft && (
-              <div className="tho-detail-spec">
-                <Maximize2 size={20} />
-                <span className="tho-spec-value">{specs.sq_ft.toLocaleString()}</span>
-                <span className="tho-spec-label">Sq Ft</span>
-              </div>
-            )}
-            {specs.dimensions && (
-              <div className="tho-detail-spec">
-                <Grid3X3 size={20} />
-                <span className="tho-spec-value">{specs.dimensions}</span>
-                <span className="tho-spec-label">Dimensions</span>
-              </div>
-            )}
-          </div>
-
-          {/* Price */}
-          <div className="tho-detail-price-section">
-            <span className="tho-detail-price">
-              {!isCallForPrice ? home.display_price : 'Call for Price'}
-            </span>
-            {isCallForPrice && (
-              <button className="tho-get-price-btn" onClick={onGetPrice}>
-                <DollarSign size={16} /> Get Price Quote
+        {/* Gallery Controls */}
+        <div className="px-6 py-6 bg-slate-50 border-b border-slate-100">
+          <div className="flex flex-wrap gap-2 mb-6">
+            <button
+              className={`flex items-center gap-2 px-6 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all ${!showTour && !showFloorplan ? 'bg-blue-600 text-white shadow-lg shadow-blue-200' : 'bg-white text-slate-500 hover:bg-slate-100'}`}
+              onClick={() => { if (showTour) onToggleTour(); if (showFloorplan) setShowFloorplan(false); }}
+            >
+              <Camera size={16} /> Photos
+            </button>
+            {hasTour && (
+              <button
+                className={`flex items-center gap-2 px-6 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all ${showTour ? 'bg-blue-600 text-white shadow-lg shadow-blue-200' : 'bg-white text-slate-500 hover:bg-slate-100'}`}
+                onClick={() => { if (showFloorplan) setShowFloorplan(false); if (!showTour) onToggleTour(); }}
+              >
+                <Box size={16} /> 3D Tour
               </button>
             )}
+            <button
+              className={`flex items-center gap-2 px-6 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all ${showFloorplan ? 'bg-blue-600 text-white shadow-lg shadow-blue-200' : 'bg-white text-slate-500 hover:bg-slate-100'}`}
+              onClick={() => { if (showTour) onToggleTour(); setShowFloorplan(prev => !prev); }}
+            >
+              <Grid3X3 size={16} /> Floorplan
+            </button>
           </div>
 
-          {/* Features */}
-          {home.features && home.features.length > 0 && (
-            <div className="tho-detail-features">
-              <h4>Features</h4>
-              <ul>
-                {home.features.map((f, i) => <li key={i}>{f}</li>)}
-              </ul>
+          {!showTour && !showFloorplan && categoryKeys.length > 0 && (
+            <div className="flex flex-wrap gap-2 mb-4">
+              <button
+                className={`px-4 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-widest transition-all ${activeCategory === 'all' ? 'bg-slate-900 text-white' : 'bg-slate-200 text-slate-500 hover:bg-slate-300'}`}
+                onClick={() => onSetCategory('all')}
+              >All</button>
+              {categoryKeys.map(cat => (
+                <button
+                  key={cat}
+                  className={`px-4 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-widest transition-all ${activeCategory === cat ? 'bg-slate-900 text-white' : 'bg-slate-200 text-slate-500 hover:bg-slate-300'}`}
+                  onClick={() => onSetCategory(cat)}
+                >
+                  {cat} ({categories[cat].length})
+                </button>
+              ))}
             </div>
           )}
 
-          {/* Action Buttons */}
-          <div className="tho-detail-actions">
-            <button
-              className="tho-detail-ask-btn"
-              onClick={() => {
-                onClose();
-                onAskTex(`Tell me more about the ${home.model_name}. What are its key features, pricing, and availability?`);
-              }}
-            >
-              <MessageCircle size={18} /> Ask Tex About This Home
-            </button>
-            <button className="tho-detail-schedule-btn" onClick={onScheduleTour}>
-              <Calendar size={18} /> Schedule a Tour
-            </button>
-          </div>
+          {!showTour && !showFloorplan && photos.length > 1 && (
+            <div className="flex gap-2.5 overflow-x-auto pb-2 scrollbar-hide">
+              {photos.map((photo, idx) => (
+                <button
+                  key={idx}
+                  className={`flex-shrink-0 w-24 h-16 rounded-xl overflow-hidden border-2 transition-all ${idx === activePhotoIndex ? 'border-blue-600 ring-4 ring-blue-100 scale-105' : 'border-transparent opacity-60 hover:opacity-100'}`}
+                  onClick={() => onSetPhotoIndex(idx)}
+                >
+                  <img src={photo} alt="Thumb" className="w-full h-full object-cover" loading="lazy" />
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
 
-          <div className="tho-detail-secondary-actions">
-            <a href={`tel:${BUSINESS_PHONE_RAW}`} className="tho-detail-call-btn">
-              <Phone size={16} /> Call {BUSINESS_PHONE}
-            </a>
-            {onCreateAd && (
-              <button
-                className="tho-detail-ad-btn"
-                onClick={() => {
-                  onClose();
-                  onCreateAd(home.model_name);
-                }}
-              >
-                <Video size={16} /> Create Ad
-              </button>
+        {/* Info Grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-12 p-8 sm:p-12">
+          <div className="lg:col-span-2 space-y-12">
+            <section>
+              <h3 className="text-xs font-black text-slate-400 uppercase tracking-[0.2em] mb-6">Key Specifications</h3>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-6">
+                {[
+                  { icon: Bed, value: specs.beds, label: 'Bedrooms' },
+                  { icon: Bath, value: specs.baths, label: 'Bathrooms' },
+                  { icon: Maximize2, value: specs.sq_ft?.toLocaleString(), label: 'Sq Ft' },
+                  { icon: Grid3X3, value: specs.dimensions, label: 'Dimensions' }
+                ].filter(s => s.value).map((spec, i) => (
+                  <div key={i} className="bg-slate-50 p-6 rounded-3xl border border-slate-100 flex flex-col items-center text-center">
+                    <spec.icon size={24} className="text-blue-600 mb-3" />
+                    <span className="text-xl font-black text-slate-900 mb-1">{spec.value}</span>
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{spec.label}</span>
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            {home.features?.length > 0 && (
+              <section>
+                <h3 className="text-xs font-black text-slate-400 uppercase tracking-[0.2em] mb-6">Top Features</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-y-4 gap-x-12">
+                  {home.features.map((f, i) => (
+                    <div key={i} className="flex items-center gap-3 text-slate-700 font-medium border-b border-slate-50 pb-3">
+                      <div className="w-1.5 h-1.5 bg-blue-500 rounded-full" />
+                      {f}
+                    </div>
+                  ))}
+                </div>
+              </section>
             )}
+
+            {/* Similar Homes Section (Internal) */}
+            <SimilarHomes 
+              currentHome={home}
+              allHomes={allHomes}
+              onSelectHome={(newHome) => {
+                onSelectSimilar(newHome);
+                onSetPhotoIndex(0);
+              }}
+            />
           </div>
 
-          {/* Location */}
-          <div className="tho-detail-location">
-            <MapPin size={14} />
-            <span>{BUSINESS_ADDRESS}, {BUSINESS_CITY} — {BUSINESS_HOURS}</span>
-          </div>
-          
-          {/* Similar Homes */}
-          <SimilarHomes 
-            currentHome={home}
-            allHomes={allHomes}
-            onSelectHome={(newHome) => {
-              onSelectSimilar(newHome);
-              onSetPhotoIndex(0);
-            }}
-          />
+          <aside className="space-y-6">
+            <div className="bg-blue-900 rounded-[2.5rem] p-8 text-white shadow-2xl shadow-blue-950/20 sticky top-28">
+              <h3 className="text-2xl font-black mb-2">Interested?</h3>
+              <p className="text-blue-100/70 text-sm mb-8 leading-relaxed">Our specialists are ready to answer your questions or schedule a walk-through.</p>
+              
+              <div className="space-y-4">
+                <button 
+                  onClick={onScheduleTour}
+                  className="w-full py-4 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl font-bold shadow-lg shadow-blue-950/30 transition-all flex items-center justify-center gap-2"
+                >
+                  <Calendar size={18} /> Schedule Tour
+                </button>
+                <button 
+                  onClick={() => { onClose(); onAskTex(`Tell me more about the ${home.model_name}`); }}
+                  className="w-full py-4 bg-white text-blue-900 rounded-2xl font-bold hover:bg-blue-50 transition-all flex items-center justify-center gap-2"
+                >
+                  <MessageCircle size={18} /> Chat with Tex
+                </button>
+                {isCallForPrice && (
+                  <button onClick={onGetPrice} className="w-full py-4 bg-blue-800/50 text-white border border-white/10 rounded-2xl font-bold hover:bg-blue-800 transition-all">
+                    Get Price Quote
+                  </button>
+                )}
+                {onCreateAd && (
+                  <button 
+                    onClick={() => { onClose(); onCreateAd(home.model_name); }}
+                    className="w-full py-4 bg-blue-950 text-blue-300 border border-blue-800 rounded-2xl font-bold hover:bg-blue-900 transition-all flex items-center justify-center gap-2"
+                  >
+                    <Video size={18} /> Create Social Ad
+                  </button>
+                )}
+              </div>
+
+              <div className="mt-8 pt-8 border-t border-white/10 space-y-4">
+                <div className="flex items-center gap-3 text-blue-100/60 text-xs font-bold uppercase tracking-widest">
+                  <MapPin size={14} /> Local Inventory
+                </div>
+                <p className="text-blue-50 text-sm font-medium">{BUSINESS_ADDRESS}<br/>{BUSINESS_CITY}</p>
+                <a href={`tel:${BUSINESS_PHONE_RAW}`} className="flex items-center gap-2 text-white font-black hover:text-blue-200 transition-colors">
+                  <Phone size={16} /> {BUSINESS_PHONE}
+                </a>
+              </div>
+            </div>
+          </aside>
         </div>
       </div>
     </div>
   );
 }
-
 // ─── Similar Homes Component ───
 function SimilarHomes({ currentHome, allHomes, onSelectHome }) {
   if (!currentHome || !allHomes?.length) return null;
   
   const currentSpecs = currentHome.specs || {};
-  
-  // Calculate similarity score
   const scored = allHomes
     .filter(h => h.id !== currentHome.id)
     .map(h => {
       const specs = h.specs || {};
       let score = 0;
-      
-      // Same manufacturer
       if (h.manufacturer === currentHome.manufacturer) score += 3;
-      
-      // Same classification
       if (h.classification === currentHome.classification) score += 2;
-      
-      // Similar beds
       const bedDiff = Math.abs((specs.beds || 0) - (currentSpecs.beds || 0));
       if (bedDiff === 0) score += 3;
       else if (bedDiff === 1) score += 1;
-      
-      // Similar baths
       const bathDiff = Math.abs((specs.baths || 0) - (currentSpecs.baths || 0));
       if (bathDiff === 0) score += 2;
       else if (bathDiff <= 0.5) score += 1;
-      
-      // Similar sqft (within 200)
       const sqftDiff = Math.abs((specs.sq_ft || 0) - (currentSpecs.sq_ft || 0));
       if (sqftDiff <= 200) score += 2;
       else if (sqftDiff <= 400) score += 1;
-      
-      // Similar price range
-      const priceA = currentHome.price_value || 0;
-      const priceB = h.price_value || 0;
-      if (priceA && priceB) {
-        const priceDiff = Math.abs(priceA - priceB) / priceA;
-        if (priceDiff <= 0.1) score += 2;
-        else if (priceDiff <= 0.2) score += 1;
-      }
-      
       return { home: h, score };
     })
-    .filter(item => item.score >= 4) // Only show if reasonably similar
+    .filter(item => item.score >= 4)
     .sort((a, b) => b.score - a.score)
     .slice(0, 3);
   
   if (scored.length === 0) return null;
   
   return (
-    <div className="tho-similar-homes">
-      <h4 className="tho-similar-title">
-        <Box size={16} /> Similar Homes
-      </h4>
-      <div className="tho-similar-grid">
+    <section>
+      <h3 className="text-xs font-black text-slate-400 uppercase tracking-[0.2em] mb-6 flex items-center gap-2">
+        <Home size={14} /> Similar Models
+      </h3>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
         {scored.map(({ home }) => (
           <button
             key={home.id}
-            className="tho-similar-card"
+            className="flex flex-col text-left group"
             onClick={() => onSelectHome(home)}
           >
-            <div className="tho-similar-img-wrap">
+            <div className="aspect-[4/3] rounded-2xl overflow-hidden bg-slate-100 mb-3 border border-slate-100 group-hover:border-blue-200 transition-all">
               {home.image_url ? (
-                <img src={home.image_url} alt={home.model_name} loading="lazy" />
+                <img src={home.image_url} alt={home.model_name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
               ) : (
-                <Home size={24} className="text-gray-300" />
+                <div className="w-full h-full flex items-center justify-center text-slate-300"><Home size={24} /></div>
               )}
             </div>
-            <div className="tho-similar-info">
-              <div className="tho-similar-name">{home.model_name}</div>
-              <div className="tho-similar-specs">
+            <div className="px-1">
+              <div className="text-sm font-bold text-slate-900 group-hover:text-blue-600 transition-colors">{home.model_name}</div>
+              <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
                 {home.specs?.beds}BR · {home.specs?.baths}BA · {home.specs?.sq_ft?.toLocaleString()} sqft
-              </div>
-              <div className="tho-similar-price">
-                {home.display_price || 'Call for Price'}
               </div>
             </div>
           </button>
         ))}
       </div>
-    </div>
+    </section>
   );
 }
 
@@ -1145,95 +1141,108 @@ function LeadCaptureForm({ home, type, onClose }) {
   };
 
   return (
-    <div className="tho-lead-overlay" onClick={onClose} aria-hidden="true">
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-200" onClick={onClose} aria-hidden="true">
       <div
-        className="tho-lead-modal"
+        className="relative w-full max-w-lg bg-white rounded-[2.5rem] shadow-2xl p-8 sm:p-12 animate-in zoom-in-95 duration-300"
         onClick={e => e.stopPropagation()}
         ref={modalRef}
         role="dialog"
         aria-modal="true"
-        aria-label={type === 'tour' ? 'Schedule a tour' : 'Get a price quote'}
       >
-        <button onClick={onClose} className="tho-lead-close" aria-label="Close dialog">
-          <X size={20} aria-hidden="true" />
+        <button 
+          onClick={onClose} 
+          className="absolute top-8 right-8 text-slate-300 hover:text-slate-900 transition-colors" 
+          aria-label="Close"
+        >
+          <X size={24} />
         </button>
 
         {submitted ? (
-          <div className="tho-lead-success">
-            <CheckCircle2 size={48} className="text-green-500" />
-            <h3>Thank You!</h3>
-            <p>We received your {type === 'tour' ? 'tour request' : 'price quote request'} for the <strong>{home.model_name}</strong>. Our team will contact you shortly.</p>
-            <button onClick={onClose} className="tho-lead-done-btn">Done</button>
+          <div className="text-center py-8">
+            <div className="w-20 h-20 bg-green-50 rounded-full flex items-center justify-center mx-auto mb-6 text-green-500">
+              <CheckCircle2 size={40} />
+            </div>
+            <h3 className="text-2xl font-black text-slate-900 mb-2">Thank You!</h3>
+            <p className="text-slate-500 mb-8">We've received your {type === 'tour' ? 'tour request' : 'price quote'} for the <strong>{home.model_name}</strong>. Our team will contact you shortly.</p>
+            <button 
+              onClick={onClose} 
+              className="w-full py-4 bg-slate-900 text-white rounded-2xl font-bold hover:bg-slate-800 transition-all"
+            >
+              Done
+            </button>
           </div>
         ) : (
           <>
-            <div className="tho-lead-header">
-              <h3>{type === 'tour' ? 'Schedule a Tour' : 'Get a Price Quote'}</h3>
-              <p className="tho-lead-home-name">
-                {type === 'tour' ? 'Visit' : 'Get pricing for'} the <strong>{home.model_name}</strong>
+            <header className="mb-8">
+              <h3 className="text-2xl font-black text-slate-900 mb-2">{type === 'tour' ? 'Schedule a Tour' : 'Get a Price Quote'}</h3>
+              <p className="text-slate-500 text-sm">
+                For the <strong>{home.model_name}</strong>
                 {home.specs?.beds && ` — ${home.specs.beds} Bed, ${home.specs.baths} Bath`}
-                {home.specs?.sq_ft && `, ${home.specs.sq_ft.toLocaleString()} sqft`}
               </p>
-            </div>
+            </header>
 
-            <form onSubmit={handleSubmit} className="tho-lead-form">
-              <div className="tho-lead-field">
-                <label htmlFor="lead-name">Name *</label>
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1" htmlFor="lead-name">Full Name *</label>
                 <input
                   id="lead-name"
+                  className="w-full px-5 py-4 bg-slate-50 border border-slate-100 rounded-2xl focus:outline-none focus:ring-4 focus:ring-blue-500/10 transition-all"
                   type="text"
                   value={formData.name}
                   onChange={e => setFormData(f => ({ ...f, name: e.target.value }))}
-                  placeholder="Your full name"
+                  placeholder="John Doe"
                   required
                 />
               </div>
-              <div className="tho-lead-field">
-                <label htmlFor="lead-phone">Phone *</label>
-                <input
-                  id="lead-phone"
-                  type="tel"
-                  value={formData.phone}
-                  onChange={e => setFormData(f => ({ ...f, phone: e.target.value }))}
-                  placeholder="(281) 000-0000"
-                  required
-                />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1" htmlFor="lead-phone">Phone *</label>
+                  <input
+                    id="lead-phone"
+                    className="w-full px-5 py-4 bg-slate-50 border border-slate-100 rounded-2xl focus:outline-none focus:ring-4 focus:ring-blue-500/10 transition-all"
+                    type="tel"
+                    value={formData.phone}
+                    onChange={e => setFormData(f => ({ ...f, phone: e.target.value }))}
+                    placeholder="(281) 000-0000"
+                    required
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1" htmlFor="lead-email">Email</label>
+                  <input
+                    id="lead-email"
+                    className="w-full px-5 py-4 bg-slate-50 border border-slate-100 rounded-2xl focus:outline-none focus:ring-4 focus:ring-blue-500/10 transition-all"
+                    type="email"
+                    value={formData.email}
+                    onChange={e => setFormData(f => ({ ...f, email: e.target.value }))}
+                    placeholder="john@example.com"
+                  />
+                </div>
               </div>
-              <div className="tho-lead-field">
-                <label htmlFor="lead-email">Email</label>
-                <input
-                  id="lead-email"
-                  type="email"
-                  value={formData.email}
-                  onChange={e => setFormData(f => ({ ...f, email: e.target.value }))}
-                  placeholder="you@email.com"
-                />
-              </div>
-              <div className="tho-lead-field">
-                <label htmlFor="lead-message">{type === 'tour' ? 'Preferred date/time' : 'Additional details'}</label>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1" htmlFor="lead-message">{type === 'tour' ? 'Preferred date/time' : 'Questions'}</label>
                 <textarea
                   id="lead-message"
+                  className="w-full px-5 py-4 bg-slate-50 border border-slate-100 rounded-2xl focus:outline-none focus:ring-4 focus:ring-blue-500/10 transition-all resize-none"
                   value={formData.message}
                   onChange={e => setFormData(f => ({ ...f, message: e.target.value }))}
-                  placeholder={type === 'tour' ? 'e.g., Saturday morning, weekday after 5pm...' : 'Any questions or preferences...'}
+                  placeholder={type === 'tour' ? 'e.g. This Saturday morning...' : 'Any specific questions?'}
                   rows={3}
                 />
               </div>
 
               {error && (
-                <div className="tho-lead-error">
+                <div className="p-4 bg-red-50 text-red-600 rounded-2xl text-xs font-bold flex items-center gap-2">
                   <AlertCircle size={14} /> {error}
                 </div>
               )}
 
-              <button type="submit" className="tho-lead-submit-btn" disabled={submitting}>
-                {submitting ? (
-                  <><Loader2 size={16} className="animate-spin" /> Submitting...</>
-                ) : type === 'tour' ? (
-                  <><Calendar size={16} /> Request Tour</>
-                ) : (
-                  <><DollarSign size={16} /> Get Quote</>
-                )}
+              <button 
+                type="submit" 
+                disabled={submitting}
+                className="w-full py-5 bg-blue-600 text-white rounded-2xl font-black shadow-xl shadow-blue-200 hover:bg-blue-700 hover:-translate-y-0.5 transition-all disabled:opacity-50 flex items-center justify-center gap-2 mt-4"
+              >
+                {submitting ? <Loader2 className="animate-spin" size={20} /> : <><Check size={20} /> Submit Request</>}
               </button>
             </form>
           </>
