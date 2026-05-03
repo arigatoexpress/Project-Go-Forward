@@ -16,7 +16,7 @@ import uvicorn
 import hashlib
 import secrets
 from collections import defaultdict
-from fastapi import FastAPI, Request, Depends, HTTPException
+from fastapi import BackgroundTasks, FastAPI, Request, Depends, HTTPException
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -155,6 +155,13 @@ conversation_memory = ConversationMemory(project_id=project_id)
 chat_history = ChatHistory(project_id=project_id)
 lead_manager = LeadManager(project_id=project_id)
 appointment_manager = AppointmentManager(project_id=project_id)
+
+from notifications.sms_service import SMSService
+sms_service = SMSService()
+
+# In-memory set tracking sessions that have already triggered the hot-chat alert.
+# Resets on process restart (acceptable — prevents repeated buzzes per session).
+_hot_chat_notified: set[str] = set()
 
 # Security headers middleware
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -502,7 +509,7 @@ PIN_LOCKOUT_SECONDS = 300  # 5-minute lockout after 10 failures
 
 
 @app.post("/run")
-async def run_agent(request: Request):
+async def run_agent(request: Request, background_tasks: BackgroundTasks):
     request_id = str(uuid.uuid4())
     start_time = time.time()
     
@@ -621,6 +628,21 @@ async def run_agent(request: Request):
             struct_logger.info("Chat history saved", request_id=request_id, message_count=2)
         except Exception as e:
             struct_logger.warning("Chat history save failed", request_id=request_id, error=str(e))
+
+        # Hot-chat SMS: fire once when a session reaches 5+ messages
+        if session_id not in _hot_chat_notified:
+            try:
+                _session = await chat_history.get_session(session_id)
+                if _session and len(_session.messages) >= 5:
+                    _hot_chat_notified.add(session_id)
+                    _app_url = os.environ.get("APP_BASE_URL", "https://tho-ai-agent-uc.a.run.app")
+                    _chat_msg = (
+                        f"Hot chat lead, {session_id}. "
+                        f"View: {_app_url}/chat-history/{session_id}"
+                    )
+                    background_tasks.add_task(sms_service.send_team_alert, _chat_msg, "high")
+            except Exception as _e:
+                struct_logger.warning("Hot-chat SMS check failed", request_id=request_id, error=str(_e))
 
         # Update conversation context
         try:
@@ -2392,7 +2414,7 @@ async def download_ad_image(filename: str):
 # ─── Contact Form API ───
 
 @app.post("/api/contact")
-async def submit_contact_form(request: Request):
+async def submit_contact_form(request: Request, background_tasks: BackgroundTasks):
     """Receive contact form submissions and log as leads."""
     try:
         data = await request.json()
@@ -2437,6 +2459,11 @@ async def submit_contact_form(request: Request):
         except Exception as e:
             struct_logger.warning("Lead admin notification failed", error=str(e))
 
+        # SMS team alert (additive — email above still runs)
+        _app_url = os.environ.get("APP_BASE_URL", "https://tho-ai-agent-uc.a.run.app")
+        sms_msg = f"New THO lead: {name} {phone}. CRM: {_app_url}/crm"
+        background_tasks.add_task(sms_service.send_team_alert, sms_msg, "normal")
+
         return {"success": True, "message": "Thank you! We'll be in touch shortly."}
     except Exception as e:
         struct_logger.error("Contact form failed", error=str(e))
@@ -2457,7 +2484,7 @@ async def get_available_slots(date: str):
 
 
 @app.post("/api/appointments")
-async def create_appointment(request: Request):
+async def create_appointment(request: Request, background_tasks: BackgroundTasks):
     """Book a new appointment."""
     try:
         data = await request.json()
@@ -2509,6 +2536,11 @@ async def create_appointment(request: Request):
             )
         except Exception as e:
             struct_logger.warning("Appointment admin notification failed", error=str(e))
+
+        # SMS team alert (additive — email above still runs)
+        _app_url = os.environ.get("APP_BASE_URL", "https://tho-ai-agent-uc.a.run.app")
+        sms_msg = f"Appointment booked: {name} at {appt_date} {time_slot}. CRM: {_app_url}/crm"
+        background_tasks.add_task(sms_service.send_team_alert, sms_msg, "normal")
 
         # Also create a lead for the CRM funnel
         try:
