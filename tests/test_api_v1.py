@@ -10,7 +10,7 @@ import os
 import sys
 import types
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from pathlib import Path
 
@@ -200,6 +200,23 @@ class FakeCollection:
 
     def where(self, field: str, op: str, value: object) -> FakeQuery:
         return FakeQuery(self._store).where(field, op, value)
+
+    def limit(self, n: int) -> "FakeLimitedCollection":
+        return FakeLimitedCollection(self._store, n)
+
+
+class FakeLimitedCollection:
+    """Subset of FakeCollection that supports .limit(n).stream()."""
+
+    def __init__(self, store: dict, limit: int):
+        self._store = store
+        self._limit = limit
+
+    def stream(self):
+        for i, (doc_id, data) in enumerate(self._store.items()):
+            if i >= self._limit:
+                break
+            yield FakeDocSnapshot(doc_id, data)
 
 
 class FakeFirestoreDB:
@@ -700,6 +717,238 @@ def test_marketing_inventory_context_falls_back_to_asset_catalog_when_firestore_
     assert data["website_homes"] == 1
     assert data["homes"][0]["id"] == "fallback-home"
     assert data["homes"][0]["matterport_url"].endswith("fallbackTour&play=1")
+
+
+def test_admin_crm_funnel_returns_stage_counts_and_conversions(monkeypatch):
+    client, main, db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
+    token = main._create_admin_token()
+
+    # Reset cache so prior tests don't pollute
+    from caching import clear_local_cache
+    clear_local_cache()
+
+    # Seed customers: 3 LEAD, 2 ENROLLED, 1 SOLD
+    db.collections["customers"].clear()
+    for i in range(3):
+        db.collections["customers"][f"lead-{i}"] = {
+            "id": f"lead-{i}", "full_name": f"Lead {i}", "status": "LEAD",
+            "created_at": "2026-04-01T00:00:00", "updated_at": "2026-04-01T00:00:00",
+        }
+    for i in range(2):
+        db.collections["customers"][f"enr-{i}"] = {
+            "id": f"enr-{i}", "full_name": f"Enrolled {i}", "status": "ENROLLED",
+            "created_at": "2026-04-01T00:00:00", "updated_at": "2026-04-08T00:00:00",
+        }
+    db.collections["customers"]["sold-0"] = {
+        "id": "sold-0", "full_name": "Sold Zero", "status": "SOLD",
+        "created_at": "2026-04-01T00:00:00", "updated_at": "2026-04-15T00:00:00",
+    }
+
+    # Seed deals: 2 active (pending, contract), 1 closed (funded), 1 denied
+    db.collections["deals"].clear()
+    db.collections["deals"]["d-pending"] = {"id": "d-pending", "status": "pending"}
+    db.collections["deals"]["d-contract"] = {"id": "d-contract", "status": "contract"}
+    db.collections["deals"]["d-funded"] = {
+        "id": "d-funded", "status": "funded",
+        "created_at": "2026-04-01T00:00:00", "updated_at": "2026-04-21T00:00:00",
+    }
+    db.collections["deals"]["d-denied"] = {"id": "d-denied", "status": "denied"}
+
+    response = client.get("/api/admin/crm/funnel", headers={"X-Admin-Token": token})
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["success"] is True
+
+    stages = {s["key"]: s for s in data["stages"]}
+    # Top of funnel = 3+2+1 = 6
+    assert stages["LEAD"]["count"] == 6
+    assert stages["LEAD"]["conversion_pct"] == 100.0
+    # Enrolled = 2 + 1 (sold) = 3
+    assert stages["ENROLLED"]["count"] == 3
+    # Deal active = 2 active + 1 closed = 3
+    assert stages["DEAL"]["count"] == 3
+    # Closed = 1 funded + 1 sold customer = 2
+    assert stages["CLOSED"]["count"] == 2
+
+    totals = data["totals"]
+    assert totals["customers_total"] == 6
+    assert totals["deals_active"] == 2
+    assert totals["deals_closed"] == 1
+    assert totals["deals_denied"] == 1
+
+    # Median time: enrolled = 7 days, sold = 14 days → median 7
+    assert data["median_days_in_stage"]["LEAD_to_ENROLLED"] == 7.0
+    # Deal closed: 20 days from 04-01 to 04-21
+    assert data["median_days_in_stage"]["DEAL_to_CLOSED"] == 20.0
+
+
+def test_admin_crm_funnel_requires_auth(monkeypatch):
+    client, _main, _db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
+    response = client.get("/api/admin/crm/funnel")
+    assert response.status_code == 401
+
+
+def test_admin_lead_sources_categorizes_and_attributes(monkeypatch):
+    client, main, db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
+    token = main._create_admin_token()
+
+    from caching import clear_local_cache
+    clear_local_cache()
+
+    # Replace the in-memory leads with a controlled mix of sources
+    now = datetime.now(timezone.utc)
+    main.lead_manager.leads = [
+        FakeLead(lead_id="L1", user_id="u1", session_id="s1",
+                 source="chat", email="alice@example.com",
+                 created_at=now.isoformat()),
+        FakeLead(lead_id="L2", user_id="u2", session_id="s2",
+                 source="contact_form", phone="555-111-2222",
+                 created_at=now.isoformat()),
+        FakeLead(lead_id="L3", user_id="u3", session_id="s3",
+                 source="contact_form",
+                 created_at=now.isoformat()),
+        FakeLead(lead_id="L4", user_id="u4", session_id="s4",
+                 source="appointment",
+                 # Outside the 30-day window
+                 created_at=(now - timedelta(days=120)).isoformat()),
+    ]
+
+    # Funded deal that should attribute to L1 (email match)
+    db.collections["deals"].clear()
+    db.collections["deals"]["d-1"] = {
+        "id": "d-1", "status": "funded",
+        "buyer_email": "alice@example.com",
+        "sale_price": 75000,
+    }
+    # Funded deal that should attribute to L2 (phone match, last 10 digits)
+    db.collections["deals"]["d-2"] = {
+        "id": "d-2", "status": "complete",
+        "buyer_phone": "+1 (555) 111-2222",
+        "sale_price": 90000,
+    }
+    # Pending deal — should NOT attribute revenue
+    db.collections["deals"]["d-pending"] = {
+        "id": "d-pending", "status": "pending",
+        "buyer_email": "alice@example.com",
+        "sale_price": 999999,
+    }
+
+    response = client.get("/api/admin/crm/lead-sources?days=30", headers={"X-Admin-Token": token})
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["success"] is True
+    assert data["window_days"] == 30
+    assert data["total_leads"] == 3  # L4 outside window
+
+    cats = {c["category"]: c for c in data["categories"]}
+    assert cats["chat"]["count"] == 1
+    assert cats["contact_form"]["count"] == 2
+    assert "appointment" not in cats  # outside window
+
+    # Attribution
+    assert cats["chat"]["attributed_deals"] == 1
+    assert cats["chat"]["attributed_revenue"] == 75000.0
+    assert cats["contact_form"]["attributed_deals"] == 1
+    assert cats["contact_form"]["attributed_revenue"] == 90000.0
+
+    # pct sums approximately to 100 (within rounding)
+    total_pct = sum(c["pct"] for c in data["categories"])
+    assert 99.0 <= total_pct <= 101.0
+
+
+def test_admin_lead_sources_clamps_days_argument(monkeypatch):
+    client, main, _db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
+    token = main._create_admin_token()
+
+    from caching import clear_local_cache
+    clear_local_cache()
+
+    response = client.get("/api/admin/crm/lead-sources?days=9999", headers={"X-Admin-Token": token})
+    assert response.status_code == 200
+    assert response.json()["window_days"] == 365
+
+    response = client.get("/api/admin/crm/lead-sources?days=0", headers={"X-Admin-Token": token})
+    assert response.status_code == 200
+    assert response.json()["window_days"] == 1
+
+
+def test_admin_lead_sources_requires_auth(monkeypatch):
+    client, _main, _db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
+    response = client.get("/api/admin/crm/lead-sources")
+    assert response.status_code == 401
+
+
+def test_admin_inventory_analytics_returns_full_report(monkeypatch):
+    client, main, db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
+    token = main._create_admin_token()
+
+    from caching import clear_local_cache
+    clear_local_cache()
+
+    now = datetime.now(timezone.utc)
+
+    db.collections["inventory"].clear()
+    # Available home, listed 30 days ago
+    db.collections["inventory"]["a-1"] = {
+        "id": "a-1", "model_name": "Avail A", "manufacturer": "Champion",
+        "status": "AVAILABLE", "msrp": 80000, "sale_price": 75000,
+        "date_added": (now - timedelta(days=30)).isoformat(),
+    }
+    # Available home, listed 10 days ago
+    db.collections["inventory"]["a-2"] = {
+        "id": "a-2", "model_name": "Avail B", "manufacturer": "Clayton",
+        "status": "AVAILABLE", "msrp": 95000,
+        "date_added": (now - timedelta(days=10)).isoformat(),
+    }
+    # Recently sold (within 30 days)
+    db.collections["inventory"]["s-1"] = {
+        "id": "s-1", "model_name": "Sold A", "manufacturer": "Champion",
+        "status": "SOLD", "sale_price": 70000,
+        "date_added": (now - timedelta(days=45)).isoformat(),
+        "updated_at": (now - timedelta(days=5)).isoformat(),
+    }
+    # Sold long ago (outside 30d window)
+    db.collections["inventory"]["s-2"] = {
+        "id": "s-2", "model_name": "Sold B", "manufacturer": "Clayton",
+        "status": "SOLD", "sale_price": 100000,
+        "date_added": (now - timedelta(days=200)).isoformat(),
+        "updated_at": (now - timedelta(days=100)).isoformat(),
+    }
+    # Reserved
+    db.collections["inventory"]["r-1"] = {
+        "id": "r-1", "model_name": "Reserved", "manufacturer": "Champion",
+        "status": "RESERVED", "sale_price": 90000,
+    }
+
+    response = client.get("/api/admin/inventory/analytics", headers={"X-Admin-Token": token})
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["success"] is True
+
+    totals = data["totals"]
+    assert totals["total"] == 5
+    assert totals["available"] == 2
+    assert totals["sold_total"] == 2
+    assert totals["sold_last_30d"] == 1  # only s-1
+    assert totals["reserved"] == 1
+
+    # Median sale price: [70000, 75000, 90000, 95000, 100000] → 90000
+    assert data["median_sale_price"] == 90000
+
+    mfr = {m["manufacturer"]: m for m in data["by_manufacturer"]}
+    assert mfr["Champion"]["count"] == 3
+    assert mfr["Champion"]["available"] == 1
+    assert mfr["Champion"]["sold"] == 1
+    assert mfr["Clayton"]["count"] == 2
+
+    # Time-on-lot only computed for SOLD + AVAILABLE entries
+    assert data["median_time_on_lot_days"] is not None
+
+
+def test_admin_inventory_analytics_requires_auth(monkeypatch):
+    client, _main, _db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
+    response = client.get("/api/admin/inventory/analytics")
+    assert response.status_code == 401
 
 
 def test_admin_token_accepts_supported_employee_headers(monkeypatch):
