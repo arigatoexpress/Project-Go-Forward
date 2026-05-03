@@ -51,6 +51,9 @@ tools/tmp/
 # Scraper temp
 tools/page1.html
 
+# DocuSeal uploader run reports (ephemeral, one per run)
+tools/.docuseal-upload-report-*.md
+
 # Firebase
 .firebaserc
 frontend/.firebaserc
