@@ -639,10 +639,72 @@
   max-width: 900px;
   width: 100%;
   max-height: 90vh;
-  overflow: hidden;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   animation: tho-slide-up 0.3s ease;
+  position: relative;
+}
+
+.tho-detail-sticky-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.tho-detail-sticky-title {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  flex: 1;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.tho-detail-sticky-name {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #1e293b;
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.tho-detail-sticky-price {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #16a34a;
+  white-space: nowrap;
+}
+
+.tho-detail-sticky-close {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.08);
+  color: #1e293b;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+.tho-detail-sticky-close:hover {
+  background: rgba(0, 0, 0, 0.18);
 }
 
 @keyframes tho-slide-up {
@@ -761,6 +823,48 @@
   border: none;
 }
 
+/* Floorplan tab — peer of Photos / 3D Tour inside the gallery area. */
+.tho-detail-floorplan-wrap {
+  position: relative;
+  height: 400px;
+  background: #f8fafc;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.tho-detail-floorplan-img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  background: #fff;
+}
+
+.tho-detail-floorplan-img.tho-img-error {
+  display: none;
+}
+
+.tho-detail-floorplan-larger {
+  position: absolute;
+  bottom: 1rem;
+  right: 1rem;
+  padding: 0.5rem 0.875rem;
+  background: rgba(15, 23, 42, 0.85);
+  color: #fff;
+  border-radius: 9999px;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  text-decoration: none;
+  transition: background 0.15s ease;
+}
+
+.tho-detail-floorplan-larger:hover,
+.tho-detail-floorplan-larger:focus {
+  background: rgba(15, 23, 42, 1);
+  text-decoration: none;
+}
+
 .tho-detail-gallery-controls {
   background: #0f172a;
   padding: 0.75rem;
@@ -829,7 +933,6 @@
 
 .tho-detail-info {
   padding: 1.5rem;
-  overflow-y: auto;
   flex: 1;
 }
 
@@ -1232,6 +1335,18 @@
     margin: 0.5rem;
   }
 
+  .tho-detail-sticky-header {
+    padding: 0.625rem 0.875rem;
+  }
+
+  .tho-detail-sticky-name {
+    font-size: 0.95rem;
+  }
+
+  .tho-detail-sticky-price {
+    font-size: 0.9rem;
+  }
+
   .tho-detail-photo-main,
   .tho-detail-tour-wrap,
   .tho-detail-no-photo {
@@ -1354,4 +1469,70 @@
 .tho-cat-badge.kitchen { background: #fef3c7; color: #92400e; }
 .tho-cat-badge.bedroom { background: #dbeafe; color: #1e40af; }
 .tho-cat-badge.bathroom { background: #d1fae5; color: #065f46; }
+
+/* ─── Focus Visible — keyboard navigation indicators ─── */
+.tho-browse button:focus-visible,
+.tho-browse a:focus-visible,
+.tho-browse select:focus-visible,
+.tho-browse input:focus-visible,
+.tho-browse textarea:focus-visible {
+  outline: 3px solid #2563eb;
+  outline-offset: 2px;
+}
+
+.tho-detail-overlay button:focus-visible,
+.tho-lead-overlay button:focus-visible {
+  outline: 3px solid #60a5fa;
+  outline-offset: 2px;
+}
+
+/* Ensure close button has adequate touch target */
+.tho-detail-sticky-close {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+.tho-detail-sticky-close:focus-visible {
+  outline: 3px solid #2563eb;
+  outline-offset: 2px;
+}
+
+/* Status tab focus */
+.tho-status-tab:focus-visible {
+  outline: 3px solid #2563eb;
+  outline-offset: 2px;
+}
+
+/* Sort select focus */
+.tho-sort-select:focus-visible {
+  outline: 3px solid #2563eb;
+  outline-offset: 2px;
+}
+
+/* Filter/clear button focus */
+.tho-filter-btn:focus-visible,
+.tho-clear-btn:focus-visible {
+  outline: 3px solid #2563eb;
+  outline-offset: 2px;
+}
+
+/* Card action button focus */
+.tho-card-view-btn:focus-visible,
+.tho-card-tour-btn:focus-visible {
+  outline: 3px solid #2563eb;
+  outline-offset: 2px;
+}
+
+/* Gallery nav focus */
+.tho-gallery-nav:focus-visible,
+.tho-thumb:focus-visible {
+  outline: 3px solid #60a5fa;
+  outline-offset: 2px;
+}
+
+/* Lead form focus */
+.tho-lead-submit-btn:focus-visible {
+  outline: 3px solid #2563eb;
+  outline-offset: 2px;
+}
 

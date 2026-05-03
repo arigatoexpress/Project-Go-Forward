@@ -118,8 +118,9 @@ const Contact = ({ onBack }) => {
                     <fieldset disabled={submitting}>
                     <form onSubmit={handleSubmit} className="space-y-4">
                         <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Your Name</label>
+                            <label htmlFor="contact-name" className="block text-sm font-medium text-gray-700 mb-1">Your Name</label>
                             <input
+                                id="contact-name"
                                 type="text"
                                 required
                                 value={formData.name}
@@ -129,8 +130,9 @@ const Contact = ({ onBack }) => {
                             />
                         </div>
                         <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Phone Number</label>
+                            <label htmlFor="contact-phone" className="block text-sm font-medium text-gray-700 mb-1">Phone Number</label>
                             <input
+                                id="contact-phone"
                                 type="tel"
                                 required
                                 value={formData.phone}
@@ -140,14 +142,16 @@ const Contact = ({ onBack }) => {
                                 }}
                                 className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none ${formData.phone && !isPhoneValid ? 'border-red-300' : 'border-gray-300'}`}
                                 placeholder="(281) 000-0000"
+                                aria-describedby={formData.phone && !isPhoneValid ? 'contact-phone-error' : undefined}
                             />
                             {formData.phone && !isPhoneValid && (
-                                <p className="text-xs text-red-500 mt-1">Enter a valid 10-digit phone number</p>
+                                <p id="contact-phone-error" className="text-xs text-red-500 mt-1">Enter a valid 10-digit phone number</p>
                             )}
                         </div>
                         <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Email (optional)</label>
+                            <label htmlFor="contact-email" className="block text-sm font-medium text-gray-700 mb-1">Email (optional)</label>
                             <input
+                                id="contact-email"
                                 type="email"
                                 value={formData.email}
                                 onChange={(e) => setFormData(prev => ({ ...prev, email: e.target.value }))}
@@ -156,8 +160,9 @@ const Contact = ({ onBack }) => {
                             />
                         </div>
                         <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">What can we help with?</label>
+                            <label htmlFor="contact-message" className="block text-sm font-medium text-gray-700 mb-1">What can we help with?</label>
                             <textarea
+                                id="contact-message"
                                 rows="4"
                                 required
                                 value={formData.message}

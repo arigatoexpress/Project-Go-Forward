@@ -187,13 +187,42 @@ class THODatabase:
         docs = self.db.collection("inventory").where(
             "serial_number", "==", serial_number
         ).limit(1).stream()
-        
+
         for doc in docs:
             data = doc.to_dict()
             data["id"] = doc.id
             return data
         return None
-    
+
+    def get_inventory_by_serials(self, serial_numbers: List[str]) -> Dict[str, Dict]:
+        """Batch lookup of inventory by serial numbers.
+
+        Returns a dict keyed by serial_number. Firestore's `in` query supports
+        up to 30 values per call (as of client 2.22.0), so we chunk the input.
+        Empty/None serials are skipped. Duplicate serials in input are
+        deduplicated; if multiple inventory docs share a serial, the first
+        one wins (matches the single-lookup variant's behaviour).
+        """
+        unique = list({s for s in serial_numbers if s})
+        if not unique:
+            return {}
+
+        result: Dict[str, Dict] = {}
+        # Firestore `in` queries cap at 30 values
+        chunk_size = 30
+        for i in range(0, len(unique), chunk_size):
+            chunk = unique[i:i + chunk_size]
+            docs = self.db.collection("inventory").where(
+                "serial_number", "in", chunk
+            ).stream()
+            for doc in docs:
+                data = doc.to_dict()
+                data["id"] = doc.id
+                serial = data.get("serial_number")
+                if serial and serial not in result:
+                    result[serial] = data
+        return result
+
     def search_inventory(
         self,
         min_beds: Optional[int] = None,

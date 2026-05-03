@@ -21,8 +21,9 @@ class MarkdownErrorBoundary extends React.Component {
 
     render() {
         if (this.state.hasError) {
-            // Fallback to plain text if markdown fails
-            return <div className="whitespace-pre-wrap">{this.props.children}</div>;
+            // Render the raw markdown source as plain text — children is the
+            // <Markdown> element, which would render as nothing useful.
+            return <div className="whitespace-pre-wrap">{this.props.fallbackText || ''}</div>;
         }
 
         return this.props.children;
@@ -34,9 +35,9 @@ class MarkdownErrorBoundary extends React.Component {
  */
 export default function SafeMarkdown({ content, comparisonList = [], onToggleCompare }) {
     return (
-        <MarkdownErrorBoundary>
+        <MarkdownErrorBoundary fallbackText={content}>
+            <div className="prose prose-sm max-w-none">
             <Markdown
-                className="prose prose-sm max-w-none"
                 components={{
                     // Customize markdown rendering
                     code(props) {
@@ -98,6 +99,7 @@ export default function SafeMarkdown({ content, comparisonList = [], onToggleCom
             >
                 {content}
             </Markdown>
+            </div>
         </MarkdownErrorBoundary>
     );
 }

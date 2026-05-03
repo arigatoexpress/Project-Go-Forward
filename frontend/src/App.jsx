@@ -8,6 +8,7 @@ import ComparisonDrawer from './components/ComparisonDrawer';
 import { useToast } from './components/Toast';
 import { useNetworkStatus } from './components/NetworkStatus';
 import ReportIssue from './components/ReportIssue';
+import ErrorBoundary from './components/ErrorBoundary';
 import { v4 as uuidv4 } from 'uuid';
 import {
   BUSINESS_NAME, BUSINESS_PHONE, BUSINESS_PHONE_RAW, BUSINESS_ADDRESS,
@@ -280,16 +281,33 @@ function App() {
   }, [setDarkMode]);
 
   // URL-based routing — support standalone access via /documents, /studio
-  const getInitialPage = () => {
-    const path = window.location.pathname.toLowerCase();
-    if (path.startsWith('/documents') || path.startsWith('/app/documents')) return 'documents';
-    if (path.startsWith('/studio') || path.startsWith('/app/studio')) return 'adstudio';
-    if (path.startsWith('/crm')) return 'crm';
-    if (path.startsWith('/analytics')) return 'analytics';
+  // and direct deep-links to /contact, /chat, /appointments, /crm, /analytics, etc.
+  const pageFromPath = (path) => {
+    const p = (path || '').toLowerCase();
+    if (p.startsWith('/documents') || p.startsWith('/app/documents')) return 'documents';
+    if (p.startsWith('/studio') || p.startsWith('/app/studio')) return 'adstudio';
+    if (p.startsWith('/crm')) return 'crm';
+    if (p.startsWith('/analytics')) return 'analytics';
+    if (p.startsWith('/contact')) return 'contact';
+    if (p.startsWith('/appointments')) return 'appointments';
+    if (p.startsWith('/chat-history')) return 'chat-history';
+    if (p.startsWith('/chat')) return 'chat';
+    if (p.startsWith('/inventory')) return 'inventory';
     return 'inventory';
   };
-  const [activePage, setActivePage] = useState(getInitialPage);
+  const [activePage, setActivePage] = useState(() => pageFromPath(window.location.pathname));
   const isStandaloneMode = window.location.pathname.startsWith('/app/') || window.location.search.includes('standalone=1');
+
+  // Keep activePage in sync with browser back/forward navigation
+  useEffect(() => {
+    const handlePopState = () => {
+      setActivePage(pageFromPath(window.location.pathname));
+      setIsMobileMenuOpen(false);
+      window.scrollTo({ top: 0 });
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   // Admin auth — token validated by backend
   const [adminAuthed, setAdminAuthed] = useState(false);
@@ -389,11 +407,20 @@ function App() {
     setIsMobileMenuOpen(false);
     window.scrollTo({ top: 0 });
     // Update URL for bookmarkable routes
-    const urlMap = { documents: '/documents', adstudio: '/studio', crm: '/crm', analytics: '/analytics' };
-    if (urlMap[page]) {
-      window.history.pushState({}, '', urlMap[page]);
-    } else if (window.location.pathname !== '/') {
-      window.history.pushState({}, '', '/');
+    const urlMap = {
+      inventory: '/',
+      chat: '/chat',
+      contact: '/contact',
+      appointments: '/appointments',
+      documents: '/documents',
+      adstudio: '/studio',
+      crm: '/crm',
+      analytics: '/analytics',
+      'chat-history': '/chat-history',
+    };
+    const targetUrl = urlMap[page] || '/';
+    if (window.location.pathname !== targetUrl) {
+      window.history.pushState({}, '', targetUrl);
     }
   };
 
@@ -599,9 +626,11 @@ function App() {
     return (
       <div className="bg-gray-50 min-h-screen">
         <NavBar {...navProps} />
-        <Suspense fallback={<PageLoader />}>
-          <Analytics />
-        </Suspense>
+        <ErrorBoundary scope="analytics">
+          <Suspense fallback={<PageLoader />}>
+            <Analytics />
+          </Suspense>
+        </ErrorBoundary>
       </div>
     );
   }
@@ -610,9 +639,11 @@ function App() {
     return (
       <div className="bg-gray-50 min-h-screen">
         <NavBar {...navProps} />
-        <Suspense fallback={<PageLoader />}>
-          <CRM onBack={() => navigateTo('inventory')} />
-        </Suspense>
+        <ErrorBoundary scope="crm">
+          <Suspense fallback={<PageLoader />}>
+            <CRM onBack={() => navigateTo('inventory')} />
+          </Suspense>
+        </ErrorBoundary>
       </div>
     );
   }
@@ -621,9 +652,11 @@ function App() {
     return (
       <div className="bg-gray-50 min-h-screen">
         <NavBar {...navProps} />
-        <Suspense fallback={<PageLoader />}>
-          <ChatHistory />
-        </Suspense>
+        <ErrorBoundary scope="chat-history">
+          <Suspense fallback={<PageLoader />}>
+            <ChatHistory />
+          </Suspense>
+        </ErrorBoundary>
       </div>
     );
   }
@@ -643,9 +676,11 @@ function App() {
             </div>
           </header>
         )}
-        <Suspense fallback={<PageLoader />}>
-          <DocumentCenter onBack={() => navigateTo('chat')} sessionId={sessionId} standalone={isStandaloneMode} />
-        </Suspense>
+        <ErrorBoundary scope="documents">
+          <Suspense fallback={<PageLoader />}>
+            <DocumentCenter onBack={() => navigateTo('chat')} sessionId={sessionId} standalone={isStandaloneMode} />
+          </Suspense>
+        </ErrorBoundary>
       </div>
     );
   }
@@ -665,9 +700,11 @@ function App() {
             </div>
           </header>
         )}
-        <Suspense fallback={<PageLoader />}>
-          <AdStudio onBack={() => navigateTo('chat')} standalone={isStandaloneMode} />
-        </Suspense>
+        <ErrorBoundary scope="adstudio">
+          <Suspense fallback={<PageLoader />}>
+            <AdStudio onBack={() => navigateTo('chat')} standalone={isStandaloneMode} />
+          </Suspense>
+        </ErrorBoundary>
       </div>
     );
   }
@@ -676,9 +713,11 @@ function App() {
     return (
       <div className="bg-gray-50 min-h-screen">
         <NavBar {...navProps} />
-        <Suspense fallback={<PageLoader />}>
-          <Contact onBack={() => navigateTo('inventory')} />
-        </Suspense>
+        <ErrorBoundary scope="contact">
+          <Suspense fallback={<PageLoader />}>
+            <Contact onBack={() => navigateTo('inventory')} />
+          </Suspense>
+        </ErrorBoundary>
       </div>
     );
   }
@@ -687,9 +726,11 @@ function App() {
     return (
       <div className="bg-gray-50 min-h-screen">
         <NavBar {...navProps} />
-        <Suspense fallback={<PageLoader />}>
-          <Appointments onBack={() => navigateTo('inventory')} />
-        </Suspense>
+        <ErrorBoundary scope="appointments">
+          <Suspense fallback={<PageLoader />}>
+            <Appointments onBack={() => navigateTo('inventory')} />
+          </Suspense>
+        </ErrorBoundary>
       </div>
     );
   }
@@ -700,19 +741,21 @@ function App() {
         {pinModal}
         <NavBar {...navProps} />
 
-        <Suspense fallback={<PageLoader />}>
-          <InventoryBrowse
-            onAskTex={(message) => {
-              navigateTo('chat');
-              setMessages(prev => [...prev, { role: 'user', text: message }]);
-              handleQuickAction(message);
-            }}
-            onBack={() => navigateTo('chat')}
-            onCreateAd={adminAuthed ? () => {
-              navigateTo('adstudio');
-            } : undefined}
-          />
-        </Suspense>
+        <ErrorBoundary scope="inventory">
+          <Suspense fallback={<PageLoader />}>
+            <InventoryBrowse
+              onAskTex={(message) => {
+                navigateTo('chat');
+                setMessages(prev => [...prev, { role: 'user', text: message }]);
+                handleQuickAction(message);
+              }}
+              onBack={() => navigateTo('chat')}
+              onCreateAd={adminAuthed ? () => {
+                navigateTo('adstudio');
+              } : undefined}
+            />
+          </Suspense>
+        </ErrorBoundary>
 
         {/* Floating Chat Bubble */}
         <button

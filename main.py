@@ -13,22 +13,28 @@ import os
 os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "TRUE"
 
 import hashlib
-import logging
 import secrets
+from collections import defaultdict
+from fastapi import FastAPI, Request, Depends, HTTPException
+from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+from json import JSONDecodeError
+import logging
 import time
 import uuid
-from collections import defaultdict
 from datetime import UTC, datetime
 from urllib.parse import urlsplit, urlunsplit
 
 import uvicorn
-from fastapi import Depends, FastAPI, HTTPException, Request
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
+from slowapi import Limiter
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from config_loader import business_name, get_deployment_config
+from config_loader import get_deployment_config, business_name
 
 # Lazy initialization placeholders - will be loaded on first use
 _adk_app = None
@@ -110,7 +116,59 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 APP_STARTED_AT = time.monotonic()
 
-app = FastAPI(title=f"{business_name()} AI Agent")
+# Sentry error tracking — opt-in; no-op when SENTRY_DSN is absent or under pytest.
+if os.environ.get('SENTRY_DSN') and not os.environ.get('PYTEST_CURRENT_TEST'):
+    import sentry_sdk
+    import re as _sentry_re
+
+    _SENTRY_SSN_RE = _sentry_re.compile(r'\b\d{3}[-\s]?\d{2}[-\s]?\d{4}\b')
+    _SENTRY_EMAIL_RE = _sentry_re.compile(r'\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b')
+
+    def _sentry_before_send(event, hint):
+        # Drop health-probe events — noisy and quota-wasting.
+        url = (event.get('request') or {}).get('url', '')
+        if '/healthz' in url or url.rstrip('/').endswith('/health'):
+            return None
+        # Scrub PII from request body (mirrors tools/pii_guard.py patterns).
+        body = (event.get('request') or {}).get('data', '')
+        if isinstance(body, str):
+            body = _SENTRY_SSN_RE.sub('[SSN-REDACTED]', body)
+            body = _SENTRY_EMAIL_RE.sub('[EMAIL-REDACTED]', body)
+            event.setdefault('request', {})['data'] = body
+        return event
+
+    def _sentry_traces_sampler(ctx):
+        # Exclude health probes from performance tracing.
+        path = (ctx.get('asgi_scope') or {}).get('path', '')
+        if path.startswith('/health'):
+            return 0
+        return 0.05
+
+    sentry_sdk.init(
+        dsn=os.environ['SENTRY_DSN'],
+        environment=os.environ.get('K_REVISION', 'local'),
+        release=os.environ.get('APP_VERSION', 'local'),
+        traces_sampler=_sentry_traces_sampler,
+        profiles_sample_rate=0.0,
+        send_default_pii=False,
+        before_send=_sentry_before_send,
+    )
+    logger.info("Sentry initialized (environment=%s)", os.environ.get('K_REVISION', 'local'))
+
+# Disable FastAPI's auto-docs (/openapi.json, /docs, /redoc) in Cloud Run.
+# These endpoints expose the full API surface — every admin route, every
+# operation ID, every path parameter — to anonymous attackers, which makes
+# enumeration and targeted abuse trivial. They remain available locally so
+# developers can still spelunk the surface in dev. Override with
+# `EXPOSE_API_DOCS=1` if you really need them on a deployed env.
+_EXPOSE_API_DOCS = os.environ.get("EXPOSE_API_DOCS", "0") == "1"
+_DOCS_ENABLED = _EXPOSE_API_DOCS or os.environ.get("K_SERVICE") is None
+app = FastAPI(
+    title=f"{business_name()} AI Agent",
+    openapi_url="/openapi.json" if _DOCS_ENABLED else None,
+    docs_url="/docs" if _DOCS_ENABLED else None,
+    redoc_url="/redoc" if _DOCS_ENABLED else None,
+)
 
 # Initialize services (these don't require Vertex AI)
 deploy_cfg = get_deployment_config()
@@ -147,12 +205,50 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
 
 def _get_client_ip(request: Request) -> str:
-    """Get real client IP, checking X-Forwarded-For for reverse proxy (Cloud Run)."""
+    """Get real client IP, checking X-Forwarded-For for reverse proxy (Cloud Run).
+
+    Reused as the slowapi ``key_func`` so per-IP rate limiting and the
+    ``_pin_attempts`` brute-force counter key the same client identity.
+    """
     forwarded = request.headers.get("x-forwarded-for", "")
     if forwarded:
         return forwarded.split(",")[0].strip()
     return request.client.host if request.client else "unknown"
 
+# slowapi per-IP rate limiter — layered on top of the legacy
+# RateLimitMiddleware below. Per-route caps are applied via @limiter.limit()
+# decorators on individual endpoints (admin, partner /api/v1/*, marketing
+# inventory-context). /health, /healthz, /healthz/ are exempted via
+# @limiter.exempt so Cloud Run liveness probes are never throttled.
+#
+# headers_enabled is intentionally left FALSE: slowapi's _inject_headers
+# raises when a route returns a dict (the common FastAPI shape) without an
+# explicit ``response: Response`` parameter in the signature. The custom
+# 429 handler below adds Retry-After by hand using the exception's limit
+# metadata so callers still get the standard rate-limit signal.
+limiter = Limiter(
+    key_func=_get_client_ip,
+    default_limits=["100/minute"],
+    headers_enabled=False,
+)
+app.state.limiter = limiter
+
+
+def _rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:
+    """JSON 429 handler with Retry-After. Replaces slowapi's default handler
+    so we don't depend on ``headers_enabled`` (see comment above)."""
+    try:
+        retry_after = int(exc.limit.limit.get_expiry())
+    except Exception:
+        retry_after = 60
+    return JSONResponse(
+        {"error": f"Rate limit exceeded: {exc.detail}"},
+        status_code=429,
+        headers={"Retry-After": str(retry_after)},
+    )
+
+
+app.add_exception_handler(RateLimitExceeded, _rate_limit_handler)
 
 # Rate limiting middleware — per-IP sliding window
 MAX_REQUESTS_PER_MINUTE = int(os.environ.get("RATE_LIMIT_RPM", "60"))
@@ -194,6 +290,11 @@ class RequestSizeLimitMiddleware(BaseHTTPMiddleware):
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(RateLimitMiddleware)
 app.add_middleware(RequestSizeLimitMiddleware)
+# slowapi middleware is registered last so it sits outermost and runs
+# before the legacy per-IP RateLimitMiddleware. Per-route caps via
+# @limiter.limit decorators short-circuit hot paths (e.g. /api/admin/verify
+# at 5/min) before they ever reach the brute-force _pin_attempts counter.
+app.add_middleware(SlowAPIMiddleware)
 
 
 class ImmutableStaticFiles(StaticFiles):
@@ -320,6 +421,46 @@ async def resilient_http_exception_handler(request: Request, exc: HTTPException)
         status_code=exc.status_code,
         headers=getattr(exc, "headers", None) or None,
     )
+    return _apply_api_cache_headers(request, response)
+
+
+@app.exception_handler(RequestValidationError)
+async def resilient_validation_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    """Funnel FastAPI body/query/path validation errors through the same
+    `{success, status_code, message}` envelope as HTTPException so the SPA
+    can branch on `success` and never sees FastAPI's default 422 shape.
+    Partner /api/v1/* keeps the default for contract stability.
+    """
+    if _is_partner_api_path(request.url.path):
+        body: dict = {"detail": exc.errors()}
+        status_code = 422
+    else:
+        body = {
+            "success": False,
+            "status_code": 400,
+            "message": "Invalid request payload.",
+        }
+        status_code = 400
+    response = JSONResponse(body, status_code=status_code)
+    return _apply_api_cache_headers(request, response)
+
+
+@app.exception_handler(JSONDecodeError)
+async def resilient_json_decode_handler(request: Request, exc: JSONDecodeError) -> JSONResponse:
+    """A `json.JSONDecodeError` raised inside a route — typically from
+    `await request.json()` on an empty/malformed body — would otherwise
+    surface as a Starlette 500 with `text/plain` "Internal Server Error",
+    breaking the JSON contract the SPA relies on. Wrap it.
+    """
+    if _is_partner_api_path(request.url.path):
+        body: dict = {"detail": "Malformed JSON body."}
+    else:
+        body = {
+            "success": False,
+            "status_code": 400,
+            "message": "Malformed JSON body.",
+        }
+    response = JSONResponse(body, status_code=400)
     return _apply_api_cache_headers(request, response)
 
 
@@ -706,6 +847,168 @@ async def get_lead_stats():
         return {"error": "Failed to load lead statistics"}
 
 
+def _categorize_lead_source(lead) -> str:
+    """Map raw Lead.source (and any future utm/referrer fields) to a
+    coarse category used for attribution charts.
+
+    Buckets:
+      - chat            : in-app conversational agent
+      - contact_form    : website contact form
+      - appointment     : appointment widget / direct booking
+      - calculator      : financing calculator entry point
+      - referrer:<host> : explicit referrer host (truncated)
+      - utm:<source>    : utm_source value (lowercase)
+      - other           : everything else
+    """
+    raw = (getattr(lead, "source", None) or "").strip().lower()
+
+    # Future-proof: support utm_source / referrer fields if they ever
+    # land on the Lead dataclass without crashing on AttributeError.
+    utm = (getattr(lead, "utm_source", None) or "").strip().lower()
+    referrer = (getattr(lead, "referrer", None) or "").strip().lower()
+
+    if utm:
+        return f"utm:{utm}"
+    if referrer:
+        # Strip protocol + path → keep host
+        host = referrer.replace("https://", "").replace("http://", "").split("/", 1)[0][:40]
+        return f"referrer:{host}" if host else "referrer:direct"
+
+    if raw in {"chat", "appointment", "calculator", "contact_form", "chat_intake"}:
+        # Normalize chat_intake → chat for funnel parity
+        return "chat" if raw == "chat_intake" else raw
+    if not raw:
+        return "other"
+    return raw[:40]
+
+
+@app.get("/api/admin/crm/lead-sources", dependencies=[Depends(require_admin)])
+async def admin_lead_sources(days: int = 30):
+    """
+    Lead source attribution for the last `days` days.
+
+    Returns counts per category and a revenue-equivalent figure when
+    deals can be attributed (matched on email or phone). Default window
+    is 30 days; cap at 365.
+
+    Response shape:
+      {
+        "success": true,
+        "window_days": 30,
+        "total_leads": N,
+        "categories": [
+          {"category": "chat", "count": N, "pct": 12.5,
+           "attributed_deals": K, "attributed_revenue": $X}
+        ]
+      }
+    """
+    from caching import cache_get, cache_set
+    try:
+        days = int(days)
+    except (TypeError, ValueError):
+        days = 30
+    days = max(1, min(days, 365))
+    cache_key = f"admin_lead_sources_{days}d_v1"
+    cached = cache_get(cache_key)
+    if cached:
+        return cached
+
+    try:
+        from datetime import datetime, timedelta, timezone
+
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+        cutoff_naive = cutoff.replace(tzinfo=None)
+
+        all_leads = await lead_manager.list_leads(limit=2000)
+
+        # Collect deals once, index by email/phone for attribution lookup
+        deals_by_email: dict[str, list[dict]] = {}
+        deals_by_phone: dict[str, list[dict]] = {}
+        for doc in _db.db.collection("deals").stream():
+            data = doc.to_dict() or {}
+            status = (data.get("status") or "").lower()
+            if status not in ("funded", "complete", "approved", "contract"):
+                # Only count real revenue-equivalents. Skip pending/denied/archived.
+                if status not in ("funded", "complete"):
+                    continue
+            email = (data.get("buyer_email") or "").strip().lower()
+            phone_digits = "".join(c for c in (data.get("buyer_phone") or "") if c.isdigit())
+            # Normalize to last 10 digits to match the lead-side comparison
+            phone_digits = phone_digits[-10:] if len(phone_digits) >= 10 else phone_digits
+            if email:
+                deals_by_email.setdefault(email, []).append(data)
+            if phone_digits:
+                deals_by_phone.setdefault(phone_digits, []).append(data)
+
+        category_counts: dict[str, int] = {}
+        category_revenue: dict[str, float] = {}
+        category_deals: dict[str, int] = {}
+        seen_deal_ids: dict[str, set[str]] = {}
+
+        recent_lead_count = 0
+        for lead in all_leads:
+            created = _parse_iso_datetime(getattr(lead, "created_at", None))
+            if created and created < cutoff_naive:
+                continue
+            recent_lead_count += 1
+            cat = _categorize_lead_source(lead)
+            category_counts[cat] = category_counts.get(cat, 0) + 1
+
+            # Attribution: match by email OR last-10-digits phone
+            email = (getattr(lead, "email", None) or "").strip().lower()
+            phone_digits = "".join(c for c in (getattr(lead, "phone", None) or "") if c.isdigit())
+            phone_digits = phone_digits[-10:] if len(phone_digits) >= 10 else phone_digits
+
+            matched_deals: list[dict] = []
+            if email and email in deals_by_email:
+                matched_deals.extend(deals_by_email[email])
+            if phone_digits and phone_digits in deals_by_phone:
+                matched_deals.extend(deals_by_phone[phone_digits])
+
+            seen = seen_deal_ids.setdefault(cat, set())
+            for deal in matched_deals:
+                deal_id = deal.get("id") or deal.get("deal_id") or ""
+                if not deal_id or deal_id in seen:
+                    continue
+                seen.add(deal_id)
+                category_deals[cat] = category_deals.get(cat, 0) + 1
+                # Use sale_price → loan_amount → home_price as revenue proxy
+                revenue = (
+                    deal.get("sale_price")
+                    or deal.get("loan_amount")
+                    or deal.get("home_price")
+                    or 0
+                )
+                try:
+                    category_revenue[cat] = category_revenue.get(cat, 0.0) + float(revenue)
+                except (TypeError, ValueError):
+                    pass
+
+        total = max(recent_lead_count, 1)
+        categories = []
+        for cat, count in sorted(category_counts.items(), key=lambda kv: (-kv[1], kv[0])):
+            categories.append({
+                "category": cat,
+                "count": count,
+                "pct": round(100.0 * count / total, 1),
+                "attributed_deals": category_deals.get(cat, 0),
+                "attributed_revenue": round(category_revenue.get(cat, 0.0), 2),
+            })
+
+        result = {
+            "success": True,
+            "window_days": days,
+            "total_leads": recent_lead_count,
+            "categories": categories,
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        cache_set(cache_key, result, ttl_seconds=300)
+        return result
+    except Exception as e:
+        struct_logger.error("Lead source attribution failed", error=str(e))
+        return {"success": False, "error": "Failed to compute lead source attribution."}
+
+
 @app.get("/api/analytics/leads", dependencies=[Depends(require_admin)])
 async def get_lead_analytics(range: str = "30d"):
     """Get detailed lead analytics with time series data."""
@@ -942,13 +1245,15 @@ async def get_chat_analytics(range: str = "30d"):
 
 
 @app.get("/health")
+@limiter.exempt
 def health():
     return {"status": "ok"}
 
 
-@app.get("/healthz")
-@app.get("/healthz/")
-def healthz():
+@app.get("/healthz", response_class=JSONResponse)
+@app.get("/healthz/", response_class=JSONResponse)
+@limiter.exempt
+def healthz() -> JSONResponse:
     email_configured = bool(os.environ.get("RESEND_API_KEY"))
     warnings = []
     if not email_configured:
@@ -968,7 +1273,7 @@ def healthz():
         or os.environ.get("GITHUB_SHA")
         or version
     )
-    return {
+    body = {
         "status": "ok",
         "version": version,
         "sha": sha,
@@ -983,6 +1288,10 @@ def healthz():
         },
         "warnings": warnings,
     }
+    return JSONResponse(
+        body,
+        headers={"Cache-Control": "no-store, no-cache, must-revalidate", "Pragma": "no-cache"},
+    )
 
 
 @app.post("/apps/{app_name}/users/{user_id}/sessions/{session_id}")
@@ -1141,7 +1450,15 @@ async def get_template_fields(template_name: str):
 
 @app.post("/api/documents/generate", dependencies=[Depends(require_admin)])
 async def generate_document_endpoint(body: GenerateDocumentRequest, request: Request):
-    """Generate any mapped document template."""
+    """Generate any mapped document template.
+
+    When the supplied ``data`` dict cannot satisfy the template's required
+    fields the response is a HTTP 400 with the structured envelope
+    ``{"error": "missing_required_fields", "message": "<engine message>"}``.
+    This prevents the historical "empty doc" class of bug where an almost
+    blank request silently produced a near-empty PDF that looked like a
+    real document.
+    """
     try:
         result = engine_generate_document(
             template_name=body.template_name,
@@ -1165,7 +1482,20 @@ async def generate_document_endpoint(body: GenerateDocumentRequest, request: Req
                 "filename": result["filename"],
                 "message": result["message"],
             }
-        return {"success": False, "error": result["message"]}
+        # Surface validation failures as 400s with a structured envelope so
+        # callers can react programmatically and so we never accidentally
+        # ship a 200 + empty PDF for an empty deal.
+        message = result.get("message", "")
+        if "Missing required fields" in message:
+            return JSONResponse(
+                {
+                    "success": False,
+                    "error": "missing_required_fields",
+                    "message": message,
+                },
+                status_code=400,
+            )
+        return {"success": False, "error": message}
     except Exception as e:
         struct_logger.error("Document generation failed", error=str(e))
         return {"success": False, "error": "Document generation failed. Please try again."}
@@ -1201,6 +1531,7 @@ async def generate_packet_endpoint(body: GeneratePacketRequest, request: Request
                 "message": result["message"],
                 "page_count": result.get("page_count", 0),
                 "documents_included": result.get("documents_included", []),
+                "documents_skipped": result.get("documents_skipped", []),
             }
         return {"success": False, "error": result["message"]}
     except Exception as e:
@@ -1368,6 +1699,151 @@ async def list_inventory(status: str = "AVAILABLE", limit: int = 100, is_new: bo
         return {"success": False, "error": "Failed to load inventory. Please try again."}
 
 
+@app.get("/api/admin/inventory/photo-audit", dependencies=[Depends(require_admin)])
+async def admin_inventory_photo_audit(limit: int = 5000):
+    """
+    Read-only photo dedup audit.
+
+    Aggregates inventory image fields (image_url, hero_image, floorplan_url,
+    gallery_images, photos, real_photos) and reports any URL referenced by
+    two or more distinct inventory documents. Does NOT mutate Firestore;
+    the operator decides which dedupes to apply.
+    """
+    try:
+        from tools.photo_dedup_audit import run_photo_dedup_audit
+        # Pull the raw inventory docs directly so list/single image fields
+        # are preserved (search_inventory's transform drops some).
+        docs = _db.db.collection("inventory").limit(limit).stream()
+        inventory = []
+        for doc in docs:
+            data = doc.to_dict()
+            data["id"] = doc.id
+            inventory.append(data)
+        report = run_photo_dedup_audit(inventory)
+        return {"success": True, **report}
+    except Exception as e:
+        struct_logger.error("Photo dedup audit failed", error=str(e))
+        return {"success": False, "error": "Failed to run photo dedup audit."}
+
+
+@app.get("/api/admin/inventory/analytics", dependencies=[Depends(require_admin)])
+async def admin_inventory_analytics():
+    """
+    Operational inventory analytics for the admin panel.
+
+    Pulls the full inventory collection and surfaces:
+      - total / available / sold-30d / pending / reserved counts
+      - median sale price (uses sale_price → msrp fallback)
+      - median time-on-lot (created_at / date_added → updated_at when sold,
+        else now-created_at for available units)
+      - by-manufacturer breakdown (count + median price)
+
+    5-minute cache.
+    """
+    from caching import cache_get, cache_set
+    cache_key = "admin_inventory_analytics_v1"
+    cached = cache_get(cache_key)
+    if cached:
+        return cached
+
+    try:
+        import statistics as _stats
+        from datetime import datetime, timedelta, timezone
+
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        thirty_days_ago = now - timedelta(days=30)
+
+        total = 0
+        available = 0
+        sold_total = 0
+        sold_last_30d = 0
+        pending = 0
+        reserved = 0
+
+        prices: list[float] = []
+        time_on_lot_days: list[float] = []
+        by_manufacturer: dict[str, dict] = {}
+
+        for doc in _db.db.collection("inventory").stream():
+            data = doc.to_dict() or {}
+            total += 1
+
+            status = (data.get("status") or "").upper()
+            if status == "AVAILABLE":
+                available += 1
+            elif status == "SOLD":
+                sold_total += 1
+                sold_at = _parse_iso_datetime(data.get("updated_at"))
+                if sold_at and sold_at >= thirty_days_ago:
+                    sold_last_30d += 1
+            elif status == "PENDING":
+                pending += 1
+            elif status == "RESERVED":
+                reserved += 1
+
+            price_value = data.get("sale_price") or data.get("msrp") or 0
+            try:
+                price_f = float(price_value)
+            except (TypeError, ValueError):
+                price_f = 0.0
+            if price_f > 0:
+                prices.append(price_f)
+
+            # Time on lot: SOLD → updated_at - created; AVAILABLE → now - created
+            created = _parse_iso_datetime(data.get("date_added")) or _parse_iso_datetime(data.get("created_at"))
+            if created:
+                if status == "SOLD":
+                    closed = _parse_iso_datetime(data.get("updated_at"))
+                    if closed and closed >= created:
+                        time_on_lot_days.append((closed - created).total_seconds() / 86400.0)
+                elif status == "AVAILABLE":
+                    if now >= created:
+                        time_on_lot_days.append((now - created).total_seconds() / 86400.0)
+
+            mfr = (data.get("manufacturer") or "").strip() or "Unknown"
+            entry = by_manufacturer.setdefault(mfr, {"count": 0, "available": 0, "sold": 0, "_prices": []})
+            entry["count"] += 1
+            if status == "AVAILABLE":
+                entry["available"] += 1
+            elif status == "SOLD":
+                entry["sold"] += 1
+            if price_f > 0:
+                entry["_prices"].append(price_f)
+
+        manufacturers = []
+        for mfr, entry in by_manufacturer.items():
+            median_price = round(_stats.median(entry["_prices"]), 0) if entry["_prices"] else None
+            manufacturers.append({
+                "manufacturer": mfr,
+                "count": entry["count"],
+                "available": entry["available"],
+                "sold": entry["sold"],
+                "median_price": median_price,
+            })
+        manufacturers.sort(key=lambda m: -m["count"])
+
+        result = {
+            "success": True,
+            "totals": {
+                "total": total,
+                "available": available,
+                "pending": pending,
+                "reserved": reserved,
+                "sold_total": sold_total,
+                "sold_last_30d": sold_last_30d,
+            },
+            "median_sale_price": round(_stats.median(prices), 0) if prices else None,
+            "median_time_on_lot_days": round(_stats.median(time_on_lot_days), 1) if time_on_lot_days else None,
+            "by_manufacturer": manufacturers,
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        cache_set(cache_key, result, ttl_seconds=300)
+        return result
+    except Exception as e:
+        struct_logger.error("Inventory analytics failed", error=str(e))
+        return {"success": False, "error": "Failed to compute inventory analytics."}
+
+
 @app.post("/api/inventory/bulk-import", dependencies=[Depends(require_admin)])
 async def bulk_import_inventory(request: Request):
     """
@@ -1482,12 +1958,14 @@ _deal_db = _db
 async def list_deals(status: str = None, salesrep: str = None, q: str = None, limit: int = 50):
     """List deals with optional filters."""
     try:
-        deals = _deal_db.search_deals(status=status, salesrep=salesrep, buyer_name=q, limit=limit)
-        return {
-            "success": True,
-            "deals": [_strip_pii_from_deal(d) for d in deals],
-            "count": len(deals),
-        }
+        deals = _deal_db.search_deals(
+            status=status,
+            salesrep=salesrep,
+            buyer_name=q,
+            limit=limit
+        )
+        enriched = _enrich_deals_with_home(deals, _deal_db)
+        return {"success": True, "deals": [_strip_pii_from_deal(d) for d in enriched], "count": len(enriched)}
     except Exception as e:
         struct_logger.error("Deal listing failed", error=str(e))
         return {"success": False, "error": "Failed to load deals. Please try again."}
@@ -1531,11 +2009,141 @@ async def create_deal(request: Request):
         return {"success": False, "error": "Failed to create deal. Please try again."}
 
 
+def _parse_iso_datetime(value):
+    """Parse a Firestore-stored timestamp (datetime, iso string, or None).
+
+    Returns a tz-naive UTC datetime, or None on failure. Used by analytics
+    endpoints that need to diff created_at/updated_at without assuming a
+    consistent stored type.
+    """
+    from datetime import datetime, timezone
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.astimezone(timezone.utc).replace(tzinfo=None) if value.tzinfo else value
+    if not isinstance(value, str):
+        return None
+    raw = value.strip()
+    if not raw:
+        return None
+    if raw.endswith("Z"):
+        raw = f"{raw[:-1]}+00:00"
+    try:
+        dt = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    return dt.astimezone(timezone.utc).replace(tzinfo=None) if dt.tzinfo else dt
+
+
 def _strip_pii_from_deal(deal: dict) -> dict:
     """Remove raw SSN from deal data before sending to frontend."""
     if isinstance(deal, dict):
         return {k: v for k, v in deal.items() if k not in ("buyer_ssn", "co_buyer_ssn")}
     return deal
+
+
+def _deal_serial(deal: dict) -> str | None:
+    """Extract a usable home serial from a deal record.
+
+    Different ingest paths landed slightly different field names on the
+    `deals` collection:
+      * `import_fcd_deals.py` and the manual deal form use `serial_number_1`
+        (matches the Pydantic `Deal` model).
+      * The historical FCD bulk import used `serial_number` (singular).
+    We accept either and fall back to None.
+    """
+    if not isinstance(deal, dict):
+        return None
+    for key in ("serial_number_1", "serial_number"):
+        val = deal.get(key)
+        if val:
+            return str(val).strip() or None
+    return None
+
+
+def _enrich_deals_with_home(deals: list, db) -> list:
+    """Attach `home_label` and `home_manufacturer` to each deal.
+
+    Behaviour:
+      * If the deal already has `manufacturer` and (`model` or `home_model`)
+        populated, no inventory lookup is needed; we just normalize a
+        `home_label` for the frontend.
+      * Otherwise, if the deal has a serial number (`serial_number_1` or
+        `serial_number`), we batch-look-up the inventory and attach the
+        matching home's `model_name` + `manufacturer` as `home_label` and
+        `home_manufacturer`.
+      * If no inventory match exists, `home_label` stays unset so the
+        frontend can render the "Serial: XXXX" fallback.
+
+    The output is schema-additive: we never strip existing keys. New keys
+    only appear when we have a value to attach.
+    """
+    if not deals:
+        return deals
+
+    # Collect serials that need an inventory lookup. We skip deals that
+    # already carry a model — they don't need enrichment.
+    needs_lookup: dict[str, list[dict]] = {}
+    for deal in deals:
+        if not isinstance(deal, dict):
+            continue
+        existing_model = deal.get("model") or deal.get("home_model")
+        if existing_model and deal.get("manufacturer"):
+            continue
+        serial = _deal_serial(deal)
+        if not serial:
+            continue
+        needs_lookup.setdefault(serial, []).append(deal)
+
+    inventory_by_serial: dict = {}
+    if needs_lookup:
+        try:
+            getter = getattr(db, "get_inventory_by_serials", None)
+            if callable(getter):
+                inventory_by_serial = getter(list(needs_lookup.keys())) or {}
+            else:
+                # Fallback: per-serial lookup if the batched method is absent
+                # (e.g., older test stubs).
+                single = getattr(db, "get_inventory_by_serial", None)
+                if callable(single):
+                    for serial in needs_lookup:
+                        match = single(serial)
+                        if match:
+                            inventory_by_serial[serial] = match
+        except Exception as exc:  # noqa: BLE001 - never let enrichment break /api/deals
+            struct_logger.warning(
+                "Deal home enrichment failed; falling back to raw deals",
+                error=str(exc),
+            )
+            inventory_by_serial = {}
+
+    for serial, matched_deals in needs_lookup.items():
+        inv = inventory_by_serial.get(serial)
+        if not inv:
+            continue
+        label = inv.get("model_name") or inv.get("model")
+        manufacturer = inv.get("manufacturer")
+        for deal in matched_deals:
+            if label and not deal.get("home_label"):
+                deal["home_label"] = label
+            if manufacturer and not deal.get("home_manufacturer"):
+                deal["home_manufacturer"] = manufacturer
+
+    # For deals that already had model/manufacturer, surface a unified
+    # `home_label` so the frontend doesn't have to know about every field
+    # name. This is purely additive.
+    for deal in deals:
+        if not isinstance(deal, dict):
+            continue
+        if deal.get("home_label"):
+            continue
+        existing_model = deal.get("model") or deal.get("home_model")
+        if existing_model:
+            deal["home_label"] = existing_model
+        if not deal.get("home_manufacturer") and deal.get("manufacturer"):
+            deal["home_manufacturer"] = deal.get("manufacturer")
+
+    return deals
 
 
 @app.get("/api/deals/{deal_id}", dependencies=[Depends(require_admin)])
@@ -1789,6 +2397,8 @@ from tools.marketing_tools import (
     get_trending_content_ideas,
     schedule_social_post,
 )
+from tools.asset_scraper import PROPERTY_ASSETS, get_matterport_url
+from tools.photo_classifier import apply_classifier_to_home
 from tools.video_generator import GENERATED_VIDEOS_DIR
 
 
@@ -1976,7 +2586,8 @@ async def download_generated_video(filename: str):
 
 
 @app.get("/api/marketing/inventory-context")
-async def api_inventory_context():
+@limiter.limit("30/minute")
+async def api_inventory_context(request: Request):
     """Get inventory highlights for ad creation and the public browse page."""
     try:
         from tools.asset_scraper import get_assets_for_home
@@ -2034,6 +2645,13 @@ async def api_inventory_context():
         else:
             result["homes"] = firestore_homes
             result["total_inventory"] = result.get("total_inventory", len(firestore_homes))
+
+        # Apply URL-based floorplan classifier to every home before responding.
+        # 2026-04-30 prod audit: 35/44 homes had image_url pointing at a
+        # /floorplan/ URL. apply_classifier_to_home() promotes the first
+        # exterior to image_url and moves floorplans into floorplan_url.
+        for home in result.get("homes", []):
+            apply_classifier_to_home(home)
 
         result["website_homes"] = len(website_homes)
         return result
@@ -2435,8 +3053,18 @@ async def search_chat_conversations(request: Request):
 
 
 @app.post("/api/admin/verify")
+@limiter.limit("5/minute")
 async def verify_admin_pin(request: Request):
-    """Validate admin PIN server-side and return a session token."""
+    """Validate admin PIN server-side and return a session token.
+
+    Layered defenses:
+
+    * slowapi caps this endpoint at 5/min per IP — short-circuits a fast
+      brute-force attacker before they can spin through the 10-attempt
+      ``_pin_attempts`` window.
+    * The legacy ``_pin_attempts`` lockout (10 attempts → 5-minute cool-off)
+      still applies for clients staying under the 5/min slowapi cap.
+    """
     client_ip = _get_client_ip(request)
 
     # Check brute-force lockout
@@ -2453,8 +3081,24 @@ async def verify_admin_pin(request: Request):
             headers={"Retry-After": str(PIN_LOCKOUT_SECONDS)},
         )
 
-    data = await request.json()
+    try:
+        data = await request.json()
+    except (JSONDecodeError, ValueError):
+        return JSONResponse(
+            {"success": False, "error": "Malformed JSON body."},
+            status_code=400,
+        )
+    if not isinstance(data, dict):
+        return JSONResponse(
+            {"success": False, "error": "Request body must be a JSON object."},
+            status_code=400,
+        )
     pin = data.get("pin", "")
+    if not isinstance(pin, str):
+        return JSONResponse(
+            {"success": False, "error": "PIN must be a string."},
+            status_code=400,
+        )
     if not ADMIN_PIN_HASH:
         struct_logger.warning("Admin login rejected: ADMIN_PIN_HASH not configured")
         return JSONResponse(
@@ -2486,6 +3130,7 @@ async def verify_admin_pin(request: Request):
 
 
 @app.get("/api/admin/check")
+@limiter.limit("30/minute")
 async def check_admin_token(request: Request):
     """Verify that an admin token is still valid (stateless — works across instances)."""
     token = _admin_token_from_request(request)
@@ -2658,6 +3303,128 @@ async def customer_analytics():
     except Exception as e:
         logger.error(f"Customer analytics failed: {e}")
         return {"error": str(e)}
+
+
+@app.get("/api/admin/crm/funnel", dependencies=[Depends(require_admin)])
+async def admin_crm_funnel():
+    """
+    CRM funnel analytics — customer counts per stage, conversion rates,
+    median time-in-stage. Pulls from `customers` and `deals` collections.
+
+    Response shape:
+      {
+        "stages": [
+          {"key": "LEAD", "label": "Lead", "count": N, "conversion_pct": 100.0},
+          {"key": "ENROLLED", "label": "Enrolled", "count": N, "conversion_pct": ...},
+          {"key": "DEAL", "label": "Deal (active)", "count": N, "conversion_pct": ...},
+          {"key": "CLOSED", "label": "Closed", "count": N, "conversion_pct": ...}
+        ],
+        "median_days_in_stage": {"LEAD_to_ENROLLED": ..., ...},
+        "totals": {...}
+      }
+
+    5-minute cache.
+    """
+    from caching import cache_get, cache_set
+    cache_key = "admin_crm_funnel_v1"
+    cached = cache_get(cache_key)
+    if cached:
+        return cached
+
+    try:
+        from datetime import datetime, timezone
+        import statistics as _stats
+
+        # Customers (1,963 docs in prod) — paged via search_customers helper
+        customers = _db.search_customers(limit=10000)
+
+        lead_count = 0
+        enrolled_count = 0
+        sold_customer_count = 0
+        # For median time LEAD → ENROLLED, we don't have per-stage timestamps;
+        # use updated_at - created_at as a coarse proxy when status != LEAD.
+        lead_to_enrolled_days: list[float] = []
+        for c in customers:
+            status = (c.get("status") or "").upper()
+            if status == "LEAD":
+                lead_count += 1
+            elif status == "ENROLLED":
+                enrolled_count += 1
+            elif status == "SOLD":
+                sold_customer_count += 1
+            if status in ("ENROLLED", "SOLD"):
+                created = _parse_iso_datetime(c.get("created_at"))
+                updated = _parse_iso_datetime(c.get("updated_at"))
+                if created and updated and updated >= created:
+                    lead_to_enrolled_days.append((updated - created).total_seconds() / 86400.0)
+
+        # Deals — count by status. Active deal stages: pending/approved/contract.
+        # Closed stages: funded/complete.
+        active_deal_count = 0
+        closed_deal_count = 0
+        denied_count = 0
+        deal_close_days: list[float] = []
+        # Stream deals collection directly to avoid the 50-record cap of search_deals
+        for doc in _db.db.collection("deals").stream():
+            data = doc.to_dict() or {}
+            status = (data.get("status") or "").lower()
+            if status in ("pending", "approved", "contract"):
+                active_deal_count += 1
+            elif status in ("funded", "complete"):
+                closed_deal_count += 1
+                created = _parse_iso_datetime(data.get("created_at"))
+                updated = _parse_iso_datetime(data.get("updated_at"))
+                if created and updated and updated >= created:
+                    deal_close_days.append((updated - created).total_seconds() / 86400.0)
+            elif status == "denied":
+                denied_count += 1
+
+        # Conversion percentages relative to lead_count (top of funnel).
+        # ENROLLED count includes everyone past lead; SOLD/closed deal counts
+        # include everyone who reached or passed the closed stage.
+        top = max(lead_count + enrolled_count + sold_customer_count, 1)
+        funnel_lead = lead_count + enrolled_count + sold_customer_count
+        funnel_enrolled = enrolled_count + sold_customer_count
+        funnel_deal = active_deal_count + closed_deal_count
+        funnel_closed = closed_deal_count + sold_customer_count
+
+        def pct(n: int, d: int) -> float:
+            return round(100.0 * n / d, 1) if d else 0.0
+
+        stages = [
+            {"key": "LEAD", "label": "Lead", "count": funnel_lead,
+             "conversion_pct": pct(funnel_lead, top)},
+            {"key": "ENROLLED", "label": "Enrolled", "count": funnel_enrolled,
+             "conversion_pct": pct(funnel_enrolled, top)},
+            {"key": "DEAL", "label": "Deal (active)", "count": funnel_deal,
+             "conversion_pct": pct(funnel_deal, top)},
+            {"key": "CLOSED", "label": "Closed", "count": funnel_closed,
+             "conversion_pct": pct(funnel_closed, top)},
+        ]
+
+        def _median(xs: list[float]):
+            return round(_stats.median(xs), 1) if xs else None
+
+        result = {
+            "success": True,
+            "stages": stages,
+            "median_days_in_stage": {
+                "LEAD_to_ENROLLED": _median(lead_to_enrolled_days),
+                "DEAL_to_CLOSED": _median(deal_close_days),
+            },
+            "totals": {
+                "customers_total": len(customers),
+                "deals_active": active_deal_count,
+                "deals_closed": closed_deal_count,
+                "deals_denied": denied_count,
+            },
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        cache_set(cache_key, result, ttl_seconds=300)
+        return result
+    except Exception as e:
+        struct_logger.error("CRM funnel analytics failed", error=str(e))
+        return {"success": False, "error": "Failed to compute CRM funnel."}
 
 
 @app.get("/api/customers/{customer_id}", dependencies=[Depends(require_admin)])
@@ -3039,7 +3806,8 @@ def _count_collection_by_status(collection_name: str, status_field: str = "statu
 
 
 @app.get("/api/v1/customers", dependencies=[Depends(require_partner_api_key)])
-async def v1_list_customers(limit: int = 50, offset: int = 0, status: str = None, q: str = None):
+@limiter.limit("60/minute")
+async def v1_list_customers(request: Request, limit: int = 50, offset: int = 0, status: str = None, q: str = None):
     """List customers with pagination and default PII redaction."""
     limit = max(1, min(limit, 200))
     offset = max(0, offset)
@@ -3063,7 +3831,8 @@ async def v1_list_customers(limit: int = 50, offset: int = 0, status: str = None
 
 
 @app.get("/api/v1/customers/{customer_id}", dependencies=[Depends(require_partner_api_key)])
-async def v1_get_customer(customer_id: str):
+@limiter.limit("60/minute")
+async def v1_get_customer(customer_id: str, request: Request):
     """Get one customer with PII removed."""
     try:
         customer = _db.get_customer(customer_id)
@@ -3078,6 +3847,7 @@ async def v1_get_customer(customer_id: str):
 
 
 @app.post("/api/v1/customers", dependencies=[Depends(require_partner_api_key)], status_code=201)
+@limiter.limit("60/minute")
 async def v1_create_customer(request: Request):
     """Create a customer using the same accepted body shape as the admin route."""
     data = await request.json()
@@ -3133,9 +3903,8 @@ async def v1_create_customer(request: Request):
 
 
 @app.get("/api/v1/inventory", dependencies=[Depends(require_partner_api_key)])
-async def v1_list_inventory(
-    limit: int = 50, offset: int = 0, status: str = None, manufacturer: str = None
-):
+@limiter.limit("60/minute")
+async def v1_list_inventory(request: Request, limit: int = 50, offset: int = 0, status: str = None, manufacturer: str = None):
     """List inventory with simple pagination and partner-safe response fields."""
     limit = max(1, min(limit, 200))
     offset = max(0, offset)
@@ -3159,7 +3928,8 @@ async def v1_list_inventory(
 
 
 @app.get("/api/v1/leads", dependencies=[Depends(require_partner_api_key)])
-async def v1_list_leads(limit: int = 50, offset: int = 0, status: str = None):
+@limiter.limit("60/minute")
+async def v1_list_leads(request: Request, limit: int = 50, offset: int = 0, status: str = None):
     """List leads with direct contact details removed."""
     limit = max(1, min(limit, 200))
     offset = max(0, offset)
@@ -3179,6 +3949,7 @@ async def v1_list_leads(limit: int = 50, offset: int = 0, status: str = None):
 
 
 @app.post("/api/v1/webhooks/notify", dependencies=[Depends(require_partner_api_key)])
+@limiter.limit("60/minute")
 async def v1_webhook_notify(request: Request):
     """Accept a partner webhook and log it to the Firestore activities collection.
 
@@ -3266,7 +4037,8 @@ async def v1_webhook_notify(request: Request):
 
 
 @app.get("/api/v1/stats", dependencies=[Depends(require_partner_api_key)])
-async def v1_stats():
+@limiter.limit("60/minute")
+async def v1_stats(request: Request):
     """Return partner-safe topline counts by status."""
     try:
         return {
@@ -3309,6 +4081,7 @@ def _get_document_rag():
 
 
 @app.post("/api/v1/rag/query", dependencies=[Depends(require_partner_api_key)])
+@limiter.limit("60/minute")
 async def v1_rag_query(request: Request):
     """Semantic search over the regulatory document corpus.
 
@@ -3366,6 +4139,88 @@ async def v1_rag_query(request: Request):
             for r in results
         ],
     }
+
+
+# ─── Lead Nurture (manual stale-lead re-engagement) ──────────────────────────
+# Wired here, not as a cron, so ops can preview the cohort with dry_run=true
+# before flipping to dry_run=false. Auto-schedule is a follow-up PR after Mark
+# approves the messaging copy in tools/lead_nurture.py:render_nurture_email.
+
+@app.post("/api/admin/lead-nurture/run", dependencies=[Depends(require_admin)])
+async def run_lead_nurture_endpoint(request: Request):
+    """Manual trigger for the stale-lead re-engagement batch.
+
+    Body (JSON, all optional):
+      * ``dry_run`` (bool, default True) — preview cohort without sending
+      * ``days_inactive`` (int, default 14) — staleness threshold
+      * ``max_results`` (int, default 50, clamped) — hard cohort cap
+
+    Returns the orchestrator dict from
+    ``tools.lead_nurture.run_nurture_batch``.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not isinstance(body, dict):
+        body = {}
+
+    # Default to dry_run=True so an accidental empty POST cannot send mail.
+    dry_run = bool(body.get("dry_run", True))
+    try:
+        days_inactive = int(body.get("days_inactive", 14))
+    except (TypeError, ValueError):
+        days_inactive = 14
+    try:
+        max_results = int(body.get("max_results", 50))
+    except (TypeError, ValueError):
+        max_results = 50
+
+    from tools.lead_nurture import run_nurture_batch
+
+    try:
+        result = run_nurture_batch(
+            dry_run=dry_run,
+            days_inactive=days_inactive,
+            max_results=max_results,
+        )
+    except Exception as exc:
+        struct_logger.error("Lead nurture batch failed", error=str(exc))
+        raise HTTPException(status_code=500, detail="Lead nurture batch failed")
+
+    # Audit-log every invocation. ``audit_log`` lives on PR #36; soft-import so
+    # this PR can land before that one. Falls back to structured logging.
+    try:
+        from audit_log import log_admin_action  # type: ignore
+
+        log_admin_action(
+            actor="admin",
+            action="customer.update",
+            target_type="customer",
+            target_id="lead_nurture_batch",
+            details={
+                "dry_run": dry_run,
+                "days_inactive": days_inactive,
+                "cohort_size": result.get("cohort_size", 0),
+                "sent": result.get("sent", 0),
+                "failed": result.get("failed", 0),
+            },
+            request=request,
+        )
+    except ImportError:
+        struct_logger.info(
+            "Lead nurture batch (audit_log not yet merged)",
+            dry_run=dry_run,
+            days_inactive=days_inactive,
+            cohort_size=result.get("cohort_size", 0),
+            sent=result.get("sent", 0),
+            failed=result.get("failed", 0),
+        )
+    except Exception as exc:
+        # Audit failures must never block the API response.
+        struct_logger.warning("Audit log write failed for lead_nurture", error=str(exc))
+
+    return result
 
 
 # Serve Frontend — Must be last to avoid catching API routes
