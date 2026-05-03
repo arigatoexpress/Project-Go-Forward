@@ -51,6 +51,11 @@ def _load_inventory_from_firestore():
             return None
 
         # Convert Firestore format to tool format
+        try:
+            from tools.photo_classifier import apply_classifier_to_home
+        except ImportError:
+            from .photo_classifier import apply_classifier_to_home
+
         inventory = []
         for item in results:
             price_value = item.get("sale_price") or item.get("msrp", 0) or 0
@@ -81,40 +86,52 @@ def _load_inventory_from_firestore():
                 status = "Pre-Owned"
             gallery_images = item.get("gallery_images") or item.get("photos") or []
 
-            inventory.append(
-                {
-                    "id": item.get("id", item.get("serial_number", "")),
-                    "serial_number": item.get("serial_number", ""),
-                    "manufacturer": item.get("manufacturer", "Unknown"),
-                    "model_name": item.get("model_name", ""),
-                    "classification": classification,
-                    "status": status,
-                    "specs": {
-                        "beds": item.get("bedrooms"),
-                        "baths": item.get("bathrooms"),
-                        "sq_ft": item.get("sqft") or item.get("sq_ft"),
-                        "dimensions": f"{item.get('width')}x{item.get('length')}"
-                        if item.get("width") and item.get("length")
-                        else "",
-                    },
-                    "pricing": {
-                        "price_value": price_value,
-                        "display_price": f"${price_value:,.0f}"
-                        if price_value > 0
-                        else "Call for Price",
-                        "price_tier": price_tier,
-                        "invoice_amount": item.get("invoice_amount"),
-                    },
-                    "features": item.get("features", []),
-                    "marketing_tags": item.get("marketing_tags", []),
-                    "image_url": item.get("image_url") or item.get("hero_image") or "",
-                    "gallery_images": gallery_images[:3],
-                    "real_photos": gallery_images,
-                    "image_categories": item.get("image_categories", {}),
-                    "floor_plan_url": item.get("floorplan_url") or item.get("floor_plan_url"),
-                    "matterport_id": item.get("matterport_id"),
-                }
+            home = {
+                "id": item.get("id", item.get("serial_number", "")),
+                "serial_number": item.get("serial_number", ""),
+                "manufacturer": item.get("manufacturer", "Unknown"),
+                "model_name": item.get("model_name", ""),
+                "classification": classification,
+                "status": status,
+                "specs": {
+                    "beds": item.get("bedrooms"),
+                    "baths": item.get("bathrooms"),
+                    "sq_ft": item.get("sqft") or item.get("sq_ft"),
+                    "dimensions": f"{item.get('width')}x{item.get('length')}"
+                    if item.get("width") and item.get("length")
+                    else "",
+                },
+                "pricing": {
+                    "price_value": price_value,
+                    "display_price": f"${price_value:,.0f}"
+                    if price_value > 0
+                    else "Call for Price",
+                    "price_tier": price_tier,
+                    "invoice_amount": item.get("invoice_amount"),
+                },
+                "features": item.get("features", []),
+                "marketing_tags": item.get("marketing_tags", []),
+                "image_url": item.get("image_url") or item.get("hero_image") or "",
+                "gallery_images": gallery_images[:3],
+                "real_photos": gallery_images,
+                "image_categories": item.get("image_categories", {}),
+                "floor_plan_url": item.get("floorplan_url") or item.get("floor_plan_url"),
+                "matterport_id": item.get("matterport_id"),
+            }
+            # URL-based floorplan classifier: ensures image_url is an
+            # exterior (or empty) and floorplan_url is populated when
+            # the photo list contains a /floorplan/ URL. See
+            # tools/photo_classifier.py for detection rules.
+            apply_classifier_to_home(home)
+            # apply_classifier_to_home writes both spellings of the
+            # floorplan key. Drop the new "floorplan_url" key here so
+            # the dict shape matches the existing test contract
+            # (which expects only "floor_plan_url").
+            home["floor_plan_url"] = home.get("floorplan_url") or home.get(
+                "floor_plan_url"
             )
+            home.pop("floorplan_url", None)
+            inventory.append(home)
 
         return inventory
     except Exception as e:
@@ -147,6 +164,15 @@ def _load_inventory_from_json():
     try:
         with open(json_path) as f:
             inventory = json.load(f)
+        # Apply URL-based floorplan classifier to keep behavior consistent
+        # with the Firestore loader (image_url = exterior, floorplan_url =
+        # first floorplan). See tools/photo_classifier.py.
+        try:
+            from tools.photo_classifier import apply_classifier_to_home
+        except ImportError:
+            from .photo_classifier import apply_classifier_to_home
+        for home in inventory or []:
+            apply_classifier_to_home(home)
         return inventory
     except Exception as e:
         print(f"[Inventory] Error reading JSON: {e}")

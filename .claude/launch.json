@@ -6,6 +6,12 @@
       "runtimeExecutable": "/usr/local/bin/python3",
       "runtimeArgs": ["main.py"],
       "port": 8080
+    },
+    {
+      "name": "tho-frontend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "/Users/aribs/Code/Project-Go-Forward/frontend", "run", "dev", "--", "--port", "5180", "--strictPort"],
+      "port": 5180
     }
   ]
 }

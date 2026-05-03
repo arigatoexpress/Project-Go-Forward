@@ -11,34 +11,26 @@ import {
   AlertCircle, CheckCircle, X
 } from 'lucide-react';
 import adminFetch from '../adminFetch';
+import StatusBadge from '../components/StatusBadge';
 
 function ChatSessionCard({ session, onSelect, isSelected }) {
   const formatTime = (iso) => {
     if (!iso) return '—';
     const d = new Date(iso);
-    return d.toLocaleString('en-US', { 
-      month: 'short', 
+    return d.toLocaleString('en-US', {
+      month: 'short',
       day: 'numeric',
       hour: 'numeric',
       minute: '2-digit'
     });
   };
 
-  const getStatusColor = (status) => {
-    switch (status) {
-      case 'converted': return 'bg-green-100 text-green-700';
-      case 'closed': return 'bg-gray-100 text-gray-700';
-      case 'active': return 'bg-blue-100 text-blue-700';
-      default: return 'bg-gray-100 text-gray-700';
-    }
-  };
-
   return (
     <button
       onClick={() => onSelect(session)}
       className={`w-full text-left p-4 rounded-xl border-2 transition-all ${
-        isSelected 
-          ? 'border-blue-500 bg-blue-50' 
+        isSelected
+          ? 'border-blue-500 bg-blue-50'
           : 'border-gray-200 hover:border-gray-300 bg-white'
       }`}
     >
@@ -59,9 +51,7 @@ function ChatSessionCard({ session, onSelect, isSelected }) {
             </div>
           </div>
         </div>
-        <span className={`px-2 py-1 rounded-full text-xs font-semibold ${getStatusColor(session.status)}`}>
-          {session.status}
-        </span>
+        <StatusBadge status={session.status} kind="session" size="md" />
       </div>
       
       <div className="mt-3 pt-3 border-t flex items-center justify-between text-sm">
