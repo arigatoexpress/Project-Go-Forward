@@ -8,6 +8,7 @@ import {
 import { BUSINESS_PHONE, BUSINESS_PHONE_RAW, BUSINESS_ADDRESS, BUSINESS_CITY, BUSINESS_HOURS } from '../constants';
 import Card from '../components/Card';
 import EmptyState from '../components/EmptyState';
+import StatusBadge from '../components/StatusBadge';
 import { Skeleton, SkeletonCard } from '../components/Skeleton';
 
 const MATTERPORT_BASE = "https://my.matterport.com/show/?m=";
@@ -736,9 +737,7 @@ function HomeCard({ home, onClick, onScheduleTour }) {
 
         {/* Status badge — top-left */}
         <div className="absolute top-3 left-3 flex flex-col gap-2">
-          <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold text-white ${isNew ? 'bg-green-500' : 'bg-amber-500'}`}>
-            {isNew ? 'New' : 'Pre-Owned'}
-          </span>
+          <StatusBadge status={home.status} kind="home" size="md" />
         </div>
 
         {/* Bottom-right badges */}
@@ -1036,9 +1035,7 @@ function HomeDetailModal({
               <h2 className="text-2xl font-bold text-slate-800">{home.model_name}</h2>
               <p className="text-sm text-gray-500 mt-0.5">{home.manufacturer || 'New Vision Manufacturing'}</p>
             </div>
-            <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold text-white ${home.status === 'Available' ? 'bg-green-500' : 'bg-amber-500'}`}>
-              {home.status === 'Available' ? 'New' : 'Pre-Owned'}
-            </span>
+            <StatusBadge status={home.status} kind="home" size="md" />
           </div>
 
           {/* Specs Row */}
