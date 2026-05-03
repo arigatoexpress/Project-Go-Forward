@@ -12,7 +12,6 @@ import os
 # Configure Vertex AI before importing any ADK modules
 os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "TRUE"
 
-import uvicorn
 import hashlib
 import secrets
 from collections import defaultdict
@@ -26,10 +25,15 @@ from json import JSONDecodeError
 import logging
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from urllib.parse import urlsplit, urlunsplit
 
+import uvicorn
+from slowapi import Limiter
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
+
 from config_loader import get_deployment_config, business_name
 
 # Lazy initialization placeholders - will be loaded on first use
@@ -38,6 +42,7 @@ _runner = None
 _vertexai_initialized = False
 _root_agent = None
 
+
 def _init_vertex_ai():
     """Lazy initialization of Vertex AI."""
     global _vertexai_initialized
@@ -45,8 +50,11 @@ def _init_vertex_ai():
         return
     try:
         import vertexai
+
         deploy_cfg = get_deployment_config()
-        project_id = os.environ.get("GOOGLE_CLOUD_PROJECT", deploy_cfg.get("project_id", "tho-ai-agent"))
+        project_id = os.environ.get(
+            "GOOGLE_CLOUD_PROJECT", deploy_cfg.get("project_id", "tho-ai-agent")
+        )
         location = os.environ.get("GOOGLE_CLOUD_LOCATION", deploy_cfg.get("region", "us-central1"))
         vertexai.init(project=project_id, location=location)
         _vertexai_initialized = True
@@ -55,15 +63,18 @@ def _init_vertex_ai():
         logger.warning(f"Vertex AI initialization failed: {e}")
         # Don't raise - allow server to start without AI
 
+
 def _get_runner():
     """Lazy initialization of ADK runner."""
     global _adk_app, _runner, _root_agent
     if _runner is None:
         try:
             _init_vertex_ai()
-            from google.adk.runners import InMemoryRunner
             from google.adk.apps import App
+            from google.adk.runners import InMemoryRunner
+
             from root_agent import root_agent
+
             _root_agent = root_agent
             _adk_app = App(name="root_agent", root_agent=_root_agent)
             _runner = InMemoryRunner(app=_adk_app)
@@ -73,14 +84,27 @@ def _get_runner():
             raise RuntimeError("AI services not available. Please try again later.")
     return _runner
 
-from structured_logging import logger as struct_logger
-from conversation_memory import ConversationMemory
+
+from appointment_manager import Appointment, AppointmentManager
+from audit_log import (
+    ALLOWED_ACTIONS as AUDIT_ALLOWED_ACTIONS,
+)
+from audit_log import (
+    ALLOWED_TARGET_TYPES as AUDIT_ALLOWED_TARGET_TYPES,
+)
+from audit_log import (
+    log_admin_action,
+    query_audit_log,
+)
 from chat_history import ChatHistory
-from tools.pii_guard import redact_pii_from_text, validate_no_pii_in_text
-from lead_management import LeadManager, Lead
-from appointment_manager import AppointmentManager, Appointment
+from conversation_memory import ConversationMemory
 from email_service import (
+    get_email_log,
+    notify_new_appointment,
+    notify_new_lead,
     send_appointment_confirmation,
+    send_custom_email,
+    send_deal_status_update,
     send_lead_welcome,
     send_deal_status_update,
     send_custom_email,
@@ -89,26 +113,9 @@ from email_service import (
     notify_new_lead,
     notify_new_appointment,
 )
-
-# Optional audit logger — soft-import so we tolerate environments where the
-# audit_log module hasn't landed yet (PR #36 has not merged at the time this
-# PR was opened). Falls back to a no-op so main never crashes on import.
-try:  # pragma: no cover - exercised indirectly when audit_log lands
-    from audit_log import log_admin_action as _audit_log_admin_action  # type: ignore[import-not-found]
-except Exception:  # noqa: BLE001 - intentionally broad: any import error → no-op
-    def _audit_log_admin_action(*_args, **_kwargs):  # type: ignore[no-redef]
-        return None
-
-
-def _safe_audit(action: str, details: dict) -> None:
-    """Wrap audit_log to never raise into the request hot path."""
-    try:
-        _audit_log_admin_action(action, details)
-    except Exception as exc:  # noqa: BLE001
-        try:
-            struct_logger.warning("Audit log write failed", action=action, error=str(exc))
-        except Exception:
-            pass
+from lead_management import Lead, LeadManager
+from structured_logging import logger as struct_logger
+from tools.pii_guard import redact_pii_from_text, validate_no_pii_in_text
 
 
 def _maybe_email_document(
@@ -187,6 +194,45 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 APP_STARTED_AT = time.monotonic()
 
+# Sentry error tracking — opt-in; no-op when SENTRY_DSN is absent or under pytest.
+if os.environ.get('SENTRY_DSN') and not os.environ.get('PYTEST_CURRENT_TEST'):
+    import sentry_sdk
+    import re as _sentry_re
+
+    _SENTRY_SSN_RE = _sentry_re.compile(r'\b\d{3}[-\s]?\d{2}[-\s]?\d{4}\b')
+    _SENTRY_EMAIL_RE = _sentry_re.compile(r'\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b')
+
+    def _sentry_before_send(event, hint):
+        # Drop health-probe events — noisy and quota-wasting.
+        url = (event.get('request') or {}).get('url', '')
+        if '/healthz' in url or url.rstrip('/').endswith('/health'):
+            return None
+        # Scrub PII from request body (mirrors tools/pii_guard.py patterns).
+        body = (event.get('request') or {}).get('data', '')
+        if isinstance(body, str):
+            body = _SENTRY_SSN_RE.sub('[SSN-REDACTED]', body)
+            body = _SENTRY_EMAIL_RE.sub('[EMAIL-REDACTED]', body)
+            event.setdefault('request', {})['data'] = body
+        return event
+
+    def _sentry_traces_sampler(ctx):
+        # Exclude health probes from performance tracing.
+        path = (ctx.get('asgi_scope') or {}).get('path', '')
+        if path.startswith('/health'):
+            return 0
+        return 0.05
+
+    sentry_sdk.init(
+        dsn=os.environ['SENTRY_DSN'],
+        environment=os.environ.get('K_REVISION', 'local'),
+        release=os.environ.get('APP_VERSION', 'local'),
+        traces_sampler=_sentry_traces_sampler,
+        profiles_sample_rate=0.0,
+        send_default_pii=False,
+        before_send=_sentry_before_send,
+    )
+    logger.info("Sentry initialized (environment=%s)", os.environ.get('K_REVISION', 'local'))
+
 # Disable FastAPI's auto-docs (/openapi.json, /docs, /redoc) in Cloud Run.
 # These endpoints expose the full API surface — every admin route, every
 # operation ID, every path parameter — to anonymous attackers, which makes
@@ -209,6 +255,7 @@ conversation_memory = ConversationMemory(project_id=project_id)
 chat_history = ChatHistory(project_id=project_id)
 lead_manager = LeadManager(project_id=project_id)
 appointment_manager = AppointmentManager(project_id=project_id)
+
 
 # Security headers middleware
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -234,16 +281,59 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
         return response
 
+
 def _get_client_ip(request: Request) -> str:
-    """Get real client IP, checking X-Forwarded-For for reverse proxy (Cloud Run)."""
+    """Get real client IP, checking X-Forwarded-For for reverse proxy (Cloud Run).
+
+    Reused as the slowapi ``key_func`` so per-IP rate limiting and the
+    ``_pin_attempts`` brute-force counter key the same client identity.
+    """
     forwarded = request.headers.get("x-forwarded-for", "")
     if forwarded:
         return forwarded.split(",")[0].strip()
     return request.client.host if request.client else "unknown"
 
+# slowapi per-IP rate limiter — layered on top of the legacy
+# RateLimitMiddleware below. Per-route caps are applied via @limiter.limit()
+# decorators on individual endpoints (admin, partner /api/v1/*, marketing
+# inventory-context). /health, /healthz, /healthz/ are exempted via
+# @limiter.exempt so Cloud Run liveness probes are never throttled.
+#
+# headers_enabled is intentionally left FALSE: slowapi's _inject_headers
+# raises when a route returns a dict (the common FastAPI shape) without an
+# explicit ``response: Response`` parameter in the signature. The custom
+# 429 handler below adds Retry-After by hand using the exception's limit
+# metadata so callers still get the standard rate-limit signal.
+limiter = Limiter(
+    key_func=_get_client_ip,
+    default_limits=["100/minute"],
+    headers_enabled=False,
+)
+app.state.limiter = limiter
+
+
+def _rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:
+    """JSON 429 handler with Retry-After. Replaces slowapi's default handler
+    so we don't depend on ``headers_enabled`` (see comment above)."""
+    try:
+        retry_after = int(exc.limit.limit.get_expiry())
+    except Exception:
+        retry_after = 60
+    return JSONResponse(
+        {"error": f"Rate limit exceeded: {exc.detail}"},
+        status_code=429,
+        headers={"Retry-After": str(retry_after)},
+    )
+
+
+app.add_exception_handler(RateLimitExceeded, _rate_limit_handler)
+
 # Rate limiting middleware — per-IP sliding window
 MAX_REQUESTS_PER_MINUTE = int(os.environ.get("RATE_LIMIT_RPM", "60"))
-MAX_REQUEST_BODY_BYTES = int(os.environ.get("MAX_REQUEST_BODY_BYTES", str(1 * 1024 * 1024)))  # 1 MB default
+MAX_REQUEST_BODY_BYTES = int(
+    os.environ.get("MAX_REQUEST_BODY_BYTES", str(1 * 1024 * 1024))
+)  # 1 MB default
+
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
     def __init__(self, app):
@@ -260,9 +350,12 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         # Prune entries older than 60s
         self._hits[client_ip] = window = [t for t in window if now - t < 60]
         if len(window) >= MAX_REQUESTS_PER_MINUTE:
-            return JSONResponse({"error": "Rate limit exceeded. Please try again shortly."}, status_code=429)
+            return JSONResponse(
+                {"error": "Rate limit exceeded. Please try again shortly."}, status_code=429
+            )
         window.append(now)
         return await call_next(request)
+
 
 class RequestSizeLimitMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
@@ -271,9 +364,15 @@ class RequestSizeLimitMiddleware(BaseHTTPMiddleware):
             return JSONResponse({"error": "Request body too large."}, status_code=413)
         return await call_next(request)
 
+
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(RateLimitMiddleware)
 app.add_middleware(RequestSizeLimitMiddleware)
+# slowapi middleware is registered last so it sits outermost and runs
+# before the legacy per-IP RateLimitMiddleware. Per-route caps via
+# @limiter.limit decorators short-circuit hot paths (e.g. /api/admin/verify
+# at 5/min) before they ever reach the brute-force _pin_attempts counter.
+app.add_middleware(SlowAPIMiddleware)
 
 
 class ImmutableStaticFiles(StaticFiles):
@@ -481,7 +580,9 @@ else:
 
 # Warn loudly if email service is not configured (appointments/leads won't get confirmations)
 if not os.environ.get("RESEND_API_KEY") and not IS_LOCAL:
-    logger.critical("RESEND_API_KEY not set — appointment confirmations and lead emails will NOT be sent.")
+    logger.critical(
+        "RESEND_API_KEY not set — appointment confirmations and lead emails will NOT be sent."
+    )
 elif not os.environ.get("RESEND_API_KEY"):
     logger.warning("RESEND_API_KEY not set — emails will run in dry-run mode (local dev).")
 
@@ -546,7 +647,27 @@ async def require_admin(request: Request):
     if not token:
         raise HTTPException(status_code=401, detail="Admin authentication required")
     if not _verify_admin_token(token):
-        raise HTTPException(status_code=401, detail="Admin session expired. Please re-authenticate.")
+        raise HTTPException(
+            status_code=401, detail="Admin session expired. Please re-authenticate."
+        )
+
+
+def _audit_actor(request: Request) -> str:
+    """Derive a short stable actor id from the admin token.
+
+    We only have a single shared PIN today, but the JWT payload's expiration
+    differs per login, so two operators on the same PIN get distinct actor
+    ids in the audit log. We hash + truncate the token so we never persist
+    the raw bearer value.
+    """
+    try:
+        token = _admin_token_from_request(request)
+    except Exception:
+        token = ""
+    if not token:
+        return "admin"
+    digest = hashlib.sha256(token.encode("utf-8")).hexdigest()[:12]
+    return f"admin:{digest}"
 
 
 # Brute-force protection: track failed PIN attempts per IP
@@ -559,18 +680,18 @@ PIN_LOCKOUT_SECONDS = 300  # 5-minute lockout after 10 failures
 async def run_agent(request: Request):
     request_id = str(uuid.uuid4())
     start_time = time.time()
-    
+
     try:
         data = await request.json()
         user_id = data.get("userId", "default_user")
         session_id = data.get("sessionId") or f"anon_{uuid.uuid4().hex[:12]}"
         new_message_dict = data.get("newMessage")
-        
+
         # Extract text content
         text_content = ""
         if new_message_dict and "parts" in new_message_dict:
             text_content = new_message_dict["parts"][0].get("text", "")
-        
+
         # Sanitize text before logging — never log raw PII
         safe_text = redact_pii_from_text(text_content)
         struct_logger.request(request_id, user_id, session_id, safe_text)
@@ -578,24 +699,27 @@ async def run_agent(request: Request):
         # Warn if user submitted PII (server-side only)
         pii_check = validate_no_pii_in_text(text_content)
         if not pii_check["clean"]:
-            struct_logger.warning("PII detected in user message",
-                request_id=request_id, findings=pii_check["findings"])
+            struct_logger.warning(
+                "PII detected in user message",
+                request_id=request_id,
+                findings=pii_check["findings"],
+            )
 
         # Get conversation context
         context = None
         try:
             context = await conversation_memory.get_context(session_id, user_id)
             context_prompt = context.preferences.to_prompt_context()
-            struct_logger.info("Context retrieved", request_id=request_id, has_preferences=bool(context_prompt))
+            struct_logger.info(
+                "Context retrieved", request_id=request_id, has_preferences=bool(context_prompt)
+            )
         except Exception as e:
             struct_logger.warning("Context retrieval failed", request_id=request_id, error=str(e))
 
         # Create ADK Content object
         from google.genai import types
-        new_message = types.Content(
-            role="user",
-            parts=[types.Part(text=text_content)]
-        )
+
+        new_message = types.Content(role="user", parts=[types.Part(text=text_content)])
 
         # Get runner (lazy initialization)
         try:
@@ -606,36 +730,30 @@ async def run_agent(request: Request):
 
         # Ensure session exists
         existing_session = await runner.session_service.get_session(
-            app_name="root_agent",
-            user_id=user_id,
-            session_id=session_id
+            app_name="root_agent", user_id=user_id, session_id=session_id
         )
-        
+
         if not existing_session:
             struct_logger.info("Session created", request_id=request_id, session_id=session_id)
             await runner.session_service.create_session(
-                app_name="root_agent",
-                user_id=user_id,
-                session_id=session_id
+                app_name="root_agent", user_id=user_id, session_id=session_id
             )
 
         # Run agent
         result_generator = runner.run_async(
-            user_id=user_id,
-            session_id=session_id,
-            new_message=new_message
+            user_id=user_id, session_id=session_id, new_message=new_message
         )
-        
+
         final_text = ""
         event_count = 0
-        
+
         async for event in result_generator:
             event_count += 1
             event_type = type(event).__name__
             has_content = hasattr(event, "content") and event.content is not None
             content_role = None
             content_text = None
-            
+
             if has_content:
                 content_role = getattr(event.content, "role", None)
                 # Log full content details for debugging
@@ -644,28 +762,32 @@ async def run_agent(request: Request):
                         if hasattr(part, "text") and part.text:
                             content_text = part.text[:200]  # First 200 chars
                             break
-            
-            struct_logger.info(f"Event {event_count}", 
+
+            struct_logger.info(
+                f"Event {event_count}",
                 request_id=request_id,
                 event_type=event_type,
                 content_role=content_role,
                 has_content=has_content,
-                content_preview=content_text)
-            
+                content_preview=content_text,
+            )
+
             # Log error events
             if event_type == "ErrorEvent" or (has_content and content_role == "error"):
                 error_msg = getattr(event, "error_message", "Unknown error")
                 struct_logger.error("Agent error event", request_id=request_id, error=error_msg)
-            
+
             # Check for model response - ADK uses "model" role for assistant responses
             if has_content and content_role in ("model", "assistant"):
                 for i, part in enumerate(event.content.parts):
                     has_text = hasattr(part, "text") and bool(part.text)
                     if has_text:
                         final_text += part.text
-        
+
         if not final_text:
-            struct_logger.warning("No text generated", request_id=request_id, event_count=event_count)
+            struct_logger.warning(
+                "No text generated", request_id=request_id, event_count=event_count
+            )
             final_text = "I apologize, but I couldn't generate a response. Please try again."
 
         # Save to chat history (full conversation persistence)
@@ -682,22 +804,30 @@ async def run_agent(request: Request):
                 session_id=session_id,
                 user_id=user_id,
                 user_message=text_content,
-                search_results=None
+                search_results=None,
             )
             struct_logger.info("Context updated", request_id=request_id)
-            
+
             # Auto-create/update lead from conversation
             try:
                 existing_lead = await lead_manager.get_lead_by_session(session_id)
                 if existing_lead and context:
                     existing_lead.bedrooms = context.preferences.bedrooms or existing_lead.bedrooms
-                    existing_lead.bathrooms = context.preferences.bathrooms or existing_lead.bathrooms
-                    existing_lead.budget_max = context.preferences.max_budget or existing_lead.budget_max
+                    existing_lead.bathrooms = (
+                        context.preferences.bathrooms or existing_lead.bathrooms
+                    )
+                    existing_lead.budget_max = (
+                        context.preferences.max_budget or existing_lead.budget_max
+                    )
                     existing_lead.homes_viewed = context.homes_discussed
                     existing_lead.appointment_requested = context.appointment_intent
                     existing_lead.financing_discussed = context.financing_questions > 0
                     await lead_manager.update_lead(existing_lead)
-                elif context and (context.preferences.bedrooms or context.preferences.max_budget or context.homes_discussed):
+                elif context and (
+                    context.preferences.bedrooms
+                    or context.preferences.max_budget
+                    or context.homes_discussed
+                ):
                     new_lead = Lead(
                         lead_id=f"lead_{session_id[:8]}_{int(time.time())}",
                         user_id=user_id,
@@ -708,25 +838,28 @@ async def run_agent(request: Request):
                         homes_viewed=context.homes_discussed,
                         appointment_requested=context.appointment_intent,
                         financing_discussed=context.financing_questions > 0,
-                        source="chat"
+                        source="chat",
                     )
                     await lead_manager.create_lead(new_lead)
             except Exception as e:
                 struct_logger.warning("Lead management failed", request_id=request_id, error=str(e))
-                
+
         except Exception as e:
             struct_logger.warning("Context update failed", request_id=request_id, error=str(e))
 
         duration_ms = (time.time() - start_time) * 1000
         struct_logger.response(request_id, len(final_text), duration_ms)
-        
+
         return {"text": final_text}
-        
+
     except Exception as e:
         duration_ms = (time.time() - start_time) * 1000
         import traceback
+
         error_detail = f"{str(e)}\n{traceback.format_exc()}"
-        struct_logger.error("Request failed", request_id=request_id, error=error_detail, duration_ms=duration_ms)
+        struct_logger.error(
+            "Request failed", request_id=request_id, error=error_detail, duration_ms=duration_ms
+        )
         # Never send stack traces to users — log server-side only
         user_message = "Something went wrong. Please try again or report this issue."
         return {"error": user_message}
@@ -739,11 +872,12 @@ async def export_leads(status: str = None):
         leads = await lead_manager.list_leads(status=status, limit=1000)
         if not leads:
             return {"message": "No leads found", "count": 0}
-        
-        import io
+
         import csv
+        import io
+
         from fastapi.responses import StreamingResponse
-        
+
         output = io.StringIO()
         if leads:
             fieldnames = list(leads[0].to_csv_row().keys())
@@ -751,12 +885,14 @@ async def export_leads(status: str = None):
             writer.writeheader()
             for lead in leads:
                 writer.writerow(lead.to_csv_row())
-        
+
         output.seek(0)
         return StreamingResponse(
             iter([output.getvalue()]),
             media_type="text/csv",
-            headers={"Content-Disposition": f"attachment; filename=leads_{status or 'all'}_{int(time.time())}.csv"}
+            headers={
+                "Content-Disposition": f"attachment; filename=leads_{status or 'all'}_{int(time.time())}.csv"
+            },
         )
     except Exception as e:
         struct_logger.error("Lead export failed", error=str(e))
@@ -773,7 +909,7 @@ async def get_lead_stats():
             "by_status": {},
             "with_contact_info": 0,
             "appointment_requested": 0,
-            "financing_discussed": 0
+            "financing_discussed": 0,
         }
         for lead in all_leads:
             stats["by_status"][lead.status] = stats["by_status"].get(lead.status, 0) + 1
@@ -789,12 +925,174 @@ async def get_lead_stats():
         return {"error": "Failed to load lead statistics"}
 
 
+def _categorize_lead_source(lead) -> str:
+    """Map raw Lead.source (and any future utm/referrer fields) to a
+    coarse category used for attribution charts.
+
+    Buckets:
+      - chat            : in-app conversational agent
+      - contact_form    : website contact form
+      - appointment     : appointment widget / direct booking
+      - calculator      : financing calculator entry point
+      - referrer:<host> : explicit referrer host (truncated)
+      - utm:<source>    : utm_source value (lowercase)
+      - other           : everything else
+    """
+    raw = (getattr(lead, "source", None) or "").strip().lower()
+
+    # Future-proof: support utm_source / referrer fields if they ever
+    # land on the Lead dataclass without crashing on AttributeError.
+    utm = (getattr(lead, "utm_source", None) or "").strip().lower()
+    referrer = (getattr(lead, "referrer", None) or "").strip().lower()
+
+    if utm:
+        return f"utm:{utm}"
+    if referrer:
+        # Strip protocol + path → keep host
+        host = referrer.replace("https://", "").replace("http://", "").split("/", 1)[0][:40]
+        return f"referrer:{host}" if host else "referrer:direct"
+
+    if raw in {"chat", "appointment", "calculator", "contact_form", "chat_intake"}:
+        # Normalize chat_intake → chat for funnel parity
+        return "chat" if raw == "chat_intake" else raw
+    if not raw:
+        return "other"
+    return raw[:40]
+
+
+@app.get("/api/admin/crm/lead-sources", dependencies=[Depends(require_admin)])
+async def admin_lead_sources(days: int = 30):
+    """
+    Lead source attribution for the last `days` days.
+
+    Returns counts per category and a revenue-equivalent figure when
+    deals can be attributed (matched on email or phone). Default window
+    is 30 days; cap at 365.
+
+    Response shape:
+      {
+        "success": true,
+        "window_days": 30,
+        "total_leads": N,
+        "categories": [
+          {"category": "chat", "count": N, "pct": 12.5,
+           "attributed_deals": K, "attributed_revenue": $X}
+        ]
+      }
+    """
+    from caching import cache_get, cache_set
+    try:
+        days = int(days)
+    except (TypeError, ValueError):
+        days = 30
+    days = max(1, min(days, 365))
+    cache_key = f"admin_lead_sources_{days}d_v1"
+    cached = cache_get(cache_key)
+    if cached:
+        return cached
+
+    try:
+        from datetime import datetime, timedelta, timezone
+
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+        cutoff_naive = cutoff.replace(tzinfo=None)
+
+        all_leads = await lead_manager.list_leads(limit=2000)
+
+        # Collect deals once, index by email/phone for attribution lookup
+        deals_by_email: dict[str, list[dict]] = {}
+        deals_by_phone: dict[str, list[dict]] = {}
+        for doc in _db.db.collection("deals").stream():
+            data = doc.to_dict() or {}
+            status = (data.get("status") or "").lower()
+            if status not in ("funded", "complete", "approved", "contract"):
+                # Only count real revenue-equivalents. Skip pending/denied/archived.
+                if status not in ("funded", "complete"):
+                    continue
+            email = (data.get("buyer_email") or "").strip().lower()
+            phone_digits = "".join(c for c in (data.get("buyer_phone") or "") if c.isdigit())
+            # Normalize to last 10 digits to match the lead-side comparison
+            phone_digits = phone_digits[-10:] if len(phone_digits) >= 10 else phone_digits
+            if email:
+                deals_by_email.setdefault(email, []).append(data)
+            if phone_digits:
+                deals_by_phone.setdefault(phone_digits, []).append(data)
+
+        category_counts: dict[str, int] = {}
+        category_revenue: dict[str, float] = {}
+        category_deals: dict[str, int] = {}
+        seen_deal_ids: dict[str, set[str]] = {}
+
+        recent_lead_count = 0
+        for lead in all_leads:
+            created = _parse_iso_datetime(getattr(lead, "created_at", None))
+            if created and created < cutoff_naive:
+                continue
+            recent_lead_count += 1
+            cat = _categorize_lead_source(lead)
+            category_counts[cat] = category_counts.get(cat, 0) + 1
+
+            # Attribution: match by email OR last-10-digits phone
+            email = (getattr(lead, "email", None) or "").strip().lower()
+            phone_digits = "".join(c for c in (getattr(lead, "phone", None) or "") if c.isdigit())
+            phone_digits = phone_digits[-10:] if len(phone_digits) >= 10 else phone_digits
+
+            matched_deals: list[dict] = []
+            if email and email in deals_by_email:
+                matched_deals.extend(deals_by_email[email])
+            if phone_digits and phone_digits in deals_by_phone:
+                matched_deals.extend(deals_by_phone[phone_digits])
+
+            seen = seen_deal_ids.setdefault(cat, set())
+            for deal in matched_deals:
+                deal_id = deal.get("id") or deal.get("deal_id") or ""
+                if not deal_id or deal_id in seen:
+                    continue
+                seen.add(deal_id)
+                category_deals[cat] = category_deals.get(cat, 0) + 1
+                # Use sale_price → loan_amount → home_price as revenue proxy
+                revenue = (
+                    deal.get("sale_price")
+                    or deal.get("loan_amount")
+                    or deal.get("home_price")
+                    or 0
+                )
+                try:
+                    category_revenue[cat] = category_revenue.get(cat, 0.0) + float(revenue)
+                except (TypeError, ValueError):
+                    pass
+
+        total = max(recent_lead_count, 1)
+        categories = []
+        for cat, count in sorted(category_counts.items(), key=lambda kv: (-kv[1], kv[0])):
+            categories.append({
+                "category": cat,
+                "count": count,
+                "pct": round(100.0 * count / total, 1),
+                "attributed_deals": category_deals.get(cat, 0),
+                "attributed_revenue": round(category_revenue.get(cat, 0.0), 2),
+            })
+
+        result = {
+            "success": True,
+            "window_days": days,
+            "total_leads": recent_lead_count,
+            "categories": categories,
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        cache_set(cache_key, result, ttl_seconds=300)
+        return result
+    except Exception as e:
+        struct_logger.error("Lead source attribution failed", error=str(e))
+        return {"success": False, "error": "Failed to compute lead source attribution."}
+
+
 @app.get("/api/analytics/leads", dependencies=[Depends(require_admin)])
 async def get_lead_analytics(range: str = "30d"):
     """Get detailed lead analytics with time series data."""
     try:
         import builtins
-        from datetime import datetime, timedelta, timezone
+        from datetime import datetime, timedelta
 
         def parse_created_at(lead):
             value = getattr(lead, "created_at", None)
@@ -814,11 +1112,11 @@ async def get_lead_analytics(range: str = "30d"):
                 return None
 
             if dt.tzinfo:
-                return dt.astimezone(timezone.utc).replace(tzinfo=None)
+                return dt.astimezone(UTC).replace(tzinfo=None)
             return dt
-        
+
         all_leads = await lead_manager.list_leads(limit=1000)
-        
+
         # Calculate date range
         now = datetime.now()
         range_key = range
@@ -830,13 +1128,17 @@ async def get_lead_analytics(range: str = "30d"):
             start_date = now - timedelta(days=90)
         else:
             start_date = datetime.min
-        
+
         # Filter leads by date
-        dated_leads = [(lead, created_at) for lead in all_leads if (created_at := parse_created_at(lead))]
+        dated_leads = [
+            (lead, created_at) for lead in all_leads if (created_at := parse_created_at(lead))
+        ]
         if range_key != "all":
-            dated_leads = [(lead, created_at) for lead, created_at in dated_leads if created_at >= start_date]
+            dated_leads = [
+                (lead, created_at) for lead, created_at in dated_leads if created_at >= start_date
+            ]
         filtered_leads = [lead for lead, _created_at in dated_leads]
-        
+
         # Calculate stats
         stats = {
             "total": len(filtered_leads),
@@ -847,9 +1149,9 @@ async def get_lead_analytics(range: str = "30d"):
             "new_this_week": 0,
             "trend": "0%",
             "trend_up": True,
-            "status_trends": {}
+            "status_trends": {},
         }
-        
+
         for lead, created_at in dated_leads:
             stats["by_status"][lead.status] = stats["by_status"].get(lead.status, 0) + 1
             if lead.email or lead.phone:
@@ -858,23 +1160,31 @@ async def get_lead_analytics(range: str = "30d"):
                 stats["appointment_requested"] += 1
             if lead.financing_discussed:
                 stats["financing_discussed"] += 1
-            
+
             # Count new this week
             if created_at >= now - timedelta(days=7):
                 stats["new_this_week"] += 1
-        
+
         # Generate time series data
         time_series = []
-        date_range = 7 if range_key == "7d" else 30 if range_key == "30d" else 90 if range_key == "90d" else min(30, len(filtered_leads) or 1)
-        
+        date_range = (
+            7
+            if range_key == "7d"
+            else 30
+            if range_key == "30d"
+            else 90
+            if range_key == "90d"
+            else min(30, len(filtered_leads) or 1)
+        )
+
         for i in builtins.range(date_range):
             date = now - timedelta(days=date_range - i - 1)
             date_str = date.strftime("%Y-%m-%d")
             count = sum(1 for _lead, created_at in dated_leads if created_at.date() == date.date())
             time_series.append({"date": date_str, "count": count})
-        
+
         stats["time_series"] = time_series
-        
+
         return stats
     except Exception as e:
         struct_logger.error("Lead analytics failed", error=str(e))
@@ -885,42 +1195,44 @@ async def get_lead_analytics(range: str = "30d"):
 async def get_document_analytics(range: str = "30d"):
     """Get document generation analytics."""
     try:
-        from datetime import datetime
         import os
-        
+        from datetime import datetime
+
         # This would ideally come from a database
         # For now, we'll provide placeholder data structure
         output_dir = OUTPUT_DIR
-        
+
         stats = {
             "total_generated": 0,
             "this_month": 0,
             "by_type": {},
             "pages_this_month": 0,
             "most_popular": {"name": "TMHA Sales Contract", "count": 0},
-            "recent": []
+            "recent": [],
         }
-        
+
         # Scan output directory for generated documents
         if os.path.exists(output_dir):
             all_files = []
             for root, dirs, files in os.walk(output_dir):
                 for file in files:
-                    if file.endswith('.pdf'):
+                    if file.endswith(".pdf"):
                         filepath = os.path.join(root, file)
                         stat = os.stat(filepath)
-                        all_files.append({
-                            "name": file,
-                            "created": datetime.fromtimestamp(stat.st_mtime),
-                            "size": stat.st_size
-                        })
-            
+                        all_files.append(
+                            {
+                                "name": file,
+                                "created": datetime.fromtimestamp(stat.st_mtime),
+                                "size": stat.st_size,
+                            }
+                        )
+
             now = datetime.now()
             month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-            
+
             stats["total_generated"] = len(all_files)
             stats["this_month"] = sum(1 for f in all_files if f["created"] >= month_start)
-            
+
             # Categorize by document type
             for f in all_files:
                 doc_type = "Other"
@@ -932,25 +1244,25 @@ async def get_document_analytics(range: str = "30d"):
                     doc_type = "Closing Packets"
                 elif "work_order" in f["name"].lower():
                     doc_type = "Service Documents"
-                
+
                 stats["by_type"][doc_type] = stats["by_type"].get(doc_type, 0) + 1
-            
+
             # Recent documents
             recent_files = sorted(all_files, key=lambda x: x["created"], reverse=True)[:10]
             stats["recent"] = [
                 {
                     "template_name": f["name"],
                     "buyer_name": "Customer",
-                    "created_at": f["created"].isoformat()
+                    "created_at": f["created"].isoformat(),
                 }
                 for f in recent_files
             ]
-            
+
             # Most popular
             if stats["by_type"]:
                 most_popular = max(stats["by_type"].items(), key=lambda x: x[1])
                 stats["most_popular"] = {"name": most_popular[0], "count": most_popular[1]}
-        
+
         return stats
     except Exception as e:
         struct_logger.error("Document analytics failed", error=str(e))
@@ -962,18 +1274,28 @@ async def get_inventory_analytics():
     """Get inventory analytics."""
     try:
         inventory = _deal_db.search_inventory(limit=200)
-        
+
         stats = {
             "total": len(inventory),
             "new_count": sum(1 for h in inventory if h.get("is_new", True)),
             "used_count": sum(1 for h in inventory if not h.get("is_new", True)),
             "with_photos": sum(1 for h in inventory if h.get("image_url") or h.get("photos")),
-            "new_with_photos": sum(1 for h in inventory if h.get("is_new", True) and (h.get("image_url") or h.get("photos"))),
-            "used_with_photos": sum(1 for h in inventory if not h.get("is_new", True) and (h.get("image_url") or h.get("photos"))),
+            "new_with_photos": sum(
+                1
+                for h in inventory
+                if h.get("is_new", True) and (h.get("image_url") or h.get("photos"))
+            ),
+            "used_with_photos": sum(
+                1
+                for h in inventory
+                if not h.get("is_new", True) and (h.get("image_url") or h.get("photos"))
+            ),
             "with_tours": sum(1 for h in inventory if h.get("matterport_id")),
-            "top_viewed": sorted(inventory, key=lambda x: x.get("view_count", 0), reverse=True)[:10]
+            "top_viewed": sorted(inventory, key=lambda x: x.get("view_count", 0), reverse=True)[
+                :10
+            ],
         }
-        
+
         return stats
     except Exception as e:
         struct_logger.error("Inventory analytics failed", error=str(e))
@@ -991,9 +1313,9 @@ async def get_chat_analytics(range: str = "30d"):
             "avg_per_day": 0,
             "unique_users": 0,
             "top_questions": [],
-            "conversion_to_lead": 0
+            "conversion_to_lead": 0,
         }
-        
+
         return stats
     except Exception as e:
         struct_logger.error("Chat analytics failed", error=str(e))
@@ -1001,12 +1323,14 @@ async def get_chat_analytics(range: str = "30d"):
 
 
 @app.get("/health")
+@limiter.exempt
 def health():
     return {"status": "ok"}
 
 
 @app.get("/healthz", response_class=JSONResponse)
 @app.get("/healthz/", response_class=JSONResponse)
+@limiter.exempt
 def healthz() -> JSONResponse:
     email_configured = bool(os.environ.get("RESEND_API_KEY"))
     warnings = []
@@ -1064,18 +1388,38 @@ async def create_session(app_name: str, user_id: str, session_id: str):
         return {"status": "error", "message": "Failed to create session. Please try again."}
 
 
-
 # Document Generation Endpoints
-from schemas.document_schemas import SalesContractForm, GenerateDocumentRequest, GeneratePacketRequest
-from tools.document_tools import generate_sales_contract_pdf, OUTPUT_DIR, download_from_gcs, list_gcs_documents
+from schemas.document_schemas import (
+    GenerateDocumentRequest,
+    GeneratePacketRequest,
+    SalesContractForm,
+)
+from tools.document_engine import (
+    generate_batch as engine_generate_batch,
+)
 from tools.document_engine import (
     generate_document as engine_generate_document,
+)
+from tools.document_engine import (
     generate_packet as engine_generate_packet,
-    generate_batch as engine_generate_batch,
-    list_available_templates as engine_list_templates,
-    list_available_packets as engine_list_packets,
-    get_template_fields as engine_get_template_fields,
+)
+from tools.document_engine import (
     get_all_field_definitions as engine_get_all_field_definitions,
+)
+from tools.document_engine import (
+    get_template_fields as engine_get_template_fields,
+)
+from tools.document_engine import (
+    list_available_packets as engine_list_packets,
+)
+from tools.document_engine import (
+    list_available_templates as engine_list_templates,
+)
+from tools.document_tools import (
+    OUTPUT_DIR,
+    download_from_gcs,
+    generate_sales_contract_pdf,
+    list_gcs_documents,
 )
 
 
@@ -1093,13 +1437,15 @@ def _collect_generated_documents():
             if not os.path.isfile(path):
                 continue
             stat = os.stat(path)
-            docs.append({
-                "filename": filename,
-                "size_bytes": stat.st_size,
-                "created_at": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
-                "download_url": f"/api/documents/download/{filename}",
-                "source": "local",
-            })
+            docs.append(
+                {
+                    "filename": filename,
+                    "size_bytes": stat.st_size,
+                    "created_at": datetime.fromtimestamp(stat.st_mtime, tz=UTC).isoformat(),
+                    "download_url": f"/api/documents/download/{filename}",
+                    "source": "local",
+                }
+            )
             seen.add(filename)
             local_count += 1
 
@@ -1117,6 +1463,7 @@ def _collect_generated_documents():
 
 
 # --- Phase 2: Generic Document Engine Endpoints ---
+
 
 @app.get("/api/documents/templates", dependencies=[Depends(require_admin)])
 async def list_templates():
@@ -1178,68 +1525,117 @@ async def get_template_fields(template_name: str):
         struct_logger.error("Template field lookup failed", error=str(e))
         return {"error": "Failed to load template fields. Please try again."}
 
+
 @app.post("/api/documents/generate", dependencies=[Depends(require_admin)])
-async def generate_document_endpoint(request: GenerateDocumentRequest):
-    """Generate any mapped document template."""
+async def generate_document_endpoint(body: GenerateDocumentRequest, request: Request):
+    """Generate any mapped document template.
+
+    When the supplied ``data`` dict cannot satisfy the template's required
+    fields the response is a HTTP 400 with the structured envelope
+    ``{"error": "missing_required_fields", "message": "<engine message>"}``.
+    This prevents the historical "empty doc" class of bug where an almost
+    blank request silently produced a near-empty PDF that looked like a
+    real document.
+    """
     try:
         result = engine_generate_document(
-            template_name=request.template_name,
-            data=request.data,
+            template_name=body.template_name,
+            data=body.data,
         )
         if result["success"]:
-            download_url = f"/api/documents/download/{result['filename']}"
-            # Best-effort customer delivery email — never blocks the response.
-            _maybe_email_document(
-                customer_email=request.customer_email,
-                customer_name=request.customer_name,
-                doc_filename=result["filename"],
-                doc_type=request.template_name,
-                download_url=download_url,
-                deal_id=None,
-                audit_action="document.generate.email_delivery",
+            log_admin_action(
+                actor=_audit_actor(request),
+                action="document.generate",
+                target_type="document",
+                target_id=str(result.get("filename", "")),
+                details={
+                    "template_name": str(body.template_name)[:100],
+                    "field_count": len(body.data) if isinstance(body.data, dict) else 0,
+                },
+                request=request,
             )
+
+            # Lane 3: Best-effort auto-email if customer email present in data
+            _maybe_email_document(
+                customer_email=body.data.get("buyer_email") or body.data.get("email"),
+                customer_name=body.data.get("buyer_first_name") or body.data.get("first_name"),
+                doc_filename=result["filename"],
+                doc_type="single_template",
+                download_url=f"/api/documents/download/{result['filename']}",
+            )
+
             return {
                 "success": True,
-                "download_url": download_url,
+                "download_url": f"/api/documents/download/{result['filename']}",
                 "filename": result["filename"],
                 "message": result["message"],
             }
-        return {"success": False, "error": result["message"]}
+        # Surface validation failures as 400s with a structured envelope so
+        # callers can react programmatically and so we never accidentally
+        # ship a 200 + empty PDF for an empty deal.
+        message = result.get("message", "")
+        if "Missing required fields" in message:
+            return JSONResponse(
+                {
+                    "success": False,
+                    "error": "missing_required_fields",
+                    "message": message,
+                },
+                status_code=400,
+            )
+        return {"success": False, "error": message}
     except Exception as e:
         struct_logger.error("Document generation failed", error=str(e))
         return {"success": False, "error": "Document generation failed. Please try again."}
 
+
 @app.post("/api/documents/generate-packet", dependencies=[Depends(require_admin)])
-async def generate_packet_endpoint(request: GeneratePacketRequest):
+async def generate_packet_endpoint(body: GeneratePacketRequest, request: Request):
     """Generate a closing packet (multiple merged PDFs)."""
     try:
         result = engine_generate_packet(
-            packet_name=request.packet_name,
-            data=request.data,
+            packet_name=body.packet_name,
+            data=body.data,
         )
         if result["success"]:
-            download_url = f"/api/documents/download/{result['filename']}"
-            _maybe_email_document(
-                customer_email=request.customer_email,
-                customer_name=request.customer_name,
-                doc_filename=result["filename"],
-                doc_type=f"{request.packet_name} closing packet",
-                download_url=download_url,
-                deal_id=None,
-                audit_action="document.generate_packet.email_delivery",
+            log_admin_action(
+                actor=_audit_actor(request),
+                action="document.generate",
+                target_type="document",
+                target_id=str(result.get("filename", "")),
+                details={
+                    "packet_name": str(body.packet_name)[:100],
+                    "page_count": result.get("page_count", 0),
+                    "documents_included": [
+                        str(d)[:60] for d in (result.get("documents_included") or [])
+                    ][:50],
+                },
+                request=request,
             )
+
+            # Lane 3: Best-effort auto-email if customer email present in data
+            _maybe_email_document(
+                customer_email=body.data.get("buyer_email") or body.data.get("email"),
+                customer_name=body.data.get("buyer_first_name") or body.data.get("first_name"),
+                doc_filename=result["filename"],
+                doc_type="closing_packet",
+                download_url=f"/api/documents/download/{result['filename']}",
+            )
+
             return {
                 "success": True,
-                "download_url": download_url,
+                "download_url": f"/api/documents/download/{result['filename']}",
                 "filename": result["filename"],
                 "message": result["message"],
                 "page_count": result.get("page_count", 0),
                 "documents_included": result.get("documents_included", []),
+                "documents_skipped": result.get("documents_skipped", []),
             }
         return {"success": False, "error": result["message"]}
     except Exception as e:
         struct_logger.error("Packet generation failed", error=str(e))
         return {"success": False, "error": "Packet generation failed. Please try again."}
+
 
 @app.post("/api/documents/extract-fields", dependencies=[Depends(require_admin)])
 async def extract_fields_from_chat(request: Request):
@@ -1253,6 +1649,7 @@ async def extract_fields_from_chat(request: Request):
             return {"extracted_data": {}, "message": "session_id and template_name required"}
 
         from tools.form_extraction import extract_form_data_from_session
+
         try:
             runner = _get_runner()
         except RuntimeError:
@@ -1266,6 +1663,7 @@ async def extract_fields_from_chat(request: Request):
     except Exception as e:
         struct_logger.error("Field extraction failed", error=str(e))
         return {"extracted_data": {}, "message": "Field extraction failed. Please try again."}
+
 
 @app.get("/api/documents/fields", dependencies=[Depends(require_admin)])
 async def get_all_field_definitions():
@@ -1298,6 +1696,7 @@ async def generate_batch_endpoint(request: Request):
 
 # --- Legacy Endpoint (Phase 1 backward compatibility) ---
 
+
 @app.post("/api/documents/sales-contract", dependencies=[Depends(require_admin)])
 async def create_sales_contract(form_data: SalesContractForm):
     """Generate a Sales Contract PDF (legacy endpoint — use /api/documents/generate instead)."""
@@ -1307,13 +1706,14 @@ async def create_sales_contract(form_data: SalesContractForm):
             return {
                 "success": True,
                 "download_url": f"/api/documents/download/{result['filename']}",
-                "filename": result['filename']
+                "filename": result["filename"],
             }
         else:
             return {"success": False, "error": result["message"]}
     except Exception as e:
         struct_logger.error("Document generation failed", error=str(e))
         return {"success": False, "error": "Document generation failed. Please try again."}
+
 
 @app.get("/api/documents/download/{filename}", dependencies=[Depends(require_admin)])
 async def download_document(filename: str):
@@ -1322,7 +1722,9 @@ async def download_document(filename: str):
     if safe_filename != filename or ".." in filename:
         return JSONResponse({"error": "Invalid filename"}, status_code=400)
     if not safe_filename.lower().endswith(".pdf"):
-        return JSONResponse({"error": "Only PDF files are available for download."}, status_code=400)
+        return JSONResponse(
+            {"error": "Only PDF files are available for download."}, status_code=400
+        )
 
     resolved = os.path.abspath(os.path.join(OUTPUT_DIR, safe_filename))
     if not resolved.startswith(os.path.abspath(OUTPUT_DIR)):
@@ -1330,15 +1732,50 @@ async def download_document(filename: str):
 
     # Try local first
     if os.path.isfile(resolved):
-        return FileResponse(resolved, filename=safe_filename, media_type="application/pdf",
-                            headers={"Content-Disposition": f'attachment; filename="{safe_filename}"'})
+        return FileResponse(
+            resolved,
+            filename=safe_filename,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{safe_filename}"'},
+        )
 
     # Fall back to GCS (local file may have been lost on Cloud Run restart)
     if download_from_gcs(safe_filename, resolved):
-        return FileResponse(resolved, filename=safe_filename, media_type="application/pdf",
-                            headers={"Content-Disposition": f'attachment; filename="{safe_filename}"'})
+        return FileResponse(
+            resolved,
+            filename=safe_filename,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{safe_filename}"'},
+        )
 
     return JSONResponse({"error": "File not found"}, status_code=404)
+
+
+@app.get("/api/documents/share/{filename}", dependencies=[Depends(require_admin)])
+async def share_document(filename: str, ttl_hours: int = 24):
+    """Return a GCS signed URL for a generated document (admin only).
+
+    TTL defaults to 24h, clamped to [1, 72]. Used by the employee UI to
+    provide shareable links to customers.
+    """
+    safe_filename = os.path.basename(filename)
+    if safe_filename != filename or ".." in filename:
+        return JSONResponse({"error": "Invalid filename"}, status_code=400)
+    if not safe_filename.lower().endswith(".pdf"):
+        return JSONResponse({"error": "Only PDF files can be shared."}, status_code=400)
+
+    ttl_hours = max(1, min(ttl_hours, 72))
+
+    try:
+        from tools.document_tools import generate_signed_url
+        url = generate_signed_url(safe_filename, ttl_hours=ttl_hours)
+        if not url:
+            return JSONResponse({"error": "Document not found in storage"}, status_code=404)
+
+        return {"success": True, "url": url, "expires_in_hours": ttl_hours}
+    except Exception as e:
+        struct_logger.error("Signed URL generation failed", error=str(e), filename=filename)
+        return JSONResponse({"error": "Failed to generate share link"}, status_code=500)
 
 
 # ─── Inventory API ───
@@ -1350,11 +1787,7 @@ _db = get_database()
 
 
 @app.get("/api/inventory", dependencies=[Depends(require_admin)])
-async def list_inventory(
-    status: str = "AVAILABLE",
-    limit: int = 100,
-    is_new: bool = None
-):
+async def list_inventory(status: str = "AVAILABLE", limit: int = 100, is_new: bool = None):
     """List inventory for document generation."""
     try:
         inventory = _db.search_inventory(status=status, limit=limit)
@@ -1366,27 +1799,174 @@ async def list_inventory(
             if is_new is not None and item.get("is_new") != is_new:
                 continue
 
-            results.append({
-                "id": item.get("id"),
-                "model_name": item.get("model_name") or item.get("model"),
-                "manufacturer": item.get("manufacturer"),
-                "year": item.get("year"),
-                "is_new": item.get("is_new", True),
-                "serial_number": item.get("serial_number"),
-                "label_number": item.get("label_number"),
-                "sections": item.get("sections") or item.get("no_of_sections"),
-                "beds": item.get("bedrooms"),
-                "baths": item.get("bathrooms"),
-                "sqft": item.get("sqft"),
-                "sale_price": item.get("sale_price") or item.get("msrp"),
-                "image_url": item.get("image_url") or item.get("hero_image"),
-                "status": item.get("status", "AVAILABLE"),
-            })
+            results.append(
+                {
+                    "id": item.get("id"),
+                    "model_name": item.get("model_name") or item.get("model"),
+                    "manufacturer": item.get("manufacturer"),
+                    "year": item.get("year"),
+                    "is_new": item.get("is_new", True),
+                    "serial_number": item.get("serial_number"),
+                    "label_number": item.get("label_number"),
+                    "sections": item.get("sections") or item.get("no_of_sections"),
+                    "beds": item.get("bedrooms"),
+                    "baths": item.get("bathrooms"),
+                    "sqft": item.get("sqft"),
+                    "sale_price": item.get("sale_price") or item.get("msrp"),
+                    "image_url": item.get("image_url") or item.get("hero_image"),
+                    "status": item.get("status", "AVAILABLE"),
+                }
+            )
 
         return {"success": True, "inventory": results, "count": len(results)}
     except Exception as e:
         struct_logger.error("Inventory listing failed", error=str(e))
         return {"success": False, "error": "Failed to load inventory. Please try again."}
+
+
+@app.get("/api/admin/inventory/photo-audit", dependencies=[Depends(require_admin)])
+async def admin_inventory_photo_audit(limit: int = 5000):
+    """
+    Read-only photo dedup audit.
+
+    Aggregates inventory image fields (image_url, hero_image, floorplan_url,
+    gallery_images, photos, real_photos) and reports any URL referenced by
+    two or more distinct inventory documents. Does NOT mutate Firestore;
+    the operator decides which dedupes to apply.
+    """
+    try:
+        from tools.photo_dedup_audit import run_photo_dedup_audit
+        # Pull the raw inventory docs directly so list/single image fields
+        # are preserved (search_inventory's transform drops some).
+        docs = _db.db.collection("inventory").limit(limit).stream()
+        inventory = []
+        for doc in docs:
+            data = doc.to_dict()
+            data["id"] = doc.id
+            inventory.append(data)
+        report = run_photo_dedup_audit(inventory)
+        return {"success": True, **report}
+    except Exception as e:
+        struct_logger.error("Photo dedup audit failed", error=str(e))
+        return {"success": False, "error": "Failed to run photo dedup audit."}
+
+
+@app.get("/api/admin/inventory/analytics", dependencies=[Depends(require_admin)])
+async def admin_inventory_analytics():
+    """
+    Operational inventory analytics for the admin panel.
+
+    Pulls the full inventory collection and surfaces:
+      - total / available / sold-30d / pending / reserved counts
+      - median sale price (uses sale_price → msrp fallback)
+      - median time-on-lot (created_at / date_added → updated_at when sold,
+        else now-created_at for available units)
+      - by-manufacturer breakdown (count + median price)
+
+    5-minute cache.
+    """
+    from caching import cache_get, cache_set
+    cache_key = "admin_inventory_analytics_v1"
+    cached = cache_get(cache_key)
+    if cached:
+        return cached
+
+    try:
+        import statistics as _stats
+        from datetime import datetime, timedelta, timezone
+
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        thirty_days_ago = now - timedelta(days=30)
+
+        total = 0
+        available = 0
+        sold_total = 0
+        sold_last_30d = 0
+        pending = 0
+        reserved = 0
+
+        prices: list[float] = []
+        time_on_lot_days: list[float] = []
+        by_manufacturer: dict[str, dict] = {}
+
+        for doc in _db.db.collection("inventory").stream():
+            data = doc.to_dict() or {}
+            total += 1
+
+            status = (data.get("status") or "").upper()
+            if status == "AVAILABLE":
+                available += 1
+            elif status == "SOLD":
+                sold_total += 1
+                sold_at = _parse_iso_datetime(data.get("updated_at"))
+                if sold_at and sold_at >= thirty_days_ago:
+                    sold_last_30d += 1
+            elif status == "PENDING":
+                pending += 1
+            elif status == "RESERVED":
+                reserved += 1
+
+            price_value = data.get("sale_price") or data.get("msrp") or 0
+            try:
+                price_f = float(price_value)
+            except (TypeError, ValueError):
+                price_f = 0.0
+            if price_f > 0:
+                prices.append(price_f)
+
+            # Time on lot: SOLD → updated_at - created; AVAILABLE → now - created
+            created = _parse_iso_datetime(data.get("date_added")) or _parse_iso_datetime(data.get("created_at"))
+            if created:
+                if status == "SOLD":
+                    closed = _parse_iso_datetime(data.get("updated_at"))
+                    if closed and closed >= created:
+                        time_on_lot_days.append((closed - created).total_seconds() / 86400.0)
+                elif status == "AVAILABLE":
+                    if now >= created:
+                        time_on_lot_days.append((now - created).total_seconds() / 86400.0)
+
+            mfr = (data.get("manufacturer") or "").strip() or "Unknown"
+            entry = by_manufacturer.setdefault(mfr, {"count": 0, "available": 0, "sold": 0, "_prices": []})
+            entry["count"] += 1
+            if status == "AVAILABLE":
+                entry["available"] += 1
+            elif status == "SOLD":
+                entry["sold"] += 1
+            if price_f > 0:
+                entry["_prices"].append(price_f)
+
+        manufacturers = []
+        for mfr, entry in by_manufacturer.items():
+            median_price = round(_stats.median(entry["_prices"]), 0) if entry["_prices"] else None
+            manufacturers.append({
+                "manufacturer": mfr,
+                "count": entry["count"],
+                "available": entry["available"],
+                "sold": entry["sold"],
+                "median_price": median_price,
+            })
+        manufacturers.sort(key=lambda m: -m["count"])
+
+        result = {
+            "success": True,
+            "totals": {
+                "total": total,
+                "available": available,
+                "pending": pending,
+                "reserved": reserved,
+                "sold_total": sold_total,
+                "sold_last_30d": sold_last_30d,
+            },
+            "median_sale_price": round(_stats.median(prices), 0) if prices else None,
+            "median_time_on_lot_days": round(_stats.median(time_on_lot_days), 1) if time_on_lot_days else None,
+            "by_manufacturer": manufacturers,
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        cache_set(cache_key, result, ttl_seconds=300)
+        return result
+    except Exception as e:
+        struct_logger.error("Inventory analytics failed", error=str(e))
+        return {"success": False, "error": "Failed to compute inventory analytics."}
 
 
 @app.post("/api/inventory/bulk-import", dependencies=[Depends(require_admin)])
@@ -1398,24 +1978,24 @@ async def bulk_import_inventory(request: Request):
     try:
         data = await request.json()
         items = data.get("items", [])
-        
+
         if not items:
             return {"success": False, "error": "No items provided"}
-        
+
         imported = 0
         updated = 0
         errors = []
-        
+
         for item in items:
             try:
                 inventory_id = item.get("id")
                 if not inventory_id:
                     errors.append(f"Skipping item without ID: {item.get('model_name', 'unknown')}")
                     continue
-                
+
                 # Check if exists
                 existing = _db.get_inventory_by_id(inventory_id)
-                
+
                 # Prepare data for Firestore, then validate through the shared
                 # Inventory model before writing to the production collection.
                 firestore_data = {
@@ -1446,48 +2026,50 @@ async def bulk_import_inventory(request: Request):
                     "source_url": item.get("source_url"),
                     "last_synced": datetime.now().isoformat(),
                 }
-                Inventory(**{
-                    "id": firestore_data["id"],
-                    "serial_number": firestore_data["serial_number"],
-                    "model_name": firestore_data["model_name"],
-                    "manufacturer": firestore_data["manufacturer"],
-                    "msrp": firestore_data["msrp"],
-                    "sale_price": firestore_data["sale_price"],
-                    "bedrooms": firestore_data["bedrooms"],
-                    "bathrooms": firestore_data["bathrooms"],
-                    "sqft": firestore_data["sqft"],
-                    "status": firestore_data["status"],
-                    "photos": firestore_data["photos"],
-                })
-                
+                Inventory(
+                    **{
+                        "id": firestore_data["id"],
+                        "serial_number": firestore_data["serial_number"],
+                        "model_name": firestore_data["model_name"],
+                        "manufacturer": firestore_data["manufacturer"],
+                        "msrp": firestore_data["msrp"],
+                        "sale_price": firestore_data["sale_price"],
+                        "bedrooms": firestore_data["bedrooms"],
+                        "bathrooms": firestore_data["bathrooms"],
+                        "sqft": firestore_data["sqft"],
+                        "status": firestore_data["status"],
+                        "photos": firestore_data["photos"],
+                    }
+                )
+
                 # Save to Firestore
                 doc_ref = _db.db.collection("inventory").document(inventory_id)
-                
+
                 if existing:
                     doc_ref.update(firestore_data)
                     updated += 1
                 else:
                     doc_ref.set(firestore_data)
                     imported += 1
-                    
+
             except Exception as e:
                 struct_logger.error(f"Failed to import item {item.get('id')}", error=str(e))
                 errors.append(f"{item.get('model_name', item.get('id'))}: {str(e)}")
-        
+
         struct_logger.info(
             "Bulk inventory import completed",
             imported=imported,
             updated=updated,
-            errors=len(errors)
+            errors=len(errors),
         )
-        
+
         return {
             "success": True,
             "imported": imported,
             "updated": updated,
-            "errors": errors if errors else None
+            "errors": errors if errors else None,
         }
-        
+
     except Exception as e:
         struct_logger.error("Bulk import failed", error=str(e))
         return {"success": False, "error": str(e)}
@@ -1525,14 +2107,57 @@ async def create_deal(request: Request):
         # Convert datetime to string for Firestore
         for key in ["created_at", "updated_at"]:
             if key in deal_data and deal_data[key]:
-                deal_data[key] = deal_data[key].isoformat() if hasattr(deal_data[key], 'isoformat') else str(deal_data[key])
+                deal_data[key] = (
+                    deal_data[key].isoformat()
+                    if hasattr(deal_data[key], "isoformat")
+                    else str(deal_data[key])
+                )
         deal_id = _deal_db.create_deal(deal_data)
         # Return full deal object so frontend can navigate to detail view
         created_deal = _deal_db.get_deal(deal_id)
-        return {"success": True, "deal_id": deal_id, "deal": created_deal, "message": "Deal created successfully"}
+        log_admin_action(
+            actor=_audit_actor(request),
+            action="deal.create",
+            target_type="deal",
+            target_id=str(deal_id),
+            details={"fields": sorted(k for k in data.keys() if isinstance(k, str))},
+            request=request,
+        )
+        return {
+            "success": True,
+            "deal_id": deal_id,
+            "deal": created_deal,
+            "message": "Deal created successfully",
+        }
     except Exception as e:
         struct_logger.error("Deal creation failed", error=str(e))
         return {"success": False, "error": "Failed to create deal. Please try again."}
+
+
+def _parse_iso_datetime(value):
+    """Parse a Firestore-stored timestamp (datetime, iso string, or None).
+
+    Returns a tz-naive UTC datetime, or None on failure. Used by analytics
+    endpoints that need to diff created_at/updated_at without assuming a
+    consistent stored type.
+    """
+    from datetime import datetime, timezone
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.astimezone(timezone.utc).replace(tzinfo=None) if value.tzinfo else value
+    if not isinstance(value, str):
+        return None
+    raw = value.strip()
+    if not raw:
+        return None
+    if raw.endswith("Z"):
+        raw = f"{raw[:-1]}+00:00"
+    try:
+        dt = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    return dt.astimezone(timezone.utc).replace(tzinfo=None) if dt.tzinfo else dt
 
 
 def _strip_pii_from_deal(deal: dict) -> dict:
@@ -1668,6 +2293,14 @@ async def update_deal(deal_id: str, request: Request):
         data.pop("id", None)
         data.pop("created_at", None)
         _deal_db.update_deal(deal_id, data)
+        log_admin_action(
+            actor=_audit_actor(request),
+            action="deal.update",
+            target_type="deal",
+            target_id=str(deal_id),
+            details={"fields": sorted(k for k in data.keys() if isinstance(k, str))},
+            request=request,
+        )
         return {"success": True, "message": "Deal updated successfully"}
     except Exception as e:
         struct_logger.error("Deal update failed", error=str(e))
@@ -1688,6 +2321,19 @@ async def update_deal_status(deal_id: str, request: Request):
         prior_deal = _deal_db.get_deal(deal_id) or {}
         prior_status = prior_deal.get("status")
         _deal_db.update_deal(deal_id, {"status": new_status})
+
+        log_admin_action(
+            actor=_audit_actor(request),
+            action="deal.update",
+            target_type="deal",
+            target_id=str(deal_id),
+            details={
+                "fields": ["status"],
+                "status_from": prior_status,
+                "status_to": new_status,
+            },
+            request=request,
+        )
 
         # Send status update email if buyer has email
         try:
@@ -1773,36 +2419,44 @@ async def generate_document_from_deal(deal_id: str, request: Request):
             data=doc_data,
         )
         if result["success"]:
-            download_url = f"/api/documents/download/{result['filename']}"
-            # Caller can override the recipient (e.g. send to co-buyer) but
-            # the deal's buyer_email is the default target.
-            customer_email = data.get("customer_email") or getattr(deal, "buyer_email", None)
-            buyer_name = " ".join(
-                part for part in [
-                    getattr(deal, "buyer_first_name", None),
-                    getattr(deal, "buyer_last_name", None),
-                ] if part
-            ).strip() or None
-            customer_name = data.get("customer_name") or buyer_name
-            _maybe_email_document(
-                customer_email=customer_email,
-                customer_name=customer_name,
-                doc_filename=result["filename"],
-                doc_type=template_name,
-                download_url=download_url,
-                deal_id=deal_id,
-                audit_action="deal.generate_document.email_delivery",
+            log_admin_action(
+                actor=_audit_actor(request),
+                action="document.generate",
+                target_type="document",
+                target_id=str(result.get("filename", "")),
+                details={
+                    "template_name": str(template_name)[:100],
+                    "deal_id": str(deal_id),
+                    "override_keys": sorted(
+                        k for k in (overrides or {}).keys() if isinstance(k, str)
+                    ),
+                },
+                request=request,
             )
+
+            # Lane 3: Best-effort auto-email if customer email present in data
+            _maybe_email_document(
+                customer_email=doc_data.get("buyer_email") or doc_data.get("email"),
+                customer_name=doc_data.get("buyer_first_name") or doc_data.get("first_name"),
+                doc_filename=result["filename"],
+                doc_type="single_template",
+                download_url=f"/api/documents/download/{result['filename']}",
+                deal_id=deal_id,
+            )
+
             return {
                 "success": True,
-                "download_url": download_url,
+                "download_url": f"/api/documents/download/{result['filename']}",
                 "filename": result["filename"],
                 "message": result["message"],
             }
         return {"success": False, "error": result["message"]}
     except Exception as e:
         struct_logger.error("Deal document generation failed", error=str(e))
-        return {"success": False, "error": "Failed to generate document from deal. Please try again."}
+        return {
+            "success": False,
+            "error": "Failed to generate document from deal. Please try again.",
+        }
 
 
 @app.post("/api/deals/{deal_id}/generate-packet", dependencies=[Depends(require_admin)])
@@ -1839,27 +2493,35 @@ async def generate_packet_from_deal(deal_id: str, request: Request):
             data=doc_data,
         )
         if result["success"]:
-            download_url = f"/api/documents/download/{result['filename']}"
-            customer_email = data.get("customer_email") or getattr(deal, "buyer_email", None)
-            buyer_name = " ".join(
-                part for part in [
-                    getattr(deal, "buyer_first_name", None),
-                    getattr(deal, "buyer_last_name", None),
-                ] if part
-            ).strip() or None
-            customer_name = data.get("customer_name") or buyer_name
-            _maybe_email_document(
-                customer_email=customer_email,
-                customer_name=customer_name,
-                doc_filename=result["filename"],
-                doc_type=f"{packet_name} closing packet",
-                download_url=download_url,
-                deal_id=deal_id,
-                audit_action="deal.generate_packet.email_delivery",
+            log_admin_action(
+                actor=_audit_actor(request),
+                action="document.generate",
+                target_type="document",
+                target_id=str(result.get("filename", "")),
+                details={
+                    "packet_name": str(packet_name)[:100],
+                    "deal_id": str(deal_id),
+                    "page_count": result.get("page_count", 0),
+                    "documents_included": [
+                        str(d)[:60] for d in (result.get("documents_included") or [])
+                    ][:50],
+                },
+                request=request,
             )
+
+            # Lane 3: Best-effort auto-email if customer email present in data
+            _maybe_email_document(
+                customer_email=doc_data.get("buyer_email") or doc_data.get("email"),
+                customer_name=doc_data.get("buyer_first_name") or doc_data.get("first_name"),
+                doc_filename=result["filename"],
+                doc_type="closing_packet",
+                download_url=f"/api/documents/download/{result['filename']}",
+                deal_id=deal_id,
+            )
+
             return {
                 "success": True,
-                "download_url": download_url,
+                "download_url": f"/api/documents/download/{result['filename']}",
                 "filename": result["filename"],
                 "message": result["message"],
                 "page_count": result.get("page_count", 0),
@@ -1872,17 +2534,20 @@ async def generate_packet_from_deal(deal_id: str, request: Request):
 
 
 # ─── Marketing API (Tex's Ad Studio) ───
+from tools.asset_scraper import PROPERTY_ASSETS, get_matterport_url
 from tools.marketing_tools import (
-    generate_content_script,
-    get_trending_content_ideas,
-    schedule_social_post,
+    GENERATED_ADS_DIR,
     analyze_content_performance,
     generate_ad_image,
+    generate_content_script,
     get_inventory_for_ads,
-    GENERATED_ADS_DIR
+    get_trending_content_ideas,
+    schedule_social_post,
 )
 from tools.asset_scraper import PROPERTY_ASSETS, get_matterport_url
+from tools.photo_classifier import apply_classifier_to_home
 from tools.video_generator import GENERATED_VIDEOS_DIR
+
 
 @app.post("/api/marketing/generate-script", dependencies=[Depends(require_admin)])
 async def api_generate_script(request: Request):
@@ -1900,12 +2565,13 @@ async def api_generate_script(request: Request):
             language=data.get("language", "en"),
             avatar=data.get("avatar", "tex_classic"),
             custom_avatar_prompt=data.get("custom_avatar_prompt"),
-            variations=data.get("variations", 1)
+            variations=data.get("variations", 1),
         )
         return result
     except Exception as e:
         struct_logger.error("Script generation failed", error=str(e))
         return {"error": "Script generation failed. Please try again."}
+
 
 @app.get("/api/marketing/trending-ideas", dependencies=[Depends(require_admin)])
 async def api_trending_ideas():
@@ -1916,6 +2582,7 @@ async def api_trending_ideas():
     except Exception as e:
         struct_logger.error("Trending ideas failed", error=str(e))
         return {"error": "Failed to load trending ideas. Please try again."}
+
 
 @app.post("/api/marketing/schedule", dependencies=[Depends(require_admin)])
 async def api_schedule_post(request: Request):
@@ -1929,12 +2596,13 @@ async def api_schedule_post(request: Request):
             post_time=data.get("post_time"),
             caption=data.get("caption"),
             hashtags=data.get("hashtags"),
-            video_url=data.get("video_url")
+            video_url=data.get("video_url"),
         )
         return result
     except Exception as e:
         struct_logger.error("Post scheduling failed", error=str(e))
         return {"error": "Failed to schedule post. Please try again."}
+
 
 @app.get("/api/marketing/analytics", dependencies=[Depends(require_admin)])
 async def api_content_analytics():
@@ -1952,16 +2620,17 @@ async def api_generate_voiceover(request: Request):
     """Generate voiceover audio from script using Google Cloud Text-to-Speech."""
     try:
         from tools.marketing_tools import generate_script_voiceover
+
         data = await request.json()
-        
+
         script_text = data.get("script_text", "")
         if not script_text:
             return {"success": False, "error": "script_text is required"}
-        
+
         result = generate_script_voiceover(
             script_text=script_text,
             voice=data.get("voice", "en-US-Neural2-D"),
-            speaking_rate=data.get("speaking_rate", 1.0)
+            speaking_rate=data.get("speaking_rate", 1.0),
         )
         return result
     except Exception as e:
@@ -1974,6 +2643,7 @@ async def api_get_voiceover_voices():
     """Get available TTS voices."""
     try:
         from tools.marketing_tools import TTS_VOICES
+
         return {"success": True, "voices": TTS_VOICES}
     except Exception as e:
         struct_logger.error("Voice list failed", error=str(e))
@@ -2007,25 +2677,26 @@ async def api_generate_video(request: Request):
     """Generate an MP4 video from photos, voiceover, and script."""
     try:
         from tools.video_generator import generate_ad_video
+
         data = await request.json()
-        
+
         photos = data.get("photos", [])
         voiceover_base64 = data.get("voiceover_base64", "")
         script_text = data.get("script_text", "")
         home_name = data.get("home_name", "ad")
-        
+
         if not photos:
             return {"success": False, "error": "At least one photo is required"}
         if not voiceover_base64:
             return {"success": False, "error": "Voiceover audio is required"}
-        
+
         result = generate_ad_video(
             photos=photos,
             voiceover_base64=voiceover_base64,
             script_text=script_text,
             home_name=home_name,
             platform=data.get("platform", "tiktok"),
-            duration_per_photo=data.get("duration_per_photo", 3.0)
+            duration_per_photo=data.get("duration_per_photo", 3.0),
         )
         return result
     except Exception as e:
@@ -2037,40 +2708,42 @@ async def api_generate_video(request: Request):
 async def download_generated_video(filename: str):
     """Download a generated video."""
     import os
+
     from fastapi.responses import FileResponse
-    
+
     safe_filename = os.path.basename(filename)
     if safe_filename != filename or ".." in filename:
         return {"error": "Invalid filename"}
-    
+
     if not safe_filename.lower().endswith(".mp4"):
         return {"error": "Only MP4 files allowed"}
-    
+
     resolved = os.path.abspath(os.path.join(GENERATED_VIDEOS_DIR, safe_filename))
     if not resolved.startswith(os.path.abspath(GENERATED_VIDEOS_DIR)):
         return {"error": "Invalid path"}
-    
+
     if os.path.isfile(resolved):
         return FileResponse(
-            resolved, 
+            resolved,
             filename=safe_filename,
             media_type="video/mp4",
-            headers={"Content-Disposition": f'attachment; filename="{safe_filename}"'}
+            headers={"Content-Disposition": f'attachment; filename="{safe_filename}"'},
         )
     return {"error": "File not found"}
 
 
 @app.get("/api/marketing/inventory-context")
-async def api_inventory_context():
+@limiter.limit("30/minute")
+async def api_inventory_context(request: Request):
     """Get inventory highlights for ad creation and the public browse page."""
     try:
         from tools.asset_scraper import get_assets_for_home
-        
+
         # Firestore is the live source of truth. Website assets are enrichment
         # and fallback only; they should not create stale duplicate listings.
         result = get_inventory_for_ads(limit=100)
         firestore_homes = result.get("homes", [])
-        
+
         # Enrich Firestore homes with asset catalog images if missing
         for home in firestore_homes:
             has_images = home.get("real_photos") or home.get("gallery_images")
@@ -2109,7 +2782,9 @@ async def api_inventory_context():
                     "image_categories": asset.get("image_categories", {}),
                     "floor_plan_url": asset.get("floor_plan"),
                     "matterport_id": asset.get("matterport_id"),
-                    "matterport_url": get_matterport_url(asset["matterport_id"]) if asset.get("matterport_id") else None,
+                    "matterport_url": get_matterport_url(asset["matterport_id"])
+                    if asset.get("matterport_id")
+                    else None,
                 }
                 website_homes.append(home_data)
             result["homes"] = website_homes
@@ -2117,6 +2792,13 @@ async def api_inventory_context():
         else:
             result["homes"] = firestore_homes
             result["total_inventory"] = result.get("total_inventory", len(firestore_homes))
+
+        # Apply URL-based floorplan classifier to every home before responding.
+        # 2026-04-30 prod audit: 35/44 homes had image_url pointing at a
+        # /floorplan/ URL. apply_classifier_to_home() promotes the first
+        # exterior to image_url and moves floorplans into floorplan_url.
+        for home in result.get("homes", []):
+            apply_classifier_to_home(home)
 
         result["website_homes"] = len(website_homes)
         return result
@@ -2135,11 +2817,12 @@ async def download_ad_image(filename: str):
     if not resolved.startswith(os.path.abspath(GENERATED_ADS_DIR)):
         return JSONResponse({"error": "Invalid filename"}, status_code=403)
     if os.path.isfile(resolved):
-        return FileResponse(resolved, filename=safe_filename, media_type='image/png')
+        return FileResponse(resolved, filename=safe_filename, media_type="image/png")
     return JSONResponse({"error": "Image not found"}, status_code=404)
 
 
 # ─── Contact Form API ───
+
 
 @app.post("/api/contact")
 async def submit_contact_form(request: Request):
@@ -2183,17 +2866,26 @@ async def submit_contact_form(request: Request):
 
         # Notify owner of new lead
         try:
-            notify_new_lead(customer_name=name, phone=phone, email=email, source=data.get("source", "contact_form"))
+            notify_new_lead(
+                customer_name=name,
+                phone=phone,
+                email=email,
+                source=data.get("source", "contact_form"),
+            )
         except Exception as e:
             struct_logger.warning("Lead admin notification failed", error=str(e))
 
         return {"success": True, "message": "Thank you! We'll be in touch shortly."}
     except Exception as e:
         struct_logger.error("Contact form failed", error=str(e))
-        return {"success": False, "error": "Something went wrong. Please try again or call us directly."}
+        return {
+            "success": False,
+            "error": "Something went wrong. Please try again or call us directly.",
+        }
 
 
 # ─── Appointment Scheduling API ───
+
 
 @app.get("/api/appointments/slots")
 async def get_available_slots(date: str):
@@ -2220,7 +2912,8 @@ async def create_appointment(request: Request):
             return {"success": False, "error": "Name, phone, date, and time_slot are required."}
 
         import re
-        phone_digits = re.sub(r'\D', '', phone)
+
+        phone_digits = re.sub(r"\D", "", phone)
         if len(phone_digits) < 10:
             return {"success": False, "error": "Please provide a valid 10-digit phone number."}
 
@@ -2254,8 +2947,12 @@ async def create_appointment(request: Request):
         # Notify owner of new appointment
         try:
             notify_new_appointment(
-                customer_name=name, phone=phone, date=appt_date,
-                time_slot=time_slot, email=appt.email, notes=appt.notes,
+                customer_name=name,
+                phone=phone,
+                date=appt_date,
+                time_slot=time_slot,
+                email=appt.email,
+                notes=appt.notes,
             )
         except Exception as e:
             struct_logger.warning("Appointment admin notification failed", error=str(e))
@@ -2279,13 +2976,16 @@ async def create_appointment(request: Request):
         return {
             "success": True,
             "appointment": created.to_dict(),
-            "message": f"Appointment confirmed for {appt_date} at {time_slot}. We look forward to seeing you!"
+            "message": f"Appointment confirmed for {appt_date} at {time_slot}. We look forward to seeing you!",
         }
     except ValueError as e:
         return {"success": False, "error": str(e)}
     except Exception as e:
         struct_logger.error("Appointment creation failed", error=str(e))
-        return {"success": False, "error": "Failed to book appointment. Please try again or call us."}
+        return {
+            "success": False,
+            "error": "Failed to book appointment. Please try again or call us.",
+        }
 
 
 @app.get("/api/appointments/{appointment_id}")
@@ -2316,15 +3016,16 @@ async def cancel_appointment(appointment_id: str, request: Request):
         if not phone:
             return {"success": False, "error": "Phone number is required to cancel an appointment."}
         import re
-        appt_digits = re.sub(r'\D', '', appt.phone)
-        req_digits = re.sub(r'\D', '', phone)
+
+        appt_digits = re.sub(r"\D", "", appt.phone)
+        req_digits = re.sub(r"\D", "", phone)
         if appt_digits != req_digits:
             return {"success": False, "error": "Phone number does not match this appointment."}
 
         cancelled = await appointment_manager.cancel_appointment(appointment_id)
         return {
             "success": True,
-            "message": f"Appointment on {cancelled.date} at {cancelled.time_slot} has been cancelled."
+            "message": f"Appointment on {cancelled.date} at {cancelled.time_slot} has been cancelled.",
         }
     except Exception as e:
         struct_logger.error("Appointment cancellation failed", error=str(e))
@@ -2332,6 +3033,7 @@ async def cancel_appointment(appointment_id: str, request: Request):
 
 
 # ─── CRM API (leads, email, activity) ───
+
 
 @app.get("/api/leads", dependencies=[Depends(require_admin)])
 async def list_leads_api(status: str = None, limit: int = 100):
@@ -2399,7 +3101,9 @@ async def send_email_api(request: Request):
         if not to or not subject or not message:
             return {"success": False, "error": "to, subject, and message are required"}
 
-        result = send_custom_email(to=to, customer_name=customer_name, subject=subject, message=message)
+        result = send_custom_email(
+            to=to, customer_name=customer_name, subject=subject, message=message
+        )
         return result
     except Exception as e:
         struct_logger.error("Email send failed", error=str(e))
@@ -2418,6 +3122,7 @@ async def get_email_log_api(limit: int = 50, email_type: str = None):
 
 
 # ─── Chat History API ────────────────────────────────────
+
 
 @app.get("/api/chat/history/{session_id}", dependencies=[Depends(require_admin)])
 async def get_chat_history(session_id: str):
@@ -2438,11 +3143,11 @@ async def get_chat_history(session_id: str):
                         {
                             "role": m.role,
                             "text": m.text[:200] + "..." if len(m.text) > 200 else m.text,
-                            "timestamp": m.timestamp
+                            "timestamp": m.timestamp,
                         }
                         for m in session.messages[-50:]  # Last 50 messages
-                    ]
-                }
+                    ],
+                },
             }
         return {"success": False, "error": "Session not found"}
     except Exception as e:
@@ -2466,11 +3171,11 @@ async def get_chat_sessions(hours: int = 24, limit: int = 50):
                     "updated_at": s.updated_at,
                     "message_count": len(s.messages),
                     "summary": s.get_summary(),
-                    "lead_id": s.lead_id
+                    "lead_id": s.lead_id,
                 }
                 for s in sessions
             ],
-            "count": len(sessions)
+            "count": len(sessions),
         }
     except Exception as e:
         struct_logger.error("Chat sessions fetch failed", error=str(e))
@@ -2483,10 +3188,10 @@ async def search_chat_conversations(request: Request):
     try:
         data = await request.json()
         query = data.get("query", "")
-        
+
         if not query:
             return {"success": False, "error": "Query required"}
-        
+
         results = await chat_history.search_conversations(query=query)
         return {"success": True, "results": results, "count": len(results)}
     except Exception as e:
@@ -2495,8 +3200,18 @@ async def search_chat_conversations(request: Request):
 
 
 @app.post("/api/admin/verify")
+@limiter.limit("5/minute")
 async def verify_admin_pin(request: Request):
-    """Validate admin PIN server-side and return a session token."""
+    """Validate admin PIN server-side and return a session token.
+
+    Layered defenses:
+
+    * slowapi caps this endpoint at 5/min per IP — short-circuits a fast
+      brute-force attacker before they can spin through the 10-attempt
+      ``_pin_attempts`` window.
+    * The legacy ``_pin_attempts`` lockout (10 attempts → 5-minute cool-off)
+      still applies for clients staying under the 5/min slowapi cap.
+    """
     client_ip = _get_client_ip(request)
 
     # Check brute-force lockout
@@ -2533,7 +3248,9 @@ async def verify_admin_pin(request: Request):
         )
     if not ADMIN_PIN_HASH:
         struct_logger.warning("Admin login rejected: ADMIN_PIN_HASH not configured")
-        return JSONResponse({"success": False, "error": "Admin auth not configured."}, status_code=503)
+        return JSONResponse(
+            {"success": False, "error": "Admin auth not configured."}, status_code=503
+        )
     pin_hash = hashlib.sha256(pin.encode()).hexdigest()
     if not secrets.compare_digest(pin_hash, ADMIN_PIN_HASH):
         _pin_attempts.setdefault(client_ip, []).append(now)
@@ -2544,10 +3261,23 @@ async def verify_admin_pin(request: Request):
     _pin_attempts.pop(client_ip, None)
     token = _create_admin_token()
     struct_logger.info("Admin login succeeded", client_ip=client_ip)
+    # Audit trail: track who logged in and when. Use a hash of the freshly
+    # minted token as the actor id so the entry is correlatable with later
+    # mutations from the same session, without persisting the bearer value.
+    token_actor = f"admin:{hashlib.sha256(token.encode('utf-8')).hexdigest()[:12]}"
+    log_admin_action(
+        actor=token_actor,
+        action="admin.login",
+        target_type="session",
+        target_id=token_actor,
+        details={"client_ip": client_ip},
+        request=request,
+    )
     return {"success": True, "token": token}
 
 
 @app.get("/api/admin/check")
+@limiter.limit("30/minute")
 async def check_admin_token(request: Request):
     """Verify that an admin token is still valid (stateless — works across instances)."""
     token = _admin_token_from_request(request)
@@ -2556,7 +3286,56 @@ async def check_admin_token(request: Request):
     return JSONResponse({"valid": False}, status_code=401)
 
 
+@app.get("/api/admin/audit-log", dependencies=[Depends(require_admin)])
+async def get_admin_audit_log(
+    actor: str | None = None,
+    action: str | None = None,
+    target_type: str | None = None,
+    target_id: str | None = None,
+    since: str | None = None,
+    limit: int = 100,
+):
+    """Return admin audit-log entries in reverse-chronological order.
+
+    Filterable by actor, action, target_type, target_id, and a `since`
+    ISO8601 timestamp lower bound. `limit` is clamped to [1, 500].
+    """
+    try:
+        # Validate enum-shaped params so a typo at the call site comes back
+        # as a clear 400 instead of a silently empty result set.
+        if action and action not in AUDIT_ALLOWED_ACTIONS:
+            return JSONResponse(
+                {
+                    "success": False,
+                    "error": f"Invalid action. Must be one of: {list(AUDIT_ALLOWED_ACTIONS)}",
+                },
+                status_code=400,
+            )
+        if target_type and target_type not in AUDIT_ALLOWED_TARGET_TYPES:
+            return JSONResponse(
+                {
+                    "success": False,
+                    "error": f"Invalid target_type. Must be one of: {list(AUDIT_ALLOWED_TARGET_TYPES)}",
+                },
+                status_code=400,
+            )
+
+        entries = query_audit_log(
+            actor=actor,
+            action=action,
+            target_type=target_type,
+            target_id=target_id,
+            since=since,
+            limit=limit,
+        )
+        return {"success": True, "entries": entries, "count": len(entries)}
+    except Exception as e:
+        struct_logger.error("Audit log query failed", error=str(e))
+        return {"success": False, "error": "Failed to load audit log."}
+
+
 # ─── Customer API (migrated FastContract records) ────────────────────────────
+
 
 def _strip_ssn_from_customer(c: dict) -> dict:
     """Remove SSN hashes from customer data before sending to frontend."""
@@ -2639,12 +3418,14 @@ async def customer_analytics():
 
             # Recent leads
             if s == "LEAD" and len(recent_leads) < 10:
-                recent_leads.append({
-                    "name": c.get("full_name"),
-                    "phone": c.get("phone"),
-                    "city": city,
-                    "created": str(created)[:10] if created else None,
-                })
+                recent_leads.append(
+                    {
+                        "name": c.get("full_name"),
+                        "phone": c.get("phone"),
+                        "city": city,
+                        "created": str(created)[:10] if created else None,
+                    }
+                )
 
         # Top cities
         top_cities = sorted(by_city.items(), key=lambda x: x[1], reverse=True)[:15]
@@ -2671,6 +3452,128 @@ async def customer_analytics():
         return {"error": str(e)}
 
 
+@app.get("/api/admin/crm/funnel", dependencies=[Depends(require_admin)])
+async def admin_crm_funnel():
+    """
+    CRM funnel analytics — customer counts per stage, conversion rates,
+    median time-in-stage. Pulls from `customers` and `deals` collections.
+
+    Response shape:
+      {
+        "stages": [
+          {"key": "LEAD", "label": "Lead", "count": N, "conversion_pct": 100.0},
+          {"key": "ENROLLED", "label": "Enrolled", "count": N, "conversion_pct": ...},
+          {"key": "DEAL", "label": "Deal (active)", "count": N, "conversion_pct": ...},
+          {"key": "CLOSED", "label": "Closed", "count": N, "conversion_pct": ...}
+        ],
+        "median_days_in_stage": {"LEAD_to_ENROLLED": ..., ...},
+        "totals": {...}
+      }
+
+    5-minute cache.
+    """
+    from caching import cache_get, cache_set
+    cache_key = "admin_crm_funnel_v1"
+    cached = cache_get(cache_key)
+    if cached:
+        return cached
+
+    try:
+        from datetime import datetime, timezone
+        import statistics as _stats
+
+        # Customers (1,963 docs in prod) — paged via search_customers helper
+        customers = _db.search_customers(limit=10000)
+
+        lead_count = 0
+        enrolled_count = 0
+        sold_customer_count = 0
+        # For median time LEAD → ENROLLED, we don't have per-stage timestamps;
+        # use updated_at - created_at as a coarse proxy when status != LEAD.
+        lead_to_enrolled_days: list[float] = []
+        for c in customers:
+            status = (c.get("status") or "").upper()
+            if status == "LEAD":
+                lead_count += 1
+            elif status == "ENROLLED":
+                enrolled_count += 1
+            elif status == "SOLD":
+                sold_customer_count += 1
+            if status in ("ENROLLED", "SOLD"):
+                created = _parse_iso_datetime(c.get("created_at"))
+                updated = _parse_iso_datetime(c.get("updated_at"))
+                if created and updated and updated >= created:
+                    lead_to_enrolled_days.append((updated - created).total_seconds() / 86400.0)
+
+        # Deals — count by status. Active deal stages: pending/approved/contract.
+        # Closed stages: funded/complete.
+        active_deal_count = 0
+        closed_deal_count = 0
+        denied_count = 0
+        deal_close_days: list[float] = []
+        # Stream deals collection directly to avoid the 50-record cap of search_deals
+        for doc in _db.db.collection("deals").stream():
+            data = doc.to_dict() or {}
+            status = (data.get("status") or "").lower()
+            if status in ("pending", "approved", "contract"):
+                active_deal_count += 1
+            elif status in ("funded", "complete"):
+                closed_deal_count += 1
+                created = _parse_iso_datetime(data.get("created_at"))
+                updated = _parse_iso_datetime(data.get("updated_at"))
+                if created and updated and updated >= created:
+                    deal_close_days.append((updated - created).total_seconds() / 86400.0)
+            elif status == "denied":
+                denied_count += 1
+
+        # Conversion percentages relative to lead_count (top of funnel).
+        # ENROLLED count includes everyone past lead; SOLD/closed deal counts
+        # include everyone who reached or passed the closed stage.
+        top = max(lead_count + enrolled_count + sold_customer_count, 1)
+        funnel_lead = lead_count + enrolled_count + sold_customer_count
+        funnel_enrolled = enrolled_count + sold_customer_count
+        funnel_deal = active_deal_count + closed_deal_count
+        funnel_closed = closed_deal_count + sold_customer_count
+
+        def pct(n: int, d: int) -> float:
+            return round(100.0 * n / d, 1) if d else 0.0
+
+        stages = [
+            {"key": "LEAD", "label": "Lead", "count": funnel_lead,
+             "conversion_pct": pct(funnel_lead, top)},
+            {"key": "ENROLLED", "label": "Enrolled", "count": funnel_enrolled,
+             "conversion_pct": pct(funnel_enrolled, top)},
+            {"key": "DEAL", "label": "Deal (active)", "count": funnel_deal,
+             "conversion_pct": pct(funnel_deal, top)},
+            {"key": "CLOSED", "label": "Closed", "count": funnel_closed,
+             "conversion_pct": pct(funnel_closed, top)},
+        ]
+
+        def _median(xs: list[float]):
+            return round(_stats.median(xs), 1) if xs else None
+
+        result = {
+            "success": True,
+            "stages": stages,
+            "median_days_in_stage": {
+                "LEAD_to_ENROLLED": _median(lead_to_enrolled_days),
+                "DEAL_to_CLOSED": _median(deal_close_days),
+            },
+            "totals": {
+                "customers_total": len(customers),
+                "deals_active": active_deal_count,
+                "deals_closed": closed_deal_count,
+                "deals_denied": denied_count,
+            },
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        cache_set(cache_key, result, ttl_seconds=300)
+        return result
+    except Exception as e:
+        struct_logger.error("CRM funnel analytics failed", error=str(e))
+        return {"success": False, "error": "Failed to compute CRM funnel."}
+
+
 @app.get("/api/customers/{customer_id}", dependencies=[Depends(require_admin)])
 async def get_customer(customer_id: str):
     """Get a single customer record by document ID or legacy_id."""
@@ -2688,10 +3591,12 @@ async def get_customer(customer_id: str):
 
 # ─── Customer CRUD (create, update) ──────────────────────────────────────────
 
+
 def _sanitize_text(val: str, max_len: int = 500) -> str:
     """Strip HTML tags and limit length for customer input fields."""
     import re
-    return re.sub(r'<[^>]+>', '', val).strip()[:max_len]
+
+    return re.sub(r"<[^>]+>", "", val).strip()[:max_len]
 
 
 @app.post("/api/customers", dependencies=[Depends(require_admin)])
@@ -2710,10 +3615,13 @@ async def create_customer(request: Request):
         status = "LEAD"
 
     import uuid as _uuid
+
     customer_id = str(_uuid.uuid4())
     customer = {
         "legacy_id": _sanitize_text(data.get("legacy_id") or "", 50),
-        "legacy_source": data.get("legacy_source", "manual") if data.get("legacy_source") in ("manual", "fastcontract", "import") else "manual",
+        "legacy_source": data.get("legacy_source", "manual")
+        if data.get("legacy_source") in ("manual", "fastcontract", "import")
+        else "manual",
         "full_name": name,
         "email": (data.get("email") or "").strip().lower()[:200] or None,
         "phone": (data.get("phone") or "").strip()[:20] or None,
@@ -2750,9 +3658,22 @@ async def update_customer(customer_id: str, request: Request):
     if existing is None:
         raise HTTPException(404, "Customer not found")
 
-    updatable = ["full_name", "email", "phone", "status", "address", "city",
-                 "state", "zip_code", "employer", "occupation", "salesrep",
-                 "notes", "co_buyer", "references"]
+    updatable = [
+        "full_name",
+        "email",
+        "phone",
+        "status",
+        "address",
+        "city",
+        "state",
+        "zip_code",
+        "employer",
+        "occupation",
+        "salesrep",
+        "notes",
+        "co_buyer",
+        "references",
+    ]
     update_data = {k: data[k] for k in updatable if k in data}
 
     if not update_data:
@@ -2761,6 +3682,14 @@ async def update_customer(customer_id: str, request: Request):
     try:
         _db.update_customer(customer_id, update_data)
         updated = _db.get_customer(customer_id)
+        log_admin_action(
+            actor=_audit_actor(request),
+            action="customer.update",
+            target_type="customer",
+            target_id=str(customer_id),
+            details={"fields": sorted(k for k in update_data.keys() if isinstance(k, str))},
+            request=request,
+        )
         return {"success": True, "customer": _strip_ssn_from_customer(updated)}
     except Exception as e:
         logger.error(f"Customer update failed: {e}")
@@ -2768,6 +3697,7 @@ async def update_customer(customer_id: str, request: Request):
 
 
 # ─── Feedback / Report Issue ──────────────────────────────────────────────────
+
 
 @app.post("/api/feedback")
 async def submit_feedback(request: Request):
@@ -2815,6 +3745,7 @@ async def submit_feedback(request: Request):
 
     # Save to feedback log
     import json as _json
+
     feedback_path = os.path.join(os.path.dirname(__file__), "data", "feedback.jsonl")
     os.makedirs(os.path.dirname(feedback_path), exist_ok=True)
     with open(feedback_path, "a") as f:
@@ -2825,6 +3756,7 @@ async def submit_feedback(request: Request):
 
 
 # ─── Document History ────────────────────────────────────────────────────────
+
 
 @app.get("/api/documents/history", dependencies=[Depends(require_admin)])
 async def document_history():
@@ -2837,6 +3769,7 @@ async def document_history():
 # External partners authenticate separately from the admin UI. This surface is
 # intended for automation clients such as Notion or n8n and must stay
 # fail-closed plus PII-redacted by default.
+
 
 def _get_partner_api_keys() -> dict[str, str]:
     """Return all valid partner API keys keyed by their env var name.
@@ -2963,11 +3896,7 @@ def _redact_customer_for_partner(customer: dict) -> dict:
         "created_at",
         "updated_at",
     )
-    return {
-        field: _json_safe(safe.get(field))
-        for field in allowed_fields
-        if field in safe
-    }
+    return {field: _json_safe(safe.get(field)) for field in allowed_fields if field in safe}
 
 
 def _redact_lead_for_partner(lead: dict) -> dict:
@@ -2986,11 +3915,7 @@ def _redact_lead_for_partner(lead: dict) -> dict:
         "created_at",
         "updated_at",
     )
-    return {
-        field: _json_safe(lead.get(field))
-        for field in allowed_fields
-        if field in lead
-    }
+    return {field: _json_safe(lead.get(field)) for field in allowed_fields if field in lead}
 
 
 def _serialize_inventory_for_partner(item: dict) -> dict:
@@ -3028,7 +3953,8 @@ def _count_collection_by_status(collection_name: str, status_field: str = "statu
 
 
 @app.get("/api/v1/customers", dependencies=[Depends(require_partner_api_key)])
-async def v1_list_customers(limit: int = 50, offset: int = 0, status: str = None, q: str = None):
+@limiter.limit("60/minute")
+async def v1_list_customers(request: Request, limit: int = 50, offset: int = 0, status: str = None, q: str = None):
     """List customers with pagination and default PII redaction."""
     limit = max(1, min(limit, 200))
     offset = max(0, offset)
@@ -3039,7 +3965,7 @@ async def v1_list_customers(limit: int = 50, offset: int = 0, status: str = None
             status=status or None,
             limit=offset + limit,
         )
-        page = customers[offset:offset + limit]
+        page = customers[offset : offset + limit]
         return {
             "customers": [_redact_customer_for_partner(customer) for customer in page],
             "count": len(page),
@@ -3052,7 +3978,8 @@ async def v1_list_customers(limit: int = 50, offset: int = 0, status: str = None
 
 
 @app.get("/api/v1/customers/{customer_id}", dependencies=[Depends(require_partner_api_key)])
-async def v1_get_customer(customer_id: str):
+@limiter.limit("60/minute")
+async def v1_get_customer(customer_id: str, request: Request):
     """Get one customer with PII removed."""
     try:
         customer = _db.get_customer(customer_id)
@@ -3067,6 +3994,7 @@ async def v1_get_customer(customer_id: str):
 
 
 @app.post("/api/v1/customers", dependencies=[Depends(require_partner_api_key)], status_code=201)
+@limiter.limit("60/minute")
 async def v1_create_customer(request: Request):
     """Create a customer using the same accepted body shape as the admin route."""
     data = await request.json()
@@ -3086,11 +4014,7 @@ async def v1_create_customer(request: Request):
     # nested co_buyer / references as well.
     def _drop_ssn(obj):
         if isinstance(obj, dict):
-            return {
-                k: _drop_ssn(v)
-                for k, v in obj.items()
-                if "ssn" not in str(k).lower()
-            }
+            return {k: _drop_ssn(v) for k, v in obj.items() if "ssn" not in str(k).lower()}
         if isinstance(obj, list):
             return [_drop_ssn(item) for item in obj]
         return obj
@@ -3126,7 +4050,8 @@ async def v1_create_customer(request: Request):
 
 
 @app.get("/api/v1/inventory", dependencies=[Depends(require_partner_api_key)])
-async def v1_list_inventory(limit: int = 50, offset: int = 0, status: str = None, manufacturer: str = None):
+@limiter.limit("60/minute")
+async def v1_list_inventory(request: Request, limit: int = 50, offset: int = 0, status: str = None, manufacturer: str = None):
     """List inventory with simple pagination and partner-safe response fields."""
     limit = max(1, min(limit, 200))
     offset = max(0, offset)
@@ -3137,7 +4062,7 @@ async def v1_list_inventory(limit: int = 50, offset: int = 0, status: str = None
             manufacturer=manufacturer or None,
             limit=offset + limit,
         )
-        page = inventory[offset:offset + limit]
+        page = inventory[offset : offset + limit]
         return {
             "inventory": [_serialize_inventory_for_partner(item) for item in page],
             "count": len(page),
@@ -3150,14 +4075,15 @@ async def v1_list_inventory(limit: int = 50, offset: int = 0, status: str = None
 
 
 @app.get("/api/v1/leads", dependencies=[Depends(require_partner_api_key)])
-async def v1_list_leads(limit: int = 50, offset: int = 0, status: str = None):
+@limiter.limit("60/minute")
+async def v1_list_leads(request: Request, limit: int = 50, offset: int = 0, status: str = None):
     """List leads with direct contact details removed."""
     limit = max(1, min(limit, 200))
     offset = max(0, offset)
 
     try:
         leads = await lead_manager.list_leads(status=status, limit=offset + limit)
-        page = leads[offset:offset + limit]
+        page = leads[offset : offset + limit]
         return {
             "leads": [_redact_lead_for_partner(lead.to_dict()) for lead in page],
             "count": len(page),
@@ -3170,6 +4096,7 @@ async def v1_list_leads(limit: int = 50, offset: int = 0, status: str = None):
 
 
 @app.post("/api/v1/webhooks/notify", dependencies=[Depends(require_partner_api_key)])
+@limiter.limit("60/minute")
 async def v1_webhook_notify(request: Request):
     """Accept a partner webhook and log it to the Firestore activities collection.
 
@@ -3238,14 +4165,18 @@ async def v1_webhook_notify(request: Request):
             "endpoint": request.url.path,
             "client_ip": _get_client_ip(request),
             "api_key_fingerprint": key_fingerprint,
-            "idempotency_scope": f"{key_fingerprint}:{idempotency_key}" if idempotency_key else None,
+            "idempotency_scope": f"{key_fingerprint}:{idempotency_key}"
+            if idempotency_key
+            else None,
         },
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": datetime.now(UTC).isoformat(),
     }
 
     try:
         _db.db.collection("activities").document(activity_id).set(activity)
-        struct_logger.info("Partner webhook activity logged", activity_id=activity_id, deal_id=deal_id)
+        struct_logger.info(
+            "Partner webhook activity logged", activity_id=activity_id, deal_id=deal_id
+        )
         return {"id": activity_id, "logged": True, "idempotent_replay": False}
     except Exception as e:
         struct_logger.error("Partner webhook logging failed", error=str(e))
@@ -3253,7 +4184,8 @@ async def v1_webhook_notify(request: Request):
 
 
 @app.get("/api/v1/stats", dependencies=[Depends(require_partner_api_key)])
-async def v1_stats():
+@limiter.limit("60/minute")
+async def v1_stats(request: Request):
     """Return partner-safe topline counts by status."""
     try:
         return {
@@ -3296,6 +4228,7 @@ def _get_document_rag():
 
 
 @app.post("/api/v1/rag/query", dependencies=[Depends(require_partner_api_key)])
+@limiter.limit("60/minute")
 async def v1_rag_query(request: Request):
     """Semantic search over the regulatory document corpus.
 
@@ -3355,8 +4288,91 @@ async def v1_rag_query(request: Request):
     }
 
 
+# ─── Lead Nurture (manual stale-lead re-engagement) ──────────────────────────
+# Wired here, not as a cron, so ops can preview the cohort with dry_run=true
+# before flipping to dry_run=false. Auto-schedule is a follow-up PR after Mark
+# approves the messaging copy in tools/lead_nurture.py:render_nurture_email.
+
+@app.post("/api/admin/lead-nurture/run", dependencies=[Depends(require_admin)])
+async def run_lead_nurture_endpoint(request: Request):
+    """Manual trigger for the stale-lead re-engagement batch.
+
+    Body (JSON, all optional):
+      * ``dry_run`` (bool, default True) — preview cohort without sending
+      * ``days_inactive`` (int, default 14) — staleness threshold
+      * ``max_results`` (int, default 50, clamped) — hard cohort cap
+
+    Returns the orchestrator dict from
+    ``tools.lead_nurture.run_nurture_batch``.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not isinstance(body, dict):
+        body = {}
+
+    # Default to dry_run=True so an accidental empty POST cannot send mail.
+    dry_run = bool(body.get("dry_run", True))
+    try:
+        days_inactive = int(body.get("days_inactive", 14))
+    except (TypeError, ValueError):
+        days_inactive = 14
+    try:
+        max_results = int(body.get("max_results", 50))
+    except (TypeError, ValueError):
+        max_results = 50
+
+    from tools.lead_nurture import run_nurture_batch
+
+    try:
+        result = run_nurture_batch(
+            dry_run=dry_run,
+            days_inactive=days_inactive,
+            max_results=max_results,
+        )
+    except Exception as exc:
+        struct_logger.error("Lead nurture batch failed", error=str(exc))
+        raise HTTPException(status_code=500, detail="Lead nurture batch failed")
+
+    # Audit-log every invocation. ``audit_log`` lives on PR #36; soft-import so
+    # this PR can land before that one. Falls back to structured logging.
+    try:
+        from audit_log import log_admin_action  # type: ignore
+
+        log_admin_action(
+            actor="admin",
+            action="customer.update",
+            target_type="customer",
+            target_id="lead_nurture_batch",
+            details={
+                "dry_run": dry_run,
+                "days_inactive": days_inactive,
+                "cohort_size": result.get("cohort_size", 0),
+                "sent": result.get("sent", 0),
+                "failed": result.get("failed", 0),
+            },
+            request=request,
+        )
+    except ImportError:
+        struct_logger.info(
+            "Lead nurture batch (audit_log not yet merged)",
+            dry_run=dry_run,
+            days_inactive=days_inactive,
+            cohort_size=result.get("cohort_size", 0),
+            sent=result.get("sent", 0),
+            failed=result.get("failed", 0),
+        )
+    except Exception as exc:
+        # Audit failures must never block the API response.
+        struct_logger.warning("Audit log write failed for lead_nurture", error=str(exc))
+
+    return result
+
+
 # Serve Frontend — Must be last to avoid catching API routes
 app.mount("/assets", ImmutableStaticFiles(directory="frontend/dist/assets"), name="assets")
+
 
 @app.get("/{full_path:path}")
 async def serve_spa(full_path: str):
@@ -3392,4 +4408,5 @@ if __name__ == "__main__":
 
 # AI PM Manager Routes (Linear-inspired)
 from pm_routes import router as pm_router
+
 app.include_router(pm_router, dependencies=[Depends(require_admin)])

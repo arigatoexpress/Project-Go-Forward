@@ -199,6 +199,16 @@ def get_inventory_for_ads(limit: int = 5) -> dict:
 
         homes_for_ads.append(home_data)
 
+    # URL-based floorplan classifier: ensure image_url is an exterior (or
+    # empty) and floorplan_url is populated when the photo list contains a
+    # /floorplan/ URL. See tools/photo_classifier.py.
+    try:
+        from tools.photo_classifier import apply_classifier_to_home
+    except ImportError:
+        from .photo_classifier import apply_classifier_to_home
+    for home in homes_for_ads:
+        apply_classifier_to_home(home)
+
     # Stats
     total = len(inventory)
     new_count = sum(1 for h in inventory if h.get("status", "").lower() == "available")

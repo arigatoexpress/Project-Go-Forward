@@ -6,9 +6,11 @@ import {
   DollarSign, Video, CheckCircle2, AlertCircle
 } from 'lucide-react';
 import { BUSINESS_PHONE, BUSINESS_PHONE_RAW, BUSINESS_ADDRESS, BUSINESS_CITY, BUSINESS_HOURS } from '../constants';
-import './InventoryBrowse.css';
+import Card from '../components/Card';
+import EmptyState from '../components/EmptyState';
+import StatusBadge from '../components/StatusBadge';
+import { Skeleton, SkeletonCard } from '../components/Skeleton';
 
-const CDN_BASE = "https://d132mt2yijm03y.cloudfront.net";
 const MATTERPORT_BASE = "https://my.matterport.com/show/?m=";
 
 // ─── Focus Trap Hook ───
@@ -71,6 +73,105 @@ const SORT_OPTIONS = [
   { value: 'beds_high', label: 'Most Bedrooms' },
   { value: 'photos', label: 'Most Photos' },
 ];
+
+// ─── Reusable utility chains ───
+const HERO_BG =
+  'bg-gradient-to-br from-[#1e3a5f] via-[#1e40af] to-[#3b82f6] text-white';
+const PILL_BTN =
+  'px-4 py-2.5 rounded-full text-sm font-medium transition border-2 border-transparent';
+const CHIP_INPUT =
+  'px-3 py-2 rounded-lg border-2 border-gray-200 text-sm bg-white focus:outline-none focus:border-blue-500 transition';
+
+// Admin-only inventory analytics panel. Renders only when a valid admin
+// token is present in sessionStorage. Uses /api/admin/inventory/analytics
+// (gated server-side by require_admin).
+function AdminInventoryPanel() {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  // Only attempt fetch if a token is in sessionStorage — otherwise this
+  // panel is invisible to the public browse page.
+  const hasToken = typeof window !== 'undefined' && !!sessionStorage.getItem('tho_admin_token');
+
+  useEffect(() => {
+    if (!hasToken) return;
+    let alive = true;
+    setLoading(true);
+    fetch('/api/admin/inventory/analytics', {
+      headers: { 'X-Admin-Token': sessionStorage.getItem('tho_admin_token') || '' },
+    })
+      .then(r => r.json())
+      .then(d => { if (alive && d?.success) setData(d); })
+      .catch(e => { if (alive) setError(String(e)); })
+      .finally(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+  }, [hasToken]);
+
+  if (!hasToken || (!data && !loading)) return null;
+
+  const fmtMoney = (n) => n == null ? '—' : `$${Math.round(n).toLocaleString()}`;
+
+  return (
+    <div style={{
+      maxWidth: 1200, margin: '12px auto', padding: 16,
+      background: 'rgba(0,0,0,0.04)', border: '1px solid rgba(0,0,0,0.08)', borderRadius: 8,
+    }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 12 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, color: '#666' }}>
+          Inventory Analytics (admin)
+        </div>
+        <div style={{ fontSize: 10, color: '#999' }}>cached 5m</div>
+      </div>
+      {loading && <div style={{ fontSize: 12, color: '#888' }}>Loading...</div>}
+      {error && <div style={{ fontSize: 12, color: '#ef4444' }}>Error: {error}</div>}
+      {data && (
+        <>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12, marginBottom: 12 }}>
+            {[
+              { label: 'Total', value: data.totals?.total },
+              { label: 'Available', value: data.totals?.available, color: '#22c55e' },
+              { label: 'Pending', value: data.totals?.pending, color: '#f59e0b' },
+              { label: 'Reserved', value: data.totals?.reserved, color: '#3b82f6' },
+              { label: 'Sold (30d)', value: data.totals?.sold_last_30d, color: '#8b5cf6' },
+              { label: 'Median Price', value: fmtMoney(data.median_sale_price), color: '#06b6d4' },
+              { label: 'Median Days On Lot', value: data.median_time_on_lot_days, color: '#14b8a6' },
+            ].map(m => (
+              <div key={m.label} style={{ background: '#fff', border: '1px solid rgba(0,0,0,0.08)', borderRadius: 6, padding: '8px 12px' }}>
+                <div style={{ fontSize: 10, color: '#999', textTransform: 'uppercase', letterSpacing: 0.5 }}>{m.label}</div>
+                <div style={{ fontSize: 18, fontWeight: 700, color: m.color || '#222', marginTop: 2 }}>
+                  {m.value ?? '—'}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {data.by_manufacturer?.length > 0 && (
+            <div>
+              <div style={{ fontSize: 11, color: '#666', marginBottom: 6, fontWeight: 600 }}>By Manufacturer</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr', fontSize: 11, color: '#666', padding: '4px 8px', borderBottom: '1px solid rgba(0,0,0,0.06)' }}>
+                <span>Manufacturer</span>
+                <span style={{ textAlign: 'right' }}>Total</span>
+                <span style={{ textAlign: 'right' }}>Available</span>
+                <span style={{ textAlign: 'right' }}>Sold</span>
+                <span style={{ textAlign: 'right' }}>Median Price</span>
+              </div>
+              {data.by_manufacturer.slice(0, 12).map(m => (
+                <div key={m.manufacturer} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr', fontSize: 12, padding: '4px 8px', borderBottom: '1px solid rgba(0,0,0,0.04)' }}>
+                  <span style={{ color: '#222', fontWeight: 500 }}>{m.manufacturer}</span>
+                  <span style={{ textAlign: 'right' }}>{m.count}</span>
+                  <span style={{ textAlign: 'right', color: '#22c55e' }}>{m.available}</span>
+                  <span style={{ textAlign: 'right', color: '#8b5cf6' }}>{m.sold}</span>
+                  <span style={{ textAlign: 'right' }}>{fmtMoney(m.median_price)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
 
 
 export default function InventoryBrowse({ onAskTex, onCreateAd }) {
@@ -208,10 +309,37 @@ export default function InventoryBrowse({ onAskTex, onCreateAd }) {
 
   const hasActiveFilters = Object.values(filters).some(v => v !== '') || searchQuery;
 
-  // Photo helpers for detail modal
+  // Photo helpers for detail modal.
+  //
+  // After PR #43 (`feat/inventory-photo-classification`), the backend
+  // guarantees:
+  //   - `image_url` is a non-floorplan exterior URL (or empty string).
+  //   - `real_photos` lists exteriors first, then floorplans appended.
+  //   - `floorplan_url` / `floor_plan_url` is its own dedicated field.
+  //
+  // For the Photos gallery we want exteriors only — floorplans live in
+  // their own dedicated "Floorplan" tab. We exclude both spellings of the
+  // floorplan URL from the gallery so the user never sees a floorplan
+  // mixed in with the listing photos.
   const getPhotosForCategory = useCallback((home) => {
     if (!home) return [];
-    const allPhotos = home.real_photos || home.gallery_images || [];
+    const floorplanUrl = home.floorplan_url || home.floor_plan_url || '';
+    const rawPhotos = home.real_photos || home.gallery_images || [];
+
+    // Hero-first ordering: image_url is guaranteed-non-floorplan after
+    // PR #43, so it's safe to surface as the first gallery photo.
+    const heroSequence = [];
+    if (home.image_url) heroSequence.push(home.image_url);
+    for (const p of rawPhotos) {
+      if (p && !heroSequence.includes(p)) heroSequence.push(p);
+    }
+
+    // Defense-in-depth: even though PR #43's classifier removes the
+    // floorplan from image_url and pushes it to the tail of real_photos,
+    // explicitly drop the floorplan_url here so the gallery only shows
+    // listing photos.
+    const allPhotos = heroSequence.filter(p => p && p !== floorplanUrl);
+
     if (activeCategory === 'all' || !home.image_categories) return allPhotos;
 
     const catFiles = home.image_categories[activeCategory] || [];
@@ -281,30 +409,20 @@ export default function InventoryBrowse({ onAskTex, onCreateAd }) {
 
   if (loading) {
     return (
-      <div className="tho-browse">
+      <div className="min-h-screen bg-slate-50">
         {/* Skeleton hero */}
-        <div className="tho-browse-hero">
-          <div className="tho-browse-hero-content">
-            <div className="tho-skeleton" style={{ width: '60%', height: 32, margin: '0 auto 12px' }} />
-            <div className="tho-skeleton" style={{ width: '80%', height: 16, margin: '0 auto 24px' }} />
-            <div className="tho-skeleton" style={{ width: '100%', height: 48, borderRadius: 12 }} />
+        <div className={`${HERO_BG} px-6 pt-12 pb-10 relative overflow-hidden`}>
+          <div className="max-w-3xl mx-auto text-center relative z-[1]">
+            <Skeleton className="mx-auto mb-3" width="60%" height={32} />
+            <Skeleton className="mx-auto mb-6" width="80%" height={16} />
+            <Skeleton className="mx-auto rounded-xl" width="100%" height={48} />
           </div>
         </div>
         {/* Skeleton cards */}
-        <div className="tho-skeleton-grid">
+        <div className="grid gap-6 p-6 max-w-7xl mx-auto"
+             style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))' }}>
           {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="tho-skeleton-card">
-              <div className="tho-skeleton tho-sk-image" />
-              <div className="tho-sk-body">
-                <div className="tho-skeleton tho-sk-line medium" />
-                <div className="tho-skeleton tho-sk-line short" />
-                <div className="tho-skeleton tho-sk-price" />
-                <div className="tho-sk-actions">
-                  <div className="tho-skeleton tho-sk-btn" />
-                  <div className="tho-skeleton tho-sk-btn" />
-                </div>
-              </div>
-            </div>
+            <SkeletonCard key={i} />
           ))}
         </div>
       </div>
@@ -313,17 +431,23 @@ export default function InventoryBrowse({ onAskTex, onCreateAd }) {
 
   if (error) {
     return (
-      <div className="tho-browse-loading">
-        <AlertCircle size={40} className="text-red-400 mb-3" />
-        <p className="text-gray-700 font-medium mb-1">Unable to load inventory</p>
-        <p className="text-gray-500 text-sm mb-4">{error}</p>
-        <button onClick={fetchInventory} className="px-6 py-2.5 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 active:scale-95 transition">
-          Try Again
-        </button>
-        <a href={`tel:${BUSINESS_PHONE_RAW}`} className="mt-3 text-sm text-blue-600 hover:underline">
-          Or call us at {BUSINESS_PHONE}
-        </a>
-      </div>
+      <EmptyState
+        className="min-h-[60vh]"
+        icon={<AlertCircle size={40} />}
+        iconWrapClassName="bg-red-50 text-red-400"
+        title="Unable to load inventory"
+        message={error}
+        action={
+          <button onClick={fetchInventory} className="btn-primary active:scale-95">
+            Try Again
+          </button>
+        }
+        secondary={
+          <a href={`tel:${BUSINESS_PHONE_RAW}`} className="text-sm text-blue-600 hover:underline">
+            Or call us at {BUSINESS_PHONE}
+          </a>
+        }
+      />
     );
   }
 
@@ -333,29 +457,34 @@ export default function InventoryBrowse({ onAskTex, onCreateAd }) {
   const tourCount = homes.filter(h => h.matterport_id).length;
 
   return (
-    <div className="tho-browse">
+    <div className="min-h-screen bg-slate-50">
       {/* Hero Section */}
-      <div className="tho-browse-hero">
-        <div className="tho-browse-hero-content">
-          <h1 className="tho-browse-hero-title">Find Your Perfect Home</h1>
-          <p className="tho-browse-hero-subtitle">
+      <div className={`${HERO_BG} px-6 pt-12 pb-10 relative overflow-hidden`}>
+        {/* Decorative radial accent — replaces .tho-browse-hero::before */}
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute -top-1/2 -right-[20%] w-[400px] h-[400px] rounded-full"
+          style={{ background: 'radial-gradient(circle, rgba(255,255,255,0.08) 0%, transparent 70%)' }}
+        />
+        <div className="max-w-3xl mx-auto text-center relative z-[1]">
+          <h1 className="text-4xl font-extrabold tracking-tight mb-3">Find Your Perfect Home</h1>
+          <p className="text-lg opacity-90 mb-6 leading-relaxed">
             Browse {homes.length} manufactured homes — {newCount} new, {preOwnedCount} pre-owned — with real photos and {tourCount} 3D virtual tours
           </p>
 
           {/* Search Bar */}
-          <div className="tho-browse-search-bar">
-            <Search size={20} className="text-gray-400" aria-hidden="true" />
+          <div className="flex items-center gap-2 bg-white rounded-xl px-4 py-3 shadow-md max-w-2xl mx-auto">
+            <Search size={20} className="text-gray-400 flex-shrink-0" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search by name, manufacturer, beds, baths, type..."
-              className="tho-browse-search-input"
-              aria-label="Search homes by name, manufacturer, beds, baths, or type"
+              className="flex-1 outline-none text-gray-800 text-base bg-transparent"
             />
             {searchQuery && (
-              <button onClick={() => setSearchQuery('')} className="text-gray-400 hover:text-gray-600" aria-label="Clear search">
-                <X size={18} aria-hidden="true" />
+              <button onClick={() => setSearchQuery('')} className="text-gray-400 hover:text-gray-600 flex-shrink-0">
+                <X size={18} />
               </button>
             )}
           </div>
@@ -374,38 +503,42 @@ export default function InventoryBrowse({ onAskTex, onCreateAd }) {
         </div>
       </div>
 
+      {/* Admin-only inventory analytics panel — only renders when an
+          admin token is present in sessionStorage. */}
+      <AdminInventoryPanel />
+
       {/* Toolbar */}
-      <div className="tho-browse-toolbar" style={{display:'flex', flexDirection:'column', alignItems:'center', gap:'0.75rem', padding:'1rem 1rem 0.5rem'}}>
-        <div className="tho-browse-toolbar-left" style={{display:'flex', alignItems:'center', gap:'0.75rem', justifyContent:'center', flexWrap:'wrap'}}>
-          <span className="tho-browse-count">
+      <div className="flex flex-col items-center gap-3 px-4 pt-4 pb-2">
+        <div className="flex items-center gap-3 justify-center flex-wrap">
+          <span className="text-sm text-gray-600">
             {sortedHomes.length} home{sortedHomes.length !== 1 ? 's' : ''}
           </span>
 
           {/* Quick status toggles */}
-          <div className="tho-browse-status-tabs">
+          <div className="flex gap-2 flex-wrap">
             <button
               onClick={() => setFilters(f => ({ ...f, status: '' }))}
-              className={`tho-status-tab ${filters.status === '' ? 'active' : ''}`}
+              className={`${PILL_BTN} ${filters.status === '' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-slate-100'}`}
             >All</button>
             <button
               onClick={() => setFilters(f => ({ ...f, status: 'Available' }))}
-              className={`tho-status-tab ${filters.status === 'Available' ? 'active' : ''}`}
+              className={`${PILL_BTN} ${filters.status === 'Available' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-slate-100'}`}
             >New ({newCount})</button>
             <button
               onClick={() => setFilters(f => ({ ...f, status: 'Pre-Owned' }))}
-              className={`tho-status-tab ${filters.status === 'Pre-Owned' ? 'active' : ''}`}
+              className={`${PILL_BTN} ${filters.status === 'Pre-Owned' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-slate-100'}`}
             >Pre-Owned ({preOwnedCount})</button>
           </div>
         </div>
 
-        <div className="tho-browse-toolbar-right" style={{display:'flex', alignItems:'center', gap:'0.5rem', justifyContent:'center'}}>
+        <div className="flex items-center gap-2 justify-center flex-wrap">
           {/* Sort dropdown */}
-          <div className="tho-sort-wrap">
+          <div className="flex items-center gap-1 text-gray-600">
             <ArrowUpDown size={14} />
             <select
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value)}
-              className="tho-sort-select"
+              className={CHIP_INPUT}
             >
               {SORT_OPTIONS.map(opt => (
                 <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -415,18 +548,18 @@ export default function InventoryBrowse({ onAskTex, onCreateAd }) {
 
           <button
             onClick={() => setShowFilters(!showFilters)}
-            className={`tho-filter-btn ${hasActiveFilters ? 'active' : ''}`}
+            className={`inline-flex items-center gap-2 ${PILL_BTN} ${hasActiveFilters || showFilters ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 border-gray-200 hover:border-blue-500 hover:text-blue-600'}`}
           >
             <SlidersHorizontal size={16} />
             Filters
             {hasActiveFilters && (
-              <span className="tho-filter-badge">
+              <span className="bg-white text-blue-600 text-xs font-semibold rounded-full px-2 py-0.5 ml-1">
                 {Object.values(filters).filter(v => v !== '').length + (searchQuery ? 1 : 0)}
               </span>
             )}
           </button>
           {hasActiveFilters && (
-            <button onClick={clearFilters} className="tho-clear-btn">
+            <button onClick={clearFilters} className="btn-secondary text-sm">
               Clear All
             </button>
           )}
@@ -435,61 +568,71 @@ export default function InventoryBrowse({ onAskTex, onCreateAd }) {
 
       {/* Expandable Filter Panel */}
       {showFilters && (
-        <div className="tho-browse-filter-panel">
-          <div className="tho-filter-grid">
-            <div className="tho-filter-group">
-              <label htmlFor="filter-beds"><Bed size={14} aria-hidden="true" /> Bedrooms</label>
-              <select id="filter-beds" value={filters.beds} onChange={e => setFilters(f => ({ ...f, beds: e.target.value }))}>
-                <option value="">Any</option>
-                <option value="1">1+</option>
-                <option value="2">2+</option>
-                <option value="3">3+</option>
-                <option value="4">4+</option>
-              </select>
+        <div className="max-w-7xl mx-auto px-4 pb-4">
+          <Card className="shadow-sm">
+            <div className="grid gap-4"
+                 style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))' }}>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide flex items-center gap-1">
+                  <Bed size={14} /> Bedrooms
+                </label>
+                <select className={CHIP_INPUT} value={filters.beds} onChange={e => setFilters(f => ({ ...f, beds: e.target.value }))}>
+                  <option value="">Any</option>
+                  <option value="1">1+</option>
+                  <option value="2">2+</option>
+                  <option value="3">3+</option>
+                  <option value="4">4+</option>
+                </select>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide flex items-center gap-1">
+                  <Bath size={14} /> Bathrooms
+                </label>
+                <select className={CHIP_INPUT} value={filters.baths} onChange={e => setFilters(f => ({ ...f, baths: e.target.value }))}>
+                  <option value="">Any</option>
+                  <option value="1">1+</option>
+                  <option value="2">2+</option>
+                  <option value="3">3+</option>
+                </select>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide flex items-center gap-1">
+                  <Home size={14} /> Type
+                </label>
+                <select className={CHIP_INPUT} value={filters.classification} onChange={e => setFilters(f => ({ ...f, classification: e.target.value }))}>
+                  <option value="">Any</option>
+                  <option value="Single Wide">Single Wide</option>
+                  <option value="Double Wide">Double Wide</option>
+                </select>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Min Price</label>
+                <input
+                  className={CHIP_INPUT}
+                  type="number"
+                  placeholder="$0"
+                  value={filters.minPrice}
+                  onChange={e => setFilters(f => ({ ...f, minPrice: e.target.value }))}
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Max Price</label>
+                <input
+                  className={CHIP_INPUT}
+                  type="number"
+                  placeholder="No max"
+                  value={filters.maxPrice}
+                  onChange={e => setFilters(f => ({ ...f, maxPrice: e.target.value }))}
+                />
+              </div>
             </div>
-            <div className="tho-filter-group">
-              <label htmlFor="filter-baths"><Bath size={14} aria-hidden="true" /> Bathrooms</label>
-              <select id="filter-baths" value={filters.baths} onChange={e => setFilters(f => ({ ...f, baths: e.target.value }))}>
-                <option value="">Any</option>
-                <option value="1">1+</option>
-                <option value="2">2+</option>
-                <option value="3">3+</option>
-              </select>
-            </div>
-            <div className="tho-filter-group">
-              <label htmlFor="filter-type"><Home size={14} aria-hidden="true" /> Type</label>
-              <select id="filter-type" value={filters.classification} onChange={e => setFilters(f => ({ ...f, classification: e.target.value }))}>
-                <option value="">Any</option>
-                <option value="Single Wide">Single Wide</option>
-                <option value="Double Wide">Double Wide</option>
-              </select>
-            </div>
-            <div className="tho-filter-group">
-              <label htmlFor="filter-min-price">Min Price</label>
-              <input
-                id="filter-min-price"
-                type="number"
-                placeholder="$0"
-                value={filters.minPrice}
-                onChange={e => setFilters(f => ({ ...f, minPrice: e.target.value }))}
-              />
-            </div>
-            <div className="tho-filter-group">
-              <label htmlFor="filter-max-price">Max Price</label>
-              <input
-                id="filter-max-price"
-                type="number"
-                placeholder="No max"
-                value={filters.maxPrice}
-                onChange={e => setFilters(f => ({ ...f, maxPrice: e.target.value }))}
-              />
-            </div>
-          </div>
+          </Card>
         </div>
       )}
 
       {/* Home Cards Grid */}
-      <div className="tho-browse-grid">
+      <div className="grid gap-6 px-6 pb-12 max-w-7xl mx-auto"
+           style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))' }}>
         {sortedHomes.map((home, idx) => (
           <HomeCard
             key={home.id || idx}
@@ -501,19 +644,16 @@ export default function InventoryBrowse({ onAskTex, onCreateAd }) {
       </div>
 
       {sortedHomes.length === 0 && !loading && (
-        <div className="tho-browse-empty">
-          <div style={{ background: '#f1f5f9', borderRadius: '50%', padding: 20, marginBottom: 12 }}>
-            <Search size={36} className="text-gray-400" />
-          </div>
-          <p className="text-gray-700 font-medium text-lg">No homes match your search</p>
-          <p className="text-gray-500 text-sm mt-1 mb-4">Try adjusting your filters or search terms</p>
-          <button
-            onClick={clearFilters}
-            className="px-5 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 active:scale-95 transition"
-          >
-            Clear All Filters
-          </button>
-        </div>
+        <EmptyState
+          icon={<Search size={36} />}
+          title="No homes match your search"
+          message="Try adjusting your filters or search terms"
+          action={
+            <button onClick={clearFilters} className="btn-primary text-sm active:scale-95">
+              Clear All Filters
+            </button>
+          }
+        />
       )}
 
       {/* Detail Modal */}
@@ -560,46 +700,55 @@ export default function InventoryBrowse({ onAskTex, onCreateAd }) {
 
 // ─── Home Card Component ───
 function HomeCard({ home, onClick, onScheduleTour }) {
-  const photoCount = (home.real_photos || home.gallery_images || []).length;
-  const heroImage = (home.real_photos?.[0]) || home.image_url || home.floor_plan_url || '';
+  // image_url is guaranteed non-floorplan after PR #43's classifier;
+  // real_photos[0] is also non-floorplan (exteriors are listed first).
+  // We deliberately do NOT fall back to floor_plan_url here — floorplans
+  // belong in the dedicated Floorplan tab, not as the card hero.
+  const floorplanUrl = home.floorplan_url || home.floor_plan_url || '';
+  const galleryPhotos = (home.real_photos || home.gallery_images || [])
+    .filter(p => p && p !== floorplanUrl);
+  const photoCount = galleryPhotos.length;
+  const heroImage = home.image_url || galleryPhotos[0] || '';
   const hasTour = !!home.matterport_id;
   const specs = home.specs || {};
   const categories = home.image_categories || {};
   const isNew = home.status === 'Available';
 
   return (
-    <div className="tho-home-card">
+    <Card padded={false} hover className="group">
       {/* Image — click opens detail */}
-      <div className="tho-card-image-wrap" onClick={onClick}>
+      <div
+        className="relative h-[220px] overflow-hidden bg-slate-100 cursor-pointer"
+        onClick={onClick}
+      >
         {heroImage ? (
           <img
             src={heroImage}
             alt={home.model_name}
-            className="tho-card-image"
+            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
             loading="lazy"
-            onError={(e) => { e.target.src = ''; e.target.classList.add('tho-img-error'); }}
+            onError={(e) => { e.target.src = ''; e.target.classList.add('opacity-0'); }}
           />
         ) : (
-          <div className="tho-card-image-placeholder">
+          <div className="w-full h-full flex items-center justify-center">
             <Home size={32} className="text-gray-300" />
           </div>
         )}
 
-        {/* Badges overlay */}
-        <div className="tho-card-badges">
-          <span className={`tho-card-status ${isNew ? 'new' : 'preowned'}`}>
-            {isNew ? 'New' : 'Pre-Owned'}
-          </span>
+        {/* Status badge — top-left */}
+        <div className="absolute top-3 left-3 flex flex-col gap-2">
+          <StatusBadge status={home.status} kind="home" size="md" />
         </div>
 
-        <div className="tho-card-bottom-badges">
+        {/* Bottom-right badges */}
+        <div className="absolute bottom-3 right-3 flex gap-2">
           {photoCount > 1 && (
-            <span className="tho-card-photo-count">
+            <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs text-white bg-black/60">
               <Camera size={12} /> {photoCount}
             </span>
           )}
           {hasTour && (
-            <span className="tho-card-tour-badge">
+            <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs text-white bg-black/70 font-semibold">
               <Box size={12} /> 3D Tour
             </span>
           )}
@@ -607,52 +756,72 @@ function HomeCard({ home, onClick, onScheduleTour }) {
       </div>
 
       {/* Info */}
-      <div className="tho-card-info">
-        <h3 className="tho-card-name" onClick={onClick}>{home.model_name}</h3>
-        <p className="tho-card-manufacturer">{home.manufacturer || 'New Vision Manufacturing'}</p>
+      <div className="p-5">
+        <h3
+          className="text-lg font-bold text-slate-800 leading-tight cursor-pointer"
+          onClick={onClick}
+        >
+          {home.model_name}
+        </h3>
+        <p className="text-sm text-gray-500 mt-1">{home.manufacturer || 'New Vision Manufacturing'}</p>
 
-        <div className="tho-card-specs">
+        <div className="flex gap-4 my-4 py-3 border-t border-b border-gray-200 text-sm text-gray-600">
           {specs.beds && (
-            <span><Bed size={14} /> {specs.beds} Bed</span>
+            <span className="inline-flex items-center gap-1.5"><Bed size={14} /> {specs.beds} Bed</span>
           )}
           {specs.baths && (
-            <span><Bath size={14} /> {specs.baths} Bath</span>
+            <span className="inline-flex items-center gap-1.5"><Bath size={14} /> {specs.baths} Bath</span>
           )}
           {specs.sq_ft && (
-            <span><Maximize2 size={14} /> {specs.sq_ft.toLocaleString()} sqft</span>
+            <span className="inline-flex items-center gap-1.5"><Maximize2 size={14} /> {specs.sq_ft.toLocaleString()} sqft</span>
           )}
         </div>
 
         {/* Room category badges */}
         {Object.keys(categories).length > 0 && (
-          <div className="tho-card-categories">
-            {categories.kitchen && <span className="tho-cat-badge kitchen">Kitchen</span>}
-            {categories.bedroom && <span className="tho-cat-badge bedroom">Bedroom</span>}
-            {categories.bathroom && <span className="tho-cat-badge bathroom">Bathroom</span>}
+          <div className="flex flex-wrap gap-1.5 mb-3">
+            {categories.kitchen && (
+              <span className="inline-block text-[0.7rem] font-semibold px-2 py-0.5 rounded-full uppercase tracking-wide bg-amber-100 text-amber-800">
+                Kitchen
+              </span>
+            )}
+            {categories.bedroom && (
+              <span className="inline-block text-[0.7rem] font-semibold px-2 py-0.5 rounded-full uppercase tracking-wide bg-blue-100 text-blue-800">
+                Bedroom
+              </span>
+            )}
+            {categories.bathroom && (
+              <span className="inline-block text-[0.7rem] font-semibold px-2 py-0.5 rounded-full uppercase tracking-wide bg-emerald-100 text-emerald-800">
+                Bathroom
+              </span>
+            )}
           </div>
         )}
 
-        <div className="tho-card-price">
+        <div className="text-xl font-bold text-green-600 mb-3">
           {home.display_price && home.display_price !== 'Call for Price'
             ? home.display_price
-            : <span className="tho-call-price">Call for Price</span>
+            : <span className="text-gray-500 text-base font-medium">Call for Price</span>
           }
         </div>
 
         {/* Dual action buttons */}
-        <div className="tho-card-actions">
-          <button className="tho-card-view-btn" onClick={onClick}>
+        <div className="flex gap-2">
+          <button
+            className="flex-1 inline-flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-sm font-medium bg-white text-slate-600 border-2 border-gray-200 hover:border-blue-500 hover:text-blue-600 transition"
+            onClick={onClick}
+          >
             <Eye size={16} /> View Details
           </button>
           <button
-            className="tho-card-tour-btn"
+            className="flex-1 inline-flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 transition"
             onClick={(e) => { e.stopPropagation(); onScheduleTour(); }}
           >
             <Calendar size={16} /> Schedule Tour
           </button>
         </div>
       </div>
-    </div>
+    </Card>
   );
 }
 
@@ -668,11 +837,24 @@ function HomeDetailModal({
   const categories = home.image_categories || {};
   const categoryKeys = Object.keys(categories);
   const hasTour = !!home.matterport_id;
-  const floorPlan = home.floor_plan_url;
+  // After PR #43 the canonical field is `floorplan_url`. Fall back to the
+  // legacy `floor_plan_url` spelling for older Firestore docs.
+  const floorplan = home.floorplan_url || home.floor_plan_url || '';
   const isCallForPrice = !home.display_price || home.display_price === 'Call for Price';
 
   const modalRef = useRef(null);
   useFocusTrap(modalRef);
+
+  // Floorplan view is a peer of the Photos / 3D Tour view inside the
+  // gallery area. State is local to the modal because the parent already
+  // owns Photos<->Tour switching via showTour, and floorplan is purely a
+  // detail-modal concern.
+  const [showFloorplan, setShowFloorplan] = useState(false);
+  // If the user toggles into 3D Tour, reset the floorplan view so the
+  // gallery area only renders one thing at a time.
+  useEffect(() => {
+    if (showTour && showFloorplan) setShowFloorplan(false);
+  }, [showTour, showFloorplan]);
 
   // Touch swipe for mobile
   const touchStart = useRef(null);
@@ -688,106 +870,140 @@ function HomeDetailModal({
   };
 
   return (
-    <div className="tho-detail-overlay" onClick={onClose} aria-hidden="true">
+    <div
+      className="fixed inset-0 z-[100] bg-black/75 flex items-center justify-center p-4"
+      onClick={onClose}
+    >
       <div
-        className="tho-detail-modal"
+        className="relative bg-white rounded-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden"
         onClick={e => e.stopPropagation()}
-        ref={modalRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label={`${home.model_name} details`}
       >
-        {/* Sticky header — name, price, close */}
-        <div className="tho-detail-sticky-header">
-          <div className="tho-detail-sticky-title">
-            <h2 className="tho-detail-sticky-name">{home.model_name}</h2>
-            <span className="tho-detail-sticky-price">
-              {!isCallForPrice ? home.display_price : 'Call for Price'}
-            </span>
-          </div>
-          <button onClick={onClose} className="tho-detail-sticky-close" aria-label="Close">
-            <X size={20} />
-          </button>
-        </div>
+        {/* Close button */}
+        <button
+          onClick={onClose}
+          aria-label="Close"
+          className="absolute top-4 right-4 z-10 w-10 h-10 rounded-full bg-black/50 hover:bg-black/70 text-white flex items-center justify-center transition"
+        >
+          <X size={24} />
+        </button>
 
         {/* Photo Gallery Section */}
-        <div className="tho-detail-gallery">
+        <div className="bg-slate-800 relative">
           {showTour && hasTour ? (
-            <div className="tho-detail-tour-wrap">
+            <div className="h-[400px]">
               <iframe
                 src={`${MATTERPORT_BASE}${home.matterport_id}&play=1`}
                 title={`${home.model_name} 3D Tour`}
-                className="tho-detail-tour-iframe"
+                className="w-full h-full border-0"
                 allowFullScreen
               />
             </div>
+          ) : showFloorplan ? (
+            <div className="relative h-[400px] bg-slate-50 flex items-center justify-center overflow-hidden">
+              {floorplan ? (
+                <>
+                  <img
+                    src={floorplan}
+                    alt={`${home.model_name} floorplan`}
+                    className="max-w-full max-h-full object-contain bg-white"
+                    onError={(e) => { e.target.classList.add('hidden'); }}
+                  />
+                  <a
+                    href={floorplan}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="absolute bottom-4 right-4 px-3.5 py-2 bg-slate-900/85 hover:bg-slate-900 text-white rounded-full text-[13px] font-medium transition-colors"
+                  >
+                    View larger
+                  </a>
+                </>
+              ) : (
+                <div className="flex flex-col items-center justify-center gap-3 text-slate-400">
+                  <Grid3X3 size={48} className="text-slate-200" />
+                  <p>Floorplan unavailable</p>
+                </div>
+              )}
+            </div>
           ) : photos.length > 0 ? (
             <div
-              className="tho-detail-photo-main"
+              className="relative h-[400px] flex items-center justify-center"
               onTouchStart={handleTouchStart}
               onTouchEnd={handleTouchEnd}
             >
               <img
                 src={photos[activePhotoIndex]}
                 alt={`${home.model_name} photo ${activePhotoIndex + 1}`}
-                className="tho-detail-main-img"
-                onError={(e) => { e.target.classList.add('tho-img-error'); }}
+                className="max-w-full max-h-full object-contain"
+                onError={(e) => { e.target.classList.add('opacity-0'); }}
               />
               {photos.length > 1 && (
                 <>
-                  <button onClick={onPrevPhoto} className="tho-gallery-nav left" aria-label="Previous photo">
+                  <button
+                    onClick={onPrevPhoto}
+                    aria-label="Previous photo"
+                    className="absolute left-4 top-1/2 -translate-y-1/2 w-11 h-11 rounded-full bg-black/50 hover:bg-black/70 text-white flex items-center justify-center transition"
+                  >
                     <ChevronLeft size={24} />
                   </button>
-                  <button onClick={onNextPhoto} className="tho-gallery-nav right" aria-label="Next photo">
+                  <button
+                    onClick={onNextPhoto}
+                    aria-label="Next photo"
+                    className="absolute right-4 top-1/2 -translate-y-1/2 w-11 h-11 rounded-full bg-black/50 hover:bg-black/70 text-white flex items-center justify-center transition"
+                  >
                     <ChevronRight size={24} />
                   </button>
-                  <span className="tho-photo-counter">
+                  <span className="absolute bottom-4 right-4 px-3 py-1 rounded-full text-sm text-white bg-black/60">
                     {activePhotoIndex + 1} / {photos.length}
                   </span>
                 </>
               )}
             </div>
           ) : (
-            <div className="tho-detail-no-photo">
+            <div className="h-[400px] flex flex-col items-center justify-center gap-4 text-gray-400">
               <Home size={48} className="text-gray-300" />
               <p>No photos available</p>
             </div>
           )}
 
           {/* Category Tabs + Thumbnail Strip */}
-          <div className="tho-detail-gallery-controls">
-            <div className="tho-detail-view-toggle">
+          <div className="bg-slate-900 px-3 py-3">
+            <div className="flex gap-2 mb-3 flex-wrap">
               <button
-                className={`tho-view-tab ${!showTour ? 'active' : ''}`}
+                className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition border-0 ${!showTour ? 'bg-blue-600 text-white' : 'bg-white/10 text-slate-400 hover:bg-white/20'}`}
                 onClick={() => { if (showTour) onToggleTour(); }}
               >
-                <Camera size={14} /> Photos ({(home.real_photos || home.gallery_images || []).length})
+                <Camera size={14} /> Photos ({photos.length})
               </button>
               {hasTour && (
                 <button
-                  className={`tho-view-tab ${showTour ? 'active' : ''}`}
+                  className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition border-0 ${showTour ? 'bg-blue-600 text-white' : 'bg-white/10 text-slate-400 hover:bg-white/20'}`}
                   onClick={() => { if (!showTour) onToggleTour(); }}
                 >
                   <Box size={14} /> 3D Tour
                 </button>
               )}
               {floorPlan && (
-                <a href={floorPlan} target="_blank" rel="noopener noreferrer" className="tho-view-tab">
+                <a
+                  href={floorPlan}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition bg-white/10 text-slate-400 hover:bg-white/20"
+                >
                   <Grid3X3 size={14} /> Floor Plan
                 </a>
               )}
             </div>
 
             {categoryKeys.length > 0 && !showTour && (
-              <div className="tho-detail-cat-tabs">
+              <div className="flex gap-2 mb-3 flex-wrap">
                 <button
-                  className={`tho-dcat-tab ${activeCategory === 'all' ? 'active' : ''}`}
+                  className={`px-3 py-1.5 rounded-md text-xs font-medium transition ${activeCategory === 'all' ? 'bg-blue-600 text-white' : 'bg-white/10 text-slate-400 hover:bg-white/20'}`}
                   onClick={() => onSetCategory('all')}
                 >All</button>
                 {categoryKeys.map(cat => (
                   <button
                     key={cat}
-                    className={`tho-dcat-tab ${activeCategory === cat ? 'active' : ''}`}
+                    className={`px-3 py-1.5 rounded-md text-xs font-medium transition ${activeCategory === cat ? 'bg-blue-600 text-white' : 'bg-white/10 text-slate-400 hover:bg-white/20'}`}
                     onClick={() => onSetCategory(cat)}
                   >
                     {cat.charAt(0).toUpperCase() + cat.slice(1)} ({categories[cat].length})
@@ -797,14 +1013,14 @@ function HomeDetailModal({
             )}
 
             {!showTour && photos.length > 1 && (
-              <div className="tho-detail-thumbs">
+              <div className="flex gap-2 overflow-x-auto pb-1">
                 {photos.map((photo, idx) => (
                   <button
                     key={idx}
-                    className={`tho-thumb ${idx === activePhotoIndex ? 'active' : ''}`}
+                    className={`flex-shrink-0 w-20 h-[60px] rounded-md overflow-hidden border-2 transition ${idx === activePhotoIndex ? 'border-blue-500 opacity-100' : 'border-transparent opacity-70 hover:opacity-100 hover:border-blue-500'}`}
                     onClick={() => onSetPhotoIndex(idx)}
                   >
-                    <img src={photo} alt={`Thumb ${idx + 1}`} loading="lazy" />
+                    <img src={photo} alt={`Thumb ${idx + 1}`} className="w-full h-full object-cover" loading="lazy" />
                   </button>
                 ))}
               </div>
@@ -813,56 +1029,57 @@ function HomeDetailModal({
         </div>
 
         {/* Info Section */}
-        <div className="tho-detail-info">
-          <div className="tho-detail-header">
+        <div className="p-6 overflow-y-auto flex-1">
+          <div className="flex items-start justify-between gap-4 mb-5">
             <div>
-              <h2 className="tho-detail-name">{home.model_name}</h2>
-              <p className="tho-detail-manufacturer">{home.manufacturer || 'New Vision Manufacturing'}</p>
+              <h2 className="text-2xl font-bold text-slate-800">{home.model_name}</h2>
+              <p className="text-sm text-gray-500 mt-0.5">{home.manufacturer || 'New Vision Manufacturing'}</p>
             </div>
-            <span className={`tho-detail-status ${home.status === 'Available' ? 'new' : 'preowned'}`}>
-              {home.status === 'Available' ? 'New' : 'Pre-Owned'}
-            </span>
+            <StatusBadge status={home.status} kind="home" size="md" />
           </div>
 
           {/* Specs Row */}
-          <div className="tho-detail-specs-row">
+          <div className="flex gap-6 mb-5 flex-wrap">
             {specs.beds && (
-              <div className="tho-detail-spec">
+              <div className="flex items-center gap-2 text-slate-600">
                 <Bed size={20} />
-                <span className="tho-spec-value">{specs.beds}</span>
-                <span className="tho-spec-label">Beds</span>
+                <span className="font-bold text-slate-800">{specs.beds}</span>
+                <span className="text-sm">Beds</span>
               </div>
             )}
             {specs.baths && (
-              <div className="tho-detail-spec">
+              <div className="flex items-center gap-2 text-slate-600">
                 <Bath size={20} />
-                <span className="tho-spec-value">{specs.baths}</span>
-                <span className="tho-spec-label">Baths</span>
+                <span className="font-bold text-slate-800">{specs.baths}</span>
+                <span className="text-sm">Baths</span>
               </div>
             )}
             {specs.sq_ft && (
-              <div className="tho-detail-spec">
+              <div className="flex items-center gap-2 text-slate-600">
                 <Maximize2 size={20} />
-                <span className="tho-spec-value">{specs.sq_ft.toLocaleString()}</span>
-                <span className="tho-spec-label">Sq Ft</span>
+                <span className="font-bold text-slate-800">{specs.sq_ft.toLocaleString()}</span>
+                <span className="text-sm">Sq Ft</span>
               </div>
             )}
             {specs.dimensions && (
-              <div className="tho-detail-spec">
+              <div className="flex items-center gap-2 text-slate-600">
                 <Grid3X3 size={20} />
-                <span className="tho-spec-value">{specs.dimensions}</span>
-                <span className="tho-spec-label">Dimensions</span>
+                <span className="font-bold text-slate-800">{specs.dimensions}</span>
+                <span className="text-sm">Dimensions</span>
               </div>
             )}
           </div>
 
           {/* Price */}
-          <div className="tho-detail-price-section">
-            <span className="tho-detail-price">
+          <div className="flex items-center gap-4 mb-5 flex-wrap">
+            <span className="text-3xl font-bold text-green-600">
               {!isCallForPrice ? home.display_price : 'Call for Price'}
             </span>
             {isCallForPrice && (
-              <button className="tho-get-price-btn" onClick={onGetPrice}>
+              <button
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg font-medium text-white bg-amber-500 hover:bg-amber-600 transition"
+                onClick={onGetPrice}
+              >
                 <DollarSign size={16} /> Get Price Quote
               </button>
             )}
@@ -870,18 +1087,24 @@ function HomeDetailModal({
 
           {/* Features */}
           {home.features && home.features.length > 0 && (
-            <div className="tho-detail-features">
-              <h4>Features</h4>
-              <ul>
-                {home.features.map((f, i) => <li key={i}>{f}</li>)}
+            <div className="mb-5">
+              <h4 className="text-base font-semibold text-slate-800 mb-3">Features</h4>
+              <ul className="grid gap-2 list-none"
+                  style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))' }}>
+                {home.features.map((f, i) => (
+                  <li key={i} className="flex items-center gap-2 text-sm text-slate-600">
+                    <span className="w-1.5 h-1.5 rounded-full bg-blue-500 flex-shrink-0" aria-hidden="true" />
+                    {f}
+                  </li>
+                ))}
               </ul>
             </div>
           )}
 
           {/* Action Buttons */}
-          <div className="tho-detail-actions">
+          <div className="flex gap-3 mb-4 flex-col sm:flex-row">
             <button
-              className="tho-detail-ask-btn"
+              className="flex-1 inline-flex items-center justify-center gap-2 py-3.5 rounded-lg font-semibold text-sm bg-blue-600 text-white hover:bg-blue-700 transition"
               onClick={() => {
                 onClose();
                 onAskTex(`Tell me more about the ${home.model_name}. What are its key features, pricing, and availability?`);
@@ -889,18 +1112,24 @@ function HomeDetailModal({
             >
               <MessageCircle size={18} /> Ask Tex About This Home
             </button>
-            <button className="tho-detail-schedule-btn" onClick={onScheduleTour}>
+            <button
+              className="flex-1 inline-flex items-center justify-center gap-2 py-3.5 rounded-lg font-semibold text-sm bg-emerald-500 text-white hover:bg-emerald-600 transition"
+              onClick={onScheduleTour}
+            >
               <Calendar size={18} /> Schedule a Tour
             </button>
           </div>
 
-          <div className="tho-detail-secondary-actions">
-            <a href={`tel:${BUSINESS_PHONE_RAW}`} className="tho-detail-call-btn">
+          <div className="flex gap-3 mb-4 flex-col sm:flex-row">
+            <a
+              href={`tel:${BUSINESS_PHONE_RAW}`}
+              className="flex-1 inline-flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium bg-white text-slate-600 border-2 border-gray-200 hover:border-emerald-500 hover:text-emerald-500 transition no-underline"
+            >
               <Phone size={16} /> Call {BUSINESS_PHONE}
             </a>
             {onCreateAd && (
               <button
-                className="tho-detail-ad-btn"
+                className="flex-1 inline-flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium bg-white text-slate-600 border-2 border-gray-200 hover:border-violet-500 hover:text-violet-500 transition"
                 onClick={() => {
                   onClose();
                   onCreateAd(home.model_name);
@@ -912,13 +1141,13 @@ function HomeDetailModal({
           </div>
 
           {/* Location */}
-          <div className="tho-detail-location">
+          <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg bg-slate-50 text-sm text-gray-500">
             <MapPin size={14} />
             <span>{BUSINESS_ADDRESS}, {BUSINESS_CITY} — {BUSINESS_HOURS}</span>
           </div>
-          
+
           {/* Similar Homes */}
-          <SimilarHomes 
+          <SimilarHomes
             currentHome={home}
             allHomes={allHomes}
             onSelectHome={(newHome) => {
@@ -935,37 +1164,37 @@ function HomeDetailModal({
 // ─── Similar Homes Component ───
 function SimilarHomes({ currentHome, allHomes, onSelectHome }) {
   if (!currentHome || !allHomes?.length) return null;
-  
+
   const currentSpecs = currentHome.specs || {};
-  
+
   // Calculate similarity score
   const scored = allHomes
     .filter(h => h.id !== currentHome.id)
     .map(h => {
       const specs = h.specs || {};
       let score = 0;
-      
+
       // Same manufacturer
       if (h.manufacturer === currentHome.manufacturer) score += 3;
-      
+
       // Same classification
       if (h.classification === currentHome.classification) score += 2;
-      
+
       // Similar beds
       const bedDiff = Math.abs((specs.beds || 0) - (currentSpecs.beds || 0));
       if (bedDiff === 0) score += 3;
       else if (bedDiff === 1) score += 1;
-      
+
       // Similar baths
       const bathDiff = Math.abs((specs.baths || 0) - (currentSpecs.baths || 0));
       if (bathDiff === 0) score += 2;
       else if (bathDiff <= 0.5) score += 1;
-      
+
       // Similar sqft (within 200)
       const sqftDiff = Math.abs((specs.sq_ft || 0) - (currentSpecs.sq_ft || 0));
       if (sqftDiff <= 200) score += 2;
       else if (sqftDiff <= 400) score += 1;
-      
+
       // Similar price range
       const priceA = currentHome.price_value || 0;
       const priceB = h.price_value || 0;
@@ -974,42 +1203,43 @@ function SimilarHomes({ currentHome, allHomes, onSelectHome }) {
         if (priceDiff <= 0.1) score += 2;
         else if (priceDiff <= 0.2) score += 1;
       }
-      
+
       return { home: h, score };
     })
     .filter(item => item.score >= 4) // Only show if reasonably similar
     .sort((a, b) => b.score - a.score)
     .slice(0, 3);
-  
+
   if (scored.length === 0) return null;
-  
+
   return (
-    <div className="tho-similar-homes">
-      <h4 className="tho-similar-title">
+    <div className="mt-6 pt-6 border-t border-gray-200">
+      <h4 className="flex items-center gap-2 text-base font-semibold text-slate-800 mb-4">
         <Box size={16} /> Similar Homes
       </h4>
-      <div className="tho-similar-grid">
+      <div className="grid gap-3"
+           style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))' }}>
         {scored.map(({ home }) => (
           <button
             key={home.id}
-            className="tho-similar-card"
+            className="flex flex-col p-3 bg-slate-50 border-2 border-transparent rounded-xl text-left transition hover:border-blue-500 hover:bg-white hover:shadow-md"
             onClick={() => onSelectHome(home)}
           >
-            <div className="tho-similar-img-wrap">
+            <div className="h-[100px] rounded-lg overflow-hidden bg-slate-200 flex items-center justify-center mb-3">
               {home.image_url ? (
-                <img src={home.image_url} alt={home.model_name} loading="lazy" />
+                <img src={home.image_url} alt={home.model_name} className="w-full h-full object-cover" loading="lazy" />
               ) : (
                 <Home size={24} className="text-gray-300" />
               )}
             </div>
-            <div className="tho-similar-info">
-              <div className="tho-similar-name">{home.model_name}</div>
-              <div className="tho-similar-specs">
-                {home.specs?.beds}BR · {home.specs?.baths}BA · {home.specs?.sq_ft?.toLocaleString()} sqft
-              </div>
-              <div className="tho-similar-price">
-                {home.display_price || 'Call for Price'}
-              </div>
+            <div className="font-semibold text-slate-800 text-sm leading-tight mb-1">
+              {home.model_name}
+            </div>
+            <div className="text-xs text-gray-500 mb-1">
+              {home.specs?.beds}BR · {home.specs?.baths}BA · {home.specs?.sq_ft?.toLocaleString()} sqft
+            </div>
+            <div className="font-bold text-green-600 text-sm">
+              {home.display_price || 'Call for Price'}
             </div>
           </button>
         ))}
@@ -1058,42 +1288,51 @@ function LeadCaptureForm({ home, type, onClose }) {
   };
 
   return (
-    <div className="tho-lead-overlay" onClick={onClose} aria-hidden="true">
+    <div
+      className="fixed inset-0 z-[110] bg-black/75 flex items-center justify-center p-4"
+      onClick={onClose}
+    >
       <div
-        className="tho-lead-modal"
+        className="relative bg-white rounded-2xl w-full max-w-md p-6"
         onClick={e => e.stopPropagation()}
-        ref={modalRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label={type === 'tour' ? 'Schedule a tour' : 'Get a price quote'}
       >
-        <button onClick={onClose} className="tho-lead-close" aria-label="Close dialog">
-          <X size={20} aria-hidden="true" />
+        <button
+          onClick={onClose}
+          aria-label="Close"
+          className="absolute top-3 right-3 w-8 h-8 rounded-full text-gray-400 hover:bg-slate-100 hover:text-gray-700 flex items-center justify-center transition"
+        >
+          <X size={20} />
         </button>
 
         {submitted ? (
-          <div className="tho-lead-success">
+          <div className="flex flex-col items-center text-center gap-3 py-2">
             <CheckCircle2 size={48} className="text-green-500" />
-            <h3>Thank You!</h3>
-            <p>We received your {type === 'tour' ? 'tour request' : 'price quote request'} for the <strong>{home.model_name}</strong>. Our team will contact you shortly.</p>
-            <button onClick={onClose} className="tho-lead-done-btn">Done</button>
+            <h3 className="text-xl font-bold text-slate-800">Thank You!</h3>
+            <p className="text-sm text-gray-600">
+              We received your {type === 'tour' ? 'tour request' : 'price quote request'} for the <strong>{home.model_name}</strong>. Our team will contact you shortly.
+            </p>
+            <button onClick={onClose} className="btn-primary mt-2">
+              Done
+            </button>
           </div>
         ) : (
           <>
-            <div className="tho-lead-header">
-              <h3>{type === 'tour' ? 'Schedule a Tour' : 'Get a Price Quote'}</h3>
-              <p className="tho-lead-home-name">
+            <div className="text-center mb-6">
+              <h3 className="text-xl font-bold text-slate-800 mb-2">
+                {type === 'tour' ? 'Schedule a Tour' : 'Get a Price Quote'}
+              </h3>
+              <p className="text-sm text-gray-500">
                 {type === 'tour' ? 'Visit' : 'Get pricing for'} the <strong>{home.model_name}</strong>
                 {home.specs?.beds && ` — ${home.specs.beds} Bed, ${home.specs.baths} Bath`}
                 {home.specs?.sq_ft && `, ${home.specs.sq_ft.toLocaleString()} sqft`}
               </p>
             </div>
 
-            <form onSubmit={handleSubmit} className="tho-lead-form">
-              <div className="tho-lead-field">
-                <label htmlFor="lead-name">Name *</label>
+            <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm font-medium text-gray-700">Name *</label>
                 <input
-                  id="lead-name"
+                  className="px-3 py-2.5 rounded-lg border-2 border-gray-200 text-sm focus:outline-none focus:border-blue-500 transition"
                   type="text"
                   value={formData.name}
                   onChange={e => setFormData(f => ({ ...f, name: e.target.value }))}
@@ -1101,10 +1340,10 @@ function LeadCaptureForm({ home, type, onClose }) {
                   required
                 />
               </div>
-              <div className="tho-lead-field">
-                <label htmlFor="lead-phone">Phone *</label>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm font-medium text-gray-700">Phone *</label>
                 <input
-                  id="lead-phone"
+                  className="px-3 py-2.5 rounded-lg border-2 border-gray-200 text-sm focus:outline-none focus:border-blue-500 transition"
                   type="tel"
                   value={formData.phone}
                   onChange={e => setFormData(f => ({ ...f, phone: e.target.value }))}
@@ -1112,20 +1351,22 @@ function LeadCaptureForm({ home, type, onClose }) {
                   required
                 />
               </div>
-              <div className="tho-lead-field">
-                <label htmlFor="lead-email">Email</label>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm font-medium text-gray-700">Email</label>
                 <input
-                  id="lead-email"
+                  className="px-3 py-2.5 rounded-lg border-2 border-gray-200 text-sm focus:outline-none focus:border-blue-500 transition"
                   type="email"
                   value={formData.email}
                   onChange={e => setFormData(f => ({ ...f, email: e.target.value }))}
                   placeholder="you@email.com"
                 />
               </div>
-              <div className="tho-lead-field">
-                <label htmlFor="lead-message">{type === 'tour' ? 'Preferred date/time' : 'Additional details'}</label>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm font-medium text-gray-700">
+                  {type === 'tour' ? 'Preferred date/time' : 'Additional details'}
+                </label>
                 <textarea
-                  id="lead-message"
+                  className="px-3 py-2.5 rounded-lg border-2 border-gray-200 text-sm focus:outline-none focus:border-blue-500 transition"
                   value={formData.message}
                   onChange={e => setFormData(f => ({ ...f, message: e.target.value }))}
                   placeholder={type === 'tour' ? 'e.g., Saturday morning, weekday after 5pm...' : 'Any questions or preferences...'}
@@ -1134,12 +1375,16 @@ function LeadCaptureForm({ home, type, onClose }) {
               </div>
 
               {error && (
-                <div className="tho-lead-error">
+                <div className="flex items-center gap-2 text-sm text-red-600 bg-red-50 px-3 py-2 rounded-lg">
                   <AlertCircle size={14} /> {error}
                 </div>
               )}
 
-              <button type="submit" className="tho-lead-submit-btn" disabled={submitting}>
+              <button
+                type="submit"
+                disabled={submitting}
+                className="btn-primary w-full inline-flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+              >
                 {submitting ? (
                   <><Loader2 size={16} className="animate-spin" /> Submitting...</>
                 ) : type === 'tour' ? (
