@@ -5,12 +5,11 @@ Verifies token creation, verification, expiration, and tamper resistance.
 Run: python -m pytest tests/test_admin_auth.py -v
 """
 
-import sys
-import time
 import base64
 import struct
+import sys
+import time
 from pathlib import Path
-
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -115,8 +114,9 @@ class TestInputSanitization:
 
     def test_strip_html_tags(self):
         import re
+
         def sanitize(val, max_len=500):
-            return re.sub(r'<[^>]+>', '', val).strip()[:max_len]
+            return re.sub(r"<[^>]+>", "", val).strip()[:max_len]
 
         assert sanitize("<script>alert(1)</script>hello") == "alert(1)hello"
         assert sanitize("<b>bold</b> text") == "bold text"
@@ -124,16 +124,99 @@ class TestInputSanitization:
 
     def test_length_limit(self):
         import re
+
         def sanitize(val, max_len=500):
-            return re.sub(r'<[^>]+>', '', val).strip()[:max_len]
+            return re.sub(r"<[^>]+>", "", val).strip()[:max_len]
 
         long_input = "A" * 1000
         assert len(sanitize(long_input, max_len=100)) == 100
 
     def test_whitespace_stripped(self):
         import re
+
         def sanitize(val, max_len=500):
-            return re.sub(r'<[^>]+>', '', val).strip()[:max_len]
+            return re.sub(r"<[^>]+>", "", val).strip()[:max_len]
 
         assert sanitize("  hello  ") == "hello"
         assert sanitize("\n\tname\n\t") == "name"
+
+
+class TestAdminVerifyRateLimit:
+    """slowapi per-IP cap on /api/admin/verify (5/min) layered on the
+    legacy 10-attempt ``_pin_attempts`` lockout.
+    """
+
+    def _client(self, monkeypatch):
+        # Reuse the heavy stub setup from test_api_v1.load_app — it
+        # mocks Firestore / ADK / inventory tools so main.py imports cleanly.
+        from fastapi.testclient import TestClient
+
+        from tests.test_api_v1 import load_app
+
+        # Force the local-dev fallback PIN hash by ensuring K_SERVICE is unset.
+        # main.py uses sha256(b"4832") as the fallback when ADMIN_PIN_HASH is
+        # not configured outside Cloud Run.
+        monkeypatch.delenv("K_SERVICE", raising=False)
+        monkeypatch.delenv("ADMIN_PIN_HASH", raising=False)
+        # Bump RATE_LIMIT_RPM well above 6 so the legacy RateLimitMiddleware
+        # doesn't 429 before slowapi gets a chance to.
+        main, _db, _logger = load_app(monkeypatch, tho_api_key="tho-secret", rate_limit_rpm="120")
+        return TestClient(main.app), main
+
+    def test_admin_verify_rate_limit_429(self, monkeypatch):
+        """The 6th rapid wrong-PIN POST from the same client returns 429
+        with a Retry-After header — slowapi short-circuits before
+        ``_pin_attempts`` ever reaches its 10-attempt cap.
+        """
+        client, main = self._client(monkeypatch)
+
+        # 5 wrong PINs are allowed by slowapi (cap = 5/minute) but rejected
+        # by the PIN check (401). _pin_attempts increments to 5, still under
+        # the legacy 10-attempt lockout.
+        for i in range(5):
+            r = client.post("/api/admin/verify", json={"pin": "0000"})
+            assert r.status_code == 401, f"attempt {i + 1}: expected 401, got {r.status_code}"
+
+        # The 6th attempt is rejected by slowapi with 429 + Retry-After.
+        r6 = client.post("/api/admin/verify", json={"pin": "0000"})
+        assert r6.status_code == 429
+        assert "Retry-After" in r6.headers
+        # Retry-After should be a small positive integer (seconds remaining).
+        retry_after = int(r6.headers["Retry-After"])
+        assert 0 <= retry_after <= 60
+        body = r6.json()
+        # slowapi's default handler returns {"error": "Rate limit exceeded: ..."}.
+        assert "error" in body
+        assert "Rate limit exceeded" in body["error"]
+
+    def test_pin_attempts_lockout_still_engages_under_slowapi_cap(self, monkeypatch):
+        """The legacy ``_pin_attempts`` lockout (10 attempts in 5 minutes)
+        must still fire for a client staying under the 5/min slowapi cap.
+
+        Because the slowapi limiter is per-process and shares state across
+        requests, we exercise the lockout by directly priming
+        ``_pin_attempts`` to PIN_MAX_ATTEMPTS and confirming the legacy
+        429 response — distinct from slowapi's 429 — is returned.
+        """
+        client, main = self._client(monkeypatch)
+
+        # Prime the legacy counter for the TestClient's client IP.
+        # TestClient sets request.client.host to "testclient" by default.
+        main._pin_attempts["testclient"] = [
+            __import__("time").time() for _ in range(main.PIN_MAX_ATTEMPTS)
+        ]
+
+        r = client.post("/api/admin/verify", json={"pin": "0000"})
+        assert r.status_code == 429
+        # Distinct from slowapi: legacy lockout uses success/error envelope
+        # and a ~5-minute Retry-After.
+        body = r.json()
+        assert body == {
+            "success": False,
+            "error": "Too many failed attempts. Please wait 5 minutes.",
+        }
+        # slowapi's _inject_headers may rewrite the legacy Retry-After=300
+        # into a delta-from-now, losing 1 second to timing slop. Allow some
+        # play around the 300-second lockout window.
+        retry_after = int(r.headers.get("Retry-After", "0"))
+        assert main.PIN_LOCKOUT_SECONDS - 5 <= retry_after <= main.PIN_LOCKOUT_SECONDS
