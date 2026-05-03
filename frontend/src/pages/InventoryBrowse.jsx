@@ -899,27 +899,27 @@ function HomeDetailModal({
               />
             </div>
           ) : showFloorplan ? (
-            <div className="tho-detail-floorplan-wrap">
+            <div className="relative h-[400px] bg-slate-50 flex items-center justify-center overflow-hidden">
               {floorplan ? (
                 <>
                   <img
                     src={floorplan}
                     alt={`${home.model_name} floorplan`}
-                    className="tho-detail-floorplan-img"
-                    onError={(e) => { e.target.classList.add('tho-img-error'); }}
+                    className="max-w-full max-h-full object-contain bg-white"
+                    onError={(e) => { e.target.classList.add('hidden'); }}
                   />
                   <a
                     href={floorplan}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="tho-detail-floorplan-larger"
+                    className="absolute bottom-4 right-4 px-3.5 py-2 bg-slate-900/85 hover:bg-slate-900 text-white rounded-full text-[13px] font-medium transition-colors"
                   >
                     View larger
                   </a>
                 </>
               ) : (
-                <div className="tho-detail-no-photo">
-                  <Grid3X3 size={48} className="text-gray-300" />
+                <div className="flex flex-col items-center justify-center gap-3 text-slate-400">
+                  <Grid3X3 size={48} className="text-slate-200" />
                   <p>Floorplan unavailable</p>
                 </div>
               )}
