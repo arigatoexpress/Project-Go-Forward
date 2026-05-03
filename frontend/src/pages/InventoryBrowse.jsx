@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useId } from 'react';
 import {
   Search, SlidersHorizontal, X, Home, Bed, Bath, Maximize2,
   Camera, Box, ChevronLeft, ChevronRight, MapPin, Phone,
@@ -11,6 +11,43 @@ import EmptyState from '../components/EmptyState';
 import { Skeleton, SkeletonCard } from '../components/Skeleton';
 
 const MATTERPORT_BASE = "https://my.matterport.com/show/?m=";
+
+// ─── Focus Trap Hook ───
+// Traps keyboard focus inside `ref` while the modal is mounted.
+// Restores focus to the previously-focused element on unmount.
+function useFocusTrap(ref) {
+  useEffect(() => {
+    const container = ref.current;
+    if (!container) return;
+    const previouslyFocused = document.activeElement;
+
+    const FOCUSABLE = 'button:not([disabled]),[href],input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
+    const getFocusable = () => Array.from(container.querySelectorAll(FOCUSABLE));
+
+    // Move focus into modal on open
+    const firstFocusable = getFocusable()[0];
+    if (firstFocusable) firstFocusable.focus();
+
+    const onKeyDown = (e) => {
+      if (e.key !== 'Tab') return;
+      const focusable = getFocusable();
+      if (focusable.length === 0) { e.preventDefault(); return; }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey) {
+        if (document.activeElement === first) { e.preventDefault(); last.focus(); }
+      } else {
+        if (document.activeElement === last) { e.preventDefault(); first.focus(); }
+      }
+    };
+
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
+      if (previouslyFocused && previouslyFocused.focus) previouslyFocused.focus();
+    };
+  }, [ref]);
+}
 
 // ─── Analytics helper ───
 function trackEvent(event, data = {}) {
@@ -43,6 +80,98 @@ const PILL_BTN =
   'px-4 py-2.5 rounded-full text-sm font-medium transition border-2 border-transparent';
 const CHIP_INPUT =
   'px-3 py-2 rounded-lg border-2 border-gray-200 text-sm bg-white focus:outline-none focus:border-blue-500 transition';
+
+// Admin-only inventory analytics panel. Renders only when a valid admin
+// token is present in sessionStorage. Uses /api/admin/inventory/analytics
+// (gated server-side by require_admin).
+function AdminInventoryPanel() {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  // Only attempt fetch if a token is in sessionStorage — otherwise this
+  // panel is invisible to the public browse page.
+  const hasToken = typeof window !== 'undefined' && !!sessionStorage.getItem('tho_admin_token');
+
+  useEffect(() => {
+    if (!hasToken) return;
+    let alive = true;
+    setLoading(true);
+    fetch('/api/admin/inventory/analytics', {
+      headers: { 'X-Admin-Token': sessionStorage.getItem('tho_admin_token') || '' },
+    })
+      .then(r => r.json())
+      .then(d => { if (alive && d?.success) setData(d); })
+      .catch(e => { if (alive) setError(String(e)); })
+      .finally(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+  }, [hasToken]);
+
+  if (!hasToken || (!data && !loading)) return null;
+
+  const fmtMoney = (n) => n == null ? '—' : `$${Math.round(n).toLocaleString()}`;
+
+  return (
+    <div style={{
+      maxWidth: 1200, margin: '12px auto', padding: 16,
+      background: 'rgba(0,0,0,0.04)', border: '1px solid rgba(0,0,0,0.08)', borderRadius: 8,
+    }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 12 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, color: '#666' }}>
+          Inventory Analytics (admin)
+        </div>
+        <div style={{ fontSize: 10, color: '#999' }}>cached 5m</div>
+      </div>
+      {loading && <div style={{ fontSize: 12, color: '#888' }}>Loading...</div>}
+      {error && <div style={{ fontSize: 12, color: '#ef4444' }}>Error: {error}</div>}
+      {data && (
+        <>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12, marginBottom: 12 }}>
+            {[
+              { label: 'Total', value: data.totals?.total },
+              { label: 'Available', value: data.totals?.available, color: '#22c55e' },
+              { label: 'Pending', value: data.totals?.pending, color: '#f59e0b' },
+              { label: 'Reserved', value: data.totals?.reserved, color: '#3b82f6' },
+              { label: 'Sold (30d)', value: data.totals?.sold_last_30d, color: '#8b5cf6' },
+              { label: 'Median Price', value: fmtMoney(data.median_sale_price), color: '#06b6d4' },
+              { label: 'Median Days On Lot', value: data.median_time_on_lot_days, color: '#14b8a6' },
+            ].map(m => (
+              <div key={m.label} style={{ background: '#fff', border: '1px solid rgba(0,0,0,0.08)', borderRadius: 6, padding: '8px 12px' }}>
+                <div style={{ fontSize: 10, color: '#999', textTransform: 'uppercase', letterSpacing: 0.5 }}>{m.label}</div>
+                <div style={{ fontSize: 18, fontWeight: 700, color: m.color || '#222', marginTop: 2 }}>
+                  {m.value ?? '—'}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {data.by_manufacturer?.length > 0 && (
+            <div>
+              <div style={{ fontSize: 11, color: '#666', marginBottom: 6, fontWeight: 600 }}>By Manufacturer</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr', fontSize: 11, color: '#666', padding: '4px 8px', borderBottom: '1px solid rgba(0,0,0,0.06)' }}>
+                <span>Manufacturer</span>
+                <span style={{ textAlign: 'right' }}>Total</span>
+                <span style={{ textAlign: 'right' }}>Available</span>
+                <span style={{ textAlign: 'right' }}>Sold</span>
+                <span style={{ textAlign: 'right' }}>Median Price</span>
+              </div>
+              {data.by_manufacturer.slice(0, 12).map(m => (
+                <div key={m.manufacturer} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr', fontSize: 12, padding: '4px 8px', borderBottom: '1px solid rgba(0,0,0,0.04)' }}>
+                  <span style={{ color: '#222', fontWeight: 500 }}>{m.manufacturer}</span>
+                  <span style={{ textAlign: 'right' }}>{m.count}</span>
+                  <span style={{ textAlign: 'right', color: '#22c55e' }}>{m.available}</span>
+                  <span style={{ textAlign: 'right', color: '#8b5cf6' }}>{m.sold}</span>
+                  <span style={{ textAlign: 'right' }}>{fmtMoney(m.median_price)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 
 export default function InventoryBrowse({ onAskTex, onCreateAd }) {
   const [homes, setHomes] = useState([]);
@@ -179,10 +308,37 @@ export default function InventoryBrowse({ onAskTex, onCreateAd }) {
 
   const hasActiveFilters = Object.values(filters).some(v => v !== '') || searchQuery;
 
-  // Photo helpers for detail modal
+  // Photo helpers for detail modal.
+  //
+  // After PR #43 (`feat/inventory-photo-classification`), the backend
+  // guarantees:
+  //   - `image_url` is a non-floorplan exterior URL (or empty string).
+  //   - `real_photos` lists exteriors first, then floorplans appended.
+  //   - `floorplan_url` / `floor_plan_url` is its own dedicated field.
+  //
+  // For the Photos gallery we want exteriors only — floorplans live in
+  // their own dedicated "Floorplan" tab. We exclude both spellings of the
+  // floorplan URL from the gallery so the user never sees a floorplan
+  // mixed in with the listing photos.
   const getPhotosForCategory = useCallback((home) => {
     if (!home) return [];
-    const allPhotos = home.real_photos || home.gallery_images || [];
+    const floorplanUrl = home.floorplan_url || home.floor_plan_url || '';
+    const rawPhotos = home.real_photos || home.gallery_images || [];
+
+    // Hero-first ordering: image_url is guaranteed-non-floorplan after
+    // PR #43, so it's safe to surface as the first gallery photo.
+    const heroSequence = [];
+    if (home.image_url) heroSequence.push(home.image_url);
+    for (const p of rawPhotos) {
+      if (p && !heroSequence.includes(p)) heroSequence.push(p);
+    }
+
+    // Defense-in-depth: even though PR #43's classifier removes the
+    // floorplan from image_url and pushes it to the tail of real_photos,
+    // explicitly drop the floorplan_url here so the gallery only shows
+    // listing photos.
+    const allPhotos = heroSequence.filter(p => p && p !== floorplanUrl);
+
     if (activeCategory === 'all' || !home.image_categories) return allPhotos;
 
     const catFiles = home.image_categories[activeCategory] || [];
@@ -345,6 +501,10 @@ export default function InventoryBrowse({ onAskTex, onCreateAd }) {
           )}
         </div>
       </div>
+
+      {/* Admin-only inventory analytics panel — only renders when an
+          admin token is present in sessionStorage. */}
+      <AdminInventoryPanel />
 
       {/* Toolbar */}
       <div className="flex flex-col items-center gap-3 px-4 pt-4 pb-2">
@@ -539,8 +699,15 @@ export default function InventoryBrowse({ onAskTex, onCreateAd }) {
 
 // ─── Home Card Component ───
 function HomeCard({ home, onClick, onScheduleTour }) {
-  const photoCount = (home.real_photos || home.gallery_images || []).length;
-  const heroImage = (home.real_photos?.[0]) || home.image_url || home.floor_plan_url || '';
+  // image_url is guaranteed non-floorplan after PR #43's classifier;
+  // real_photos[0] is also non-floorplan (exteriors are listed first).
+  // We deliberately do NOT fall back to floor_plan_url here — floorplans
+  // belong in the dedicated Floorplan tab, not as the card hero.
+  const floorplanUrl = home.floorplan_url || home.floor_plan_url || '';
+  const galleryPhotos = (home.real_photos || home.gallery_images || [])
+    .filter(p => p && p !== floorplanUrl);
+  const photoCount = galleryPhotos.length;
+  const heroImage = home.image_url || galleryPhotos[0] || '';
   const hasTour = !!home.matterport_id;
   const specs = home.specs || {};
   const categories = home.image_categories || {};
@@ -671,8 +838,24 @@ function HomeDetailModal({
   const categories = home.image_categories || {};
   const categoryKeys = Object.keys(categories);
   const hasTour = !!home.matterport_id;
-  const floorPlan = home.floor_plan_url;
+  // After PR #43 the canonical field is `floorplan_url`. Fall back to the
+  // legacy `floor_plan_url` spelling for older Firestore docs.
+  const floorplan = home.floorplan_url || home.floor_plan_url || '';
   const isCallForPrice = !home.display_price || home.display_price === 'Call for Price';
+
+  const modalRef = useRef(null);
+  useFocusTrap(modalRef);
+
+  // Floorplan view is a peer of the Photos / 3D Tour view inside the
+  // gallery area. State is local to the modal because the parent already
+  // owns Photos<->Tour switching via showTour, and floorplan is purely a
+  // detail-modal concern.
+  const [showFloorplan, setShowFloorplan] = useState(false);
+  // If the user toggles into 3D Tour, reset the floorplan view so the
+  // gallery area only renders one thing at a time.
+  useEffect(() => {
+    if (showTour && showFloorplan) setShowFloorplan(false);
+  }, [showTour, showFloorplan]);
 
   // Touch swipe for mobile
   const touchStart = useRef(null);
@@ -715,6 +898,32 @@ function HomeDetailModal({
                 className="w-full h-full border-0"
                 allowFullScreen
               />
+            </div>
+          ) : showFloorplan ? (
+            <div className="tho-detail-floorplan-wrap">
+              {floorplan ? (
+                <>
+                  <img
+                    src={floorplan}
+                    alt={`${home.model_name} floorplan`}
+                    className="tho-detail-floorplan-img"
+                    onError={(e) => { e.target.classList.add('tho-img-error'); }}
+                  />
+                  <a
+                    href={floorplan}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="tho-detail-floorplan-larger"
+                  >
+                    View larger
+                  </a>
+                </>
+              ) : (
+                <div className="tho-detail-no-photo">
+                  <Grid3X3 size={48} className="text-gray-300" />
+                  <p>Floorplan unavailable</p>
+                </div>
+              )}
             </div>
           ) : photos.length > 0 ? (
             <div
@@ -764,7 +973,7 @@ function HomeDetailModal({
                 className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition border-0 ${!showTour ? 'bg-blue-600 text-white' : 'bg-white/10 text-slate-400 hover:bg-white/20'}`}
                 onClick={() => { if (showTour) onToggleTour(); }}
               >
-                <Camera size={14} /> Photos ({(home.real_photos || home.gallery_images || []).length})
+                <Camera size={14} /> Photos ({photos.length})
               </button>
               {hasTour && (
                 <button
@@ -1049,6 +1258,8 @@ function LeadCaptureForm({ home, type, onClose }) {
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState('');
+  const modalRef = useRef(null);
+  useFocusTrap(modalRef);
 
   const handleSubmit = async (e) => {
     e.preventDefault();

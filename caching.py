@@ -4,6 +4,17 @@ import logging
 from typing import Any, Optional
 from datetime import datetime, timedelta
 
+# NOTE — schema change 2026-04-30 (feat/inventory-photo-classification):
+# The inventory cache (key: tools.inventory_tools.INVENTORY_CACHE_KEY,
+# i.e. "inventory_dataset") now stores listings with the URL-based
+# floorplan classifier already applied (image_url = first exterior or "",
+# floorplan_url = first floorplan, real_photos = exteriors then
+# floorplans). Pre-existing cached entries from before this deploy still
+# have the old shape (image_url = floorplan URL). After deploy, run a
+# one-time cache flush so clients refetch the corrected shape:
+#   redis-cli DEL inventory_dataset
+# (or restart the service to drop the local fallback cache).
+
 # Try to import redis, but don't fail if not installed (for local dev without it)
 try:
     import redis
