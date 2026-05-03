@@ -39,6 +39,12 @@ const SESSION_STATUS_CLASSES = {
   closed: 'bg-gray-100 text-gray-700',
 };
 
+const HOME_STATUS_CLASSES = {
+  Available: 'bg-green-500 text-white',
+  'Pre-Owned': 'bg-amber-500 text-white',
+  New: 'bg-green-500 text-white', // Alias for Available
+};
+
 const SIZE_CLASSES = {
   sm: 'px-2 py-0.5 text-[11px]',
   md: 'px-3 py-1 text-xs',
@@ -85,6 +91,12 @@ export default function StatusBadge({ status, kind = 'lead', size = 'sm', classN
   if (kind === 'session') {
     const cls = SESSION_STATUS_CLASSES[status] || 'bg-gray-100 text-gray-700';
     return <span className={`${base} ${cls} ${className}`}>{status}</span>;
+  }
+
+  if (kind === 'home') {
+    const cls = HOME_STATUS_CLASSES[status] || 'bg-gray-500 text-white';
+    const label = status === 'Available' ? 'New' : status;
+    return <span className={`${base} ${cls} ${className}`}>{label}</span>;
   }
 
   return <span className={`${base} bg-gray-200 text-gray-700 ${className}`}>{status}</span>;
