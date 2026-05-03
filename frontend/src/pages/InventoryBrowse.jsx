@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef, useId } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Search, SlidersHorizontal, X, Home, Bed, Bath, Maximize2,
   Camera, Box, ChevronLeft, ChevronRight, MapPin, Phone,
