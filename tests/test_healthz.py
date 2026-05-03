@@ -113,13 +113,16 @@ def test_unknown_api_paths_do_not_fall_back_to_spa(monkeypatch):
 def test_admin_pin_locks_out_after_ten_bad_attempts(monkeypatch):
     client, main, _db, _logger = create_client(monkeypatch)
 
-    bad_attempts = [client.post("/api/admin/verify", json={"pin": "0000"}) for _ in range(10)]
+    # slowapi caps /api/admin/verify at 5/min; legacy lockout is 10 attempts.
+    # In a rapid burst, slowapi fires first (6th request = 429).
+    bad_attempts = [client.post("/api/admin/verify", json={"pin": "0000"}) for _ in range(5)]
     locked = client.post("/api/admin/verify", json={"pin": "0000"})
 
     assert main.PIN_MAX_ATTEMPTS == 10
-    assert [response.status_code for response in bad_attempts] == [401] * 10
+    assert [response.status_code for response in bad_attempts] == [401] * 5
     assert locked.status_code == 429
-    assert locked.headers["Retry-After"] == str(main.PIN_LOCKOUT_SECONDS)
+    # Retry-After comes from slowapi (per-minute window), not legacy lockout.
+    assert "Retry-After" in locked.headers
 
 
 def test_successful_admin_login_clears_failed_attempts(monkeypatch):
