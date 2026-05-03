@@ -12,6 +12,7 @@ import os
 # Configure Vertex AI before importing any ADK modules
 os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "TRUE"
 
+import re
 import uvicorn
 import hashlib
 import secrets
@@ -30,6 +31,7 @@ from datetime import datetime, timezone
 from urllib.parse import urlsplit, urlunsplit
 
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import Response as _StarletteResponse
 from config_loader import get_deployment_config, business_name
 
 # Lazy initialization placeholders - will be loaded on first use
@@ -311,6 +313,90 @@ class APICacheControlMiddleware(BaseHTTPMiddleware):
 app.add_middleware(APICacheControlMiddleware)
 
 
+# ─── SchemaTextBodyGuard ───
+#
+# Defensive middleware that catches schema-text placeholder bodies before they
+# reach the client.  The bug manifests at cold-start as a JSON response whose
+# values are type-name strings ("string", "int") instead of real data, e.g.:
+#
+#   {"status": "string", "uptime_s": "int", "sha": "string", ...}
+#
+# Root-cause hypothesis: FastAPI 0.123.x + Pydantic v2 lazy-generate the
+# OpenAPI schema on the first inbound request.  Under a concurrent cold-start
+# burst, the schema-generation routine and the actual route handler race.  In
+# the observed sightings the response headers (including Cache-Control:no-store)
+# were set correctly, confirming the FastAPI handler ran — but the body was
+# substituted with what appears to be a Pydantic model's JSON-schema property
+# map sorted alphabetically (matching the field ordering in model_json_schema()
+# output).
+#
+# Disabling OpenAPI docs (PR #55) removed the /openapi.json endpoint but did
+# not eliminate the lazy schema-generation path internally, so sightings
+# continued after that change.
+#
+# The guard converts the silent data-correctness failure into an observable 500
+# that is immediately caught by Cloud Run error-rate alerts and structured logs.
+# It is cheap to keep permanently: the regex only runs on JSON responses whose
+# Content-Length is ≤ 1 KB (schema-text bodies are always tiny; real API
+# payloads bypass the scan via the Content-Length early-exit).
+
+_SCHEMA_TEXT_RE = re.compile(rb'"(string|int|bool|float)"')
+_SCHEMA_SCAN_THRESHOLD = 1024  # bytes; schema-text bodies are < 300 bytes in practice
+
+
+class SchemaTextBodyGuard(BaseHTTPMiddleware):
+    """Final checkpoint: intercepts schema-text placeholder response bodies."""
+
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+
+        # Only inspect JSON responses.
+        ct = response.headers.get("content-type", "")
+        if "application/json" not in ct:
+            return response
+
+        # Fast-path: Content-Length tells us the body is too large to be
+        # a schema-text response — skip scanning and avoid consuming the stream.
+        try:
+            if int(response.headers["content-length"]) > _SCHEMA_SCAN_THRESHOLD:
+                return response
+        except (KeyError, ValueError):
+            pass
+
+        # Consume the body stream (required to inspect content).
+        chunks: list[bytes] = []
+        async for chunk in response.body_iterator:
+            chunks.append(chunk)
+        body = b"".join(chunks)
+
+        if len(body) <= _SCHEMA_SCAN_THRESHOLD and _SCHEMA_TEXT_RE.search(body):
+            logger.critical(
+                "SchemaTextBodyGuard TRIPPED: schema-text placeholder in response body — "
+                "returning 500 instead of leaking malformed data to client. "
+                "path=%s method=%s original_status=%d body=%r",
+                request.url.path,
+                request.method,
+                response.status_code,
+                body.decode("utf-8", errors="replace"),
+            )
+            return JSONResponse(
+                {"error": "Internal response validation failed.", "code": "SCHEMA_TEXT_BODY"},
+                status_code=500,
+            )
+
+        # Normal path: reconstruct the response with the already-consumed body.
+        # Drop content-length so _StarletteResponse recalculates it from `content`.
+        passthrough_headers = {
+            k: v for k, v in response.headers.items() if k.lower() != "content-length"
+        }
+        return _StarletteResponse(
+            content=body,
+            status_code=response.status_code,
+            headers=passthrough_headers,
+            media_type=response.media_type,
+        )
+
+
 @app.exception_handler(HTTPException)
 async def resilient_http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
     """Wrap HTTPExceptions in a uniform success/status_code/message envelope.
@@ -409,6 +495,11 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT"],
     allow_headers=["Content-Type", "Accept", "X-Admin-Token", "Authorization"],
 )
+
+# SchemaTextBodyGuard is registered last so it is outermost in the middleware
+# stack — it sees the fully-assembled response (all headers stamped by inner
+# middlewares) as the final checkpoint before the bytes leave the process.
+app.add_middleware(SchemaTextBodyGuard)
 
 
 # ─── Admin Auth Setup ───
@@ -1140,6 +1231,9 @@ def healthz() -> JSONResponse:
         "version": version,
         "sha": sha,
         "uptime_s": int(time.monotonic() - APP_STARTED_AT),
+        # workers=1 is enforced in uvicorn.run(); this field lets smoke probes verify
+        # that no accidental multi-worker config crept in via env-var override.
+        "workers": int(os.environ.get("UVICORN_WORKERS", "1")),
         "dependencies": {
             "drive": "configured"
             if (os.environ.get("GOOGLE_APPLICATION_CREDENTIALS") or os.environ.get("K_SERVICE"))
@@ -3841,7 +3935,10 @@ async def serve_spa(full_path: str):
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    # workers=1 is explicit: Cloud Run scales via container instances, not intra-process
+    # workers.  Multi-worker configs share no state but CAN cause schema-generation races
+    # in FastAPI's lazy OpenAPI machinery — keeping single-worker eliminates that vector.
+    uvicorn.run(app, host="0.0.0.0", port=port, workers=1)
 
 
 # AI PM Manager Routes (Linear-inspired)

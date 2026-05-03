@@ -87,6 +87,87 @@ def test_healthz_body_is_strict_json_with_concrete_values(monkeypatch):
         assert "no-store" in response.headers.get("cache-control", "").lower(), path
 
 
+def test_healthz_body_includes_workers_field(monkeypatch):
+    """workers field must be present and numeric — used by smoke probes to audit
+    that no accidental multi-worker config crept in via env-var override."""
+    monkeypatch.setenv("APP_VERSION", "test-sha")
+    client, _main, _db, _logger = create_client(monkeypatch)
+
+    response = client.get("/healthz/")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert "workers" in body, "workers field missing from healthz body"
+    assert isinstance(body["workers"], int), "workers must be an integer"
+    assert body["workers"] >= 1
+
+
+def test_schema_text_body_guard_blocks_placeholder_body(monkeypatch):
+    """SchemaTextBodyGuard must intercept a JSON body whose values are
+    schema-text type names ("string", "int") and return 500 with code
+    SCHEMA_TEXT_BODY instead of leaking the malformed payload to the client."""
+    from fastapi import FastAPI
+    from fastapi.responses import JSONResponse as _JSONResponse
+    from fastapi.testclient import TestClient
+
+    _client, main_mod, _db, _logger = create_client(monkeypatch)
+
+    # Build a minimal isolated app that only wires up SchemaTextBodyGuard
+    # so we can inject a buggy route without fighting the SPA catch-all.
+    mini_app = FastAPI()
+    mini_app.add_middleware(main_mod.SchemaTextBodyGuard)
+
+    @mini_app.get("/buggy")
+    def _schema_text_route():
+        # Simulates the observed schema-text body: real field names, type-name values
+        return _JSONResponse(
+            {"status": "string", "uptime_s": "int", "sha": "string", "version": "string"}
+        )
+
+    @mini_app.get("/clean")
+    def _clean_route():
+        return _JSONResponse({"status": "ok", "uptime_s": 42, "sha": "abc123"})
+
+    mini_client = TestClient(mini_app, raise_server_exceptions=False)
+
+    # Schema-text body must be replaced with 500 + SCHEMA_TEXT_BODY code
+    bad = mini_client.get("/buggy")
+    assert bad.status_code == 500, f"expected 500 from guard, got {bad.status_code}: {bad.text}"
+    assert bad.json()["code"] == "SCHEMA_TEXT_BODY"
+
+    # Legitimate JSON body must pass through unchanged
+    good = mini_client.get("/clean")
+    assert good.status_code == 200
+    assert good.json()["status"] == "ok"
+    assert good.json()["uptime_s"] == 42
+
+
+def test_schema_text_body_guard_passes_large_json_unchanged(monkeypatch):
+    """Guard must not consume or reconstruct large JSON responses
+    (content-length > threshold) — they are never schema-text bodies."""
+    from fastapi import FastAPI
+    from fastapi.responses import JSONResponse as _JSONResponse
+    from fastapi.testclient import TestClient
+
+    _client, main_mod, _db, _logger = create_client(monkeypatch)
+
+    mini_app = FastAPI()
+    mini_app.add_middleware(main_mod.SchemaTextBodyGuard)
+
+    # A large payload that legitimately contains the word "string" inside a longer value
+    large_payload = {"items": ["item_" + str(i) for i in range(500)], "type": "not-a-string"}
+
+    @mini_app.get("/large")
+    def _large_route():
+        return _JSONResponse(large_payload)
+
+    mini_client = TestClient(mini_app, raise_server_exceptions=False)
+
+    resp = mini_client.get("/large")
+    assert resp.status_code == 200
+    assert resp.json()["items"][0] == "item_0"
+
+
 def test_healthz_is_not_rate_limited(monkeypatch):
     client, _main, _db, _logger = create_client(monkeypatch, rate_limit_rpm="1")
 

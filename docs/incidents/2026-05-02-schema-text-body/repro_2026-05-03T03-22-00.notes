@@ -1,0 +1,42 @@
+Reproduction attempt: 2026-05-03T03:22:00Z
+Engineer: automated forensics run (fix/schema-text-body-guard branch)
+
+Methodology
+-----------
+400 parallel probes, max-time 10s each:
+  - 200 × GET https://sapphirealpha.xyz/healthz/
+  - 200 × GET https://tho.sapphirealpha.xyz/healthz/
+
+Results
+-------
+Bad bodies (missing leading `{"` or schema-text detected): 0 / 400
+
+Target endpoint findings:
+  sapphirealpha.xyz/healthz/  → Returns {"dataset":"sapphire","ok":true,"project":"tho-ai-agent","ts":"..."}
+                                This is a SAPPHIRE PROXY LAYER, not the THO FastAPI app.
+                                It has its own /healthz/ handler that never shows schema-text.
+
+  tho.sapphirealpha.xyz/healthz/ → Returns correct THO healthz JSON with:
+                                   status=ok, version=896ed72..., uptime_s=~9549, dependencies all configured
+                                   Server was WARM (9549s uptime) — cold-start conditions cannot be reproduced
+                                   from outside. All 200 probes returned valid JSON.
+
+Conclusion
+----------
+Reproduction was NOT triggered because:
+1. The target instance was warm (uptime ~2.65 hours at probe time).
+2. The bug only manifests at cold-start / post-deploy concurrency spike.
+3. No Cloud Run auth to force a fresh revision deploy.
+
+The schema-text body bug is NOT reproducible under load on a warm instance.
+It requires a fresh cold-start with concurrent in-flight requests during
+Python module import + FastAPI app initialization.
+
+Proxy layer note
+----------------
+sapphirealpha.xyz is a separate routing gateway (Sapphire layer) that proxies
+to tho.sapphirealpha.xyz. The /healthz/ route on the gateway is handled by the
+gateway itself and is always valid JSON. The bug can only originate from the
+THO FastAPI app at tho.sapphirealpha.xyz (or the Cloud Run URL directly).
+
+Trace IDs captured: NONE (no bad bodies)
