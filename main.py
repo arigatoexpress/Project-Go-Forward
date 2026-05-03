@@ -111,10 +111,12 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["X-XSS-Protection"] = "1; mode=block"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
-        # CSP: allow self, inline styles (Tailwind), Matterport iframes, CloudFront CDN images
+        # CSP: Vite bundles all JS into external files so 'unsafe-inline' is not
+        # needed for script-src.  style-src retains 'unsafe-inline' because
+        # recharts and other runtime libraries inject <style> tags dynamically.
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; "
-            "script-src 'self' 'unsafe-inline'; "
+            "script-src 'self'; "
             "style-src 'self' 'unsafe-inline'; "
             "img-src 'self' https://d132mt2yijm03y.cloudfront.net https: data:; "
             "frame-src https://my.matterport.com; "
@@ -137,22 +139,55 @@ def _get_client_ip(request: Request) -> str:
 MAX_REQUESTS_PER_MINUTE = int(os.environ.get("RATE_LIMIT_RPM", "60"))
 MAX_REQUEST_BODY_BYTES = int(os.environ.get("MAX_REQUEST_BODY_BYTES", str(1 * 1024 * 1024)))  # 1 MB default
 
+# Per-route RPM overrides (prefix-matched).  Routes not listed here use
+# MAX_REQUESTS_PER_MINUTE (the RATE_LIMIT_RPM env var, default 60).
+_ROUTE_RPM: dict[str, int] = {
+    "/api/admin/verify": 5,                 # PIN brute-force defense
+    "/api/contact": 10,                     # lead spam defense
+    "/api/appointments": 10,                # booking spam defense
+    "/api/marketing/inventory-context": 600,  # single page-load fans out
+    "/run": 30,                             # chat inference
+}
+
 class RateLimitMiddleware(BaseHTTPMiddleware):
-    def __init__(self, app):
+    def __init__(self, app, route_rpm: dict[str, int] | None = None, default_rpm: int | None = None):
         super().__init__(app)
-        self._hits: dict[str, list[float]] = defaultdict(list)
+        self._route_rpm: dict[str, int] = route_rpm if route_rpm is not None else dict(_ROUTE_RPM)
+        self._default_rpm: int = default_rpm if default_rpm is not None else MAX_REQUESTS_PER_MINUTE
+        self._hits: dict[tuple[str, str], list[float]] = defaultdict(list)
+
+    def _route_bucket(self, path: str) -> str:
+        for prefix in self._route_rpm:
+            if path == prefix or path.startswith(prefix + "/"):
+                return prefix
+        return ""
+
+    def _limit_for(self, path: str) -> int:
+        bucket = self._route_bucket(path)
+        return self._route_rpm.get(bucket, self._default_rpm)
 
     async def dispatch(self, request: Request, call_next):
         # Exempt health check from rate limiting (load balancer probes)
         if request.url.path in {"/health", "/healthz", "/healthz/"}:
             return await call_next(request)
+        # Admin-authenticated requests bypass rate limiting
+        token = _admin_token_from_request(request)
+        if token and _verify_admin_token(token):
+            return await call_next(request)
         client_ip = _get_client_ip(request)
+        path = request.url.path
+        hit_key = (client_ip, self._route_bucket(path))
+        limit = self._limit_for(path)
         now = time.time()
-        window = self._hits[client_ip]
+        window = self._hits[hit_key]
         # Prune entries older than 60s
-        self._hits[client_ip] = window = [t for t in window if now - t < 60]
-        if len(window) >= MAX_REQUESTS_PER_MINUTE:
-            return JSONResponse({"error": "Rate limit exceeded. Please try again shortly."}, status_code=429)
+        self._hits[hit_key] = window = [t for t in window if now - t < 60]
+        if len(window) >= limit:
+            return JSONResponse(
+                {"error": "Rate limit exceeded. Please try again shortly."},
+                status_code=429,
+                headers={"Retry-After": "60"},
+            )
         window.append(now)
         return await call_next(request)
 

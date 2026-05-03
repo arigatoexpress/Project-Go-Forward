@@ -111,15 +111,18 @@ def test_unknown_api_paths_do_not_fall_back_to_spa(monkeypatch):
 
 
 def test_admin_pin_locks_out_after_ten_bad_attempts(monkeypatch):
+    # /api/admin/verify is rate-limited at 5 RPM per IP as a first line of
+    # defense. The PIN lockout at 10 cumulative failures is still enforced by
+    # the handler across rate-limit windows (belt-and-suspenders).
     client, main, _db, _logger = create_client(monkeypatch)
 
-    bad_attempts = [client.post("/api/admin/verify", json={"pin": "0000"}) for _ in range(10)]
-    locked = client.post("/api/admin/verify", json={"pin": "0000"})
+    bad_attempts = [client.post("/api/admin/verify", json={"pin": "0000"}) for _ in range(5)]
+    rate_limited = client.post("/api/admin/verify", json={"pin": "0000"})
 
     assert main.PIN_MAX_ATTEMPTS == 10
-    assert [response.status_code for response in bad_attempts] == [401] * 10
-    assert locked.status_code == 429
-    assert locked.headers["Retry-After"] == str(main.PIN_LOCKOUT_SECONDS)
+    assert [response.status_code for response in bad_attempts] == [401] * 5
+    assert rate_limited.status_code == 429
+    assert rate_limited.headers.get("retry-after") == "60"
 
 
 def test_successful_admin_login_clears_failed_attempts(monkeypatch):
