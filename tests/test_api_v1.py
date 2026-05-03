@@ -521,6 +521,7 @@ def load_app(monkeypatch, tho_api_key: str | None = "tho-secret", rate_limit_rpm
     email_service_module.send_lead_welcome = lambda *args, **kwargs: {"success": True}
     email_service_module.send_deal_status_update = lambda *args, **kwargs: {"success": True}
     email_service_module.send_custom_email = lambda *args, **kwargs: {"success": True}
+    email_service_module.send_document_email = lambda *args, **kwargs: {"success": True}
     email_service_module.get_email_log = lambda *args, **kwargs: []
     email_service_module.notify_new_lead = lambda *args, **kwargs: {"success": True}
     email_service_module.notify_new_appointment = lambda *args, **kwargs: {"success": True}

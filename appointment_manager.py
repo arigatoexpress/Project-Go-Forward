@@ -82,7 +82,11 @@ def _generate_slots(open_hour: int, close_hour: int) -> List[str]:
     slots = []
     for hour in range(open_hour, close_hour):
         dt = datetime(2000, 1, 1, hour, 0)
-        slots.append(dt.strftime("%-I:%M %p"))
+        # Handle Windows/Linux format differences for removing leading zero
+        time_str = dt.strftime("%I:%M %p")
+        if time_str.startswith("0"):
+            time_str = time_str[1:]
+        slots.append(time_str)
     return slots
 
 
@@ -218,8 +222,12 @@ class AppointmentManager:
 
         available = [s for s in all_slots if slot_counts.get(s, 0) < MAX_PER_SLOT]
 
-        open_time = datetime(2000, 1, 1, open_hour).strftime("%-I:%M %p")
-        close_time = datetime(2000, 1, 1, close_hour).strftime("%-I:%M %p")
+        def _format_hour(h: int) -> str:
+            s = datetime(2000, 1, 1, h).strftime("%I:%M %p")
+            return s[1:] if s.startswith("0") else s
+            
+        open_time = _format_hour(open_hour)
+        close_time = _format_hour(close_hour)
 
         return {
             "date": date_str,

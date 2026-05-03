@@ -218,10 +218,9 @@ def test_run_scheduled_captures_per_file_errors(monkeypatch):
     monkeypatch.setattr(sync, "download_to_cache", boom)
 
     # Stub out the GCS storage import so we never hit real cloud APIs.
-    fake_storage = MagicMock()
-    fake_storage.Client.return_value.bucket.return_value = MagicMock(name="bucket")
-    monkeypatch.setitem(__import__("sys").modules, "google.cloud.storage", fake_storage)
-
+    fake_client = MagicMock()
+    fake_client.bucket.return_value = MagicMock(name="bucket")
+    monkeypatch.setattr("google.cloud.storage.Client", lambda *args, **kwargs: fake_client)
     stats = sync.run_scheduled()
 
     assert stats["files_seen"] == 1

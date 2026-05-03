@@ -105,17 +105,30 @@ from email_service import (
     send_appointment_confirmation,
     send_custom_email,
     send_deal_status_update,
-    send_lead_welcome,
-    send_deal_status_update,
-    send_custom_email,
     send_document_email,
-    get_email_log,
-    notify_new_lead,
-    notify_new_appointment,
+    send_lead_welcome,
 )
+
 from lead_management import Lead, LeadManager
 from structured_logging import logger as struct_logger
 from tools.pii_guard import redact_pii_from_text, validate_no_pii_in_text
+
+
+def _safe_audit(action: str, details: dict) -> None:
+    """Wrap audit_log to never raise into the request hot path."""
+    try:
+        log_admin_action(
+            actor="system",  # Background email actions are system-actor
+            action=action,
+            target_type="document",
+            details=details,
+            request=None,
+        )
+    except Exception as exc:  # noqa: BLE001
+        try:
+            struct_logger.warning("Audit log write failed", action=action, error=str(exc))
+        except Exception:
+            pass
 
 
 def _maybe_email_document(
@@ -1557,8 +1570,8 @@ async def generate_document_endpoint(body: GenerateDocumentRequest, request: Req
 
             # Lane 3: Best-effort auto-email if customer email present in data
             _maybe_email_document(
-                customer_email=body.data.get("buyer_email") or body.data.get("email"),
-                customer_name=body.data.get("buyer_first_name") or body.data.get("first_name"),
+                customer_email=body.customer_email or body.data.get("buyer_email") or body.data.get("email"),
+                customer_name=body.customer_name or body.data.get("buyer_first_name") or body.data.get("first_name"),
                 doc_filename=result["filename"],
                 doc_type="single_template",
                 download_url=f"/api/documents/download/{result['filename']}",
@@ -1615,8 +1628,8 @@ async def generate_packet_endpoint(body: GeneratePacketRequest, request: Request
 
             # Lane 3: Best-effort auto-email if customer email present in data
             _maybe_email_document(
-                customer_email=body.data.get("buyer_email") or body.data.get("email"),
-                customer_name=body.data.get("buyer_first_name") or body.data.get("first_name"),
+                customer_email=body.customer_email or body.data.get("buyer_email") or body.data.get("email"),
+                customer_name=body.customer_name or body.data.get("buyer_first_name") or body.data.get("first_name"),
                 doc_filename=result["filename"],
                 doc_type="closing_packet",
                 download_url=f"/api/documents/download/{result['filename']}",
@@ -1749,33 +1762,6 @@ async def download_document(filename: str):
         )
 
     return JSONResponse({"error": "File not found"}, status_code=404)
-
-
-@app.get("/api/documents/share/{filename}", dependencies=[Depends(require_admin)])
-async def share_document(filename: str, ttl_hours: int = 24):
-    """Return a GCS signed URL for a generated document (admin only).
-
-    TTL defaults to 24h, clamped to [1, 72]. Used by the employee UI to
-    provide shareable links to customers.
-    """
-    safe_filename = os.path.basename(filename)
-    if safe_filename != filename or ".." in filename:
-        return JSONResponse({"error": "Invalid filename"}, status_code=400)
-    if not safe_filename.lower().endswith(".pdf"):
-        return JSONResponse({"error": "Only PDF files can be shared."}, status_code=400)
-
-    ttl_hours = max(1, min(ttl_hours, 72))
-
-    try:
-        from tools.document_tools import generate_signed_url
-        url = generate_signed_url(safe_filename, ttl_hours=ttl_hours)
-        if not url:
-            return JSONResponse({"error": "Document not found in storage"}, status_code=404)
-
-        return {"success": True, "url": url, "expires_in_hours": ttl_hours}
-    except Exception as e:
-        struct_logger.error("Signed URL generation failed", error=str(e), filename=filename)
-        return JSONResponse({"error": "Failed to generate share link"}, status_code=500)
 
 
 # ─── Inventory API ───

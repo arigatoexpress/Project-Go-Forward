@@ -31,12 +31,10 @@ from tests.test_api_v1 import load_app  # noqa: E402
 def _stub_storage_module(
     monkeypatch, *, blob_exists: bool = True, signed_url: str = "https://signed.example/"
 ):
-    """Install a fake `google.cloud.storage` module before main is imported.
+    """Patch google.cloud.storage.Client before main is imported.
 
-    Returns the (storage_module, blob_mock) tuple so tests can assert on calls.
+    Returns the (None, blob_mock) tuple so tests can assert on calls.
     """
-    storage_module = types.ModuleType("google.cloud.storage")
-
     blob = MagicMock()
     blob.exists.return_value = blob_exists
     blob.generate_signed_url.return_value = signed_url
@@ -47,9 +45,8 @@ def _stub_storage_module(
     client = MagicMock()
     client.bucket.return_value = bucket
 
-    storage_module.Client = MagicMock(return_value=client)
-    monkeypatch.setitem(sys.modules, "google.cloud.storage", storage_module)
-    return storage_module, blob
+    monkeypatch.setattr("google.cloud.storage.Client", lambda *args, **kwargs: client)
+    return None, blob
 
 
 def _make_admin_client(monkeypatch):

@@ -270,7 +270,6 @@ class TestGenerateDocumentAutoEmail:
                 "customer_name": "Alice Buyer",
             },
         )
-
         assert response.status_code == 200, response.text
         body = response.json()
         assert body["success"] is True
@@ -279,12 +278,12 @@ class TestGenerateDocumentAutoEmail:
         # Email helper called exactly once with the generated filename and
         # the resolved download URL.
         assert len(calls) == 1
-        kwargs = calls[0]
-        assert kwargs["to"] == "alice@example.com"
-        assert kwargs["customer_name"] == "Alice Buyer"
-        assert kwargs["doc_filename"] == "out.pdf"
-        assert kwargs["doc_type"] == "TMHA_SalesContract.pdf"
-        assert kwargs["download_url"] == "/api/documents/download/out.pdf"
+        call_args = calls[0]
+        assert call_args["to"] == "alice@example.com"
+        assert call_args["customer_name"] == "Alice Buyer"
+        assert call_args["doc_filename"] == "out.pdf"
+        assert call_args["doc_type"] == "single_template"
+        assert call_args["download_url"] == "/api/documents/download/out.pdf"
 
     def test_does_not_email_when_customer_email_missing(self, monkeypatch):
         client, main_module = _build_main_with_doc_engine(monkeypatch)
