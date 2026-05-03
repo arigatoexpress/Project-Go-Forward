@@ -1,0 +1,49 @@
+# DocuSeal Cloud Run deployment pipeline
+# ──────────────────────────────────────────────────────────────────────────────
+# STATUS: COMMENTED OUT — do NOT run until Ari approves activation.
+#
+# To activate:
+#   1. Uncomment all steps below
+#   2. Create Cloud Run secrets: DOCUSEAL_SECRET_KEY, DOCUSEAL_DATABASE_URL
+#   3. Run: gcloud builds submit --config services/docuseal/cloudbuild.yaml .
+# ──────────────────────────────────────────────────────────────────────────────
+
+# steps:
+#   - name: 'gcr.io/cloud-builders/docker'
+#     args:
+#       - build
+#       - -t
+#       - us-central1-docker.pkg.dev/tho-ai-agent/cloud-run-source-deploy/docuseal:$COMMIT_SHA
+#       - -f
+#       - services/docuseal/Dockerfile
+#       - .
+#
+#   - name: 'gcr.io/cloud-builders/docker'
+#     args:
+#       - push
+#       - us-central1-docker.pkg.dev/tho-ai-agent/cloud-run-source-deploy/docuseal:$COMMIT_SHA
+#
+#   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+#     entrypoint: gcloud
+#     args:
+#       - run
+#       - deploy
+#       - docuseal
+#       - --image=us-central1-docker.pkg.dev/tho-ai-agent/cloud-run-source-deploy/docuseal:$COMMIT_SHA
+#       - --region=us-central1
+#       - --project=tho-ai-agent
+#       - --platform=managed
+#       - --port=8080
+#       - --memory=512Mi
+#       - --cpu=1
+#       - --min-instances=0
+#       - --max-instances=2
+#       - --no-allow-unauthenticated
+#       - --add-volume=name=docuseal-data,type=cloud-storage,bucket=tho-docuseal-data
+#       - --add-volume-mount=volume=docuseal-data,mount-path=/data
+#       - --set-secrets=SECRET_KEY_BASE=DOCUSEAL_SECRET_KEY:latest
+#       - --set-secrets=DATABASE_URL=DOCUSEAL_DATABASE_URL:latest
+#       - --service-account=docuseal-sa@tho-ai-agent.iam.gserviceaccount.com
+#
+# images:
+#   - us-central1-docker.pkg.dev/tho-ai-agent/cloud-run-source-deploy/docuseal:$COMMIT_SHA
