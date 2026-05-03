@@ -8,6 +8,8 @@ Uses real data from House Orders spreadsheet (converted to JSON for speed).
 import json
 import os
 
+from opentelemetry import trace
+
 try:
     from google.adk.tools import ToolContext
 except ImportError:
@@ -32,6 +34,7 @@ except ImportError:
 
 # Cache Key
 INVENTORY_CACHE_KEY = "inventory_dataset"
+_tracer = trace.get_tracer(__name__)
 
 
 def _load_inventory_from_firestore():
@@ -319,51 +322,54 @@ def search_inventory(
     Returns:
         Dictionary with matching homes and search summary
     """
-    results = []
+    with _tracer.start_as_current_span("inventory.search") as span:
+        results = []
 
-    # Load inventory with cloud-first strategy (cached)
-    inventory = _load_inventory()
+        # Load inventory with cloud-first strategy (cached)
+        inventory = _load_inventory()
+        span.set_attribute("inventory.total", len(inventory))
 
-    for home in inventory:
-        # Apply filters
-        # Note: JSON data already has integer/float types for specs
-        beds = home["specs"].get("beds")
-        baths = home["specs"].get("baths")
+        for home in inventory:
+            # Apply filters
+            # Note: JSON data already has integer/float types for specs
+            beds = home["specs"].get("beds")
+            baths = home["specs"].get("baths")
 
-        if min_beds and (beds is None or beds < min_beds):
-            continue
-        if max_beds and (beds is None or beds > max_beds):
-            continue
-        if min_baths and (baths is None or baths < min_baths):
-            continue
-        if max_budget:
-            price_val = home.get("pricing", {}).get("price_value", 0)
-            if price_val > 0 and price_val > max_budget:
+            if min_beds and (beds is None or beds < min_beds):
                 continue
-        if classification and home.get("classification", "").lower() != classification.lower():
-            continue
-        if status:
-            home_status = home.get("status", "").lower()
-            search_status = status.lower()
-            # Support partial matching: "pre-owned" matches "Pre-Owned", "available" matches "Available"
-            if search_status not in home_status and home_status not in search_status:
+            if max_beds and (beds is None or beds > max_beds):
                 continue
-        if features:
-            home_features = [f.lower() for f in home.get("features", [])]
-            if not all(f.lower() in home_features for f in features):
+            if min_baths and (baths is None or baths < min_baths):
                 continue
+            if max_budget:
+                price_val = home.get("pricing", {}).get("price_value", 0)
+                if price_val > 0 and price_val > max_budget:
+                    continue
+            if classification and home.get("classification", "").lower() != classification.lower():
+                continue
+            if status:
+                home_status = home.get("status", "").lower()
+                search_status = status.lower()
+                # Support partial matching: "pre-owned" matches "Pre-Owned", "available" matches "Available"
+                if search_status not in home_status and home_status not in search_status:
+                    continue
+            if features:
+                home_features = [f.lower() for f in home.get("features", [])]
+                if not all(f.lower() in home_features for f in features):
+                    continue
 
-        results.append(home)
+            results.append(home)
 
-    # Sort by price (homes without pricing go last)
-    results.sort(key=lambda x: x.get("pricing", {}).get("price_value", 0) or 999999999)
+        # Sort by price (homes without pricing go last)
+        results.sort(key=lambda x: x.get("pricing", {}).get("price_value", 0) or 999999999)
 
-    return {
-        "success": True,
-        "count": len(results),
-        "homes": results,
-        "search_summary": f"Found {len(results)} homes matching your criteria.",
-        "tip": "Book an appointment to visit our showroom!"
-        if results
-        else "Try broadening your search criteria.",
-    }
+        span.set_attribute("results.count", len(results))
+        return {
+            "success": True,
+            "count": len(results),
+            "homes": results,
+            "search_summary": f"Found {len(results)} homes matching your criteria.",
+            "tip": "Book an appointment to visit our showroom!"
+            if results
+            else "Try broadening your search criteria.",
+        }

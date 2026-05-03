@@ -26,3 +26,10 @@ numpy==1.26.4
 # Drive floorplan sync (tools/drive_floorplan_sync.py)
 google-api-python-client>=2.140
 google-auth>=2.34
+
+# OpenTelemetry distributed tracing (activated via OTEL_ENABLED=1 env var)
+opentelemetry-api>=1.25
+opentelemetry-sdk>=1.25
+opentelemetry-instrumentation-fastapi>=0.46b0
+opentelemetry-instrumentation-requests>=0.46b0
+opentelemetry-exporter-gcp-trace>=1.7

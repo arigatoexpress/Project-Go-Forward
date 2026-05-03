@@ -9,6 +9,8 @@ import os
 from datetime import datetime
 from typing import Any
 
+from opentelemetry import trace
+
 from pypdf import PdfReader, PdfWriter
 
 from config.field_map_loader import (
@@ -30,6 +32,7 @@ from config.field_map_loader import (
 from tools.document_tools import DOCUMENTS_DIR, OUTPUT_DIR, fill_pdf_form, upload_to_gcs
 
 logger = logging.getLogger(__name__)
+_tracer = trace.get_tracer(__name__)
 
 
 def _has_value(value: Any) -> bool:
@@ -289,17 +292,21 @@ def generate_document(
     # Log without PII
     logger.info(f"Generating document: {template_name} -> {output_filename}")
 
-    try:
-        output_path = fill_pdf_form(template_path, pdf_data, output_filename)
-        return {
-            "success": True,
-            "file_path": output_path,
-            "filename": output_filename,
-            "message": f"{config.get('display_name', template_name)} generated successfully",
-        }
-    except Exception as e:
-        logger.error(f"Document generation failed for {template_name}: {e}")
-        return {"success": False, "message": str(e)}
+    with _tracer.start_as_current_span(
+        "document.generate",
+        attributes={"template": template_name, "output": output_filename},
+    ):
+        try:
+            output_path = fill_pdf_form(template_path, pdf_data, output_filename)
+            return {
+                "success": True,
+                "file_path": output_path,
+                "filename": output_filename,
+                "message": f"{config.get('display_name', template_name)} generated successfully",
+            }
+        except Exception as e:
+            logger.error(f"Document generation failed for {template_name}: {e}")
+            return {"success": False, "message": str(e)}
 
 
 def generate_packet(

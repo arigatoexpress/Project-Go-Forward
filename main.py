@@ -28,6 +28,7 @@ import time
 import uuid
 from datetime import datetime, timezone
 from urllib.parse import urlsplit, urlunsplit
+from opentelemetry import trace as _otel_trace
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from config_loader import get_deployment_config, business_name
@@ -133,6 +134,26 @@ if os.environ.get('SENTRY_DSN') and not os.environ.get('PYTEST_CURRENT_TEST'):
     )
     logger.info("Sentry initialized (environment=%s)", os.environ.get('K_REVISION', 'local'))
 
+# ─── OpenTelemetry Cloud Trace (env-gated) ───────────────────────────────────
+# Set OTEL_ENABLED=1 in Cloud Run to activate. When unset the global provider
+# remains the default no-op implementation — zero runtime overhead.
+# Health-probe paths (/health, /healthz, /healthz/) are never traced.
+if os.environ.get("OTEL_ENABLED") == "1":
+    from opentelemetry.sdk.trace import TracerProvider as _OtelTracerProvider
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor as _OtelBSP
+    from opentelemetry.exporter.cloud_trace import CloudTraceSpanExporter as _CloudTraceExporter
+    from opentelemetry.instrumentation.requests import RequestsInstrumentor as _ReqInstrumentor
+
+    _otel_provider = _OtelTracerProvider()
+    _otel_provider.add_span_processor(_OtelBSP(_CloudTraceExporter()))
+    _otel_trace.set_tracer_provider(_otel_provider)
+    _ReqInstrumentor().instrument()
+    logger.info("OpenTelemetry Cloud Trace enabled")
+
+# Module-level tracer — ProxyTracer, defers to the configured provider at
+# span-creation time. Safe to call before set_tracer_provider().
+_tracer = _otel_trace.get_tracer(__name__)
+
 # Disable FastAPI's auto-docs (/openapi.json, /docs, /redoc) in Cloud Run.
 # These endpoints expose the full API surface — every admin route, every
 # operation ID, every path parameter — to anonymous attackers, which makes
@@ -147,6 +168,15 @@ app = FastAPI(
     docs_url="/docs" if _DOCS_ENABLED else None,
     redoc_url="/redoc" if _DOCS_ENABLED else None,
 )
+
+# FastAPI auto-instrumentation — env-gated, applied immediately after app
+# creation. Health-probe paths are excluded so 30-second liveness pings
+# don't flood Cloud Trace.
+if os.environ.get("OTEL_ENABLED") == "1":
+    from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor as _FastAPIInstrumentor
+    _FastAPIInstrumentor.instrument_app(
+        app, excluded_urls="/health,/healthz,/healthz/"
+    )
 
 # Initialize services (these don't require Vertex AI)
 deploy_cfg = get_deployment_config()
@@ -566,50 +596,54 @@ async def run_agent(request: Request):
             )
 
         # Run agent
-        result_generator = runner.run_async(
-            user_id=user_id,
-            session_id=session_id,
-            new_message=new_message
-        )
-        
-        final_text = ""
-        event_count = 0
-        
-        async for event in result_generator:
-            event_count += 1
-            event_type = type(event).__name__
-            has_content = hasattr(event, "content") and event.content is not None
-            content_role = None
-            content_text = None
-            
-            if has_content:
-                content_role = getattr(event.content, "role", None)
-                # Log full content details for debugging
-                if hasattr(event.content, "parts") and event.content.parts:
+        with _tracer.start_as_current_span(
+            "agent.run",
+            attributes={"session.id": session_id, "request.id": request_id},
+        ):
+            result_generator = runner.run_async(
+                user_id=user_id,
+                session_id=session_id,
+                new_message=new_message
+            )
+
+            final_text = ""
+            event_count = 0
+
+            async for event in result_generator:
+                event_count += 1
+                event_type = type(event).__name__
+                has_content = hasattr(event, "content") and event.content is not None
+                content_role = None
+                content_text = None
+
+                if has_content:
+                    content_role = getattr(event.content, "role", None)
+                    # Log full content details for debugging
+                    if hasattr(event.content, "parts") and event.content.parts:
+                        for i, part in enumerate(event.content.parts):
+                            if hasattr(part, "text") and part.text:
+                                content_text = part.text[:200]  # First 200 chars
+                                break
+
+                struct_logger.info(f"Event {event_count}",
+                    request_id=request_id,
+                    event_type=event_type,
+                    content_role=content_role,
+                    has_content=has_content,
+                    content_preview=content_text)
+
+                # Log error events
+                if event_type == "ErrorEvent" or (has_content and content_role == "error"):
+                    error_msg = getattr(event, "error_message", "Unknown error")
+                    struct_logger.error("Agent error event", request_id=request_id, error=error_msg)
+
+                # Check for model response - ADK uses "model" role for assistant responses
+                if has_content and content_role in ("model", "assistant"):
                     for i, part in enumerate(event.content.parts):
-                        if hasattr(part, "text") and part.text:
-                            content_text = part.text[:200]  # First 200 chars
-                            break
-            
-            struct_logger.info(f"Event {event_count}", 
-                request_id=request_id,
-                event_type=event_type,
-                content_role=content_role,
-                has_content=has_content,
-                content_preview=content_text)
-            
-            # Log error events
-            if event_type == "ErrorEvent" or (has_content and content_role == "error"):
-                error_msg = getattr(event, "error_message", "Unknown error")
-                struct_logger.error("Agent error event", request_id=request_id, error=error_msg)
-            
-            # Check for model response - ADK uses "model" role for assistant responses
-            if has_content and content_role in ("model", "assistant"):
-                for i, part in enumerate(event.content.parts):
-                    has_text = hasattr(part, "text") and bool(part.text)
-                    if has_text:
-                        final_text += part.text
-        
+                        has_text = hasattr(part, "text") and bool(part.text)
+                        if has_text:
+                            final_text += part.text
+
         if not final_text:
             struct_logger.warning("No text generated", request_id=request_id, event_count=event_count)
             final_text = "I apologize, but I couldn't generate a response. Please try again."
@@ -1877,25 +1911,29 @@ def _enrich_deals_with_home(deals: list, db) -> list:
 
     inventory_by_serial: dict = {}
     if needs_lookup:
-        try:
-            getter = getattr(db, "get_inventory_by_serials", None)
-            if callable(getter):
-                inventory_by_serial = getter(list(needs_lookup.keys())) or {}
-            else:
-                # Fallback: per-serial lookup if the batched method is absent
-                # (e.g., older test stubs).
-                single = getattr(db, "get_inventory_by_serial", None)
-                if callable(single):
-                    for serial in needs_lookup:
-                        match = single(serial)
-                        if match:
-                            inventory_by_serial[serial] = match
-        except Exception as exc:  # noqa: BLE001 - never let enrichment break /api/deals
-            struct_logger.warning(
-                "Deal home enrichment failed; falling back to raw deals",
-                error=str(exc),
-            )
-            inventory_by_serial = {}
+        with _tracer.start_as_current_span(
+            "deals.enrich_with_home",
+            attributes={"deals.count": len(deals), "serials.count": len(needs_lookup)},
+        ):
+            try:
+                getter = getattr(db, "get_inventory_by_serials", None)
+                if callable(getter):
+                    inventory_by_serial = getter(list(needs_lookup.keys())) or {}
+                else:
+                    # Fallback: per-serial lookup if the batched method is absent
+                    # (e.g., older test stubs).
+                    single = getattr(db, "get_inventory_by_serial", None)
+                    if callable(single):
+                        for serial in needs_lookup:
+                            match = single(serial)
+                            if match:
+                                inventory_by_serial[serial] = match
+            except Exception as exc:  # noqa: BLE001 - never let enrichment break /api/deals
+                struct_logger.warning(
+                    "Deal home enrichment failed; falling back to raw deals",
+                    error=str(exc),
+                )
+                inventory_by_serial = {}
 
     for serial, matched_deals in needs_lookup.items():
         inv = inventory_by_serial.get(serial)
