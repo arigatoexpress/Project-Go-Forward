@@ -1928,10 +1928,6 @@ function getValidationState(form, step) {
   return { errors, missing };
 }
 
-function validateForm(form, step) {
-  return getValidationState(form, step).errors;
-}
-
 /* ─── Main Component ─────────────────────────────────────── */
 
 export default function DocumentCenter() {

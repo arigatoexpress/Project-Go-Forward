@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef, useId } from 'react';
+import React, { useState, useEffect, useCallback, useRef, } from 'react';
 import {
   Search, SlidersHorizontal, X, Home, Bed, Bath, Maximize2,
   Camera, Box, ChevronLeft, ChevronRight, MapPin, Phone,
@@ -712,7 +712,6 @@ function HomeCard({ home, onClick, onScheduleTour }) {
   const hasTour = !!home.matterport_id;
   const specs = home.specs || {};
   const categories = home.image_categories || {};
-  const isNew = home.status === 'Available';
 
   return (
     <Card padded={false} hover className="group">
@@ -982,9 +981,9 @@ function HomeDetailModal({
                   <Box size={14} /> 3D Tour
                 </button>
               )}
-              {floorPlan && (
+              {floorplan && (
                 <a
-                  href={floorPlan}
+                  href={floorplan}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition bg-white/10 text-slate-400 hover:bg-white/20"
