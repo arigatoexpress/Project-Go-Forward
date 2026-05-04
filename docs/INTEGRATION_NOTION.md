@@ -37,7 +37,7 @@ To keep the two systems speaking the same language, Notion databases should mirr
 | `manufacturer_model` | computed | Text |
 | `sales_price` | `sales_price` | Number (currency) |
 | `funded_at` | derived from status transition | Date |
-| `thor_deal_url` | `https://sapphirealpha.xyz/crm/deals/{id}` | URL |
+| `thor_deal_url` | `https://tho.sapphirealpha.xyz/crm/deals/{id}` | URL |
 | `drive_folder` | Drive folder URL | URL |
 
 ### Do not mirror in Notion
@@ -242,3 +242,6 @@ These are THO-side. Tracked in the dev packet's "What I need from you" section f
 | 8 | Agree on canonical Deal ID surfacing in Notion (title field) | Ari + Etai | — |
 | 9 | Add Drive-write step to document generation flow | Ari | #5 |
 | 10 | First integration test: create test deal → Notion picks it up | Ari + Etai | #1–#9 |
+
+
+*Last verified: 2026-05-04*
