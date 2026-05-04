@@ -9,7 +9,7 @@ import { BUSINESS_PHONE, BUSINESS_PHONE_RAW, BUSINESS_ADDRESS, BUSINESS_CITY, BU
 import StatusBadge from '../components/StatusBadge';
 import EmptyState from '../components/EmptyState';
 import Card from '../components/Card';
-import './InventoryBrowse.css';
+
 
 const CDN_BASE = "https://d132mt2yijm03y.cloudfront.net";
 const MATTERPORT_BASE = "https://my.matterport.com/show/?m=";
