@@ -42,7 +42,7 @@ Two GCP projects are in play. **Do not conflate them.**
 - **Service name**: `project-go-forward`
 - **Region**: `us-central1`
 - **Public URL**: `https://project-go-forward-trgi34bxuq-uc.a.run.app`
-- **Custom domain**: `https://sapphirealpha.xyz` (and `www.`)
+- **Custom domain**: `https://tho.sapphirealpha.xyz` (THO app subdomain)
 - **Auth**: public endpoints + admin-only endpoints gated by `X-Admin-Token` header (JWT)
 
 ### Cloud DNS
@@ -146,3 +146,6 @@ Project-Go-Forward/
 - Workflows + diagrams: [WORKFLOWS.md](WORKFLOWS.md)
 - Security + least-privilege: [SECURITY.md](SECURITY.md)
 - Notion integration (for Etai): [INTEGRATION_NOTION.md](INTEGRATION_NOTION.md)
+
+
+*Last verified: 2026-05-04*

@@ -152,7 +152,7 @@ flowchart LR
     G -->|Yes| H[Auth via WIF<br/>no service account keys]
     H --> I[gcloud run deploy<br/>region us-central1]
     I --> J[Cloud Run health check]
-    J --> K[Live on sapphirealpha.xyz]
+    J --> K[Live on tho.sapphirealpha.xyz]
 ```
 
 ## 7. Inventory sync
@@ -210,3 +210,6 @@ flowchart TD
 ```
 
 **Canonical rule**: the Deal lives in Firestore; Notion holds the operational workflow around it. IDs flow from THO app → Notion, never the reverse.
+
+
+*Last verified: 2026-05-04*

@@ -1,6 +1,6 @@
 # Project Go Forward Showcase
 
-Use this as the short demo and diligence script for the live Texas Home Outlet app at [https://sapphirealpha.xyz](https://sapphirealpha.xyz).
+Use this as the short demo and diligence script for the live Texas Home Outlet app at [https://tho.sapphirealpha.xyz](https://tho.sapphirealpha.xyz).
 
 ## Current Live Facts
 
@@ -19,7 +19,7 @@ source of truth; do not claim the latest `main` is live unless the `sha` value
 matches the commit you are discussing.
 
 ```bash
-export THO_PROD_URL="https://sapphirealpha.xyz"
+export THO_PROD_URL="https://tho.sapphirealpha.xyz"
 python3 scripts/production_smoke.py --base-url "$THO_PROD_URL"
 ```
 
@@ -27,7 +27,7 @@ python3 scripts/production_smoke.py --base-url "$THO_PROD_URL"
 
 ### 1. Public Buyer Experience
 
-Open [https://sapphirealpha.xyz](https://sapphirealpha.xyz).
+Open [https://tho.sapphirealpha.xyz](https://tho.sapphirealpha.xyz).
 
 Show:
 
@@ -40,7 +40,7 @@ Do not submit real customer information during a demo.
 
 ### 2. Inventory-Aware Marketing
 
-Open [https://sapphirealpha.xyz/studio](https://sapphirealpha.xyz/studio).
+Open [https://tho.sapphirealpha.xyz/studio](https://tho.sapphirealpha.xyz/studio).
 
 Show the route and positioning first. Only continue into authenticated Ad Studio actions for an authorized audience:
 
@@ -49,7 +49,7 @@ Show the route and positioning first. Only continue into authenticated Ad Studio
 - generated social or video concepts,
 - marketing analytics tab.
 
-Standalone entry: [https://sapphirealpha.xyz/studio.html](https://sapphirealpha.xyz/studio.html).
+Standalone entry: [https://tho.sapphirealpha.xyz/studio.html](https://tho.sapphirealpha.xyz/studio.html).
 
 ### 3. Internal Operations
 
@@ -116,3 +116,6 @@ If admin auth is unavailable, the story still works:
 2. Public inventory context proves live inventory-backed marketing data.
 3. README product map shows where CRM, documents, analytics, and partner APIs live.
 4. Production readiness docs show the read-only smoke, local gates, admin-token handling, and rollback path.
+
+
+*Last verified: 2026-05-04*
