@@ -52,7 +52,7 @@ MAX_RESULTS_HARD_CAP = 500
 # email_service template path doesn't need a new helper.
 NURTURE_CTA_BASE = os.environ.get(
     "LEAD_NURTURE_CTA_URL",
-    "https://sapphirealpha.xyz",
+    "https://tho.sapphirealpha.xyz",
 )
 
 

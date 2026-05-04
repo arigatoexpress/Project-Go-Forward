@@ -7,8 +7,8 @@ revision.
 ## Production URLs
 
 ```bash
-export THO_PROD_URL="https://sapphirealpha.xyz"
-export THO_CLOUD_RUN_URL="https://project-go-forward-trgi34bxuq-uc.a.run.app"
+export THO_PROD_URL="https://tho.sapphirealpha.xyz"
+export THO_CLOUD_RUN_URL="https://project-go-forward-691674245427.us-central1.run.app"
 export THO_PROJECT="tho-ai-agent"
 export THO_REGION="us-central1"
 export THO_SERVICE="project-go-forward"
@@ -188,3 +188,6 @@ manager with an audit trail.
 This repository auto-deploys from `main`. Agent branches should open a draft PR
 and wait for a human merge unless the operator explicitly authorizes a direct
 production push.
+
+
+*Last verified: 2026-05-04*
