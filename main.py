@@ -109,6 +109,11 @@ from email_service import (
     send_lead_welcome,
 )
 
+from docuseal_service import (
+    maybe_trigger_automated_signing as docuseal_auto_trigger,
+    send_file_for_signature as docuseal_send_file_for_signature,
+    send_for_signature as docuseal_send_for_signature,
+)
 from lead_management import Lead, LeadManager
 from structured_logging import logger as struct_logger
 from tools.pii_guard import redact_pii_from_text, validate_no_pii_in_text
@@ -2361,6 +2366,19 @@ async def update_deal_status(deal_id: str, request: Request):
         except Exception as e:
             struct_logger.warning("Partner webhook dispatch failed", error=str(e))
 
+        # DocuSeal automated triggers
+        try:
+            await docuseal_auto_trigger(
+                event_type="deal.status_change",
+                payload={
+                    "deal_id": deal_id,
+                    "to": new_status,
+                    "deal_data": _deal_db.get_deal(deal_id) or {},
+                },
+            )
+        except Exception as e:
+            struct_logger.warning("Deal DocuSeal trigger failed", error=str(e))
+
         return {"success": True, "message": f"Deal status changed to {new_status}"}
     except Exception as e:
         struct_logger.error("Deal status update failed", error=str(e))
@@ -2505,6 +2523,21 @@ async def generate_packet_from_deal(deal_id: str, request: Request):
                 deal_id=deal_id,
             )
 
+            # DocuSeal: Automated e-sign dispatch for deal packet
+            email = doc_data.get("buyer_email") or doc_data.get("email")
+            if email:
+                try:
+                    await docuseal_send_file_for_signature(
+                        email=email,
+                        name=f"{doc_data.get('buyer_first_name', '')} {doc_data.get('buyer_last_name', '')}".strip() or "Customer",
+                        file_path=os.path.join("generated_docs", result["filename"]),
+                        display_name=f"Closing Packet - {packet_name}",
+                        deal_id=deal_id,
+                        metadata={"packet_name": packet_name, "trigger": "generate_packet_from_deal"}
+                    )
+                except Exception as e:
+                    struct_logger.warning("Automated DocuSeal deal packet dispatch failed", error=str(e))
+
             return {
                 "success": True,
                 "download_url": f"/api/documents/download/{result['filename']}",
@@ -2534,55 +2567,34 @@ async def docuseal_send(request: Request):
 
     Returns 501 until DOCUSEAL_API_URL + DOCUSEAL_API_TOKEN env vars are set.
     """
-    if not _DOCUSEAL_API_URL or not _DOCUSEAL_API_TOKEN:
-        return JSONResponse(
-            {
-                "success": False,
-                "status": "not_configured",
-                "message": (
-                    "DocuSeal not configured — set DOCUSEAL_API_URL + "
-                    "DOCUSEAL_API_TOKEN env vars to enable."
-                ),
-            },
-            status_code=501,
-        )
-
-    import json as _json
-    import httpx
-
-    data = await request.json()
-    deal_id = data.get("deal_id")
-    template_name = data.get("template_name")
-    signer_email = data.get("signer_email")
-    signer_name = data.get("signer_name")
-
-    if not all([deal_id, template_name, signer_email, signer_name]):
-        raise HTTPException(
-            status_code=422,
-            detail="deal_id, template_name, signer_email, and signer_name are required",
-        )
-
-    payload = {
-        "template_id": template_name,
-        "send_email": True,
-        "submitters": [
-            {"role": "Buyer", "email": signer_email, "name": signer_name, "values": {}}
-        ],
-        "metadata": {"deal_id": deal_id, "template_name": template_name},
-    }
-
     try:
-        async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.post(
-                f"{_DOCUSEAL_API_URL.rstrip('/')}/api/submissions",
-                headers={"X-Auth-Token": _DOCUSEAL_API_TOKEN, "Content-Type": "application/json"},
-                json=payload,
+        data = await request.json()
+        result = await docuseal_send_for_signature(
+            email=data.get("signer_email"),
+            name=data.get("signer_name"),
+            template_name=data.get("template_name"),
+            deal_id=data.get("deal_id"),
+        )
+        if result.get("status") == "not_configured":
+            return JSONResponse(
+                {
+                    "success": False,
+                    "message": (
+                        "DocuSeal not configured — set DOCUSEAL_API_URL + "
+                        "DOCUSEAL_API_TOKEN env vars to enable."
+                    ),
+                },
+                status_code=501,
             )
-        resp.raise_for_status()
-        return {"success": True, "submission": resp.json()}
+        if not result.get("success"):
+            raise HTTPException(status_code=502, detail=result.get("error"))
+
+        return result
+    except HTTPException:
+        raise
     except Exception as exc:
         struct_logger.error("DocuSeal send failed", error=str(exc))
-        raise HTTPException(status_code=502, detail=f"DocuSeal error: {exc}")
+        raise HTTPException(status_code=500, detail=f"Internal error: {exc}")
 
 
 @app.post("/api/docuseal/webhook")
@@ -2617,6 +2629,7 @@ async def docuseal_webhook(request: Request):
     submission_id = data.get("id")
     documents = data.get("documents") or []
     document_url = documents[0].get("url") if documents else None
+    template_name = (data.get("metadata") or {}).get("template_name")
 
     if not document_url or not deal_id:
         struct_logger.warning("DocuSeal webhook missing document_url or deal_id", event=str(event))
@@ -2651,11 +2664,26 @@ async def docuseal_webhook(request: Request):
                 "deal_id": deal_id,
                 "type": "esign_completed",
                 "submission_id": str(submission_id),
+                "template_name": template_name,
                 "gcs_path": gcs_uri or gcs_path,
                 "created_at": datetime.now(timezone.utc).isoformat(),
             })
+            
+            # Audit log
+            log_admin_action(
+                actor="system:docuseal",
+                action="document.esign_complete",
+                target_type="deal",
+                target_id=str(deal_id),
+                details={
+                    "submission_id": str(submission_id),
+                    "template_name": template_name,
+                    "gcs_path": gcs_uri,
+                },
+                request=None
+            )
         except Exception as note_err:
-            struct_logger.warning("DocuSeal deal note write failed", error=str(note_err))
+            struct_logger.warning("DocuSeal post-processing failed", error=str(note_err))
 
         struct_logger.info("DocuSeal signed PDF mirrored", deal_id=deal_id, gcs_uri=gcs_uri)
         return {"status": "ok", "gcs_path": gcs_uri or gcs_path}
@@ -2995,6 +3023,15 @@ async def submit_contact_form(request: Request):
                 send_lead_welcome(to=email, customer_name=name, lead_id=lead_id)
             except Exception as e:
                 struct_logger.warning("Lead welcome email failed", error=str(e))
+
+        # Automate DocuSeal Welcome/Credit Auth early
+        try:
+            await docuseal_auto_trigger(
+                event_type="lead.captured",
+                payload={"email": email, "name": name, "lead_id": lead_id},
+            )
+        except Exception as e:
+            struct_logger.warning("Lead DocuSeal trigger failed", error=str(e))
 
         # Notify owner of new lead
         try:
