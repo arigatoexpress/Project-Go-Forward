@@ -12,7 +12,6 @@ Run: python -m pytest tests/test_documents_share.py -v
 from __future__ import annotations
 
 import sys
-import types
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -75,6 +74,7 @@ def test_share_document_happy_path(monkeypatch):
     assert body["signed_url"] == "https://signed.example/abc?ttl=24h"
     assert body["ttl_hours"] == 24
     assert body["expires_in_seconds"] == 24 * 3600
+    assert body["expires_at"]
     assert body["gcs_uri"].endswith("/generated_docs/sales_contract_123.pdf")
 
     # generate_signed_url was invoked with the right shape.
@@ -86,6 +86,42 @@ def test_share_document_happy_path(monkeypatch):
     expiration = kwargs.get("expiration")
     assert expiration is not None
     assert expiration.total_seconds() == 24 * 3600
+
+
+def test_share_document_uses_adc_signing_fallback_on_cloud_run(monkeypatch):
+    """Compute credentials without a private key are retried through IAM signBlob."""
+    _storage, blob = _stub_storage_module(monkeypatch, blob_exists=True)
+    blob.generate_signed_url.side_effect = [
+        AttributeError("you need a private key to sign credentials"),
+        "https://signed.example/adc",
+    ]
+
+    class FakeCredentials:
+        token = None
+        service_account_email = "default"
+
+        def refresh(self, _request):
+            self.token = "ya29.fake-token"
+            self.service_account_email = "tho-app@tho-ai-agent.iam.gserviceaccount.com"
+
+    monkeypatch.setattr(
+        "google.auth.default", lambda scopes=None: (FakeCredentials(), "tho-ai-agent")
+    )
+    client, _main, token = _make_admin_client(monkeypatch)
+
+    resp = client.get(
+        "/api/documents/share/cloud_run_packet.pdf",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["signed_url"] == "https://signed.example/adc"
+    assert blob.generate_signed_url.call_count == 2
+    fallback_kwargs = blob.generate_signed_url.call_args.kwargs
+    assert fallback_kwargs["access_token"] == "ya29.fake-token"
+    assert (
+        fallback_kwargs["service_account_email"] == "tho-app@tho-ai-agent.iam.gserviceaccount.com"
+    )
 
 
 def test_share_document_custom_ttl_hours(monkeypatch):
