@@ -16,10 +16,14 @@ from __future__ import annotations
 
 import logging
 import os
-from base64 import urlsafe_b64decode, urlsafe_b64encode
+import hashlib
+import hmac
+import struct
+import time
+from base64 import urlsafe_b64decode
 from typing import Any
 
-from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from .session import (
@@ -27,22 +31,24 @@ from .session import (
     SESSION_COOKIE_NAME,
     SessionManager,
 )
-from .store import CredentialStore, default_store
+from .store import CredentialStore, CredentialStoreUnavailable, default_store
 
 # webauthn may not be installed in all environments (e.g. CI without it)
 try:
     from webauthn import generate_authentication_options, generate_registration_options, verify_authentication_response, verify_registration_response
-    from webauthn.helpers import base64url_to_bytes, bytes_to_base64url
+    from webauthn.helpers import (
+        base64url_to_bytes,
+        options_to_json_dict,
+        parse_authentication_credential_json,
+        parse_registration_credential_json,
+    )
     from webauthn.helpers.structs import (
         AttestationConveyancePreference,
         AuthenticatorSelectionCriteria,
-        PublicKeyCredentialCreationOptions,
-        PublicKeyCredentialRequestOptions,
-        RegistrationCredential,
-        AuthenticationCredential,
+        PublicKeyCredentialDescriptor,
+        PublicKeyCredentialType,
         UserVerificationRequirement,
         ResidentKeyRequirement,
-        AuthenticatorAttachment,
     )
     _HAS_WEBAUTHN = True
 except Exception:
@@ -50,6 +56,7 @@ except Exception:
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/admin/passkey", tags=["passkey"])
+_session_manager: SessionManager | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -57,16 +64,25 @@ router = APIRouter(prefix="/api/admin/passkey", tags=["passkey"])
 # ---------------------------------------------------------------------------
 
 def get_session_manager() -> SessionManager:
-    return SessionManager()
+    global _session_manager
+    if _session_manager is None:
+        _session_manager = SessionManager()
+    return _session_manager
 
 
 def get_credential_store() -> CredentialStore:
-    return default_store()
+    try:
+        return default_store()
+    except CredentialStoreUnavailable as exc:
+        log.warning("passkey credential store unavailable: %s", exc)
+        raise HTTPException(status_code=503, detail="Passkey credential store unavailable")
 
 
-THO_ORIGIN = os.environ.get("THO_ORIGIN", "https://tho.sapphirealpha.xyz")
+THO_ORIGIN = os.environ.get("WEBAUTHN_ORIGIN") or os.environ.get(
+    "THO_ORIGIN", "https://tho.sapphirealpha.xyz"
+)
 RP_NAME = "THO Admin"
-RP_ID = os.environ.get("THO_RP_ID", "sapphirealpha.xyz")
+RP_ID = os.environ.get("WEBAUTHN_RP_ID") or os.environ.get("THO_RP_ID", "sapphirealpha.xyz")
 
 
 def _current_user(
@@ -90,6 +106,80 @@ def _user_verification() -> UserVerificationRequirement:
     return UserVerificationRequirement.PREFERRED
 
 
+def _cookie_secure() -> bool:
+    return THO_ORIGIN.startswith("https://")
+
+
+def _admin_token_from_request(request: Request) -> str:
+    token = request.cookies.get("tho_admin_token", "").strip()
+    if token:
+        return token
+    token = request.headers.get("X-Admin-Token", "").strip()
+    if token:
+        return token
+    authorization = request.headers.get("Authorization", "").strip()
+    scheme, _, value = authorization.partition(" ")
+    if scheme.lower() == "bearer" and value:
+        return value.strip()
+    return ""
+
+
+def _verify_admin_pin_token(token: str) -> bool:
+    admin_pin_hash = os.environ.get("ADMIN_PIN_HASH", "")
+    if not token or not admin_pin_hash:
+        return False
+    try:
+        padding = 4 - len(token) % 4
+        if padding != 4:
+            token += "=" * padding
+        raw = urlsafe_b64decode(token)
+        if len(raw) != 24:
+            return False
+        payload, sig = raw[:8], raw[8:]
+        secret = hashlib.sha256(f"sapphire-jwt-{admin_pin_hash[:16]}".encode()).digest()
+        expected_sig = hmac.new(secret, payload, hashlib.sha256).digest()[:16]
+        if not hmac.compare_digest(sig, expected_sig):
+            return False
+        expires = struct.unpack(">Q", payload)[0]
+        return time.time() < expires
+    except Exception:
+        return False
+
+
+def _request_is_admin(request: Request, manager: SessionManager) -> bool:
+    passkey_payload = manager.verify_session(request.cookies.get(PASSKEY_COOKIE_NAME))
+    if passkey_payload and passkey_payload.get("user_id") == "admin":
+        return True
+    return _verify_admin_pin_token(_admin_token_from_request(request))
+
+
+def _require_admin_request(request: Request, manager: SessionManager) -> None:
+    if not _request_is_admin(request, manager):
+        raise HTTPException(status_code=401, detail="Admin authentication required")
+
+
+def _credential_descriptors(store: CredentialStore) -> list[Any]:
+    try:
+        return [
+            PublicKeyCredentialDescriptor(
+                id=rec.credential_id,
+                type=PublicKeyCredentialType.PUBLIC_KEY,
+            )
+            for rec in store.list_for_user("admin")
+        ]
+    except Exception as exc:
+        log.warning("passkey credential lookup failed: %s", exc)
+        raise HTTPException(status_code=503, detail="Passkey credential store unavailable")
+
+
+def _store_backend(store: CredentialStore) -> str:
+    return str(getattr(store, "backend_name", store.__class__.__name__))
+
+
+def _store_persistent(store: CredentialStore) -> bool:
+    return bool(getattr(store, "persistent", False))
+
+
 # ---------------------------------------------------------------------------
 # Registration
 # ---------------------------------------------------------------------------
@@ -97,27 +187,17 @@ def _user_verification() -> UserVerificationRequirement:
 @router.post("/register/begin")
 def register_begin(
     request: Request,
-    response: Response,
     manager: SessionManager = Depends(get_session_manager),
+    store: CredentialStore = Depends(get_credential_store),
 ) -> JSONResponse:
     """Begin passkey registration. Returns PublicKeyCredentialCreationOptions."""
     if not _HAS_WEBAUTHN:
         raise HTTPException(status_code=503, detail="WebAuthn library not available")
+    _require_admin_request(request, manager)
 
     challenge = manager.new_challenge_bytes()
     challenge_handle = manager.wrap_challenge(challenge, flow="register")
-
-    # Stash challenge handle in a short-lived cookie so the client
-    # sends it back on the /complete call without needing to parse JSON.
-    response.set_cookie(
-        key="tho_passkey_register",
-        value=challenge_handle,
-        max_age=300,
-        httponly=True,
-        secure=True,
-        samesite="Strict",
-        path="/api/admin/passkey/register/complete",
-    )
+    exclude_credentials = _credential_descriptors(store)
 
     options = generate_registration_options(
         rp_name=RP_NAME,
@@ -131,14 +211,26 @@ def register_begin(
             resident_key=ResidentKeyRequirement.PREFERRED,
             user_verification=UserVerificationRequirement.PREFERRED,
         ),
+        exclude_credentials=exclude_credentials,
     )
-    return JSONResponse(options)
+    # Stash challenge handle in a short-lived cookie so the client
+    # sends it back on the /complete call without needing to parse JSON.
+    result = JSONResponse(options_to_json_dict(options))
+    result.set_cookie(
+        key="tho_passkey_register",
+        value=challenge_handle,
+        max_age=300,
+        httponly=True,
+        secure=_cookie_secure(),
+        samesite="Strict",
+        path="/api/admin/passkey/register/complete",
+    )
+    return result
 
 
 @router.post("/register/complete")
 def register_complete(
     request: Request,
-    response: Response,
     credential: dict[str, Any],
     challenge_cookie: str | None = Cookie(default=None, alias="tho_passkey_register"),
     manager: SessionManager = Depends(get_session_manager),
@@ -147,16 +239,14 @@ def register_complete(
     """Complete passkey registration. Stores the credential."""
     if not _HAS_WEBAUTHN:
         raise HTTPException(status_code=503, detail="WebAuthn library not available")
+    _require_admin_request(request, manager)
 
     expected_challenge = manager.unwrap_challenge(challenge_cookie, flow="register")
     if expected_challenge is None:
         raise HTTPException(status_code=400, detail="Challenge expired or invalid")
 
-    # Clear the temporary challenge cookie
-    response.delete_cookie(key="tho_passkey_register", path="/api/admin/passkey/register/complete")
-
     try:
-        reg_cred = RegistrationCredential.model_validate(credential)
+        reg_cred = parse_registration_credential_json(credential)
         verified = verify_registration_response(
             credential=reg_cred,
             expected_challenge=expected_challenge,
@@ -176,19 +266,26 @@ def register_complete(
         user_id="admin",
         aaguid=str(verified.aaguid) if verified.aaguid else "",
     )
-    store.add(record)
+    try:
+        store.add(record)
+    except Exception as exc:
+        log.warning("passkey credential persist failed: %s", exc)
+        raise HTTPException(status_code=503, detail="Passkey credential store unavailable")
 
     # Issue session immediately after registration
     token = manager.issue_session("admin")
-    response.set_cookie(
-        key=SESSION_COOKIE_NAME,
+    result = JSONResponse({"success": True, "registered": True})
+    result.delete_cookie(key="tho_passkey_register", path="/api/admin/passkey/register/complete")
+    result.set_cookie(
+        key=PASSKEY_COOKIE_NAME,
         value=token,
         max_age=manager.session_ttl,
         httponly=True,
-        secure=True,
+        secure=_cookie_secure(),
         samesite="Strict",
+        path="/",
     )
-    return JSONResponse({"success": True, "registered": True})
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -198,7 +295,6 @@ def register_complete(
 @router.post("/login/begin")
 def login_begin(
     request: Request,
-    response: Response,
     manager: SessionManager = Depends(get_session_manager),
     store: CredentialStore = Depends(get_credential_store),
 ) -> JSONResponse:
@@ -209,25 +305,7 @@ def login_begin(
     challenge = manager.new_challenge_bytes()
     challenge_handle = manager.wrap_challenge(challenge, flow="login")
 
-    # Stash challenge in cookie for the complete step
-    response.set_cookie(
-        key="tho_passkey_login",
-        value=challenge_handle,
-        max_age=300,
-        httponly=True,
-        secure=True,
-        samesite="Strict",
-        path="/api/admin/passkey/login/complete",
-    )
-
-    allow_credentials = []
-    for rec in store.list_for_user("admin"):
-        allow_credentials.append(
-            {
-                "id": rec.credential_id,
-                "type": "public-key",
-            }
-        )
+    allow_credentials = _credential_descriptors(store)
 
     options = generate_authentication_options(
         rp_id=RP_ID,
@@ -235,13 +313,22 @@ def login_begin(
         allow_credentials=allow_credentials,
         user_verification=UserVerificationRequirement.PREFERRED,
     )
-    return JSONResponse(options)
+    result = JSONResponse(options_to_json_dict(options))
+    result.set_cookie(
+        key="tho_passkey_login",
+        value=challenge_handle,
+        max_age=300,
+        httponly=True,
+        secure=_cookie_secure(),
+        samesite="Strict",
+        path="/api/admin/passkey/login/complete",
+    )
+    return result
 
 
 @router.post("/login/complete")
 def login_complete(
     request: Request,
-    response: Response,
     credential: dict[str, Any],
     challenge_cookie: str | None = Cookie(default=None, alias="tho_passkey_login"),
     manager: SessionManager = Depends(get_session_manager),
@@ -255,9 +342,6 @@ def login_complete(
     if expected_challenge is None:
         raise HTTPException(status_code=400, detail="Challenge expired or invalid")
 
-    # Clear temp cookie
-    response.delete_cookie(key="tho_passkey_login", path="/api/admin/passkey/login/complete")
-
     # Resolve credential from the id in the payload
     cred_id_b64 = credential.get("id", "")
     try:
@@ -265,12 +349,16 @@ def login_complete(
     except Exception:
         raw_id = urlsafe_b64decode(cred_id_b64)
 
-    rec = store.get(raw_id)
+    try:
+        rec = store.get(raw_id)
+    except Exception as exc:
+        log.warning("passkey credential read failed: %s", exc)
+        raise HTTPException(status_code=503, detail="Passkey credential store unavailable")
     if rec is None:
         raise HTTPException(status_code=400, detail="Unknown credential")
 
     try:
-        auth_cred = AuthenticationCredential.model_validate(credential)
+        auth_cred = parse_authentication_credential_json(credential)
         verified = verify_authentication_response(
             credential=auth_cred,
             expected_challenge=expected_challenge,
@@ -283,18 +371,25 @@ def login_complete(
         log.warning("passkey login verify failed: %s", exc)
         raise HTTPException(status_code=400, detail="Authentication verification failed")
 
-    store.update_usage(verified.credential_id, sign_count=verified.new_sign_count)
+    try:
+        store.update_usage(verified.credential_id, sign_count=verified.new_sign_count)
+    except Exception as exc:
+        log.warning("passkey credential usage update failed: %s", exc)
+        raise HTTPException(status_code=503, detail="Passkey credential store unavailable")
 
     token = manager.issue_session("admin")
-    response.set_cookie(
-        key=SESSION_COOKIE_NAME,
+    result = JSONResponse({"success": True, "authenticated": True})
+    result.delete_cookie(key="tho_passkey_login", path="/api/admin/passkey/login/complete")
+    result.set_cookie(
+        key=PASSKEY_COOKIE_NAME,
         value=token,
         max_age=manager.session_ttl,
         httponly=True,
-        secure=True,
+        secure=_cookie_secure(),
         samesite="Strict",
+        path="/",
     )
-    return JSONResponse({"success": True, "authenticated": True})
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -306,12 +401,22 @@ def passkey_status(
     store: CredentialStore = Depends(get_credential_store),
 ) -> JSONResponse:
     """Return whether passkeys are configured and how many."""
-    count = store.count()
+    store_ready = True
+    try:
+        count = store.count()
+    except Exception as exc:
+        log.warning("passkey credential status failed: %s", exc)
+        count = 0
+        store_ready = False
     return JSONResponse(
         {
             "enabled": _HAS_WEBAUTHN,
             "registered_keys": count,
             "has_keys": count > 0,
+            "store_backend": _store_backend(store),
+            "persistent": _store_persistent(store),
+            "store_ready": store_ready,
+            "rp_id": RP_ID,
         }
     )
 
@@ -322,6 +427,8 @@ def whoami(user: dict = Depends(_require_passkey_user)) -> JSONResponse:
 
 
 @router.post("/logout")
-def passkey_logout(response: Response) -> JSONResponse:
-    response.delete_cookie(key=SESSION_COOKIE_NAME)
-    return JSONResponse({"success": True})
+def passkey_logout() -> JSONResponse:
+    result = JSONResponse({"success": True})
+    result.delete_cookie(key=PASSKEY_COOKIE_NAME, path="/")
+    result.delete_cookie(key="tho_admin_session", path="/")
+    return result
