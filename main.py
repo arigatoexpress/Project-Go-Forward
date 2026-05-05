@@ -12,6 +12,7 @@ import os
 # Configure Vertex AI before importing any ADK modules
 os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "TRUE"
 
+import asyncio
 import hashlib
 import secrets
 from collections import defaultdict
@@ -35,6 +36,8 @@ from slowapi.middleware import SlowAPIMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from config_loader import get_deployment_config, business_name
+
+import caching
 
 # Lazy initialization placeholders - will be loaded on first use
 _adk_app = None
@@ -586,15 +589,16 @@ app.add_middleware(
 
 # Admin PIN hash — MUST be set via ADMIN_PIN_HASH env var in production.
 # Generate hash: python -c "import hashlib; print(hashlib.sha256(b'YOUR_PIN').hexdigest())"
-# Local development falls back to the default PIN; Cloud Run fails closed.
-_FALLBACK_PIN_HASH = hashlib.sha256(b"4832").hexdigest()  # Local dev only
+# Cloud Run fails closed; local dev also requires explicit PIN.
 _CONFIGURED_ADMIN_PIN_HASH = os.environ.get("ADMIN_PIN_HASH")
 if os.environ.get("K_SERVICE"):
     ADMIN_PIN_HASH = _CONFIGURED_ADMIN_PIN_HASH or ""
     if not ADMIN_PIN_HASH:
-        logger.critical("ADMIN_PIN_HASH not set in Cloud Run — admin auth disabled.")
+        raise RuntimeError("ADMIN_PIN_HASH is mandatory in Cloud Run")
 else:
-    ADMIN_PIN_HASH = _CONFIGURED_ADMIN_PIN_HASH or _FALLBACK_PIN_HASH
+    ADMIN_PIN_HASH = _CONFIGURED_ADMIN_PIN_HASH or ""
+    if not ADMIN_PIN_HASH:
+        raise RuntimeError("Set ADMIN_PIN_HASH env var to run locally")
 
 # Warn loudly if email service is not configured (appointments/leads won't get confirmations)
 if not os.environ.get("RESEND_API_KEY") and not IS_LOCAL:
@@ -1350,6 +1354,20 @@ def health():
 @app.get("/healthz/", response_class=JSONResponse)
 @limiter.exempt
 def healthz() -> JSONResponse:
+    """Public health probe — returns minimal data to avoid info leakage."""
+    return JSONResponse(
+        {"status": "ok"},
+        headers={"Cache-Control": "no-store, no-cache, must-revalidate", "Pragma": "no-cache"},
+    )
+
+
+@app.get("/healthz/detailed", response_class=JSONResponse)
+@limiter.exempt
+def healthz_detailed(request: Request) -> JSONResponse:
+    """Detailed diagnostics — requires admin auth."""
+    token = request.headers.get("X-Admin-Token", "")
+    if not token or not _verify_admin_token(token):
+        raise HTTPException(status_code=403, detail="Admin access required")
     email_configured = bool(os.environ.get("RESEND_API_KEY"))
     warnings = []
     if not email_configured:
@@ -3527,7 +3545,7 @@ async def search_customers(q: str = "", status: str = "", limit: int = 50):
         return {"customers": safe_results, "total": len(safe_results), "source": "firestore"}
     except Exception as e:
         logger.error(f"Customer search failed: {e}")
-        return {"customers": [], "total": 0, "source": "firestore", "error": str(e)}
+        return {"customers": [], "total": 0, "source": "firestore", "error": "Search failed"}
 
 
 @app.get("/api/customers/stats", dependencies=[Depends(require_admin)])
@@ -3538,7 +3556,7 @@ async def customer_stats():
         return {"migrated": True, **counts}
     except Exception as e:
         logger.error(f"Customer stats failed: {e}")
-        return {"migrated": False, "error": str(e)}
+        return {"migrated": False, "error": "Stats unavailable"}
 
 
 @app.get("/api/customers/count", dependencies=[Depends(require_admin)])
@@ -3548,7 +3566,7 @@ async def customer_count():
         return _db.count_customers()
     except Exception as e:
         logger.error(f"Customer count failed: {e}")
-        return {"total": 0, "by_status": {}, "error": str(e)}
+        return {"total": 0, "by_status": {}, "error": "Count unavailable"}
 
 
 @app.get("/api/analytics/customers", dependencies=[Depends(require_admin)])
@@ -3618,7 +3636,7 @@ async def customer_analytics():
         }
     except Exception as e:
         logger.error(f"Customer analytics failed: {e}")
-        return {"error": str(e)}
+        return {"error": "Request failed"}
 
 
 @app.get("/api/admin/crm/funnel", dependencies=[Depends(require_admin)])
