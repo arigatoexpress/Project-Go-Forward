@@ -14,6 +14,7 @@ from datetime import datetime, timedelta, timezone
 from enum import Enum
 from pathlib import Path
 
+import pytest
 from fastapi import APIRouter
 from fastapi.testclient import TestClient
 from pydantic import BaseModel
@@ -451,8 +452,10 @@ class FakeDealStatus(Enum):
 
 def load_app(monkeypatch, tho_api_key: str | None = "tho-secret", rate_limit_rpm: str = "60"):
     """Import main.py with lightweight stubs for its eager imports."""
+    import hashlib
     monkeypatch.chdir(REPO_ROOT)
     monkeypatch.setenv("RATE_LIMIT_RPM", rate_limit_rpm)
+    monkeypatch.setenv("ADMIN_PIN_HASH", hashlib.sha256(b"4832").hexdigest())
     if tho_api_key is None:
         monkeypatch.delenv("THO_API_KEY", raising=False)
     else:
@@ -966,18 +969,19 @@ def test_admin_token_accepts_supported_employee_headers(monkeypatch):
 
 
 def test_cloud_run_admin_auth_fails_closed_without_pin_hash(monkeypatch):
+    """App refuses to start in Cloud Run without ADMIN_PIN_HASH set."""
     monkeypatch.setenv("K_SERVICE", "project-go-forward")
     monkeypatch.delenv("ADMIN_PIN_HASH", raising=False)
-    client, main, _db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
 
-    login = client.post("/api/admin/verify", json={"pin": "4832"})
-    check = client.get("/api/admin/check", headers={"X-Admin-Token": "not-a-token"})
+    # Clear cached main module so re-import sees the new env
+    for mod in list(sys.modules.keys()):
+        if mod in ("main", "structured_logging", "conversation_memory", "chat_history",
+                   "lead_management", "appointment_manager", "email_service",
+                   "database.firestore_client", "database.models"):
+            sys.modules.pop(mod, None)
 
-    assert main.ADMIN_PIN_HASH == ""
-    assert login.status_code == 503
-    assert login.json() == {"success": False, "error": "Admin auth not configured."}
-    assert check.status_code == 401
-    assert main._verify_admin_token("not-a-token") is False
+    with pytest.raises(RuntimeError, match="ADMIN_PIN_HASH is mandatory"):
+        import main  # noqa: F401
 
 
 def test_admin_lead_analytics_handles_string_and_datetime_created_at(monkeypatch):

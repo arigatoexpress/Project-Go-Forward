@@ -178,6 +178,8 @@ class TestAdminLoginAuditTrail:
         assert response.status_code == 200, response.text
         body = response.json()
         assert body["success"] is True
+        # Cookie-based auth: verify httpOnly cookie is set
+        assert "tho_admin_token" in response.cookies
 
         docs = fake.collections["audit_log"]._docs
         # At least one admin.login row was written for this verify call.
@@ -194,7 +196,7 @@ class TestAdminLoginAuditTrail:
 
 class TestAdminVerifyRateLimit:
     """slowapi per-IP cap on /api/admin/verify (5/min) layered on the
-    legacy 10-attempt ``_pin_attempts`` lockout.
+    Redis-backed (with in-memory fallback) 10-attempt pin-attempts lockout.
     """
 
     def _client(self, monkeypatch):
@@ -223,8 +225,8 @@ class TestAdminVerifyRateLimit:
         client, main = self._client(monkeypatch)
 
         # 5 wrong PINs are allowed by slowapi (cap = 5/minute) but rejected
-        # by the PIN check (401). _pin_attempts increments to 5, still under
-        # the legacy 10-attempt lockout.
+        # by the PIN check (401). pin_attempts increments to 5, still under
+        # the 10-attempt lockout.
         for i in range(5):
             r = client.post("/api/admin/verify", json={"pin": "0000"})
             assert r.status_code == 401, f"attempt {i + 1}: expected 401, got {r.status_code}"
@@ -242,19 +244,19 @@ class TestAdminVerifyRateLimit:
         assert "Rate limit exceeded" in body["error"]
 
     def test_pin_attempts_lockout_still_engages_under_slowapi_cap(self, monkeypatch):
-        """The legacy ``_pin_attempts`` lockout (10 attempts in 5 minutes)
+        """The pin-attempts lockout (10 attempts in 5 minutes)
         must still fire for a client staying under the 5/min slowapi cap.
 
         Because the slowapi limiter is per-process and shares state across
-        requests, we exercise the lockout by directly priming
-        ``_pin_attempts`` to PIN_MAX_ATTEMPTS and confirming the legacy
+        requests, we exercise the lockout by directly priming the
+        in-memory fallback to PIN_MAX_ATTEMPTS and confirming the
         429 response — distinct from slowapi's 429 — is returned.
         """
         client, main = self._client(monkeypatch)
 
-        # Prime the legacy counter for the TestClient's client IP.
+        # Prime the fallback counter for the TestClient's client IP.
         # TestClient sets request.client.host to "testclient" by default.
-        main._pin_attempts["testclient"] = [
+        main._pin_attempts_fallback["testclient"] = [
             __import__("time").time() for _ in range(main.PIN_MAX_ATTEMPTS)
         ]
 
