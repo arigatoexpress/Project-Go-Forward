@@ -1,86 +1,116 @@
 /* ══════════════════════════════════════════════════════════════
-   THO Design Tokens & Global Styles
+   THO  Cypherpunk  Theme  —  Dark Terminal Aesthetic
    ══════════════════════════════════════════════════════════════ */
 
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
 :root {
-  /* Brand Colors */
-  --tho-navy: #1e3a5f;
-  --tho-navy-dark: #162d4a;
-  --tho-navy-light: #2a4d7a;
-  --tho-red: #dc2626;
-  --tho-red-accent: #ef4444;
+  /* ── Cypherpunk palette ── */
+  --cp-bg:          #050608;
+  --cp-bg-2:        #0d1018;
+  --cp-panel:       #11151f;
+  --cp-panel-hover: #161b28;
+  --cp-surface:     #1a1f2e;
+  --cp-surface-2:   #222839;
 
-  /* UI Colors */
-  --tho-primary: #3b82f6;
-  --tho-primary-dark: #2563eb;
-  --tho-primary-light: #eff6ff;
-  --tho-success: #22c55e;
-  --tho-success-dark: #16a34a;
-  --tho-success-light: #dcfce7;
-  --tho-warning: #f59e0b;
-  --tho-warning-light: #fef3c7;
-  --tho-danger: #ef4444;
-  --tho-danger-light: #fef2f2;
+  --cp-accent:      #00ff88;
+  --cp-accent-hot:  #00cc6a;
+  --cp-accent-dim:  rgba(0, 255, 136, 0.12);
+  --cp-secondary:   #00aaff;
+  --cp-secondary-dim: rgba(0, 170, 255, 0.12);
+  --cp-danger:      #ff3366;
+  --cp-danger-dim:  rgba(255, 51, 102, 0.12);
+  --cp-warn:        #ffaa00;
 
-  /* Neutrals */
-  --tho-text: #1e293b;
-  --tho-text-secondary: #475569;
-  --tho-text-muted: #64748b;
-  --tho-text-faint: #94a3b8;
-  --tho-border: #e2e8f0;
-  --tho-border-light: #f1f5f9;
-  --tho-bg: #f8fafc;
-  --tho-bg-card: #ffffff;
+  --cp-text:        #e7eaf3;
+  --cp-text-secondary: #aab2c7;
+  --cp-muted:       #8a93ab;
+  --cp-faint:       #4b5468;
+  --cp-border:      #1c2233;
+  --cp-border-light:#252c40;
 
-  /* Shadows — 3 levels */
-  --tho-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
-  --tho-shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08), 0 2px 4px rgba(0, 0, 0, 0.04);
-  --tho-shadow-lg: 0 12px 28px rgba(0, 0, 0, 0.12), 0 4px 8px rgba(0, 0, 0, 0.06);
-  --tho-shadow-xl: 0 24px 48px rgba(0, 0, 0, 0.16);
+  /* ── Legacy tokens (kept for backward compat) ── */
+  --tho-navy:        var(--cp-panel);
+  --tho-navy-dark:   var(--cp-bg-2);
+  --tho-navy-light:  var(--cp-surface);
+  --tho-red:         var(--cp-danger);
+  --tho-red-accent:  #ff5588;
+  --tho-primary:     var(--cp-secondary);
+  --tho-primary-dark:#0088dd;
+  --tho-primary-light: var(--cp-secondary-dim);
+  --tho-success:     var(--cp-accent);
+  --tho-success-dark: var(--cp-accent-hot);
+  --tho-success-light: var(--cp-accent-dim);
+  --tho-warning:     var(--cp-warn);
+  --tho-warning-light: rgba(255,170,0,0.12);
+  --tho-danger:      var(--cp-danger);
+  --tho-danger-light: var(--cp-danger-dim);
+  --tho-text:        var(--cp-text);
+  --tho-text-secondary: var(--cp-text-secondary);
+  --tho-text-muted:  var(--cp-muted);
+  --tho-text-faint:  var(--cp-faint);
+  --tho-border:      var(--cp-border);
+  --tho-border-light: var(--cp-border-light);
+  --tho-bg:          var(--cp-bg);
+  --tho-bg-card:     var(--cp-panel);
 
-  /* Spacing (4px base) */
-  --tho-space-1: 4px;
-  --tho-space-2: 8px;
-  --tho-space-3: 12px;
-  --tho-space-4: 16px;
-  --tho-space-5: 20px;
-  --tho-space-6: 24px;
+  /* ── Shadows ── */
+  --tho-shadow-sm: 0 0 0 1px var(--cp-border);
+  --tho-shadow-md: 0 4px 24px rgba(0,0,0,0.45), 0 0 0 1px var(--cp-border);
+  --tho-shadow-lg: 0 12px 40px rgba(0,0,0,0.55), 0 0 0 1px var(--cp-border);
+  --tho-shadow-xl: 0 24px 64px rgba(0,0,0,0.65), 0 0 0 1px var(--cp-border);
+
+  /* ── Spacing & radii ── */
+  --tho-space-1: 4px;  --tho-space-2: 8px;  --tho-space-3: 12px;
+  --tho-space-4: 16px; --tho-space-5: 20px; --tho-space-6: 24px;
   --tho-space-8: 32px;
 
-  /* Radii */
-  --tho-radius-sm: 6px;
-  --tho-radius-md: 8px;
-  --tho-radius-lg: 12px;
-  --tho-radius-xl: 16px;
+  --tho-radius-sm: 6px;  --tho-radius-md: 8px;
+  --tho-radius-lg: 12px; --tho-radius-xl: 16px;
   --tho-radius-full: 9999px;
 
-  /* Transitions */
+  /* ── Transitions ── */
   --tho-transition-fast: 0.15s ease;
   --tho-transition-normal: 0.2s ease;
   --tho-transition-slow: 0.3s ease;
+
+  /* ── Cypherpunk extras ── */
+  --cp-glow: 0 0 12px rgba(0,255,136,0.25), 0 0 4px rgba(0,255,136,0.15);
+  --cp-glow-blue: 0 0 12px rgba(0,170,255,0.25), 0 0 4px rgba(0,170,255,0.15);
+  --cp-glow-red:  0 0 12px rgba(255,51,102,0.25), 0 0 4px rgba(255,51,102,0.15);
+  --cp-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --cp-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
 }
 
 /* ─── Global resets ─── */
-*, *::before, *::after {
-  box-sizing: border-box;
+*, *::before, *::after { box-sizing: border-box; }
+
+html {
+  background: var(--cp-bg);
 }
 
 body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  background: var(--cp-bg);
+  color: var(--cp-text);
+  font-family: var(--cp-sans);
 }
 
-/* ─── Focus visible — accessible keyboard focus ─── */
+/* ─── Selection ─── */
+::selection {
+  background: rgba(0, 255, 136, 0.2);
+  color: var(--cp-accent);
+}
+
+/* ─── Focus visible ─── */
 :focus-visible {
-  outline: 2px solid var(--tho-primary);
+  outline: 2px solid var(--cp-accent);
   outline-offset: 2px;
   border-radius: 4px;
 }
 
-button:focus:not(:focus-visible),
-a:focus:not(:focus-visible) {
-  outline: none;
-}
+button:focus:not(:focus-visible), a:focus:not(:focus-visible) { outline: none; }
 
 /* ─── Reduced motion ─── */
 @media (prefers-reduced-motion: reduce) {
@@ -91,55 +121,134 @@ a:focus:not(:focus-visible) {
   }
 }
 
-/* ─── Scrollbar styling ─── */
+/* ─── Scrollbar ─── */
 .scrollbar-thin {
   scrollbar-width: thin;
-  scrollbar-color: #cbd5e1 transparent;
+  scrollbar-color: var(--cp-faint) transparent;
 }
+.scrollbar-thin::-webkit-scrollbar { width: 6px; }
+.scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
+.scrollbar-thin::-webkit-scrollbar-thumb { background: var(--cp-faint); border-radius: 3px; }
+.scrollbar-thin::-webkit-scrollbar-thumb:hover { background: var(--cp-muted); }
 
-.scrollbar-thin::-webkit-scrollbar {
-  width: 6px;
-}
-
-.scrollbar-thin::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.scrollbar-thin::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
-  border-radius: 3px;
-}
-
-.scrollbar-thin::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
-}
-
-/* ─── Skeleton loading animation ─── */
+/* ─── Skeleton ─── */
 @keyframes shimmer {
-  0% { background-position: -200% 0; }
+  0%   { background-position: -200% 0; }
   100% { background-position: 200% 0; }
 }
-
 .tho-skeleton {
-  background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%);
+  background: linear-gradient(90deg, var(--cp-surface) 25%, var(--cp-surface-2) 50%, var(--cp-surface) 75%);
   background-size: 200% 100%;
   animation: shimmer 1.5s ease-in-out infinite;
   border-radius: var(--tho-radius-md);
 }
 
-/* ─── Modal slide-in animation ─── */
-@keyframes tho-fade-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
+/* ─── Animations ─── */
+@keyframes tho-fade-in   { from { opacity: 0; } to { opacity: 1; } }
+@keyframes tho-slide-up  { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes tho-toast-in  { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
+
+@keyframes cp-pulse-glow {
+  0%, 100% { box-shadow: 0 0 8px rgba(0,255,136,0.15); }
+  50%      { box-shadow: 0 0 20px rgba(0,255,136,0.35); }
+}
+@keyframes cp-blink {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.4; }
 }
 
-@keyframes tho-slide-up {
-  from { opacity: 0; transform: translateY(16px); }
-  to { opacity: 1; transform: translateY(0); }
+/* ─── Terminal / CRT aesthetic helpers ─── */
+.cp-terminal {
+  font-family: var(--cp-mono);
+  background: var(--cp-bg-2);
+  border: 1px solid var(--cp-border);
+  border-radius: var(--tho-radius-md);
+  box-shadow: inset 0 0 24px rgba(0,0,0,0.4);
 }
 
-/* ─── Toast / notification animation ─── */
-@keyframes tho-toast-in {
-  from { opacity: 0; transform: translateY(-8px); }
-  to { opacity: 1; transform: translateY(0); }
+.cp-glow-accent  { box-shadow: var(--cp-glow); }
+.cp-glow-blue    { box-shadow: var(--cp-glow-blue); }
+.cp-glow-red     { box-shadow: var(--cp-glow-red); }
+
+.cp-pulse-glow { animation: cp-pulse-glow 2.5s ease-in-out infinite; }
+.cp-blink      { animation: cp-blink 1.2s step-end infinite; }
+
+/* ─── Panel / Card helpers ─── */
+.cp-panel {
+  background: var(--cp-panel);
+  border: 1px solid var(--cp-border);
+  border-radius: var(--tho-radius-lg);
+}
+.cp-panel:hover {
+  border-color: var(--cp-border-light);
+}
+
+.cp-btn-accent {
+  background: var(--cp-accent);
+  color: var(--cp-bg);
+  font-family: var(--cp-mono);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  border: none;
+  border-radius: var(--tho-radius-md);
+  cursor: pointer;
+  transition: var(--tho-transition-normal);
+}
+.cp-btn-accent:hover {
+  background: var(--cp-accent-hot);
+  box-shadow: var(--cp-glow);
+}
+.cp-btn-accent:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.cp-btn-outline {
+  background: transparent;
+  color: var(--cp-accent);
+  font-family: var(--cp-mono);
+  font-weight: 500;
+  border: 1px solid var(--cp-accent);
+  border-radius: var(--tho-radius-md);
+  cursor: pointer;
+  transition: var(--tho-transition-normal);
+}
+.cp-btn-outline:hover {
+  background: var(--cp-accent-dim);
+  box-shadow: var(--cp-glow);
+}
+
+.cp-input {
+  background: var(--cp-bg-2);
+  color: var(--cp-text);
+  border: 1px solid var(--cp-border);
+  border-radius: var(--tho-radius-md);
+  font-family: var(--cp-mono);
+  caret-color: var(--cp-accent);
+  transition: var(--tho-transition-normal);
+}
+.cp-input:focus {
+  outline: none;
+  border-color: var(--cp-accent);
+  box-shadow: 0 0 0 2px rgba(0,255,136,0.15);
+}
+.cp-input::placeholder {
+  color: var(--cp-faint);
+}
+
+/* ─── Grid scanline overlay (subtle) ─── */
+.cp-scanlines::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0, 0, 0, 0.03) 2px,
+    rgba(0, 0, 0, 0.03) 4px
+  );
+  z-index: 1;
 }
