@@ -11,6 +11,10 @@ env:
   PROJECT_ID: tho-ai-agent
   REGION: us-central1
   SERVICE: project-go-forward
+  # Opt into Node.js 24 early to suppress deprecation warnings for actions
+  # still on Node.js 20 (checkout@v4, setup-node@v4, setup-python@v5).
+  # GitHub will make this the default on 2026-06-02.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   test:

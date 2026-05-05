@@ -9,24 +9,31 @@ from test_api_v1 import create_client
 
 
 def test_healthz_returns_minimal_public_probe(monkeypatch):
-    """Public healthz must not leak version, SHA, or dependency configs."""
+    """Public healthz must not leak dependency configs or warnings."""
+    monkeypatch.setenv("APP_VERSION", "test-sha")
     client, _main, _db, _logger = create_client(monkeypatch)
 
     response = client.get("/healthz")
 
     assert response.status_code == 200
     body = response.json()
-    assert body == {"status": "ok"}
+    assert body["status"] == "ok"
+    assert body["version"] == "test-sha"
+    assert "dependencies" not in body
+    assert "warnings" not in body
     assert "no-store" in response.headers.get("cache-control", "").lower()
 
 
 def test_healthz_trailing_slash_returns_minimal_probe(monkeypatch):
+    monkeypatch.setenv("APP_VERSION", "test-sha")
     client, _main, _db, _logger = create_client(monkeypatch)
 
     response = client.get("/healthz/")
 
     assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    body = response.json()
+    assert body["status"] == "ok"
+    assert body["version"] == "test-sha"
 
 
 def test_healthz_body_is_strict_json_with_concrete_values(monkeypatch):
@@ -49,8 +56,9 @@ def test_healthz_body_is_strict_json_with_concrete_values(monkeypatch):
         body = _json.loads(response.text)
 
         assert isinstance(body["status"], str) and body["status"] == "ok", path
-        # Minimal response: only 'status' key should be present
-        assert set(body.keys()) == {"status"}, path
+        assert isinstance(body["version"], str), path
+        # Minimal response: only 'status' and 'version' keys should be present
+        assert set(body.keys()) == {"status", "version"}, path
 
         # Cache-Control must prevent any proxy/CDN caching of the probe.
         assert "no-store" in response.headers.get("cache-control", "").lower(), path
