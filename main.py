@@ -1438,9 +1438,18 @@ def health():
 @app.get("/healthz/", response_class=JSONResponse)
 @limiter.exempt
 def healthz() -> JSONResponse:
-    """Public health probe — returns minimal data to avoid info leakage."""
+    """Public health probe — returns minimal data to avoid info leakage.
+
+    Includes version (git SHA) for deploy verification. SHA is public info.
+    """
+    version = (
+        os.environ.get("APP_VERSION")
+        or os.environ.get("GIT_SHA")
+        or os.environ.get("SOURCE_COMMIT")
+        or "local"
+    )
     return JSONResponse(
-        {"status": "ok"},
+        {"status": "ok", "version": version},
         headers={"Cache-Control": "no-store, no-cache, must-revalidate", "Pragma": "no-cache"},
     )
 
