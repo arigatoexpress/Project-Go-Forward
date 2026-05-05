@@ -110,7 +110,8 @@ unset ADMIN_TOKEN
 Expected:
 
 - `/health` returns `{"status":"ok"}`.
-- `/healthz/` returns `status`, `version`, `sha`, `uptime_s`, dependency statuses for `drive`, `secrets`, `db`, and `email`, plus non-secret warnings such as `email_not_configured`.
+- `/healthz/` returns minimal public `status` and `version`.
+- `/healthz/detailed` returns `status`, `version`, `sha`, `uptime_s`, dependency statuses for `drive`, `secrets`, `db`, and `email`, plus non-secret warnings such as `email_not_configured` when called with a valid `X-Admin-Token`.
 - `/api/admin/verify` succeeds only with the new PIN.
 - `/api/admin/check` returns `{"valid":true}` for the new token.
 - Existing sessions minted before rotation fail and users must re-authenticate.

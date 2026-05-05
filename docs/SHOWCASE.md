@@ -4,18 +4,19 @@ Use this as the short demo and diligence script for the live Texas Home Outlet a
 
 ## Current Live Facts
 
-Verified on April 29, 2026:
+Verified on May 5, 2026:
 
 | Check | Result |
 |---|---|
 | `GET /health` | HTTP 200, `status: ok` |
-| `GET /healthz/` | HTTP 200, exposes `version`, `sha`, `uptime_s`, dependency statuses, and non-secret readiness warnings |
+| `GET /healthz/` | HTTP 200, exposes minimal public liveness plus deployed `version` |
+| `GET /healthz/detailed` | Admin-only; exposes `sha`, `uptime_s`, dependency statuses, and non-secret readiness warnings |
 | `GET /api/marketing/inventory-context` | HTTP 200, `success: true`, 44 homes |
-| Repo `origin/main` during this doc refresh | after PRs #25, #26, #27, #28, #29, and #30 |
+| Repo `origin/main` during this doc refresh | `526c788a705557e37b5ca0646a09c945ee864d82` |
 
 Use `/healthz/` with the trailing slash for external smoke checks. Before an
 external demo, rerun the smoke and use `/healthz/` as the deployed-revision
-source of truth; do not claim the latest `main` is live unless the `sha` value
+source of truth; do not claim the latest `main` is live unless the `version` value
 matches the commit you are discussing.
 
 ```bash

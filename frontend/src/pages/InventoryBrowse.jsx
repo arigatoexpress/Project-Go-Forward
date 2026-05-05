@@ -200,11 +200,7 @@ export default function InventoryBrowse({ adminAuthed = false, onAskTex, onCreat
   const [leadFormHome, setLeadFormHome] = useState(null);
   const [leadFormType, setLeadFormType] = useState('tour'); // 'tour' | 'price'
 
-  useEffect(() => {
-    fetchInventory();
-  }, []);
-
-  const fetchInventory = async () => {
+  const fetchInventory = useCallback(async () => {
     try {
       setLoading(true);
       const resp = await fetch('/api/marketing/inventory-context');
@@ -216,7 +212,11 @@ export default function InventoryBrowse({ adminAuthed = false, onAskTex, onCreat
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    fetchInventory();
+  }, [fetchInventory]);
 
   // Enhanced search — matches name, manufacturer, features, classification, specs
   const matchesSearch = (home, q) => {
