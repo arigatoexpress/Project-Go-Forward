@@ -4776,6 +4776,13 @@ async def run_lead_nurture_endpoint(request: Request):
     return result
 
 
+# AI PM Manager Routes (Linear-inspired)
+from pm_routes import router as pm_router
+
+app.include_router(pm_router, dependencies=[Depends(require_admin)])
+app.include_router(passkey_router)
+
+
 # Serve Frontend — Must be last to avoid catching API routes
 app.mount("/assets", ImmutableStaticFiles(directory="frontend/dist/assets"), name="assets")
 
@@ -4810,10 +4817,3 @@ async def serve_spa(full_path: str):
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
     uvicorn.run(app, host="0.0.0.0", port=port)
-
-
-# AI PM Manager Routes (Linear-inspired)
-from pm_routes import router as pm_router
-
-app.include_router(pm_router, dependencies=[Depends(require_admin)])
-app.include_router(passkey_router)
