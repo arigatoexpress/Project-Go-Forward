@@ -1959,9 +1959,15 @@ export default function DocumentCenter() {
 
   // Refs to avoid stale closures in useCallback (prevents re-render on every keystroke)
   const formRef = useRef(form);
-  formRef.current = form;
   const dealsRef = useRef(deals);
-  dealsRef.current = deals;
+
+  useEffect(() => {
+    formRef.current = form;
+  }, [form]);
+
+  useEffect(() => {
+    dealsRef.current = deals;
+  }, [deals]);
 
   const loadDocumentDesk = useCallback(async () => {
     setDeskLoading(true);
