@@ -232,7 +232,7 @@ function TelemetryFeed() {
   );
 }
 
-function QuickStat({ label, value, sub, icon: Icon, accent = 'accent' }) {
+function QuickStat({ label, value, sub, icon, accent = 'accent' }) {
   const accentMap = {
     accent:   'text-[var(--cp-accent)] bg-[var(--cp-accent-dim)]',
     blue:     'text-[var(--cp-secondary)] bg-[var(--cp-secondary-dim)]',
@@ -241,7 +241,7 @@ function QuickStat({ label, value, sub, icon: Icon, accent = 'accent' }) {
   return (
     <div className="cp-panel p-4 flex items-center gap-4">
       <div className={`p-2.5 rounded-lg ${accentMap[accent]}`}>
-        <Icon size={20} />
+        {React.createElement(icon, { size: 20 })}
       </div>
       <div>
         <div className="text-2xl font-mono font-bold text-[var(--cp-text)]">{value}</div>
@@ -255,7 +255,6 @@ function QuickStat({ label, value, sub, icon: Icon, accent = 'accent' }) {
 export default function SystemHub({ onBack }) {
   const [passkeyStatus, setPasskeyStatus] = useState(null);
   const [health, setHealth] = useState(null);
-  const [checking, setChecking] = useState({});
 
   useEffect(() => {
     fetch('/api/admin/passkey/status').then(r => r.json()).then(setPasskeyStatus).catch(() => {});
@@ -266,7 +265,7 @@ export default function SystemHub({ onBack }) {
     try {
       const ctrl = new AbortController();
       const to = setTimeout(() => ctrl.abort(), 3000);
-      const r = await fetch(url, { method: 'HEAD', mode: 'no-cors', signal: ctrl.signal });
+      await fetch(url, { method: 'HEAD', mode: 'no-cors', signal: ctrl.signal });
       clearTimeout(to);
       return true;
     } catch {
@@ -274,7 +273,7 @@ export default function SystemHub({ onBack }) {
       // but for same-origin or simple checks it works. Fallback: try a ping.
       if (url.includes(window.location.host)) {
         try {
-          const r2 = await fetch(url, { method: 'GET', mode: 'no-cors', signal: AbortSignal.timeout(2000) });
+          await fetch(url, { method: 'GET', mode: 'no-cors', signal: AbortSignal.timeout(2000) });
           return true;
         } catch { return false; }
       }

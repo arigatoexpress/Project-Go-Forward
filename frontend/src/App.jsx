@@ -369,7 +369,7 @@ function App() {
   // Passkey state
   const [passkeyLoading, setPasskeyLoading] = useState(false);
   const [passkeyError, setPasskeyError] = useState('');
-  const [passkeyAvailable, setPasskeyAvailable] = useState(
+  const [passkeyAvailable] = useState(
     typeof window !== 'undefined' && !!window.PublicKeyCredential
   );
 
@@ -486,8 +486,9 @@ function App() {
 
   // Verify stored cookie on mount
   useEffect(() => {
-    fetch('/api/admin/check')
-      .then(r => { if (r.ok) setAdminAuthed(true); })
+    fetch('/api/admin/check', { headers: { Accept: 'application/json' }, credentials: 'same-origin' })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (data?.valid) setAdminAuthed(true); })
       .catch(() => {});
   }, []);
 
@@ -963,6 +964,7 @@ function App() {
         <ErrorBoundary scope="inventory">
           <Suspense fallback={<PageLoader />}>
             <InventoryBrowse
+              adminAuthed={adminAuthed}
               onAskTex={(message) => {
                 navigateTo('chat');
                 setMessages(prev => [...prev, { role: 'user', text: message }]);

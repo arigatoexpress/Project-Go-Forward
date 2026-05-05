@@ -293,15 +293,15 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["X-XSS-Protection"] = "1; mode=block"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
-        # CSP: allow self, inline styles (Tailwind), Matterport iframes, CloudFront CDN images
+        # CSP: allow self, inline styles (Tailwind), Google Fonts, Matterport iframes, CloudFront CDN images.
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; "
             "script-src 'self' 'unsafe-inline'; "
-            "style-src 'self' 'unsafe-inline'; "
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
             "img-src 'self' https://d132mt2yijm03y.cloudfront.net https: data:; "
             "frame-src https://my.matterport.com; "
             "connect-src 'self'; "
-            "font-src 'self'; "
+            "font-src 'self' https://fonts.gstatic.com data:; "
             "frame-ancestors 'none'"
         )
         # HSTS: enforce HTTPS for 1 year (only effective on HTTPS connections)
@@ -909,7 +909,7 @@ async def run_agent(request: Request):
 
         # Run agent with timeout
         try:
-            final_text, event_count = await asyncio.wait_for(
+            final_text, _event_count = await asyncio.wait_for(
                 _execute_agent_run(runner, user_id, session_id, new_message, request_id),
                 timeout=AI_RUN_TIMEOUT,
             )
@@ -919,7 +919,6 @@ async def run_agent(request: Request):
                 "I apologize, but the request timed out. "
                 "Please try again with a shorter message."
             )
-            event_count = 0
 
         # Save to chat history (full conversation persistence)
         try:
@@ -2802,7 +2801,7 @@ async def docuseal_webhook(request: Request):
                 "submission_id": str(submission_id),
                 "template_name": template_name,
                 "gcs_path": gcs_uri or gcs_path,
-                "created_at": datetime.now(timezone.utc).isoformat(),
+                "created_at": datetime.now(UTC).isoformat(),
             })
             
             # Audit log
@@ -3126,14 +3125,19 @@ async def submit_contact_form(request: Request):
         data = await request.json()
         name = data.get("name", "").strip()
         phone = data.get("phone", "").strip()
-        message = data.get("message", "").strip()
+        has_message = bool(data.get("message", "").strip())
 
         email = data.get("email", "").strip()
 
         if not name or not phone:
             return {"success": False, "error": "Name and phone are required"}
 
-        struct_logger.info("Contact form submitted", name=name, has_phone=bool(phone))
+        struct_logger.info(
+            "Contact form submitted",
+            name=name,
+            has_phone=bool(phone),
+            has_message=has_message,
+        )
 
         lead_id = f"contact_{int(time.time())}_{uuid.uuid4().hex[:4]}"
 
@@ -3597,7 +3601,7 @@ async def check_admin_token(request: Request):
         token = _admin_token_from_request(request)
     if _verify_admin_token(token):
         return {"valid": True}
-    return JSONResponse({"valid": False}, status_code=401)
+    return {"valid": False}
 
 
 @app.get("/api/admin/audit-log", dependencies=[Depends(require_admin)])
