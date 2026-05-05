@@ -8,47 +8,25 @@ sys.path.insert(0, str(Path(__file__).parent))
 from test_api_v1 import create_client
 
 
-def test_healthz_returns_structured_probe(monkeypatch):
-    monkeypatch.setenv("APP_VERSION", "test-sha")
+def test_healthz_returns_minimal_public_probe(monkeypatch):
+    """Public healthz must not leak version, SHA, or dependency configs."""
     client, _main, _db, _logger = create_client(monkeypatch)
 
     response = client.get("/healthz")
 
     assert response.status_code == 200
     body = response.json()
-    assert body["status"] == "ok"
-    assert body["version"] == "test-sha"
-    assert body["sha"] == "test-sha"
-    assert isinstance(body["uptime_s"], int)
-    assert body["uptime_s"] >= 0
-    assert set(body["dependencies"]) == {"drive", "secrets", "db", "email"}
-    assert body["dependencies"]["secrets"] in {"configured", "missing"}
-    assert body["dependencies"]["db"] == "configured"
-    assert body["dependencies"]["email"] == "missing"
-    assert body["warnings"] == ["email_not_configured"]
+    assert body == {"status": "ok"}
+    assert "no-store" in response.headers.get("cache-control", "").lower()
 
 
-def test_healthz_reports_email_configured_when_resend_key_exists(monkeypatch):
-    monkeypatch.setenv("APP_VERSION", "test-sha")
-    monkeypatch.setenv("RESEND_API_KEY", "re_test_key")
-    client, _main, _db, _logger = create_client(monkeypatch)
-
-    response = client.get("/healthz")
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["dependencies"]["email"] == "configured"
-    assert body["warnings"] == []
-
-
-def test_healthz_trailing_slash_returns_structured_probe(monkeypatch):
-    monkeypatch.setenv("APP_VERSION", "test-sha")
+def test_healthz_trailing_slash_returns_minimal_probe(monkeypatch):
     client, _main, _db, _logger = create_client(monkeypatch)
 
     response = client.get("/healthz/")
 
     assert response.status_code == 200
-    assert response.json()["version"] == "test-sha"
+    assert response.json() == {"status": "ok"}
 
 
 def test_healthz_body_is_strict_json_with_concrete_values(monkeypatch):
@@ -59,12 +37,11 @@ def test_healthz_body_is_strict_json_with_concrete_values(monkeypatch):
     """
     import json as _json
 
-    monkeypatch.setenv("APP_VERSION", "test-sha")
     client, _main, _db, _logger = create_client(monkeypatch)
 
     for path in ("/healthz", "/healthz/"):
         response = client.get(path)
-        assert response.status_code == 200
+        assert response.status_code == 200, path
         assert response.headers["content-type"].startswith("application/json"), path
 
         # Strict parse — schema-style bodies (unquoted keys / type-name values)
@@ -72,16 +49,8 @@ def test_healthz_body_is_strict_json_with_concrete_values(monkeypatch):
         body = _json.loads(response.text)
 
         assert isinstance(body["status"], str) and body["status"] == "ok", path
-        assert isinstance(body["version"], str) and body["version"], path
-        assert isinstance(body["sha"], str) and body["sha"], path
-        assert isinstance(body["uptime_s"], int) and body["uptime_s"] >= 0, path
-        assert isinstance(body["dependencies"], dict), path
-        for dep in ("drive", "secrets", "db", "email"):
-            assert isinstance(body["dependencies"][dep], str), (path, dep)
-            assert body["dependencies"][dep] != "string", (path, dep)
-        assert isinstance(body["warnings"], list), path
-        for warning in body["warnings"]:
-            assert isinstance(warning, str) and warning != "string", (path, warning)
+        # Minimal response: only 'status' key should be present
+        assert set(body.keys()) == {"status"}, path
 
         # Cache-Control must prevent any proxy/CDN caching of the probe.
         assert "no-store" in response.headers.get("cache-control", "").lower(), path
@@ -131,6 +100,9 @@ def test_successful_admin_login_clears_failed_attempts(monkeypatch):
     for _ in range(3):
         assert client.post("/api/admin/verify", json={"pin": "0000"}).status_code == 401
 
+    # Verify attempts are tracked
+    assert len(main._pin_attempts_fallback) > 0
+
     success = client.post("/api/admin/verify", json={"pin": "4832"})
     assert success.status_code == 200
-    assert main._pin_attempts == {}
+    assert main._pin_attempts_fallback == {}
