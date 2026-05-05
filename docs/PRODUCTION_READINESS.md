@@ -28,8 +28,7 @@ The smoke checks:
 - public SPA routes for the main app, documents, studio, CRM, and analytics
 - `/api/marketing/inventory-context` has a healthy inventory payload
 - admin API routes reject unauthenticated traffic
-- `/healthz/` surfaces dependency warnings, including transactional email
-  readiness, without exposing secret values
+- `/healthz/` exposes only the public liveness/deployed-version envelope
 
 Direct endpoint checks:
 
@@ -39,15 +38,19 @@ curl -fsS "$THO_PROD_URL/healthz/" | python3 -m json.tool
 curl -fsS "$THO_PROD_URL/api/marketing/inventory-context" | python3 -m json.tool
 ```
 
-The deployed commit is the `version` field from `/healthz/`.
+The deployed commit is the `version` field from `/healthz/`. Use the trailing
+slash in external probes because the production load-balanced URL is verified on
+`/healthz/`.
 
 ## Transactional Email Readiness
 
 Appointment confirmations, lead welcome emails, deal-status emails, and CRM
-custom emails require `RESEND_API_KEY`. `/healthz/` reports this under
+custom emails require `RESEND_API_KEY`. Public `/healthz/` intentionally stays
+minimal so liveness probes do not leak dependency posture. Detailed readiness is
+available at `/healthz/detailed` with a valid admin token; it reports
 `dependencies.email` and adds `email_not_configured` to `warnings` when the key
-is absent. The health endpoint stays HTTP 200 so Cloud Run liveness does not
-restart a healthy app because of an operator-owned email-provider setup gap.
+is absent. The public health endpoint stays HTTP 200 so Cloud Run liveness does
+not restart a healthy app because of an operator-owned email-provider setup gap.
 
 Bind the Resend key through Secret Manager:
 
@@ -76,10 +79,13 @@ printf '%s' "$RESEND_API_KEY" | gcloud secrets versions add resend-api-key \
 unset RESEND_API_KEY
 ```
 
-After binding, verify `dependencies.email` changes to `configured`:
+After binding, verify `dependencies.email` changes to `configured` through the
+admin-only detailed probe:
 
 ```bash
-curl -fsS "$THO_PROD_URL/healthz/" | python3 -m json.tool
+ADMIN_TOKEN="<admin token from /api/admin/verify>"
+curl -fsS "$THO_PROD_URL/healthz/detailed" \
+  -H "X-Admin-Token: $ADMIN_TOKEN" | python3 -m json.tool
 python3 scripts/production_smoke.py --base-url "$THO_PROD_URL"
 ```
 
