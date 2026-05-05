@@ -6,10 +6,12 @@ Ported from Sapphire analytics_dashboard auth scaffold.
 from __future__ import annotations
 
 import logging
+import os
 from base64 import urlsafe_b64decode, urlsafe_b64encode
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from functools import lru_cache
 from typing import Protocol
 
 log = logging.getLogger(__name__)
@@ -55,6 +57,9 @@ class CredentialStore(Protocol):
 class InMemoryCredentialStore:
     """Process-local credential store. Lost on restart — tests only."""
 
+    backend_name = "memory"
+    persistent = False
+
     def __init__(self, seed: Iterable[CredentialRecord] = ()) -> None:
         self._rows: dict[bytes, CredentialRecord] = {}
         for r in seed:
@@ -91,6 +96,8 @@ class FirestoreCredentialStore:
     """
 
     COLLECTION = "tho_admin_credentials"
+    backend_name = "firestore"
+    persistent = True
 
     def __init__(self, project: str | None = None, *, client=None) -> None:
         if client is None:
@@ -128,8 +135,8 @@ class FirestoreCredentialStore:
     def add(self, record: CredentialRecord) -> None:
         self._collection.document(self._doc_id(record.credential_id)).set(
             {
-                "credential_id": record.credential_id,
-                "public_key": record.public_key,
+                "credential_id": record.credential_id_b64,
+                "public_key": _b64url_encode(record.public_key),
                 "sign_count": record.sign_count,
                 "user_id": record.user_id,
                 "aaguid": record.aaguid,
@@ -160,10 +167,34 @@ class FirestoreCredentialStore:
         return sum(1 for _ in self._collection.stream())
 
 
+class CredentialStoreUnavailable(RuntimeError):
+    """Raised when production cannot reach a persistent passkey store."""
+
+
+def _memory_fallback_allowed() -> bool:
+    value = os.environ.get("THO_PASSKEY_ALLOW_MEMORY_STORE", "").strip().lower()
+    if value in {"1", "true", "yes", "on"}:
+        return True
+    return not os.environ.get("K_SERVICE")
+
+
+@lru_cache(maxsize=4)
 def default_store(project: str | None = None) -> CredentialStore:
-    """Return a Firestore-backed store, falling back to in-memory."""
-    try:
-        return FirestoreCredentialStore(project=project)
-    except Exception as exc:
-        log.warning("falling back to in-memory credential store (%s)", exc)
+    """Return the configured passkey store.
+
+    Cloud Run must use Firestore so passkeys survive restarts and multiple
+    instances. Local development may fall back to memory for lightweight tests.
+    """
+    backend = os.environ.get("THO_PASSKEY_STORE", "firestore").strip().lower()
+    if backend == "memory":
+        if not _memory_fallback_allowed():
+            raise CredentialStoreUnavailable("memory passkey store is disabled in production")
         return InMemoryCredentialStore()
+
+    try:
+        return FirestoreCredentialStore(project=project or os.environ.get("GOOGLE_CLOUD_PROJECT"))
+    except Exception as exc:
+        if _memory_fallback_allowed():
+            log.warning("falling back to in-memory credential store (%s)", exc)
+            return InMemoryCredentialStore()
+        raise CredentialStoreUnavailable("persistent passkey credential store unavailable") from exc

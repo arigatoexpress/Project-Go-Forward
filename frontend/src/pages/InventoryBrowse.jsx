@@ -75,12 +75,124 @@ const SORT_OPTIONS = [
 ];
 
 // ─── Reusable utility chains ───
-const HERO_BG =
-  'bg-gradient-to-br from-[#1e3a5f] via-[#1e40af] to-[#3b82f6] text-white';
 const PILL_BTN =
-  'px-4 py-2.5 rounded-full text-sm font-medium transition border-2 border-transparent';
+  'px-4 py-2.5 rounded-md text-sm font-medium transition border border-transparent';
 const CHIP_INPUT =
-  'px-3 py-2 rounded-lg border-2 border-gray-200 text-sm bg-white focus:outline-none focus:border-blue-500 transition';
+  'px-3 py-2 rounded-md border border-[var(--cp-border)] text-sm bg-[var(--cp-bg-2)] text-[var(--cp-text)] focus:outline-none focus:border-[var(--cp-accent)] transition';
+
+function getHomeImage(home) {
+  if (!home) return '';
+  const floorplanUrl = home.floorplan_url || home.floor_plan_url || '';
+  const galleryPhotos = (home.real_photos || home.gallery_images || []).filter(
+    p => p && p !== floorplanUrl,
+  );
+  return home.image_url || galleryPhotos[0] || '';
+}
+
+function displayPrice(home) {
+  return home?.display_price && home.display_price !== 'Call for Price'
+    ? home.display_price
+    : 'Call for Price';
+}
+
+function InventoryMetric({ icon, label, value, tone = 'accent' }) {
+  const toneMap = {
+    accent: 'text-[var(--cp-accent)] bg-[var(--cp-accent-dim)]',
+    blue: 'text-[var(--cp-secondary)] bg-[var(--cp-secondary-dim)]',
+    warn: 'text-[var(--cp-warn)] bg-[var(--tho-warning-light)]',
+  };
+  const Icon = icon;
+  return (
+    <div className="rounded-md border border-[var(--cp-border)] bg-[var(--cp-panel)] px-4 py-3">
+      <div className="flex items-center gap-2">
+        <span className={`inline-flex h-8 w-8 items-center justify-center rounded-md ${toneMap[tone]}`}>
+          <Icon size={16} />
+        </span>
+        <div>
+          <div className="font-mono text-xl font-bold text-[var(--cp-text)]">{value}</div>
+          <div className="text-[11px] uppercase text-[var(--cp-muted)]">{label}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function FeaturedHomeSpotlight({ home, onClick, onScheduleTour }) {
+  if (!home) return null;
+  const specs = home.specs || {};
+  const image = getHomeImage(home);
+  return (
+    <div className="overflow-hidden rounded-lg border border-[var(--cp-border-light)] bg-[var(--cp-panel)] shadow-[0_20px_60px_rgba(0,0,0,0.35)]">
+      <button
+        type="button"
+        onClick={onClick}
+        className="group block w-full text-left"
+      >
+        <div className="relative h-[260px] overflow-hidden bg-[var(--cp-bg-2)]">
+          {image ? (
+            <img
+              src={image}
+              alt={home.model_name}
+              className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
+            />
+          ) : (
+            <div className="flex h-full items-center justify-center">
+              <Home size={42} className="text-[var(--cp-faint)]" />
+            </div>
+          )}
+          <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent p-4">
+            <div className="mb-2 inline-flex items-center gap-1.5 rounded-md bg-[var(--cp-accent)] px-2.5 py-1 text-[11px] font-bold uppercase text-[var(--cp-bg)]">
+              <CheckCircle2 size={12} />
+              Featured Live Listing
+            </div>
+            <h2 className="text-xl font-bold text-white">{home.model_name}</h2>
+            <p className="text-sm text-white/75">{home.manufacturer || 'Texas Home Outlet'}</p>
+          </div>
+        </div>
+      </button>
+      <div className="space-y-4 p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="font-mono text-2xl font-bold text-[var(--cp-accent)]">
+            {displayPrice(home)}
+          </div>
+          <StatusBadge status={home.status} kind="home" size="md" />
+        </div>
+        <div className="grid grid-cols-3 gap-2 text-center text-sm">
+          <div className="rounded-md bg-[var(--cp-bg-2)] p-2 text-[var(--cp-text-secondary)]">
+            <Bed size={15} className="mx-auto mb-1 text-[var(--cp-muted)]" />
+            {specs.beds || '-'} bed
+          </div>
+          <div className="rounded-md bg-[var(--cp-bg-2)] p-2 text-[var(--cp-text-secondary)]">
+            <Bath size={15} className="mx-auto mb-1 text-[var(--cp-muted)]" />
+            {specs.baths || '-'} bath
+          </div>
+          <div className="rounded-md bg-[var(--cp-bg-2)] p-2 text-[var(--cp-text-secondary)]">
+            <Maximize2 size={15} className="mx-auto mb-1 text-[var(--cp-muted)]" />
+            {specs.sq_ft ? specs.sq_ft.toLocaleString() : '-'} sqft
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={onClick}
+            className="inline-flex items-center justify-center gap-2 rounded-md border border-[var(--cp-border-light)] px-3 py-2 text-sm font-semibold text-[var(--cp-text)] transition hover:border-[var(--cp-secondary)] hover:text-[var(--cp-secondary)]"
+          >
+            <Eye size={15} />
+            Details
+          </button>
+          <button
+            type="button"
+            onClick={onScheduleTour}
+            className="inline-flex items-center justify-center gap-2 rounded-md bg-[var(--cp-accent)] px-3 py-2 text-sm font-semibold text-[var(--cp-bg)] transition hover:bg-[var(--cp-accent-hot)]"
+          >
+            <Calendar size={15} />
+            Tour
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // Admin-only inventory analytics panel. Renders only for authenticated
 // admins. Uses /api/admin/inventory/analytics (gated server-side by
@@ -114,16 +226,16 @@ function AdminInventoryPanel({ enabled }) {
   return (
     <div style={{
       maxWidth: 1200, margin: '12px auto', padding: 16,
-      background: 'rgba(0,0,0,0.04)', border: '1px solid rgba(0,0,0,0.08)', borderRadius: 8,
+      background: 'var(--cp-panel)', border: '1px solid var(--cp-border)', borderRadius: 8,
     }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 12 }}>
-        <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, color: '#666' }}>
+        <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, color: 'var(--cp-accent)' }}>
           Inventory Analytics (admin)
         </div>
-        <div style={{ fontSize: 10, color: '#999' }}>cached 5m</div>
+        <div style={{ fontSize: 10, color: 'var(--cp-faint)' }}>cached 5m</div>
       </div>
-      {loading && <div style={{ fontSize: 12, color: '#888' }}>Loading...</div>}
-      {error && <div style={{ fontSize: 12, color: '#ef4444' }}>Error: {error}</div>}
+      {loading && <div style={{ fontSize: 12, color: 'var(--cp-muted)' }}>Loading...</div>}
+      {error && <div style={{ fontSize: 12, color: 'var(--cp-danger)' }}>Error: {error}</div>}
       {data && (
         <>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12, marginBottom: 12 }}>
@@ -136,8 +248,8 @@ function AdminInventoryPanel({ enabled }) {
               { label: 'Median Price', value: fmtMoney(data.median_sale_price), color: '#06b6d4' },
               { label: 'Median Days On Lot', value: data.median_time_on_lot_days, color: '#14b8a6' },
             ].map(m => (
-              <div key={m.label} style={{ background: '#fff', border: '1px solid rgba(0,0,0,0.08)', borderRadius: 6, padding: '8px 12px' }}>
-                <div style={{ fontSize: 10, color: '#999', textTransform: 'uppercase', letterSpacing: 0.5 }}>{m.label}</div>
+              <div key={m.label} style={{ background: 'var(--cp-bg-2)', border: '1px solid var(--cp-border)', borderRadius: 6, padding: '8px 12px' }}>
+                <div style={{ fontSize: 10, color: 'var(--cp-muted)', textTransform: 'uppercase', letterSpacing: 0.5 }}>{m.label}</div>
                 <div style={{ fontSize: 18, fontWeight: 700, color: m.color || '#222', marginTop: 2 }}>
                   {m.value ?? '—'}
                 </div>
@@ -147,8 +259,8 @@ function AdminInventoryPanel({ enabled }) {
 
           {data.by_manufacturer?.length > 0 && (
             <div>
-              <div style={{ fontSize: 11, color: '#666', marginBottom: 6, fontWeight: 600 }}>By Manufacturer</div>
-              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr', fontSize: 11, color: '#666', padding: '4px 8px', borderBottom: '1px solid rgba(0,0,0,0.06)' }}>
+              <div style={{ fontSize: 11, color: 'var(--cp-muted)', marginBottom: 6, fontWeight: 600 }}>By Manufacturer</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr', fontSize: 11, color: 'var(--cp-muted)', padding: '4px 8px', borderBottom: '1px solid var(--cp-border)' }}>
                 <span>Manufacturer</span>
                 <span style={{ textAlign: 'right' }}>Total</span>
                 <span style={{ textAlign: 'right' }}>Available</span>
@@ -156,8 +268,8 @@ function AdminInventoryPanel({ enabled }) {
                 <span style={{ textAlign: 'right' }}>Median Price</span>
               </div>
               {data.by_manufacturer.slice(0, 12).map(m => (
-                <div key={m.manufacturer} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr', fontSize: 12, padding: '4px 8px', borderBottom: '1px solid rgba(0,0,0,0.04)' }}>
-                  <span style={{ color: '#222', fontWeight: 500 }}>{m.manufacturer}</span>
+                <div key={m.manufacturer} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr', fontSize: 12, padding: '4px 8px', borderBottom: '1px solid var(--cp-border)' }}>
+                  <span style={{ color: 'var(--cp-text)', fontWeight: 500 }}>{m.manufacturer}</span>
                   <span style={{ textAlign: 'right' }}>{m.count}</span>
                   <span style={{ textAlign: 'right', color: '#22c55e' }}>{m.available}</span>
                   <span style={{ textAlign: 'right', color: '#8b5cf6' }}>{m.sold}</span>
@@ -408,9 +520,9 @@ export default function InventoryBrowse({ adminAuthed = false, onAskTex, onCreat
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-50">
+      <div className="min-h-screen bg-[var(--cp-bg)]">
         {/* Skeleton hero */}
-        <div className={`${HERO_BG} px-6 pt-12 pb-10 relative overflow-hidden`}>
+        <div className="relative overflow-hidden border-b border-[var(--cp-border)] bg-[var(--cp-bg-2)] px-6 pb-10 pt-12 text-[var(--cp-text)]">
           <div className="max-w-3xl mx-auto text-center relative z-[1]">
             <Skeleton className="mx-auto mb-3" width="60%" height={32} />
             <Skeleton className="mx-auto mb-6" width="80%" height={16} />
@@ -454,60 +566,101 @@ export default function InventoryBrowse({ adminAuthed = false, onAskTex, onCreat
   const newCount = homes.filter(h => h.status === 'Available').length;
   const preOwnedCount = homes.filter(h => h.status === 'Pre-Owned').length;
   const tourCount = homes.filter(h => h.matterport_id).length;
+  const heroHome = homes.find(home => getHomeImage(home)) || homes[0];
+  const heroImage = getHomeImage(heroHome);
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-[var(--cp-bg)] text-[var(--cp-text)]">
       {/* Hero Section */}
-      <div className={`${HERO_BG} px-6 pt-12 pb-10 relative overflow-hidden`}>
-        {/* Decorative radial accent — replaces .tho-browse-hero::before */}
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute -top-1/2 -right-[20%] w-[400px] h-[400px] rounded-full"
-          style={{ background: 'radial-gradient(circle, rgba(255,255,255,0.08) 0%, transparent 70%)' }}
-        />
-        <div className="max-w-3xl mx-auto text-center relative z-[1]">
-          <h1 className="text-4xl font-extrabold tracking-tight mb-3">Find Your Perfect Home</h1>
-          <p className="text-lg opacity-90 mb-6 leading-relaxed">
-            Browse {homes.length} manufactured homes — {newCount} new, {preOwnedCount} pre-owned — with real photos and {tourCount} 3D virtual tours
-          </p>
+      <section className="relative isolate overflow-hidden border-b border-[var(--cp-border)] bg-[var(--cp-bg)]">
+        {heroImage && (
+          <img
+            src={heroImage}
+            alt=""
+            aria-hidden="true"
+            className="absolute inset-0 -z-10 h-full w-full object-cover opacity-35"
+          />
+        )}
+        <div className="absolute inset-0 -z-10 bg-[linear-gradient(90deg,rgba(5,6,8,0.96),rgba(5,6,8,0.74),rgba(5,6,8,0.9))]" />
+        <div className="mx-auto grid max-w-7xl gap-8 px-4 py-8 sm:px-6 lg:grid-cols-[1.1fr_0.9fr] lg:px-8 lg:py-10">
+          <div className="flex min-h-[520px] flex-col justify-center">
+            <div className="mb-4 inline-flex w-fit items-center gap-2 rounded-md border border-[var(--cp-accent)]/30 bg-[var(--cp-accent-dim)] px-3 py-1.5 font-mono text-xs font-semibold uppercase text-[var(--cp-accent)]">
+              <span className="cp-blink h-2 w-2 rounded-full bg-[var(--cp-accent)]" />
+              Inventory Refresh Live
+            </div>
+            <h1 className="max-w-3xl text-4xl font-extrabold leading-tight tracking-normal text-white sm:text-5xl">
+              Texas Home Outlet inventory command center
+            </h1>
+            <p className="mt-4 max-w-2xl text-base leading-relaxed text-[var(--cp-text-secondary)]">
+              Scan real photos, floorplans, availability, 3D tours, and tour requests from the refreshed THO production frontend.
+            </p>
 
-          {/* Search Bar */}
-          <div className="flex items-center gap-2 bg-white rounded-xl px-4 py-3 shadow-md max-w-2xl mx-auto">
-            <Search size={20} className="text-gray-400 flex-shrink-0" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search by name, manufacturer, beds, baths, type..."
-              className="flex-1 outline-none text-gray-800 text-base bg-transparent"
-            />
-            {searchQuery && (
-              <button onClick={() => setSearchQuery('')} className="text-gray-400 hover:text-gray-600 flex-shrink-0">
-                <X size={18} />
-              </button>
-            )}
+            <div className="mt-6 grid gap-3 sm:grid-cols-3">
+              <InventoryMetric icon={Home} label="Homes" value={homes.length} />
+              <InventoryMetric icon={CheckCircle2} label="Available" value={newCount} tone="blue" />
+              <InventoryMetric icon={Box} label="3D Tours" value={tourCount} tone="warn" />
+            </div>
+
+            {/* Search Bar */}
+            <div className="mt-6 max-w-2xl rounded-lg border border-[var(--cp-border-light)] bg-[var(--cp-panel)] p-2 shadow-[0_18px_50px_rgba(0,0,0,0.32)]">
+              <div className="flex items-center gap-2 rounded-md bg-[var(--cp-bg-2)] px-4 py-3">
+                <Search size={20} className="flex-shrink-0 text-[var(--cp-accent)]" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search by model, manufacturer, beds, baths, type..."
+                  className="min-w-0 flex-1 bg-transparent text-base text-[var(--cp-text)] outline-none placeholder:text-[var(--cp-faint)]"
+                />
+                {searchQuery && (
+                  <button onClick={() => setSearchQuery('')} className="flex-shrink-0 text-[var(--cp-muted)] hover:text-[var(--cp-accent)]">
+                    <X size={18} />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className="mt-5 flex flex-wrap gap-3">
+              {onAskTex && (
+                <button
+                  onClick={() => onAskTex("I'm looking for a new home. What do you recommend?")}
+                  className="inline-flex items-center gap-2 rounded-md bg-[var(--cp-accent)] px-5 py-3 text-sm font-bold text-[var(--cp-bg)] transition hover:bg-[var(--cp-accent-hot)]"
+                >
+                  <MessageCircle size={18} /> Talk to Tex
+                </button>
+              )}
+              <a
+                href={`tel:${BUSINESS_PHONE_RAW}`}
+                className="inline-flex items-center gap-2 rounded-md border border-[var(--cp-border-light)] bg-[var(--cp-panel)] px-5 py-3 text-sm font-semibold text-[var(--cp-text)] transition hover:border-[var(--cp-secondary)] hover:text-[var(--cp-secondary)]"
+              >
+                <Phone size={18} /> Call {BUSINESS_PHONE}
+              </a>
+            </div>
+            <div className="mt-6 flex flex-wrap items-center gap-3 text-xs text-[var(--cp-muted)]">
+              <span className="inline-flex items-center gap-1.5"><MapPin size={14} /> {BUSINESS_ADDRESS}, {BUSINESS_CITY}</span>
+              <span className="hidden h-1 w-1 rounded-full bg-[var(--cp-faint)] sm:inline-block" />
+              <span>{BUSINESS_HOURS}</span>
+              <span className="hidden h-1 w-1 rounded-full bg-[var(--cp-faint)] sm:inline-block" />
+              <span>{preOwnedCount} pre-owned homes visible</span>
+            </div>
           </div>
 
-          {/* Hero CTA */}
-          {onAskTex && (
-            <div className="flex justify-center gap-3 mt-4">
-              <button
-                onClick={() => onAskTex("I'm looking for a new home. What do you recommend?")}
-                className="inline-flex items-center gap-2 px-6 py-3 bg-white text-blue-700 font-bold rounded-full shadow-lg hover:shadow-xl hover:scale-105 transition-all text-sm"
-              >
-                <MessageCircle size={18} /> Talk to Tex — AI Home Advisor
-              </button>
-            </div>
-          )}
+          <div className="flex items-center">
+            <FeaturedHomeSpotlight
+              home={heroHome}
+              onClick={() => heroHome && openDetail(heroHome)}
+              onScheduleTour={() => heroHome && openLeadForm(heroHome, 'tour')}
+            />
+          </div>
         </div>
-      </div>
+      </section>
 
       <AdminInventoryPanel enabled={adminAuthed} />
 
       {/* Toolbar */}
-      <div className="flex flex-col items-center gap-3 px-4 pt-4 pb-2">
+      <div className="flex flex-col items-center gap-3 border-b border-[var(--cp-border)] bg-[var(--cp-bg-2)] px-4 pb-4 pt-4">
         <div className="flex items-center gap-3 justify-center flex-wrap">
-          <span className="text-sm text-gray-600">
+          <span className="font-mono text-sm text-[var(--cp-muted)]">
             {sortedHomes.length} home{sortedHomes.length !== 1 ? 's' : ''}
           </span>
 
@@ -515,22 +668,22 @@ export default function InventoryBrowse({ adminAuthed = false, onAskTex, onCreat
           <div className="flex gap-2 flex-wrap">
             <button
               onClick={() => setFilters(f => ({ ...f, status: '' }))}
-              className={`${PILL_BTN} ${filters.status === '' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-slate-100'}`}
+              className={`${PILL_BTN} ${filters.status === '' ? 'bg-[var(--cp-accent)] text-[var(--cp-bg)]' : 'bg-[var(--cp-panel)] text-[var(--cp-muted)] hover:text-[var(--cp-text)] hover:border-[var(--cp-border-light)]'}`}
             >All</button>
             <button
               onClick={() => setFilters(f => ({ ...f, status: 'Available' }))}
-              className={`${PILL_BTN} ${filters.status === 'Available' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-slate-100'}`}
+              className={`${PILL_BTN} ${filters.status === 'Available' ? 'bg-[var(--cp-accent)] text-[var(--cp-bg)]' : 'bg-[var(--cp-panel)] text-[var(--cp-muted)] hover:text-[var(--cp-text)] hover:border-[var(--cp-border-light)]'}`}
             >New ({newCount})</button>
             <button
               onClick={() => setFilters(f => ({ ...f, status: 'Pre-Owned' }))}
-              className={`${PILL_BTN} ${filters.status === 'Pre-Owned' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-slate-100'}`}
+              className={`${PILL_BTN} ${filters.status === 'Pre-Owned' ? 'bg-[var(--cp-accent)] text-[var(--cp-bg)]' : 'bg-[var(--cp-panel)] text-[var(--cp-muted)] hover:text-[var(--cp-text)] hover:border-[var(--cp-border-light)]'}`}
             >Pre-Owned ({preOwnedCount})</button>
           </div>
         </div>
 
         <div className="flex items-center gap-2 justify-center flex-wrap">
           {/* Sort dropdown */}
-          <div className="flex items-center gap-1 text-gray-600">
+          <div className="flex items-center gap-1 text-[var(--cp-muted)]">
             <ArrowUpDown size={14} />
             <select
               value={sortBy}
@@ -545,7 +698,7 @@ export default function InventoryBrowse({ adminAuthed = false, onAskTex, onCreat
 
           <button
             onClick={() => setShowFilters(!showFilters)}
-            className={`inline-flex items-center gap-2 ${PILL_BTN} ${hasActiveFilters || showFilters ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 border-gray-200 hover:border-blue-500 hover:text-blue-600'}`}
+            className={`inline-flex items-center gap-2 ${PILL_BTN} ${hasActiveFilters || showFilters ? 'bg-[var(--cp-secondary)] text-[var(--cp-bg)]' : 'bg-[var(--cp-panel)] text-[var(--cp-muted)] border-[var(--cp-border)] hover:border-[var(--cp-secondary)] hover:text-[var(--cp-secondary)]'}`}
           >
             <SlidersHorizontal size={16} />
             Filters
@@ -556,7 +709,7 @@ export default function InventoryBrowse({ adminAuthed = false, onAskTex, onCreat
             )}
           </button>
           {hasActiveFilters && (
-            <button onClick={clearFilters} className="btn-secondary text-sm">
+            <button onClick={clearFilters} className="rounded-md border border-[var(--cp-border)] bg-[var(--cp-panel)] px-4 py-2 text-sm text-[var(--cp-muted)] transition hover:text-[var(--cp-text)]">
               Clear All
             </button>
           )}
@@ -566,11 +719,11 @@ export default function InventoryBrowse({ adminAuthed = false, onAskTex, onCreat
       {/* Expandable Filter Panel */}
       {showFilters && (
         <div className="max-w-7xl mx-auto px-4 pb-4">
-          <Card className="shadow-sm">
+          <Card className="!bg-[var(--cp-panel)] !border-[var(--cp-border)] shadow-sm">
             <div className="grid gap-4"
                  style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))' }}>
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide flex items-center gap-1">
+                <label className="text-xs font-semibold text-[var(--cp-muted)] uppercase tracking-wide flex items-center gap-1">
                   <Bed size={14} /> Bedrooms
                 </label>
                 <select className={CHIP_INPUT} value={filters.beds} onChange={e => setFilters(f => ({ ...f, beds: e.target.value }))}>
@@ -582,7 +735,7 @@ export default function InventoryBrowse({ adminAuthed = false, onAskTex, onCreat
                 </select>
               </div>
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide flex items-center gap-1">
+                <label className="text-xs font-semibold text-[var(--cp-muted)] uppercase tracking-wide flex items-center gap-1">
                   <Bath size={14} /> Bathrooms
                 </label>
                 <select className={CHIP_INPUT} value={filters.baths} onChange={e => setFilters(f => ({ ...f, baths: e.target.value }))}>
@@ -593,7 +746,7 @@ export default function InventoryBrowse({ adminAuthed = false, onAskTex, onCreat
                 </select>
               </div>
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide flex items-center gap-1">
+                <label className="text-xs font-semibold text-[var(--cp-muted)] uppercase tracking-wide flex items-center gap-1">
                   <Home size={14} /> Type
                 </label>
                 <select className={CHIP_INPUT} value={filters.classification} onChange={e => setFilters(f => ({ ...f, classification: e.target.value }))}>
@@ -603,7 +756,7 @@ export default function InventoryBrowse({ adminAuthed = false, onAskTex, onCreat
                 </select>
               </div>
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Min Price</label>
+                <label className="text-xs font-semibold text-[var(--cp-muted)] uppercase tracking-wide">Min Price</label>
                 <input
                   className={CHIP_INPUT}
                   type="number"
@@ -613,7 +766,7 @@ export default function InventoryBrowse({ adminAuthed = false, onAskTex, onCreat
                 />
               </div>
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Max Price</label>
+                <label className="text-xs font-semibold text-[var(--cp-muted)] uppercase tracking-wide">Max Price</label>
                 <input
                   className={CHIP_INPUT}
                   type="number"
@@ -628,7 +781,7 @@ export default function InventoryBrowse({ adminAuthed = false, onAskTex, onCreat
       )}
 
       {/* Home Cards Grid */}
-      <div className="grid gap-6 px-6 pb-12 max-w-7xl mx-auto"
+      <div className="grid gap-6 px-4 pb-12 pt-6 sm:px-6 max-w-7xl mx-auto"
            style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))' }}>
         {sortedHomes.map((home, idx) => (
           <HomeCard
@@ -711,10 +864,10 @@ function HomeCard({ home, onClick, onScheduleTour }) {
   const categories = home.image_categories || {};
 
   return (
-    <Card padded={false} hover className="group">
+    <Card padded={false} hover className="group !bg-[var(--cp-panel)] !border-[var(--cp-border)]">
       {/* Image — click opens detail */}
       <div
-        className="relative h-[220px] overflow-hidden bg-slate-100 cursor-pointer"
+        className="relative h-[220px] overflow-hidden bg-[var(--cp-bg-2)] cursor-pointer"
         onClick={onClick}
       >
         {heroImage ? (
@@ -727,7 +880,7 @@ function HomeCard({ home, onClick, onScheduleTour }) {
           />
         ) : (
           <div className="w-full h-full flex items-center justify-center">
-            <Home size={32} className="text-gray-300" />
+            <Home size={32} className="text-[var(--cp-faint)]" />
           </div>
         )}
 
@@ -754,14 +907,14 @@ function HomeCard({ home, onClick, onScheduleTour }) {
       {/* Info */}
       <div className="p-5">
         <h3
-          className="text-lg font-bold text-slate-800 leading-tight cursor-pointer"
+          className="text-lg font-bold text-[var(--cp-text)] leading-tight cursor-pointer"
           onClick={onClick}
         >
           {home.model_name}
         </h3>
-        <p className="text-sm text-gray-500 mt-1">{home.manufacturer || 'New Vision Manufacturing'}</p>
+        <p className="text-sm text-[var(--cp-muted)] mt-1">{home.manufacturer || 'New Vision Manufacturing'}</p>
 
-        <div className="flex gap-4 my-4 py-3 border-t border-b border-gray-200 text-sm text-gray-600">
+        <div className="flex gap-4 my-4 py-3 border-t border-b border-[var(--cp-border)] text-sm text-[var(--cp-text-secondary)]">
           {specs.beds && (
             <span className="inline-flex items-center gap-1.5"><Bed size={14} /> {specs.beds} Bed</span>
           )}
@@ -794,23 +947,23 @@ function HomeCard({ home, onClick, onScheduleTour }) {
           </div>
         )}
 
-        <div className="text-xl font-bold text-green-600 mb-3">
+        <div className="text-xl font-bold text-[var(--cp-accent)] mb-3">
           {home.display_price && home.display_price !== 'Call for Price'
             ? home.display_price
-            : <span className="text-gray-500 text-base font-medium">Call for Price</span>
+            : <span className="text-[var(--cp-muted)] text-base font-medium">Call for Price</span>
           }
         </div>
 
         {/* Dual action buttons */}
         <div className="flex gap-2">
           <button
-            className="flex-1 inline-flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-sm font-medium bg-white text-slate-600 border-2 border-gray-200 hover:border-blue-500 hover:text-blue-600 transition"
+            className="flex-1 inline-flex items-center justify-center gap-1.5 py-2.5 rounded-md text-sm font-medium bg-[var(--cp-bg-2)] text-[var(--cp-text-secondary)] border border-[var(--cp-border)] hover:border-[var(--cp-secondary)] hover:text-[var(--cp-secondary)] transition"
             onClick={onClick}
           >
             <Eye size={16} /> View Details
           </button>
           <button
-            className="flex-1 inline-flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 transition"
+            className="flex-1 inline-flex items-center justify-center gap-1.5 py-2.5 rounded-md text-sm font-medium bg-[var(--cp-accent)] text-[var(--cp-bg)] hover:bg-[var(--cp-accent-hot)] transition"
             onClick={(e) => { e.stopPropagation(); onScheduleTour(); }}
           >
             <Calendar size={16} /> Schedule Tour

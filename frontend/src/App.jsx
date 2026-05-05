@@ -45,7 +45,21 @@ const PROJECT_TABS = [
 ];
 
 // ─── Shared Navigation Component ───
-function NavBar({ activePage, navigateTo, adminAuthed, onAdminAccess, isMobileMenuOpen, setIsMobileMenuOpen, showSearchFilters, onApplyFilters, onClearFilters, darkMode, onToggleDarkMode }) {
+function NavBar({
+  activePage,
+  navigateTo,
+  adminAuthed,
+  onAdminAccess,
+  onPasskeyRegister,
+  passkeyLoading,
+  isMobileMenuOpen,
+  setIsMobileMenuOpen,
+  showSearchFilters,
+  onApplyFilters,
+  onClearFilters,
+  darkMode,
+  onToggleDarkMode,
+}) {
   const navItems = [
     { key: 'inventory', label: 'Inventory', icon: Home },
     { key: 'chat', label: 'Chat', icon: MessageSquare },
@@ -165,6 +179,18 @@ function NavBar({ activePage, navigateTo, adminAuthed, onAdminAccess, isMobileMe
               {adminAuthed ? <ShieldCheck size={14} className="text-[var(--cp-accent)]" /> : <Lock size={14} />}
             </button>
 
+            {adminAuthed && (
+              <button
+                onClick={onPasskeyRegister}
+                disabled={passkeyLoading}
+                className="hidden md:flex items-center gap-1 px-2 py-1.5 text-xs text-[var(--cp-muted)] hover:text-[var(--cp-accent)] hover:bg-[var(--cp-surface)] rounded-md transition-colors disabled:opacity-50"
+                aria-label="Register this device passkey"
+                title="Register this device passkey"
+              >
+                <KeyRound size={14} />
+              </button>
+            )}
+
             {/* Mobile menu button */}
             <button
               className="md:hidden p-2 hover:bg-[var(--cp-surface)] rounded-lg transition text-[var(--cp-text)]"
@@ -210,6 +236,16 @@ function NavBar({ activePage, navigateTo, adminAuthed, onAdminAccess, isMobileMe
               {adminAuthed ? <ShieldCheck size={18} className="mr-3 text-[var(--cp-accent)]" /> : <Lock size={18} className="mr-3" />}
               {adminAuthed ? 'Analytics' : 'Admin'}
             </button>
+            {adminAuthed && (
+              <button
+                onClick={onPasskeyRegister}
+                disabled={passkeyLoading}
+                className="flex items-center w-full py-3 px-2 text-[var(--cp-muted)] hover:text-[var(--cp-accent)] hover:bg-[var(--cp-surface)] rounded-lg transition-colors font-mono text-sm disabled:opacity-50"
+              >
+                <KeyRound size={18} className="mr-3" />
+                Register passkey
+              </button>
+            )}
           </nav>
         )}
       </header>
@@ -369,16 +405,44 @@ function App() {
   // Passkey state
   const [passkeyLoading, setPasskeyLoading] = useState(false);
   const [passkeyError, setPasskeyError] = useState('');
+  const [passkeyStatus, setPasskeyStatus] = useState(null);
   const [passkeyAvailable] = useState(
     typeof window !== 'undefined' && !!window.PublicKeyCredential
   );
 
+  const refreshPasskeyStatus = useCallback(async () => {
+    try {
+      const response = await fetch('/api/admin/passkey/status', {
+        headers: { Accept: 'application/json' },
+        credentials: 'same-origin',
+      });
+      if (!response.ok) throw new Error('Passkey status unavailable');
+      const data = await response.json();
+      setPasskeyStatus(data);
+      return data;
+    } catch {
+      setPasskeyStatus({ enabled: false, store_ready: false, has_keys: false });
+      return null;
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshPasskeyStatus();
+  }, [refreshPasskeyStatus]);
+
   const handlePasskeyLogin = async () => {
     if (!window.PublicKeyCredential) { setPasskeyError('Passkeys not supported in this browser'); return; }
+    if (passkeyStatus && !passkeyStatus.has_keys) {
+      setPasskeyError('No passkeys are enrolled yet. Unlock with PIN once, then register this device.');
+      return;
+    }
     setPasskeyLoading(true); setPasskeyError('');
     try {
       const beginRes = await fetch('/api/admin/passkey/login/begin', { method: 'POST', credentials: 'same-origin' });
-      if (!beginRes.ok) throw new Error('Server error starting passkey login');
+      if (!beginRes.ok) {
+        const data = await beginRes.json().catch(() => ({}));
+        throw new Error(data.detail || 'Server error starting passkey login');
+      }
       const options = await beginRes.json();
       // Convert base64url challenge / ids back to ArrayBuffer
       options.challenge = base64urlToBuffer(options.challenge);
@@ -426,7 +490,10 @@ function App() {
     setPasskeyLoading(true); setPasskeyError('');
     try {
       const beginRes = await fetch('/api/admin/passkey/register/begin', { method: 'POST', credentials: 'same-origin' });
-      if (!beginRes.ok) throw new Error('Server error starting passkey registration');
+      if (!beginRes.ok) {
+        const data = await beginRes.json().catch(() => ({}));
+        throw new Error(data.detail || 'Unlock with PIN before registering a passkey');
+      }
       const options = await beginRes.json();
       options.user.id = base64urlToBuffer(options.user.id);
       options.challenge = base64urlToBuffer(options.challenge);
@@ -456,7 +523,9 @@ function App() {
       const data = await completeRes.json();
       if (data.success) {
         setAdminAuthed(true); setShowPinModal(false); setPasskeyError('');
-        navigateTo('analytics');
+        await refreshPasskeyStatus();
+        addToast('Passkey registered for this device.', 'success');
+        navigateTo('system');
       } else {
         setPasskeyError(data.error || 'Passkey registration failed');
       }
@@ -784,24 +853,25 @@ function App() {
 
         {passkeyAvailable && (
           <div className="space-y-2">
-            <button
-              type="button"
-              onClick={handlePasskeyLogin}
-              disabled={passkeyLoading}
-              className="cp-btn-outline w-full py-2.5 text-sm flex items-center justify-center gap-2"
-            >
-              <Fingerprint size={16} />
-              {passkeyLoading ? 'Authenticating...' : 'Sign in with Passkey'}
-            </button>
-            <button
-              type="button"
-              onClick={handlePasskeyRegister}
-              disabled={passkeyLoading}
-              className="w-full py-2 text-[11px] text-[var(--cp-faint)] hover:text-[var(--cp-accent)] transition-colors font-mono"
-            >
-              <KeyRound size={12} className="inline mr-1.5" />
-              Register new passkey
-            </button>
+            {passkeyStatus?.has_keys ? (
+              <button
+                type="button"
+                onClick={handlePasskeyLogin}
+                disabled={passkeyLoading}
+                className="cp-btn-outline w-full py-2.5 text-sm flex items-center justify-center gap-2"
+              >
+                <Fingerprint size={16} />
+                {passkeyLoading ? 'Authenticating...' : 'Sign in with Passkey'}
+              </button>
+            ) : (
+              <p className="text-[11px] text-[var(--cp-faint)] text-center leading-relaxed font-mono border border-[var(--cp-border)] rounded-lg px-3 py-2 bg-[var(--cp-bg-2)]">
+                {passkeyStatus === null
+                  ? 'Checking passkey enrollment...'
+                  : passkeyStatus.store_ready === false
+                    ? 'Passkey storage is not ready. PIN fallback remains available.'
+                    : 'No passkeys enrolled yet. Unlock with PIN, then tap the key icon to register this device.'}
+              </p>
+            )}
           </div>
         )}
 
@@ -822,6 +892,8 @@ function App() {
     navigateTo,
     adminAuthed,
     onAdminAccess: handleAdminAccess,
+    onPasskeyRegister: handlePasskeyRegister,
+    passkeyLoading,
     isMobileMenuOpen,
     setIsMobileMenuOpen,
     darkMode,

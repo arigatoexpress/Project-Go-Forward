@@ -14,8 +14,11 @@ from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 
 DEFAULT_SESSION_TTL = 4 * 60 * 60  # 4 hours
 DEFAULT_CHALLENGE_TTL = 5 * 60  # 5 minutes
-SESSION_COOKIE_NAME = "tho_admin_session"
 PASSKEY_COOKIE_NAME = "tho_passkey_session"
+# Historical builds briefly used ``tho_admin_session`` for passkey auth,
+# while main.py verifies ``tho_passkey_session``. Keep one canonical cookie
+# name so successful WebAuthn logins are actually honored by admin routes.
+SESSION_COOKIE_NAME = PASSKEY_COOKIE_NAME
 
 
 def _b64url_encode(data: bytes) -> str:
