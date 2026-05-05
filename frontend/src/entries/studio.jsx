@@ -32,8 +32,7 @@ function StudioApp() {
       });
       if (res.ok) {
         const data = await res.json();
-        if (data.token) {
-          sessionStorage.setItem('tho_admin_token', data.token);
+        if (data.success) {
           setAdminAuthed(true);
           setShowPin(false);
         }
@@ -45,15 +44,12 @@ function StudioApp() {
     }
   };
 
-  // Check existing token
+  // Check existing session cookie
   useEffect(() => {
-    const token = sessionStorage.getItem('tho_admin_token');
-    if (token) {
-      fetch('/api/admin/check', { headers: { 'Authorization': `Bearer ${token}` } })
-        .then(r => r.json())
-        .then(d => { if (d.valid) { setAdminAuthed(true); setShowPin(false); } })
-        .catch(() => {});
-    }
+    fetch('/api/admin/check')
+      .then(r => r.json())
+      .then(d => { if (d.valid) { setAdminAuthed(true); setShowPin(false); } })
+      .catch(() => {});
   }, []);
 
   if (showPin && !adminAuthed) {

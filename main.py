@@ -14,30 +14,29 @@ os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "TRUE"
 
 import asyncio
 import hashlib
-import secrets
-from collections import defaultdict
-from fastapi import FastAPI, Request, Depends, HTTPException
-from fastapi.exceptions import RequestValidationError
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
-from json import JSONDecodeError
+import json
 import logging
+import secrets
 import time
 import uuid
+from collections import defaultdict
 from datetime import UTC, datetime
+from json import JSONDecodeError
 from urllib.parse import urlsplit, urlunsplit
 
 import uvicorn
+from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from config_loader import get_deployment_config, business_name
-
 import caching
+from config_loader import business_name, get_deployment_config
 
 # Lazy initialization placeholders - will be loaded on first use
 _adk_app = None
@@ -101,6 +100,15 @@ from audit_log import (
 )
 from chat_history import ChatHistory
 from conversation_memory import ConversationMemory
+from docuseal_service import (
+    maybe_trigger_automated_signing as docuseal_auto_trigger,
+)
+from docuseal_service import (
+    send_file_for_signature as docuseal_send_file_for_signature,
+)
+from docuseal_service import (
+    send_for_signature as docuseal_send_for_signature,
+)
 from email_service import (
     get_email_log,
     notify_new_appointment,
@@ -110,12 +118,6 @@ from email_service import (
     send_deal_status_update,
     send_document_email,
     send_lead_welcome,
-)
-
-from docuseal_service import (
-    maybe_trigger_automated_signing as docuseal_auto_trigger,
-    send_file_for_signature as docuseal_send_file_for_signature,
-    send_for_signature as docuseal_send_for_signature,
 )
 from lead_management import Lead, LeadManager
 from structured_logging import logger as struct_logger
@@ -217,8 +219,9 @@ APP_STARTED_AT = time.monotonic()
 
 # Sentry error tracking — opt-in; no-op when SENTRY_DSN is absent or under pytest.
 if os.environ.get('SENTRY_DSN') and not os.environ.get('PYTEST_CURRENT_TEST'):
-    import sentry_sdk
     import re as _sentry_re
+
+    import sentry_sdk
 
     _SENTRY_SSN_RE = _sentry_re.compile(r'\b\d{3}[-\s]?\d{2}[-\s]?\d{4}\b')
     _SENTRY_EMAIL_RE = _sentry_re.compile(r'\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b')
@@ -307,7 +310,7 @@ def _get_client_ip(request: Request) -> str:
     """Get real client IP, checking X-Forwarded-For for reverse proxy (Cloud Run).
 
     Reused as the slowapi ``key_func`` so per-IP rate limiting and the
-    ``_pin_attempts`` brute-force counter key the same client identity.
+    Redis-backed brute-force counter key the same client identity.
     """
     forwarded = request.headers.get("x-forwarded-for", "")
     if forwarded:
@@ -651,7 +654,13 @@ def _verify_admin_token(token: str) -> bool:
 
 
 def _admin_token_from_request(request: Request) -> str:
-    """Read an admin token from the supported employee UI auth headers."""
+    """Read an admin token from cookie or supported auth headers."""
+    # Prefer httpOnly cookie (post-hardening)
+    token = request.cookies.get("tho_admin_token", "").strip()
+    if token:
+        return token
+
+    # Fallback to headers for backward compatibility
     token = request.headers.get("X-Admin-Token", "").strip()
     if token:
         return token
@@ -693,9 +702,121 @@ def _audit_actor(request: Request) -> str:
 
 
 # Brute-force protection: track failed PIN attempts per IP
-_pin_attempts: dict[str, list[float]] = {}
+# Redis-backed with in-memory fallback for local dev without Redis
 PIN_MAX_ATTEMPTS = 10
 PIN_LOCKOUT_SECONDS = 300  # 5-minute lockout after 10 failures
+_pin_attempts_fallback: dict[str, list[float]] = {}
+
+
+def _pin_attempts_key(client_ip: str) -> str:
+    return f"tho:pin_attempts:{client_ip}"
+
+
+def _get_pin_attempts(client_ip: str) -> list[float]:
+    """Retrieve recent failed PIN attempts for a client IP."""
+    redis_client = caching.get_redis_client()
+    if redis_client:
+        try:
+            data = redis_client.get(_pin_attempts_key(client_ip))
+            if data:
+                attempts = json.loads(data)
+                now = time.time()
+                attempts = [t for t in attempts if now - t < PIN_LOCKOUT_SECONDS]
+                return attempts
+        except Exception as e:
+            struct_logger.warning("Redis pin_attempts read failed", error=str(e))
+    # Fallback to in-memory
+    attempts = _pin_attempts_fallback.get(client_ip, [])
+    now = time.time()
+    attempts = [t for t in attempts if now - t < PIN_LOCKOUT_SECONDS]
+    return attempts
+
+
+def _add_pin_attempt(client_ip: str, timestamp: float) -> None:
+    """Record a failed PIN attempt for a client IP."""
+    attempts = _get_pin_attempts(client_ip)
+    attempts.append(timestamp)
+    redis_client = caching.get_redis_client()
+    if redis_client:
+        try:
+            redis_client.setex(
+                _pin_attempts_key(client_ip),
+                PIN_LOCKOUT_SECONDS,
+                json.dumps(attempts),
+            )
+            return
+        except Exception as e:
+            struct_logger.warning("Redis pin_attempts write failed", error=str(e))
+    _pin_attempts_fallback[client_ip] = attempts
+
+
+def _clear_pin_attempts(client_ip: str) -> None:
+    """Clear failed PIN attempts after successful login."""
+    redis_client = caching.get_redis_client()
+    if redis_client:
+        try:
+            redis_client.delete(_pin_attempts_key(client_ip))
+        except Exception:
+            pass
+    _pin_attempts_fallback.pop(client_ip, None)
+
+
+AI_RUN_TIMEOUT = float(os.environ.get("AI_RUN_TIMEOUT", "45.0"))  # seconds
+
+
+async def _execute_agent_run(runner, user_id, session_id, new_message, request_id):
+    """Run the ADK agent and collect the response text."""
+    result_generator = runner.run_async(
+        user_id=user_id, session_id=session_id, new_message=new_message
+    )
+
+    final_text = ""
+    event_count = 0
+
+    async for event in result_generator:
+        event_count += 1
+        event_type = type(event).__name__
+        has_content = hasattr(event, "content") and event.content is not None
+        content_role = None
+        content_text = None
+
+        if has_content:
+            content_role = getattr(event.content, "role", None)
+            # Log full content details for debugging
+            if hasattr(event.content, "parts") and event.content.parts:
+                for i, part in enumerate(event.content.parts):
+                    if hasattr(part, "text") and part.text:
+                        content_text = part.text[:200]  # First 200 chars
+                        break
+
+        struct_logger.info(
+            f"Event {event_count}",
+            request_id=request_id,
+            event_type=event_type,
+            content_role=content_role,
+            has_content=has_content,
+            content_preview=content_text,
+        )
+
+        # Log error events
+        if event_type == "ErrorEvent" or (has_content and content_role == "error"):
+            error_msg = getattr(event, "error_message", "Unknown error")
+            struct_logger.error("Agent error event", request_id=request_id, error=error_msg)
+
+        # Check for model response - ADK uses "model" role for assistant responses
+        if has_content and content_role in ("model", "assistant"):
+            for i, part in enumerate(event.content.parts):
+                has_text = hasattr(part, "text") and bool(part.text)
+                if has_text:
+                    final_text += part.text
+
+    if not final_text:
+        struct_logger.warning(
+            "No text generated", request_id=request_id, event_count=event_count
+        )
+        final_text = "I apologize, but I couldn't generate a response. Please try again."
+
+    return final_text, event_count
 
 
 @app.post("/run")
@@ -761,56 +882,19 @@ async def run_agent(request: Request):
                 app_name="root_agent", user_id=user_id, session_id=session_id
             )
 
-        # Run agent
-        result_generator = runner.run_async(
-            user_id=user_id, session_id=session_id, new_message=new_message
-        )
-
-        final_text = ""
-        event_count = 0
-
-        async for event in result_generator:
-            event_count += 1
-            event_type = type(event).__name__
-            has_content = hasattr(event, "content") and event.content is not None
-            content_role = None
-            content_text = None
-
-            if has_content:
-                content_role = getattr(event.content, "role", None)
-                # Log full content details for debugging
-                if hasattr(event.content, "parts") and event.content.parts:
-                    for i, part in enumerate(event.content.parts):
-                        if hasattr(part, "text") and part.text:
-                            content_text = part.text[:200]  # First 200 chars
-                            break
-
-            struct_logger.info(
-                f"Event {event_count}",
-                request_id=request_id,
-                event_type=event_type,
-                content_role=content_role,
-                has_content=has_content,
-                content_preview=content_text,
+        # Run agent with timeout
+        try:
+            final_text, event_count = await asyncio.wait_for(
+                _execute_agent_run(runner, user_id, session_id, new_message, request_id),
+                timeout=AI_RUN_TIMEOUT,
             )
-
-            # Log error events
-            if event_type == "ErrorEvent" or (has_content and content_role == "error"):
-                error_msg = getattr(event, "error_message", "Unknown error")
-                struct_logger.error("Agent error event", request_id=request_id, error=error_msg)
-
-            # Check for model response - ADK uses "model" role for assistant responses
-            if has_content and content_role in ("model", "assistant"):
-                for i, part in enumerate(event.content.parts):
-                    has_text = hasattr(part, "text") and bool(part.text)
-                    if has_text:
-                        final_text += part.text
-
-        if not final_text:
-            struct_logger.warning(
-                "No text generated", request_id=request_id, event_count=event_count
+        except TimeoutError:
+            struct_logger.warning("Agent run timed out", request_id=request_id)
+            final_text = (
+                "I apologize, but the request timed out. "
+                "Please try again with a shorter message."
             )
-            final_text = "I apologize, but I couldn't generate a response. Please try again."
+            event_count = 0
 
         # Save to chat history (full conversation persistence)
         try:
@@ -1014,9 +1098,9 @@ async def admin_lead_sources(days: int = 30):
         return cached
 
     try:
-        from datetime import datetime, timedelta, timezone
+        from datetime import datetime, timedelta
 
-        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+        cutoff = datetime.now(UTC) - timedelta(days=days)
         cutoff_naive = cutoff.replace(tzinfo=None)
 
         all_leads = await lead_manager.list_leads(limit=2000)
@@ -1100,7 +1184,7 @@ async def admin_lead_sources(days: int = 30):
             "window_days": days,
             "total_leads": recent_lead_count,
             "categories": categories,
-            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "generated_at": datetime.now(UTC).isoformat(),
         }
         cache_set(cache_key, result, ttl_seconds=300)
         return result
@@ -1882,9 +1966,9 @@ async def admin_inventory_analytics():
 
     try:
         import statistics as _stats
-        from datetime import datetime, timedelta, timezone
+        from datetime import datetime, timedelta
 
-        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        now = datetime.now(UTC).replace(tzinfo=None)
         thirty_days_ago = now - timedelta(days=30)
 
         total = 0
@@ -1969,7 +2053,7 @@ async def admin_inventory_analytics():
             "median_sale_price": round(_stats.median(prices), 0) if prices else None,
             "median_time_on_lot_days": round(_stats.median(time_on_lot_days), 1) if time_on_lot_days else None,
             "by_manufacturer": manufacturers,
-            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "generated_at": datetime.now(UTC).isoformat(),
         }
         cache_set(cache_key, result, ttl_seconds=300)
         return result
@@ -2150,11 +2234,11 @@ def _parse_iso_datetime(value):
     endpoints that need to diff created_at/updated_at without assuming a
     consistent stored type.
     """
-    from datetime import datetime, timezone
+    from datetime import datetime
     if value is None:
         return None
     if isinstance(value, datetime):
-        return value.astimezone(timezone.utc).replace(tzinfo=None) if value.tzinfo else value
+        return value.astimezone(UTC).replace(tzinfo=None) if value.tzinfo else value
     if not isinstance(value, str):
         return None
     raw = value.strip()
@@ -2166,7 +2250,7 @@ def _parse_iso_datetime(value):
         dt = datetime.fromisoformat(raw)
     except ValueError:
         return None
-    return dt.astimezone(timezone.utc).replace(tzinfo=None) if dt.tzinfo else dt
+    return dt.astimezone(UTC).replace(tzinfo=None) if dt.tzinfo else dt
 
 
 def _strip_pii_from_deal(deal: dict) -> dict:
@@ -2722,7 +2806,6 @@ from tools.marketing_tools import (
     get_trending_content_ideas,
     schedule_social_post,
 )
-from tools.asset_scraper import PROPERTY_ASSETS, get_matterport_url
 from tools.photo_classifier import apply_classifier_to_home
 from tools.video_generator import GENERATED_VIDEOS_DIR
 
@@ -3389,24 +3472,21 @@ async def search_chat_conversations(request: Request):
 @app.post("/api/admin/verify")
 @limiter.limit("5/minute")
 async def verify_admin_pin(request: Request):
-    """Validate admin PIN server-side and return a session token.
+    """Validate admin PIN server-side and set an httpOnly session cookie.
 
     Layered defenses:
 
     * slowapi caps this endpoint at 5/min per IP — short-circuits a fast
       brute-force attacker before they can spin through the 10-attempt
-      ``_pin_attempts`` window.
-    * The legacy ``_pin_attempts`` lockout (10 attempts → 5-minute cool-off)
+      Redis-backed pin-attempts window.
+    * Redis-backed pin-attempts lockout (10 attempts → 5-minute cool-off)
       still applies for clients staying under the 5/min slowapi cap.
     """
     client_ip = _get_client_ip(request)
 
     # Check brute-force lockout
     now = time.time()
-    attempts = _pin_attempts.get(client_ip, [])
-    # Prune old attempts outside the lockout window
-    attempts = [t for t in attempts if now - t < PIN_LOCKOUT_SECONDS]
-    _pin_attempts[client_ip] = attempts
+    attempts = _get_pin_attempts(client_ip)
     if len(attempts) >= PIN_MAX_ATTEMPTS:
         struct_logger.warning("Admin login locked out", client_ip=client_ip, attempts=len(attempts))
         return JSONResponse(
@@ -3440,12 +3520,12 @@ async def verify_admin_pin(request: Request):
         )
     pin_hash = hashlib.sha256(pin.encode()).hexdigest()
     if not secrets.compare_digest(pin_hash, ADMIN_PIN_HASH):
-        _pin_attempts.setdefault(client_ip, []).append(now)
-        remaining = PIN_MAX_ATTEMPTS - len(_pin_attempts[client_ip])
+        _add_pin_attempt(client_ip, now)
+        remaining = PIN_MAX_ATTEMPTS - len(_get_pin_attempts(client_ip))
         struct_logger.warning("Admin login failed", client_ip=client_ip, remaining=remaining)
         return JSONResponse({"success": False, "error": "Incorrect PIN."}, status_code=401)
     # Successful login — clear attempt history
-    _pin_attempts.pop(client_ip, None)
+    _clear_pin_attempts(client_ip)
     token = _create_admin_token()
     struct_logger.info("Admin login succeeded", client_ip=client_ip)
     # Audit trail: track who logged in and when. Use a hash of the freshly
@@ -3460,14 +3540,25 @@ async def verify_admin_pin(request: Request):
         details={"client_ip": client_ip},
         request=request,
     )
-    return {"success": True, "token": token}
+    response = JSONResponse({"success": True})
+    response.set_cookie(
+        key="tho_admin_token",
+        value=token,
+        httponly=True,
+        secure=not IS_LOCAL,
+        samesite="strict",
+        max_age=ADMIN_TOKEN_TTL,
+    )
+    return response
 
 
 @app.get("/api/admin/check")
 @limiter.limit("30/minute")
 async def check_admin_token(request: Request):
     """Verify that an admin token is still valid (stateless — works across instances)."""
-    token = _admin_token_from_request(request)
+    token = request.cookies.get("tho_admin_token", "")
+    if not token:
+        token = _admin_token_from_request(request)
     if _verify_admin_token(token):
         return {"valid": True}
     return JSONResponse({"valid": False}, status_code=401)
@@ -3666,8 +3757,8 @@ async def admin_crm_funnel():
         return cached
 
     try:
-        from datetime import datetime, timezone
         import statistics as _stats
+        from datetime import datetime
 
         # Customers (1,963 docs in prod) — paged via search_customers helper
         customers = _db.search_customers(limit=10000)
@@ -3752,7 +3843,7 @@ async def admin_crm_funnel():
                 "deals_closed": closed_deal_count,
                 "deals_denied": denied_count,
             },
-            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "generated_at": datetime.now(UTC).isoformat(),
         }
         cache_set(cache_key, result, ttl_seconds=300)
         return result

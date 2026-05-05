@@ -1,5 +1,6 @@
 import React from 'react';
 import Markdown from 'react-markdown';
+import rehypeSanitize from 'rehype-sanitize';
 import PropertyCard from './PropertyCard';
 
 /**
@@ -38,6 +39,7 @@ export default function SafeMarkdown({ content, comparisonList = [], onToggleCom
         <MarkdownErrorBoundary fallbackText={content}>
             <div className="prose prose-sm max-w-none">
             <Markdown
+                rehypePlugins={[rehypeSanitize]}
                 components={{
                     // Customize markdown rendering
                     code(props) {
