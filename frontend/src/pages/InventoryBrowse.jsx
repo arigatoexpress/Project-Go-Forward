@@ -85,23 +85,27 @@ const CHIP_INPUT =
 // Admin-only inventory analytics panel. Renders only for authenticated
 // admins. Uses /api/admin/inventory/analytics (gated server-side by
 // require_admin); the httpOnly cookie is sent automatically.
-function AdminInventoryPanel() {
+function AdminInventoryPanel({ enabled }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  // We optimistically render the panel; the server will 401 if no valid
-  // admin cookie is present, and we simply hide the panel on failure.
   useEffect(() => {
+    if (!enabled) {
+      setData(null);
+      setError(null);
+      setLoading(false);
+      return;
+    }
     let alive = true;
     setLoading(true);
-    fetch('/api/admin/inventory/analytics')
+    fetch('/api/admin/inventory/analytics', { credentials: 'same-origin' })
       .then(r => r.json())
       .then(d => { if (alive && d?.success) setData(d); })
       .catch(e => { if (alive) setError(String(e)); })
       .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
-  }, []);
+  }, [enabled]);
 
   if (!data && !loading) return null;
 
@@ -169,7 +173,7 @@ function AdminInventoryPanel() {
 }
 
 
-export default function InventoryBrowse({ onAskTex, onCreateAd }) {
+export default function InventoryBrowse({ adminAuthed = false, onAskTex, onCreateAd }) {
   const [homes, setHomes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -498,9 +502,7 @@ export default function InventoryBrowse({ onAskTex, onCreateAd }) {
         </div>
       </div>
 
-      {/* Admin-only inventory analytics panel — only renders when an
-          admin token is present in sessionStorage. */}
-      <AdminInventoryPanel />
+      <AdminInventoryPanel enabled={adminAuthed} />
 
       {/* Toolbar */}
       <div className="flex flex-col items-center gap-3 px-4 pt-4 pb-2">

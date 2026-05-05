@@ -968,6 +968,15 @@ def test_admin_token_accepts_supported_employee_headers(monkeypatch):
     assert protected_route.status_code == 200
 
 
+def test_admin_check_returns_false_without_auth(monkeypatch):
+    client, _main, _db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
+
+    response = client.get("/api/admin/check")
+
+    assert response.status_code == 200
+    assert response.json() == {"valid": False}
+
+
 def test_cloud_run_admin_auth_fails_closed_without_pin_hash(monkeypatch):
     """App refuses to start in Cloud Run without ADMIN_PIN_HASH set."""
     monkeypatch.setenv("K_SERVICE", "project-go-forward")
