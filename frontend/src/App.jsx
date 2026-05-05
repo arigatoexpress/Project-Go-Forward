@@ -309,27 +309,24 @@ function App() {
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
-  // Admin auth — token validated by backend
+  // Admin auth — token validated by backend via httpOnly cookie
   const [adminAuthed, setAdminAuthed] = useState(false);
-  const [adminToken, setAdminToken] = useState(() => sessionStorage.getItem('tho_admin_token') || '');
   const [showPinModal, setShowPinModal] = useState(false);
   const [pinInput, setPinInput] = useState('');
   const [pinError, setPinError] = useState('');
   const [pinLoading, setPinLoading] = useState(false);
-  
-  // Verify stored token on mount
+
+  // Verify stored cookie on mount
   useEffect(() => {
-    if (!adminToken) return;
-    fetch('/api/admin/check', { headers: { 'X-Admin-Token': adminToken } })
-      .then(r => { if (r.ok) setAdminAuthed(true); else { setAdminToken(''); sessionStorage.removeItem('tho_admin_token'); } })
+    fetch('/api/admin/check')
+      .then(r => { if (r.ok) setAdminAuthed(true); })
       .catch(() => {});
-  }, [adminToken]);
+  }, []);
 
   // Listen for expired admin session (fired by adminFetch on 401)
   useEffect(() => {
     const handleExpired = () => {
       setAdminAuthed(false);
-      setAdminToken('');
       setShowPinModal(true);
       setPinError('Session expired — please re-enter PIN');
     };
@@ -446,10 +443,8 @@ function App() {
         body: JSON.stringify({ pin: pinInput }),
       });
       const data = await res.json();
-      if (data.success && data.token) {
+      if (data.success) {
         setAdminAuthed(true);
-        setAdminToken(data.token);
-        sessionStorage.setItem('tho_admin_token', data.token);
         setShowPinModal(false);
         setPinInput('');
         navigateTo('analytics');

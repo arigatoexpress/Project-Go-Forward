@@ -82,33 +82,28 @@ const PILL_BTN =
 const CHIP_INPUT =
   'px-3 py-2 rounded-lg border-2 border-gray-200 text-sm bg-white focus:outline-none focus:border-blue-500 transition';
 
-// Admin-only inventory analytics panel. Renders only when a valid admin
-// token is present in sessionStorage. Uses /api/admin/inventory/analytics
-// (gated server-side by require_admin).
+// Admin-only inventory analytics panel. Renders only for authenticated
+// admins. Uses /api/admin/inventory/analytics (gated server-side by
+// require_admin); the httpOnly cookie is sent automatically.
 function AdminInventoryPanel() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  // Only attempt fetch if a token is in sessionStorage — otherwise this
-  // panel is invisible to the public browse page.
-  const hasToken = typeof window !== 'undefined' && !!sessionStorage.getItem('tho_admin_token');
-
+  // We optimistically render the panel; the server will 401 if no valid
+  // admin cookie is present, and we simply hide the panel on failure.
   useEffect(() => {
-    if (!hasToken) return;
     let alive = true;
     setLoading(true);
-    fetch('/api/admin/inventory/analytics', {
-      headers: { 'X-Admin-Token': sessionStorage.getItem('tho_admin_token') || '' },
-    })
+    fetch('/api/admin/inventory/analytics')
       .then(r => r.json())
       .then(d => { if (alive && d?.success) setData(d); })
       .catch(e => { if (alive) setError(String(e)); })
       .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
-  }, [hasToken]);
+  }, []);
 
-  if (!hasToken || (!data && !loading)) return null;
+  if (!data && !loading) return null;
 
   const fmtMoney = (n) => n == null ? '—' : `$${Math.round(n).toLocaleString()}`;
 
