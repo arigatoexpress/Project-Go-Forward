@@ -35,6 +35,9 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from auth.session import SESSION_COOKIE_NAME as PASSKEY_COOKIE_NAME, SessionManager
+from auth.routes import router as passkey_router
+
 import caching
 from config_loader import business_name, get_deployment_config
 
@@ -631,6 +634,16 @@ def _create_admin_token() -> str:
     return base64.urlsafe_b64encode(payload + sig).decode().rstrip("=")
 
 
+_passkey_session_manager: SessionManager | None = None
+
+
+def _get_passkey_session_manager() -> SessionManager:
+    global _passkey_session_manager
+    if _passkey_session_manager is None:
+        _passkey_session_manager = SessionManager()
+    return _passkey_session_manager
+
+
 def _verify_admin_token(token: str) -> bool:
     """Verify an HMAC-signed admin token. Stateless — works across instances."""
     if not ADMIN_PIN_HASH:
@@ -653,6 +666,16 @@ def _verify_admin_token(token: str) -> bool:
         return False
 
 
+def _verify_passkey_cookie(request: Request) -> bool:
+    """Check the passkey session cookie."""
+    token = request.cookies.get(PASSKEY_COOKIE_NAME, "")
+    if not token:
+        return False
+    mgr = _get_passkey_session_manager()
+    payload = mgr.verify_session(token)
+    return payload is not None and payload.get("user_id") == "admin"
+
+
 def _admin_token_from_request(request: Request) -> str:
     """Read an admin token from cookie or supported auth headers."""
     # Prefer httpOnly cookie (post-hardening)
@@ -673,7 +696,9 @@ def _admin_token_from_request(request: Request) -> str:
 
 
 async def require_admin(request: Request):
-    """FastAPI dependency that validates the stateless admin token."""
+    """FastAPI dependency that validates the stateless admin token or passkey session."""
+    if _verify_passkey_cookie(request):
+        return
     token = _admin_token_from_request(request)
     if not token:
         raise HTTPException(status_code=401, detail="Admin authentication required")
@@ -3565,6 +3590,8 @@ async def verify_admin_pin(request: Request):
 @limiter.limit("30/minute")
 async def check_admin_token(request: Request):
     """Verify that an admin token is still valid (stateless — works across instances)."""
+    if _verify_passkey_cookie(request):
+        return {"valid": True}
     token = request.cookies.get("tho_admin_token", "")
     if not token:
         token = _admin_token_from_request(request)
@@ -4789,3 +4816,4 @@ if __name__ == "__main__":
 from pm_routes import router as pm_router
 
 app.include_router(pm_router, dependencies=[Depends(require_admin)])
+app.include_router(passkey_router)

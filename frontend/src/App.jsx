@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, lazy, Suspense, useCallback } from 'react';
-import { Send, Home, Menu, X, Phone, MapPin, Loader2, User, Bot, FileText, Video, Lock, ShieldCheck, CalendarDays, Users, MessageSquare, MessageCircle, RotateCcw, WifiOff, Moon, Sun } from 'lucide-react';
+import { Send, Home, Menu, X, Phone, MapPin, Loader2, User, Bot, FileText, Video, Lock, ShieldCheck, CalendarDays, Users, MessageSquare, MessageCircle, RotateCcw, WifiOff, Moon, Sun, Activity, KeyRound, Fingerprint, Terminal, Globe } from 'lucide-react';
 import { useDarkMode } from './hooks/useDarkMode';
 import SafeMarkdown from './components/SafeMarkdown';
 import SearchFilters from './components/SearchFilters';
@@ -26,14 +26,23 @@ const Contact = lazy(() => import('./pages/Contact'));
 const Appointments = lazy(() => import('./pages/Appointments'));
 const CRM = lazy(() => import('./pages/CRM'));
 const ChatHistory = lazy(() => import('./pages/ChatHistory'));
+const SystemHub = lazy(() => import('./pages/SystemHub'));
 
 // Page loading fallback with skeleton
 const PageLoader = () => (
   <div className="flex flex-col items-center justify-center min-h-[50vh] gap-3">
-    <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-    <span className="text-sm text-gray-400 font-medium">Loading...</span>
+    <Loader2 className="h-8 w-8 animate-spin text-[var(--cp-accent)]" />
+    <span className="text-sm text-[var(--cp-muted)] font-medium font-mono">Loading...</span>
   </div>
 );
+
+// ─── Project Tabs (always visible) ───
+const PROJECT_TABS = [
+  { key: 'tho', label: 'THO', url: 'https://tho.sapphirealpha.xyz', icon: Home },
+  { key: 'sapphire', label: 'Sapphire', url: 'https://sapphirealpha.xyz', icon: ShieldCheck },
+  { key: 'analytics', label: 'Analytics', url: 'https://sapphirealpha.xyz/admin', icon: Activity },
+  { key: 'system', label: 'Hub', url: null, icon: Terminal },
+];
 
 // ─── Shared Navigation Component ───
 function NavBar({ activePage, navigateTo, adminAuthed, onAdminAccess, isMobileMenuOpen, setIsMobileMenuOpen, showSearchFilters, onApplyFilters, onClearFilters, darkMode, onToggleDarkMode }) {
@@ -54,22 +63,127 @@ function NavBar({ activePage, navigateTo, adminAuthed, onAdminAccess, isMobileMe
   const allItems = [...navItems, ...adminItems];
 
   return (
-    <header className="bg-blue-900 text-white shadow-md z-30 sticky top-0">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-        {/* Logo */}
-        <div
-          className="flex items-center space-x-3 cursor-pointer"
-          onClick={() => navigateTo('inventory')}
-          role="button"
-          aria-label="Go to home page"
-        >
-          <Home className="h-7 w-7 text-red-400" />
-          <h1 className="text-lg font-bold tracking-tight">{BUSINESS_NAME}</h1>
+    <>
+      {/* Project Bar — cypherpunk tabs */}
+      <div className="bg-[var(--cp-bg-2)] border-b border-[var(--cp-border)] z-40 sticky top-0">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-9 flex items-center justify-between">
+          <div className="flex items-center gap-1 overflow-x-auto scrollbar-none">
+            <Terminal size={13} className="text-[var(--cp-accent)] mr-2 shrink-0" />
+            {PROJECT_TABS.map(tab => {
+              const Icon = tab.icon;
+              const isActive = tab.url ? false : activePage === tab.key;
+              const btnClass = isActive
+                ? 'bg-[var(--cp-accent-dim)] text-[var(--cp-accent)] border-[var(--cp-accent)]'
+                : 'text-[var(--cp-muted)] border-transparent hover:text-[var(--cp-text)] hover:bg-[var(--cp-surface)]';
+              if (tab.url) {
+                return (
+                  <a key={tab.key} href={tab.url} target="_blank" rel="noopener noreferrer"
+                    className={`flex items-center gap-1 px-2.5 py-1 text-[11px] font-mono font-medium border rounded transition-colors ${btnClass}`}>
+                    <Icon size={11} /> {tab.label}
+                  </a>
+                );
+              }
+              return (
+                <button key={tab.key} onClick={() => navigateTo(tab.key)}
+                  className={`flex items-center gap-1 px-2.5 py-1 text-[11px] font-mono font-medium border rounded transition-colors ${btnClass}`}>
+                  <Icon size={11} /> {tab.label}
+                </button>
+              );
+            })}
+          </div>
+          <div className="hidden sm:flex items-center gap-2 text-[10px] font-mono text-[var(--cp-faint)]">
+            <span className="cp-blink text-[var(--cp-accent)]">●</span>
+            sapphire_os_v2.1
+          </div>
+        </div>
+      </div>
+
+      {/* Main NavBar */}
+      <header className="bg-[var(--cp-panel)] border-b border-[var(--cp-border)] z-30 sticky top-9">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-14 flex items-center justify-between">
+          {/* Logo */}
+          <div
+            className="flex items-center space-x-2.5 cursor-pointer group"
+            onClick={() => navigateTo('inventory')}
+            role="button"
+            aria-label="Go to home page"
+          >
+            <Home className="h-6 w-6 text-[var(--cp-accent)] group-hover:drop-shadow-[0_0_6px_rgba(0,255,136,0.5)] transition" />
+            <h1 className="text-base font-bold tracking-tight text-[var(--cp-text)] font-mono">
+              {BUSINESS_NAME}
+            </h1>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {/* Desktop nav */}
+            <nav className="hidden md:flex items-center space-x-0.5 text-sm font-medium" aria-label="Main navigation">
+              {allItems.map(item => {
+                const Icon = item.icon;
+                const isActive = activePage === item.key;
+                return (
+                  <button
+                    key={item.key}
+                    onClick={() => navigateTo(item.key)}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md transition-colors font-mono text-xs ${
+                      isActive
+                        ? 'bg-[var(--cp-accent-dim)] text-[var(--cp-accent)]'
+                        : 'text-[var(--cp-muted)] hover:text-[var(--cp-text)] hover:bg-[var(--cp-surface)]'
+                    }`}
+                    aria-current={isActive ? 'page' : undefined}
+                  >
+                    <Icon size={14} />
+                    {item.label}
+                  </button>
+                );
+              })}
+            </nav>
+
+            {/* Search filters — only on chat page */}
+            {showSearchFilters && (
+              <SearchFilters onApplyFilters={onApplyFilters} onClear={onClearFilters} />
+            )}
+
+            {/* Dark mode toggle — desktop */}
+            {onToggleDarkMode && (
+              <button
+                onClick={onToggleDarkMode}
+                className="hidden md:flex items-center gap-1 px-2 py-1.5 text-xs text-[var(--cp-muted)] hover:text-[var(--cp-text)] hover:bg-[var(--cp-surface)] rounded-md transition-colors"
+                aria-label="Toggle dark mode"
+                title="Toggle dark mode (Ctrl+D)"
+              >
+                {darkMode ? <Sun size={14} /> : <Moon size={14} />}
+              </button>
+            )}
+
+            {/* Admin button — desktop */}
+            <button
+              onClick={onAdminAccess}
+              className="hidden md:flex items-center gap-1 px-2 py-1.5 text-xs text-[var(--cp-muted)] hover:text-[var(--cp-accent)] hover:bg-[var(--cp-surface)] rounded-md transition-colors"
+              aria-label="Admin access"
+              title="Admin access"
+            >
+              {adminAuthed ? <ShieldCheck size={14} className="text-[var(--cp-accent)]" /> : <Lock size={14} />}
+            </button>
+
+            {/* Mobile menu button */}
+            <button
+              className="md:hidden p-2 hover:bg-[var(--cp-surface)] rounded-lg transition text-[var(--cp-text)]"
+              onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+              aria-label={isMobileMenuOpen ? 'Close menu' : 'Open menu'}
+              aria-expanded={isMobileMenuOpen}
+            >
+              {isMobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
+            </button>
+          </div>
         </div>
 
-        <div className="flex items-center gap-3">
-          {/* Desktop nav */}
-          <nav className="hidden md:flex items-center space-x-1 text-sm font-medium" aria-label="Main navigation">
+        {/* Mobile Menu */}
+        {isMobileMenuOpen && (
+          <nav
+            className="md:hidden bg-[var(--cp-panel)] border-t border-[var(--cp-border)] py-2 px-4"
+            aria-label="Mobile navigation"
+            style={{ animation: 'tho-slide-up 0.15s ease' }}
+          >
             {allItems.map(item => {
               const Icon = item.icon;
               const isActive = activePage === item.key;
@@ -77,109 +191,44 @@ function NavBar({ activePage, navigateTo, adminAuthed, onAdminAccess, isMobileMe
                 <button
                   key={item.key}
                   onClick={() => navigateTo(item.key)}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md transition-colors ${
+                  className={`flex items-center w-full py-3 px-2 rounded-lg transition-colors font-mono text-sm ${
                     isActive
-                      ? 'bg-white/15 text-white'
-                      : 'text-blue-200 hover:text-white hover:bg-white/10'
+                      ? 'bg-[var(--cp-accent-dim)] text-[var(--cp-accent)]'
+                      : 'text-[var(--cp-muted)] hover:text-[var(--cp-text)] hover:bg-[var(--cp-surface)]'
                   }`}
                   aria-current={isActive ? 'page' : undefined}
                 >
-                  <Icon size={15} />
+                  <Icon size={18} className="mr-3" />
                   {item.label}
                 </button>
               );
             })}
-          </nav>
-
-          {/* Search filters — only on chat page */}
-          {showSearchFilters && (
-            <SearchFilters onApplyFilters={onApplyFilters} onClear={onClearFilters} />
-          )}
-
-          {/* Dark mode toggle — desktop */}
-          {onToggleDarkMode && (
             <button
-              onClick={onToggleDarkMode}
-              className="hidden md:flex items-center gap-1 px-2 py-1.5 text-xs text-blue-300 hover:text-white hover:bg-white/10 rounded-md transition-colors"
-              aria-label="Toggle dark mode"
-              title="Toggle dark mode (Ctrl+D)"
+              onClick={onAdminAccess}
+              className="flex items-center w-full py-3 px-2 text-[var(--cp-muted)] hover:text-[var(--cp-accent)] hover:bg-[var(--cp-surface)] rounded-lg transition-colors mt-1 border-t border-[var(--cp-border)] pt-3 font-mono text-sm"
             >
-              {darkMode ? <Sun size={14} /> : <Moon size={14} />}
+              {adminAuthed ? <ShieldCheck size={18} className="mr-3 text-[var(--cp-accent)]" /> : <Lock size={18} className="mr-3" />}
+              {adminAuthed ? 'Analytics' : 'Admin'}
             </button>
-          )}
-
-          {/* Admin button — desktop */}
-          <button
-            onClick={onAdminAccess}
-            className="hidden md:flex items-center gap-1 px-2 py-1.5 text-xs text-blue-300 hover:text-white hover:bg-white/10 rounded-md transition-colors"
-            aria-label="Admin access"
-          >
-            {adminAuthed ? <ShieldCheck size={14} /> : <Lock size={14} />}
-          </button>
-
-          {/* Mobile menu button */}
-          <button
-            className="md:hidden p-2 hover:bg-white/10 rounded-lg transition"
-            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-            aria-label={isMobileMenuOpen ? 'Close menu' : 'Open menu'}
-            aria-expanded={isMobileMenuOpen}
-          >
-            {isMobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
-          </button>
-        </div>
-      </div>
-
-      {/* Mobile Menu */}
-      {isMobileMenuOpen && (
-        <nav
-          className="md:hidden bg-blue-900 border-t border-blue-800 py-2 px-4"
-          aria-label="Mobile navigation"
-          style={{ animation: 'tho-slide-up 0.15s ease' }}
-        >
-          {allItems.map(item => {
-            const Icon = item.icon;
-            const isActive = activePage === item.key;
-            return (
-              <button
-                key={item.key}
-                onClick={() => navigateTo(item.key)}
-                className={`flex items-center w-full py-3 px-2 rounded-lg transition-colors ${
-                  isActive
-                    ? 'bg-white/15 text-white'
-                    : 'text-blue-200 hover:text-white hover:bg-white/10'
-                }`}
-                aria-current={isActive ? 'page' : undefined}
-              >
-                <Icon size={18} className="mr-3" />
-                {item.label}
-              </button>
-            );
-          })}
-          <button
-            onClick={onAdminAccess}
-            className="flex items-center w-full py-3 px-2 text-blue-300 hover:text-white hover:bg-white/10 rounded-lg transition-colors mt-1 border-t border-blue-800 pt-3"
-          >
-            {adminAuthed ? <ShieldCheck size={18} className="mr-3" /> : <Lock size={18} className="mr-3" />}
-            {adminAuthed ? 'Analytics' : 'Admin'}
-          </button>
-        </nav>
-      )}
-    </header>
+          </nav>
+        )}
+      </header>
+    </>
   );
 }
 
 // ─── Footer Component ───
 function Footer({ adminAuthed, onAdminAccess }) {
   return (
-    <footer className="bg-white border-t border-gray-200 py-4 text-center text-xs text-gray-500">
-      <div className="flex items-center justify-center gap-6 flex-wrap">
-        <span className="flex items-center"><MapPin size={12} className="mr-1" aria-hidden="true" /> {BUSINESS_ADDRESS}, {BUSINESS_CITY}</span>
-        <a href={`tel:${BUSINESS_PHONE_RAW}`} className="flex items-center hover:text-blue-600 transition-colors">
+    <footer className="bg-[var(--cp-bg-2)] border-t border-[var(--cp-border)] py-4 text-center text-xs text-[var(--cp-muted)]">
+      <div className="flex items-center justify-center gap-6 flex-wrap font-mono">
+        <span className="flex items-center"><MapPin size={12} className="mr-1 text-[var(--cp-accent)]" aria-hidden="true" /> {BUSINESS_ADDRESS}, {BUSINESS_CITY}</span>
+        <a href={`tel:${BUSINESS_PHONE_RAW}`} className="flex items-center hover:text-[var(--cp-accent)] transition-colors">
           <Phone size={12} className="mr-1" aria-hidden="true" /> {BUSINESS_PHONE}
         </a>
         <span>{BUSINESS_HOURS}</span>
-        <button onClick={onAdminAccess} className="flex items-center hover:text-blue-600 transition-colors">
-          {adminAuthed ? <ShieldCheck size={12} className="mr-1" /> : <Lock size={12} className="mr-1" />}
+        <button onClick={onAdminAccess} className="flex items-center hover:text-[var(--cp-accent)] transition-colors">
+          {adminAuthed ? <ShieldCheck size={12} className="mr-1 text-[var(--cp-accent)]" /> : <Lock size={12} className="mr-1" />}
           Admin
         </button>
       </div>
@@ -293,6 +342,7 @@ function App() {
     if (p.startsWith('/chat-history')) return 'chat-history';
     if (p.startsWith('/chat')) return 'chat';
     if (p.startsWith('/inventory')) return 'inventory';
+    if (p.startsWith('/system')) return 'system';
     return 'inventory';
   };
   const [activePage, setActivePage] = useState(() => pageFromPath(window.location.pathname));
@@ -315,6 +365,124 @@ function App() {
   const [pinInput, setPinInput] = useState('');
   const [pinError, setPinError] = useState('');
   const [pinLoading, setPinLoading] = useState(false);
+
+  // Passkey state
+  const [passkeyLoading, setPasskeyLoading] = useState(false);
+  const [passkeyError, setPasskeyError] = useState('');
+  const [passkeyAvailable, setPasskeyAvailable] = useState(
+    typeof window !== 'undefined' && !!window.PublicKeyCredential
+  );
+
+  const handlePasskeyLogin = async () => {
+    if (!window.PublicKeyCredential) { setPasskeyError('Passkeys not supported in this browser'); return; }
+    setPasskeyLoading(true); setPasskeyError('');
+    try {
+      const beginRes = await fetch('/api/admin/passkey/login/begin', { method: 'POST', credentials: 'same-origin' });
+      if (!beginRes.ok) throw new Error('Server error starting passkey login');
+      const options = await beginRes.json();
+      // Convert base64url challenge / ids back to ArrayBuffer
+      options.challenge = base64urlToBuffer(options.challenge);
+      if (options.allowCredentials) {
+        options.allowCredentials = options.allowCredentials.map(c => ({
+          ...c,
+          id: base64urlToBuffer(c.id),
+        }));
+      }
+      const credential = await navigator.credentials.get({ publicKey: options });
+      if (!credential) throw new Error('Passkey login cancelled');
+      const payload = {
+        id: credential.id,
+        rawId: bufferToBase64url(credential.rawId),
+        response: {
+          authenticatorData: bufferToBase64url(credential.response.authenticatorData),
+          clientDataJSON: bufferToBase64url(credential.response.clientDataJSON),
+          signature: bufferToBase64url(credential.response.signature),
+          userHandle: credential.response.userHandle ? bufferToBase64url(credential.response.userHandle) : null,
+        },
+        type: credential.type,
+      };
+      const completeRes = await fetch('/api/admin/passkey/login/complete', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await completeRes.json();
+      if (data.success) {
+        setAdminAuthed(true); setShowPinModal(false); setPasskeyError('');
+        navigateTo('analytics');
+      } else {
+        setPasskeyError(data.error || 'Passkey login failed');
+      }
+    } catch (err) {
+      console.warn('Passkey login error:', err);
+      setPasskeyError(err.message || 'Passkey login failed');
+    } finally {
+      setPasskeyLoading(false);
+    }
+  };
+
+  const handlePasskeyRegister = async () => {
+    if (!window.PublicKeyCredential) { setPasskeyError('Passkeys not supported in this browser'); return; }
+    setPasskeyLoading(true); setPasskeyError('');
+    try {
+      const beginRes = await fetch('/api/admin/passkey/register/begin', { method: 'POST', credentials: 'same-origin' });
+      if (!beginRes.ok) throw new Error('Server error starting passkey registration');
+      const options = await beginRes.json();
+      options.user.id = base64urlToBuffer(options.user.id);
+      options.challenge = base64urlToBuffer(options.challenge);
+      if (options.excludeCredentials) {
+        options.excludeCredentials = options.excludeCredentials.map(c => ({
+          ...c,
+          id: base64urlToBuffer(c.id),
+        }));
+      }
+      const credential = await navigator.credentials.create({ publicKey: options });
+      if (!credential) throw new Error('Passkey registration cancelled');
+      const payload = {
+        id: credential.id,
+        rawId: bufferToBase64url(credential.rawId),
+        response: {
+          clientDataJSON: bufferToBase64url(credential.response.clientDataJSON),
+          attestationObject: bufferToBase64url(credential.response.attestationObject),
+        },
+        type: credential.type,
+        clientExtensionResults: credential.getClientExtensionResults(),
+      };
+      const completeRes = await fetch('/api/admin/passkey/register/complete', {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await completeRes.json();
+      if (data.success) {
+        setAdminAuthed(true); setShowPinModal(false); setPasskeyError('');
+        navigateTo('analytics');
+      } else {
+        setPasskeyError(data.error || 'Passkey registration failed');
+      }
+    } catch (err) {
+      console.warn('Passkey register error:', err);
+      setPasskeyError(err.message || 'Passkey registration failed');
+    } finally {
+      setPasskeyLoading(false);
+    }
+  };
+
+  // base64url helpers
+  function base64urlToBuffer(str) {
+    const padding = '='.repeat((4 - (str.length % 4)) % 4);
+    const base64 = str.replace(/-/g, '+').replace(/_/g, '/') + padding;
+    const raw = atob(base64);
+    const buf = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i++) buf[i] = raw.charCodeAt(i);
+    return buf.buffer;
+  }
+  function bufferToBase64url(buffer) {
+    const bytes = new Uint8Array(buffer);
+    let binary = '';
+    for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+    return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
 
   // Verify stored cookie on mount
   useEffect(() => {
@@ -385,6 +553,7 @@ function App() {
       appointments: 'Book a Visit',
       analytics: 'Analytics',
       crm: 'CRM Dashboard',
+      system: 'System Hub',
     };
     document.title = titles[activePage]
       ? `${titles[activePage]} | ${BUSINESS_NAME}`
@@ -414,6 +583,7 @@ function App() {
       crm: '/crm',
       analytics: '/analytics',
       'chat-history': '/chat-history',
+      system: '/system',
     };
     const targetUrl = urlMap[page] || '/';
     if (window.location.pathname !== targetUrl) {
@@ -563,43 +733,84 @@ function App() {
 
   // --- PIN Modal ---
   const pinModal = showPinModal && (
-    <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4" style={{ animation: 'tho-fade-in 0.15s ease' }}>
-      <div className="bg-white rounded-xl shadow-2xl p-8 max-w-sm w-full" style={{ animation: 'tho-slide-up 0.2s ease' }}>
+    <div className="fixed inset-0 bg-black/70 z-[100] flex items-center justify-center p-4 backdrop-blur-sm" style={{ animation: 'tho-fade-in 0.15s ease' }}>
+      <div className="cp-panel p-6 sm:p-8 max-w-sm w-full" style={{ animation: 'tho-slide-up 0.2s ease' }}>
         <div className="flex items-center justify-center mb-4">
-          <div className="p-3 bg-blue-100 rounded-full">
-            <Lock size={24} className="text-blue-600" />
+          <div className="p-3 bg-[var(--cp-accent-dim)] rounded-full">
+            <Lock size={24} className="text-[var(--cp-accent)]" />
           </div>
         </div>
-        <h2 className="text-xl font-bold text-center text-gray-900 mb-2">Admin Access</h2>
-        <p className="text-sm text-gray-500 text-center mb-6">Enter your PIN to access the admin dashboard.</p>
+        <h2 className="text-xl font-bold text-center text-[var(--cp-text)] mb-1 font-mono">Admin Access</h2>
+        <p className="text-xs text-[var(--cp-muted)] text-center mb-6 font-mono">Enter PIN or use passkey to unlock dashboard.</p>
+
         <form onSubmit={handlePinSubmit}>
           <input
             type="password"
             inputMode="numeric"
             maxLength={6}
             value={pinInput}
-            onChange={(e) => { setPinInput(e.target.value); setPinError(''); }}
-            placeholder="Enter PIN"
-            className="w-full px-4 py-3 text-center text-xl tracking-widest border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+            onChange={(e) => { setPinInput(e.target.value); setPinError(''); setPasskeyError(''); }}
+            placeholder="• • • • • •"
+            className="cp-input w-full px-4 py-3 text-center text-xl tracking-[0.3em]"
             autoFocus
             aria-label="Admin PIN"
           />
-          {pinError && <p className="text-red-500 text-sm text-center mt-2">{pinError}</p>}
+          {(pinError || passkeyError) && (
+            <p className="text-[var(--cp-danger)] text-xs text-center mt-2 font-mono">
+              {pinError || passkeyError}
+            </p>
+          )}
           <button
             type="submit"
             disabled={!pinInput.trim() || pinLoading}
-            className="w-full mt-4 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition"
+            className="cp-btn-accent w-full mt-4 py-3 rounded-lg text-sm"
           >
             {pinLoading ? 'Verifying...' : 'Unlock'}
           </button>
-          <button
-            type="button"
-            onClick={() => setShowPinModal(false)}
-            className="w-full mt-2 py-2 text-gray-500 text-sm hover:text-gray-700 transition"
-          >
-            Cancel
-          </button>
         </form>
+
+        {/* Passkey divider */}
+        {passkeyAvailable && (
+          <div className="relative my-4">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-[var(--cp-border)]" />
+            </div>
+            <div className="relative flex justify-center text-[10px]">
+              <span className="px-2 bg-[var(--cp-panel)] text-[var(--cp-faint)] font-mono uppercase tracking-widest">or</span>
+            </div>
+          </div>
+        )}
+
+        {passkeyAvailable && (
+          <div className="space-y-2">
+            <button
+              type="button"
+              onClick={handlePasskeyLogin}
+              disabled={passkeyLoading}
+              className="cp-btn-outline w-full py-2.5 text-sm flex items-center justify-center gap-2"
+            >
+              <Fingerprint size={16} />
+              {passkeyLoading ? 'Authenticating...' : 'Sign in with Passkey'}
+            </button>
+            <button
+              type="button"
+              onClick={handlePasskeyRegister}
+              disabled={passkeyLoading}
+              className="w-full py-2 text-[11px] text-[var(--cp-faint)] hover:text-[var(--cp-accent)] transition-colors font-mono"
+            >
+              <KeyRound size={12} className="inline mr-1.5" />
+              Register new passkey
+            </button>
+          </div>
+        )}
+
+        <button
+          type="button"
+          onClick={() => setShowPinModal(false)}
+          className="w-full mt-4 py-2 text-[var(--cp-faint)] text-xs hover:text-[var(--cp-text)] transition font-mono"
+        >
+          Cancel
+        </button>
       </div>
     </div>
   );
@@ -617,9 +828,22 @@ function App() {
   };
 
   // --- Page renders ---
+  if (activePage === 'system') {
+    return (
+      <div className="bg-[var(--cp-bg)] min-h-screen">
+        <NavBar {...navProps} />
+        <ErrorBoundary scope="system">
+          <Suspense fallback={<PageLoader />}>
+            <SystemHub onBack={() => navigateTo('inventory')} />
+          </Suspense>
+        </ErrorBoundary>
+      </div>
+    );
+  }
+
   if (activePage === 'analytics' && adminAuthed) {
     return (
-      <div className="bg-gray-50 min-h-screen">
+      <div className="bg-[var(--cp-bg)] min-h-screen">
         <NavBar {...navProps} />
         <ErrorBoundary scope="analytics">
           <Suspense fallback={<PageLoader />}>
@@ -632,7 +856,7 @@ function App() {
 
   if (activePage === 'crm' && adminAuthed) {
     return (
-      <div className="bg-gray-50 min-h-screen">
+      <div className="bg-[var(--cp-bg)] min-h-screen">
         <NavBar {...navProps} />
         <ErrorBoundary scope="crm">
           <Suspense fallback={<PageLoader />}>
@@ -645,7 +869,7 @@ function App() {
 
   if (activePage === 'chat-history' && adminAuthed) {
     return (
-      <div className="bg-gray-50 min-h-screen">
+      <div className="bg-[var(--cp-bg)] min-h-screen">
         <NavBar {...navProps} />
         <ErrorBoundary scope="chat-history">
           <Suspense fallback={<PageLoader />}>
@@ -658,16 +882,16 @@ function App() {
 
   if (activePage === 'documents' && adminAuthed) {
     return (
-      <div className="bg-gray-50 min-h-screen">
+      <div className="bg-[var(--cp-bg)] min-h-screen">
         {!isStandaloneMode && <NavBar {...navProps} />}
         {isStandaloneMode && (
-          <header className="bg-blue-900 text-white shadow-md z-30 sticky top-0">
+          <header className="bg-[var(--cp-panel)] text-[var(--cp-text)] border-b border-[var(--cp-border)] z-30 sticky top-0">
             <div className="max-w-7xl mx-auto px-4 h-14 flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <FileText className="h-5 w-5" />
-                <span className="font-bold text-lg">{BUSINESS_NAME} — Document Center</span>
+                <FileText className="h-5 w-5 text-[var(--cp-accent)]" />
+                <span className="font-bold text-lg font-mono">{BUSINESS_NAME} — Document Center</span>
               </div>
-              <a href="/" className="text-sm text-blue-200 hover:text-white">← Main App</a>
+              <a href="/" className="text-sm text-[var(--cp-muted)] hover:text-[var(--cp-accent)] font-mono">← Main App</a>
             </div>
           </header>
         )}
@@ -682,16 +906,16 @@ function App() {
 
   if (activePage === 'adstudio' && adminAuthed) {
     return (
-      <div className="bg-gray-50 min-h-screen">
+      <div className="bg-[var(--cp-bg)] min-h-screen">
         {!isStandaloneMode && <NavBar {...navProps} />}
         {isStandaloneMode && (
-          <header className="bg-blue-900 text-white shadow-md z-30 sticky top-0">
+          <header className="bg-[var(--cp-panel)] text-[var(--cp-text)] border-b border-[var(--cp-border)] z-30 sticky top-0">
             <div className="max-w-7xl mx-auto px-4 h-14 flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <Video className="h-5 w-5" />
-                <span className="font-bold text-lg">{BUSINESS_NAME} — Ad Studio</span>
+                <Video className="h-5 w-5 text-[var(--cp-accent)]" />
+                <span className="font-bold text-lg font-mono">{BUSINESS_NAME} — Ad Studio</span>
               </div>
-              <a href="/" className="text-sm text-blue-200 hover:text-white">← Main App</a>
+              <a href="/" className="text-sm text-[var(--cp-muted)] hover:text-[var(--cp-accent)] font-mono">← Main App</a>
             </div>
           </header>
         )}
@@ -706,7 +930,7 @@ function App() {
 
   if (activePage === 'contact') {
     return (
-      <div className="bg-gray-50 min-h-screen">
+      <div className="bg-[var(--cp-bg)] min-h-screen">
         <NavBar {...navProps} />
         <ErrorBoundary scope="contact">
           <Suspense fallback={<PageLoader />}>
@@ -719,7 +943,7 @@ function App() {
 
   if (activePage === 'appointments') {
     return (
-      <div className="bg-gray-50 min-h-screen">
+      <div className="bg-[var(--cp-bg)] min-h-screen">
         <NavBar {...navProps} />
         <ErrorBoundary scope="appointments">
           <Suspense fallback={<PageLoader />}>
@@ -732,7 +956,7 @@ function App() {
 
   if (activePage === 'inventory') {
     return (
-      <div className="bg-gray-50 min-h-screen flex flex-col">
+      <div className="bg-[var(--cp-bg)] min-h-screen flex flex-col">
         {pinModal}
         <NavBar {...navProps} />
 
@@ -755,13 +979,12 @@ function App() {
         {/* Floating Chat Bubble */}
         <button
           onClick={() => navigateTo('chat')}
-          className="fixed bottom-6 right-6 z-50 bg-blue-600 text-white p-4 rounded-full hover:bg-blue-700 hover:scale-105 active:scale-95 transition-all duration-200 group"
+          className="fixed bottom-6 right-6 z-50 bg-[var(--cp-accent)] text-[var(--cp-bg)] p-4 rounded-full hover:bg-[var(--cp-accent-hot)] hover:scale-105 active:scale-95 transition-all duration-200 group cp-glow-accent"
           aria-label="Chat with Tex"
           title="Chat with Tex"
-          style={{ boxShadow: '0 4px 20px rgba(37, 99, 235, 0.4)' }}
         >
           <MessageSquare size={22} />
-          <span className="absolute -top-1 -left-1 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full shadow">
+          <span className="absolute -top-1 -left-1 bg-[var(--cp-danger)] text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full shadow font-mono">
             Tex
           </span>
         </button>
@@ -773,12 +996,12 @@ function App() {
 
   // ─── Chat Page (default) ───
   return (
-    <div className="flex flex-col h-screen bg-gray-50 font-sans text-gray-900">
+    <div className="flex flex-col h-screen bg-[var(--cp-bg)] font-sans text-[var(--cp-text)]">
       {pinModal}
       <NavBar {...navProps} showSearchFilters onApplyFilters={handleApplyFilters} onClearFilters={handleClearFilters} />
 
       {/* Main Chat Area */}
-      <main className="flex-1 overflow-hidden flex flex-col max-w-4xl mx-auto w-full bg-white shadow-xl md:my-4 md:rounded-lg relative">
+      <main className="flex-1 overflow-hidden flex flex-col max-w-4xl mx-auto w-full bg-[var(--cp-panel)] shadow-xl md:my-4 md:rounded-lg relative border border-[var(--cp-border)]">
 
         {/* Messages List */}
         <div className="flex-1 overflow-y-auto p-4 space-y-6 scrollbar-thin pb-20">
@@ -788,9 +1011,9 @@ function App() {
 
                 {/* Avatar */}
                 <div className={`flex-shrink-0 h-8 w-8 rounded-full flex items-center justify-center mx-2 overflow-hidden
-                  ${msg.role === 'user' ? 'bg-blue-600' : ''}`}>
+                  ${msg.role === 'user' ? 'bg-[var(--cp-secondary)]' : 'bg-[var(--cp-surface)] border border-[var(--cp-border)]'}`}>
                   {msg.role === 'user' ? (
-                    <User size={16} className="text-white" />
+                    <User size={16} className="text-[var(--cp-bg)]" />
                   ) : (
                     <img src="/tex-icon.svg" alt="Tex assistant" className="h-8 w-8" />
                   )}
@@ -800,10 +1023,10 @@ function App() {
                 <div className="flex flex-col">
                   <div className={`p-4 rounded-2xl text-sm leading-relaxed
                      ${msg.role === 'user'
-                      ? 'bg-blue-600 text-white rounded-tr-none shadow-sm'
+                      ? 'bg-[var(--cp-secondary)] text-[var(--cp-bg)] rounded-tr-none shadow-sm'
                       : msg.isError 
-                        ? 'bg-red-50 text-red-800 rounded-tl-none border border-red-200'
-                        : 'bg-gray-100 text-gray-800 rounded-tl-none border border-gray-200'
+                        ? 'bg-[var(--cp-danger-dim)] text-[var(--cp-danger)] rounded-tl-none border border-[var(--cp-danger)]/20'
+                        : 'bg-[var(--cp-surface)] text-[var(--cp-text)] rounded-tl-none border border-[var(--cp-border)]'
                     }`}>
                     <SafeMarkdown
                       content={msg.text}
@@ -815,7 +1038,7 @@ function App() {
                       <button
                         onClick={() => handleRetry(msg.originalMessage)}
                         disabled={isLoading}
-                        className="mt-2 flex items-center gap-1.5 text-xs font-medium text-red-600 hover:text-red-800 disabled:opacity-50 transition-colors"
+                        className="mt-2 flex items-center gap-1.5 text-xs font-medium text-[var(--cp-danger)] hover:text-[var(--cp-danger)]/80 disabled:opacity-50 transition-colors font-mono"
                       >
                         <RotateCcw size={12} />
                         {isLoading ? 'Retrying...' : 'Retry'}
@@ -841,12 +1064,12 @@ function App() {
 
           {isLoading && (
             <div className="flex justify-start">
-              <div className="flex flex-row items-center ml-12 space-x-3 bg-blue-50 p-4 rounded-xl border border-blue-100 shadow-sm" role="status" aria-label="Loading response">
+              <div className="flex flex-row items-center ml-12 space-x-3 bg-[var(--cp-surface)] p-4 rounded-xl border border-[var(--cp-border)] shadow-sm" role="status" aria-label="Loading response">
                 <div className="relative">
-                  <Loader2 className="h-5 w-5 animate-spin text-blue-600" />
-                  <div className="absolute inset-0 bg-blue-400 rounded-full animate-ping opacity-20"></div>
+                  <Loader2 className="h-5 w-5 animate-spin text-[var(--cp-accent)]" />
+                  <div className="absolute inset-0 bg-[var(--cp-accent)] rounded-full animate-ping opacity-20"></div>
                 </div>
-                <span className="text-sm text-blue-700 font-medium">Tex is thinking...</span>
+                <span className="text-sm text-[var(--cp-accent)] font-medium font-mono">Tex is thinking...</span>
               </div>
             </div>
           )}
@@ -854,9 +1077,9 @@ function App() {
         </div>
 
         {/* Input Area */}
-        <div className="border-t border-gray-200 p-4 bg-white z-20">
+        <div className="border-t border-[var(--cp-border)] p-4 bg-[var(--cp-panel)] z-20">
           {!isOnline && (
-            <div className="mb-3 flex items-center justify-center gap-2 text-xs text-amber-600 bg-amber-50 px-3 py-2 rounded-lg">
+            <div className="mb-3 flex items-center justify-center gap-2 text-xs text-[var(--cp-warn)] bg-[var(--cp-warn)]/10 px-3 py-2 rounded-lg font-mono border border-[var(--cp-warn)]/20">
               <WifiOff size={14} />
               <span>You're offline. Messages will be sent when you reconnect.</span>
             </div>
@@ -867,20 +1090,20 @@ function App() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder={isOnline ? "Ask about homes or pricing... (Ctrl+K to focus)" : "Waiting for connection..."}
-              className="w-full pl-4 pr-12 py-3 border border-gray-300 rounded-full focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition shadow-sm disabled:bg-gray-100"
+              className="cp-input w-full pl-4 pr-12 py-3 rounded-full shadow-sm disabled:opacity-50"
               disabled={isLoading || !isOnline}
               aria-label="Chat message"
             />
             <button
               type="submit"
               disabled={!input.trim() || isLoading || !isOnline}
-              className="absolute right-2 p-2 bg-blue-600 text-white rounded-full hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              className="absolute right-2 p-2 bg-[var(--cp-accent)] text-[var(--cp-bg)] rounded-full hover:bg-[var(--cp-accent-hot)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors cp-glow-accent"
               aria-label="Send message"
             >
               <Send size={18} />
             </button>
           </form>
-          <div className="mt-2 flex items-center justify-center gap-4 text-xs text-gray-400">
+          <div className="mt-2 flex items-center justify-center gap-4 text-xs text-[var(--cp-faint)] font-mono">
             <span>AI can make mistakes. Please verify pricing with an agent.</span>
             <span className="hidden sm:inline">•</span>
             <span className="hidden sm:inline">Ctrl+K to focus</span>
