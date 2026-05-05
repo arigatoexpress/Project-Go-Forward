@@ -980,6 +980,45 @@ def test_cloud_run_admin_auth_fails_closed_without_pin_hash(monkeypatch):
                    "database.firestore_client", "database.models"):
             sys.modules.pop(mod, None)
 
+    # Inject lightweight stubs so import doesn't need live Firestore / GCS
+    fake_logger = FakeStructuredLogger()
+    structured_logging_module = types.ModuleType("structured_logging")
+    structured_logging_module.logger = fake_logger
+    monkeypatch.setitem(sys.modules, "structured_logging", structured_logging_module)
+
+    conversation_memory_module = types.ModuleType("conversation_memory")
+    conversation_memory_module.ConversationMemory = FakeConversationMemory
+    monkeypatch.setitem(sys.modules, "conversation_memory", conversation_memory_module)
+
+    chat_history_module = types.ModuleType("chat_history")
+    chat_history_module.ChatHistory = FakeChatHistory
+    monkeypatch.setitem(sys.modules, "chat_history", chat_history_module)
+
+    lead_management_module = types.ModuleType("lead_management")
+    lead_management_module.LeadManager = FakeLeadManager
+    lead_management_module.Lead = FakeLead
+    monkeypatch.setitem(sys.modules, "lead_management", lead_management_module)
+
+    appointment_manager_module = types.ModuleType("appointment_manager")
+    appointment_manager_module.AppointmentManager = FakeAppointmentManager
+    appointment_manager_module.Appointment = FakeAppointment
+    monkeypatch.setitem(sys.modules, "appointment_manager", appointment_manager_module)
+
+    email_service_module = types.ModuleType("email_service")
+    email_service_module.send_appointment_confirmation = lambda *a, **k: {"success": True}
+    email_service_module.send_lead_welcome = lambda *a, **k: {"success": True}
+    email_service_module.send_deal_status_update = lambda *a, **k: {"success": True}
+    email_service_module.send_custom_email = lambda *a, **k: {"success": True}
+    email_service_module.send_document_email = lambda *a, **k: {"success": True}
+    email_service_module.get_email_log = lambda *a, **k: []
+    email_service_module.notify_new_lead = lambda *a, **k: {"success": True}
+    email_service_module.notify_new_appointment = lambda *a, **k: {"success": True}
+    monkeypatch.setitem(sys.modules, "email_service", email_service_module)
+
+    firestore_client_module = types.ModuleType("database.firestore_client")
+    firestore_client_module.get_database = lambda: FakeTHODatabase()
+    monkeypatch.setitem(sys.modules, "database.firestore_client", firestore_client_module)
+
     with pytest.raises(RuntimeError, match="ADMIN_PIN_HASH is mandatory"):
         import main  # noqa: F401
 
