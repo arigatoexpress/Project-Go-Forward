@@ -82,29 +82,32 @@ curl -fsS "$BASE_URL/health"
 curl -fsS "$BASE_URL/healthz/"
 ```
 
-Admin login requires a human to enter the new PIN locally. The response token is sensitive; do not paste it into tickets or docs.
+Admin login requires a human to enter the new PIN locally. The response sets an
+httpOnly admin cookie; do not paste the PIN, cookie jar, or any session value
+into tickets or docs.
 
 ```bash
+COOKIE_JAR="$(mktemp)"
 read -rsp "Admin PIN: " ADMIN_PIN; echo
-ADMIN_TOKEN="$(
-  curl -fsS -X POST "$BASE_URL/api/admin/verify" \
-    -H 'Content-Type: application/json' \
-    --data "$(ADMIN_PIN="$ADMIN_PIN" python3 - <<'PY'
+ADMIN_PIN="$ADMIN_PIN" python3 - <<'PY' > /tmp/tho-admin-pin-body.json
 import json
 import os
 print(json.dumps({"pin": os.environ["ADMIN_PIN"]}))
 PY
-)" | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])'
-)"
 unset ADMIN_PIN
 
+curl -fsS -c "$COOKIE_JAR" -X POST "$BASE_URL/api/admin/verify" \
+  -H 'Content-Type: application/json' \
+  --data @/tmp/tho-admin-pin-body.json
+rm -f /tmp/tho-admin-pin-body.json
+
 curl -fsS "$BASE_URL/api/admin/check" \
-  -H "X-Admin-Token: $ADMIN_TOKEN"
+  -b "$COOKIE_JAR"
 
 curl -fsS -D - -o /dev/null "$BASE_URL/api/documents/templates" \
-  -H "X-Admin-Token: $ADMIN_TOKEN" | sed -n '1,12p'
+  -b "$COOKIE_JAR" | sed -n '1,12p'
 
-unset ADMIN_TOKEN
+rm -f "$COOKIE_JAR"
 ```
 
 Expected:
@@ -113,7 +116,7 @@ Expected:
 - `/healthz/` returns minimal public `status` and `version`.
 - `/healthz/detailed` returns `status`, `version`, `sha`, `uptime_s`, dependency statuses for `drive`, `secrets`, `db`, and `email`, plus non-secret warnings such as `email_not_configured` when called with a valid `X-Admin-Token`.
 - `/api/admin/verify` succeeds only with the new PIN.
-- `/api/admin/check` returns `{"valid":true}` for the new token.
+- `/api/admin/check` returns `{"valid":true}` for the new cookie-backed session.
 - Existing sessions minted before rotation fail and users must re-authenticate.
 
 Check Cloud Run logs for startup/auth errors without exposing secret values:

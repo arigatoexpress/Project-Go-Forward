@@ -20,7 +20,7 @@ import secrets
 import time
 import uuid
 from collections import defaultdict
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from json import JSONDecodeError
 from urllib.parse import urlsplit, urlunsplit
 
@@ -3396,6 +3396,173 @@ async def list_appointments_api(status: str = None, limit: int = 100):
         return {"success": False, "error": "Failed to load appointments. Please try again."}
 
 
+_crm_tasks: dict[str, dict] = {}
+_CRM_TASK_COLLECTION = "crm_tasks"
+_CRM_TASK_PRIORITIES = {"low", "medium", "high"}
+_CRM_TASK_STATUSES = {"pending", "completed"}
+
+
+def _crm_task_collection():
+    try:
+        db_client = getattr(_db, "db", None)
+        if db_client is None:
+            return None
+        return db_client.collection(_CRM_TASK_COLLECTION)
+    except Exception as exc:  # noqa: BLE001
+        struct_logger.warning("CRM task Firestore collection unavailable", error=str(exc))
+        return None
+
+
+def _serialize_crm_task(task: dict) -> dict:
+    """Return the task shape the CRM frontend expects."""
+    return dict(task)
+
+
+def _load_crm_tasks_from_store() -> list[dict]:
+    collection = _crm_task_collection()
+    if collection is None:
+        return list(_crm_tasks.values())
+    try:
+        tasks = []
+        for doc in collection.limit(500).stream():
+            data = doc.to_dict() or {}
+            data.setdefault("task_id", doc.id)
+            tasks.append(data)
+        _crm_tasks.update({task["task_id"]: task for task in tasks if task.get("task_id")})
+        return tasks
+    except Exception as exc:  # noqa: BLE001
+        struct_logger.warning("CRM task Firestore list failed", error=str(exc))
+        return list(_crm_tasks.values())
+
+
+def _save_crm_task(task: dict) -> None:
+    _crm_tasks[task["task_id"]] = task
+    collection = _crm_task_collection()
+    if collection is None:
+        return
+    try:
+        collection.document(task["task_id"]).set(task)
+    except Exception as exc:  # noqa: BLE001
+        struct_logger.warning("CRM task Firestore save failed", error=str(exc))
+
+
+def _load_crm_task(task_id: str) -> dict | None:
+    task = _crm_tasks.get(task_id)
+    collection = _crm_task_collection()
+    if collection is None:
+        return task
+    try:
+        doc = collection.document(task_id).get()
+        if doc.exists:
+            data = doc.to_dict() or {}
+            data.setdefault("task_id", doc.id)
+            _crm_tasks[task_id] = data
+            return data
+    except Exception as exc:  # noqa: BLE001
+        struct_logger.warning("CRM task Firestore fetch failed", error=str(exc))
+    return task
+
+
+@app.get("/api/crm/tasks", dependencies=[Depends(require_admin)])
+async def list_crm_tasks(limit: int = 100, status: str | None = None):
+    """List lightweight CRM follow-up tasks for the employee dashboard."""
+    limit = max(1, min(limit, 200))
+    tasks = _load_crm_tasks_from_store()
+    if status:
+        tasks = [task for task in tasks if task.get("status") == status]
+    tasks.sort(key=lambda task: task.get("created_at", ""), reverse=True)
+    return {
+        "success": True,
+        "tasks": [_serialize_crm_task(task) for task in tasks[:limit]],
+        "count": min(len(tasks), limit),
+        "total": len(tasks),
+    }
+
+
+@app.post("/api/crm/tasks", dependencies=[Depends(require_admin)])
+async def create_crm_task(request: Request):
+    """Create a CRM follow-up task from the employee dashboard."""
+    try:
+        data = await request.json()
+    except (JSONDecodeError, ValueError):
+        return JSONResponse({"success": False, "error": "Malformed JSON body."}, status_code=400)
+    if not isinstance(data, dict):
+        return JSONResponse(
+            {"success": False, "error": "Request body must be a JSON object."},
+            status_code=400,
+        )
+
+    title = str(data.get("title") or "").strip()
+    if not title:
+        return JSONResponse({"success": False, "error": "Task title is required."}, status_code=400)
+
+    priority = str(data.get("priority") or "medium").strip().lower()
+    if priority not in _CRM_TASK_PRIORITIES:
+        priority = "medium"
+
+    now = datetime.now(UTC).isoformat()
+    task_id = str(uuid.uuid4())
+    task = {
+        "task_id": task_id,
+        "title": title[:200],
+        "description": str(data.get("description") or "").strip()[:2000],
+        "due_date": str(data.get("due_date") or "").strip()[:40],
+        "priority": priority,
+        "assigned_to": str(data.get("assigned_to") or "").strip()[:120],
+        "related_lead": str(data.get("related_lead") or "").strip()[:120],
+        "related_deal": str(data.get("related_deal") or "").strip()[:120],
+        "status": "pending",
+        "created_at": now,
+        "updated_at": now,
+    }
+    _save_crm_task(task)
+    return {"success": True, "task": _serialize_crm_task(task)}
+
+
+@app.put("/api/crm/tasks/{task_id}", dependencies=[Depends(require_admin)])
+async def update_crm_task(task_id: str, request: Request):
+    """Update a CRM task status or editable fields."""
+    task = _load_crm_task(task_id)
+    if not task:
+        return JSONResponse({"success": False, "error": "Task not found."}, status_code=404)
+
+    try:
+        data = await request.json()
+    except (JSONDecodeError, ValueError):
+        return JSONResponse({"success": False, "error": "Malformed JSON body."}, status_code=400)
+    if not isinstance(data, dict):
+        return JSONResponse(
+            {"success": False, "error": "Request body must be a JSON object."},
+            status_code=400,
+        )
+
+    if "status" in data:
+        status = str(data.get("status") or "").strip().lower()
+        if status not in _CRM_TASK_STATUSES:
+            return JSONResponse(
+                {"success": False, "error": "status must be pending or completed."},
+                status_code=400,
+            )
+        task["status"] = status
+    for key, max_len in {
+        "title": 200,
+        "description": 2000,
+        "due_date": 40,
+        "assigned_to": 120,
+        "related_lead": 120,
+        "related_deal": 120,
+    }.items():
+        if key in data:
+            task[key] = str(data.get(key) or "").strip()[:max_len]
+    if "priority" in data:
+        priority = str(data.get("priority") or "").strip().lower()
+        if priority in _CRM_TASK_PRIORITIES:
+            task["priority"] = priority
+    task["updated_at"] = datetime.now(UTC).isoformat()
+    _save_crm_task(task)
+    return {"success": True, "task": _serialize_crm_task(task)}
+
+
 @app.post("/api/email/send", dependencies=[Depends(require_admin)])
 async def send_email_api(request: Request):
     """Send a custom email from the CRM."""
@@ -4092,6 +4259,40 @@ _DOCUMENTS_SHARE_DEFAULT_TTL_HOURS = 24
 _DOCUMENTS_SHARE_MAX_TTL_HOURS = 72
 
 
+def _generate_document_signed_url(blob, *, expiration, method: str = "GET") -> str:
+    """Generate a GCS signed URL in local-key and Cloud Run ADC environments."""
+    try:
+        return blob.generate_signed_url(
+            version="v4",
+            expiration=expiration,
+            method=method,
+        )
+    except AttributeError as exc:
+        message = str(exc).lower()
+        if "private key" not in message and "sign credentials" not in message:
+            raise
+
+        import google.auth
+        from google.auth.transport.requests import Request as GoogleAuthRequest
+
+        credentials, _project_id = google.auth.default(
+            scopes=["https://www.googleapis.com/auth/cloud-platform"]
+        )
+        credentials.refresh(GoogleAuthRequest())
+        access_token = getattr(credentials, "token", None)
+        service_account_email = getattr(credentials, "service_account_email", None)
+        if not access_token or not service_account_email or service_account_email == "default":
+            raise RuntimeError("Could not resolve service account signing identity") from exc
+
+        return blob.generate_signed_url(
+            version="v4",
+            expiration=expiration,
+            method=method,
+            service_account_email=service_account_email,
+            access_token=access_token,
+        )
+
+
 @app.get("/api/documents/share/{filename}", dependencies=[Depends(require_admin)])
 async def share_document(filename: str, request: Request, ttl_hours: int = _DOCUMENTS_SHARE_DEFAULT_TTL_HOURS):
     """Mint a V4 GCS signed URL for a generated PDF (admin-only).
@@ -4138,11 +4339,8 @@ async def share_document(filename: str, request: Request, ttl_hours: int = _DOCU
             return JSONResponse({"error": "File not found"}, status_code=404)
         from datetime import timedelta as _timedelta
 
-        signed_url = blob.generate_signed_url(
-            version="v4",
-            expiration=_timedelta(hours=ttl_hours),
-            method="GET",
-        )
+        expiration = _timedelta(hours=ttl_hours)
+        signed_url = _generate_document_signed_url(blob, expiration=expiration, method="GET")
     except Exception as exc:  # noqa: BLE001
         logger.exception("share_document failed for %s", object_key)
         return JSONResponse(
@@ -4172,6 +4370,7 @@ async def share_document(filename: str, request: Request, ttl_hours: int = _DOCU
         "signed_url": signed_url,
         "ttl_hours": ttl_hours,
         "expires_in_seconds": ttl_hours * 3600,
+        "expires_at": (datetime.now(UTC) + timedelta(hours=ttl_hours)).isoformat(),
     }
 
 
