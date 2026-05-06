@@ -95,6 +95,7 @@ function StatusBadge({ status, label }) {
     ok:    { icon: CheckCircle2, color: 'text-emerald-400',  bg: 'bg-emerald-400/10',  border: 'border-emerald-400/20' },
     warn:  { icon: AlertTriangle, color: 'text-amber-400',    bg: 'bg-amber-400/10',    border: 'border-amber-400/20' },
     error: { icon: XCircle,       color: 'text-rose-400',     bg: 'bg-rose-400/10',     border: 'border-rose-400/20' },
+    link:  { icon: ExternalLink,   color: 'text-sky-400',      bg: 'bg-sky-400/10',      border: 'border-sky-400/20' },
     pending:{ icon: Loader2,      color: 'text-sky-400',      bg: 'bg-sky-400/10',      border: 'border-sky-400/20' },
   };
   const s = map[status] || map.pending;
@@ -109,13 +110,40 @@ function StatusBadge({ status, label }) {
 
 function ServiceCard({ name, url, desc, status, onCheck }) {
   const [live, setLive] = useState(null);
-  useEffect(() => { onCheck(url).then(setLive); }, [url, onCheck]);
+  const sameOrigin = (() => {
+    try {
+      return new URL(url).origin === window.location.origin;
+    } catch {
+      return false;
+    }
+  })();
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!sameOrigin) {
+      setLive(null);
+      return () => { cancelled = true; };
+    }
+    onCheck().then(result => {
+      if (!cancelled) setLive(result);
+    });
+    return () => { cancelled = true; };
+  }, [onCheck, sameOrigin]);
 
   const statusMap = {
-    prod: live === true ? 'ok' : live === false ? 'error' : 'pending',
-    local: live === true ? 'ok' : live === false ? 'warn' : 'pending',
+    prod: sameOrigin ? (live === true ? 'ok' : live === false ? 'error' : 'pending') : 'link',
+    local: 'link',
   };
   const badge = statusMap[status] || 'pending';
+  const label = badge === 'ok'
+    ? 'Online'
+    : badge === 'error'
+      ? 'Offline'
+      : badge === 'warn'
+        ? 'Unreachable'
+        : badge === 'link'
+          ? (status === 'local' ? 'Tailscale' : 'Open')
+          : 'Checking...';
 
   return (
     <a href={url} target="_blank" rel="noopener noreferrer"
@@ -128,9 +156,7 @@ function ServiceCard({ name, url, desc, status, onCheck }) {
       </div>
       <p className="text-xs text-[var(--cp-muted)] leading-relaxed">{desc}</p>
       <div className="mt-auto pt-2 flex items-center justify-between">
-        <StatusBadge status={badge} label={
-          badge === 'ok' ? 'Online' : badge === 'error' ? 'Offline' : badge === 'warn' ? 'Unreachable' : 'Checking…'
-        } />
+        <StatusBadge status={badge} label={label} />
         <span className="text-[10px] font-mono text-[var(--cp-faint)] truncate max-w-[140px]">{url}</span>
       </div>
     </a>
@@ -258,26 +284,18 @@ export default function SystemHub({ onBack }) {
 
   useEffect(() => {
     fetch('/api/admin/passkey/status').then(r => r.json()).then(setPasskeyStatus).catch(() => {});
-    fetch('/healthz').then(r => r.json()).then(setHealth).catch(() => {});
+    fetch('/healthz/').then(r => r.json()).then(setHealth).catch(() => {});
   }, []);
 
-  const checkUrl = React.useCallback(async (url) => {
+  const checkUrl = React.useCallback(async () => {
     try {
       const ctrl = new AbortController();
       const to = setTimeout(() => ctrl.abort(), 3000);
-      await fetch(url, { method: 'HEAD', mode: 'no-cors', signal: ctrl.signal });
+      await fetch('/healthz/', { method: 'GET', signal: ctrl.signal });
       clearTimeout(to);
       return true;
     } catch {
-      // no-cors HEAD on cross-origin usually "succeeds" even if offline,
-      // but for same-origin or simple checks it works. Fallback: try a ping.
-      if (url.includes(window.location.host)) {
-        try {
-          await fetch(url, { method: 'GET', mode: 'no-cors', signal: AbortSignal.timeout(2000) });
-          return true;
-        } catch { return false; }
-      }
-      return null; // unknown for cross-origin
+      return false;
     }
   }, []);
 
@@ -315,7 +333,7 @@ export default function SystemHub({ onBack }) {
           <QuickStat label="Cloud Run" value={health?.version ? 'Warm' : '—'}
             sub={health?.version || 'unknown'}
             icon={Server} accent="accent" />
-          <QuickStat label="Build" value="v74ef1cd"
+          <QuickStat label="Build" value={health?.version ? health.version.slice(0, 7) : '—'}
             sub="main branch — production"
             icon={Lock} accent="accent" />
           <QuickStat label="Firewall" value="Active"
