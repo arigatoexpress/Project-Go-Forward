@@ -1638,7 +1638,7 @@ export default function AdStudio({ onBack }) {
                             {(analytics.top_performing_content || []).map((item, i) => (
                                 <div key={i} className="tho-top-content-row">
                                     <span className="tho-top-rank">#{i + 1}</span>
-                                    <span className="tho-top-type">{item.type.replace('_', ' ')}</span>
+                                    <span className="tho-top-type">{item.type.replace(/_/g, ' ')}</span>
                                     <span className="tho-top-views">{item.views_label || `${item.views} views`}</span>
                                     <span className="tho-top-rate">{item.engagement_label || `${item.engagement_rate} engagement`}</span>
                                 </div>

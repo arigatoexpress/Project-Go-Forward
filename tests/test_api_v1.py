@@ -10,7 +10,7 @@ import os
 import sys
 import types
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from enum import Enum
 from pathlib import Path
 
@@ -18,7 +18,6 @@ import pytest
 from fastapi import APIRouter
 from fastapi.testclient import TestClient
 from pydantic import BaseModel
-
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
@@ -81,8 +80,8 @@ class FakeLead:
     financing_discussed: bool = False
     source: str = "chat"
     status: str = "new"
-    created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
-    updated_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
+    updated_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
     def to_dict(self) -> dict:
         return {
@@ -151,15 +150,20 @@ class FakeDocumentRef:
 class FakeQuery:
     """Tiny subset of Firestore query chaining used by v1 endpoints."""
 
-    def __init__(self, store: dict, filters: list[tuple[str, str, object]] | None = None, limit: int | None = None):
+    def __init__(
+        self,
+        store: dict,
+        filters: list[tuple[str, str, object]] | None = None,
+        limit: int | None = None,
+    ):
         self._store = store
         self._filters = filters or []
         self._limit = limit
 
-    def where(self, field: str, op: str, value: object) -> "FakeQuery":
+    def where(self, field: str, op: str, value: object) -> FakeQuery:
         return FakeQuery(self._store, self._filters + [(field, op, value)], self._limit)
 
-    def limit(self, n: int) -> "FakeQuery":
+    def limit(self, n: int) -> FakeQuery:
         return FakeQuery(self._store, list(self._filters), n)
 
     @staticmethod
@@ -175,8 +179,7 @@ class FakeQuery:
         results = []
         for doc_id, data in self._store.items():
             matched = all(
-                (self._resolve(data, f) == v) if op == "==" else False
-                for f, op, v in self._filters
+                (self._resolve(data, f) == v) if op == "==" else False for f, op, v in self._filters
             )
             if matched:
                 results.append(FakeDocSnapshot(doc_id, data))
@@ -202,7 +205,7 @@ class FakeCollection:
     def where(self, field: str, op: str, value: object) -> FakeQuery:
         return FakeQuery(self._store).where(field, op, value)
 
-    def limit(self, n: int) -> "FakeLimitedCollection":
+    def limit(self, n: int) -> FakeLimitedCollection:
         return FakeLimitedCollection(self._store, n)
 
 
@@ -293,13 +296,16 @@ class FakeTHODatabase:
     def search_customers(self, query_text=None, status=None, limit=50):
         customers = [dict(customer) for customer in self.collections["customers"].values()]
         if status:
-            customers = [customer for customer in customers if customer.get("status") == status.upper()]
+            customers = [
+                customer for customer in customers if customer.get("status") == status.upper()
+            ]
         if query_text:
             needle = query_text.lower()
             customers = [
                 customer
                 for customer in customers
-                if needle in " ".join(
+                if needle
+                in " ".join(
                     [
                         customer.get("full_name", ""),
                         customer.get("email", ""),
@@ -453,6 +459,7 @@ class FakeDealStatus(Enum):
 def load_app(monkeypatch, tho_api_key: str | None = "tho-secret", rate_limit_rpm: str = "60"):
     """Import main.py with lightweight stubs for its eager imports."""
     import hashlib
+
     monkeypatch.chdir(REPO_ROOT)
     monkeypatch.setenv("RATE_LIMIT_RPM", rate_limit_rpm)
     monkeypatch.setenv("ADMIN_PIN_HASH", hashlib.sha256(b"4832").hexdigest())
@@ -548,7 +555,10 @@ def load_app(monkeypatch, tho_api_key: str | None = "tho-secret", rate_limit_rpm
 
     document_tools_module = types.ModuleType("tools.document_tools")
     document_tools_module.OUTPUT_DIR = str(REPO_ROOT / "tmp_test_output")
-    document_tools_module.generate_sales_contract_pdf = lambda *args, **kwargs: {"success": True, "filename": "ok.pdf"}
+    document_tools_module.generate_sales_contract_pdf = lambda *args, **kwargs: {
+        "success": True,
+        "filename": "ok.pdf",
+    }
     document_tools_module.generate_work_order_pdf = lambda *args, **kwargs: {"success": True}
     document_tools_module.generate_service_ticket = lambda *args, **kwargs: {"success": True}
     document_tools_module.generate_customer_email = lambda *args, **kwargs: {"success": True}
@@ -557,8 +567,16 @@ def load_app(monkeypatch, tho_api_key: str | None = "tho-secret", rate_limit_rpm
     monkeypatch.setitem(sys.modules, "tools.document_tools", document_tools_module)
 
     document_engine_module = types.ModuleType("tools.document_engine")
-    document_engine_module.generate_document = lambda *args, **kwargs: {"success": True, "file_path": "doc.pdf", "filename": "doc.pdf"}
-    document_engine_module.generate_packet = lambda *args, **kwargs: {"success": True, "file_path": "packet.pdf", "filename": "packet.pdf"}
+    document_engine_module.generate_document = lambda *args, **kwargs: {
+        "success": True,
+        "file_path": "doc.pdf",
+        "filename": "doc.pdf",
+    }
+    document_engine_module.generate_packet = lambda *args, **kwargs: {
+        "success": True,
+        "file_path": "packet.pdf",
+        "filename": "packet.pdf",
+    }
     document_engine_module.generate_batch = lambda *args, **kwargs: {"success": True}
     document_engine_module.list_available_templates = lambda: []
     document_engine_module.list_available_packets = lambda: []
@@ -582,7 +600,7 @@ def load_app(monkeypatch, tho_api_key: str | None = "tho-secret", rate_limit_rpm
     crm_tools_module.save_lead = lambda *args, **kwargs: {}
     crm_tools_module.check_available_slots = lambda *args, **kwargs: []
     crm_tools_module.cancel_appointment = lambda *args, **kwargs: {"success": True}
-    crm_tools_module.get_current_datetime = lambda *args, **kwargs: datetime.now(timezone.utc).isoformat()
+    crm_tools_module.get_current_datetime = lambda *args, **kwargs: datetime.now(UTC).isoformat()
     monkeypatch.setitem(sys.modules, "tools.crm_tools", crm_tools_module)
 
     marketing_tools_module = types.ModuleType("tools.marketing_tools")
@@ -607,7 +625,10 @@ def load_app(monkeypatch, tho_api_key: str | None = "tho-secret", rate_limit_rpm
     monkeypatch.setitem(sys.modules, "tools.asset_scraper", asset_scraper_module)
 
     video_generator_module = types.ModuleType("tools.video_generator")
-    video_generator_module.generate_ad_video = lambda *args, **kwargs: {"success": True, "filename": "video.mp4"}
+    video_generator_module.generate_ad_video = lambda *args, **kwargs: {
+        "success": True,
+        "filename": "video.mp4",
+    }
     video_generator_module.GENERATED_VIDEOS_DIR = str(REPO_ROOT / "generated_videos")
     monkeypatch.setitem(sys.modules, "tools.video_generator", video_generator_module)
 
@@ -729,23 +750,33 @@ def test_admin_crm_funnel_returns_stage_counts_and_conversions(monkeypatch):
 
     # Reset cache so prior tests don't pollute
     from caching import clear_local_cache
+
     clear_local_cache()
 
     # Seed customers: 3 LEAD, 2 ENROLLED, 1 SOLD
     db.collections["customers"].clear()
     for i in range(3):
         db.collections["customers"][f"lead-{i}"] = {
-            "id": f"lead-{i}", "full_name": f"Lead {i}", "status": "LEAD",
-            "created_at": "2026-04-01T00:00:00", "updated_at": "2026-04-01T00:00:00",
+            "id": f"lead-{i}",
+            "full_name": f"Lead {i}",
+            "status": "LEAD",
+            "created_at": "2026-04-01T00:00:00",
+            "updated_at": "2026-04-01T00:00:00",
         }
     for i in range(2):
         db.collections["customers"][f"enr-{i}"] = {
-            "id": f"enr-{i}", "full_name": f"Enrolled {i}", "status": "ENROLLED",
-            "created_at": "2026-04-01T00:00:00", "updated_at": "2026-04-08T00:00:00",
+            "id": f"enr-{i}",
+            "full_name": f"Enrolled {i}",
+            "status": "ENROLLED",
+            "created_at": "2026-04-01T00:00:00",
+            "updated_at": "2026-04-08T00:00:00",
         }
     db.collections["customers"]["sold-0"] = {
-        "id": "sold-0", "full_name": "Sold Zero", "status": "SOLD",
-        "created_at": "2026-04-01T00:00:00", "updated_at": "2026-04-15T00:00:00",
+        "id": "sold-0",
+        "full_name": "Sold Zero",
+        "status": "SOLD",
+        "created_at": "2026-04-01T00:00:00",
+        "updated_at": "2026-04-15T00:00:00",
     }
 
     # Seed deals: 2 active (pending, contract), 1 closed (funded), 1 denied
@@ -753,8 +784,10 @@ def test_admin_crm_funnel_returns_stage_counts_and_conversions(monkeypatch):
     db.collections["deals"]["d-pending"] = {"id": "d-pending", "status": "pending"}
     db.collections["deals"]["d-contract"] = {"id": "d-contract", "status": "contract"}
     db.collections["deals"]["d-funded"] = {
-        "id": "d-funded", "status": "funded",
-        "created_at": "2026-04-01T00:00:00", "updated_at": "2026-04-21T00:00:00",
+        "id": "d-funded",
+        "status": "funded",
+        "created_at": "2026-04-01T00:00:00",
+        "updated_at": "2026-04-21T00:00:00",
     }
     db.collections["deals"]["d-denied"] = {"id": "d-denied", "status": "denied"}
 
@@ -797,42 +830,64 @@ def test_admin_lead_sources_categorizes_and_attributes(monkeypatch):
     token = main._create_admin_token()
 
     from caching import clear_local_cache
+
     clear_local_cache()
 
     # Replace the in-memory leads with a controlled mix of sources
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     main.lead_manager.leads = [
-        FakeLead(lead_id="L1", user_id="u1", session_id="s1",
-                 source="chat", email="alice@example.com",
-                 created_at=now.isoformat()),
-        FakeLead(lead_id="L2", user_id="u2", session_id="s2",
-                 source="contact_form", phone="555-111-2222",
-                 created_at=now.isoformat()),
-        FakeLead(lead_id="L3", user_id="u3", session_id="s3",
-                 source="contact_form",
-                 created_at=now.isoformat()),
-        FakeLead(lead_id="L4", user_id="u4", session_id="s4",
-                 source="appointment",
-                 # Outside the 30-day window
-                 created_at=(now - timedelta(days=120)).isoformat()),
+        FakeLead(
+            lead_id="L1",
+            user_id="u1",
+            session_id="s1",
+            source="chat",
+            email="alice@example.com",
+            created_at=now.isoformat(),
+        ),
+        FakeLead(
+            lead_id="L2",
+            user_id="u2",
+            session_id="s2",
+            source="contact_form",
+            phone="555-111-2222",
+            created_at=now.isoformat(),
+        ),
+        FakeLead(
+            lead_id="L3",
+            user_id="u3",
+            session_id="s3",
+            source="contact_form",
+            created_at=now.isoformat(),
+        ),
+        FakeLead(
+            lead_id="L4",
+            user_id="u4",
+            session_id="s4",
+            source="appointment",
+            # Outside the 30-day window
+            created_at=(now - timedelta(days=120)).isoformat(),
+        ),
     ]
 
     # Funded deal that should attribute to L1 (email match)
     db.collections["deals"].clear()
     db.collections["deals"]["d-1"] = {
-        "id": "d-1", "status": "funded",
+        "id": "d-1",
+        "status": "funded",
         "buyer_email": "alice@example.com",
         "sale_price": 75000,
     }
     # Funded deal that should attribute to L2 (phone match, last 10 digits)
     db.collections["deals"]["d-2"] = {
-        "id": "d-2", "status": "complete",
+        "id": "d-2",
+        "status": "complete",
         "buyer_phone": "+1 (555) 111-2222",
         "sale_price": 90000,
     }
     # Pending deal — should NOT attribute revenue
     db.collections["deals"]["d-pending"] = {
-        "id": "d-pending", "status": "pending",
+        "id": "d-pending",
+        "status": "pending",
         "buyer_email": "alice@example.com",
         "sale_price": 999999,
     }
@@ -865,6 +920,7 @@ def test_admin_lead_sources_clamps_days_argument(monkeypatch):
     token = main._create_admin_token()
 
     from caching import clear_local_cache
+
     clear_local_cache()
 
     response = client.get("/api/admin/crm/lead-sources?days=9999", headers={"X-Admin-Token": token})
@@ -887,41 +943,58 @@ def test_admin_inventory_analytics_returns_full_report(monkeypatch):
     token = main._create_admin_token()
 
     from caching import clear_local_cache
+
     clear_local_cache()
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     db.collections["inventory"].clear()
     # Available home, listed 30 days ago
     db.collections["inventory"]["a-1"] = {
-        "id": "a-1", "model_name": "Avail A", "manufacturer": "Champion",
-        "status": "AVAILABLE", "msrp": 80000, "sale_price": 75000,
+        "id": "a-1",
+        "model_name": "Avail A",
+        "manufacturer": "Champion",
+        "status": "AVAILABLE",
+        "msrp": 80000,
+        "sale_price": 75000,
         "date_added": (now - timedelta(days=30)).isoformat(),
     }
     # Available home, listed 10 days ago
     db.collections["inventory"]["a-2"] = {
-        "id": "a-2", "model_name": "Avail B", "manufacturer": "Clayton",
-        "status": "AVAILABLE", "msrp": 95000,
+        "id": "a-2",
+        "model_name": "Avail B",
+        "manufacturer": "Clayton",
+        "status": "AVAILABLE",
+        "msrp": 95000,
         "date_added": (now - timedelta(days=10)).isoformat(),
     }
     # Recently sold (within 30 days)
     db.collections["inventory"]["s-1"] = {
-        "id": "s-1", "model_name": "Sold A", "manufacturer": "Champion",
-        "status": "SOLD", "sale_price": 70000,
+        "id": "s-1",
+        "model_name": "Sold A",
+        "manufacturer": "Champion",
+        "status": "SOLD",
+        "sale_price": 70000,
         "date_added": (now - timedelta(days=45)).isoformat(),
         "updated_at": (now - timedelta(days=5)).isoformat(),
     }
     # Sold long ago (outside 30d window)
     db.collections["inventory"]["s-2"] = {
-        "id": "s-2", "model_name": "Sold B", "manufacturer": "Clayton",
-        "status": "SOLD", "sale_price": 100000,
+        "id": "s-2",
+        "model_name": "Sold B",
+        "manufacturer": "Clayton",
+        "status": "SOLD",
+        "sale_price": 100000,
         "date_added": (now - timedelta(days=200)).isoformat(),
         "updated_at": (now - timedelta(days=100)).isoformat(),
     }
     # Reserved
     db.collections["inventory"]["r-1"] = {
-        "id": "r-1", "model_name": "Reserved", "manufacturer": "Champion",
-        "status": "RESERVED", "sale_price": 90000,
+        "id": "r-1",
+        "model_name": "Reserved",
+        "manufacturer": "Champion",
+        "status": "RESERVED",
+        "sale_price": 90000,
     }
 
     response = client.get("/api/admin/inventory/analytics", headers={"X-Admin-Token": token})
@@ -961,7 +1034,9 @@ def test_admin_token_accepts_supported_employee_headers(monkeypatch):
 
     x_header = client.get("/api/admin/check", headers={"X-Admin-Token": token})
     bearer_header = client.get("/api/admin/check", headers={"Authorization": f"Bearer {token}"})
-    protected_route = client.get("/api/documents/templates", headers={"Authorization": f"Bearer {token}"})
+    protected_route = client.get(
+        "/api/documents/templates", headers={"Authorization": f"Bearer {token}"}
+    )
 
     assert x_header.status_code == 200
     assert bearer_header.status_code == 200
@@ -984,9 +1059,17 @@ def test_cloud_run_admin_auth_fails_closed_without_pin_hash(monkeypatch):
 
     # Clear cached main module so re-import sees the new env
     for mod in list(sys.modules.keys()):
-        if mod in ("main", "structured_logging", "conversation_memory", "chat_history",
-                   "lead_management", "appointment_manager", "email_service",
-                   "database.firestore_client", "database.models"):
+        if mod in (
+            "main",
+            "structured_logging",
+            "conversation_memory",
+            "chat_history",
+            "lead_management",
+            "appointment_manager",
+            "email_service",
+            "database.firestore_client",
+            "database.models",
+        ):
             sys.modules.pop(mod, None)
 
     # Inject lightweight stubs so import doesn't need live Firestore / GCS
@@ -1035,7 +1118,7 @@ def test_cloud_run_admin_auth_fails_closed_without_pin_hash(monkeypatch):
 def test_admin_lead_analytics_handles_string_and_datetime_created_at(monkeypatch):
     client, main, _db, logger = create_client(monkeypatch, tho_api_key="tho-secret")
     token = main._create_admin_token()
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     main.lead_manager.leads = [
         FakeLead(
             lead_id="lead-string-date",
@@ -1070,7 +1153,8 @@ def test_admin_lead_analytics_handles_string_and_datetime_created_at(monkeypatch
     assert body["new_this_week"] == 2
     assert len(body["time_series"]) == 30
     assert not [
-        entry for entry in logger.entries
+        entry
+        for entry in logger.entries
         if entry["level"] == "error" and entry["message"] == "Lead analytics failed"
     ]
 
@@ -1098,12 +1182,14 @@ def test_document_readiness_reports_safe_counts(monkeypatch, tmp_path):
     monkeypatch.setattr(
         main,
         "list_gcs_documents",
-        lambda: [{
-            "filename": "cloud.pdf",
-            "size_bytes": 2048,
-            "created_at": "2026-04-26T10:00:00+00:00",
-            "download_url": "/api/documents/download/cloud.pdf",
-        }],
+        lambda: [
+            {
+                "filename": "cloud.pdf",
+                "size_bytes": 2048,
+                "created_at": "2026-04-26T10:00:00+00:00",
+                "download_url": "/api/documents/download/cloud.pdf",
+            }
+        ],
     )
 
     unauthenticated = client.get("/api/documents/readiness")
@@ -1126,10 +1212,9 @@ def test_document_history_hides_synthetic_artifacts_by_default(monkeypatch, tmp_
     token = main._create_admin_token()
     headers = {"X-Admin-Token": token}
 
-    (tmp_path / "TMHA_SalesContract_Client_Ready_20260505.pdf").write_bytes(
-        b"%PDF-1.4\n%EOF\n"
-    )
-    (tmp_path / "TMHA_SalesContract_Test_Buyer_20260505.pdf").write_bytes(
+    (tmp_path / "TMHA_SalesContract_Client_Ready_20260505.pdf").write_bytes(b"%PDF-1.4\n%EOF\n")
+    (tmp_path / "TMHA_SalesContract_Test_Buyer_20260505.pdf").write_bytes(b"%PDF-1.4\n%EOF\n")
+    (tmp_path / "_batch_TMHA_SalesContract_Smoke_Buyer_20260506052403.pdf").write_bytes(
         b"%PDF-1.4\n%EOF\n"
     )
     monkeypatch.setattr(main, "OUTPUT_DIR", str(tmp_path))
@@ -1169,12 +1254,12 @@ def test_document_history_hides_synthetic_artifacts_by_default(monkeypatch, tmp_
         "TDHCA_1038_Consumer_Disclosure_Real_Buyer_20260505.pdf",
     ]
     assert body["total"] == 2
-    assert body["total_including_test"] == 4
-    assert body["hidden_test_document_count"] == 2
+    assert body["total_including_test"] == 5
+    assert body["hidden_test_document_count"] == 3
 
     assert include_test_response.status_code == 200
     include_test_body = include_test_response.json()
-    assert include_test_body["total"] == 4
+    assert include_test_body["total"] == 5
     assert any(doc["synthetic"] for doc in include_test_body["documents"])
 
 
@@ -1362,8 +1447,7 @@ def test_webhook_notify_is_idempotent_when_key_repeated(monkeypatch):
     assert second.json()["idempotent_replay"] is True
     # Only one activities record was written
     matching = [
-        a for a in fake_db.collections["activities"].values()
-        if a.get("deal_id") == "deal-3"
+        a for a in fake_db.collections["activities"].values() if a.get("deal_id") == "deal-3"
     ]
     assert len(matching) == 1
 
@@ -1393,7 +1477,9 @@ def test_fingerprint_logging_is_present_and_never_logs_the_raw_key(monkeypatch):
     response = client.get("/api/v1/customers", headers={"Authorization": f"Bearer {raw_key}"})
 
     assert response.status_code == 200
-    partner_logs = [entry for entry in fake_logger.entries if entry["message"] == "Partner API request"]
+    partner_logs = [
+        entry for entry in fake_logger.entries if entry["message"] == "Partner API request"
+    ]
     assert partner_logs, "expected at least one partner API audit log entry"
     latest = partner_logs[-1]
     assert latest["api_key_fingerprint"]
@@ -1411,13 +1497,13 @@ def test_multiple_partner_keys_each_accepted(monkeypatch):
     """THO_API_KEY_* env vars should each authenticate independently."""
     client, _main, _db, fake_logger = create_client(
         monkeypatch,
-        tho_api_key="primary-secret",
+        tho_api_key="primary-fixture",  # pragma: allowlist secret
     )
     monkeypatch.setenv("THO_API_KEY_ETAI", "etai-secret")
     monkeypatch.setenv("THO_API_KEY_N8N", "n8n-secret")
 
     # Primary
-    r1 = client.get("/api/v1/stats", headers={"Authorization": "Bearer primary-secret"})
+    r1 = client.get("/api/v1/stats", headers={"Authorization": "Bearer primary-fixture"})
     # Etai's key
     r2 = client.get("/api/v1/stats", headers={"Authorization": "Bearer etai-secret"})
     # n8n's key
@@ -1429,7 +1515,8 @@ def test_multiple_partner_keys_each_accepted(monkeypatch):
 
     # Audit log should record which partner slot matched
     partner_logs = [
-        e for e in fake_logger.entries
+        e
+        for e in fake_logger.entries
         if e["message"] == "Partner API request" and e["auth_status"] == "accepted"
     ]
     matched_slots = {e.get("partner_id") for e in partner_logs[-3:]}
@@ -1440,19 +1527,28 @@ def test_revoking_one_partner_key_does_not_affect_others(monkeypatch):
     """Simulate removing THO_API_KEY_ETAI — primary key keeps working."""
     client, _main, _db, _logger = create_client(
         monkeypatch,
-        tho_api_key="primary-secret",
+        tho_api_key="primary-fixture",  # pragma: allowlist secret
     )
     monkeypatch.setenv("THO_API_KEY_ETAI", "etai-secret")
 
     # Both work while configured
-    assert client.get("/api/v1/stats", headers={"Authorization": "Bearer etai-secret"}).status_code == 200
+    assert (
+        client.get("/api/v1/stats", headers={"Authorization": "Bearer etai-secret"}).status_code
+        == 200
+    )
 
     # Revoke Etai's slot
     monkeypatch.delenv("THO_API_KEY_ETAI")
 
     # Etai's key now invalid, primary still works
-    assert client.get("/api/v1/stats", headers={"Authorization": "Bearer etai-secret"}).status_code == 401
-    assert client.get("/api/v1/stats", headers={"Authorization": "Bearer primary-secret"}).status_code == 200
+    assert (
+        client.get("/api/v1/stats", headers={"Authorization": "Bearer etai-secret"}).status_code
+        == 401
+    )
+    assert (
+        client.get("/api/v1/stats", headers={"Authorization": "Bearer primary-fixture"}).status_code
+        == 200
+    )
 
 
 def test_503_when_no_partner_keys_configured(monkeypatch):
@@ -1473,5 +1569,10 @@ def test_only_partner_scoped_key_configured_still_authenticates(monkeypatch):
     client, _main, _db, _logger = create_client(monkeypatch, tho_api_key=None)
     monkeypatch.setenv("THO_API_KEY_ETAI", "etai-only-secret")
 
-    assert client.get("/api/v1/stats", headers={"Authorization": "Bearer etai-only-secret"}).status_code == 200
+    assert (
+        client.get(
+            "/api/v1/stats", headers={"Authorization": "Bearer etai-only-secret"}
+        ).status_code
+        == 200
+    )
     assert client.get("/api/v1/stats", headers={"Authorization": "Bearer wrong"}).status_code == 401
