@@ -14,10 +14,10 @@ Endpoints (mounted under /api/admin/passkey):
 
 from __future__ import annotations
 
-import logging
-import os
 import hashlib
 import hmac
+import logging
+import os
 import struct
 import time
 from base64 import urlsafe_b64decode
@@ -35,7 +35,12 @@ from .store import CredentialStore, CredentialStoreUnavailable, default_store
 
 # webauthn may not be installed in all environments (e.g. CI without it)
 try:
-    from webauthn import generate_authentication_options, generate_registration_options, verify_authentication_response, verify_registration_response
+    from webauthn import (
+        generate_authentication_options,
+        generate_registration_options,
+        verify_authentication_response,
+        verify_registration_response,
+    )
     from webauthn.helpers import (
         base64url_to_bytes,
         options_to_json_dict,
@@ -47,8 +52,8 @@ try:
         AuthenticatorSelectionCriteria,
         PublicKeyCredentialDescriptor,
         PublicKeyCredentialType,
-        UserVerificationRequirement,
         ResidentKeyRequirement,
+        UserVerificationRequirement,
     )
     _HAS_WEBAUTHN = True
 except Exception:
@@ -83,6 +88,45 @@ THO_ORIGIN = os.environ.get("WEBAUTHN_ORIGIN") or os.environ.get(
 )
 RP_NAME = "THO Admin"
 RP_ID = os.environ.get("WEBAUTHN_RP_ID") or os.environ.get("THO_RP_ID", "sapphirealpha.xyz")
+_CUTOVER_ORIGIN_RP_IDS = {
+    "https://tho.sapphirealpha.xyz": "sapphirealpha.xyz",
+    "https://tho.sapphire.xyz": "sapphire.xyz",
+}
+
+
+def _normalize_origin(origin: str | None) -> str:
+    return str(origin or "").strip().rstrip("/").lower()
+
+
+def _origin_rp_ids() -> dict[str, str]:
+    """Return allowed WebAuthn origins and their RP IDs for domain cutovers."""
+    pairs = dict(_CUTOVER_ORIGIN_RP_IDS)
+    pairs[_normalize_origin(THO_ORIGIN)] = RP_ID
+    raw_pairs = os.environ.get("WEBAUTHN_ORIGIN_RP_IDS", "")
+    for item in raw_pairs.split(","):
+        origin, sep, rp_id = item.partition("=")
+        if sep and origin.strip() and rp_id.strip():
+            pairs[_normalize_origin(origin)] = rp_id.strip().lower()
+    return {origin: rp_id for origin, rp_id in pairs.items() if origin and rp_id}
+
+
+def _request_origin(request: Request) -> str:
+    origin = _normalize_origin(request.headers.get("origin"))
+    if origin:
+        return origin
+    host = (request.headers.get("x-forwarded-host") or request.headers.get("host") or "").split(",")[0].strip()
+    proto = (request.headers.get("x-forwarded-proto") or request.url.scheme or "https").split(",")[0].strip()
+    if host:
+        return _normalize_origin(f"{proto}://{host}")
+    return _normalize_origin(THO_ORIGIN)
+
+
+def _webauthn_context(request: Request) -> tuple[str, str]:
+    origin = _request_origin(request)
+    origin_rp_ids = _origin_rp_ids()
+    if origin in origin_rp_ids:
+        return origin, origin_rp_ids[origin]
+    return _normalize_origin(THO_ORIGIN), RP_ID
 
 
 def _current_user(
@@ -106,8 +150,8 @@ def _user_verification() -> UserVerificationRequirement:
     return UserVerificationRequirement.PREFERRED
 
 
-def _cookie_secure() -> bool:
-    return THO_ORIGIN.startswith("https://")
+def _cookie_secure(request: Request) -> bool:
+    return _webauthn_context(request)[0].startswith("https://")
 
 
 def _admin_token_from_request(request: Request) -> str:
@@ -198,10 +242,11 @@ def register_begin(
     challenge = manager.new_challenge_bytes()
     challenge_handle = manager.wrap_challenge(challenge, flow="register")
     exclude_credentials = _credential_descriptors(store)
+    _, rp_id = _webauthn_context(request)
 
     options = generate_registration_options(
         rp_name=RP_NAME,
-        rp_id=RP_ID,
+        rp_id=rp_id,
         user_id=b"tho-admin",
         user_name="THO Admin",
         user_display_name="THO Admin",
@@ -221,7 +266,7 @@ def register_begin(
         value=challenge_handle,
         max_age=300,
         httponly=True,
-        secure=_cookie_secure(),
+        secure=_cookie_secure(request),
         samesite="Strict",
         path="/api/admin/passkey/register/complete",
     )
@@ -244,14 +289,15 @@ def register_complete(
     expected_challenge = manager.unwrap_challenge(challenge_cookie, flow="register")
     if expected_challenge is None:
         raise HTTPException(status_code=400, detail="Challenge expired or invalid")
+    expected_origin, expected_rp_id = _webauthn_context(request)
 
     try:
         reg_cred = parse_registration_credential_json(credential)
         verified = verify_registration_response(
             credential=reg_cred,
             expected_challenge=expected_challenge,
-            expected_origin=THO_ORIGIN,
-            expected_rp_id=RP_ID,
+            expected_origin=expected_origin,
+            expected_rp_id=expected_rp_id,
         )
     except Exception as exc:
         log.warning("passkey register verify failed: %s", exc)
@@ -281,7 +327,7 @@ def register_complete(
         value=token,
         max_age=manager.session_ttl,
         httponly=True,
-        secure=_cookie_secure(),
+        secure=_cookie_secure(request),
         samesite="Strict",
         path="/",
     )
@@ -306,9 +352,10 @@ def login_begin(
     challenge_handle = manager.wrap_challenge(challenge, flow="login")
 
     allow_credentials = _credential_descriptors(store)
+    _, rp_id = _webauthn_context(request)
 
     options = generate_authentication_options(
-        rp_id=RP_ID,
+        rp_id=rp_id,
         challenge=challenge,
         allow_credentials=allow_credentials,
         user_verification=UserVerificationRequirement.PREFERRED,
@@ -319,7 +366,7 @@ def login_begin(
         value=challenge_handle,
         max_age=300,
         httponly=True,
-        secure=_cookie_secure(),
+        secure=_cookie_secure(request),
         samesite="Strict",
         path="/api/admin/passkey/login/complete",
     )
@@ -356,14 +403,15 @@ def login_complete(
         raise HTTPException(status_code=503, detail="Passkey credential store unavailable")
     if rec is None:
         raise HTTPException(status_code=400, detail="Unknown credential")
+    expected_origin, expected_rp_id = _webauthn_context(request)
 
     try:
         auth_cred = parse_authentication_credential_json(credential)
         verified = verify_authentication_response(
             credential=auth_cred,
             expected_challenge=expected_challenge,
-            expected_origin=THO_ORIGIN,
-            expected_rp_id=RP_ID,
+            expected_origin=expected_origin,
+            expected_rp_id=expected_rp_id,
             credential_public_key=rec.public_key,
             credential_current_sign_count=rec.sign_count,
         )
@@ -385,7 +433,7 @@ def login_complete(
         value=token,
         max_age=manager.session_ttl,
         httponly=True,
-        secure=_cookie_secure(),
+        secure=_cookie_secure(request),
         samesite="Strict",
         path="/",
     )
@@ -417,6 +465,7 @@ def passkey_status(
             "persistent": _store_persistent(store),
             "store_ready": store_ready,
             "rp_id": RP_ID,
+            "rp_ids": sorted(set(_origin_rp_ids().values())),
         }
     )
 
