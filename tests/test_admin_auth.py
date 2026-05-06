@@ -165,7 +165,8 @@ class TestAdminLoginAuditTrail:
         import hashlib as _hashlib
 
         # Force a known PIN hash so we know what to send.
-        monkeypatch.setenv("ADMIN_PIN_HASH", _hashlib.sha256(b"4832").hexdigest())
+        submitted_pin = "4832"
+        monkeypatch.setenv("ADMIN_PIN_HASH", _hashlib.sha256(submitted_pin.encode()).hexdigest())
 
         # Bring up the app via the existing test harness.
         sys.path.insert(0, str(Path(__file__).parent))
@@ -174,7 +175,7 @@ class TestAdminLoginAuditTrail:
         fake = self._seed_audit_fake()
         client, _main, _db, _logger = create_client(monkeypatch)
 
-        response = client.post("/api/admin/verify", json={"pin": "4832"})
+        response = client.post("/api/admin/verify", json={"pin": submitted_pin})
         assert response.status_code == 200, response.text
         body = response.json()
         assert body["success"] is True
@@ -190,8 +191,15 @@ class TestAdminLoginAuditTrail:
         assert row["actor"].startswith("admin:")
         # IP captured from the test client default.
         assert "ip" in row
-        # PIN must NEVER appear in the audit row.
-        assert "4832" not in repr(row)
+        # PIN must NEVER be persisted as audit data. Actor/target ids are
+        # salted token hashes, so assert their exact contract instead of
+        # substring-matching hash output that can collide with a short PIN.
+        assert row["target_id"] == row["actor"]
+        assert row["actor"] != f"admin:{submitted_pin}"
+        assert row["target_id"] != f"admin:{submitted_pin}"
+        assert submitted_pin not in repr(row.get("details", {}))
+        for forbidden_key in ("pin", "admin_pin", "pin_hash"):
+            assert forbidden_key not in row
 
 
 class TestAdminVerifyRateLimit:
