@@ -27,6 +27,8 @@ const Appointments = lazy(() => import('./pages/Appointments'));
 const CRM = lazy(() => import('./pages/CRM'));
 const ChatHistory = lazy(() => import('./pages/ChatHistory'));
 const SystemHub = lazy(() => import('./pages/SystemHub'));
+const ADMIN_PIN_LENGTH = 8;
+const ADMIN_PAGE_KEYS = new Set(['analytics', 'crm', 'chat-history', 'documents', 'adstudio']);
 
 // Page loading fallback with skeleton
 const PageLoader = () => (
@@ -561,6 +563,16 @@ function App() {
       .catch(() => {});
   }, []);
 
+  // Direct links to admin-only pages should ask for PIN instead of silently
+  // falling back to the public shell.
+  useEffect(() => {
+    if (ADMIN_PAGE_KEYS.has(activePage) && !adminAuthed) {
+      setShowPinModal(true);
+      setPinError('');
+      setPasskeyError('');
+    }
+  }, [activePage, adminAuthed]);
+
   // Listen for expired admin session (fired by adminFetch on 401)
   useEffect(() => {
     const handleExpired = () => {
@@ -687,7 +699,7 @@ function App() {
         setAdminAuthed(true);
         setShowPinModal(false);
         setPinInput('');
-        navigateTo('analytics');
+        navigateTo(ADMIN_PAGE_KEYS.has(activePage) ? activePage : 'analytics');
       } else {
         setPinError(data.error || 'Incorrect PIN. Please try again.');
         setPinInput('');
@@ -817,10 +829,10 @@ function App() {
           <input
             type="password"
             inputMode="numeric"
-            maxLength={6}
+            maxLength={ADMIN_PIN_LENGTH}
             value={pinInput}
-            onChange={(e) => { setPinInput(e.target.value); setPinError(''); setPasskeyError(''); }}
-            placeholder="• • • • • •"
+            onChange={(e) => { setPinInput(e.target.value.replace(/\D/g, '').slice(0, ADMIN_PIN_LENGTH)); setPinError(''); setPasskeyError(''); }}
+            placeholder="• • • • • • • •"
             className="cp-input w-full px-4 py-3 text-center text-xl tracking-[0.3em]"
             autoFocus
             aria-label="Admin PIN"
