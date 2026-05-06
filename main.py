@@ -362,14 +362,50 @@ MAX_REQUEST_BODY_BYTES = int(
 )  # 1 MB default
 
 
+_STATIC_RATE_LIMIT_EXTENSIONS = (
+    ".css",
+    ".gif",
+    ".ico",
+    ".jpeg",
+    ".jpg",
+    ".js",
+    ".map",
+    ".png",
+    ".svg",
+    ".webmanifest",
+    ".webp",
+    ".woff",
+    ".woff2",
+)
+_STATIC_RATE_LIMIT_PATHS = {
+    "/manifest.webmanifest",
+    "/registerSW.js",
+    "/sw.js",
+    "/tex-icon.svg",
+    "/vite.svg",
+}
+
+
+def _is_rate_limit_exempt_path(path: str) -> bool:
+    """Skip the legacy global limiter for health checks and static app assets."""
+    if path in {"/health", "/healthz", "/healthz/"}:
+        return True
+    if path.startswith("/assets/") or path.startswith("/workbox-"):
+        return True
+    if path in _STATIC_RATE_LIMIT_PATHS:
+        return True
+    if not (path == "/api" or path.startswith("/api/")):
+        return path.lower().endswith(_STATIC_RATE_LIMIT_EXTENSIONS)
+    return False
+
+
 class RateLimitMiddleware(BaseHTTPMiddleware):
     def __init__(self, app):
         super().__init__(app)
         self._hits: dict[str, list[float]] = defaultdict(list)
 
     async def dispatch(self, request: Request, call_next):
-        # Exempt health check from rate limiting (load balancer probes)
-        if request.url.path in {"/health", "/healthz", "/healthz/"}:
+        if _is_rate_limit_exempt_path(request.url.path):
             return await call_next(request)
         client_ip = _get_client_ip(request)
         now = time.time()

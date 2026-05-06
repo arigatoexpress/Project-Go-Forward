@@ -75,6 +75,40 @@ def test_vite_assets_use_immutable_cache(monkeypatch):
     assert response.headers.get("Cache-Control") == "public, max-age=31536000, immutable"
 
 
+def test_static_assets_do_not_consume_global_rate_limit(monkeypatch):
+    """SPA bundles must not burn the per-IP API/navigation allowance.
+
+    A single page load can request several fingerprinted JS/CSS chunks plus
+    PWA files. If those static files count toward the legacy global limiter,
+    fast but normal navigation can start returning JSON 429s instead of app
+    HTML/assets.
+    """
+    client, _main, _db, _logger = create_client(monkeypatch, rate_limit_rpm="2")
+    asset = REPO_ROOT / "frontend" / "dist" / "assets" / "app.deadbeef.js"
+    asset.write_text("console.log('asset cache test')\n")
+    service_worker = REPO_ROOT / "frontend" / "dist" / "registerSW.js"
+    service_worker.write_text("console.log('sw registration')\n")
+    icon = REPO_ROOT / "frontend" / "dist" / "tex-icon.svg"
+    icon.write_text("<svg xmlns=\"http://www.w3.org/2000/svg\" />\n")
+
+    static_paths = [
+        "/assets/app.deadbeef.js",
+        "/assets/app.deadbeef.js",
+        "/registerSW.js",
+        "/tex-icon.svg",
+    ]
+    for path in static_paths:
+        assert client.get(path).status_code == 200
+
+    first_dynamic = client.get("/api/this-route-does-not-exist")
+    second_dynamic = client.get("/api/this-route-does-not-exist")
+    third_dynamic = client.get("/api/this-route-does-not-exist")
+
+    assert first_dynamic.status_code == 404
+    assert second_dynamic.status_code == 404
+    assert third_dynamic.status_code == 429
+
+
 def test_direct_html_files_use_no_store(monkeypatch):
     client, _main, _db, _logger = create_client(monkeypatch)
     studio = REPO_ROOT / "frontend" / "dist" / "studio.html"
