@@ -386,9 +386,11 @@ _STATIC_RATE_LIMIT_PATHS = {
 }
 
 
-def _is_rate_limit_exempt_path(path: str) -> bool:
-    """Skip the legacy global limiter for health checks and static app assets."""
+def _is_rate_limit_exempt_path(path: str, method: str = "GET") -> bool:
+    """Skip the legacy global limiter for health checks and SPA delivery."""
     if path in {"/health", "/healthz", "/healthz/"}:
+        return True
+    if method.upper() in {"GET", "HEAD"} and not (path == "/api" or path.startswith("/api/")):
         return True
     if path.startswith("/assets/") or path.startswith("/workbox-"):
         return True
@@ -405,7 +407,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         self._hits: dict[str, list[float]] = defaultdict(list)
 
     async def dispatch(self, request: Request, call_next):
-        if _is_rate_limit_exempt_path(request.url.path):
+        if _is_rate_limit_exempt_path(request.url.path, request.method):
             return await call_next(request)
         client_ip = _get_client_ip(request)
         now = time.time()

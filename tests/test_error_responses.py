@@ -109,6 +109,22 @@ def test_static_assets_do_not_consume_global_rate_limit(monkeypatch):
     assert third_dynamic.status_code == 429
 
 
+def test_spa_shell_routes_do_not_consume_global_rate_limit(monkeypatch):
+    """Direct SPA navigations should not spend the API/chat rate budget."""
+    client, _main, _db, _logger = create_client(monkeypatch, rate_limit_rpm="2")
+
+    for path in ["/", "/chat", "/documents", "/system"]:
+        assert client.get(path).status_code == 200
+
+    first_dynamic = client.get("/api/this-route-does-not-exist")
+    second_dynamic = client.get("/api/this-route-does-not-exist")
+    third_dynamic = client.get("/api/this-route-does-not-exist")
+
+    assert first_dynamic.status_code == 404
+    assert second_dynamic.status_code == 404
+    assert third_dynamic.status_code == 429
+
+
 def test_direct_html_files_use_no_store(monkeypatch):
     client, _main, _db, _logger = create_client(monkeypatch)
     studio = REPO_ROOT / "frontend" / "dist" / "studio.html"
