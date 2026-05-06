@@ -95,6 +95,36 @@ function displayPrice(home) {
     : 'Call for Price';
 }
 
+const LEGACY_INVENTORY_ALIASES = {
+  // The legacy WordPress site exposes The Nassau as inventory id 42155, while
+  // the current production seed uses a local id for the same public home.
+  42155: ['tho-2024-001', 'nassau'],
+};
+
+function normalizeInventoryText(value) {
+  return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+function getLegacyInventoryIntent(pathname) {
+  const path = String(pathname || '');
+  const detailMatch = path.match(/\/inventory-detail\/(\d+)/i);
+  if (detailMatch) return { id: detailMatch[1], intent: 'detail' };
+  const quoteMatch = path.match(/\/quote\/inventory\/\d+\/(\d+)/i);
+  if (quoteMatch) return { id: quoteMatch[1], intent: 'quote' };
+  return null;
+}
+
+function resolveLegacyHome(homes, legacyId) {
+  const aliases = LEGACY_INVENTORY_ALIASES[legacyId] || [];
+  const wanted = [legacyId, ...aliases].map(normalizeInventoryText).filter(Boolean);
+  return homes.find(home => {
+    const id = normalizeInventoryText(home.id);
+    const legacyInventoryId = normalizeInventoryText(home.legacy_inventory_id);
+    const name = normalizeInventoryText(home.model_name);
+    return wanted.some(value => id === value || legacyInventoryId === value || name.includes(value));
+  });
+}
+
 function InventoryMetric({ icon, label, value, tone = 'accent' }) {
   const toneMap = {
     accent: 'text-[var(--cp-accent)] bg-[var(--cp-accent-dim)]',
@@ -311,6 +341,7 @@ export default function InventoryBrowse({ adminAuthed = false, onAskTex, onCreat
   const [showLeadForm, setShowLeadForm] = useState(false);
   const [leadFormHome, setLeadFormHome] = useState(null);
   const [leadFormType, setLeadFormType] = useState('tour'); // 'tour' | 'price'
+  const legacyRouteHandledRef = useRef(false);
 
   const fetchInventory = useCallback(async () => {
     try {
@@ -463,13 +494,13 @@ export default function InventoryBrowse({ adminAuthed = false, onAskTex, onCreat
     });
   }, [activeCategory]);
 
-  const openDetail = (home) => {
+  const openDetail = useCallback((home) => {
     setSelectedHome(home);
     setActivePhotoIndex(0);
     setActiveCategory('all');
     setShowTour(false);
     trackEvent('home_viewed', { home: home.model_name, status: home.status });
-  };
+  }, []);
 
   const closeDetail = useCallback(() => {
     setSelectedHome(null);
@@ -509,12 +540,27 @@ export default function InventoryBrowse({ adminAuthed = false, onAskTex, onCreat
   }, [activeCategory]);
 
   // Lead capture handlers
-  const openLeadForm = (home, type) => {
+  const openLeadForm = useCallback((home, type) => {
     setLeadFormHome(home);
     setLeadFormType(type);
     setShowLeadForm(true);
     trackEvent('lead_form_opened', { home: home.model_name, type });
-  };
+  }, []);
+
+  useEffect(() => {
+    if (legacyRouteHandledRef.current || loading || homes.length === 0) return;
+    const intent = getLegacyInventoryIntent(window.location.pathname);
+    if (!intent) return;
+    const home = resolveLegacyHome(homes, intent.id);
+    if (!home) return;
+
+    legacyRouteHandledRef.current = true;
+    setSearchQuery('');
+    openDetail(home);
+    if (intent.intent === 'quote') {
+      openLeadForm(home, 'price');
+    }
+  }, [homes, loading, openDetail, openLeadForm]);
 
   // --- RENDER ---
 
