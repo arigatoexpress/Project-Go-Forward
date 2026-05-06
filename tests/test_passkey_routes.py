@@ -54,6 +54,18 @@ def test_login_begin_returns_browser_json(passkey_client):
     assert "tho_passkey_login=" in response.headers["set-cookie"]
 
 
+def test_login_begin_uses_sapphire_xyz_cutover_context(passkey_client):
+    client, _routes = passkey_client
+
+    response = client.post(
+        "/api/admin/passkey/login/begin",
+        headers={"Origin": "https://tho.sapphire.xyz"},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["rpId"] == "sapphire.xyz"
+
+
 def test_register_begin_requires_existing_admin_session(passkey_client):
     client, _routes = passkey_client
 
@@ -76,6 +88,19 @@ def test_register_begin_returns_browser_json_after_admin_auth(passkey_client, mo
     assert "tho_passkey_register=" in response.headers["set-cookie"]
 
 
+def test_register_begin_uses_sapphire_xyz_cutover_context(passkey_client, monkeypatch):
+    client, routes = passkey_client
+    monkeypatch.setattr(routes, "_request_is_admin", lambda request, manager: True)
+
+    response = client.post(
+        "/api/admin/passkey/register/begin",
+        headers={"Origin": "https://tho.sapphire.xyz"},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["rp"]["id"] == "sapphire.xyz"
+
+
 def test_status_reports_store_persistence_contract(passkey_client):
     client, _routes = passkey_client
 
@@ -89,3 +114,5 @@ def test_status_reports_store_persistence_contract(passkey_client):
     assert body["store_backend"] == "memory"
     assert body["persistent"] is False
     assert body["store_ready"] is True
+    assert "sapphire.xyz" in body["rp_ids"]
+    assert "sapphirealpha.xyz" in body["rp_ids"]
