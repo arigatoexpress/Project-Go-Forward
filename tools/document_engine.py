@@ -6,6 +6,7 @@ Reuses fill_pdf_form() from document_tools.py for actual PDF writing.
 
 import logging
 import os
+import re
 from datetime import datetime
 from typing import Any
 
@@ -73,6 +74,13 @@ def _full_address(address: Any, city_state_zip: Any) -> str | None:
 def _join_nonempty(parts: list[Any], separator: str = " | ") -> str | None:
     clean = [str(part).strip() for part in parts if _has_value(part)]
     return separator.join(clean) if clean else None
+
+
+def _safe_filename_token(value: Any, default: str = "Doc", max_length: int = 50) -> str:
+    raw = str(value or default)
+    token = re.sub(r"[^a-zA-Z0-9_\s\-]", "", raw).strip().replace(" ", "_")
+    token = token[:max_length].strip("_")
+    return token or default
 
 
 def _set_status_flags(
@@ -275,14 +283,15 @@ def generate_document(
 
     # Generate output filename (sanitized to prevent path traversal)
     if not output_filename:
-        import re
-
-        safe_name = template_name.replace(".pdf", "")
+        safe_name = _safe_filename_token(
+            template_name.replace(".pdf", ""),
+            default="Document",
+            max_length=80,
+        )
         buyer = (
             data.get("buyer_name") or data.get("buyer_city") or data.get("manufacturer") or "Doc"
         )
-        # Strip everything except alphanumeric, spaces, hyphens
-        buyer = re.sub(r"[^a-zA-Z0-9\s\-]", "", buyer).replace(" ", "_")[:50]
+        buyer = _safe_filename_token(buyer)
         date_str = datetime.now().strftime("%Y%m%d")
         output_filename = f"{safe_name}_{buyer}_{date_str}.pdf"
 
@@ -482,12 +491,21 @@ def generate_batch(
 
     results = []
     successful_files = []
+    batch_buyer = _safe_filename_token(
+        data.get("buyer_name") or data.get("buyer_city") or data.get("manufacturer") or "Customer",
+        default="Customer",
+    )
 
     for template_name in template_names:
+        safe_template = _safe_filename_token(
+            template_name.replace(".pdf", ""),
+            default="Document",
+            max_length=80,
+        )
         result = generate_document(
             template_name,
             dict(data),  # copy so required-field validation doesn't mutate across templates
-            f"_batch_{template_name.replace('.pdf', '')}_{datetime.now().strftime('%Y%m%d%H%M%S')}.pdf",
+            f"_batch_{safe_template}_{batch_buyer}_{datetime.now().strftime('%Y%m%d%H%M%S')}.pdf",
         )
         config = get_template_config(template_name) or {}
         doc_result = {
@@ -513,7 +531,7 @@ def generate_batch(
                 for page in reader.pages:
                     writer.add_page(page)
 
-            buyer = data.get("buyer_name", "Customer").replace(" ", "_")
+            buyer = _safe_filename_token(data.get("buyer_name", "Customer"), default="Customer")
             date_str = datetime.now().strftime("%Y%m%d_%H%M%S")
             merged_filename = f"Documents_{buyer}_{date_str}.pdf"
             merged_path = os.path.join(OUTPUT_DIR, merged_filename)

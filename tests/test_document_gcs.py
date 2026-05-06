@@ -1,6 +1,7 @@
-"""Tests for document generation and GCS persistence.
+"""Tests for document generation and optional GCS persistence.
 
-Verifies PDF generation, XFA filling, GCS upload/download, and edge cases.
+Verifies PDF generation, XFA filling, and edge cases. Live GCS checks are
+opt-in so normal pytest runs cannot pollute the production document bucket.
 
 Run: python -m pytest tests/test_document_gcs.py -v
 """
@@ -76,6 +77,11 @@ class TestDocumentTools:
 
 class TestGCSFunctions:
     """Test GCS upload/download/list functions."""
+
+    pytestmark = pytest.mark.skipif(
+        os.getenv("RUN_LIVE_GCS_TESTS") != "1",
+        reason="Live GCS checks are opt-in; set RUN_LIVE_GCS_TESTS=1.",
+    )
 
     def test_gcs_bucket_accessible(self):
         """GCS bucket should be accessible (may fail in CI without credentials)."""

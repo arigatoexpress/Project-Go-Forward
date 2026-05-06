@@ -1308,52 +1308,85 @@ def analyze_content_performance(
     """
     Analyze performance of recent social media content.
     """
+    inventory = _load_inventory_for_marketing()
+    preowned_count = len([h for h in inventory if "pre-owned" in h.get("status", "").lower()])
+    photo_ready_count = len(
+        [
+            h for h in inventory
+            if h.get("image_url") or h.get("real_photos") or h.get("gallery_images")
+        ]
+    )
+
+    def count_generated(directory: str, extensions: tuple[str, ...]) -> int:
+        try:
+            return sum(
+                1
+                for item in os.scandir(directory)
+                if item.is_file() and item.name.lower().endswith(extensions)
+            )
+        except OSError:
+            return 0
+
+    video_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "generated_videos")
+    generated_images = count_generated(GENERATED_ADS_DIR, (".png", ".jpg", ".jpeg", ".webp"))
+    generated_videos = count_generated(video_dir, (".mp4", ".mov", ".webm"))
+
+    connected = tiktok_handler.is_configured()
+    top_content = []
+    if generated_videos:
+        top_content.append({
+            "type": "video_assets_ready",
+            "views": generated_videos,
+            "views_label": f"{generated_videos} generated videos",
+            "engagement_rate": "local",
+            "engagement_label": "pending publish data",
+        })
+    if generated_images:
+        top_content.append({
+            "type": "image_creatives_ready",
+            "views": generated_images,
+            "views_label": f"{generated_images} generated images",
+            "engagement_rate": "local",
+            "engagement_label": "pending publish data",
+        })
+    top_content.append({
+        "type": "inventory_backed_ideas",
+        "views": len(inventory),
+        "views_label": f"{len(inventory)} homes available",
+        "engagement_rate": "ready",
+        "engagement_label": f"{photo_ready_count} with photos",
+    })
+
+    recommendations = [
+        "Connect TikTok or Meta analytics before treating reach, follower, or DM metrics as live.",
+        f"Use the inventory-backed idea lane for {len(inventory)} current homes.",
+    ]
+    if photo_ready_count:
+        recommendations.append(f"Prioritize the {photo_ready_count} homes with usable photos for fastest video creation.")
+    if preowned_count:
+        recommendations.append(f"Feature the {preowned_count} pre-owned homes as the budget-friendly content lane.")
+
     return {
         "success": True,
         "date_range": date_range,
-        "source": "simulated_data" if not tiktok_handler.is_configured() else "api_connected",
+        "source": "api_connected" if connected else "local_readiness",
+        "social_analytics_connected": connected,
+        "disclaimer": None if connected else (
+            "Live social-platform analytics are not connected; showing local creative readiness instead."
+        ),
         "summary": {
-            "total_views": "15.2K",
-            "total_engagement": "2.1K",
-            "new_followers": 127,
-            "dms_received": 34,
-            "leads_generated": 12
+            "total_views": 0,
+            "total_engagement": 0,
+            "new_followers": 0,
+            "dms_received": 0,
+            "leads_generated": 0,
+            "generated_images": generated_images,
+            "generated_videos": generated_videos,
+            "inventory_count": len(inventory),
+            "photo_ready_homes": photo_ready_count,
         },
-        "top_performing_content": [
-            {"type": "home_tour", "views": "8.3K", "engagement_rate": "14.2%"},
-            {"type": "myth_busting", "views": "4.1K", "engagement_rate": "11.8%"},
-            {"type": "clearance_alert", "views": "2.8K", "engagement_rate": "18.5%"}
-        ],
-        "recommendations": [
-            "Home tour content is performing best — increase frequency",
-            "Clearance alerts have highest engagement rate — use for time-sensitive promos",
-            "Post more during 7-8 PM CST — that's your peak engagement window",
-            "Pre-owned home content drives the most DMs — lean into budget-friendly messaging"
-        ],
-        "generated_at": datetime.now().isoformat()
-    }
-    return {
-        "success": True,
-        "date_range": date_range,
-        "source": "simulated_data" if not tiktok_handler.is_configured() else "api_connected",
-        "summary": {
-            "total_views": "15.2K",
-            "total_engagement": "2.1K",
-            "new_followers": 127,
-            "dms_received": 34,
-            "leads_generated": 12
-        },
-        "top_performing_content": [
-            {"type": "home_tour", "views": "8.3K", "engagement_rate": "14.2%"},
-            {"type": "myth_busting", "views": "4.1K", "engagement_rate": "11.8%"},
-            {"type": "clearance_alert", "views": "2.8K", "engagement_rate": "18.5%"}
-        ],
-        "recommendations": [
-            "Home tour content is performing best — increase frequency",
-            "Clearance alerts have highest engagement rate — use for time-sensitive promos",
-            "Post more during 7-8 PM CST — that's your peak engagement window",
-            "Pre-owned home content drives the most DMs — lean into budget-friendly messaging"
-        ],
+        "top_performing_content": top_content[:3],
+        "recommendations": recommendations,
         "generated_at": datetime.now().isoformat()
     }
 
@@ -1378,11 +1411,6 @@ def generate_script_voiceover(
     Returns:
         Dict with base64-encoded MP3 audio and metadata
     """
-    import os
-    
-    # Check if we're running on GCP with default credentials
-    project_id = os.environ.get("GOOGLE_CLOUD_PROJECT")
-    
     try:
         from google.cloud import texttospeech
         
