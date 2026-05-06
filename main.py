@@ -1614,6 +1614,30 @@ from tools.document_tools import (
 )
 
 
+_SYNTHETIC_DOCUMENT_NAME_MARKERS = (
+    "created_from_missing_dir",
+    "joe_blo",
+    "legacy_test",
+    "smoke_buyer",
+    "test_buyer",
+    "test_engine",
+    "test_fill",
+    "test_summary",
+)
+
+
+def _is_synthetic_document(filename: str | None) -> bool:
+    """Identify generated test/smoke PDFs so admin history stays demo-safe."""
+    normalized = os.path.basename(filename or "").lower()
+    if not normalized.endswith(".pdf"):
+        return False
+    return any(marker in normalized for marker in _SYNTHETIC_DOCUMENT_NAME_MARKERS)
+
+
+def _visible_generated_documents(docs: list[dict]) -> list[dict]:
+    return [doc for doc in docs if not doc.get("synthetic")]
+
+
 def _collect_generated_documents():
     """Return generated PDF metadata without exposing document contents."""
     seen = set()
@@ -1635,6 +1659,7 @@ def _collect_generated_documents():
                     "created_at": datetime.fromtimestamp(stat.st_mtime, tz=UTC).isoformat(),
                     "download_url": f"/api/documents/download/{filename}",
                     "source": "local",
+                    "synthetic": _is_synthetic_document(filename),
                 }
             )
             seen.add(filename)
@@ -1646,7 +1671,7 @@ def _collect_generated_documents():
         filename = gcs_doc.get("filename")
         if not filename or filename in seen:
             continue
-        docs.append({**gcs_doc, "source": "gcs"})
+        docs.append({**gcs_doc, "source": "gcs", "synthetic": _is_synthetic_document(filename)})
         seen.add(filename)
 
     docs.sort(key=lambda d: d.get("created_at") or "", reverse=True)
@@ -1675,6 +1700,7 @@ async def document_readiness():
         templates = engine_list_templates()
         packets = engine_list_packets()
         docs, local_count, gcs_count = _collect_generated_documents()
+        visible_docs = _visible_generated_documents(docs)
         categories: dict[str, int] = {}
         for template in templates:
             category = template.get("category") or "Other"
@@ -1689,12 +1715,14 @@ async def document_readiness():
             "template_count": len(templates),
             "packet_count": len(packets),
             "category_counts": categories,
-            "generated_document_count": len(docs),
+            "generated_document_count": len(visible_docs),
+            "total_document_count": len(docs),
+            "hidden_test_document_count": len(docs) - len(visible_docs),
             "local_document_count": local_count,
             "gcs_document_count": gcs_count,
             "output_dir": "available" if output_dir_exists else "missing",
             "output_dir_writable": output_dir_writable,
-            "latest_document_at": docs[0].get("created_at") if docs else None,
+            "latest_document_at": visible_docs[0].get("created_at") if visible_docs else None,
         }
     except Exception as e:
         struct_logger.error("Document readiness failed", error=str(e))
@@ -4282,10 +4310,16 @@ async def submit_feedback(request: Request):
 
 
 @app.get("/api/documents/history", dependencies=[Depends(require_admin)])
-async def document_history():
-    """List all generated documents. Merges local and GCS results."""
+async def document_history(include_test: bool = False):
+    """List generated documents. Merges local and GCS results."""
     docs, _local_count, _gcs_count = _collect_generated_documents()
-    return {"documents": docs[:50], "total": len(docs)}
+    visible_docs = docs if include_test else _visible_generated_documents(docs)
+    return {
+        "documents": visible_docs[:50],
+        "total": len(visible_docs),
+        "total_including_test": len(docs),
+        "hidden_test_document_count": len(docs) - len(_visible_generated_documents(docs)),
+    }
 
 
 # ─── Signed-URL Document Share ───────────────────────────────────────────────

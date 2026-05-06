@@ -99,3 +99,51 @@ def test_get_inventory_for_ads_demotes_floorplan_hero_to_floorplan_url(monkeypat
     assert home["real_photos"][0] == exterior
     # Dedicated floorplan slot is now populated.
     assert home["floor_plan_url"] == floorplan
+
+
+def test_content_performance_uses_honest_local_readiness(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        marketing_tools,
+        "_load_inventory_for_marketing",
+        lambda: [
+            {
+                "model_name": "Photo Ready",
+                "status": "Available",
+                "image_url": "https://example.com/photo.jpg",
+            },
+            {
+                "model_name": "Budget Deal",
+                "status": "Pre-Owned",
+                "gallery_images": ["https://example.com/gallery.jpg"],
+            },
+        ],
+    )
+    monkeypatch.setattr(marketing_tools.tiktok_handler, "is_configured", lambda: False)
+    monkeypatch.setattr(marketing_tools, "GENERATED_ADS_DIR", str(tmp_path / "ads"))
+    (tmp_path / "ads").mkdir()
+    (tmp_path / "ads" / "creative.png").write_bytes(b"fake image")
+    (tmp_path / "data" / "generated_videos").mkdir(parents=True)
+    (tmp_path / "data" / "generated_videos" / "tour.mp4").write_bytes(b"fake video")
+    real_dirname = marketing_tools.os.path.dirname
+
+    def fake_dirname(path):
+        if str(path).endswith("marketing_tools.py"):
+            return str(tmp_path / "tools")
+        if str(path) == str(tmp_path / "tools"):
+            return str(tmp_path)
+        return real_dirname(path)
+
+    monkeypatch.setattr(marketing_tools.os.path, "dirname", fake_dirname)
+
+    result = marketing_tools.analyze_content_performance()
+
+    assert result["source"] == "local_readiness"
+    assert result["social_analytics_connected"] is False
+    assert result["summary"]["total_views"] == 0
+    assert result["summary"]["generated_images"] == 1
+    assert result["summary"]["generated_videos"] == 1
+    assert result["summary"]["inventory_count"] == 2
+    assert result["summary"]["photo_ready_homes"] == 2
+    assert "15.2K" not in str(result)
+    assert result["top_performing_content"][0]["views_label"] == "1 generated videos"
+    assert any("pre-owned" in rec.lower() for rec in result["recommendations"])

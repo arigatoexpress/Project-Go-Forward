@@ -1121,6 +1121,63 @@ def test_document_readiness_reports_safe_counts(monkeypatch, tmp_path):
     assert body["category_counts"] == {"TMHA": 1, "State": 1}
 
 
+def test_document_history_hides_synthetic_artifacts_by_default(monkeypatch, tmp_path):
+    client, main, _db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
+    token = main._create_admin_token()
+    headers = {"X-Admin-Token": token}
+
+    (tmp_path / "TMHA_SalesContract_Client_Ready_20260505.pdf").write_bytes(
+        b"%PDF-1.4\n%EOF\n"
+    )
+    (tmp_path / "TMHA_SalesContract_Test_Buyer_20260505.pdf").write_bytes(
+        b"%PDF-1.4\n%EOF\n"
+    )
+    monkeypatch.setattr(main, "OUTPUT_DIR", str(tmp_path))
+    monkeypatch.setattr(
+        main,
+        "list_gcs_documents",
+        lambda: [
+            {
+                "filename": "TDHCA_1038_Consumer_Disclosure_Real_Buyer_20260505.pdf",
+                "size_bytes": 4096,
+                "created_at": "2026-05-05T22:00:00+00:00",
+                "download_url": (
+                    "/api/documents/download/"
+                    "TDHCA_1038_Consumer_Disclosure_Real_Buyer_20260505.pdf"
+                ),
+            },
+            {
+                "filename": "TDHCA_1038_Consumer_Disclosure_Smoke_Buyer_20260505.pdf",
+                "size_bytes": 2048,
+                "created_at": "2026-05-05T23:00:00+00:00",
+                "download_url": (
+                    "/api/documents/download/"
+                    "TDHCA_1038_Consumer_Disclosure_Smoke_Buyer_20260505.pdf"
+                ),
+            },
+        ],
+    )
+
+    default_response = client.get("/api/documents/history", headers=headers)
+    include_test_response = client.get("/api/documents/history?include_test=true", headers=headers)
+
+    assert default_response.status_code == 200
+    body = default_response.json()
+    default_filenames = [doc["filename"] for doc in body["documents"]]
+    assert default_filenames == [
+        "TMHA_SalesContract_Client_Ready_20260505.pdf",
+        "TDHCA_1038_Consumer_Disclosure_Real_Buyer_20260505.pdf",
+    ]
+    assert body["total"] == 2
+    assert body["total_including_test"] == 4
+    assert body["hidden_test_document_count"] == 2
+
+    assert include_test_response.status_code == 200
+    include_test_body = include_test_response.json()
+    assert include_test_body["total"] == 4
+    assert any(doc["synthetic"] for doc in include_test_body["documents"])
+
+
 def test_returns_503_when_tho_api_key_is_unset(monkeypatch):
     client, _main, _db, _logger = create_client(monkeypatch, tho_api_key=None)
 
