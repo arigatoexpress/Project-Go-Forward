@@ -72,9 +72,7 @@ def test_field_renders_autofilled_badge(source: str):
     field_end = source.find("});", field_start)
     field_body = source[field_start:field_end]
     assert "autoFilled" in field_body, "Field must accept autoFilled prop"
-    assert "from inventory" in field_body, (
-        "Field must render the 'from inventory' confirmation tag"
-    )
+    assert "from inventory" in field_body, "Field must render the 'from inventory' confirmation tag"
 
 
 def test_field_renders_helper_text(source: str):
@@ -119,3 +117,37 @@ def test_chg_clears_autofill_marker_on_manual_edit(source: str):
         "chg() must clear the auto-fill marker when the user types over a "
         "previously auto-filled value"
     )
+
+
+def test_manual_customer_save_payload_is_fuller_and_masked(source: str):
+    """Manual customer entry should persist the useful customer fields without
+    shipping raw SSNs to the customer API."""
+    assert "function buildCustomerPayload" in source
+    assert "legacy_source: 'manual'" in source
+    assert "customer_status" in source
+    assert "customer_notes" in source
+    assert "co_buyer:" in source
+    assert "maskSsn(data.buyer_ssn)" in source
+    assert "maskSsn(data.co_buyer_ssn)" in source
+    payload_start = source.find("function buildCustomerPayload")
+    payload_body = source[payload_start : source.find("function safeDraftForm", payload_start)]
+    assert "buyer_ssn:" not in payload_body
+
+
+def test_document_center_draft_storage_masks_ssn_fields(source: str):
+    """Local draft autosave should not persist raw SSNs in browser storage."""
+    assert "function safeDraftForm" in source
+    safe_start = source.find("function safeDraftForm")
+    safe_body = source[safe_start : source.find("function BigButton", safe_start)]
+    assert "buyer_ssn: maskSsn(data.buyer_ssn)" in safe_body
+    assert "co_buyer_ssn: maskSsn(data.co_buyer_ssn)" in safe_body
+    assert "form: safeDraftForm(form)" in source
+
+
+def test_save_customer_record_button_is_visible_before_step_validation(source: str):
+    """The customer-save action should be visible during manual entry, even
+    before the full Step 1 validation passes."""
+    assert "Save Customer Record" in source
+    assert "canSaveCustomer" in source
+    assert "disabled={!canSaveCustomer || savingCustomer}" in source
+    assert "Enter buyer first and last name to save a customer record." in source

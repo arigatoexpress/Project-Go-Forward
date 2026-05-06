@@ -3896,6 +3896,40 @@ def _strip_ssn_from_customer(c: dict) -> dict:
     return safe
 
 
+_CUSTOMER_SENSITIVE_KEYS = {
+    "ssn",
+    "ssn_hash",
+    "buyer_ssn",
+    "co_buyer_ssn",
+    "social_security_number",
+    "social_security",
+}
+
+
+def _strip_sensitive_customer_payload(value):
+    """Recursively drop raw SSN-shaped keys before customer persistence."""
+    if isinstance(value, dict):
+        cleaned = {}
+        for key, child in value.items():
+            if not isinstance(key, str):
+                continue
+            if key.lower() in _CUSTOMER_SENSITIVE_KEYS:
+                continue
+            cleaned[key] = _strip_sensitive_customer_payload(child)
+        return cleaned
+    if isinstance(value, list):
+        return [_strip_sensitive_customer_payload(item) for item in value[:20]]
+    return value
+
+
+def _masked_ssn(value: str | None) -> str:
+    """Store only a masked SSN preview for operator matching."""
+    digits = "".join(ch for ch in str(value or "") if ch.isdigit())
+    if len(digits) >= 4:
+        return f"***-**-{digits[-4:]}"
+    return _sanitize_text(value or "", 20)
+
+
 @app.get("/api/customers/search", dependencies=[Depends(require_admin)])
 async def search_customers(q: str = "", status: str = "", limit: int = 50):
     """Search customer records in Firestore by name, phone, email, or legacy ID."""
@@ -4174,6 +4208,7 @@ async def create_customer(request: Request):
         if data.get("legacy_source") in ("manual", "fastcontract", "import")
         else "manual",
         "full_name": name,
+        "_name_lower": name.lower().strip(),
         "email": (data.get("email") or "").strip().lower()[:200] or None,
         "phone": (data.get("phone") or "").strip()[:20] or None,
         "status": status,
@@ -4181,18 +4216,27 @@ async def create_customer(request: Request):
         "city": _sanitize_text(data.get("city") or "", 100) or None,
         "state": _sanitize_text(data.get("state") or "TX", 2) or "TX",
         "zip_code": _sanitize_text(data.get("zip_code") or data.get("zip") or "", 10) or None,
+        "marital_status": _sanitize_text(data.get("marital_status") or "", 50) or None,
         "employer": _sanitize_text(data.get("employer") or "", 200) or None,
         "occupation": _sanitize_text(data.get("occupation") or "", 200) or None,
         "salesrep": _sanitize_text(data.get("salesrep") or "", 100) or None,
         "notes": _sanitize_text(data.get("notes") or "", 2000) or None,
-        "ssn_masked": _sanitize_text(data.get("ssn_masked") or "", 20),
-        "co_buyer": data.get("co_buyer"),
-        "references": data.get("references", []),
+        "ssn_masked": _masked_ssn(data.get("ssn_masked") or data.get("buyer_ssn")),
+        "co_buyer": _strip_sensitive_customer_payload(data.get("co_buyer") or {}),
+        "references": _strip_sensitive_customer_payload(data.get("references") or []),
     }
 
     try:
         doc_id = _db.create_customer(customer, doc_id=customer_id)
         customer["id"] = doc_id
+        log_admin_action(
+            actor=_audit_actor(request),
+            action="customer.create",
+            target_type="customer",
+            target_id=str(doc_id),
+            details={"fields": sorted(k for k in data.keys() if isinstance(k, str))},
+            request=request,
+        )
         return {"success": True, "customer": _strip_ssn_from_customer(customer)}
     except Exception as e:
         logger.error(f"Customer creation failed: {e}")
@@ -4218,6 +4262,7 @@ async def update_customer(customer_id: str, request: Request):
         "city",
         "state",
         "zip_code",
+        "marital_status",
         "employer",
         "occupation",
         "salesrep",
@@ -4226,6 +4271,12 @@ async def update_customer(customer_id: str, request: Request):
         "references",
     ]
     update_data = {k: data[k] for k in updatable if k in data}
+    if "full_name" in update_data:
+        update_data["_name_lower"] = _sanitize_text(str(update_data["full_name"]), 500).lower()
+    if "co_buyer" in update_data:
+        update_data["co_buyer"] = _strip_sensitive_customer_payload(update_data["co_buyer"])
+    if "references" in update_data:
+        update_data["references"] = _strip_sensitive_customer_payload(update_data["references"])
 
     if not update_data:
         raise HTTPException(400, "No updatable fields provided")

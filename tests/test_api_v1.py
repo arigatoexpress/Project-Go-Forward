@@ -1263,6 +1263,69 @@ def test_document_history_hides_synthetic_artifacts_by_default(monkeypatch, tmp_
     assert any(doc["synthetic"] for doc in include_test_body["documents"])
 
 
+def test_admin_create_customer_manual_payload_sanitizes_nested_sensitive_fields(monkeypatch):
+    client, main, db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
+    token = main._create_admin_token()
+
+    response = client.post(
+        "/api/customers",
+        headers={"X-Admin-Token": token},
+        json={
+            "legacy_source": "manual",
+            "full_name": "Manual Buyer",
+            "email": "Manual.Buyer@Example.com",
+            "phone": "(555) 222-3333",
+            "status": "lead",
+            "address": "<b>123 Test Way</b>",
+            "city": "Huffman",
+            "state": "TX",
+            "zip_code": "77336",
+            "marital_status": "Single",
+            "employer": "THO Test Employer",
+            "occupation": "Operator",
+            "salesrep": "Ari",
+            "notes": "<script>alert(1)</script> synthetic manual customer",
+            "buyer_ssn": "123-45-6789",
+            "ssn_hash": "raw-hash-should-not-store",
+            "co_buyer": {
+                "full_name": "Co Buyer",
+                "phone": "555-333-4444",
+                "ssn": "999-88-7777",
+                "ssn_hash": "nested-hash-should-not-store",
+                "ssn_masked": "***-**-7777",
+            },
+            "references": [{"name": "Reference One", "ssn": "111-22-3333"}],
+        },
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["success"] is True
+    customer = body["customer"]
+    assert customer["email"] == "manual.buyer@example.com"
+    assert customer["status"] == "LEAD"
+    assert customer["address"] == "123 Test Way"
+    assert customer["notes"] == "alert(1) synthetic manual customer"
+    assert customer["ssn_masked"] == "***-**-6789"
+    assert "ssn_hash" not in customer
+    assert "ssn" not in customer["co_buyer"]
+    assert "ssn_hash" not in customer["co_buyer"]
+    assert "ssn" not in customer["references"][0]
+
+    stored = db.collections["customers"][customer["id"]]
+    assert stored["_name_lower"] == "manual buyer"
+    assert stored["co_buyer"]["ssn_masked"] == "***-**-7777"
+    assert "ssn" not in stored["co_buyer"]
+    assert "ssn_hash" not in stored["co_buyer"]
+
+    search_response = client.get(
+        "/api/customers/search?q=Manual&limit=5",
+        headers={"X-Admin-Token": token},
+    )
+    assert search_response.status_code == 200
+    assert any(c["id"] == customer["id"] for c in search_response.json()["customers"])
+
+
 def test_returns_503_when_tho_api_key_is_unset(monkeypatch):
     client, _main, _db, _logger = create_client(monkeypatch, tho_api_key=None)
 

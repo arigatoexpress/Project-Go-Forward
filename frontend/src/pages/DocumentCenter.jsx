@@ -28,6 +28,7 @@ const INITIAL_FORM = {
   co_buyer_first_name: '', co_buyer_last_name: '', co_buyer_phone: '',
   co_buyer_ssn: '', co_buyer_dob: '', co_buyer_marital_status: '',
   mailing_address: '', mailing_city: '', mailing_state: 'TX', mailing_zip: '',
+  mailing_own_rent: '', customer_status: 'LEAD', customer_notes: '',
   employer_name: '', occupation: '', occupation_length: '', work_phone: '',
   // Home Info
   is_new: true, manufacturer: '', model: '', year: '',
@@ -76,6 +77,11 @@ const fullAddress = (address, cityZip) => {
 const joinNonEmpty = (parts, separator = ' | ') => {
   const clean = parts.filter(hasValue).map(v => String(v).trim());
   return clean.length ? clean.join(separator) : undefined;
+};
+
+const maskSsn = value => {
+  const digits = String(value || '').replace(/\D/g, '');
+  return digits.length >= 4 ? `***-**-${digits.slice(-4)}` : '';
 };
 
 const statusFlags = (status, prefix) => {
@@ -279,6 +285,85 @@ const Field = React.memo(function Field({ label, name, value, onChange, type = '
 
 function Row({ children }) {
   return <div className="flex flex-wrap -mx-2">{children}</div>;
+}
+
+function SelectField({ label, name, value, onChange, options, half, third, icon: Icon, resetKey }) {
+  const widthClass = third ? 'w-full sm:w-1/3' : half ? 'w-full sm:w-1/2' : 'w-full';
+  return (
+    <div className={`${widthClass} px-2 mb-4`}>
+      <label className="block text-sm font-bold text-gray-700 mb-2">{label}</label>
+      <div className="relative">
+        {Icon && <Icon size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />}
+        <select
+          key={`${name}-${resetKey || 0}`}
+          name={name}
+          defaultValue={value || ''}
+          onChange={e => onChange(name, e.target.value)}
+          className={`w-full px-4 py-3 border-2 border-gray-300 rounded-xl text-base bg-white focus:ring-4 focus:ring-blue-200 focus:border-blue-500 outline-none ${Icon ? 'pl-10' : ''}`}
+        >
+          {options.map(option => (
+            <option key={option.value} value={option.value}>{option.label}</option>
+          ))}
+        </select>
+      </div>
+    </div>
+  );
+}
+
+function TextAreaField({ label, name, value, onChange, placeholder, resetKey }) {
+  return (
+    <div className="w-full px-2 mb-4">
+      <label className="block text-sm font-bold text-gray-700 mb-2">{label}</label>
+      <textarea
+        key={`${name}-${resetKey || 0}`}
+        name={name}
+        defaultValue={value || ''}
+        onChange={e => onChange(name, e.target.value)}
+        placeholder={placeholder}
+        rows={3}
+        className="w-full px-4 py-3 border-2 border-gray-300 rounded-xl text-base bg-white focus:ring-4 focus:ring-blue-200 focus:border-blue-500 outline-none"
+      />
+    </div>
+  );
+}
+
+function buildCustomerPayload(data) {
+  const coBuyerName = joinName(data.co_buyer_first_name, data.co_buyer_last_name);
+  const coBuyer = coBuyerName
+    ? {
+        full_name: coBuyerName,
+        phone: data.co_buyer_phone || null,
+        ssn_masked: maskSsn(data.co_buyer_ssn) || undefined,
+        marital_status: data.co_buyer_marital_status || null,
+      }
+    : undefined;
+
+  return {
+    legacy_source: 'manual',
+    full_name: joinName(data.buyer_first_name, data.buyer_last_name) || '',
+    email: data.buyer_email || null,
+    phone: data.buyer_phone || null,
+    status: data.customer_status || 'LEAD',
+    address: data.mailing_address || null,
+    city: data.mailing_city || null,
+    state: data.mailing_state || 'TX',
+    zip_code: data.mailing_zip || null,
+    marital_status: data.buyer_marital_status || null,
+    employer: data.employer_name || null,
+    occupation: data.occupation || null,
+    salesrep: data.salesrep || null,
+    notes: data.customer_notes || null,
+    ssn_masked: maskSsn(data.buyer_ssn) || undefined,
+    co_buyer: coBuyer,
+  };
+}
+
+function safeDraftForm(data) {
+  return {
+    ...data,
+    buyer_ssn: maskSsn(data.buyer_ssn),
+    co_buyer_ssn: maskSsn(data.co_buyer_ssn),
+  };
 }
 
 function BigButton({ children, onClick, disabled, variant = 'primary', icon: Icon, className = '' }) {
@@ -581,37 +666,27 @@ function Step1({ data, onChange, resetKey, deals, dealsLoading, onLoadDeal, onNe
 
   const liveValidation = getValidationState(data, 1);
   const canProceed = liveValidation.missing.size === 0;
+  const canSaveCustomer = hasValue(data.buyer_first_name) && hasValue(data.buyer_last_name);
   const missing = missingFields || new Set();
   const errOf = (name) => missing.has(name);
   const savingCustomer = customerSaveState.status === 'saving';
 
   const saveCurrentCustomer = async () => {
-    if (!canProceed || savingCustomer) return;
+    if (!canSaveCustomer || savingCustomer) return;
     setCustomerSaveState({ status: 'saving', message: 'Saving customer...' });
-    const name = `${data.buyer_first_name} ${data.buyer_last_name}`.trim();
+    const customerPayload = buildCustomerPayload(data);
     try {
       const res = await adminFetch('/api/customers', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          full_name: name,
-          email: data.buyer_email || null,
-          phone: data.buyer_phone || null,
-          address: data.mailing_address || null,
-          city: data.mailing_city || null,
-          state: data.mailing_state || 'TX',
-          zip_code: data.mailing_zip || null,
-          employer: data.employer_name || null,
-          occupation: data.occupation || null,
-          salesrep: data.salesrep || null,
-        }),
+        body: JSON.stringify(customerPayload),
       });
       if (res.ok) {
         const body = await res.json();
         const saved = body.customer || {};
         setCustomerSaveState({
           status: 'saved',
-          message: `${saved.full_name || name} saved to customer records.`,
+          message: `${saved.full_name || customerPayload.full_name} saved to customer records.`,
         });
         return;
       }
@@ -791,6 +866,53 @@ function Step1({ data, onChange, resetKey, deals, dealsLoading, onLoadDeal, onNe
         </Row>
       </Section>
 
+      {/* Customer Record */}
+      <Section title="Customer Record" icon={ClipboardList} open={false}
+        badge={<Badge color="green">Manual entry</Badge>}>
+        <Row>
+          <Field label="Sales Representative" name="salesrep" value={data.salesrep} onChange={c} resetKey={resetKey} third icon={User} />
+          <SelectField
+            label="Customer Status"
+            name="customer_status"
+            value={data.customer_status}
+            onChange={c}
+            resetKey={resetKey}
+            third
+            icon={ShieldCheck}
+            options={[
+              { value: 'LEAD', label: 'Lead' },
+              { value: 'ENROLLED', label: 'Enrolled' },
+              { value: 'NON_ENROLLED', label: 'Non-enrolled' },
+              { value: 'SOLD', label: 'Sold' },
+            ]}
+          />
+          <SelectField
+            label="Residence"
+            name="mailing_own_rent"
+            value={data.mailing_own_rent}
+            onChange={c}
+            resetKey={resetKey}
+            third
+            icon={Home}
+            options={[
+              { value: '', label: 'Not set' },
+              { value: 'own', label: 'Owns' },
+              { value: 'rent', label: 'Rents' },
+            ]}
+          />
+        </Row>
+        <Row>
+          <TextAreaField
+            label="Internal Notes"
+            name="customer_notes"
+            value={data.customer_notes}
+            onChange={c}
+            resetKey={resetKey}
+            placeholder="Preferences, timeline, source, or follow-up notes..."
+          />
+        </Row>
+      </Section>
+
       {/* Co-Buyer */}
       <Section title="Co-Buyer (Optional)" icon={User} open={false}
         badge={data.co_buyer_first_name ? <Badge color="green">Added</Badge> : null}>
@@ -830,18 +952,21 @@ function Step1({ data, onChange, resetKey, deals, dealsLoading, onLoadDeal, onNe
       </Section>
 
       {/* Save + Next Buttons */}
-      <div className="flex justify-between items-center pt-4 gap-4">
-        {canProceed && (
+      <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center pt-4 gap-4">
+        <div>
           <button
             type="button"
             onClick={saveCurrentCustomer}
-            disabled={savingCustomer}
-            className="flex items-center gap-2 px-5 py-3 text-sm font-medium text-green-700 bg-green-50 border border-green-300 rounded-xl hover:bg-green-100 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+            disabled={!canSaveCustomer || savingCustomer}
+            className="flex items-center justify-center gap-2 px-5 py-3 text-sm font-medium text-green-700 bg-green-50 border border-green-300 rounded-xl hover:bg-green-100 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
           >
             {savingCustomer ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}
-            {savingCustomer ? 'Saving Customer...' : 'Save Customer'}
+            {savingCustomer ? 'Saving Customer...' : 'Save Customer Record'}
           </button>
-        )}
+          {!canSaveCustomer && (
+            <p className="mt-2 text-xs text-gray-500">Enter buyer first and last name to save a customer record.</p>
+          )}
+        </div>
         <BigButton
           onClick={onNext}
           icon={ArrowRight}
@@ -2051,7 +2176,7 @@ export default function DocumentCenter() {
   useEffect(() => {
     const timeout = setTimeout(() => {
       const draft = {
-        form,
+        form: safeDraftForm(form),
         selDocs,
         step,
         timestamp: new Date().toISOString()
