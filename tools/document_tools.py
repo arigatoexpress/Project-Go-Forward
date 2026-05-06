@@ -62,6 +62,10 @@ def _get_gcs_bucket():
 
 def upload_to_gcs(local_path: str, filename: str) -> Optional[str]:
     """Upload a generated PDF to GCS. Returns the GCS URI or None."""
+    if os.getenv("THO_DISABLE_GCS_UPLOADS", "").lower() in {"1", "true", "yes"}:
+        logging.getLogger(__name__).info("GCS upload disabled; skipping %s", filename)
+        return None
+
     bucket = _get_gcs_bucket()
     if bucket is None:
         return None

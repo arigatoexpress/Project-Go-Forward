@@ -220,6 +220,32 @@ class TestMergedDocumentPersistence:
             (str(tmp_path / result["merged"]["filename"]), result["merged"]["filename"])
         ]
 
+    def test_generate_batch_marks_individual_outputs_with_buyer(self, monkeypatch, tmp_path):
+        import tools.document_engine as engine
+
+        output_filenames = []
+
+        def fake_generate_document(template_name, data, output_filename=None):
+            output_filenames.append(output_filename)
+            return {
+                "success": True,
+                "file_path": str(tmp_path / output_filename),
+                "filename": output_filename,
+            }
+
+        monkeypatch.setattr(engine, "get_template_config", lambda _name: {"display_name": _name})
+        monkeypatch.setattr(engine, "generate_document", fake_generate_document)
+
+        result = engine.generate_batch(
+            ["TMHA_SalesContract.pdf"],
+            {"buyer_name": "Smoke Buyer"},
+            merge=False,
+        )
+
+        assert result["success"] is True
+        assert output_filenames[0].startswith("_batch_TMHA_SalesContract_Smoke_Buyer_")
+        assert output_filenames[0].endswith(".pdf")
+
 
 class TestTemplateFields:
     """Tests for the template field API."""

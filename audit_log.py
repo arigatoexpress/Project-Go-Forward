@@ -46,6 +46,7 @@ ALLOWED_ACTIONS: tuple[str, ...] = (
     "deal.create",
     "deal.update",
     "deal.delete",
+    "customer.create",
     "customer.update",
     "document.generate",
     "admin.login",

@@ -1090,6 +1090,24 @@
 }
 
 /* ─── Analytics Page ─── */
+.tho-analytics-notice {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  margin-top: 1.25rem;
+  padding: 0.85rem 1rem;
+  color: #fbbf24;
+  background: rgba(251, 191, 36, 0.08);
+  border: 1px solid rgba(251, 191, 36, 0.22);
+  border-radius: 8px;
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.tho-analytics-notice svg {
+  flex: 0 0 auto;
+}
+
 .tho-kpi-grid {
   display: grid;
   grid-template-columns: repeat(5, 1fr);
