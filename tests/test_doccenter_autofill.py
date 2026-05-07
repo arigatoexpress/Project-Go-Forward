@@ -65,6 +65,45 @@ def test_handleselecthome_uses_onautofill(source: str):
         assert key in body, f"handleSelectHome should populate {key}"
 
 
+def test_handleselecthome_populates_factory_document_fields(source: str):
+    """Home selection should carry the document-critical factory fields when
+    the admin inventory API provides them."""
+    start = source.find("const handleSelectHome = (home)")
+    end = source.find("const handleClearSelection", start)
+    body = source[start:end]
+    for key in (
+        "wind_zone",
+        "weight_sec_1",
+        "weight_sec_2",
+        "date_of_manufacture",
+        "manufacturer_address",
+        "manufacturer_city",
+        "manufacturer_state",
+        "manufacturer_zip",
+    ):
+        assert key in body, f"handleSelectHome should populate {key}"
+
+
+def test_document_center_has_installer_default_and_alternate_path(source: str):
+    """THO should be the default installer, while allowing another installer
+    for deals that need it."""
+    assert "installer_type: 'tho'" in source
+    assert "Texas Home Outlet installs this home" in source
+    assert "Use another installer" in source
+    assert "handleInstallerChoice" in source
+    assert "installer_name_address" in source
+    assert "installer_address_city_state_zip" in source
+
+
+def test_document_center_uses_shared_tho_business_constants(source: str):
+    """Installer defaults should use the same business constants as the rest
+    of the site instead of copy-pasted THO identity text."""
+    assert "BUSINESS_NAME" in source
+    assert "BUSINESS_PHONE" in source
+    assert "BUSINESS_ADDRESS" in source
+    assert "BUSINESS_ZIP" in source
+
+
 def test_field_renders_autofilled_badge(source: str):
     """Field component must render a 'from inventory' badge when autoFilled."""
     field_start = source.find("const Field = React.memo")

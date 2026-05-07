@@ -1,46 +1,49 @@
 /* ══════════════════════════════════════════════════════════════
-   THO  Cypherpunk  Theme  —  Dark Terminal Aesthetic
+   Texas Home Outlet retail theme
    ══════════════════════════════════════════════════════════════ */
 
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
 
 :root {
-  /* ── Cypherpunk palette ── */
-  --cp-bg:          #050608;
-  --cp-bg-2:        #0d1018;
-  --cp-panel:       #11151f;
-  --cp-panel-hover: #161b28;
-  --cp-surface:     #1a1f2e;
-  --cp-surface-2:   #222839;
+  /* Legacy texashomeoutlet.com palette */
+  --cp-bg:          #fffaf3;
+  --cp-bg-2:        #f4eee6;
+  --cp-panel:       #ffffff;
+  --cp-panel-hover: #fbf5ec;
+  --cp-surface:     #f7efe5;
+  --cp-surface-2:   #efe2d3;
 
-  --cp-accent:      #00ff88;
-  --cp-accent-hot:  #00cc6a;
-  --cp-accent-dim:  rgba(0, 255, 136, 0.12);
-  --cp-secondary:   #00aaff;
-  --cp-secondary-dim: rgba(0, 170, 255, 0.12);
-  --cp-danger:      #ff3366;
-  --cp-danger-dim:  rgba(255, 51, 102, 0.12);
-  --cp-warn:        #ffaa00;
+  --cp-accent:      #501d1d;
+  --cp-accent-hot:  #64312c;
+  --cp-accent-dim:  rgba(80, 29, 29, 0.11);
+  --cp-secondary:   #1b3247;
+  --cp-secondary-dim: rgba(27, 50, 71, 0.12);
+  --cp-danger:      #cf2e2e;
+  --cp-danger-dim:  rgba(207, 46, 46, 0.11);
+  --cp-warn:        #b76a1b;
+  --cp-copper:      #ba8b68;
+  --cp-cta-green:   #2d7d3d;
+  --cp-cta-orange:  #d85d3c;
 
-  --cp-text:        #e7eaf3;
-  --cp-text-secondary: #aab2c7;
-  --cp-muted:       #8a93ab;
-  --cp-faint:       #4b5468;
-  --cp-border:      #1c2233;
-  --cp-border-light:#252c40;
+  --cp-text:        #2d2825;
+  --cp-text-secondary: #4e4742;
+  --cp-muted:       #665d56;
+  --cp-faint:       #8a7e73;
+  --cp-border:      #e3d7c9;
+  --cp-border-light:#d4c1af;
 
   /* ── Legacy tokens (kept for backward compat) ── */
   --tho-navy:        var(--cp-panel);
   --tho-navy-dark:   var(--cp-bg-2);
   --tho-navy-light:  var(--cp-surface);
   --tho-red:         var(--cp-danger);
-  --tho-red-accent:  #ff5588;
+  --tho-red-accent:  #d85d3c;
   --tho-primary:     var(--cp-secondary);
-  --tho-primary-dark:#0088dd;
+  --tho-primary-dark:#12283b;
   --tho-primary-light: var(--cp-secondary-dim);
-  --tho-success:     var(--cp-accent);
-  --tho-success-dark: var(--cp-accent-hot);
-  --tho-success-light: var(--cp-accent-dim);
+  --tho-success:     var(--cp-cta-green);
+  --tho-success-dark: #21642f;
+  --tho-success-light: rgba(45, 125, 61, 0.12);
   --tho-warning:     var(--cp-warn);
   --tho-warning-light: rgba(255,170,0,0.12);
   --tho-danger:      var(--cp-danger);
@@ -55,10 +58,10 @@
   --tho-bg-card:     var(--cp-panel);
 
   /* ── Shadows ── */
-  --tho-shadow-sm: 0 0 0 1px var(--cp-border);
-  --tho-shadow-md: 0 4px 24px rgba(0,0,0,0.45), 0 0 0 1px var(--cp-border);
-  --tho-shadow-lg: 0 12px 40px rgba(0,0,0,0.55), 0 0 0 1px var(--cp-border);
-  --tho-shadow-xl: 0 24px 64px rgba(0,0,0,0.65), 0 0 0 1px var(--cp-border);
+  --tho-shadow-sm: 0 1px 2px rgba(80, 29, 29, 0.08), 0 0 0 1px var(--cp-border);
+  --tho-shadow-md: 0 8px 22px rgba(80, 29, 29, 0.10), 0 0 0 1px var(--cp-border);
+  --tho-shadow-lg: 0 18px 40px rgba(80, 29, 29, 0.14), 0 0 0 1px var(--cp-border);
+  --tho-shadow-xl: 0 24px 64px rgba(80, 29, 29, 0.18), 0 0 0 1px var(--cp-border);
 
   /* ── Spacing & radii ── */
   --tho-space-1: 4px;  --tho-space-2: 8px;  --tho-space-3: 12px;
@@ -75,9 +78,9 @@
   --tho-transition-slow: 0.3s ease;
 
   /* ── Cypherpunk extras ── */
-  --cp-glow: 0 0 12px rgba(0,255,136,0.25), 0 0 4px rgba(0,255,136,0.15);
-  --cp-glow-blue: 0 0 12px rgba(0,170,255,0.25), 0 0 4px rgba(0,170,255,0.15);
-  --cp-glow-red:  0 0 12px rgba(255,51,102,0.25), 0 0 4px rgba(255,51,102,0.15);
+  --cp-glow: 0 8px 24px rgba(80, 29, 29, 0.18);
+  --cp-glow-blue: 0 8px 24px rgba(27, 50, 71, 0.16);
+  --cp-glow-red:  0 8px 24px rgba(207, 46, 46, 0.16);
   --cp-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   --cp-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
 }
@@ -99,7 +102,7 @@ body {
 
 /* ─── Selection ─── */
 ::selection {
-  background: rgba(0, 255, 136, 0.2);
+  background: rgba(186, 139, 104, 0.26);
   color: var(--cp-accent);
 }
 
@@ -149,8 +152,8 @@ button:focus:not(:focus-visible), a:focus:not(:focus-visible) { outline: none; }
 @keyframes tho-toast-in  { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
 
 @keyframes cp-pulse-glow {
-  0%, 100% { box-shadow: 0 0 8px rgba(0,255,136,0.15); }
-  50%      { box-shadow: 0 0 20px rgba(0,255,136,0.35); }
+  0%, 100% { box-shadow: 0 0 0 rgba(80, 29, 29, 0); }
+  50%      { box-shadow: 0 10px 24px rgba(80, 29, 29, 0.16); }
 }
 @keyframes cp-blink {
   0%, 100% { opacity: 1; }
@@ -163,7 +166,7 @@ button:focus:not(:focus-visible), a:focus:not(:focus-visible) { outline: none; }
   background: var(--cp-bg-2);
   border: 1px solid var(--cp-border);
   border-radius: var(--tho-radius-md);
-  box-shadow: inset 0 0 24px rgba(0,0,0,0.4);
+  box-shadow: inset 0 0 18px rgba(80,29,29,0.08);
 }
 
 .cp-glow-accent  { box-shadow: var(--cp-glow); }
@@ -178,6 +181,7 @@ button:focus:not(:focus-visible), a:focus:not(:focus-visible) { outline: none; }
   background: var(--cp-panel);
   border: 1px solid var(--cp-border);
   border-radius: var(--tho-radius-lg);
+  box-shadow: var(--tho-shadow-sm);
 }
 .cp-panel:hover {
   border-color: var(--cp-border-light);
@@ -220,7 +224,7 @@ button:focus:not(:focus-visible), a:focus:not(:focus-visible) { outline: none; }
 }
 
 .cp-input {
-  background: var(--cp-bg-2);
+  background: #ffffff;
   color: var(--cp-text);
   border: 1px solid var(--cp-border);
   border-radius: var(--tho-radius-md);
@@ -231,11 +235,25 @@ button:focus:not(:focus-visible), a:focus:not(:focus-visible) { outline: none; }
 .cp-input:focus {
   outline: none;
   border-color: var(--cp-accent);
-  box-shadow: 0 0 0 2px rgba(0,255,136,0.15);
+  box-shadow: 0 0 0 3px rgba(80, 29, 29, 0.12);
 }
 .cp-input::placeholder {
   color: var(--cp-faint);
 }
+
+/* Tailwind utility nudges so older admin pages inherit the THO palette
+   without rewriting every page-level class in one risky pass. */
+.bg-blue-600 { background-color: var(--cp-accent) !important; }
+.hover\:bg-blue-700:hover { background-color: var(--cp-accent-hot) !important; }
+.text-blue-600, .text-blue-700, .text-blue-800, .text-blue-500 { color: var(--cp-accent) !important; }
+.border-blue-500, .border-blue-300, .border-blue-200 { border-color: var(--cp-accent) !important; }
+.bg-blue-50, .bg-blue-100 { background-color: var(--cp-accent-dim) !important; }
+.ring-blue-200, .focus\:ring-blue-200:focus { --tw-ring-color: rgba(80, 29, 29, 0.18) !important; }
+.focus\:border-blue-500:focus { border-color: var(--cp-accent) !important; }
+.bg-slate-800 { background-color: var(--cp-accent) !important; }
+.text-slate-800 { color: var(--cp-text) !important; }
+.bg-gray-50 { background-color: var(--cp-bg-2) !important; }
+.bg-gray-100 { background-color: var(--cp-surface) !important; }
 
 /* ─── Grid scanline overlay (subtle) ─── */
 .cp-scanlines::before {

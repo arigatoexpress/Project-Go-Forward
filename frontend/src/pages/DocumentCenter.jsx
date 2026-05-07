@@ -10,6 +10,14 @@ import {
 } from 'lucide-react';
 import adminFetch from '../adminFetch';
 import downloadAdminFile from '../downloadAdminFile';
+import {
+  BUSINESS_NAME,
+  BUSINESS_PHONE,
+  BUSINESS_ADDRESS,
+  BUSINESS_CITY,
+  BUSINESS_STATE,
+  BUSINESS_ZIP,
+} from '../constants';
 
 /* ─── Constants ──────────────────────────────────────────── */
 
@@ -34,7 +42,19 @@ const INITIAL_FORM = {
   is_new: true, manufacturer: '', model: '', year: '',
   serial_number_1: '', serial_number_2: '',
   label_number_1: '', label_number_2: '', no_of_sections: '',
+  width: '', length: '', sq_ft: '',
+  wind_zone: '', weight_sec_1: '', weight_sec_2: '', date_of_manufacture: '',
+  manufacturer_address: '', manufacturer_city: '', manufacturer_state: '', manufacturer_zip: '',
+  manufacturer_city_state_zip: '',
   buyer_address: '', buyer_city: '', buyer_county: '', buyer_state: 'TX', buyer_zip: '',
+  installer_type: 'tho',
+  installer_name: BUSINESS_NAME,
+  installer_license: '',
+  installer_phone: BUSINESS_PHONE,
+  installer_address: BUSINESS_ADDRESS,
+  installer_city: BUSINESS_CITY,
+  installer_state: BUSINESS_STATE,
+  installer_zip: BUSINESS_ZIP,
   // Financial
   sales_price: '', down_payment: '',
   creditor_name: '', creditor_phone: '', creditor_address: '', creditor_city_state_zip: '',
@@ -74,6 +94,41 @@ const fullAddress = (address, cityZip) => {
   return hasValue(cityZip) ? `${String(address).trim()}, ${cityZip}` : String(address).trim();
 };
 
+const pickHomeValue = (home, ...keys) => {
+  for (const key of keys) {
+    const value = home?.[key];
+    if (hasValue(value)) return value;
+  }
+  return undefined;
+};
+
+const excelSerialToDate = value => {
+  const serial = Number(value);
+  if (!Number.isFinite(serial) || serial < 20000 || serial > 90000) return '';
+  const date = new Date(Date.UTC(1899, 11, 30));
+  date.setUTCDate(date.getUTCDate() + Math.floor(serial));
+  return date.toISOString().slice(0, 10);
+};
+
+const dateInputValue = value => {
+  if (!hasValue(value)) return '';
+  if (typeof value === 'number' || /^\d+(\.\d+)?$/.test(String(value).trim())) {
+    return excelSerialToDate(value) || String(value);
+  }
+  const d = new Date(value);
+  if (!Number.isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+  return String(value).trim();
+};
+
+const normalizeWindZone = value => {
+  if (!hasValue(value)) return '';
+  const clean = String(value).trim().replace(/^zone\s+/i, '');
+  if (clean === '1') return 'I';
+  if (clean === '2') return 'II';
+  if (clean === '3') return 'III';
+  return clean.toUpperCase();
+};
+
 const joinNonEmpty = (parts, separator = ' | ') => {
   const clean = parts.filter(hasValue).map(v => String(v).trim());
   return clean.length ? clean.join(separator) : undefined;
@@ -97,6 +152,10 @@ function toDocumentData(f) {
   const coBuyer = joinName(f.co_buyer_first_name, f.co_buyer_last_name);
   const buyerCityStateZip = cityStateZip(f.buyer_city, f.buyer_state, f.buyer_zip);
   const mailingCityStateZip = cityStateZip(f.mailing_city, f.mailing_state, f.mailing_zip);
+  const manufacturerCityStateZip =
+    f.manufacturer_city_state_zip || cityStateZip(f.manufacturer_city, f.manufacturer_state, f.manufacturer_zip);
+  const installerCityStateZip = cityStateZip(f.installer_city, f.installer_state, f.installer_zip);
+  const installerFullAddress = fullAddress(f.installer_address, installerCityStateZip);
   const serialLabelCombined = joinNonEmpty([
     hasValue(f.serial_number_1) ? `S/N: ${f.serial_number_1}` : null,
     hasValue(f.serial_number_2) ? `S/N2: ${f.serial_number_2}` : null,
@@ -113,7 +172,12 @@ function toDocumentData(f) {
     mailing_city_state_zip: mailingCityStateZip,
     mailing_full_address: fullAddress(f.mailing_address, mailingCityStateZip),
     manufacturer_model: joinNonEmpty([f.manufacturer, f.model], ' '),
+    manufacturer_city_state_zip: manufacturerCityStateZip,
+    manufacturer_full_address: fullAddress(f.manufacturer_address, manufacturerCityStateZip),
+    installer_address_city_state_zip: installerFullAddress,
+    installer_name_address: joinNonEmpty([f.installer_name, installerFullAddress], ', '),
     serial_label_combined: serialLabelCombined,
+    is_used: f.is_new === false,
     buyer_owns_residence: ['own', 'owns', 'o'].includes(ownRent) || undefined,
     buyer_rents_residence: ['rent', 'rents', 'r'].includes(ownRent) || undefined,
     ...statusFlags(f.buyer_marital_status, 'buyer'),
@@ -1038,6 +1102,36 @@ function Step2({ data, onChange, resetKey, inventory, inventoryLoading, onNext, 
     if (hasValue(home.serial_number)) patch.serial_number_1 = String(home.serial_number);
     if (hasValue(home.label_number)) patch.label_number_1 = String(home.label_number);
     if (hasValue(home.sections)) patch.no_of_sections = String(home.sections);
+    const width = pickHomeValue(home, 'width', 'home_width', 'total_size_w');
+    const length = pickHomeValue(home, 'length', 'home_length', 'total_size_l');
+    const sqft = pickHomeValue(home, 'sq_ft', 'sqft', 'square_feet', 'total_sqft');
+    const windZone = pickHomeValue(home, 'wind_zone', 'wind', 'windZone');
+    const weight1 = pickHomeValue(home, 'weight_sec_1', 'weight1', 'weight_sec1');
+    const weight2 = pickHomeValue(home, 'weight_sec_2', 'weight2', 'weight_sec2');
+    const manufactureDate = pickHomeValue(home, 'date_of_manufacture', 'manufacture_date', 'date_manufactured', 'mfg_date', 'date_const');
+    const manufacturerAddress = pickHomeValue(home, 'manufacturer_address', 'factory_address');
+    const manufacturerCity = pickHomeValue(home, 'manufacturer_city', 'factory_city');
+    const manufacturerState = pickHomeValue(home, 'manufacturer_state', 'factory_state');
+    const manufacturerZip = pickHomeValue(home, 'manufacturer_zip', 'factory_zip');
+    const manufacturerCityStateZip = pickHomeValue(home, 'manufacturer_city_state_zip', 'factory_city_state_zip');
+    const installerName = pickHomeValue(home, 'installer_name');
+    const installerPhone = pickHomeValue(home, 'installer_phone');
+    const installerLicense = pickHomeValue(home, 'installer_license');
+    if (hasValue(width)) patch.width = String(width);
+    if (hasValue(length)) patch.length = String(length);
+    if (hasValue(sqft)) patch.sq_ft = String(sqft);
+    if (hasValue(windZone)) patch.wind_zone = normalizeWindZone(windZone);
+    if (hasValue(weight1)) patch.weight_sec_1 = String(weight1);
+    if (hasValue(weight2)) patch.weight_sec_2 = String(weight2);
+    if (hasValue(manufactureDate)) patch.date_of_manufacture = dateInputValue(manufactureDate);
+    if (hasValue(manufacturerAddress)) patch.manufacturer_address = String(manufacturerAddress);
+    if (hasValue(manufacturerCity)) patch.manufacturer_city = String(manufacturerCity);
+    if (hasValue(manufacturerState)) patch.manufacturer_state = String(manufacturerState);
+    if (hasValue(manufacturerZip)) patch.manufacturer_zip = String(manufacturerZip);
+    if (hasValue(manufacturerCityStateZip)) patch.manufacturer_city_state_zip = String(manufacturerCityStateZip);
+    if (hasValue(installerName)) patch.installer_name = String(installerName);
+    if (hasValue(installerPhone)) patch.installer_phone = String(installerPhone);
+    if (hasValue(installerLicense)) patch.installer_license = String(installerLicense);
     if (home.sale_price && Number(home.sale_price) > 0) {
       patch.sales_price = String(home.sale_price);
     }
@@ -1062,6 +1156,18 @@ function Step2({ data, onChange, resetKey, inventory, inventoryLoading, onNext, 
       label_number_1: '',
       label_number_2: '',
       no_of_sections: '',
+      width: '',
+      length: '',
+      sq_ft: '',
+      wind_zone: '',
+      weight_sec_1: '',
+      weight_sec_2: '',
+      date_of_manufacture: '',
+      manufacturer_address: '',
+      manufacturer_city: '',
+      manufacturer_state: '',
+      manufacturer_zip: '',
+      manufacturer_city_state_zip: '',
     };
     if (onAutoFill) {
       onAutoFill(cleared, { clear: true });
@@ -1084,6 +1190,36 @@ function Step2({ data, onChange, resetKey, inventory, inventoryLoading, onNext, 
   const missingHint = Array.from(liveValidation.missing)
     .map(n => missingLabels[n])
     .filter(Boolean);
+
+  const handleInstallerChoice = (value) => {
+    const useTHO = value !== 'other';
+    const patch = useTHO
+      ? {
+          installer_type: 'tho',
+          installer_name: BUSINESS_NAME,
+          installer_license: '',
+          installer_phone: BUSINESS_PHONE,
+          installer_address: BUSINESS_ADDRESS,
+          installer_city: BUSINESS_CITY,
+          installer_state: BUSINESS_STATE,
+          installer_zip: BUSINESS_ZIP,
+        }
+      : {
+          installer_type: 'other',
+          installer_name: '',
+          installer_phone: '',
+          installer_address: '',
+          installer_city: '',
+          installer_state: 'TX',
+          installer_zip: '',
+          installer_license: '',
+        };
+    if (onAutoFill) {
+      onAutoFill(patch, { merge: true });
+    } else {
+      Object.entries(patch).forEach(([k, v]) => c(k, v));
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -1335,7 +1471,116 @@ function Step2({ data, onChange, resetKey, inventory, inventoryLoading, onNext, 
           <Field label="Label # 2" name="label_number_2" value={data.label_number_2} onChange={c} resetKey={resetKey} third />
           <Field label="# of Sections" name="no_of_sections" value={data.no_of_sections} onChange={c} resetKey={resetKey} third autoFilled={isAutoFilled('no_of_sections')} />
         </Row>
+        <Row>
+          <Field label="Width (ft)" name="width" value={data.width} onChange={c} resetKey={resetKey} third autoFilled={isAutoFilled('width')} />
+          <Field label="Length (ft)" name="length" value={data.length} onChange={c} resetKey={resetKey} third autoFilled={isAutoFilled('length')} />
+          <Field label="Total Sq Ft" name="sq_ft" value={data.sq_ft} onChange={c} resetKey={resetKey} third autoFilled={isAutoFilled('sq_ft')} />
+        </Row>
       </Card>
+
+      <Section
+        title="Factory & Installer Details"
+        icon={Building2}
+        helpText="These values feed TDHCA and TMHA installation forms. Select a home first, then verify any blank fields against the home order or data plate."
+      >
+        <Row>
+          <Field
+            label="Date of Manufacture"
+            name="date_of_manufacture"
+            value={data.date_of_manufacture}
+            onChange={c}
+            resetKey={resetKey}
+            type="date"
+            third
+            icon={Calendar}
+            autoFilled={isAutoFilled('date_of_manufacture')}
+            helperText={selectedHome && !isAutoFilled('date_of_manufacture') ? 'Enter manually — not in inventory feed' : undefined}
+          />
+          <Field
+            label="Wind Zone"
+            name="wind_zone"
+            value={data.wind_zone}
+            onChange={c}
+            resetKey={resetKey}
+            third
+            autoFilled={isAutoFilled('wind_zone')}
+            helperText={selectedHome && !isAutoFilled('wind_zone') ? 'Verify from data plate or order' : undefined}
+          />
+          <Field
+            label="Weight Section 1"
+            name="weight_sec_1"
+            value={data.weight_sec_1}
+            onChange={c}
+            resetKey={resetKey}
+            third
+            autoFilled={isAutoFilled('weight_sec_1')}
+            helperText={selectedHome && !isAutoFilled('weight_sec_1') ? 'Enter if required by packet' : undefined}
+          />
+          <Field
+            label="Weight Section 2"
+            name="weight_sec_2"
+            value={data.weight_sec_2}
+            onChange={c}
+            resetKey={resetKey}
+            third
+            autoFilled={isAutoFilled('weight_sec_2')}
+            helperText={selectedHome && !isAutoFilled('weight_sec_2') ? 'Enter for multi-section homes' : undefined}
+          />
+        </Row>
+        <Row>
+          <Field
+            label="Manufacturer Address"
+            name="manufacturer_address"
+            value={data.manufacturer_address}
+            onChange={c}
+            resetKey={resetKey}
+            autoFilled={isAutoFilled('manufacturer_address')}
+            helperText={selectedHome && !isAutoFilled('manufacturer_address') ? 'Enter manually — not in inventory feed' : undefined}
+          />
+        </Row>
+        <Row>
+          <Field label="Manufacturer City" name="manufacturer_city" value={data.manufacturer_city} onChange={c} resetKey={resetKey} third autoFilled={isAutoFilled('manufacturer_city')} />
+          <Field label="Manufacturer State" name="manufacturer_state" value={data.manufacturer_state} onChange={c} resetKey={resetKey} third autoFilled={isAutoFilled('manufacturer_state')} />
+          <Field label="Manufacturer ZIP" name="manufacturer_zip" value={data.manufacturer_zip} onChange={c} resetKey={resetKey} third autoFilled={isAutoFilled('manufacturer_zip')} />
+        </Row>
+        <Row>
+          <SelectField
+            label="Installer"
+            name="installer_type"
+            value={data.installer_type}
+            onChange={(name, value) => handleInstallerChoice(value)}
+            resetKey={resetKey}
+            half
+            icon={ShieldCheck}
+            options={[
+              { value: 'tho', label: 'Texas Home Outlet installs this home' },
+              { value: 'other', label: 'Use another installer' },
+            ]}
+          />
+          <Field
+            label="Installer License"
+            name="installer_license"
+            value={data.installer_license}
+            onChange={c}
+            resetKey={resetKey}
+            half
+            readOnly={data.installer_type !== 'other'}
+            helperText={data.installer_type !== 'other' ? 'Leave blank unless a license number is required on the packet.' : undefined}
+          />
+        </Row>
+        <Row>
+          <Field label="Installer Name" name="installer_name" value={data.installer_name} onChange={c} resetKey={resetKey} half readOnly={data.installer_type !== 'other'} autoFilled={isAutoFilled('installer_name')} />
+          <Field label="Installer Phone" name="installer_phone" value={data.installer_phone} onChange={c} resetKey={resetKey} half type="phone" icon={Phone} readOnly={data.installer_type !== 'other'} autoFilled={isAutoFilled('installer_phone')} />
+        </Row>
+        <Row>
+          <Field label="Installer Address" name="installer_address" value={data.installer_address} onChange={c} resetKey={resetKey} readOnly={data.installer_type !== 'other'} autoFilled={isAutoFilled('installer_address')} />
+        </Row>
+        <Row>
+          <Field label="Installer City" name="installer_city" value={data.installer_city} onChange={c} resetKey={resetKey} third readOnly={data.installer_type !== 'other'} autoFilled={isAutoFilled('installer_city')} />
+          <Field label="Installer State" name="installer_state" value={data.installer_state} onChange={c} resetKey={resetKey} third readOnly={data.installer_type !== 'other'} autoFilled={isAutoFilled('installer_state')} />
+          <Field label="Installer ZIP" name="installer_zip" value={data.installer_zip} onChange={c} resetKey={resetKey} third readOnly={data.installer_type !== 'other'} autoFilled={isAutoFilled('installer_zip')} />
+        </Row>
+      </Section>
 
       {/* Installation Site */}
       <Section title="Installation Site Address" icon={MapPin}>
@@ -2300,7 +2545,15 @@ export default function DocumentCenter() {
           filled.add(k);
         }
       });
-      setAutoFilledFields(filled);
+      setAutoFilledFields(prev => {
+        if (!opts.merge) return filled;
+        const next = new Set(prev);
+        filled.forEach(k => next.add(k));
+        Object.entries(patch).forEach(([k, v]) => {
+          if (v === undefined || v === null || String(v).trim() === '') next.delete(k);
+        });
+        return next;
+      });
     }
     setFormResetKey(k => k + 1); // Force Fields to re-mount with the new defaultValues
   }, []);
