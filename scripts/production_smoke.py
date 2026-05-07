@@ -29,14 +29,42 @@ import json
 import sys
 import time
 from dataclasses import dataclass
+from datetime import date, timedelta
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import urljoin
 from urllib.request import Request, urlopen
 
-DEFAULT_BASE_URL = "https://sapphirealpha.xyz"
-PUBLIC_ROUTES = ("/", "/documents", "/studio", "/crm", "/analytics")
-ADMIN_PROTECTED_ROUTES = ("/api/inventory", "/api/deals", "/api/leads")
+DEFAULT_BASE_URL = "https://tho.sapphirealpha.xyz"
+PUBLIC_ROUTES = (
+    "/",
+    "/inventory",
+    "/chat",
+    "/contact",
+    "/appointments",
+    "/documents",
+    "/studio",
+    "/crm",
+    "/analytics",
+    "/chat-history",
+    "/system",
+)
+ADMIN_PROTECTED_GET_ROUTES = (
+    "/api/inventory",
+    "/api/deals",
+    "/api/leads",
+    "/api/documents/templates",
+    "/api/customers/search?q=Smoke&limit=1",
+    "/api/analytics/leads?range=30d",
+)
+ADMIN_PROTECTED_POST_ROUTES = (
+    "/api/marketing/generate-script",
+    "/api/marketing/schedule",
+    "/api/marketing/generate-image",
+    "/api/marketing/generate-video",
+    "/api/documents/generate-batch",
+    "/api/crm/tasks",
+)
 SMOKE_DEAL_ID_PREFIX = "smoke-"
 SMOKE_EMPTY_DEAL_ID = "smoke-empty-test"
 
@@ -174,6 +202,92 @@ def check_inventory(base_url: str, *, timeout: float, min_homes: int) -> Probe:
     )
 
 
+def check_inventory_media_depth(base_url: str, *, timeout: float) -> Probe:
+    status, payload, elapsed_ms = _json_probe(
+        base_url, "/api/marketing/inventory-context", timeout=timeout
+    )
+    homes = payload.get("homes")
+    if not isinstance(homes, list):
+        return Probe(
+            name="/api/marketing/inventory-context media depth",
+            ok=False,
+            status=status,
+            evidence="homes payload missing or non-list",
+            elapsed_ms=elapsed_ms,
+        )
+    real_photo_rich = sum(1 for home in homes if len(home.get("real_photos") or []) >= 3)
+    gallery_rich = sum(1 for home in homes if len(home.get("gallery_images") or []) >= 3)
+    matterport = sum(1 for home in homes if home.get("matterport_url"))
+    dealer_photo_sets = sum(
+        1
+        for home in homes
+        if any("/dealer/3522/inventory/" in str(url) for url in home.get("real_photos") or [])
+    )
+    ok = status == 200 and real_photo_rich >= 30 and gallery_rich >= 30 and matterport >= 20
+    evidence = (
+        f"real_photo_rich={real_photo_rich}; gallery_rich={gallery_rich}; "
+        f"matterport={matterport}; dealer_photo_sets={dealer_photo_sets}"
+    )
+    return Probe(
+        name="/api/marketing/inventory-context media depth",
+        ok=ok,
+        status=status,
+        evidence=evidence,
+        elapsed_ms=elapsed_ms,
+    )
+
+
+def _future_business_date() -> str:
+    candidate = date.today() + timedelta(days=1)
+    while candidate.weekday() == 6:
+        candidate += timedelta(days=1)
+    return candidate.isoformat()
+
+
+def check_public_helpers(base_url: str, *, timeout: float) -> list[Probe]:
+    probes: list[Probe] = []
+
+    slots_path = f"/api/appointments/slots?date={_future_business_date()}"
+    status, payload, elapsed_ms = _json_probe(base_url, slots_path, timeout=timeout)
+    slots = payload.get("available_slots")
+    ok = status == 200 and isinstance(slots, list) and len(slots) > 0
+    probes.append(
+        Probe(
+            name="/api/appointments/slots",
+            ok=ok,
+            status=status,
+            evidence=(
+                f"date={payload.get('date')}; "
+                f"slots={len(slots) if isinstance(slots, list) else 'missing'}"
+            ),
+            elapsed_ms=elapsed_ms,
+        )
+    )
+
+    status, payload, elapsed_ms = _json_probe(
+        base_url, "/api/admin/passkey/status", timeout=timeout
+    )
+    ok = (
+        status == 200
+        and payload.get("enabled") is True
+        and payload.get("persistent") is True
+        and "sapphirealpha.xyz" in (payload.get("rp_ids") or [])
+    )
+    probes.append(
+        Probe(
+            name="/api/admin/passkey/status",
+            ok=ok,
+            status=status,
+            evidence=(
+                f"enabled={payload.get('enabled')}; persistent={payload.get('persistent')}; "
+                f"has_keys={payload.get('has_keys')}; rp_ids={payload.get('rp_ids')}"
+            ),
+            elapsed_ms=elapsed_ms,
+        )
+    )
+    return probes
+
+
 def check_spa_routes(base_url: str, *, timeout: float) -> list[Probe]:
     probes: list[Probe] = []
     for path in PUBLIC_ROUTES:
@@ -193,10 +307,67 @@ def check_spa_routes(base_url: str, *, timeout: float) -> list[Probe]:
     return probes
 
 
+def check_safe_public_validation(base_url: str, *, timeout: float) -> list[Probe]:
+    probes: list[Probe] = []
+    checks = (
+        ("/api/contact", {}, {200}, "success_false"),
+        ("/api/appointments", {}, {200}, "success_false"),
+        ("/api/feedback", {}, {400}, "validation_error"),
+    )
+    for path, payload, allowed_statuses, mode in checks:
+        status, body, content_type, elapsed_ms = _post_json(
+            base_url,
+            path,
+            payload,
+            timeout=timeout,
+            admin_token=None,
+        )
+        text = body[:2048].decode("utf-8", errors="replace")
+        parsed: dict[str, Any] = {}
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError:
+            parsed = {}
+        if mode == "success_false":
+            ok = status in allowed_statuses and parsed.get("success") is False
+        else:
+            ok = status in allowed_statuses and (
+                parsed.get("success") is False or "description is required" in text.lower()
+            )
+        evidence = (
+            f"content_type={content_type}; success={parsed.get('success')}; "
+            f"message={parsed.get('message') or parsed.get('error')}"
+        )
+        probes.append(
+            Probe(
+                name=f"{path} invalid payload",
+                ok=ok,
+                status=status,
+                evidence=evidence,
+                elapsed_ms=elapsed_ms,
+            )
+        )
+    return probes
+
+
 def check_admin_protection(base_url: str, *, timeout: float) -> list[Probe]:
     probes: list[Probe] = []
-    for path in ADMIN_PROTECTED_ROUTES:
+    for path in ADMIN_PROTECTED_GET_ROUTES:
         status, body, content_type, elapsed_ms = _read_url(base_url, path, timeout=timeout)
+        text = body[:2048].decode("utf-8", errors="replace").lower()
+        ok = status in {401, 403} and "html" not in content_type.lower()
+        evidence = f"content_type={content_type}; body={text[:90].replace(chr(10), ' ')}"
+        probes.append(
+            Probe(name=path, ok=ok, status=status, evidence=evidence, elapsed_ms=elapsed_ms)
+        )
+    for path in ADMIN_PROTECTED_POST_ROUTES:
+        status, body, content_type, elapsed_ms = _post_json(
+            base_url,
+            path,
+            {},
+            timeout=timeout,
+            admin_token=None,
+        )
         text = body[:2048].decode("utf-8", errors="replace").lower()
         ok = status in {401, 403} and "html" not in content_type.lower()
         evidence = f"content_type={content_type}; body={text[:90].replace(chr(10), ' ')}"
@@ -276,7 +447,10 @@ def run_smoke(
     probes: list[Probe] = []
     probes.extend(check_health(base_url, timeout=timeout))
     probes.append(check_inventory(base_url, timeout=timeout, min_homes=min_homes))
+    probes.append(check_inventory_media_depth(base_url, timeout=timeout))
+    probes.extend(check_public_helpers(base_url, timeout=timeout))
     probes.extend(check_spa_routes(base_url, timeout=timeout))
+    probes.extend(check_safe_public_validation(base_url, timeout=timeout))
     probes.extend(check_admin_protection(base_url, timeout=timeout))
     if check_empty_doc:
         probes.append(check_empty_doc_rejection(base_url, timeout=timeout, admin_token=admin_token))

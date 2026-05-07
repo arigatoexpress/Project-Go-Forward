@@ -4,10 +4,14 @@ This repo is the Texas Home Outlet app (`arigatoexpress/Project-Go-Forward`): a 
 
 ## Production State
 
-- Production URL: `https://project-go-forward-trgi34bxuq-uc.a.run.app`
+- Canonical production URL: `https://tho.sapphirealpha.xyz`
+- Direct Cloud Run URL: `https://project-go-forward-trgi34bxuq-uc.a.run.app`
+- Authoritative DNS lives in Google Cloud project `sapphire-479610`, zone `sapphirealpha-xyz`.
+- Cloud Run service and runtime secrets live in Google Cloud project `tho-ai-agent`.
 - Health checks:
-  - Readiness: `curl -fsS https://project-go-forward-trgi34bxuq-uc.a.run.app/health`
-  - Cloud Run liveness: `curl -fsS https://project-go-forward-trgi34bxuq-uc.a.run.app/healthz/`
+  - Readiness: `curl -fsS https://tho.sapphirealpha.xyz/health`
+  - Cloud Run liveness: `curl -fsS https://tho.sapphirealpha.xyz/healthz/`
+  - Direct liveness: `curl -fsS https://project-go-forward-trgi34bxuq-uc.a.run.app/healthz/`
 - Logs live in Google Cloud Logging for Cloud Run service `project-go-forward` in project `tho-ai-agent`
 - CLI log check:
   - `gcloud logging read 'resource.type="cloud_run_revision" AND resource.labels.service_name="project-go-forward"' --project tho-ai-agent --limit 50`

@@ -63,6 +63,7 @@ function StudioApp() {
           <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">Enter admin PIN to access</p>
           <input
             type="password"
+            autoComplete="current-password"
             value={pin}
             onChange={e => { setPin(e.target.value); setPinError(''); }}
             placeholder="Admin PIN"
