@@ -830,6 +830,7 @@ function App() {
             type="password"
             inputMode="numeric"
             maxLength={ADMIN_PIN_LENGTH}
+            autoComplete="current-password"
             value={pinInput}
             onChange={(e) => { setPinInput(e.target.value.replace(/\D/g, '').slice(0, ADMIN_PIN_LENGTH)); setPinError(''); setPasskeyError(''); }}
             placeholder="• • • • • • • •"
