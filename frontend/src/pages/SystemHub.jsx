@@ -1,68 +1,47 @@
 import React, { useEffect, useState } from 'react';
 import {
   Activity, Shield, Server, Cpu, Globe, Zap, Lock,
-  Radio, ExternalLink, ChevronRight, AlertTriangle,
-  CheckCircle2, XCircle, Loader2, Terminal, Layers,
-  KeyRound, Wifi, WifiOff
+  ExternalLink, ChevronRight, AlertTriangle,
+  CheckCircle2, XCircle, Loader2, Layers,
+  KeyRound, FileText
 } from 'lucide-react';
 
 const PROJECTS = [
   {
-    name: 'THO',
-    url: 'https://tho.sapphirealpha.xyz',
-    desc: 'Texas Home Outlet — AI sales & service frontend',
+    name: 'Public Site',
+    url: '/',
+    desc: 'Texas Home Outlet customer-facing inventory, chat, contact, and visit booking.',
     status: 'prod',
   },
   {
-    name: 'Sapphire',
-    url: 'https://sapphirealpha.xyz',
-    desc: 'Sapphire Alpha — trading & analytics dashboard',
+    name: 'Document Center',
+    url: '/documents',
+    desc: 'Closing packets, sales contracts, installer fields, and recent PDFs.',
     status: 'prod',
   },
   {
-    name: 'Analytics',
-    url: 'https://sapphirealpha.xyz/admin',
-    desc: 'Admin analytics with passkey auth',
+    name: 'CRM',
+    url: '/crm',
+    desc: 'THO leads, customers, deals, tasks, appointments, and email log.',
     status: 'prod',
   },
   {
-    name: 'TV Agent',
-    url: 'http://100.71.10.48:8081',
-    desc: 'TradingView alert relay agent (Tailscale)',
-    status: 'local',
-  },
-  {
-    name: 'Webhook',
-    url: 'http://100.71.10.48:9090',
-    desc: 'Unified webhook receiver (Tailscale)',
-    status: 'local',
-  },
-  {
-    name: 'Dashboard',
-    url: 'http://100.71.10.48:3001',
-    desc: 'Windows services dashboard (Tailscale)',
-    status: 'local',
-  },
-  {
-    name: 'Ollama',
-    url: 'http://100.71.10.48:11434',
-    desc: 'Local LLM inference (32 models, ~290GB)',
-    status: 'local',
+    name: 'Ad Studio',
+    url: '/studio',
+    desc: 'Reviewed THO inventory ads and campaign assets.',
+    status: 'prod',
   },
 ];
 
 const ARCH_NODES = [
   { id: 'client', label: 'Browser Client', x: 50, y: 10, icon: Globe },
-  { id: 'cloudflare', label: 'Cloudflare DNS', x: 50, y: 25, icon: Shield },
+  { id: 'dns', label: 'THO DNS', x: 50, y: 25, icon: Shield },
   { id: 'cloudrun', label: 'Cloud Run', x: 50, y: 40, icon: Server },
-  { id: 'fastapi', label: 'FastAPI Backend', x: 35, y: 55, icon: Zap },
-  { id: 'firestore', label: 'Firestore', x: 65, y: 55, icon: Layers },
-  { id: 'redis', label: 'Redis (Valkey)', x: 50, y: 70, icon: Cpu },
-  { id: 'resend', label: 'Resend API', x: 20, y: 55, icon: MailIcon },
-  { id: 'windows', label: 'Windows PC', x: 80, y: 70, icon: Terminal },
-  { id: 'tvagent', label: 'TV Agent', x: 80, y: 82, icon: Radio },
-  { id: 'webhook', label: 'Webhook', x: 65, y: 82, icon: Wifi },
-  { id: 'ollama', label: 'Ollama', x: 95, y: 82, icon: Cpu },
+  { id: 'fastapi', label: 'FastAPI', x: 50, y: 55, icon: Zap },
+  { id: 'firestore', label: 'Firestore', x: 30, y: 72, icon: Layers },
+  { id: 'storage', label: 'Document Storage', x: 50, y: 72, icon: FileText },
+  { id: 'email', label: 'Email Service', x: 70, y: 72, icon: MailIcon },
+  { id: 'redis', label: 'Rate Limits', x: 50, y: 84, icon: Cpu },
 ];
 
 function MailIcon(props) {
@@ -72,9 +51,8 @@ function MailIcon(props) {
 }
 
 const ARCH_EDGES = [
-  ['client','cloudflare'], ['cloudflare','cloudrun'], ['cloudrun','fastapi'],
-  ['fastapi','firestore'], ['fastapi','redis'], ['fastapi','resend'],
-  ['cloudrun','windows'], ['windows','tvagent'], ['windows','webhook'], ['windows','ollama'],
+  ['client','dns'], ['dns','cloudrun'], ['cloudrun','fastapi'],
+  ['fastapi','firestore'], ['fastapi','storage'], ['fastapi','email'], ['fastapi','redis'],
 ];
 
 function PulseDot({ color = 'green', size = 8 }) {
@@ -112,7 +90,7 @@ function ServiceCard({ name, url, desc, status, onCheck }) {
   const [live, setLive] = useState(null);
   const sameOrigin = (() => {
     try {
-      return new URL(url).origin === window.location.origin;
+      return new URL(url, window.location.origin).origin === window.location.origin;
     } catch {
       return false;
     }
@@ -142,11 +120,11 @@ function ServiceCard({ name, url, desc, status, onCheck }) {
       : badge === 'warn'
         ? 'Unreachable'
         : badge === 'link'
-          ? (status === 'local' ? 'Tailscale' : 'Open')
+          ? 'Open'
           : 'Checking...';
 
   return (
-    <a href={url} target="_blank" rel="noopener noreferrer"
+    <a href={url}
       className="cp-panel p-4 hover:bg-[var(--cp-panel-hover)] transition group flex flex-col gap-2">
       <div className="flex items-start justify-between">
         <h3 className="font-mono font-semibold text-[var(--cp-text)] group-hover:text-[var(--cp-accent)] transition-colors">
@@ -208,11 +186,11 @@ function ArchitectureViz() {
 function TelemetryFeed() {
   const [lines, setLines] = useState([
     { ts: '14:28:01', level: 'info', msg: 'healthz OK — Cloud Run warm' },
-    { ts: '14:27:45', level: 'info', msg: 'Redis connection established (valkey)' },
-    { ts: '14:27:30', level: 'warn', msg: 'Windows PC — Ollama models taking >2s to list' },
+    { ts: '14:27:45', level: 'info', msg: 'Document storage check passed' },
+    { ts: '14:27:30', level: 'warn', msg: 'Inventory media queue has unreviewed Drive candidates' },
     { ts: '14:26:12', level: 'info', msg: 'Passkey status — 0 keys registered' },
     { ts: '14:25:55', level: 'info', msg: 'Admin check — session valid' },
-    { ts: '14:25:00', level: 'info', msg: 'Inventory index rebuilt — 47 homes' },
+    { ts: '14:25:00', level: 'info', msg: 'Inventory index available for document autofill' },
   ]);
 
   useEffect(() => {
@@ -220,10 +198,10 @@ function TelemetryFeed() {
       const now = new Date();
       const ts = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')}`;
       const msgs = [
-        { level: 'info', msg: 'Heartbeat — all systems nominal' },
+        { level: 'info', msg: 'Heartbeat — THO app healthy' },
         { level: 'info', msg: `Cloud Run CPU: ${(Math.random()*30+10).toFixed(1)}%` },
-        { level: 'info', msg: `Chat sessions active: ${Math.floor(Math.random()*5)}` },
-        { level: 'warn', msg: 'Tailscale latency spike — 180ms' },
+        { level: 'info', msg: `Recent document jobs: ${Math.floor(Math.random()*5)}` },
+        { level: 'warn', msg: 'Review queue still contains media candidates' },
       ];
       const pick = msgs[Math.floor(Math.random()*msgs.length)];
       setLines(prev => [ { ts, ...pick }, ...prev ].slice(0, 8));
@@ -311,7 +289,7 @@ export default function SystemHub({ onBack }) {
               System Hub
             </h1>
             <p className="text-sm text-[var(--cp-muted)] mt-1 font-mono">
-              THO Infrastructure &middot; Sapphire OS Control Tower
+              Standalone Texas Home Outlet operations
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -348,7 +326,7 @@ export default function SystemHub({ onBack }) {
             <div>
               <h2 className="font-mono font-semibold text-[var(--cp-text)] mb-3 flex items-center gap-2">
                 <Globe size={16} className="text-[var(--cp-secondary)]" />
-                Project Links
+                THO Admin Links
               </h2>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {PROJECTS.map(p => (

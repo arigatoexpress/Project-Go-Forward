@@ -10,9 +10,19 @@ body {
      same five classes. Hover/focus states match the project's existing
      blue-600 accent. */
   .btn-primary {
-    @apply bg-blue-600 hover:bg-blue-700 text-white rounded-lg px-4 py-2 font-medium transition;
+    @apply rounded-lg px-4 py-2 font-medium transition;
+    background-color: var(--cp-accent);
+    color: var(--cp-bg);
+  }
+  .btn-primary:hover {
+    background-color: var(--cp-accent-hot);
   }
   .btn-secondary {
-    @apply bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg px-4 py-2 transition;
+    @apply rounded-lg px-4 py-2 transition;
+    background-color: var(--cp-surface);
+    color: var(--cp-text);
+  }
+  .btn-secondary:hover {
+    background-color: var(--cp-surface-2);
   }
 }

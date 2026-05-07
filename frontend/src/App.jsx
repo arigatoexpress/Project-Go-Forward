@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, lazy, Suspense, useCallback } from 'react';
-import { Send, Home, Menu, X, Phone, MapPin, Loader2, User, Bot, FileText, Video, Lock, ShieldCheck, CalendarDays, Users, MessageSquare, MessageCircle, RotateCcw, WifiOff, Moon, Sun, Activity, KeyRound, Fingerprint, Terminal, Globe } from 'lucide-react';
+import { Send, Home, Menu, X, Phone, MapPin, Loader2, User, Bot, FileText, Video, Lock, ShieldCheck, CalendarDays, Users, MessageSquare, MessageCircle, RotateCcw, WifiOff, Moon, Sun, KeyRound, Fingerprint, BookOpen } from 'lucide-react';
 import { useDarkMode } from './hooks/useDarkMode';
 import SafeMarkdown from './components/SafeMarkdown';
 import SearchFilters from './components/SearchFilters';
@@ -27,24 +27,17 @@ const Appointments = lazy(() => import('./pages/Appointments'));
 const CRM = lazy(() => import('./pages/CRM'));
 const ChatHistory = lazy(() => import('./pages/ChatHistory'));
 const SystemHub = lazy(() => import('./pages/SystemHub'));
+const GettingStarted = lazy(() => import('./pages/GettingStarted'));
 const ADMIN_PIN_LENGTH = 8;
-const ADMIN_PAGE_KEYS = new Set(['analytics', 'crm', 'chat-history', 'documents', 'adstudio']);
+const ADMIN_PAGE_KEYS = new Set(['analytics', 'crm', 'chat-history', 'documents', 'adstudio', 'system', 'getting-started']);
 
 // Page loading fallback with skeleton
 const PageLoader = () => (
   <div className="flex flex-col items-center justify-center min-h-[50vh] gap-3">
     <Loader2 className="h-8 w-8 animate-spin text-[var(--cp-accent)]" />
-    <span className="text-sm text-[var(--cp-muted)] font-medium font-mono">Loading...</span>
+    <span className="text-sm text-[var(--cp-muted)] font-medium">Loading...</span>
   </div>
 );
-
-// ─── Project Tabs (always visible) ───
-const PROJECT_TABS = [
-  { key: 'tho', label: 'THO', url: 'https://tho.sapphirealpha.xyz', icon: Home },
-  { key: 'sapphire', label: 'Sapphire', url: 'https://sapphirealpha.xyz', icon: ShieldCheck },
-  { key: 'analytics', label: 'Analytics', url: 'https://sapphirealpha.xyz/admin', icon: Activity },
-  { key: 'system', label: 'Hub', url: null, icon: Terminal },
-];
 
 // ─── Shared Navigation Component ───
 function NavBar({
@@ -72,6 +65,7 @@ function NavBar({
   const adminItems = adminAuthed ? [
     { key: 'documents', label: 'Documents', icon: FileText },
     { key: 'crm', label: 'CRM', icon: Users },
+    { key: 'getting-started', label: 'Guide', icon: BookOpen },
     { key: 'chat-history', label: 'Chat History', icon: MessageCircle },
     { key: 'adstudio', label: 'Ad Studio', icon: Video },
   ] : [];
@@ -80,42 +74,23 @@ function NavBar({
 
   return (
     <>
-      {/* Project Bar — cypherpunk tabs */}
-      <div className="bg-[var(--cp-bg-2)] border-b border-[var(--cp-border)] z-40 sticky top-0">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-9 flex items-center justify-between">
-          <div className="flex items-center gap-1 overflow-x-auto scrollbar-none">
-            <Terminal size={13} className="text-[var(--cp-accent)] mr-2 shrink-0" />
-            {PROJECT_TABS.map(tab => {
-              const Icon = tab.icon;
-              const isActive = tab.url ? false : activePage === tab.key;
-              const btnClass = isActive
-                ? 'bg-[var(--cp-accent-dim)] text-[var(--cp-accent)] border-[var(--cp-accent)]'
-                : 'text-[var(--cp-muted)] border-transparent hover:text-[var(--cp-text)] hover:bg-[var(--cp-surface)]';
-              if (tab.url) {
-                return (
-                  <a key={tab.key} href={tab.url} target="_blank" rel="noopener noreferrer"
-                    className={`flex items-center gap-1 px-2.5 py-1 text-[11px] font-mono font-medium border rounded transition-colors ${btnClass}`}>
-                    <Icon size={11} /> {tab.label}
-                  </a>
-                );
-              }
-              return (
-                <button key={tab.key} onClick={() => navigateTo(tab.key)}
-                  className={`flex items-center gap-1 px-2.5 py-1 text-[11px] font-mono font-medium border rounded transition-colors ${btnClass}`}>
-                  <Icon size={11} /> {tab.label}
-                </button>
-              );
-            })}
+      {/* Legacy THO contact strip */}
+      <div className="bg-[var(--cp-accent)] text-[var(--cp-bg)] border-b border-[var(--cp-accent-hot)] z-40 sticky top-0">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 min-h-9 flex items-center justify-between gap-3 py-1.5 text-[11px] sm:text-xs font-semibold">
+          <a href={`tel:${BUSINESS_PHONE_RAW}`} className="inline-flex items-center gap-1.5 hover:underline">
+            <Phone size={13} />
+            {BUSINESS_PHONE}
+          </a>
+          <div className="hidden sm:flex items-center gap-2">
+            <MapPin size={13} />
+            <span>{BUSINESS_ADDRESS}, {BUSINESS_CITY}</span>
           </div>
-          <div className="hidden sm:flex items-center gap-2 text-[10px] font-mono text-[var(--cp-faint)]">
-            <span className="cp-blink text-[var(--cp-accent)]">●</span>
-            sapphire_os_v2.1
-          </div>
+          <span className="hidden md:inline">{BUSINESS_HOURS}</span>
         </div>
       </div>
 
       {/* Main NavBar */}
-      <header className="bg-[var(--cp-panel)] border-b border-[var(--cp-border)] z-30 sticky top-9">
+      <header className="bg-[var(--cp-panel)] border-b border-[var(--cp-border)] z-30 sticky top-9 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-14 flex items-center justify-between">
           {/* Logo */}
           <div
@@ -124,8 +99,8 @@ function NavBar({
             role="button"
             aria-label="Go to home page"
           >
-            <Home className="h-6 w-6 text-[var(--cp-accent)] group-hover:drop-shadow-[0_0_6px_rgba(0,255,136,0.5)] transition" />
-            <h1 className="text-base font-bold tracking-tight text-[var(--cp-text)] font-mono">
+            <Home className="h-6 w-6 text-[var(--cp-accent)] group-hover:drop-shadow-[0_2px_8px_rgba(80,29,29,0.35)] transition" />
+            <h1 className="text-base font-bold tracking-tight text-[var(--cp-text)]">
               {BUSINESS_NAME}
             </h1>
           </div>
@@ -140,7 +115,7 @@ function NavBar({
                   <button
                     key={item.key}
                     onClick={() => navigateTo(item.key)}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md transition-colors font-mono text-xs ${
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md transition-colors text-xs ${
                       isActive
                         ? 'bg-[var(--cp-accent-dim)] text-[var(--cp-accent)]'
                         : 'text-[var(--cp-muted)] hover:text-[var(--cp-text)] hover:bg-[var(--cp-surface)]'
@@ -219,7 +194,7 @@ function NavBar({
                 <button
                   key={item.key}
                   onClick={() => navigateTo(item.key)}
-                  className={`flex items-center w-full py-3 px-2 rounded-lg transition-colors font-mono text-sm ${
+                  className={`flex items-center w-full py-3 px-2 rounded-lg transition-colors text-sm ${
                     isActive
                       ? 'bg-[var(--cp-accent-dim)] text-[var(--cp-accent)]'
                       : 'text-[var(--cp-muted)] hover:text-[var(--cp-text)] hover:bg-[var(--cp-surface)]'
@@ -233,7 +208,7 @@ function NavBar({
             })}
             <button
               onClick={onAdminAccess}
-              className="flex items-center w-full py-3 px-2 text-[var(--cp-muted)] hover:text-[var(--cp-accent)] hover:bg-[var(--cp-surface)] rounded-lg transition-colors mt-1 border-t border-[var(--cp-border)] pt-3 font-mono text-sm"
+              className="flex items-center w-full py-3 px-2 text-[var(--cp-muted)] hover:text-[var(--cp-accent)] hover:bg-[var(--cp-surface)] rounded-lg transition-colors mt-1 border-t border-[var(--cp-border)] pt-3 text-sm"
             >
               {adminAuthed ? <ShieldCheck size={18} className="mr-3 text-[var(--cp-accent)]" /> : <Lock size={18} className="mr-3" />}
               {adminAuthed ? 'Analytics' : 'Admin'}
@@ -242,7 +217,7 @@ function NavBar({
               <button
                 onClick={onPasskeyRegister}
                 disabled={passkeyLoading}
-                className="flex items-center w-full py-3 px-2 text-[var(--cp-muted)] hover:text-[var(--cp-accent)] hover:bg-[var(--cp-surface)] rounded-lg transition-colors font-mono text-sm disabled:opacity-50"
+                className="flex items-center w-full py-3 px-2 text-[var(--cp-muted)] hover:text-[var(--cp-accent)] hover:bg-[var(--cp-surface)] rounded-lg transition-colors text-sm disabled:opacity-50"
               >
                 <KeyRound size={18} className="mr-3" />
                 Register passkey
@@ -259,7 +234,7 @@ function NavBar({
 function Footer({ adminAuthed, onAdminAccess }) {
   return (
     <footer className="bg-[var(--cp-bg-2)] border-t border-[var(--cp-border)] py-4 text-center text-xs text-[var(--cp-muted)]">
-      <div className="flex items-center justify-center gap-6 flex-wrap font-mono">
+      <div className="flex items-center justify-center gap-6 flex-wrap">
         <span className="flex items-center"><MapPin size={12} className="mr-1 text-[var(--cp-accent)]" aria-hidden="true" /> {BUSINESS_ADDRESS}, {BUSINESS_CITY}</span>
         <a href={`tel:${BUSINESS_PHONE_RAW}`} className="flex items-center hover:text-[var(--cp-accent)] transition-colors">
           <Phone size={12} className="mr-1" aria-hidden="true" /> {BUSINESS_PHONE}
@@ -375,6 +350,7 @@ function App() {
     if (p.startsWith('/studio') || p.startsWith('/app/studio')) return 'adstudio';
     if (p.startsWith('/crm')) return 'crm';
     if (p.startsWith('/analytics')) return 'analytics';
+    if (p.startsWith('/getting-started') || p.startsWith('/guide')) return 'getting-started';
     if (p.startsWith('/contact')) return 'contact';
     if (p.startsWith('/appointments')) return 'appointments';
     if (p.startsWith('/chat-history')) return 'chat-history';
@@ -635,7 +611,8 @@ function App() {
       appointments: 'Book a Visit',
       analytics: 'Analytics',
       crm: 'CRM Dashboard',
-      system: 'System Hub',
+      system: 'THO System Hub',
+      'getting-started': 'Getting Started',
     };
     document.title = titles[activePage]
       ? `${titles[activePage]} | ${BUSINESS_NAME}`
@@ -664,6 +641,7 @@ function App() {
       adstudio: '/studio',
       crm: '/crm',
       analytics: '/analytics',
+      'getting-started': '/getting-started',
       'chat-history': '/chat-history',
       system: '/system',
     };
@@ -914,13 +892,26 @@ function App() {
   };
 
   // --- Page renders ---
-  if (activePage === 'system') {
+  if (activePage === 'system' && adminAuthed) {
     return (
       <div className="bg-[var(--cp-bg)] min-h-screen">
         <NavBar {...navProps} />
         <ErrorBoundary scope="system">
           <Suspense fallback={<PageLoader />}>
             <SystemHub onBack={() => navigateTo('inventory')} />
+          </Suspense>
+        </ErrorBoundary>
+      </div>
+    );
+  }
+
+  if (activePage === 'getting-started' && adminAuthed) {
+    return (
+      <div className="bg-[var(--cp-bg)] min-h-screen">
+        <NavBar {...navProps} />
+        <ErrorBoundary scope="getting-started">
+          <Suspense fallback={<PageLoader />}>
+            <GettingStarted onOpenDocuments={() => navigateTo('documents')} onOpenCRM={() => navigateTo('crm')} onOpenAdStudio={() => navigateTo('adstudio')} />
           </Suspense>
         </ErrorBoundary>
       </div>
@@ -975,9 +966,9 @@ function App() {
             <div className="max-w-7xl mx-auto px-4 h-14 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <FileText className="h-5 w-5 text-[var(--cp-accent)]" />
-                <span className="font-bold text-lg font-mono">{BUSINESS_NAME} — Document Center</span>
+                <span className="font-bold text-lg">{BUSINESS_NAME} — Document Center</span>
               </div>
-              <a href="/" className="text-sm text-[var(--cp-muted)] hover:text-[var(--cp-accent)] font-mono">← Main App</a>
+              <a href="/" className="text-sm text-[var(--cp-muted)] hover:text-[var(--cp-accent)]">← Main App</a>
             </div>
           </header>
         )}
@@ -999,9 +990,9 @@ function App() {
             <div className="max-w-7xl mx-auto px-4 h-14 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <Video className="h-5 w-5 text-[var(--cp-accent)]" />
-                <span className="font-bold text-lg font-mono">{BUSINESS_NAME} — Ad Studio</span>
+                <span className="font-bold text-lg">{BUSINESS_NAME} — Ad Studio</span>
               </div>
-              <a href="/" className="text-sm text-[var(--cp-muted)] hover:text-[var(--cp-accent)] font-mono">← Main App</a>
+              <a href="/" className="text-sm text-[var(--cp-muted)] hover:text-[var(--cp-accent)]">← Main App</a>
             </div>
           </header>
         )}

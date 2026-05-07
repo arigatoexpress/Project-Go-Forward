@@ -1978,6 +1978,15 @@ from database.models import Deal, DealStatus, Inventory
 _db = get_database()
 
 
+def _pick_inventory_field(item: dict, *keys: str):
+    """Return the first populated inventory value across legacy key aliases."""
+    for key in keys:
+        value = item.get(key)
+        if value is not None and str(value).strip() != "":
+            return value
+    return None
+
+
 @app.get("/api/inventory", dependencies=[Depends(require_admin)])
 async def list_inventory(status: str = "AVAILABLE", limit: int = 100, is_new: bool = None):
     """List inventory for document generation."""
@@ -2001,6 +2010,48 @@ async def list_inventory(status: str = "AVAILABLE", limit: int = 100, is_new: bo
                     "serial_number": item.get("serial_number"),
                     "label_number": item.get("label_number"),
                     "sections": item.get("sections") or item.get("no_of_sections"),
+                    "width": _pick_inventory_field(item, "width", "home_width", "total_size_w"),
+                    "length": _pick_inventory_field(item, "length", "home_length", "total_size_l"),
+                    "sq_ft": _pick_inventory_field(
+                        item, "sq_ft", "sqft", "square_feet", "total_sqft"
+                    ),
+                    "wind_zone": _pick_inventory_field(
+                        item, "wind_zone", "wind", "windZone", "wind_zone_1"
+                    ),
+                    "weight_sec_1": _pick_inventory_field(
+                        item, "weight_sec_1", "weight1", "weight_sec1", "section_1_weight"
+                    ),
+                    "weight_sec_2": _pick_inventory_field(
+                        item, "weight_sec_2", "weight2", "weight_sec2", "section_2_weight"
+                    ),
+                    "date_of_manufacture": _pick_inventory_field(
+                        item,
+                        "date_of_manufacture",
+                        "manufacture_date",
+                        "date_manufactured",
+                        "mfg_date",
+                        "date_const",
+                    ),
+                    "manufacturer_address": _pick_inventory_field(
+                        item, "manufacturer_address", "factory_address"
+                    ),
+                    "manufacturer_city": _pick_inventory_field(
+                        item, "manufacturer_city", "factory_city"
+                    ),
+                    "manufacturer_state": _pick_inventory_field(
+                        item, "manufacturer_state", "factory_state"
+                    ),
+                    "manufacturer_zip": _pick_inventory_field(
+                        item, "manufacturer_zip", "factory_zip"
+                    ),
+                    "manufacturer_city_state_zip": _pick_inventory_field(
+                        item,
+                        "manufacturer_city_state_zip",
+                        "factory_city_state_zip",
+                    ),
+                    "installer_name": _pick_inventory_field(item, "installer_name"),
+                    "installer_phone": _pick_inventory_field(item, "installer_phone"),
+                    "installer_license": _pick_inventory_field(item, "installer_license"),
                     "beds": item.get("bedrooms"),
                     "baths": item.get("bathrooms"),
                     "sqft": item.get("sqft"),
