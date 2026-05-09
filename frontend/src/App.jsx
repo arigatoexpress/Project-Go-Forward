@@ -419,7 +419,7 @@ function App() {
       const beginRes = await fetch('/api/admin/passkey/login/begin', { method: 'POST', credentials: 'same-origin' });
       if (!beginRes.ok) {
         const data = await beginRes.json().catch(() => ({}));
-        throw new Error(data.detail || 'Server error starting passkey login');
+        throw new Error(data.message || data.detail || 'Server error starting passkey login');
       }
       const options = await beginRes.json();
       // Convert base64url challenge / ids back to ArrayBuffer
@@ -453,7 +453,7 @@ function App() {
         setAdminAuthed(true); setShowPinModal(false); setPasskeyError('');
         navigateTo('analytics');
       } else {
-        setPasskeyError(data.error || 'Passkey login failed');
+        setPasskeyError(data.message || data.error || 'Passkey login failed');
       }
     } catch (err) {
       console.warn('Passkey login error:', err);
@@ -470,7 +470,7 @@ function App() {
       const beginRes = await fetch('/api/admin/passkey/register/begin', { method: 'POST', credentials: 'same-origin' });
       if (!beginRes.ok) {
         const data = await beginRes.json().catch(() => ({}));
-        throw new Error(data.detail || 'Unlock with PIN before registering a passkey');
+        throw new Error(data.message || data.detail || 'Unlock with PIN before registering a passkey');
       }
       const options = await beginRes.json();
       options.user.id = base64urlToBuffer(options.user.id);
@@ -505,11 +505,14 @@ function App() {
         addToast('Passkey registered for this device.', 'success');
         navigateTo('system');
       } else {
-        setPasskeyError(data.error || 'Passkey registration failed');
+        setPasskeyError(data.message || data.error || 'Passkey registration failed');
       }
     } catch (err) {
       console.warn('Passkey register error:', err);
-      setPasskeyError(err.message || 'Passkey registration failed');
+      const message = err.name === 'InvalidStateError'
+        ? 'That passkey provider already has a THO key. Revoke the deprecated key in System Hub, then register again.'
+        : err.message || 'Passkey registration failed';
+      setPasskeyError(message);
     } finally {
       setPasskeyLoading(false);
     }

@@ -1,5 +1,7 @@
+import base64
 import sys
 import types
+from io import BytesIO
 
 from tools import marketing_tools
 
@@ -59,10 +61,7 @@ def test_get_inventory_for_ads_demotes_floorplan_hero_to_floorplan_url(monkeypat
         "https://d132mt2yijm03y.cloudfront.net/manufacturer/3327/floorplan/"
         "224354/floor-plans.jpg"
     )
-    exterior = (
-        "https://d132mt2yijm03y.cloudfront.net/dealer/3522/inventory/30643/"
-        "photo_card.jpg"
-    )
+    exterior = "https://d132mt2yijm03y.cloudfront.net/dealer/3522/inventory/30643/" "photo_card.jpg"
 
     monkeypatch.setattr(
         marketing_tools,
@@ -147,3 +146,31 @@ def test_content_performance_uses_honest_local_readiness(monkeypatch, tmp_path):
     assert "15.2K" not in str(result)
     assert result["top_performing_content"][0]["views_label"] == "1 generated videos"
     assert any("pre-owned" in rec.lower() for rec in result["recommendations"])
+
+
+def test_generate_ad_flyer_creates_downloadable_social_creative(monkeypatch, tmp_path):
+    from PIL import Image
+
+    monkeypatch.setattr(marketing_tools, "GENERATED_ADS_DIR", str(tmp_path))
+    source = Image.new("RGB", (640, 480), "#8aa0a8")
+    buf = BytesIO()
+    source.save(buf, format="PNG")
+    image_base64 = base64.b64encode(buf.getvalue()).decode("ascii")
+
+    result = marketing_tools.generate_ad_flyer(
+        home_name="The Test Home",
+        home_price="$89,900",
+        home_specs={"beds": 3, "baths": 2, "sq_ft": 1280, "dimensions": "28x56"},
+        headline="3 Bed Home Ready to Tour",
+        body="Real home photos, clear specs, and a call to action in one finished flyer.",
+        cta="Call THO to tour today",
+        platform="instagram_post",
+        image_base64=image_base64,
+    )
+
+    assert result["success"] is True
+    assert result["creative_type"] == "social_flyer"
+    assert result["source"] == "generated_image"
+    assert result["download_url"].startswith("/api/marketing/images/")
+    assert (tmp_path / result["filename"]).is_file()
+    assert len(base64.b64decode(result["image_base64"])) > 1000

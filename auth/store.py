@@ -51,6 +51,7 @@ class CredentialStore(Protocol):
     def list_all(self) -> list[CredentialRecord]: ...
     def list_for_user(self, user_id: str) -> list[CredentialRecord]: ...
     def update_usage(self, credential_id: bytes, *, sign_count: int) -> None: ...
+    def delete(self, credential_id: bytes) -> bool: ...
     def count(self) -> int: ...
 
 
@@ -83,6 +84,9 @@ class InMemoryCredentialStore:
             return
         rec.sign_count = sign_count
         rec.last_used_at = datetime.now(UTC)
+
+    def delete(self, credential_id: bytes) -> bool:
+        return self._rows.pop(credential_id, None) is not None
 
     def count(self) -> int:
         return len(self._rows)
@@ -162,6 +166,14 @@ class FirestoreCredentialStore:
         self._collection.document(self._doc_id(credential_id)).update(
             {"sign_count": sign_count, "last_used_at": datetime.now(UTC)}
         )
+
+    def delete(self, credential_id: bytes) -> bool:
+        doc_ref = self._collection.document(self._doc_id(credential_id))
+        snap = doc_ref.get()
+        if not snap.exists:
+            return False
+        doc_ref.delete()
+        return True
 
     def count(self) -> int:
         return sum(1 for _ in self._collection.stream())

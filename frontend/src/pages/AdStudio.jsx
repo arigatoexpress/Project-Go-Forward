@@ -130,6 +130,16 @@ async function apiGenerateImage(params) {
     return resp.json();
 }
 
+async function apiGenerateFlyer(params) {
+    const resp = await adminFetch('/api/marketing/generate-flyer', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(params)
+    });
+    if (!resp.ok) throw new Error('Flyer generation failed');
+    return resp.json();
+}
+
 async function apiGenerateVideo(params) {
     const resp = await adminFetch('/api/marketing/generate-video', {
         method: 'POST',
@@ -137,6 +147,16 @@ async function apiGenerateVideo(params) {
         body: JSON.stringify(params)
     });
     if (!resp.ok) throw new Error('Video generation failed');
+    return resp.json();
+}
+
+async function apiGenerateGenAIClip(params) {
+    const resp = await adminFetch('/api/marketing/generate-genai-clip', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(params)
+    });
+    if (!resp.ok) throw new Error('GenAI clip generation failed');
     return resp.json();
 }
 
@@ -201,6 +221,9 @@ export default function AdStudio({ onBack }) {
     const [generatedImages, setGeneratedImages] = useState([]);
     const [expandedImage, setExpandedImage] = useState(null);
     const [imageError, setImageError] = useState(null);
+    const [generatingFlyer, setGeneratingFlyer] = useState(false);
+    const [generatedFlyers, setGeneratedFlyers] = useState([]);
+    const [flyerError, setFlyerError] = useState(null);
 
     // Voiceover generation
     const [voices, setVoices] = useState([]);
@@ -213,8 +236,11 @@ export default function AdStudio({ onBack }) {
 
     // Video generation
     const [generatingVideo, setGeneratingVideo] = useState(false);
+    const [generatingGenAIClip, setGeneratingGenAIClip] = useState(false);
     const [generatedVideo, setGeneratedVideo] = useState(null);
+    const [generatedGenAIClip, setGeneratedGenAIClip] = useState(null);
     const [videoError, setVideoError] = useState(null);
+    const [includeVirtualPresenter, setIncludeVirtualPresenter] = useState(false);
 
     // Ideas tab
     const [ideas, setIdeas] = useState(null);
@@ -245,6 +271,7 @@ export default function AdStudio({ onBack }) {
         setShowPreview(false);
         setActiveVariation(0);
         setGeneratedImages([]);
+        setGeneratedFlyers([]);
         try {
             const result = await apiGenerateScript({
                 platform,
@@ -400,6 +427,44 @@ export default function AdStudio({ onBack }) {
         link.click();
     };
 
+    const handleGenerateFlyer = async () => {
+        const s = getCurrentScript();
+        if (!s && !homeName) {
+            setFlyerError('Generate a script or select a home first.');
+            return;
+        }
+        const cleanBody = (s?.body || '')
+            .replace(/\[SHOT:[^\]]*\]/gi, '')
+            .replace(/\(\d+:\d+[^)]*\)/g, '')
+            .replace(/\s+/g, ' ')
+            .trim();
+        const selectedRealPhoto = realPhotos[selectedPhotoIdx] || realPhotos[0] || '';
+        setGeneratingFlyer(true);
+        setFlyerError(null);
+        try {
+            const result = await apiGenerateFlyer({
+                home_name: homeName || selectedHome?.model_name || 'Featured Home',
+                home_price: homePrice || selectedHome?.display_price,
+                home_specs: homeSpecs || selectedHome?.specs,
+                headline: s?.hook || homeName || 'Featured THO Home',
+                body: cleanBody || 'Tour this home at Texas Home Outlet in Houston.',
+                cta: s?.cta || 'Call or visit to tour it today',
+                platform,
+                home_photo_url: selectedRealPhoto || undefined,
+                image_base64: selectedRealPhoto ? undefined : generatedImages[0]?.image_base64,
+            });
+            if (result.success) {
+                setGeneratedFlyers(prev => [result, ...prev]);
+            } else {
+                setFlyerError(result.error || 'Flyer generation failed');
+            }
+        } catch (err) {
+            setFlyerError('Flyer generation failed: ' + err.message);
+        } finally {
+            setGeneratingFlyer(false);
+        }
+    };
+
     // Voiceover handlers
     const handleLoadVoices = useCallback(async () => {
         try {
@@ -499,10 +564,44 @@ export default function AdStudio({ onBack }) {
         }
     };
 
+    const handleGenerateGenAIClip = async () => {
+        const s = getCurrentScript();
+        const cleanBody = (s?.body || '')
+            .replace(/\[SHOT:[^\]]*\]/gi, '')
+            .replace(/\(\d+:\d+[^)]*\)/g, '')
+            .replace(/\s+/g, ' ')
+            .trim();
+        const prompt = imagePrompt || cleanBody || s?.hook || `Create a social home-tour clip for ${homeName || 'Texas Home Outlet'}`;
+        const selectedRealPhoto = realPhotos[selectedPhotoIdx] || realPhotos[0] || '';
+        setGeneratingGenAIClip(true);
+        setVideoError(null);
+        setGeneratedGenAIClip(null);
+        try {
+            const result = await apiGenerateGenAIClip({
+                prompt,
+                home_name: homeName || selectedHome?.model_name || 'ad',
+                platform,
+                home_photo_url: selectedRealPhoto || undefined,
+                image_base64: selectedRealPhoto ? undefined : generatedImages[0]?.image_base64,
+                duration_seconds: 5,
+                include_virtual_presenter: includeVirtualPresenter,
+                wait_seconds: 120,
+            });
+            if (result.success) {
+                setGeneratedGenAIClip(result);
+            } else {
+                setVideoError(result.error || 'GenAI clip generation failed');
+            }
+        } catch (err) {
+            setVideoError('GenAI clip generation failed: ' + err.message);
+        } finally {
+            setGeneratingGenAIClip(false);
+        }
+    };
+
     const handleDownloadVideo = () => {
         if (!generatedVideo?.download_url) return;
-        // Open in new tab for download
-        window.open(`https://tho-ai-agent.web.app${generatedVideo.download_url}`, '_blank');
+        window.open(generatedVideo.download_url, '_blank');
     };
 
     // Load voices on mount
@@ -636,8 +735,68 @@ export default function AdStudio({ onBack }) {
                 </div>
 
                 <div className="tho-preview-controls">
-                    {/* Image Generation Section */}
+                    {/* Finished Flyer Section */}
                     <div className="tho-ai-feedback-box">
+                        <h4><Download size={16} /> Create Finished Flyer</h4>
+                        <p className="text-xs text-gray-400 mb-2">
+                            Build a downloadable social ad with THO branding, readable copy, and the selected home photo.
+                        </p>
+                        <div className="tho-video-info text-xs text-gray-500 mb-2">
+                            {realPhotos.length > 0 ? (
+                                <span>Using real photo {selectedPhotoIdx + 1} of {realPhotos.length}</span>
+                            ) : generatedImages.length > 0 ? (
+                                <span>Using latest AI image</span>
+                            ) : (
+                                <span>No image selected - branded fallback will be used</span>
+                            )}
+                        </div>
+                        <button
+                            className="tho-btn tho-btn-primary w-full mt-2 flex items-center justify-center gap-2"
+                            onClick={handleGenerateFlyer}
+                            disabled={generatingFlyer}
+                        >
+                            {generatingFlyer ? (
+                                <><Loader2 size={14} className="spin" /> Creating Flyer...</>
+                            ) : (
+                                <><Download size={14} /> Generate Downloadable Flyer</>
+                            )}
+                        </button>
+                        {flyerError && (
+                            <div className="tho-image-error">
+                                <AlertTriangle size={12} />
+                                <span>{flyerError}</span>
+                                <button onClick={() => setFlyerError(null)} className="tho-error-dismiss"><X size={12} /></button>
+                            </div>
+                        )}
+                    </div>
+
+                    {generatedFlyers.length > 0 && (
+                        <div className="tho-image-gallery">
+                            <h4 className="text-sm font-medium text-gray-300 mb-2">Finished Flyers</h4>
+                            <div className="tho-gallery-grid">
+                                {generatedFlyers.map((img, i) => (
+                                    <div key={i} className="tho-gallery-item">
+                                        <img
+                                            src={`data:image/png;base64,${img.image_base64}`}
+                                            alt={`Finished flyer ${i + 1}`}
+                                            className="tho-gallery-img"
+                                            onClick={() => setExpandedImage(img)}
+                                        />
+                                        <button
+                                            className="tho-gallery-download"
+                                            onClick={() => handleDownloadImage(img)}
+                                            title="Download flyer"
+                                        >
+                                            <Download size={12} />
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Image Generation Section */}
+                    <div className="tho-ai-feedback-box mt-4" style={{borderTop: '1px solid #374151', paddingTop: '1rem'}}>
                         <h4><Image size={16} /> Generate Ad Image</h4>
                         <p className="text-xs text-gray-400 mb-2">Create a visual for your ad with AI (Imagen)</p>
 
@@ -728,7 +887,7 @@ export default function AdStudio({ onBack }) {
                     {/* Voiceover Generation Section */}
                     <div className="tho-ai-feedback-box mt-4" style={{borderTop: '1px solid #374151', paddingTop: '1rem'}}>
                         <h4><Volume2 size={16} /> Generate Voiceover</h4>
-                        <p className="text-xs text-gray-400 mb-2">Create AI voiceover audio from your script (OpenAI TTS)</p>
+                        <p className="text-xs text-gray-400 mb-2">Create AI voiceover audio from your script (Google Cloud TTS)</p>
                         
                         {/* Voice selector - grouped by tier */}
                         <div className="tho-voice-selector">
@@ -808,7 +967,7 @@ export default function AdStudio({ onBack }) {
                     <div className="tho-ai-feedback-box mt-4" style={{borderTop: '1px solid #374151', paddingTop: '1rem'}}>
                         <h4><Film size={16} /> Generate Video</h4>
                         <p className="text-xs text-gray-400 mb-2">
-                            Create MP4 video from photos + voiceover (slideshow with transitions)
+                            Create MP4 slideshow from photos + voiceover, or generate a true Google Veo clip.
                         </p>
                         
                         <div className="tho-video-info text-xs text-gray-500 mb-2">
@@ -823,6 +982,15 @@ export default function AdStudio({ onBack }) {
                                 <span className="ml-3">⚠ Generate voiceover first</span>
                             )}
                         </div>
+
+                        <label className="tho-virtual-presenter-toggle">
+                            <input
+                                type="checkbox"
+                                checked={includeVirtualPresenter}
+                                onChange={e => setIncludeVirtualPresenter(e.target.checked)}
+                            />
+                            <span>Include synthetic presenter</span>
+                        </label>
                         
                         <button
                             className="tho-btn tho-btn-primary w-full mt-2 flex items-center justify-center gap-2"
@@ -833,6 +1001,18 @@ export default function AdStudio({ onBack }) {
                                 <><Loader2 size={14} className="spin" /> Creating Video...</>
                             ) : (
                                 <><Film size={14} /> Generate MP4 Video</>
+                            )}
+                        </button>
+
+                        <button
+                            className="tho-btn tho-btn-secondary w-full mt-2 flex items-center justify-center gap-2"
+                            onClick={handleGenerateGenAIClip}
+                            disabled={generatingGenAIClip}
+                        >
+                            {generatingGenAIClip ? (
+                                <><Loader2 size={14} className="spin" /> Generating Veo Clip...</>
+                            ) : (
+                                <><Sparkles size={14} /> Generate GenAI Clip</>
                             )}
                         </button>
                         
@@ -856,6 +1036,25 @@ export default function AdStudio({ onBack }) {
                                     <button 
                                         className="tho-btn tho-btn-primary flex items-center gap-2"
                                         onClick={handleDownloadVideo}
+                                    >
+                                        <Download size={14} /> Download MP4
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
+                        {generatedGenAIClip?.success && (
+                            <div className="tho-video-result mt-3 p-3 bg-green-900/20 border border-green-700/30 rounded-lg">
+                                <div className="flex items-center justify-between">
+                                    <div>
+                                        <div className="text-sm font-medium text-green-400">GenAI Clip Created</div>
+                                        <div className="text-xs text-gray-400">
+                                            {generatedGenAIClip.provider} • {generatedGenAIClip.duration_seconds}s • {generatedGenAIClip.file_size_mb}MB
+                                        </div>
+                                    </div>
+                                    <button
+                                        className="tho-btn tho-btn-primary flex items-center gap-2"
+                                        onClick={() => window.open(generatedGenAIClip.download_url, '_blank')}
                                     >
                                         <Download size={14} /> Download MP4
                                     </button>

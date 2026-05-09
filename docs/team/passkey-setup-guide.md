@@ -159,6 +159,9 @@ Some old browser settings or restrictive admin policies block passkeys. Try a di
 ### "The passkey works on my phone but not my laptop"
 Each device has its own passkey unless you're using Proton Pass / iCloud Keychain / Google Password Manager to sync them. To sync, set up a passkey while signed into Proton Pass (or your platform's keychain) instead of saving it directly to the device.
 
+### "Proton Pass says my THO passkey is deprecated"
+Use the PIN fallback once, open **System Hub → Passkey Recovery**, and revoke the old Proton Pass credential. Then click the key button in the top navigation and register a fresh passkey in Proton Pass. The old key will no longer block registration.
+
 ---
 
 ## Quick reference card (print this)
