@@ -3,8 +3,9 @@ import {
   Activity, Shield, Server, Cpu, Globe, Zap, Lock,
   ExternalLink, ChevronRight, AlertTriangle,
   CheckCircle2, XCircle, Loader2, Layers,
-  KeyRound, FileText
+  KeyRound, FileText, Trash2, RefreshCw, Fingerprint
 } from 'lucide-react';
+import adminFetch from '../adminFetch';
 
 const PROJECTS = [
   {
@@ -258,12 +259,52 @@ function QuickStat({ label, value, sub, icon, accent = 'accent' }) {
 
 export default function SystemHub({ onBack }) {
   const [passkeyStatus, setPasskeyStatus] = useState(null);
+  const [passkeyCredentials, setPasskeyCredentials] = useState([]);
+  const [passkeyError, setPasskeyError] = useState('');
+  const [passkeyAction, setPasskeyAction] = useState('');
   const [health, setHealth] = useState(null);
 
-  useEffect(() => {
-    fetch('/api/admin/passkey/status').then(r => r.json()).then(setPasskeyStatus).catch(() => {});
-    fetch('/healthz/').then(r => r.json()).then(setHealth).catch(() => {});
+  const loadPasskeys = React.useCallback(async () => {
+    setPasskeyError('');
+    try {
+      const status = await fetch('/api/admin/passkey/status', { credentials: 'same-origin' });
+      if (status.ok) setPasskeyStatus(await status.json());
+      const credentials = await adminFetch('/api/admin/passkey/credentials', { credentials: 'same-origin' });
+      if (credentials.ok) {
+        const data = await credentials.json();
+        setPasskeyCredentials(data.credentials || []);
+      }
+    } catch (err) {
+      setPasskeyError(err.message || 'Passkey status unavailable');
+    }
   }, []);
+
+  useEffect(() => {
+    loadPasskeys();
+    fetch('/healthz/').then(r => r.json()).then(setHealth).catch(() => {});
+  }, [loadPasskeys]);
+
+  const revokePasskey = React.useCallback(async (credentialId) => {
+    const shortId = credentialId.slice(0, 8);
+    if (!window.confirm(`Revoke passkey ${shortId}...? Use this only for a lost or deprecated key.`)) return;
+    setPasskeyAction(credentialId);
+    setPasskeyError('');
+    try {
+      const response = await adminFetch(`/api/admin/passkey/credentials/${encodeURIComponent(credentialId)}`, {
+        method: 'DELETE',
+        credentials: 'same-origin',
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data.success === false) {
+        throw new Error(data.message || data.detail || data.error || 'Could not revoke passkey');
+      }
+      await loadPasskeys();
+    } catch (err) {
+      setPasskeyError(err.message || 'Could not revoke passkey');
+    } finally {
+      setPasskeyAction('');
+    }
+  }, [loadPasskeys]);
 
   const checkUrl = React.useCallback(async () => {
     try {
@@ -362,6 +403,60 @@ export default function SystemHub({ onBack }) {
                   </li>
                 ))}
               </ul>
+            </div>
+
+            <div className="cp-panel p-5">
+              <div className="flex items-center justify-between gap-3 mb-3">
+                <h3 className="font-mono font-semibold text-[var(--cp-text)] flex items-center gap-2">
+                  <Fingerprint size={16} className="text-[var(--cp-secondary)]" />
+                  Passkey Recovery
+                </h3>
+                <button
+                  className="cp-btn-outline px-2.5 py-1.5 text-xs flex items-center gap-1.5"
+                  onClick={loadPasskeys}
+                  title="Refresh passkey list"
+                >
+                  <RefreshCw size={13} /> Refresh
+                </button>
+              </div>
+              <p className="text-xs text-[var(--cp-muted)] leading-relaxed mb-3">
+                Sign in with the PIN once, revoke any deprecated Proton Pass or lost-device key, then register a fresh passkey from the key button in the top navigation.
+              </p>
+              {passkeyError && (
+                <div className="text-xs text-[var(--cp-danger)] border border-[var(--cp-danger)]/25 bg-[var(--cp-danger-dim)] rounded-md px-3 py-2 mb-3">
+                  {passkeyError}
+                </div>
+              )}
+              <div className="space-y-2">
+                {passkeyCredentials.length === 0 ? (
+                  <div className="text-xs text-[var(--cp-faint)] border border-[var(--cp-border)] rounded-md px-3 py-2">
+                    No passkeys are registered yet.
+                  </div>
+                ) : passkeyCredentials.map((cred) => (
+                  <div key={cred.credential_id} className="border border-[var(--cp-border)] rounded-md px-3 py-2 bg-[var(--cp-bg-2)]">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="font-mono text-xs text-[var(--cp-text)] truncate">
+                          {cred.credential_id.slice(0, 12)}...{cred.credential_id.slice(-6)}
+                        </div>
+                        <div className="text-[10px] text-[var(--cp-faint)] mt-1">
+                          Added {cred.created_at ? new Date(cred.created_at).toLocaleDateString() : 'unknown'}
+                          {cred.last_used_at ? ` • Used ${new Date(cred.last_used_at).toLocaleDateString()}` : ' • Never used'}
+                        </div>
+                      </div>
+                      <button
+                        className="cp-btn-outline px-2 py-1 text-xs flex items-center gap-1 text-[var(--cp-danger)] border-[var(--cp-danger)]/35"
+                        onClick={() => revokePasskey(cred.credential_id)}
+                        disabled={passkeyAction === cred.credential_id}
+                        title="Revoke deprecated passkey"
+                      >
+                        {passkeyAction === cred.credential_id ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
+                        Revoke
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
 
             <div className="cp-panel p-5">

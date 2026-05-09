@@ -2440,6 +2440,19 @@
   gap: 0.5rem;
 }
 
+.tho-virtual-presenter-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.5rem 0;
+  color: #cbd5e1;
+  font-size: 0.75rem;
+}
+
+.tho-virtual-presenter-toggle input {
+  accent-color: var(--tho-primary);
+}
+
 .tho-video-result {
   animation: fadeIn 0.3s ease;
 }

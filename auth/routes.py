@@ -8,6 +8,8 @@ Endpoints (mounted under /api/admin/passkey):
     POST /register/complete
     POST /login/begin
     POST /login/complete
+    GET  /credentials
+    DELETE /credentials/{credential_id_b64}
     GET  /status
     POST /logout
 """
@@ -55,6 +57,7 @@ try:
         ResidentKeyRequirement,
         UserVerificationRequirement,
     )
+
     _HAS_WEBAUTHN = True
 except Exception:
     _HAS_WEBAUTHN = False
@@ -67,6 +70,7 @@ _session_manager: SessionManager | None = None
 # ---------------------------------------------------------------------------
 # Helpers / deps
 # ---------------------------------------------------------------------------
+
 
 def get_session_manager() -> SessionManager:
     global _session_manager
@@ -114,8 +118,16 @@ def _request_origin(request: Request) -> str:
     origin = _normalize_origin(request.headers.get("origin"))
     if origin:
         return origin
-    host = (request.headers.get("x-forwarded-host") or request.headers.get("host") or "").split(",")[0].strip()
-    proto = (request.headers.get("x-forwarded-proto") or request.url.scheme or "https").split(",")[0].strip()
+    host = (
+        (request.headers.get("x-forwarded-host") or request.headers.get("host") or "")
+        .split(",")[0]
+        .strip()
+    )
+    proto = (
+        (request.headers.get("x-forwarded-proto") or request.url.scheme or "https")
+        .split(",")[0]
+        .strip()
+    )
     if host:
         return _normalize_origin(f"{proto}://{host}")
     return _normalize_origin(THO_ORIGIN)
@@ -216,6 +228,44 @@ def _credential_descriptors(store: CredentialStore) -> list[Any]:
         raise HTTPException(status_code=503, detail="Passkey credential store unavailable")
 
 
+def _discoverable_login_enabled() -> bool:
+    """Let synced passkey providers present resident credentials for this RP.
+
+    Login completion still verifies that the selected credential exists in the
+    server-side store, but avoiding a browser allow-list makes Proton Pass and
+    cross-device passkey recovery more reliable after a credential migration.
+    """
+    raw = os.environ.get("THO_PASSKEY_DISCOVERABLE_LOGIN", "1").strip().lower()
+    return raw not in {"0", "false", "no", "off"}
+
+
+def _decode_credential_id(value: str) -> bytes:
+    if not value:
+        raise HTTPException(status_code=400, detail="Credential id is required")
+    try:
+        return base64url_to_bytes(value) if _HAS_WEBAUTHN else urlsafe_b64decode(value)
+    except Exception:
+        try:
+            padding = "=" * (-len(value) % 4)
+            return urlsafe_b64decode(value + padding)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid credential id")
+
+
+def _serialize_credential(rec: Any) -> dict[str, Any]:
+    def _dt(value: Any) -> str | None:
+        return value.isoformat() if hasattr(value, "isoformat") else None
+
+    return {
+        "credential_id": rec.credential_id_b64,
+        "user_id": rec.user_id,
+        "aaguid": rec.aaguid or "",
+        "created_at": _dt(rec.created_at),
+        "last_used_at": _dt(rec.last_used_at),
+        "sign_count": rec.sign_count,
+    }
+
+
 def _store_backend(store: CredentialStore) -> str:
     return str(getattr(store, "backend_name", store.__class__.__name__))
 
@@ -227,6 +277,7 @@ def _store_persistent(store: CredentialStore) -> bool:
 # ---------------------------------------------------------------------------
 # Registration
 # ---------------------------------------------------------------------------
+
 
 @router.post("/register/begin")
 def register_begin(
@@ -338,6 +389,7 @@ def register_complete(
 # Login
 # ---------------------------------------------------------------------------
 
+
 @router.post("/login/begin")
 def login_begin(
     request: Request,
@@ -354,12 +406,15 @@ def login_begin(
     allow_credentials = _credential_descriptors(store)
     _, rp_id = _webauthn_context(request)
 
-    options = generate_authentication_options(
-        rp_id=rp_id,
-        challenge=challenge,
-        allow_credentials=allow_credentials,
-        user_verification=UserVerificationRequirement.PREFERRED,
-    )
+    option_kwargs = {
+        "rp_id": rp_id,
+        "challenge": challenge,
+        "user_verification": UserVerificationRequirement.PREFERRED,
+    }
+    if not _discoverable_login_enabled():
+        option_kwargs["allow_credentials"] = allow_credentials
+
+    options = generate_authentication_options(**option_kwargs)
     result = JSONResponse(options_to_json_dict(options))
     result.set_cookie(
         key="tho_passkey_login",
@@ -391,10 +446,7 @@ def login_complete(
 
     # Resolve credential from the id in the payload
     cred_id_b64 = credential.get("id", "")
-    try:
-        raw_id = base64url_to_bytes(cred_id_b64) if _HAS_WEBAUTHN else urlsafe_b64decode(cred_id_b64)
-    except Exception:
-        raw_id = urlsafe_b64decode(cred_id_b64)
+    raw_id = _decode_credential_id(cred_id_b64)
 
     try:
         rec = store.get(raw_id)
@@ -444,6 +496,52 @@ def login_complete(
 # Status / Whoami / Logout
 # ---------------------------------------------------------------------------
 
+
+@router.get("/credentials")
+def list_credentials(
+    request: Request,
+    manager: SessionManager = Depends(get_session_manager),
+    store: CredentialStore = Depends(get_credential_store),
+) -> JSONResponse:
+    """List registered admin passkeys without exposing public key material."""
+    _require_admin_request(request, manager)
+    try:
+        rows = [_serialize_credential(rec) for rec in store.list_for_user("admin")]
+    except Exception as exc:
+        log.warning("passkey credential list failed: %s", exc)
+        raise HTTPException(status_code=503, detail="Passkey credential store unavailable")
+    return JSONResponse(
+        {
+            "success": True,
+            "credentials": rows,
+            "registered_keys": len(rows),
+            "store_backend": _store_backend(store),
+            "persistent": _store_persistent(store),
+        }
+    )
+
+
+@router.delete("/credentials/{credential_id_b64}")
+def delete_credential(
+    credential_id_b64: str,
+    request: Request,
+    manager: SessionManager = Depends(get_session_manager),
+    store: CredentialStore = Depends(get_credential_store),
+) -> JSONResponse:
+    """Revoke a lost or deprecated admin passkey by credential id."""
+    _require_admin_request(request, manager)
+    credential_id = _decode_credential_id(credential_id_b64)
+    try:
+        deleted = store.delete(credential_id)
+        remaining = store.count()
+    except Exception as exc:
+        log.warning("passkey credential delete failed: %s", exc)
+        raise HTTPException(status_code=503, detail="Passkey credential store unavailable")
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Passkey credential not found")
+    return JSONResponse({"success": True, "deleted": True, "registered_keys": remaining})
+
+
 @router.get("/status")
 def passkey_status(
     store: CredentialStore = Depends(get_credential_store),
@@ -464,6 +562,7 @@ def passkey_status(
             "store_backend": _store_backend(store),
             "persistent": _store_persistent(store),
             "store_ready": store_ready,
+            "discoverable_login": _discoverable_login_enabled(),
             "rp_id": RP_ID,
             "rp_ids": sorted(set(_origin_rp_ids().values())),
         }
