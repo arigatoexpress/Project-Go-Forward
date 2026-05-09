@@ -49,9 +49,20 @@ def test_login_begin_returns_browser_json(passkey_client):
     body = response.json()
     assert body["rpId"] == "sapphirealpha.xyz"
     assert isinstance(body["challenge"], str)
+    assert body.get("allowCredentials", []) == []
+    assert "tho_passkey_login=" in response.headers["set-cookie"]
+
+
+def test_login_begin_can_use_strict_allow_list_when_configured(passkey_client, monkeypatch):
+    client, routes = passkey_client
+    monkeypatch.setattr(routes, "_discoverable_login_enabled", lambda: False)
+
+    response = client.post("/api/admin/passkey/login/begin")
+
+    assert response.status_code == 200, response.text
+    body = response.json()
     assert body["allowCredentials"][0]["id"] == "Y3JlZGVudGlhbC0x"
     assert body["allowCredentials"][0]["type"] == "public-key"
-    assert "tho_passkey_login=" in response.headers["set-cookie"]
 
 
 def test_login_begin_uses_sapphire_xyz_cutover_context(passkey_client):
@@ -114,5 +125,32 @@ def test_status_reports_store_persistence_contract(passkey_client):
     assert body["store_backend"] == "memory"
     assert body["persistent"] is False
     assert body["store_ready"] is True
+    assert body["discoverable_login"] is True
     assert "sapphire.xyz" in body["rp_ids"]
     assert "sapphirealpha.xyz" in body["rp_ids"]
+
+
+def test_credentials_management_requires_admin(passkey_client):
+    client, _routes = passkey_client
+
+    response = client.get("/api/admin/passkey/credentials")
+
+    assert response.status_code == 401
+
+
+def test_credentials_management_lists_and_deletes_deprecated_key(passkey_client, monkeypatch):
+    client, routes = passkey_client
+    monkeypatch.setattr(routes, "_request_is_admin", lambda request, manager: True)
+
+    listed = client.get("/api/admin/passkey/credentials")
+
+    assert listed.status_code == 200, listed.text
+    body = listed.json()
+    assert body["registered_keys"] == 1
+    assert body["credentials"][0]["credential_id"] == "Y3JlZGVudGlhbC0x"
+
+    deleted = client.delete("/api/admin/passkey/credentials/Y3JlZGVudGlhbC0x")
+
+    assert deleted.status_code == 200, deleted.text
+    assert deleted.json()["registered_keys"] == 0
+    assert client.get("/api/admin/passkey/credentials").json()["credentials"] == []

@@ -17,7 +17,6 @@ import logging
 import os
 import uuid
 from datetime import datetime
-from typing import List, Optional
 
 try:
     from google.adk.tools import ToolContext
@@ -31,27 +30,78 @@ logger = logging.getLogger(__name__)
 
 BANNED_WORDS = [
     # Corporate/AI buzzwords
-    "nestled", "journey", "elevate", "reimagine", "unlock", "embark",
-    "curated", "bespoke", "artisanal", "synergy", "seamless", "leverage",
-    "revolutionize", "transformative", "paradigm", "holistic", "robust",
-    "cutting-edge", "state-of-the-art", "game-changer", "next-level",
-    "world-class", "unparalleled", "breathtaking", "turn-key",
+    "nestled",
+    "journey",
+    "elevate",
+    "reimagine",
+    "unlock",
+    "embark",
+    "curated",
+    "bespoke",
+    "artisanal",
+    "synergy",
+    "seamless",
+    "leverage",
+    "revolutionize",
+    "transformative",
+    "paradigm",
+    "holistic",
+    "robust",
+    "cutting-edge",
+    "state-of-the-art",
+    "game-changer",
+    "next-level",
+    "world-class",
+    "unparalleled",
+    "breathtaking",
+    "turn-key",
     # Real estate clichés
-    "step into", "discover the magic", "dream home awaits", "luxurious living",
-    "hidden gem", "oasis", "haven", "retreat", "sanctuary", "paradise",
-    "charming", "quaint", "stunning", "exquisite", "immaculate",
-    "boasts", "features galore", "entertainer's delight", "move-in ready",
+    "step into",
+    "discover the magic",
+    "dream home awaits",
+    "luxurious living",
+    "hidden gem",
+    "oasis",
+    "haven",
+    "retreat",
+    "sanctuary",
+    "paradise",
+    "charming",
+    "quaint",
+    "stunning",
+    "exquisite",
+    "immaculate",
+    "boasts",
+    "features galore",
+    "entertainer's delight",
+    "move-in ready",
     # Vague hype with no substance
-    "incredible", "unbelievable", "insane", "mind-blowing", "life-changing",
-    "gorgeous", "spectacular", "magnificent", "extraordinary", "phenomenal",
+    "incredible",
+    "unbelievable",
+    "insane",
+    "mind-blowing",
+    "life-changing",
+    "gorgeous",
+    "spectacular",
+    "magnificent",
+    "extraordinary",
+    "phenomenal",
     # AI-sounding filler
-    "in today's market", "look no further", "whether you're a",
-    "imagine coming home to", "picture yourself", "don't miss out on this",
-    "what if I told you", "the perfect blend of", "where luxury meets",
-    "redefine what it means", "not your grandfather's",
+    "in today's market",
+    "look no further",
+    "whether you're a",
+    "imagine coming home to",
+    "picture yourself",
+    "don't miss out on this",
+    "what if I told you",
+    "the perfect blend of",
+    "where luxury meets",
+    "redefine what it means",
+    "not your grandfather's",
 ]
 
-THO_BRAND_VOICE = """
+THO_BRAND_VOICE = (
+    """
 TEXAS HOME OUTLET BRAND VOICE — MANDATORY:
 
 TONE: Casual, warm, specific, Texas-friendly. Talk like a real person on camera, not a marketing department.
@@ -70,7 +120,9 @@ DON'T:
 - Use corporate buzzwords or AI-sounding phrases
 - Use adjectives without proof (never "stunning kitchen" — instead "kitchen with quartz countertops and a 6-foot island")
 - Write like a press release, listing description, or brochure
-- Use any of these banned words/phrases: """ + ", ".join(BANNED_WORDS[:20]) + """
+- Use any of these banned words/phrases: """
+    + ", ".join(BANNED_WORDS[:20])
+    + """
 - Start scripts with "Are you looking for..." or "Have you ever dreamed..." or "What if I told you..."
 - Use more than 2 exclamation marks in the entire script
 - Use more than 1 emoji in the entire script
@@ -93,9 +145,11 @@ EXAMPLES OF BAD HOOKS (never write anything like these):
 - "Step into luxury at an unbelievable price!" (every banned word at once)
 - "In today's competitive housing market..." (puts people to sleep)
 """
+)
 
 
 # ─── Inventory Integration ───
+
 
 def _load_inventory_for_marketing():
     """Load inventory data for marketing context. Reuses inventory_tools loader."""
@@ -134,7 +188,7 @@ def get_inventory_for_ads(limit: int = 5) -> dict:
         return {
             "success": False,
             "homes": [],
-            "message": "No inventory data available. You can still create ads with manual home details."
+            "message": "No inventory data available. You can still create ads with manual home details.",
         }
 
     # Sort: featured/priced homes first, then by price descending
@@ -190,8 +244,8 @@ def get_inventory_for_ads(limit: int = 5) -> dict:
                 home_data["gallery_images"] = asset_images[:3]
             if assets.get("image_categories") and not home_data["image_categories"]:
                 home_data["image_categories"] = assets.get("image_categories", {})
-            home_data["floor_plan_url"] = (
-                home_data.get("floor_plan_url") or assets.get("floor_plan")
+            home_data["floor_plan_url"] = home_data.get("floor_plan_url") or assets.get(
+                "floor_plan"
             )
             if assets.get("matterport_id") and not home_data.get("matterport_id"):
                 home_data["matterport_id"] = assets["matterport_id"]
@@ -220,14 +274,16 @@ def get_inventory_for_ads(limit: int = 5) -> dict:
         "total_inventory": total,
         "new_homes": new_count,
         "preowned_homes": preowned_count,
-        "message": f"Loaded {len(homes_for_ads)} homes from inventory ({total} total)."
+        "message": f"Loaded {len(homes_for_ads)} homes from inventory ({total} total).",
     }
 
 
 # ─── Image Generation with Imagen ───
 
 # Output directory for generated images
-GENERATED_ADS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "generated_ads")
+GENERATED_ADS_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(__file__)), "data", "generated_ads"
+)
 os.makedirs(GENERATED_ADS_DIR, exist_ok=True)
 
 # Style presets for image generation
@@ -237,7 +293,7 @@ IMAGE_STYLES = {
     "luxury": "luxury real estate photography, premium finishes, elegant staging, golden hour lighting, aspirational lifestyle",
     "cozy": "cozy home photography, warm inviting atmosphere, family-friendly, comfortable living spaces, soft natural light",
     "aerial": "aerial drone photography of manufactured home community, bird's eye view, landscaped lots, Texas countryside",
-    "twilight": "twilight exterior real estate photography, warm interior lights glowing, dusk sky, dramatic curb appeal"
+    "twilight": "twilight exterior real estate photography, warm interior lights glowing, dusk sky, dramatic curb appeal",
 }
 
 # Platform aspect ratio defaults
@@ -246,17 +302,17 @@ PLATFORM_ASPECT_RATIOS = {
     "instagram_reels": "9:16",
     "instagram_post": "1:1",
     "facebook": "16:9",
-    "facebook_story": "9:16"
+    "facebook_story": "9:16",
 }
 
 
 def generate_ad_image(
     prompt: str,
-    home_name: Optional[str] = None,
+    home_name: str | None = None,
     platform: str = "tiktok",
     style: str = "photorealistic",
-    aspect_ratio: Optional[str] = None,
-    tool_context: ToolContext = None
+    aspect_ratio: str | None = None,
+    tool_context: ToolContext = None,
 ) -> dict:
     """
     Generate a marketing image for social media ads using Google Imagen.
@@ -281,7 +337,7 @@ def generate_ad_image(
     client = google.genai.Client(
         vertexai=True,
         project=os.environ.get("GOOGLE_CLOUD_PROJECT", "tho-ai-agent"),
-        location="us-central1"
+        location="us-central1",
     )
 
     # Determine aspect ratio
@@ -304,14 +360,14 @@ def generate_ad_image(
                 aspect_ratio=final_aspect,
                 safety_filter_level="BLOCK_MEDIUM_AND_ABOVE",
                 person_generation="DONT_ALLOW",
-            )
+            ),
         )
 
         if not response.generated_images:
             return {
                 "success": False,
                 "error": "Image generation returned no results. The prompt may have been filtered for safety. Try adjusting your description.",
-                "filtered": True
+                "filtered": True,
             }
 
         generated = response.generated_images[0]
@@ -339,7 +395,7 @@ def generate_ad_image(
             "style": style,
             "prompt_used": enhanced_prompt[:200],
             "home_featured": home_name,
-            "created_at": datetime.now().isoformat()
+            "created_at": datetime.now().isoformat(),
         }
 
     except Exception as e:
@@ -347,8 +403,220 @@ def generate_ad_image(
         return {
             "success": False,
             "error": f"Image generation failed: {str(e)}",
-            "hint": "Ensure Imagen API is enabled in your GCP project. Try a simpler prompt if the error persists."
+            "hint": "Ensure Imagen API is enabled in your GCP project. Try a simpler prompt if the error persists.",
         }
+
+
+def _creative_canvas(platform: str) -> tuple[int, int]:
+    if platform in {"tiktok", "instagram_reels", "facebook_story"}:
+        return 1080, 1920
+    if platform == "instagram_post":
+        return 1080, 1080
+    return 1600, 900
+
+
+def _font(size: int, *, bold: bool = False):
+    from PIL import ImageFont
+
+    names = [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+        if bold
+        else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/System/Library/Fonts/Supplemental/Arial Bold.ttf"
+        if bold
+        else "/System/Library/Fonts/Supplemental/Arial.ttf",
+        "/Library/Fonts/Arial Bold.ttf" if bold else "/Library/Fonts/Arial.ttf",
+    ]
+    for name in names:
+        if os.path.exists(name):
+            return ImageFont.truetype(name, size=size)
+    return ImageFont.load_default()
+
+
+def _wrap_text(draw, text: str, font, max_width: int, max_lines: int = 3) -> list[str]:
+    words = str(text or "").split()
+    lines: list[str] = []
+    current: list[str] = []
+    for word in words:
+        candidate = " ".join(current + [word])
+        bbox = draw.textbbox((0, 0), candidate, font=font)
+        if bbox[2] - bbox[0] <= max_width or not current:
+            current.append(word)
+            continue
+        lines.append(" ".join(current))
+        current = [word]
+        if len(lines) == max_lines:
+            break
+    if current and len(lines) < max_lines:
+        lines.append(" ".join(current))
+    if len(lines) == max_lines and words:
+        joined = " ".join(lines)
+        if len(joined) < len(str(text)):
+            lines[-1] = lines[-1].rstrip(" .,") + "..."
+    return lines
+
+
+def _cover_image(image, width: int, height: int):
+    ratio = max(width / image.width, height / image.height)
+    resized = image.resize((int(image.width * ratio), int(image.height * ratio)))
+    left = max(0, (resized.width - width) // 2)
+    top = max(0, (resized.height - height) // 2)
+    return resized.crop((left, top, left + width, top + height))
+
+
+def _load_source_photo(home_photo_url: str | None = None, image_base64: str | None = None):
+    from io import BytesIO
+
+    from PIL import Image
+
+    if image_base64:
+        raw = image_base64.split(",", 1)[-1]
+        return Image.open(BytesIO(base64.b64decode(raw))).convert("RGB"), "generated_image"
+    if home_photo_url:
+        import requests
+
+        response = requests.get(home_photo_url, timeout=20)
+        response.raise_for_status()
+        return Image.open(BytesIO(response.content)).convert("RGB"), "real_photo"
+    return None, "branded_fallback"
+
+
+def generate_ad_flyer(
+    home_name: str,
+    home_price: str | None = None,
+    home_specs: dict | None = None,
+    headline: str | None = None,
+    body: str | None = None,
+    cta: str | None = None,
+    platform: str = "instagram_post",
+    home_photo_url: str | None = None,
+    image_base64: str | None = None,
+    tool_context: ToolContext = None,
+) -> dict:
+    """Create a downloadable social flyer, not just a prompt/phone preview."""
+    try:
+        from io import BytesIO
+
+        from PIL import Image, ImageDraw, ImageFilter
+
+        width, height = _creative_canvas(platform)
+        photo, source = _load_source_photo(home_photo_url=home_photo_url, image_base64=image_base64)
+        if photo:
+            canvas = _cover_image(photo, width, height).convert("RGBA")
+            blur = canvas.filter(ImageFilter.GaussianBlur(radius=18))
+            canvas = Image.blend(canvas, blur, 0.10)
+        else:
+            canvas = Image.new("RGBA", (width, height), "#f4efe7")
+
+        overlay = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+        od = ImageDraw.Draw(overlay)
+        od.rectangle((0, 0, width, int(height * 0.34)), fill=(42, 22, 18, 118))
+        od.rectangle((0, int(height * 0.58), width, height), fill=(42, 22, 18, 178))
+        canvas.alpha_composite(overlay)
+        draw = ImageDraw.Draw(canvas)
+
+        margin = int(width * 0.075)
+        brand_font = _font(max(22, int(width * 0.028)), bold=True)
+        headline_font = _font(max(42, int(width * 0.074)), bold=True)
+        body_font = _font(max(28, int(width * 0.034)))
+        meta_font = _font(max(24, int(width * 0.03)), bold=True)
+        cta_font = _font(max(28, int(width * 0.036)), bold=True)
+        small_font = _font(max(18, int(width * 0.022)))
+
+        cream = "#fff8ec"
+        gold = "#d6a33a"
+        burgundy = "#501d1d"
+        text_shadow = (0, 0, 0, 145)
+
+        brand = "TEXAS HOME OUTLET"
+        draw.text((margin + 2, margin + 2), brand, font=brand_font, fill=text_shadow)
+        draw.text((margin, margin), brand, font=brand_font, fill=gold)
+
+        price = home_price or "Call for Price"
+        price_text = str(price)
+        price_bbox = draw.textbbox((0, 0), price_text, font=meta_font)
+        pill_w = price_bbox[2] - price_bbox[0] + 44
+        pill_h = price_bbox[3] - price_bbox[1] + 26
+        pill_x = width - margin - pill_w
+        pill_y = margin - 8
+        draw.rounded_rectangle(
+            (pill_x, pill_y, pill_x + pill_w, pill_y + pill_h), radius=18, fill=gold
+        )
+        draw.text((pill_x + 22, pill_y + 12), price_text, font=meta_font, fill=burgundy)
+
+        title = headline or home_name or "Featured Home"
+        title_lines = _wrap_text(draw, title, headline_font, width - margin * 2, max_lines=3)
+        y = int(height * 0.12)
+        for line in title_lines:
+            draw.text((margin + 3, y + 3), line, font=headline_font, fill=text_shadow)
+            draw.text((margin, y), line, font=headline_font, fill=cream)
+            y += int(headline_font.size * 1.08)
+
+        specs = home_specs or {}
+        spec_parts = []
+        if specs.get("beds"):
+            spec_parts.append(f"{specs.get('beds')} Bed")
+        if specs.get("baths"):
+            spec_parts.append(f"{specs.get('baths')} Bath")
+        if specs.get("sq_ft") or specs.get("sqft"):
+            spec_parts.append(f"{specs.get('sq_ft') or specs.get('sqft')} Sq Ft")
+        if specs.get("dimensions"):
+            spec_parts.append(str(specs.get("dimensions")))
+        spec_line = "  |  ".join(spec_parts)
+        if spec_line:
+            draw.text((margin + 2, y + 10), spec_line, font=meta_font, fill=text_shadow)
+            draw.text((margin, y + 8), spec_line, font=meta_font, fill=gold)
+
+        body_text = body or "Tour this home at Texas Home Outlet in Houston."
+        body_lines = _wrap_text(draw, body_text, body_font, width - margin * 2, max_lines=4)
+        y = int(height * 0.68)
+        for line in body_lines:
+            draw.text((margin + 2, y + 2), line, font=body_font, fill=text_shadow)
+            draw.text((margin, y), line, font=body_font, fill=cream)
+            y += int(body_font.size * 1.22)
+
+        cta_text = cta or "Call or visit to tour it today"
+        footer_top = height - margin - int(cta_font.size * 2.6)
+        draw.rounded_rectangle(
+            (margin, footer_top, width - margin, height - margin),
+            radius=26,
+            fill=burgundy,
+            outline=gold,
+            width=max(3, width // 360),
+        )
+        draw.text((margin + 28, footer_top + 22), cta_text, font=cta_font, fill=cream)
+        draw.text(
+            (margin + 28, footer_top + 22 + int(cta_font.size * 1.25)),
+            "281-657-7366  |  texashomeoutlet.com",
+            font=small_font,
+            fill=gold,
+        )
+
+        image_id = f"flyer_{uuid.uuid4().hex[:8]}_{int(datetime.now().timestamp())}"
+        filename = f"{image_id}.png"
+        filepath = os.path.join(GENERATED_ADS_DIR, filename)
+        canvas.convert("RGB").save(filepath, format="PNG", optimize=True)
+
+        buf = BytesIO()
+        canvas.convert("RGB").save(buf, format="PNG", optimize=True)
+        image_data = buf.getvalue()
+
+        return {
+            "success": True,
+            "creative_type": "social_flyer",
+            "image_id": image_id,
+            "image_base64": base64.b64encode(image_data).decode("utf-8"),
+            "filename": filename,
+            "download_url": f"/api/marketing/images/{filename}",
+            "platform": platform,
+            "resolution": f"{width}x{height}",
+            "source": source,
+            "home_featured": home_name,
+            "created_at": datetime.now().isoformat(),
+        }
+    except Exception as e:
+        logger.error(f"Flyer generation failed: {e}")
+        return {"success": False, "error": f"Flyer generation failed: {str(e)}"}
 
 
 # ─── Content Script Generation ───
@@ -364,7 +632,7 @@ CONTENT_THEMES = [
     "comparison",
     "lifestyle",
     "clearance_alert",
-    "faq"
+    "faq",
 ]
 
 # Few-shot examples by content theme — teaches the model what GOOD scripts look like
@@ -507,22 +775,22 @@ PLATFORM_SPECS = {
         "aspect_ratio": "9:16",
         "hashtag_limit": 5,
         "trending_sounds": True,
-        "optimal_length": "15-30 seconds"
+        "optimal_length": "15-30 seconds",
     },
     "instagram_reels": {
         "max_duration": 90,
         "aspect_ratio": "9:16",
         "hashtag_limit": 30,
         "trending_sounds": True,
-        "optimal_length": "15-30 seconds"
+        "optimal_length": "15-30 seconds",
     },
     "facebook": {
         "max_duration": 240,
         "aspect_ratio": "16:9 or 9:16",
         "hashtag_limit": 3,
         "trending_sounds": False,
-        "optimal_length": "30-60 seconds"
-    }
+        "optimal_length": "30-60 seconds",
+    },
 }
 
 # Platform-specific prompt templates
@@ -535,7 +803,6 @@ PLATFORM_PROMPTS = {
 - Include [SHOT] descriptions for visual direction
 - Optimal length: 15-30 seconds
 - Use trending formats: "POV:", "Things I wish I knew...", "Wait for it...", split-screen comparisons""",
-
     "instagram_reels": """You are creating an Instagram Reels script. Instagram Reels demands:
 - Aesthetic-first: every shot should be visually beautiful
 - HOOK that stops the scroll (text overlay + compelling visual)
@@ -544,7 +811,6 @@ PLATFORM_PROMPTS = {
 - Feature lifestyle elements (not just the home, but the LIFE in the home)
 - End with save-worthy CTA ("Save this for your house hunt!")
 - Optimal length: 15-30 seconds""",
-
     "facebook": """You are creating a Facebook video ad script. Facebook demands:
 - Longer storytelling format (30-60 seconds)
 - Lead with the VALUE PROPOSITION in first 3 seconds
@@ -556,7 +822,9 @@ PLATFORM_PROMPTS = {
 }
 
 
-def _score_script_quality(script_data: dict, home_name: str = None, platform: str = "tiktok") -> dict:
+def _score_script_quality(
+    script_data: dict, home_name: str = None, platform: str = "tiktok"
+) -> dict:
     """
     Score a generated script for quality. Returns score breakdown and pass/fail.
 
@@ -587,11 +855,15 @@ def _score_script_quality(script_data: dict, home_name: str = None, platform: st
     elif hook_words > 20:
         hook_score -= 2
         issues.append("Hook too long — should be under 12 words")
-    if _re.search(r'\$[\d,]+', hook):
+    if _re.search(r"\$[\d,]+", hook):
         hook_score += 2  # Dollar amount in hook = great
     elif any(w in hook for w in ["$", "sqft", "bed", "bath", "%"]):
         hook_score += 1
-    if hook.startswith("are you") or hook.startswith("have you ever") or hook.startswith("what if i told"):
+    if (
+        hook.startswith("are you")
+        or hook.startswith("have you ever")
+        or hook.startswith("what if i told")
+    ):
         hook_score -= 4
         issues.append("Hook uses generic question — rewrite with a specific claim")
     if hook.startswith("in today") or hook.startswith("in this video"):
@@ -603,14 +875,30 @@ def _score_script_quality(script_data: dict, home_name: str = None, platform: st
 
     # 2. Specificity (1-10)
     spec_score = 2
-    numbers_found = _re.findall(r'\$[\d,]+|\d{3,}[\s]?sq|[\d]+\s?bed|[\d]+\s?bath|\d{3,}\s?sqft', full_text)
+    numbers_found = _re.findall(
+        r"\$[\d,]+|\d{3,}[\s]?sq|[\d]+\s?bed|[\d]+\s?bath|\d{3,}\s?sqft", full_text
+    )
     spec_score += min(4, len(numbers_found))
     if not numbers_found:
         issues.append("No specific numbers — add price, sqft, or bed/bath count")
     if home_name and home_name.lower() in full_text:
         spec_score += 2
-    room_words = ["kitchen", "master", "bedroom", "bathroom", "living room", "porch", "closet",
-                   "garage", "island", "countertop", "patio", "yard", "pantry", "laundry"]
+    room_words = [
+        "kitchen",
+        "master",
+        "bedroom",
+        "bathroom",
+        "living room",
+        "porch",
+        "closet",
+        "garage",
+        "island",
+        "countertop",
+        "patio",
+        "yard",
+        "pantry",
+        "laundry",
+    ]
     rooms_mentioned = sum(1 for r in room_words if r in full_text)
     spec_score += min(2, rooms_mentioned)
     if rooms_mentioned == 0:
@@ -627,11 +915,11 @@ def _score_script_quality(script_data: dict, home_name: str = None, platform: st
     if excl_count > 3:
         auth_score -= min(3, excl_count - 2)
         issues.append(f"{excl_count} exclamation marks — max 2 for authenticity")
-    emoji_count = len(_re.findall(r'[\U0001f300-\U0001f9ff]', full_text))
+    emoji_count = len(_re.findall(r"[\U0001f300-\U0001f9ff]", full_text))
     if emoji_count > 2:
         auth_score -= 1
         issues.append("Too many emojis — max 1 for video scripts")
-    sentences = _re.split(r'[.!?\n]', body)
+    sentences = _re.split(r"[.!?\n]", body)
     long_sentences = [s for s in sentences if len(s.split()) > 25]
     if len(long_sentences) > 1:
         auth_score -= 1
@@ -640,7 +928,20 @@ def _score_script_quality(script_data: dict, home_name: str = None, platform: st
 
     # 4. CTA strength (1-10)
     cta_score = 5
-    action_words = ["call", "visit", "text", "dm", "comment", "save", "link", "bio", "tap", "click", "book", "schedule"]
+    action_words = [
+        "call",
+        "visit",
+        "text",
+        "dm",
+        "comment",
+        "save",
+        "link",
+        "bio",
+        "tap",
+        "click",
+        "book",
+        "schedule",
+    ]
     if any(w in cta for w in action_words):
         cta_score += 3
     else:
@@ -656,8 +957,8 @@ def _score_script_quality(script_data: dict, home_name: str = None, platform: st
 
     # 5. Structure (1-10) — video-ready formatting
     struct_score = 4
-    shot_markers = _re.findall(r'\[SHOT[:\s]', body, _re.IGNORECASE)
-    timing_markers = _re.findall(r'\(\d+:\d+', body)
+    shot_markers = _re.findall(r"\[SHOT[:\s]", body, _re.IGNORECASE)
+    timing_markers = _re.findall(r"\(\d+:\d+", body)
     if len(shot_markers) >= 3:
         struct_score += 3
     elif len(shot_markers) >= 1:
@@ -693,7 +994,9 @@ def _score_script_quality(script_data: dict, home_name: str = None, platform: st
     }
 
 
-def _refine_script_if_needed(client, model_name, script_data: dict, quality: dict, platform: str) -> dict:
+def _refine_script_if_needed(
+    client, model_name, script_data: dict, quality: dict, platform: str
+) -> dict:
     """
     Second pass: If quality score is too low, send script back for refinement.
     Returns the refined script data or original if already good.
@@ -704,7 +1007,9 @@ def _refine_script_if_needed(client, model_name, script_data: dict, quality: dic
         return script_data  # Already good
 
     issues_str = "\n".join(f"- {issue}" for issue in quality["issues"])
-    banned_str = ", ".join(quality["banned_words_found"]) if quality["banned_words_found"] else "none"
+    banned_str = (
+        ", ".join(quality["banned_words_found"]) if quality["banned_words_found"] else "none"
+    )
 
     refine_prompt = f"""You are a script editor for Texas Home Outlet. Review and IMPROVE this script.
 
@@ -737,7 +1042,7 @@ Return ONLY the improved script as JSON:
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
                 temperature=0.6,
-            )
+            ),
         )
         refined = json.loads(response.text)
         if isinstance(refined, list):
@@ -749,18 +1054,18 @@ Return ONLY the improved script as JSON:
 
 
 def generate_content_script(
-    home_id: Optional[str] = None,
-    home_name: Optional[str] = None,
-    home_price: Optional[str] = None,
-    home_specs: Optional[dict] = None,
+    home_id: str | None = None,
+    home_name: str | None = None,
+    home_price: str | None = None,
+    home_specs: dict | None = None,
     content_theme: str = "home_tour",
     platform: str = "tiktok",
-    custom_hook: Optional[str] = None,
+    custom_hook: str | None = None,
     language: str = "en",
     avatar: str = "tex_classic",
-    custom_avatar_prompt: Optional[str] = None,
+    custom_avatar_prompt: str | None = None,
     variations: int = 1,
-    tool_context: ToolContext = None
+    tool_context: ToolContext = None,
 ) -> dict:
     """
     Generate viral-ready video scripts for social media using Gemini.
@@ -795,7 +1100,7 @@ def generate_content_script(
     client = google.genai.Client(
         vertexai=True,
         project=os.environ.get("GOOGLE_CLOUD_PROJECT", "tho-ai-agent"),
-        location="us-central1"
+        location="us-central1",
     )
 
     # Clamp variations
@@ -805,7 +1110,7 @@ def generate_content_script(
     avatar_desc = {
         "tex_classic": "Classic Tex: A friendly, warm Texas cowboy-themed presenter. Approachable, trustworthy, with a bit of Southern charm.",
         "tex_modern": "Modern Tex: A sleek, professional real estate expert. Data-driven, confident, tech-savvy.",
-        "tex_custom": custom_avatar_prompt or "A personalized AI presenter."
+        "tex_custom": custom_avatar_prompt or "A personalized AI presenter.",
     }.get(avatar, "Classic Tex")
 
     # ─── Load real property assets for photo-backed scripts ───
@@ -826,7 +1131,9 @@ def generate_content_script(
             if assets.get("matterport_id"):
                 matterport_context = f"\n3D TOUR AVAILABLE: https://my.matterport.com/show/?m={assets['matterport_id']}&play=1\nMention the 3D tour in the CTA — viewers can walk through this home from their phone!"
             if real_photos:
-                photo_labels = [f"  Photo {i+1}: {url.split('/')[-1]}" for i, url in enumerate(real_photos[:6])]
+                photo_labels = [
+                    f"  Photo {i+1}: {url.split('/')[-1]}" for i, url in enumerate(real_photos[:6])
+                ]
                 photo_context = f"""
 REAL PROPERTY PHOTOS AVAILABLE ({len(real_photos)} photos):
 {chr(10).join(photo_labels)}
@@ -909,16 +1216,18 @@ Return them as a JSON array of {variations} script objects.
         '    "suggested_image_prompts": [\n'
         '      "Imagen prompt 1: describe a key visual from this script for image generation",\n'
         '      "Imagen prompt 2: describe another compelling visual"\n'
-        '    ],\n'
+        "    ],\n"
         '    "tone": "one-word tone descriptor"'
     )
 
     if variations > 1:
-        json_format = f'[\n  {{\n{script_obj_template},\n'
-        json_format += '    "tone": "one-word tone descriptor (e.g., exciting, informative, emotional)"\n'
-        json_format += '  }\n]'
+        json_format = f"[\n  {{\n{script_obj_template},\n"
+        json_format += (
+            '    "tone": "one-word tone descriptor (e.g., exciting, informative, emotional)"\n'
+        )
+        json_format += "  }\n]"
     else:
-        json_format = f'{{\n{script_obj_template}\n}}'
+        json_format = f"{{\n{script_obj_template}\n}}"
 
     # ─── Build banned words list for prompt ───
     banned_words_str = ", ".join(BANNED_WORDS)
@@ -967,7 +1276,7 @@ Output as JSON format:
                 config=types.GenerateContentConfig(
                     response_mime_type="application/json",
                     temperature=0.7,
-                )
+                ),
             )
         except Exception:
             model_name = "gemini-2.0-flash-001"
@@ -976,7 +1285,7 @@ Output as JSON format:
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     response_mime_type="application/json",
-                )
+                ),
             )
 
         data = json.loads(response.text)
@@ -987,7 +1296,9 @@ Output as JSON format:
             """Score, refine if needed, and return processed script with quality data."""
             quality = _score_script_quality(item, home_name, platform)
             if not quality["passed"]:
-                logger.info(f"Script quality {quality['average']}/10 — refining (issues: {quality['issues']})")
+                logger.info(
+                    f"Script quality {quality['average']}/10 — refining (issues: {quality['issues']})"
+                )
                 refined = _refine_script_if_needed(client, model_name, item, quality, platform)
                 # Re-score the refined version
                 quality = _score_script_quality(refined, home_name, platform)
@@ -1001,16 +1312,18 @@ Output as JSON format:
             for i, item in enumerate(data[:variations]):
                 processed, quality = _process_script(item)
                 quality_scores.append(quality)
-                scripts.append({
-                    "variation": i + 1,
-                    "hook": processed.get("hook", ""),
-                    "body": processed.get("body", ""),
-                    "cta": processed.get("cta", ""),
-                    "duration_estimate": processed.get("duration_estimate", "30s"),
-                    "tone": processed.get("tone", ""),
-                    "suggested_image_prompts": processed.get("suggested_image_prompts", []),
-                    "quality_score": quality["average"],
-                })
+                scripts.append(
+                    {
+                        "variation": i + 1,
+                        "hook": processed.get("hook", ""),
+                        "body": processed.get("body", ""),
+                        "cta": processed.get("cta", ""),
+                        "duration_estimate": processed.get("duration_estimate", "30s"),
+                        "tone": processed.get("tone", ""),
+                        "suggested_image_prompts": processed.get("suggested_image_prompts", []),
+                        "quality_score": quality["average"],
+                    }
+                )
             hashtags = data[0].get("hashtags", []) if data else []
 
             return {
@@ -1028,13 +1341,17 @@ Output as JSON format:
                 "platform_specs": PLATFORM_SPECS.get(platform, {}),
                 "home_featured": home_name,
                 "real_photos": real_photos,
-                "image_categories": assets.get("image_categories", {}) if (home_name and assets) else {},
-                "matterport_url": get_matterport_url(assets["matterport_id"]) if (home_name and assets and assets.get("matterport_id")) else None,
+                "image_categories": assets.get("image_categories", {})
+                if (home_name and assets)
+                else {},
+                "matterport_url": get_matterport_url(assets["matterport_id"])
+                if (home_name and assets and assets.get("matterport_id"))
+                else None,
                 "matterport_id": assets.get("matterport_id") if (home_name and assets) else None,
                 "quality_scores": [q["average"] for q in quality_scores],
                 "quality_details": quality_scores,
                 "created_at": datetime.now().isoformat(),
-                "status": "ready_for_production"
+                "status": "ready_for_production",
             }
         else:
             # Single script (or array with one item)
@@ -1065,27 +1382,27 @@ Output as JSON format:
                 "platform_specs": PLATFORM_SPECS.get(platform, {}),
                 "home_featured": home_name,
                 "real_photos": real_photos,
-                "image_categories": assets.get("image_categories", {}) if (home_name and assets) else {},
-                "matterport_url": get_matterport_url(assets["matterport_id"]) if (home_name and assets and assets.get("matterport_id")) else None,
+                "image_categories": assets.get("image_categories", {})
+                if (home_name and assets)
+                else {},
+                "matterport_url": get_matterport_url(assets["matterport_id"])
+                if (home_name and assets and assets.get("matterport_id"))
+                else None,
                 "matterport_id": assets.get("matterport_id") if (home_name and assets) else None,
                 "quality": quality,
                 "created_at": datetime.now().isoformat(),
-                "status": "ready_for_production"
+                "status": "ready_for_production",
             }
     except Exception as e:
         logger.error(f"AI Generation failed: {e}")
-        return {
-            "success": False,
-            "error": f"AI Generation failed: {str(e)}",
-            "status": "error"
-        }
+        return {"success": False, "error": f"AI Generation failed: {str(e)}", "status": "error"}
 
 
 def get_trending_content_ideas(
-    inventory_highlights: Optional[List[dict]] = None,
-    recent_sales: Optional[int] = None,
-    current_promotions: Optional[List[str]] = None,
-    tool_context: ToolContext = None
+    inventory_highlights: list[dict] | None = None,
+    recent_sales: int | None = None,
+    current_promotions: list[str] | None = None,
+    tool_context: ToolContext = None,
 ) -> dict:
     """
     Generate trending content ideas based on real inventory and market trends.
@@ -1112,40 +1429,46 @@ def get_trending_content_ideas(
         if priced:
             top_home = priced[0]
             specs = top_home.get("specs", {})
-            ideas.append({
-                "type": "home_tour",
-                "title": f"Home Tour: {top_home.get('model_name', 'Featured Home')} — {top_home.get('pricing', {}).get('display_price', '')}",
-                "platform_priority": ["tiktok", "instagram_reels", "facebook"],
-                "trending_potential": "very high",
-                "notes": f"{specs.get('beds', '?')}BR/{specs.get('baths', '?')}BA, {specs.get('sq_ft', '?')} sqft by {top_home.get('manufacturer', 'THO')}. Tour the best-looking model on the lot!",
-                "home_id": top_home.get("id"),
-                "home_name": top_home.get("model_name")
-            })
+            ideas.append(
+                {
+                    "type": "home_tour",
+                    "title": f"Home Tour: {top_home.get('model_name', 'Featured Home')} — {top_home.get('pricing', {}).get('display_price', '')}",
+                    "platform_priority": ["tiktok", "instagram_reels", "facebook"],
+                    "trending_potential": "very high",
+                    "notes": f"{specs.get('beds', '?')}BR/{specs.get('baths', '?')}BA, {specs.get('sq_ft', '?')} sqft by {top_home.get('manufacturer', 'THO')}. Tour the best-looking model on the lot!",
+                    "home_id": top_home.get("id"),
+                    "home_name": top_home.get("model_name"),
+                }
+            )
 
         # Budget-friendly option
         cheapest = priced[-1] if priced else None
         if cheapest and cheapest != (priced[0] if priced else None):
-            ideas.append({
-                "type": "financing_tips",
-                "title": f"Own a Home for {cheapest.get('pricing', {}).get('display_price', '')}!",
-                "platform_priority": ["tiktok", "facebook"],
-                "trending_potential": "high",
-                "notes": f"Show the {cheapest.get('model_name', '')} and highlight the affordable price point. Apartment vs ownership comparison.",
-                "home_id": cheapest.get("id"),
-                "home_name": cheapest.get("model_name")
-            })
+            ideas.append(
+                {
+                    "type": "financing_tips",
+                    "title": f"Own a Home for {cheapest.get('pricing', {}).get('display_price', '')}!",
+                    "platform_priority": ["tiktok", "facebook"],
+                    "trending_potential": "high",
+                    "notes": f"Show the {cheapest.get('model_name', '')} and highlight the affordable price point. Apartment vs ownership comparison.",
+                    "home_id": cheapest.get("id"),
+                    "home_name": cheapest.get("model_name"),
+                }
+            )
 
         # Pre-owned deals
         preowned = [h for h in inventory if "pre-owned" in h.get("status", "").lower()]
         if preowned:
-            ideas.append({
-                "type": "clearance_alert",
-                "title": f"Pre-Owned Homes Starting Under $30K! ({len(preowned)} Available)",
-                "platform_priority": ["tiktok", "facebook"],
-                "trending_potential": "very high",
-                "notes": "Budget homes are VIRAL. Show the value — home ownership for less than a used car.",
-                "home_count": len(preowned)
-            })
+            ideas.append(
+                {
+                    "type": "clearance_alert",
+                    "title": f"Pre-Owned Homes Starting Under $30K! ({len(preowned)} Available)",
+                    "platform_priority": ["tiktok", "facebook"],
+                    "trending_potential": "very high",
+                    "notes": "Budget homes are VIRAL. Show the value — home ownership for less than a used car.",
+                    "home_count": len(preowned),
+                }
+            )
 
     # Staple content (always include)
     staple_content = [
@@ -1154,52 +1477,56 @@ def get_trending_content_ideas(
             "title": "Mobile Home Myths DEBUNKED",
             "platform_priority": ["tiktok", "instagram_reels"],
             "trending_potential": "high",
-            "notes": "These always perform well — people love being proven wrong. Show modern interiors."
+            "notes": "These always perform well — people love being proven wrong. Show modern interiors.",
         },
         {
             "type": "comparison",
             "title": "Apartment vs Own This Home (Same Price!)",
             "platform_priority": ["tiktok"],
             "trending_potential": "very high",
-            "notes": "Side-by-side comparisons are VIRAL. Use split-screen format with real numbers."
+            "notes": "Side-by-side comparisons are VIRAL. Use split-screen format with real numbers.",
         },
         {
             "type": "behind_scenes",
             "title": "Watch This Home Get Delivered",
             "platform_priority": ["tiktok", "instagram_reels"],
             "trending_potential": "high",
-            "notes": "Behind-the-scenes process content performs very well. Show the delivery and setup."
+            "notes": "Behind-the-scenes process content performs very well. Show the delivery and setup.",
         },
         {
             "type": "faq",
             "title": "Answering Your DMs: Top 5 Questions",
             "platform_priority": ["tiktok", "instagram_reels"],
             "trending_potential": "medium",
-            "notes": "Builds engagement and answers objections proactively."
-        }
+            "notes": "Builds engagement and answers objections proactively.",
+        },
     ]
     ideas.extend(staple_content)
 
     # If there are clearance promotions
     if current_promotions:
         for promo in current_promotions[:2]:
-            ideas.append({
-                "type": "clearance_alert",
-                "title": f"{promo} — Limited Time",
-                "platform_priority": ["tiktok", "facebook"],
-                "trending_potential": "high",
-                "notes": "Urgency content drives immediate engagement and DMs."
-            })
+            ideas.append(
+                {
+                    "type": "clearance_alert",
+                    "title": f"{promo} — Limited Time",
+                    "platform_priority": ["tiktok", "facebook"],
+                    "trending_potential": "high",
+                    "notes": "Urgency content drives immediate engagement and DMs.",
+                }
+            )
 
     # Social proof
     if recent_sales and recent_sales > 0:
-        ideas.append({
-            "type": "customer_story",
-            "title": f"We helped {recent_sales} families this month!",
-            "platform_priority": ["facebook", "instagram_reels"],
-            "trending_potential": "medium",
-            "notes": "Social proof builds trust — ask for customer video testimonials."
-        })
+        ideas.append(
+            {
+                "type": "customer_story",
+                "title": f"We helped {recent_sales} families this month!",
+                "platform_priority": ["facebook", "instagram_reels"],
+                "trending_potential": "medium",
+                "notes": "Social proof builds trust — ask for customer video testimonials.",
+            }
+        )
 
     return {
         "success": True,
@@ -1207,12 +1534,12 @@ def get_trending_content_ideas(
         "recommended_posting_schedule": {
             "tiktok": "1-2x daily for maximum reach",
             "instagram_reels": "1x daily",
-            "facebook": "1x daily, boost top performers"
+            "facebook": "1x daily, boost top performers",
         },
         "inventory_loaded": len(inventory) > 0,
         "inventory_count": len(inventory),
         "top_priority": ideas[0] if ideas else None,
-        "generated_at": datetime.now().isoformat()
+        "generated_at": datetime.now().isoformat(),
     }
 
 
@@ -1239,7 +1566,7 @@ class TikTokHandler:
             return {
                 "success": True,
                 "message": "Request sent to TikTok API (Simulated)",
-                "post_id": f"TT-{uuid.uuid4().hex[:8]}"
+                "post_id": f"TT-{uuid.uuid4().hex[:8]}",
             }
         except Exception as e:
             return {"success": False, "error": str(e)}
@@ -1247,15 +1574,16 @@ class TikTokHandler:
 
 tiktok_handler = TikTokHandler()
 
+
 def schedule_social_post(
     platform: str,
     content_type: str,
-    script_id: Optional[str] = None,
-    post_time: Optional[str] = None,
-    caption: Optional[str] = None,
-    hashtags: Optional[List[str]] = None,
-    video_url: Optional[str] = None,
-    tool_context: ToolContext = None
+    script_id: str | None = None,
+    post_time: str | None = None,
+    caption: str | None = None,
+    hashtags: list[str] | None = None,
+    video_url: str | None = None,
+    tool_context: ToolContext = None,
 ) -> dict:
     """
     Schedule a post for publishing to social media.
@@ -1279,7 +1607,7 @@ def schedule_social_post(
     optimal_times = {
         "tiktok": ["7:00 AM", "12:00 PM", "7:00 PM", "10:00 PM"],
         "instagram": ["9:00 AM", "12:00 PM", "5:00 PM"],
-        "facebook": ["9:00 AM", "1:00 PM", "4:00 PM"]
+        "facebook": ["9:00 AM", "1:00 PM", "4:00 PM"],
     }
 
     return {
@@ -1296,14 +1624,12 @@ def schedule_social_post(
         "live_integration": is_real_post,
         "api_debug": api_response if is_real_post else None,
         "optimal_times": optimal_times.get(platform, []),
-        "tip": f"For {platform}, best engagement is typically at {optimal_times.get(platform, ['varies'])[0]} CST"
+        "tip": f"For {platform}, best engagement is typically at {optimal_times.get(platform, ['varies'])[0]} CST",
     }
 
 
 def analyze_content_performance(
-    post_ids: Optional[List[str]] = None,
-    date_range: str = "7d",
-    tool_context: ToolContext = None
+    post_ids: list[str] | None = None, date_range: str = "7d", tool_context: ToolContext = None
 ) -> dict:
     """
     Analyze performance of recent social media content.
@@ -1312,7 +1638,8 @@ def analyze_content_performance(
     preowned_count = len([h for h in inventory if "pre-owned" in h.get("status", "").lower()])
     photo_ready_count = len(
         [
-            h for h in inventory
+            h
+            for h in inventory
             if h.get("image_url") or h.get("real_photos") or h.get("gallery_images")
         ]
     )
@@ -1334,44 +1661,56 @@ def analyze_content_performance(
     connected = tiktok_handler.is_configured()
     top_content = []
     if generated_videos:
-        top_content.append({
-            "type": "video_assets_ready",
-            "views": generated_videos,
-            "views_label": f"{generated_videos} generated videos",
-            "engagement_rate": "local",
-            "engagement_label": "pending publish data",
-        })
+        top_content.append(
+            {
+                "type": "video_assets_ready",
+                "views": generated_videos,
+                "views_label": f"{generated_videos} generated videos",
+                "engagement_rate": "local",
+                "engagement_label": "pending publish data",
+            }
+        )
     if generated_images:
-        top_content.append({
-            "type": "image_creatives_ready",
-            "views": generated_images,
-            "views_label": f"{generated_images} generated images",
-            "engagement_rate": "local",
-            "engagement_label": "pending publish data",
-        })
-    top_content.append({
-        "type": "inventory_backed_ideas",
-        "views": len(inventory),
-        "views_label": f"{len(inventory)} homes available",
-        "engagement_rate": "ready",
-        "engagement_label": f"{photo_ready_count} with photos",
-    })
+        top_content.append(
+            {
+                "type": "image_creatives_ready",
+                "views": generated_images,
+                "views_label": f"{generated_images} generated images",
+                "engagement_rate": "local",
+                "engagement_label": "pending publish data",
+            }
+        )
+    top_content.append(
+        {
+            "type": "inventory_backed_ideas",
+            "views": len(inventory),
+            "views_label": f"{len(inventory)} homes available",
+            "engagement_rate": "ready",
+            "engagement_label": f"{photo_ready_count} with photos",
+        }
+    )
 
     recommendations = [
         "Connect TikTok or Meta analytics before treating reach, follower, or DM metrics as live.",
         f"Use the inventory-backed idea lane for {len(inventory)} current homes.",
     ]
     if photo_ready_count:
-        recommendations.append(f"Prioritize the {photo_ready_count} homes with usable photos for fastest video creation.")
+        recommendations.append(
+            f"Prioritize the {photo_ready_count} homes with usable photos for fastest video creation."
+        )
     if preowned_count:
-        recommendations.append(f"Feature the {preowned_count} pre-owned homes as the budget-friendly content lane.")
+        recommendations.append(
+            f"Feature the {preowned_count} pre-owned homes as the budget-friendly content lane."
+        )
 
     return {
         "success": True,
         "date_range": date_range,
         "source": "api_connected" if connected else "local_readiness",
         "social_analytics_connected": connected,
-        "disclaimer": None if connected else (
+        "disclaimer": None
+        if connected
+        else (
             "Live social-platform analytics are not connected; showing local creative readiness instead."
         ),
         "summary": {
@@ -1387,81 +1726,78 @@ def analyze_content_performance(
         },
         "top_performing_content": top_content[:3],
         "recommendations": recommendations,
-        "generated_at": datetime.now().isoformat()
+        "generated_at": datetime.now().isoformat(),
     }
 
 
 # ─── Text-to-Speech for Voiceover Generation (Google Cloud) ───
 
+
 def generate_script_voiceover(
     script_text: str,
     voice: str = "en-US-Neural2-D",
     speaking_rate: float = 1.0,
-    tool_context: ToolContext = None
+    tool_context: ToolContext = None,
 ) -> dict:
     """
     Generate voiceover audio from a script using Google Cloud Text-to-Speech.
     Uses Neural2 and Studio-quality voices.
-    
+
     Args:
         script_text: The script to convert to speech (hook + body + cta)
         voice: Voice name (e.g., en-US-Neural2-D, en-US-Studio-O)
         speaking_rate: Speed of speech (0.25 to 4.0, default 1.0)
-        
+
     Returns:
         Dict with base64-encoded MP3 audio and metadata
     """
     try:
         from google.cloud import texttospeech
-        
+
         # Initialize client (uses ADC on Cloud Run)
         client = texttospeech.TextToSpeechClient()
-        
+
         # Clean up script text for TTS
         clean_text = script_text
         import re
-        clean_text = re.sub(r'\[SHOT:[^\]]*\]', '', clean_text)
-        clean_text = re.sub(r'\(\d+:\d+[^\)]*\)', '', clean_text)
-        clean_text = re.sub(r'\n+', ' ', clean_text)
-        clean_text = ' '.join(clean_text.split())
-        
+
+        clean_text = re.sub(r"\[SHOT:[^\]]*\]", "", clean_text)
+        clean_text = re.sub(r"\(\d+:\d+[^\)]*\)", "", clean_text)
+        clean_text = re.sub(r"\n+", " ", clean_text)
+        clean_text = " ".join(clean_text.split())
+
         if len(clean_text) > 5000:
             clean_text = clean_text[:5000]  # Google TTS limit
-        
+
         if len(clean_text) < 10:
             return {
                 "success": False,
-                "error": "Script text too short for voiceover (need at least 10 characters)"
+                "error": "Script text too short for voiceover (need at least 10 characters)",
             }
-        
+
         # Set up the voice and audio config
-        voice_params = texttospeech.VoiceSelectionParams(
-            language_code="en-US",
-            name=voice
-        )
-        
+        voice_params = texttospeech.VoiceSelectionParams(language_code="en-US", name=voice)
+
         audio_config = texttospeech.AudioConfig(
             audio_encoding=texttospeech.AudioEncoding.MP3,
             speaking_rate=speaking_rate,
             pitch=0.0,
-            volume_gain_db=0.0
+            volume_gain_db=0.0,
         )
-        
+
         # Synthesize speech
         synthesis_input = texttospeech.SynthesisInput(text=clean_text)
         response = client.synthesize_speech(
-            input=synthesis_input,
-            voice=voice_params,
-            audio_config=audio_config
+            input=synthesis_input, voice=voice_params, audio_config=audio_config
         )
-        
+
         # Encode audio to base64
-        audio_base64 = base64.b64encode(response.audio_content).decode('utf-8')
-        
+        audio_base64 = base64.b64encode(response.audio_content).decode("utf-8")
+
         # Estimate duration (rough: ~150 words per minute at 1.0 rate)
         word_count = len(clean_text.split())
         duration_seconds = int((word_count / 150) * 60 / speaking_rate)
-        
+
         return {
             "success": True,
             "audio_base64": audio_base64,
@@ -1471,37 +1807,127 @@ def generate_script_voiceover(
             "word_count": word_count,
             "estimated_duration_seconds": duration_seconds,
             "content_preview": clean_text[:100] + "..." if len(clean_text) > 100 else clean_text,
-            "generated_at": __import__('datetime').datetime.now().isoformat()
+            "generated_at": __import__("datetime").datetime.now().isoformat(),
         }
-        
+
     except Exception as e:
         logger.error(f"Voiceover generation failed: {e}")
         return {
             "success": False,
             "error": f"Voiceover generation failed: {str(e)}",
-            "setup_instructions": "Ensure GOOGLE_CLOUD_PROJECT is set and Text-to-Speech API is enabled."
+            "setup_instructions": "Ensure GOOGLE_CLOUD_PROJECT is set and Text-to-Speech API is enabled.",
         }
 
 
 # Google Cloud TTS Voice options for frontend
 TTS_VOICES = [
     # Neural2 Voices - High quality, natural sounding
-    {"id": "en-US-Neural2-A", "name": "Neural2-A", "description": "Female, professional", "style": "Conversational", "tier": "Neural2"},
-    {"id": "en-US-Neural2-C", "name": "Neural2-C", "description": "Male, professional", "style": "Conversational", "tier": "Neural2"},
-    {"id": "en-US-Neural2-D", "name": "Neural2-D", "description": "Male, warm", "style": "Friendly", "tier": "Neural2"},
-    {"id": "en-US-Neural2-E", "name": "Neural2-E", "description": "Female, upbeat", "style": "Energetic", "tier": "Neural2"},
-    {"id": "en-US-Neural2-F", "name": "Neural2-F", "description": "Female, clear", "style": "Professional", "tier": "Neural2"},
-    {"id": "en-US-Neural2-G", "name": "Neural2-G", "description": "Female, warm", "style": "Friendly", "tier": "Neural2"},
-    {"id": "en-US-Neural2-H", "name": "Neural2-H", "description": "Female, calm", "style": "Narrative", "tier": "Neural2"},
-    {"id": "en-US-Neural2-I", "name": "Neural2-I", "description": "Male, authoritative", "style": "Professional", "tier": "Neural2"},
-    {"id": "en-US-Neural2-J", "name": "Neural2-J", "description": "Male, casual", "style": "Conversational", "tier": "Neural2"},
+    {
+        "id": "en-US-Neural2-A",
+        "name": "Neural2-A",
+        "description": "Female, professional",
+        "style": "Conversational",
+        "tier": "Neural2",
+    },
+    {
+        "id": "en-US-Neural2-C",
+        "name": "Neural2-C",
+        "description": "Male, professional",
+        "style": "Conversational",
+        "tier": "Neural2",
+    },
+    {
+        "id": "en-US-Neural2-D",
+        "name": "Neural2-D",
+        "description": "Male, warm",
+        "style": "Friendly",
+        "tier": "Neural2",
+    },
+    {
+        "id": "en-US-Neural2-E",
+        "name": "Neural2-E",
+        "description": "Female, upbeat",
+        "style": "Energetic",
+        "tier": "Neural2",
+    },
+    {
+        "id": "en-US-Neural2-F",
+        "name": "Neural2-F",
+        "description": "Female, clear",
+        "style": "Professional",
+        "tier": "Neural2",
+    },
+    {
+        "id": "en-US-Neural2-G",
+        "name": "Neural2-G",
+        "description": "Female, warm",
+        "style": "Friendly",
+        "tier": "Neural2",
+    },
+    {
+        "id": "en-US-Neural2-H",
+        "name": "Neural2-H",
+        "description": "Female, calm",
+        "style": "Narrative",
+        "tier": "Neural2",
+    },
+    {
+        "id": "en-US-Neural2-I",
+        "name": "Neural2-I",
+        "description": "Male, authoritative",
+        "style": "Professional",
+        "tier": "Neural2",
+    },
+    {
+        "id": "en-US-Neural2-J",
+        "name": "Neural2-J",
+        "description": "Male, casual",
+        "style": "Conversational",
+        "tier": "Neural2",
+    },
     # Studio Voices - Broadcast quality
-    {"id": "en-US-Studio-O", "name": "Studio-O", "description": "Female, broadcast", "style": "Professional", "tier": "Studio"},
-    {"id": "en-US-Studio-Q", "name": "Studio-Q", "description": "Male, broadcast", "style": "Professional", "tier": "Studio"},
+    {
+        "id": "en-US-Studio-O",
+        "name": "Studio-O",
+        "description": "Female, broadcast",
+        "style": "Professional",
+        "tier": "Studio",
+    },
+    {
+        "id": "en-US-Studio-Q",
+        "name": "Studio-Q",
+        "description": "Male, broadcast",
+        "style": "Professional",
+        "tier": "Studio",
+    },
     # News Voices - Optimized for news content
-    {"id": "en-US-News-K", "name": "News-K", "description": "Female, news anchor", "style": "Authoritative", "tier": "News"},
-    {"id": "en-US-News-L", "name": "News-L", "description": "Male, news anchor", "style": "Authoritative", "tier": "News"},
+    {
+        "id": "en-US-News-K",
+        "name": "News-K",
+        "description": "Female, news anchor",
+        "style": "Authoritative",
+        "tier": "News",
+    },
+    {
+        "id": "en-US-News-L",
+        "name": "News-L",
+        "description": "Male, news anchor",
+        "style": "Authoritative",
+        "tier": "News",
+    },
     # Wavenet Voices - Legacy but still good
-    {"id": "en-US-Wavenet-D", "name": "Wavenet-D", "description": "Male, warm", "style": "Friendly", "tier": "Wavenet"},
-    {"id": "en-US-Wavenet-E", "name": "Wavenet-E", "description": "Female, clear", "style": "Professional", "tier": "Wavenet"},
+    {
+        "id": "en-US-Wavenet-D",
+        "name": "Wavenet-D",
+        "description": "Male, warm",
+        "style": "Friendly",
+        "tier": "Wavenet",
+    },
+    {
+        "id": "en-US-Wavenet-E",
+        "name": "Wavenet-E",
+        "description": "Female, clear",
+        "style": "Professional",
+        "tier": "Wavenet",
+    },
 ]
