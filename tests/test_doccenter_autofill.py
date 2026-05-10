@@ -73,6 +73,8 @@ def test_handleselecthome_populates_factory_document_fields(source: str):
     body = source[start:end]
     for key in (
         "wind_zone",
+        "serial_number_2",
+        "label_number_2",
         "weight_sec_1",
         "weight_sec_2",
         "date_of_manufacture",
