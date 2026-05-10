@@ -79,14 +79,42 @@ const PILL_BTN =
   'px-4 py-2.5 rounded-md text-sm font-medium transition border border-transparent';
 const CHIP_INPUT =
   'px-3 py-2 rounded-md border border-[var(--cp-border)] text-sm bg-[var(--cp-bg-2)] text-[var(--cp-text)] focus:outline-none focus:border-[var(--cp-accent)] transition';
+const FLOORPLAN_TOKENS = ['floorplan', 'floor-plan', 'floor_plan', 'floor-plans', 'floor_plans', 'floor plans'];
+
+function getFloorplanUrls(home) {
+  if (!home) return [];
+  return [
+    home.floorplan_url,
+    home.floor_plan_url,
+    ...(Array.isArray(home.floorplan_urls) ? home.floorplan_urls : []),
+  ].filter(Boolean);
+}
+
+function isFloorplanImage(url, floorplanUrls = []) {
+  if (!url) return false;
+  const normalized = String(url).trim().replace(/\/$/, '');
+  if (floorplanUrls.some(fp => fp && String(fp).trim().replace(/\/$/, '') === normalized)) {
+    return true;
+  }
+  const filename = decodeURIComponent(String(url).split('/').pop()?.split('?')[0] || '').toLowerCase();
+  return filename.endsWith('.pdf') || FLOORPLAN_TOKENS.some(token => filename.includes(token));
+}
+
+function getListingPhotos(home) {
+  if (!home) return [];
+  const floorplanUrls = getFloorplanUrls(home);
+  const candidates = [
+    home.image_url,
+    ...(Array.isArray(home.real_photos) ? home.real_photos : []),
+    ...(Array.isArray(home.gallery_images) ? home.gallery_images : []),
+  ];
+  return candidates.filter((photo, index, values) => (
+    photo && values.indexOf(photo) === index && !isFloorplanImage(photo, floorplanUrls)
+  ));
+}
 
 function getHomeImage(home) {
-  if (!home) return '';
-  const floorplanUrl = home.floorplan_url || home.floor_plan_url || '';
-  const galleryPhotos = (home.real_photos || home.gallery_images || []).filter(
-    p => p && p !== floorplanUrl,
-  );
-  return home.image_url || galleryPhotos[0] || '';
+  return getListingPhotos(home)[0] || '';
 }
 
 function displayPrice(home) {
@@ -421,8 +449,8 @@ export default function InventoryBrowse({ adminAuthed = false, onAskTex, onCreat
     const sqftB = b.specs?.sq_ft || 0;
     const bedsA = a.specs?.beds || 0;
     const bedsB = b.specs?.beds || 0;
-    const photosA = (a.real_photos || a.gallery_images || []).length;
-    const photosB = (b.real_photos || b.gallery_images || []).length;
+    const photosA = getListingPhotos(a).length;
+    const photosB = getListingPhotos(b).length;
 
     switch (sortBy) {
       case 'price_low':
@@ -465,22 +493,7 @@ export default function InventoryBrowse({ adminAuthed = false, onAskTex, onCreat
   // mixed in with the listing photos.
   const getPhotosForCategory = useCallback((home) => {
     if (!home) return [];
-    const floorplanUrl = home.floorplan_url || home.floor_plan_url || '';
-    const rawPhotos = home.real_photos || home.gallery_images || [];
-
-    // Hero-first ordering: image_url is guaranteed-non-floorplan after
-    // PR #43, so it's safe to surface as the first gallery photo.
-    const heroSequence = [];
-    if (home.image_url) heroSequence.push(home.image_url);
-    for (const p of rawPhotos) {
-      if (p && !heroSequence.includes(p)) heroSequence.push(p);
-    }
-
-    // Defense-in-depth: even though PR #43's classifier removes the
-    // floorplan from image_url and pushes it to the tail of real_photos,
-    // explicitly drop the floorplan_url here so the gallery only shows
-    // listing photos.
-    const allPhotos = heroSequence.filter(p => p && p !== floorplanUrl);
+    const allPhotos = getListingPhotos(home);
 
     if (activeCategory === 'all' || !home.image_categories) return allPhotos;
 
@@ -900,11 +913,13 @@ function HomeCard({ home, onClick, onScheduleTour }) {
   // real_photos[0] is also non-floorplan (exteriors are listed first).
   // We deliberately do NOT fall back to floor_plan_url here — floorplans
   // belong in the dedicated Floorplan tab, not as the card hero.
-  const floorplanUrl = home.floorplan_url || home.floor_plan_url || '';
-  const galleryPhotos = (home.real_photos || home.gallery_images || [])
-    .filter(p => p && p !== floorplanUrl);
+  const floorplanUrls = getFloorplanUrls(home);
+  const galleryPhotos = getListingPhotos(home);
   const photoCount = galleryPhotos.length;
-  const heroImage = home.image_url || galleryPhotos[0] || '';
+  const heroImage = galleryPhotos[0] || '';
+  const hasFloorplanOnly = !heroImage && (
+    home.media_quality?.status === 'floorplan_only' || floorplanUrls.length > 0
+  );
   const hasTour = !!home.matterport_id;
   const specs = home.specs || {};
   const categories = home.image_categories || {};
@@ -925,8 +940,13 @@ function HomeCard({ home, onClick, onScheduleTour }) {
             onError={(e) => { e.target.src = ''; e.target.classList.add('opacity-0'); }}
           />
         ) : (
-          <div className="w-full h-full flex items-center justify-center">
+          <div className="w-full h-full flex flex-col items-center justify-center gap-2">
             <Home size={32} className="text-[var(--cp-faint)]" />
+            {hasFloorplanOnly && (
+              <span className="text-xs font-semibold text-[var(--cp-muted)]">
+                Floorplan available
+              </span>
+            )}
           </div>
         )}
 

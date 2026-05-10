@@ -32,8 +32,29 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any
 from urllib.error import HTTPError, URLError
-from urllib.parse import urljoin
+from urllib.parse import unquote, urljoin
 from urllib.request import Request, urlopen
+
+try:
+    from tools.photo_classifier import is_floorplan_url
+except Exception:  # pragma: no cover - smoke fallback for minimal runtimes
+
+    def is_floorplan_url(url: str | None) -> bool:
+        if not url or not isinstance(url, str):
+            return False
+        filename = unquote(url.lower().rsplit("/", 1)[-1].split("?", 1)[0])
+        return filename.endswith(".pdf") or any(
+            token in filename
+            for token in (
+                "floorplan",
+                "floor-plan",
+                "floor_plan",
+                "floor-plans",
+                "floor_plans",
+                "floor plans",
+            )
+        )
+
 
 DEFAULT_BASE_URL = "https://tho.sapphirealpha.xyz"
 PUBLIC_ROUTES = (
@@ -140,6 +161,45 @@ def _json_probe(base_url: str, path: str, *, timeout: float) -> tuple[int, dict[
     return status, payload, elapsed_ms
 
 
+def _as_list(value: Any) -> list[Any]:
+    if not value:
+        return []
+    if isinstance(value, list):
+        return value
+    if isinstance(value, str):
+        return [value]
+    return []
+
+
+def _real_photo_urls(home: dict[str, Any]) -> list[str]:
+    """Return non-floorplan listing photos from a public inventory home."""
+    floorplans = {
+        str(url).strip().rstrip("/")
+        for url in [
+            home.get("floorplan_url"),
+            home.get("floor_plan_url"),
+            *_as_list(home.get("floorplan_urls")),
+        ]
+        if isinstance(url, str) and url.strip()
+    }
+    candidates = [
+        home.get("image_url"),
+        *_as_list(home.get("real_photos")),
+        *_as_list(home.get("gallery_images")),
+    ]
+    out: list[str] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        if not candidate or not isinstance(candidate, str):
+            continue
+        key = candidate.strip().rstrip("/")
+        if key in seen or key in floorplans or is_floorplan_url(candidate):
+            continue
+        seen.add(key)
+        out.append(candidate)
+    return out
+
+
 def check_health(base_url: str, *, timeout: float) -> list[Probe]:
     probes: list[Probe] = []
     for path in ("/health", "/healthz/"):
@@ -177,11 +237,7 @@ def check_inventory(base_url: str, *, timeout: float, min_homes: int) -> Probe:
             elapsed_ms=elapsed_ms,
         )
     with_prices = sum(1 for home in homes if home.get("display_price"))
-    with_media = sum(
-        1
-        for home in homes
-        if home.get("image_url") or home.get("real_photos") or home.get("gallery_images")
-    )
+    with_media = sum(1 for home in homes if _real_photo_urls(home))
     sample_names = ", ".join(str(home.get("model_name") or "unnamed") for home in homes[:3])
     ok = (
         status == 200
@@ -215,13 +271,18 @@ def check_inventory_media_depth(base_url: str, *, timeout: float) -> Probe:
             evidence="homes payload missing or non-list",
             elapsed_ms=elapsed_ms,
         )
-    real_photo_rich = sum(1 for home in homes if len(home.get("real_photos") or []) >= 3)
-    gallery_rich = sum(1 for home in homes if len(home.get("gallery_images") or []) >= 3)
+    real_photo_rich = sum(1 for home in homes if len(_real_photo_urls(home)) >= 3)
+    gallery_rich = sum(
+        1
+        for home in homes
+        if len([url for url in _as_list(home.get("gallery_images")) if isinstance(url, str)]) >= 3
+        and len(_real_photo_urls(home)) >= 3
+    )
     matterport = sum(1 for home in homes if home.get("matterport_url"))
     dealer_photo_sets = sum(
         1
         for home in homes
-        if any("/dealer/3522/inventory/" in str(url) for url in home.get("real_photos") or [])
+        if any("/dealer/3522/inventory/" in str(url) for url in _real_photo_urls(home))
     )
     ok = status == 200 and real_photo_rich >= 30 and gallery_rich >= 30 and matterport >= 20
     evidence = (
