@@ -94,10 +94,99 @@ def test_get_inventory_for_ads_demotes_floorplan_hero_to_floorplan_url(monkeypat
     home = result["homes"][0]
     # Hero is now the exterior shot.
     assert home["image_url"] == exterior
-    # Real photos: exteriors first, then floorplans.
-    assert home["real_photos"][0] == exterior
+    # Real photos are listing photos only; floorplans stay dedicated.
+    assert home["real_photos"] == [exterior]
+    assert floorplan not in home["gallery_images"]
     # Dedicated floorplan slot is now populated.
     assert home["floor_plan_url"] == floorplan
+    assert home["media_quality"]["status"] == "limited_photos"
+
+
+def test_get_inventory_for_ads_enriches_floorplan_only_listing(monkeypatch):
+    floorplan = "https://cdn.example.com/floor-plans.jpg"
+    replacement_photo = "https://cdn.example.com/replacement-exterior.jpg"
+
+    monkeypatch.setattr(
+        marketing_tools,
+        "_load_inventory_for_marketing",
+        lambda: [
+            {
+                "id": "floorplan-only",
+                "model_name": "Floorplan Only",
+                "manufacturer": "Test",
+                "classification": "Single Wide",
+                "status": "Available",
+                "pricing": {"display_price": "Call for Price", "price_value": 0},
+                "specs": {"beds": 3, "baths": 2, "sq_ft": 1000, "dimensions": "16x66"},
+                "features": [],
+                "image_url": floorplan,
+                "gallery_images": [floorplan],
+                "real_photos": [floorplan],
+                "floor_plan_url": "",
+            }
+        ],
+    )
+
+    asset_scraper = types.ModuleType("tools.asset_scraper")
+    asset_scraper.get_assets_for_home = lambda _name: {
+        "images": [replacement_photo],
+        "floor_plan": floorplan,
+    }
+    asset_scraper.get_matterport_url = lambda tour_id: ""
+    monkeypatch.setitem(sys.modules, "tools.asset_scraper", asset_scraper)
+
+    result = marketing_tools.get_inventory_for_ads(limit=10)
+
+    home = result["homes"][0]
+    assert home["image_url"] == replacement_photo
+    assert home["real_photos"] == [replacement_photo]
+    assert home["gallery_images"] == [replacement_photo]
+    assert home["floor_plan_url"] == floorplan
+    assert home["media_quality"]["has_real_photo"] is True
+
+
+def test_get_inventory_for_ads_keeps_floorplan_only_honest_when_catalog_has_no_photo(
+    monkeypatch,
+):
+    floorplan = "https://cdn.example.com/floor-plans.jpg"
+
+    monkeypatch.setattr(
+        marketing_tools,
+        "_load_inventory_for_marketing",
+        lambda: [
+            {
+                "id": "still-floorplan-only",
+                "model_name": "Still Floorplan Only",
+                "manufacturer": "Test",
+                "classification": "Single Wide",
+                "status": "Available",
+                "pricing": {"display_price": "Call for Price", "price_value": 0},
+                "specs": {},
+                "features": [],
+                "image_url": floorplan,
+                "gallery_images": [floorplan],
+                "real_photos": [floorplan],
+                "floor_plan_url": "",
+            }
+        ],
+    )
+
+    asset_scraper = types.ModuleType("tools.asset_scraper")
+    asset_scraper.get_assets_for_home = lambda _name: {
+        "images": [floorplan],
+        "floor_plan": floorplan,
+    }
+    asset_scraper.get_matterport_url = lambda tour_id: ""
+    monkeypatch.setitem(sys.modules, "tools.asset_scraper", asset_scraper)
+
+    result = marketing_tools.get_inventory_for_ads(limit=10)
+
+    home = result["homes"][0]
+    assert home["image_url"] == ""
+    assert home["real_photos"] == []
+    assert home["gallery_images"] == []
+    assert home["floor_plan_url"] == floorplan
+    assert home["media_quality"]["status"] == "floorplan_only"
 
 
 def test_content_performance_uses_honest_local_readiness(monkeypatch, tmp_path):

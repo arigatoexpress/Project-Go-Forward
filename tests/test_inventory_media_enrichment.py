@@ -8,7 +8,9 @@ from tools.inventory_media_enrichment import (
 
 
 def test_normalize_media_url_promotes_thumb_xl_to_full_size():
-    url = "https://d132mt2yijm03y.cloudfront.net/dealer/3522/inventory/43372/home-kit-1_thumb_xl.jpg"
+    url = (
+        "https://d132mt2yijm03y.cloudfront.net/dealer/3522/inventory/43372/home-kit-1_thumb_xl.jpg"
+    )
 
     assert normalize_media_url(url).endswith("/home-kit-1.jpg")
 
@@ -55,5 +57,29 @@ def test_build_update_normalizes_raw_firestore_media_fields():
 
     assert update["real_photos"] == ["https://cdn.example.com/home-kit-1.jpg"]
     assert update["gallery_images"] == ["https://cdn.example.com/home-kit-1.jpg"]
+    assert update["media_quality"]["status"] == "limited_photos"
     assert update["matterport_url"] == "https://my.matterport.com/show/?m=abc123&play=1"
     assert "last_media_synced" in update
+
+
+def test_build_update_clears_floorplan_only_photo_fields():
+    floorplan = "https://cdn.example.com/floor-plans.jpg"
+    current = {
+        "model_name": "Floorplan Only",
+        "image_url": floorplan,
+        "hero_image": floorplan,
+        "photos": [floorplan],
+        "real_photos": [floorplan],
+        "gallery_images": [floorplan],
+    }
+
+    update = build_update("44490", current, None)
+
+    assert update["image_url"] == ""
+    assert update["hero_image"] == ""
+    assert update["photos"] == []
+    assert update["real_photos"] == []
+    assert update["gallery_images"] == []
+    assert update["floorplan_url"] == floorplan
+    assert update["floor_plan_url"] == floorplan
+    assert update["media_quality"]["status"] == "floorplan_only"

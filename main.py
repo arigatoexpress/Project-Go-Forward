@@ -2094,12 +2094,13 @@ async def list_inventory(status: str = "AVAILABLE", limit: int = 100, is_new: bo
 @app.get("/api/admin/inventory/photo-audit", dependencies=[Depends(require_admin)])
 async def admin_inventory_photo_audit(limit: int = 5000):
     """
-    Read-only photo dedup audit.
+    Read-only photo dedup and media-quality audit.
 
     Aggregates inventory image fields (image_url, hero_image, floorplan_url,
     gallery_images, photos, real_photos) and reports any URL referenced by
-    two or more distinct inventory documents. Does NOT mutate Firestore;
-    the operator decides which dedupes to apply.
+    two or more distinct inventory documents. It also classifies each item as
+    photo_ready, limited_photos, floorplan_only, or missing_photos. Does NOT
+    mutate Firestore; the operator decides which fixes to apply.
     """
     try:
         from tools.photo_dedup_audit import run_photo_dedup_audit
@@ -2997,7 +2998,7 @@ from tools.marketing_tools import (
     get_trending_content_ideas,
     schedule_social_post,
 )
-from tools.photo_classifier import apply_classifier_to_home
+from tools.photo_classifier import apply_classifier_to_home, has_real_photo
 from tools.video_generator import GENERATED_VIDEOS_DIR
 
 
@@ -3246,20 +3247,27 @@ async def api_inventory_context(request: Request):
         result = get_inventory_for_ads(limit=100)
         firestore_homes = result.get("homes", [])
 
-        # Enrich Firestore homes with asset catalog images if missing
+        # Enrich Firestore homes with asset catalog images only when they lack
+        # non-floorplan photos. Floorplan-only listings used to pass this gate
+        # because `real_photos` was non-empty; the classifier now makes the
+        # distinction explicit before and after enrichment.
         for home in firestore_homes:
-            has_images = home.get("real_photos") or home.get("gallery_images")
-            if not has_images:
-                # Try to find matching assets
+            apply_classifier_to_home(home)
+            if not has_real_photo(home):
                 asset = get_assets_for_home(home.get("model_name", ""))
-                if asset and asset.get("images"):
-                    home["real_photos"] = asset["images"]
-                    home["gallery_images"] = asset["images"][:3]
-                    home["image_categories"] = asset.get("image_categories", {})
+                if asset:
+                    asset_images = asset.get("images") or []
+                    if asset_images:
+                        existing = home.get("real_photos") or home.get("gallery_images") or []
+                        home["real_photos"] = [*existing, *asset_images]
+                        home["gallery_images"] = [*existing, *asset_images][:3]
+                    if asset.get("image_categories"):
+                        home["image_categories"] = asset.get("image_categories", {})
                     home["floor_plan_url"] = home.get("floor_plan_url") or asset.get("floor_plan")
                     if asset.get("matterport_id") and not home.get("matterport_id"):
                         home["matterport_id"] = asset["matterport_id"]
                         home["matterport_url"] = get_matterport_url(asset["matterport_id"])
+                    apply_classifier_to_home(home)
         website_homes = []
         if not firestore_homes:
             for slug, asset in PROPERTY_ASSETS.items():
@@ -3278,7 +3286,7 @@ async def api_inventory_context(request: Request):
                         "dimensions": asset.get("dims"),
                     },
                     "features": [],
-                    "image_url": asset.get("floor_plan", ""),
+                    "image_url": (asset.get("images") or [""])[0],
                     "gallery_images": asset.get("images", [])[:3],
                     "real_photos": asset.get("images", []),
                     "image_categories": asset.get("image_categories", {}),
@@ -3296,9 +3304,8 @@ async def api_inventory_context(request: Request):
             result["total_inventory"] = result.get("total_inventory", len(firestore_homes))
 
         # Apply URL-based floorplan classifier to every home before responding.
-        # 2026-04-30 prod audit: 35/44 homes had image_url pointing at a
-        # /floorplan/ URL. apply_classifier_to_home() promotes the first
-        # exterior to image_url and moves floorplans into floorplan_url.
+        # This is intentionally repeated after enrichment/fallback construction
+        # so the public API never counts floorplans as usable listing photos.
         for home in result.get("homes", []):
             apply_classifier_to_home(home)
 

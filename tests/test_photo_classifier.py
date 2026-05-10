@@ -21,6 +21,7 @@ sys.modules["photo_classifier"] = photo_classifier
 _spec.loader.exec_module(photo_classifier)
 
 apply_classifier_to_home = photo_classifier.apply_classifier_to_home
+has_real_photo = photo_classifier.has_real_photo
 is_floorplan_url = photo_classifier.is_floorplan_url
 reorder_for_listing = photo_classifier.reorder_for_listing
 split_photos = photo_classifier.split_photos
@@ -33,20 +34,16 @@ split_photos = photo_classifier.split_photos
 # that's a NAMESPACE, not a content marker. Detection is now
 # filename-based (2026-05-02 fix).
 MFR_NAMESPACE_PHOTO = (
-    "https://d132mt2yijm03y.cloudfront.net/manufacturer/3327/floorplan/224354/"
-    "S-1672-32B-1.jpg"
+    "https://d132mt2yijm03y.cloudfront.net/manufacturer/3327/floorplan/224354/" "S-1672-32B-1.jpg"
 )  # exterior — filename has no floorplan token
 MFR_FLOORPLAN_DIAGRAM = (
     "https://d132mt2yijm03y.cloudfront.net/manufacturer/3335/floorplan/225053/"
     "the-big-steve-floor-plans.jpg"
 )  # actual floorplan — filename contains "floor-plans"
 MFR_FLOORPLAN_PDF = (
-    "https://d132mt2yijm03y.cloudfront.net/manufacturer/3335/floorplan/225053/"
-    "plans.pdf"
+    "https://d132mt2yijm03y.cloudfront.net/manufacturer/3335/floorplan/225053/" "plans.pdf"
 )  # PDF in this domain = floorplan
-EXTERIOR_URL = (
-    "https://d132mt2yijm03y.cloudfront.net/dealer/3522/inventory/28102/photo_card.jpg"
-)
+EXTERIOR_URL = "https://d132mt2yijm03y.cloudfront.net/dealer/3522/inventory/28102/photo_card.jpg"
 EXTERIOR_URL_2 = (
     "https://d132mt2yijm03y.cloudfront.net/dealer/3522/inventory/30643/exterior-front.jpg"
 )
@@ -90,6 +87,11 @@ def test_is_floorplan_url_handles_none():
 def test_is_floorplan_url_is_case_insensitive():
     upper = MFR_FLOORPLAN_DIAGRAM.replace("floor-plans", "Floor-Plans")
     assert is_floorplan_url(upper) is True
+
+
+def test_is_floorplan_url_detects_encoded_spaces():
+    encoded = MFR_FLOORPLAN_DIAGRAM.replace("floor-plans", "floor%20plans")
+    assert is_floorplan_url(encoded) is True
 
 
 def test_is_floorplan_url_rejects_non_string():
@@ -137,9 +139,11 @@ def test_reorder_mix_puts_exteriors_first_floorplans_last():
     result = reorder_for_listing(photos, current_image_url=MFR_FLOORPLAN_DIAGRAM)
 
     assert result["image_url"] == EXTERIOR_URL
-    assert result["real_photos"] == [EXTERIOR_URL, INTERIOR_URL, MFR_FLOORPLAN_DIAGRAM]
+    assert result["real_photos"] == [EXTERIOR_URL, INTERIOR_URL]
     assert result["floorplan_url"] == MFR_FLOORPLAN_DIAGRAM
-    assert result["gallery_images"] == [EXTERIOR_URL, INTERIOR_URL, MFR_FLOORPLAN_DIAGRAM]
+    assert result["floorplan_urls"] == [MFR_FLOORPLAN_DIAGRAM]
+    assert result["gallery_images"] == [EXTERIOR_URL, INTERIOR_URL]
+    assert result["media_quality"]["status"] == "limited_photos"
 
 
 def test_reorder_mfr_namespace_photos_become_hero():
@@ -152,7 +156,7 @@ def test_reorder_mfr_namespace_photos_become_hero():
 
     assert result["image_url"] == MFR_NAMESPACE_PHOTO
     assert result["floorplan_url"] == MFR_FLOORPLAN_DIAGRAM
-    assert result["real_photos"] == [MFR_NAMESPACE_PHOTO, MFR_FLOORPLAN_DIAGRAM]
+    assert result["real_photos"] == [MFR_NAMESPACE_PHOTO]
 
 
 def test_reorder_all_floorplans_returns_none_image_url():
@@ -162,8 +166,31 @@ def test_reorder_all_floorplans_returns_none_image_url():
 
     assert result["image_url"] is None
     assert result["floorplan_url"] == MFR_FLOORPLAN_DIAGRAM
-    assert result["real_photos"] == [MFR_FLOORPLAN_DIAGRAM, MFR_FLOORPLAN_PDF]
-    assert result["gallery_images"] == [MFR_FLOORPLAN_DIAGRAM, MFR_FLOORPLAN_PDF]
+    assert result["floorplan_urls"] == [MFR_FLOORPLAN_DIAGRAM, MFR_FLOORPLAN_PDF]
+    assert result["real_photos"] == []
+    assert result["gallery_images"] == []
+    assert result["media_quality"] == {
+        "status": "floorplan_only",
+        "has_real_photo": False,
+        "photo_count": 0,
+        "floorplan_count": 2,
+        "issues": ["floorplan_only"],
+    }
+
+
+def test_reorder_explicit_floorplan_hint_handles_ambiguous_filename():
+    """A URL in a floorplan field remains a floorplan even without a token."""
+    ambiguous = "https://d132mt2yijm03y.cloudfront.net/manufacturer/3335/floorplan/225061/Aspen.jpg"
+    result = reorder_for_listing(
+        [ambiguous],
+        current_image_url=ambiguous,
+        floorplan_urls=[ambiguous],
+    )
+
+    assert result["image_url"] is None
+    assert result["real_photos"] == []
+    assert result["floorplan_url"] == ambiguous
+    assert result["media_quality"]["status"] == "floorplan_only"
 
 
 def test_reorder_all_exteriors_leaves_floorplan_url_empty():
@@ -189,6 +216,14 @@ def test_reorder_handles_empty_photos_list():
         "real_photos": [],
         "gallery_images": [],
         "floorplan_url": "",
+        "floorplan_urls": [],
+        "media_quality": {
+            "status": "missing_photos",
+            "has_real_photo": False,
+            "photo_count": 0,
+            "floorplan_count": 0,
+            "issues": ["missing_real_photos"],
+        },
     }
 
 
@@ -222,6 +257,8 @@ def test_apply_classifier_fixes_floorplan_as_hero_bug():
     assert result is home  # mutates in-place
     assert result["image_url"] == EXTERIOR_URL
     assert result["real_photos"][0] == EXTERIOR_URL
+    assert MFR_FLOORPLAN_DIAGRAM not in result["real_photos"]
+    assert MFR_FLOORPLAN_DIAGRAM not in result["gallery_images"]
     assert result["floorplan_url"] == MFR_FLOORPLAN_DIAGRAM
     assert result["floor_plan_url"] == MFR_FLOORPLAN_DIAGRAM  # legacy spelling kept in sync
 
@@ -253,11 +290,28 @@ def test_apply_classifier_empty_home_no_crash():
     assert home["real_photos"] == []
     assert home["gallery_images"] == []
     assert home["floorplan_url"] == ""
+    assert home["media_quality"]["status"] == "missing_photos"
 
 
 def test_apply_classifier_non_dict_passthrough():
     # Defensive: callers may map() over a None or a list; don't crash.
     assert apply_classifier_to_home(None) is None  # type: ignore[arg-type]
+
+
+def test_apply_classifier_filters_floorplan_only_categories():
+    home = {
+        "image_url": MFR_FLOORPLAN_DIAGRAM,
+        "real_photos": [MFR_FLOORPLAN_DIAGRAM],
+        "image_categories": {"interior": ["the-big-steve-floor-plans.jpg"]},
+    }
+    apply_classifier_to_home(home)
+
+    assert home["image_url"] == ""
+    assert home["real_photos"] == []
+    assert home["gallery_images"] == []
+    assert home["image_categories"] == {}
+    assert home["media_quality"]["status"] == "floorplan_only"
+    assert has_real_photo(home) is False
 
 
 def test_module_exports_filename_token_constants():

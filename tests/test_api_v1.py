@@ -698,6 +698,45 @@ def test_marketing_inventory_context_uses_firestore_as_source_of_truth(monkeypat
     assert data["homes"][0]["matterport_id"] == "SvVRKXdXUQq"
 
 
+def test_marketing_inventory_context_enriches_floorplan_only_firestore_home(monkeypatch):
+    client, main, _db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
+    floorplan = "https://example.com/floor-plans.jpg"
+    photo = "https://example.com/exterior.jpg"
+
+    firestore_home = {
+        "id": "floorplan-only",
+        "model_name": "Floorplan Only",
+        "gallery_images": [floorplan],
+        "real_photos": [floorplan],
+        "image_url": floorplan,
+        "floor_plan_url": "",
+    }
+
+    monkeypatch.setattr(
+        main,
+        "get_inventory_for_ads",
+        lambda **kwargs: {
+            "success": True,
+            "homes": [firestore_home.copy()],
+            "total_inventory": 1,
+        },
+    )
+    sys.modules["tools.asset_scraper"].get_assets_for_home = lambda _name: {
+        "images": [photo],
+        "floor_plan": floorplan,
+    }
+
+    response = client.get("/api/marketing/inventory-context")
+
+    assert response.status_code == 200
+    home = response.json()["homes"][0]
+    assert home["image_url"] == photo
+    assert home["real_photos"] == [photo]
+    assert home["gallery_images"] == [photo]
+    assert home["floor_plan_url"] == floorplan
+    assert home["media_quality"]["has_real_photo"] is True
+
+
 def test_marketing_inventory_context_falls_back_to_asset_catalog_when_firestore_empty(monkeypatch):
     client, main, _db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
 

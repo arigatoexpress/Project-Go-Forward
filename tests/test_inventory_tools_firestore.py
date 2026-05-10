@@ -61,6 +61,14 @@ def test_firestore_inventory_loader_maps_current_firestore_fields(monkeypatch):
             "real_photos": ["https://example.com/1.jpg", "https://example.com/2.jpg"],
             "image_categories": {},
             "floor_plan_url": "https://example.com/floorplan.jpg",
+            "floorplan_urls": ["https://example.com/floorplan.jpg"],
+            "media_quality": {
+                "status": "limited_photos",
+                "has_real_photo": True,
+                "photo_count": 2,
+                "floorplan_count": 1,
+                "issues": ["limited_real_photos"],
+            },
             "matterport_id": "abc123",
         }
     ]

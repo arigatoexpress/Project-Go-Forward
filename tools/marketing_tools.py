@@ -202,8 +202,10 @@ def get_inventory_for_ads(limit: int = 5) -> dict:
     # Load real property assets (photos + Matterport tours from website)
     try:
         from tools.asset_scraper import get_assets_for_home, get_matterport_url
+        from tools.photo_classifier import apply_classifier_to_home, has_real_photo
     except ImportError:
         from .asset_scraper import get_assets_for_home, get_matterport_url
+        from .photo_classifier import apply_classifier_to_home, has_real_photo
 
     homes_for_ads = []
     for h in top_homes:
@@ -235,13 +237,16 @@ def get_inventory_for_ads(limit: int = 5) -> dict:
             "matterport_url": matterport_url,
         }
 
+        apply_classifier_to_home(home_data)
+
         # Try to match this inventory home to scraped website assets
         assets = get_assets_for_home(h.get("model_name", ""))
         if assets:
             asset_images = assets.get("images", [])
-            if asset_images and not home_data["real_photos"]:
-                home_data["real_photos"] = asset_images
-                home_data["gallery_images"] = asset_images[:3]
+            if asset_images and not has_real_photo(home_data):
+                existing = home_data.get("real_photos") or home_data.get("gallery_images") or []
+                home_data["real_photos"] = [*existing, *asset_images]
+                home_data["gallery_images"] = [*existing, *asset_images][:3]
             if assets.get("image_categories") and not home_data["image_categories"]:
                 home_data["image_categories"] = assets.get("image_categories", {})
             home_data["floor_plan_url"] = home_data.get("floor_plan_url") or assets.get(
@@ -250,16 +255,12 @@ def get_inventory_for_ads(limit: int = 5) -> dict:
             if assets.get("matterport_id") and not home_data.get("matterport_id"):
                 home_data["matterport_id"] = assets["matterport_id"]
                 home_data["matterport_url"] = get_matterport_url(assets["matterport_id"])
+            apply_classifier_to_home(home_data)
 
         homes_for_ads.append(home_data)
 
-    # URL-based floorplan classifier: ensure image_url is an exterior (or
-    # empty) and floorplan_url is populated when the photo list contains a
-    # /floorplan/ URL. See tools/photo_classifier.py.
-    try:
-        from tools.photo_classifier import apply_classifier_to_home
-    except ImportError:
-        from .photo_classifier import apply_classifier_to_home
+    # URL-based floorplan classifier: ensure public/marketing consumers only
+    # receive real listing photos in image_url/real_photos/gallery_images.
     for home in homes_for_ads:
         apply_classifier_to_home(home)
 
@@ -1636,13 +1637,12 @@ def analyze_content_performance(
     """
     inventory = _load_inventory_for_marketing()
     preowned_count = len([h for h in inventory if "pre-owned" in h.get("status", "").lower()])
-    photo_ready_count = len(
-        [
-            h
-            for h in inventory
-            if h.get("image_url") or h.get("real_photos") or h.get("gallery_images")
-        ]
-    )
+    try:
+        from tools.photo_classifier import has_real_photo
+    except ImportError:
+        from .photo_classifier import has_real_photo
+
+    photo_ready_count = len([h for h in inventory if has_real_photo(h)])
 
     def count_generated(directory: str, extensions: tuple[str, ...]) -> int:
         try:
