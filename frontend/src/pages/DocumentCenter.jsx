@@ -62,6 +62,24 @@ const INITIAL_FORM = {
   monthly_payment: '', total_payments: '', payment_start_date: '', insurance_premium: '',
 };
 
+const DRAFT_KEY = 'document_center_draft';
+const LAST_EDITABLE_STEP = 3;
+
+function getRestorableDraftStep(draft) {
+  const savedStep = Number(draft?.step || 1);
+  if (savedStep >= 1 && savedStep <= LAST_EDITABLE_STEP) return savedStep;
+  if (savedStep === 4 && Array.isArray(draft?.selDocs) && draft.selDocs.length > 0) {
+    return LAST_EDITABLE_STEP;
+  }
+  return 1;
+}
+
+function getPersistedDraftStep(step) {
+  const numericStep = Number(step || 1);
+  if (numericStep < 1) return 1;
+  return Math.min(numericStep, LAST_EDITABLE_STEP);
+}
+
 const CAT_COLORS = {
   TMHA: 'bg-blue-100 text-blue-800 border-blue-300',
   TDHCA: 'bg-green-100 text-green-800 border-green-300',
@@ -207,7 +225,7 @@ function formatDateTime(value) {
 
 /* ─── Reusable Components ────────────────────────────────── */
 
-function StepBar({ step }) {
+function StepBar({ step, onStepClick }) {
   return (
     <div className="mb-8">
       <div className="flex items-center justify-between">
@@ -215,19 +233,26 @@ function StepBar({ step }) {
           const isActive = step === s.num;
           const isDone = step > s.num;
           const isLast = i === STEPS.length - 1;
+          const canNavigate = typeof onStepClick === 'function' && s.num < step;
 
           return (
             <React.Fragment key={s.num}>
               <div className="flex flex-col items-center flex-1">
-                <div className={`
+                <button
+                  type="button"
+                  onClick={() => canNavigate && onStepClick(s.num)}
+                  disabled={!canNavigate}
+                  aria-label={canNavigate ? `Go to ${s.label}` : s.label}
+                  className={`
                   w-12 h-12 rounded-full flex items-center justify-center text-lg font-bold
                   transition-all duration-300 border-3
+                  ${canNavigate ? 'cursor-pointer hover:scale-105 focus:outline-none focus:ring-4 focus:ring-blue-200' : 'cursor-default'}
                   ${isDone ? 'bg-green-500 text-white border-green-500' :
                     isActive ? 'bg-blue-600 text-white border-blue-600 ring-4 ring-blue-200' :
                     'bg-white text-gray-400 border-gray-300'}
                 `}>
                   {isDone ? <Check size={24} /> : s.num}
-                </div>
+                </button>
                 <div className="mt-2 text-center hidden sm:block">
                   <div className={`text-sm font-bold ${isActive ? 'text-blue-700' : isDone ? 'text-green-600' : 'text-gray-400'}`}>
                     {s.label}
@@ -242,6 +267,49 @@ function StepBar({ step }) {
           );
         })}
       </div>
+    </div>
+  );
+}
+
+function WorkflowShortcuts({ step, onGoToStep, onStartNew }) {
+  const shortcuts = [
+    { step: 1, label: 'Customer Lookup', icon: User },
+    { step: 2, label: 'Home Selection', icon: Home },
+    { step: 3, label: 'Pick Documents', icon: FileText },
+  ];
+
+  return (
+    <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border-2 border-gray-200 bg-white px-4 py-3 shadow-sm">
+      <div className="flex flex-wrap gap-2">
+        {shortcuts.map(item => {
+          const Icon = item.icon;
+          const canNavigate = item.step < step;
+          return (
+            <button
+              key={item.step}
+              type="button"
+              onClick={() => canNavigate && onGoToStep(item.step)}
+              disabled={!canNavigate}
+              className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-bold transition-colors ${
+                canNavigate
+                  ? 'border-blue-200 bg-blue-50 text-blue-700 hover:border-blue-400 hover:bg-blue-100'
+                  : 'border-gray-200 bg-gray-50 text-gray-400'
+              }`}
+            >
+              <Icon size={16} />
+              {item.label}
+            </button>
+          );
+        })}
+      </div>
+      <button
+        type="button"
+        onClick={onStartNew}
+        className="inline-flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-bold text-red-700 transition-colors hover:border-red-300 hover:bg-red-100"
+      >
+        <RotateCcw size={16} />
+        Start New
+      </button>
     </div>
   );
 }
@@ -1924,7 +1992,27 @@ function Step4({ results, generating, error, onBack, onReset, onDownload, downlo
     );
   }
 
-  if (!results) return null;
+  if (!results) {
+    return (
+      <div className="flex flex-col items-center justify-center rounded-xl border-2 border-amber-200 bg-amber-50 px-6 py-16 text-center">
+        <div className="w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center mb-5">
+          <AlertCircle size={32} className="text-amber-600" />
+        </div>
+        <h2 className="text-2xl font-bold text-gray-800 mb-2">No Active Generation to Review</h2>
+        <p className="max-w-2xl text-gray-600 mb-6">
+          A previous draft opened on the review step, but there is no active PDF result in this browser session.
+        </p>
+        <div className="flex flex-col sm:flex-row gap-3">
+          <BigButton variant="secondary" onClick={onBack} icon={ArrowLeft}>
+            Back to Document Selection
+          </BigButton>
+          <BigButton onClick={onReset} icon={RotateCcw}>
+            Start New Document
+          </BigButton>
+        </div>
+      </div>
+    );
+  }
 
   const ok = (results.documents || []).filter(d => d.success);
   const fail = (results.documents || []).filter(d => !d.success);
@@ -2404,13 +2492,13 @@ export default function DocumentCenter() {
     loadDocumentDesk();
     
     // Load draft from localStorage
-    const saved = localStorage.getItem('document_center_draft');
+    const saved = localStorage.getItem(DRAFT_KEY);
     if (saved) {
       try {
         const draft = JSON.parse(saved);
         if (draft.form) setForm(draft.form);
         if (draft.selDocs) setSelDocs(draft.selDocs);
-        if (draft.step) setStep(draft.step);
+        setStep(getRestorableDraftStep(draft));
         setLastSaved(new Date(draft.timestamp));
       } catch (e) {
         console.error('Failed to load draft:', e);
@@ -2425,10 +2513,10 @@ export default function DocumentCenter() {
       const draft = {
         form: safeDraftForm(form),
         selDocs,
-        step,
+        step: getPersistedDraftStep(step),
         timestamp: new Date().toISOString()
       };
-      localStorage.setItem('document_center_draft', JSON.stringify(draft));
+      localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
       // Use ref to avoid triggering a re-render during typing
       const now = new Date();
       lastSavedRef.current = now;
@@ -2502,15 +2590,21 @@ export default function DocumentCenter() {
   }, [checkForDuplicates]); // stable — no dependencies that change on every keystroke
   
   // Clear draft
-  const clearDraft = () => {
-    localStorage.removeItem('document_center_draft');
+  const startNewDocument = useCallback(() => {
+    localStorage.removeItem(DRAFT_KEY);
     setForm({ ...INITIAL_FORM });
     setSelDocs([]);
     setStep(1);
     setLastSaved(null);
+    setResults(null);
+    setGenErr('');
+    setDownloadError('');
+    setValidationErrors([]);
+    setMissingFields(new Set());
+    setShowDuplicateWarning(null);
     setAutoFilledFields(new Set());
     setFormResetKey(k => k + 1); // Force Fields to clear
-  };
+  }, []);
 
   const loadDeal = useCallback(d => {
     const m = { ...INITIAL_FORM };
@@ -2629,16 +2723,16 @@ export default function DocumentCenter() {
     }
   };
 
-  const reset = () => {
-    setStep(1);
-    setForm({ ...INITIAL_FORM });
-    setSelDocs([]);
-    setResults(null);
+  const goToStep = useCallback((targetStep) => {
+    const nextStep = Number(targetStep);
+    if (!Number.isInteger(nextStep) || nextStep < 1 || nextStep >= step) return;
+    setValidationErrors([]);
+    setMissingFields(new Set());
     setGenErr('');
     setDownloadError('');
-    setAutoFilledFields(new Set());
-    setFormResetKey(k => k + 1);
-  };
+    setStep(nextStep);
+    if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, [step]);
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-6">
@@ -2655,23 +2749,22 @@ export default function DocumentCenter() {
             <p className="text-gray-500 mt-2 text-lg">Generate sales contracts, closing packets, and more</p>
           </div>
           
-          {/* Auto-save indicator and clear draft */}
+          {/* Auto-save indicator and start-over control */}
           <div className="flex items-center gap-3">
             {lastSaved && (
               <span className="text-sm text-gray-400">
                 Auto-saved {lastSaved.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
               </span>
             )}
-            {step < 4 && (
-              <button
-                onClick={clearDraft}
-                className="text-sm text-gray-400 hover:text-red-600 transition-colors flex items-center gap-1"
-                title="Clear all fields and start over"
-              >
-                <RotateCcw size={14} />
-                Reset
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={startNewDocument}
+              className="text-sm text-gray-500 hover:text-red-600 transition-colors flex items-center gap-1"
+              title="Clear all fields and start over"
+            >
+              <RotateCcw size={14} />
+              Start New
+            </button>
           </div>
         </div>
       </div>
@@ -2687,8 +2780,14 @@ export default function DocumentCenter() {
         onDownload={handleDocumentDownload}
       />
 
+      <WorkflowShortcuts
+        step={step}
+        onGoToStep={goToStep}
+        onStartNew={startNewDocument}
+      />
+
       {/* Step Bar */}
-      <StepBar step={step} />
+      <StepBar step={step} onStepClick={goToStep} />
 
       {/* Steps */}
       {step === 1 && (
@@ -2772,7 +2871,7 @@ export default function DocumentCenter() {
           generating={generating}
           error={genErr}
           onBack={() => setStep(3)}
-          onReset={reset}
+          onReset={startNewDocument}
           onDownload={handleDocumentDownload}
           downloadingDoc={downloadingDoc}
           downloadError={downloadError}
