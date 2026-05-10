@@ -9,6 +9,8 @@ from tools.house_orders_sanitizer import (
     build_firestore_patch_plan,
     build_sanitized_report,
     parse_house_orders_dataframe,
+    reconcile_house_order_rows,
+    write_reconciliation_csv,
 )
 
 
@@ -79,6 +81,22 @@ def test_detect_header_index_skips_title_preamble_rows():
     )
 
     assert _detect_header_index(raw) == 1
+
+
+def test_parse_house_orders_skips_repeated_header_rows():
+    df = pd.DataFrame(
+        [
+            {"Serial #": "Serial #", "Model": "Model", "Customer Name": "Customer"},
+            {"Serial #": "SN-001", "Model": "The Nassau", "Customer Name": "Jane Buyer"},
+        ]
+    )
+
+    rows, metadata = parse_house_orders_dataframe(df)
+
+    assert metadata["source_rows"] == 2
+    assert metadata["sanitized_rows"] == 1
+    assert rows[0].data["serial_number"] == "SN-001"
+    assert rows[0].row_number == 3
 
 
 def test_row_without_primary_match_warns_and_apply_plan_skips():
@@ -170,6 +188,81 @@ def test_patch_plan_can_opt_into_unique_model_match_when_serial_missing_from_fir
     assert with_model[0].match_field == "model_name"
     assert with_model[0].inventory_id == "the-nassau"
     assert with_model[0].patch == {"label_number": "HUD-1", "serial_number": "SN-001"}
+
+
+def test_reconciliation_marks_exact_serial_matches_high_without_pii():
+    df = pd.DataFrame(
+        [
+            {
+                "Serial #": "SN-001",
+                "Model": "Bourbon 32 x 76",
+                "Customer Name": "Jane Buyer",
+                "Credit Notes": "private credit note",
+            }
+        ]
+    )
+    rows, _metadata = parse_house_orders_dataframe(df)
+
+    report = reconcile_house_order_rows(
+        rows,
+        [
+            {
+                "id": "firestore-doc-1",
+                "serial_number": " sn-001 ",
+                "model_name": "Premier / Bourbon 3076H42398",
+                "status": "available",
+            }
+        ],
+    )
+
+    assert report["summary"] == {"high": 1, "no_match": 0, "review": 0, "total_rows": 1}
+    assert report["records"][0]["confidence"] == "high"
+    assert report["records"][0]["best_candidate"]["inventory_id"] == "firestore-doc-1"
+
+    report_text = json.dumps(report)
+    assert "Jane Buyer" not in report_text
+    assert "private credit note" not in report_text
+
+
+def test_reconciliation_csv_exports_review_candidates_without_sensitive_values(tmp_path):
+    df = pd.DataFrame(
+        [
+            {
+                "Model": "Bourbon 32 x 76",
+                "MSRP": "$79,900",
+                "Customer Name": "Jane Buyer",
+            }
+        ]
+    )
+    rows, _metadata = parse_house_orders_dataframe(df)
+    report = reconcile_house_order_rows(
+        rows,
+        [
+            {
+                "id": "bourbon",
+                "model_name": "Premier / Bourbon 3076H42398",
+                "sale_price": 80500,
+                "status": "available",
+            },
+            {
+                "id": "creole",
+                "model_name": "Premier / Creole 3076H32447",
+                "sale_price": 80500,
+                "status": "available",
+            },
+        ],
+    )
+
+    assert report["summary"] == {"high": 0, "no_match": 0, "review": 1, "total_rows": 1}
+    assert report["records"][0]["best_candidate"]["inventory_id"] == "bourbon"
+
+    csv_path = tmp_path / "reconciliation.csv"
+    write_reconciliation_csv(report, csv_path)
+    csv_text = csv_path.read_text()
+
+    assert "Bourbon 32 x 76" in csv_text
+    assert "bourbon" in csv_text
+    assert "Jane Buyer" not in csv_text
 
 
 class FakeInventoryDB:

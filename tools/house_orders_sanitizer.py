@@ -17,12 +17,14 @@ rejecting House Orders-style files.
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import logging
 import re
 import sys
 from dataclasses import dataclass
 from datetime import date, datetime
+from difflib import SequenceMatcher
 from numbers import Integral, Real
 from pathlib import Path
 from typing import Any
@@ -290,6 +292,46 @@ class InventoryPatchPlan:
         }
 
 
+@dataclass(frozen=True)
+class ReconciliationCandidate:
+    inventory_id: str
+    model_name: str | None
+    manufacturer: str | None
+    status: str | None
+    score: int
+    reasons: list[str]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "inventory_id": self.inventory_id,
+            "model_name": self.model_name,
+            "manufacturer": self.manufacturer,
+            "status": self.status,
+            "score": self.score,
+            "reasons": self.reasons,
+        }
+
+
+@dataclass(frozen=True)
+class ReconciliationRecord:
+    row_number: int
+    confidence: str
+    source: dict[str, Any]
+    best_candidate: ReconciliationCandidate | None
+    candidates: list[ReconciliationCandidate]
+    notes: list[str]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "row_number": self.row_number,
+            "confidence": self.confidence,
+            "source": self.source,
+            "best_candidate": self.best_candidate.to_dict() if self.best_candidate else None,
+            "candidates": [candidate.to_dict() for candidate in self.candidates],
+            "notes": self.notes,
+        }
+
+
 def _is_missing(value: Any) -> bool:
     if value is None:
         return True
@@ -355,6 +397,19 @@ def _parse_dimensions(value: Any) -> tuple[int | None, int | None]:
     return int(match.group(1)), int(match.group(2))
 
 
+def _dimension_pair(
+    value: Any, width: Any = None, length: Any = None
+) -> tuple[int | None, int | None]:
+    parsed = _parse_dimensions(value)
+    if parsed != (None, None):
+        return parsed
+    width_int = _to_int(width)
+    length_int = _to_int(length)
+    if width_int is not None and length_int is not None:
+        return width_int, length_int
+    return None, None
+
+
 def _normalize_model_key(value: Any) -> str:
     text = _clean_text(value) or ""
     if "/" in text:
@@ -362,6 +417,72 @@ def _normalize_model_key(value: Any) -> str:
     text = text.strip().lower()
     text = re.sub(r"^the\s+", "", text)
     return re.sub(r"[^a-z0-9]+", "", text)
+
+
+def _same_identifier(first: Any, second: Any) -> bool:
+    first_text = _clean_text(first)
+    second_text = _clean_text(second)
+    if not first_text or not second_text:
+        return False
+    return first_text.strip().lower() == second_text.strip().lower()
+
+
+MODEL_STOPWORDS = {
+    "a",
+    "alpine",
+    "br",
+    "clearance",
+    "elite",
+    "epic",
+    "experience",
+    "front",
+    "home",
+    "independent",
+    "kitchen",
+    "multi",
+    "new",
+    "premier",
+    "promotional",
+    "sale",
+    "section",
+    "series",
+    "single",
+    "smart",
+    "solution",
+    "the",
+    "tru",
+    "vinyl",
+    "year",
+}
+
+
+def _model_tokens(value: Any) -> set[str]:
+    text = (_clean_text(value) or "").lower()
+    compact = _normalize_model_key(text)
+    raw_tokens = re.findall(r"[a-z]+|\d+[a-z]*[0-9a-z]*", text)
+    tokens: set[str] = set()
+    for token in raw_tokens:
+        if token in MODEL_STOPWORDS:
+            continue
+        if re.fullmatch(r"\d{1,2}", token):
+            continue
+        tokens.add(token)
+
+    # Preserve compact product handles like PT78 when the workbook has "PT78"
+    # and the storefront has "Pt 78".
+    for alpha, number in re.findall(r"([a-z]+)\s*(\d{2,})", text):
+        if alpha not in MODEL_STOPWORDS:
+            tokens.add(f"{alpha}{number}")
+    for token in ("pt78", "s167232b", "s125621a", "s246842a"):
+        if token in compact:
+            tokens.add(token)
+    return tokens
+
+
+def _looks_like_repeated_header_row(data: dict[str, Any]) -> bool:
+    model = _normalize_col(str(data.get("model_name") or ""))
+    serial = _normalize_col(str(data.get("serial_number") or ""))
+    return model == "model" and serial in {"serial", "serial_no", "serial_number"}
 
 
 def _coerce_field(field: str, value: Any) -> Any | None:
@@ -446,6 +567,12 @@ def parse_house_orders_dataframe(
                 source_columns["length"] = mapped_columns["_dimensions"]
 
         if not data:
+            continue
+
+        if _looks_like_repeated_header_row(data):
+            continue
+
+        if not any(data.get(field) for field in ("inventory_id", "serial_number", "model_name")):
             continue
 
         has_write_match = any(data.get(field) for field in ("inventory_id", "serial_number"))
@@ -605,6 +732,224 @@ def apply_firestore_patch_plan(plans: list[InventoryPatchPlan], db: Any) -> dict
     return counts
 
 
+def reconcile_house_order_rows(
+    rows: list[SanitizedHouseOrderRow],
+    inventory: list[dict[str, Any]],
+    max_candidates: int = 3,
+) -> dict[str, Any]:
+    records = [
+        _reconcile_one_row(row, inventory, max_candidates=max_candidates)
+        for row in rows
+        if row.data.get("model_name")
+        or row.data.get("serial_number")
+        or row.data.get("inventory_id")
+    ]
+    summary = {
+        "total_rows": len(records),
+        "high": sum(1 for record in records if record.confidence == "high"),
+        "review": sum(1 for record in records if record.confidence == "review"),
+        "no_match": sum(1 for record in records if record.confidence == "no_match"),
+    }
+    return {
+        "summary": summary,
+        "records": [record.to_dict() for record in records],
+    }
+
+
+def _reconcile_one_row(
+    row: SanitizedHouseOrderRow,
+    inventory: list[dict[str, Any]],
+    max_candidates: int,
+) -> ReconciliationRecord:
+    candidates = [_score_candidate(row, item) for item in inventory]
+    candidates = [candidate for candidate in candidates if candidate.score > 0]
+    candidates.sort(key=lambda candidate: candidate.score, reverse=True)
+    top = candidates[:max_candidates]
+    best = top[0] if top else None
+    runner_score = top[1].score if len(top) > 1 else 0
+    gap = (best.score - runner_score) if best else 0
+    has_exact_identifier = bool(
+        best and {"inventory_id exact", "serial_number exact"} & set(best.reasons)
+    )
+
+    notes: list[str] = []
+    if best is None or best.score < 35:
+        confidence = "no_match"
+        notes.append("No plausible inventory candidate found.")
+    elif has_exact_identifier and best.score >= 85 and gap >= 15:
+        confidence = "high"
+    else:
+        confidence = "review"
+        if best and not has_exact_identifier:
+            notes.append("No exact inventory_id or serial match; review-only candidate.")
+        if gap < 15 and len(top) > 1:
+            notes.append("Top candidates are close; human review required.")
+
+    return ReconciliationRecord(
+        row_number=row.row_number,
+        confidence=confidence,
+        source=_reconciliation_source(row),
+        best_candidate=best,
+        candidates=top,
+        notes=notes,
+    )
+
+
+def _score_candidate(row: SanitizedHouseOrderRow, item: dict[str, Any]) -> ReconciliationCandidate:
+    row_model = row.data.get("model_name")
+    item_model = item.get("model_name") or item.get("model")
+    reasons: list[str] = []
+    score = 0
+
+    if row.data.get("inventory_id") and (
+        _same_identifier(row.data["inventory_id"], item.get("id"))
+        or _same_identifier(row.data["inventory_id"], item.get("inventory_id"))
+    ):
+        score += 120
+        reasons.append("inventory_id exact")
+
+    if row.data.get("serial_number") and _same_identifier(
+        row.data["serial_number"], item.get("serial_number")
+    ):
+        score += 110
+        reasons.append("serial_number exact")
+
+    row_key = _normalize_model_key(row_model)
+    item_key = _normalize_model_key(item_model)
+    if row_key and item_key:
+        if row_key == item_key:
+            score += 90
+            reasons.append("model exact")
+        else:
+            ratio = SequenceMatcher(None, row_key, item_key).ratio()
+            if ratio >= 0.72:
+                points = int(ratio * 55)
+                score += points
+                reasons.append(f"model similarity {ratio:.2f}")
+
+            row_tokens = _model_tokens(row_model)
+            item_tokens = _model_tokens(item_model)
+            shared = row_tokens & item_tokens
+            if shared:
+                token_points = min(60, 32 * len(shared))
+                score += token_points
+                reasons.append(f"shared model tokens: {', '.join(sorted(shared))}")
+
+    row_dims = _dimension_pair(row_model, row.data.get("width"), row.data.get("length"))
+    item_dims = _dimension_pair(item_model, item.get("width"), item.get("length"))
+    if row_dims != (None, None) and item_dims != (None, None):
+        if row_dims == item_dims:
+            score += 25
+            reasons.append(f"dimensions match {row_dims[0]}x{row_dims[1]}")
+        elif sorted(row_dims) == sorted(item_dims):
+            score += 15
+            reasons.append(f"dimensions reversed match {row_dims[0]}x{row_dims[1]}")
+        elif (
+            row_dims[1] == item_dims[1]
+            and row_dims[0] is not None
+            and item_dims[0] is not None
+            and abs(row_dims[0] - item_dims[0]) <= 2
+        ):
+            score += 18
+            reasons.append(f"dimensions close {row_dims[0]}x{row_dims[1]}")
+        elif row_dims[1] == item_dims[1] or row_dims[0] == item_dims[0]:
+            score += 8
+            reasons.append("one dimension matches")
+
+    row_price = row.data.get("msrp") or row.data.get("invoice_amount")
+    item_price = item.get("sale_price") or item.get("msrp") or item.get("price_value")
+    price_reason = _price_match_reason(row_price, item_price)
+    if price_reason:
+        points, reason = price_reason
+        score += points
+        reasons.append(reason)
+
+    return ReconciliationCandidate(
+        inventory_id=str(item.get("id") or ""),
+        model_name=_clean_text(item_model),
+        manufacturer=_clean_text(item.get("manufacturer")),
+        status=_clean_text(item.get("status")),
+        score=score,
+        reasons=reasons,
+    )
+
+
+def _price_match_reason(row_price: Any, item_price: Any) -> tuple[int, str] | None:
+    row_value = _to_float(row_price)
+    item_value = _to_float(item_price)
+    if row_value is None or item_value is None or row_value <= 0 or item_value <= 0:
+        return None
+    delta = abs(row_value - item_value) / max(row_value, item_value)
+    if delta <= 0.02:
+        return 20, "price within 2%"
+    if delta <= 0.10:
+        return 10, "price within 10%"
+    return None
+
+
+def _reconciliation_source(row: SanitizedHouseOrderRow) -> dict[str, Any]:
+    safe_keys = (
+        "inventory_id",
+        "model_name",
+        "serial_number",
+        "serial_number_2",
+        "label_number",
+        "label_number_2",
+        "msrp",
+        "invoice_amount",
+        "invoice_date",
+        "width",
+        "length",
+        "sqft",
+    )
+    return {key: row.data[key] for key in safe_keys if key in row.data}
+
+
+def write_reconciliation_csv(report: dict[str, Any], output: Path) -> None:
+    output.parent.mkdir(parents=True, exist_ok=True)
+    records = report.get("records") or []
+    with output.open("w", newline="") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=[
+                "row_number",
+                "confidence",
+                "source_model",
+                "source_serial",
+                "source_msrp",
+                "source_invoice_amount",
+                "candidate_inventory_id",
+                "candidate_model",
+                "candidate_manufacturer",
+                "candidate_status",
+                "candidate_score",
+                "candidate_reasons",
+                "notes",
+            ],
+        )
+        writer.writeheader()
+        for record in records:
+            source = record.get("source") or {}
+            best = record.get("best_candidate") or {}
+            writer.writerow(
+                {
+                    "row_number": record.get("row_number"),
+                    "confidence": record.get("confidence"),
+                    "source_model": source.get("model_name"),
+                    "source_serial": source.get("serial_number"),
+                    "source_msrp": source.get("msrp"),
+                    "source_invoice_amount": source.get("invoice_amount"),
+                    "candidate_inventory_id": best.get("inventory_id"),
+                    "candidate_model": best.get("model_name"),
+                    "candidate_manufacturer": best.get("manufacturer"),
+                    "candidate_status": best.get("status"),
+                    "candidate_score": best.get("score"),
+                    "candidate_reasons": "; ".join(best.get("reasons") or []),
+                    "notes": "; ".join(record.get("notes") or []),
+                }
+            )
+
+
 def read_house_orders_xlsx(
     path: Path,
     sheet_name: str | int | None = 0,
@@ -654,6 +999,16 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Opt in to exact unique model-name matches when serial/ID are absent in Firestore",
     )
+    parser.add_argument(
+        "--reconcile-inventory",
+        action="store_true",
+        help="Read Firestore and include confidence-scored review candidates",
+    )
+    parser.add_argument(
+        "--reconciliation-csv",
+        type=Path,
+        help="Optional CSV output for the reconciliation review table",
+    )
     parser.add_argument("--apply", action="store_true", help="Apply matched safe patches")
     parser.add_argument("-v", "--verbose", action="count", default=0)
     args = parser.parse_args(argv)
@@ -662,6 +1017,8 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("Pass --dry-run or --apply.")
     if args.dry_run and args.apply:
         parser.error("Use either --dry-run or --apply, not both.")
+    if args.reconciliation_csv and not args.reconcile_inventory:
+        parser.error("--reconciliation-csv requires --reconcile-inventory.")
     if not args.xlsx.exists():
         parser.error(f"File not found: {args.xlsx}")
 
@@ -682,17 +1039,24 @@ def main(argv: list[str] | None = None) -> int:
     report = build_sanitized_report(rows, metadata)
     report["header_row"] = df.attrs.get("house_orders_header_row")
 
-    if args.compare_firestore or args.apply:
+    if args.compare_firestore or args.apply or args.reconcile_inventory:
         from database.firestore_client import THODatabase
 
         db = THODatabase()
-        plans = build_firestore_patch_plan(rows, db, allow_model_match=args.allow_model_match)
-        report["patch_plan"] = [plan.to_dict() for plan in plans]
-        report["patch_summary"] = {
-            "matched": sum(1 for plan in plans if plan.match_status == "matched"),
-            "missing_match": sum(1 for plan in plans if plan.match_status == "missing_match"),
-            "no_changes": sum(1 for plan in plans if plan.match_status == "no_changes"),
-        }
+        if args.compare_firestore or args.apply:
+            plans = build_firestore_patch_plan(rows, db, allow_model_match=args.allow_model_match)
+            report["patch_plan"] = [plan.to_dict() for plan in plans]
+            report["patch_summary"] = {
+                "matched": sum(1 for plan in plans if plan.match_status == "matched"),
+                "missing_match": sum(1 for plan in plans if plan.match_status == "missing_match"),
+                "no_changes": sum(1 for plan in plans if plan.match_status == "no_changes"),
+            }
+        if args.reconcile_inventory:
+            inventory = db.search_inventory(status=None, limit=5000)
+            reconciliation = reconcile_house_order_rows(rows, inventory)
+            report["reconciliation"] = reconciliation
+            if args.reconciliation_csv:
+                write_reconciliation_csv(reconciliation, args.reconciliation_csv)
         if args.apply:
             report["apply_summary"] = apply_firestore_patch_plan(plans, db)
 

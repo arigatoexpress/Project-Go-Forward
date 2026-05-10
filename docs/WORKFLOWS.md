@@ -197,6 +197,22 @@ If current Firestore inventory has not yet stored serial numbers, generate a
 second review-only plan with `--allow-model-match`. That mode only accepts exact
 unique model-name matches and should be reviewed carefully before applying.
 
+For cutover reconciliation, keep the flow read-only and export a review table:
+
+```bash
+python tools/house_orders_sanitizer.py \
+  --xlsx "/path/to/House Orders.xlsx" \
+  --dry-run \
+  --compare-firestore \
+  --reconcile-inventory \
+  --reconciliation-csv data/house_orders_reconciliation.csv \
+  --output data/house_orders_sanitized_preview.json
+```
+
+`--reconcile-inventory` scores likely existing inventory candidates for human
+review. It does not apply fuzzy matches; only the normal patch plan can apply
+safe fields, and only to existing matched inventory.
+
 ## 8. Cross-system integration — where Notion fits
 
 This is the integration contour for Etai's Notion workspace. Details in [INTEGRATION_NOTION.md](INTEGRATION_NOTION.md).
