@@ -551,14 +551,14 @@ function DocumentDesk({ readiness, history, loading, error, downloadingDoc, down
   const recentDocs = (history || []).slice(0, 4);
 
   return (
-    <div className="mb-8 grid grid-cols-1 lg:grid-cols-[1.1fr_1fr] gap-4">
+    <div className="mb-8 grid grid-cols-1 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)] gap-4">
       <Card className="p-5">
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex items-start gap-3">
-            <div className={`w-11 h-11 rounded-xl flex items-center justify-center ${statusReady ? 'bg-green-100' : 'bg-amber-100'}`}>
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex min-w-0 items-start gap-3">
+            <div className={`w-11 h-11 flex-shrink-0 rounded-xl flex items-center justify-center ${statusReady ? 'bg-green-100' : 'bg-amber-100'}`}>
               <ShieldCheck size={22} className={statusReady ? 'text-green-700' : 'text-amber-700'} />
             </div>
-            <div>
+            <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
                 <h2 className="text-lg font-bold text-gray-900">Production Document Desk</h2>
                 {readiness && (
@@ -576,7 +576,7 @@ function DocumentDesk({ readiness, history, loading, error, downloadingDoc, down
             type="button"
             onClick={onRefresh}
             disabled={loading}
-            className="p-2 rounded-lg border border-gray-200 text-gray-500 hover:text-blue-700 hover:border-blue-300 disabled:opacity-50"
+            className="self-start p-2 rounded-lg border border-gray-200 text-gray-500 hover:text-blue-700 hover:border-blue-300 disabled:opacity-50"
             title="Refresh document status"
             aria-label="Refresh document status"
           >
@@ -584,21 +584,21 @@ function DocumentDesk({ readiness, history, loading, error, downloadingDoc, down
           </button>
         </div>
 
-        <div className="mt-5 grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <div className="rounded-xl bg-blue-50 border border-blue-100 p-3">
-            <div className="text-2xl font-bold text-blue-800">{readiness?.template_count ?? '—'}</div>
+        <div className="mt-5 grid grid-cols-2 gap-3">
+          <div className="min-w-0 rounded-xl bg-blue-50 border border-blue-100 p-3">
+            <div className="text-xl sm:text-2xl font-bold leading-tight text-blue-800 break-words">{readiness?.template_count ?? '—'}</div>
             <div className="text-xs font-medium text-blue-700">Templates</div>
           </div>
-          <div className="rounded-xl bg-purple-50 border border-purple-100 p-3">
-            <div className="text-2xl font-bold text-purple-800">{readiness?.packet_count ?? '—'}</div>
+          <div className="min-w-0 rounded-xl bg-purple-50 border border-purple-100 p-3">
+            <div className="text-xl sm:text-2xl font-bold leading-tight text-purple-800 break-words">{readiness?.packet_count ?? '—'}</div>
             <div className="text-xs font-medium text-purple-700">Packets</div>
           </div>
-          <div className="rounded-xl bg-green-50 border border-green-100 p-3">
-            <div className="text-2xl font-bold text-green-800">{readiness?.generated_document_count ?? '—'}</div>
+          <div className="min-w-0 rounded-xl bg-green-50 border border-green-100 p-3">
+            <div className="text-xl sm:text-2xl font-bold leading-tight text-green-800 break-words">{readiness?.generated_document_count ?? '—'}</div>
             <div className="text-xs font-medium text-green-700">Generated</div>
           </div>
-          <div className="rounded-xl bg-gray-50 border border-gray-200 p-3">
-            <div className="text-2xl font-bold text-gray-800">{readiness?.gcs_document_count ?? '—'}</div>
+          <div className="min-w-0 rounded-xl bg-gray-50 border border-gray-200 p-3">
+            <div className="text-xl sm:text-2xl font-bold leading-tight text-gray-800 break-words">{readiness?.gcs_document_count ?? '—'}</div>
             <div className="text-xs font-medium text-gray-600">Cloud PDFs</div>
           </div>
         </div>
@@ -2738,10 +2738,10 @@ export default function DocumentCenter() {
     <div className="max-w-5xl mx-auto px-4 py-6">
       {/* Header */}
       <div className="mb-8">
-        <div className="flex items-start justify-between">
-          <div>
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
             <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-3">
-              <div className="w-12 h-12 bg-blue-600 rounded-xl flex items-center justify-center">
+              <div className="w-12 h-12 flex-shrink-0 bg-blue-600 rounded-xl flex items-center justify-center">
                 <FileText size={28} className="text-white" />
               </div>
               Document Center
@@ -2750,7 +2750,7 @@ export default function DocumentCenter() {
           </div>
           
           {/* Auto-save indicator and start-over control */}
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3 sm:justify-end">
             {lastSaved && (
               <span className="text-sm text-gray-400">
                 Auto-saved {lastSaved.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -2759,7 +2759,7 @@ export default function DocumentCenter() {
             <button
               type="button"
               onClick={startNewDocument}
-              className="text-sm text-gray-500 hover:text-red-600 transition-colors flex items-center gap-1"
+              className="hidden sm:inline-flex text-sm text-gray-500 hover:text-red-600 transition-colors items-center gap-1"
               title="Clear all fields and start over"
             >
               <RotateCcw size={14} />
@@ -2768,6 +2768,15 @@ export default function DocumentCenter() {
           </div>
         </div>
       </div>
+
+      <WorkflowShortcuts
+        step={step}
+        onGoToStep={goToStep}
+        onStartNew={startNewDocument}
+      />
+
+      {/* Step Bar */}
+      <StepBar step={step} onStepClick={goToStep} />
 
       <DocumentDesk
         readiness={readiness}
@@ -2779,15 +2788,6 @@ export default function DocumentCenter() {
         onRefresh={loadDocumentDesk}
         onDownload={handleDocumentDownload}
       />
-
-      <WorkflowShortcuts
-        step={step}
-        onGoToStep={goToStep}
-        onStartNew={startNewDocument}
-      />
-
-      {/* Step Bar */}
-      <StepBar step={step} onStepClick={goToStep} />
 
       {/* Steps */}
       {step === 1 && (

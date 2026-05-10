@@ -192,3 +192,30 @@ def test_save_customer_record_button_is_visible_before_step_validation(source: s
     assert "canSaveCustomer" in source
     assert "disabled={!canSaveCustomer || savingCustomer}" in source
     assert "Enter buyer first and last name to save a customer record." in source
+
+
+def test_document_center_navigation_appears_before_status_desk(source: str):
+    """A restored draft may land on Pick Documents or Review & Generate, so
+    step shortcuts must be visible before the heavier document-status panels."""
+    workflow_index = source.find("<WorkflowShortcuts")
+    desk_index = source.find("<DocumentDesk")
+    stepbar_index = source.find("<StepBar")
+    assert workflow_index != -1, "Document Center should render workflow shortcuts"
+    assert desk_index != -1, "Document Center should render document desk status"
+    assert stepbar_index != -1, "Document Center should render the step bar"
+    assert workflow_index < stepbar_index < desk_index, (
+        "navigation should come before status/recent-PDF panels so admins can "
+        "escape a restored later step immediately"
+    )
+
+
+def test_document_desk_metric_tiles_do_not_force_four_columns(source: str):
+    """Production counts can be four digits. The status card should keep a
+    roomy two-column metric grid instead of viewport-driven four columns that
+    squeeze inside a narrow card."""
+    start = source.find("function DocumentDesk")
+    assert start != -1
+    body = source[start : source.find("/* ─── Duplicate Warning", start)]
+    assert "grid grid-cols-2 gap-3" in body
+    assert "sm:grid-cols-4" not in body
+    assert "break-words" in body
