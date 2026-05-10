@@ -1100,7 +1100,9 @@ function Step2({ data, onChange, resetKey, inventory, inventoryLoading, onNext, 
     if (hasValue(home.model_name)) patch.model = String(home.model_name);
     if (hasValue(home.year)) patch.year = String(home.year);
     if (hasValue(home.serial_number)) patch.serial_number_1 = String(home.serial_number);
+    if (hasValue(home.serial_number_2)) patch.serial_number_2 = String(home.serial_number_2);
     if (hasValue(home.label_number)) patch.label_number_1 = String(home.label_number);
+    if (hasValue(home.label_number_2)) patch.label_number_2 = String(home.label_number_2);
     if (hasValue(home.sections)) patch.no_of_sections = String(home.sections);
     const width = pickHomeValue(home, 'width', 'home_width', 'total_size_w');
     const length = pickHomeValue(home, 'length', 'home_length', 'total_size_l');

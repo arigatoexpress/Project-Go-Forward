@@ -11,6 +11,8 @@ def test_admin_inventory_api_exposes_document_autofill_fields():
     assert "def _pick_inventory_field" in source
     for key in (
         '"wind_zone"',
+        '"serial_number_2"',
+        '"label_number_2"',
         '"weight_sec_1"',
         '"weight_sec_2"',
         '"date_of_manufacture"',

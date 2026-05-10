@@ -170,6 +170,33 @@ flowchart LR
 
 **Run**: `python tools/inventory_sync.py [--dry-run] [--force]`. Merges rather than overwrites, so manual edits in Firestore are preserved unless `--force` is set.
 
+### 7.1 House Orders sanitizer
+
+`House Orders.xlsx` is an internal-only source for document autofill fields. It
+can include customer, deal, financing, credit, and free-text operational notes,
+so it must never go through the clean catalog importer or public inventory
+sync.
+
+Use the allow-list sanitizer first:
+
+```bash
+python tools/house_orders_sanitizer.py \
+  --xlsx "/path/to/House Orders.xlsx" \
+  --dry-run \
+  --compare-firestore \
+  --output data/house_orders_sanitized_preview.json
+```
+
+Review the JSON report. It should list dropped sensitive columns by header name
+only, sanitized inventory fields, and the existing Firestore records that would
+change. To apply, run the same file through `--apply`; the tool only updates
+existing inventory records matched by inventory ID or primary serial number.
+It does not create public inventory from House Orders rows.
+
+If current Firestore inventory has not yet stored serial numbers, generate a
+second review-only plan with `--allow-model-match`. That mode only accepts exact
+unique model-name matches and should be reviewed carefully before applying.
+
 ## 8. Cross-system integration — where Notion fits
 
 This is the integration contour for Etai's Notion workspace. Details in [INTEGRATION_NOTION.md](INTEGRATION_NOTION.md).
