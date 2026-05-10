@@ -1,4 +1,8 @@
 from tools.inventory_media_enrichment import (
+    DetailMedia,
+    _detail_media_by_model,
+    _prune_timestamp_only_update,
+    _select_detail_media,
     build_update,
     categorize_photo_url,
     extract_detail_media,
@@ -44,6 +48,53 @@ def test_extract_detail_media_prefers_dealer_photos_and_matterport():
     assert media.photos[0].endswith("Creole-ext-1.jpg")
     assert media.photos[1].endswith("Creole-kit-1.jpg")
     assert media.image_categories["exterior"] == ["Creole-ext-1.jpg"]
+
+
+def test_extract_detail_media_filters_unrelated_manufacturer_photos():
+    html = """
+    <a href="https://d132mt2yijm03y.cloudfront.net/manufacturer/1944/floorplan/1383/1672-32C-floor-plans.jpg">floor</a>
+    <img src="https://d132mt2yijm03y.cloudfront.net/manufacturer/3290/floorplan/198104/de_Vaca_S64F.jpg">
+    <img src="https://d132mt2yijm03y.cloudfront.net/manufacturer/1944/floorplan/1383/Heritage-1672-kitchen-1.jpg">
+    """
+
+    media = extract_detail_media(html, "28527", "https://example.com/detail")
+
+    assert media.floorplan_url.endswith("1672-32C-floor-plans.jpg")
+    assert media.photos == [
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/1944/floorplan/1383/Heritage-1672-kitchen-1.jpg"
+    ]
+
+
+def test_select_detail_media_matches_unique_legacy_model_name():
+    detail = DetailMedia(
+        listing_id="44490",
+        detail_url="https://www.texashomeoutlet.com/inventory-detail/44490/",
+        photos=["https://d132mt2yijm03y.cloudfront.net/dealer/3522/inventory/44490/1.jpg"],
+    )
+    raw_homes = [{"id": "44490", "model_name": "PRE-OWNED / Big Blue"}]
+    detail_by_model = _detail_media_by_model(raw_homes, {"44490": detail})
+
+    selected = _select_detail_media(
+        "big-blue",
+        {"model_name": "Big Blue"},
+        {"44490": detail},
+        detail_by_model,
+    )
+
+    assert selected == detail
+
+
+def test_prune_timestamp_only_update_skips_broad_firestore_churn():
+    current = {"photos": ["https://cdn.example.com/home-1.jpg"]}
+    update = {
+        "photos": ["https://cdn.example.com/home-1.jpg"],
+        "last_media_synced": "2026-05-10T00:00:00+00:00",
+    }
+
+    pruned, changed = _prune_timestamp_only_update(current, update)
+
+    assert pruned == {"photos": ["https://cdn.example.com/home-1.jpg"]}
+    assert changed == []
 
 
 def test_build_update_normalizes_raw_firestore_media_fields():

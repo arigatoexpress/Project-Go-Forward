@@ -134,6 +134,22 @@ def _is_floorplan_url(url: str) -> bool:
     return is_floorplan_url(url)
 
 
+def _manufacturer_floorplan_prefix(url: str) -> str | None:
+    match = re.search(r"(/manufacturer/[^/]+/floorplan/[^/]+/)", urlparse(url).path)
+    if not match:
+        return None
+    return match.group(1)
+
+
+def _model_match_key(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    if "/" in text:
+        text = text.rsplit("/", 1)[-1]
+    text = re.sub(r"\([^)]*\)", " ", text)
+    text = re.sub(r"\b(pre[-\s]?owned|new|model|manufactured)\b", " ", text)
+    return re.sub(r"[^a-z0-9]+", " ", text).strip()
+
+
 def categorize_photo_url(url: str) -> str:
     lower = _filename(url).lower()
     if "ext" in lower or "exterior" in lower:
@@ -201,6 +217,18 @@ def extract_detail_media(html: str, listing_id: str, detail_url: str) -> DetailM
     manufacturer_photos = [
         url for url in urls if "/manufacturer/" in url and not _is_floorplan_url(url)
     ]
+    if floorplans and manufacturer_photos:
+        allowed_prefixes = {
+            prefix
+            for prefix in (_manufacturer_floorplan_prefix(url) for url in floorplans)
+            if prefix
+        }
+        if allowed_prefixes:
+            manufacturer_photos = [
+                url
+                for url in manufacturer_photos
+                if any(prefix in urlparse(url).path for prefix in allowed_prefixes)
+            ]
     if not floorplans and dealer_photos:
         # Legacy detail pages often link the floorplan as a manufacturer CDN
         # image whose filename is just the model name, while dealer photos live
@@ -250,6 +278,43 @@ def scrape_detail_media(raw_homes: list[dict[str, Any]]) -> dict[str, DetailMedi
         except Exception as exc:
             LOG.warning("failed detail scrape id=%s url=%s error=%s", listing_id, detail_url, exc)
     return media
+
+
+def _detail_media_by_model(
+    raw_homes: list[dict[str, Any]],
+    detail_media: dict[str, DetailMedia],
+) -> dict[str, DetailMedia]:
+    candidates: dict[str, list[DetailMedia]] = {}
+    for home in raw_homes:
+        listing_id = str(home.get("id") or "").strip()
+        detail = detail_media.get(listing_id)
+        if not detail:
+            continue
+        key = _model_match_key(home.get("model_name"))
+        if key:
+            candidates.setdefault(key, []).append(detail)
+    return {
+        key: values[0]
+        for key, values in candidates.items()
+        if len({value.listing_id for value in values}) == 1
+    }
+
+
+def _select_detail_media(
+    doc_id: str,
+    current: dict[str, Any],
+    detail_media: dict[str, DetailMedia],
+    detail_by_model: dict[str, DetailMedia],
+) -> DetailMedia | None:
+    for value in (doc_id, current.get("legacy_inventory_id")):
+        key = str(value or "").strip()
+        if key and key in detail_media:
+            return detail_media[key]
+    for value in (current.get("model_name"), current.get("name"), current.get("title")):
+        key = _model_match_key(value)
+        if key and key in detail_by_model:
+            return detail_by_model[key]
+    return None
 
 
 def _canonical_matterport_id(*values: Any) -> str | None:
@@ -338,6 +403,16 @@ def _changed_fields(current: dict[str, Any], update: dict[str, Any]) -> list[str
     return changed
 
 
+def _prune_timestamp_only_update(
+    current: dict[str, Any], update: dict[str, Any]
+) -> tuple[dict[str, Any], list[str]]:
+    changed = _changed_fields(current, update)
+    if changed == ["last_media_synced"]:
+        update = {key: value for key, value in update.items() if key != "last_media_synced"}
+        changed = _changed_fields(current, update)
+    return update, changed
+
+
 def _write_json(path: Path, data: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, indent=2, default=str) + "\n")
@@ -353,7 +428,9 @@ def _write_plan_csv(path: Path, plan: list[dict[str, Any]]) -> None:
                 "model_name",
                 "photo_count_before",
                 "photo_count_after",
+                "matched_listing_id",
                 "dealer_detail_scraped",
+                "detail_url",
                 "matterport_after",
                 "changed_fields",
             ],
@@ -363,7 +440,12 @@ def _write_plan_csv(path: Path, plan: list[dict[str, Any]]) -> None:
             writer.writerow(row)
 
 
-def run(project: str, output_dir: Path, apply: bool) -> dict[str, Any]:
+def run(
+    project: str,
+    output_dir: Path,
+    apply: bool,
+    only_ids: set[str] | None = None,
+) -> dict[str, Any]:
     mode = "APPLY" if apply else "DRY_RUN"
     timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -371,6 +453,7 @@ def run(project: str, output_dir: Path, apply: bool) -> dict[str, Any]:
     LOG.info("scraping public inventory cards")
     raw_homes = InventorySync(dry_run=True).scrape_website_inventory()
     detail_media = scrape_detail_media(raw_homes)
+    detail_by_model = _detail_media_by_model(raw_homes, detail_media)
 
     client = firestore.Client(project=project)
     docs = list(client.collection("inventory").limit(1000).stream())
@@ -382,11 +465,11 @@ def run(project: str, output_dir: Path, apply: bool) -> dict[str, Any]:
         current = doc.to_dict() or {}
         current["id"] = doc.id
         backup.append(current)
-        detail = detail_media.get(doc.id) or detail_media.get(
-            str(current.get("legacy_inventory_id") or "")
-        )
+        if only_ids and doc.id not in only_ids:
+            continue
+        detail = _select_detail_media(doc.id, current, detail_media, detail_by_model)
         update = build_update(doc.id, current, detail)
-        changed = _changed_fields(current, update)
+        update, changed = _prune_timestamp_only_update(current, update)
         before_photos = apply_classifier_to_home(dict(current)).get("real_photos") or []
         after_photos = update.get("photos") or []
         if changed:
@@ -397,11 +480,15 @@ def run(project: str, output_dir: Path, apply: bool) -> dict[str, Any]:
                 "model_name": current.get("model_name", ""),
                 "photo_count_before": len(before_photos) if isinstance(before_photos, list) else 1,
                 "photo_count_after": len(after_photos),
+                "matched_listing_id": detail.listing_id if detail else "",
                 "dealer_detail_scraped": bool(
                     detail
                     and detail.photos
-                    and any(_is_dealer_inventory_url(url, doc.id) for url in detail.photos)
+                    and any(
+                        _is_dealer_inventory_url(url, detail.listing_id) for url in detail.photos
+                    )
                 ),
+                "detail_url": detail.detail_url if detail else "",
                 "matterport_after": bool(
                     update.get("matterport_id") or update.get("matterport_url")
                 ),
@@ -461,6 +548,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--dry-run", action="store_true", help="Plan only; do not write Firestore")
     parser.add_argument("--apply", action="store_true", help="Apply allow-listed media updates")
+    parser.add_argument(
+        "--only-id",
+        action="append",
+        default=[],
+        help="Limit the plan/apply pass to one Firestore inventory document id; repeatable.",
+    )
     parser.add_argument("-v", "--verbose", action="count", default=0)
     args = parser.parse_args(argv)
 
@@ -473,7 +566,12 @@ def main(argv: list[str] | None = None) -> int:
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
-    summary = run(project=args.project, output_dir=args.output_dir, apply=args.apply)
+    summary = run(
+        project=args.project,
+        output_dir=args.output_dir,
+        apply=args.apply,
+        only_ids=set(args.only_id) if args.only_id else None,
+    )
     print(json.dumps(summary, indent=2))
     return 0
 
