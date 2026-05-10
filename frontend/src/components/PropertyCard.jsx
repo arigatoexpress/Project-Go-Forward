@@ -83,6 +83,18 @@ function GalleryModal({
     );
 }
 
+const FLOORPLAN_TOKENS = ['floorplan', 'floor-plan', 'floor_plan', 'floor-plans', 'floor_plans', 'floor plans'];
+
+function isFloorplanImage(url, floorplanUrls = []) {
+    if (!url) return false;
+    const normalized = String(url).trim().replace(/\/$/, '');
+    if (floorplanUrls.some(fp => fp && String(fp).trim().replace(/\/$/, '') === normalized)) {
+        return true;
+    }
+    const filename = decodeURIComponent(String(url).split('/').pop()?.split('?')[0] || '').toLowerCase();
+    return filename.endsWith('.pdf') || FLOORPLAN_TOKENS.some(token => filename.includes(token));
+}
+
 const PropertyCard = ({ property, onToggleCompare, isSelected }) => {
     const {
         model_name,
@@ -95,6 +107,8 @@ const PropertyCard = ({ property, onToggleCompare, isSelected }) => {
         real_photos = [],
         floorplan_url,
         floor_plan_url,
+        floorplan_urls = [],
+        media_quality = {},
     } = property;
 
     const [imageError, setImageError] = useState(false);
@@ -108,16 +122,22 @@ const PropertyCard = ({ property, onToggleCompare, isSelected }) => {
     // We pick the primary image deterministically from
     // `image_url -> real_photos[0] -> gallery_images[0]` so the card
     // never surfaces a floorplan as its hero image.
-    const floorplanUrl = floorplan_url || floor_plan_url || '';
-    const primaryImage = image_url || real_photos?.[0] || gallery_images?.[0] || '';
-
-    // Build the gallery from primary + gallery_images, excluding the
-    // floorplan URL — floorplans belong in the dedicated InventoryBrowse
-    // Floorplan tab, not in PropertyCard's photo carousel.
-    const allImages = (primaryImage
-        ? [primaryImage, ...(gallery_images?.filter(img => img && img !== primaryImage) || [])]
-        : gallery_images || []
-    ).filter(img => img && img !== floorplanUrl);
+    const floorplanUrls = [
+        floorplan_url,
+        floor_plan_url,
+        ...(Array.isArray(floorplan_urls) ? floorplan_urls : []),
+    ].filter(Boolean);
+    const imageCandidates = [
+        image_url,
+        ...(Array.isArray(real_photos) ? real_photos : []),
+        ...(Array.isArray(gallery_images) ? gallery_images : []),
+    ];
+    const allImages = imageCandidates.filter((img, index, values) => (
+        img && values.indexOf(img) === index && !isFloorplanImage(img, floorplanUrls)
+    ));
+    const hasFloorplanOnly = !allImages.length && (
+        media_quality?.status === 'floorplan_only' || floorplanUrls.length > 0
+    );
 
     const hasMultipleImages = allImages.length > 1;
 
@@ -198,7 +218,12 @@ const PropertyCard = ({ property, onToggleCompare, isSelected }) => {
                             )}
                         </>
                     ) : (
-                        <Home size={48} className="text-gray-300" />
+                        <div className="flex flex-col items-center gap-2 text-gray-400">
+                            <Home size={48} className="text-gray-300" />
+                            {hasFloorplanOnly && (
+                                <span className="text-xs font-medium">Floorplan available</span>
+                            )}
+                        </div>
                     )}
 
                     {/* Classification badge */}

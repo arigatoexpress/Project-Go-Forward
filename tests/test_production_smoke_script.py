@@ -44,13 +44,42 @@ def test_media_depth_probe_requires_real_gallery_and_tours(monkeypatch):
     assert "matterport=30" in probe.evidence
 
 
+def test_media_depth_probe_does_not_count_floorplans_as_photos(monkeypatch):
+    floorplan = "https://cdn.example.com/floor-plans.jpg"
+    homes = [
+        {
+            "image_url": floorplan,
+            "real_photos": [floorplan],
+            "gallery_images": [floorplan],
+            "floorplan_url": floorplan,
+        }
+        for _ in range(30)
+    ]
+
+    def fake_json_probe(base_url, path, *, timeout):
+        return 200, {"homes": homes}, 10
+
+    monkeypatch.setattr(production_smoke, "_json_probe", fake_json_probe)
+
+    probe = production_smoke.check_inventory_media_depth("https://example.test", timeout=1.0)
+
+    assert not probe.ok
+    assert "real_photo_rich=0" in probe.evidence
+    assert "gallery_rich=0" in probe.evidence
+
+
 def test_safe_public_validation_uses_invalid_non_writing_payloads(monkeypatch):
     calls = []
 
     def fake_post_json(base_url, path, payload, *, timeout, admin_token):
         calls.append((path, payload, admin_token))
         if path == "/api/feedback":
-            return 400, b'{"success":false,"message":"Description is required"}', "application/json", 9
+            return (
+                400,
+                b'{"success":false,"message":"Description is required"}',
+                "application/json",
+                9,
+            )
         return 200, b'{"success":false,"error":"required"}', "application/json", 8
 
     monkeypatch.setattr(production_smoke, "_post_json", fake_post_json)

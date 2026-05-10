@@ -42,6 +42,11 @@ except ImportError:  # pragma: no cover
     from .asset_scraper import get_matterport_url
 
 try:
+    from tools.photo_classifier import apply_classifier_to_home, is_floorplan_url
+except ImportError:  # pragma: no cover
+    from .photo_classifier import apply_classifier_to_home, is_floorplan_url
+
+try:
     from google.cloud import firestore
 except ImportError as exc:  # pragma: no cover
     raise SystemExit("google-cloud-firestore is required for production reads/writes") from exc
@@ -64,7 +69,17 @@ MEDIA_FIELDS = {
     "detail_url",
     "source_url",
     "media_source",
+    "floorplan_urls",
+    "media_quality",
     "last_media_synced",
+}
+CLEARABLE_MEDIA_FIELDS = {
+    "image_url",
+    "hero_image",
+    "photos",
+    "gallery_images",
+    "real_photos",
+    "image_categories",
 }
 
 
@@ -116,17 +131,7 @@ def _is_dealer_inventory_url(url: str, listing_id: str | None = None) -> bool:
 
 
 def _is_floorplan_url(url: str) -> bool:
-    lower = url.lower()
-    filename = _filename(lower)
-    return (
-        "floor-plan" in filename
-        or "floor_plans" in filename
-        or "floor-plans" in filename
-        or "floorplan" in filename
-        or "floor plans" in filename
-        or "floor%20plans" in filename
-        or "floor-plans-small" in filename
-    )
+    return is_floorplan_url(url)
 
 
 def categorize_photo_url(url: str) -> str:
@@ -194,9 +199,7 @@ def extract_detail_media(html: str, listing_id: str, detail_url: str) -> DetailM
         if _is_dealer_inventory_url(url, listing_id) and not _is_floorplan_url(url)
     ]
     manufacturer_photos = [
-        url
-        for url in urls
-        if "/manufacturer/" in url and not _is_floorplan_url(url)
+        url for url in urls if "/manufacturer/" in url and not _is_floorplan_url(url)
     ]
     if not floorplans and dealer_photos:
         # Legacy detail pages often link the floorplan as a manufacturer CDN
@@ -262,10 +265,11 @@ def _canonical_matterport_id(*values: Any) -> str | None:
     return None
 
 
-def build_update(doc_id: str, current: dict[str, Any], detail: DetailMedia | None) -> dict[str, Any]:
-    existing_photos = current.get("photos") or current.get("real_photos") or current.get("gallery_images") or []
-    if isinstance(existing_photos, str):
-        existing_photos = [existing_photos]
+def build_update(
+    doc_id: str, current: dict[str, Any], detail: DetailMedia | None
+) -> dict[str, Any]:
+    classified_current = apply_classifier_to_home(dict(current))
+    existing_photos = classified_current.get("real_photos") or []
 
     detail_photos = detail.photos if detail else []
     photos = detail_photos if len(detail_photos) >= len(existing_photos) else existing_photos
@@ -273,27 +277,45 @@ def build_update(doc_id: str, current: dict[str, Any], detail: DetailMedia | Non
 
     floorplan_url = (
         (detail.floorplan_url if detail else None)
-        or current.get("floorplan_url")
-        or current.get("floor_plan_url")
+        or classified_current.get("floorplan_url")
+        or classified_current.get("floor_plan_url")
     )
     matterport_id = _canonical_matterport_id(
         detail.matterport_id if detail else None,
         current.get("matterport_id"),
         current.get("matterport_url"),
     )
-    matterport_url = get_matterport_url(matterport_id) if matterport_id else current.get("matterport_url")
-    hero = photos[0] if photos else current.get("image_url") or current.get("hero_image")
-    image_categories = _categories_for_photos(photos) or current.get("image_categories") or {}
+    matterport_url = (
+        get_matterport_url(matterport_id) if matterport_id else current.get("matterport_url")
+    )
+    hero = photos[0] if photos else classified_current.get("image_url", "")
+    image_categories = (
+        _categories_for_photos(photos) or classified_current.get("image_categories") or {}
+    )
+
+    classified_update = apply_classifier_to_home(
+        {
+            "image_url": hero,
+            "hero_image": hero,
+            "real_photos": photos,
+            "gallery_images": photos[:3],
+            "image_categories": image_categories,
+            "floorplan_url": floorplan_url,
+            "floor_plan_url": floorplan_url,
+        }
+    )
 
     update = {
-        "photos": photos,
-        "real_photos": photos,
-        "gallery_images": photos[:3],
-        "image_categories": image_categories,
-        "image_url": hero,
-        "hero_image": hero,
-        "floorplan_url": floorplan_url,
-        "floor_plan_url": floorplan_url,
+        "photos": classified_update["real_photos"],
+        "real_photos": classified_update["real_photos"],
+        "gallery_images": classified_update["gallery_images"],
+        "image_categories": classified_update["image_categories"],
+        "image_url": classified_update["image_url"],
+        "hero_image": classified_update["image_url"],
+        "floorplan_url": classified_update["floorplan_url"],
+        "floor_plan_url": classified_update["floor_plan_url"],
+        "floorplan_urls": classified_update["floorplan_urls"],
+        "media_quality": classified_update["media_quality"],
         "matterport_id": matterport_id,
         "matterport_url": matterport_url,
         "detail_url": (detail.detail_url if detail else current.get("detail_url")),
@@ -301,7 +323,11 @@ def build_update(doc_id: str, current: dict[str, Any], detail: DetailMedia | Non
         "media_source": "texashomeoutlet.com media enrichment",
         "last_media_synced": datetime.now(UTC).isoformat(),
     }
-    return {key: value for key, value in update.items() if key in MEDIA_FIELDS and value not in (None, "")}
+    return {
+        key: value
+        for key, value in update.items()
+        if key in MEDIA_FIELDS and (value not in (None, "") or key in CLEARABLE_MEDIA_FIELDS)
+    }
 
 
 def _changed_fields(current: dict[str, Any], update: dict[str, Any]) -> list[str]:
@@ -356,10 +382,12 @@ def run(project: str, output_dir: Path, apply: bool) -> dict[str, Any]:
         current = doc.to_dict() or {}
         current["id"] = doc.id
         backup.append(current)
-        detail = detail_media.get(doc.id) or detail_media.get(str(current.get("legacy_inventory_id") or ""))
+        detail = detail_media.get(doc.id) or detail_media.get(
+            str(current.get("legacy_inventory_id") or "")
+        )
         update = build_update(doc.id, current, detail)
         changed = _changed_fields(current, update)
-        before_photos = current.get("photos") or current.get("real_photos") or current.get("gallery_images") or []
+        before_photos = apply_classifier_to_home(dict(current)).get("real_photos") or []
         after_photos = update.get("photos") or []
         if changed:
             updates.append((doc.id, update, changed))
@@ -369,8 +397,14 @@ def run(project: str, output_dir: Path, apply: bool) -> dict[str, Any]:
                 "model_name": current.get("model_name", ""),
                 "photo_count_before": len(before_photos) if isinstance(before_photos, list) else 1,
                 "photo_count_after": len(after_photos),
-                "dealer_detail_scraped": bool(detail and detail.photos and any(_is_dealer_inventory_url(url, doc.id) for url in detail.photos)),
-                "matterport_after": bool(update.get("matterport_id") or update.get("matterport_url")),
+                "dealer_detail_scraped": bool(
+                    detail
+                    and detail.photos
+                    and any(_is_dealer_inventory_url(url, doc.id) for url in detail.photos)
+                ),
+                "matterport_after": bool(
+                    update.get("matterport_id") or update.get("matterport_url")
+                ),
                 "changed_fields": ", ".join(changed),
             }
         )

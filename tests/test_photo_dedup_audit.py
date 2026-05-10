@@ -19,7 +19,6 @@ from tools.photo_dedup_audit import (  # noqa: E402
     to_jsonl,
 )
 
-
 # Fixtures ───────────────────────────────────────────────────────────────────
 
 UNIQUE_INVENTORY = [
@@ -77,6 +76,7 @@ DUPED_INVENTORY = [
 
 # Normalization ──────────────────────────────────────────────────────────────
 
+
 def test_normalize_url_strips_whitespace_and_trailing_slash():
     assert _normalize_url("  https://x.com/a/  ") == "https://x.com/a"
 
@@ -90,6 +90,7 @@ def test_normalize_url_rejects_empty_and_non_strings():
 
 
 # Index construction ─────────────────────────────────────────────────────────
+
 
 def test_build_url_index_collects_single_and_list_fields():
     index = build_url_index(UNIQUE_INVENTORY)
@@ -111,6 +112,7 @@ def test_build_url_index_skips_non_dict_items():
 
 
 # Audit reporting ────────────────────────────────────────────────────────────
+
 
 def test_run_photo_dedup_audit_no_duplicates():
     report = run_photo_dedup_audit(UNIQUE_INVENTORY)
@@ -147,13 +149,15 @@ def test_run_photo_dedup_audit_does_not_flag_intra_doc_only():
     """A single doc that uses the same URL across image_url + gallery_images
     should NOT show up as a 'duplicate' — that's intra-doc redundancy, not
     cross-doc dedup."""
-    inventory = [{
-        "id": "inv-only",
-        "model_name": "Solo",
-        "image_url": "https://cdn.example.com/same.jpg",
-        "hero_image": "https://cdn.example.com/same.jpg",
-        "gallery_images": ["https://cdn.example.com/same.jpg"],
-    }]
+    inventory = [
+        {
+            "id": "inv-only",
+            "model_name": "Solo",
+            "image_url": "https://cdn.example.com/same.jpg",
+            "hero_image": "https://cdn.example.com/same.jpg",
+            "gallery_images": ["https://cdn.example.com/same.jpg"],
+        }
+    ]
     report = run_photo_dedup_audit(inventory)
     assert report["summary"]["duplicate_urls"] == 0
     assert report["duplicates"] == []
@@ -170,7 +174,39 @@ def test_run_photo_dedup_audit_handles_legacy_string_lists():
     assert report["duplicates"][0]["url"] == "https://cdn.example.com/a.jpg"
 
 
+def test_run_photo_dedup_audit_reports_floorplan_only_quality_gap():
+    floorplan = "https://cdn.example.com/floor-plans.jpg"
+    report = run_photo_dedup_audit(
+        [
+            {
+                "id": "inv-floorplan-only",
+                "model_name": "Floorplan Only",
+                "image_url": floorplan,
+                "gallery_images": [floorplan],
+                "real_photos": [floorplan],
+            }
+        ]
+    )
+
+    assert report["summary"]["floorplan_only"] == 1
+    assert report["summary"]["photo_ready"] == 0
+    assert report["media_quality_gaps"] == [
+        {
+            "inventory_id": "inv-floorplan-only",
+            "model_name": "Floorplan Only",
+            "manufacturer": "",
+            "status": "",
+            "media_status": "floorplan_only",
+            "photo_count": 0,
+            "floorplan_count": 1,
+            "has_matterport": False,
+            "issues": ["floorplan_only"],
+        }
+    ]
+
+
 # Output formatting ──────────────────────────────────────────────────────────
+
 
 def test_to_csv_renders_header_and_rows():
     report = run_photo_dedup_audit(DUPED_INVENTORY)

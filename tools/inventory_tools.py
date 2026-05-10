@@ -127,9 +127,7 @@ def _load_inventory_from_firestore():
             # floorplan key. Drop the new "floorplan_url" key here so
             # the dict shape matches the existing test contract
             # (which expects only "floor_plan_url").
-            home["floor_plan_url"] = home.get("floorplan_url") or home.get(
-                "floor_plan_url"
-            )
+            home["floor_plan_url"] = home.get("floorplan_url") or home.get("floor_plan_url")
             home.pop("floorplan_url", None)
             inventory.append(home)
 
@@ -183,9 +181,11 @@ def _load_website_homes():
     """Load website homes from asset_scraper.py catalog (New Vision models + pre-owned with galleries)."""
     try:
         from tools.asset_scraper import PROPERTY_ASSETS, get_matterport_url
+        from tools.photo_classifier import apply_classifier_to_home
     except ImportError:
         try:
             from .asset_scraper import PROPERTY_ASSETS, get_matterport_url
+            from .photo_classifier import apply_classifier_to_home
         except ImportError:
             return []
 
@@ -201,37 +201,38 @@ def _load_website_homes():
         classification = "Double Wide" if width >= 28 else "Single Wide"
 
         price_value = 0
-        homes.append(
-            {
-                "id": slug,
-                "manufacturer": asset.get("manufacturer", "New Vision Manufacturing"),
-                "model_name": asset["name"],
-                "classification": classification,
-                "status": "Available" if asset.get("is_new") else "Pre-Owned",
-                "specs": {
-                    "beds": asset.get("beds"),
-                    "baths": asset.get("baths"),
-                    "sq_ft": asset.get("sqft"),
-                    "dimensions": asset.get("dims"),
-                },
-                "pricing": {
-                    "price_value": price_value,
-                    "display_price": "Call for Price",
-                    "price_tier": "Call for Price",
-                },
-                "features": [],
-                "marketing_tags": [],
-                "image_url": asset.get("floor_plan", ""),
-                "gallery_images": asset.get("images", [])[:3],
-                "real_photos": asset.get("images", []),
-                "image_categories": asset.get("image_categories", {}),
-                "matterport_id": asset.get("matterport_id"),
-                "matterport_url": get_matterport_url(asset["matterport_id"])
-                if asset.get("matterport_id")
-                else None,
-                "source": "website",
-            }
-        )
+        asset_images = asset.get("images") or []
+        home = {
+            "id": slug,
+            "manufacturer": asset.get("manufacturer", "New Vision Manufacturing"),
+            "model_name": asset["name"],
+            "classification": classification,
+            "status": "Available" if asset.get("is_new") else "Pre-Owned",
+            "specs": {
+                "beds": asset.get("beds"),
+                "baths": asset.get("baths"),
+                "sq_ft": asset.get("sqft"),
+                "dimensions": asset.get("dims"),
+            },
+            "pricing": {
+                "price_value": price_value,
+                "display_price": "Call for Price",
+                "price_tier": "Call for Price",
+            },
+            "features": [],
+            "marketing_tags": [],
+            "image_url": asset_images[0] if asset_images else "",
+            "gallery_images": asset_images[:3],
+            "real_photos": asset_images,
+            "image_categories": asset.get("image_categories", {}),
+            "floor_plan_url": asset.get("floor_plan"),
+            "matterport_id": asset.get("matterport_id"),
+            "matterport_url": get_matterport_url(asset["matterport_id"])
+            if asset.get("matterport_id")
+            else None,
+            "source": "website",
+        }
+        homes.append(apply_classifier_to_home(home))
     return homes
 
 

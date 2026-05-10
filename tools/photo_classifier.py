@@ -17,7 +17,7 @@ The audit found that 35 of 44 homes had ``image_url`` pointing at a
 floorplan URL (i.e. the floorplan was being shown as the hero photo) and
 all 44 had an empty ``floorplan_url`` field. This module reorders photos
 so the dedicated floorplan field is populated, and ``image_url`` /
-``real_photos`` start with an exterior/interior photo when one exists.
+``real_photos`` only expose exterior/interior photos when one exists.
 
 Detection looks at the FILENAME, not the URL path. The manufacturer
 CDN organizes every asset for a floorplan-model under
@@ -31,6 +31,7 @@ shot. The actual floorplan diagram lives alongside it as
 from __future__ import annotations
 
 from collections.abc import Iterable
+from urllib.parse import unquote
 
 # Filename tokens that mark an actual floorplan diagram (not just any
 # asset under a model's CDN namespace). Case-insensitive substring on
@@ -41,6 +42,7 @@ FLOORPLAN_FILENAME_TOKENS: tuple[str, ...] = (
     "floor_plan",
     "floor-plans",
     "floor_plans",
+    "floor plans",
 )
 # File extensions that almost always indicate a floorplan diagram in
 # this domain (home listings).
@@ -61,24 +63,39 @@ def is_floorplan_url(url: str | None) -> bool:
     if not url or not isinstance(url, str):
         return False
     lowered = url.lower()
-    filename = lowered.rsplit("/", 1)[-1].split("?", 1)[0]
+    filename = unquote(lowered.rsplit("/", 1)[-1].split("?", 1)[0])
     if filename.endswith(FLOORPLAN_FILE_EXTS):
         return True
     return any(token in filename for token in FLOORPLAN_FILENAME_TOKENS)
 
 
-def split_photos(urls: Iterable[str | None]) -> tuple[list[str], list[str]]:
+def _normalize_url(value: str | None) -> str:
+    """Return a comparison-safe URL key while preserving CDN path casing."""
+    if not value or not isinstance(value, str):
+        return ""
+    return value.strip().rstrip("/")
+
+
+def split_photos(
+    urls: Iterable[str | None],
+    floorplan_hints: Iterable[str | None] | None = None,
+) -> tuple[list[str], list[str]]:
     """Split a sequence of photo URLs into (exteriors, floorplans).
 
     Order within each group is preserved. Falsy / non-string entries are
-    dropped silently — callers do not have to pre-filter.
+    dropped silently — callers do not have to pre-filter. URLs already
+    present in ``floorplan_hints`` are treated as floorplans even when the
+    filename is ambiguous, because an explicit Firestore/asset-catalog
+    floorplan field is stronger evidence than the filename.
     """
+    hint_set = {_normalize_url(url) for url in floorplan_hints or [] if _normalize_url(url)}
     exteriors: list[str] = []
     floorplans: list[str] = []
     for url in urls or []:
         if not url or not isinstance(url, str):
             continue
-        if is_floorplan_url(url):
+        normalized = _normalize_url(url)
+        if normalized in hint_set or is_floorplan_url(url):
             floorplans.append(url)
         else:
             exteriors.append(url)
@@ -99,9 +116,80 @@ def _dedupe_preserve_order(items: Iterable[str | None]) -> list[str]:
     return out
 
 
+def _as_url_list(value: object) -> list[str | None]:
+    """Normalize a scalar/list media field into a list for classifier input."""
+    if not value:
+        return []
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, list):
+        return value
+    return []
+
+
+def _filename(value: str) -> str:
+    """Extract a decoded filename-ish token from a URL or catalog filename."""
+    return unquote(str(value or "").rsplit("/", 1)[-1].split("?", 1)[0])
+
+
+def _normalize_image_categories(categories: dict | None, photo_urls: Iterable[str]) -> dict:
+    """Keep image category labels aligned with actual photo URLs only."""
+    if not isinstance(categories, dict):
+        return {}
+
+    photos = [url for url in photo_urls or [] if isinstance(url, str)]
+    allowed_urls = {_normalize_url(url) for url in photos}
+    allowed_filenames = {_filename(url) for url in photos}
+    normalized: dict = {}
+
+    for category, values in categories.items():
+        if not isinstance(values, list):
+            continue
+        kept: list[str] = []
+        for value in values:
+            if not value or not isinstance(value, str):
+                continue
+            if is_floorplan_url(value):
+                continue
+            if value.startswith("http"):
+                if _normalize_url(value) in allowed_urls:
+                    kept.append(value)
+                continue
+            if value in allowed_filenames:
+                kept.append(value)
+        if kept:
+            normalized[category] = kept
+    return normalized
+
+
+def _media_quality(photo_count: int, floorplan_count: int) -> dict:
+    """Build a small, stable quality contract for UI/audit/smoke checks."""
+    issues: list[str] = []
+    if photo_count == 0 and floorplan_count > 0:
+        status = "floorplan_only"
+        issues.append("floorplan_only")
+    elif photo_count == 0:
+        status = "missing_photos"
+        issues.append("missing_real_photos")
+    elif photo_count < 3:
+        status = "limited_photos"
+        issues.append("limited_real_photos")
+    else:
+        status = "photo_ready"
+
+    return {
+        "status": status,
+        "has_real_photo": photo_count > 0,
+        "photo_count": photo_count,
+        "floorplan_count": floorplan_count,
+        "issues": issues,
+    }
+
+
 def reorder_for_listing(
     photos: Iterable[str | None],
     current_image_url: str | None = None,
+    floorplan_urls: Iterable[str | None] | None = None,
 ) -> dict:
     """Return a normalized photo dict for a listing.
 
@@ -110,65 +198,83 @@ def reorder_for_listing(
         current_image_url: the listing's current ``image_url`` (typically
             the hero/card photo). Included as the first candidate so it is
             considered alongside ``photos``.
+        floorplan_urls: URLs from explicit floorplan fields. These are
+            preserved as floorplans even when their filenames are ambiguous.
 
     Output dict has keys:
         image_url: first exterior URL, or ``None`` if no exteriors exist.
             Frontends should fall back to a placeholder when ``None``.
-        real_photos: exteriors first (in original order), then floorplans
-            appended (also in original order). Deduplicated.
+        real_photos: deduplicated exterior/interior URLs only.
         gallery_images: first 3 entries of ``real_photos``.
         floorplan_url: first floorplan URL, or empty string if none.
+        floorplan_urls: all floorplan URLs, deduplicated.
+        media_quality: status/counts for audit and UI gating.
     """
     candidates: list[str | None] = []
     if current_image_url:
         candidates.append(current_image_url)
     candidates.extend(photos or [])
+    candidates.extend(floorplan_urls or [])
 
     deduped = _dedupe_preserve_order(candidates)
-    exteriors, floorplans = split_photos(deduped)
+    floorplan_hints = _dedupe_preserve_order(floorplan_urls or [])
+    exteriors, floorplans = split_photos(deduped, floorplan_hints=floorplan_hints)
 
-    real_photos = exteriors + floorplans
     image_url = exteriors[0] if exteriors else None
     floorplan_url = floorplans[0] if floorplans else ""
-    gallery_images = real_photos[:3]
+    gallery_images = exteriors[:3]
 
     return {
         "image_url": image_url,
-        "real_photos": real_photos,
+        "real_photos": exteriors,
         "gallery_images": gallery_images,
         "floorplan_url": floorplan_url,
+        "floorplan_urls": floorplans,
+        "media_quality": _media_quality(len(exteriors), len(floorplans)),
     }
 
 
 def apply_classifier_to_home(home: dict) -> dict:
     """Mutate and return ``home`` with classifier-corrected photo fields.
 
-    Combines the home's existing ``image_url`` and ``real_photos`` (and
-    falls back to ``gallery_images`` when ``real_photos`` is empty), runs
-    them through :func:`reorder_for_listing`, then writes the result back
-    onto ``home``:
+    Combines the home's existing hero/list/gallery fields, runs them through
+    :func:`reorder_for_listing`, then writes the result back onto ``home``:
 
     - ``home["image_url"]`` = first exterior, or ``""`` if none exist
       (kept as empty string instead of ``None`` so existing JSON
       serialization paths and frontend ``home.image_url || placeholder``
       checks keep working).
-    - ``home["real_photos"]`` = exteriors followed by floorplans.
+    - ``home["real_photos"]`` = exterior/interior photos only.
     - ``home["gallery_images"]`` = first 3 of ``real_photos``.
     - ``home["floorplan_url"]`` = first floorplan, or ``""``. Also mirrors
       to ``home["floor_plan_url"]`` so legacy callers keep working — the
       codebase currently uses both spellings.
+    - ``home["floorplan_urls"]`` = all floorplan URLs.
+    - ``home["media_quality"]`` = stable status/counts.
 
     Returns the same ``home`` dict for chaining/comprehensions.
     """
     if not isinstance(home, dict):
         return home
 
-    current_image_url = home.get("image_url") or ""
-    real_photos = home.get("real_photos") or []
-    if not real_photos:
-        real_photos = home.get("gallery_images") or []
+    current_image_url = home.get("image_url") or home.get("hero_image") or ""
+    photo_candidates: list[str | None] = []
+    for field in ("real_photos", "gallery_images", "photos"):
+        photo_candidates.extend(_as_url_list(home.get(field)))
 
-    cleaned = reorder_for_listing(real_photos, current_image_url=current_image_url)
+    floorplan_candidates: list[str | None] = []
+    for field in ("floorplan_url", "floor_plan_url"):
+        value = home.get(field)
+        if value:
+            floorplan_candidates.append(value)
+    for field in ("floorplan_urls", "floor_plan_urls"):
+        floorplan_candidates.extend(_as_url_list(home.get(field)))
+
+    cleaned = reorder_for_listing(
+        photo_candidates,
+        current_image_url=current_image_url,
+        floorplan_urls=floorplan_candidates,
+    )
 
     home["image_url"] = cleaned["image_url"] or ""
     home["real_photos"] = cleaned["real_photos"]
@@ -181,5 +287,32 @@ def apply_classifier_to_home(home: dict) -> dict:
     home["floorplan_url"] = cleaned["floorplan_url"] or existing_floorplan
     # Keep both spellings in sync — existing callers read either name.
     home["floor_plan_url"] = home["floorplan_url"]
+    home["floorplan_urls"] = cleaned["floorplan_urls"]
+    home["media_quality"] = cleaned["media_quality"]
+    home["image_categories"] = _normalize_image_categories(
+        home.get("image_categories"),
+        cleaned["real_photos"],
+    )
 
     return home
+
+
+def get_real_photo_urls(home: dict | None) -> list[str]:
+    """Return deduplicated non-floorplan photo URLs from a home-like dict."""
+    if not isinstance(home, dict):
+        return []
+    cleaned = reorder_for_listing(
+        [*_as_url_list(home.get("real_photos")), *_as_url_list(home.get("gallery_images"))],
+        current_image_url=home.get("image_url") or home.get("hero_image") or None,
+        floorplan_urls=[
+            home.get("floorplan_url"),
+            home.get("floor_plan_url"),
+            *_as_url_list(home.get("floorplan_urls")),
+        ],
+    )
+    return cleaned["real_photos"]
+
+
+def has_real_photo(home: dict | None) -> bool:
+    """Return True only when a home has at least one non-floorplan photo."""
+    return bool(get_real_photo_urls(home))
