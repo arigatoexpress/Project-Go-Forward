@@ -12,6 +12,7 @@ import csv
 import json
 import logging
 import re
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -20,6 +21,10 @@ from urllib.parse import parse_qs, urljoin, urlparse
 import requests
 from bs4 import BeautifulSoup
 
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
 try:
     from caching import cache_get, cache_set
 except ImportError:  # pragma: no cover - script use outside app root
@@ -27,8 +32,10 @@ except ImportError:  # pragma: no cover - script use outside app root
     cache_set = None
 
 try:
+    from tools.manufacturer_media_recovery import apply_manufacturer_media_recovery_to_homes
     from tools.photo_classifier import apply_classifier_to_home, is_floorplan_url
 except ImportError:  # pragma: no cover - script use outside package import path
+    from .manufacturer_media_recovery import apply_manufacturer_media_recovery_to_homes
     from .photo_classifier import apply_classifier_to_home, is_floorplan_url
 
 LOG = logging.getLogger(__name__)
@@ -38,7 +45,7 @@ LEGACY_INVENTORY_URL = f"{LEGACY_BASE_URL}/inventory/"
 LEGACY_DEALER_ID = "3522"
 LEGACY_SOURCE_ID = "texashomeoutlet_legacy_wordpress"
 LEGACY_CDN_HOST = "d132mt2yijm03y.cloudfront.net"
-LEGACY_CACHE_KEY = "legacy_site_inventory_context_v1"
+LEGACY_CACHE_KEY = "legacy_site_inventory_context_v2"
 SNAPSHOT_PATH = (
     Path(__file__).resolve().parents[1] / "data" / "legacy_site" / "legacy_inventory_context.json"
 )
@@ -611,6 +618,20 @@ def _media_summary(homes: list[dict[str, Any]]) -> dict[str, int]:
     return counts
 
 
+def _apply_media_recovery_to_context(context: dict[str, Any]) -> dict[str, Any]:
+    homes = list(context.get("homes") or [])
+    apply_manufacturer_media_recovery_to_homes(homes)
+    context["homes"] = homes
+    context["media_summary"] = _media_summary(homes)
+    context["total_inventory"] = len(homes)
+    context.setdefault("website_homes", len(homes))
+    context["returned_inventory"] = min(
+        len(homes),
+        int(context.get("returned_inventory") or len(homes)),
+    )
+    return context
+
+
 def _limit_context(context: dict[str, Any], limit: int) -> dict[str, Any]:
     homes = list(context.get("homes") or [])
     limited_homes = homes[:limit] if limit else homes
@@ -650,7 +671,7 @@ def build_legacy_inventory_context(
         "media_summary": _media_summary(homes),
         "message": f"Loaded {len(homes)} current listings from texashomeoutlet.com.",
     }
-    return _limit_context(context, limit)
+    return _limit_context(_apply_media_recovery_to_context(context), limit)
 
 
 def _load_snapshot_context() -> dict[str, Any] | None:
@@ -677,7 +698,7 @@ def load_legacy_inventory_context(
     if cache_get and not force_refresh:
         cached = cache_get(LEGACY_CACHE_KEY)
         if cached:
-            return _limit_context(cached, limit)
+            return _limit_context(_apply_media_recovery_to_context(cached), limit)
 
     try:
         context = build_legacy_inventory_context(limit=100)
@@ -689,7 +710,7 @@ def load_legacy_inventory_context(
         if snapshot_fallback:
             snapshot = _load_snapshot_context()
             if snapshot and snapshot.get("homes"):
-                return _limit_context(snapshot, limit)
+                return _limit_context(_apply_media_recovery_to_context(snapshot), limit)
         return {
             "success": False,
             "homes": [],
@@ -750,7 +771,9 @@ def write_manifest(context: dict[str, Any], output_dir: Path) -> dict[str, str]:
         f"- Source: {context.get('source_url', LEGACY_INVENTORY_URL)}",
         f"- Retrieved: {context.get('retrieved_at', '')}",
         f"- Listings: {context.get('total_inventory', 0)}",
-        f"- Media summary: {context.get('media_summary', {})}",
+        f"- Media summary: `{json.dumps(context.get('media_summary', {}), sort_keys=True)}`",
+        "- Recovered manufacturer-plan galleries: "
+        f"{sum(1 for home in context.get('homes') or [] if home.get('media_recovery'))}",
         "",
         "This manifest stores URL provenance only. It does not download or rehost media.",
     ]

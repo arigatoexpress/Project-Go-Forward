@@ -121,3 +121,70 @@ def test_merged_legacy_home_exposes_provenance_and_honest_media_quality():
     assert merged["media_quality"]["status"] == "limited_photos"
     assert merged["media_quality"]["photo_count"] == 2
     assert merged["floor_plan_url"].endswith("Creole%203256H32447.jpg")
+
+
+def test_legacy_context_recovers_known_floorplan_only_manufacturer_galleries(monkeypatch):
+    floorplan_only = [
+        {
+            "id": "28102",
+            "legacy_inventory_id": "28102",
+            "model_name": "TRU Single Section / TRU Single Section Delight",
+            "status": "Available",
+            "floorplan_url": "https://d132mt2yijm03y.cloudfront.net/manufacturer/2007/floorplan/222250/DELIGHT.jpg",
+            "real_photos": [],
+            "gallery_images": [],
+            "source_provenance": {"source_owner": "Texas Home Outlet"},
+        },
+        {
+            "id": "42156",
+            "legacy_inventory_id": "42156",
+            "model_name": "The Elite Series / The Jackson ELS16763D",
+            "status": "Available",
+            "floorplan_url": "https://d132mt2yijm03y.cloudfront.net/manufacturer/3328/floorplan/234947/jackson.jpg",
+            "real_photos": [],
+            "gallery_images": [],
+            "source_provenance": {"source_owner": "Texas Home Outlet"},
+        },
+        {
+            "id": "43942",
+            "legacy_inventory_id": "43942",
+            "model_name": "Solution / The Pt 78 SLT28563D",
+            "status": "Available",
+            "floorplan_url": "https://d132mt2yijm03y.cloudfront.net/manufacturer/2025/floorplan/226548/floor-plans-SMALL%20%282%29.jpg",
+            "real_photos": [],
+            "gallery_images": [],
+            "source_provenance": {"source_owner": "Texas Home Outlet"},
+        },
+        {
+            "id": "28527",
+            "legacy_inventory_id": "28527",
+            "model_name": "PRE-OWNED / Heritage 1672-32C",
+            "status": "Pre-Owned",
+            "floorplan_url": "https://d132mt2yijm03y.cloudfront.net/manufacturer/1944/floorplan/1383/1672-32C-floor-plans.jpg",
+            "real_photos": [],
+            "gallery_images": [],
+            "source_provenance": {"source_owner": "Texas Home Outlet"},
+        },
+    ]
+
+    monkeypatch.setattr(
+        legacy_site_crawler,
+        "scrape_legacy_inventory",
+        lambda max_pages=25, include_details=True: [dict(home) for home in floorplan_only],
+    )
+
+    context = legacy_site_crawler.build_legacy_inventory_context()
+
+    assert context["media_summary"] == {
+        "photo_ready": 4,
+        "limited_photos": 0,
+        "floorplan_only": 0,
+        "missing_photos": 0,
+    }
+    for home in context["homes"]:
+        assert home["image_url"]
+        assert len(home["real_photos"]) >= 3
+        assert home["media_quality"]["status"] == "photo_ready"
+        assert home["media_quality"]["recovered"] is True
+        assert home["media_recovery"]["source"] == "exact_manufacturer_plan_cdn"
+        assert "no generic stock substitution" in home["media_recovery"]["output_policy"]

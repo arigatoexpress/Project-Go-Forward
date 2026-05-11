@@ -106,7 +106,7 @@ function looksLikePhotoFilename(filename) {
   if (!stem) return false;
   if (/^\d+$/.test(stem)) return true;
   if (UUID_FILENAME_RE.test(stem)) return true;
-  if (/[-_]\d+$/.test(stem)) return true;
+  if (/[-_\s]\d+$/.test(stem)) return true;
   const parts = stem.split(/[^a-z0-9]+/).filter(Boolean);
   if (parts.some(part => SHORT_PHOTO_FILENAME_TOKENS.includes(part))) return true;
   return PHOTO_FILENAME_TOKENS.some(token => stem.includes(token));

@@ -66,10 +66,24 @@ Latest legacy-site manifest:
   `data/legacy_site/inventory_manifest.csv`, and
   `data/legacy_site/legacy_site_asset_report.md`
 
-Remaining floorplan-only legacy listings are `28102`, `42156`, `43942`, and
-`28527`. Do not fill those with generic free pictures. They need fresh THO lot
-photos, existing THO dealer-gallery uploads, or explicit manufacturer/dealer
-approval for the exact model/listing media.
+### 2026-05-11 Production Recovery Update
+
+The remaining four floorplan-only legacy listings have been recovered without
+generic stock substitution. Each recovery is allowlisted by exact inventory id,
+manufacturer id, and plan id, and each image URL lives in the same
+ManufacturedHomes CDN namespace as the THO legacy listing's existing floorplan:
+
+| Inventory id | Model | Recovery source | Result |
+| --- | --- | --- | --- |
+| `28102` | TRU Single Section Delight | `manufacturer/2007/floorplan/222250` via Mobile Home Masters plan page | 8 photos |
+| `42156` | The Jackson ELS16763D | `manufacturer/3328/floorplan/234947` via Henly Homes plan page | 6 photos |
+| `43942` | The Pt 78 SLT28563D | `manufacturer/2025/floorplan/226548` via Mobile Home Masters plan page | 13 photos |
+| `28527` | Heritage 1672-32C | `manufacturer/1944/floorplan/1383` via Country Living Modular Homes plan page | 20 photos |
+
+Post-recovery local API readback: 19 current legacy listings, 19 photo-ready,
+0 limited-photo, 0 floorplan-only, and 0 missing-photo. The media payloads carry
+`media_recovery.source = exact_manufacturer_plan_cdn` and source URLs so staff
+can audit provenance later.
 
 ### Sources Checked
 

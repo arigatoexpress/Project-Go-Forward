@@ -167,11 +167,26 @@
         "https://d132mt2yijm03y.cloudfront.net/manufacturer/2007/floorplan/222250/DELIGHT.jpg",
         "https://d132mt2yijm03y.cloudfront.net/manufacturer/2007/floorplan/222250/DELIGHT%203D.jpg"
       ],
-      "gallery_images": [],
-      "hero_image": "",
+      "gallery_images": [
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/2007/floorplan/222250/1d159323-54bb-4839-a0f0-ad46f0e48262.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/2007/floorplan/222250/67200862-7955-4e91-b6f0-de5ddc10a3db.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/2007/floorplan/222250/6b7b5707-7ca7-437d-b150-4876ff65bf12.jpg"
+      ],
+      "hero_image": "https://d132mt2yijm03y.cloudfront.net/manufacturer/2007/floorplan/222250/1d159323-54bb-4839-a0f0-ad46f0e48262.jpg",
       "id": "28102",
-      "image_categories": {},
-      "image_url": "",
+      "image_categories": {
+        "interior": [
+          "1d159323-54bb-4839-a0f0-ad46f0e48262.jpg",
+          "67200862-7955-4e91-b6f0-de5ddc10a3db.jpg",
+          "6b7b5707-7ca7-437d-b150-4876ff65bf12.jpg",
+          "a0d01f6e-c327-4fb1-b282-d4805b190387.jpg",
+          "a6e3b896-2407-44e2-a4f9-9153ca507e12.jpg",
+          "abfdb578-1109-414c-a3b1-839f10476620.jpg",
+          "d9ea8684-a04c-4aad-b181-eedf9e16715d.jpg",
+          "db2a0d53-d5c0-468c-b56a-0cfd8f12f149.jpg"
+        ]
+      },
+      "image_url": "https://d132mt2yijm03y.cloudfront.net/manufacturer/2007/floorplan/222250/1d159323-54bb-4839-a0f0-ad46f0e48262.jpg",
       "legacy_actions": {
         "detail_url": "https://www.texashomeoutlet.com/inventory-detail/28102/texas-home-outlet/huffman/tru-single-section/",
         "quote_url": "https://www.texashomeoutlet.com/quote/inventory/28102/dealer/3522/"
@@ -187,24 +202,60 @@
       "matterport_url": "https://my.matterport.com/show/?m=SvVRKXdXUQq&play=1",
       "media_quality": {
         "floorplan_count": 2,
-        "has_real_photo": false,
-        "issues": [
-          "floorplan_only"
-        ],
-        "photo_count": 0,
-        "status": "floorplan_only"
+        "has_real_photo": true,
+        "issues": [],
+        "photo_count": 8,
+        "recovered": true,
+        "recovery_source": "exact_manufacturer_plan_cdn",
+        "status": "photo_ready"
+      },
+      "media_recovery": {
+        "manufacturer_id": "2007",
+        "output_policy": "Exact model/plan gallery from the same ManufacturedHomes CDN namespace as the THO legacy listing; no generic stock substitution.",
+        "plan_id": "222250",
+        "source": "exact_manufacturer_plan_cdn",
+        "source_owner": "manufacturer_plan_media",
+        "source_url": "https://www.mobilehomemasters.com/plan/222250/tru-single-section/delight-trs14602ah/",
+        "status": "recovered"
       },
       "model_name": "TRU Single Section / TRU Single Section Delight",
-      "photos": [],
+      "photos": [
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/2007/floorplan/222250/1d159323-54bb-4839-a0f0-ad46f0e48262.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/2007/floorplan/222250/67200862-7955-4e91-b6f0-de5ddc10a3db.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/2007/floorplan/222250/6b7b5707-7ca7-437d-b150-4876ff65bf12.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/2007/floorplan/222250/a0d01f6e-c327-4fb1-b282-d4805b190387.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/2007/floorplan/222250/a6e3b896-2407-44e2-a4f9-9153ca507e12.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/2007/floorplan/222250/abfdb578-1109-414c-a3b1-839f10476620.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/2007/floorplan/222250/d9ea8684-a04c-4aad-b181-eedf9e16715d.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/2007/floorplan/222250/db2a0d53-d5c0-468c-b56a-0cfd8f12f149.jpg"
+      ],
       "price_value": 0,
       "pricing": {
         "display_price": "Call for Price",
         "price_value": 0
       },
       "quote_url": "https://www.texashomeoutlet.com/quote/inventory/28102/dealer/3522/",
-      "real_photos": [],
+      "real_photos": [
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/2007/floorplan/222250/1d159323-54bb-4839-a0f0-ad46f0e48262.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/2007/floorplan/222250/67200862-7955-4e91-b6f0-de5ddc10a3db.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/2007/floorplan/222250/6b7b5707-7ca7-437d-b150-4876ff65bf12.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/2007/floorplan/222250/a0d01f6e-c327-4fb1-b282-d4805b190387.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/2007/floorplan/222250/a6e3b896-2407-44e2-a4f9-9153ca507e12.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/2007/floorplan/222250/abfdb578-1109-414c-a3b1-839f10476620.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/2007/floorplan/222250/d9ea8684-a04c-4aad-b181-eedf9e16715d.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/2007/floorplan/222250/db2a0d53-d5c0-468c-b56a-0cfd8f12f149.jpg"
+      ],
       "source": "texashomeoutlet_legacy_wordpress",
       "source_provenance": {
+        "media_recovery": {
+          "manufacturer_id": "2007",
+          "output_policy": "Exact model/plan gallery from the same ManufacturedHomes CDN namespace as the THO legacy listing; no generic stock substitution.",
+          "plan_id": "222250",
+          "source": "exact_manufacturer_plan_cdn",
+          "source_owner": "manufacturer_plan_media",
+          "source_url": "https://www.mobilehomemasters.com/plan/222250/tru-single-section/delight-trs14602ah/",
+          "status": "recovered"
+        },
         "output_policy": "THO-owned app and marketing context only; no generic stock substitution",
         "retrieval_mode": "public_legacy_site_scrape",
         "rights_envelope": "client_owned_legacy_site_media_for_tho_properties",
@@ -472,11 +523,15 @@
       "floorplan_urls": [
         "https://d132mt2yijm03y.cloudfront.net/manufacturer/3328/floorplan/234947/jackson.jpg"
       ],
-      "gallery_images": [],
-      "hero_image": "",
+      "gallery_images": [
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/3328/floorplan/234947/ELS16763D%201.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/3328/floorplan/234947/ELS16763D%202.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/3328/floorplan/234947/ELS16763D%203.jpg"
+      ],
+      "hero_image": "https://d132mt2yijm03y.cloudfront.net/manufacturer/3328/floorplan/234947/ELS16763D%201.jpg",
       "id": "42156",
       "image_categories": {},
-      "image_url": "",
+      "image_url": "https://d132mt2yijm03y.cloudfront.net/manufacturer/3328/floorplan/234947/ELS16763D%201.jpg",
       "legacy_actions": {
         "detail_url": "https://www.texashomeoutlet.com/inventory-detail/42156/texas-home-outlet/huffman/the-elite-series/",
         "quote_url": "https://www.texashomeoutlet.com/quote/inventory/42156/dealer/3522/"
@@ -492,24 +547,56 @@
       "matterport_url": "",
       "media_quality": {
         "floorplan_count": 1,
-        "has_real_photo": false,
-        "issues": [
-          "floorplan_only"
-        ],
-        "photo_count": 0,
-        "status": "floorplan_only"
+        "has_real_photo": true,
+        "issues": [],
+        "photo_count": 6,
+        "recovered": true,
+        "recovery_source": "exact_manufacturer_plan_cdn",
+        "status": "photo_ready"
+      },
+      "media_recovery": {
+        "manufacturer_id": "3328",
+        "output_policy": "Exact model/plan gallery from the same ManufacturedHomes CDN namespace as the THO legacy listing; no generic stock substitution.",
+        "plan_id": "234947",
+        "source": "exact_manufacturer_plan_cdn",
+        "source_owner": "manufacturer_plan_media",
+        "source_url": "https://www.henlyhomes.com/floor-plan-detail/234947/the-elite-series/the-jackson-els16763d/",
+        "status": "recovered"
       },
       "model_name": "The Elite Series / The Jackson ELS16763D",
-      "photos": [],
+      "photos": [
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/3328/floorplan/234947/ELS16763D%201.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/3328/floorplan/234947/ELS16763D%202.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/3328/floorplan/234947/ELS16763D%203.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/3328/floorplan/234947/ELS16763D%204.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/3328/floorplan/234947/ELS16763D%205.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/3328/floorplan/234947/ELS16763D%206.jpg"
+      ],
       "price_value": 0,
       "pricing": {
         "display_price": "Call for Price",
         "price_value": 0
       },
       "quote_url": "https://www.texashomeoutlet.com/quote/inventory/42156/dealer/3522/",
-      "real_photos": [],
+      "real_photos": [
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/3328/floorplan/234947/ELS16763D%201.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/3328/floorplan/234947/ELS16763D%202.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/3328/floorplan/234947/ELS16763D%203.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/3328/floorplan/234947/ELS16763D%204.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/3328/floorplan/234947/ELS16763D%205.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/3328/floorplan/234947/ELS16763D%206.jpg"
+      ],
       "source": "texashomeoutlet_legacy_wordpress",
       "source_provenance": {
+        "media_recovery": {
+          "manufacturer_id": "3328",
+          "output_policy": "Exact model/plan gallery from the same ManufacturedHomes CDN namespace as the THO legacy listing; no generic stock substitution.",
+          "plan_id": "234947",
+          "source": "exact_manufacturer_plan_cdn",
+          "source_owner": "manufacturer_plan_media",
+          "source_url": "https://www.henlyhomes.com/floor-plan-detail/234947/the-elite-series/the-jackson-els16763d/",
+          "status": "recovered"
+        },
         "output_policy": "THO-owned app and marketing context only; no generic stock substitution",
         "retrieval_mode": "public_legacy_site_scrape",
         "rights_envelope": "client_owned_legacy_site_media_for_tho_properties",
@@ -1348,11 +1435,15 @@
       "floorplan_urls": [
         "https://d132mt2yijm03y.cloudfront.net/manufacturer/2025/floorplan/226548/floor-plans-SMALL%20%282%29.jpg"
       ],
-      "gallery_images": [],
-      "hero_image": "",
+      "gallery_images": [
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/2025/floorplan/226548/Pt%2078-1.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/2025/floorplan/226548/Pt%2078-2.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/2025/floorplan/226548/Pt%2078-3.jpg"
+      ],
+      "hero_image": "https://d132mt2yijm03y.cloudfront.net/manufacturer/2025/floorplan/226548/Pt%2078-1.jpg",
       "id": "43942",
       "image_categories": {},
-      "image_url": "",
+      "image_url": "https://d132mt2yijm03y.cloudfront.net/manufacturer/2025/floorplan/226548/Pt%2078-1.jpg",
       "legacy_actions": {
         "detail_url": "https://www.texashomeoutlet.com/inventory-detail/43942/texas-home-outlet/huffman/solution/",
         "quote_url": "https://www.texashomeoutlet.com/quote/inventory/43942/dealer/3522/"
@@ -1368,24 +1459,70 @@
       "matterport_url": "https://my.matterport.com/show/?m=oAwqAdoZBik&play=1",
       "media_quality": {
         "floorplan_count": 1,
-        "has_real_photo": false,
-        "issues": [
-          "floorplan_only"
-        ],
-        "photo_count": 0,
-        "status": "floorplan_only"
+        "has_real_photo": true,
+        "issues": [],
+        "photo_count": 13,
+        "recovered": true,
+        "recovery_source": "exact_manufacturer_plan_cdn",
+        "status": "photo_ready"
+      },
+      "media_recovery": {
+        "manufacturer_id": "2025",
+        "output_policy": "Exact model/plan gallery from the same ManufacturedHomes CDN namespace as the THO legacy listing; no generic stock substitution.",
+        "plan_id": "226548",
+        "source": "exact_manufacturer_plan_cdn",
+        "source_owner": "manufacturer_plan_media",
+        "source_url": "https://www.mobilehomemasters.com/plan/226548/solution/the-pt-78-slt28563d/",
+        "status": "recovered"
       },
       "model_name": "Solution / The Pt 78 SLT28563D",
-      "photos": [],
+      "photos": [
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/2025/floorplan/226548/Pt%2078-1.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/2025/floorplan/226548/Pt%2078-2.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/2025/floorplan/226548/Pt%2078-3.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/2025/floorplan/226548/Pt%2078-4.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/2025/floorplan/226548/Pt%2078-5.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/2025/floorplan/226548/Pt%2078-6.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/2025/floorplan/226548/Pt%2078-7.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/2025/floorplan/226548/Pt%2078-8.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/2025/floorplan/226548/Pt%2078-9.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/2025/floorplan/226548/Pt%2078-10.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/2025/floorplan/226548/Pt%2078-11.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/2025/floorplan/226548/Pt%2078-12.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/2025/floorplan/226548/Pt%2078-13.webp"
+      ],
       "price_value": 0,
       "pricing": {
         "display_price": "Call for Price",
         "price_value": 0
       },
       "quote_url": "https://www.texashomeoutlet.com/quote/inventory/43942/dealer/3522/",
-      "real_photos": [],
+      "real_photos": [
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/2025/floorplan/226548/Pt%2078-1.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/2025/floorplan/226548/Pt%2078-2.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/2025/floorplan/226548/Pt%2078-3.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/2025/floorplan/226548/Pt%2078-4.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/2025/floorplan/226548/Pt%2078-5.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/2025/floorplan/226548/Pt%2078-6.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/2025/floorplan/226548/Pt%2078-7.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/2025/floorplan/226548/Pt%2078-8.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/2025/floorplan/226548/Pt%2078-9.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/2025/floorplan/226548/Pt%2078-10.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/2025/floorplan/226548/Pt%2078-11.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/2025/floorplan/226548/Pt%2078-12.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/2025/floorplan/226548/Pt%2078-13.webp"
+      ],
       "source": "texashomeoutlet_legacy_wordpress",
       "source_provenance": {
+        "media_recovery": {
+          "manufacturer_id": "2025",
+          "output_policy": "Exact model/plan gallery from the same ManufacturedHomes CDN namespace as the THO legacy listing; no generic stock substitution.",
+          "plan_id": "226548",
+          "source": "exact_manufacturer_plan_cdn",
+          "source_owner": "manufacturer_plan_media",
+          "source_url": "https://www.mobilehomemasters.com/plan/226548/solution/the-pt-78-slt28563d/",
+          "status": "recovered"
+        },
         "output_policy": "THO-owned app and marketing context only; no generic stock substitution",
         "retrieval_mode": "public_legacy_site_scrape",
         "rights_envelope": "client_owned_legacy_site_media_for_tho_properties",
@@ -1655,11 +1792,15 @@
       "floorplan_urls": [
         "https://d132mt2yijm03y.cloudfront.net/manufacturer/1944/floorplan/1383/1672-32C-floor-plans.jpg"
       ],
-      "gallery_images": [],
-      "hero_image": "",
+      "gallery_images": [
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/1944/floorplan/1383/Heritage%20H-1672-32C-ext-1.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/1944/floorplan/1383/Heritage%20H-1672-32C-ext-2.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/1944/floorplan/1383/Heritage%20H-1672-32C-ext-3.jpg"
+      ],
+      "hero_image": "https://d132mt2yijm03y.cloudfront.net/manufacturer/1944/floorplan/1383/Heritage%20H-1672-32C-ext-1.jpg",
       "id": "28527",
       "image_categories": {},
-      "image_url": "",
+      "image_url": "https://d132mt2yijm03y.cloudfront.net/manufacturer/1944/floorplan/1383/Heritage%20H-1672-32C-ext-1.jpg",
       "legacy_actions": {
         "detail_url": "https://www.texashomeoutlet.com/inventory-detail/28527/texas-home-outlet/huffman/pre-owned/",
         "quote_url": "https://www.texashomeoutlet.com/quote/inventory/28527/dealer/3522/"
@@ -1675,24 +1816,84 @@
       "matterport_url": "",
       "media_quality": {
         "floorplan_count": 1,
-        "has_real_photo": false,
-        "issues": [
-          "floorplan_only"
-        ],
-        "photo_count": 0,
-        "status": "floorplan_only"
+        "has_real_photo": true,
+        "issues": [],
+        "photo_count": 20,
+        "recovered": true,
+        "recovery_source": "exact_manufacturer_plan_cdn",
+        "status": "photo_ready"
+      },
+      "media_recovery": {
+        "manufacturer_id": "1944",
+        "output_policy": "Exact model/plan gallery from the same ManufacturedHomes CDN namespace as the THO legacy listing; no generic stock substitution.",
+        "plan_id": "1383",
+        "source": "exact_manufacturer_plan_cdn",
+        "source_owner": "manufacturer_plan_media",
+        "source_url": "https://www.countrylivingmodularhomes.com/plan/1383/heritage/h-1672-32c/",
+        "status": "recovered"
       },
       "model_name": "PRE-OWNED / Heritage 1672-32C",
-      "photos": [],
+      "photos": [
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/1944/floorplan/1383/Heritage%20H-1672-32C-ext-1.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/1944/floorplan/1383/Heritage%20H-1672-32C-ext-2.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/1944/floorplan/1383/Heritage%20H-1672-32C-ext-3.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/1944/floorplan/1383/Heritage%20H-1672-32C-kit-1.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/1944/floorplan/1383/Heritage%20H-1672-32C-kit-2.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/1944/floorplan/1383/Heritage%20H-1672-32C-kit-3.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/1944/floorplan/1383/Heritage%20H-1672-32C-kit-4.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/1944/floorplan/1383/Heritage%20H-1672-32C-kit-5.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/1944/floorplan/1383/Heritage%20H-1672-32C-int-1.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/1944/floorplan/1383/Heritage%20H-1672-32C-int-2.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/1944/floorplan/1383/Heritage%20H-1672-32C-int-3.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/1944/floorplan/1383/Heritage%20H-1672-32C-int-4.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/1944/floorplan/1383/Heritage%20H-1672-32C-bed-1.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/1944/floorplan/1383/Heritage%20H-1672-32C-bed-2.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/1944/floorplan/1383/Heritage%20H-1672-32C-bed-3.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/1944/floorplan/1383/Heritage%20H-1672-32C-bed-4.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/1944/floorplan/1383/Heritage%20H-1672-32C-bath-1.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/1944/floorplan/1383/Heritage%20H-1672-32C-bath-2.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/1944/floorplan/1383/Heritage%20H-1672-32C-uti-1.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/1944/floorplan/1383/Heritage%20H-1672-32C-uti-2.jpg"
+      ],
       "price_value": 0,
       "pricing": {
         "display_price": "Call for Price",
         "price_value": 0
       },
       "quote_url": "https://www.texashomeoutlet.com/quote/inventory/28527/dealer/3522/",
-      "real_photos": [],
+      "real_photos": [
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/1944/floorplan/1383/Heritage%20H-1672-32C-ext-1.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/1944/floorplan/1383/Heritage%20H-1672-32C-ext-2.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/1944/floorplan/1383/Heritage%20H-1672-32C-ext-3.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/1944/floorplan/1383/Heritage%20H-1672-32C-kit-1.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/1944/floorplan/1383/Heritage%20H-1672-32C-kit-2.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/1944/floorplan/1383/Heritage%20H-1672-32C-kit-3.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/1944/floorplan/1383/Heritage%20H-1672-32C-kit-4.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/1944/floorplan/1383/Heritage%20H-1672-32C-kit-5.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/1944/floorplan/1383/Heritage%20H-1672-32C-int-1.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/1944/floorplan/1383/Heritage%20H-1672-32C-int-2.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/1944/floorplan/1383/Heritage%20H-1672-32C-int-3.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/1944/floorplan/1383/Heritage%20H-1672-32C-int-4.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/1944/floorplan/1383/Heritage%20H-1672-32C-bed-1.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/1944/floorplan/1383/Heritage%20H-1672-32C-bed-2.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/1944/floorplan/1383/Heritage%20H-1672-32C-bed-3.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/1944/floorplan/1383/Heritage%20H-1672-32C-bed-4.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/1944/floorplan/1383/Heritage%20H-1672-32C-bath-1.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/1944/floorplan/1383/Heritage%20H-1672-32C-bath-2.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/1944/floorplan/1383/Heritage%20H-1672-32C-uti-1.jpg",
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/1944/floorplan/1383/Heritage%20H-1672-32C-uti-2.jpg"
+      ],
       "source": "texashomeoutlet_legacy_wordpress",
       "source_provenance": {
+        "media_recovery": {
+          "manufacturer_id": "1944",
+          "output_policy": "Exact model/plan gallery from the same ManufacturedHomes CDN namespace as the THO legacy listing; no generic stock substitution.",
+          "plan_id": "1383",
+          "source": "exact_manufacturer_plan_cdn",
+          "source_owner": "manufacturer_plan_media",
+          "source_url": "https://www.countrylivingmodularhomes.com/plan/1383/heritage/h-1672-32c/",
+          "status": "recovered"
+        },
         "output_policy": "THO-owned app and marketing context only; no generic stock substitution",
         "retrieval_mode": "public_legacy_site_scrape",
         "rights_envelope": "client_owned_legacy_site_media_for_tho_properties",
@@ -2181,15 +2382,15 @@
     }
   ],
   "media_summary": {
-    "floorplan_only": 4,
+    "floorplan_only": 0,
     "limited_photos": 0,
     "missing_photos": 0,
-    "photo_ready": 15
+    "photo_ready": 19
   },
   "message": "Loaded 19 current listings from texashomeoutlet.com.",
   "new_homes": 13,
   "preowned_homes": 6,
-  "retrieved_at": "2026-05-11T21:54:15.466151+00:00",
+  "retrieved_at": "2026-05-11T23:49:10.525233+00:00",
   "returned_inventory": 19,
   "rights": {
     "output_policy": "Use only inside THO-owned application and marketing workflows.",
