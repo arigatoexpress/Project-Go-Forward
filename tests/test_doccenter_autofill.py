@@ -147,6 +147,41 @@ def test_validation_state_unchanged_for_step2(source: str):
     assert "form.serial_number_1?.trim()" in source
 
 
+def test_selected_template_required_fields_gate_generation(source: str):
+    """Selected PDFs can require more than the generic Step 2 fields. The
+    UI should catch those template-specific gaps before calling the backend."""
+    assert "function getSelectedTemplateRequiredState" in source
+    assert "template?.required_fields" in source
+    assert "getSelectedTemplateRequiredState(form, templates, selDocs)" in source
+    assert "setStep(selectedRequired.step)" in source
+    assert "Installation street address" in source
+    assert "Sales price" in source
+
+
+def test_step3_waits_for_template_metadata_before_generation(source: str):
+    """A restored draft on Step 3 must not generate before template metadata
+    is loaded, because required_fields live in /api/documents/templates."""
+    assert "const [templatesLoading, setTemplatesLoading]" in source
+    assert "setTemplatesLoading(true)" in source
+    assert "Document templates are still loading" in source
+    assert "disabled={templatesLoading || selected.length === 0}" in source
+    assert "Selected document is no longer available" in source
+
+
+def test_selected_template_missing_fields_highlight_step2_inputs(source: str):
+    """Template-required installation and pricing fields should get the same
+    inline highlight treatment as manufacturer/model/serial."""
+    for field in (
+        "error={errOf('buyer_address')}",
+        "error={errOf('buyer_city')}",
+        "error={errOf('buyer_county')}",
+        "error={errOf('buyer_state')}",
+        "error={errOf('buyer_zip')}",
+        "error={errOf('sales_price')}",
+    ):
+        assert field in source
+
+
 def test_chg_clears_autofill_marker_on_manual_edit(source: str):
     """When the user manually edits a field, the auto-fill badge must drop
     so the user understands they own the value now."""

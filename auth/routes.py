@@ -25,7 +25,7 @@ import time
 from base64 import urlsafe_b64decode
 from typing import Any
 
-from fastapi import APIRouter, Cookie, Depends, HTTPException, Request
+from fastapi import APIRouter, Body, Cookie, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from .session import (
@@ -92,6 +92,11 @@ THO_ORIGIN = os.environ.get("WEBAUTHN_ORIGIN") or os.environ.get(
 )
 RP_NAME = "THO Admin"
 RP_ID = os.environ.get("WEBAUTHN_RP_ID") or os.environ.get("THO_RP_ID", "sapphirealpha.xyz")
+DEFAULT_PASSKEY_STAFF_DOMAIN = "texashomeoutlet.com"
+DEFAULT_OWNER_EMAILS = {
+    "aribspector@gmail.com",
+    "aristotlespec@gmail.com",
+}
 _CUTOVER_ORIGIN_RP_IDS = {
     "https://tho.sapphirealpha.xyz": "sapphirealpha.xyz",
     "https://tho.sapphire.xyz": "sapphire.xyz",
@@ -139,6 +144,69 @@ def _webauthn_context(request: Request) -> tuple[str, str]:
     if origin in origin_rp_ids:
         return origin, origin_rp_ids[origin]
     return _normalize_origin(THO_ORIGIN), RP_ID
+
+
+def _split_env_values(*names: str) -> set[str]:
+    values: set[str] = set()
+    for name in names:
+        for raw in os.environ.get(name, "").split(","):
+            value = raw.strip().lower()
+            if value:
+                values.add(value)
+    return values
+
+
+def _normalize_email(value: Any) -> str:
+    return str(value or "").strip().lower()
+
+
+def _passkey_allowed_owner_emails() -> set[str]:
+    configured = _split_env_values("THO_PASSKEY_OWNER_EMAILS", "THO_ADMIN_OWNER_EMAILS")
+    return configured or set(DEFAULT_OWNER_EMAILS)
+
+
+def _passkey_allowed_domains() -> set[str]:
+    configured = _split_env_values("THO_PASSKEY_ALLOWED_DOMAINS")
+    return configured or {DEFAULT_PASSKEY_STAFF_DOMAIN}
+
+
+def _passkey_email_allowed(email: str | None) -> bool:
+    normalized = _normalize_email(email)
+    if not normalized or "@" not in normalized:
+        return False
+    if normalized in _passkey_allowed_owner_emails():
+        return True
+    _, _, domain = normalized.rpartition("@")
+    return domain in _passkey_allowed_domains()
+
+
+def _require_allowed_passkey_email(email: Any) -> str:
+    normalized = _normalize_email(email)
+    if not normalized:
+        raise HTTPException(status_code=400, detail="Authorized email is required")
+    if len(normalized.encode("utf-8")) > 200 or "@" not in normalized:
+        raise HTTPException(status_code=400, detail="Enter a valid email address")
+    if not _passkey_email_allowed(normalized):
+        raise HTTPException(
+            status_code=403,
+            detail="Passkeys are limited to Ari or @texashomeoutlet.com staff.",
+        )
+    return normalized
+
+
+def _credential_allowed(rec: Any) -> bool:
+    return _passkey_email_allowed(getattr(rec, "user_id", ""))
+
+
+def _credential_records(store: CredentialStore, *, allowed_only: bool = False) -> list[Any]:
+    try:
+        rows = store.list_all()
+    except Exception as exc:
+        log.warning("passkey credential lookup failed: %s", exc)
+        raise HTTPException(status_code=503, detail="Passkey credential store unavailable")
+    if allowed_only:
+        rows = [rec for rec in rows if _credential_allowed(rec)]
+    return rows
 
 
 def _current_user(
@@ -214,18 +282,18 @@ def _require_admin_request(request: Request, manager: SessionManager) -> None:
         raise HTTPException(status_code=401, detail="Admin authentication required")
 
 
-def _credential_descriptors(store: CredentialStore) -> list[Any]:
-    try:
-        return [
-            PublicKeyCredentialDescriptor(
-                id=rec.credential_id,
-                type=PublicKeyCredentialType.PUBLIC_KEY,
-            )
-            for rec in store.list_for_user("admin")
-        ]
-    except Exception as exc:
-        log.warning("passkey credential lookup failed: %s", exc)
-        raise HTTPException(status_code=503, detail="Passkey credential store unavailable")
+def _credential_descriptors(
+    store: CredentialStore,
+    *,
+    allowed_only: bool = False,
+) -> list[Any]:
+    return [
+        PublicKeyCredentialDescriptor(
+            id=rec.credential_id,
+            type=PublicKeyCredentialType.PUBLIC_KEY,
+        )
+        for rec in _credential_records(store, allowed_only=allowed_only)
+    ]
 
 
 def _discoverable_login_enabled() -> bool:
@@ -259,6 +327,7 @@ def _serialize_credential(rec: Any) -> dict[str, Any]:
     return {
         "credential_id": rec.credential_id_b64,
         "user_id": rec.user_id,
+        "authorized": _credential_allowed(rec),
         "aaguid": rec.aaguid or "",
         "created_at": _dt(rec.created_at),
         "last_used_at": _dt(rec.last_used_at),
@@ -282,6 +351,7 @@ def _store_persistent(store: CredentialStore) -> bool:
 @router.post("/register/begin")
 def register_begin(
     request: Request,
+    payload: dict[str, Any] | None = Body(default=None),
     manager: SessionManager = Depends(get_session_manager),
     store: CredentialStore = Depends(get_credential_store),
 ) -> JSONResponse:
@@ -289,18 +359,19 @@ def register_begin(
     if not _HAS_WEBAUTHN:
         raise HTTPException(status_code=503, detail="WebAuthn library not available")
     _require_admin_request(request, manager)
+    admin_email = _require_allowed_passkey_email((payload or {}).get("email"))
 
     challenge = manager.new_challenge_bytes()
-    challenge_handle = manager.wrap_challenge(challenge, flow="register")
+    challenge_handle = manager.wrap_challenge(challenge, flow="register", email=admin_email)
     exclude_credentials = _credential_descriptors(store)
     _, rp_id = _webauthn_context(request)
 
     options = generate_registration_options(
         rp_name=RP_NAME,
         rp_id=rp_id,
-        user_id=b"tho-admin",
-        user_name="THO Admin",
-        user_display_name="THO Admin",
+        user_id=hashlib.sha256(f"tho-passkey:{admin_email}".encode()).digest(),
+        user_name=admin_email,
+        user_display_name=admin_email,
         challenge=challenge,
         attestation=AttestationConveyancePreference.NONE,
         authenticator_selection=AuthenticatorSelectionCriteria(
@@ -337,9 +408,11 @@ def register_complete(
         raise HTTPException(status_code=503, detail="WebAuthn library not available")
     _require_admin_request(request, manager)
 
-    expected_challenge = manager.unwrap_challenge(challenge_cookie, flow="register")
-    if expected_challenge is None:
+    challenge_payload = manager.unwrap_challenge_payload(challenge_cookie, flow="register")
+    if challenge_payload is None:
         raise HTTPException(status_code=400, detail="Challenge expired or invalid")
+    expected_challenge = challenge_payload["challenge"]
+    admin_email = _require_allowed_passkey_email(challenge_payload.get("email"))
     expected_origin, expected_rp_id = _webauthn_context(request)
 
     try:
@@ -360,7 +433,7 @@ def register_complete(
         credential_id=verified.credential_id,
         public_key=verified.credential_public_key,
         sign_count=verified.sign_count,
-        user_id="admin",
+        user_id=admin_email,
         aaguid=str(verified.aaguid) if verified.aaguid else "",
     )
     try:
@@ -370,8 +443,8 @@ def register_complete(
         raise HTTPException(status_code=503, detail="Passkey credential store unavailable")
 
     # Issue session immediately after registration
-    token = manager.issue_session("admin")
-    result = JSONResponse({"success": True, "registered": True})
+    token = manager.issue_session("admin", email=admin_email, auth_method="passkey")
+    result = JSONResponse({"success": True, "registered": True, "email": admin_email})
     result.delete_cookie(key="tho_passkey_register", path="/api/admin/passkey/register/complete")
     result.set_cookie(
         key=PASSKEY_COOKIE_NAME,
@@ -403,7 +476,7 @@ def login_begin(
     challenge = manager.new_challenge_bytes()
     challenge_handle = manager.wrap_challenge(challenge, flow="login")
 
-    allow_credentials = _credential_descriptors(store)
+    allow_credentials = _credential_descriptors(store, allowed_only=True)
     _, rp_id = _webauthn_context(request)
 
     option_kwargs = {
@@ -455,6 +528,11 @@ def login_complete(
         raise HTTPException(status_code=503, detail="Passkey credential store unavailable")
     if rec is None:
         raise HTTPException(status_code=400, detail="Unknown credential")
+    if not _credential_allowed(rec):
+        raise HTTPException(
+            status_code=403,
+            detail="This passkey is not tied to an approved THO admin email.",
+        )
     expected_origin, expected_rp_id = _webauthn_context(request)
 
     try:
@@ -477,8 +555,8 @@ def login_complete(
         log.warning("passkey credential usage update failed: %s", exc)
         raise HTTPException(status_code=503, detail="Passkey credential store unavailable")
 
-    token = manager.issue_session("admin")
-    result = JSONResponse({"success": True, "authenticated": True})
+    token = manager.issue_session("admin", email=rec.user_id, auth_method="passkey")
+    result = JSONResponse({"success": True, "authenticated": True, "email": rec.user_id})
     result.delete_cookie(key="tho_passkey_login", path="/api/admin/passkey/login/complete")
     result.set_cookie(
         key=PASSKEY_COOKIE_NAME,
@@ -506,15 +584,19 @@ def list_credentials(
     """List registered admin passkeys without exposing public key material."""
     _require_admin_request(request, manager)
     try:
-        rows = [_serialize_credential(rec) for rec in store.list_for_user("admin")]
+        records = store.list_all()
+        rows = [_serialize_credential(rec) for rec in records]
     except Exception as exc:
         log.warning("passkey credential list failed: %s", exc)
         raise HTTPException(status_code=503, detail="Passkey credential store unavailable")
+    authorized_count = sum(1 for rec in records if _credential_allowed(rec))
     return JSONResponse(
         {
             "success": True,
             "credentials": rows,
-            "registered_keys": len(rows),
+            "registered_keys": authorized_count,
+            "total_registered_keys": len(rows),
+            "unauthorized_keys": max(len(rows) - authorized_count, 0),
             "store_backend": _store_backend(store),
             "persistent": _store_persistent(store),
         }
@@ -533,13 +615,22 @@ def delete_credential(
     credential_id = _decode_credential_id(credential_id_b64)
     try:
         deleted = store.delete(credential_id)
-        remaining = store.count()
+        remaining_records = store.list_all()
     except Exception as exc:
         log.warning("passkey credential delete failed: %s", exc)
         raise HTTPException(status_code=503, detail="Passkey credential store unavailable")
     if not deleted:
         raise HTTPException(status_code=404, detail="Passkey credential not found")
-    return JSONResponse({"success": True, "deleted": True, "registered_keys": remaining})
+    authorized_count = sum(1 for rec in remaining_records if _credential_allowed(rec))
+    return JSONResponse(
+        {
+            "success": True,
+            "deleted": True,
+            "registered_keys": authorized_count,
+            "total_registered_keys": len(remaining_records),
+            "unauthorized_keys": max(len(remaining_records) - authorized_count, 0),
+        }
+    )
 
 
 @router.get("/status")
@@ -549,20 +640,24 @@ def passkey_status(
     """Return whether passkeys are configured and how many."""
     store_ready = True
     try:
-        count = store.count()
+        all_records = store.list_all()
     except Exception as exc:
         log.warning("passkey credential status failed: %s", exc)
-        count = 0
+        all_records = []
         store_ready = False
+    authorized_count = sum(1 for rec in all_records if _credential_allowed(rec))
     return JSONResponse(
         {
             "enabled": _HAS_WEBAUTHN,
-            "registered_keys": count,
-            "has_keys": count > 0,
+            "registered_keys": authorized_count,
+            "total_registered_keys": len(all_records),
+            "unauthorized_keys": max(len(all_records) - authorized_count, 0),
+            "has_keys": authorized_count > 0,
             "store_backend": _store_backend(store),
             "persistent": _store_persistent(store),
             "store_ready": store_ready,
             "discoverable_login": _discoverable_login_enabled(),
+            "allowed_domains": sorted(_passkey_allowed_domains()),
             "rp_id": RP_ID,
             "rp_ids": sorted(set(_origin_rp_ids().values())),
         }
@@ -571,7 +666,9 @@ def passkey_status(
 
 @router.get("/whoami")
 def whoami(user: dict = Depends(_require_passkey_user)) -> JSONResponse:
-    return JSONResponse({"user_id": user.get("user_id"), "authed": True})
+    return JSONResponse(
+        {"user_id": user.get("user_id"), "email": user.get("email"), "authed": True}
+    )
 
 
 @router.post("/logout")

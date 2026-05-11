@@ -25,7 +25,13 @@ def passkey_client():
                 public_key=b"public-key",
                 sign_count=0,
                 user_id="admin",
-            )
+            ),
+            CredentialRecord(
+                credential_id=b"credential-2",
+                public_key=b"public-key-2",
+                sign_count=0,
+                user_id="mark@texashomeoutlet.com",
+            ),
         ]
     )
     manager = SessionManager(secret_key="test-passkey-secret")
@@ -61,7 +67,7 @@ def test_login_begin_can_use_strict_allow_list_when_configured(passkey_client, m
 
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["allowCredentials"][0]["id"] == "Y3JlZGVudGlhbC0x"
+    assert body["allowCredentials"][0]["id"] == "Y3JlZGVudGlhbC0y"
     assert body["allowCredentials"][0]["type"] == "public-key"
 
 
@@ -89,14 +95,48 @@ def test_register_begin_returns_browser_json_after_admin_auth(passkey_client, mo
     client, routes = passkey_client
     monkeypatch.setattr(routes, "_request_is_admin", lambda request, manager: True)
 
-    response = client.post("/api/admin/passkey/register/begin")
+    response = client.post(
+        "/api/admin/passkey/register/begin",
+        json={"email": "Mark@TexasHomeOutlet.com"},
+    )
 
     assert response.status_code == 200, response.text
     body = response.json()
     assert body["rp"]["id"] == "sapphirealpha.xyz"
-    assert body["user"]["id"] == "dGhvLWFkbWlu"
-    assert body["excludeCredentials"][0]["id"] == "Y3JlZGVudGlhbC0x"
+    assert body["user"]["name"] == "mark@texashomeoutlet.com"
+    assert body["user"]["displayName"] == "mark@texashomeoutlet.com"
+    assert len(body["user"]["id"]) > 20
+    assert {cred["id"] for cred in body["excludeCredentials"]} == {
+        "Y3JlZGVudGlhbC0x",
+        "Y3JlZGVudGlhbC0y",
+    }
     assert "tho_passkey_register=" in response.headers["set-cookie"]
+
+
+def test_register_begin_rejects_unapproved_email_after_admin_auth(passkey_client, monkeypatch):
+    client, routes = passkey_client
+    monkeypatch.setattr(routes, "_request_is_admin", lambda request, manager: True)
+
+    response = client.post(
+        "/api/admin/passkey/register/begin",
+        json={"email": "vendor@example.com"},
+    )
+
+    assert response.status_code == 403
+    assert "texashomeoutlet.com" in response.json()["detail"]
+
+
+def test_register_begin_accepts_owner_email_after_admin_auth(passkey_client, monkeypatch):
+    client, routes = passkey_client
+    monkeypatch.setattr(routes, "_request_is_admin", lambda request, manager: True)
+
+    response = client.post(
+        "/api/admin/passkey/register/begin",
+        json={"email": "aribspector@gmail.com"},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["user"]["name"] == "aribspector@gmail.com"
 
 
 def test_register_begin_uses_sapphire_xyz_cutover_context(passkey_client, monkeypatch):
@@ -106,6 +146,7 @@ def test_register_begin_uses_sapphire_xyz_cutover_context(passkey_client, monkey
     response = client.post(
         "/api/admin/passkey/register/begin",
         headers={"Origin": "https://tho.sapphire.xyz"},
+        json={"email": "mark@texashomeoutlet.com"},
     )
 
     assert response.status_code == 200, response.text
@@ -121,11 +162,14 @@ def test_status_reports_store_persistence_contract(passkey_client):
     body = response.json()
     assert body["enabled"] is True
     assert body["registered_keys"] == 1
+    assert body["total_registered_keys"] == 2
+    assert body["unauthorized_keys"] == 1
     assert body["has_keys"] is True
     assert body["store_backend"] == "memory"
     assert body["persistent"] is False
     assert body["store_ready"] is True
     assert body["discoverable_login"] is True
+    assert body["allowed_domains"] == ["texashomeoutlet.com"]
     assert "sapphire.xyz" in body["rp_ids"]
     assert "sapphirealpha.xyz" in body["rp_ids"]
 
@@ -148,9 +192,15 @@ def test_credentials_management_lists_and_deletes_deprecated_key(passkey_client,
     body = listed.json()
     assert body["registered_keys"] == 1
     assert body["credentials"][0]["credential_id"] == "Y3JlZGVudGlhbC0x"
+    assert body["credentials"][0]["authorized"] is False
+    assert body["credentials"][1]["credential_id"] == "Y3JlZGVudGlhbC0y"
+    assert body["credentials"][1]["authorized"] is True
 
     deleted = client.delete("/api/admin/passkey/credentials/Y3JlZGVudGlhbC0x")
 
     assert deleted.status_code == 200, deleted.text
-    assert deleted.json()["registered_keys"] == 0
-    assert client.get("/api/admin/passkey/credentials").json()["credentials"] == []
+    assert deleted.json()["registered_keys"] == 1
+    assert deleted.json()["total_registered_keys"] == 1
+    assert deleted.json()["unauthorized_keys"] == 0
+    remaining = client.get("/api/admin/passkey/credentials").json()["credentials"]
+    assert [cred["credential_id"] for cred in remaining] == ["Y3JlZGVudGlhbC0y"]

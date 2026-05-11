@@ -97,6 +97,50 @@ const CAT_ICONS = {
 
 const hasValue = v => v !== undefined && v !== null && String(v).trim() !== '';
 
+const REQUIRED_FIELD_LABELS = {
+  buyer_name: 'Buyer name',
+  buyer_first_name: 'Buyer first name',
+  buyer_last_name: 'Buyer last name',
+  buyer_address: 'Installation street address',
+  buyer_city: 'Installation city',
+  buyer_county: 'Installation county',
+  buyer_state: 'Installation state',
+  buyer_zip: 'Installation ZIP',
+  manufacturer: 'Manufacturer',
+  model: 'Model name',
+  serial_number_1: 'Serial # 1',
+  serial_number_2: 'Serial # 2',
+  label_number_1: 'HUD label # 1',
+  label_number_2: 'HUD label # 2',
+  sales_price: 'Sales price',
+  down_payment: 'Down payment',
+  creditor_name: 'Creditor name',
+  creditor_address: 'Creditor address',
+  creditor_city_state_zip: 'Creditor city/state/ZIP',
+  creditor_phone: 'Creditor phone',
+};
+
+const REQUIRED_FIELD_INPUTS = {
+  buyer_name: ['buyer_first_name', 'buyer_last_name'],
+  buyer_full_address: ['buyer_address', 'buyer_city', 'buyer_state', 'buyer_zip'],
+  buyer_city_state_zip: ['buyer_city', 'buyer_state', 'buyer_zip'],
+  mailing_full_address: ['mailing_address', 'mailing_city', 'mailing_state', 'mailing_zip'],
+  mailing_city_state_zip: ['mailing_city', 'mailing_state', 'mailing_zip'],
+  manufacturer_model: ['manufacturer', 'model'],
+};
+
+const FIELD_STEP = {
+  buyer_name: 1,
+  buyer_first_name: 1,
+  buyer_last_name: 1,
+  buyer_phone: 1,
+  buyer_email: 1,
+  mailing_address: 1,
+  mailing_city: 1,
+  mailing_state: 1,
+  mailing_zip: 1,
+};
+
 const joinName = (first, last) => [first, last].filter(hasValue).map(v => String(v).trim()).join(' ') || undefined;
 
 const cityStateZip = (city, state, zip) => {
@@ -1256,6 +1300,12 @@ function Step2({ data, onChange, resetKey, inventory, inventoryLoading, onNext, 
     manufacturer: 'Manufacturer',
     model: 'Model',
     serial_number_1: 'Serial # 1',
+    buyer_address: 'Installation street address',
+    buyer_city: 'Installation city',
+    buyer_county: 'Installation county',
+    buyer_state: 'Installation state',
+    buyer_zip: 'Installation ZIP',
+    sales_price: 'Sales price',
   };
   const missingHint = Array.from(liveValidation.missing)
     .map(n => missingLabels[n])
@@ -1655,15 +1705,15 @@ function Step2({ data, onChange, resetKey, inventory, inventoryLoading, onNext, 
       {/* Installation Site */}
       <Section title="Installation Site Address" icon={MapPin}>
         <Row>
-          <Field label="Street Address" name="buyer_address" value={data.buyer_address} onChange={c} resetKey={resetKey} required icon={MapPinned} />
+          <Field label="Street Address" name="buyer_address" value={data.buyer_address} onChange={c} resetKey={resetKey} required icon={MapPinned} error={errOf('buyer_address')} />
         </Row>
         <Row>
-          <Field label="City" name="buyer_city" value={data.buyer_city} onChange={c} resetKey={resetKey} third required />
-          <Field label="County" name="buyer_county" value={data.buyer_county} onChange={c} resetKey={resetKey} third />
-          <Field label="State" name="buyer_state" value={data.buyer_state} onChange={c} resetKey={resetKey} third />
+          <Field label="City" name="buyer_city" value={data.buyer_city} onChange={c} resetKey={resetKey} third required error={errOf('buyer_city')} />
+          <Field label="County" name="buyer_county" value={data.buyer_county} onChange={c} resetKey={resetKey} third error={errOf('buyer_county')} />
+          <Field label="State" name="buyer_state" value={data.buyer_state} onChange={c} resetKey={resetKey} third error={errOf('buyer_state')} />
         </Row>
         <Row>
-          <Field label="ZIP Code" name="buyer_zip" value={data.buyer_zip} onChange={c} resetKey={resetKey} half />
+          <Field label="ZIP Code" name="buyer_zip" value={data.buyer_zip} onChange={c} resetKey={resetKey} half error={errOf('buyer_zip')} />
         </Row>
       </Section>
 
@@ -1738,7 +1788,7 @@ function Step2({ data, onChange, resetKey, inventory, inventoryLoading, onNext, 
 
 /* ─── Step 3: Select Documents ───────────────────────────── */
 
-function Step3({ templates, packets, selected, onToggle, onSelectPacket, isNew, onNext, onBack }) {
+function Step3({ templates, packets, selected, onToggle, onSelectPacket, isNew, onNext, onBack, templatesLoading, error }) {
   const [expandedCats, setExpandedCats] = useState({ TMHA: true, TDHCA: false, State: false, Internal: false });
   const [viewMode, setViewMode] = useState('packets'); // packets, individual
 
@@ -1765,6 +1815,19 @@ function Step3({ templates, packets, selected, onToggle, onSelectPacket, isNew, 
         <h2 className="text-2xl font-bold text-gray-800">Select Documents to Generate</h2>
         <p className="text-gray-600 mt-2">Choose a pre-made packet or select individual documents</p>
       </div>
+
+      {templatesLoading && (
+        <div className="flex items-center justify-center gap-3 rounded-xl border-2 border-blue-200 bg-blue-50 px-4 py-3 text-blue-700">
+          <Loader2 size={18} className="animate-spin" />
+          <span className="font-semibold">Loading document templates...</span>
+        </div>
+      )}
+
+      {error && (
+        <div className="rounded-xl border-2 border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
+          {error}
+        </div>
+      )}
 
       {/* View Toggle */}
       <div className="flex justify-center gap-2 mb-6">
@@ -1952,10 +2015,10 @@ function Step3({ templates, packets, selected, onToggle, onSelectPacket, isNew, 
         </BigButton>
         <BigButton
           onClick={onNext}
-          disabled={selected.length === 0}
+          disabled={templatesLoading || selected.length === 0}
           icon={FileText}
         >
-          Generate {selected.length} Document{selected.length !== 1 ? 's' : ''}
+          {templatesLoading ? 'Loading Templates...' : `Generate ${selected.length} Document${selected.length !== 1 ? 's' : ''}`}
         </BigButton>
       </div>
     </div>
@@ -2388,6 +2451,39 @@ function getValidationState(form, step) {
   return { errors, missing };
 }
 
+function getSelectedTemplateRequiredState(form, templates, selected) {
+  const selectedSet = new Set(selected || []);
+  const templateMap = new Map((templates || []).map(t => [t.template_name, t]));
+  const docData = toDocumentData(form);
+  const requiredByField = new Map();
+
+  selectedSet.forEach(templateName => {
+    const template = templateMap.get(templateName);
+    (template?.required_fields || []).forEach(field => {
+      if (!requiredByField.has(field)) requiredByField.set(field, []);
+      requiredByField.get(field).push(template.display_name || templateName);
+    });
+  });
+
+  const errors = [];
+  const missing = new Set();
+  let targetStep = 2;
+
+  requiredByField.forEach((documents, field) => {
+    if (hasValue(docData[field])) return;
+    const inputs = REQUIRED_FIELD_INPUTS[field] || [field];
+    inputs.forEach(input => missing.add(input));
+    const fieldStep = Math.min(...inputs.map(input => FIELD_STEP[input] || 2));
+    targetStep = Math.min(targetStep, fieldStep);
+    const label = REQUIRED_FIELD_LABELS[field] || field.replace(/_/g, ' ');
+    const sample = documents.slice(0, 2).join(', ');
+    const suffix = documents.length > 2 ? ` and ${documents.length - 2} more` : '';
+    errors.push(`${label} is required for ${sample}${suffix}`);
+  });
+
+  return { errors, missing, step: targetStep };
+}
+
 /* ─── Main Component ─────────────────────────────────────── */
 
 export default function DocumentCenter() {
@@ -2404,6 +2500,8 @@ export default function DocumentCenter() {
   const [generating, setGenerating] = useState(false);
   const [results, setResults] = useState(null);
   const [genErr, setGenErr] = useState('');
+  const [templatesLoading, setTemplatesLoading] = useState(false);
+  const [templatesError, setTemplatesError] = useState('');
   const [validationErrors, setValidationErrors] = useState([]);
   const [missingFields, setMissingFields] = useState(new Set());
   const [lastSaved, setLastSaved] = useState(null);
@@ -2466,13 +2564,24 @@ export default function DocumentCenter() {
 
   // Load initial data
   useEffect(() => {
+    setTemplatesLoading(true);
+    setTemplatesError('');
     adminFetch('/api/documents/templates')
-      .then(r => r.json())
+      .then(r => {
+        if (!r.ok) throw new Error('Document templates failed to load');
+        return r.json();
+      })
       .then(d => {
+        if (d.error) throw new Error(d.error);
         setTemplates(d.templates || []);
         setPackets(d.packets || []);
       })
-      .catch(() => { });
+      .catch((e) => {
+        setTemplates([]);
+        setPackets([]);
+        setTemplatesError(e.message || 'Document templates failed to load');
+      })
+      .finally(() => setTemplatesLoading(false));
 
     setDealsLoading(true);
     adminFetch('/api/deals?limit=100')
@@ -2695,6 +2804,24 @@ export default function DocumentCenter() {
       setGenErr('Select at least one document or packet to generate.');
       return;
     }
+    if (templatesLoading || templates.length === 0) {
+      setGenErr(templatesError || 'Document templates are still loading. Please wait a moment and try again.');
+      return;
+    }
+    const availableTemplates = new Set(templates.map(t => t.template_name));
+    const missingTemplates = selDocs.filter(name => !availableTemplates.has(name));
+    if (missingTemplates.length > 0) {
+      setGenErr(`Selected document is no longer available: ${missingTemplates.join(', ')}`);
+      return;
+    }
+    const selectedRequired = getSelectedTemplateRequiredState(form, templates, selDocs);
+    if (selectedRequired.errors.length > 0) {
+      setValidationErrors(selectedRequired.errors);
+      setMissingFields(selectedRequired.missing);
+      setStep(selectedRequired.step);
+      if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
 
     setGenerating(true);
     setGenErr('');
@@ -2862,6 +2989,8 @@ export default function DocumentCenter() {
           isNew={form.is_new}
           onNext={generate}
           onBack={() => setStep(2)}
+          templatesLoading={templatesLoading}
+          error={genErr || templatesError}
         />
       )}
 

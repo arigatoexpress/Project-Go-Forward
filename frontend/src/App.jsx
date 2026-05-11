@@ -387,6 +387,12 @@ function App() {
   const [passkeyAvailable] = useState(
     typeof window !== 'undefined' && !!window.PublicKeyCredential
   );
+  const [showPasskeyEmailModal, setShowPasskeyEmailModal] = useState(false);
+  const [passkeyEmail, setPasskeyEmail] = useState(() => {
+    if (typeof window === 'undefined') return '';
+    return window.localStorage.getItem('tho_passkey_email') || '';
+  });
+  const [passkeyEmailError, setPasskeyEmailError] = useState('');
 
   const refreshPasskeyStatus = useCallback(async () => {
     try {
@@ -453,7 +459,7 @@ function App() {
         setAdminAuthed(true); setShowPinModal(false); setPasskeyError('');
         navigateTo('analytics');
       } else {
-        setPasskeyError(data.message || data.error || 'Passkey login failed');
+        setPasskeyError(data.message || data.detail || data.error || 'Passkey login failed');
       }
     } catch (err) {
       console.warn('Passkey login error:', err);
@@ -463,11 +469,38 @@ function App() {
     }
   };
 
-  const handlePasskeyRegister = async () => {
+  const openPasskeyRegisterModal = () => {
+    if (!window.PublicKeyCredential) {
+      setPasskeyError('Passkeys not supported in this browser');
+      return;
+    }
+    if (!adminAuthed) {
+      setPasskeyError('Unlock with PIN before registering a passkey.');
+      setShowPinModal(true);
+      return;
+    }
+    setPasskeyError('');
+    setPasskeyEmailError('');
+    setShowPasskeyEmailModal(true);
+    setIsMobileMenuOpen(false);
+  };
+
+  const handlePasskeyRegister = async (emailValue) => {
     if (!window.PublicKeyCredential) { setPasskeyError('Passkeys not supported in this browser'); return; }
+    const normalizedEmail = String(emailValue || '').trim().toLowerCase();
+    if (!normalizedEmail || !normalizedEmail.includes('@')) {
+      setPasskeyEmailError('Enter the approved owner email or a @texashomeoutlet.com staff email.');
+      return;
+    }
     setPasskeyLoading(true); setPasskeyError('');
+    setPasskeyEmailError('');
     try {
-      const beginRes = await fetch('/api/admin/passkey/register/begin', { method: 'POST', credentials: 'same-origin' });
+      const beginRes = await fetch('/api/admin/passkey/register/begin', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: normalizedEmail }),
+      });
       if (!beginRes.ok) {
         const data = await beginRes.json().catch(() => ({}));
         throw new Error(data.message || data.detail || 'Unlock with PIN before registering a passkey');
@@ -501,18 +534,21 @@ function App() {
       const data = await completeRes.json();
       if (data.success) {
         setAdminAuthed(true); setShowPinModal(false); setPasskeyError('');
+        setShowPasskeyEmailModal(false);
+        setPasskeyEmail(data.email || normalizedEmail);
+        window.localStorage.setItem('tho_passkey_email', data.email || normalizedEmail);
         await refreshPasskeyStatus();
-        addToast('Passkey registered for this device.', 'success');
+        addToast('Passkey registered for this staff email.', 'success');
         navigateTo('system');
       } else {
-        setPasskeyError(data.message || data.error || 'Passkey registration failed');
+        setPasskeyEmailError(data.message || data.detail || data.error || 'Passkey registration failed');
       }
     } catch (err) {
       console.warn('Passkey register error:', err);
       const message = err.name === 'InvalidStateError'
         ? 'That passkey provider already has a THO key. Revoke the deprecated key in System Hub, then register again.'
         : err.message || 'Passkey registration failed';
-      setPasskeyError(message);
+      setPasskeyEmailError(message);
     } finally {
       setPasskeyLoading(false);
     }
@@ -552,6 +588,13 @@ function App() {
     }
   }, [activePage, adminAuthed]);
 
+  useEffect(() => {
+    if (adminAuthed) {
+      setShowPinModal(false);
+      setPinError('');
+    }
+  }, [adminAuthed]);
+
   // Listen for expired admin session (fired by adminFetch on 401)
   useEffect(() => {
     const handleExpired = () => {
@@ -590,6 +633,7 @@ function App() {
       if (e.key === 'Escape') {
         setIsMobileMenuOpen(false);
         setShowPinModal(false);
+        setShowPasskeyEmailModal(false);
       }
       
       // Ctrl/Cmd + / to show keyboard shortcuts
@@ -804,7 +848,7 @@ function App() {
           </div>
         </div>
         <h2 className="text-xl font-bold text-center text-[var(--cp-text)] mb-1 font-mono">Admin Access</h2>
-        <p className="text-xs text-[var(--cp-muted)] text-center mb-6 font-mono">Enter PIN or use passkey to unlock dashboard.</p>
+        <p className="text-xs text-[var(--cp-muted)] text-center mb-6 font-mono">Enter PIN or use an approved staff passkey.</p>
 
         <form onSubmit={handlePinSubmit}>
           <input
@@ -863,7 +907,7 @@ function App() {
                   ? 'Checking passkey enrollment...'
                   : passkeyStatus.store_ready === false
                     ? 'Passkey storage is not ready. PIN fallback remains available.'
-                    : 'No passkeys enrolled yet. Unlock with PIN, then tap the key icon to register this device.'}
+                    : 'No approved passkeys enrolled yet. Unlock with PIN, then register an owner or @texashomeoutlet.com email.'}
               </p>
             )}
           </div>
@@ -880,13 +924,91 @@ function App() {
     </div>
   );
 
+  const passkeyEmailModal = showPasskeyEmailModal && (
+    <div className="fixed inset-0 bg-black/70 z-[110] flex items-center justify-center p-4 backdrop-blur-sm" style={{ animation: 'tho-fade-in 0.15s ease' }}>
+      <div className="cp-panel p-6 sm:p-7 max-w-md w-full" style={{ animation: 'tho-slide-up 0.2s ease' }}>
+        <div className="flex items-start gap-3 mb-5">
+          <div className="p-2.5 bg-[var(--cp-accent-dim)] rounded-lg">
+            <KeyRound size={20} className="text-[var(--cp-accent)]" />
+          </div>
+          <div>
+            <h2 className="text-lg font-bold text-[var(--cp-text)] font-mono">Register Staff Passkey</h2>
+            <p className="text-xs text-[var(--cp-muted)] mt-1 leading-relaxed">
+              Passkeys are limited to Ari's approved owner email or staff accounts ending in @texashomeoutlet.com.
+            </p>
+          </div>
+        </div>
+
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            handlePasskeyRegister(passkeyEmail);
+          }}
+          className="space-y-4"
+        >
+          <label className="block">
+            <span className="text-xs font-semibold uppercase tracking-wide text-[var(--cp-muted)]">Authorized email</span>
+            <input
+              type="email"
+              autoComplete="email"
+              value={passkeyEmail}
+              onChange={(event) => {
+                setPasskeyEmail(event.target.value);
+                setPasskeyEmailError('');
+              }}
+              placeholder="name@texashomeoutlet.com"
+              className="cp-input w-full mt-1.5 px-3 py-2.5 text-sm"
+              autoFocus
+              required
+            />
+          </label>
+
+          {(passkeyEmailError || passkeyError) && (
+            <div className="text-xs text-[var(--cp-danger)] border border-[var(--cp-danger)]/25 bg-[var(--cp-danger-dim)] rounded-md px-3 py-2">
+              {passkeyEmailError || passkeyError}
+            </div>
+          )}
+
+          <div className="flex flex-col sm:flex-row gap-2 sm:justify-end">
+            <button
+              type="button"
+              onClick={() => {
+                setShowPasskeyEmailModal(false);
+                setPasskeyEmailError('');
+              }}
+              className="cp-btn-outline px-4 py-2 text-sm"
+              disabled={passkeyLoading}
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={passkeyLoading || !passkeyEmail.trim()}
+              className="cp-btn-accent px-4 py-2 text-sm flex items-center justify-center gap-2"
+            >
+              {passkeyLoading ? <Loader2 size={15} className="animate-spin" /> : <KeyRound size={15} />}
+              {passkeyLoading ? 'Registering...' : 'Register passkey'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+
+  const appModals = (
+    <>
+      {pinModal}
+      {passkeyEmailModal}
+    </>
+  );
+
   // --- Shared nav props ---
   const navProps = {
     activePage,
     navigateTo,
     adminAuthed,
     onAdminAccess: handleAdminAccess,
-    onPasskeyRegister: handlePasskeyRegister,
+    onPasskeyRegister: openPasskeyRegisterModal,
     passkeyLoading,
     isMobileMenuOpen,
     setIsMobileMenuOpen,
@@ -898,6 +1020,7 @@ function App() {
   if (activePage === 'system' && adminAuthed) {
     return (
       <div className="bg-[var(--cp-bg)] min-h-screen">
+        {appModals}
         <NavBar {...navProps} />
         <ErrorBoundary scope="system">
           <Suspense fallback={<PageLoader />}>
@@ -911,6 +1034,7 @@ function App() {
   if (activePage === 'getting-started' && adminAuthed) {
     return (
       <div className="bg-[var(--cp-bg)] min-h-screen">
+        {appModals}
         <NavBar {...navProps} />
         <ErrorBoundary scope="getting-started">
           <Suspense fallback={<PageLoader />}>
@@ -924,6 +1048,7 @@ function App() {
   if (activePage === 'analytics' && adminAuthed) {
     return (
       <div className="bg-[var(--cp-bg)] min-h-screen">
+        {appModals}
         <NavBar {...navProps} />
         <ErrorBoundary scope="analytics">
           <Suspense fallback={<PageLoader />}>
@@ -937,6 +1062,7 @@ function App() {
   if (activePage === 'crm' && adminAuthed) {
     return (
       <div className="bg-[var(--cp-bg)] min-h-screen">
+        {appModals}
         <NavBar {...navProps} />
         <ErrorBoundary scope="crm">
           <Suspense fallback={<PageLoader />}>
@@ -950,6 +1076,7 @@ function App() {
   if (activePage === 'chat-history' && adminAuthed) {
     return (
       <div className="bg-[var(--cp-bg)] min-h-screen">
+        {appModals}
         <NavBar {...navProps} />
         <ErrorBoundary scope="chat-history">
           <Suspense fallback={<PageLoader />}>
@@ -963,6 +1090,7 @@ function App() {
   if (activePage === 'documents' && adminAuthed) {
     return (
       <div className="bg-[var(--cp-bg)] min-h-screen">
+        {appModals}
         {!isStandaloneMode && <NavBar {...navProps} />}
         {isStandaloneMode && (
           <header className="bg-[var(--cp-panel)] text-[var(--cp-text)] border-b border-[var(--cp-border)] z-30 sticky top-0">
@@ -987,6 +1115,7 @@ function App() {
   if (activePage === 'adstudio' && adminAuthed) {
     return (
       <div className="bg-[var(--cp-bg)] min-h-screen">
+        {appModals}
         {!isStandaloneMode && <NavBar {...navProps} />}
         {isStandaloneMode && (
           <header className="bg-[var(--cp-panel)] text-[var(--cp-text)] border-b border-[var(--cp-border)] z-30 sticky top-0">
@@ -1011,6 +1140,7 @@ function App() {
   if (activePage === 'contact') {
     return (
       <div className="bg-[var(--cp-bg)] min-h-screen">
+        {appModals}
         <NavBar {...navProps} />
         <ErrorBoundary scope="contact">
           <Suspense fallback={<PageLoader />}>
@@ -1024,6 +1154,7 @@ function App() {
   if (activePage === 'appointments') {
     return (
       <div className="bg-[var(--cp-bg)] min-h-screen">
+        {appModals}
         <NavBar {...navProps} />
         <ErrorBoundary scope="appointments">
           <Suspense fallback={<PageLoader />}>
@@ -1037,7 +1168,7 @@ function App() {
   if (activePage === 'inventory') {
     return (
       <div className="bg-[var(--cp-bg)] min-h-screen flex flex-col">
-        {pinModal}
+        {appModals}
         <NavBar {...navProps} />
 
         <ErrorBoundary scope="inventory">
@@ -1078,7 +1209,7 @@ function App() {
   // ─── Chat Page (default) ───
   return (
     <div className="flex flex-col h-screen bg-[var(--cp-bg)] font-sans text-[var(--cp-text)]">
-      {pinModal}
+      {appModals}
       <NavBar {...navProps} showSearchFilters onApplyFilters={handleApplyFilters} onClearFilters={handleClearFilters} />
 
       {/* Main Chat Area */}
