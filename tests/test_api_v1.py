@@ -617,6 +617,15 @@ def load_app(monkeypatch, tho_api_key: str | None = "tho-secret", rate_limit_rpm
     marketing_tools_module.GENERATED_ADS_DIR = str(REPO_ROOT / "generated_ads")
     monkeypatch.setitem(sys.modules, "tools.marketing_tools", marketing_tools_module)
 
+    legacy_site_crawler_module = types.ModuleType("tools.legacy_site_crawler")
+    legacy_site_crawler_module.load_legacy_inventory_context = lambda **kwargs: {
+        "success": False,
+        "homes": [],
+        "total_inventory": 0,
+        "message": "stubbed legacy inventory unavailable",
+    }
+    monkeypatch.setitem(sys.modules, "tools.legacy_site_crawler", legacy_site_crawler_module)
+
     asset_scraper_module = types.ModuleType("tools.asset_scraper")
     asset_scraper_module.get_all_assets = lambda *args, **kwargs: []
     asset_scraper_module.get_assets_for_home = lambda *args, **kwargs: None
@@ -651,7 +660,51 @@ def create_client(monkeypatch, tho_api_key: str | None = "tho-secret", rate_limi
     return client, main, fake_db, fake_logger
 
 
-def test_marketing_inventory_context_uses_firestore_as_source_of_truth(monkeypatch):
+def test_marketing_inventory_context_prefers_legacy_site_inventory(monkeypatch):
+    client, main, _db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
+
+    monkeypatch.setattr(
+        main,
+        "load_legacy_inventory_context",
+        lambda **kwargs: {
+            "success": True,
+            "source": "legacy_site_live",
+            "homes": [
+                {
+                    "id": "43372",
+                    "legacy_inventory_id": "43372",
+                    "model_name": "Premier / Creole 3256H32447",
+                    "real_photos": ["https://example.com/creole-ext-1.jpg"],
+                    "gallery_images": ["https://example.com/creole-ext-1.jpg"],
+                    "floor_plan_url": "https://example.com/creole-floorplan.jpg",
+                    "quote_url": "https://www.texashomeoutlet.com/quote/inventory/43372/dealer/3522/",
+                }
+            ],
+            "total_inventory": 1,
+            "website_homes": 1,
+        },
+    )
+    monkeypatch.setattr(
+        main,
+        "get_inventory_for_ads",
+        lambda **kwargs: {
+            "success": True,
+            "homes": [{"id": "stale-firestore"}],
+            "total_inventory": 1,
+        },
+    )
+
+    response = client.get("/api/marketing/inventory-context")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["source"] == "legacy_site_live"
+    assert data["total_inventory"] == 1
+    assert [home["id"] for home in data["homes"]] == ["43372"]
+    assert data["homes"][0]["quote_url"].endswith("/43372/dealer/3522/")
+
+
+def test_marketing_inventory_context_falls_back_to_firestore_when_legacy_unavailable(monkeypatch):
     client, main, _db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
 
     firestore_home = {
@@ -664,6 +717,15 @@ def test_marketing_inventory_context_uses_firestore_as_source_of_truth(monkeypat
         "matterport_url": "https://my.matterport.com/show/?m=SvVRKXdXUQq&play=1",
     }
 
+    monkeypatch.setattr(
+        main,
+        "load_legacy_inventory_context",
+        lambda **kwargs: {
+            "success": False,
+            "homes": [],
+            "error": "legacy unavailable",
+        },
+    )
     monkeypatch.setattr(
         main,
         "get_inventory_for_ads",
@@ -714,6 +776,14 @@ def test_marketing_inventory_context_enriches_floorplan_only_firestore_home(monk
 
     monkeypatch.setattr(
         main,
+        "load_legacy_inventory_context",
+        lambda **kwargs: {
+            "success": False,
+            "homes": [],
+        },
+    )
+    monkeypatch.setattr(
+        main,
         "get_inventory_for_ads",
         lambda **kwargs: {
             "success": True,
@@ -740,6 +810,14 @@ def test_marketing_inventory_context_enriches_floorplan_only_firestore_home(monk
 def test_marketing_inventory_context_falls_back_to_asset_catalog_when_firestore_empty(monkeypatch):
     client, main, _db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
 
+    monkeypatch.setattr(
+        main,
+        "load_legacy_inventory_context",
+        lambda **kwargs: {
+            "success": False,
+            "homes": [],
+        },
+    )
     monkeypatch.setattr(
         main,
         "get_inventory_for_ads",

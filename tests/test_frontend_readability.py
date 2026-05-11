@@ -11,16 +11,23 @@ IMAGE_RESEARCH = ROOT / "docs/MANUFACTURER_IMAGE_SOURCES_RESEARCH.md"
 def test_inventory_hero_uses_readable_text_on_dark_photo_overlay():
     source = INVENTORY_BROWSE.read_text()
 
-    assert "Inventory Refresh Live" in source
+    assert "Legacy Site Live" in source
+    assert "Mobile Homes For Sale in Huffman, TX" in source
     assert "bg-black/45" in source
     assert "text-white/90" in source
     assert "text-white/80" in source
     assert (
         "text-[var(--cp-text-secondary)]"
-        not in source[
-            source.index("Inventory Refresh Live") : source.index("FeaturedHomeSpotlight")
-        ]
+        not in source[source.index("Legacy Site Live") : source.index("FeaturedHomeSpotlight")]
     )
+
+
+def test_inventory_cards_keep_legacy_quote_routes_visible():
+    source = INVENTORY_BROWSE.read_text()
+
+    assert "function getLegacyQuoteUrl(home)" in source
+    assert "Price Quote" in source
+    assert "quoteDetailMatch" in source
 
 
 def test_floorplan_only_home_detail_opens_floorplan_instead_of_blank_photo_panel():
