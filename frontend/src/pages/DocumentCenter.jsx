@@ -249,15 +249,15 @@ function StepBar({ step, onStepClick }) {
                   ${canNavigate ? 'cursor-pointer hover:scale-105 focus:outline-none focus:ring-4 focus:ring-blue-200' : 'cursor-default'}
                   ${isDone ? 'bg-green-500 text-white border-green-500' :
                     isActive ? 'bg-blue-600 text-white border-blue-600 ring-4 ring-blue-200' :
-                    'bg-white text-gray-400 border-gray-300'}
+                    'bg-white text-gray-600 border-gray-300'}
                 `}>
                   {isDone ? <Check size={24} /> : s.num}
                 </button>
                 <div className="mt-2 text-center hidden sm:block">
-                  <div className={`text-sm font-bold ${isActive ? 'text-blue-700' : isDone ? 'text-green-600' : 'text-gray-400'}`}>
+                  <div className={`text-sm font-bold ${isActive ? 'text-blue-700' : isDone ? 'text-green-700' : 'text-gray-600'}`}>
                     {s.label}
                   </div>
-                  <div className="text-xs text-gray-500">{s.desc}</div>
+                  <div className="text-xs font-medium text-gray-600">{s.desc}</div>
                 </div>
               </div>
               {!isLast && (
@@ -293,7 +293,7 @@ function WorkflowShortcuts({ step, onGoToStep, onStartNew }) {
               className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-bold transition-colors ${
                 canNavigate
                   ? 'border-blue-200 bg-blue-50 text-blue-700 hover:border-blue-400 hover:bg-blue-100'
-                  : 'border-gray-200 bg-gray-50 text-gray-400'
+                  : 'border-gray-300 bg-gray-50 text-gray-600'
               }`}
             >
               <Icon size={16} />

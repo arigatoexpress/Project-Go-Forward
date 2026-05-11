@@ -80,6 +80,9 @@ const PILL_BTN =
 const CHIP_INPUT =
   'px-3 py-2 rounded-md border border-[var(--cp-border)] text-sm bg-[var(--cp-bg-2)] text-[var(--cp-text)] focus:outline-none focus:border-[var(--cp-accent)] transition';
 const FLOORPLAN_TOKENS = ['floorplan', 'floor-plan', 'floor_plan', 'floor-plans', 'floor_plans', 'floor plans'];
+const PHOTO_FILENAME_TOKENS = ['bath', 'bed', 'coffee', 'exterior', 'front', 'interior', 'island', 'kitchen', 'living', 'porch', 'room', 'utility'];
+const SHORT_PHOTO_FILENAME_TOKENS = ['3d', 'ext', 'int', 'kit'];
+const UUID_FILENAME_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function getFloorplanUrls(home) {
   if (!home) return [];
@@ -90,6 +93,32 @@ function getFloorplanUrls(home) {
   ].filter(Boolean);
 }
 
+function isManufacturerFloorplanNamespace(url) {
+  try {
+    return /\/manufacturer\/[^/]+\/floorplan\/[^/]+\//i.test(new URL(url).pathname);
+  } catch {
+    return /\/manufacturer\/[^/]+\/floorplan\/[^/]+\//i.test(String(url));
+  }
+}
+
+function looksLikePhotoFilename(filename) {
+  const stem = filename.replace(/\.[a-z0-9]+$/i, '');
+  if (!stem) return false;
+  if (/^\d+$/.test(stem)) return true;
+  if (UUID_FILENAME_RE.test(stem)) return true;
+  if (/[-_]\d+$/.test(stem)) return true;
+  const parts = stem.split(/[^a-z0-9]+/).filter(Boolean);
+  if (parts.some(part => SHORT_PHOTO_FILENAME_TOKENS.includes(part))) return true;
+  return PHOTO_FILENAME_TOKENS.some(token => stem.includes(token));
+}
+
+function looksLikeBareModelFloorplan(url, filename) {
+  return isManufacturerFloorplanNamespace(url)
+    && /\.(jpe?g|png|webp)$/i.test(filename)
+    && !looksLikePhotoFilename(filename)
+    && /[a-z]/i.test(filename);
+}
+
 function isFloorplanImage(url, floorplanUrls = []) {
   if (!url) return false;
   const normalized = String(url).trim().replace(/\/$/, '');
@@ -97,7 +126,9 @@ function isFloorplanImage(url, floorplanUrls = []) {
     return true;
   }
   const filename = decodeURIComponent(String(url).split('/').pop()?.split('?')[0] || '').toLowerCase();
-  return filename.endsWith('.pdf') || FLOORPLAN_TOKENS.some(token => filename.includes(token));
+  return filename.endsWith('.pdf')
+    || FLOORPLAN_TOKENS.some(token => filename.includes(token))
+    || looksLikeBareModelFloorplan(url, filename);
 }
 
 function getListingPhotos(home) {
@@ -643,14 +674,14 @@ export default function InventoryBrowse({ adminAuthed = false, onAskTex, onCreat
         <div className="absolute inset-0 -z-10 bg-[linear-gradient(90deg,rgba(5,6,8,0.96),rgba(5,6,8,0.74),rgba(5,6,8,0.9))]" />
         <div className="mx-auto grid max-w-7xl gap-8 px-4 py-8 sm:px-6 lg:grid-cols-[1.1fr_0.9fr] lg:px-8 lg:py-10">
           <div className="flex min-h-[520px] flex-col justify-center">
-            <div className="mb-4 inline-flex w-fit items-center gap-2 rounded-md border border-[var(--cp-accent)]/30 bg-[var(--cp-accent-dim)] px-3 py-1.5 font-mono text-xs font-semibold uppercase text-[var(--cp-accent)]">
-              <span className="cp-blink h-2 w-2 rounded-full bg-[var(--cp-accent)]" />
+            <div className="mb-4 inline-flex w-fit items-center gap-2 rounded-md border border-white/30 bg-black/45 px-3 py-1.5 font-mono text-xs font-semibold uppercase text-white shadow-sm">
+              <span className="cp-blink h-2 w-2 rounded-full bg-white" />
               Inventory Refresh Live
             </div>
             <h1 className="max-w-3xl text-4xl font-extrabold leading-tight tracking-normal text-white sm:text-5xl">
               Texas Home Outlet inventory command center
             </h1>
-            <p className="mt-4 max-w-2xl text-base leading-relaxed text-[var(--cp-text-secondary)]">
+            <p className="mt-4 max-w-2xl text-base leading-relaxed text-white/90">
               Scan real photos, floorplans, availability, 3D tours, and tour requests from the refreshed THO production frontend.
             </p>
 
@@ -695,11 +726,11 @@ export default function InventoryBrowse({ adminAuthed = false, onAskTex, onCreat
                 <Phone size={18} /> Call {BUSINESS_PHONE}
               </a>
             </div>
-            <div className="mt-6 flex flex-wrap items-center gap-3 text-xs text-[var(--cp-muted)]">
+            <div className="mt-6 flex flex-wrap items-center gap-3 text-xs font-medium text-white/80">
               <span className="inline-flex items-center gap-1.5"><MapPin size={14} /> {BUSINESS_ADDRESS}, {BUSINESS_CITY}</span>
-              <span className="hidden h-1 w-1 rounded-full bg-[var(--cp-faint)] sm:inline-block" />
+              <span className="hidden h-1 w-1 rounded-full bg-white/55 sm:inline-block" />
               <span>{BUSINESS_HOURS}</span>
-              <span className="hidden h-1 w-1 rounded-full bg-[var(--cp-faint)] sm:inline-block" />
+              <span className="hidden h-1 w-1 rounded-full bg-white/55 sm:inline-block" />
               <span>{preOwnedCount} pre-owned homes visible</span>
             </div>
           </div>
@@ -1064,7 +1095,10 @@ function HomeDetailModal({
   // gallery area. State is local to the modal because the parent already
   // owns Photos<->Tour switching via showTour, and floorplan is purely a
   // detail-modal concern.
-  const [showFloorplan, setShowFloorplan] = useState(false);
+  const [showFloorplan, setShowFloorplan] = useState(() => photos.length === 0 && !!floorplan);
+  useEffect(() => {
+    setShowFloorplan(photos.length === 0 && !!floorplan);
+  }, [floorplan, home.id, home.model_name, photos.length]);
   // If the user toggles into 3D Tour, reset the floorplan view so the
   // gallery area only renders one thing at a time.
   useEffect(() => {
@@ -1090,6 +1124,7 @@ function HomeDetailModal({
       onClick={onClose}
     >
       <div
+        ref={modalRef}
         className="relative bg-white rounded-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden"
         onClick={e => e.stopPropagation()}
       >
@@ -1184,41 +1219,40 @@ function HomeDetailModal({
           <div className="bg-slate-900 px-3 py-3">
             <div className="flex gap-2 mb-3 flex-wrap">
               <button
-                className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition border-0 ${!showTour ? 'bg-blue-600 text-white' : 'bg-white/10 text-slate-400 hover:bg-white/20'}`}
-                onClick={() => { if (showTour) onToggleTour(); }}
+                className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition border-0 ${!showTour && !showFloorplan ? 'bg-blue-600 text-white' : 'bg-white/10 text-white/80 hover:bg-white/20 hover:text-white'}`}
+                onClick={() => { if (showTour) onToggleTour(); setShowFloorplan(false); }}
               >
                 <Camera size={14} /> Photos ({photos.length})
               </button>
               {hasTour && (
                 <button
-                  className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition border-0 ${showTour ? 'bg-blue-600 text-white' : 'bg-white/10 text-slate-400 hover:bg-white/20'}`}
-                  onClick={() => { if (!showTour) onToggleTour(); }}
+                  className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition border-0 ${showTour ? 'bg-blue-600 text-white' : 'bg-white/10 text-white/80 hover:bg-white/20 hover:text-white'}`}
+                  onClick={() => { setShowFloorplan(false); if (!showTour) onToggleTour(); }}
                 >
                   <Box size={14} /> 3D Tour
                 </button>
               )}
               {floorplan && (
-                <a
-                  href={floorplan}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition bg-white/10 text-slate-400 hover:bg-white/20"
+                <button
+                  type="button"
+                  className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition border-0 ${showFloorplan ? 'bg-blue-600 text-white' : 'bg-white/10 text-white/80 hover:bg-white/20 hover:text-white'}`}
+                  onClick={() => { if (showTour) onToggleTour(); setShowFloorplan(true); }}
                 >
                   <Grid3X3 size={14} /> Floor Plan
-                </a>
+                </button>
               )}
             </div>
 
-            {categoryKeys.length > 0 && !showTour && (
+            {categoryKeys.length > 0 && !showTour && !showFloorplan && (
               <div className="flex gap-2 mb-3 flex-wrap">
                 <button
-                  className={`px-3 py-1.5 rounded-md text-xs font-medium transition ${activeCategory === 'all' ? 'bg-blue-600 text-white' : 'bg-white/10 text-slate-400 hover:bg-white/20'}`}
+                  className={`px-3 py-1.5 rounded-md text-xs font-medium transition ${activeCategory === 'all' ? 'bg-blue-600 text-white' : 'bg-white/10 text-white/80 hover:bg-white/20 hover:text-white'}`}
                   onClick={() => onSetCategory('all')}
                 >All</button>
                 {categoryKeys.map(cat => (
                   <button
                     key={cat}
-                    className={`px-3 py-1.5 rounded-md text-xs font-medium transition ${activeCategory === cat ? 'bg-blue-600 text-white' : 'bg-white/10 text-slate-400 hover:bg-white/20'}`}
+                    className={`px-3 py-1.5 rounded-md text-xs font-medium transition ${activeCategory === cat ? 'bg-blue-600 text-white' : 'bg-white/10 text-white/80 hover:bg-white/20 hover:text-white'}`}
                     onClick={() => onSetCategory(cat)}
                   >
                     {cat.charAt(0).toUpperCase() + cat.slice(1)} ({categories[cat].length})
@@ -1227,7 +1261,7 @@ function HomeDetailModal({
               </div>
             )}
 
-            {!showTour && photos.length > 1 && (
+            {!showTour && !showFloorplan && photos.length > 1 && (
               <div className="flex gap-2 overflow-x-auto pb-1">
                 {photos.map((photo, idx) => (
                   <button
@@ -1434,30 +1468,33 @@ function SimilarHomes({ currentHome, allHomes, onSelectHome }) {
       </h4>
       <div className="grid gap-3"
            style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))' }}>
-        {scored.map(({ home }) => (
-          <button
-            key={home.id}
-            className="flex flex-col p-3 bg-slate-50 border-2 border-transparent rounded-xl text-left transition hover:border-blue-500 hover:bg-white hover:shadow-md"
-            onClick={() => onSelectHome(home)}
-          >
-            <div className="h-[100px] rounded-lg overflow-hidden bg-slate-200 flex items-center justify-center mb-3">
-              {home.image_url ? (
-                <img src={home.image_url} alt={home.model_name} className="w-full h-full object-cover" loading="lazy" />
-              ) : (
-                <Home size={24} className="text-gray-300" />
-              )}
-            </div>
-            <div className="font-semibold text-slate-800 text-sm leading-tight mb-1">
-              {home.model_name}
-            </div>
-            <div className="text-xs text-gray-500 mb-1">
-              {home.specs?.beds}BR · {home.specs?.baths}BA · {home.specs?.sq_ft?.toLocaleString()} sqft
-            </div>
-            <div className="font-bold text-green-600 text-sm">
-              {home.display_price || 'Call for Price'}
-            </div>
-          </button>
-        ))}
+        {scored.map(({ home }) => {
+          const image = getHomeImage(home);
+          return (
+            <button
+              key={home.id}
+              className="flex flex-col p-3 bg-slate-50 border-2 border-transparent rounded-xl text-left transition hover:border-blue-500 hover:bg-white hover:shadow-md"
+              onClick={() => onSelectHome(home)}
+            >
+              <div className="h-[100px] rounded-lg overflow-hidden bg-slate-200 flex items-center justify-center mb-3">
+                {image ? (
+                  <img src={image} alt={home.model_name} className="w-full h-full object-cover" loading="lazy" />
+                ) : (
+                  <Home size={24} className="text-gray-300" />
+                )}
+              </div>
+              <div className="font-semibold text-slate-800 text-sm leading-tight mb-1">
+                {home.model_name}
+              </div>
+              <div className="text-xs text-gray-500 mb-1">
+                {home.specs?.beds}BR · {home.specs?.baths}BA · {home.specs?.sq_ft?.toLocaleString()} sqft
+              </div>
+              <div className="font-bold text-green-600 text-sm">
+                {home.display_price || 'Call for Price'}
+              </div>
+            </button>
+          );
+        })}
       </div>
     </div>
   );
@@ -1508,6 +1545,7 @@ function LeadCaptureForm({ home, type, onClose }) {
       onClick={onClose}
     >
       <div
+        ref={modalRef}
         className="relative bg-white rounded-2xl w-full max-w-md p-6"
         onClick={e => e.stopPropagation()}
       >

@@ -17,6 +17,67 @@ After researching manufactured housing industry practices, here's what we found 
 | MHVillage | Marketplace | Medium | Scraping | Free (with limits) |
 | Direct Photography | Custom | Highest | Manual | $200-500/home |
 
+## 2026-05-11 Web Search Addendum
+
+This pass rechecked the remaining hard media gaps against public web sources
+and Drive findings. The rule remains: do not publish a photo as inventory media
+unless it is THO-owned, from THO's own dealer listing/CDN, explicitly licensed
+for reuse, or approved by the rightsholder/manufacturer for dealer use.
+
+Publicly viewable images are not automatically reusable. Generic free stock photos are also not acceptable as inventory photos because they would imply the image represents the specific home being sold.
+
+### Hard Gap Review Status
+
+| Inventory id | Model | Web/Drive findings | Production action |
+| --- | --- | --- | --- |
+| `PMtJwAUmhXRfQEJ00svk` | Mountain Delight | Web search surfaced Cavco/Mountain Delight PDFs and older scheme/reference documents, but no clean public-ready home photo gallery with reuse rights. | Needs fresh THO photos or Cavco-approved dealer media. |
+| `heritage-1672-32c` | Heritage 1672-32C | Legacy/Trove has official model pages and images for `Select Legacy S-1672-32C`; Drive also has customer/repo-named possible photos. These are review candidates only. | Do not publish until Legacy/THO confirms model identity and rights. |
+| `select-legacy-s-2468` | Select Legacy S-2468-42A | Web search found the exact THO legacy detail page `/inventory-detail/30641/.../select-legacy/`, which still hosts 17 dealer-owned photos and the existing Matterport. | Recovered from THO-owned listing source on 2026-05-11 after dry-run and backup. |
+| `the-aspen` | The Aspen (Park Model) | THO legacy site and Drive folders expose floorplan/sales PDFs, but not actual current-home photos. | Needs Park House/New Vision-approved media or fresh photos. |
+| `the-cottage` | The Cottage | Drive has an old `Pictures/Cottage` candidate folder; public search surfaced Cappaert/Cottage documents and floorplan material. | Treat as review-only until current listing identity and rights are confirmed. |
+
+### 2026-05-11 Production Cleanup
+
+- Recovered `select-legacy-s-2468` from the exact THO-owned legacy listing
+  `30641`, adding the dealer photo gallery and preserving its Matterport tour.
+- Removed the shared `de_Vaca_S64F.jpg` floorplan drawing from photo fields
+  where it had leaked into unrelated homes.
+- Reclassified bare model-name manufacturer diagrams such as `jackson.jpg` and
+  `de_Vaca_S64F.jpg` as floorplans even though their filenames do not contain
+  `floorplan`.
+- Post-cleanup public inventory readback: 44 homes total, 36 photo-ready, 1
+  limited-photo, 6 floorplan-only, and 1 missing-photo. Remaining gaps require
+  fresh THO photos or rightsholder-approved manufacturer/dealer media.
+
+### Sources Checked
+
+- THO legacy/current listing pages under `texashomeoutlet.com`.
+- THO/Legacy CloudFront CDN under `d132mt2yijm03y.cloudfront.net`.
+- Legacy/Trove dealer pages for Select Legacy and Heritage models.
+- Other public dealer listings, including Country Living Modular Homes and
+  Manufactured Housing Consultants / Mobile Homes Victoria.
+- Generic free-photo sources, including Wikimedia Commons, Pexels, and
+  Unsplash search results.
+- Google Drive media review sheets and candidate folders.
+
+### Import Policy
+
+Allowed without further approval:
+
+- THO-owned dealer inventory photos from `/dealer/3522/inventory/{id}/`.
+- Existing THO-approved manufacturer assets already present in the inventory
+  catalog or production Firestore.
+- Newly captured THO photos uploaded to the approved public media bucket/CDN.
+
+Requires approval before production use:
+
+- Manufacturer/Trove media not already in THO's catalog.
+- Another dealer's listing photos.
+- Drive folders whose names indicate a customer, repo, trade, invoice, or old
+  sale record.
+- Generic stock/Creative Commons images, unless used only as clearly labeled
+  non-inventory placeholders.
+
 ---
 
 ## Current Image Infrastructure at THO
