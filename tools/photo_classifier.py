@@ -87,7 +87,7 @@ def _looks_like_photo_filename(filename: str) -> bool:
         return True
     if UUID_FILENAME_RE.fullmatch(stem):
         return True
-    if re.search(r"[-_]\d+$", stem):
+    if re.search(r"[-_\s]\d+$", stem):
         return True
     parts = [part for part in re.split(r"[^a-z0-9]+", stem) if part]
     if any(part in SHORT_PHOTO_FILENAME_TOKENS for part in parts):

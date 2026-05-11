@@ -43,6 +43,9 @@ MFR_FLOORPLAN_DIAGRAM = (
 MFR_BARE_MODEL_FLOORPLAN = "https://d132mt2yijm03y.cloudfront.net/manufacturer/3328/floorplan/234947/jackson.jpg"  # actual floorplan — filename is only the plan/model name
 MFR_BARE_MODEL_FLOORPLAN_2 = "https://d132mt2yijm03y.cloudfront.net/manufacturer/3290/floorplan/198104/de_Vaca_S64F.jpg"  # actual floorplan — no floorplan token in filename
 MFR_ROOM_PHOTO = "https://d132mt2yijm03y.cloudfront.net/manufacturer/3335/floorplan/227313/The-Fiesta-Kit-1.jpg"  # interior photo under the manufacturer floorplan namespace
+MFR_SPACE_NUMBERED_PHOTO = (
+    "https://d132mt2yijm03y.cloudfront.net/manufacturer/3328/floorplan/234947/ELS16763D%201.jpg"
+)
 MFR_FLOORPLAN_PDF = (
     "https://d132mt2yijm03y.cloudfront.net/manufacturer/3335/floorplan/225053/" "plans.pdf"
 )  # PDF in this domain = floorplan
@@ -104,6 +107,10 @@ def test_is_floorplan_url_detects_bare_model_diagrams_under_manufacturer_namespa
 
 def test_is_floorplan_url_rejects_room_photos_under_manufacturer_namespace():
     assert is_floorplan_url(MFR_ROOM_PHOTO) is False
+
+
+def test_is_floorplan_url_rejects_space_numbered_mfr_photos():
+    assert is_floorplan_url(MFR_SPACE_NUMBERED_PHOTO) is False
 
 
 def test_is_floorplan_url_rejects_non_string():
@@ -169,6 +176,18 @@ def test_reorder_mfr_namespace_photos_become_hero():
     assert result["image_url"] == MFR_NAMESPACE_PHOTO
     assert result["floorplan_url"] == MFR_FLOORPLAN_DIAGRAM
     assert result["real_photos"] == [MFR_NAMESPACE_PHOTO]
+
+
+def test_reorder_space_numbered_mfr_gallery_photos_become_hero():
+    result = reorder_for_listing(
+        [MFR_BARE_MODEL_FLOORPLAN, MFR_SPACE_NUMBERED_PHOTO],
+        current_image_url=MFR_BARE_MODEL_FLOORPLAN,
+    )
+
+    assert result["image_url"] == MFR_SPACE_NUMBERED_PHOTO
+    assert result["real_photos"] == [MFR_SPACE_NUMBERED_PHOTO]
+    assert result["floorplan_url"] == MFR_BARE_MODEL_FLOORPLAN
+    assert result["media_quality"]["status"] == "limited_photos"
 
 
 def test_reorder_bare_model_floorplan_diagram_does_not_become_hero():

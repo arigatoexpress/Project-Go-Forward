@@ -42,6 +42,8 @@ def test_floorplan_only_home_detail_opens_floorplan_instead_of_blank_photo_panel
     assert "ref={modalRef}" in source
     assert "looksLikeBareModelFloorplan(url, filename)" in source
     assert "looksLikeBareModelFloorplan(url, filename)" in card_source
+    assert r"/[-_\s]\d+$/.test(stem)" in source
+    assert r"/[-_\s]\d+$/.test(stem)" in card_source
 
 
 def test_home_status_badges_avoid_white_on_mid_tone_green_or_amber():
