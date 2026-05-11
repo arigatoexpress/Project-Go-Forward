@@ -25,13 +25,15 @@ CDN organizes every asset for a floorplan-model under
 NAMESPACE for the model, not a content classifier. The first photo in
 that folder (e.g. ``S-1672-32B-1.jpg``) is typically an exterior
 shot. The actual floorplan diagram lives alongside it as
-``floor-plans.jpg``, ``floorplan.pdf``, etc.
+``floor-plans.jpg``, ``floorplan.pdf``, or sometimes a bare model/plan
+filename such as ``jackson.jpg``.
 """
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable
-from urllib.parse import unquote
+from urllib.parse import unquote, urlparse
 
 # Filename tokens that mark an actual floorplan diagram (not just any
 # asset under a model's CDN namespace). Case-insensitive substring on
@@ -47,6 +49,68 @@ FLOORPLAN_FILENAME_TOKENS: tuple[str, ...] = (
 # File extensions that almost always indicate a floorplan diagram in
 # this domain (home listings).
 FLOORPLAN_FILE_EXTS: tuple[str, ...] = (".pdf",)
+MANUFACTURER_FLOORPLAN_NAMESPACE_RE = re.compile(
+    r"/manufacturer/[^/]+/floorplan/[^/]+/",
+    re.IGNORECASE,
+)
+PHOTO_FILENAME_TOKENS: tuple[str, ...] = (
+    "bath",
+    "bed",
+    "coffee",
+    "exterior",
+    "front",
+    "interior",
+    "island",
+    "kitchen",
+    "living",
+    "porch",
+    "room",
+    "utility",
+)
+SHORT_PHOTO_FILENAME_TOKENS: tuple[str, ...] = ("3d", "ext", "int", "kit")
+UUID_FILENAME_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    re.IGNORECASE,
+)
+
+
+def _is_manufacturer_floorplan_namespace(url: str) -> bool:
+    path = urlparse(url).path
+    return bool(MANUFACTURER_FLOORPLAN_NAMESPACE_RE.search(path))
+
+
+def _looks_like_photo_filename(filename: str) -> bool:
+    stem = filename.rsplit(".", 1)[0]
+    if not stem:
+        return False
+    if stem.isdigit():
+        return True
+    if UUID_FILENAME_RE.fullmatch(stem):
+        return True
+    if re.search(r"[-_]\d+$", stem):
+        return True
+    parts = [part for part in re.split(r"[^a-z0-9]+", stem) if part]
+    if any(part in SHORT_PHOTO_FILENAME_TOKENS for part in parts):
+        return True
+    return any(token in stem for token in PHOTO_FILENAME_TOKENS)
+
+
+def _looks_like_bare_model_floorplan(url: str, filename: str) -> bool:
+    """Detect plan diagrams whose filename is just the model/plan name.
+
+    Manufacturer CDN URLs are stored under a ``/floorplan/{plan_id}/``
+    namespace even when they are photos, so the path alone is not enough.
+    But the plan diagram itself often has a bare model filename such as
+    ``jackson.jpg`` or ``de_Vaca_S64F.jpg`` while actual photos are named
+    ``1.jpg``, ``Kit-1.jpg``, ``S-1672-32B-1.jpg``, UUIDs, or room names.
+    """
+    if not _is_manufacturer_floorplan_namespace(url):
+        return False
+    if not filename.lower().endswith((".jpg", ".jpeg", ".png", ".webp")):
+        return False
+    if _looks_like_photo_filename(filename):
+        return False
+    return any(char.isalpha() for char in filename)
 
 
 def is_floorplan_url(url: str | None) -> bool:
@@ -66,7 +130,9 @@ def is_floorplan_url(url: str | None) -> bool:
     filename = unquote(lowered.rsplit("/", 1)[-1].split("?", 1)[0])
     if filename.endswith(FLOORPLAN_FILE_EXTS):
         return True
-    return any(token in filename for token in FLOORPLAN_FILENAME_TOKENS)
+    if any(token in filename for token in FLOORPLAN_FILENAME_TOKENS):
+        return True
+    return _looks_like_bare_model_floorplan(url, filename)
 
 
 def _normalize_url(value: str | None) -> str:

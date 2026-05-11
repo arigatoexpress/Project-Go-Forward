@@ -84,6 +84,35 @@ function GalleryModal({
 }
 
 const FLOORPLAN_TOKENS = ['floorplan', 'floor-plan', 'floor_plan', 'floor-plans', 'floor_plans', 'floor plans'];
+const PHOTO_FILENAME_TOKENS = ['bath', 'bed', 'coffee', 'exterior', 'front', 'interior', 'island', 'kitchen', 'living', 'porch', 'room', 'utility'];
+const SHORT_PHOTO_FILENAME_TOKENS = ['3d', 'ext', 'int', 'kit'];
+const UUID_FILENAME_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function isManufacturerFloorplanNamespace(url) {
+    try {
+        return /\/manufacturer\/[^/]+\/floorplan\/[^/]+\//i.test(new URL(url).pathname);
+    } catch {
+        return /\/manufacturer\/[^/]+\/floorplan\/[^/]+\//i.test(String(url));
+    }
+}
+
+function looksLikePhotoFilename(filename) {
+    const stem = filename.replace(/\.[a-z0-9]+$/i, '');
+    if (!stem) return false;
+    if (/^\d+$/.test(stem)) return true;
+    if (UUID_FILENAME_RE.test(stem)) return true;
+    if (/[-_]\d+$/.test(stem)) return true;
+    const parts = stem.split(/[^a-z0-9]+/).filter(Boolean);
+    if (parts.some(part => SHORT_PHOTO_FILENAME_TOKENS.includes(part))) return true;
+    return PHOTO_FILENAME_TOKENS.some(token => stem.includes(token));
+}
+
+function looksLikeBareModelFloorplan(url, filename) {
+    return isManufacturerFloorplanNamespace(url)
+        && /\.(jpe?g|png|webp)$/i.test(filename)
+        && !looksLikePhotoFilename(filename)
+        && /[a-z]/i.test(filename);
+}
 
 function isFloorplanImage(url, floorplanUrls = []) {
     if (!url) return false;
@@ -92,7 +121,9 @@ function isFloorplanImage(url, floorplanUrls = []) {
         return true;
     }
     const filename = decodeURIComponent(String(url).split('/').pop()?.split('?')[0] || '').toLowerCase();
-    return filename.endsWith('.pdf') || FLOORPLAN_TOKENS.some(token => filename.includes(token));
+    return filename.endsWith('.pdf')
+        || FLOORPLAN_TOKENS.some(token => filename.includes(token))
+        || looksLikeBareModelFloorplan(url, filename);
 }
 
 const PropertyCard = ({ property, onToggleCompare, isSelected }) => {

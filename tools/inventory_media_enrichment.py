@@ -81,6 +81,15 @@ CLEARABLE_MEDIA_FIELDS = {
     "real_photos",
     "image_categories",
 }
+KNOWN_DETAIL_URLS_BY_DOC_ID = {
+    # The public inventory index no longer lists this older THO detail page,
+    # but the page still hosts the exact dealer-owned photo gallery for the
+    # production Firestore slug.
+    "select-legacy-s-2468": (
+        "https://www.texashomeoutlet.com/inventory-detail/30641/"
+        "texas-home-outlet/huffman/select-legacy/"
+    ),
+}
 
 
 @dataclass
@@ -280,6 +289,43 @@ def scrape_detail_media(raw_homes: list[dict[str, Any]]) -> dict[str, DetailMedi
     return media
 
 
+def _listing_id_from_detail_url(detail_url: str) -> str:
+    match = re.search(r"/inventory-detail/([^/]+)/", detail_url)
+    return match.group(1) if match else ""
+
+
+def scrape_known_detail_media(detail_urls_by_doc_id: dict[str, str]) -> dict[str, DetailMedia]:
+    session = requests.Session()
+    session.headers.update(
+        {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"}
+    )
+    media: dict[str, DetailMedia] = {}
+    for doc_id, detail_url in detail_urls_by_doc_id.items():
+        listing_id = _listing_id_from_detail_url(detail_url)
+        if not doc_id or not listing_id:
+            continue
+        try:
+            response = session.get(detail_url, timeout=20)
+            response.raise_for_status()
+            media[doc_id] = extract_detail_media(response.text, listing_id, response.url)
+            LOG.info(
+                "scraped known detail media doc_id=%s listing_id=%s photos=%d floorplan=%s matterport=%s",
+                doc_id,
+                listing_id,
+                len(media[doc_id].photos),
+                bool(media[doc_id].floorplan_url),
+                bool(media[doc_id].matterport_id),
+            )
+        except Exception as exc:
+            LOG.warning(
+                "failed known detail scrape doc_id=%s url=%s error=%s",
+                doc_id,
+                detail_url,
+                exc,
+            )
+    return media
+
+
 def _detail_media_by_model(
     raw_homes: list[dict[str, Any]],
     detail_media: dict[str, DetailMedia],
@@ -445,6 +491,7 @@ def run(
     output_dir: Path,
     apply: bool,
     only_ids: set[str] | None = None,
+    detail_urls_by_doc_id: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     mode = "APPLY" if apply else "DRY_RUN"
     timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
@@ -453,6 +500,14 @@ def run(
     LOG.info("scraping public inventory cards")
     raw_homes = InventorySync(dry_run=True).scrape_website_inventory()
     detail_media = scrape_detail_media(raw_homes)
+    known_detail_urls = dict(KNOWN_DETAIL_URLS_BY_DOC_ID)
+    if detail_urls_by_doc_id:
+        known_detail_urls.update(detail_urls_by_doc_id)
+    if only_ids:
+        known_detail_urls = {
+            doc_id: url for doc_id, url in known_detail_urls.items() if doc_id in only_ids
+        }
+    detail_media.update(scrape_known_detail_media(known_detail_urls))
     detail_by_model = _detail_media_by_model(raw_homes, detail_media)
 
     client = firestore.Client(project=project)
@@ -554,6 +609,13 @@ def main(argv: list[str] | None = None) -> int:
         default=[],
         help="Limit the plan/apply pass to one Firestore inventory document id; repeatable.",
     )
+    parser.add_argument(
+        "--detail-url",
+        action="append",
+        default=[],
+        metavar="DOC_ID=URL",
+        help="Add a known THO detail page for a Firestore inventory document id; repeatable.",
+    )
     parser.add_argument("-v", "--verbose", action="count", default=0)
     args = parser.parse_args(argv)
 
@@ -566,11 +628,23 @@ def main(argv: list[str] | None = None) -> int:
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
+    detail_urls_by_doc_id = {}
+    for raw in args.detail_url:
+        if "=" not in raw:
+            parser.error("--detail-url must be in DOC_ID=URL form.")
+        doc_id, url = raw.split("=", 1)
+        doc_id = doc_id.strip()
+        url = url.strip()
+        if not doc_id or not url:
+            parser.error("--detail-url must include both DOC_ID and URL.")
+        detail_urls_by_doc_id[doc_id] = url
+
     summary = run(
         project=args.project,
         output_dir=args.output_dir,
         apply=args.apply,
         only_ids=set(args.only_id) if args.only_id else None,
+        detail_urls_by_doc_id=detail_urls_by_doc_id,
     )
     print(json.dumps(summary, indent=2))
     return 0

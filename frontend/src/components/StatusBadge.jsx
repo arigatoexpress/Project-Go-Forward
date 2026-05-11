@@ -40,9 +40,9 @@ const SESSION_STATUS_CLASSES = {
 };
 
 const HOME_STATUS_CLASSES = {
-  Available: 'bg-green-500 text-white',
-  'Pre-Owned': 'bg-amber-500 text-white',
-  New: 'bg-green-500 text-white', // Alias for Available
+  Available: 'bg-green-100 text-green-900 border border-green-300',
+  'Pre-Owned': 'bg-amber-100 text-amber-950 border border-amber-300',
+  New: 'bg-green-100 text-green-900 border border-green-300', // Alias for Available
 };
 
 const SIZE_CLASSES = {

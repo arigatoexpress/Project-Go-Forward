@@ -1,6 +1,8 @@
 from tools.inventory_media_enrichment import (
+    KNOWN_DETAIL_URLS_BY_DOC_ID,
     DetailMedia,
     _detail_media_by_model,
+    _listing_id_from_detail_url,
     _prune_timestamp_only_update,
     _select_detail_media,
     build_update,
@@ -82,6 +84,13 @@ def test_select_detail_media_matches_unique_legacy_model_name():
     )
 
     assert selected == detail
+
+
+def test_known_detail_url_maps_select_legacy_slug_to_legacy_listing():
+    url = KNOWN_DETAIL_URLS_BY_DOC_ID["select-legacy-s-2468"]
+
+    assert _listing_id_from_detail_url(url) == "30641"
+    assert "/inventory-detail/30641/" in url
 
 
 def test_prune_timestamp_only_update_skips_broad_firestore_churn():
