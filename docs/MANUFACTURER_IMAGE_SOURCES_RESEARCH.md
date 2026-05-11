@@ -49,6 +49,28 @@ Publicly viewable images are not automatically reusable. Generic free stock phot
   limited-photo, 6 floorplan-only, and 1 missing-photo. Remaining gaps require
   fresh THO photos or rightsholder-approved manufacturer/dealer media.
 
+### 2026-05-11 Legacy Site Parity Run
+
+The public inventory route now prefers a cached scrape of THO's active legacy
+WordPress/MFH inventory before falling back to Firestore/static seed data. This
+keeps the client-facing browse page aligned with `texashomeoutlet.com` instead
+of showing stale or duplicate seed listings.
+
+Latest legacy-site manifest:
+
+- Source: `https://www.texashomeoutlet.com/inventory/`
+- Listings found: 19
+- Media status: 15 photo-ready, 4 floorplan-only, 0 missing-photo
+- Matterport tours: 7
+- Snapshot/audit files: `data/legacy_site/legacy_inventory_context.json`,
+  `data/legacy_site/inventory_manifest.csv`, and
+  `data/legacy_site/legacy_site_asset_report.md`
+
+Remaining floorplan-only legacy listings are `28102`, `42156`, `43942`, and
+`28527`. Do not fill those with generic free pictures. They need fresh THO lot
+photos, existing THO dealer-gallery uploads, or explicit manufacturer/dealer
+approval for the exact model/listing media.
+
 ### Sources Checked
 
 - THO legacy/current listing pages under `texashomeoutlet.com`.

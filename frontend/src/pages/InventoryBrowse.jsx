@@ -154,6 +154,10 @@ function displayPrice(home) {
     : 'Call for Price';
 }
 
+function getLegacyQuoteUrl(home) {
+  return home?.quote_url || home?.legacy_actions?.quote_url || '';
+}
+
 const LEGACY_INVENTORY_ALIASES = {
   // The legacy WordPress site exposes The Nassau as inventory id 42155, while
   // the current production seed uses a local id for the same public home.
@@ -168,8 +172,10 @@ function getLegacyInventoryIntent(pathname) {
   const path = String(pathname || '');
   const detailMatch = path.match(/\/inventory-detail\/(\d+)/i);
   if (detailMatch) return { id: detailMatch[1], intent: 'detail' };
-  const quoteMatch = path.match(/\/quote\/inventory\/\d+\/(\d+)/i);
-  if (quoteMatch) return { id: quoteMatch[1], intent: 'quote' };
+  const quoteCardMatch = path.match(/\/quote\/inventory\/\d+\/(\d+)/i);
+  if (quoteCardMatch) return { id: quoteCardMatch[1], intent: 'quote' };
+  const quoteDetailMatch = path.match(/\/quote\/inventory\/(\d+)\/dealer\/\d+/i);
+  if (quoteDetailMatch) return { id: quoteDetailMatch[1], intent: 'quote' };
   return null;
 }
 
@@ -210,6 +216,7 @@ function FeaturedHomeSpotlight({ home, onClick, onScheduleTour }) {
   if (!home) return null;
   const specs = home.specs || {};
   const image = getHomeImage(home);
+  const quoteUrl = getLegacyQuoteUrl(home);
   return (
     <div className="overflow-hidden rounded-lg border border-[var(--cp-border-light)] bg-[var(--cp-panel)] shadow-[0_20px_60px_rgba(0,0,0,0.35)]">
       <button
@@ -269,14 +276,26 @@ function FeaturedHomeSpotlight({ home, onClick, onScheduleTour }) {
             <Eye size={15} />
             Details
           </button>
-          <button
-            type="button"
-            onClick={onScheduleTour}
-            className="inline-flex items-center justify-center gap-2 rounded-md bg-[var(--cp-accent)] px-3 py-2 text-sm font-semibold text-[var(--cp-bg)] transition hover:bg-[var(--cp-accent-hot)]"
-          >
-            <Calendar size={15} />
-            Tour
-          </button>
+          {quoteUrl ? (
+            <a
+              href={quoteUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center justify-center gap-2 rounded-md bg-[var(--cp-accent)] px-3 py-2 text-sm font-semibold text-[var(--cp-bg)] no-underline transition hover:bg-[var(--cp-accent-hot)]"
+            >
+              <DollarSign size={15} />
+              Quote
+            </a>
+          ) : (
+            <button
+              type="button"
+              onClick={onScheduleTour}
+              className="inline-flex items-center justify-center gap-2 rounded-md bg-[var(--cp-accent)] px-3 py-2 text-sm font-semibold text-[var(--cp-bg)] transition hover:bg-[var(--cp-accent-hot)]"
+            >
+              <Calendar size={15} />
+              Tour
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -676,17 +695,17 @@ export default function InventoryBrowse({ adminAuthed = false, onAskTex, onCreat
           <div className="flex min-h-[520px] flex-col justify-center">
             <div className="mb-4 inline-flex w-fit items-center gap-2 rounded-md border border-white/30 bg-black/45 px-3 py-1.5 font-mono text-xs font-semibold uppercase text-white shadow-sm">
               <span className="cp-blink h-2 w-2 rounded-full bg-white" />
-              Inventory Refresh Live
+              Legacy Site Live
             </div>
             <h1 className="max-w-3xl text-4xl font-extrabold leading-tight tracking-normal text-white sm:text-5xl">
-              Texas Home Outlet inventory command center
+              Mobile Homes For Sale in Huffman, TX
             </h1>
             <p className="mt-4 max-w-2xl text-base leading-relaxed text-white/90">
-              Scan real photos, floorplans, availability, 3D tours, and tour requests from the refreshed THO production frontend.
+              Pulled from the active texashomeoutlet.com inventory with listing photos, floorplans, 3D tours, and the legacy price quote flow intact.
             </p>
 
             <div className="mt-6 grid gap-3 sm:grid-cols-3">
-              <InventoryMetric icon={Home} label="Homes" value={homes.length} />
+              <InventoryMetric icon={Home} label="Legacy Listings" value={homes.length} />
               <InventoryMetric icon={CheckCircle2} label="Available" value={newCount} tone="blue" />
               <InventoryMetric icon={Box} label="3D Tours" value={tourCount} tone="warn" />
             </div>
@@ -954,6 +973,7 @@ function HomeCard({ home, onClick, onScheduleTour }) {
   const hasTour = !!home.matterport_id;
   const specs = home.specs || {};
   const categories = home.image_categories || {};
+  const quoteUrl = getLegacyQuoteUrl(home);
 
   return (
     <Card padded={false} hover className="group !bg-[var(--cp-panel)] !border-[var(--cp-border)]">
@@ -1059,12 +1079,23 @@ function HomeCard({ home, onClick, onScheduleTour }) {
           >
             <Eye size={16} /> View Details
           </button>
-          <button
-            className="flex-1 inline-flex items-center justify-center gap-1.5 py-2.5 rounded-md text-sm font-medium bg-[var(--cp-accent)] text-[var(--cp-bg)] hover:bg-[var(--cp-accent-hot)] transition"
-            onClick={(e) => { e.stopPropagation(); onScheduleTour(); }}
-          >
-            <Calendar size={16} /> Schedule Tour
-          </button>
+          {quoteUrl ? (
+            <a
+              href={quoteUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-md bg-[var(--cp-accent)] py-2.5 text-sm font-medium text-[var(--cp-bg)] no-underline transition hover:bg-[var(--cp-accent-hot)]"
+            >
+              <DollarSign size={16} /> Price Quote
+            </a>
+          ) : (
+            <button
+              className="flex-1 inline-flex items-center justify-center gap-1.5 py-2.5 rounded-md text-sm font-medium bg-[var(--cp-accent)] text-[var(--cp-bg)] hover:bg-[var(--cp-accent-hot)] transition"
+              onClick={(e) => { e.stopPropagation(); onScheduleTour(); }}
+            >
+              <Calendar size={16} /> Schedule Tour
+            </button>
+          )}
         </div>
       </div>
     </Card>
@@ -1087,6 +1118,7 @@ function HomeDetailModal({
   // legacy `floor_plan_url` spelling for older Firestore docs.
   const floorplan = home.floorplan_url || home.floor_plan_url || '';
   const isCallForPrice = !home.display_price || home.display_price === 'Call for Price';
+  const quoteUrl = getLegacyQuoteUrl(home);
 
   const modalRef = useRef(null);
   useFocusTrap(modalRef);
@@ -1324,7 +1356,16 @@ function HomeDetailModal({
             <span className="text-3xl font-bold text-green-600">
               {!isCallForPrice ? home.display_price : 'Call for Price'}
             </span>
-            {isCallForPrice && (
+            {isCallForPrice && quoteUrl ? (
+              <a
+                href={quoteUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 rounded-lg bg-amber-500 px-4 py-2.5 font-medium text-white no-underline transition hover:bg-amber-600"
+              >
+                <DollarSign size={16} /> Get Price Quote
+              </a>
+            ) : isCallForPrice && (
               <button
                 className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg font-medium text-white bg-amber-500 hover:bg-amber-600 transition"
                 onClick={onGetPrice}
@@ -1367,6 +1408,16 @@ function HomeDetailModal({
             >
               <Calendar size={18} /> Schedule a Tour
             </button>
+            {quoteUrl && (
+              <a
+                href={quoteUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex-1 inline-flex items-center justify-center gap-2 rounded-lg bg-[var(--cp-accent)] py-3.5 text-sm font-semibold text-[var(--cp-bg)] no-underline transition hover:bg-[var(--cp-accent-hot)]"
+              >
+                <DollarSign size={18} /> Price Quote
+              </a>
+            )}
           </div>
 
           <div className="flex gap-3 mb-4 flex-col sm:flex-row">

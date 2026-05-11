@@ -2989,6 +2989,7 @@ async def docuseal_webhook(request: Request):
 
 # ─── Marketing API (Tex's Ad Studio) ───
 from tools.asset_scraper import PROPERTY_ASSETS, get_matterport_url
+from tools.legacy_site_crawler import load_legacy_inventory_context
 from tools.marketing_tools import (
     GENERATED_ADS_DIR,
     analyze_content_performance,
@@ -3240,10 +3241,23 @@ async def download_generated_video(filename: str):
 async def api_inventory_context(request: Request):
     """Get inventory highlights for ad creation and the public browse page."""
     try:
+        # Public browse/Ad Studio should mirror the customer's active legacy
+        # inventory, not stale Firestore/static seed rows. The crawler is
+        # cached and Firestore-free; if the public site is unavailable, the
+        # old Firestore/asset path below remains a graceful fallback.
+        legacy_result = load_legacy_inventory_context(limit=100)
+        if legacy_result.get("success") and legacy_result.get("homes"):
+            return legacy_result
+        if legacy_result.get("error"):
+            struct_logger.warning(
+                "Legacy inventory context unavailable",
+                error=legacy_result.get("error"),
+            )
+
         from tools.asset_scraper import get_assets_for_home
 
-        # Firestore is the live source of truth. Website assets are enrichment
-        # and fallback only; they should not create stale duplicate listings.
+        # Fallback for local/offline operation and legacy admin data. This path
+        # should not win when the public legacy site can be read successfully.
         result = get_inventory_for_ads(limit=100)
         firestore_homes = result.get("homes", [])
 
