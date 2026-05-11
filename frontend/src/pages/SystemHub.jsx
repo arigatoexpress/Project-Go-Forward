@@ -3,7 +3,7 @@ import {
   Activity, Shield, Server, Cpu, Globe, Zap, Lock,
   ExternalLink, ChevronRight, AlertTriangle,
   CheckCircle2, XCircle, Loader2, Layers,
-  KeyRound, FileText, Trash2, RefreshCw, Fingerprint
+  KeyRound, FileText, Trash2, RefreshCw, Fingerprint, Terminal
 } from 'lucide-react';
 import adminFetch from '../adminFetch';
 
@@ -347,7 +347,9 @@ export default function SystemHub({ onBack }) {
         {/* Quick Stats */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <QuickStat label="Passkeys" value={passkeyStatus?.registered_keys ?? '—'}
-            sub={passkeyStatus?.has_keys ? 'Registered' : 'None — add in settings'}
+            sub={passkeyStatus
+              ? `${passkeyStatus.total_registered_keys ?? 0} stored / ${passkeyStatus.unauthorized_keys ?? 0} deprecated`
+              : 'Checking registration'}
             icon={KeyRound} accent="blue" />
           <QuickStat label="Cloud Run" value={health?.version ? 'Warm' : '—'}
             sub={health?.version || 'unknown'}
@@ -420,7 +422,7 @@ export default function SystemHub({ onBack }) {
                 </button>
               </div>
               <p className="text-xs text-[var(--cp-muted)] leading-relaxed mb-3">
-                Sign in with the PIN once, revoke any deprecated Proton Pass or lost-device key, then register a fresh passkey from the key button in the top navigation.
+                Sign in with the PIN once, revoke deprecated or lost-device keys, then register a fresh passkey for Ari or a @texashomeoutlet.com staff email from the key button in the top navigation.
               </p>
               {passkeyError && (
                 <div className="text-xs text-[var(--cp-danger)] border border-[var(--cp-danger)]/25 bg-[var(--cp-danger-dim)] rounded-md px-3 py-2 mb-3">
@@ -438,6 +440,21 @@ export default function SystemHub({ onBack }) {
                       <div className="min-w-0">
                         <div className="font-mono text-xs text-[var(--cp-text)] truncate">
                           {cred.credential_id.slice(0, 12)}...{cred.credential_id.slice(-6)}
+                        </div>
+                        <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                          <span className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+                            cred.authorized
+                              ? 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/20'
+                              : 'bg-amber-500/10 text-amber-300 border border-amber-500/20'
+                          }`}>
+                            {cred.authorized ? <CheckCircle2 size={10} /> : <AlertTriangle size={10} />}
+                            {cred.authorized ? 'Authorized' : 'Deprecated'}
+                          </span>
+                          {cred.user_id && (
+                            <span className="text-[10px] text-[var(--cp-muted)] truncate max-w-[180px]">
+                              {cred.user_id}
+                            </span>
+                          )}
                         </div>
                         <div className="text-[10px] text-[var(--cp-faint)] mt-1">
                           Added {cred.created_at ? new Date(cred.created_at).toLocaleDateString() : 'unknown'}

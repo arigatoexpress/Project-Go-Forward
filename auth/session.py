@@ -73,12 +73,12 @@ class SessionManager:
     def new_challenge_bytes() -> bytes:
         return secrets.token_bytes(32)
 
-    def wrap_challenge(self, challenge: bytes, *, flow: str) -> str:
+    def wrap_challenge(self, challenge: bytes, *, flow: str, **extra: Any) -> str:
         return self._challenge_serializer.dumps(
-            {"challenge_b64": _b64url_encode(challenge), "flow": flow}
+            {"challenge_b64": _b64url_encode(challenge), "flow": flow, **extra}
         )
 
-    def unwrap_challenge(self, handle: str | None, *, flow: str) -> bytes | None:
+    def unwrap_challenge_payload(self, handle: str | None, *, flow: str) -> dict | None:
         if not handle:
             return None
         try:
@@ -90,6 +90,15 @@ class SessionManager:
         if payload.get("flow") != flow:
             return None
         try:
-            return _b64url_decode(payload["challenge_b64"])
+            payload = dict(payload)
+            payload["challenge"] = _b64url_decode(payload["challenge_b64"])
+            return payload
         except Exception:
             return None
+
+    def unwrap_challenge(self, handle: str | None, *, flow: str) -> bytes | None:
+        payload = self.unwrap_challenge_payload(handle, flow=flow)
+        if not payload:
+            return None
+        challenge = payload.get("challenge")
+        return challenge if isinstance(challenge, bytes) else None

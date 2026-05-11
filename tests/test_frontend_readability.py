@@ -1,8 +1,10 @@
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+APP = ROOT / "frontend/src/App.jsx"
 INVENTORY_BROWSE = ROOT / "frontend/src/pages/InventoryBrowse.jsx"
 DOCUMENT_CENTER = ROOT / "frontend/src/pages/DocumentCenter.jsx"
+SYSTEM_HUB = ROOT / "frontend/src/pages/SystemHub.jsx"
 STATUS_BADGE = ROOT / "frontend/src/components/StatusBadge.jsx"
 PROPERTY_CARD = ROOT / "frontend/src/components/PropertyCard.jsx"
 IMAGE_RESEARCH = ROOT / "docs/MANUFACTURER_IMAGE_SOURCES_RESEARCH.md"
@@ -57,6 +59,22 @@ def test_document_center_inactive_navigation_remains_readable():
     assert "'bg-white text-gray-600 border-gray-300'" in source
     assert "'border-gray-300 bg-gray-50 text-gray-600'" in source
     assert "text-xs font-medium text-gray-600" in source
+
+
+def test_admin_cookie_verification_closes_pin_overlay_on_admin_routes():
+    source = APP.read_text()
+
+    assert "if (adminAuthed)" in source
+    assert "setShowPinModal(false)" in source
+    assert "setPinError('')" in source
+
+
+def test_system_hub_imports_terminal_icon_it_renders():
+    source = SYSTEM_HUB.read_text()
+    import_block = source[source.index("import {") : source.index("} from 'lucide-react';")]
+
+    assert "Terminal" in import_block
+    assert "<Terminal" in source
 
 
 def test_web_media_source_policy_blocks_unapproved_free_image_imports():
