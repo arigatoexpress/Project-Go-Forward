@@ -883,11 +883,50 @@ async def _execute_agent_run(runner, user_id, session_id, new_message, request_i
         struct_logger.warning("No text generated", request_id=request_id, event_count=event_count)
         final_text = "I apologize, but I couldn't generate a response. Please try again."
 
-    return final_text, event_count
+# --- Rate Limiting for Chat API ---
+CHAT_RATE_LIMIT_SECONDS = 60
+CHAT_RATE_LIMIT_MAX_REQUESTS = 10
+_chat_rate_limit_fallback: dict[str, list[float]] = {}
+
+def _check_chat_rate_limit(client_ip: str) -> bool:
+    """Return True if the request is allowed, False if rate limited."""
+    now = time.time()
+    redis_client = caching.get_redis_client()
+    key = f"tho:chat_ratelimit:{client_ip}"
+    
+    if redis_client:
+        try:
+            # Simple fixed window or rolling window
+            data = redis_client.get(key)
+            attempts = json.loads(data) if data else []
+            attempts = [t for t in attempts if now - t < CHAT_RATE_LIMIT_SECONDS]
+            if len(attempts) >= CHAT_RATE_LIMIT_MAX_REQUESTS:
+                return False
+            attempts.append(now)
+            redis_client.setex(key, CHAT_RATE_LIMIT_SECONDS, json.dumps(attempts))
+            return True
+        except Exception as e:
+            struct_logger.warning("Redis chat_ratelimit failed", error=str(e))
+            
+    # Fallback to in-memory
+    attempts = _chat_rate_limit_fallback.get(client_ip, [])
+    attempts = [t for t in attempts if now - t < CHAT_RATE_LIMIT_SECONDS]
+    if len(attempts) >= CHAT_RATE_LIMIT_MAX_REQUESTS:
+        return False
+    attempts.append(now)
+    _chat_rate_limit_fallback[client_ip] = attempts
+    return True
 
 
 @app.post("/run")
 async def run_agent(request: Request):
+    client_ip = request.client.host if request.client else "unknown"
+    if not _check_chat_rate_limit(client_ip):
+        return JSONResponse(
+            {"error": "You're sending messages too fast. Please wait a moment and try again."}, 
+            status_code=429
+        )
+        
     request_id = str(uuid.uuid4())
     start_time = time.time()
 
@@ -1035,6 +1074,28 @@ async def run_agent(request: Request):
         # Never send stack traces to users — log server-side only
         user_message = "Something went wrong. Please try again or report this issue."
         return {"error": user_message}
+
+
+@app.get("/api/chat/session/{session_id}")
+async def get_public_chat_session(session_id: str):
+    """Retrieve chat history for a given session ID to persist memory on the frontend."""
+    try:
+        session = await chat_history.get_session(session_id)
+        if not session:
+            return {"success": True, "messages": []}
+            
+        messages = []
+        for msg in session.messages:
+            messages.append({
+                "role": msg.role,
+                "text": msg.text,
+                "timestamp": msg.timestamp
+            })
+            
+        return {"success": True, "messages": messages}
+    except Exception as e:
+        struct_logger.error("Failed to retrieve public chat session", session_id=session_id, error=str(e))
+        return JSONResponse({"success": False, "error": "Failed to retrieve chat history"}, status_code=500)
 
 
 @app.get("/leads/export", dependencies=[Depends(require_admin)])
