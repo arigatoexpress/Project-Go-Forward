@@ -232,8 +232,9 @@ function FeaturedHomeSpotlight({ home, onClick, onScheduleTour }) {
               className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
             />
           ) : (
-            <div className="flex h-full items-center justify-center">
-              <Home size={42} className="text-[var(--cp-faint)]" />
+            <div className="flex flex-col h-full items-center justify-center gap-3 bg-[var(--cp-bg-2)]">
+              <Camera size={48} className="text-[var(--cp-faint)]" />
+              <span className="text-sm font-semibold text-[var(--cp-muted)] uppercase tracking-wider">Photos Coming Soon</span>
             </div>
           )}
           <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent p-4">
@@ -1002,16 +1003,17 @@ function HomeCard({ home, onClick, onScheduleTour }) {
             onError={() => setHeroLoadState('failed')}
           />
         ) : (
-          <div className="w-full h-full flex flex-col items-center justify-center gap-2">
-            <Home size={32} className="text-[var(--cp-faint)]" />
+          <div className="w-full h-full flex flex-col items-center justify-center gap-2 bg-[var(--cp-bg-2)] border-2 border-dashed border-[var(--cp-border-light)] m-0">
+            <Camera size={32} className="text-[var(--cp-muted)]" />
+            <span className="text-sm font-semibold text-[var(--cp-text-secondary)]">Photos Coming Soon</span>
             {hasFloorplanOnly && (
-              <span className="text-xs font-semibold text-[var(--cp-muted)]">
-                Floorplan available
+              <span className="text-xs font-semibold text-[var(--cp-accent)] px-2 py-1 bg-[var(--cp-accent-dim)] rounded-md">
+                Floorplan Available
               </span>
             )}
             {heroImage && heroLoadState === 'failed' && (
               <span className="text-xs font-semibold text-[var(--cp-muted)]">
-                Photo unavailable
+                Photo Unavailable
               </span>
             )}
           </div>

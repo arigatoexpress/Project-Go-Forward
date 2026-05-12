@@ -845,6 +845,7 @@ export default function AdStudio({ onBack }) {
                             <div className="tho-image-error">
                                 <AlertTriangle size={12} />
                                 <span>{flyerError}</span>
+                                <button onClick={handleGenerateFlyer} className="tho-btn tho-btn-primary" style={{padding: '3px 8px', fontSize: '10px', height: 'auto', minHeight: '0'}}>Retry</button>
                                 <button onClick={() => setFlyerError(null)} className="tho-error-dismiss"><X size={12} /></button>
                             </div>
                         )}
@@ -933,6 +934,7 @@ export default function AdStudio({ onBack }) {
                             <div className="tho-image-error">
                                 <AlertTriangle size={12} />
                                 <span>{imageError}</span>
+                                <button onClick={handleGenerateImage} className="tho-btn tho-btn-primary" style={{padding: '3px 8px', fontSize: '10px', height: 'auto', minHeight: '0'}}>Retry</button>
                                 <button onClick={() => setImageError(null)} className="tho-error-dismiss"><X size={12} /></button>
                             </div>
                         )}
@@ -1006,6 +1008,7 @@ export default function AdStudio({ onBack }) {
                             <div className="tho-image-error">
                                 <AlertTriangle size={12} />
                                 <span>{voiceoverError}</span>
+                                <button onClick={handleGenerateVoiceover} className="tho-btn tho-btn-primary" style={{padding: '3px 8px', fontSize: '10px', height: 'auto', minHeight: '0'}}>Retry</button>
                                 <button onClick={() => setVoiceoverError(null)} className="tho-error-dismiss"><X size={12} /></button>
                             </div>
                         )}
@@ -1105,6 +1108,7 @@ export default function AdStudio({ onBack }) {
                             <div className="tho-image-error">
                                 <AlertTriangle size={12} />
                                 <span>{videoError}</span>
+                                <button onClick={handleGenerateVideo} className="tho-btn tho-btn-primary" style={{padding: '3px 8px', fontSize: '10px', height: 'auto', minHeight: '0'}}>Retry</button>
                                 <button onClick={() => setVideoError(null)} className="tho-error-dismiss"><X size={12} /></button>
                             </div>
                         )}
@@ -1758,6 +1762,7 @@ export default function AdStudio({ onBack }) {
                                 <AlertTriangle size={32} />
                                 <p>{script.error}</p>
                                 <p className="tho-preview-hint">Check your connection and try again</p>
+                                <button onClick={handleGenerate} className="tho-btn tho-btn-primary mt-2">Retry</button>
                             </div>
                         ) : (
                             <div className="tho-preview-empty">
