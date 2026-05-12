@@ -324,6 +324,31 @@ function App() {
   const [comparisonList, setComparisonList] = useState([]);
   const [darkMode, setDarkMode] = useDarkMode();
 
+  // Load chat history
+  useEffect(() => {
+    localStorage.setItem('tho_session_id', sessionId);
+    fetch(`/api/chat/session/${sessionId}`)
+      .then(r => r.json())
+      .then(data => {
+        if (data.success && data.messages && data.messages.length > 0) {
+          // If we have history, keep the initial greeting and append the history
+          setMessages(prev => {
+            const initialGreeting = prev[0]; // Assuming first message is greeting
+            return [
+              initialGreeting,
+              ...data.messages.map(msg => ({
+                role: msg.role,
+                text: msg.text,
+                showQuickActions: false // Don't show quick actions for history
+              }))
+            ];
+          });
+        }
+      })
+      .catch(e => console.warn('Failed to load chat history:', e));
+  }, [sessionId]);
+
+
   // Keyboard shortcuts
   useEffect(() => {
     const handler = (e) => {

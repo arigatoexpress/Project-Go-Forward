@@ -370,18 +370,6 @@ def apply_classifier_to_home(home: dict) -> dict:
         cleaned["real_photos"],
     )
 
-    # Block unverified photos for specific legacy inventory records that need provenance
-    model_name_lower = str(home.get("model_name") or "").lower()
-    needs_provenance = any(
-        target in model_name_lower 
-        for target in ["mountain delight", "the aspen", "the cottage"]
-    )
-    if needs_provenance:
-        home["image_url"] = ""
-        home["real_photos"] = []
-        home["gallery_images"] = []
-        home["media_quality"]["has_real_photo"] = False
-        home["media_quality"]["status"] = "missing_photos"
 
     return home
 
