@@ -17,6 +17,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import re
 import secrets
 import time
 import uuid
@@ -1986,6 +1987,7 @@ from database.firestore_client import get_database
 from database.models import Deal, DealStatus, Inventory
 
 _db = get_database()
+INVENTORY_PLACEHOLDER_IMAGE_URL = "/tex-icon.svg"
 
 
 def _pick_inventory_field(item: dict, *keys: str):
@@ -1997,11 +1999,218 @@ def _pick_inventory_field(item: dict, *keys: str):
     return None
 
 
+def _inventory_media_key(value: object) -> str:
+    if value is None:
+        return ""
+    return re.sub(r"[^a-z0-9]+", "", str(value).strip().lower())
+
+
+def _load_legacy_inventory_media_index() -> dict[str, dict]:
+    """Map legacy IDs/model names to photo-ready legacy media records."""
+    loader = globals().get("load_legacy_inventory_context")
+    if loader is None:
+        try:
+            from tools.legacy_site_crawler import load_legacy_inventory_context as loader
+        except Exception:
+            return {}
+
+    try:
+        context = loader(limit=100)
+    except Exception as exc:
+        struct_logger.warning("Legacy inventory media index unavailable", error=str(exc))
+        return {}
+
+    classifier = globals().get("apply_classifier_to_home")
+    if classifier is None:
+        try:
+            from tools.photo_classifier import apply_classifier_to_home as classifier
+        except Exception:
+            classifier = None
+
+    index: dict[str, dict] = {}
+    for home in context.get("homes") or []:
+        if not isinstance(home, dict):
+            continue
+        media_home = dict(home)
+        if classifier:
+            classifier(media_home)
+        for key in (
+            home.get("id"),
+            home.get("legacy_inventory_id"),
+            home.get("listing_id"),
+            _inventory_media_key(home.get("model_name") or home.get("model")),
+        ):
+            media_key = _inventory_media_key(key)
+            if media_key:
+                index[media_key] = media_home
+    return index
+
+
+def _asset_media_for_inventory_item(result: dict, item: dict) -> dict | None:
+    """Return photo-normalized catalog media for a staff inventory item."""
+    try:
+        from tools.asset_scraper import get_assets_for_home, get_matterport_url
+    except Exception:
+        return None
+
+    asset = None
+    for name in (
+        result.get("model_name"),
+        item.get("model_name"),
+        item.get("model"),
+        item.get("name"),
+    ):
+        if not name:
+            continue
+        asset = get_assets_for_home(str(name))
+        if asset:
+            break
+    if not asset:
+        return None
+
+    images = list(asset.get("images") or [])
+    floorplan = asset.get("floor_plan")
+    media = {
+        "model_name": asset.get("name") or result.get("model_name"),
+        "manufacturer": asset.get("manufacturer") or result.get("manufacturer"),
+        "image_url": images[0] if images else "",
+        "hero_image": images[0] if images else "",
+        "real_photos": images,
+        "photos": images,
+        "gallery_images": images[:3],
+        "image_categories": asset.get("image_categories") or {},
+        "floorplan_url": floorplan,
+        "floor_plan_url": floorplan,
+        "floorplan_urls": [floorplan] if floorplan else [],
+        "media_recovery": {
+            "source": "asset_catalog",
+            "reason": "admin_inventory_record_missing_real_photo",
+        },
+    }
+    if asset.get("matterport_id"):
+        media["matterport_id"] = asset.get("matterport_id")
+        media["matterport_url"] = get_matterport_url(asset["matterport_id"])
+
+    classifier = globals().get("apply_classifier_to_home")
+    if classifier is None:
+        try:
+            from tools.photo_classifier import apply_classifier_to_home as classifier
+        except Exception:
+            return media
+    classifier(media)
+    return media
+
+
+def _apply_inventory_media_fallback(result: dict, item: dict, legacy_media_index: dict[str, dict]):
+    """Normalize staff inventory media and recover stale/floorplan-only records."""
+    classifier = globals().get("apply_classifier_to_home")
+    has_photo = globals().get("has_real_photo")
+    if classifier is None or has_photo is None:
+        try:
+            from tools.photo_classifier import apply_classifier_to_home as classifier
+            from tools.photo_classifier import has_real_photo as has_photo
+        except Exception:
+            return result
+
+    media_fields = (
+        "image_url",
+        "hero_image",
+        "real_photos",
+        "photos",
+        "gallery_images",
+        "image_categories",
+        "floorplan_url",
+        "floor_plan_url",
+        "floorplan_urls",
+        "matterport_id",
+        "matterport_url",
+    )
+
+    media = {**item, **result}
+    classifier(media)
+
+    try:
+        from tools.manufacturer_media_recovery import apply_manufacturer_media_recovery
+
+        apply_manufacturer_media_recovery(media)
+    except Exception as exc:
+        struct_logger.warning("Manufacturer media recovery failed", error=str(exc))
+
+    if not has_photo(media):
+        lookup_keys = [
+            item.get("id"),
+            item.get("legacy_inventory_id"),
+            item.get("listing_id"),
+            result.get("id"),
+            result.get("model_name"),
+            item.get("model_name"),
+            item.get("model"),
+        ]
+        legacy_home = next(
+            (
+                legacy_media_index[_inventory_media_key(key)]
+                for key in lookup_keys
+                if _inventory_media_key(key) in legacy_media_index
+            ),
+            None,
+        )
+        if legacy_home:
+            for field in media_fields:
+                value = legacy_home.get(field)
+                if value:
+                    media[field] = value
+            classifier(media)
+            result["media_recovery"] = {
+                "source": "legacy_inventory_context",
+                "reason": "admin_inventory_record_missing_real_photo",
+            }
+
+    if not has_photo(media):
+        asset_media = _asset_media_for_inventory_item(result, item)
+        if asset_media and has_photo(asset_media):
+            for field in media_fields:
+                value = asset_media.get(field)
+                if value:
+                    media[field] = value
+            classifier(media)
+            result["media_recovery"] = {
+                "source": "asset_catalog",
+                "reason": "admin_inventory_record_missing_real_photo",
+            }
+
+    for field in (
+        "image_url",
+        "hero_image",
+        "real_photos",
+        "photos",
+        "gallery_images",
+        "image_categories",
+        "floorplan_url",
+        "floor_plan_url",
+        "floorplan_urls",
+        "matterport_id",
+        "matterport_url",
+        "media_recovery",
+        "media_quality",
+    ):
+        if field in media:
+            result[field] = media.get(field)
+    if not has_photo(result):
+        result["image_url"] = INVENTORY_PLACEHOLDER_IMAGE_URL
+        result["hero_image"] = INVENTORY_PLACEHOLDER_IMAGE_URL
+        result["image_placeholder"] = True
+        result["placeholder_reason"] = (result.get("media_quality") or {}).get(
+            "status", "missing_photos"
+        )
+    return result
+
+
 @app.get("/api/inventory", dependencies=[Depends(require_admin)])
 async def list_inventory(status: str = "AVAILABLE", limit: int = 100, is_new: bool = None):
     """List inventory for document generation."""
     try:
         inventory = _db.search_inventory(status=status, limit=limit)
+        legacy_media_index = _load_legacy_inventory_media_index()
 
         # Transform for frontend
         results = []
@@ -2010,80 +2219,75 @@ async def list_inventory(status: str = "AVAILABLE", limit: int = 100, is_new: bo
             if is_new is not None and item.get("is_new") != is_new:
                 continue
 
-            results.append(
-                {
-                    "id": item.get("id"),
-                    "model_name": item.get("model_name") or item.get("model"),
-                    "manufacturer": item.get("manufacturer"),
-                    "year": item.get("year"),
-                    "is_new": item.get("is_new", True),
-                    "serial_number": item.get("serial_number"),
-                    "serial_number_2": _pick_inventory_field(
-                        item,
-                        "serial_number_2",
-                        "serial_2",
-                        "serial_sec_2",
-                        "serial_section_2",
-                    ),
-                    "label_number": item.get("label_number"),
-                    "label_number_2": _pick_inventory_field(
-                        item,
-                        "label_number_2",
-                        "hud_label_2",
-                        "hud_2",
-                        "label_seal_2",
-                    ),
-                    "sections": item.get("sections") or item.get("no_of_sections"),
-                    "width": _pick_inventory_field(item, "width", "home_width", "total_size_w"),
-                    "length": _pick_inventory_field(item, "length", "home_length", "total_size_l"),
-                    "sq_ft": _pick_inventory_field(
-                        item, "sq_ft", "sqft", "square_feet", "total_sqft"
-                    ),
-                    "wind_zone": _pick_inventory_field(
-                        item, "wind_zone", "wind", "windZone", "wind_zone_1"
-                    ),
-                    "weight_sec_1": _pick_inventory_field(
-                        item, "weight_sec_1", "weight1", "weight_sec1", "section_1_weight"
-                    ),
-                    "weight_sec_2": _pick_inventory_field(
-                        item, "weight_sec_2", "weight2", "weight_sec2", "section_2_weight"
-                    ),
-                    "date_of_manufacture": _pick_inventory_field(
-                        item,
-                        "date_of_manufacture",
-                        "manufacture_date",
-                        "date_manufactured",
-                        "mfg_date",
-                        "date_const",
-                    ),
-                    "manufacturer_address": _pick_inventory_field(
-                        item, "manufacturer_address", "factory_address"
-                    ),
-                    "manufacturer_city": _pick_inventory_field(
-                        item, "manufacturer_city", "factory_city"
-                    ),
-                    "manufacturer_state": _pick_inventory_field(
-                        item, "manufacturer_state", "factory_state"
-                    ),
-                    "manufacturer_zip": _pick_inventory_field(
-                        item, "manufacturer_zip", "factory_zip"
-                    ),
-                    "manufacturer_city_state_zip": _pick_inventory_field(
-                        item,
-                        "manufacturer_city_state_zip",
-                        "factory_city_state_zip",
-                    ),
-                    "installer_name": _pick_inventory_field(item, "installer_name"),
-                    "installer_phone": _pick_inventory_field(item, "installer_phone"),
-                    "installer_license": _pick_inventory_field(item, "installer_license"),
-                    "beds": item.get("bedrooms"),
-                    "baths": item.get("bathrooms"),
-                    "sqft": item.get("sqft"),
-                    "sale_price": item.get("sale_price") or item.get("msrp"),
-                    "image_url": item.get("image_url") or item.get("hero_image"),
-                    "status": item.get("status", "AVAILABLE"),
-                }
-            )
+            result = {
+                "id": item.get("id"),
+                "model_name": item.get("model_name") or item.get("model"),
+                "manufacturer": item.get("manufacturer"),
+                "year": item.get("year"),
+                "is_new": item.get("is_new", True),
+                "serial_number": item.get("serial_number"),
+                "serial_number_2": _pick_inventory_field(
+                    item,
+                    "serial_number_2",
+                    "serial_2",
+                    "serial_sec_2",
+                    "serial_section_2",
+                ),
+                "label_number": item.get("label_number"),
+                "label_number_2": _pick_inventory_field(
+                    item,
+                    "label_number_2",
+                    "hud_label_2",
+                    "hud_2",
+                    "label_seal_2",
+                ),
+                "sections": item.get("sections") or item.get("no_of_sections"),
+                "width": _pick_inventory_field(item, "width", "home_width", "total_size_w"),
+                "length": _pick_inventory_field(item, "length", "home_length", "total_size_l"),
+                "sq_ft": _pick_inventory_field(item, "sq_ft", "sqft", "square_feet", "total_sqft"),
+                "wind_zone": _pick_inventory_field(
+                    item, "wind_zone", "wind", "windZone", "wind_zone_1"
+                ),
+                "weight_sec_1": _pick_inventory_field(
+                    item, "weight_sec_1", "weight1", "weight_sec1", "section_1_weight"
+                ),
+                "weight_sec_2": _pick_inventory_field(
+                    item, "weight_sec_2", "weight2", "weight_sec2", "section_2_weight"
+                ),
+                "date_of_manufacture": _pick_inventory_field(
+                    item,
+                    "date_of_manufacture",
+                    "manufacture_date",
+                    "date_manufactured",
+                    "mfg_date",
+                    "date_const",
+                ),
+                "manufacturer_address": _pick_inventory_field(
+                    item, "manufacturer_address", "factory_address"
+                ),
+                "manufacturer_city": _pick_inventory_field(
+                    item, "manufacturer_city", "factory_city"
+                ),
+                "manufacturer_state": _pick_inventory_field(
+                    item, "manufacturer_state", "factory_state"
+                ),
+                "manufacturer_zip": _pick_inventory_field(item, "manufacturer_zip", "factory_zip"),
+                "manufacturer_city_state_zip": _pick_inventory_field(
+                    item,
+                    "manufacturer_city_state_zip",
+                    "factory_city_state_zip",
+                ),
+                "installer_name": _pick_inventory_field(item, "installer_name"),
+                "installer_phone": _pick_inventory_field(item, "installer_phone"),
+                "installer_license": _pick_inventory_field(item, "installer_license"),
+                "beds": item.get("bedrooms"),
+                "baths": item.get("bathrooms"),
+                "sqft": item.get("sqft"),
+                "sale_price": item.get("sale_price") or item.get("msrp"),
+                "image_url": item.get("image_url") or item.get("hero_image"),
+                "status": item.get("status", "AVAILABLE"),
+            }
+            results.append(_apply_inventory_media_fallback(result, item, legacy_media_index))
 
         return {"success": True, "inventory": results, "count": len(results)}
     except Exception as e:
@@ -2995,11 +3199,13 @@ from tools.marketing_tools import (
     analyze_content_performance,
     generate_ad_image,
     generate_content_script,
+    get_gcp_ai_readiness,
     get_inventory_for_ads,
     get_trending_content_ideas,
     schedule_social_post,
 )
 from tools.photo_classifier import apply_classifier_to_home, has_real_photo
+from tools.social_publishers import social_readiness
 from tools.video_generator import GENERATED_VIDEOS_DIR
 
 
@@ -3067,6 +3273,26 @@ async def api_content_analytics():
     except Exception as e:
         struct_logger.error("Analytics load failed", error=str(e))
         return {"error": "Failed to load analytics. Please try again."}
+
+
+@app.get("/api/marketing/gcp-readiness", dependencies=[Depends(require_admin)])
+async def api_marketing_gcp_readiness():
+    """Expose AI provider readiness for Ad Studio without making generation calls."""
+    try:
+        return get_gcp_ai_readiness()
+    except Exception as e:
+        struct_logger.error("GCP AI readiness failed", error=str(e))
+        return {"success": False, "ready": False, "error": "Failed to inspect GCP AI readiness"}
+
+
+@app.get("/api/marketing/social-readiness", dependencies=[Depends(require_admin)])
+async def api_marketing_social_readiness():
+    """Expose TikTok/Instagram connection readiness without exposing secrets."""
+    try:
+        return social_readiness()
+    except Exception as e:
+        struct_logger.error("Social readiness failed", error=str(e))
+        return {"success": False, "error": "Failed to inspect social readiness"}
 
 
 @app.post("/api/marketing/generate-voiceover", dependencies=[Depends(require_admin)])

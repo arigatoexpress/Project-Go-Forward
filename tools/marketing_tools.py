@@ -25,6 +25,66 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+
+def _split_env_list(name: str, default: str) -> list[str]:
+    return [item.strip() for item in os.environ.get(name, default).split(",") if item.strip()]
+
+
+def _gcp_project() -> str:
+    return os.environ.get("GOOGLE_CLOUD_PROJECT", "tho-ai-agent")
+
+
+def _gcp_location() -> str:
+    return os.environ.get("GOOGLE_CLOUD_LOCATION", "us-central1")
+
+
+def _genai_client():
+    from google import genai
+
+    return genai.Client(vertexai=True, project=_gcp_project(), location=_gcp_location())
+
+
+def get_gcp_ai_readiness() -> dict:
+    """Return GCP/GenAI setup status without making paid generation calls."""
+    status = {
+        "success": True,
+        "project": _gcp_project(),
+        "location": _gcp_location(),
+        "models": {
+            "gemini": os.environ.get("THO_GEMINI_MODEL", "gemini-2.5-flash"),
+            "imagen": os.environ.get("THO_IMAGEN_MODEL", "imagen-4.0-generate-001"),
+            "veo": os.environ.get("THO_VEO_MODEL", "veo-3.0-fast-generate-001"),
+        },
+        "google_genai_sdk": False,
+        "text_to_speech_sdk": False,
+        "ready": False,
+        "requirements": [],
+    }
+    try:
+        from google import genai as _genai  # noqa: F401
+
+        status["google_genai_sdk"] = True
+    except Exception as exc:
+        status["requirements"].append(f"Install/repair google-genai: {exc}")
+    try:
+        from google.cloud import texttospeech as _tts  # noqa: F401
+
+        status["text_to_speech_sdk"] = True
+    except Exception as exc:
+        status["requirements"].append(f"Install/repair google-cloud-texttospeech: {exc}")
+    if not status["project"]:
+        status["requirements"].append("Set GOOGLE_CLOUD_PROJECT")
+    if not status["location"]:
+        status["requirements"].append("Set GOOGLE_CLOUD_LOCATION")
+    status["ready"] = (
+        status["google_genai_sdk"]
+        and status["text_to_speech_sdk"]
+        and bool(status["project"])
+        and bool(status["location"])
+    )
+    return status
+
+
 # ─── Brand Style Guide ───
 # These constants enforce THO's brand voice and prevent AI slop
 
@@ -332,14 +392,16 @@ def generate_ad_image(
     Returns:
         Dictionary with image data (base64), file path, and metadata
     """
-    import google.genai
-    from google.genai import types
+    try:
+        from google.genai import types
+    except Exception as exc:
+        return {
+            "success": False,
+            "error": f"Google GenAI SDK unavailable: {exc}",
+            "hint": "Install google-genai and deploy with Vertex AI credentials.",
+        }
 
-    client = google.genai.Client(
-        vertexai=True,
-        project=os.environ.get("GOOGLE_CLOUD_PROJECT", "tho-ai-agent"),
-        location="us-central1",
-    )
+    client = _genai_client()
 
     # Determine aspect ratio
     final_aspect = aspect_ratio or PLATFORM_ASPECT_RATIOS.get(platform, "9:16")
@@ -352,17 +414,36 @@ def generate_ad_image(
         enhanced_prompt += f". Featured home: {home_name} by Texas Home Outlet."
     enhanced_prompt += " No text overlays, no watermarks, no people."
 
+    model_candidates = [
+        os.environ.get("THO_IMAGEN_MODEL", "imagen-4.0-generate-001"),
+        *_split_env_list(
+            "THO_IMAGEN_FALLBACK_MODELS", "imagen-3.0-generate-002,imagen-3.0-generate-001"
+        ),
+    ]
+    last_error = ""
     try:
-        response = client.models.generate_images(
-            model="imagen-3.0-generate-001",
-            prompt=enhanced_prompt,
-            config=types.GenerateImagesConfig(
-                number_of_images=1,
-                aspect_ratio=final_aspect,
-                safety_filter_level="BLOCK_MEDIUM_AND_ABOVE",
-                person_generation="DONT_ALLOW",
-            ),
-        )
+        response = None
+        model_used = ""
+        for model_name in dict.fromkeys(model_candidates):
+            try:
+                response = client.models.generate_images(
+                    model=model_name,
+                    prompt=enhanced_prompt,
+                    config=types.GenerateImagesConfig(
+                        number_of_images=1,
+                        aspect_ratio=final_aspect,
+                        safety_filter_level=types.SafetyFilterLevel.BLOCK_MEDIUM_AND_ABOVE,
+                        person_generation=types.PersonGeneration.DONT_ALLOW,
+                        include_rai_reason=True,
+                    ),
+                )
+                model_used = model_name
+                break
+            except Exception as exc:
+                last_error = str(exc)
+                logger.warning("Imagen model %s failed: %s", model_name, exc)
+        if response is None:
+            raise RuntimeError(last_error or "No Imagen model candidate succeeded")
 
         if not response.generated_images:
             return {
@@ -396,6 +477,7 @@ def generate_ad_image(
             "style": style,
             "prompt_used": enhanced_prompt[:200],
             "home_featured": home_name,
+            "model_used": model_used,
             "created_at": datetime.now().isoformat(),
         }
 
@@ -404,7 +486,10 @@ def generate_ad_image(
         return {
             "success": False,
             "error": f"Image generation failed: {str(e)}",
-            "hint": "Ensure Imagen API is enabled in your GCP project. Try a simpler prompt if the error persists.",
+            "hint": (
+                "Ensure Vertex AI and Imagen access are enabled for the GCP project, "
+                "and try a simpler prompt if the request was filtered."
+            ),
         }
 
 
@@ -823,6 +908,43 @@ PLATFORM_PROMPTS = {
 }
 
 
+def _coerce_script_text(value) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, list):
+        parts = []
+        for item in value:
+            if isinstance(item, dict):
+                parts.extend(str(v) for v in item.values() if v)
+            elif item:
+                parts.append(str(item))
+        return "\n".join(parts)
+    if isinstance(value, dict):
+        return "\n".join(str(v) for v in value.values() if v)
+    return str(value)
+
+
+def _normalize_script_shape(script_data) -> dict:
+    data = dict(script_data or {}) if isinstance(script_data, dict) else {}
+    for field in ("hook", "body", "cta", "duration_estimate", "tone"):
+        data[field] = _coerce_script_text(data.get(field))
+    prompts = data.get("suggested_image_prompts") or []
+    if isinstance(prompts, str):
+        prompts = [prompts]
+    elif not isinstance(prompts, list):
+        prompts = []
+    data["suggested_image_prompts"] = [_coerce_script_text(item) for item in prompts if item]
+    hashtags = data.get("hashtags") or []
+    if isinstance(hashtags, str):
+        hashtags = [tag for tag in hashtags.split() if tag.startswith("#")]
+    elif not isinstance(hashtags, list):
+        hashtags = []
+    data["hashtags"] = [_coerce_script_text(tag) for tag in hashtags if tag]
+    return data
+
+
 def _score_script_quality(
     script_data: dict, home_name: str = None, platform: str = "tiktok"
 ) -> dict:
@@ -840,9 +962,10 @@ def _score_script_quality(
     """
     import re as _re
 
-    hook = (script_data.get("hook") or "").lower()
-    body = (script_data.get("body") or "").lower()
-    cta = (script_data.get("cta") or "").lower()
+    script_data = _normalize_script_shape(script_data)
+    hook = _coerce_script_text(script_data.get("hook")).lower()
+    body = _coerce_script_text(script_data.get("body")).lower()
+    cta = _coerce_script_text(script_data.get("cta")).lower()
     full_text = f"{hook} {body} {cta}"
 
     scores = {}
@@ -1095,14 +1218,16 @@ def generate_content_script(
     Returns:
         Dictionary with script(s), hashtags, image prompts, and metadata
     """
-    import google.genai
-    from google.genai import types
+    try:
+        from google.genai import types
+    except Exception as exc:
+        return {
+            "success": False,
+            "error": f"Google GenAI SDK unavailable: {exc}",
+            "status": "gcp_not_ready",
+        }
 
-    client = google.genai.Client(
-        vertexai=True,
-        project=os.environ.get("GOOGLE_CLOUD_PROJECT", "tho-ai-agent"),
-        location="us-central1",
-    )
+    client = _genai_client()
 
     # Clamp variations
     variations = max(1, min(3, variations))
@@ -1267,27 +1392,32 @@ Output as JSON format:
 """
 
     try:
-        # Try Gemini 2.5 Flash first, fall back to 2.0
-        # Temperature 0.7 for consistency; brand voice + prompt handle creativity
-        model_name = "gemini-2.5-flash-preview-05-20"
-        try:
-            response = client.models.generate_content(
-                model=model_name,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    temperature=0.7,
-                ),
-            )
-        except Exception:
-            model_name = "gemini-2.0-flash-001"
-            response = client.models.generate_content(
-                model=model_name,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                ),
-            )
+        # Try the current stable Flash model first, then configured fallbacks.
+        # Temperature 0.7 keeps output lively while the brand prompt controls quality.
+        model_candidates = [
+            os.environ.get("THO_GEMINI_MODEL", "gemini-2.5-flash"),
+            *_split_env_list("THO_GEMINI_FALLBACK_MODELS", "gemini-2.0-flash-001"),
+        ]
+        response = None
+        model_name = ""
+        last_error = ""
+        for candidate in dict.fromkeys(model_candidates):
+            try:
+                response = client.models.generate_content(
+                    model=candidate,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        response_mime_type="application/json",
+                        temperature=0.7,
+                    ),
+                )
+                model_name = candidate
+                break
+            except Exception as exc:
+                last_error = str(exc)
+                logger.warning("Gemini model %s failed: %s", candidate, exc)
+        if response is None:
+            raise RuntimeError(last_error or "No Gemini model candidate succeeded")
 
         data = json.loads(response.text)
         script_id = f"SCRIPT-{uuid.uuid4().hex[:6].upper()}"
@@ -1295,12 +1425,14 @@ Output as JSON format:
         # ─── Two-pass quality scoring & refinement ───
         def _process_script(item):
             """Score, refine if needed, and return processed script with quality data."""
+            item = _normalize_script_shape(item)
             quality = _score_script_quality(item, home_name, platform)
             if not quality["passed"]:
                 logger.info(
                     f"Script quality {quality['average']}/10 — refining (issues: {quality['issues']})"
                 )
                 refined = _refine_script_if_needed(client, model_name, item, quality, platform)
+                refined = _normalize_script_shape(refined)
                 # Re-score the refined version
                 quality = _score_script_quality(refined, home_name, platform)
                 return refined, quality
@@ -1589,41 +1721,31 @@ def schedule_social_post(
     """
     Schedule a post for publishing to social media.
     """
-    post_id = f"POST-{platform.upper()[:2]}-{uuid.uuid4().hex[:6].upper()}"
     scheduled_time = post_time or datetime.now().isoformat()
+    try:
+        from tools.social_publishers import prepare_or_publish_social_post
+    except ImportError:
+        from .social_publishers import prepare_or_publish_social_post
 
-    full_caption = caption or ""
-    if hashtags:
-        full_caption += " " + " ".join(hashtags)
-
-    api_response = {}
-    is_real_post = False
-
-    if platform == "tiktok" and video_url and tiktok_handler.is_configured():
-        api_response = tiktok_handler.post_video(video_url, full_caption)
-        if api_response.get("success"):
-            is_real_post = True
-            post_id = api_response.get("post_id", post_id)
+    result = prepare_or_publish_social_post(
+        platform=platform,
+        content_type=content_type,
+        scheduled_time=scheduled_time,
+        caption=caption or "",
+        hashtags=hashtags or [],
+        video_url=video_url,
+    )
 
     optimal_times = {
         "tiktok": ["7:00 AM", "12:00 PM", "7:00 PM", "10:00 PM"],
         "instagram": ["9:00 AM", "12:00 PM", "5:00 PM"],
+        "instagram_reels": ["9:00 AM", "12:00 PM", "5:00 PM"],
         "facebook": ["9:00 AM", "1:00 PM", "4:00 PM"],
     }
 
     return {
-        "success": True,
-        "post_id": post_id,
-        "platform": platform,
-        "content_type": content_type,
+        **result,
         "script_reference": script_id,
-        "scheduled_time": scheduled_time,
-        "caption": full_caption,
-        "hashtags": hashtags or [],
-        "video_url": video_url,
-        "status": "scheduled" if not is_real_post else "published",
-        "live_integration": is_real_post,
-        "api_debug": api_response if is_real_post else None,
         "optimal_times": optimal_times.get(platform, []),
         "tip": f"For {platform}, best engagement is typically at {optimal_times.get(platform, ['varies'])[0]} CST",
     }
@@ -1658,7 +1780,16 @@ def analyze_content_performance(
     generated_images = count_generated(GENERATED_ADS_DIR, (".png", ".jpg", ".jpeg", ".webp"))
     generated_videos = count_generated(video_dir, (".mp4", ".mov", ".webm"))
 
-    connected = tiktok_handler.is_configured()
+    try:
+        from tools.social_publishers import social_readiness
+    except ImportError:
+        from .social_publishers import social_readiness
+
+    readiness = social_readiness()
+    connected = any(
+        platform.get("configured") and readiness.get("publish_enabled")
+        for platform in readiness.get("platforms", {}).values()
+    )
     top_content = []
     if generated_videos:
         top_content.append(
@@ -1708,6 +1839,7 @@ def analyze_content_performance(
         "date_range": date_range,
         "source": "api_connected" if connected else "local_readiness",
         "social_analytics_connected": connected,
+        "social_readiness": readiness,
         "disclaimer": None
         if connected
         else (

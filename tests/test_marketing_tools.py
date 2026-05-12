@@ -263,3 +263,79 @@ def test_generate_ad_flyer_creates_downloadable_social_creative(monkeypatch, tmp
     assert result["download_url"].startswith("/api/marketing/images/")
     assert (tmp_path / result["filename"]).is_file()
     assert len(base64.b64decode(result["image_base64"])) > 1000
+
+
+def test_schedule_social_post_stays_draft_without_social_publish_gate(monkeypatch):
+    monkeypatch.setenv("PUBLIC_SITE_URL", "https://tho.example.com")
+    monkeypatch.setenv("TIKTOK_ACCESS_TOKEN", "token")
+    monkeypatch.delenv("THO_SOCIAL_PUBLISH_ENABLED", raising=False)
+
+    result = marketing_tools.schedule_social_post(
+        platform="tiktok",
+        content_type="video",
+        script_id="SCRIPT-123",
+        caption="Tour this home",
+        hashtags=["#TexasHomeOutlet"],
+        video_url="/api/marketing/videos/test.mp4",
+    )
+
+    assert result["success"] is True
+    assert result["status"] == "draft_ready"
+    assert result["live_integration"] is False
+    assert result["publish_attempted"] is False
+    assert result["video_url"] == "https://tho.example.com/api/marketing/videos/test.mp4"
+    assert "THO_SOCIAL_PUBLISH_ENABLED" in result["publish_blocked_reason"]
+    assert result["script_reference"] == "SCRIPT-123"
+
+
+def test_schedule_instagram_reels_reports_missing_meta_config(monkeypatch):
+    monkeypatch.setenv("PUBLIC_SITE_URL", "https://tho.example.com")
+    monkeypatch.delenv("META_ACCESS_TOKEN", raising=False)
+    monkeypatch.delenv("INSTAGRAM_BUSINESS_ACCOUNT_ID", raising=False)
+
+    result = marketing_tools.schedule_social_post(
+        platform="instagram_reels",
+        content_type="video",
+        caption="Tour this home",
+        video_url="https://cdn.example.com/test.mp4",
+    )
+
+    assert result["status"] == "draft_ready"
+    assert result["live_integration"] is False
+    assert "META_ACCESS_TOKEN" in result["publish_blocked_reason"]
+    assert "INSTAGRAM_BUSINESS_ACCOUNT_ID" in result["publish_blocked_reason"]
+    assert result["optimal_times"] == ["9:00 AM", "12:00 PM", "5:00 PM"]
+
+
+def test_gcp_ai_readiness_reports_config_without_generation(monkeypatch):
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "tho-ai-agent")
+    monkeypatch.setenv("GOOGLE_CLOUD_LOCATION", "us-central1")
+
+    result = marketing_tools.get_gcp_ai_readiness()
+
+    assert result["success"] is True
+    assert result["project"] == "tho-ai-agent"
+    assert result["models"]["gemini"] == "gemini-2.5-flash"
+    assert result["models"]["imagen"] == "imagen-4.0-generate-001"
+    assert "requirements" in result
+
+
+def test_script_quality_normalizes_structured_model_fields():
+    script = marketing_tools._normalize_script_shape(
+        {
+            "hook": ["This one works hard."],
+            "body": [
+                {"shot": "Kitchen", "line": "2 bed, 2 bath with real cabinet space."},
+                "Call from the lot.",
+            ],
+            "cta": {"line": "Call to tour today"},
+            "hashtags": "#TexasHomeOutlet #HoustonHomes",
+            "suggested_image_prompts": [{"prompt": "Sunny exterior photo"}],
+        }
+    )
+
+    assert script["hook"] == "This one works hard."
+    assert "Kitchen" in script["body"]
+    assert script["cta"] == "Call to tour today"
+    assert script["hashtags"] == ["#TexasHomeOutlet", "#HoustonHomes"]
+    assert script["suggested_image_prompts"] == ["Sunny exterior photo"]

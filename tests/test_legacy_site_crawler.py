@@ -188,3 +188,56 @@ def test_legacy_context_recovers_known_floorplan_only_manufacturer_galleries(mon
         assert home["media_quality"]["recovered"] is True
         assert home["media_recovery"]["source"] == "exact_manufacturer_plan_cdn"
         assert "no generic stock substitution" in home["media_recovery"]["output_policy"]
+
+
+def test_legacy_context_uses_snapshot_media_when_live_detail_pages_flake(monkeypatch):
+    card_only = {
+        "id": "44490",
+        "legacy_inventory_id": "44490",
+        "model_name": "PRE-OWNED / Big Blue",
+        "status": "Pre-Owned",
+        "image_url": "https://example.com/card-only.jpg",
+        "real_photos": ["https://example.com/card-only.jpg"],
+        "gallery_images": ["https://example.com/card-only.jpg"],
+        "source_provenance": {"source_owner": "Texas Home Outlet"},
+    }
+    snapshot_photo = "https://example.com/snapshot-detail-1.jpg"
+    monkeypatch.setattr(
+        legacy_site_crawler,
+        "scrape_legacy_inventory",
+        lambda max_pages=25, include_details=True: [dict(card_only)],
+    )
+    monkeypatch.setattr(
+        legacy_site_crawler,
+        "_load_snapshot_context",
+        lambda: {
+            "success": True,
+            "homes": [
+                {
+                    **card_only,
+                    "real_photos": [
+                        snapshot_photo,
+                        "https://example.com/snapshot-detail-2.jpg",
+                        "https://example.com/snapshot-detail-3.jpg",
+                    ],
+                    "gallery_images": [snapshot_photo],
+                    "image_url": snapshot_photo,
+                    "media_quality": {
+                        "status": "photo_ready",
+                        "has_real_photo": True,
+                        "photo_count": 3,
+                    },
+                }
+            ],
+        },
+    )
+
+    context = legacy_site_crawler.build_legacy_inventory_context()
+    home = context["homes"][0]
+
+    assert context["media_summary"]["photo_ready"] == 1
+    assert home["image_url"] == snapshot_photo
+    assert len(home["real_photos"]) == 3
+    assert home["source_provenance"]["media_snapshot_fallback"]["source"] == (
+        "legacy_inventory_snapshot"
+    )

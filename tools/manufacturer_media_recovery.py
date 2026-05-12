@@ -11,6 +11,7 @@ and plan id already shown on the THO legacy listing.
 
 from __future__ import annotations
 
+import re
 from copy import deepcopy
 from typing import Any
 
@@ -141,11 +142,21 @@ def _legacy_ids(home: dict[str, Any]) -> set[str]:
     }
 
 
+def _model_key(value: Any) -> str:
+    return re.sub(r"[^a-z0-9]+", "", str(value or "").lower())
+
+
 def recovery_for_home(home: dict[str, Any]) -> dict[str, Any] | None:
     """Return the exact recovery catalog entry for ``home`` when one exists."""
     for legacy_id in _legacy_ids(home):
         if legacy_id in MANUFACTURER_MEDIA_RECOVERY:
             return deepcopy(MANUFACTURER_MEDIA_RECOVERY[legacy_id])
+    home_key = _model_key(home.get("model_name") or home.get("model") or home.get("name"))
+    if home_key:
+        for recovery in MANUFACTURER_MEDIA_RECOVERY.values():
+            label_key = _model_key(recovery.get("label"))
+            if label_key and (label_key in home_key or home_key in label_key):
+                return deepcopy(recovery)
     return None
 
 
@@ -156,6 +167,12 @@ def apply_manufacturer_media_recovery(home: dict[str, Any]) -> dict[str, Any]:
 
     apply_classifier_to_home(home)
     if (home.get("media_quality") or {}).get("has_real_photo"):
+        existing_recovery = home.get("media_recovery") or {}
+        if existing_recovery:
+            media_quality = dict(home.get("media_quality") or {})
+            media_quality["recovered"] = True
+            media_quality["recovery_source"] = existing_recovery.get("source")
+            home["media_quality"] = media_quality
         return home
 
     recovery = recovery_for_home(home)
