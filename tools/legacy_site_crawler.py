@@ -632,6 +632,96 @@ def _apply_media_recovery_to_context(context: dict[str, Any]) -> dict[str, Any]:
     return context
 
 
+MEDIA_SNAPSHOT_FIELDS = (
+    "image_url",
+    "hero_image",
+    "real_photos",
+    "photos",
+    "gallery_images",
+    "image_categories",
+    "floorplan_url",
+    "floor_plan_url",
+    "matterport_id",
+    "matterport_url",
+    "media_recovery",
+)
+
+
+def _legacy_home_ids(home: dict[str, Any]) -> set[str]:
+    return {
+        str(value).strip()
+        for value in (
+            home.get("id"),
+            home.get("legacy_inventory_id"),
+            home.get("listing_id"),
+        )
+        if value
+    }
+
+
+def _snapshot_media_index() -> dict[str, dict[str, Any]]:
+    snapshot = _load_snapshot_context()
+    if not snapshot:
+        return {}
+    index: dict[str, dict[str, Any]] = {}
+    for home in snapshot.get("homes") or []:
+        if not isinstance(home, dict):
+            continue
+        apply_classifier_to_home(home)
+        for home_id in _legacy_home_ids(home):
+            index[home_id] = home
+    return index
+
+
+def _merge_snapshot_media(homes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Use the local manifest as a per-listing media fallback for flaky detail pages."""
+    snapshot_index = _snapshot_media_index()
+    if not snapshot_index:
+        return homes
+
+    for home in homes:
+        apply_classifier_to_home(home)
+        live_quality = home.get("media_quality") or {}
+        snapshot_home = next(
+            (
+                snapshot_index[home_id]
+                for home_id in _legacy_home_ids(home)
+                if home_id in snapshot_index
+            ),
+            None,
+        )
+        if not snapshot_home:
+            continue
+        snapshot_quality = snapshot_home.get("media_quality") or {}
+        if not snapshot_quality.get("has_real_photo"):
+            continue
+        existing_recovery = home.get("media_recovery") or {}
+        if existing_recovery.get("source") == "exact_manufacturer_plan_cdn" and live_quality.get(
+            "has_real_photo"
+        ):
+            continue
+        if live_quality.get("has_real_photo") and int(live_quality.get("photo_count") or 0) >= int(
+            snapshot_quality.get("photo_count") or 0
+        ):
+            continue
+
+        for field in MEDIA_SNAPSHOT_FIELDS:
+            value = snapshot_home.get(field)
+            if value:
+                home[field] = value
+
+        provenance = dict(home.get("source_provenance") or {})
+        provenance["media_snapshot_fallback"] = {
+            "source": "legacy_inventory_snapshot",
+            "reason": "live_detail_media_unavailable_or_incomplete",
+            "snapshot_path": str(SNAPSHOT_PATH),
+            "snapshot_retrieved_at": snapshot_home.get("retrieved_at"),
+        }
+        home["source_provenance"] = provenance
+        apply_classifier_to_home(home)
+    return homes
+
+
 def _limit_context(context: dict[str, Any], limit: int) -> dict[str, Any]:
     homes = list(context.get("homes") or [])
     limited_homes = homes[:limit] if limit else homes
@@ -647,6 +737,9 @@ def build_legacy_inventory_context(
     include_details: bool = True,
 ) -> dict[str, Any]:
     homes = scrape_legacy_inventory(max_pages=max_pages, include_details=include_details)
+    if include_details:
+        apply_manufacturer_media_recovery_to_homes(homes)
+        homes = _merge_snapshot_media(homes)
     available = sum(1 for home in homes if home.get("status") == "Available")
     preowned = sum(1 for home in homes if home.get("status") == "Pre-Owned")
     context = {

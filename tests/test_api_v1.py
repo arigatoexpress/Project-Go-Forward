@@ -609,6 +609,7 @@ def load_app(monkeypatch, tho_api_key: str | None = "tho-secret", rate_limit_rpm
     marketing_tools_module.schedule_social_post = lambda **kwargs: {"success": True}
     marketing_tools_module.analyze_content_performance = lambda **kwargs: {}
     marketing_tools_module.generate_ad_image = lambda **kwargs: {"success": True}
+    marketing_tools_module.get_gcp_ai_readiness = lambda **kwargs: {"success": True, "ready": True}
     marketing_tools_module.get_inventory_for_ads = lambda **kwargs: {
         "success": True,
         "homes": [],
@@ -702,6 +703,113 @@ def test_marketing_inventory_context_prefers_legacy_site_inventory(monkeypatch):
     assert data["total_inventory"] == 1
     assert [home["id"] for home in data["homes"]] == ["43372"]
     assert data["homes"][0]["quote_url"].endswith("/43372/dealer/3522/")
+
+
+def test_marketing_readiness_routes_are_admin_protected(monkeypatch):
+    client, main, _db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
+    token = main._create_admin_token()
+
+    denied = client.get("/api/marketing/gcp-readiness")
+    assert denied.status_code == 401
+
+    gcp = client.get("/api/marketing/gcp-readiness", headers={"X-Admin-Token": token})
+    social = client.get("/api/marketing/social-readiness", headers={"X-Admin-Token": token})
+
+    assert gcp.status_code == 200
+    assert gcp.json()["ready"] is True
+    assert social.status_code == 200
+    assert "tiktok" in social.json()["platforms"]
+    assert "instagram_reels" in social.json()["platforms"]
+
+
+def test_admin_inventory_recovers_photo_ready_media_for_document_workflows(monkeypatch):
+    client, main, db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
+    token = main._create_admin_token()
+    floorplan = "https://example.com/floor-plans.jpg"
+    recovered_photo = "https://example.com/recovered-ext-1.jpg"
+
+    db.collections["inventory"].clear()
+    db.collections["inventory"]["28102"] = {
+        "id": "28102",
+        "model_name": "TRU Single Section / TRU Single Section Delight",
+        "manufacturer": "TRU",
+        "status": "AVAILABLE",
+        "image_url": floorplan,
+        "real_photos": [floorplan],
+        "gallery_images": [floorplan],
+        "floorplan_url": floorplan,
+    }
+    db.collections["inventory"]["the-razor"] = {
+        "id": "the-razor",
+        "model_name": "The Razor",
+        "manufacturer": "New Vision Manufacturing",
+        "status": "AVAILABLE",
+        "image_url": floorplan,
+        "floorplan_url": floorplan,
+    }
+    db.collections["inventory"]["missing"] = {
+        "id": "missing",
+        "model_name": "No Exact Photo Home",
+        "manufacturer": "Unknown",
+        "status": "AVAILABLE",
+    }
+    monkeypatch.setattr(
+        main,
+        "load_legacy_inventory_context",
+        lambda **kwargs: {
+            "success": True,
+            "homes": [
+                {
+                    "id": "28102",
+                    "legacy_inventory_id": "28102",
+                    "model_name": "TRU Single Section / TRU Single Section Delight",
+                    "image_url": recovered_photo,
+                    "real_photos": [
+                        recovered_photo,
+                        "https://example.com/recovered-kit-1.jpg",
+                        "https://example.com/recovered-bed-1.jpg",
+                    ],
+                    "gallery_images": [recovered_photo],
+                    "floorplan_url": floorplan,
+                    "media_quality": {
+                        "status": "photo_ready",
+                        "has_real_photo": True,
+                        "photo_count": 3,
+                        "floorplan_count": 1,
+                    },
+                }
+            ],
+            "total_inventory": 1,
+        },
+    )
+    sys.modules["tools.asset_scraper"].get_assets_for_home = lambda name: (
+        {
+            "name": "The Razor",
+            "manufacturer": "New Vision Manufacturing",
+            "images": ["https://example.com/razor.lvgrm.jpg"],
+            "floor_plan": floorplan,
+        }
+        if name == "The Razor"
+        else None
+    )
+
+    response = client.get("/api/inventory", headers={"X-Admin-Token": token})
+
+    assert response.status_code == 200
+    inventory = {item["id"]: item for item in response.json()["inventory"]}
+    assert inventory["28102"]["image_url"] != floorplan
+    assert inventory["28102"]["real_photos"]
+    assert inventory["28102"]["floor_plan_url"] == floorplan
+    assert inventory["28102"]["media_quality"]["status"] == "photo_ready"
+    assert inventory["28102"]["media_recovery"]["source"] in {
+        "exact_manufacturer_plan_cdn",
+        "legacy_inventory_context",
+    }
+    assert inventory["the-razor"]["image_url"].endswith("razor.lvgrm.jpg")
+    assert inventory["the-razor"]["media_recovery"]["source"] == "asset_catalog"
+    assert inventory["missing"]["image_url"] == "/tex-icon.svg"
+    assert inventory["missing"]["image_placeholder"] is True
+    assert inventory["missing"]["media_quality"]["status"] == "missing_photos"
 
 
 def test_marketing_inventory_context_falls_back_to_firestore_when_legacy_unavailable(monkeypatch):

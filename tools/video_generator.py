@@ -174,6 +174,13 @@ def _aspect_ratio_for_platform(platform: str) -> str:
     return "16:9" if platform == "facebook" else "9:16"
 
 
+def _normalize_veo_duration(duration_seconds: int) -> int:
+    """Map UI-friendly durations to Veo-supported short-form durations."""
+    requested = int(duration_seconds or 6)
+    supported = (4, 6, 8)
+    return min(supported, key=lambda item: (abs(item - requested), -item))
+
+
 def _save_source_image(
     home_photo_url: str | None, image_base64: str | None, temp_dir: str
 ) -> str | None:
@@ -225,11 +232,15 @@ def generate_genai_ad_clip(
     project = os.environ.get("GOOGLE_CLOUD_PROJECT", "tho-ai-agent")
     location = os.environ.get("GOOGLE_CLOUD_LOCATION", "us-central1")
     model = os.environ.get("THO_VEO_MODEL", "veo-3.0-fast-generate-001")
-    duration_seconds = max(5, min(int(duration_seconds or 5), 8))
+    duration_seconds = _normalize_veo_duration(duration_seconds)
     wait_seconds = max(15, min(int(wait_seconds or 120), 300))
     aspect_ratio = _aspect_ratio_for_platform(platform)
 
-    person_generation = "allow_adult" if include_virtual_presenter else "dont_allow"
+    person_generation = (
+        types.PersonGeneration.ALLOW_ADULT
+        if include_virtual_presenter
+        else types.PersonGeneration.DONT_ALLOW
+    )
     presenter_guidance = (
         "Use a clearly synthetic, non-real virtual presenter wearing neutral THO brand colors. "
         "Do not imitate any real person or celebrity. "
@@ -274,6 +285,22 @@ def generate_genai_ad_clip(
                 "success": False,
                 "error": "Veo generation is still processing. Try again shortly or increase wait_seconds.",
                 "provider": "google-veo",
+                "model_used": model,
+                "operation_name": getattr(operation, "name", None),
+            }
+
+        operation_error = getattr(operation, "error", None)
+        if operation_error:
+            message = (
+                operation_error.get("message")
+                if isinstance(operation_error, dict)
+                else str(operation_error)
+            )
+            return {
+                "success": False,
+                "error": message or "Veo operation failed.",
+                "provider": "google-veo",
+                "model_used": model,
                 "operation_name": getattr(operation, "name", None),
             }
 
@@ -283,6 +310,7 @@ def generate_genai_ad_clip(
                 "success": False,
                 "error": "Veo returned no video results.",
                 "provider": "google-veo",
+                "model_used": model,
                 "operation_name": getattr(operation, "name", None),
             }
 
@@ -318,6 +346,7 @@ def generate_genai_ad_clip(
             "success": False,
             "error": f"Veo generation failed: {exc}",
             "provider": "google-veo",
+            "model_used": model,
             "hint": "Confirm Vertex AI, Veo access, billing, and THO_VEO_MODEL in the tho-ai-agent project.",
         }
     finally:

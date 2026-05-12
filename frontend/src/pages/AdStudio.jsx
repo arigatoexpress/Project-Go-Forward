@@ -114,6 +114,18 @@ async function apiGetAnalytics() {
     return resp.json();
 }
 
+async function apiGetGcpReadiness() {
+    const resp = await adminFetch('/api/marketing/gcp-readiness');
+    if (!resp.ok) throw new Error('GCP readiness load failed');
+    return resp.json();
+}
+
+async function apiGetSocialReadiness() {
+    const resp = await adminFetch('/api/marketing/social-readiness');
+    if (!resp.ok) throw new Error('Social readiness load failed');
+    return resp.json();
+}
+
 async function apiGetInventory() {
     const resp = await adminFetch('/api/marketing/inventory-context');
     if (!resp.ok) throw new Error('Failed to load inventory');
@@ -254,6 +266,10 @@ export default function AdStudio({ onBack }) {
     // Analytics tab
     const [analytics, setAnalytics] = useState(null);
     const [loadingAnalytics, setLoadingAnalytics] = useState(false);
+    const [aiReadiness, setAiReadiness] = useState(null);
+    const [socialReadiness, setSocialReadiness] = useState(null);
+    const [readinessError, setReadinessError] = useState(null);
+    const [failedPhotoUrls, setFailedPhotoUrls] = useState(() => new Set());
 
     /* ─── get current script (handles variations) ─── */
     const getCurrentScript = useCallback(() => {
@@ -263,6 +279,40 @@ export default function AdStudio({ onBack }) {
         }
         return script.script;
     }, [activeVariation, script]);
+
+    const markPhotoFailed = useCallback((url) => {
+        if (!url) return;
+        setFailedPhotoUrls(prev => {
+            const next = new Set(prev);
+            next.add(url);
+            return next;
+        });
+    }, []);
+
+    const handleImgFallback = useCallback((event, url) => {
+        markPhotoFailed(url);
+        if (event.currentTarget.src.endsWith('/tex-icon.svg')) return;
+        event.currentTarget.src = '/tex-icon.svg';
+        event.currentTarget.classList.add('tho-img-fallback');
+    }, [markPhotoFailed]);
+
+    const resolvePhotoUrl = useCallback((asset) => {
+        if (!asset) return '';
+        if (/^https?:\/\//i.test(asset)) return asset;
+        const decodedAsset = decodeURIComponent(asset);
+        return realPhotos.find(url => {
+            const filename = url.split('/').pop() || '';
+            return filename === asset || decodeURIComponent(filename) === decodedAsset || url.includes(asset);
+        }) || '';
+    }, [realPhotos]);
+
+    const availableRealPhotos = realPhotos.filter(url => url && !failedPhotoUrls.has(url));
+    const visiblePhotoUrls = (
+        activeCategory === 'all'
+            ? availableRealPhotos
+            : (imageCategories[activeCategory] || []).map(resolvePhotoUrl).filter(Boolean)
+    ).filter(url => !failedPhotoUrls.has(url));
+    const selectedPhotoUrl = visiblePhotoUrls[selectedPhotoIdx] || visiblePhotoUrls[0] || availableRealPhotos[0] || '';
 
     /* ─── handlers ─── */
     const handleGenerate = async () => {
@@ -294,6 +344,7 @@ export default function AdStudio({ onBack }) {
                 if (result.real_photos?.length > 0) {
                     setRealPhotos(result.real_photos);
                     setSelectedPhotoIdx(0);
+                    setFailedPhotoUrls(new Set());
                 }
                 if (result.image_categories) {
                     setImageCategories(result.image_categories);
@@ -345,9 +396,11 @@ export default function AdStudio({ onBack }) {
                 content_type: 'video',
                 script_id: script.script_id,
                 caption: getCurrentScript()?.cta,
-                hashtags: script.hashtags
+                hashtags: script.hashtags,
+                video_url: generatedGenAIClip?.download_url || generatedVideo?.download_url
             });
             setScheduledPosts(prev => [result, ...prev]);
+            handleLoadSocialReadiness();
         } catch (err) {
             console.error('Schedule failed:', err);
         } finally {
@@ -364,6 +417,29 @@ export default function AdStudio({ onBack }) {
             setAnalytics({ error: err.message });
         } finally {
             setLoadingAnalytics(false);
+        }
+    }, []);
+
+    const handleLoadSocialReadiness = useCallback(async () => {
+        try {
+            const result = await apiGetSocialReadiness();
+            setSocialReadiness(result);
+        } catch (err) {
+            setReadinessError(err.message);
+        }
+    }, []);
+
+    const handleLoadReadiness = useCallback(async () => {
+        setReadinessError(null);
+        try {
+            const [gcp, social] = await Promise.all([
+                apiGetGcpReadiness(),
+                apiGetSocialReadiness(),
+            ]);
+            setAiReadiness(gcp);
+            setSocialReadiness(social);
+        } catch (err) {
+            setReadinessError(err.message);
         }
     }, []);
 
@@ -395,6 +471,7 @@ export default function AdStudio({ onBack }) {
         setMatterportUrl(home.matterport_url || null);
         setMatterportId(home.matterport_id || null);
         setSelectedPhotoIdx(0);
+        setFailedPhotoUrls(new Set());
     };
 
     const handleGenerateImage = async () => {
@@ -438,7 +515,7 @@ export default function AdStudio({ onBack }) {
             .replace(/\(\d+:\d+[^)]*\)/g, '')
             .replace(/\s+/g, ' ')
             .trim();
-        const selectedRealPhoto = realPhotos[selectedPhotoIdx] || realPhotos[0] || '';
+        const selectedRealPhoto = selectedPhotoUrl || availableRealPhotos[0] || '';
         setGeneratingFlyer(true);
         setFlyerError(null);
         try {
@@ -530,7 +607,7 @@ export default function AdStudio({ onBack }) {
     };
 
     const handleGenerateVideo = async () => {
-        if (!voiceover?.audio_base64 || !realPhotos.length) {
+        if (!voiceover?.audio_base64 || !availableRealPhotos.length) {
             setVideoError('Need voiceover and photos to generate video');
             return;
         }
@@ -544,7 +621,7 @@ export default function AdStudio({ onBack }) {
         
         try {
             const result = await apiGenerateVideo({
-                photos: realPhotos,
+                photos: availableRealPhotos,
                 voiceover_base64: voiceover.audio_base64,
                 script_text: fullScript,
                 home_name: homeName || 'ad',
@@ -572,7 +649,7 @@ export default function AdStudio({ onBack }) {
             .replace(/\s+/g, ' ')
             .trim();
         const prompt = imagePrompt || cleanBody || s?.hook || `Create a social home-tour clip for ${homeName || 'Texas Home Outlet'}`;
-        const selectedRealPhoto = realPhotos[selectedPhotoIdx] || realPhotos[0] || '';
+        const selectedRealPhoto = selectedPhotoUrl || availableRealPhotos[0] || '';
         setGeneratingGenAIClip(true);
         setVideoError(null);
         setGeneratedGenAIClip(null);
@@ -583,7 +660,7 @@ export default function AdStudio({ onBack }) {
                 platform,
                 home_photo_url: selectedRealPhoto || undefined,
                 image_base64: selectedRealPhoto ? undefined : generatedImages[0]?.image_base64,
-                duration_seconds: 5,
+                duration_seconds: 6,
                 include_virtual_presenter: includeVirtualPresenter,
                 wait_seconds: 120,
             });
@@ -607,7 +684,8 @@ export default function AdStudio({ onBack }) {
     // Load voices on mount
     useEffect(() => {
         handleLoadVoices();
-    }, [handleLoadVoices]);
+        handleLoadReadiness();
+    }, [handleLoadReadiness, handleLoadVoices]);
 
     // Auto-load data when switching tabs
     useEffect(() => {
@@ -626,6 +704,8 @@ export default function AdStudio({ onBack }) {
     /* ─── render helpers ─── */
     const selectedPlatform = PLATFORMS.find(p => p.id === platform);
     const currentScript = getCurrentScript();
+    const selectedSocialStatus = socialReadiness?.platforms?.[platform];
+    const socialPublishReady = Boolean(selectedSocialStatus?.configured && socialReadiness?.publish_enabled);
 
     const renderPreview = () => (
         <div className="tho-preview-layer animate-in fade-in zoom-in duration-300">
@@ -641,7 +721,7 @@ export default function AdStudio({ onBack }) {
                     <div className="tho-phone-screen">
                         <div className="tho-phone-content">
                             {/* Image mode toggle */}
-                            {realPhotos.length > 0 && (
+                            {availableRealPhotos.length > 0 && (
                                 <div className="tho-image-mode-toggle">
                                     <button
                                         className={`tho-mode-btn ${imageMode === 'real' ? 'active' : ''}`}
@@ -659,9 +739,9 @@ export default function AdStudio({ onBack }) {
                             )}
 
                             {/* Background image — real photo or AI generated */}
-                            {imageMode === 'real' && realPhotos.length > 0 ? (
+                            {imageMode === 'real' && selectedPhotoUrl ? (
                                 <div className="tho-preview-bg-image" style={{
-                                    backgroundImage: `url(${realPhotos[selectedPhotoIdx] || realPhotos[0]})`,
+                                    backgroundImage: `url(${selectedPhotoUrl})`,
                                     backgroundSize: 'cover',
                                     backgroundPosition: 'center',
                                     position: 'absolute',
@@ -680,7 +760,7 @@ export default function AdStudio({ onBack }) {
                             )}
 
                             {/* Real photo navigation in preview */}
-                            {imageMode === 'real' && realPhotos.length > 1 && (
+                            {imageMode === 'real' && visiblePhotoUrls.length > 1 && (
                                 <div className="tho-preview-photo-nav">
                                     <button
                                         className="tho-photo-nav-btn"
@@ -690,12 +770,12 @@ export default function AdStudio({ onBack }) {
                                         <ChevronLeft size={16} />
                                     </button>
                                     <span className="tho-photo-counter">
-                                        {selectedPhotoIdx + 1} / {realPhotos.length}
+                                        {Math.min(selectedPhotoIdx + 1, visiblePhotoUrls.length)} / {visiblePhotoUrls.length}
                                     </span>
                                     <button
                                         className="tho-photo-nav-btn"
-                                        onClick={() => setSelectedPhotoIdx(Math.min(realPhotos.length - 1, selectedPhotoIdx + 1))}
-                                        disabled={selectedPhotoIdx === realPhotos.length - 1}
+                                        onClick={() => setSelectedPhotoIdx(Math.min(visiblePhotoUrls.length - 1, selectedPhotoIdx + 1))}
+                                        disabled={selectedPhotoIdx >= visiblePhotoUrls.length - 1}
                                     >
                                         <ChevronRight size={16} />
                                     </button>
@@ -742,8 +822,8 @@ export default function AdStudio({ onBack }) {
                             Build a downloadable social ad with THO branding, readable copy, and the selected home photo.
                         </p>
                         <div className="tho-video-info text-xs text-gray-500 mb-2">
-                            {realPhotos.length > 0 ? (
-                                <span>Using real photo {selectedPhotoIdx + 1} of {realPhotos.length}</span>
+                            {availableRealPhotos.length > 0 ? (
+                                <span>Using real photo {Math.min(selectedPhotoIdx + 1, visiblePhotoUrls.length || availableRealPhotos.length)} of {visiblePhotoUrls.length || availableRealPhotos.length}</span>
                             ) : generatedImages.length > 0 ? (
                                 <span>Using latest AI image</span>
                             ) : (
@@ -971,10 +1051,10 @@ export default function AdStudio({ onBack }) {
                         </p>
                         
                         <div className="tho-video-info text-xs text-gray-500 mb-2">
-                            {realPhotos.length > 0 ? (
-                                <span>✓ {realPhotos.length} photos ready</span>
+                            {availableRealPhotos.length > 0 ? (
+                                <span>{availableRealPhotos.length} photos ready</span>
                             ) : (
-                                <span>⚠ Select a home with photos first</span>
+                                <span>Select a home with photos first</span>
                             )}
                             {voiceover?.success ? (
                                 <span className="ml-3">✓ Voiceover ready (~{voiceover.estimated_duration_seconds}s)</span>
@@ -995,7 +1075,7 @@ export default function AdStudio({ onBack }) {
                         <button
                             className="tho-btn tho-btn-primary w-full mt-2 flex items-center justify-center gap-2"
                             onClick={handleGenerateVideo}
-                            disabled={generatingVideo || !voiceover?.success || realPhotos.length === 0}
+                            disabled={generatingVideo || !voiceover?.success || availableRealPhotos.length === 0}
                         >
                             {generatingVideo ? (
                                 <><Loader2 size={14} className="spin" /> Creating Video...</>
@@ -1007,7 +1087,7 @@ export default function AdStudio({ onBack }) {
                         <button
                             className="tho-btn tho-btn-secondary w-full mt-2 flex items-center justify-center gap-2"
                             onClick={handleGenerateGenAIClip}
-                            disabled={generatingGenAIClip}
+                            disabled={generatingGenAIClip || Boolean(aiReadiness && !aiReadiness.ready)}
                         >
                             {generatingGenAIClip ? (
                                 <><Loader2 size={14} className="spin" /> Generating Veo Clip...</>
@@ -1015,6 +1095,11 @@ export default function AdStudio({ onBack }) {
                                 <><Sparkles size={14} /> Generate GenAI Clip</>
                             )}
                         </button>
+                        {aiReadiness && !aiReadiness.ready && (
+                            <div className="tho-readiness-note">
+                                GCP AI needs attention: {(aiReadiness.requirements || []).join(', ') || 'check project and SDK configuration'}
+                            </div>
+                        )}
                         
                         {videoError && (
                             <div className="tho-image-error">
@@ -1137,6 +1222,11 @@ export default function AdStudio({ onBack }) {
                     </div>
 
                     <div className="tho-post-actions mt-4">
+                        <div className="tho-readiness-note">
+                            {socialPublishReady
+                                ? `${selectedPlatform?.name} publishing is configured.`
+                                : `${selectedPlatform?.name} will stay as a reviewed draft until credentials and THO_SOCIAL_PUBLISH_ENABLED are set.`}
+                        </div>
                         <button
                             className="tho-btn tho-btn-primary w-full flex items-center justify-center gap-2"
                             onClick={async () => {
@@ -1196,9 +1286,19 @@ export default function AdStudio({ onBack }) {
                             onClick={() => handleSelectHome(home)}
                         >
                             {(home.real_photos?.length > 0 ? (
-                                <img src={home.real_photos[0]} alt={home.model_name} className="tho-inv-thumb" />
+                                <img
+                                    src={home.real_photos[0]}
+                                    alt={home.model_name}
+                                    className="tho-inv-thumb"
+                                    onError={event => handleImgFallback(event, home.real_photos[0])}
+                                />
                             ) : home.image_url ? (
-                                <img src={home.image_url} alt={home.model_name} className="tho-inv-thumb" />
+                                <img
+                                    src={home.image_url}
+                                    alt={home.model_name}
+                                    className="tho-inv-thumb"
+                                    onError={event => handleImgFallback(event, home.image_url)}
+                                />
                             ) : (
                                 <div className="tho-inv-thumb tho-inv-thumb-placeholder"><Home size={20} /></div>
                             ))}
@@ -1254,6 +1354,26 @@ export default function AdStudio({ onBack }) {
             {showPreview && script && currentScript && !script.error && renderPreview()}
             {showInventoryPicker && renderInventoryPicker()}
             <div className="tho-create-form">
+                <div className="tho-readiness-row">
+                    <div className={`tho-readiness-chip ${aiReadiness?.ready ? 'ready' : 'blocked'}`}>
+                        <Sparkles size={14} />
+                        <span>GCP AI</span>
+                        <strong>{aiReadiness?.ready ? 'Ready' : 'Needs setup'}</strong>
+                    </div>
+                    <div className={`tho-readiness-chip ${socialPublishReady ? 'ready' : 'draft'}`}>
+                        <Send size={14} />
+                        <span>{selectedPlatform?.name || 'Social'}</span>
+                        <strong>{socialPublishReady ? 'Live enabled' : 'Draft mode'}</strong>
+                    </div>
+                    <button className="tho-readiness-refresh" onClick={handleLoadReadiness} title="Refresh integration readiness">
+                        <RefreshCw size={13} />
+                    </button>
+                </div>
+                {readinessError && (
+                    <div className="tho-readiness-note">
+                        Readiness check failed: {readinessError}
+                    </div>
+                )}
                 {/* Step 0: Avatar & Language */}
                 <div className="flex gap-4 mb-6">
                     <div className="tho-card flex-1">
@@ -1354,10 +1474,20 @@ export default function AdStudio({ onBack }) {
                     {selectedHome && (
                         <div className="tho-selected-home-section">
                             <div className="tho-selected-home">
-                                {realPhotos.length > 0 ? (
-                                    <img src={realPhotos[0]} alt={selectedHome.model_name} className="tho-selected-thumb" />
+                                {availableRealPhotos.length > 0 ? (
+                                    <img
+                                        src={availableRealPhotos[0]}
+                                        alt={selectedHome.model_name}
+                                        className="tho-selected-thumb"
+                                        onError={event => handleImgFallback(event, availableRealPhotos[0])}
+                                    />
                                 ) : selectedHome.image_url ? (
-                                    <img src={selectedHome.image_url} alt={selectedHome.model_name} className="tho-selected-thumb" />
+                                    <img
+                                        src={selectedHome.image_url}
+                                        alt={selectedHome.model_name}
+                                        className="tho-selected-thumb"
+                                        onError={event => handleImgFallback(event, selectedHome.image_url)}
+                                    />
                                 ) : null}
                                 <div className="tho-selected-info">
                                     <span className="tho-selected-name">{selectedHome.model_name}</span>
@@ -1376,17 +1506,18 @@ export default function AdStudio({ onBack }) {
                                     setActiveCategory('all');
                                     setMatterportUrl(null);
                                     setMatterportId(null);
+                                    setFailedPhotoUrls(new Set());
                                 }}>
                                     <X size={14} />
                                 </button>
                             </div>
 
                             {/* Real photo gallery strip with category filters */}
-                            {realPhotos.length > 1 && (
+                            {availableRealPhotos.length > 1 && (
                                 <div className="tho-photo-strip">
                                     <div className="tho-photo-strip-header">
                                         <span className="tho-photo-strip-label">
-                                            <Camera size={12} /> {realPhotos.length} real photos
+                                            <Camera size={12} /> {availableRealPhotos.length} real photos
                                         </span>
                                         {Object.keys(imageCategories).length > 1 && (
                                             <div className="tho-category-tabs">
@@ -1407,16 +1538,14 @@ export default function AdStudio({ onBack }) {
                                         )}
                                     </div>
                                     <div className="tho-photo-strip-scroll">
-                                        {(activeCategory === 'all' ? realPhotos : (imageCategories[activeCategory] || []).map(f => {
-                                            const asset = selectedHome && realPhotos.find(url => url.includes(f.replace(/%20/g, '%20')));
-                                            return asset || `https://d132mt2yijm03y.cloudfront.net/manufacturer/3335/floorplan/${selectedHome?.plan_id || ''}/${f}`;
-                                        })).map((url, i) => (
+                                        {visiblePhotoUrls.map((url, i) => (
                                             <img
                                                 key={i}
                                                 src={url}
                                                 alt={`${activeCategory !== 'all' ? activeCategory + ' ' : ''}Photo ${i + 1}`}
                                                 className={`tho-photo-strip-img ${selectedPhotoIdx === i ? 'active' : ''}`}
                                                 onClick={() => setSelectedPhotoIdx(i)}
+                                                onError={event => handleImgFallback(event, url)}
                                             />
                                         ))}
                                     </div>
@@ -1542,9 +1671,9 @@ export default function AdStudio({ onBack }) {
                         {currentScript && !script?.error ? (
                             <div className="tho-script-preview">
                                 {/* Real photo background in phone preview */}
-                                {realPhotos.length > 0 && (
+                                {selectedPhotoUrl && (
                                     <div className="tho-preview-real-bg" style={{
-                                        backgroundImage: `url(${realPhotos[selectedPhotoIdx] || realPhotos[0]})`,
+                                        backgroundImage: `url(${selectedPhotoUrl})`,
                                         backgroundSize: 'cover',
                                         backgroundPosition: 'center',
                                         position: 'absolute',
@@ -1744,6 +1873,19 @@ export default function AdStudio({ onBack }) {
         <div className="tho-scheduled-page">
             <h2 className="tho-page-title">📅 Scheduled Posts</h2>
             <p className="tho-page-subtitle">Posts queued for publishing</p>
+            {socialReadiness && (
+                <div className="tho-social-readiness-panel">
+                    {Object.entries(socialReadiness.platforms || {}).map(([id, status]) => (
+                        <div key={id} className={`tho-social-readiness-item ${status.configured && socialReadiness.publish_enabled ? 'ready' : 'draft'}`}>
+                            <span>{id === 'instagram_reels' ? 'Instagram Reels' : 'TikTok'}</span>
+                            <strong>{status.configured && socialReadiness.publish_enabled ? 'Live enabled' : 'Draft mode'}</strong>
+                            {status.required_env?.length > 0 && (
+                                <small>Needs {status.required_env.join(', ')}</small>
+                            )}
+                        </div>
+                    ))}
+                </div>
+            )}
 
             {scheduledPosts.length === 0 ? (
                 <div className="tho-empty-state">
@@ -1765,7 +1907,7 @@ export default function AdStudio({ onBack }) {
                             </div>
                             <div className="tho-scheduled-right">
                                 <span className={`tho-scheduled-status status-${post.status}`}>{post.status}</span>
-                                <span className="tho-scheduled-tip">{post.tip}</span>
+                                <span className="tho-scheduled-tip">{post.publish_blocked_reason || post.tip}</span>
                             </div>
                         </div>
                     ))}

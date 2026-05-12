@@ -967,6 +967,7 @@ function HomeCard({ home, onClick, onScheduleTour }) {
   const galleryPhotos = getListingPhotos(home);
   const photoCount = galleryPhotos.length;
   const heroImage = galleryPhotos[0] || '';
+  const [heroLoadState, setHeroLoadState] = useState(heroImage ? 'loading' : 'empty');
   const hasFloorplanOnly = !heroImage && (
     home.media_quality?.status === 'floorplan_only' || floorplanUrls.length > 0
   );
@@ -975,6 +976,15 @@ function HomeCard({ home, onClick, onScheduleTour }) {
   const categories = home.image_categories || {};
   const quoteUrl = getLegacyQuoteUrl(home);
 
+  useEffect(() => {
+    setHeroLoadState(heroImage ? 'loading' : 'empty');
+    if (!heroImage) return undefined;
+    const timeout = window.setTimeout(() => {
+      setHeroLoadState((state) => (state === 'loaded' ? state : 'failed'));
+    }, 4500);
+    return () => window.clearTimeout(timeout);
+  }, [heroImage]);
+
   return (
     <Card padded={false} hover className="group !bg-[var(--cp-panel)] !border-[var(--cp-border)]">
       {/* Image — click opens detail */}
@@ -982,13 +992,14 @@ function HomeCard({ home, onClick, onScheduleTour }) {
         className="relative h-[220px] overflow-hidden bg-[var(--cp-bg-2)] cursor-pointer"
         onClick={onClick}
       >
-        {heroImage ? (
+        {heroImage && heroLoadState !== 'failed' ? (
           <img
             src={heroImage}
             alt={home.model_name}
             className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
-            loading="lazy"
-            onError={(e) => { e.target.src = ''; e.target.classList.add('opacity-0'); }}
+            loading="eager"
+            onLoad={() => setHeroLoadState('loaded')}
+            onError={() => setHeroLoadState('failed')}
           />
         ) : (
           <div className="w-full h-full flex flex-col items-center justify-center gap-2">
@@ -996,6 +1007,11 @@ function HomeCard({ home, onClick, onScheduleTour }) {
             {hasFloorplanOnly && (
               <span className="text-xs font-semibold text-[var(--cp-muted)]">
                 Floorplan available
+              </span>
+            )}
+            {heroImage && heroLoadState === 'failed' && (
+              <span className="text-xs font-semibold text-[var(--cp-muted)]">
+                Photo unavailable
               </span>
             )}
           </div>

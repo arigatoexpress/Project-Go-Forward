@@ -67,7 +67,8 @@ PHOTO_FILENAME_TOKENS: tuple[str, ...] = (
     "room",
     "utility",
 )
-SHORT_PHOTO_FILENAME_TOKENS: tuple[str, ...] = ("3d", "ext", "int", "kit")
+SHORT_PHOTO_FILENAME_TOKENS: tuple[str, ...] = ("3d", "ext", "int", "kit", "lvg", "lvgrm")
+PLACEHOLDER_FILENAME_TOKENS: tuple[str, ...] = ("placeholder", "tex-icon", "vite")
 UUID_FILENAME_RE = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
     re.IGNORECASE,
@@ -111,6 +112,13 @@ def _looks_like_bare_model_floorplan(url: str, filename: str) -> bool:
     if _looks_like_photo_filename(filename):
         return False
     return any(char.isalpha() for char in filename)
+
+
+def _is_placeholder_url(url: str | None) -> bool:
+    if not url or not isinstance(url, str):
+        return False
+    filename = unquote(url.lower().rsplit("/", 1)[-1].split("?", 1)[0])
+    return any(token in filename for token in PLACEHOLDER_FILENAME_TOKENS)
 
 
 def is_floorplan_url(url: str | None) -> bool:
@@ -159,6 +167,8 @@ def split_photos(
     floorplans: list[str] = []
     for url in urls or []:
         if not url or not isinstance(url, str):
+            continue
+        if _is_placeholder_url(url):
             continue
         normalized = _normalize_url(url)
         if normalized in hint_set or is_floorplan_url(url):

@@ -4,6 +4,7 @@ ROOT = Path(__file__).resolve().parents[1]
 APP = ROOT / "frontend/src/App.jsx"
 INVENTORY_BROWSE = ROOT / "frontend/src/pages/InventoryBrowse.jsx"
 DOCUMENT_CENTER = ROOT / "frontend/src/pages/DocumentCenter.jsx"
+AD_STUDIO = ROOT / "frontend/src/pages/AdStudio.jsx"
 SYSTEM_HUB = ROOT / "frontend/src/pages/SystemHub.jsx"
 STATUS_BADGE = ROOT / "frontend/src/components/StatusBadge.jsx"
 PROPERTY_CARD = ROOT / "frontend/src/components/PropertyCard.jsx"
@@ -30,6 +31,16 @@ def test_inventory_cards_keep_legacy_quote_routes_visible():
     assert "function getLegacyQuoteUrl(home)" in source
     assert "Price Quote" in source
     assert "quoteDetailMatch" in source
+
+
+def test_inventory_cards_replace_slow_or_failed_cdn_images_with_visible_fallback():
+    source = INVENTORY_BROWSE.read_text()
+
+    assert "heroLoadState" in source
+    assert "setHeroLoadState((state) => (state === 'loaded' ? state : 'failed'))" in source
+    assert 'loading="eager"' in source
+    assert "onError={() => setHeroLoadState('failed')}" in source
+    assert "Photo unavailable" in source
 
 
 def test_floorplan_only_home_detail_opens_floorplan_instead_of_blank_photo_panel():
@@ -86,3 +97,14 @@ def test_web_media_source_policy_blocks_unapproved_free_image_imports():
     assert "Publicly viewable images are not automatically reusable" in source
     assert "Generic free stock photos are also not acceptable as inventory photos" in source
     assert "Requires approval before production use" in source
+
+
+def test_ad_studio_surfaces_readiness_and_image_fallbacks():
+    source = AD_STUDIO.read_text()
+
+    assert "apiGetGcpReadiness" in source
+    assert "apiGetSocialReadiness" in source
+    assert "THO_SOCIAL_PUBLISH_ENABLED" in source
+    assert "handleImgFallback" in source
+    assert "selectedPhotoUrl" in source
+    assert "video_url: generatedGenAIClip?.download_url || generatedVideo?.download_url" in source
