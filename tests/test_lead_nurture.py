@@ -177,10 +177,11 @@ def fake_customers(now_utc) -> dict[str, dict]:
 
 
 @pytest.fixture(autouse=True)
-def fake_firestore(fake_customers, monkeypatch):
+def fake_firestore(fake_customers, monkeypatch, now_utc):
     """Inject a fake Firestore client into lead_nurture for every test."""
     fake = _FakeFirestore(fake_customers)
     monkeypatch.setattr(lead_nurture, "_firestore_client", fake)
+    monkeypatch.setattr(lead_nurture, "_now_utc", lambda: now_utc)
     yield fake
     lead_nurture._reset_client_for_tests()
 

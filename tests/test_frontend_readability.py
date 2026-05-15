@@ -40,7 +40,7 @@ def test_inventory_cards_replace_slow_or_failed_cdn_images_with_visible_fallback
     assert "setHeroLoadState((state) => (state === 'loaded' ? state : 'failed'))" in source
     assert 'loading="eager"' in source
     assert "onError={() => setHeroLoadState('failed')}" in source
-    assert "Photo unavailable" in source
+    assert "Photo Unavailable" in source
 
 
 def test_floorplan_only_home_detail_opens_floorplan_instead_of_blank_photo_panel():
