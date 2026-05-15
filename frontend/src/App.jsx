@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, lazy, Suspense, useCallback } from 'react';
-import { Send, Home, Menu, X, Phone, MapPin, Loader2, User, Bot, FileText, Video, Lock, ShieldCheck, CalendarDays, Users, MessageSquare, MessageCircle, RotateCcw, WifiOff, Moon, Sun, KeyRound, Fingerprint, BookOpen } from 'lucide-react';
+import { Send, Home, Menu, X, Phone, MapPin, Loader2, User, Bot, FileText, Video, Lock, ShieldCheck, CalendarDays, Users, MessageSquare, MessageCircle, RotateCcw, WifiOff, Moon, Sun, KeyRound, Fingerprint, BookOpen, Activity } from 'lucide-react';
 import { useDarkMode } from './hooks/useDarkMode';
 import SafeMarkdown from './components/SafeMarkdown';
 import SearchFilters from './components/SearchFilters';
@@ -12,7 +12,7 @@ import ErrorBoundary from './components/ErrorBoundary';
 import { v4 as uuidv4 } from 'uuid';
 import {
   BUSINESS_NAME, BUSINESS_PHONE, BUSINESS_PHONE_RAW, BUSINESS_ADDRESS,
-  BUSINESS_CITY, BUSINESS_HOURS
+  BUSINESS_CITY, BUSINESS_HOURS, BUSINESS_LICENSE
 } from './constants';
 
 const API_URL = '/run'; // Relative path for single-container deployment
@@ -28,6 +28,7 @@ const CRM = lazy(() => import('./pages/CRM'));
 const ChatHistory = lazy(() => import('./pages/ChatHistory'));
 const SystemHub = lazy(() => import('./pages/SystemHub'));
 const GettingStarted = lazy(() => import('./pages/GettingStarted'));
+const SecureHub = lazy(() => import('./pages/SecureHub'));
 const ADMIN_PIN_LENGTH = 8;
 const ADMIN_PAGE_KEYS = new Set(['analytics', 'crm', 'chat-history', 'documents', 'adstudio', 'system', 'getting-started']);
 
@@ -65,6 +66,7 @@ function NavBar({
   const adminItems = adminAuthed ? [
     { key: 'documents', label: 'Documents', icon: FileText },
     { key: 'crm', label: 'CRM', icon: Users },
+    { key: 'system', label: 'System Hub', icon: Activity },
     { key: 'getting-started', label: 'Guide', icon: BookOpen },
     { key: 'chat-history', label: 'Chat History', icon: MessageCircle },
     { key: 'adstudio', label: 'Ad Studio', icon: Video },
@@ -240,6 +242,7 @@ function Footer({ adminAuthed, onAdminAccess }) {
           <Phone size={12} className="mr-1" aria-hidden="true" /> {BUSINESS_PHONE}
         </a>
         <span>{BUSINESS_HOURS}</span>
+        <span className="flex items-center"><ShieldCheck size={12} className="mr-1 text-green-600" /> License #{BUSINESS_LICENSE}</span>
         <button onClick={onAdminAccess} className="flex items-center hover:text-[var(--cp-accent)] transition-colors">
           {adminAuthed ? <ShieldCheck size={12} className="mr-1 text-[var(--cp-accent)]" /> : <Lock size={12} className="mr-1" />}
           Admin
@@ -252,7 +255,7 @@ function Footer({ adminAuthed, onAdminAccess }) {
 // ─── Shared API call helper with retry logic ───
 async function sendToAgent(sessionId, text, maxRetries = 2) {
   let lastError;
-  
+
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       const response = await fetch(API_URL, {
@@ -285,23 +288,23 @@ async function sendToAgent(sessionId, text, maxRetries = 2) {
         return data.candidates[0].content.parts.map(p => p.text).join(' ');
       }
       return "I apologize, I didn't catch that. Could you rephrase?";
-      
+
     } catch (error) {
       lastError = error;
       console.warn(`API call attempt ${attempt + 1} failed:`, error.message);
-      
+
       // Don't retry on client errors (4xx)
       if (error.message.includes('HTTP 4')) {
         break;
       }
-      
+
       // Wait before retry (exponential backoff)
       if (attempt < maxRetries) {
         await new Promise(resolve => setTimeout(resolve, Math.pow(2, attempt) * 1000));
       }
     }
   }
-  
+
   throw lastError;
 }
 
@@ -309,7 +312,7 @@ async function sendToAgent(sessionId, text, maxRetries = 2) {
 function App() {
   const { addToast } = useToast();
   const isOnline = useNetworkStatus();
-  
+
   const [messages, setMessages] = useState([
     {
       role: 'model',
@@ -323,6 +326,13 @@ function App() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [comparisonList, setComparisonList] = useState([]);
   const [darkMode, setDarkMode] = useDarkMode();
+  const [activeDealId] = useState(() => {
+    const p = window.location.pathname;
+    if (p.startsWith('/hub/')) {
+      return p.split('/hub/')[1].split('/')[0];
+    }
+    return null;
+  });
 
   // Load chat history
   useEffect(() => {
@@ -371,7 +381,7 @@ function App() {
   // and direct deep-links to /contact, /chat, /appointments, /crm, /analytics, etc.
   const pageFromPath = (path) => {
     const p = (path || '').toLowerCase();
-    if (p.startsWith('/documents') || p.startsWith('/app/documents')) return 'documents';
+    if (p.startsWith('/documents') || p.startsWith('/document-center') || p.startsWith('/app/documents')) return 'documents';
     if (p.startsWith('/studio') || p.startsWith('/app/studio')) return 'adstudio';
     if (p.startsWith('/crm')) return 'crm';
     if (p.startsWith('/analytics')) return 'analytics';
@@ -381,6 +391,7 @@ function App() {
     if (p.startsWith('/chat-history')) return 'chat-history';
     if (p.startsWith('/chat')) return 'chat';
     if (p.startsWith('/inventory')) return 'inventory';
+    if (p.startsWith('/hub/')) return 'hub';
     if (p.startsWith('/system')) return 'system';
     return 'inventory';
   };
@@ -437,7 +448,7 @@ function App() {
 
   useEffect(() => {
     refreshPasskeyStatus();
-  }, [refreshPasskeyStatus]);
+  }, [refreshPasskeyStatus, adminAuthed]); // Refresh when auth state changes
 
   const handlePasskeyLogin = async () => {
     if (!window.PublicKeyCredential) { setPasskeyError('Passkeys not supported in this browser'); return; }
@@ -494,7 +505,7 @@ function App() {
     }
   };
 
-  const openPasskeyRegisterModal = () => {
+  const openPasskeyRegisterModal = useCallback(() => {
     if (!window.PublicKeyCredential) {
       setPasskeyError('Passkeys not supported in this browser');
       return;
@@ -508,7 +519,7 @@ function App() {
     setPasskeyEmailError('');
     setShowPasskeyEmailModal(true);
     setIsMobileMenuOpen(false);
-  };
+  }, [adminAuthed]);
 
   const handlePasskeyRegister = async (emailValue) => {
     if (!window.PublicKeyCredential) { setPasskeyError('Passkeys not supported in this browser'); return; }
@@ -594,6 +605,7 @@ function App() {
     for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
     return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
   }
+  const lastLoginTime = useRef(0);
 
   // Verify stored cookie on mount
   useEffect(() => {
@@ -606,10 +618,17 @@ function App() {
   // Direct links to admin-only pages should ask for PIN instead of silently
   // falling back to the public shell.
   useEffect(() => {
+    let mounted = true;
     if (ADMIN_PAGE_KEYS.has(activePage) && !adminAuthed) {
-      setShowPinModal(true);
-      setPinError('');
-      setPasskeyError('');
+      // Small delay to allow mounted check or session verify to finish
+      const timer = setTimeout(() => {
+        if (mounted && !adminAuthed) {
+          setShowPinModal(true);
+          setPinError('');
+          setPasskeyError('');
+        }
+      }, 100);
+      return () => { mounted = false; clearTimeout(timer); };
     }
   }, [activePage, adminAuthed]);
 
@@ -623,13 +642,30 @@ function App() {
   // Listen for expired admin session (fired by adminFetch on 401)
   useEffect(() => {
     const handleExpired = () => {
+      // Prevent session expiry from triggering if we JUST logged in (race condition protection)
+      if (Date.now() - lastLoginTime.current < 5000) {
+        console.warn('[App] Ignoring session-expired event triggered immediately after login.');
+        return;
+      }
       setAdminAuthed(false);
       setShowPinModal(true);
       setPinError('Session expired — please re-enter PIN');
     };
     window.addEventListener('admin-session-expired', handleExpired);
-    return () => window.removeEventListener('admin-session-expired', handleExpired);
-  }, []);
+
+    const handleTriggerRegister = (e) => {
+      if (e.detail?.email) {
+        setPasskeyEmail(e.detail.email);
+      }
+      openPasskeyRegisterModal();
+    };
+    window.addEventListener('trigger-passkey-register', handleTriggerRegister);
+
+    return () => {
+      window.removeEventListener('admin-session-expired', handleExpired);
+      window.removeEventListener('trigger-passkey-register', handleTriggerRegister);
+    };
+  }, [openPasskeyRegisterModal]);
 
   const messagesEndRef = useRef(null);
 
@@ -644,7 +680,7 @@ function App() {
     }
     localStorage.setItem('tho_session_id', sessionId);
   }, [sessionId, adminAuthed]);
-  
+
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -653,21 +689,21 @@ function App() {
         e.preventDefault();
         document.querySelector('input[aria-label="Chat message"]')?.focus();
       }
-      
+
       // Escape to close mobile menu
       if (e.key === 'Escape') {
         setIsMobileMenuOpen(false);
         setShowPinModal(false);
         setShowPasskeyEmailModal(false);
       }
-      
+
       // Ctrl/Cmd + / to show keyboard shortcuts
       if ((e.ctrlKey || e.metaKey) && e.key === '/') {
         e.preventDefault();
         addToast('Keyboard shortcuts: Ctrl+K = Focus chat, Esc = Close menus, Ctrl+/ = This help', 'info', 5000);
       }
     };
-    
+
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [addToast]);
@@ -742,10 +778,12 @@ function App() {
       const res = await fetch('/api/admin/verify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
         body: JSON.stringify({ pin: pinInput }),
       });
       const data = await res.json();
       if (data.success) {
+        lastLoginTime.current = Date.now();
         setAdminAuthed(true);
         setShowPinModal(false);
         setPinInput('');
@@ -775,21 +813,21 @@ function App() {
       setMessages(prev => [...prev, { role: 'model', text: botText }]);
     } catch (error) {
       console.error('Error sending message:', error);
-      
+
       // Show error with retry option
-      setMessages(prev => [...prev, { 
-        role: 'model', 
+      setMessages(prev => [...prev, {
+        role: 'model',
         text: `I'm having trouble connecting right now. This might be a temporary issue.\n\n[Click to retry](/retry)`,
         isError: true,
         originalMessage: userMessage.text
       }]);
-      
+
       addToast('Message failed to send. Click "Retry" to try again.', 'error', 8000);
     } finally {
       setIsLoading(false);
     }
   };
-  
+
   // Retry failed message
   const handleRetry = useCallback(async (originalMessage) => {
     setIsLoading(true);
@@ -809,17 +847,17 @@ function App() {
       addToast('You appear to be offline. Please check your connection.', 'warning');
       return;
     }
-    
+
     setIsLoading(true);
     try {
       const botText = await sendToAgent(sessionId, message);
       setMessages(prev => [...prev, { role: 'model', text: botText }]);
     } catch (error) {
       console.error('Error sending quick action:', error);
-      setMessages(prev => [...prev, { 
-        role: 'model', 
+      setMessages(prev => [...prev, {
+        role: 'model',
         text: `I'm having trouble connecting right now. Please try again or call us at ${BUSINESS_PHONE}.`,
-        isError: true 
+        isError: true
       }]);
       addToast('Quick action failed. Please try again.', 'error');
     } finally {
@@ -916,7 +954,7 @@ function App() {
 
         {passkeyAvailable && (
           <div className="space-y-2">
-            {passkeyStatus?.has_keys ? (
+            {passkeyStatus?.has_keys && (
               <button
                 type="button"
                 onClick={handlePasskeyLogin}
@@ -926,14 +964,29 @@ function App() {
                 <Fingerprint size={16} />
                 {passkeyLoading ? 'Authenticating...' : 'Sign in with Passkey'}
               </button>
-            ) : (
-              <p className="text-[11px] text-[var(--cp-faint)] text-center leading-relaxed font-mono border border-[var(--cp-border)] rounded-lg px-3 py-2 bg-[var(--cp-bg-2)]">
-                {passkeyStatus === null
-                  ? 'Checking passkey enrollment...'
-                  : passkeyStatus.store_ready === false
-                    ? 'Passkey storage is not ready. PIN fallback remains available.'
-                    : 'No approved passkeys enrolled yet. Unlock with PIN, then register an owner or @texashomeoutlet.com email.'}
-              </p>
+            )}
+
+            {!passkeyStatus?.has_keys && (
+              <div className="space-y-3">
+                <p className="text-[11px] text-[var(--cp-faint)] text-center leading-relaxed font-mono border border-[var(--cp-border)] rounded-lg px-3 py-2 bg-[var(--cp-bg-2)]">
+                  {passkeyStatus === null
+                    ? 'Checking passkey enrollment...'
+                    : passkeyStatus.store_ready === false
+                      ? 'Passkey storage is not ready. PIN fallback remains available.'
+                      : 'No approved passkeys enrolled yet. Unlock with PIN, then register an owner or @texashomeoutlet.com email.'}
+                </p>
+              </div>
+            )}
+
+            {adminAuthed && (
+              <button
+                type="button"
+                onClick={openPasskeyRegisterModal}
+                className="cp-btn-accent w-full py-2.5 text-sm flex items-center justify-center gap-2 mt-2"
+              >
+                <KeyRound size={16} />
+                Register new passkey / device
+              </button>
             )}
           </div>
         )}
@@ -1049,7 +1102,7 @@ function App() {
         <NavBar {...navProps} />
         <ErrorBoundary scope="system">
           <Suspense fallback={<PageLoader />}>
-            <SystemHub onBack={() => navigateTo('inventory')} />
+            <SystemHub onBack={() => navigateTo('inventory')} adminAuthed={adminAuthed} />
           </Suspense>
         </ErrorBoundary>
       </div>
@@ -1131,6 +1184,20 @@ function App() {
         <ErrorBoundary scope="documents">
           <Suspense fallback={<PageLoader />}>
             <DocumentCenter onBack={() => navigateTo('chat')} sessionId={sessionId} standalone={isStandaloneMode} />
+          </Suspense>
+        </ErrorBoundary>
+      </div>
+    );
+  }
+
+  if (activePage === 'hub' && activeDealId) {
+    return (
+      <div className="bg-[var(--cp-bg)] min-h-screen">
+        {appModals}
+        <NavBar {...navProps} />
+        <ErrorBoundary scope="hub">
+          <Suspense fallback={<PageLoader />}>
+            <SecureHub dealId={activeDealId} />
           </Suspense>
         </ErrorBoundary>
       </div>
@@ -1261,7 +1328,7 @@ function App() {
                   <div className={`p-4 rounded-2xl text-sm leading-relaxed
                      ${msg.role === 'user'
                       ? 'bg-[var(--cp-secondary)] text-[var(--cp-bg)] rounded-tr-none shadow-sm'
-                      : msg.isError 
+                      : msg.isError
                         ? 'bg-[var(--cp-danger-dim)] text-[var(--cp-danger)] rounded-tl-none border border-[var(--cp-danger)]/20'
                         : 'bg-[var(--cp-surface)] text-[var(--cp-text)] rounded-tl-none border border-[var(--cp-border)]'
                     }`}>

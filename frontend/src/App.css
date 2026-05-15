@@ -24,6 +24,8 @@
   --cp-copper:      #ba8b68;
   --cp-cta-green:   #2d7d3d;
   --cp-cta-orange:  #d85d3c;
+  --cp-gold:        #d6a33a;
+  --cp-gold-dim:    rgba(214, 163, 58, 0.15);
 
   --cp-text:        #2d2825;
   --cp-text-secondary: #4e4742;
@@ -243,13 +245,13 @@ button:focus:not(:focus-visible), a:focus:not(:focus-visible) { outline: none; }
 
 /* Tailwind utility nudges so older admin pages inherit the THO palette
    without rewriting every page-level class in one risky pass. */
-.bg-blue-600 { background-color: var(--cp-accent) !important; }
-.hover\:bg-blue-700:hover { background-color: var(--cp-accent-hot) !important; }
-.text-blue-600, .text-blue-700, .text-blue-800, .text-blue-500 { color: var(--cp-accent) !important; }
-.border-blue-500, .border-blue-300, .border-blue-200 { border-color: var(--cp-accent) !important; }
+.bg-blue-600, .bg-blue-900 { background-color: var(--cp-accent) !important; }
+.hover\:bg-blue-700:hover, .hover\:bg-blue-800:hover { background-color: var(--cp-accent-hot) !important; }
+.text-blue-600, .text-blue-700, .text-blue-800, .text-blue-900, .text-blue-500 { color: var(--cp-accent) !important; }
+.border-blue-500, .border-blue-300, .border-blue-200, .border-blue-900 { border-color: var(--cp-accent) !important; }
 .bg-blue-50, .bg-blue-100 { background-color: var(--cp-accent-dim) !important; }
 .ring-blue-200, .focus\:ring-blue-200:focus { --tw-ring-color: rgba(80, 29, 29, 0.18) !important; }
-.focus\:border-blue-500:focus { border-color: var(--cp-accent) !important; }
+.focus\:border-blue-500:focus, .focus\:border-blue-900:focus { border-color: var(--cp-accent) !important; }
 .bg-slate-800 { background-color: var(--cp-accent) !important; }
 .text-slate-800 { color: var(--cp-text) !important; }
 .bg-gray-50 { background-color: var(--cp-bg-2) !important; }

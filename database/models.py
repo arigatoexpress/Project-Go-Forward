@@ -35,7 +35,7 @@ class Customer(BaseModel):
     status: CustomerStatus = CustomerStatus.LEAD
 
     # Billing info
-    billing_account: Optional[str] = None  # e.g., "Prosperity Acquisitions LLC - 15th"
+    billing_account: Optional[str] = None  # e.g., "Texas Home Outlet - 15th"
 
     # Timestamps
     created_at: datetime = Field(default_factory=datetime.utcnow)
@@ -236,6 +236,15 @@ class Deal(BaseModel):
     salesrep: Optional[str] = None
     status: DealStatus = DealStatus.PENDING
 
+    # ─── Seller ───
+    seller_name: str = "Texas Home Outlet"
+    seller_rbi: Optional[str] = "35248"
+    seller_phone: Optional[str] = "(281) 324-3020"
+    seller_address: Optional[str] = "10685 FM 1960 East"
+    seller_city: Optional[str] = "Huffman"
+    seller_state: str = "TX"
+    seller_zip: Optional[str] = None
+
     # ─── Buyer ───
     buyer_first_name: Optional[str] = None
     buyer_last_name: Optional[str] = None
@@ -366,6 +375,17 @@ class Deal(BaseModel):
             if mailing_city_state_zip:
                 mailing_full_address += f", {mailing_city_state_zip}"
 
+        # ─── Computed: Seller strings ───
+        seller_city_state_zip = None
+        if any([self.seller_city, self.seller_zip]):
+            seller_city_state_zip = f"{self.seller_city or ''}, {self.seller_state or 'TX'} {self.seller_zip or ''}".strip()
+
+        seller_full_address = None
+        if self.seller_address:
+            seller_full_address = self.seller_address
+            if seller_city_state_zip:
+                seller_full_address += f", {seller_city_state_zip}"
+
         # ─── Computed: Home strings ───
         manufacturer_model = None
         if self.manufacturer and self.model:
@@ -446,10 +466,17 @@ class Deal(BaseModel):
             "reference1_phone": self.reference1_phone,
             "reference2_name": self.reference2_name,
             "reference2_phone": self.reference2_phone,
-            # ─── Seller (defaults) ───
-            "seller_name": "Texas Home Outlet",
-            "seller_phone": "(281) 555-0199",
+            # ─── Seller ───
+            "seller_name": self.seller_name,
+            "seller_phone": self.seller_phone or "(281) 324-3020",
             "seller_email": "sales@texashomeoutlet.com",
+            "seller_rbi": self.seller_rbi,
+            "seller_address": self.seller_address,
+            "seller_city": self.seller_city,
+            "seller_state": self.seller_state,
+            "seller_zip": self.seller_zip,
+            "seller_city_state_zip": seller_city_state_zip,
+            "seller_full_address": seller_full_address,
             "salesrep": self.salesrep,
             # ─── Home ───
             "manufacturer": self.manufacturer,

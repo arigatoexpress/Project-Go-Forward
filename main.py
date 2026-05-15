@@ -615,14 +615,19 @@ async def resilient_json_decode_handler(request: Request, exc: JSONDecodeError) 
 
 # Add CORS — production origins from env, with sensible defaults
 IS_LOCAL = os.environ.get("K_SERVICE") is None  # K_SERVICE is set by Cloud Run
-_default_origins = (
-    "https://tho-agent-691674245427.us-central1.run.app,"
-    "https://tho-agent-trgi34bxuq-uc.a.run.app,"
-    "https://tho-ai-agent.web.app,"
-    "https://tho-ai-agent.firebaseapp.com"
-)
+_default_origins = [
+    "https://tho-agent-691674245427.us-central1.run.app",
+    "https://tho-agent-trgi34bxuq-uc.a.run.app",
+    "https://tho-ai-agent.web.app",
+    "https://tho-ai-agent.firebaseapp.com",
+    "https://tho.sapphirealpha.xyz",
+    "https://sapphirealpha.xyz",
+    "https://www.sapphirealpha.xyz",
+    "https://texashomeoutlet.com",
+    "https://www.texashomeoutlet.com"
+]
 ALLOWED_ORIGINS = [
-    o.strip() for o in os.environ.get("ALLOWED_ORIGINS", _default_origins).split(",") if o.strip()
+    o.strip() for o in os.environ.get("ALLOWED_ORIGINS", ",".join(_default_origins)).split(",") if o.strip()
 ]
 if IS_LOCAL:
     ALLOWED_ORIGINS += ["http://localhost:8080", "http://localhost:5173"]
@@ -639,7 +644,8 @@ app.add_middleware(
 
 # Admin PIN hash — MUST be set via ADMIN_PIN_HASH env var in production.
 # Generate hash: python -c "import hashlib; print(hashlib.sha256(b'YOUR_PIN').hexdigest())"
-# Cloud Run fails closed; local dev also requires explicit PIN.
+# Cloud Run and local app startup fail closed; tests and operators must set
+# ADMIN_PIN_HASH explicitly.
 _CONFIGURED_ADMIN_PIN_HASH = os.environ.get("ADMIN_PIN_HASH")
 if os.environ.get("K_SERVICE"):
     ADMIN_PIN_HASH = _CONFIGURED_ADMIN_PIN_HASH or ""
@@ -664,7 +670,16 @@ import base64
 import hmac
 import struct
 
-ADMIN_TOKEN_TTL = int(os.environ.get("ADMIN_TOKEN_TTL", str(2 * 60 * 60)))  # 2 hours
+# Derive a stable session secret from the PIN hash if not explicitly provided.
+# This prevents random secret rotation on every Cloud Run cold start, which
+# causes session invalidation and 'double PIN gates'.
+if not os.environ.get("ADMIN_SESSION_SECRET") and ADMIN_PIN_HASH:
+    # Use a different salt from the JWT secret below
+    _derived_secret = hashlib.sha256(f"tho-session-v2-{ADMIN_PIN_HASH}".encode()).hexdigest()
+    os.environ["ADMIN_SESSION_SECRET"] = _derived_secret
+    logger.info("ADMIN_SESSION_SECRET derived from PIN hash for stability")
+
+ADMIN_TOKEN_TTL = int(os.environ.get("ADMIN_TOKEN_TTL", str(24 * 60 * 60)))  # 24 hours
 _JWT_SECRET = hashlib.sha256(f"sapphire-jwt-{ADMIN_PIN_HASH[:16]}".encode()).digest()
 
 
@@ -883,6 +898,8 @@ async def _execute_agent_run(runner, user_id, session_id, new_message, request_i
         struct_logger.warning("No text generated", request_id=request_id, event_count=event_count)
         final_text = "I apologize, but I couldn't generate a response. Please try again."
 
+    return final_text, event_count
+
 # --- Rate Limiting for Chat API ---
 CHAT_RATE_LIMIT_SECONDS = 60
 CHAT_RATE_LIMIT_MAX_REQUESTS = 10
@@ -893,7 +910,7 @@ def _check_chat_rate_limit(client_ip: str) -> bool:
     now = time.time()
     redis_client = caching.get_redis_client()
     key = f"tho:chat_ratelimit:{client_ip}"
-    
+
     if redis_client:
         try:
             # Simple fixed window or rolling window
@@ -907,7 +924,7 @@ def _check_chat_rate_limit(client_ip: str) -> bool:
             return True
         except Exception as e:
             struct_logger.warning("Redis chat_ratelimit failed", error=str(e))
-            
+
     # Fallback to in-memory
     attempts = _chat_rate_limit_fallback.get(client_ip, [])
     attempts = [t for t in attempts if now - t < CHAT_RATE_LIMIT_SECONDS]
@@ -923,10 +940,10 @@ async def run_agent(request: Request):
     client_ip = request.client.host if request.client else "unknown"
     if not _check_chat_rate_limit(client_ip):
         return JSONResponse(
-            {"error": "You're sending messages too fast. Please wait a moment and try again."}, 
+            {"error": "You're sending messages too fast. Please wait a moment and try again."},
             status_code=429
         )
-        
+
     request_id = str(uuid.uuid4())
     start_time = time.time()
 
@@ -1067,12 +1084,18 @@ async def run_agent(request: Request):
         duration_ms = (time.time() - start_time) * 1000
         import traceback
 
-        error_detail = f"{str(e)}\n{traceback.format_exc()}"
+        error_detail = f"{type(e).__name__}: {str(e)}\n{traceback.format_exc()}"
         struct_logger.error(
-            "Request failed", request_id=request_id, error=error_detail, duration_ms=duration_ms
+            "Chat request failed",
+            request_id=request_id,
+            error=error_detail,
+            duration_ms=duration_ms,
+            user_id=user_id,
+            session_id=session_id
         )
-        # Never send stack traces to users — log server-side only
-        user_message = "Something went wrong. Please try again or report this issue."
+
+        # Friendly message for users, but specific for debugging
+        user_message = "I'm having trouble connecting to my brain right now. Please try again in a moment."
         return {"error": user_message}
 
 
@@ -1083,7 +1106,7 @@ async def get_public_chat_session(session_id: str):
         session = await chat_history.get_session(session_id)
         if not session:
             return {"success": True, "messages": []}
-            
+
         messages = []
         for msg in session.messages:
             messages.append({
@@ -1091,7 +1114,7 @@ async def get_public_chat_session(session_id: str):
                 "text": msg.text,
                 "timestamp": msg.timestamp
             })
-            
+
         return {"success": True, "messages": messages}
     except Exception as e:
         struct_logger.error("Failed to retrieve public chat session", session_id=session_id, error=str(e))
@@ -1650,25 +1673,23 @@ from schemas.document_schemas import (
     GeneratePacketRequest,
     SalesContractForm,
 )
-from tools.document_engine import (
+from tools.document_engine_v2 import (
     generate_batch as engine_generate_batch,
-)
-from tools.document_engine import (
-    generate_document as engine_generate_document,
-)
-from tools.document_engine import (
     generate_packet as engine_generate_packet,
 )
-from tools.document_engine import (
+from tools.document_engine_v2 import (
+    generate_document as engine_generate_document,
+)
+from tools.document_engine_v2 import (
     get_all_field_definitions as engine_get_all_field_definitions,
 )
-from tools.document_engine import (
+from tools.document_engine_v2 import (
     get_template_fields as engine_get_template_fields,
 )
-from tools.document_engine import (
+from tools.document_engine_v2 import (
     list_available_packets as engine_list_packets,
 )
-from tools.document_engine import (
+from tools.document_engine_v2 import (
     list_available_templates as engine_list_templates,
 )
 from tools.document_tools import (
@@ -1679,11 +1700,15 @@ from tools.document_tools import (
 )
 
 _SYNTHETIC_DOCUMENT_NAME_MARKERS = (
+    "another_test",
     "created_from_missing_dir",
+    "doc_smoke",
     "joe_blo",
     "legacy_test",
+    "prod_smoke",
     "smoke_buyer",
     "test_buyer",
+    "testbuyer",
     "test_engine",
     "test_fill",
     "test_summary",
@@ -1700,6 +1725,64 @@ def _is_synthetic_document(filename: str | None) -> bool:
 
 def _visible_generated_documents(docs: list[dict]) -> list[dict]:
     return [doc for doc in docs if not doc.get("synthetic")]
+
+
+def _packet_result_fields(result: dict) -> dict:
+    """Normalize legacy and v2 packet-engine response shapes for API callers."""
+    merged = result.get("merged") if isinstance(result.get("merged"), dict) else {}
+    if not merged and isinstance(result.get("merged_document"), dict):
+        merged = result.get("merged_document") or {}
+
+    filename = result.get("filename") or merged.get("filename")
+    download_url = (
+        result.get("download_url")
+        or merged.get("download_url")
+        or (f"/api/documents/download/{filename}" if filename else None)
+    )
+    page_count = result.get("page_count") or merged.get("page_count") or 0
+
+    documents_included = result.get("documents_included")
+    documents_skipped = result.get("documents_skipped")
+    documents = result.get("documents") if isinstance(result.get("documents"), list) else []
+    if documents_included is None and documents:
+        documents_included = [
+            doc.get("template_name") or doc.get("filename")
+            for doc in documents
+            if isinstance(doc, dict) and doc.get("success")
+        ]
+        documents_included = [doc for doc in documents_included if doc]
+    if documents_skipped is None and documents:
+        documents_skipped = [
+            {
+                "template": doc.get("template_name") or doc.get("filename") or "unknown",
+                "reason": doc.get("error") or doc.get("message") or "Generation failed",
+            }
+            for doc in documents
+            if isinstance(doc, dict) and not doc.get("success")
+        ]
+
+    message = result.get("message")
+    if not message:
+        count = len(documents_included or [])
+        message = f"Generated {count} packet document{'s' if count != 1 else ''}."
+
+    return {
+        "filename": filename,
+        "download_url": download_url,
+        "message": message,
+        "page_count": page_count,
+        "documents_included": documents_included or [],
+        "documents_skipped": documents_skipped or [],
+    }
+
+
+def _is_document_validation_failure(message: str) -> bool:
+    normalized = str(message or "")
+    return (
+        "Missing required fields" in normalized
+        or "Validation failed" in normalized
+        or "Field required" in normalized
+    )
 
 
 def _collect_generated_documents():
@@ -1861,12 +1944,15 @@ async def generate_document_endpoint(body: GenerateDocumentRequest, request: Req
         # callers can react programmatically and so we never accidentally
         # ship a 200 + empty PDF for an empty deal.
         message = result.get("message", "")
-        if "Missing required fields" in message:
+        if _is_document_validation_failure(message):
+            response_message = message
+            if "Missing required fields" not in response_message:
+                response_message = f"Missing required fields. {response_message}"
             return JSONResponse(
                 {
                     "success": False,
                     "error": "missing_required_fields",
-                    "message": message,
+                    "message": response_message,
                 },
                 status_code=400,
             )
@@ -1885,44 +1971,46 @@ async def generate_packet_endpoint(body: GeneratePacketRequest, request: Request
             data=body.data,
         )
         if result["success"]:
+            packet_fields = _packet_result_fields(result)
             log_admin_action(
                 actor=_audit_actor(request),
                 action="document.generate",
                 target_type="document",
-                target_id=str(result.get("filename", "")),
+                target_id=str(packet_fields.get("filename", "")),
                 details={
                     "packet_name": str(body.packet_name)[:100],
-                    "page_count": result.get("page_count", 0),
+                    "page_count": packet_fields.get("page_count", 0),
                     "documents_included": [
-                        str(d)[:60] for d in (result.get("documents_included") or [])
+                        str(d)[:60] for d in (packet_fields.get("documents_included") or [])
                     ][:50],
                 },
                 request=request,
             )
 
             # Lane 3: Best-effort auto-email if customer email present in data
-            _maybe_email_document(
-                customer_email=body.customer_email
-                or body.data.get("buyer_email")
-                or body.data.get("email"),
-                customer_name=body.customer_name
-                or body.data.get("buyer_first_name")
-                or body.data.get("first_name"),
-                doc_filename=result["filename"],
-                doc_type="closing_packet",
-                download_url=f"/api/documents/download/{result['filename']}",
-            )
+            if packet_fields.get("filename"):
+                _maybe_email_document(
+                    customer_email=body.customer_email
+                    or body.data.get("buyer_email")
+                    or body.data.get("email"),
+                    customer_name=body.customer_name
+                    or body.data.get("buyer_first_name")
+                    or body.data.get("first_name"),
+                    doc_filename=packet_fields["filename"],
+                    doc_type="closing_packet",
+                    download_url=packet_fields["download_url"],
+                )
 
             return {
                 "success": True,
-                "download_url": f"/api/documents/download/{result['filename']}",
-                "filename": result["filename"],
-                "message": result["message"],
-                "page_count": result.get("page_count", 0),
-                "documents_included": result.get("documents_included", []),
-                "documents_skipped": result.get("documents_skipped", []),
+                "download_url": packet_fields["download_url"],
+                "filename": packet_fields["filename"],
+                "message": packet_fields["message"],
+                "page_count": packet_fields.get("page_count", 0),
+                "documents_included": packet_fields.get("documents_included", []),
+                "documents_skipped": packet_fields.get("documents_skipped", []),
             }
-        return {"success": False, "error": result["message"]}
+        return {"success": False, "error": result.get("message") or result.get("error") or "Packet generation failed"}
     except Exception as e:
         struct_logger.error("Packet generation failed", error=str(e))
         return {"success": False, "error": "Packet generation failed. Please try again."}
@@ -2049,6 +2137,8 @@ from database.models import Deal, DealStatus, Inventory
 
 _db = get_database()
 INVENTORY_PLACEHOLDER_IMAGE_URL = "/tex-icon.svg"
+_INVENTORY_MEDIA_INDEX_CACHE = {"loaded_at": 0.0, "index": {}}
+_INVENTORY_MEDIA_INDEX_TTL_SECONDS = 15 * 60
 
 
 def _pick_inventory_field(item: dict, *keys: str):
@@ -2066,20 +2156,42 @@ def _inventory_media_key(value: object) -> str:
     return re.sub(r"[^a-z0-9]+", "", str(value).strip().lower())
 
 
-def _load_legacy_inventory_media_index() -> dict[str, dict]:
-    """Map legacy IDs/model names to photo-ready legacy media records."""
+def _legacy_inventory_context_for_admin_media() -> dict:
+    """Load admin inventory media context without blocking on a live crawl.
+
+    Document Center inventory must be fast and reliable. The live legacy-site
+    crawl can take tens of seconds when the legacy WordPress site is slow, so
+    this admin path uses a local snapshot in production and still honors tests
+    or operator overrides that monkeypatch `load_legacy_inventory_context`.
+    """
     loader = globals().get("load_legacy_inventory_context")
-    if loader is None:
+
+    # Unit tests and operator shims replace the imported loader with a local
+    # callable. Preserve that hook so media-recovery behavior remains testable.
+    if loader is not None and getattr(loader, "__module__", "") != "tools.legacy_site_crawler":
         try:
-            from tools.legacy_site_crawler import load_legacy_inventory_context as loader
-        except Exception:
-            return {}
+            return loader(limit=100, force_refresh=False, snapshot_fallback=True) or {}
+        except TypeError:
+            return loader(limit=100) or {}
 
     try:
-        context = loader(limit=100)
+        from tools.legacy_site_crawler import _load_snapshot_context
+
+        return _load_snapshot_context() or {}
     except Exception as exc:
         struct_logger.warning("Legacy inventory media index unavailable", error=str(exc))
         return {}
+
+
+def _load_legacy_inventory_media_index() -> dict[str, dict]:
+    """Map legacy IDs/model names to photo-ready legacy media records."""
+    now = time.monotonic()
+    cached = _INVENTORY_MEDIA_INDEX_CACHE.get("index") or {}
+    loaded_at = float(_INVENTORY_MEDIA_INDEX_CACHE.get("loaded_at") or 0.0)
+    if cached and now - loaded_at < _INVENTORY_MEDIA_INDEX_TTL_SECONDS:
+        return cached
+
+    context = _legacy_inventory_context_for_admin_media()
 
     classifier = globals().get("apply_classifier_to_home")
     if classifier is None:
@@ -2104,6 +2216,8 @@ def _load_legacy_inventory_media_index() -> dict[str, dict]:
             media_key = _inventory_media_key(key)
             if media_key:
                 index[media_key] = media_home
+    _INVENTORY_MEDIA_INDEX_CACHE["loaded_at"] = now
+    _INVENTORY_MEDIA_INDEX_CACHE["index"] = index
     return index
 
 
@@ -2973,6 +3087,7 @@ async def generate_document_from_deal(deal_id: str, request: Request):
         result = engine_generate_document(
             template_name=template_name,
             data=doc_data,
+            deal_id=deal_id,
         )
         if result["success"]:
             log_admin_action(
@@ -3047,43 +3162,46 @@ async def generate_packet_from_deal(deal_id: str, request: Request):
         result = engine_generate_packet(
             packet_name=packet_name,
             data=doc_data,
+            deal_id=deal_id,
         )
         if result["success"]:
+            packet_fields = _packet_result_fields(result)
             log_admin_action(
                 actor=_audit_actor(request),
                 action="document.generate",
                 target_type="document",
-                target_id=str(result.get("filename", "")),
+                target_id=str(packet_fields.get("filename", "")),
                 details={
                     "packet_name": str(packet_name)[:100],
                     "deal_id": str(deal_id),
-                    "page_count": result.get("page_count", 0),
+                    "page_count": packet_fields.get("page_count", 0),
                     "documents_included": [
-                        str(d)[:60] for d in (result.get("documents_included") or [])
+                        str(d)[:60] for d in (packet_fields.get("documents_included") or [])
                     ][:50],
                 },
                 request=request,
             )
 
             # Lane 3: Best-effort auto-email if customer email present in data
-            _maybe_email_document(
-                customer_email=doc_data.get("buyer_email") or doc_data.get("email"),
-                customer_name=doc_data.get("buyer_first_name") or doc_data.get("first_name"),
-                doc_filename=result["filename"],
-                doc_type="closing_packet",
-                download_url=f"/api/documents/download/{result['filename']}",
-                deal_id=deal_id,
-            )
+            if packet_fields.get("filename"):
+                _maybe_email_document(
+                    customer_email=doc_data.get("buyer_email") or doc_data.get("email"),
+                    customer_name=doc_data.get("buyer_first_name") or doc_data.get("first_name"),
+                    doc_filename=packet_fields["filename"],
+                    doc_type="closing_packet",
+                    download_url=packet_fields["download_url"],
+                    deal_id=deal_id,
+                )
 
             # DocuSeal: Automated e-sign dispatch for deal packet
             email = doc_data.get("buyer_email") or doc_data.get("email")
-            if email:
+            if email and packet_fields.get("filename"):
                 try:
                     await docuseal_send_file_for_signature(
                         email=email,
                         name=f"{doc_data.get('buyer_first_name', '')} {doc_data.get('buyer_last_name', '')}".strip()
                         or "Customer",
-                        file_path=os.path.join("generated_docs", result["filename"]),
+                        file_path=os.path.join("generated_docs", packet_fields["filename"]),
                         display_name=f"Closing Packet - {packet_name}",
                         deal_id=deal_id,
                         metadata={
@@ -3098,13 +3216,13 @@ async def generate_packet_from_deal(deal_id: str, request: Request):
 
             return {
                 "success": True,
-                "download_url": f"/api/documents/download/{result['filename']}",
-                "filename": result["filename"],
-                "message": result["message"],
-                "page_count": result.get("page_count", 0),
-                "documents_included": result.get("documents_included", []),
+                "download_url": packet_fields["download_url"],
+                "filename": packet_fields["filename"],
+                "message": packet_fields["message"],
+                "page_count": packet_fields.get("page_count", 0),
+                "documents_included": packet_fields.get("documents_included", []),
             }
-        return {"success": False, "error": result["message"]}
+        return {"success": False, "error": result.get("message") or result.get("error") or "Packet generation failed"}
     except Exception as e:
         struct_logger.error("Deal packet generation failed", error=str(e))
         return {"success": False, "error": "Failed to generate closing packet. Please try again."}
@@ -3243,6 +3361,16 @@ async def docuseal_webhook(request: Request):
             )
         except Exception as note_err:
             struct_logger.warning("DocuSeal post-processing failed", error=str(note_err))
+
+        try:
+            from tools.drive_service import ensure_deal_folder, upload_to_drive
+            deal_folder_id = ensure_deal_folder(str(deal_id))
+            if deal_folder_id:
+                drive_link = upload_to_drive(tmp_path, f"Signed - {template_name or submission_id}.pdf", deal_folder_id)
+                if drive_link:
+                    struct_logger.info("DocuSeal signed PDF mirrored to Drive", deal_id=deal_id, drive_link=drive_link)
+        except Exception as drive_err:
+            struct_logger.warning("DocuSeal Drive mirror failed", error=str(drive_err))
 
         struct_logger.info("DocuSeal signed PDF mirrored", deal_id=deal_id, gcs_uri=gcs_uri)
         return {"status": "ok", "gcs_path": gcs_uri or gcs_path}
@@ -5391,6 +5519,27 @@ async def v1_webhook_notify(request: Request):
         struct_logger.error("Partner webhook logging failed", error=str(e))
         raise HTTPException(status_code=500, detail="Failed to record webhook activity")
 
+@app.post("/api/v1/service-requests/{request_id}/resolve", dependencies=[Depends(require_partner_api_key)])
+@limiter.limit("60/minute")
+async def v1_service_request_resolve(request: Request, request_id: str):
+    """Mark a service request as resolved. Called by Notion when warranty claims close."""
+    try:
+        doc = _db.db.collection("service_requests").document(request_id).get()
+        if not doc.exists:
+            raise HTTPException(status_code=404, detail="Service request not found")
+
+        success = _db.update_service_request(request_id, {"status": "resolved"})
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to update service request")
+
+        struct_logger.info("Partner resolved service request", request_id=request_id)
+        return {"success": True, "id": request_id, "status": "resolved"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        struct_logger.error("Failed to resolve service request via partner API", error=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
+
 
 @app.get("/api/v1/stats", dependencies=[Depends(require_partner_api_key)])
 @limiter.limit("60/minute")
@@ -5578,6 +5727,86 @@ async def run_lead_nurture_endpoint(request: Request):
         struct_logger.warning("Audit log write failed for lead_nurture", error=str(exc))
 
     return result
+
+
+
+# ============ SECURE HUB (CUSTOMER PORTAL) ============
+
+@app.get("/api/v1/customer/deal/{deal_id}")
+async def get_secure_hub_deal(deal_id: str):
+    """Fetch deal status and documents for the customer portal."""
+    try:
+        db = get_database()
+        deal = db.collection("deals").document(deal_id).get()
+        if not deal.exists:
+            raise HTTPException(status_code=404, detail="Deal not found")
+
+        deal_data = deal.to_dict()
+
+        # Fetch documents (deal_notes of type esign_completed or document_generated)
+        docs_query = db.collection("deal_notes").where("deal_id", "==", deal_id).stream()
+        documents = []
+        for doc in docs_query:
+            d = doc.to_dict()
+            documents.append({
+                "id": doc.id,
+                "type": d.get("type"),
+                "name": d.get("template_name") or d.get("filename") or "Document",
+                "created_at": d.get("created_at"),
+                "status": "signed" if d.get("type") == "esign_completed" else "generated"
+            })
+
+        return {
+            "success": True,
+            "deal": {
+                "id": deal.id,
+                "status": deal_data.get("status"),
+                "buyer_name": f"{deal_data.get('buyer_first_name', '')} {deal_data.get('buyer_last_name', '')}".strip(),
+                "home_model": deal_data.get("inventory_model_name"),
+                "created_at": deal_data.get("created_at"),
+            },
+            "documents": sorted(documents, key=lambda x: x["created_at"], reverse=True)
+        }
+    except Exception as e:
+        struct_logger.error("Secure Hub deal fetch failed", error=str(e), deal_id=deal_id)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/v1/customer/deal/{deal_id}/download/{note_id}")
+async def download_secure_document(deal_id: str, note_id: str):
+    """Generate a signed URL for a secure document."""
+    try:
+        db = get_database()
+        note = db.collection("deal_notes").document(note_id).get()
+        if not note.exists or note.to_dict().get("deal_id") != deal_id:
+            raise HTTPException(status_code=404, detail="Document not found")
+
+        data = note.to_dict()
+        gcs_uri = data.get("gcs_path") or data.get("gcs_uri")
+
+        if not gcs_uri or not gcs_uri.startswith("gs://"):
+            raise HTTPException(status_code=400, detail="Document storage location unknown")
+
+        # Parse bucket and blob
+        parts = gcs_uri[5:].split("/", 1)
+        bucket_name = parts[0]
+        blob_name = parts[1]
+
+        from google.cloud import storage
+        storage_client = storage.Client()
+        bucket = storage_client.bucket(bucket_name)
+        blob = bucket.blob(blob_name)
+
+        # Generate signed URL (expires in 15 mins)
+        url = blob.generate_signed_url(
+            version="v4",
+            expiration=timedelta(minutes=15),
+            method="GET",
+        )
+
+        return {"success": True, "url": url}
+    except Exception as e:
+        struct_logger.error("Signed URL generation failed", error=str(e), note_id=note_id)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # AI PM Manager Routes (Linear-inspired)

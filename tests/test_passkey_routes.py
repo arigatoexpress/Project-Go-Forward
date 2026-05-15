@@ -83,6 +83,29 @@ def test_login_begin_uses_sapphire_xyz_cutover_context(passkey_client):
     assert response.json()["rpId"] == "sapphire.xyz"
 
 
+def test_login_begin_defaults_to_current_production_origin(passkey_client):
+    client, routes = passkey_client
+
+    assert routes.THO_ORIGIN == "https://tho.sapphirealpha.xyz"
+
+    response = client.post("/api/admin/passkey/login/begin")
+
+    assert response.status_code == 200, response.text
+    assert response.json()["rpId"] == "sapphirealpha.xyz"
+
+
+def test_login_begin_keeps_texashomeoutlet_cutover_context(passkey_client):
+    client, _routes = passkey_client
+
+    response = client.post(
+        "/api/admin/passkey/login/begin",
+        headers={"Origin": "https://texashomeoutlet.com"},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["rpId"] == "texashomeoutlet.com"
+
+
 def test_register_begin_requires_existing_admin_session(passkey_client):
     client, _routes = passkey_client
 

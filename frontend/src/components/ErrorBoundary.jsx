@@ -51,8 +51,7 @@ class ErrorBoundary extends React.Component {
     // Always log to console so it's visible in DevTools / Cloud Run logs.
     console.error(`[ErrorBoundary ${errorId}]`, error, errorInfo);
 
-    // TODO(IMPROVEMENTS.md): wire actual @sentry/react SDK; this stub lets
-    // observability layer attach later without code change.
+    // Call the global Sentry hook if observability layer is attached.
     if (typeof window !== 'undefined' && typeof window.__SENTRY_HOOK__ === 'function') {
       try {
         window.__SENTRY_HOOK__(error, errorInfo, { errorId, scope: this.props.scope });

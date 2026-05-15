@@ -9,4 +9,6 @@ export const BUSINESS_ADDRESS = "10685 FM 1960 East";
 export const BUSINESS_CITY = "Huffman";
 export const BUSINESS_STATE = "TX";
 export const BUSINESS_ZIP = "77336";
+export const BUSINESS_LICENSE = "35248";
 export const BUSINESS_HOURS = "Mon-Fri 9-6, Sat 9-5, Sun 12-3";
+export const NOTION_WORKSPACE_URL = "https://www.notion.so/Texas-Home-Outlet-34d6688dbec680f19371f6af10d1da15";

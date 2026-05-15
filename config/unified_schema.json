@@ -1,0 +1,169 @@
+{
+  "_version": "2.0.0",
+  "description": "THO Unified Document Schema - Domain-driven field definitions with alias support.",
+  "domains": {
+    "person": {
+      "fields": {
+        "buyer_name": {
+          "type": "string",
+          "required": true,
+          "pdf_aliases": ["Contract_Name", "Buyer_Name", "Borrower_Name", "Purchaser", "Applicant_Name"],
+          "label": "Primary Buyer Full Name"
+        },
+        "buyer_address": {
+          "type": "string",
+          "required": true,
+          "pdf_aliases": ["Install_Address", "Property_Address", "Subject_Property", "Buyer_Address"],
+          "label": "Installation Address"
+        },
+        "buyer_email": {
+          "type": "email",
+          "required": false,
+          "pdf_aliases": ["Buyer_Email", "Email_Address", "Contact_Email"]
+        },
+        "buyer_phone": {
+          "type": "phone",
+          "required": false,
+          "pdf_aliases": ["Buyer_Phone", "Phone_Number", "Contact_Phone"]
+        },
+        "buyer_ssn": {
+          "type": "ssn",
+          "required": false,
+          "pdf_aliases": ["SSN", "Social_Security", "Tax_ID"],
+          "pii": true
+        }
+      }
+    },
+    "product": {
+      "fields": {
+        "manufacturer": {
+          "type": "string",
+          "required": true,
+          "pdf_aliases": ["Manufacturer", "Builder", "Make"]
+        },
+        "model": {
+          "type": "string",
+          "required": true,
+          "pdf_aliases": ["Model", "Model_Name", "Series", "Floor_Plan"]
+        },
+        "serial_number_1": {
+          "type": "string",
+          "required": true,
+          "pdf_aliases": ["Serial_1", "Serial_Num1", "Unit_Serial", "Serial_Number"]
+        },
+        "hud_number": {
+          "type": "string",
+          "required": true,
+          "pdf_aliases": ["HUD_Label", "HUD_Num", "Cert_Label"]
+        },
+        "is_new": {
+          "type": "boolean",
+          "required": true,
+          "pdf_aliases": ["New_Yes", "Is_New"],
+          "checkbox_mapping": {
+            "true_value": "On",
+            "false_value": "Off",
+            "mutually_exclusive": "is_used"
+          }
+        },
+        "is_used": {
+          "type": "boolean",
+          "required": true,
+          "pdf_aliases": ["Used_Yes", "Is_Used", "Pre_Owned"],
+          "checkbox_mapping": {
+            "true_value": "On",
+            "false_value": "Off",
+            "mutually_exclusive": "is_new"
+          }
+        }
+      }
+    },
+    "financial": {
+      "fields": {
+        "sales_price": {
+          "type": "decimal",
+          "precision": 10,
+          "scale": 2,
+          "required": true,
+          "pdf_aliases": ["SalePrice", "Sales_Price", "Purchase_Price", "Total_Price"]
+        },
+        "down_payment": {
+          "type": "decimal",
+          "precision": 10,
+          "scale": 2,
+          "required": true,
+          "pdf_aliases": ["DownPayment", "Down_Pmt", "Cash_Down", "Deposit"]
+        },
+        "loan_term": {
+          "type": "integer",
+          "min": 12,
+          "max": 360,
+          "required": true,
+          "pdf_aliases": ["Loan_Term", "Term", "Months", "Duration"]
+        },
+        "apr": {
+          "type": "decimal",
+          "precision": 5,
+          "scale": 2,
+          "required": true,
+          "pdf_aliases": ["APR", "Annual_Rate", "Interest_Rate"]
+        }
+      }
+    },
+    "creditor": {
+      "fields": {
+        "creditor_name":      {"type": "string", "required": true, "pdf_aliases": ["Creditor", "Lender", "Lender_Name"]},
+        "creditor_address":   {"type": "string", "required": true, "pdf_aliases": ["Creditor_Address", "Lender_Address"]},
+        "creditor_phone":     {"type": "phone",  "required": false, "pdf_aliases": ["Creditor_Phone", "Lender_Phone"]},
+        "creditor_nmls":      {"type": "string", "required": false, "pdf_aliases": ["NMLS", "NMLS_ID", "Lender_NMLS"]},
+        "account_number":     {"type": "string", "required": false, "pdf_aliases": ["Account_Num", "Loan_Number", "App_Number"]}
+      }
+    },
+    "insurance": {
+      "fields": {
+        "insurance_included": {"type": "boolean","required": true, "pdf_aliases": ["Insurance_Included_Yes", "Include_Insurance"]},
+        "insurance_carrier":  {"type": "string", "required": false, "pdf_aliases": ["Carrier", "Insurance_Co", "Insurer"]},
+        "insurance_policy_number": {"type": "string", "required": false, "pdf_aliases": ["Policy_Num", "Policy_Number"]},
+        "insurance_premium":  {"type": "decimal", "scale": 2, "required": false, "pdf_aliases": ["Premium", "Ins_Premium"]},
+        "insurance_deductible":{"type": "decimal", "scale": 2, "required": false, "pdf_aliases": ["Deductible", "Ins_Deductible"]}
+      }
+    },
+    "meta": {
+      "fields": {
+        "generation_id": {
+          "type": "uuid",
+          "required": true,
+          "pdf_aliases": ["DOC_ID", "Document_ID"]
+        },
+        "generation_timestamp": {
+          "type": "datetime",
+          "required": true,
+          "pdf_aliases": ["Date_Generated", "Print_Date"]
+        }
+      }
+    }
+  },
+  "templates": {
+    "TMHA_SalesContract.pdf": {
+      "display_name": "TMHA Sales Contract",
+      "category": "TMHA",
+      "required_domains": ["person", "product", "financial", "meta"],
+      "field_map": {
+        "person.buyer_name": "topmostSubform[0].Page1[0].Contract_Name[0]",
+        "person.buyer_address": "topmostSubform[0].Page1[0].Install_Address[0]",
+        "product.manufacturer": "topmostSubform[0].Page1[0].Manufacturer[0]",
+        "product.model": "topmostSubform[0].Page1[0].Model[0]",
+        "product.serial_number_1": "topmostSubform[0].Page1[0].Serial_Sec_1[0]",
+        "financial.sales_price": "topmostSubform[0].Page1[0].SalePrice[0]",
+        "financial.down_payment": "topmostSubform[0].Page1[0].DownPmt[0]"
+      },
+      "checkbox_fields": {
+        "product.is_new": "topmostSubform[0].Page1[0].New_Yes[0]",
+        "product.is_used": "topmostSubform[0].Page1[0].Used_Yes[0]"
+      },
+      "static_values": {
+        "topmostSubform[0].Page1[0].FCD_Footer[0]": "Texas Home Outlet - Generated by THO Document Intelligence v2.0"
+      }
+    }
+  }
+}
