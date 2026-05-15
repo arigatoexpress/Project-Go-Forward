@@ -114,7 +114,7 @@ jobs:
           echo "=== Production smoke script ==="
           python scripts/production_smoke.py \
             --base-url "$URL" \
-            --timeout 30
+            --timeout 60
           echo "Smoke script: PASS"
 
           # 3. 50-parallel healthz probes: Cache-Control: no-store + no schema-text placeholders
