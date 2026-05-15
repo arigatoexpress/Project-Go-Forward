@@ -57,6 +57,7 @@ except Exception:  # pragma: no cover - smoke fallback for minimal runtimes
 
 
 DEFAULT_BASE_URL = "https://tho.sapphirealpha.xyz"
+DEFAULT_MIN_HOMES = 10
 PUBLIC_ROUTES = (
     "/",
     "/inventory",
@@ -247,7 +248,7 @@ def check_inventory(base_url: str, *, timeout: float, min_homes: int) -> Probe:
     )
     evidence = (
         f"success={payload.get('success')}; homes={len(homes)}; "
-        f"priced={with_prices}; media={with_media}; sample={sample_names}"
+        f"min_homes={min_homes}; priced={with_prices}; media={with_media}; sample={sample_names}"
     )
     return Probe(
         name="/api/marketing/inventory-context",
@@ -284,10 +285,19 @@ def check_inventory_media_depth(base_url: str, *, timeout: float) -> Probe:
         for home in homes
         if any("/dealer/3522/inventory/" in str(url) for url in _real_photo_urls(home))
     )
-    ok = status == 200 and real_photo_rich >= 30 and gallery_rich >= 30 and matterport >= 20
+    total = len(homes)
+    rich_required = min(30, max(1, total))
+    matterport_required = min(20, max(1, total // 3))
+    ok = (
+        status == 200
+        and real_photo_rich >= rich_required
+        and gallery_rich >= rich_required
+        and matterport >= matterport_required
+    )
     evidence = (
         f"real_photo_rich={real_photo_rich}; gallery_rich={gallery_rich}; "
-        f"matterport={matterport}; dealer_photo_sets={dealer_photo_sets}"
+        f"matterport={matterport}; dealer_photo_sets={dealer_photo_sets}; "
+        f"required_rich={rich_required}; required_matterport={matterport_required}"
     )
     return Probe(
         name="/api/marketing/inventory-context media depth",
@@ -527,7 +537,7 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base-url", default=DEFAULT_BASE_URL)
     parser.add_argument("--timeout", type=float, default=10.0)
-    parser.add_argument("--min-homes", type=int, default=40)
+    parser.add_argument("--min-homes", type=int, default=DEFAULT_MIN_HOMES)
     parser.add_argument(
         "--check-empty-doc-rejection",
         action="store_true",

@@ -100,6 +100,8 @@ DEFAULT_OWNER_EMAILS = {
 _CUTOVER_ORIGIN_RP_IDS = {
     "https://tho.sapphirealpha.xyz": "sapphirealpha.xyz",
     "https://tho.sapphire.xyz": "sapphire.xyz",
+    "https://texashomeoutlet.com": "texashomeoutlet.com",
+    "https://www.texashomeoutlet.com": "texashomeoutlet.com",
 }
 
 

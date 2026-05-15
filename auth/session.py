@@ -12,7 +12,7 @@ from typing import Any
 
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 
-DEFAULT_SESSION_TTL = 4 * 60 * 60  # 4 hours
+DEFAULT_SESSION_TTL = 24 * 60 * 60  # 24 hours
 DEFAULT_CHALLENGE_TTL = 5 * 60  # 5 minutes
 PASSKEY_COOKIE_NAME = "tho_passkey_session"
 # Historical builds briefly used ``tho_admin_session`` for passkey auth,

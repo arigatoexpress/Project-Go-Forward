@@ -297,13 +297,14 @@ class TestGenerateDocumentEndpointValidation:
         # Override the engine to record what it received and report success.
         captured = {}
 
-        def _engine(template_name: str, data: dict):
+        def _engine(template_name: str, data: dict, **kwargs):
             captured["template_name"] = template_name
             captured["data"] = data
+            captured["deal_id"] = kwargs.get("deal_id")
             return {
                 "success": True,
-                "filename": "out.pdf",
-                "message": "ok",
+                "filename": "overridden.pdf",
+                "message": "generated",
             }
 
         monkeypatch.setattr(main_module, "engine_generate_document", _engine)
@@ -336,7 +337,7 @@ class TestGenerateDocumentEndpointValidation:
         assert response.status_code == 200, response.text
         body = response.json()
         assert body["success"] is True
-        assert body["filename"] == "out.pdf"
+        assert body["filename"] == "overridden.pdf"
         # The engine should have been called and received our overrides.
         assert captured["template_name"] == "TMHA_SalesContract.pdf"
         for key, value in full_overrides.items():
@@ -349,9 +350,10 @@ class TestGenerateDocumentEndpointValidation:
 
         engine_calls = {"count": 0}
 
-        def _engine(template_name: str, data: dict):
+        def _engine(template_name: str, data: dict, **kwargs):
             engine_calls["count"] += 1
             engine_calls["template_name"] = template_name
+            engine_calls["deal_id"] = kwargs.get("deal_id")
             return {
                 "success": True,
                 "filename": "complete.pdf",
@@ -418,9 +420,10 @@ class TestGeneratePacketEndpointValidation:
 
         captured = {}
 
-        def _engine(packet_name: str, data: dict):
+        def _engine(packet_name: str, data: dict, **kwargs):
             captured["packet_name"] = packet_name
             captured["data"] = data
+            captured["deal_id"] = kwargs.get("deal_id")
             return {
                 "success": True,
                 "filename": "packet.pdf",
