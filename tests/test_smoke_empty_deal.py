@@ -417,6 +417,43 @@ class TestPacketSkipsUnfilledTemplates:
         ]
         assert body["documents_skipped"] == []
 
+    def test_batch_endpoint_surfaces_quality_gate_as_400(self, monkeypatch):
+        """Quality-gate failures must not come back as a 200 response that
+        frontend code could confuse with a generated packet."""
+        client, main_module, token = _build_test_client(monkeypatch)
+
+        def fake_engine(*, template_names: list[str], data: dict, merge: bool):
+            return {
+                "success": False,
+                "error": "quality_gate_failed",
+                "message": "Serial # 1 looks like a fake placeholder.",
+                "quality_issues": [
+                    {
+                        "code": "placeholder_identifier",
+                        "field": "serial_number_1",
+                        "message": "Serial # 1 looks like a fake placeholder.",
+                    }
+                ],
+            }
+
+        monkeypatch.setattr(main_module, "engine_generate_batch", fake_engine)
+
+        response = client.post(
+            "/api/documents/generate-batch",
+            headers={"X-Admin-Token": token},
+            json={
+                "templates": ["TMHA_SalesContract.pdf"],
+                "data": {"buyer_name": "Smoke", "serial_number_1": "12345678"},
+                "merge": True,
+            },
+        )
+
+        assert response.status_code == 400, response.text
+        body = response.json()
+        assert body["success"] is False
+        assert body["error"] == "quality_gate_failed"
+        assert body["quality_issues"][0]["field"] == "serial_number_1"
+
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))

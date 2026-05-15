@@ -1785,6 +1785,26 @@ def _is_document_validation_failure(message: str) -> bool:
     )
 
 
+def _is_document_quality_failure(result: dict) -> bool:
+    return (
+        isinstance(result, dict)
+        and result.get("success") is False
+        and result.get("error") == "quality_gate_failed"
+    )
+
+
+def _document_quality_json_response(result: dict) -> JSONResponse:
+    return JSONResponse(
+        {
+            "success": False,
+            "error": "quality_gate_failed",
+            "message": result.get("message") or "Document quality gate failed.",
+            "quality_issues": result.get("quality_issues") or [],
+        },
+        status_code=400,
+    )
+
+
 def _collect_generated_documents():
     """Return generated PDF metadata without exposing document contents."""
     seen = set()
@@ -1943,6 +1963,8 @@ async def generate_document_endpoint(body: GenerateDocumentRequest, request: Req
         # Surface validation failures as 400s with a structured envelope so
         # callers can react programmatically and so we never accidentally
         # ship a 200 + empty PDF for an empty deal.
+        if _is_document_quality_failure(result):
+            return _document_quality_json_response(result)
         message = result.get("message", "")
         if _is_document_validation_failure(message):
             response_message = message
@@ -2010,6 +2032,8 @@ async def generate_packet_endpoint(body: GeneratePacketRequest, request: Request
                 "documents_included": packet_fields.get("documents_included", []),
                 "documents_skipped": packet_fields.get("documents_skipped", []),
             }
+        if _is_document_quality_failure(result):
+            return _document_quality_json_response(result)
         return {"success": False, "error": result.get("message") or result.get("error") or "Packet generation failed"}
     except Exception as e:
         struct_logger.error("Packet generation failed", error=str(e))
@@ -2067,6 +2091,8 @@ async def generate_batch_endpoint(request: Request):
             return {"success": False, "error": "No templates selected"}
 
         result = engine_generate_batch(template_names=templates, data=data, merge=merge)
+        if _is_document_quality_failure(result):
+            return _document_quality_json_response(result)
         return result
     except Exception as e:
         struct_logger.error("Batch generation failed", error=str(e))

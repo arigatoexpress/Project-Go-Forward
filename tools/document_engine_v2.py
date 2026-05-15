@@ -19,9 +19,48 @@ from config.field_map_loader import get_field_map
 
 # Local imports
 from tools.document_tools import DOCUMENTS_DIR, OUTPUT_DIR, fill_pdf_form, upload_to_gcs
+from tools.document_quality import (
+    enrich_document_data,
+    quality_failure_response,
+    validate_document_quality,
+)
 from tools.drive_service import ensure_deal_folder, upload_to_drive
 
 logger = logging.getLogger(__name__)
+
+LEGACY_FIELD_SOURCES: dict[str, tuple[str, ...]] = {
+    "buyer_name": ("person.buyer_name",),
+    "buyer_address": ("person.buyer_address",),
+    "buyer_city": ("person.buyer_city",),
+    "buyer_county": ("person.buyer_county",),
+    "buyer_state": ("person.buyer_state",),
+    "buyer_zip": ("person.buyer_zip",),
+    "buyer_phone": ("person.buyer_phone",),
+    "buyer_email": ("person.buyer_email",),
+    "co_buyer_name": ("person.co_buyer_name",),
+    "manufacturer": ("product.manufacturer",),
+    "model": ("product.model",),
+    "serial_number_1": ("product.serial_number_1",),
+    "serial_number_2": ("product.serial_number_2",),
+    "label_number_1": ("product.label_number_1", "product.hud_number"),
+    "label_number_2": ("product.label_number_2",),
+    "sales_price": ("financial.sales_price",),
+    "down_payment": ("financial.down_payment",),
+    "loan_term": ("financial.loan_term",),
+    "apr": ("financial.apr",),
+    "interest_rate": ("financial.apr",),
+    "monthly_payment": ("financial.monthly_payment",),
+    "total_monthly_payment": ("financial.monthly_payment",),
+    "total_payments": ("financial.total_of_payments",),
+    "finance_charge": ("financial.finance_charge",),
+    "unpaid_balance": ("financial.loan_amount",),
+    "total_unpaid_balance": ("financial.loan_amount",),
+    "max_financed": ("financial.loan_amount",),
+}
+
+
+def _has_value(value: Any) -> bool:
+    return value is not None and str(value).strip() != ""
 
 # ─── Pydantic Models ────────────────────────────────────────────────────────
 
@@ -250,6 +289,11 @@ class DocumentEngineV2:
         """
         Generate a single document using the v2 engine.
         """
+        data = enrich_document_data(data)
+        quality_issues = validate_document_quality(data, templates=[template_name])
+        if quality_issues:
+            return quality_failure_response(quality_issues)
+
         # 1. Normalize and Validate Payload
         try:
             if "person" in data:
@@ -303,47 +347,32 @@ class DocumentEngineV2:
 
         # Legacy Mapping Fallback (if v2 mapping is sparse or missing)
         if legacy_tpl_config:
-            # Domain to flat key bridge
-            legacy_key_map = {
-                "person.buyer_name": "buyer_name",
-                "person.buyer_address": "buyer_address",
-                "person.buyer_city": "buyer_city",
-                "person.buyer_county": "buyer_county",
-                "person.buyer_state": "buyer_state",
-                "person.buyer_zip": "buyer_zip",
-                "person.buyer_phone": "buyer_phone",
-                "person.buyer_email": "buyer_email",
-                "person.co_buyer_name": "co_buyer_name",
-                "product.manufacturer": "manufacturer",
-                "product.model": "model",
-                "product.serial_number_1": "serial_number_1",
-                "product.serial_number_2": "serial_number_2",
-                "product.hud_number": "label_number_1",
-                "financial.sales_price": "sales_price",
-                "financial.down_payment": "down_payment",
-                "financial.loan_term": "loan_term",
-                "financial.apr": "apr",
-                "financial.monthly_payment": "monthly_payment",
-                "financial.total_of_payments": "total_payments",
-                "financial.finance_charge": "finance_charge",
-                "financial.loan_amount": "unpaid_balance"
-            }
-
             # Text fields from legacy
             for pdf_path, legacy_key in legacy_tpl_config.get("field_map", {}).items():
                 if pdf_path not in pdf_data: # Don't overwrite v2 mapping if it exists
-                    # Try domain key first
-                    domain_key = next((dk for dk, lk in legacy_key_map.items() if lk == legacy_key), None)
                     val = None
-                    if domain_key:
-                        val = flat_payload.get(domain_key)
+                    for domain_key in LEGACY_FIELD_SOURCES.get(legacy_key, ()):
+                        candidate = flat_payload.get(domain_key)
+                        if _has_value(candidate):
+                            val = candidate
+                            break
 
                     # If still None, try the raw legacy key from input data
-                    if val is None:
+                    if not _has_value(val):
                         val = data.get(legacy_key)
 
-                    if val is not None:
-                        if isinstance(val, (Decimal, float)) or (isinstance(val, str) and legacy_key in ["sales_price", "down_payment", "monthly_payment"]):
+                    if _has_value(val):
+                        if isinstance(val, (Decimal, float)) or (isinstance(val, str) and legacy_key in [
+                            "sales_price",
+                            "down_payment",
+                            "monthly_payment",
+                            "total_monthly_payment",
+                            "total_payments",
+                            "max_financed",
+                            "unpaid_balance",
+                            "total_unpaid_balance",
+                            "finance_charge",
+                        ]):
                             try:
                                 d_val = Decimal(str(val).replace("$", "").replace(",", ""))
                                 pdf_data[pdf_path] = f"{d_val:,.2f}"
@@ -411,6 +440,20 @@ class DocumentEngineV2:
         """
         Generate multiple documents and optionally merge.
         """
+        data = enrich_document_data(data)
+        quality_issues = validate_document_quality(data, templates=template_names)
+        if quality_issues:
+            response = quality_failure_response(quality_issues)
+            response.update(
+                {
+                    "documents": [],
+                    "merged": None,
+                    "total": len(template_names),
+                    "successful": 0,
+                }
+            )
+            return response
+
         results = []
         successful_files = []
 

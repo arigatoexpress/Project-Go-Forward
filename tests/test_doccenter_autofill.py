@@ -158,6 +158,29 @@ def test_selected_template_required_fields_gate_generation(source: str):
     assert "Sales price" in source
 
 
+def test_document_center_blocks_placeholder_identifiers_and_unmapped_note_templates(source: str):
+    """UI validation should stop bad packets before the backend call."""
+    assert "PLACEHOLDER_IDENTIFIER_VALUES" in source
+    assert "isPlaceholderIdentifier(form.serial_number_1)" in source
+    assert "isPlaceholderIdentifier(form.label_number_1)" in source
+    assert "PRODUCTION_BLOCKED_TEMPLATE_MESSAGES" in source
+    assert "TMHA-TwoPartyContract.pdf" in source
+    assert "getDocumentQualityState(form, selDocs)" in source
+    assert "quality_issues" in source
+
+
+def test_document_center_adds_seller_and_financing_aliases(source: str):
+    """Generated data should carry THO seller defaults and deterministic
+    finance aliases so mapped PDFs do not leave avoidable blank fields."""
+    data_start = source.find("function toDocumentData")
+    data_body = source[data_start : source.find("function formatBytes", data_start)]
+    assert "seller_name: f.seller_name || BUSINESS_NAME" in data_body
+    assert "seller_address: f.seller_address || BUSINESS_ADDRESS" in data_body
+    assert "max_financed:" in data_body
+    assert "unpaid_balance:" in data_body
+    assert "interest_rate:" in data_body
+
+
 def test_step3_waits_for_template_metadata_before_generation(source: str):
     """A restored draft on Step 3 must not generate before template metadata
     is loaded, because required_fields live in /api/documents/templates."""
