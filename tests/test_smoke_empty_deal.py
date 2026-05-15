@@ -373,6 +373,50 @@ class TestPacketSkipsUnfilledTemplates:
             }
         ]
 
+    def test_packet_endpoint_accepts_v2_engine_response_shape(self, monkeypatch):
+        """The API must normalize document_engine_v2 packet results.
+
+        The v2 engine returns a ``merged`` object plus per-template document
+        rows, while the legacy endpoint used top-level ``filename`` and
+        ``documents_included`` fields. Production callers need the endpoint
+        to support both shapes.
+        """
+        client, main_module, token = _build_test_client(monkeypatch)
+
+        def fake_engine(*, packet_name: str, data: dict):
+            return {
+                "success": True,
+                "documents": [
+                    {"template_name": "TMHA_SalesContract.pdf", "success": True},
+                    {"template_name": "TDHCA_1038_Consumer_Disclosure.pdf", "success": True},
+                ],
+                "merged": {
+                    "filename": "Documents_Smoke_Buyer_20260515.pdf",
+                    "download_url": "/api/documents/download/Documents_Smoke_Buyer_20260515.pdf",
+                    "page_count": 4,
+                },
+            }
+
+        monkeypatch.setattr(main_module, "engine_generate_packet", fake_engine)
+
+        response = client.post(
+            "/api/documents/generate-packet",
+            headers={"X-Admin-Token": token},
+            json={"packet_name": "standard_closing", "data": {"buyer_name": "Smoke Buyer"}},
+        )
+
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["success"] is True
+        assert body["filename"] == "Documents_Smoke_Buyer_20260515.pdf"
+        assert body["download_url"] == "/api/documents/download/Documents_Smoke_Buyer_20260515.pdf"
+        assert body["page_count"] == 4
+        assert body["documents_included"] == [
+            "TMHA_SalesContract.pdf",
+            "TDHCA_1038_Consumer_Disclosure.pdf",
+        ]
+        assert body["documents_skipped"] == []
+
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))

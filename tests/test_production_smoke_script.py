@@ -5,6 +5,10 @@ def test_default_base_url_targets_tho_subdomain():
     assert production_smoke.DEFAULT_BASE_URL == "https://tho.sapphirealpha.xyz"
 
 
+def test_default_inventory_floor_matches_current_public_catalog_size():
+    assert production_smoke.DEFAULT_MIN_HOMES == 10
+
+
 def test_spa_route_probe_reports_root_marker(monkeypatch):
     def fake_read_url(base_url, path, *, timeout):
         return 200, b'<html><body><div id="root"></div></body></html>', "text/html", 12
@@ -42,6 +46,34 @@ def test_media_depth_probe_requires_real_gallery_and_tours(monkeypatch):
     assert probe.ok
     assert "real_photo_rich=30" in probe.evidence
     assert "matterport=30" in probe.evidence
+
+
+def test_media_depth_probe_scales_to_smaller_live_catalog(monkeypatch):
+    homes = [
+        {
+            "real_photos": [
+                "https://d132mt2yijm03y.cloudfront.net/dealer/3522/inventory/1/ext.jpg",
+                "kitchen.jpg",
+                "bed.jpg",
+            ],
+            "gallery_images": ["one.jpg", "two.jpg", "three.jpg"],
+            "matterport_url": "https://my.matterport.com/show/?m=test" if idx < 7 else None,
+        }
+        for idx in range(19)
+    ]
+
+    def fake_json_probe(base_url, path, *, timeout):
+        return 200, {"homes": homes}, 10
+
+    monkeypatch.setattr(production_smoke, "_json_probe", fake_json_probe)
+
+    probe = production_smoke.check_inventory_media_depth("https://example.test", timeout=1.0)
+
+    assert probe.ok
+    assert "real_photo_rich=19" in probe.evidence
+    assert "matterport=7" in probe.evidence
+    assert "required_rich=19" in probe.evidence
+    assert "required_matterport=6" in probe.evidence
 
 
 def test_media_depth_probe_does_not_count_floorplans_as_photos(monkeypatch):

@@ -281,6 +281,9 @@ class FakeTHODatabase:
                 "deal-3": {"id": "deal-3", "status": "funded"},
             },
             "activities": {},
+            "service_requests": {
+                "sr-1": {"id": "sr-1", "status": "open"}
+            },
         }
         self.db = FakeFirestoreDB(self.collections)
 
@@ -343,6 +346,12 @@ class FakeTHODatabase:
             current = customer.get("status", "UNKNOWN")
             by_status[current] = by_status.get(current, 0) + 1
         return {"total": len(self.collections["customers"]), "by_status": by_status}
+
+    def update_service_request(self, request_id: str, data: dict) -> bool:
+        if request_id not in self.collections.setdefault("service_requests", {}):
+            return False
+        self.collections["service_requests"][request_id].update(data)
+        return True
 
 
 class FakeLeadManager:
@@ -555,6 +564,7 @@ def load_app(monkeypatch, tho_api_key: str | None = "tho-secret", rate_limit_rpm
 
     document_tools_module = types.ModuleType("tools.document_tools")
     document_tools_module.OUTPUT_DIR = str(REPO_ROOT / "tmp_test_output")
+    document_tools_module.DOCUMENTS_DIR = str(REPO_ROOT / "tho_documents")
     document_tools_module.generate_sales_contract_pdf = lambda *args, **kwargs: {
         "success": True,
         "filename": "ok.pdf",
@@ -564,6 +574,8 @@ def load_app(monkeypatch, tho_api_key: str | None = "tho-secret", rate_limit_rpm
     document_tools_module.generate_customer_email = lambda *args, **kwargs: {"success": True}
     document_tools_module.download_from_gcs = lambda *args, **kwargs: False
     document_tools_module.list_gcs_documents = lambda *args, **kwargs: []
+    document_tools_module.fill_pdf_form = lambda *args, **kwargs: {"success": True}
+    document_tools_module.upload_to_gcs = lambda *args, **kwargs: True
     monkeypatch.setitem(sys.modules, "tools.document_tools", document_tools_module)
 
     document_engine_module = types.ModuleType("tools.document_engine")
@@ -810,6 +822,70 @@ def test_admin_inventory_recovers_photo_ready_media_for_document_workflows(monke
     assert inventory["missing"]["image_url"] == "/tex-icon.svg"
     assert inventory["missing"]["image_placeholder"] is True
     assert inventory["missing"]["media_quality"]["status"] == "missing_photos"
+
+
+def test_admin_inventory_media_uses_snapshot_without_live_crawl(monkeypatch):
+    client, main, db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
+    token = main._create_admin_token()
+    floorplan = "https://example.com/floor-plans.jpg"
+    recovered_photo = "https://example.com/snapshot-ext-1.jpg"
+    calls = {"snapshot": 0}
+
+    db.collections["inventory"].clear()
+    db.collections["inventory"]["snapshot-home"] = {
+        "id": "snapshot-home",
+        "model_name": "Snapshot Only Home",
+        "manufacturer": "Snapshot Homes",
+        "status": "AVAILABLE",
+        "image_url": floorplan,
+        "real_photos": [floorplan],
+        "gallery_images": [floorplan],
+        "floorplan_url": floorplan,
+    }
+
+    def live_loader(**_kwargs):
+        raise AssertionError("admin inventory should not block on a live legacy crawl")
+
+    live_loader.__module__ = "tools.legacy_site_crawler"
+    monkeypatch.setattr(main, "load_legacy_inventory_context", live_loader)
+
+    legacy_module = sys.modules["tools.legacy_site_crawler"]
+
+    def snapshot_loader():
+        calls["snapshot"] += 1
+        return {
+            "success": True,
+            "homes": [
+                {
+                    "id": "snapshot-home",
+                    "legacy_inventory_id": "snapshot-home",
+                    "model_name": "Snapshot Only Home",
+                    "image_url": recovered_photo,
+                    "real_photos": [recovered_photo],
+                    "gallery_images": [recovered_photo],
+                    "floorplan_url": floorplan,
+                    "media_quality": {
+                        "status": "photo_ready",
+                        "has_real_photo": True,
+                        "photo_count": 1,
+                        "floorplan_count": 1,
+                    },
+                }
+            ],
+        }
+
+    monkeypatch.setattr(legacy_module, "_load_snapshot_context", snapshot_loader, raising=False)
+    main._INVENTORY_MEDIA_INDEX_CACHE["loaded_at"] = 0.0
+    main._INVENTORY_MEDIA_INDEX_CACHE["index"] = {}
+
+    first = client.get("/api/inventory", headers={"X-Admin-Token": token})
+    second = client.get("/api/inventory", headers={"X-Admin-Token": token})
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    first_inventory = {item["id"]: item for item in first.json()["inventory"]}
+    assert first_inventory["snapshot-home"]["image_url"] == recovered_photo
+    assert calls["snapshot"] == 1
 
 
 def test_marketing_inventory_context_falls_back_to_firestore_when_legacy_unavailable(monkeypatch):
@@ -1438,6 +1514,15 @@ def test_document_history_hides_synthetic_artifacts_by_default(monkeypatch, tmp_
     headers = {"X-Admin-Token": token}
 
     (tmp_path / "TMHA_SalesContract_Client_Ready_20260505.pdf").write_bytes(b"%PDF-1.4\n%EOF\n")
+    (tmp_path / "TMHA_SalesContract_Joe_Testbuyer_20260515.pdf").write_bytes(
+        b"%PDF-1.4\n%EOF\n"
+    )
+    (tmp_path / "Documents_Another_Test_20260514_180634.pdf").write_bytes(
+        b"%PDF-1.4\n%EOF\n"
+    )
+    (tmp_path / "TMHA_SalesContract_Prod_Smoke20260515_1921_20260515.pdf").write_bytes(
+        b"%PDF-1.4\n%EOF\n"
+    )
     (tmp_path / "TMHA_SalesContract_Test_Buyer_20260505.pdf").write_bytes(b"%PDF-1.4\n%EOF\n")
     (tmp_path / "_batch_TMHA_SalesContract_Smoke_Buyer_20260506052403.pdf").write_bytes(
         b"%PDF-1.4\n%EOF\n"
@@ -1479,12 +1564,12 @@ def test_document_history_hides_synthetic_artifacts_by_default(monkeypatch, tmp_
         "TDHCA_1038_Consumer_Disclosure_Real_Buyer_20260505.pdf",
     ]
     assert body["total"] == 2
-    assert body["total_including_test"] == 5
-    assert body["hidden_test_document_count"] == 3
+    assert body["total_including_test"] == 8
+    assert body["hidden_test_document_count"] == 6
 
     assert include_test_response.status_code == 200
     include_test_body = include_test_response.json()
-    assert include_test_body["total"] == 5
+    assert include_test_body["total"] == 8
     assert any(doc["synthetic"] for doc in include_test_body["documents"])
 
 
@@ -1864,3 +1949,29 @@ def test_only_partner_scoped_key_configured_still_authenticates(monkeypatch):
         == 200
     )
     assert client.get("/api/v1/stats", headers={"Authorization": "Bearer wrong"}).status_code == 401
+
+
+def test_v1_service_request_resolve_success(monkeypatch):
+    """Partner can resolve a service request by ID."""
+    client, _main, _db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
+
+    response = client.post(
+        "/api/v1/service-requests/sr-1/resolve",
+        headers={"Authorization": "Bearer tho-secret"}
+    )
+    assert response.status_code == 200
+    assert response.json()["status"] == "resolved"
+    assert response.json()["id"] == "sr-1"
+
+    assert _db.collections["service_requests"]["sr-1"]["status"] == "resolved"
+
+
+def test_v1_service_request_resolve_not_found(monkeypatch):
+    """Partner gets 404 for unknown service request."""
+    client, _main, _db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
+
+    response = client.post(
+        "/api/v1/service-requests/unknown-123/resolve",
+        headers={"Authorization": "Bearer tho-secret"}
+    )
+    assert response.status_code == 404

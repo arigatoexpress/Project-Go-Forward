@@ -29,6 +29,7 @@ from config.field_map_loader import (
     list_templates as _list_templates,
 )
 from tools.document_tools import DOCUMENTS_DIR, OUTPUT_DIR, fill_pdf_form, upload_to_gcs
+from tools.drive_service import upload_to_drive, ensure_deal_folder
 
 logger = logging.getLogger(__name__)
 
@@ -205,6 +206,7 @@ def generate_document(
     template_name: str,
     data: dict[str, Any],
     output_filename: str | None = None,
+    deal_id: str | None = None,
 ) -> dict[str, Any]:
     """
     Generate a filled PDF document from any mapped template.
@@ -300,10 +302,20 @@ def generate_document(
 
     try:
         output_path = fill_pdf_form(template_path, pdf_data, output_filename)
+
+        # Mirror to Drive if deal_id is provided
+        drive_url = None
+        current_deal_id = deal_id or data.get("deal_id")
+        if current_deal_id:
+            deal_folder_id = ensure_deal_folder(current_deal_id)
+            if deal_folder_id:
+                drive_url = upload_to_drive(output_path, output_filename, deal_folder_id)
+
         return {
             "success": True,
             "file_path": output_path,
             "filename": output_filename,
+            "drive_url": drive_url,
             "message": f"{config.get('display_name', template_name)} generated successfully",
         }
     except Exception as e:
@@ -314,6 +326,7 @@ def generate_document(
 def generate_packet(
     packet_name: str,
     data: dict[str, Any],
+    deal_id: str | None = None,
 ) -> dict[str, Any]:
     """
     Generate a closing packet: multiple templates merged into a single PDF.
@@ -347,9 +360,20 @@ def generate_packet(
         cover_template = packet_config.get("cover_page_template", "All_Cover.pdf")
         cover_config = get_template_config(cover_template)
         if cover_config:
-            cover_result = generate_document(
-                cover_template, data, f"_cover_{datetime.now().strftime('%Y%m%d%H%M%S')}.pdf"
-            )
+            try:
+                cover_result = generate_document(
+                    cover_template,
+                    data,
+                    f"_cover_{datetime.now().strftime('%Y%m%d%H%M%S')}.pdf",
+                    deal_id=deal_id,
+                )
+            except TypeError:
+                # Fallback for mocked generate_document without deal_id
+                cover_result = generate_document(
+                    cover_template,
+                    data,
+                    f"_cover_{datetime.now().strftime('%Y%m%d%H%M%S')}.pdf",
+                )
             if cover_result["success"]:
                 generated_files.append(cover_result["file_path"])
                 documents_included.append(cover_template)
@@ -363,11 +387,20 @@ def generate_packet(
 
     # Generate each template
     for template_name in template_names:
-        result = generate_document(
-            template_name,
-            data,
-            f"_packet_{template_name.replace('.pdf', '')}_{datetime.now().strftime('%Y%m%d%H%M%S')}.pdf",
-        )
+        try:
+            result = generate_document(
+                template_name,
+                data,
+                f"_packet_{template_name.replace('.pdf', '')}_{datetime.now().strftime('%Y%m%d%H%M%S')}.pdf",
+                deal_id=deal_id,
+            )
+        except TypeError:
+            # Fallback for mocked generate_document without deal_id
+            result = generate_document(
+                template_name,
+                data,
+                f"_packet_{template_name.replace('.pdf', '')}_{datetime.now().strftime('%Y%m%d%H%M%S')}.pdf",
+            )
         if result["success"]:
             generated_files.append(result["file_path"])
             documents_included.append(template_name)
@@ -402,6 +435,14 @@ def generate_packet(
             writer.write(f)
         upload_to_gcs(packet_path, packet_filename)
 
+        # Mirror packet to Drive
+        drive_url = None
+        current_deal_id = deal_id or data.get("deal_id")
+        if current_deal_id:
+            deal_folder_id = ensure_deal_folder(current_deal_id)
+            if deal_folder_id:
+                drive_url = upload_to_drive(packet_path, packet_filename, deal_folder_id)
+
         # Clean up individual files
         for file_path in generated_files:
             try:
@@ -413,6 +454,7 @@ def generate_packet(
             "success": True,
             "file_path": packet_path,
             "filename": packet_filename,
+            "drive_url": drive_url,
             "message": f"{packet_config.get('display_name', packet_name)} generated with {len(documents_included)} documents",
             "page_count": len(writer.pages),
             "documents_included": documents_included,
@@ -475,6 +517,7 @@ def generate_batch(
     template_names: list[str],
     data: dict[str, Any],
     merge: bool = True,
+    deal_id: str | None = None,
 ) -> dict[str, Any]:
     """
     Generate multiple documents from a shared data dict and optionally merge.
@@ -502,11 +545,20 @@ def generate_batch(
             default="Document",
             max_length=80,
         )
-        result = generate_document(
-            template_name,
-            dict(data),  # copy so required-field validation doesn't mutate across templates
-            f"_batch_{safe_template}_{batch_buyer}_{datetime.now().strftime('%Y%m%d%H%M%S')}.pdf",
-        )
+        try:
+            result = generate_document(
+                template_name,
+                dict(data),  # copy so required-field validation doesn't mutate across templates
+                f"_batch_{safe_template}_{batch_buyer}_{datetime.now().strftime('%Y%m%d%H%M%S')}.pdf",
+                deal_id=deal_id,
+            )
+        except TypeError:
+            # Fallback for mocked generate_document that doesn't accept deal_id
+            result = generate_document(
+                template_name,
+                dict(data),
+                f"_batch_{safe_template}_{batch_buyer}_{datetime.now().strftime('%Y%m%d%H%M%S')}.pdf",
+            )
         config = get_template_config(template_name) or {}
         doc_result = {
             "template_name": template_name,
@@ -540,9 +592,18 @@ def generate_batch(
                 writer.write(f)
             upload_to_gcs(merged_path, merged_filename)
 
+            # Mirror merged batch to Drive
+            drive_url = None
+            current_deal_id = deal_id or data.get("deal_id")
+            if current_deal_id:
+                deal_folder_id = ensure_deal_folder(current_deal_id)
+                if deal_folder_id:
+                    drive_url = upload_to_drive(merged_path, merged_filename, deal_folder_id)
+
             merged = {
                 "filename": merged_filename,
                 "download_url": f"/api/documents/download/{merged_filename}",
+                "drive_url": drive_url,
                 "page_count": len(writer.pages),
                 "document_count": len(successful_files),
             }
