@@ -138,6 +138,16 @@ def test_serial_number_field_has_manual_helper(source: str):
     ), "Serial #1 must show 'Enter manually — not in inventory feed' helper"
 
 
+def test_inventory_cards_do_not_render_zero_sale_price(source: str):
+    """The inventory feed can send sale_price=0.0. Document Center should
+    omit that from the card instead of showing reps a fake $0 price."""
+    assert "formatPositiveCurrency" in source
+    assert "const salePriceLabel = formatPositiveCurrency(home.sale_price)" in source
+    assert "{salePriceLabel && (" in source
+    assert "{home.sale_price && (" not in source
+    assert "${Number(home.sale_price).toLocaleString()}" not in source
+
+
 def test_validation_state_unchanged_for_step2(source: str):
     """Existing validator pattern must be preserved — Continue to
     Documents stays gated on Serial #1 even with auto-fill in place."""
