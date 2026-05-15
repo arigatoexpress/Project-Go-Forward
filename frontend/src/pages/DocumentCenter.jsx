@@ -135,6 +135,16 @@ const moneyString = value => (
   Number.isFinite(value) ? value.toFixed(2) : undefined
 );
 
+const formatPositiveCurrency = value => {
+  const amount = numericMoney(value);
+  if (!Number.isFinite(amount) || amount <= 0) return '';
+  return amount.toLocaleString(undefined, {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: 0,
+  });
+};
+
 const REQUIRED_FIELD_LABELS = {
   buyer_name: 'Buyer name',
   buyer_first_name: 'Buyer first name',
@@ -1451,65 +1461,68 @@ function Step2({ data, onChange, resetKey, inventory, inventoryLoading, onNext, 
         </div>
       ) : filteredInventory.length > 0 ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filteredInventory.map(home => (
-            <button
-              key={home.id}
-              onClick={() => handleSelectHome(home)}
-              className={`
-                text-left rounded-xl border-2 p-4 transition-all
-                ${selectedHome?.id === home.id
-                  ? 'border-blue-500 bg-blue-50 ring-4 ring-blue-200'
-                  : 'border-gray-200 bg-white hover:border-blue-300 hover:shadow-md'
-                }
-              `}
-            >
-              {home.image_url && (
-                <div className="aspect-video bg-gray-100 rounded-lg mb-3 overflow-hidden">
-                  <img
-                    src={home.image_url}
-                    alt={home.model_name}
-                    className="w-full h-full object-cover"
-                    onError={e => { e.target.style.display = 'none'; }}
-                  />
-                </div>
-              )}
+          {filteredInventory.map(home => {
+            const salePriceLabel = formatPositiveCurrency(home.sale_price);
+            return (
+              <button
+                key={home.id}
+                onClick={() => handleSelectHome(home)}
+                className={`
+                  text-left rounded-xl border-2 p-4 transition-all
+                  ${selectedHome?.id === home.id
+                    ? 'border-blue-500 bg-blue-50 ring-4 ring-blue-200'
+                    : 'border-gray-200 bg-white hover:border-blue-300 hover:shadow-md'
+                  }
+                `}
+              >
+                {home.image_url && (
+                  <div className="aspect-video bg-gray-100 rounded-lg mb-3 overflow-hidden">
+                    <img
+                      src={home.image_url}
+                      alt={home.model_name}
+                      className="w-full h-full object-cover"
+                      onError={e => { e.target.style.display = 'none'; }}
+                    />
+                  </div>
+                )}
 
-              <div className="flex items-start justify-between">
-                <div>
-                  <h3 className="font-bold text-gray-800">{home.model_name}</h3>
-                  <p className="text-sm text-gray-600">{home.manufacturer}</p>
+                <div className="flex items-start justify-between">
+                  <div>
+                    <h3 className="font-bold text-gray-800">{home.model_name}</h3>
+                    <p className="text-sm text-gray-600">{home.manufacturer}</p>
+                  </div>
+                  <Badge color={home.is_new !== false ? 'green' : 'amber'}>
+                    {home.is_new !== false ? 'New' : 'Pre-Owned'}
+                  </Badge>
                 </div>
-                <Badge color={home.is_new !== false ? 'green' : 'amber'}>
-                  {home.is_new !== false ? 'New' : 'Pre-Owned'}
-                </Badge>
-              </div>
 
-              <div className="mt-3 flex items-center gap-4 text-sm text-gray-600">
-                {home.beds && <span>{home.beds} bed</span>}
-                {home.baths && <span>{home.baths} bath</span>}
-                {home.sqft && <span>{home.sqft} sqft</span>}
-              </div>
-
-              {home.sale_price && (
-                <div className="mt-3 font-bold text-green-700">
-                  ${Number(home.sale_price).toLocaleString()}
+                <div className="mt-3 flex items-center gap-4 text-sm text-gray-600">
+                  {home.beds && <span>{home.beds} bed</span>}
+                  {home.baths && <span>{home.baths} bath</span>}
+                  {home.sqft && <span>{home.sqft} sqft</span>}
                 </div>
-              )}
 
-              {home.serial_number && (
-                <div className="mt-2 text-xs text-gray-400">
-                  Serial: {home.serial_number.slice(-8)}
-                </div>
-              )}
+                {salePriceLabel && (
+                  <div className="mt-3 font-bold text-green-700">
+                    {salePriceLabel}
+                  </div>
+                )}
 
-              {selectedHome?.id === home.id && (
-                <div className="mt-3 flex items-center gap-2 text-blue-600 font-bold">
-                  <CheckCircle size={18} />
-                  Selected
-                </div>
-              )}
-            </button>
-          ))}
+                {home.serial_number && (
+                  <div className="mt-2 text-xs text-gray-400">
+                    Serial: {home.serial_number.slice(-8)}
+                  </div>
+                )}
+
+                {selectedHome?.id === home.id && (
+                  <div className="mt-3 flex items-center gap-2 text-blue-600 font-bold">
+                    <CheckCircle size={18} />
+                    Selected
+                  </div>
+                )}
+              </button>
+            );
+          })}
         </div>
       ) : (
         <div className="text-center py-16 bg-gray-50 rounded-xl">
