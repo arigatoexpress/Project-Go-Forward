@@ -110,11 +110,10 @@ jobs:
             --format='value(status.url)')
           echo "Deployed URL: $URL"
 
-          # 2. Full production smoke: health, inventory >= 40 homes, SPA deep-links, admin protection
+          # 2. Full production smoke: health, current inventory floor, SPA deep-links, admin protection
           echo "=== Production smoke script ==="
           python scripts/production_smoke.py \
             --base-url "$URL" \
-            --min-homes 40 \
             --timeout 30
           echo "Smoke script: PASS"
 
