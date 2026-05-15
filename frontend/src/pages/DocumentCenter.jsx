@@ -97,6 +97,44 @@ const CAT_ICONS = {
 
 const hasValue = v => v !== undefined && v !== null && String(v).trim() !== '';
 
+const PRODUCTION_BLOCKED_TEMPLATE_MESSAGES = {
+  'TMHA-TwoPartyContract.pdf': 'Manufactured Home Note/Security Agreement is not production-ready in Document Center yet.',
+  'TMHA-TwoPartyContract191220.pdf': 'Manufactured Home Note/Security Agreement (2019 rev) is not production-ready in Document Center yet.',
+};
+
+const PLACEHOLDER_IDENTIFIER_VALUES = new Set([
+  '123456',
+  '1234567',
+  '12345678',
+  '12345677',
+  'nta1234567',
+  'nta1234568',
+  'hud1234567',
+  'hud1234568',
+  'serial1234567',
+  'serial1234568',
+]);
+
+const normalizeIdentifier = value => String(value || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+const isPlaceholderIdentifier = value => {
+  const normalized = normalizeIdentifier(value);
+  return Boolean(normalized) && (
+    PLACEHOLDER_IDENTIFIER_VALUES.has(normalized) ||
+    normalized === '00000000' ||
+    normalized === '99999999'
+  );
+};
+
+const numericMoney = value => {
+  if (!hasValue(value)) return undefined;
+  const parsed = parseFloat(String(value).replace(/[$,]/g, ''));
+  return Number.isFinite(parsed) ? parsed : undefined;
+};
+
+const moneyString = value => (
+  Number.isFinite(value) ? value.toFixed(2) : undefined
+);
+
 const REQUIRED_FIELD_LABELS = {
   buyer_name: 'Buyer name',
   buyer_first_name: 'Buyer first name',
@@ -225,8 +263,15 @@ function toDocumentData(f) {
     hasValue(f.label_number_2) ? `HUD2: ${f.label_number_2}` : null,
   ]);
   const ownRent = String(f.mailing_own_rent || '').trim().toLowerCase();
+  const salesPrice = numericMoney(f.sales_price);
+  const downPayment = numericMoney(f.down_payment) || 0;
+  const financedAmount = Number.isFinite(salesPrice) ? salesPrice - downPayment : undefined;
   return {
     ...f,
+    seller_name: f.seller_name || BUSINESS_NAME,
+    seller_phone: f.seller_phone || BUSINESS_PHONE,
+    seller_address: f.seller_address || BUSINESS_ADDRESS,
+    seller_city_state_zip: f.seller_city_state_zip || cityStateZip(BUSINESS_CITY, BUSINESS_STATE, BUSINESS_ZIP),
     buyer_name: buyer,
     co_buyer_name: coBuyer,
     buyer_city_state_zip: buyerCityStateZip,
@@ -239,6 +284,11 @@ function toDocumentData(f) {
     installer_address_city_state_zip: installerFullAddress,
     installer_name_address: joinNonEmpty([f.installer_name, installerFullAddress], ', '),
     serial_label_combined: serialLabelCombined,
+    unpaid_balance: hasValue(f.unpaid_balance) ? f.unpaid_balance : moneyString(financedAmount),
+    total_unpaid_balance: hasValue(f.total_unpaid_balance) ? f.total_unpaid_balance : moneyString(financedAmount),
+    max_financed: hasValue(f.max_financed) ? f.max_financed : moneyString(financedAmount),
+    interest_rate: hasValue(f.interest_rate) ? f.interest_rate : f.apr,
+    total_monthly_payment: hasValue(f.total_monthly_payment) ? f.total_monthly_payment : f.monthly_payment,
     is_used: f.is_new === false,
     buyer_owns_residence: ['own', 'owns', 'o'].includes(ownRent) || undefined,
     buyer_rents_residence: ['rent', 'rents', 'r'].includes(ownRent) || undefined,
@@ -2443,12 +2493,47 @@ function getValidationState(form, step) {
     if (!form.manufacturer?.trim()) push('manufacturer', 'Manufacturer is required');
     if (!form.model?.trim()) push('model', 'Model name is required');
     if (!form.serial_number_1?.trim()) push('serial_number_1', 'Serial # 1 is required');
+    if (isPlaceholderIdentifier(form.serial_number_1)) push('serial_number_1', 'Serial # 1 looks like a placeholder');
+    if (isPlaceholderIdentifier(form.serial_number_2)) push('serial_number_2', 'Serial # 2 looks like a placeholder');
+    if (isPlaceholderIdentifier(form.label_number_1)) push('label_number_1', 'HUD label # 1 looks like a placeholder');
+    if (isPlaceholderIdentifier(form.label_number_2)) push('label_number_2', 'HUD label # 2 looks like a placeholder');
     if (form.sales_price && isNaN(parseFloat(form.sales_price))) {
       push('sales_price', 'Sales price must be a number');
     }
   }
 
   return { errors, missing };
+}
+
+function getDocumentQualityState(form, selectedTemplates) {
+  const errors = [];
+  const missing = new Set();
+  let targetStep = 3;
+
+  const identityFields = [
+    ['serial_number_1', 'Serial # 1'],
+    ['serial_number_2', 'Serial # 2'],
+    ['label_number_1', 'HUD label # 1'],
+    ['label_number_2', 'HUD label # 2'],
+  ];
+
+  identityFields.forEach(([field, label]) => {
+    if (hasValue(form[field]) && isPlaceholderIdentifier(form[field])) {
+      errors.push(`${label} looks like a fake placeholder. Enter the real value before generating documents.`);
+      missing.add(field);
+      targetStep = Math.min(targetStep, 2);
+    }
+  });
+
+  (selectedTemplates || []).forEach(templateName => {
+    const message = PRODUCTION_BLOCKED_TEMPLATE_MESSAGES[templateName];
+    if (message) {
+      errors.push(`${message} Remove it from this packet until lender/note mapping is complete.`);
+      targetStep = Math.min(targetStep, 3);
+    }
+  });
+
+  return { errors, missing, step: targetStep };
 }
 
 function getSelectedTemplateRequiredState(form, templates, selected) {
@@ -2822,6 +2907,14 @@ export default function DocumentCenter() {
       if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
       return;
     }
+    const qualityState = getDocumentQualityState(form, selDocs);
+    if (qualityState.errors.length > 0) {
+      setValidationErrors(qualityState.errors);
+      setMissingFields(qualityState.missing);
+      setStep(qualityState.step);
+      if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
 
     setGenerating(true);
     setGenErr('');
@@ -2840,7 +2933,12 @@ export default function DocumentCenter() {
         }),
       });
       const d = await r.json();
-      if (d.error) throw new Error(d.error);
+      if (!r.ok || d.error) {
+        const issueMessages = Array.isArray(d.quality_issues)
+          ? d.quality_issues.map(issue => issue.message).filter(Boolean)
+          : [];
+        throw new Error(issueMessages.join(' ') || d.message || d.error || 'Generation failed');
+      }
       setResults(d);
       loadDocumentDesk();
     } catch (e) {
