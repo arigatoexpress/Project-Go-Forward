@@ -459,8 +459,14 @@ class DocumentEngineV2:
 
         for tpl in template_names:
             res = self.generate_document(tpl, data, deal_id=deal_id)
+            template_config = (
+                self.schema.get("templates", {}).get(tpl)
+                or self.legacy_schema.get("templates", {}).get(tpl)
+                or {}
+            )
             results.append({
                 "template_name": tpl,
+                "display_name": template_config.get("display_name", tpl),
                 "success": res["success"],
                 "filename": res.get("filename"),
                 "download_url": f"/api/documents/download/{res['filename']}" if res.get("filename") else None,

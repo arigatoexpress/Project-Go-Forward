@@ -2186,42 +2186,48 @@ function Step4({ results, generating, error, onBack, onReset, onDownload, downlo
           Individual Documents
         </h3>
 
-        {ok.map(d => (
-          <div
-            key={d.template_name}
-            className="flex items-center justify-between bg-white border-2 border-gray-200 rounded-xl px-6 py-4 hover:border-blue-300 transition-colors"
-          >
-            <div className="flex items-center gap-3 min-w-0">
-              <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                <FileCheck size={20} className="text-green-600" />
-              </div>
-              <span className="font-medium text-gray-800 truncate">{d.display_name}</span>
-            </div>
-            <button
-              type="button"
-              onClick={() => onDownload(d.download_url, d.filename)}
-              disabled={downloadingDoc === d.download_url}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-100 text-blue-700 rounded-lg font-bold hover:bg-blue-200 transition-colors flex-shrink-0 disabled:opacity-60"
+        {ok.map(d => {
+          const documentLabel = d.display_name || d.template_name || d.filename || 'Generated document';
+          return (
+            <div
+              key={d.template_name || d.filename}
+              className="flex items-center justify-between bg-white border-2 border-gray-200 rounded-xl px-6 py-4 hover:border-blue-300 transition-colors"
             >
-              {downloadingDoc === d.download_url ? <Loader2 size={18} className="animate-spin" /> : <Download size={18} />}
-              PDF
-            </button>
-          </div>
-        ))}
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                  <FileCheck size={20} className="text-green-600" />
+                </div>
+                <span className="font-medium text-gray-800 truncate">{documentLabel}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => onDownload(d.download_url, d.filename)}
+                disabled={downloadingDoc === d.download_url}
+                className="flex items-center gap-2 px-4 py-2 bg-blue-100 text-blue-700 rounded-lg font-bold hover:bg-blue-200 transition-colors flex-shrink-0 disabled:opacity-60"
+              >
+                {downloadingDoc === d.download_url ? <Loader2 size={18} className="animate-spin" /> : <Download size={18} />}
+                PDF
+              </button>
+            </div>
+          );
+        })}
 
         {fail.length > 0 && (
           <>
             <h4 className="text-sm font-bold text-red-500 mt-6">Failed ({fail.length})</h4>
-            {fail.map(d => (
-              <div
-                key={d.template_name}
-                className="flex items-center gap-3 bg-red-50 border border-red-200 rounded-xl px-6 py-3"
-              >
-                <AlertCircle size={18} className="text-red-500 flex-shrink-0" />
-                <span className="text-gray-700">{d.display_name}</span>
-                <span className="text-xs text-red-400 ml-auto">{d.message}</span>
-              </div>
-            ))}
+            {fail.map(d => {
+              const documentLabel = d.display_name || d.template_name || d.filename || 'Generated document';
+              return (
+                <div
+                  key={d.template_name || d.filename}
+                  className="flex items-center gap-3 bg-red-50 border border-red-200 rounded-xl px-6 py-3"
+                >
+                  <AlertCircle size={18} className="text-red-500 flex-shrink-0" />
+                  <span className="text-gray-700">{documentLabel}</span>
+                  <span className="text-xs text-red-400 ml-auto">{d.message}</span>
+                </div>
+              );
+            })}
           </>
         )}
       </div>
