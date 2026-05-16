@@ -1559,7 +1559,7 @@ def test_document_history_hides_synthetic_artifacts_by_default(monkeypatch, tmp_
             {
                 "filename": "TDHCA_1038_Consumer_Disclosure_Real_Buyer_20260505.pdf",
                 "size_bytes": 4096,
-                "created_at": "2026-05-05T22:00:00+00:00",
+                "created_at": "2026-05-16T00:00:00+00:00",
                 "download_url": (
                     "/api/documents/download/"
                     "TDHCA_1038_Consumer_Disclosure_Real_Buyer_20260505.pdf"
@@ -1592,12 +1592,14 @@ def test_document_history_hides_synthetic_artifacts_by_default(monkeypatch, tmp_
     assert body["hidden_test_document_count"] == 14
     assert body["hidden_document_count"] == 14
     assert body["hidden_quality_document_count"] == 2
+    assert body["hidden_legacy_document_count"] == 1
 
     assert include_test_response.status_code == 200
     include_test_body = include_test_response.json()
     assert include_test_body["total"] == 16
     assert any(doc["synthetic"] for doc in include_test_body["documents"])
     assert any(doc["quality_blocked"] for doc in include_test_body["documents"])
+    assert any(doc["legacy_unverified"] for doc in include_test_body["documents"])
 
 
 def test_admin_create_customer_manual_payload_sanitizes_nested_sensitive_fields(monkeypatch):
