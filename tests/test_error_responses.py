@@ -125,6 +125,33 @@ def test_spa_shell_routes_do_not_consume_global_rate_limit(monkeypatch):
     assert third_dynamic.status_code == 429
 
 
+def test_run_app_document_center_redirects_to_canonical_domain(monkeypatch):
+    """Raw Cloud Run URLs should not become the customer/admin URL of record."""
+    client, _main, _db, _logger = create_client(monkeypatch)
+
+    response = client.get(
+        "/documents?from=email",
+        headers={"host": "project-go-forward-trgi34bxuq-uc.a.run.app"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 308
+    assert response.headers["location"] == "https://tho.sapphirealpha.xyz/documents?from=email"
+
+
+def test_run_app_api_and_health_paths_do_not_redirect(monkeypatch):
+    """Health probes and API diagnostics must keep working on Cloud Run hostnames."""
+    client, _main, _db, _logger = create_client(monkeypatch)
+    host = {"host": "project-go-forward-trgi34bxuq-uc.a.run.app"}
+
+    health = client.get("/healthz/", headers=host, follow_redirects=False)
+    api = client.get("/api/documents/templates", headers=host, follow_redirects=False)
+
+    assert health.status_code == 200
+    assert api.status_code not in {301, 302, 307, 308}
+    assert "location" not in api.headers
+
+
 def test_direct_html_files_use_no_store(monkeypatch):
     client, _main, _db, _logger = create_client(monkeypatch)
     studio = REPO_ROOT / "frontend" / "dist" / "studio.html"
