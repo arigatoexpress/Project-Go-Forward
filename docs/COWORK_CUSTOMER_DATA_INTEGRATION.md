@@ -15,7 +15,8 @@ prior conversation context can act.
 
 - **Repo**: `arigatoexpress/Project-Go-Forward` (cloned at `~/Code/Project-Go-Forward`).
   Production: Cloud Run `project-go-forward` in `tho-ai-agent` / `us-central1`.
-  Customer URL: <https://project-go-forward-691674245427.us-central1.run.app>.
+  Customer URL: <https://tho.sapphirealpha.xyz>. Raw Cloud Run URLs are
+  diagnostic-only and should not be sent to the client.
 - **Mark Willcott**: THO operations / sales lead. Phone 713.412.2200,
   email via Yahoo. He owns the keys to the manufacturer dealer portals and
   the pre-prod admin PIN. He sent the Joe Blo bug report on 2026-04-27.

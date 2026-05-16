@@ -1,6 +1,6 @@
 # THO App — System Architecture
 
-**Last updated**: 2026-04-22
+**Last updated**: 2026-05-15
 **Canonical source**: this document. If it conflicts with other docs in the repo (e.g. the older `INTEGRATION_GUIDE.md`), this document wins.
 
 ## 1. What THO App is
@@ -41,8 +41,9 @@ Two GCP projects are in play. **Do not conflate them.**
 
 - **Service name**: `project-go-forward`
 - **Region**: `us-central1`
-- **Public URL**: `https://project-go-forward-trgi34bxuq-uc.a.run.app`
-- **Custom domain**: `https://tho.sapphirealpha.xyz` (THO app subdomain)
+- **Canonical production URL**: `https://tho.sapphirealpha.xyz`
+- **Cloud Run diagnostic URL**: `https://project-go-forward-trgi34bxuq-uc.a.run.app`
+- **URL rule**: human-facing `run.app` pages redirect to `tho.sapphirealpha.xyz`; health, API, and static asset paths remain available for Cloud Run probes and operator diagnostics.
 - **Auth**: public endpoints + admin-only endpoints gated by `X-Admin-Token` header (JWT)
 
 ### Cloud DNS

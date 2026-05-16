@@ -77,7 +77,7 @@ gcloud run services describe project-go-forward \
 Public health, no credentials required:
 
 ```bash
-BASE_URL="https://project-go-forward-trgi34bxuq-uc.a.run.app"
+BASE_URL="https://tho.sapphirealpha.xyz"
 curl -fsS "$BASE_URL/health"
 curl -fsS "$BASE_URL/healthz/"
 ```

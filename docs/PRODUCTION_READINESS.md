@@ -8,11 +8,15 @@ revision.
 
 ```bash
 export THO_PROD_URL="https://tho.sapphirealpha.xyz"
-export THO_CLOUD_RUN_URL="https://project-go-forward-691674245427.us-central1.run.app"
+export THO_CLOUD_RUN_URL="https://project-go-forward-trgi34bxuq-uc.a.run.app"
 export THO_PROJECT="tho-ai-agent"
 export THO_REGION="us-central1"
 export THO_SERVICE="project-go-forward"
 ```
+
+`THO_PROD_URL` is the only client/customer URL. `THO_CLOUD_RUN_URL` is for
+operator health/API diagnostics; human-facing Cloud Run pages redirect to the
+canonical THO domain.
 
 ## Read-Only Smoke
 
