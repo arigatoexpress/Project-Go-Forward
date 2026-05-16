@@ -1536,6 +1536,9 @@ def test_document_history_hides_synthetic_artifacts_by_default(monkeypatch, tmp_
     (tmp_path / "Documents_UiBurnin20260515215603_Buyer_20260515_215609.pdf").write_bytes(
         b"%PDF-1.4\n%EOF\n"
     )
+    (tmp_path / "Documents_Ui_Burnin_Buyer_20260515151251_Final_20260515_211301.pdf").write_bytes(
+        b"%PDF-1.4\n%EOF\n"
+    )
     monkeypatch.setattr(main, "OUTPUT_DIR", str(tmp_path))
     monkeypatch.setattr(
         main,
@@ -1573,14 +1576,14 @@ def test_document_history_hides_synthetic_artifacts_by_default(monkeypatch, tmp_
         "TDHCA_1038_Consumer_Disclosure_Real_Buyer_20260505.pdf",
     ]
     assert body["total"] == 2
-    assert body["total_including_test"] == 11
-    assert body["hidden_test_document_count"] == 9
-    assert body["hidden_document_count"] == 9
+    assert body["total_including_test"] == 12
+    assert body["hidden_test_document_count"] == 10
+    assert body["hidden_document_count"] == 10
     assert body["hidden_quality_document_count"] == 1
 
     assert include_test_response.status_code == 200
     include_test_body = include_test_response.json()
-    assert include_test_body["total"] == 11
+    assert include_test_body["total"] == 12
     assert any(doc["synthetic"] for doc in include_test_body["documents"])
     assert any(doc["quality_blocked"] for doc in include_test_body["documents"])
 

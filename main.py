@@ -1751,6 +1751,7 @@ from tools.document_tools import (
 
 _SYNTHETIC_DOCUMENT_NAME_MARKERS = (
     "another_test",
+    "burnin",
     "created_from_missing_dir",
     "doc_smoke",
     "joe_blo",
