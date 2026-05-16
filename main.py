@@ -1763,6 +1763,7 @@ _SYNTHETIC_DOCUMENT_NAME_MARKERS = (
     "test_engine",
     "test_fill",
     "test_summary",
+    "uiburnin",
 )
 
 _QUARANTINED_DOCUMENT_NAME_MARKERS = (
