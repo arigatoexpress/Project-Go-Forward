@@ -1751,15 +1751,18 @@ from tools.document_tools import (
 
 _SYNTHETIC_DOCUMENT_NAME_MARKERS = (
     "another_test",
+    "_batch_",
     "burnin",
     "created_from_missing_dir",
     "doc_smoke",
+    "e2e",
     "jane_doe",
     "joe_blo",
     "john_doe",
     "john_smith",
     "legacy_test",
     "prod_smoke",
+    "qa_browser",
     "quality_buyer",
     "smoke_buyer",
     "test_buyer",
