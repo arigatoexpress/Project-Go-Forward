@@ -30,7 +30,7 @@ import uvicorn
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
@@ -638,6 +638,56 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT"],
     allow_headers=["Content-Type", "Accept", "X-Admin-Token", "Authorization"],
 )
+
+
+CANONICAL_PUBLIC_URL = os.environ.get("CANONICAL_PUBLIC_URL", "https://tho.sapphirealpha.xyz").rstrip("/")
+_CANONICAL_PUBLIC_PARTS = urlsplit(CANONICAL_PUBLIC_URL)
+_CANONICAL_PUBLIC_SCHEME = _CANONICAL_PUBLIC_PARTS.scheme or "https"
+_CANONICAL_PUBLIC_HOST = _CANONICAL_PUBLIC_PARTS.netloc or "tho.sapphirealpha.xyz"
+
+
+def _should_redirect_to_canonical_host(request: Request) -> bool:
+    """Keep operator/client navigation on the production vanity domain.
+
+    Cloud Run's default *.run.app URL remains useful for probes and low-level
+    diagnostics, but customer-facing pages must settle on tho.sapphirealpha.xyz
+    so admin cookies, passkeys, and support instructions all share one origin.
+    """
+    if request.method.upper() not in {"GET", "HEAD"}:
+        return False
+
+    host = request.headers.get("host", "")
+    host_name = host.split(":", 1)[0].lower().rstrip(".")
+    if not host_name.endswith(".run.app"):
+        return False
+
+    path = request.url.path
+    if path.startswith("/health") or path == "/api" or path.startswith("/api/"):
+        return False
+    if path.startswith("/assets/") or path.startswith("/workbox-"):
+        return False
+    if path in _STATIC_RATE_LIMIT_PATHS:
+        return False
+    return True
+
+
+class CanonicalHostMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        if _should_redirect_to_canonical_host(request):
+            target = urlunsplit(
+                (
+                    _CANONICAL_PUBLIC_SCHEME,
+                    _CANONICAL_PUBLIC_HOST,
+                    request.url.path,
+                    request.url.query,
+                    "",
+                )
+            )
+            return RedirectResponse(target, status_code=308)
+        return await call_next(request)
+
+
+app.add_middleware(CanonicalHostMiddleware)
 
 
 # ─── Admin Auth Setup ───
