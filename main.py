@@ -1756,12 +1756,18 @@ _SYNTHETIC_DOCUMENT_NAME_MARKERS = (
     "joe_blo",
     "legacy_test",
     "prod_smoke",
+    "quality_buyer",
     "smoke_buyer",
     "test_buyer",
     "testbuyer",
     "test_engine",
     "test_fill",
     "test_summary",
+)
+
+_QUARANTINED_DOCUMENT_NAME_MARKERS = (
+    # Generated before the May 15 quality gate and confirmed non-pristine by QA.
+    "garett_t_floyd_20260515",
 )
 
 
@@ -1773,8 +1779,34 @@ def _is_synthetic_document(filename: str | None) -> bool:
     return any(marker in normalized for marker in _SYNTHETIC_DOCUMENT_NAME_MARKERS)
 
 
+def _is_quarantined_generated_document(filename: str | None) -> bool:
+    """Hide generated PDFs that QA has marked unsafe to present to reps."""
+    normalized = os.path.basename(filename or "").lower()
+    if not normalized.endswith(".pdf"):
+        return False
+
+    configured_markers = tuple(
+        marker.strip().lower()
+        for marker in os.environ.get("DOCUMENT_HISTORY_QUARANTINE_MARKERS", "").split(",")
+        if marker.strip()
+    )
+    markers = _QUARANTINED_DOCUMENT_NAME_MARKERS + configured_markers
+    return any(marker in normalized for marker in markers)
+
+
 def _visible_generated_documents(docs: list[dict]) -> list[dict]:
-    return [doc for doc in docs if not doc.get("synthetic")]
+    return [
+        doc
+        for doc in docs
+        if not doc.get("synthetic") and not doc.get("quality_blocked")
+    ]
+
+
+def _document_history_flags(filename: str | None) -> dict[str, bool]:
+    return {
+        "synthetic": _is_synthetic_document(filename),
+        "quality_blocked": _is_quarantined_generated_document(filename),
+    }
 
 
 def _packet_result_fields(result: dict) -> dict:
@@ -1876,7 +1908,7 @@ def _collect_generated_documents():
                     "created_at": datetime.fromtimestamp(stat.st_mtime, tz=UTC).isoformat(),
                     "download_url": f"/api/documents/download/{filename}",
                     "source": "local",
-                    "synthetic": _is_synthetic_document(filename),
+                    **_document_history_flags(filename),
                 }
             )
             seen.add(filename)
@@ -1888,7 +1920,7 @@ def _collect_generated_documents():
         filename = gcs_doc.get("filename")
         if not filename or filename in seen:
             continue
-        docs.append({**gcs_doc, "source": "gcs", "synthetic": _is_synthetic_document(filename)})
+        docs.append({**gcs_doc, "source": "gcs", **_document_history_flags(filename)})
         seen.add(filename)
 
     docs.sort(key=lambda d: d.get("created_at") or "", reverse=True)
@@ -5041,6 +5073,8 @@ async def document_history(include_test: bool = False):
         "total": len(visible_docs),
         "total_including_test": len(docs),
         "hidden_test_document_count": len(docs) - len(_visible_generated_documents(docs)),
+        "hidden_document_count": len(docs) - len(_visible_generated_documents(docs)),
+        "hidden_quality_document_count": sum(1 for doc in docs if doc.get("quality_blocked")),
     }
 
 

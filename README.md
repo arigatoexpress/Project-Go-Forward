@@ -6,8 +6,8 @@
 
 **The live Texas Home Outlet operating app: public storefront, AI sales assistant, inventory browser, CRM, Document Center, Analytics, and Ad Studio in one Cloud Run service.**
 
-[![Production](https://img.shields.io/badge/production-sapphirealpha.xyz-0f766e?style=for-the-badge)](https://sapphirealpha.xyz/)
-[![Cloud Run](https://img.shields.io/badge/cloud%20run-project--go--forward-2563eb?style=for-the-badge&logo=googlecloud&logoColor=white)](https://project-go-forward-trgi34bxuq-uc.a.run.app/)
+[![Production](https://img.shields.io/badge/production-tho.sapphirealpha.xyz-0f766e?style=for-the-badge)](https://tho.sapphirealpha.xyz/)
+[![Cloud Run](https://img.shields.io/badge/cloud%20run-diagnostic%20only-2563eb?style=for-the-badge&logo=googlecloud&logoColor=white)](https://project-go-forward-trgi34bxuq-uc.a.run.app/healthz/)
 [![Frontend](https://img.shields.io/badge/frontend-React%2019%20%2B%20Vite-111827?style=for-the-badge&logo=react&logoColor=61dafb)](frontend/)
 [![Backend](https://img.shields.io/badge/backend-FastAPI%20%2B%20Firestore-009688?style=for-the-badge&logo=fastapi&logoColor=white)](main.py)
 [![Docs](https://img.shields.io/badge/docs-canonical%20index-7c3aed?style=for-the-badge)](docs/README.md)
@@ -18,26 +18,26 @@
 
 ## What This Is
 
-Project Go Forward is the production web app behind Texas Home Outlet's digital operating layer. It serves the customer-facing home-shopping experience at [sapphirealpha.xyz](https://sapphirealpha.xyz/), backs internal sales workflows, generates regulatory document packets, exposes partner-safe `/api/v1/*` contracts, and gives the team an Ad Studio for inventory-aware marketing.
+Project Go Forward is the production web app behind Texas Home Outlet's digital operating layer. It serves the customer-facing home-shopping experience at [tho.sapphirealpha.xyz](https://tho.sapphirealpha.xyz/), backs internal sales workflows, generates regulatory document packets, exposes partner-safe `/api/v1/*` contracts, and gives the team an Ad Studio for inventory-aware marketing.
 
 The repo began as a configurable AI-agent framework; it is now a concrete THO product. This README is written for demo, diligence, and operator orientation.
 
-**Verified live on April 29, 2026:** `https://sapphirealpha.xyz/health`, `/healthz/`, and `/api/marketing/inventory-context` returned HTTP 200, and the public inventory context returned 44 homes. The deployed `/healthz/` version is the source of truth for whether the live Cloud Run revision has caught up to the latest `main`.
+**Verified live on May 15, 2026:** `https://tho.sapphirealpha.xyz/health`, `/healthz/`, `/documents`, and `/api/marketing/inventory-context` returned HTTP 200. The deployed `/healthz/` version is the source of truth for whether the live Cloud Run revision has caught up to the latest `main`.
 
 ## Live Surfaces
 
 | Surface | Path | Access | Notes |
 |---|---|---|---|
-| Public storefront | [`/`](https://sapphirealpha.xyz/) | Public | Inventory browsing, AI assistant, comparison flow, contact and appointment entry points. |
+| Public storefront | [`/`](https://tho.sapphirealpha.xyz/) | Public | Inventory browsing, AI assistant, comparison flow, contact and appointment entry points. |
 | Public inventory context | `/api/marketing/inventory-context` | Public read-only | Inventory payload used by public and marketing experiences. |
 | Contact, appointments, feedback | `/api/contact`, `/api/appointments`, `/api/feedback` | Public submit paths | Customer-facing form flows. Treat submitted data as PII. |
-| Ad Studio | [`/studio`](https://sapphirealpha.xyz/studio), [`/studio.html`](https://sapphirealpha.xyz/studio.html) | Admin-gated data/actions | Inventory-aware campaigns, scripts, ideas, media, and marketing analytics. |
+| Ad Studio | [`/studio`](https://tho.sapphirealpha.xyz/studio), [`/studio.html`](https://tho.sapphirealpha.xyz/studio.html) | Admin-gated data/actions | Inventory-aware campaigns, scripts, ideas, media, and marketing analytics. |
 | Document Center | `/documents` | Admin-gated | Deal/customer lookup, template field mapping, batch packets, generated document history. |
 | CRM | `/crm` | Admin-gated | Leads, customers, deals, appointments, tasks, email activity, and document actions. |
 | Analytics | `/analytics` | Admin-gated | Lead, document, inventory, chat, and customer analytics. |
 | Partner API | `/api/v1/*` | `THO_API_KEY` required | Customers, inventory, leads, stats, webhook notify, and regulatory RAG query contract. |
-| Health | [`/health`](https://sapphirealpha.xyz/health) | Public operator check | Readiness endpoint. |
-| Liveness | [`/healthz/`](https://sapphirealpha.xyz/healthz/) | Public operator check | Cloud Run liveness. Use the trailing slash in external smoke checks. |
+| Health | [`/health`](https://tho.sapphirealpha.xyz/health) | Public operator check | Readiness endpoint. |
+| Liveness | [`/healthz/`](https://tho.sapphirealpha.xyz/healthz/) | Public operator check | Cloud Run liveness. Use the trailing slash in external smoke checks. |
 
 ## Product Map
 
@@ -95,8 +95,8 @@ flowchart LR
 
 ## Demo In Three Minutes
 
-1. Open [sapphirealpha.xyz](https://sapphirealpha.xyz/) and show customer-facing inventory, search, comparison, and chat.
-2. Open [sapphirealpha.xyz/studio](https://sapphirealpha.xyz/studio) to show the marketing workflow tied to live inventory context. Stop before any action that needs credentials unless the audience is authorized.
+1. Open [tho.sapphirealpha.xyz](https://tho.sapphirealpha.xyz/) and show customer-facing inventory, search, comparison, and chat.
+2. Open [tho.sapphirealpha.xyz/studio](https://tho.sapphirealpha.xyz/studio) to show the marketing workflow tied to live inventory context. Stop before any action that needs credentials unless the audience is authorized.
 3. Open `/documents`, `/crm`, or `/analytics` only with admin credentials and only for an approved internal audience.
 4. Use [docs/SHOWCASE.md](docs/SHOWCASE.md) for a tighter script, fallback talking points, and screenshot safety notes.
 
@@ -133,12 +133,12 @@ ruff check .
 
 ## Production Verification
 
-Texas Home Outlet production runs on Cloud Run service `project-go-forward` in project `tho-ai-agent`, region `us-central1`, and is published at `https://sapphirealpha.xyz`.
+Texas Home Outlet production runs on Cloud Run service `project-go-forward` in project `tho-ai-agent`, region `us-central1`, and is published at `https://tho.sapphirealpha.xyz`. The raw `run.app` URL is for health and API diagnostics only; human-facing Cloud Run pages redirect to the canonical THO domain.
 
 Use the production runbook and read-only smoke before making live claims:
 
 ```bash
-export THO_PROD_URL="https://sapphirealpha.xyz"
+export THO_PROD_URL="https://tho.sapphirealpha.xyz"
 python3 scripts/production_smoke.py --base-url "$THO_PROD_URL"
 curl -fsS "$THO_PROD_URL/health" | python3 -m json.tool
 curl -fsS "$THO_PROD_URL/healthz/" | python3 -m json.tool
