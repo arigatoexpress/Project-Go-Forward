@@ -1754,7 +1754,10 @@ _SYNTHETIC_DOCUMENT_NAME_MARKERS = (
     "burnin",
     "created_from_missing_dir",
     "doc_smoke",
+    "jane_doe",
     "joe_blo",
+    "john_doe",
+    "john_smith",
     "legacy_test",
     "prod_smoke",
     "quality_buyer",
@@ -1770,6 +1773,8 @@ _SYNTHETIC_DOCUMENT_NAME_MARKERS = (
 _QUARANTINED_DOCUMENT_NAME_MARKERS = (
     # Generated before the May 15 quality gate and confirmed non-pristine by QA.
     "garett_t_floyd_20260515",
+    # Legacy generated copies of this Note/Security template are not client-ready.
+    "twopartycontract",
 )
 
 
