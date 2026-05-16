@@ -63,6 +63,7 @@ def test_v2_generate_batch():
     result = generate_batch(templates, SAMPLE_DATA, merge=True)
     assert result["success"] is True
     assert len(result["documents"]) == 2
+    assert all(doc["display_name"] for doc in result["documents"])
     assert result["merged"] is not None
     assert result["successful"] == 2
 
