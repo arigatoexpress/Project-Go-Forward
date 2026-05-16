@@ -1775,10 +1775,12 @@ _SYNTHETIC_DOCUMENT_NAME_MARKERS = (
 
 _QUARANTINED_DOCUMENT_NAME_MARKERS = (
     # Generated before the May 15 quality gate and confirmed non-pristine by QA.
-    "garett_t_floyd_20260515",
+    "garett_t_floyd",
     # Legacy generated copies of this Note/Security template are not client-ready.
     "twopartycontract",
 )
+
+_DOCUMENT_HISTORY_DEFAULT_MIN_CREATED_AT = datetime(2026, 5, 15, 23, 14, tzinfo=UTC)
 
 
 def _is_synthetic_document(filename: str | None) -> bool:
@@ -1804,18 +1806,44 @@ def _is_quarantined_generated_document(filename: str | None) -> bool:
     return any(marker in normalized for marker in markers)
 
 
+def _document_history_min_created_at() -> datetime:
+    configured = os.environ.get("DOCUMENT_HISTORY_MIN_CREATED_AT", "").strip()
+    if not configured:
+        return _DOCUMENT_HISTORY_DEFAULT_MIN_CREATED_AT
+    try:
+        return datetime.fromisoformat(configured.replace("Z", "+00:00"))
+    except ValueError:
+        logger.warning("Invalid DOCUMENT_HISTORY_MIN_CREATED_AT; using default")
+        return _DOCUMENT_HISTORY_DEFAULT_MIN_CREATED_AT
+
+
+def _is_legacy_unverified_document(created_at: str | None) -> bool:
+    if not created_at:
+        return False
+    try:
+        parsed = datetime.fromisoformat(str(created_at).replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed < _document_history_min_created_at()
+
+
 def _visible_generated_documents(docs: list[dict]) -> list[dict]:
     return [
         doc
         for doc in docs
-        if not doc.get("synthetic") and not doc.get("quality_blocked")
+        if not doc.get("synthetic")
+        and not doc.get("quality_blocked")
+        and not doc.get("legacy_unverified")
     ]
 
 
-def _document_history_flags(filename: str | None) -> dict[str, bool]:
+def _document_history_flags(filename: str | None, created_at: str | None) -> dict[str, bool]:
     return {
         "synthetic": _is_synthetic_document(filename),
         "quality_blocked": _is_quarantined_generated_document(filename),
+        "legacy_unverified": _is_legacy_unverified_document(created_at),
     }
 
 
@@ -1911,14 +1939,15 @@ def _collect_generated_documents():
             if not os.path.isfile(path):
                 continue
             stat = os.stat(path)
+            created_at = datetime.fromtimestamp(stat.st_mtime, tz=UTC).isoformat()
             docs.append(
                 {
                     "filename": filename,
                     "size_bytes": stat.st_size,
-                    "created_at": datetime.fromtimestamp(stat.st_mtime, tz=UTC).isoformat(),
+                    "created_at": created_at,
                     "download_url": f"/api/documents/download/{filename}",
                     "source": "local",
-                    **_document_history_flags(filename),
+                    **_document_history_flags(filename, created_at),
                 }
             )
             seen.add(filename)
@@ -1930,7 +1959,13 @@ def _collect_generated_documents():
         filename = gcs_doc.get("filename")
         if not filename or filename in seen:
             continue
-        docs.append({**gcs_doc, "source": "gcs", **_document_history_flags(filename)})
+        docs.append(
+            {
+                **gcs_doc,
+                "source": "gcs",
+                **_document_history_flags(filename, gcs_doc.get("created_at")),
+            }
+        )
         seen.add(filename)
 
     docs.sort(key=lambda d: d.get("created_at") or "", reverse=True)
@@ -5085,6 +5120,7 @@ async def document_history(include_test: bool = False):
         "hidden_test_document_count": len(docs) - len(_visible_generated_documents(docs)),
         "hidden_document_count": len(docs) - len(_visible_generated_documents(docs)),
         "hidden_quality_document_count": sum(1 for doc in docs if doc.get("quality_blocked")),
+        "hidden_legacy_document_count": sum(1 for doc in docs if doc.get("legacy_unverified")),
     }
 
 
