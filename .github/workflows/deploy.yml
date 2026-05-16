@@ -88,6 +88,7 @@ jobs:
             --source . \
             --region ${{ env.REGION }} \
             --project ${{ env.PROJECT_ID }} \
+            --min-instances=1 \
             --update-env-vars=APP_VERSION=${{ github.sha }} \
             --update-secrets=ADMIN_PIN_HASH=admin-pin-hash:latest,ADMIN_SESSION_SECRET=admin-session-secret:latest \
             --liveness-probe=httpGet.path=/healthz,httpGet.port=8080,periodSeconds=30,timeoutSeconds=5,failureThreshold=3 \
