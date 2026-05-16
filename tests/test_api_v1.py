@@ -1487,7 +1487,7 @@ def test_document_readiness_reports_safe_counts(monkeypatch, tmp_path):
             {
                 "filename": "cloud.pdf",
                 "size_bytes": 2048,
-                "created_at": "2026-04-26T10:00:00+00:00",
+                "created_at": "2026-05-16T00:00:00+00:00",
                 "download_url": "/api/documents/download/cloud.pdf",
             }
         ],
