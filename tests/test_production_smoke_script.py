@@ -1,6 +1,14 @@
 from scripts import production_smoke
 
 
+class _TimeoutContext:
+    def __enter__(self):
+        raise TimeoutError("timed out")
+
+    def __exit__(self, exc_type, exc, traceback):
+        return False
+
+
 def test_default_base_url_targets_tho_subdomain():
     assert production_smoke.DEFAULT_BASE_URL == "https://tho.sapphirealpha.xyz"
 
@@ -20,6 +28,40 @@ def test_spa_route_probe_reports_root_marker(monkeypatch):
     assert len(probes) == len(production_smoke.PUBLIC_ROUTES)
     assert all(probe.ok for probe in probes)
     assert all("root=yes" in probe.evidence for probe in probes)
+
+
+def test_read_probe_reports_timeout_with_path_context(monkeypatch):
+    def fake_urlopen(request, timeout):
+        return _TimeoutContext()
+
+    monkeypatch.setattr(production_smoke, "urlopen", fake_urlopen)
+
+    try:
+        production_smoke._read_url("https://example.test", "/slow", timeout=2.0)
+    except RuntimeError as exc:
+        assert str(exc) == "/slow timed out after 2s"
+    else:
+        raise AssertionError("expected timeout to be wrapped")
+
+
+def test_post_probe_reports_timeout_with_path_context(monkeypatch):
+    def fake_urlopen(request, timeout):
+        return _TimeoutContext()
+
+    monkeypatch.setattr(production_smoke, "urlopen", fake_urlopen)
+
+    try:
+        production_smoke._post_json(
+            "https://example.test",
+            "/api/slow",
+            {},
+            timeout=3.0,
+            admin_token=None,
+        )
+    except RuntimeError as exc:
+        assert str(exc) == "/api/slow timed out after 3s"
+    else:
+        raise AssertionError("expected timeout to be wrapped")
 
 
 def test_media_depth_probe_requires_real_gallery_and_tours(monkeypatch):

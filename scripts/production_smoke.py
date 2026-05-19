@@ -113,6 +113,9 @@ def _read_url(base_url: str, path: str, *, timeout: float) -> tuple[int, bytes, 
         body = exc.read(1024 * 1024)
         elapsed_ms = int((time.perf_counter() - started) * 1000)
         return exc.code, body, exc.headers.get("content-type", ""), elapsed_ms
+    except TimeoutError as exc:
+        elapsed_ms = int((time.perf_counter() - started) * 1000)
+        raise RuntimeError(f"{path} timed out after {timeout:g}s") from exc
     except URLError as exc:
         elapsed_ms = int((time.perf_counter() - started) * 1000)
         raise RuntimeError(f"{path} network error: {exc}") from exc
@@ -146,6 +149,9 @@ def _post_json(
         body = exc.read(1024 * 1024)
         elapsed_ms = int((time.perf_counter() - started) * 1000)
         return exc.code, body, exc.headers.get("content-type", ""), elapsed_ms
+    except TimeoutError as exc:
+        elapsed_ms = int((time.perf_counter() - started) * 1000)
+        raise RuntimeError(f"{path} timed out after {timeout:g}s") from exc
     except URLError as exc:
         elapsed_ms = int((time.perf_counter() - started) * 1000)
         raise RuntimeError(f"{path} network error: {exc}") from exc
