@@ -12,11 +12,19 @@ from dataclasses import asdict, dataclass
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
-
-BUSINESS_NAME = "Texas Home Outlet"
+LEGAL_SELLER_NAME = "Prosperity Acquisitions INC. dba Texas Home Outlet"
+BUSINESS_NAME = LEGAL_SELLER_NAME
 BUSINESS_PHONE = "(281) 324-3020"
 BUSINESS_ADDRESS = "10685 FM 1960 East"
 BUSINESS_CITY_STATE_ZIP = "Huffman, TX 77336"
+
+_LEGACY_SELLER_NAMES = {
+    "texashomeoutlet",
+    "prosperityacquisitionsllc",
+    "prosperityacquisitionsllcdbatexashomeoutlet",
+    "prosperityacquisitionsinc",
+    "prosperityacquisitionsincdbatexashomeoutlet",
+}
 
 
 IDENTITY_FIELDS = {
@@ -118,6 +126,13 @@ def _normalize_identifier(value: Any) -> str:
     return re.sub(r"[^a-z0-9]", "", _clean(value).lower())
 
 
+def normalize_seller_name(value: Any) -> str:
+    normalized = _normalize_identifier(value)
+    if not normalized or normalized in _LEGACY_SELLER_NAMES:
+        return LEGAL_SELLER_NAME
+    return _clean(value)
+
+
 def is_placeholder_identifier(value: Any) -> bool:
     normalized = _normalize_identifier(value)
     if not normalized:
@@ -145,7 +160,7 @@ def enrich_document_data(data: dict[str, Any]) -> dict[str, Any]:
     """
     enriched = dict(data or {})
 
-    enriched.setdefault("seller_name", BUSINESS_NAME)
+    enriched["seller_name"] = normalize_seller_name(enriched.get("seller_name"))
     enriched.setdefault("seller_phone", BUSINESS_PHONE)
     enriched.setdefault("seller_address", BUSINESS_ADDRESS)
     enriched.setdefault("seller_city_state_zip", BUSINESS_CITY_STATE_ZIP)

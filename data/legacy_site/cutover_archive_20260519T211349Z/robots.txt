@@ -1,0 +1,8 @@
+# START YOAST BLOCK
+# ---------------------------
+User-agent: *
+Disallow:
+
+Sitemap: https://www.texashomeoutlet.com/sitemap_index.xml
+# ---------------------------
+# END YOAST BLOCK

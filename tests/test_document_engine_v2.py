@@ -1,17 +1,15 @@
-
 import os
 import sys
-import pytest
 from decimal import Decimal
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from tools.document_engine_v2 import (
-    generate_document,
     generate_batch,
+    generate_document,
+    list_available_packets,
     list_available_templates,
-    list_available_packets
 )
 
 SAMPLE_DATA = {
@@ -28,20 +26,45 @@ SAMPLE_DATA = {
     "sales_price": "95000",
     "down_payment": "5000",
     "loan_term": "240",
-    "apr": "8.5"
+    "apr": "8.5",
 }
+
 
 def test_v2_list_templates():
     templates = list_available_templates()
     assert len(templates) >= 63
     # Check that both v2 and legacy templates are present
     assert any(t["template_name"] == "TMHA_SalesContract.pdf" and t["is_v2"] for t in templates)
-    assert any(t["template_name"] == "TDHCA_1054_Habitability_Warranty.pdf" and not t["is_v2"] for t in templates)
+    assert any(
+        t["template_name"] == "TDHCA_1054_Habitability_Warranty.pdf" and not t["is_v2"]
+        for t in templates
+    )
+
 
 def test_v2_list_packets():
     packets = list_available_packets()
     assert len(packets) >= 1
     assert any(p["packet_name"] == "standard_closing" for p in packets)
+
+
+def test_v2_standard_packet_contains_cutover_required_forms():
+    packets = {p["packet_name"]: p for p in list_available_packets()}
+    templates = packets["standard_closing"]["templates"]
+
+    assert templates[0] == "All_Cover.pdf"
+    assert "approval.pdf" in templates
+    assert "Internal_Proof_of_Insurance.pdf" in templates
+    assert packets["standard_closing"]["template_count"] == len(templates)
+
+
+def test_v2_used_packet_contains_cutover_required_forms():
+    packets = {p["packet_name"]: p for p in list_available_packets()}
+    templates = packets["used_home_closing"]["templates"]
+
+    assert templates[0] == "All_Cover.pdf"
+    assert "approval.pdf" in templates
+    assert "Internal_Proof_of_Insurance.pdf" in templates
+
 
 def test_v2_generate_unified_template():
     # TMHA_SalesContract is in unified_schema.json
@@ -51,12 +74,14 @@ def test_v2_generate_unified_template():
     # Verify we got more than just the 7 v2 fields (thanks to hybrid fallback)
     assert result["intelligence"]["mapping"]["total_fields"] > 7
 
+
 def test_v2_generate_legacy_template():
     # Habitability Warranty is NOT in unified_schema.json
     result = generate_document("TDHCA_1054_Habitability_Warranty.pdf", SAMPLE_DATA)
     assert result["success"] is True
     assert result["intelligence"]["mapping"]["source"] == "legacy_fallback"
     assert result["intelligence"]["mapping"]["total_fields"] > 0
+
 
 def test_v2_generate_batch():
     templates = ["TMHA_SalesContract.pdf", "TDHCA_1054_Habitability_Warranty.pdf"]
@@ -67,11 +92,13 @@ def test_v2_generate_batch():
     assert result["merged"] is not None
     assert result["successful"] == 2
 
+
 def test_v2_validation_error():
     # Missing required fields in UnifiedPayload (e.g. buyer_name)
     result = generate_document("TMHA_SalesContract.pdf", {"sales_price": 100})
     assert result["success"] is False
     assert "Validation failed" in result["message"]
+
 
 def test_v2_financial_computations():
     # Test that computed fields are present in intelligence
@@ -79,7 +106,8 @@ def test_v2_financial_computations():
     intelligence = result["intelligence"]["computed"]
     assert "monthly_payment" in intelligence
     assert "loan_amount" in intelligence
-    assert intelligence["loan_amount"] == 90000 # 95000 - 5000
+    assert intelligence["loan_amount"] == 90000  # 95000 - 5000
+
 
 def test_v2_blank_financial_fields_default_instead_of_failing():
     data = {
