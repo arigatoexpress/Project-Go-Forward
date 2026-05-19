@@ -3,12 +3,12 @@ THO Database Models - Firestore Data Layer
 Pydantic models matching the database schema for Texas Home Outlet
 """
 
-from datetime import date, datetime
-from enum import Enum
-from typing import Dict, List, Optional
-from pydantic import BaseModel, Field, field_validator
 import re
 import uuid
+from datetime import date, datetime
+from enum import Enum
+
+from pydantic import BaseModel, Field, field_validator
 
 
 class CustomerStatus(str, Enum):
@@ -30,12 +30,12 @@ class Customer(BaseModel):
 
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     full_name: str = Field(min_length=1)
-    phone: Optional[str] = None
-    email: Optional[str] = None
+    phone: str | None = None
+    email: str | None = None
     status: CustomerStatus = CustomerStatus.LEAD
 
     # Billing info
-    billing_account: Optional[str] = None  # e.g., "Texas Home Outlet - 15th"
+    billing_account: str | None = None  # e.g., "Texas Home Outlet - 15th"
 
     # Timestamps
     created_at: datetime = Field(default_factory=datetime.utcnow)
@@ -64,19 +64,19 @@ class Property(BaseModel):
 
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     address: str
-    city: Optional[str] = None
+    city: str | None = None
     state: str = "TX"
-    zip_code: Optional[str] = None
+    zip_code: str | None = None
 
     # Tax info
-    county: Optional[str] = None
-    school_district: Optional[str] = None
-    county_account_number: Optional[str] = None
-    county_tax_link: Optional[str] = None
-    isd_tax_link: Optional[str] = None
+    county: str | None = None
+    school_district: str | None = None
+    county_account_number: str | None = None
+    county_tax_link: str | None = None
+    isd_tax_link: str | None = None
 
     # Owner reference
-    customer_id: Optional[str] = None
+    customer_id: str | None = None
 
     class Config:
         use_enum_values = True
@@ -88,28 +88,28 @@ class Inventory(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     serial_number: str = Field(min_length=1)
     model_name: str = Field(min_length=1)
-    manufacturer: Optional[str] = None  # e.g., "Tru Belton", "Champion LA"
+    manufacturer: str | None = None  # e.g., "Tru Belton", "Champion LA"
 
     # Pricing
-    invoice_date: Optional[date] = None
-    invoice_amount: Optional[float] = Field(default=None, ge=0)
-    msrp: Optional[float] = Field(default=None, ge=0)
-    sale_price: Optional[float] = Field(default=None, ge=0)
+    invoice_date: date | None = None
+    invoice_amount: float | None = Field(default=None, ge=0)
+    msrp: float | None = Field(default=None, ge=0)
+    sale_price: float | None = Field(default=None, ge=0)
 
     # Specs (parsed from model name)
-    bedrooms: Optional[int] = Field(default=None, ge=0, le=10)
-    bathrooms: Optional[int] = Field(default=None, ge=0, le=10)
-    sqft: Optional[int] = Field(default=None, ge=0)
-    width: Optional[int] = Field(default=None, ge=0)  # e.g., 14, 28, 32
-    length: Optional[int] = Field(default=None, ge=0)  # e.g., 60, 66, 76
+    bedrooms: int | None = Field(default=None, ge=0, le=10)
+    bathrooms: int | None = Field(default=None, ge=0, le=10)
+    sqft: int | None = Field(default=None, ge=0)
+    width: int | None = Field(default=None, ge=0)  # e.g., 14, 28, 32
+    length: int | None = Field(default=None, ge=0)  # e.g., 60, 66, 76
 
     # Status
     status: InventoryStatus = InventoryStatus.AVAILABLE
-    notes: Optional[str] = None
+    notes: str | None = None
 
     # Media
-    photos: List[str] = Field(default_factory=list)
-    video_tour_url: Optional[str] = None
+    photos: list[str] = Field(default_factory=list)
+    video_tour_url: str | None = None
 
     @field_validator("bedrooms", "bathrooms", "sqft")
     @classmethod
@@ -155,21 +155,21 @@ class Sale(BaseModel):
     inventory_id: str
 
     # Sale details
-    salesman: Optional[str] = None
-    customer_number: Optional[str] = None  # 21st Mortgage customer #
-    sale_date: Optional[date] = None
-    sale_price: Optional[float] = Field(default=None, ge=0)
+    salesman: str | None = None
+    customer_number: str | None = None  # 21st Mortgage customer #
+    sale_date: date | None = None
+    sale_price: float | None = Field(default=None, ge=0)
 
     # Financing
-    down_payment: Optional[float] = Field(default=None, ge=0)
-    financed_amount: Optional[float] = Field(default=None, ge=0)
-    monthly_payment: Optional[float] = Field(default=None, ge=0)
-    loan_term_months: Optional[int] = Field(default=None, ge=0)
-    interest_rate: Optional[float] = Field(default=None, ge=0, le=100)
+    down_payment: float | None = Field(default=None, ge=0)
+    financed_amount: float | None = Field(default=None, ge=0)
+    monthly_payment: float | None = Field(default=None, ge=0)
+    loan_term_months: int | None = Field(default=None, ge=0)
+    interest_rate: float | None = Field(default=None, ge=0, le=100)
 
     # Status
     contract_status: str = "pending"  # pending, approved, funded, complete
-    notes: Optional[str] = None
+    notes: str | None = None
 
 
 class Lease(BaseModel):
@@ -181,11 +181,11 @@ class Lease(BaseModel):
 
     # Terms
     monthly_payment: float = Field(ge=0)
-    lease_start_date: Optional[date] = None
-    lease_end_date: Optional[date] = None
+    lease_start_date: date | None = None
+    lease_end_date: date | None = None
 
     # Billing
-    billing_account: Optional[str] = None
+    billing_account: str | None = None
     payment_day: int = Field(default=1, ge=1, le=31)  # Day of month payment is due
 
     # Status
@@ -200,15 +200,15 @@ class TaxPayment(BaseModel):
     tax_year: int
 
     # Tax amounts
-    county_taxes: Optional[float] = None
-    school_taxes: Optional[float] = None
-    total_taxes: Optional[float] = None
+    county_taxes: float | None = None
+    school_taxes: float | None = None
+    total_taxes: float | None = None
 
     # Escrow tracking
-    escrow_balance: Optional[float] = None
-    payment_date: Optional[date] = None
+    escrow_balance: float | None = None
+    payment_date: date | None = None
 
-    notes: Optional[str] = None
+    notes: str | None = None
 
 
 class DealStatus(str, Enum):
@@ -233,101 +233,101 @@ class Deal(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
 
     # ─── Assignment ───
-    salesrep: Optional[str] = None
+    salesrep: str | None = None
     status: DealStatus = DealStatus.PENDING
 
     # ─── Seller ───
-    seller_name: str = "Texas Home Outlet"
-    seller_rbi: Optional[str] = "35248"
-    seller_phone: Optional[str] = "(281) 324-3020"
-    seller_address: Optional[str] = "10685 FM 1960 East"
-    seller_city: Optional[str] = "Huffman"
+    seller_name: str = "Prosperity Acquisitions INC. dba Texas Home Outlet"
+    seller_rbi: str | None = "35248"
+    seller_phone: str | None = "(281) 324-3020"
+    seller_address: str | None = "10685 FM 1960 East"
+    seller_city: str | None = "Huffman"
     seller_state: str = "TX"
-    seller_zip: Optional[str] = None
+    seller_zip: str | None = None
 
     # ─── Buyer ───
-    buyer_first_name: Optional[str] = None
-    buyer_last_name: Optional[str] = None
-    buyer_phone: Optional[str] = None
-    buyer_email: Optional[str] = None
-    buyer_ssn: Optional[str] = None
-    buyer_marital_status: Optional[str] = None  # "Married", "Single", "Divorced", "Widowed"
+    buyer_first_name: str | None = None
+    buyer_last_name: str | None = None
+    buyer_phone: str | None = None
+    buyer_email: str | None = None
+    buyer_ssn: str | None = None
+    buyer_marital_status: str | None = None  # "Married", "Single", "Divorced", "Widowed"
 
     # ─── Co-Buyer ───
-    co_buyer_first_name: Optional[str] = None
-    co_buyer_last_name: Optional[str] = None
-    co_buyer_phone: Optional[str] = None
-    co_buyer_ssn: Optional[str] = None
-    co_buyer_marital_status: Optional[str] = None
+    co_buyer_first_name: str | None = None
+    co_buyer_last_name: str | None = None
+    co_buyer_phone: str | None = None
+    co_buyer_ssn: str | None = None
+    co_buyer_marital_status: str | None = None
 
     # ─── Employment (Buyer) ───
-    employer_name: Optional[str] = None
-    occupation: Optional[str] = None
-    occupation_length: Optional[str] = None  # years
-    work_phone: Optional[str] = None
+    employer_name: str | None = None
+    occupation: str | None = None
+    occupation_length: str | None = None  # years
+    work_phone: str | None = None
     self_employed: bool = False
-    previous_employer: Optional[str] = None
-    previous_occupation: Optional[str] = None
+    previous_employer: str | None = None
+    previous_occupation: str | None = None
 
     # ─── Employment (Co-Buyer) ───
-    co_buyer_employer: Optional[str] = None
-    co_buyer_occupation: Optional[str] = None
-    co_buyer_occupation_length: Optional[str] = None
-    co_buyer_work_phone: Optional[str] = None
+    co_buyer_employer: str | None = None
+    co_buyer_occupation: str | None = None
+    co_buyer_occupation_length: str | None = None
+    co_buyer_work_phone: str | None = None
     co_buyer_self_employed: bool = False
 
     # ─── Mailing Address (current residence) ───
-    mailing_address: Optional[str] = None
-    mailing_city: Optional[str] = None
+    mailing_address: str | None = None
+    mailing_city: str | None = None
     mailing_state: str = "TX"
-    mailing_zip: Optional[str] = None
-    mailing_length: Optional[str] = None  # years at address
-    mailing_own_rent: Optional[str] = None  # "Own" or "Rent"
+    mailing_zip: str | None = None
+    mailing_length: str | None = None  # years at address
+    mailing_own_rent: str | None = None  # "Own" or "Rent"
 
     # ─── Installation Address (where the home goes) ───
-    buyer_address: Optional[str] = None
-    buyer_city: Optional[str] = None
-    buyer_county: Optional[str] = None
+    buyer_address: str | None = None
+    buyer_city: str | None = None
+    buyer_county: str | None = None
     buyer_state: str = "TX"
-    buyer_zip: Optional[str] = None
+    buyer_zip: str | None = None
 
     # ─── References ───
-    reference1_name: Optional[str] = None
-    reference1_phone: Optional[str] = None
-    reference2_name: Optional[str] = None
-    reference2_phone: Optional[str] = None
+    reference1_name: str | None = None
+    reference1_phone: str | None = None
+    reference2_name: str | None = None
+    reference2_phone: str | None = None
 
     # ─── Home Info ───
-    inventory_id: Optional[str] = None  # link to Inventory record
-    manufacturer: Optional[str] = None
-    model: Optional[str] = None
-    year: Optional[str] = None
-    serial_number_1: Optional[str] = None
-    serial_number_2: Optional[str] = None
-    label_number_1: Optional[str] = None
-    label_number_2: Optional[str] = None
-    no_of_sections: Optional[str] = None
+    inventory_id: str | None = None  # link to Inventory record
+    manufacturer: str | None = None
+    model: str | None = None
+    year: str | None = None
+    serial_number_1: str | None = None
+    serial_number_2: str | None = None
+    label_number_1: str | None = None
+    label_number_2: str | None = None
+    no_of_sections: str | None = None
     is_new: bool = True
 
     # ─── Pricing ───
-    sales_price: Optional[float] = Field(default=None, ge=0)
-    down_payment: Optional[float] = Field(default=None, ge=0)
+    sales_price: float | None = Field(default=None, ge=0)
+    down_payment: float | None = Field(default=None, ge=0)
 
     # ─── Financing / Loan ───
-    creditor_name: Optional[str] = None
-    creditor_address: Optional[str] = None
-    creditor_city_state_zip: Optional[str] = None
-    creditor_phone: Optional[str] = None
-    loan_term: Optional[str] = None
-    apr: Optional[str] = None
-    finance_charge: Optional[float] = Field(default=None, ge=0)
-    max_financed: Optional[float] = Field(default=None, ge=0)
-    total_payments: Optional[float] = Field(default=None, ge=0)
-    payment_start_date: Optional[str] = None
-    insurance_premium: Optional[float] = Field(default=None, ge=0)
+    creditor_name: str | None = None
+    creditor_address: str | None = None
+    creditor_city_state_zip: str | None = None
+    creditor_phone: str | None = None
+    loan_term: str | None = None
+    apr: str | None = None
+    finance_charge: float | None = Field(default=None, ge=0)
+    max_financed: float | None = Field(default=None, ge=0)
+    total_payments: float | None = Field(default=None, ge=0)
+    payment_start_date: str | None = None
+    insurance_premium: float | None = Field(default=None, ge=0)
 
     # ─── Notes ───
-    notes: Optional[str] = None
+    notes: str | None = None
 
     # ─── Timestamps ───
     created_at: datetime = Field(default_factory=datetime.utcnow)
@@ -350,9 +350,6 @@ class Deal(BaseModel):
         co_buyer_name = " ".join(co_buyer_parts) if co_buyer_parts else None
 
         # ─── Computed: Combined address strings ───
-        buyer_city_state_zip_parts = [
-            p for p in [self.buyer_city, self.buyer_state, self.buyer_zip] if p
-        ]
         buyer_city_state_zip = (
             f"{self.buyer_city or ''}, {self.buyer_state or 'TX'} {self.buyer_zip or ''}".strip()
             if any([self.buyer_city, self.buyer_zip])
@@ -524,24 +521,24 @@ class ServiceRequest(BaseModel):
 
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     customer_id: str
-    property_id: Optional[str] = None
-    inventory_id: Optional[str] = None  # For warranty lookup
+    property_id: str | None = None
+    inventory_id: str | None = None  # For warranty lookup
 
     # Issue details
     issue_type: str  # structural, plumbing, electrical, hvac, cosmetic, appliance
     description: str
-    photos: List[str] = Field(default_factory=list)
+    photos: list[str] = Field(default_factory=list)
 
     # Warranty
     is_warranty_claim: bool = False
-    warranty_status: Optional[str] = None  # covered, not_covered, pending
-    warranty_notes: Optional[str] = None
+    warranty_status: str | None = None  # covered, not_covered, pending
+    warranty_notes: str | None = None
 
     # Resolution
     status: str = "open"  # open, in_progress, scheduled, resolved, closed
-    assigned_contractor: Optional[str] = None
-    resolution_notes: Optional[str] = None
-    resolved_date: Optional[date] = None
+    assigned_contractor: str | None = None
+    resolution_notes: str | None = None
+    resolved_date: date | None = None
 
     # Timestamps
     created_at: datetime = Field(default_factory=datetime.utcnow)
@@ -594,20 +591,20 @@ class Project(BaseModel):
 
     # Identity
     name: str = Field(min_length=1)
-    description: Optional[str] = None
+    description: str | None = None
     project_type: ProjectType = ProjectType.BUSINESS
 
     # External links
-    github_repo: Optional[str] = None  # e.g., "arigatoexpress/Sapphire"
-    cloud_run_service: Optional[str] = None  # e.g., "sapphire-dashboard"
-    notion_url: Optional[str] = None
+    github_repo: str | None = None  # e.g., "arigatoexpress/Sapphire"
+    cloud_run_service: str | None = None  # e.g., "sapphire-dashboard"
+    notion_url: str | None = None
 
     # Status
     status: str = "active"  # active, paused, archived
 
     # Team
-    owner: Optional[str] = None
-    members: List[str] = Field(default_factory=list)
+    owner: str | None = None
+    members: list[str] = Field(default_factory=list)
 
     # Stats
     total_tasks: int = 0
@@ -615,7 +612,7 @@ class Project(BaseModel):
 
     # For software projects
     default_branch: str = "main"
-    deployment_url: Optional[str] = None
+    deployment_url: str | None = None
 
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
@@ -631,41 +628,41 @@ class Task(BaseModel):
 
     # Content
     title: str = Field(min_length=1)
-    description: Optional[str] = None
+    description: str | None = None
 
     # Organization
     project_id: str  # Links to Project
     state: WorkflowState = WorkflowState.BACKLOG
     priority: TaskPriority = TaskPriority.NO_PRIORITY
-    labels: List[str] = Field(default_factory=list)  # e.g., ["bug", "urgent"]
+    labels: list[str] = Field(default_factory=list)  # e.g., ["bug", "urgent"]
 
     # Assignment
-    assignee: Optional[str] = None
-    creator: Optional[str] = None
+    assignee: str | None = None
+    creator: str | None = None
 
     # Relations
-    parent_task_id: Optional[str] = None  # Subtasks
-    related_github_issue: Optional[int] = None
-    related_github_pr: Optional[int] = None
-    related_deal_id: Optional[str] = None  # Link to business deal
+    parent_task_id: str | None = None  # Subtasks
+    related_github_issue: int | None = None
+    related_github_pr: int | None = None
+    related_deal_id: str | None = None  # Link to business deal
 
     # Estimation (like Linear)
-    estimate_hours: Optional[float] = None
-    actual_hours: Optional[float] = None
+    estimate_hours: float | None = None
+    actual_hours: float | None = None
 
     # Timing
-    due_date: Optional[datetime] = None
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
+    due_date: datetime | None = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
 
     # State history for audit trail
-    state_history: List[Dict] = Field(default_factory=list)
+    state_history: list[dict] = Field(default_factory=list)
     # [{"from": "backlog", "to": "in_progress", "at": "2026-03-02T...", "by": "user"}]
 
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
-    def transition_to(self, new_state: WorkflowState, changed_by: Optional[str] = None):
+    def transition_to(self, new_state: WorkflowState, changed_by: str | None = None):
         """Record state transition with audit trail"""
         self.state_history.append(
             {
@@ -692,7 +689,7 @@ class Cycle(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
 
     name: str = Field(min_length=1)  # e.g., "Week 9", "March Sprint"
-    description: Optional[str] = None
+    description: str | None = None
 
     # Timing
     start_date: datetime
@@ -702,10 +699,10 @@ class Cycle(BaseModel):
     status: str = "planning"  # planning, active, completed
 
     # Goals
-    goals: List[str] = Field(default_factory=list)
+    goals: list[str] = Field(default_factory=list)
 
     # Projects included in this cycle
-    project_ids: List[str] = Field(default_factory=list)
+    project_ids: list[str] = Field(default_factory=list)
 
     # Stats
     total_tasks: int = 0
@@ -732,13 +729,13 @@ class Activity(BaseModel):
 
     # Where
     project_id: str
-    task_id: Optional[str] = None
+    task_id: str | None = None
 
     # Who
-    actor: Optional[str] = None  # User or "AI PM"
+    actor: str | None = None  # User or "AI PM"
 
     # Details
-    metadata: Dict = Field(default_factory=dict)
+    metadata: dict = Field(default_factory=dict)
     # e.g., {"from_state": "backlog", "to_state": "in_progress"}
 
     created_at: datetime = Field(default_factory=datetime.utcnow)
@@ -753,11 +750,11 @@ class View(BaseModel):
     name: str = Field(min_length=1)
 
     # Filters
-    project_id: Optional[str] = None
-    filter_states: List[WorkflowState] = Field(default_factory=list)
-    filter_labels: List[str] = Field(default_factory=list)
-    filter_assignee: Optional[str] = None
-    filter_priority: Optional[TaskPriority] = None
+    project_id: str | None = None
+    filter_states: list[WorkflowState] = Field(default_factory=list)
+    filter_labels: list[str] = Field(default_factory=list)
+    filter_assignee: str | None = None
+    filter_priority: TaskPriority | None = None
 
     # Grouping & sorting
     group_by: str = "state"  # state, assignee, priority, project

@@ -33,7 +33,7 @@ Directory-level record for anyone the business is engaged with.
 | `phone` | string? | 10+ digit validation |
 | `email` | string? | RFC-validated |
 | `status` | enum | `ENROLLED` \| `NON_ENROLLED` \| `LEAD` \| `SOLD` |
-| `billing_account` | string? | e.g. `Prosperity Acquisitions LLC - 15th` |
+| `billing_account` | string? | e.g. `Prosperity Acquisitions INC. dba Texas Home Outlet - 15th` |
 | `created_at` / `updated_at` | datetime | UTC |
 
 **PII**: `full_name`, `phone`, `email`. Scrubbed by `pii_guard.py` before logs or LLM prompts.

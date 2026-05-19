@@ -1,0 +1,11 @@
+HTTP/2 200
+server: nginx/1.18.0 (Ubuntu)
+date: Tue, 19 May 2026 22:39:06 GMT
+content-type: text/xml; charset=UTF-8
+vary: Accept-Encoding
+set-cookie: PHPSESSID=lf2eov13band4nps6i621oqq8p; path=/
+expires: Thu, 19 Nov 1981 08:52:00 GMT
+cache-control: no-store, no-cache, must-revalidate
+pragma: no-cache
+x-robots-tag: noindex, follow
+strict-transport-security: max-age=31536000

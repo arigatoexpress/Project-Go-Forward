@@ -1509,6 +1509,8 @@
         "TDHCA_1056_Rescission_Waiver.pdf",
         "TDHCA_1124_Installation_Warranty.pdf",
         "TMHA_LimitedWarranty.pdf",
+        "approval.pdf",
+        "Internal_Proof_of_Insurance.pdf",
         "Internal_Arbitration_Agreement11.pdf",
         "State_ComplianceAgreement.pdf"
       ],
@@ -1527,6 +1529,8 @@
         "TDHCA_1124_Installation_Warranty.pdf",
         "TDHCA_WarrantyUsedHome.pdf",
         "TMHA_LimitedWarrantyUsed.pdf",
+        "approval.pdf",
+        "Internal_Proof_of_Insurance.pdf",
         "Internal_Arbitration_Agreement11.pdf",
         "State_ComplianceAgreement.pdf"
       ],
@@ -1765,7 +1769,7 @@
       "type": "string",
       "section": "seller",
       "required": false,
-      "default": "Texas Home Outlet"
+      "default": "Prosperity Acquisitions INC. dba Texas Home Outlet"
     },
     "seller_rbi": {
       "label": "Seller RBI License #",

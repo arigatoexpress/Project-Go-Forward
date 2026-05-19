@@ -12,6 +12,7 @@ import adminFetch from '../adminFetch';
 import downloadAdminFile from '../downloadAdminFile';
 import {
   BUSINESS_NAME,
+  BUSINESS_LEGAL_NAME,
   BUSINESS_PHONE,
   BUSINESS_ADDRESS,
   BUSINESS_CITY,
@@ -278,7 +279,7 @@ function toDocumentData(f) {
   const financedAmount = Number.isFinite(salesPrice) ? salesPrice - downPayment : undefined;
   return {
     ...f,
-    seller_name: f.seller_name || BUSINESS_NAME,
+    seller_name: f.seller_name || BUSINESS_LEGAL_NAME,
     seller_phone: f.seller_phone || BUSINESS_PHONE,
     seller_address: f.seller_address || BUSINESS_ADDRESS,
     seller_city_state_zip: f.seller_city_state_zip || cityStateZip(BUSINESS_CITY, BUSINESS_STATE, BUSINESS_ZIP),

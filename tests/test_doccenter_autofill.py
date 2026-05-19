@@ -184,7 +184,8 @@ def test_document_center_adds_seller_and_financing_aliases(source: str):
     finance aliases so mapped PDFs do not leave avoidable blank fields."""
     data_start = source.find("function toDocumentData")
     data_body = source[data_start : source.find("function formatBytes", data_start)]
-    assert "seller_name: f.seller_name || BUSINESS_NAME" in data_body
+    assert "BUSINESS_LEGAL_NAME" in source
+    assert "seller_name: f.seller_name || BUSINESS_LEGAL_NAME" in data_body
     assert "seller_address: f.seller_address || BUSINESS_ADDRESS" in data_body
     assert "max_financed:" in data_body
     assert "unpaid_balance:" in data_body
