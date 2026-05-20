@@ -281,9 +281,7 @@ class FakeTHODatabase:
                 "deal-3": {"id": "deal-3", "status": "funded"},
             },
             "activities": {},
-            "service_requests": {
-                "sr-1": {"id": "sr-1", "status": "open"}
-            },
+            "service_requests": {"sr-1": {"id": "sr-1", "status": "open"}},
         }
         self.db = FakeFirestoreDB(self.collections)
 
@@ -637,6 +635,12 @@ def load_app(monkeypatch, tho_api_key: str | None = "tho-secret", rate_limit_rpm
         "total_inventory": 0,
         "message": "stubbed legacy inventory unavailable",
     }
+    legacy_site_crawler_module.load_legacy_floorplan_catalog_context = lambda **kwargs: {
+        "success": False,
+        "homes": [],
+        "total_inventory": 0,
+        "message": "stubbed legacy floorplan catalog unavailable",
+    }
     monkeypatch.setitem(sys.modules, "tools.legacy_site_crawler", legacy_site_crawler_module)
 
     asset_scraper_module = types.ModuleType("tools.asset_scraper")
@@ -715,6 +719,66 @@ def test_marketing_inventory_context_prefers_legacy_site_inventory(monkeypatch):
     assert data["total_inventory"] == 1
     assert [home["id"] for home in data["homes"]] == ["43372"]
     assert data["homes"][0]["quote_url"].endswith("/43372/dealer/3522/")
+
+
+def test_marketing_inventory_context_appends_orderable_catalog_to_live_inventory(monkeypatch):
+    client, main, _db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
+
+    monkeypatch.setattr(
+        main,
+        "load_legacy_inventory_context",
+        lambda **kwargs: {
+            "success": True,
+            "source": "legacy_site_live",
+            "homes": [
+                {
+                    "id": "43372",
+                    "legacy_inventory_id": "43372",
+                    "model_name": "Premier / Creole 3256H32447",
+                    "manufacturer": "Champion Homes",
+                    "status": "Available",
+                    "real_photos": ["https://example.com/creole-ext-1.jpg"],
+                    "gallery_images": ["https://example.com/creole-ext-1.jpg"],
+                }
+            ],
+            "total_inventory": 1,
+        },
+    )
+    monkeypatch.setattr(
+        main,
+        "PROPERTY_ASSETS",
+        {
+            "the-orderable": {
+                "name": "The Orderable",
+                "manufacturer": "New Vision Manufacturing",
+                "is_new": True,
+                "beds": 3,
+                "baths": 2,
+                "sqft": 1200,
+                "dims": "16x76",
+                "images": ["https://example.com/orderable-kitchen-1.jpg"],
+                "floor_plan": "https://example.com/orderable-floor-plans.jpg",
+            },
+            "used-sample": {
+                "name": "Used Sample",
+                "manufacturer": "Pre-Owned",
+                "is_new": False,
+            },
+        },
+    )
+
+    response = client.get("/api/marketing/inventory-context")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total_inventory"] == 2
+    assert data["available_now"] == 1
+    assert data["orderable_floorplans"] == 1
+    assert [home["id"] for home in data["homes"]] == ["43372", "catalog-the-orderable"]
+    assert data["homes"][0]["inventory_kind"] == "available_now"
+    assert data["homes"][1]["status"] == "Orderable"
+    assert data["homes"][1]["availability_label"] == "Orderable floorplan"
+    assert data["homes"][1]["is_orderable"] is True
 
 
 def test_marketing_readiness_routes_are_admin_protected(monkeypatch):
@@ -923,12 +987,13 @@ def test_marketing_inventory_context_falls_back_to_firestore_when_legacy_unavail
         main,
         "PROPERTY_ASSETS",
         {
-            "stale-static-home": {
-                "name": "Stale Static Home",
-                "images": ["https://example.com/stale.jpg"],
-                "floor_plan": "https://example.com/stale-floorplan.jpg",
-                "matterport_id": "staleTour",
+            "catalog-home": {
+                "name": "Catalog Home",
+                "manufacturer": "New Vision Manufacturing",
                 "is_new": True,
+                "images": ["https://example.com/catalog.jpg"],
+                "floor_plan": "https://example.com/catalog-floorplan.jpg",
+                "matterport_id": "staleTour",
             }
         },
     )
@@ -937,11 +1002,12 @@ def test_marketing_inventory_context_falls_back_to_firestore_when_legacy_unavail
 
     assert response.status_code == 200
     data = response.json()
-    assert data["total_inventory"] == 1
+    assert data["total_inventory"] == 2
     assert data["website_homes"] == 0
-    assert [home["id"] for home in data["homes"]] == ["28102"]
+    assert [home["id"] for home in data["homes"]] == ["28102", "catalog-catalog-home"]
     assert data["homes"][0]["floor_plan_url"] == "https://example.com/live-floorplan.jpg"
     assert data["homes"][0]["matterport_id"] == "SvVRKXdXUQq"
+    assert data["homes"][1]["inventory_kind"] == "orderable_floorplan"
 
 
 def test_marketing_inventory_context_enriches_floorplan_only_firestore_home(monkeypatch):
@@ -1514,12 +1580,8 @@ def test_document_history_hides_synthetic_artifacts_by_default(monkeypatch, tmp_
     headers = {"X-Admin-Token": token}
 
     (tmp_path / "TMHA_SalesContract_Client_Ready_20260505.pdf").write_bytes(b"%PDF-1.4\n%EOF\n")
-    (tmp_path / "TMHA_SalesContract_Joe_Testbuyer_20260515.pdf").write_bytes(
-        b"%PDF-1.4\n%EOF\n"
-    )
-    (tmp_path / "Documents_Another_Test_20260514_180634.pdf").write_bytes(
-        b"%PDF-1.4\n%EOF\n"
-    )
+    (tmp_path / "TMHA_SalesContract_Joe_Testbuyer_20260515.pdf").write_bytes(b"%PDF-1.4\n%EOF\n")
+    (tmp_path / "Documents_Another_Test_20260514_180634.pdf").write_bytes(b"%PDF-1.4\n%EOF\n")
     (tmp_path / "TMHA_SalesContract_Prod_Smoke20260515_1921_20260515.pdf").write_bytes(
         b"%PDF-1.4\n%EOF\n"
     )
@@ -1527,27 +1589,19 @@ def test_document_history_hides_synthetic_artifacts_by_default(monkeypatch, tmp_
     (tmp_path / "_batch_TMHA_SalesContract_Smoke_Buyer_20260506052403.pdf").write_bytes(
         b"%PDF-1.4\n%EOF\n"
     )
-    (tmp_path / "TMHA_SalesContract_Quality_Buyer_20260515.pdf").write_bytes(
-        b"%PDF-1.4\n%EOF\n"
-    )
-    (tmp_path / "Documents_Garett_T_Floyd_20260515_225013.pdf").write_bytes(
-        b"%PDF-1.4\n%EOF\n"
-    )
+    (tmp_path / "TMHA_SalesContract_Quality_Buyer_20260515.pdf").write_bytes(b"%PDF-1.4\n%EOF\n")
+    (tmp_path / "Documents_Garett_T_Floyd_20260515_225013.pdf").write_bytes(b"%PDF-1.4\n%EOF\n")
     (tmp_path / "Documents_UiBurnin20260515215603_Buyer_20260515_215609.pdf").write_bytes(
         b"%PDF-1.4\n%EOF\n"
     )
     (tmp_path / "Documents_Ui_Burnin_Buyer_20260515151251_Final_20260515_211301.pdf").write_bytes(
         b"%PDF-1.4\n%EOF\n"
     )
-    (tmp_path / "Documents_Jane_Doe_20260515_202638.pdf").write_bytes(
-        b"%PDF-1.4\n%EOF\n"
-    )
+    (tmp_path / "Documents_Jane_Doe_20260515_202638.pdf").write_bytes(b"%PDF-1.4\n%EOF\n")
     (tmp_path / "TMHA-TwoPartyContract191220_Real_Buyer_20260515.pdf").write_bytes(
         b"%PDF-1.4\n%EOF\n"
     )
-    (tmp_path / "TMHA_SalesContract_E2E_Batch_Tester_20260513.pdf").write_bytes(
-        b"%PDF-1.4\n%EOF\n"
-    )
+    (tmp_path / "TMHA_SalesContract_E2E_Batch_Tester_20260513.pdf").write_bytes(b"%PDF-1.4\n%EOF\n")
     (tmp_path / "_batch_TMHA_SalesContract_QA_Browser_20260511173103.pdf").write_bytes(
         b"%PDF-1.4\n%EOF\n"
     )
@@ -1985,8 +2039,7 @@ def test_v1_service_request_resolve_success(monkeypatch):
     client, _main, _db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
 
     response = client.post(
-        "/api/v1/service-requests/sr-1/resolve",
-        headers={"Authorization": "Bearer tho-secret"}
+        "/api/v1/service-requests/sr-1/resolve", headers={"Authorization": "Bearer tho-secret"}
     )
     assert response.status_code == 200
     assert response.json()["status"] == "resolved"
@@ -2001,6 +2054,6 @@ def test_v1_service_request_resolve_not_found(monkeypatch):
 
     response = client.post(
         "/api/v1/service-requests/unknown-123/resolve",
-        headers={"Authorization": "Bearer tho-secret"}
+        headers={"Authorization": "Bearer tho-secret"},
     )
     assert response.status_code == 404

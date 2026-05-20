@@ -11,7 +11,7 @@ Verified on May 5, 2026:
 | `GET /health` | HTTP 200, `status: ok` |
 | `GET /healthz/` | HTTP 200, exposes minimal public liveness plus deployed `version` |
 | `GET /healthz/detailed` | Admin-only; exposes `sha`, `uptime_s`, dependency statuses, and non-secret readiness warnings |
-| `GET /api/marketing/inventory-context` | HTTP 200, `success: true`, 44 homes |
+| `GET /api/marketing/inventory-context` | HTTP 200, `success: true`, current listings plus the archived orderable floorplan catalog |
 | Repo `origin/main` during this doc refresh | `526c788a705557e37b5ca0646a09c945ee864d82` |
 
 Use `/healthz/` with the trailing slash for external smoke checks. Before an

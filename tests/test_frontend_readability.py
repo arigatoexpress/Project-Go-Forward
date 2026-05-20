@@ -14,14 +14,18 @@ IMAGE_RESEARCH = ROOT / "docs/MANUFACTURER_IMAGE_SOURCES_RESEARCH.md"
 def test_inventory_hero_uses_readable_text_on_dark_photo_overlay():
     source = INVENTORY_BROWSE.read_text()
 
-    assert "Legacy Site Live" in source
+    assert "Live Inventory + Orderable Floorplans" in source
     assert "Mobile Homes For Sale in Huffman, TX" in source
     assert "bg-black/45" in source
     assert "text-white/90" in source
     assert "text-white/80" in source
     assert (
         "text-[var(--cp-text-secondary)]"
-        not in source[source.index("Legacy Site Live") : source.index("FeaturedHomeSpotlight")]
+        not in source[
+            source.index("Live Inventory + Orderable Floorplans") : source.index(
+                "FeaturedHomeSpotlight"
+            )
+        ]
     )
 
 
@@ -38,7 +42,8 @@ def test_inventory_cards_replace_slow_or_failed_cdn_images_with_visible_fallback
 
     assert "heroLoadState" in source
     assert "setHeroLoadState((state) => (state === 'loaded' ? state : 'failed'))" in source
-    assert 'loading="eager"' in source
+    assert 'loading="lazy"' in source
+    assert 'decoding="async"' in source
     assert "onError={() => setHeroLoadState('failed')}" in source
     assert "Photo Unavailable" in source
 
@@ -61,9 +66,19 @@ def test_home_status_badges_avoid_white_on_mid_tone_green_or_amber():
     source = STATUS_BADGE.read_text()
 
     assert "Available: 'bg-green-100 text-green-900 border border-green-300'" in source
+    assert "Orderable: 'bg-blue-100 text-blue-900 border border-blue-300'" in source
     assert "'Pre-Owned': 'bg-amber-100 text-amber-950 border border-amber-300'" in source
     assert "Available: 'bg-green-500 text-white'" not in source
     assert "'Pre-Owned': 'bg-amber-500 text-white'" not in source
+
+
+def test_inventory_browse_exposes_orderable_floorplan_filter():
+    source = INVENTORY_BROWSE.read_text()
+
+    assert "function getAvailabilityKind(home)" in source
+    assert "orderable_floorplan" in source
+    assert "Orderable ({orderableCount})" in source
+    assert "Orderable Plans" in source
 
 
 def test_document_center_inactive_navigation_remains_readable():
