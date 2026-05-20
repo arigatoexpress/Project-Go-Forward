@@ -1919,7 +1919,7 @@ def _is_document_quality_failure(result: dict) -> bool:
     return (
         isinstance(result, dict)
         and result.get("success") is False
-        and result.get("error") == "quality_gate_failed"
+        and result.get("error") in {"quality_gate_failed", "missing_required_fields"}
     )
 
 
@@ -1927,9 +1927,10 @@ def _document_quality_json_response(result: dict) -> JSONResponse:
     return JSONResponse(
         {
             "success": False,
-            "error": "quality_gate_failed",
+            "error": result.get("error") or "quality_gate_failed",
             "message": result.get("message") or "Document quality gate failed.",
             "quality_issues": result.get("quality_issues") or [],
+            "missing_fields": result.get("missing_fields") or [],
         },
         status_code=400,
     )
