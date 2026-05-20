@@ -1,6 +1,7 @@
 // ─── Shared Business Constants ───
 // Single source of truth — import from here instead of hardcoding
 export const BUSINESS_NAME = "Texas Home Outlet";
+export const BUSINESS_LEGAL_NAME = "Texas Home Outlet, Inc.";
 export const BUSINESS_SHORT = "tho";
 export const BUSINESS_URL = "texashomeoutlet.com";
 export const BUSINESS_PHONE = "(281) 324-3020";
