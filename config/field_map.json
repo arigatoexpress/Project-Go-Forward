@@ -1765,7 +1765,7 @@
       "type": "string",
       "section": "seller",
       "required": false,
-      "default": "Texas Home Outlet"
+      "default": "Texas Home Outlet, Inc."
     },
     "seller_rbi": {
       "label": "Seller RBI License #",

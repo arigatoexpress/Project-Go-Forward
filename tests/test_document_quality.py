@@ -1,7 +1,6 @@
 from tools.document_engine_v2 import generate_batch, generate_document
 from tools.document_quality import enrich_document_data, validate_document_quality
 
-
 BASE_DATA = {
     "buyer_name": "Quality Buyer",
     "buyer_address": "123 Closing Ln",
@@ -34,7 +33,10 @@ def test_quality_gate_rejects_placeholder_serials_before_generation():
 def test_quality_gate_rejects_placeholder_hud_labels():
     issues = validate_document_quality({**BASE_DATA, "label_number_1": "nta1234567"})
 
-    assert any(issue.code == "placeholder_identifier" and issue.field == "label_number_1" for issue in issues)
+    assert any(
+        issue.code == "placeholder_identifier" and issue.field == "label_number_1"
+        for issue in issues
+    )
 
 
 def test_quality_gate_blocks_unmapped_note_security_templates():
@@ -50,7 +52,7 @@ def test_quality_gate_blocks_unmapped_note_security_templates():
 def test_quality_enrichment_adds_seller_and_financing_aliases():
     enriched = enrich_document_data(BASE_DATA)
 
-    assert enriched["seller_name"] == "Texas Home Outlet"
+    assert enriched["seller_name"] == "Texas Home Outlet, Inc."
     assert enriched["seller_address"] == "10685 FM 1960 East"
     assert enriched["max_financed"] == "50,000.00"
     assert enriched["unpaid_balance"] == "50,000.00"

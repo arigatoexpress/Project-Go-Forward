@@ -12,8 +12,7 @@ from dataclasses import asdict, dataclass
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
-
-BUSINESS_NAME = "Texas Home Outlet"
+BUSINESS_NAME = "Texas Home Outlet, Inc."
 BUSINESS_PHONE = "(281) 324-3020"
 BUSINESS_ADDRESS = "10685 FM 1960 East"
 BUSINESS_CITY_STATE_ZIP = "Huffman, TX 77336"

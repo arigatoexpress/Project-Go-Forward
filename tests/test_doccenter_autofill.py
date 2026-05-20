@@ -101,6 +101,7 @@ def test_document_center_uses_shared_tho_business_constants(source: str):
     """Installer defaults should use the same business constants as the rest
     of the site instead of copy-pasted THO identity text."""
     assert "BUSINESS_NAME" in source
+    assert "BUSINESS_LEGAL_NAME" in source
     assert "BUSINESS_PHONE" in source
     assert "BUSINESS_ADDRESS" in source
     assert "BUSINESS_ZIP" in source
@@ -184,11 +185,21 @@ def test_document_center_adds_seller_and_financing_aliases(source: str):
     finance aliases so mapped PDFs do not leave avoidable blank fields."""
     data_start = source.find("function toDocumentData")
     data_body = source[data_start : source.find("function formatBytes", data_start)]
-    assert "seller_name: f.seller_name || BUSINESS_NAME" in data_body
+    assert "seller_name: f.seller_name || BUSINESS_LEGAL_NAME" in data_body
     assert "seller_address: f.seller_address || BUSINESS_ADDRESS" in data_body
     assert "max_financed:" in data_body
     assert "unpaid_balance:" in data_body
     assert "interest_rate:" in data_body
+
+
+def test_document_center_defaults_to_tho_legal_entity_for_documents(source: str):
+    """Documents should use THO's legal entity name, not just the public
+    retail brand, when defaulting seller/installer fields."""
+    assert 'BUSINESS_LEGAL_NAME = "Texas Home Outlet, Inc."' in (
+        (REPO_ROOT / "frontend" / "src" / "constants.js").read_text()
+    )
+    assert "installer_name: BUSINESS_LEGAL_NAME" in source
+    assert "seller_name: f.seller_name || BUSINESS_LEGAL_NAME" in source
 
 
 def test_step3_waits_for_template_metadata_before_generation(source: str):
@@ -226,6 +237,33 @@ def test_generation_errors_preserve_backend_missing_field_guidance(source: str):
     assert "setMissingFields(failure.missingFields)" in source
     assert "setStep(failure.step)" in source
     assert "Document service returned" in source
+    assert "d.success === false" in source
+
+
+def test_generation_errors_surface_all_failed_batch_results(source: str):
+    """A 200 response with success=false must still render as a generation
+    failure instead of a green '0 documents ready' screen."""
+    assert "function describeDocumentFailures" in source
+    assert "payload?.documents" in source
+    assert "payload?.documents_skipped" in source
+    assert "d.success === false" in source
+    assert "'Selected document'" in source
+    assert "'Generation failed'" in source
+
+
+def test_customer_search_load_remounts_visible_form_fields(source: str):
+    """Loading an existing customer must update both form state and the
+    uncontrolled visible inputs, or staff can unknowingly generate from stale
+    half-filled customer data."""
+    assert "onLoadCustomer" in source
+    assert "const loadCustomerRecord = useCallback" in source
+    assert "setFormResetKey(k => k + 1)" in source
+    load_customer_start = source.find("const loadCustomer = (cust)")
+    load_customer_body = source[
+        load_customer_start : source.find("const filtered", load_customer_start)
+    ]
+    assert "const patch = {" in load_customer_body
+    assert "onLoadCustomer(patch)" in load_customer_body
 
 
 def test_step3_selection_changes_clear_stale_errors(source: str):

@@ -1935,6 +1935,42 @@ def _document_quality_json_response(result: dict) -> JSONResponse:
     )
 
 
+def _document_batch_failure_json_response(result: dict) -> JSONResponse:
+    documents = result.get("documents") if isinstance(result.get("documents"), list) else []
+    documents_skipped = result.get("documents_skipped")
+    if documents_skipped is None and documents:
+        documents_skipped = [
+            {
+                "template": doc.get("template_name") or doc.get("filename") or "unknown",
+                "reason": doc.get("message") or doc.get("error") or "Generation failed",
+            }
+            for doc in documents
+            if isinstance(doc, dict) and not doc.get("success")
+        ]
+
+    message = result.get("message")
+    if not message and documents_skipped:
+        first = documents_skipped[0]
+        message = f"{first.get('template', 'Selected document')}: {first.get('reason', 'Generation failed')}"
+        if len(documents_skipped) > 1:
+            message += f" ({len(documents_skipped)} documents failed.)"
+    if not message:
+        message = "No documents were generated. Review the selected forms and required fields."
+
+    return JSONResponse(
+        {
+            "success": False,
+            "error": "batch_generation_failed",
+            "message": message,
+            "documents": documents,
+            "documents_skipped": documents_skipped or [],
+            "total": result.get("total", 0),
+            "successful": result.get("successful", 0),
+        },
+        status_code=400,
+    )
+
+
 def _collect_generated_documents():
     """Return generated PDF metadata without exposing document contents."""
     seen = set()
@@ -2233,6 +2269,8 @@ async def generate_batch_endpoint(request: Request):
         result = engine_generate_batch(template_names=templates, data=data, merge=merge)
         if _is_document_quality_failure(result):
             return _document_quality_json_response(result)
+        if isinstance(result, dict) and result.get("success") is False:
+            return _document_batch_failure_json_response(result)
         return result
     except Exception as e:
         struct_logger.error("Batch generation failed", error=str(e))
