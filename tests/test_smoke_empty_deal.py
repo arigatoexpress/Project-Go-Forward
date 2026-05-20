@@ -454,6 +454,54 @@ class TestPacketSkipsUnfilledTemplates:
         assert body["error"] == "quality_gate_failed"
         assert body["quality_issues"][0]["field"] == "serial_number_1"
 
+    def test_batch_endpoint_preserves_missing_required_fields_envelope(self, monkeypatch):
+        """Incomplete deal data should stay machine-readable through the
+        batch endpoint instead of being wrapped as a generic batch failure."""
+        client, main_module, token = _build_test_client(monkeypatch)
+
+        def fake_engine(*, template_names: list[str], data: dict, merge: bool):
+            return {
+                "success": False,
+                "error": "missing_required_fields",
+                "message": "Missing required fields: Installation street address, Sales price",
+                "quality_issues": [
+                    {
+                        "code": "missing_required_field",
+                        "field": "buyer_address",
+                        "message": "Installation street address is required before generating documents.",
+                    },
+                    {
+                        "code": "missing_required_field",
+                        "field": "sales_price",
+                        "message": "Sales price is required and must be greater than $0 before generating documents.",
+                    },
+                ],
+                "missing_fields": ["buyer_address", "sales_price"],
+                "documents": [],
+                "merged": None,
+                "total": 1,
+                "successful": 0,
+            }
+
+        monkeypatch.setattr(main_module, "engine_generate_batch", fake_engine)
+
+        response = client.post(
+            "/api/documents/generate-batch",
+            headers={"X-Admin-Token": token},
+            json={
+                "templates": ["TMHA_SalesContract.pdf"],
+                "data": {"buyer_name": "Smoke"},
+                "merge": True,
+            },
+        )
+
+        assert response.status_code == 400, response.text
+        body = response.json()
+        assert body["success"] is False
+        assert body["error"] == "missing_required_fields"
+        assert body["missing_fields"] == ["buyer_address", "sales_price"]
+        assert body["quality_issues"][0]["code"] == "missing_required_field"
+
     def test_batch_endpoint_surfaces_all_failed_batch_as_400(self, monkeypatch):
         """When every selected template fails, API callers need an actual
         failure response with per-document reasons."""
