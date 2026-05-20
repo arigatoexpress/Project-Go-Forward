@@ -42,12 +42,21 @@ LOG = logging.getLogger(__name__)
 
 LEGACY_BASE_URL = "https://www.texashomeoutlet.com"
 LEGACY_INVENTORY_URL = f"{LEGACY_BASE_URL}/inventory/"
+LEGACY_FLOORPLAN_URL = f"{LEGACY_BASE_URL}/floor-plans/"
 LEGACY_DEALER_ID = "3522"
 LEGACY_SOURCE_ID = "texashomeoutlet_legacy_wordpress"
+LEGACY_FLOORPLAN_SOURCE_ID = "texashomeoutlet_legacy_floorplan_catalog"
 LEGACY_CDN_HOST = "d132mt2yijm03y.cloudfront.net"
 LEGACY_CACHE_KEY = "legacy_site_inventory_context_v2"
+LEGACY_FLOORPLAN_CACHE_KEY = "legacy_site_floorplan_catalog_context_v1"
 SNAPSHOT_PATH = (
     Path(__file__).resolve().parents[1] / "data" / "legacy_site" / "legacy_inventory_context.json"
+)
+FLOORPLAN_SNAPSHOT_PATH = (
+    Path(__file__).resolve().parents[1]
+    / "data"
+    / "legacy_site"
+    / "legacy_floorplan_catalog_context.json"
 )
 
 REQUEST_TIMEOUT_SECONDS = 18
@@ -86,6 +95,12 @@ def _inventory_page_url(page: int) -> str:
     return f"{LEGACY_INVENTORY_URL}?pg={page}"
 
 
+def _floorplan_page_url(page: int) -> str:
+    if page <= 1:
+        return LEGACY_FLOORPLAN_URL
+    return f"{LEGACY_FLOORPLAN_URL}?pg={page}"
+
+
 def _absolute_url(value: str | None, base_url: str = LEGACY_BASE_URL) -> str:
     if not value:
         return ""
@@ -108,6 +123,18 @@ def _dedupe(values: list[str | None]) -> list[str]:
     out: list[str] = []
     for raw in values:
         value = normalize_media_url(raw)
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        out.append(value)
+    return out
+
+
+def _dedupe_text(values: list[str | None]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for raw in values:
+        value = str(raw or "").strip()
         if not value or value in seen:
             continue
         seen.add(value)
@@ -227,6 +254,39 @@ def _parse_card_specs(card: Any) -> dict[str, Any]:
     return specs
 
 
+def _parse_labeled_specs(container: Any) -> dict[str, Any]:
+    specs: dict[str, Any] = {
+        "beds": 0,
+        "baths": 0,
+        "sq_ft": 0,
+        "dimensions": "",
+        "width": 0,
+        "length": 0,
+    }
+    if not container:
+        return specs
+
+    text = _text(container)
+    label_patterns = {
+        "beds": r"Beds:\s*([0-9]+)",
+        "baths": r"Baths:\s*([0-9]+(?:\.[0-9]+)?)",
+        "sq_ft": r"Sq\s*Ft:\s*([0-9,]+)",
+        "dimensions": r"W\s*x\s*L:\s*([^B]+?)(?:\s{2,}|$)",
+    }
+    if match := re.search(label_patterns["beds"], text, re.IGNORECASE):
+        specs["beds"] = _parse_int(match.group(1))
+    if match := re.search(label_patterns["baths"], text, re.IGNORECASE):
+        specs["baths"] = _parse_float(match.group(1))
+    if match := re.search(label_patterns["sq_ft"], text, re.IGNORECASE):
+        specs["sq_ft"] = _parse_int(match.group(1))
+    if match := re.search(label_patterns["dimensions"], text, re.IGNORECASE):
+        dimensions, width, length = _parse_dimensions(match.group(1))
+        specs["dimensions"] = dimensions
+        specs["width"] = width
+        specs["length"] = length
+    return specs
+
+
 def _parse_detail_info(soup: BeautifulSoup) -> dict[str, Any]:
     info = soup.select_one(".detail-info")
     if not info:
@@ -282,6 +342,19 @@ def _is_dealer_inventory_url(url: str, listing_id: str | None = None) -> bool:
 def _manufacturer_floorplan_prefix(url: str) -> str:
     match = re.search(r"(/manufacturer/[^/]+/floorplan/[^/]+/)", urlparse(url).path)
     return match.group(1) if match else ""
+
+
+def _extract_plan_id(url: str | None) -> str:
+    match = re.search(r"/plan/(\d+)/", str(url or ""))
+    if match:
+        return match.group(1)
+    match = re.search(r"/quote/floorplan/(\d+)/dealer/", str(url or ""))
+    return match.group(1) if match else ""
+
+
+def _extract_background_url(value: str | None) -> str:
+    match = re.search(r"url\((['\"]?)(.*?)\1\)", str(value or ""))
+    return match.group(2) if match else ""
 
 
 def categorize_photo_url(url: str, label: str | None = None) -> str:
@@ -375,6 +448,95 @@ def extract_inventory_card(card: Any, base_url: str = LEGACY_BASE_URL) -> dict[s
         "source_url": detail_url,
         "source": LEGACY_SOURCE_ID,
     }
+
+
+def extract_floorplan_card(card: Any, base_url: str = LEGACY_BASE_URL) -> dict[str, Any] | None:
+    """Extract one orderable floorplan card from the legacy /floor-plans page."""
+    title_tag = card.select_one("h4.home-name a[href*='/plan/']") or card.select_one(
+        "a[href*='/plan/']"
+    )
+    if not title_tag:
+        return None
+
+    model_name = _text(title_tag)
+    detail_url = _absolute_url(title_tag.get("href"), base_url=base_url)
+    plan_id = _extract_plan_id(detail_url)
+    if not plan_id:
+        return None
+
+    image = ""
+    image_div = card.select_one(".fp-card-image")
+    if image_div:
+        image = normalize_media_url(
+            image_div.get("data-bg") or _extract_background_url(image_div.get("style")),
+            base_url=base_url,
+        )
+
+    floorplan = ""
+    floorplan_link = card.select_one("a.fp-thumb[href]")
+    if floorplan_link:
+        floorplan = normalize_media_url(floorplan_link.get("href"), base_url=base_url)
+
+    matterport_id = ""
+    matterport_link = card.select_one("a.tour-thumb[href]")
+    if matterport_link:
+        matterport_id = _extract_matterport_id(matterport_link.get("href"))
+
+    quote_link = card.select_one("a[href*='/quote/floorplan']")
+    quote_url = _absolute_url(quote_link.get("href"), base_url=base_url) if quote_link else ""
+    tags = [_text(tag) for tag in card.select(".fp-card-tags .label") if _text(tag)]
+    specs = _parse_labeled_specs(card.select_one(".fp-card-specs"))
+    built_by = _text(card.select_one(".fp-card-built-by")).replace("Built by:", "").strip()
+    description = _text(card.select_one(".fp-card-description"))
+
+    home = {
+        "id": f"floorplan-{plan_id}",
+        "legacy_plan_id": plan_id,
+        "model_name": model_name,
+        "manufacturer": built_by,
+        "classification": _classification(specs, tags, model_name),
+        "status": "Orderable",
+        "availability_type": "orderable",
+        "inventory_kind": "orderable_floorplan",
+        "is_orderable": True,
+        "is_on_lot": False,
+        "display_price": "Call for Price",
+        "price_value": 0,
+        "pricing": {"display_price": "Call for Price", "price_value": 0},
+        "specs": specs,
+        "features": _dedupe_text(["Orderable Floorplan", *tags]),
+        "marketing_tags": _dedupe_text(["Orderable Floorplan", *tags]),
+        "description": description,
+        "image_url": image,
+        "hero_image": image,
+        "gallery_images": [image] if image else [],
+        "real_photos": [image] if image else [],
+        "floorplan_url": floorplan,
+        "floor_plan_url": floorplan,
+        "floorplan_urls": [floorplan] if floorplan else [],
+        "matterport_id": matterport_id,
+        "matterport_url": _matterport_url(matterport_id),
+        "detail_url": detail_url,
+        "quote_url": quote_url,
+        "legacy_actions": {
+            "detail_url": detail_url,
+            "quote_url": quote_url,
+        },
+        "source": LEGACY_FLOORPLAN_SOURCE_ID,
+        "source_url": detail_url,
+        "source_provenance": {
+            "source_id": LEGACY_FLOORPLAN_SOURCE_ID,
+            "source_owner": "Texas Home Outlet",
+            "source_url": detail_url or LEGACY_FLOORPLAN_URL,
+            "retrieval_mode": "public_legacy_floorplan_catalog_scrape",
+            "rights_envelope": "client_owned_legacy_site_media_for_orderable_floorplans",
+            "output_policy": "THO-owned app and marketing context only; no generic stock substitution",
+        },
+    }
+    apply_classifier_to_home(home)
+    home["hero_image"] = home.get("image_url", "")
+    home["photos"] = list(home.get("real_photos") or [])
+    return home
 
 
 def extract_detail_media(html: str, listing_id: str, detail_url: str) -> dict[str, Any]:
@@ -604,6 +766,39 @@ def scrape_legacy_inventory(
     return enriched
 
 
+def scrape_legacy_floorplan_catalog(max_pages: int = 40) -> list[dict[str, Any]]:
+    """Scrape the legacy orderable floorplan catalog from /floor-plans."""
+    session = _session()
+    homes: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+
+    for page in range(1, max_pages + 1):
+        url = _floorplan_page_url(page)
+        response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.text, "html.parser")
+        cards = soup.select(".elementor-widget-FloorplanSearchResults .fp-card-container")
+        if not cards:
+            cards = soup.select(".fp-card-container")
+        if not cards:
+            break
+
+        new_on_page = 0
+        for card in cards:
+            home = extract_floorplan_card(card, base_url=response.url)
+            if not home or home["id"] in seen_ids:
+                continue
+            seen_ids.add(home["id"])
+            homes.append(home)
+            new_on_page += 1
+
+        LOG.info("legacy floorplan page=%s homes=%s total=%s", page, new_on_page, len(homes))
+        if new_on_page == 0:
+            break
+
+    return homes
+
+
 def _media_summary(homes: list[dict[str, Any]]) -> dict[str, int]:
     counts = {
         "photo_ready": 0,
@@ -767,6 +962,34 @@ def build_legacy_inventory_context(
     return _limit_context(_apply_media_recovery_to_context(context), limit)
 
 
+def build_legacy_floorplan_catalog_context(
+    limit: int = 500,
+    max_pages: int = 40,
+) -> dict[str, Any]:
+    homes = scrape_legacy_floorplan_catalog(max_pages=max_pages)
+    context = {
+        "success": True,
+        "source": "legacy_floorplan_catalog_live",
+        "source_id": LEGACY_FLOORPLAN_SOURCE_ID,
+        "source_url": LEGACY_FLOORPLAN_URL,
+        "source_owner": "Texas Home Outlet",
+        "retrieved_at": _now_iso(),
+        "rights": {
+            "owner": "Texas Home Outlet",
+            "retrieval_mode": "public_legacy_floorplan_catalog_scrape",
+            "rights_envelope": "client_owned_legacy_site_media_for_orderable_floorplans",
+            "output_policy": "Use only inside THO-owned application and marketing workflows.",
+        },
+        "homes": homes,
+        "total_inventory": len(homes),
+        "returned_inventory": min(len(homes), limit),
+        "orderable_floorplans": len(homes),
+        "media_summary": _media_summary(homes),
+        "message": f"Loaded {len(homes)} orderable floorplans from texashomeoutlet.com.",
+    }
+    return _limit_context(context, limit)
+
+
 def _load_snapshot_context() -> dict[str, Any] | None:
     if not SNAPSHOT_PATH.exists():
         return None
@@ -781,17 +1004,48 @@ def _load_snapshot_context() -> dict[str, Any] | None:
     return context
 
 
+def _load_floorplan_snapshot_context() -> dict[str, Any] | None:
+    if not FLOORPLAN_SNAPSHOT_PATH.exists():
+        return None
+    try:
+        context = json.loads(FLOORPLAN_SNAPSHOT_PATH.read_text())
+    except Exception as exc:
+        LOG.warning(
+            "failed to load floorplan catalog snapshot path=%s error=%s",
+            FLOORPLAN_SNAPSHOT_PATH,
+            exc,
+        )
+        return None
+    context = {
+        **context,
+        "source": "legacy_floorplan_catalog_snapshot",
+        "snapshot_path": str(FLOORPLAN_SNAPSHOT_PATH),
+    }
+    context.setdefault("success", True)
+    context.setdefault("message", "Loaded cached legacy floorplan catalog snapshot.")
+    return context
+
+
 def load_legacy_inventory_context(
     limit: int = 100,
     ttl_seconds: int = 300,
     force_refresh: bool = False,
     snapshot_fallback: bool = True,
+    prefer_snapshot: bool = True,
 ) -> dict[str, Any]:
-    """Load cached/live legacy inventory context with a snapshot fallback."""
+    """Load cached/archived legacy inventory context with live refresh fallback."""
     if cache_get and not force_refresh:
         cached = cache_get(LEGACY_CACHE_KEY)
         if cached:
             return _limit_context(_apply_media_recovery_to_context(cached), limit)
+
+    if prefer_snapshot and not force_refresh and snapshot_fallback:
+        snapshot = _load_snapshot_context()
+        if snapshot and snapshot.get("homes"):
+            limited = _limit_context(_apply_media_recovery_to_context(snapshot), limit)
+            if cache_set:
+                cache_set(LEGACY_CACHE_KEY, limited, ttl_seconds=ttl_seconds)
+            return limited
 
     try:
         context = build_legacy_inventory_context(limit=100)
@@ -809,6 +1063,45 @@ def load_legacy_inventory_context(
             "homes": [],
             "error": str(exc),
             "message": "Legacy site inventory unavailable.",
+        }
+
+
+def load_legacy_floorplan_catalog_context(
+    limit: int = 500,
+    ttl_seconds: int = 86400,
+    force_refresh: bool = False,
+    snapshot_fallback: bool = True,
+) -> dict[str, Any]:
+    """Load the broad orderable catalog, preferring the local cutover snapshot."""
+    if cache_get and not force_refresh:
+        cached = cache_get(LEGACY_FLOORPLAN_CACHE_KEY)
+        if cached:
+            return _limit_context(cached, limit)
+
+    if not force_refresh and snapshot_fallback:
+        snapshot = _load_floorplan_snapshot_context()
+        if snapshot and snapshot.get("homes"):
+            limited = _limit_context(snapshot, limit)
+            if cache_set:
+                cache_set(LEGACY_FLOORPLAN_CACHE_KEY, limited, ttl_seconds=ttl_seconds)
+            return limited
+
+    try:
+        context = build_legacy_floorplan_catalog_context(limit=500)
+        if cache_set:
+            cache_set(LEGACY_FLOORPLAN_CACHE_KEY, context, ttl_seconds=ttl_seconds)
+        return _limit_context(context, limit)
+    except Exception as exc:
+        LOG.warning("legacy floorplan catalog live crawl failed: %s", exc)
+        if snapshot_fallback:
+            snapshot = _load_floorplan_snapshot_context()
+            if snapshot and snapshot.get("homes"):
+                return _limit_context(snapshot, limit)
+        return {
+            "success": False,
+            "homes": [],
+            "error": str(exc),
+            "message": "Legacy floorplan catalog unavailable.",
         }
 
 
@@ -854,7 +1147,7 @@ def write_manifest(context: dict[str, Any], output_dir: Path) -> dict[str, str]:
                 "matterport",
             ]
         )
-        writer = csv.DictWriter(fh, fieldnames=fieldnames)
+        writer = csv.DictWriter(fh, fieldnames=fieldnames, lineterminator="\n")
         writer.writeheader()
         writer.writerows(rows)
 
@@ -879,6 +1172,73 @@ def write_manifest(context: dict[str, Any], output_dir: Path) -> dict[str, str]:
     }
 
 
+def write_floorplan_catalog_manifest(context: dict[str, Any], output_dir: Path) -> dict[str, str]:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    json_path = output_dir / "legacy_floorplan_catalog_context.json"
+    csv_path = output_dir / "floorplan_catalog_manifest.csv"
+    report_path = output_dir / "legacy_floorplan_catalog_report.md"
+
+    json_path.write_text(json.dumps(context, indent=2, sort_keys=True))
+
+    rows = []
+    for home in context.get("homes") or []:
+        rows.append(
+            {
+                "id": home.get("id", ""),
+                "legacy_plan_id": home.get("legacy_plan_id", ""),
+                "model_name": home.get("model_name", ""),
+                "manufacturer": home.get("manufacturer", ""),
+                "classification": home.get("classification", ""),
+                "detail_url": home.get("detail_url", ""),
+                "quote_url": home.get("quote_url", ""),
+                "floorplan_url": home.get("floorplan_url", ""),
+                "photo_count": (home.get("media_quality") or {}).get("photo_count", 0),
+                "floorplan_count": (home.get("media_quality") or {}).get("floorplan_count", 0),
+                "matterport": bool(home.get("matterport_id")),
+            }
+        )
+
+    with csv_path.open("w", newline="") as fh:
+        fieldnames = (
+            list(rows[0].keys())
+            if rows
+            else [
+                "id",
+                "legacy_plan_id",
+                "model_name",
+                "manufacturer",
+                "classification",
+                "detail_url",
+                "quote_url",
+                "floorplan_url",
+                "photo_count",
+                "floorplan_count",
+                "matterport",
+            ]
+        )
+        writer = csv.DictWriter(fh, fieldnames=fieldnames, lineterminator="\n")
+        writer.writeheader()
+        writer.writerows(rows)
+
+    lines = [
+        "# THO Legacy Floorplan Catalog Report",
+        "",
+        f"- Source: {context.get('source_url', LEGACY_FLOORPLAN_URL)}",
+        f"- Retrieved: {context.get('retrieved_at', '')}",
+        f"- Orderable floorplans: {context.get('total_inventory', 0)}",
+        f"- Media summary: `{json.dumps(context.get('media_summary', {}), sort_keys=True)}`",
+        "",
+        "This manifest stores URL provenance only. It does not download or rehost media.",
+    ]
+    report_path.write_text("\n".join(lines) + "\n")
+
+    return {
+        "json": str(json_path),
+        "csv": str(csv_path),
+        "report": str(report_path),
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Scrape THO legacy public inventory.")
     parser.add_argument(
@@ -889,15 +1249,27 @@ def main() -> int:
     parser.add_argument(
         "--no-details", action="store_true", help="Skip per-listing detail page enrichment"
     )
+    parser.add_argument(
+        "--floorplans",
+        action="store_true",
+        help="Scrape the broad orderable floorplan catalog instead of current inventory",
+    )
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
-    context = build_legacy_inventory_context(
-        limit=args.limit,
-        max_pages=args.max_pages,
-        include_details=not args.no_details,
-    )
-    paths = write_manifest(context, Path(args.output_dir))
+    if args.floorplans:
+        context = build_legacy_floorplan_catalog_context(
+            limit=args.limit,
+            max_pages=args.max_pages,
+        )
+        paths = write_floorplan_catalog_manifest(context, Path(args.output_dir))
+    else:
+        context = build_legacy_inventory_context(
+            limit=args.limit,
+            max_pages=args.max_pages,
+            include_details=not args.no_details,
+        )
+        paths = write_manifest(context, Path(args.output_dir))
     print(
         json.dumps(
             {"success": True, "paths": paths, "total_inventory": context["total_inventory"]},

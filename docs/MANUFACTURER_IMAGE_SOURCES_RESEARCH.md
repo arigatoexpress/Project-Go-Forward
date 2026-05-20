@@ -66,6 +66,20 @@ Latest legacy-site manifest:
   `data/legacy_site/inventory_manifest.csv`, and
   `data/legacy_site/legacy_site_asset_report.md`
 
+### 2026-05-20 Orderable Floorplan Catalog Archive
+
+Client testing clarified that the replacement site must show current on-lot
+inventory and the broad manufacturer floorplans THO can order. The legacy
+`/floor-plans/` page was archived before provider takedown:
+
+- Source: `https://www.texashomeoutlet.com/floor-plans/`
+- Orderable floorplans captured: 271
+- Public merged context: 19 current listings plus 260 non-duplicate orderable
+  floorplans after de-duplicating current inventory plans.
+- Snapshot/audit files: `data/legacy_site/legacy_floorplan_catalog_context.json`,
+  `data/legacy_site/floorplan_catalog_manifest.csv`, and
+  `data/legacy_site/legacy_floorplan_catalog_report.md`
+
 ### 2026-05-11 Production Recovery Update
 
 The remaining four floorplan-only legacy listings have been recovered without

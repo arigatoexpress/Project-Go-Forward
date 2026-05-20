@@ -20,6 +20,32 @@ CARD_HTML = """
 """
 
 
+FLOORPLAN_CARD_HTML = """
+<div class="fp-card-container">
+  <div class="fp-card-image" id="fp-card-image-223034" style="background-image: url(https://d132mt2yijm03y.cloudfront.net/manufacturer/2045/floorplan/223034/Skyliner-4732B-Kitchen-1_card_lg.jpg); background-size: cover;">
+    <a href="/plan/223034/skyliner/4732b/" class="card-image-link" title="Skyliner - 4732B"><div></div></a>
+    <div class="fp-card-tags">
+      <span class="label">Manufactured</span><span class="label">Modular</span><span class="label">Featured</span>
+    </div>
+    <a href="https://d132mt2yijm03y.cloudfront.net/manufacturer/2045/floorplan/223034/4732-floor-plans-SMALL.jpg" class="fp-thumb" title="Floor Plan"></a>
+    <a href="https://my.matterport.com/show/?m=abc123" class="tour-thumb" title="3D Tour"></a>
+  </div>
+  <div class="fp-card-details">
+    <h4 class="home-name"><a href="/plan/223034/skyliner/4732b/">Skyliner / 4732B</a></h4>
+    <div class="fp-card-built-by">Built by: Skyline Homes</div>
+    <div class="row fp-card-specs">
+      <div><strong>Beds: </strong>3</div>
+      <div><strong>Baths: </strong>2.00</div>
+      <div><strong>Sq Ft: </strong>1456</div>
+      <div><strong>W x L: </strong>28'0" x 60'0"</div>
+    </div>
+    <div class="fp-card-description">Beautiful family home.</div>
+  </div>
+  <a href="/quote/floorplan/223034/dealer/3522">Price Quote</a>
+</div>
+"""
+
+
 DETAIL_HTML = """
 <html>
   <head><meta name="description" content="The Creole 3256H32447 is a 3 bed home." /></head>
@@ -77,6 +103,36 @@ def test_extract_inventory_card_keeps_legacy_actions_and_full_card_media():
     assert home["matterport_id"] == "mTvc6YoSRTx"
     assert home["specs"]["beds"] == 3
     assert home["specs"]["sq_ft"] == 1699
+
+
+def test_extract_floorplan_card_marks_orderable_catalog_home():
+    card = BeautifulSoup(FLOORPLAN_CARD_HTML, "html.parser").select_one(".fp-card-container")
+
+    home = legacy_site_crawler.extract_floorplan_card(card)
+
+    assert home["id"] == "floorplan-223034"
+    assert home["legacy_plan_id"] == "223034"
+    assert home["model_name"] == "Skyliner / 4732B"
+    assert home["manufacturer"] == "Skyline Homes"
+    assert home["status"] == "Orderable"
+    assert home["inventory_kind"] == "orderable_floorplan"
+    assert home["is_orderable"] is True
+    assert home["is_on_lot"] is False
+    assert home["features"] == [
+        "Orderable Floorplan",
+        "Manufactured",
+        "Modular",
+        "Featured",
+    ]
+    assert all(not feature.startswith("http") for feature in home["features"])
+    assert home["classification"] == "Double Wide"
+    assert home["specs"]["sq_ft"] == 1456
+    assert home["quote_url"] == "https://www.texashomeoutlet.com/quote/floorplan/223034/dealer/3522"
+    assert home["image_url"].endswith("Skyliner-4732B-Kitchen-1.jpg")
+    assert "_card_lg" not in home["image_url"]
+    assert home["floorplan_url"].endswith("4732-floor-plans-SMALL.jpg")
+    assert home["matterport_id"] == "abc123"
+    assert home["source_provenance"]["source_id"] == legacy_site_crawler.LEGACY_FLOORPLAN_SOURCE_ID
 
 
 def test_extract_detail_media_filters_thumbnails_and_unrelated_floorplans():
@@ -241,3 +297,45 @@ def test_legacy_context_uses_snapshot_media_when_live_detail_pages_flake(monkeyp
     assert home["source_provenance"]["media_snapshot_fallback"]["source"] == (
         "legacy_inventory_snapshot"
     )
+
+
+def test_floorplan_catalog_context_uses_snapshot_before_live_crawl(monkeypatch):
+    snapshot = {
+        "success": True,
+        "source": "legacy_floorplan_catalog_snapshot",
+        "homes": [{"id": "floorplan-1", "model_name": "Snapshot Plan", "status": "Orderable"}],
+        "total_inventory": 1,
+    }
+
+    monkeypatch.setattr(legacy_site_crawler, "_load_floorplan_snapshot_context", lambda: snapshot)
+    monkeypatch.setattr(
+        legacy_site_crawler,
+        "scrape_legacy_floorplan_catalog",
+        lambda max_pages=40: (_ for _ in ()).throw(AssertionError("should not live crawl")),
+    )
+
+    context = legacy_site_crawler.load_legacy_floorplan_catalog_context(limit=500)
+
+    assert context["homes"][0]["model_name"] == "Snapshot Plan"
+    assert context["total_inventory"] == 1
+
+
+def test_inventory_context_uses_snapshot_before_live_crawl(monkeypatch):
+    snapshot = {
+        "success": True,
+        "source": "legacy_site_snapshot",
+        "homes": [{"id": "live-archive", "model_name": "Archived Home", "status": "Available"}],
+        "total_inventory": 1,
+    }
+
+    monkeypatch.setattr(legacy_site_crawler, "_load_snapshot_context", lambda: snapshot)
+    monkeypatch.setattr(
+        legacy_site_crawler,
+        "build_legacy_inventory_context",
+        lambda limit=100: (_ for _ in ()).throw(AssertionError("should not live crawl")),
+    )
+
+    context = legacy_site_crawler.load_legacy_inventory_context(limit=100)
+
+    assert context["homes"][0]["model_name"] == "Archived Home"
+    assert context["total_inventory"] == 1

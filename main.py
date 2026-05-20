@@ -624,10 +624,12 @@ _default_origins = [
     "https://sapphirealpha.xyz",
     "https://www.sapphirealpha.xyz",
     "https://texashomeoutlet.com",
-    "https://www.texashomeoutlet.com"
+    "https://www.texashomeoutlet.com",
 ]
 ALLOWED_ORIGINS = [
-    o.strip() for o in os.environ.get("ALLOWED_ORIGINS", ",".join(_default_origins)).split(",") if o.strip()
+    o.strip()
+    for o in os.environ.get("ALLOWED_ORIGINS", ",".join(_default_origins)).split(",")
+    if o.strip()
 ]
 if IS_LOCAL:
     ALLOWED_ORIGINS += ["http://localhost:8080", "http://localhost:5173"]
@@ -640,7 +642,9 @@ app.add_middleware(
 )
 
 
-CANONICAL_PUBLIC_URL = os.environ.get("CANONICAL_PUBLIC_URL", "https://tho.sapphirealpha.xyz").rstrip("/")
+CANONICAL_PUBLIC_URL = os.environ.get(
+    "CANONICAL_PUBLIC_URL", "https://tho.sapphirealpha.xyz"
+).rstrip("/")
 _CANONICAL_PUBLIC_PARTS = urlsplit(CANONICAL_PUBLIC_URL)
 _CANONICAL_PUBLIC_SCHEME = _CANONICAL_PUBLIC_PARTS.scheme or "https"
 _CANONICAL_PUBLIC_HOST = _CANONICAL_PUBLIC_PARTS.netloc or "tho.sapphirealpha.xyz"
@@ -950,10 +954,12 @@ async def _execute_agent_run(runner, user_id, session_id, new_message, request_i
 
     return final_text, event_count
 
+
 # --- Rate Limiting for Chat API ---
 CHAT_RATE_LIMIT_SECONDS = 60
 CHAT_RATE_LIMIT_MAX_REQUESTS = 10
 _chat_rate_limit_fallback: dict[str, list[float]] = {}
+
 
 def _check_chat_rate_limit(client_ip: str) -> bool:
     """Return True if the request is allowed, False if rate limited."""
@@ -991,7 +997,7 @@ async def run_agent(request: Request):
     if not _check_chat_rate_limit(client_ip):
         return JSONResponse(
             {"error": "You're sending messages too fast. Please wait a moment and try again."},
-            status_code=429
+            status_code=429,
         )
 
     request_id = str(uuid.uuid4())
@@ -1141,11 +1147,13 @@ async def run_agent(request: Request):
             error=error_detail,
             duration_ms=duration_ms,
             user_id=user_id,
-            session_id=session_id
+            session_id=session_id,
         )
 
         # Friendly message for users, but specific for debugging
-        user_message = "I'm having trouble connecting to my brain right now. Please try again in a moment."
+        user_message = (
+            "I'm having trouble connecting to my brain right now. Please try again in a moment."
+        )
         return {"error": user_message}
 
 
@@ -1159,16 +1167,16 @@ async def get_public_chat_session(session_id: str):
 
         messages = []
         for msg in session.messages:
-            messages.append({
-                "role": msg.role,
-                "text": msg.text,
-                "timestamp": msg.timestamp
-            })
+            messages.append({"role": msg.role, "text": msg.text, "timestamp": msg.timestamp})
 
         return {"success": True, "messages": messages}
     except Exception as e:
-        struct_logger.error("Failed to retrieve public chat session", session_id=session_id, error=str(e))
-        return JSONResponse({"success": False, "error": "Failed to retrieve chat history"}, status_code=500)
+        struct_logger.error(
+            "Failed to retrieve public chat session", session_id=session_id, error=str(e)
+        )
+        return JSONResponse(
+            {"success": False, "error": "Failed to retrieve chat history"}, status_code=500
+        )
 
 
 @app.get("/leads/export", dependencies=[Depends(require_admin)])
@@ -1725,10 +1733,12 @@ from schemas.document_schemas import (
 )
 from tools.document_engine_v2 import (
     generate_batch as engine_generate_batch,
-    generate_packet as engine_generate_packet,
 )
 from tools.document_engine_v2 import (
     generate_document as engine_generate_document,
+)
+from tools.document_engine_v2 import (
+    generate_packet as engine_generate_packet,
 )
 from tools.document_engine_v2 import (
     get_all_field_definitions as engine_get_all_field_definitions,
@@ -2161,7 +2171,10 @@ async def generate_packet_endpoint(body: GeneratePacketRequest, request: Request
             }
         if _is_document_quality_failure(result):
             return _document_quality_json_response(result)
-        return {"success": False, "error": result.get("message") or result.get("error") or "Packet generation failed"}
+        return {
+            "success": False,
+            "error": result.get("message") or result.get("error") or "Packet generation failed",
+        }
     except Exception as e:
         struct_logger.error("Packet generation failed", error=str(e))
         return {"success": False, "error": "Packet generation failed. Please try again."}
@@ -3375,7 +3388,10 @@ async def generate_packet_from_deal(deal_id: str, request: Request):
                 "page_count": packet_fields.get("page_count", 0),
                 "documents_included": packet_fields.get("documents_included", []),
             }
-        return {"success": False, "error": result.get("message") or result.get("error") or "Packet generation failed"}
+        return {
+            "success": False,
+            "error": result.get("message") or result.get("error") or "Packet generation failed",
+        }
     except Exception as e:
         struct_logger.error("Deal packet generation failed", error=str(e))
         return {"success": False, "error": "Failed to generate closing packet. Please try again."}
@@ -3517,11 +3533,18 @@ async def docuseal_webhook(request: Request):
 
         try:
             from tools.drive_service import ensure_deal_folder, upload_to_drive
+
             deal_folder_id = ensure_deal_folder(str(deal_id))
             if deal_folder_id:
-                drive_link = upload_to_drive(tmp_path, f"Signed - {template_name or submission_id}.pdf", deal_folder_id)
+                drive_link = upload_to_drive(
+                    tmp_path, f"Signed - {template_name or submission_id}.pdf", deal_folder_id
+                )
                 if drive_link:
-                    struct_logger.info("DocuSeal signed PDF mirrored to Drive", deal_id=deal_id, drive_link=drive_link)
+                    struct_logger.info(
+                        "DocuSeal signed PDF mirrored to Drive",
+                        deal_id=deal_id,
+                        drive_link=drive_link,
+                    )
         except Exception as drive_err:
             struct_logger.warning("DocuSeal Drive mirror failed", error=str(drive_err))
 
@@ -3535,7 +3558,11 @@ async def docuseal_webhook(request: Request):
 
 # ─── Marketing API (Tex's Ad Studio) ───
 from tools.asset_scraper import PROPERTY_ASSETS, get_matterport_url
-from tools.legacy_site_crawler import load_legacy_inventory_context
+from tools.catalog_floorplans import merge_orderable_floorplan_catalog
+from tools.legacy_site_crawler import (
+    load_legacy_floorplan_catalog_context,
+    load_legacy_inventory_context,
+)
 from tools.marketing_tools import (
     GENERATED_ADS_DIR,
     analyze_content_performance,
@@ -3815,7 +3842,14 @@ async def api_inventory_context(request: Request):
         # old Firestore/asset path below remains a graceful fallback.
         legacy_result = load_legacy_inventory_context(limit=100)
         if legacy_result.get("success") and legacy_result.get("homes"):
-            return legacy_result
+            floorplan_result = load_legacy_floorplan_catalog_context(limit=500)
+            return merge_orderable_floorplan_catalog(
+                legacy_result,
+                assets=PROPERTY_ASSETS,
+                floorplan_context=floorplan_result
+                if floorplan_result.get("success") and floorplan_result.get("homes")
+                else None,
+            )
         if legacy_result.get("error"):
             struct_logger.warning(
                 "Legacy inventory context unavailable",
@@ -3855,10 +3889,12 @@ async def api_inventory_context(request: Request):
             for slug, asset in PROPERTY_ASSETS.items():
                 home_data = {
                     "id": slug,
+                    "source_catalog_slug": slug,
                     "model_name": asset["name"],
                     "manufacturer": asset.get("manufacturer", "New Vision Manufacturing"),
                     "classification": "Manufactured Home",
                     "status": "Available" if asset.get("is_new") else "Pre-Owned",
+                    "inventory_kind": "orderable_floorplan" if asset.get("is_new") else "pre_owned",
                     "display_price": "Call for Price",
                     "price_value": 0,
                     "specs": {
@@ -3891,6 +3927,14 @@ async def api_inventory_context(request: Request):
         for home in result.get("homes", []):
             apply_classifier_to_home(home)
 
+        floorplan_result = load_legacy_floorplan_catalog_context(limit=500)
+        result = merge_orderable_floorplan_catalog(
+            result,
+            assets=PROPERTY_ASSETS,
+            floorplan_context=floorplan_result
+            if floorplan_result.get("success") and floorplan_result.get("homes")
+            else None,
+        )
         result["website_homes"] = len(website_homes)
         return result
     except Exception as e:
@@ -5675,7 +5719,10 @@ async def v1_webhook_notify(request: Request):
         struct_logger.error("Partner webhook logging failed", error=str(e))
         raise HTTPException(status_code=500, detail="Failed to record webhook activity")
 
-@app.post("/api/v1/service-requests/{request_id}/resolve", dependencies=[Depends(require_partner_api_key)])
+
+@app.post(
+    "/api/v1/service-requests/{request_id}/resolve", dependencies=[Depends(require_partner_api_key)]
+)
 @limiter.limit("60/minute")
 async def v1_service_request_resolve(request: Request, request_id: str):
     """Mark a service request as resolved. Called by Notion when warranty claims close."""
@@ -5885,8 +5932,8 @@ async def run_lead_nurture_endpoint(request: Request):
     return result
 
 
-
 # ============ SECURE HUB (CUSTOMER PORTAL) ============
+
 
 @app.get("/api/v1/customer/deal/{deal_id}")
 async def get_secure_hub_deal(deal_id: str):
@@ -5904,13 +5951,15 @@ async def get_secure_hub_deal(deal_id: str):
         documents = []
         for doc in docs_query:
             d = doc.to_dict()
-            documents.append({
-                "id": doc.id,
-                "type": d.get("type"),
-                "name": d.get("template_name") or d.get("filename") or "Document",
-                "created_at": d.get("created_at"),
-                "status": "signed" if d.get("type") == "esign_completed" else "generated"
-            })
+            documents.append(
+                {
+                    "id": doc.id,
+                    "type": d.get("type"),
+                    "name": d.get("template_name") or d.get("filename") or "Document",
+                    "created_at": d.get("created_at"),
+                    "status": "signed" if d.get("type") == "esign_completed" else "generated",
+                }
+            )
 
         return {
             "success": True,
@@ -5921,11 +5970,12 @@ async def get_secure_hub_deal(deal_id: str):
                 "home_model": deal_data.get("inventory_model_name"),
                 "created_at": deal_data.get("created_at"),
             },
-            "documents": sorted(documents, key=lambda x: x["created_at"], reverse=True)
+            "documents": sorted(documents, key=lambda x: x["created_at"], reverse=True),
         }
     except Exception as e:
         struct_logger.error("Secure Hub deal fetch failed", error=str(e), deal_id=deal_id)
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.get("/api/v1/customer/deal/{deal_id}/download/{note_id}")
 async def download_secure_document(deal_id: str, note_id: str):
@@ -5948,6 +5998,7 @@ async def download_secure_document(deal_id: str, note_id: str):
         blob_name = parts[1]
 
         from google.cloud import storage
+
         storage_client = storage.Client()
         bucket = storage_client.bucket(bucket_name)
         blob = bucket.blob(blob_name)

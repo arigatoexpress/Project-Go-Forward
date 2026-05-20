@@ -34,7 +34,7 @@ const WIKI_SECTIONS = {
     items: [
       'Use CRM for leads, tasks, appointments, and customer follow-up.',
       'Use Documents for deal paperwork, contract packets, and recent PDF downloads.',
-      'Use Inventory to confirm home availability before sending quotes or forms.',
+      'Use Inventory to distinguish homes available now from orderable manufacturer floorplans before sending quotes or forms.',
       'Use Ad Studio only for reviewed public-facing inventory or approved campaign drafts.',
     ],
   },
@@ -52,6 +52,9 @@ const WIKI_SECTIONS = {
     label: 'Data Quality',
     icon: Search,
     items: [
+      'Available Now means a live/current listing; Orderable Floorplan means a manufacturer plan customers can ask THO to custom order.',
+      'New public floorplans should come from manufacturer media, the approved THO Drive folder, or the reviewed inventory package before publishing.',
+      'Actual lot photos should replace stock or floorplan-only images whenever staff has dealer photos for that home.',
       'Catalog photos are not the same as actual lot photos; approved dealer photos should be reviewed before publishing.',
       'Serial numbers, labels, weights, wind zone, date of manufacture, and manufacturer address should be verified when the inventory feed is blank.',
       'Customer SSNs are masked in browser draft storage and should not be pasted into notes.',

@@ -154,6 +154,13 @@ function displayPrice(home) {
     : 'Call for Price';
 }
 
+function getAvailabilityKind(home) {
+  if (home?.inventory_kind) return home.inventory_kind;
+  if (home?.status === 'Orderable') return 'orderable_floorplan';
+  if (home?.status === 'Pre-Owned') return 'pre_owned';
+  return 'available_now';
+}
+
 function getLegacyQuoteUrl(home) {
   return home?.quote_url || home?.legacy_actions?.quote_url || '';
 }
@@ -446,6 +453,7 @@ export default function InventoryBrowse({ adminAuthed = false, onAskTex, onCreat
     const name = (home.model_name || '').toLowerCase();
     const mfr = (home.manufacturer || '').toLowerCase();
     const classification = (home.classification || '').toLowerCase();
+    const availability = `${home.status || ''} ${home.availability_label || ''} ${getAvailabilityKind(home)}`.toLowerCase();
     const features = (home.features || []).join(' ').toLowerCase();
     const dims = (home.specs?.dimensions || '').toLowerCase();
     const beds = String(home.specs?.beds || '');
@@ -455,6 +463,7 @@ export default function InventoryBrowse({ adminAuthed = false, onAskTex, onCreat
       name.includes(query) ||
       mfr.includes(query) ||
       classification.includes(query) ||
+      availability.includes(query) ||
       features.includes(query) ||
       dims.includes(query) ||
       (query.match(/^\d+\s*bed/) && beds === query.match(/^(\d+)/)[1]) ||
@@ -469,7 +478,7 @@ export default function InventoryBrowse({ adminAuthed = false, onAskTex, onCreat
   // Filter and search logic
   const filteredHomes = homes.filter(home => {
     if (searchQuery && !matchesSearch(home, searchQuery)) return false;
-    if (filters.status && home.status !== filters.status) return false;
+    if (filters.status && getAvailabilityKind(home) !== filters.status) return false;
     if (filters.beds) {
       const beds = home.specs?.beds || 0;
       if (beds < parseInt(filters.beds)) return false;
@@ -673,10 +682,11 @@ export default function InventoryBrowse({ adminAuthed = false, onAskTex, onCreat
   }
 
   // Stats for hero
-  const newCount = homes.filter(h => h.status === 'Available').length;
-  const preOwnedCount = homes.filter(h => h.status === 'Pre-Owned').length;
+  const newCount = homes.filter(h => getAvailabilityKind(h) === 'available_now').length;
+  const preOwnedCount = homes.filter(h => getAvailabilityKind(h) === 'pre_owned').length;
+  const orderableCount = homes.filter(h => getAvailabilityKind(h) === 'orderable_floorplan').length;
   const tourCount = homes.filter(h => h.matterport_id).length;
-  const heroHome = homes.find(home => getHomeImage(home)) || homes[0];
+  const heroHome = homes.find(home => getHomeImage(home) && getAvailabilityKind(home) !== 'orderable_floorplan') || homes.find(home => getHomeImage(home)) || homes[0];
   const heroImage = getHomeImage(heroHome);
 
   return (
@@ -696,18 +706,18 @@ export default function InventoryBrowse({ adminAuthed = false, onAskTex, onCreat
           <div className="flex min-h-[520px] flex-col justify-center">
             <div className="mb-4 inline-flex w-fit items-center gap-2 rounded-md border border-white/30 bg-black/45 px-3 py-1.5 font-mono text-xs font-semibold uppercase text-white shadow-sm">
               <span className="cp-blink h-2 w-2 rounded-full bg-white" />
-              Legacy Site Live
+              Live Inventory + Orderable Floorplans
             </div>
             <h1 className="max-w-3xl text-4xl font-extrabold leading-tight tracking-normal text-white sm:text-5xl">
               Mobile Homes For Sale in Huffman, TX
             </h1>
             <p className="mt-4 max-w-2xl text-base leading-relaxed text-white/90">
-              Pulled from the active texashomeoutlet.com inventory with listing photos, floorplans, 3D tours, and the legacy price quote flow intact.
+              Browse homes available now plus manufacturer floorplans Texas Home Outlet can custom order, with photos, floorplans, 3D tours, and quote requests in one place.
             </p>
 
             <div className="mt-6 grid gap-3 sm:grid-cols-3">
-              <InventoryMetric icon={Home} label="Legacy Listings" value={homes.length} />
-              <InventoryMetric icon={CheckCircle2} label="Available" value={newCount} tone="blue" />
+              <InventoryMetric icon={CheckCircle2} label="Available Now" value={newCount} tone="blue" />
+              <InventoryMetric icon={Home} label="Orderable Plans" value={orderableCount} />
               <InventoryMetric icon={Box} label="3D Tours" value={tourCount} tone="warn" />
             </div>
 
@@ -751,7 +761,7 @@ export default function InventoryBrowse({ adminAuthed = false, onAskTex, onCreat
               <span className="hidden h-1 w-1 rounded-full bg-white/55 sm:inline-block" />
               <span>{BUSINESS_HOURS}</span>
               <span className="hidden h-1 w-1 rounded-full bg-white/55 sm:inline-block" />
-              <span>{preOwnedCount} pre-owned homes visible</span>
+              <span>{preOwnedCount} pre-owned homes and {orderableCount} orderable floorplans visible</span>
             </div>
           </div>
 
@@ -781,12 +791,16 @@ export default function InventoryBrowse({ adminAuthed = false, onAskTex, onCreat
               className={`${PILL_BTN} ${filters.status === '' ? 'bg-[var(--cp-accent)] text-[var(--cp-bg)]' : 'bg-[var(--cp-panel)] text-[var(--cp-muted)] hover:text-[var(--cp-text)] hover:border-[var(--cp-border-light)]'}`}
             >All</button>
             <button
-              onClick={() => setFilters(f => ({ ...f, status: 'Available' }))}
-              className={`${PILL_BTN} ${filters.status === 'Available' ? 'bg-[var(--cp-accent)] text-[var(--cp-bg)]' : 'bg-[var(--cp-panel)] text-[var(--cp-muted)] hover:text-[var(--cp-text)] hover:border-[var(--cp-border-light)]'}`}
-            >New ({newCount})</button>
+              onClick={() => setFilters(f => ({ ...f, status: 'available_now' }))}
+              className={`${PILL_BTN} ${filters.status === 'available_now' ? 'bg-[var(--cp-accent)] text-[var(--cp-bg)]' : 'bg-[var(--cp-panel)] text-[var(--cp-muted)] hover:text-[var(--cp-text)] hover:border-[var(--cp-border-light)]'}`}
+            >Available Now ({newCount})</button>
             <button
-              onClick={() => setFilters(f => ({ ...f, status: 'Pre-Owned' }))}
-              className={`${PILL_BTN} ${filters.status === 'Pre-Owned' ? 'bg-[var(--cp-accent)] text-[var(--cp-bg)]' : 'bg-[var(--cp-panel)] text-[var(--cp-muted)] hover:text-[var(--cp-text)] hover:border-[var(--cp-border-light)]'}`}
+              onClick={() => setFilters(f => ({ ...f, status: 'orderable_floorplan' }))}
+              className={`${PILL_BTN} ${filters.status === 'orderable_floorplan' ? 'bg-[var(--cp-accent)] text-[var(--cp-bg)]' : 'bg-[var(--cp-panel)] text-[var(--cp-muted)] hover:text-[var(--cp-text)] hover:border-[var(--cp-border-light)]'}`}
+            >Orderable ({orderableCount})</button>
+            <button
+              onClick={() => setFilters(f => ({ ...f, status: 'pre_owned' }))}
+              className={`${PILL_BTN} ${filters.status === 'pre_owned' ? 'bg-[var(--cp-accent)] text-[var(--cp-bg)]' : 'bg-[var(--cp-panel)] text-[var(--cp-muted)] hover:text-[var(--cp-text)] hover:border-[var(--cp-border-light)]'}`}
             >Pre-Owned ({preOwnedCount})</button>
           </div>
         </div>
@@ -998,7 +1012,8 @@ function HomeCard({ home, onClick, onScheduleTour }) {
             src={heroImage}
             alt={home.model_name}
             className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
-            loading="eager"
+            loading="lazy"
+            decoding="async"
             onLoad={() => setHeroLoadState('loaded')}
             onError={() => setHeroLoadState('failed')}
           />
