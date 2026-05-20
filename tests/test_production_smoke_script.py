@@ -114,8 +114,46 @@ def test_media_depth_probe_scales_to_smaller_live_catalog(monkeypatch):
     assert probe.ok
     assert "real_photo_rich=19" in probe.evidence
     assert "matterport=7" in probe.evidence
+    assert "media_target_homes=19" in probe.evidence
     assert "required_rich=19" in probe.evidence
     assert "required_matterport=6" in probe.evidence
+
+
+def test_media_depth_probe_targets_current_inventory_not_orderable_floorplans(monkeypatch):
+    current_homes = [
+        {
+            "inventory_kind": "available_now",
+            "real_photos": [
+                "https://d132mt2yijm03y.cloudfront.net/dealer/3522/inventory/1/ext.jpg",
+                "kitchen.jpg",
+                "bed.jpg",
+            ],
+            "gallery_images": ["one.jpg", "two.jpg", "three.jpg"],
+        }
+        for _ in range(19)
+    ]
+    orderable_floorplans = [
+        {
+            "inventory_kind": "orderable_floorplan",
+            "real_photos": [],
+            "gallery_images": [],
+            "matterport_url": "https://my.matterport.com/show/?m=floorplan",
+        }
+        for _ in range(260)
+    ]
+
+    def fake_json_probe(base_url, path, *, timeout):
+        return 200, {"homes": [*current_homes, *orderable_floorplans]}, 10
+
+    monkeypatch.setattr(production_smoke, "_json_probe", fake_json_probe)
+
+    probe = production_smoke.check_inventory_media_depth("https://example.test", timeout=1.0)
+
+    assert probe.ok
+    assert "real_photo_rich=19" in probe.evidence
+    assert "media_target_homes=19" in probe.evidence
+    assert "required_rich=19" in probe.evidence
+    assert "matterport=260" in probe.evidence
 
 
 def test_media_depth_probe_does_not_count_floorplans_as_photos(monkeypatch):

@@ -278,20 +278,23 @@ def check_inventory_media_depth(base_url: str, *, timeout: float) -> Probe:
             evidence="homes payload missing or non-list",
             elapsed_ms=elapsed_ms,
         )
-    real_photo_rich = sum(1 for home in homes if len(_real_photo_urls(home)) >= 3)
+    media_target_homes = [
+        home for home in homes if home.get("inventory_kind") != "orderable_floorplan"
+    ] or homes
+    real_photo_rich = sum(1 for home in media_target_homes if len(_real_photo_urls(home)) >= 3)
     gallery_rich = sum(
         1
-        for home in homes
+        for home in media_target_homes
         if len([url for url in _as_list(home.get("gallery_images")) if isinstance(url, str)]) >= 3
         and len(_real_photo_urls(home)) >= 3
     )
     matterport = sum(1 for home in homes if home.get("matterport_url"))
     dealer_photo_sets = sum(
         1
-        for home in homes
+        for home in media_target_homes
         if any("/dealer/3522/inventory/" in str(url) for url in _real_photo_urls(home))
     )
-    total = len(homes)
+    total = len(media_target_homes)
     rich_required = min(30, max(1, total))
     matterport_required = min(20, max(1, total // 3))
     ok = (
@@ -303,7 +306,8 @@ def check_inventory_media_depth(base_url: str, *, timeout: float) -> Probe:
     evidence = (
         f"real_photo_rich={real_photo_rich}; gallery_rich={gallery_rich}; "
         f"matterport={matterport}; dealer_photo_sets={dealer_photo_sets}; "
-        f"required_rich={rich_required}; required_matterport={matterport_required}"
+        f"media_target_homes={total}; required_rich={rich_required}; "
+        f"required_matterport={matterport_required}"
     )
     return Probe(
         name="/api/marketing/inventory-context media depth",
