@@ -1,6 +1,14 @@
 from scripts import production_smoke
 
 
+class _TimeoutContext:
+    def __enter__(self):
+        raise TimeoutError("timed out")
+
+    def __exit__(self, exc_type, exc, traceback):
+        return False
+
+
 def test_default_base_url_targets_tho_subdomain():
     assert production_smoke.DEFAULT_BASE_URL == "https://tho.sapphirealpha.xyz"
 
@@ -20,6 +28,40 @@ def test_spa_route_probe_reports_root_marker(monkeypatch):
     assert len(probes) == len(production_smoke.PUBLIC_ROUTES)
     assert all(probe.ok for probe in probes)
     assert all("root=yes" in probe.evidence for probe in probes)
+
+
+def test_read_probe_reports_timeout_with_path_context(monkeypatch):
+    def fake_urlopen(request, timeout):
+        return _TimeoutContext()
+
+    monkeypatch.setattr(production_smoke, "urlopen", fake_urlopen)
+
+    try:
+        production_smoke._read_url("https://example.test", "/slow", timeout=2.0)
+    except RuntimeError as exc:
+        assert str(exc) == "/slow timed out after 2s"
+    else:
+        raise AssertionError("expected timeout to be wrapped")
+
+
+def test_post_probe_reports_timeout_with_path_context(monkeypatch):
+    def fake_urlopen(request, timeout):
+        return _TimeoutContext()
+
+    monkeypatch.setattr(production_smoke, "urlopen", fake_urlopen)
+
+    try:
+        production_smoke._post_json(
+            "https://example.test",
+            "/api/slow",
+            {},
+            timeout=3.0,
+            admin_token=None,
+        )
+    except RuntimeError as exc:
+        assert str(exc) == "/api/slow timed out after 3s"
+    else:
+        raise AssertionError("expected timeout to be wrapped")
 
 
 def test_media_depth_probe_requires_real_gallery_and_tours(monkeypatch):
@@ -72,8 +114,46 @@ def test_media_depth_probe_scales_to_smaller_live_catalog(monkeypatch):
     assert probe.ok
     assert "real_photo_rich=19" in probe.evidence
     assert "matterport=7" in probe.evidence
+    assert "media_target_homes=19" in probe.evidence
     assert "required_rich=19" in probe.evidence
     assert "required_matterport=6" in probe.evidence
+
+
+def test_media_depth_probe_targets_current_inventory_not_orderable_floorplans(monkeypatch):
+    current_homes = [
+        {
+            "inventory_kind": "available_now",
+            "real_photos": [
+                "https://d132mt2yijm03y.cloudfront.net/dealer/3522/inventory/1/ext.jpg",
+                "kitchen.jpg",
+                "bed.jpg",
+            ],
+            "gallery_images": ["one.jpg", "two.jpg", "three.jpg"],
+        }
+        for _ in range(19)
+    ]
+    orderable_floorplans = [
+        {
+            "inventory_kind": "orderable_floorplan",
+            "real_photos": [],
+            "gallery_images": [],
+            "matterport_url": "https://my.matterport.com/show/?m=floorplan",
+        }
+        for _ in range(260)
+    ]
+
+    def fake_json_probe(base_url, path, *, timeout):
+        return 200, {"homes": [*current_homes, *orderable_floorplans]}, 10
+
+    monkeypatch.setattr(production_smoke, "_json_probe", fake_json_probe)
+
+    probe = production_smoke.check_inventory_media_depth("https://example.test", timeout=1.0)
+
+    assert probe.ok
+    assert "real_photo_rich=19" in probe.evidence
+    assert "media_target_homes=19" in probe.evidence
+    assert "required_rich=19" in probe.evidence
+    assert "matterport=260" in probe.evidence
 
 
 def test_media_depth_probe_does_not_count_floorplans_as_photos(monkeypatch):
