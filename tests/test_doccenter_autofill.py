@@ -266,6 +266,31 @@ def test_customer_search_load_remounts_visible_form_fields(source: str):
     assert "onLoadCustomer(patch)" in load_customer_body
 
 
+def test_step3_blocks_generation_until_deal_data_is_complete(source: str):
+    """Selected packets should not let staff generate official-looking PDFs
+    from a 30%-filled customer/deal record."""
+    assert "function getDocumentCompletenessState" in source
+    assert "DOCUMENT_PACKET_BASELINE_FIELDS" in source
+    assert "Deal data needs attention" in source
+    assert "Complete ${readinessErrors.length} required data item" in source
+    assert "documentReadiness={getDocumentCompletenessState(form, templates, selDocs)}" in source
+    assert "readinessErrors.length > 0" in source
+    assert "setMissingFields(documentCompleteness.missing)" in source
+
+
+def test_step3_completeness_requires_installation_contact_and_home_fields(source: str):
+    """The UI should call out the concrete fields Mark described as the
+    difference between valid info and garbage-in document output."""
+    for text in (
+        "Buyer phone",
+        "Installation street address",
+        "Installation county",
+        "Serial # 1",
+        "Sales price is required and must be greater than $0",
+    ):
+        assert text in source
+
+
 def test_step3_selection_changes_clear_stale_errors(source: str):
     """Changing the Step 3 selection should clear old generate/validation
     errors so the user gets fresh feedback for the new packet choice."""
