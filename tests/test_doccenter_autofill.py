@@ -197,8 +197,48 @@ def test_step3_waits_for_template_metadata_before_generation(source: str):
     assert "const [templatesLoading, setTemplatesLoading]" in source
     assert "setTemplatesLoading(true)" in source
     assert "Document templates are still loading" in source
-    assert "disabled={templatesLoading || selected.length === 0}" in source
+    assert "const generateDisabled = templatesLoading || selected.length === 0" in source
+    assert "disabled={generateDisabled}" in source
     assert "Selected document is no longer available" in source
+
+
+def test_step3_surfaces_generation_blockers_instead_of_silently_staying_put(source: str):
+    """Step 3 can be the target for packet/template quality blockers. Those
+    errors must render in Step3 itself so admins know what to change."""
+    step3_start = source.find("function Step3")
+    step3_body = source[step3_start : source.find("/* ─── Step 4", step3_start)]
+    assert "validationErrors" in step3_body
+    assert "<ValidationErrors errors={validationErrors} />" in step3_body
+    assert "Choose a recommended packet or select at least one individual document" in step3_body
+    assert "No document templates are available right now." in step3_body
+    assert "No packet presets are available." in step3_body
+    assert "validationErrors={validationErrors}" in source
+
+
+def test_generation_errors_preserve_backend_missing_field_guidance(source: str):
+    """If the backend returns a structured missing-fields envelope, the
+    frontend should route the admin back to the relevant step with the same
+    inline guidance instead of a generic generation failure."""
+    assert "function normalizeBackendMissingFields" in source
+    assert "function describeGenerationFailure" in source
+    assert "payload?.missing_fields || payload?.missing || payload?.fields" in source
+    assert "setValidationErrors(failure.missingMessages)" in source
+    assert "setMissingFields(failure.missingFields)" in source
+    assert "setStep(failure.step)" in source
+    assert "Document service returned" in source
+
+
+def test_step3_selection_changes_clear_stale_errors(source: str):
+    """Changing the Step 3 selection should clear old generate/validation
+    errors so the user gets fresh feedback for the new packet choice."""
+    toggle_start = source.find("const toggleDoc = useCallback")
+    toggle_body = source[toggle_start : source.find("}, []);", toggle_start)]
+    assert "setGenErr('')" in toggle_body
+    assert "setValidationErrors([])" in toggle_body
+    select_start = source.find("const selectPacket = useCallback")
+    select_body = source[select_start : source.find("}, []);", select_start)]
+    assert "setGenErr('')" in select_body
+    assert "setValidationErrors([])" in select_body
 
 
 def test_selected_template_missing_fields_highlight_step2_inputs(source: str):

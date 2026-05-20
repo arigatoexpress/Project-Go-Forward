@@ -189,6 +189,58 @@ const FIELD_STEP = {
   mailing_zip: 1,
 };
 
+const friendlyFieldLabel = field => REQUIRED_FIELD_LABELS[field] || String(field || '').replace(/_/g, ' ');
+
+function normalizeBackendMissingFields(payload) {
+  const raw = payload?.missing_fields || payload?.missing || payload?.fields;
+  if (!raw) return { messages: [], fields: new Set(), step: 3 };
+
+  const rawFields = [];
+  if (Array.isArray(raw)) {
+    raw.forEach(field => rawFields.push(field));
+  } else if (typeof raw === 'object') {
+    Object.values(raw).forEach(value => {
+      if (Array.isArray(value)) {
+        value.forEach(field => rawFields.push(field));
+      } else if (hasValue(value)) {
+        rawFields.push(value);
+      }
+    });
+  }
+
+  const inputFields = new Set();
+  rawFields
+    .filter(hasValue)
+    .forEach(field => {
+      (REQUIRED_FIELD_INPUTS[field] || [field]).forEach(input => inputFields.add(input));
+    });
+
+  const labels = [...inputFields].map(friendlyFieldLabel);
+  const step = labels.length
+    ? Math.min(...[...inputFields].map(field => FIELD_STEP[field] || 2))
+    : 3;
+
+  return {
+    messages: labels.map(label => `${label} is required before generating documents`),
+    fields: inputFields,
+    step,
+  };
+}
+
+function describeGenerationFailure(payload, response) {
+  const qualityMessages = Array.isArray(payload?.quality_issues)
+    ? payload.quality_issues.map(issue => issue.message).filter(Boolean)
+    : [];
+  const missing = normalizeBackendMissingFields(payload);
+  const messageParts = [...qualityMessages, ...missing.messages];
+  return {
+    message: messageParts.join(' ') || payload?.message || payload?.detail || payload?.error || response?.statusText || 'Generation failed',
+    missingMessages: missing.messages,
+    missingFields: missing.fields,
+    step: missing.step,
+  };
+}
+
 const joinName = (first, last) => [first, last].filter(hasValue).map(v => String(v).trim()).join(' ') || undefined;
 
 const cityStateZip = (city, state, zip) => {
@@ -1851,7 +1903,7 @@ function Step2({ data, onChange, resetKey, inventory, inventoryLoading, onNext, 
 
 /* ─── Step 3: Select Documents ───────────────────────────── */
 
-function Step3({ templates, packets, selected, onToggle, onSelectPacket, isNew, onNext, onBack, templatesLoading, error }) {
+function Step3({ templates, packets, selected, onToggle, onSelectPacket, isNew, onNext, onBack, templatesLoading, error, validationErrors }) {
   const [expandedCats, setExpandedCats] = useState({ TMHA: true, TDHCA: false, State: false, Internal: false });
   const [viewMode, setViewMode] = useState('packets'); // packets, individual
 
@@ -1870,6 +1922,13 @@ function Step3({ templates, packets, selected, onToggle, onSelectPacket, isNew, 
     const bRec = isNew ? (b.packet_name === 'standard_closing' || b.packet_name.includes('new')) : b.packet_name.includes('used');
     return bRec - aRec;
   });
+  const generateDisabled = templatesLoading || selected.length === 0;
+  const generateBlockReason = templatesLoading
+    ? 'Document templates are still loading. Please wait a moment before generating.'
+    : selected.length === 0
+      ? 'Choose a recommended packet or select at least one individual document before generating.'
+      : '';
+  const hasVisibleTemplates = (templates || []).length > 0;
 
   return (
     <div className="space-y-6">
@@ -1878,6 +1937,8 @@ function Step3({ templates, packets, selected, onToggle, onSelectPacket, isNew, 
         <h2 className="text-2xl font-bold text-gray-800">Select Documents to Generate</h2>
         <p className="text-gray-600 mt-2">Choose a pre-made packet or select individual documents</p>
       </div>
+
+      <ValidationErrors errors={validationErrors} />
 
       {templatesLoading && (
         <div className="flex items-center justify-center gap-3 rounded-xl border-2 border-blue-200 bg-blue-50 px-4 py-3 text-blue-700">
@@ -1889,6 +1950,20 @@ function Step3({ templates, packets, selected, onToggle, onSelectPacket, isNew, 
       {error && (
         <div className="rounded-xl border-2 border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
           {error}
+        </div>
+      )}
+
+      {!templatesLoading && !error && !hasVisibleTemplates && (
+        <div className="rounded-xl border-2 border-amber-200 bg-amber-50 px-5 py-4 text-amber-800">
+          <div className="flex items-start gap-3">
+            <AlertCircle size={20} className="mt-0.5 flex-shrink-0" />
+            <div>
+              <h3 className="font-bold">No document templates are available right now.</h3>
+              <p className="mt-1 text-sm text-amber-700">
+                Refresh the page, then check the Production Document Desk. If it still shows zero templates, the document service needs attention before packet generation can continue.
+              </p>
+            </div>
+          </div>
         </div>
       )}
 
@@ -1921,7 +1996,20 @@ function Step3({ templates, packets, selected, onToggle, onSelectPacket, isNew, 
       {/* Packets View */}
       {viewMode === 'packets' && (
         <div className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {sortedPackets.length === 0 && !templatesLoading ? (
+            <div className="rounded-xl border-2 border-amber-200 bg-amber-50 px-5 py-4 text-amber-800">
+              <div className="flex items-start gap-3">
+                <Info size={20} className="mt-0.5 flex-shrink-0" />
+                <div>
+                  <h3 className="font-bold">No packet presets are available.</h3>
+                  <p className="mt-1 text-sm text-amber-700">
+                    Switch to individual documents below, or refresh after the document metadata finishes loading.
+                  </p>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {sortedPackets.map(p => {
               const isRec = isNew
                 ? (p.packet_name === 'standard_closing' || p.packet_name.includes('new'))
@@ -1933,10 +2021,13 @@ function Step3({ templates, packets, selected, onToggle, onSelectPacket, isNew, 
               return (
                 <button
                   key={p.packet_name}
-                  onClick={() => onSelectPacket(p)}
+                  onClick={() => cnt > 0 && onSelectPacket(p)}
+                  disabled={cnt === 0}
                   className={`
                     relative text-left p-6 rounded-xl border-2 transition-all
-                    ${isFull
+                    ${cnt === 0
+                      ? 'border-gray-200 bg-gray-50 opacity-70 cursor-not-allowed'
+                      : isFull
                       ? 'border-blue-500 bg-blue-50 shadow-md'
                       : 'border-gray-200 bg-white hover:border-blue-300 hover:shadow-md'
                     }
@@ -1960,6 +2051,12 @@ function Step3({ templates, packets, selected, onToggle, onSelectPacket, isNew, 
                     <p className="text-sm text-gray-600 mt-3">{p.description}</p>
                   )}
 
+                  {cnt === 0 && (
+                    <div className="mt-3 text-sm font-semibold text-amber-700">
+                      No templates are configured for this packet.
+                    </div>
+                  )}
+
                   {selectedCount > 0 && !isFull && (
                     <div className="mt-3 text-sm text-blue-600 font-medium">
                       {selectedCount} of {cnt} selected
@@ -1968,7 +2065,8 @@ function Step3({ templates, packets, selected, onToggle, onSelectPacket, isNew, 
                 </button>
               );
             })}
-          </div>
+            </div>
+          )}
 
           <div className="text-center">
             <button
@@ -2053,7 +2151,7 @@ function Step3({ templates, packets, selected, onToggle, onSelectPacket, isNew, 
 
       {/* Summary */}
       <div className="bg-blue-50 rounded-xl border-2 border-blue-200 p-6">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <span className="text-gray-700 font-medium">
               <span className="text-2xl font-bold text-blue-700">{selected.length}</span>
@@ -2068,6 +2166,12 @@ function Step3({ templates, packets, selected, onToggle, onSelectPacket, isNew, 
               </button>
             )}
           </div>
+          {generateBlockReason && (
+            <div className="flex items-start gap-2 text-sm font-semibold text-blue-800 sm:max-w-md">
+              <Info size={18} className="mt-0.5 flex-shrink-0" />
+              <span>{generateBlockReason}</span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -2078,7 +2182,7 @@ function Step3({ templates, packets, selected, onToggle, onSelectPacket, isNew, 
         </BigButton>
         <BigButton
           onClick={onNext}
-          disabled={templatesLoading || selected.length === 0}
+          disabled={generateDisabled}
           icon={FileText}
         >
           {templatesLoading ? 'Loading Templates...' : `Generate ${selected.length} Document${selected.length !== 1 ? 's' : ''}`}
@@ -2868,11 +2972,17 @@ export default function DocumentCenter() {
   }, []);
 
   const toggleDoc = useCallback(t => {
+    setGenErr('');
+    setValidationErrors([]);
+    setMissingFields(new Set());
     setSelDocs(p => p.includes(t) ? p.filter(x => x !== t) : [...p, t]);
   }, []);
 
   const selectPacket = useCallback(pk => {
     const tpls = pk.templates || [];
+    setGenErr('');
+    setValidationErrors([]);
+    setMissingFields(new Set());
     setSelDocs(p => {
       const s = new Set(p);
       if (tpls.every(t => s.has(t))) {
@@ -2951,12 +3061,19 @@ export default function DocumentCenter() {
           merge: true
         }),
       });
-      const d = await r.json();
+      const d = await r.json().catch(() => ({
+        error: `Document service returned ${r.status || 'an unexpected response'} ${r.statusText || ''}`.trim(),
+      }));
       if (!r.ok || d.error) {
-        const issueMessages = Array.isArray(d.quality_issues)
-          ? d.quality_issues.map(issue => issue.message).filter(Boolean)
-          : [];
-        throw new Error(issueMessages.join(' ') || d.message || d.error || 'Generation failed');
+        const failure = describeGenerationFailure(d, r);
+        if (failure.missingMessages.length > 0) {
+          setValidationErrors(failure.missingMessages);
+          setMissingFields(failure.missingFields);
+          setStep(failure.step);
+          if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
+          return;
+        }
+        throw new Error(failure.message);
       }
       setResults(d);
       loadDocumentDesk();
@@ -3108,6 +3225,7 @@ export default function DocumentCenter() {
           onBack={() => setStep(2)}
           templatesLoading={templatesLoading}
           error={genErr || templatesError}
+          validationErrors={validationErrors}
         />
       )}
 
