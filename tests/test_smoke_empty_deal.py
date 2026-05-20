@@ -454,6 +454,51 @@ class TestPacketSkipsUnfilledTemplates:
         assert body["error"] == "quality_gate_failed"
         assert body["quality_issues"][0]["field"] == "serial_number_1"
 
+    def test_batch_endpoint_surfaces_all_failed_batch_as_400(self, monkeypatch):
+        """When every selected template fails, API callers need an actual
+        failure response with per-document reasons."""
+        client, main_module, token = _build_test_client(monkeypatch)
+
+        def fake_engine(*, template_names: list[str], data: dict, merge: bool):
+            return {
+                "success": False,
+                "documents": [
+                    {
+                        "template_name": "TMHA_SalesContract.pdf",
+                        "display_name": "TMHA Sales Contract",
+                        "success": False,
+                        "message": "Validation failed: Missing required fields: buyer_address",
+                    }
+                ],
+                "merged": None,
+                "total": 1,
+                "successful": 0,
+            }
+
+        monkeypatch.setattr(main_module, "engine_generate_batch", fake_engine)
+
+        response = client.post(
+            "/api/documents/generate-batch",
+            headers={"X-Admin-Token": token},
+            json={
+                "templates": ["TMHA_SalesContract.pdf"],
+                "data": {"buyer_name": "Smoke"},
+                "merge": True,
+            },
+        )
+
+        assert response.status_code == 400, response.text
+        body = response.json()
+        assert body["success"] is False
+        assert body["error"] == "batch_generation_failed"
+        assert body["documents_skipped"] == [
+            {
+                "template": "TMHA_SalesContract.pdf",
+                "reason": "Validation failed: Missing required fields: buyer_address",
+            }
+        ]
+        assert body["message"].startswith("TMHA_SalesContract.pdf:")
+
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))

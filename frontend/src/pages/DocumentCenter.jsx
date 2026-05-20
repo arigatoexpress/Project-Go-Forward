@@ -12,6 +12,7 @@ import adminFetch from '../adminFetch';
 import downloadAdminFile from '../downloadAdminFile';
 import {
   BUSINESS_NAME,
+  BUSINESS_LEGAL_NAME,
   BUSINESS_PHONE,
   BUSINESS_ADDRESS,
   BUSINESS_CITY,
@@ -48,7 +49,7 @@ const INITIAL_FORM = {
   manufacturer_city_state_zip: '',
   buyer_address: '', buyer_city: '', buyer_county: '', buyer_state: 'TX', buyer_zip: '',
   installer_type: 'tho',
-  installer_name: BUSINESS_NAME,
+  installer_name: BUSINESS_LEGAL_NAME,
   installer_license: '',
   installer_phone: BUSINESS_PHONE,
   installer_address: BUSINESS_ADDRESS,
@@ -227,12 +228,35 @@ function normalizeBackendMissingFields(payload) {
   };
 }
 
+function describeDocumentFailures(payload) {
+  const messages = [];
+  const docs = Array.isArray(payload?.documents) ? payload.documents : [];
+  const skipped = Array.isArray(payload?.documents_skipped) ? payload.documents_skipped : [];
+
+  docs
+    .filter(doc => doc && doc.success === false)
+    .forEach(doc => {
+      const label = doc.display_name || doc.template_name || doc.filename || 'Selected document';
+      const reason = doc.message || doc.error || 'Generation failed';
+      messages.push(`${label}: ${reason}`);
+    });
+
+  skipped.forEach(doc => {
+    const label = doc.display_name || doc.template || doc.template_name || doc.filename || 'Selected document';
+    const reason = doc.reason || doc.message || doc.error || 'Generation failed';
+    messages.push(`${label}: ${reason}`);
+  });
+
+  return [...new Set(messages.filter(Boolean))];
+}
+
 function describeGenerationFailure(payload, response) {
   const qualityMessages = Array.isArray(payload?.quality_issues)
     ? payload.quality_issues.map(issue => issue.message).filter(Boolean)
     : [];
   const missing = normalizeBackendMissingFields(payload);
-  const messageParts = [...qualityMessages, ...missing.messages];
+  const documentFailures = describeDocumentFailures(payload);
+  const messageParts = [...qualityMessages, ...missing.messages, ...documentFailures];
   return {
     message: messageParts.join(' ') || payload?.message || payload?.detail || payload?.error || response?.statusText || 'Generation failed',
     missingMessages: missing.messages,
@@ -330,7 +354,7 @@ function toDocumentData(f) {
   const financedAmount = Number.isFinite(salesPrice) ? salesPrice - downPayment : undefined;
   return {
     ...f,
-    seller_name: f.seller_name || BUSINESS_NAME,
+    seller_name: f.seller_name || BUSINESS_LEGAL_NAME,
     seller_phone: f.seller_phone || BUSINESS_PHONE,
     seller_address: f.seller_address || BUSINESS_ADDRESS,
     seller_city_state_zip: f.seller_city_state_zip || cityStateZip(BUSINESS_CITY, BUSINESS_STATE, BUSINESS_ZIP),
@@ -885,7 +909,7 @@ function ValidationErrors({ errors }) {
 
 /* ─── Step 1: Customer Info ──────────────────────────────── */
 
-function Step1({ data, onChange, resetKey, deals, dealsLoading, onLoadDeal, onNext, validationErrors, missingFields, duplicateWarning, onViewDuplicate }) {
+function Step1({ data, onChange, onLoadCustomer, resetKey, deals, dealsLoading, onLoadDeal, onNext, validationErrors, missingFields, duplicateWarning, onViewDuplicate }) {
   const [q, setQ] = useState('');
   const [showPicker, setShowPicker] = useState(false);
 
@@ -913,31 +937,34 @@ function Step1({ data, onChange, resetKey, deals, dealsLoading, onLoadDeal, onNe
     const names = (cust.full_name || '').split(' ');
     const first = names[0] || '';
     const last = names.slice(1).join(' ') || '';
-    onChange('buyer_first_name', first);
-    onChange('buyer_last_name', last);
-    if (cust.phone) onChange('buyer_phone', cust.phone);
-    if (cust.email) onChange('buyer_email', cust.email);
-    if (cust.ssn_masked) onChange('buyer_ssn', cust.ssn_masked);
-    if (cust.employer) onChange('employer_name', cust.employer);
-    if (cust.occupation) onChange('occupation', cust.occupation);
-    if (cust.salesrep) onChange('salesrep', cust.salesrep);
-    if (cust.marital_status) onChange('buyer_marital_status', cust.marital_status);
+    const patch = {
+      buyer_first_name: first,
+      buyer_last_name: last,
+    };
+    if (cust.phone) patch.buyer_phone = cust.phone;
+    if (cust.email) patch.buyer_email = cust.email;
+    if (cust.ssn_masked) patch.buyer_ssn = cust.ssn_masked;
+    if (cust.employer) patch.employer_name = cust.employer;
+    if (cust.occupation) patch.occupation = cust.occupation;
+    if (cust.salesrep) patch.salesrep = cust.salesrep;
+    if (cust.marital_status) patch.buyer_marital_status = cust.marital_status;
     // Address
     if (cust.address) {
       const parts = cust.address.split(',').map(s => s.trim());
-      if (parts[0]) onChange('mailing_address', parts[0]);
+      if (parts[0]) patch.mailing_address = parts[0];
     }
-    if (cust.city) onChange('mailing_city', cust.city);
-    if (cust.state) onChange('mailing_state', cust.state);
-    if (cust.zip_code) onChange('mailing_zip', cust.zip_code);
+    if (cust.city) patch.mailing_city = cust.city;
+    if (cust.state) patch.mailing_state = cust.state;
+    if (cust.zip_code) patch.mailing_zip = cust.zip_code;
     // Co-buyer
     if (cust.co_buyer) {
       const coNames = (cust.co_buyer.full_name || '').split(' ');
-      onChange('co_buyer_first_name', coNames[0] || '');
-      onChange('co_buyer_last_name', coNames.slice(1).join(' ') || '');
-      if (cust.co_buyer.phone) onChange('co_buyer_phone', cust.co_buyer.phone);
-      if (cust.co_buyer.ssn_masked) onChange('co_buyer_ssn', cust.co_buyer.ssn_masked);
+      patch.co_buyer_first_name = coNames[0] || '';
+      patch.co_buyer_last_name = coNames.slice(1).join(' ') || '';
+      if (cust.co_buyer.phone) patch.co_buyer_phone = cust.co_buyer.phone;
+      if (cust.co_buyer.ssn_masked) patch.co_buyer_ssn = cust.co_buyer.ssn_masked;
     }
+    onLoadCustomer(patch);
     setShowCustPicker(false);
     setCustSearch('');
   };
@@ -1428,7 +1455,7 @@ function Step2({ data, onChange, resetKey, inventory, inventoryLoading, onNext, 
     const patch = useTHO
       ? {
           installer_type: 'tho',
-          installer_name: BUSINESS_NAME,
+          installer_name: BUSINESS_LEGAL_NAME,
           installer_license: '',
           installer_phone: BUSINESS_PHONE,
           installer_address: BUSINESS_ADDRESS,
@@ -2933,6 +2960,22 @@ export default function DocumentCenter() {
     setFormResetKey(k => k + 1); // Force all Fields to re-mount with new defaultValues
   }, []);
 
+  const loadCustomerRecord = useCallback((patch) => {
+    setForm(p => ({ ...p, ...patch }));
+    setValidationErrors([]);
+    setMissingFields(prev => {
+      const next = new Set(prev);
+      Object.entries(patch).forEach(([k, v]) => {
+        if (v !== undefined && v !== null && String(v).trim() !== '') {
+          next.delete(k);
+        }
+      });
+      return next;
+    });
+    setAutoFilledFields(new Set());
+    setFormResetKey(k => k + 1);
+  }, []);
+
   // Inventory auto-fill: applies a patch in one go, bumps resetKey so the
   // uncontrolled <Field> inputs re-mount with the new defaultValue, and
   // tracks which keys came from inventory so the Field can render a
@@ -3064,7 +3107,7 @@ export default function DocumentCenter() {
       const d = await r.json().catch(() => ({
         error: `Document service returned ${r.status || 'an unexpected response'} ${r.statusText || ''}`.trim(),
       }));
-      if (!r.ok || d.error) {
+      if (!r.ok || d.error || d.success === false) {
         const failure = describeGenerationFailure(d, r);
         if (failure.missingMessages.length > 0) {
           setValidationErrors(failure.missingMessages);
@@ -3155,6 +3198,7 @@ export default function DocumentCenter() {
         <Step1
           data={form}
           onChange={chg}
+          onLoadCustomer={loadCustomerRecord}
           resetKey={formResetKey}
           deals={deals}
           dealsLoading={dealsLoading}

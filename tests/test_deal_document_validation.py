@@ -155,6 +155,13 @@ class TestValidateForDocuments:
             "financing",
         }
 
+    def test_deal_document_defaults_use_legal_seller_name(self):
+        from database.models import Deal
+
+        data = Deal().to_document_data()
+
+        assert data["seller_name"] == "Texas Home Outlet, Inc."
+
     def test_rejects_non_dict_non_model_input(self):
         from database.deal_validation import validate_for_documents
 
@@ -227,9 +234,7 @@ def _build_test_client(monkeypatch, deal_record: dict | None):
     fake_firestore_client_module = types.ModuleType("database.firestore_client")
     fake_firestore_client_module.get_database = lambda: fake_db
     fake_firestore_client_module.THODatabase = type("THODatabase", (), {})
-    monkeypatch.setitem(
-        sys.modules, "database.firestore_client", fake_firestore_client_module
-    )
+    monkeypatch.setitem(sys.modules, "database.firestore_client", fake_firestore_client_module)
 
     # Force a fresh import so previous tests do not leak module state and
     # so the freshly imported `main` picks up our patched firestore client
