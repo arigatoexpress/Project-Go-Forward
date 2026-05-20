@@ -26,6 +26,45 @@ IDENTITY_FIELDS = {
     "hud_number": "HUD label",
 }
 
+REQUIRED_FIELD_LABELS = {
+    "buyer_name": "Buyer name",
+    "buyer_first_name": "Buyer first name",
+    "buyer_last_name": "Buyer last name",
+    "buyer_address": "Installation street address",
+    "buyer_city": "Installation city",
+    "buyer_county": "Installation county",
+    "buyer_state": "Installation state",
+    "buyer_zip": "Installation ZIP",
+    "buyer_full_address": "Installation address",
+    "buyer_city_state_zip": "Installation city/state/ZIP",
+    "manufacturer": "Manufacturer",
+    "model": "Model",
+    "manufacturer_model": "Manufacturer/model",
+    "serial_number_1": "Serial # 1",
+    "serial_number_2": "Serial # 2",
+    "label_number_1": "HUD label # 1",
+    "label_number_2": "HUD label # 2",
+    "seller_name": "Seller name",
+    "seller_address": "Seller address",
+    "sales_price": "Sales price",
+    "down_payment": "Down payment",
+    "creditor_name": "Creditor name",
+    "creditor_address": "Creditor address",
+    "creditor_city_state_zip": "Creditor city/state/ZIP",
+    "creditor_phone": "Creditor phone",
+}
+
+REQUIRED_FIELD_ALIASES = {
+    "buyer_name": ("buyer_name", "buyer_first_name", "buyer_last_name"),
+    "buyer_full_address": ("buyer_full_address", "buyer_address"),
+    "buyer_city_state_zip": ("buyer_city_state_zip", "buyer_city"),
+    "mailing_full_address": ("mailing_full_address", "mailing_address"),
+    "mailing_city_state_zip": ("mailing_city_state_zip", "mailing_city"),
+    "manufacturer_model": ("manufacturer_model", "manufacturer", "model"),
+    "seller_name": ("seller_name",),
+    "seller_address": ("seller_address",),
+}
+
 PLACEHOLDER_ID_VALUES = {
     "123456",
     "1234567",
@@ -113,6 +152,11 @@ def _money(value: Decimal | None) -> str | None:
     return f"{value.quantize(Decimal('0.01')):,.2f}"
 
 
+def _join_non_empty(values: list[Any], separator: str = " ") -> str:
+    clean = [_clean(value) for value in values if _has_value(value)]
+    return separator.join(clean)
+
+
 def _normalize_identifier(value: Any) -> str:
     return re.sub(r"[^a-z0-9]", "", _clean(value).lower())
 
@@ -149,6 +193,37 @@ def enrich_document_data(data: dict[str, Any]) -> dict[str, Any]:
     enriched.setdefault("seller_address", BUSINESS_ADDRESS)
     enriched.setdefault("seller_city_state_zip", BUSINESS_CITY_STATE_ZIP)
 
+    if _is_blank(enriched.get("buyer_name")):
+        buyer_name = _join_non_empty(
+            [enriched.get("buyer_first_name"), enriched.get("buyer_last_name")]
+        )
+        if buyer_name:
+            enriched["buyer_name"] = buyer_name
+
+    if _is_blank(enriched.get("buyer_city_state_zip")):
+        buyer_city_state_zip = _join_non_empty(
+            [
+                enriched.get("buyer_city"),
+                _join_non_empty([enriched.get("buyer_state"), enriched.get("buyer_zip")]),
+            ],
+            ", ",
+        )
+        if buyer_city_state_zip:
+            enriched["buyer_city_state_zip"] = buyer_city_state_zip
+
+    if _is_blank(enriched.get("buyer_full_address")):
+        buyer_full_address = _join_non_empty(
+            [enriched.get("buyer_address"), enriched.get("buyer_city_state_zip")],
+            ", ",
+        )
+        if buyer_full_address:
+            enriched["buyer_full_address"] = buyer_full_address
+
+    if _is_blank(enriched.get("manufacturer_model")):
+        manufacturer_model = _join_non_empty([enriched.get("manufacturer"), enriched.get("model")])
+        if manufacturer_model:
+            enriched["manufacturer_model"] = manufacturer_model
+
     sales_price = _decimal(enriched.get("sales_price"))
     down_payment = _decimal(enriched.get("down_payment")) or Decimal("0")
     loan_amount = None
@@ -167,6 +242,72 @@ def enrich_document_data(data: dict[str, Any]) -> dict[str, Any]:
         enriched["total_monthly_payment"] = _money(monthly_payment)
 
     return enriched
+
+
+def _required_field_has_value(data: dict[str, Any], field: str) -> bool:
+    if _has_value(data.get(field)):
+        if field == "sales_price":
+            amount = _decimal(data.get(field))
+            return amount is not None and amount > 0
+        return True
+
+    aliases = REQUIRED_FIELD_ALIASES.get(field, ())
+    if field == "buyer_name":
+        return _has_value(data.get("buyer_name")) or (
+            _has_value(data.get("buyer_first_name")) and _has_value(data.get("buyer_last_name"))
+        )
+    if field == "buyer_city_state_zip":
+        return _has_value(data.get("buyer_city_state_zip")) or (
+            _has_value(data.get("buyer_city"))
+            and _has_value(data.get("buyer_state"))
+            and _has_value(data.get("buyer_zip"))
+        )
+    if field == "buyer_full_address":
+        return _has_value(data.get("buyer_full_address")) or (
+            _has_value(data.get("buyer_address"))
+            and _required_field_has_value(data, "buyer_city_state_zip")
+        )
+    if field == "manufacturer_model":
+        return _has_value(data.get("manufacturer_model")) or (
+            _has_value(data.get("manufacturer")) and _has_value(data.get("model"))
+        )
+    return any(_has_value(data.get(alias)) for alias in aliases)
+
+
+def validate_required_document_data(
+    data: dict[str, Any],
+    required_fields: list[str] | tuple[str, ...] | set[str] | None,
+) -> list[DocumentQualityIssue]:
+    """Validate template-declared required fields before PDF generation.
+
+    The UI uses the same metadata, but this backend gate protects direct API
+    callers and prevents a partial deal from producing official-looking PDFs.
+    """
+    enriched = enrich_document_data(data)
+    issues: list[DocumentQualityIssue] = []
+    seen: set[str] = set()
+
+    for field in required_fields or []:
+        if not field or field in seen:
+            continue
+        seen.add(field)
+        if _required_field_has_value(enriched, field):
+            continue
+        label = REQUIRED_FIELD_LABELS.get(field, field.replace("_", " ").title())
+        message = f"{label} is required before generating documents."
+        if field == "sales_price":
+            message = (
+                "Sales price is required and must be greater than $0 before generating documents."
+            )
+        issues.append(
+            DocumentQualityIssue(
+                code="missing_required_field",
+                field=field,
+                message=message,
+            )
+        )
+
+    return issues
 
 
 def validate_document_quality(
@@ -220,9 +361,19 @@ def validate_document_quality(
 
 def quality_failure_response(issues: list[DocumentQualityIssue]) -> dict[str, Any]:
     first = issues[0].message if issues else "Document quality gate failed."
+    missing_fields = [
+        issue.field for issue in issues if issue.code == "missing_required_field" and issue.field
+    ]
+    if missing_fields:
+        missing_labels = [
+            REQUIRED_FIELD_LABELS.get(field, field.replace("_", " ").title())
+            for field in missing_fields
+        ]
+        first = f"Missing required fields: {', '.join(missing_labels)}"
     return {
         "success": False,
-        "error": "quality_gate_failed",
+        "error": "missing_required_fields" if missing_fields else "quality_gate_failed",
         "message": first,
         "quality_issues": [issue.to_dict() for issue in issues],
+        "missing_fields": missing_fields,
     }
