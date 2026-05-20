@@ -190,6 +190,43 @@ const FIELD_STEP = {
   mailing_zip: 1,
 };
 
+const SIMPLE_CREDIT_TEMPLATES = new Set([
+  'creditapp.pdf',
+  'State_CreditAuth.pdf',
+  'State_PatriotAct.pdf',
+  'State_NoticeNegativeInfo.pdf',
+]);
+
+const DOCUMENT_PACKET_BASELINE_FIELDS = [
+  { field: 'buyer_first_name', label: 'Buyer first name', step: 1 },
+  { field: 'buyer_last_name', label: 'Buyer last name', step: 1 },
+  { field: 'buyer_phone', label: 'Buyer phone', step: 1 },
+  { field: 'manufacturer', label: 'Manufacturer', step: 2 },
+  { field: 'model', label: 'Model name', step: 2 },
+  { field: 'serial_number_1', label: 'Serial # 1', step: 2 },
+  { field: 'buyer_address', label: 'Installation street address', step: 2 },
+  { field: 'buyer_city', label: 'Installation city', step: 2 },
+  { field: 'buyer_county', label: 'Installation county', step: 2 },
+  { field: 'buyer_state', label: 'Installation state', step: 2 },
+  { field: 'buyer_zip', label: 'Installation ZIP', step: 2 },
+];
+
+const CREDIT_PACKET_BASELINE_FIELDS = [
+  { field: 'buyer_first_name', label: 'Buyer first name', step: 1 },
+  { field: 'buyer_last_name', label: 'Buyer last name', step: 1 },
+  { field: 'buyer_phone', label: 'Buyer phone', step: 1 },
+  { field: 'buyer_email', label: 'Buyer email', step: 1 },
+];
+
+const DOCUMENT_RECOMMENDED_FIELDS = [
+  { field: 'label_number_1', label: 'HUD label # 1' },
+  { field: 'label_number_2', label: 'HUD label # 2' },
+  { field: 'date_of_manufacture', label: 'Date of manufacture' },
+  { field: 'wind_zone', label: 'Wind zone' },
+  { field: 'down_payment', label: 'Down payment' },
+  { field: 'salesrep', label: 'Sales representative' },
+];
+
 const friendlyFieldLabel = field => REQUIRED_FIELD_LABELS[field] || String(field || '').replace(/_/g, ' ');
 
 function normalizeBackendMissingFields(payload) {
@@ -1930,7 +1967,7 @@ function Step2({ data, onChange, resetKey, inventory, inventoryLoading, onNext, 
 
 /* ─── Step 3: Select Documents ───────────────────────────── */
 
-function Step3({ templates, packets, selected, onToggle, onSelectPacket, isNew, onNext, onBack, templatesLoading, error, validationErrors }) {
+function Step3({ templates, packets, selected, onToggle, onSelectPacket, isNew, onNext, onBack, templatesLoading, error, validationErrors, documentReadiness }) {
   const [expandedCats, setExpandedCats] = useState({ TMHA: true, TDHCA: false, State: false, Internal: false });
   const [viewMode, setViewMode] = useState('packets'); // packets, individual
 
@@ -1949,11 +1986,15 @@ function Step3({ templates, packets, selected, onToggle, onSelectPacket, isNew, 
     const bRec = isNew ? (b.packet_name === 'standard_closing' || b.packet_name.includes('new')) : b.packet_name.includes('used');
     return bRec - aRec;
   });
-  const generateDisabled = templatesLoading || selected.length === 0;
+  const readinessErrors = documentReadiness?.errors || [];
+  const recommendedFields = documentReadiness?.recommended || [];
+  const generateDisabled = templatesLoading || selected.length === 0 || readinessErrors.length > 0;
   const generateBlockReason = templatesLoading
     ? 'Document templates are still loading. Please wait a moment before generating.'
     : selected.length === 0
       ? 'Choose a recommended packet or select at least one individual document before generating.'
+      : readinessErrors.length > 0
+        ? `Complete ${readinessErrors.length} required data item${readinessErrors.length !== 1 ? 's' : ''} before generating.`
       : '';
   const hasVisibleTemplates = (templates || []).length > 0;
 
@@ -1966,6 +2007,46 @@ function Step3({ templates, packets, selected, onToggle, onSelectPacket, isNew, 
       </div>
 
       <ValidationErrors errors={validationErrors} />
+
+      {selected.length > 0 && (
+        <div
+          className={`rounded-xl border-2 px-5 py-4 ${
+            readinessErrors.length > 0
+              ? 'border-red-200 bg-red-50 text-red-800'
+              : 'border-green-200 bg-green-50 text-green-800'
+          }`}
+        >
+          <div className="flex items-start gap-3">
+            {readinessErrors.length > 0
+              ? <AlertCircle size={20} className="mt-0.5 flex-shrink-0" />
+              : <CheckCircle size={20} className="mt-0.5 flex-shrink-0" />}
+            <div className="min-w-0 flex-1">
+              <h3 className="font-bold">
+                {readinessErrors.length > 0 ? 'Deal data needs attention' : 'Deal data ready for selected documents'}
+              </h3>
+              {readinessErrors.length > 0 ? (
+                <ul className="mt-2 list-disc pl-5 text-sm space-y-1">
+                  {readinessErrors.slice(0, 8).map(errorText => (
+                    <li key={errorText}>{errorText}</li>
+                  ))}
+                  {readinessErrors.length > 8 && (
+                    <li>{readinessErrors.length - 8} more required items need review.</li>
+                  )}
+                </ul>
+              ) : recommendedFields.length > 0 ? (
+                <p className="mt-1 text-sm text-green-700">
+                  Recommended before final customer packets: {recommendedFields.slice(0, 5).join(', ')}
+                  {recommendedFields.length > 5 ? ` and ${recommendedFields.length - 5} more` : ''}.
+                </p>
+              ) : (
+                <p className="mt-1 text-sm text-green-700">
+                  Required fields are complete for the selected packet.
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {templatesLoading && (
         <div className="flex items-center justify-center gap-3 rounded-xl border-2 border-blue-200 bg-blue-50 px-4 py-3 text-blue-700">
@@ -2713,10 +2794,66 @@ function getSelectedTemplateRequiredState(form, templates, selected) {
     const label = REQUIRED_FIELD_LABELS[field] || field.replace(/_/g, ' ');
     const sample = documents.slice(0, 2).join(', ');
     const suffix = documents.length > 2 ? ` and ${documents.length - 2} more` : '';
-    errors.push(`${label} is required for ${sample}${suffix}`);
+    if (field === 'sales_price') {
+      errors.push(`Sales price is required and must be greater than $0 for ${sample}${suffix}`);
+    } else {
+      errors.push(`${label} is required for ${sample}${suffix}`);
+    }
   });
 
   return { errors, missing, step: targetStep };
+}
+
+function getDocumentCompletenessState(form, templates, selected) {
+  if (!selected || selected.length === 0) {
+    return { errors: [], missing: new Set(), step: 3, recommended: [] };
+  }
+
+  const selectedRequired = getSelectedTemplateRequiredState(form, templates, selected);
+  const errors = [...selectedRequired.errors];
+  const missing = new Set(selectedRequired.missing);
+  let targetStep = selectedRequired.errors.length > 0 ? selectedRequired.step : 3;
+  const selectedSet = new Set(selected);
+  const creditOnly = selected.length > 0 && selected.every(template => SIMPLE_CREDIT_TEMPLATES.has(template));
+  const baselineFields = creditOnly ? CREDIT_PACKET_BASELINE_FIELDS : DOCUMENT_PACKET_BASELINE_FIELDS;
+  const addMissing = ({ field, label, step }) => {
+    if (hasValue(form[field])) return;
+    if (missing.has(field)) return;
+    missing.add(field);
+    errors.push(`${label} is required before generating documents.`);
+    targetStep = Math.min(targetStep, step || FIELD_STEP[field] || 2);
+  };
+
+  baselineFields.forEach(addMissing);
+
+  const selectedTemplates = (templates || []).filter(template => selectedSet.has(template.template_name));
+  const requiresSalesPrice = selectedTemplates.some(template => (
+    (template.required_fields || []).includes('sales_price')
+      || /sales\s*contract|deposit/i.test(`${template.display_name || ''} ${template.template_name || ''}`)
+  ));
+  if (requiresSalesPrice) {
+    const amount = numericMoney(form.sales_price);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      if (!missing.has('sales_price')) {
+        missing.add('sales_price');
+        errors.push('Sales price is required and must be greater than $0 before generating documents.');
+      }
+      targetStep = Math.min(targetStep, 2);
+    }
+  }
+
+  const recommended = creditOnly
+    ? []
+    : DOCUMENT_RECOMMENDED_FIELDS
+        .filter(({ field }) => !hasValue(form[field]))
+        .map(({ label }) => label);
+
+  return {
+    errors: [...new Set(errors)],
+    missing,
+    step: targetStep,
+    recommended,
+  };
 }
 
 /* ─── Main Component ─────────────────────────────────────── */
@@ -3071,6 +3208,14 @@ export default function DocumentCenter() {
       setGenErr(`Selected document is no longer available: ${missingTemplates.join(', ')}`);
       return;
     }
+    const documentCompleteness = getDocumentCompletenessState(form, templates, selDocs);
+    if (documentCompleteness.errors.length > 0) {
+      setValidationErrors(documentCompleteness.errors);
+      setMissingFields(documentCompleteness.missing);
+      setStep(documentCompleteness.step);
+      if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
     const selectedRequired = getSelectedTemplateRequiredState(form, templates, selDocs);
     if (selectedRequired.errors.length > 0) {
       setValidationErrors(selectedRequired.errors);
@@ -3262,6 +3407,7 @@ export default function DocumentCenter() {
           templates={templates}
           packets={packets}
           selected={selDocs}
+          documentReadiness={getDocumentCompletenessState(form, templates, selDocs)}
           onToggle={toggleDoc}
           onSelectPacket={selectPacket}
           isNew={form.is_new}

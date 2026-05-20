@@ -1,5 +1,9 @@
 from tools.document_engine_v2 import generate_batch, generate_document
-from tools.document_quality import enrich_document_data, validate_document_quality
+from tools.document_quality import (
+    enrich_document_data,
+    validate_document_quality,
+    validate_required_document_data,
+)
 
 BASE_DATA = {
     "buyer_name": "Quality Buyer",
@@ -57,3 +61,52 @@ def test_quality_enrichment_adds_seller_and_financing_aliases():
     assert enriched["max_financed"] == "50,000.00"
     assert enriched["unpaid_balance"] == "50,000.00"
     assert enriched["interest_rate"] == "7.5"
+
+
+def test_required_field_gate_reports_missing_template_data_before_generation():
+    issues = validate_required_document_data(
+        {
+            "buyer_name": "Lee Partial",
+            "manufacturer": "TRU Homes",
+            "model": "Delight",
+            "serial_number_1": "TRU-REAL-001",
+        },
+        ["buyer_address", "buyer_city", "buyer_county", "buyer_state", "buyer_zip", "sales_price"],
+    )
+
+    assert [issue.code for issue in issues] == [
+        "missing_required_field",
+        "missing_required_field",
+        "missing_required_field",
+        "missing_required_field",
+        "missing_required_field",
+        "missing_required_field",
+    ]
+    assert [issue.field for issue in issues] == [
+        "buyer_address",
+        "buyer_city",
+        "buyer_county",
+        "buyer_state",
+        "buyer_zip",
+        "sales_price",
+    ]
+
+
+def test_batch_generation_fails_closed_when_required_sales_contract_data_missing():
+    result = generate_batch(
+        ["TMHA_SalesContract.pdf"],
+        {
+            "buyer_name": "Lee Partial",
+            "manufacturer": "TRU Homes",
+            "model": "Delight",
+            "serial_number_1": "TRU-REAL-001",
+        },
+        merge=True,
+    )
+
+    assert result["success"] is False
+    assert result["error"] == "missing_required_fields"
+    assert result["successful"] == 0
+    assert "buyer_address" in result["missing_fields"]
+    assert "sales_price" in result["missing_fields"]
+    assert result["quality_issues"][0]["code"] == "missing_required_field"

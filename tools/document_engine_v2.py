@@ -16,14 +16,15 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from pypdf import PdfReader, PdfWriter
 
 from config.field_map_loader import get_field_map
-
-# Local imports
-from tools.document_tools import DOCUMENTS_DIR, OUTPUT_DIR, fill_pdf_form, upload_to_gcs
 from tools.document_quality import (
     enrich_document_data,
     quality_failure_response,
     validate_document_quality,
+    validate_required_document_data,
 )
+
+# Local imports
+from tools.document_tools import DOCUMENTS_DIR, OUTPUT_DIR, fill_pdf_form, upload_to_gcs
 from tools.drive_service import ensure_deal_folder, upload_to_drive
 
 logger = logging.getLogger(__name__)
@@ -62,7 +63,9 @@ LEGACY_FIELD_SOURCES: dict[str, tuple[str, ...]] = {
 def _has_value(value: Any) -> bool:
     return value is not None and str(value).strip() != ""
 
+
 # ─── Pydantic Models ────────────────────────────────────────────────────────
+
 
 class PersonModel(BaseModel):
     buyer_name: str
@@ -88,6 +91,7 @@ class PersonModel(BaseModel):
     occupation: str | None = None
     occupation_length: str | None = None
     work_phone: str | None = None
+
 
 class ProductModel(BaseModel):
     manufacturer: str
@@ -120,6 +124,7 @@ class ProductModel(BaseModel):
             # If neither are true, we default to New
             self.is_new = True
         return self
+
 
 class FinancialModel(BaseModel):
     sales_price: Decimal = Field(default=Decimal("0"), decimal_places=2)
@@ -194,20 +199,26 @@ class FinancialModel(BaseModel):
         r = (self.apr / Decimal("100")) / Decimal("12")
         if r > 0:
             power = (1 + r) ** self.loan_term
-            self.monthly_payment = (
-                self.loan_amount * r * power / (power - 1)
-            ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            self.monthly_payment = (self.loan_amount * r * power / (power - 1)).quantize(
+                Decimal("0.01"), rounding=ROUND_HALF_UP
+            )
         else:
-            self.monthly_payment = (self.loan_amount / Decimal(self.loan_term)).quantize(Decimal("0.01"))
+            self.monthly_payment = (self.loan_amount / Decimal(self.loan_term)).quantize(
+                Decimal("0.01")
+            )
 
-        self.total_of_payments = (self.monthly_payment * self.loan_term + self.down_payment).quantize(Decimal("0.01"))
+        self.total_of_payments = (
+            self.monthly_payment * self.loan_term + self.down_payment
+        ).quantize(Decimal("0.01"))
         self.finance_charge = (self.total_of_payments - self.sales_price).quantize(Decimal("0.01"))
         return self
+
 
 class MetaModel(BaseModel):
     generation_id: str = Field(default_factory=lambda: str(uuid4())[:12].upper())
     generation_timestamp: str = Field(default_factory=lambda: datetime.now().isoformat())
     generated_by: str = "THO System"
+
 
 class UnifiedPayload(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -223,22 +234,53 @@ class UnifiedPayload(BaseModel):
         Backward compatibility: normalizes flat v1 payloads into v2 domains.
         """
         domain_map = {
-            "buyer_name": "person", "buyer_first_name": "person", "buyer_last_name": "person",
-            "buyer_address": "person", "buyer_city": "person", "buyer_county": "person",
-            "buyer_state": "person", "buyer_zip": "person", "buyer_email": "person",
-            "buyer_phone": "person", "buyer_ssn": "person", "buyer_dob": "person",
-            "buyer_marital_status": "person", "co_buyer_name": "person",
-            "co_buyer_first_name": "person", "co_buyer_last_name": "person",
-            "co_buyer_address": "person", "co_buyer_ssn": "person", "co_buyer_dob": "person",
-            "employer_name": "person", "occupation": "person", "occupation_length": "person", "work_phone": "person",
-            "manufacturer": "product", "model": "product", "serial_number_1": "product",
-            "serial_number_2": "product", "hud_number": "product", "label_number_1": "product",
-            "label_number_2": "product", "year": "product", "is_new": "product", "is_used": "product",
-            "no_of_sections": "product", "sq_ft": "product", "wind_zone": "product",
-            "weight_sec_1": "product", "weight_sec_2": "product", "date_of_manufacture": "product",
-            "manufacturer_address": "product", "manufacturer_city_state_zip": "product",
-            "sales_price": "financial", "down_payment": "financial", "loan_term": "financial",
-            "apr": "financial", "doc_fee": "financial", "amt_points": "financial"
+            "buyer_name": "person",
+            "buyer_first_name": "person",
+            "buyer_last_name": "person",
+            "buyer_address": "person",
+            "buyer_city": "person",
+            "buyer_county": "person",
+            "buyer_state": "person",
+            "buyer_zip": "person",
+            "buyer_email": "person",
+            "buyer_phone": "person",
+            "buyer_ssn": "person",
+            "buyer_dob": "person",
+            "buyer_marital_status": "person",
+            "co_buyer_name": "person",
+            "co_buyer_first_name": "person",
+            "co_buyer_last_name": "person",
+            "co_buyer_address": "person",
+            "co_buyer_ssn": "person",
+            "co_buyer_dob": "person",
+            "employer_name": "person",
+            "occupation": "person",
+            "occupation_length": "person",
+            "work_phone": "person",
+            "manufacturer": "product",
+            "model": "product",
+            "serial_number_1": "product",
+            "serial_number_2": "product",
+            "hud_number": "product",
+            "label_number_1": "product",
+            "label_number_2": "product",
+            "year": "product",
+            "is_new": "product",
+            "is_used": "product",
+            "no_of_sections": "product",
+            "sq_ft": "product",
+            "wind_zone": "product",
+            "weight_sec_1": "product",
+            "weight_sec_2": "product",
+            "date_of_manufacture": "product",
+            "manufacturer_address": "product",
+            "manufacturer_city_state_zip": "product",
+            "sales_price": "financial",
+            "down_payment": "financial",
+            "loan_term": "financial",
+            "apr": "financial",
+            "doc_fee": "financial",
+            "amt_points": "financial",
         }
 
         normalized = {"person": {}, "product": {}, "financial": {}, "meta": {}}
@@ -257,9 +299,11 @@ class UnifiedPayload(BaseModel):
 
         return cls(**normalized)
 
+
 UnifiedPayload.model_rebuild()
 
 # ─── Engine Logic ──────────────────────────────────────────────────────────
+
 
 class DocumentEngineV2:
     def __init__(self, schema_path: str = "config/unified_schema.json"):
@@ -274,7 +318,9 @@ class DocumentEngineV2:
         # Load legacy schema for backward compatibility
         try:
             self.legacy_schema = get_field_map()
-            logger.info(f"Loaded legacy schema with {len(self.legacy_schema.get('templates', {}))} templates.")
+            logger.info(
+                f"Loaded legacy schema with {len(self.legacy_schema.get('templates', {}))} templates."
+            )
         except Exception as e:
             logger.error(f"Failed to load legacy schema: {e}")
             self.legacy_schema = {"templates": {}, "packets": {}}
@@ -285,14 +331,59 @@ class DocumentEngineV2:
         token = token[:max_length].strip("_")
         return token or default
 
-    def generate_document(self, template_name: str, data: dict[str, Any], output_filename: str | None = None, deal_id: str | None = None) -> dict[str, Any]:
+    def _template_config(self, template_name: str) -> dict[str, Any]:
+        legacy = self.legacy_schema.get("templates", {}).get(template_name) or {}
+        current = self.schema.get("templates", {}).get(template_name) or {}
+        if not legacy:
+            return current
+        if not current:
+            return legacy
+        merged = {**legacy, **current}
+        if not current.get("required_fields") and legacy.get("required_fields"):
+            merged["required_fields"] = legacy.get("required_fields", [])
+        if not current.get("description") and legacy.get("description"):
+            merged["description"] = legacy.get("description", "")
+        return merged
+
+    def _required_fields_for_templates(
+        self, template_names: list[str] | tuple[str, ...]
+    ) -> list[str]:
+        required: list[str] = []
+        seen: set[str] = set()
+        for template_name in template_names:
+            for field in self._template_config(template_name).get("required_fields", []) or []:
+                if field and field not in seen:
+                    required.append(field)
+                    seen.add(field)
+        return required
+
+    def _quality_gate(
+        self, data: dict[str, Any], template_names: list[str] | tuple[str, ...]
+    ) -> dict[str, Any] | None:
+        required_issues = validate_required_document_data(
+            data,
+            self._required_fields_for_templates(template_names),
+        )
+        quality_issues = validate_document_quality(data, templates=list(template_names))
+        issues = [*required_issues, *quality_issues]
+        if not issues:
+            return None
+        return quality_failure_response(issues)
+
+    def generate_document(
+        self,
+        template_name: str,
+        data: dict[str, Any],
+        output_filename: str | None = None,
+        deal_id: str | None = None,
+    ) -> dict[str, Any]:
         """
         Generate a single document using the v2 engine.
         """
         data = enrich_document_data(data)
-        quality_issues = validate_document_quality(data, templates=[template_name])
-        if quality_issues:
-            return quality_failure_response(quality_issues)
+        quality_failure = self._quality_gate(data, [template_name])
+        if quality_failure:
+            return quality_failure
 
         # 1. Normalize and Validate Payload
         try:
@@ -309,7 +400,10 @@ class DocumentEngineV2:
         legacy_tpl_config = self.legacy_schema.get("templates", {}).get(template_name)
 
         if not tpl_config and not legacy_tpl_config:
-            return {"success": False, "message": f"Template {template_name} not found in unified or legacy schemas."}
+            return {
+                "success": False,
+                "message": f"Template {template_name} not found in unified or legacy schemas.",
+            }
 
         # If it's only in legacy, we'll use a virtual v2 config
         is_legacy_only = False
@@ -320,7 +414,7 @@ class DocumentEngineV2:
                 "category": legacy_tpl_config.get("category", "Legacy"),
                 "field_map": {},  # We'll handle legacy mapping separately
                 "checkbox_fields": {},
-                "static_values": legacy_tpl_config.get("static_values", {})
+                "static_values": legacy_tpl_config.get("static_values", {}),
             }
 
         # 3. Verify PDF exists
@@ -349,7 +443,7 @@ class DocumentEngineV2:
         if legacy_tpl_config:
             # Text fields from legacy
             for pdf_path, legacy_key in legacy_tpl_config.get("field_map", {}).items():
-                if pdf_path not in pdf_data: # Don't overwrite v2 mapping if it exists
+                if pdf_path not in pdf_data:  # Don't overwrite v2 mapping if it exists
                     val = None
                     for domain_key in LEGACY_FIELD_SOURCES.get(legacy_key, ()):
                         candidate = flat_payload.get(domain_key)
@@ -362,17 +456,21 @@ class DocumentEngineV2:
                         val = data.get(legacy_key)
 
                     if _has_value(val):
-                        if isinstance(val, (Decimal, float)) or (isinstance(val, str) and legacy_key in [
-                            "sales_price",
-                            "down_payment",
-                            "monthly_payment",
-                            "total_monthly_payment",
-                            "total_payments",
-                            "max_financed",
-                            "unpaid_balance",
-                            "total_unpaid_balance",
-                            "finance_charge",
-                        ]):
+                        if isinstance(val, Decimal | float) or (
+                            isinstance(val, str)
+                            and legacy_key
+                            in [
+                                "sales_price",
+                                "down_payment",
+                                "monthly_payment",
+                                "total_monthly_payment",
+                                "total_payments",
+                                "max_financed",
+                                "unpaid_balance",
+                                "total_unpaid_balance",
+                                "finance_charge",
+                            ]
+                        ):
                             try:
                                 d_val = Decimal(str(val).replace("$", "").replace(",", ""))
                                 pdf_data[pdf_path] = f"{d_val:,.2f}"
@@ -428,22 +526,28 @@ class DocumentEngineV2:
                     "computed": payload.financial.model_dump(),
                     "mapping": {
                         "total_fields": len(pdf_data),
-                        "source": "unified_schema_v2" if not is_legacy_only else "legacy_fallback"
-                    }
-                }
+                        "source": "unified_schema_v2" if not is_legacy_only else "legacy_fallback",
+                    },
+                },
             }
         except Exception as e:
             logger.error(f"PDF filling failed: {e}")
             return {"success": False, "message": str(e)}
 
-    def generate_batch(self, template_names: list[str], data: dict[str, Any], merge: bool = True, deal_id: str | None = None) -> dict[str, Any]:
+    def generate_batch(
+        self,
+        template_names: list[str],
+        data: dict[str, Any],
+        merge: bool = True,
+        deal_id: str | None = None,
+    ) -> dict[str, Any]:
         """
         Generate multiple documents and optionally merge.
         """
         data = enrich_document_data(data)
-        quality_issues = validate_document_quality(data, templates=template_names)
-        if quality_issues:
-            response = quality_failure_response(quality_issues)
+        quality_failure = self._quality_gate(data, template_names)
+        if quality_failure:
+            response = quality_failure
             response.update(
                 {
                     "documents": [],
@@ -464,15 +568,19 @@ class DocumentEngineV2:
                 or self.legacy_schema.get("templates", {}).get(tpl)
                 or {}
             )
-            results.append({
-                "template_name": tpl,
-                "display_name": template_config.get("display_name", tpl),
-                "success": res["success"],
-                "filename": res.get("filename"),
-                "download_url": f"/api/documents/download/{res['filename']}" if res.get("filename") else None,
-                "message": res.get("message", ""),
-                "intelligence": res.get("intelligence")
-            })
+            results.append(
+                {
+                    "template_name": tpl,
+                    "display_name": template_config.get("display_name", tpl),
+                    "success": res["success"],
+                    "filename": res.get("filename"),
+                    "download_url": f"/api/documents/download/{res['filename']}"
+                    if res.get("filename")
+                    else None,
+                    "message": res.get("message", ""),
+                    "intelligence": res.get("intelligence"),
+                }
+            )
             if res["success"] and res.get("file_path"):
                 successful_files.append(res["file_path"])
 
@@ -509,8 +617,8 @@ class DocumentEngineV2:
                     "document_count": len(successful_files),
                     "intelligence": {
                         "batch_id": str(uuid4())[:8],
-                        "summary": f"Unified generation for {len(successful_files)} documents."
-                    }
+                        "summary": f"Unified generation for {len(successful_files)} documents.",
+                    },
                 }
             except Exception as e:
                 logger.error(f"Batch merge failed: {e}")
@@ -523,7 +631,9 @@ class DocumentEngineV2:
             "successful": len(successful_files),
         }
 
-    def generate_packet(self, packet_name: str, data: dict[str, Any], deal_id: str | None = None) -> dict[str, Any]:
+    def generate_packet(
+        self, packet_name: str, data: dict[str, Any], deal_id: str | None = None
+    ) -> dict[str, Any]:
         """
         Generate a document packet (backward compatibility wrapper for generate_batch).
         """
@@ -549,16 +659,19 @@ class DocumentEngineV2:
                 "display_name": cfg.get("display_name", name),
                 "category": cfg.get("category", "Legacy"),
                 "description": cfg.get("description", ""),
-                "is_v2": False
+                "required_fields": cfg.get("required_fields", []),
+                "is_v2": False,
             }
 
         for name, cfg in v2_templates.items():
+            merged_cfg = self._template_config(name)
             all_templates[name] = {
                 "template_name": name,
-                "display_name": cfg.get("display_name", name),
-                "category": cfg.get("category", "Other"),
-                "description": cfg.get("description", ""),
-                "is_v2": True
+                "display_name": merged_cfg.get("display_name", name),
+                "category": merged_cfg.get("category", "Other"),
+                "description": merged_cfg.get("description", ""),
+                "required_fields": merged_cfg.get("required_fields", []),
+                "is_v2": True,
             }
 
         return list(all_templates.values())
@@ -574,7 +687,7 @@ class DocumentEngineV2:
                 "display_name": cfg.get("display_name", name),
                 "description": cfg.get("description", ""),
                 "template_count": len(cfg.get("templates", [])),
-                "templates": cfg.get("templates", [])
+                "templates": cfg.get("templates", []),
             }
 
         for name, cfg in v2_packets.items():
@@ -583,7 +696,7 @@ class DocumentEngineV2:
                 "display_name": cfg.get("display_name", name),
                 "description": cfg.get("description", ""),
                 "template_count": len(cfg.get("templates", [])),
-                "templates": cfg.get("templates", [])
+                "templates": cfg.get("templates", []),
             }
 
         return list(all_packets.values())
@@ -601,41 +714,51 @@ class DocumentEngineV2:
         for domain_name, domain_cfg in self.schema["domains"].items():
             sections[domain_name] = []
             for field_name, field_cfg in domain_cfg["fields"].items():
-                sections[domain_name].append({
-                    "field_name": field_name,
-                    "label": field_cfg.get("label", field_name),
-                    "type": field_cfg.get("type", "string"),
-                    "required": field_cfg.get("required", False)
-                })
+                sections[domain_name].append(
+                    {
+                        "field_name": field_name,
+                        "label": field_cfg.get("label", field_name),
+                        "type": field_cfg.get("type", "string"),
+                        "required": field_cfg.get("required", False),
+                    }
+                )
 
         return {
             "template_name": template_name,
             "display_name": tpl.get("display_name", template_name),
             "category": tpl.get("category", "Other"),
-            "sections": sections
+            "sections": sections,
         }
+
 
 # ─── Singleton Instance & Proxy Functions ──────────────────────────────────
 
 _engine = DocumentEngineV2()
 
+
 def generate_document(template_name, data, output_filename=None, deal_id=None):
     return _engine.generate_document(template_name, data, output_filename, deal_id)
+
 
 def generate_batch(template_names, data, merge=True, deal_id=None):
     return _engine.generate_batch(template_names, data, merge, deal_id)
 
+
 def generate_packet(packet_name, data, deal_id=None):
     return _engine.generate_packet(packet_name, data, deal_id)
+
 
 def list_available_templates():
     return _engine.list_available_templates()
 
+
 def list_available_packets():
     return _engine.list_available_packets()
 
+
 def get_all_field_definitions():
     return _engine.get_all_field_definitions()
+
 
 def get_template_fields(template_name):
     return _engine.get_template_fields(template_name)
