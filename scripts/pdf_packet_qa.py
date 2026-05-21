@@ -19,7 +19,6 @@ from typing import Any
 
 from pypdf import PdfReader
 
-
 PLACEHOLDER_PATTERNS = {
     "fake_hud_or_serial": re.compile(r"\b(?:nta1234567|nta1234568|12345678|12345677)\b", re.I),
     "note_placeholder": re.compile(
@@ -30,7 +29,25 @@ PLACEHOLDER_PATTERNS = {
 }
 
 
-def qa_pdf(path: Path) -> dict[str, Any]:
+def _normalize_text(value: str) -> str:
+    return re.sub(r"\s+", " ", value).strip().lower()
+
+
+def _missing_expected_texts(combined_text: str, expected_texts: list[str] | None) -> list[str]:
+    normalized = _normalize_text(combined_text)
+    return [
+        expected
+        for expected in expected_texts or []
+        if _normalize_text(expected) not in normalized
+    ]
+
+
+def qa_pdf(
+    path: Path,
+    *,
+    expected_texts: list[str] | None = None,
+    min_pages: int | None = None,
+) -> dict[str, Any]:
     reader = PdfReader(str(path))
     text_by_page: list[str] = []
     page_sizes: list[str] = []
@@ -73,6 +90,24 @@ def qa_pdf(path: Path) -> dict[str, Any]:
         if pages:
             findings.append({"code": name, "count": count, "pages": pages})
 
+    if min_pages is not None and len(reader.pages) < min_pages:
+        findings.append(
+            {
+                "code": "too_few_pages",
+                "pages": len(reader.pages),
+                "expected_min_pages": min_pages,
+            }
+        )
+
+    missing_expected = _missing_expected_texts("\n".join(text_by_page), expected_texts)
+    if missing_expected:
+        findings.append(
+            {
+                "code": "missing_expected_text",
+                "missing": missing_expected,
+            }
+        )
+
     return {
         "ok": not findings,
         "file": str(path),
@@ -88,13 +123,20 @@ def qa_pdf(path: Path) -> dict[str, Any]:
 def main() -> int:
     parser = argparse.ArgumentParser(description="QA a generated THO PDF packet")
     parser.add_argument("pdf", type=Path)
+    parser.add_argument(
+        "--expect-text",
+        action="append",
+        default=[],
+        help="Require expected text to be extractable from the packet. Repeatable.",
+    )
+    parser.add_argument("--min-pages", type=int, default=None)
     args = parser.parse_args()
 
     if not args.pdf.exists():
         print(json.dumps({"ok": False, "error": "file_not_found", "file": str(args.pdf)}, indent=2))
         return 2
 
-    result = qa_pdf(args.pdf)
+    result = qa_pdf(args.pdf, expected_texts=args.expect_text, min_pages=args.min_pages)
     print(json.dumps(result, indent=2))
     return 0 if result["ok"] else 1
 

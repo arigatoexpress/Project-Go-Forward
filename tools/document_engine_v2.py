@@ -17,6 +17,7 @@ from pypdf import PdfReader, PdfWriter
 
 from config.field_map_loader import get_field_map
 from tools.document_quality import (
+    PRODUCTION_BLOCKED_TEMPLATES,
     enrich_document_data,
     quality_failure_response,
     validate_document_quality,
@@ -40,6 +41,10 @@ LEGACY_FIELD_SOURCES: dict[str, tuple[str, ...]] = {
     "buyer_email": ("person.buyer_email",),
     "co_buyer_name": ("person.co_buyer_name",),
     "manufacturer": ("product.manufacturer",),
+    "manufacturer_address": ("product.manufacturer_address",),
+    "manufacturer_city_state_zip": ("product.manufacturer_city_state_zip",),
+    "manufacturer_full_address": ("product.manufacturer_full_address",),
+    "manufacturer_model": ("product.manufacturer_model",),
     "model": ("product.model",),
     "serial_number_1": ("product.serial_number_1",),
     "serial_number_2": ("product.serial_number_2",),
@@ -112,7 +117,12 @@ class ProductModel(BaseModel):
     weight_sec_2: str | None = None
     date_of_manufacture: str | None = None
     manufacturer_address: str | None = None
+    manufacturer_city: str | None = None
+    manufacturer_state: str | None = None
+    manufacturer_zip: str | None = None
     manufacturer_city_state_zip: str | None = None
+    manufacturer_full_address: str | None = None
+    manufacturer_model: str | None = None
 
     @model_validator(mode="after")
     def validate_exclusion(self):
@@ -274,7 +284,12 @@ class UnifiedPayload(BaseModel):
             "weight_sec_2": "product",
             "date_of_manufacture": "product",
             "manufacturer_address": "product",
+            "manufacturer_city": "product",
+            "manufacturer_state": "product",
+            "manufacturer_zip": "product",
             "manufacturer_city_state_zip": "product",
+            "manufacturer_full_address": "product",
+            "manufacturer_model": "product",
             "sales_price": "financial",
             "down_payment": "financial",
             "loan_term": "financial",
@@ -682,24 +697,43 @@ class DocumentEngineV2:
 
         all_packets = {}
         for name, cfg in legacy_packets.items():
+            templates = cfg.get("templates", [])
+            blocked_templates = self._blocked_packet_templates(templates)
             all_packets[name] = {
                 "packet_name": name,
                 "display_name": cfg.get("display_name", name),
                 "description": cfg.get("description", ""),
-                "template_count": len(cfg.get("templates", [])),
-                "templates": cfg.get("templates", []),
+                "template_count": len(templates),
+                "templates": templates,
+                "production_ready": len(blocked_templates) == 0,
+                "blocked_templates": blocked_templates,
             }
 
         for name, cfg in v2_packets.items():
+            templates = cfg.get("templates", [])
+            blocked_templates = self._blocked_packet_templates(templates)
             all_packets[name] = {
                 "packet_name": name,
                 "display_name": cfg.get("display_name", name),
                 "description": cfg.get("description", ""),
-                "template_count": len(cfg.get("templates", [])),
-                "templates": cfg.get("templates", []),
+                "template_count": len(templates),
+                "templates": templates,
+                "production_ready": len(blocked_templates) == 0,
+                "blocked_templates": blocked_templates,
             }
 
         return list(all_packets.values())
+
+    @staticmethod
+    def _blocked_packet_templates(templates: list[str]) -> list[dict[str, str]]:
+        return [
+            {
+                "template_name": template,
+                "message": PRODUCTION_BLOCKED_TEMPLATES[template],
+            }
+            for template in templates
+            if template in PRODUCTION_BLOCKED_TEMPLATES
+        ]
 
     def get_all_field_definitions(self) -> dict[str, Any]:
         return self.schema.get("domains", {})

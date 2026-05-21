@@ -47,6 +47,55 @@ def test_v2_list_packets():
     assert any(p["packet_name"] == "standard_closing" for p in packets)
 
 
+def test_v2_packets_surface_production_readiness():
+    packets = {p["packet_name"]: p for p in list_available_packets()}
+
+    assert packets["standard_closing"]["production_ready"] is True
+    assert packets["standard_closing"]["blocked_templates"] == []
+
+    full_new = packets["full_closing_new"]
+    assert full_new["production_ready"] is True
+    assert full_new["blocked_templates"] == []
+    assert "Production-Ready Documents" in full_new["display_name"]
+    assert "TMHA-TwoPartyContract.pdf" not in full_new["templates"]
+    assert "TMHA-TwoPartyContract191220.pdf" not in full_new["templates"]
+
+
+def test_v2_maps_manufacturer_location_from_split_fields(monkeypatch, tmp_path):
+    import tools.document_engine_v2 as engine_module
+
+    captured = {}
+
+    def _capture_fill(_template_path, pdf_data, output_filename):
+        captured.update(pdf_data)
+        output_path = tmp_path / output_filename
+        output_path.write_bytes(b"%PDF-1.4\n%%EOF")
+        return str(output_path)
+
+    monkeypatch.setattr(engine_module, "fill_pdf_form", _capture_fill)
+
+    result = engine_module.generate_document(
+        "TDHCA_1023-Statement-Ownership.pdf",
+        {
+            **SAMPLE_DATA,
+            "manufacturer_address": "500 Factory Road",
+            "manufacturer_city": "Fort Worth",
+            "manufacturer_state": "TX",
+            "manufacturer_zip": "76101",
+        },
+    )
+
+    assert result["success"] is True
+    assert (
+        captured["topmostSubform[0].Page1[0].Manufacturer_Address[0]"]
+        == "500 Factory Road"
+    )
+    assert (
+        captured["topmostSubform[0].Page1[0].Manufacturer_City_State_Zip[0]"]
+        == "Fort Worth, TX 76101"
+    )
+
+
 def test_v2_generate_unified_template():
     # TMHA_SalesContract is in unified_schema.json
     result = generate_document("TMHA_SalesContract.pdf", SAMPLE_DATA)

@@ -46,6 +46,10 @@ def _complete_deal_dict() -> dict:
         "buyer_city": "Houston",
         "buyer_zip": "77001",
         "manufacturer": "Clayton",
+        "manufacturer_address": "500 Factory Road",
+        "manufacturer_city": "Fort Worth",
+        "manufacturer_state": "TX",
+        "manufacturer_zip": "76101",
         "model": "TruMH 1680",
         "serial_number_1": "SN-12345",
         "sales_price": 80000.0,
@@ -102,6 +106,23 @@ class TestValidateForDocuments:
             "serial_number_1",
         ]
 
+    def test_missing_manufacturer_location(self):
+        from database.deal_validation import validate_for_documents
+
+        deal = _complete_deal_dict()
+        deal["manufacturer_address"] = ""
+        deal["manufacturer_city"] = None
+        deal["manufacturer_state"] = None
+        deal["manufacturer_zip"] = ""
+
+        report = validate_for_documents(deal)
+        assert sorted(report["manufacturer_location"]) == [
+            "manufacturer_address",
+            "manufacturer_city",
+            "manufacturer_state",
+            "manufacturer_zip",
+        ]
+
     def test_missing_financing(self):
         from database.deal_validation import validate_for_documents
 
@@ -151,6 +172,7 @@ class TestValidateForDocuments:
             "buyer_identity",
             "installation_address",
             "home_identity",
+            "manufacturer_location",
             "sale_pricing",
             "financing",
         }
@@ -321,6 +343,10 @@ class TestGenerateDocumentEndpointValidation:
             "buyer_city": "Houston",
             "buyer_zip": "77001",
             "manufacturer": "Clayton",
+            "manufacturer_address": "500 Factory Road",
+            "manufacturer_city": "Fort Worth",
+            "manufacturer_state": "TX",
+            "manufacturer_zip": "76101",
             "model": "TruMH",
             "serial_number_1": "SN-1",
             "sales_price": 50000,
@@ -446,6 +472,10 @@ class TestGeneratePacketEndpointValidation:
             "buyer_city": "Houston",
             "buyer_zip": "77001",
             "manufacturer": "Clayton",
+            "manufacturer_address": "500 Factory Road",
+            "manufacturer_city": "Fort Worth",
+            "manufacturer_state": "TX",
+            "manufacturer_zip": "76101",
             "model": "TruMH",
             "serial_number_1": "SN-1",
             "sales_price": 50000,
