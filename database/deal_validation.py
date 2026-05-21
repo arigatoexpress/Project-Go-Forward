@@ -54,6 +54,12 @@ _REQUIRED_FIELD_GROUPS: dict[str, tuple[str, ...]] = {
         "model",
         "serial_number_1",
     ),
+    "manufacturer_location": (
+        "manufacturer_address",
+        "manufacturer_city",
+        "manufacturer_state",
+        "manufacturer_zip",
+    ),
     "sale_pricing": (
         "sales_price",
         "down_payment",

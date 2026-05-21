@@ -306,6 +306,11 @@ class Deal(BaseModel):
     serial_number_2: str | None = None
     label_number_1: str | None = None
     label_number_2: str | None = None
+    manufacturer_address: str | None = None
+    manufacturer_city: str | None = None
+    manufacturer_state: str | None = None
+    manufacturer_zip: str | None = None
+    manufacturer_city_state_zip: str | None = None
     no_of_sections: str | None = None
     is_new: bool = True
 
@@ -384,6 +389,16 @@ class Deal(BaseModel):
                 seller_full_address += f", {seller_city_state_zip}"
 
         # ─── Computed: Home strings ───
+        manufacturer_city_state_zip = self.manufacturer_city_state_zip
+        if not manufacturer_city_state_zip and any([self.manufacturer_city, self.manufacturer_zip]):
+            manufacturer_city_state_zip = f"{self.manufacturer_city or ''}, {self.manufacturer_state or ''} {self.manufacturer_zip or ''}".strip()
+
+        manufacturer_full_address = None
+        if self.manufacturer_address:
+            manufacturer_full_address = self.manufacturer_address
+            if manufacturer_city_state_zip:
+                manufacturer_full_address += f", {manufacturer_city_state_zip}"
+
         manufacturer_model = None
         if self.manufacturer and self.model:
             manufacturer_model = f"{self.manufacturer} {self.model}"
@@ -484,6 +499,12 @@ class Deal(BaseModel):
             "serial_number_2": self.serial_number_2,
             "label_number_1": self.label_number_1,
             "label_number_2": self.label_number_2,
+            "manufacturer_address": self.manufacturer_address,
+            "manufacturer_city": self.manufacturer_city,
+            "manufacturer_state": self.manufacturer_state,
+            "manufacturer_zip": self.manufacturer_zip,
+            "manufacturer_city_state_zip": manufacturer_city_state_zip,
+            "manufacturer_full_address": manufacturer_full_address,
             "serial_label_combined": serial_label_combined,
             "no_of_sections": self.no_of_sections,
             "is_new": self.is_new,

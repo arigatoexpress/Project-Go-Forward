@@ -63,6 +63,21 @@ def test_quality_enrichment_adds_seller_and_financing_aliases():
     assert enriched["interest_rate"] == "7.5"
 
 
+def test_quality_enrichment_adds_manufacturer_address_aliases():
+    enriched = enrich_document_data(
+        {
+            **BASE_DATA,
+            "manufacturer_address": "500 Factory Road",
+            "manufacturer_city": "Fort Worth",
+            "manufacturer_state": "TX",
+            "manufacturer_zip": "76101",
+        }
+    )
+
+    assert enriched["manufacturer_city_state_zip"] == "Fort Worth, TX 76101"
+    assert enriched["manufacturer_full_address"] == "500 Factory Road, Fort Worth, TX 76101"
+
+
 def test_required_field_gate_reports_missing_template_data_before_generation():
     issues = validate_required_document_data(
         {
@@ -110,3 +125,16 @@ def test_batch_generation_fails_closed_when_required_sales_contract_data_missing
     assert "buyer_address" in result["missing_fields"]
     assert "sales_price" in result["missing_fields"]
     assert result["quality_issues"][0]["code"] == "missing_required_field"
+
+
+def test_manufacturer_location_is_required_when_template_maps_it():
+    result = generate_batch(
+        ["TDHCA_1023-Statement-Ownership.pdf"],
+        BASE_DATA,
+        merge=True,
+    )
+
+    assert result["success"] is False
+    assert result["error"] == "missing_required_fields"
+    assert "manufacturer_address" in result["missing_fields"]
+    assert "manufacturer_city_state_zip" in result["missing_fields"]
