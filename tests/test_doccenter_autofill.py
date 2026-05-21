@@ -278,6 +278,26 @@ def test_step3_blocks_generation_until_deal_data_is_complete(source: str):
     assert "setMissingFields(documentCompleteness.missing)" in source
 
 
+def test_step3_makes_not_ready_packets_unselectable(source: str):
+    """The Full Closing presets contain unmapped note/security forms. Staff
+    should see that status before selecting a packet, not only after a failed
+    generation attempt."""
+    assert "function getPacketBlockedTemplates" in source
+    assert "packetNotReady" in source
+    assert "NOT READY" in source
+    assert "Use the Standard Closing Packet or ready individual documents." in source
+    assert "disabled={isPacketDisabled}" in source
+    assert "const isExactPacketSelection = selected.length === cnt && selectedCount === cnt" in source
+    assert "return isExactPacketSelection ? [] : [...tpls]" in source
+
+
+def test_step3_makes_not_ready_individual_documents_unselectable(source: str):
+    assert "const productionBlockMessage = getTemplateProductionBlockMessage(doc.template_name)" in source
+    assert "const docNotReady = Boolean(productionBlockMessage)" in source
+    assert "disabled={docNotReady}" in source
+    assert "Not ready for Document Center yet: lender/note mapping is incomplete." in source
+
+
 def test_step3_completeness_requires_installation_contact_and_home_fields(source: str):
     """The UI should call out the concrete fields Mark described as the
     difference between valid info and garbage-in document output."""

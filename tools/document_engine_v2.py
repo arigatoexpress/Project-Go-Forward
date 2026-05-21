@@ -17,6 +17,7 @@ from pypdf import PdfReader, PdfWriter
 
 from config.field_map_loader import get_field_map
 from tools.document_quality import (
+    PRODUCTION_BLOCKED_TEMPLATES,
     enrich_document_data,
     quality_failure_response,
     validate_document_quality,
@@ -682,24 +683,43 @@ class DocumentEngineV2:
 
         all_packets = {}
         for name, cfg in legacy_packets.items():
+            templates = cfg.get("templates", [])
+            blocked_templates = self._blocked_packet_templates(templates)
             all_packets[name] = {
                 "packet_name": name,
                 "display_name": cfg.get("display_name", name),
                 "description": cfg.get("description", ""),
-                "template_count": len(cfg.get("templates", [])),
-                "templates": cfg.get("templates", []),
+                "template_count": len(templates),
+                "templates": templates,
+                "production_ready": len(blocked_templates) == 0,
+                "blocked_templates": blocked_templates,
             }
 
         for name, cfg in v2_packets.items():
+            templates = cfg.get("templates", [])
+            blocked_templates = self._blocked_packet_templates(templates)
             all_packets[name] = {
                 "packet_name": name,
                 "display_name": cfg.get("display_name", name),
                 "description": cfg.get("description", ""),
-                "template_count": len(cfg.get("templates", [])),
-                "templates": cfg.get("templates", []),
+                "template_count": len(templates),
+                "templates": templates,
+                "production_ready": len(blocked_templates) == 0,
+                "blocked_templates": blocked_templates,
             }
 
         return list(all_packets.values())
+
+    @staticmethod
+    def _blocked_packet_templates(templates: list[str]) -> list[dict[str, str]]:
+        return [
+            {
+                "template_name": template,
+                "message": PRODUCTION_BLOCKED_TEMPLATES[template],
+            }
+            for template in templates
+            if template in PRODUCTION_BLOCKED_TEMPLATES
+        ]
 
     def get_all_field_definitions(self) -> dict[str, Any]:
         return self.schema.get("domains", {})

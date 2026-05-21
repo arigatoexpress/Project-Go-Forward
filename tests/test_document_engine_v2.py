@@ -47,6 +47,22 @@ def test_v2_list_packets():
     assert any(p["packet_name"] == "standard_closing" for p in packets)
 
 
+def test_v2_packets_surface_production_readiness():
+    packets = {p["packet_name"]: p for p in list_available_packets()}
+
+    assert packets["standard_closing"]["production_ready"] is True
+    assert packets["standard_closing"]["blocked_templates"] == []
+
+    full_new = packets["full_closing_new"]
+    blocked_names = {item["template_name"] for item in full_new["blocked_templates"]}
+    assert full_new["production_ready"] is False
+    assert blocked_names == {
+        "TMHA-TwoPartyContract.pdf",
+        "TMHA-TwoPartyContract191220.pdf",
+    }
+    assert all("lender/note" in item["message"] for item in full_new["blocked_templates"])
+
+
 def test_v2_generate_unified_template():
     # TMHA_SalesContract is in unified_schema.json
     result = generate_document("TMHA_SalesContract.pdf", SAMPLE_DATA)

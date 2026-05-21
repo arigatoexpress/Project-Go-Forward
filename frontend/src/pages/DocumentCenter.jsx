@@ -103,6 +103,36 @@ const PRODUCTION_BLOCKED_TEMPLATE_MESSAGES = {
   'TMHA-TwoPartyContract191220.pdf': 'Manufactured Home Note/Security Agreement (2019 rev) is not production-ready in Document Center yet.',
 };
 
+function getTemplateProductionBlockMessage(templateName) {
+  return PRODUCTION_BLOCKED_TEMPLATE_MESSAGES[templateName] || '';
+}
+
+function getPacketBlockedTemplates(packet) {
+  const fromApi = Array.isArray(packet?.blocked_templates)
+    ? packet.blocked_templates.map(item => {
+      if (typeof item === 'string') {
+        return {
+          template_name: item,
+          message: getTemplateProductionBlockMessage(item) || 'This document is not production-ready yet.',
+        };
+      }
+      return {
+        template_name: item?.template_name || item?.template || '',
+        message: item?.message || getTemplateProductionBlockMessage(item?.template_name || item?.template) || 'This document is not production-ready yet.',
+      };
+    }).filter(item => item.template_name)
+    : [];
+  const apiNames = new Set(fromApi.map(item => item.template_name));
+  const fromTemplates = (packet?.templates || [])
+    .filter(templateName => getTemplateProductionBlockMessage(templateName) && !apiNames.has(templateName))
+    .map(templateName => ({
+      template_name: templateName,
+      message: getTemplateProductionBlockMessage(templateName),
+    }));
+
+  return [...fromApi, ...fromTemplates];
+}
+
 const PLACEHOLDER_IDENTIFIER_VALUES = new Set([
   '123456',
   '1234567',
@@ -1982,19 +2012,25 @@ function Step3({ templates, packets, selected, onToggle, onSelectPacket, isNew, 
 
   // Sort packets: recommended first
   const sortedPackets = [...(packets || [])].sort((a, b) => {
+    const aBlocked = a.production_ready === false || getPacketBlockedTemplates(a).length > 0;
+    const bBlocked = b.production_ready === false || getPacketBlockedTemplates(b).length > 0;
+    if (aBlocked !== bBlocked) return aBlocked ? 1 : -1;
     const aRec = isNew ? (a.packet_name === 'standard_closing' || a.packet_name.includes('new')) : a.packet_name.includes('used');
     const bRec = isNew ? (b.packet_name === 'standard_closing' || b.packet_name.includes('new')) : b.packet_name.includes('used');
     return bRec - aRec;
   });
   const readinessErrors = documentReadiness?.errors || [];
   const recommendedFields = documentReadiness?.recommended || [];
-  const generateDisabled = templatesLoading || selected.length === 0 || readinessErrors.length > 0;
+  const blockingValidationErrors = validationErrors || [];
+  const generateDisabled = templatesLoading || selected.length === 0 || readinessErrors.length > 0 || blockingValidationErrors.length > 0;
   const generateBlockReason = templatesLoading
     ? 'Document templates are still loading. Please wait a moment before generating.'
     : selected.length === 0
       ? 'Choose a recommended packet or select at least one individual document before generating.'
       : readinessErrors.length > 0
         ? `Complete ${readinessErrors.length} required data item${readinessErrors.length !== 1 ? 's' : ''} before generating.`
+        : blockingValidationErrors.length > 0
+          ? 'Fix the items shown above before generating.'
       : '';
   const hasVisibleTemplates = (templates || []).length > 0;
 
@@ -2119,23 +2155,30 @@ function Step3({ templates, packets, selected, onToggle, onSelectPacket, isNew, 
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {sortedPackets.map(p => {
-              const isRec = isNew
+              const blockedTemplates = getPacketBlockedTemplates(p);
+              const packetNotReady = p.production_ready === false || blockedTemplates.length > 0;
+              const isRec = !packetNotReady && (isNew
                 ? (p.packet_name === 'standard_closing' || p.packet_name.includes('new'))
-                : p.packet_name.includes('used');
+                : p.packet_name.includes('used'));
               const cnt = (p.templates || []).length;
               const selectedCount = (p.templates || []).filter(t => sel.has(t)).length;
-              const isFull = selectedCount === cnt && cnt > 0;
+              const isExactPacketSelection = selected.length === cnt && selectedCount === cnt && cnt > 0;
+              const isPacketDisabled = cnt === 0 || packetNotReady;
+              const blockedNames = blockedTemplates
+                .map(item => item.message?.split(' is not production-ready')[0] || item.template_name)
+                .filter(Boolean);
 
               return (
                 <button
+                  type="button"
                   key={p.packet_name}
-                  onClick={() => cnt > 0 && onSelectPacket(p)}
-                  disabled={cnt === 0}
+                  onClick={() => !isPacketDisabled && onSelectPacket(p)}
+                  disabled={isPacketDisabled}
                   className={`
                     relative text-left p-6 rounded-xl border-2 transition-all
-                    ${cnt === 0
-                      ? 'border-gray-200 bg-gray-50 opacity-70 cursor-not-allowed'
-                      : isFull
+                    ${isPacketDisabled
+                      ? 'border-amber-200 bg-amber-50 opacity-80 cursor-not-allowed'
+                      : isExactPacketSelection
                       ? 'border-blue-500 bg-blue-50 shadow-md'
                       : 'border-gray-200 bg-white hover:border-blue-300 hover:shadow-md'
                     }
@@ -2146,30 +2189,42 @@ function Step3({ templates, packets, selected, onToggle, onSelectPacket, isNew, 
                       RECOMMENDED
                     </span>
                   )}
+                  {packetNotReady && (
+                    <span className="absolute -top-3 left-4 bg-amber-600 text-white text-xs font-bold px-3 py-1 rounded-full">
+                      NOT READY
+                    </span>
+                  )}
 
                   <div className="flex items-start justify-between">
                     <div>
                       <h3 className="font-bold text-gray-800 text-lg">{p.display_name}</h3>
                       <p className="text-sm text-gray-500 mt-1">{cnt} documents included</p>
                     </div>
-                    {isFull && <CheckCircle size={28} className="text-blue-600" />}
+                    {isExactPacketSelection && <CheckCircle size={28} className="text-blue-600" />}
                   </div>
 
                   {p.description && (
                     <p className="text-sm text-gray-600 mt-3">{p.description}</p>
                   )}
 
-                  {cnt === 0 && (
+                  {packetNotReady && (
+                    <div className="mt-3 rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm text-amber-800">
+                      <div className="font-semibold">Use the Standard Closing Packet or ready individual documents.</div>
+                      {blockedNames.length > 0 && (
+                        <div className="mt-1">
+                          Blocked forms: {blockedNames.slice(0, 2).join(', ')}
+                          {blockedNames.length > 2 ? ` and ${blockedNames.length - 2} more` : ''}.
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {cnt === 0 && !packetNotReady && (
                     <div className="mt-3 text-sm font-semibold text-amber-700">
                       No templates are configured for this packet.
                     </div>
                   )}
 
-                  {selectedCount > 0 && !isFull && (
-                    <div className="mt-3 text-sm text-blue-600 font-medium">
-                      {selectedCount} of {cnt} selected
-                    </div>
-                  )}
                 </button>
               );
             })}
@@ -2225,24 +2280,33 @@ function Step3({ templates, packets, selected, onToggle, onSelectPacket, isNew, 
                   <div className="border-t border-gray-200 divide-y divide-gray-100">
                     {docs.map(doc => {
                       const isSelected = sel.has(doc.template_name);
+                      const productionBlockMessage = getTemplateProductionBlockMessage(doc.template_name);
+                      const docNotReady = Boolean(productionBlockMessage);
                       return (
                         <label
                           key={doc.template_name}
                           className={`
-                            flex items-center px-6 py-4 cursor-pointer transition-colors
-                            ${isSelected ? 'bg-blue-50' : 'hover:bg-gray-50'}
+                            flex items-center px-6 py-4 transition-colors
+                            ${docNotReady ? 'cursor-not-allowed bg-amber-50 opacity-80' : 'cursor-pointer'}
+                            ${isSelected ? 'bg-blue-50' : !docNotReady ? 'hover:bg-gray-50' : ''}
                           `}
                         >
                           <input
                             type="checkbox"
                             checked={isSelected}
-                            onChange={() => onToggle(doc.template_name)}
+                            onChange={() => !docNotReady && onToggle(doc.template_name)}
+                            disabled={docNotReady}
                             className="w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 mr-4"
                           />
                           <div className="flex-1 min-w-0">
                             <div className="font-medium text-gray-800">{doc.display_name}</div>
                             {doc.description && (
                               <div className="text-sm text-gray-500 mt-0.5">{doc.description}</div>
+                            )}
+                            {docNotReady && (
+                              <div className="text-sm font-semibold text-amber-700 mt-1">
+                                Not ready for Document Center yet: lender/note mapping is incomplete.
+                              </div>
                             )}
                           </div>
                           {isSelected && <CheckCircle size={20} className="text-blue-600 ml-2" />}
@@ -3163,13 +3227,22 @@ export default function DocumentCenter() {
     setGenErr('');
     setValidationErrors([]);
     setMissingFields(new Set());
+    const blockedTemplates = getPacketBlockedTemplates(pk);
+    if (pk.production_ready === false || blockedTemplates.length > 0) {
+      const names = blockedTemplates
+        .map(item => item.message?.split(' is not production-ready')[0] || item.template_name)
+        .filter(Boolean);
+      setValidationErrors([
+        `${pk.display_name || pk.packet_name} is not selectable yet. Use the Standard Closing Packet or ready individual documents.${
+          names.length > 0 ? ` Blocked forms: ${names.join(', ')}.` : ''
+        }`,
+      ]);
+      return;
+    }
     setSelDocs(p => {
       const s = new Set(p);
-      if (tpls.every(t => s.has(t))) {
-        return p.filter(t => !tpls.includes(t));
-      }
-      tpls.forEach(t => s.add(t));
-      return [...s];
+      const isExactPacketSelection = p.length === tpls.length && tpls.every(t => s.has(t));
+      return isExactPacketSelection ? [] : [...tpls];
     });
   }, []);
 
