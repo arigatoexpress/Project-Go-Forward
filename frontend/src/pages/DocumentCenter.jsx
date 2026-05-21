@@ -186,6 +186,12 @@ const REQUIRED_FIELD_LABELS = {
   buyer_state: 'Installation state',
   buyer_zip: 'Installation ZIP',
   manufacturer: 'Manufacturer',
+  manufacturer_address: 'Manufacturer address',
+  manufacturer_city: 'Manufacturer city',
+  manufacturer_state: 'Manufacturer state',
+  manufacturer_zip: 'Manufacturer ZIP',
+  manufacturer_city_state_zip: 'Manufacturer city/state/ZIP',
+  manufacturer_full_address: 'Manufacturer address',
   model: 'Model name',
   serial_number_1: 'Serial # 1',
   serial_number_2: 'Serial # 2',
@@ -206,6 +212,9 @@ const REQUIRED_FIELD_INPUTS = {
   mailing_full_address: ['mailing_address', 'mailing_city', 'mailing_state', 'mailing_zip'],
   mailing_city_state_zip: ['mailing_city', 'mailing_state', 'mailing_zip'],
   manufacturer_model: ['manufacturer', 'model'],
+  manufacturer_address: ['manufacturer_address'],
+  manufacturer_city_state_zip: ['manufacturer_city', 'manufacturer_state', 'manufacturer_zip'],
+  manufacturer_full_address: ['manufacturer_address', 'manufacturer_city', 'manufacturer_state', 'manufacturer_zip'],
 };
 
 const FIELD_STEP = {
@@ -1504,6 +1513,10 @@ function Step2({ data, onChange, resetKey, inventory, inventoryLoading, onNext, 
   // Human-readable labels for the inline "what's missing" hint
   const missingLabels = {
     manufacturer: 'Manufacturer',
+    manufacturer_address: 'Manufacturer address',
+    manufacturer_city: 'Manufacturer city',
+    manufacturer_state: 'Manufacturer state',
+    manufacturer_zip: 'Manufacturer ZIP',
     model: 'Model',
     serial_number_1: 'Serial # 1',
     buyer_address: 'Installation street address',
@@ -1864,13 +1877,14 @@ function Step2({ data, onChange, resetKey, inventory, inventoryLoading, onNext, 
             onChange={c}
             resetKey={resetKey}
             autoFilled={isAutoFilled('manufacturer_address')}
+            error={errOf('manufacturer_address')}
             helperText={selectedHome && !isAutoFilled('manufacturer_address') ? 'Enter manually — not in inventory feed' : undefined}
           />
         </Row>
         <Row>
-          <Field label="Manufacturer City" name="manufacturer_city" value={data.manufacturer_city} onChange={c} resetKey={resetKey} third autoFilled={isAutoFilled('manufacturer_city')} />
-          <Field label="Manufacturer State" name="manufacturer_state" value={data.manufacturer_state} onChange={c} resetKey={resetKey} third autoFilled={isAutoFilled('manufacturer_state')} />
-          <Field label="Manufacturer ZIP" name="manufacturer_zip" value={data.manufacturer_zip} onChange={c} resetKey={resetKey} third autoFilled={isAutoFilled('manufacturer_zip')} />
+          <Field label="Manufacturer City" name="manufacturer_city" value={data.manufacturer_city} onChange={c} resetKey={resetKey} third autoFilled={isAutoFilled('manufacturer_city')} error={errOf('manufacturer_city')} helperText={selectedHome && !isAutoFilled('manufacturer_city') ? 'Enter manually' : undefined} />
+          <Field label="Manufacturer State" name="manufacturer_state" value={data.manufacturer_state} onChange={c} resetKey={resetKey} third autoFilled={isAutoFilled('manufacturer_state')} error={errOf('manufacturer_state')} helperText={selectedHome && !isAutoFilled('manufacturer_state') ? 'Enter manually' : undefined} />
+          <Field label="Manufacturer ZIP" name="manufacturer_zip" value={data.manufacturer_zip} onChange={c} resetKey={resetKey} third autoFilled={isAutoFilled('manufacturer_zip')} error={errOf('manufacturer_zip')} helperText={selectedHome && !isAutoFilled('manufacturer_zip') ? 'Enter manually' : undefined} />
         </Row>
         <Row>
           <SelectField

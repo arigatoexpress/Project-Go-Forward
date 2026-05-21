@@ -41,6 +41,10 @@ LEGACY_FIELD_SOURCES: dict[str, tuple[str, ...]] = {
     "buyer_email": ("person.buyer_email",),
     "co_buyer_name": ("person.co_buyer_name",),
     "manufacturer": ("product.manufacturer",),
+    "manufacturer_address": ("product.manufacturer_address",),
+    "manufacturer_city_state_zip": ("product.manufacturer_city_state_zip",),
+    "manufacturer_full_address": ("product.manufacturer_full_address",),
+    "manufacturer_model": ("product.manufacturer_model",),
     "model": ("product.model",),
     "serial_number_1": ("product.serial_number_1",),
     "serial_number_2": ("product.serial_number_2",),
@@ -113,7 +117,12 @@ class ProductModel(BaseModel):
     weight_sec_2: str | None = None
     date_of_manufacture: str | None = None
     manufacturer_address: str | None = None
+    manufacturer_city: str | None = None
+    manufacturer_state: str | None = None
+    manufacturer_zip: str | None = None
     manufacturer_city_state_zip: str | None = None
+    manufacturer_full_address: str | None = None
+    manufacturer_model: str | None = None
 
     @model_validator(mode="after")
     def validate_exclusion(self):
@@ -275,7 +284,12 @@ class UnifiedPayload(BaseModel):
             "weight_sec_2": "product",
             "date_of_manufacture": "product",
             "manufacturer_address": "product",
+            "manufacturer_city": "product",
+            "manufacturer_state": "product",
+            "manufacturer_zip": "product",
             "manufacturer_city_state_zip": "product",
+            "manufacturer_full_address": "product",
+            "manufacturer_model": "product",
             "sales_price": "financial",
             "down_payment": "financial",
             "loan_term": "financial",

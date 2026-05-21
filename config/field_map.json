@@ -106,6 +106,8 @@
       "description": "Required state form for transferring ownership of a manufactured home.",
       "required_fields": [
         "manufacturer",
+        "manufacturer_address",
+        "manufacturer_city_state_zip",
         "model",
         "serial_number_1",
         "buyer_address",
@@ -224,6 +226,9 @@
       "required_fields": [
         "buyer_name",
         "buyer_address",
+        "manufacturer",
+        "manufacturer_address",
+        "manufacturer_city_state_zip",
         "serial_number_1"
       ],
       "field_map": {
@@ -1073,6 +1078,8 @@
       "description": "Required installation report for manufactured home setup with installer and home details.",
       "required_fields": [
         "manufacturer",
+        "manufacturer_address",
+        "manufacturer_city_state_zip",
         "serial_number_1",
         "buyer_name"
       ],
@@ -1534,8 +1541,8 @@
       "cover_page_template": "All_Cover.pdf"
     },
     "full_closing_new": {
-      "display_name": "Full New Home Closing (All Documents)",
-      "description": "Every document relevant to a standard closing \u2014 all TMHA, TDHCA, State, and Internal forms auto-filled.",
+      "display_name": "Full New Home Closing (Production-Ready Documents)",
+      "description": "Every production-ready TMHA, TDHCA, State, and Internal form currently mapped in Document Center.",
       "templates": [
         "TMHA_SalesContract.pdf",
         "TDHCA_1038_Consumer_Disclosure.pdf",
@@ -1590,16 +1597,14 @@
         "TMHA-ConstructionStandardsNotice.pdf",
         "TMHA_ConsumerInsulation.pdf",
         "TMHA_ReceiptNoticesWarranties.pdf",
-        "TMHA-SalesContractDepositAgreement.pdf",
-        "TMHA-TwoPartyContract.pdf",
-        "TMHA-TwoPartyContract191220.pdf"
+        "TMHA-SalesContractDepositAgreement.pdf"
       ],
       "include_cover_page": true,
       "cover_page_template": "All_Cover.pdf"
     },
     "full_closing_used": {
-      "display_name": "Full Used Home Closing (All Documents)",
-      "description": "Every document for a used/pre-owned manufactured home closing — includes habitability warranty and used home warranty forms.",
+      "display_name": "Full Used Home Closing (Production-Ready Documents)",
+      "description": "Every production-ready document for a used/pre-owned manufactured home closing, including habitability and used home warranty forms.",
       "templates": [
         "TMHA_SalesContract.pdf",
         "TDHCA_1038_Consumer_Disclosure.pdf",
@@ -1656,9 +1661,7 @@
         "TMHA-ConstructionStandardsNotice.pdf",
         "TMHA_ConsumerInsulation.pdf",
         "TMHA_ReceiptNoticesWarranties.pdf",
-        "TMHA-SalesContractDepositAgreement.pdf",
-        "TMHA-TwoPartyContract.pdf",
-        "TMHA-TwoPartyContract191220.pdf"
+        "TMHA-SalesContractDepositAgreement.pdf"
       ],
       "include_cover_page": true,
       "cover_page_template": "All_Cover.pdf"

@@ -279,9 +279,8 @@ def test_step3_blocks_generation_until_deal_data_is_complete(source: str):
 
 
 def test_step3_makes_not_ready_packets_unselectable(source: str):
-    """The Full Closing presets contain unmapped note/security forms. Staff
-    should see that status before selecting a packet, not only after a failed
-    generation attempt."""
+    """If the API marks any packet as not ready, staff should see that status
+    before selecting it, not only after a failed generation attempt."""
     assert "function getPacketBlockedTemplates" in source
     assert "packetNotReady" in source
     assert "NOT READY" in source
@@ -333,9 +332,22 @@ def test_selected_template_missing_fields_highlight_step2_inputs(source: str):
         "error={errOf('buyer_county')}",
         "error={errOf('buyer_state')}",
         "error={errOf('buyer_zip')}",
+        "error={errOf('manufacturer_address')}",
+        "error={errOf('manufacturer_city')}",
+        "error={errOf('manufacturer_state')}",
+        "error={errOf('manufacturer_zip')}",
         "error={errOf('sales_price')}",
     ):
         assert field in source
+
+
+def test_manufacturer_location_required_fields_have_human_guidance(source: str):
+    """TDHCA manufacturer-location blanks should route users to the concrete
+    Step 2 inputs rather than silently leaving official PDF fields empty."""
+    assert "manufacturer_address: 'Manufacturer address'" in source
+    assert "manufacturer_city_state_zip: 'Manufacturer city/state/ZIP'" in source
+    assert "manufacturer_city_state_zip: ['manufacturer_city', 'manufacturer_state', 'manufacturer_zip']" in source
+    assert "Manufacturer ZIP" in source
 
 
 def test_chg_clears_autofill_marker_on_manual_edit(source: str):

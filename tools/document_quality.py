@@ -38,6 +38,9 @@ REQUIRED_FIELD_LABELS = {
     "buyer_full_address": "Installation address",
     "buyer_city_state_zip": "Installation city/state/ZIP",
     "manufacturer": "Manufacturer",
+    "manufacturer_address": "Manufacturer address",
+    "manufacturer_city_state_zip": "Manufacturer city/state/ZIP",
+    "manufacturer_full_address": "Manufacturer address",
     "model": "Model",
     "manufacturer_model": "Manufacturer/model",
     "serial_number_1": "Serial # 1",
@@ -61,6 +64,8 @@ REQUIRED_FIELD_ALIASES = {
     "mailing_full_address": ("mailing_full_address", "mailing_address"),
     "mailing_city_state_zip": ("mailing_city_state_zip", "mailing_city"),
     "manufacturer_model": ("manufacturer_model", "manufacturer", "model"),
+    "manufacturer_full_address": ("manufacturer_full_address", "manufacturer_address"),
+    "manufacturer_city_state_zip": ("manufacturer_city_state_zip", "manufacturer_city"),
     "seller_name": ("seller_name",),
     "seller_address": ("seller_address",),
 }
@@ -224,6 +229,27 @@ def enrich_document_data(data: dict[str, Any]) -> dict[str, Any]:
         if manufacturer_model:
             enriched["manufacturer_model"] = manufacturer_model
 
+    if _is_blank(enriched.get("manufacturer_city_state_zip")):
+        manufacturer_city_state_zip = _join_non_empty(
+            [
+                enriched.get("manufacturer_city"),
+                _join_non_empty(
+                    [enriched.get("manufacturer_state"), enriched.get("manufacturer_zip")]
+                ),
+            ],
+            ", ",
+        )
+        if manufacturer_city_state_zip:
+            enriched["manufacturer_city_state_zip"] = manufacturer_city_state_zip
+
+    if _is_blank(enriched.get("manufacturer_full_address")):
+        manufacturer_full_address = _join_non_empty(
+            [enriched.get("manufacturer_address"), enriched.get("manufacturer_city_state_zip")],
+            ", ",
+        )
+        if manufacturer_full_address:
+            enriched["manufacturer_full_address"] = manufacturer_full_address
+
     sales_price = _decimal(enriched.get("sales_price"))
     down_payment = _decimal(enriched.get("down_payment")) or Decimal("0")
     loan_amount = None
@@ -270,6 +296,17 @@ def _required_field_has_value(data: dict[str, Any], field: str) -> bool:
     if field == "manufacturer_model":
         return _has_value(data.get("manufacturer_model")) or (
             _has_value(data.get("manufacturer")) and _has_value(data.get("model"))
+        )
+    if field == "manufacturer_city_state_zip":
+        return _has_value(data.get("manufacturer_city_state_zip")) or (
+            _has_value(data.get("manufacturer_city"))
+            and _has_value(data.get("manufacturer_state"))
+            and _has_value(data.get("manufacturer_zip"))
+        )
+    if field == "manufacturer_full_address":
+        return _has_value(data.get("manufacturer_full_address")) or (
+            _has_value(data.get("manufacturer_address"))
+            and _required_field_has_value(data, "manufacturer_city_state_zip")
         )
     return any(_has_value(data.get(alias)) for alias in aliases)
 
