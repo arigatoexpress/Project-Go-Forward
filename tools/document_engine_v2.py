@@ -69,6 +69,23 @@ def _has_value(value: Any) -> bool:
     return value is not None and str(value).strip() != ""
 
 
+PDF_FIELD_LEADING_SPACE_POLISH: dict[str, tuple[str, ...]] = {
+    "TDHCA_1023-Statement-Ownership.pdf": (
+        "topmostSubform[0].Page1[0].Seller_RBI[0]",
+        "topmostSubform[0].Page1[0].Seller_Name[0]",
+        "topmostSubform[0].Page1[0].Seller_Address[0]",
+    ),
+}
+
+
+def _apply_pdf_field_polish(template_name: str, pdf_data: dict[str, Any]) -> None:
+    """Add safe visual padding for fields that sit flush against fixed labels."""
+    for pdf_field in PDF_FIELD_LEADING_SPACE_POLISH.get(template_name, ()):
+        value = pdf_data.get(pdf_field)
+        if isinstance(value, str) and value and not value.startswith(" "):
+            pdf_data[pdf_field] = f" {value}"
+
+
 # ─── Pydantic Models ────────────────────────────────────────────────────────
 
 
@@ -510,6 +527,8 @@ class DocumentEngineV2:
             for k, v in legacy_tpl_config.get("static_values", {}).items():
                 if k not in pdf_data:
                     pdf_data[k] = v
+
+        _apply_pdf_field_polish(template_name, pdf_data)
 
         # 5. Output Filename
         if not output_filename:

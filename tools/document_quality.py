@@ -19,6 +19,7 @@ BUSINESS_CITY = "Huffman"
 BUSINESS_STATE = "TX"
 BUSINESS_ZIP = "77336"
 BUSINESS_CITY_STATE_ZIP = "Huffman, TX 77336"
+BUSINESS_RBI = "35248"
 
 
 IDENTITY_FIELDS = {
@@ -182,6 +183,11 @@ def _any_have_values(data: dict[str, Any], *fields: str) -> bool:
     return any(_has_value(data.get(field)) for field in fields)
 
 
+def _set_if_blank(data: dict[str, Any], key: str, value: Any) -> None:
+    if _is_blank(data.get(key)):
+        data[key] = value
+
+
 def _direct_name_has_value(value: Any) -> bool:
     return len([part for part in _clean(value).split() if part]) >= 2
 
@@ -252,13 +258,14 @@ def enrich_document_data(data: dict[str, Any]) -> dict[str, Any]:
     """
     enriched = dict(data or {})
 
-    enriched.setdefault("seller_name", BUSINESS_NAME)
-    enriched.setdefault("seller_phone", BUSINESS_PHONE)
-    enriched.setdefault("seller_address", BUSINESS_ADDRESS)
-    enriched.setdefault("seller_city", BUSINESS_CITY)
-    enriched.setdefault("seller_state", BUSINESS_STATE)
-    enriched.setdefault("seller_zip", BUSINESS_ZIP)
-    enriched.setdefault("seller_city_state_zip", BUSINESS_CITY_STATE_ZIP)
+    _set_if_blank(enriched, "seller_name", BUSINESS_NAME)
+    _set_if_blank(enriched, "seller_rbi", BUSINESS_RBI)
+    _set_if_blank(enriched, "seller_phone", BUSINESS_PHONE)
+    _set_if_blank(enriched, "seller_address", BUSINESS_ADDRESS)
+    _set_if_blank(enriched, "seller_city", BUSINESS_CITY)
+    _set_if_blank(enriched, "seller_state", BUSINESS_STATE)
+    _set_if_blank(enriched, "seller_zip", BUSINESS_ZIP)
+    _set_if_blank(enriched, "seller_city_state_zip", BUSINESS_CITY_STATE_ZIP)
 
     if _is_blank(enriched.get("buyer_name")) and _all_have_values(
         enriched, "buyer_first_name", "buyer_last_name"
@@ -282,10 +289,12 @@ def enrich_document_data(data: dict[str, Any]) -> dict[str, Any]:
         if buyer_city_state_zip:
             enriched["buyer_city_state_zip"] = buyer_city_state_zip
 
-    if _is_blank(enriched.get("buyer_full_address")) and _has_value(
-        enriched.get("buyer_address")
-    ) and _city_state_zip_has_value(
-        enriched, "buyer_city_state_zip", "buyer_city", "buyer_state", "buyer_zip"
+    if (
+        _is_blank(enriched.get("buyer_full_address"))
+        and _has_value(enriched.get("buyer_address"))
+        and _city_state_zip_has_value(
+            enriched, "buyer_city_state_zip", "buyer_city", "buyer_state", "buyer_zip"
+        )
     ):
         buyer_full_address = _join_non_empty(
             [enriched.get("buyer_address"), enriched.get("buyer_city_state_zip")],
@@ -336,14 +345,16 @@ def enrich_document_data(data: dict[str, Any]) -> dict[str, Any]:
         if manufacturer_city_state_zip:
             enriched["manufacturer_city_state_zip"] = manufacturer_city_state_zip
 
-    if _is_blank(enriched.get("manufacturer_full_address")) and _has_value(
-        enriched.get("manufacturer_address")
-    ) and _city_state_zip_has_value(
-        enriched,
-        "manufacturer_city_state_zip",
-        "manufacturer_city",
-        "manufacturer_state",
-        "manufacturer_zip",
+    if (
+        _is_blank(enriched.get("manufacturer_full_address"))
+        and _has_value(enriched.get("manufacturer_address"))
+        and _city_state_zip_has_value(
+            enriched,
+            "manufacturer_city_state_zip",
+            "manufacturer_city",
+            "manufacturer_state",
+            "manufacturer_zip",
+        )
     ):
         manufacturer_full_address = _join_non_empty(
             [enriched.get("manufacturer_address"), enriched.get("manufacturer_city_state_zip")],

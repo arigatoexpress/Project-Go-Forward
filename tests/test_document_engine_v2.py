@@ -97,6 +97,9 @@ def test_v2_maps_manufacturer_location_from_split_fields(monkeypatch, tmp_path):
         captured["topmostSubform[0].Page1[0].Manufacturer_City_State_Zip[0]"]
         == "Fort Worth, TX 76101"
     )
+    assert captured["topmostSubform[0].Page1[0].Seller_RBI[0]"] == " 35248"
+    assert captured["topmostSubform[0].Page1[0].Seller_Name[0]"] == " Texas Home Outlet, Inc."
+    assert captured["topmostSubform[0].Page1[0].Seller_Address[0]"] == " 10685 FM 1960 East"
 
 
 def test_v2_maps_full_packet_manufacturer_identity_fields(monkeypatch, tmp_path):

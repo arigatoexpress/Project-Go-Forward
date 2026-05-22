@@ -1833,7 +1833,8 @@
       "label": "Seller RBI License #",
       "type": "string",
       "section": "seller",
-      "required": false
+      "required": false,
+      "default": "35248"
     },
     "seller_address": {
       "label": "Seller Address",

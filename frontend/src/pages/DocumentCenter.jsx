@@ -18,6 +18,7 @@ import {
   BUSINESS_CITY,
   BUSINESS_STATE,
   BUSINESS_ZIP,
+  BUSINESS_LICENSE,
 } from '../constants';
 
 /* ─── Constants ──────────────────────────────────────────── */
@@ -56,6 +57,7 @@ const INITIAL_FORM = {
   installer_city: BUSINESS_CITY,
   installer_state: BUSINESS_STATE,
   installer_zip: BUSINESS_ZIP,
+  seller_rbi: BUSINESS_LICENSE,
   // Financial
   sales_price: '', down_payment: '',
   creditor_name: '', creditor_phone: '', creditor_address: '', creditor_city_state_zip: '',
@@ -459,6 +461,7 @@ function toDocumentData(f) {
   return {
     ...f,
     seller_name: f.seller_name || BUSINESS_LEGAL_NAME,
+    seller_rbi: f.seller_rbi || BUSINESS_LICENSE,
     seller_phone: f.seller_phone || BUSINESS_PHONE,
     seller_address: f.seller_address || BUSINESS_ADDRESS,
     seller_city: f.seller_city || BUSINESS_CITY,

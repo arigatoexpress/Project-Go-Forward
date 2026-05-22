@@ -61,6 +61,7 @@ def test_quality_enrichment_adds_seller_and_financing_aliases():
 
     assert enriched["seller_name"] == "Texas Home Outlet, Inc."
     assert enriched["seller_address"] == "10685 FM 1960 East"
+    assert enriched["seller_rbi"] == "35248"
     assert enriched["seller_city"] == "Huffman"
     assert enriched["seller_state"] == "TX"
     assert enriched["seller_zip"] == "77336"
@@ -69,6 +70,21 @@ def test_quality_enrichment_adds_seller_and_financing_aliases():
     assert enriched["max_financed"] == "50,000.00"
     assert enriched["unpaid_balance"] == "50,000.00"
     assert enriched["interest_rate"] == "7.5"
+
+
+def test_quality_enrichment_repairs_blank_seller_defaults():
+    enriched = enrich_document_data(
+        {
+            **BASE_DATA,
+            "seller_name": "",
+            "seller_rbi": "",
+            "seller_address": "",
+        }
+    )
+
+    assert enriched["seller_name"] == "Texas Home Outlet, Inc."
+    assert enriched["seller_rbi"] == "35248"
+    assert enriched["seller_address"] == "10685 FM 1960 East"
 
 
 def test_quality_enrichment_adds_manufacturer_address_aliases():

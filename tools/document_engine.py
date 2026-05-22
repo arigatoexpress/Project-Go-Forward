@@ -34,6 +34,7 @@ from tools.document_quality import (
     BUSINESS_CITY_STATE_ZIP,
     BUSINESS_NAME,
     BUSINESS_PHONE,
+    BUSINESS_RBI,
     BUSINESS_STATE,
     BUSINESS_ZIP,
 )
@@ -198,6 +199,7 @@ def _normalize_document_data(data: dict[str, Any]) -> dict[str, Any]:
     )
 
     _set_if_missing(normalized, "seller_name", BUSINESS_NAME)
+    _set_if_missing(normalized, "seller_rbi", BUSINESS_RBI)
     _set_if_missing(normalized, "seller_phone", BUSINESS_PHONE)
     _set_if_missing(normalized, "seller_address", BUSINESS_ADDRESS)
     _set_if_missing(normalized, "seller_city", BUSINESS_CITY)
