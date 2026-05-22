@@ -251,6 +251,27 @@ def test_generation_errors_surface_all_failed_batch_results(source: str):
     assert "'Generation failed'" in source
 
 
+def test_generation_auth_expiry_routes_staff_back_to_retryable_step(source: str):
+    """If the admin session expires while generating, staff should see a clear
+    retry instruction on document selection instead of a generic packet failure."""
+    assert "ADMIN_SESSION_EXPIRED_GENERATION_MESSAGE" in source
+    assert "Your customer/deal data and selected documents are still saved" in source
+    generate_start = source.find("const generate = async () =>")
+    generate_body = source[generate_start : source.find("const goToStep", generate_start)]
+    assert "isAdminAuthExpiredResponse(r)" in generate_body
+    assert "setGenErr(ADMIN_SESSION_EXPIRED_GENERATION_MESSAGE)" in generate_body
+    assert "setStep(3)" in generate_body
+
+
+def test_template_load_auth_expiry_uses_session_guidance(source: str):
+    """Template/readiness 401s should tell staff to re-authenticate, not imply
+    that the document template system itself disappeared."""
+    assert "ADMIN_SESSION_EXPIRED_LOAD_MESSAGE" in source
+    assert "refresh the Document Center before generating packets" in source
+    assert "isAdminAuthExpiredResponse(readinessResponse)" in source
+    assert "isAdminAuthExpiredResponse(r)" in source
+
+
 def test_customer_search_load_remounts_visible_form_fields(source: str):
     """Loading an existing customer must update both form state and the
     uncontrolled visible inputs, or staff can unknowingly generate from stale

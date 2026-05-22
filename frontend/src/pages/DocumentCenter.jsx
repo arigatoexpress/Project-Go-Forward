@@ -327,6 +327,15 @@ function describeDocumentFailures(payload) {
 }
 
 function describeGenerationFailure(payload, response) {
+  if (response?.status === 401) {
+    return {
+      message: ADMIN_SESSION_EXPIRED_GENERATION_MESSAGE,
+      missingMessages: [],
+      missingFields: [],
+      step: 3,
+    };
+  }
+
   const qualityMessages = Array.isArray(payload?.quality_issues)
     ? payload.quality_issues.map(issue => issue.message).filter(Boolean)
     : [];
@@ -342,6 +351,14 @@ function describeGenerationFailure(payload, response) {
 }
 
 const joinName = (first, last) => [first, last].filter(hasValue).map(v => String(v).trim()).join(' ') || undefined;
+
+const ADMIN_SESSION_EXPIRED_GENERATION_MESSAGE =
+  'Your admin session expired before documents could generate. Re-enter the admin PIN, then click Generate again. Your customer/deal data and selected documents are still saved.';
+
+const ADMIN_SESSION_EXPIRED_LOAD_MESSAGE =
+  'Your admin session expired. Re-enter the admin PIN, then refresh the Document Center before generating packets.';
+
+const isAdminAuthExpiredResponse = response => response?.status === 401;
 
 const cityStateZip = (city, state, zip) => {
   if (!hasValue(city) && !hasValue(zip)) return undefined;
@@ -2986,6 +3003,9 @@ export default function DocumentCenter() {
         adminFetch('/api/documents/history'),
       ]);
 
+      if (isAdminAuthExpiredResponse(readinessResponse) || isAdminAuthExpiredResponse(historyResponse)) {
+        throw new Error(ADMIN_SESSION_EXPIRED_LOAD_MESSAGE);
+      }
       if (!readinessResponse.ok) throw new Error('Document readiness check failed');
       if (!historyResponse.ok) throw new Error('Document history failed to load');
 
@@ -3018,6 +3038,7 @@ export default function DocumentCenter() {
     setTemplatesError('');
     adminFetch('/api/documents/templates')
       .then(r => {
+        if (isAdminAuthExpiredResponse(r)) throw new Error(ADMIN_SESSION_EXPIRED_LOAD_MESSAGE);
         if (!r.ok) throw new Error('Document templates failed to load');
         return r.json();
       })
@@ -3339,6 +3360,12 @@ export default function DocumentCenter() {
       const d = await r.json().catch(() => ({
         error: `Document service returned ${r.status || 'an unexpected response'} ${r.statusText || ''}`.trim(),
       }));
+      if (isAdminAuthExpiredResponse(r)) {
+        setGenErr(ADMIN_SESSION_EXPIRED_GENERATION_MESSAGE);
+        setStep(3);
+        if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
+        return;
+      }
       if (!r.ok || d.error || d.success === false) {
         const failure = describeGenerationFailure(d, r);
         if (failure.missingMessages.length > 0) {
