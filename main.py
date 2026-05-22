@@ -2034,6 +2034,12 @@ async def list_templates():
         return {"error": "Failed to load templates. Please try again."}
 
 
+@app.get("/api/document-templates", dependencies=[Depends(require_admin)])
+async def list_templates_legacy_alias():
+    """Backward-compatible alias for old employee browser sessions."""
+    return await list_templates()
+
+
 @app.get("/api/documents/readiness", dependencies=[Depends(require_admin)])
 async def document_readiness():
     """Summarize document-system readiness for the employee UI."""
