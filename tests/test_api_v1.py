@@ -1404,10 +1404,15 @@ def test_admin_token_accepts_supported_employee_headers(monkeypatch):
     protected_route = client.get(
         "/api/documents/templates", headers={"Authorization": f"Bearer {token}"}
     )
+    legacy_templates_route = client.get(
+        "/api/document-templates", headers={"Authorization": f"Bearer {token}"}
+    )
 
     assert x_header.status_code == 200
     assert bearer_header.status_code == 200
     assert protected_route.status_code == 200
+    assert legacy_templates_route.status_code == 200
+    assert legacy_templates_route.json().keys() >= {"templates", "packets"}
 
 
 def test_admin_check_returns_false_without_auth(monkeypatch):

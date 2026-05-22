@@ -9,7 +9,9 @@ function filenameFromDisposition(disposition) {
 export default async function downloadAdminFile(url, fallbackFilename = 'document.pdf') {
   const response = await adminFetch(url);
   if (!response.ok) {
-    let message = `Download failed (${response.status})`;
+    let message = response.status === 401
+      ? 'Your admin session expired before the document could download. Re-enter the admin PIN, then click Download again.'
+      : `Download failed (${response.status})`;
     try {
       const body = await response.json();
       message = body.error || body.detail || message;
