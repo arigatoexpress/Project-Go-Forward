@@ -193,10 +193,18 @@ const REQUIRED_FIELD_LABELS = {
   manufacturer_city_state_zip: 'Manufacturer city/state/ZIP',
   manufacturer_full_address: 'Manufacturer address',
   model: 'Model name',
+  manufacturer_model: 'Manufacturer/model',
+  manufacturer_model_hud: 'Manufacturer/model/HUD label',
+  manufacturer_model_serial: 'Manufacturer/model/serial',
   serial_number_1: 'Serial # 1',
   serial_number_2: 'Serial # 2',
   label_number_1: 'HUD label # 1',
   label_number_2: 'HUD label # 2',
+  date_of_manufacture: 'Date of manufacture',
+  seller_phone: 'Seller phone',
+  seller_city: 'Seller city',
+  seller_state: 'Seller state',
+  seller_zip: 'Seller ZIP',
   sales_price: 'Sales price',
   down_payment: 'Down payment',
   creditor_name: 'Creditor name',
@@ -212,6 +220,8 @@ const REQUIRED_FIELD_INPUTS = {
   mailing_full_address: ['mailing_address', 'mailing_city', 'mailing_state', 'mailing_zip'],
   mailing_city_state_zip: ['mailing_city', 'mailing_state', 'mailing_zip'],
   manufacturer_model: ['manufacturer', 'model'],
+  manufacturer_model_hud: ['manufacturer', 'model', 'label_number_1'],
+  manufacturer_model_serial: ['manufacturer', 'model', 'serial_number_1'],
   manufacturer_address: ['manufacturer_address'],
   manufacturer_city_state_zip: ['manufacturer_city', 'manufacturer_state', 'manufacturer_zip'],
   manufacturer_full_address: ['manufacturer_address', 'manufacturer_city', 'manufacturer_state', 'manufacturer_zip'],
@@ -243,6 +253,7 @@ const DOCUMENT_PACKET_BASELINE_FIELDS = [
   { field: 'manufacturer', label: 'Manufacturer', step: 2 },
   { field: 'model', label: 'Model name', step: 2 },
   { field: 'serial_number_1', label: 'Serial # 1', step: 2 },
+  { field: 'label_number_1', label: 'HUD label # 1', step: 2 },
   { field: 'buyer_address', label: 'Installation street address', step: 2 },
   { field: 'buyer_city', label: 'Installation city', step: 2 },
   { field: 'buyer_county', label: 'Installation county', step: 2 },
@@ -450,6 +461,9 @@ function toDocumentData(f) {
     seller_name: f.seller_name || BUSINESS_LEGAL_NAME,
     seller_phone: f.seller_phone || BUSINESS_PHONE,
     seller_address: f.seller_address || BUSINESS_ADDRESS,
+    seller_city: f.seller_city || BUSINESS_CITY,
+    seller_state: f.seller_state || BUSINESS_STATE,
+    seller_zip: f.seller_zip || BUSINESS_ZIP,
     seller_city_state_zip: f.seller_city_state_zip || cityStateZip(BUSINESS_CITY, BUSINESS_STATE, BUSINESS_ZIP),
     buyer_name: buyer,
     co_buyer_name: coBuyer,
@@ -458,6 +472,14 @@ function toDocumentData(f) {
     mailing_city_state_zip: mailingCityStateZip,
     mailing_full_address: fullAddress(f.mailing_address, mailingCityStateZip),
     manufacturer_model: joinNonEmpty([f.manufacturer, f.model], ' '),
+    manufacturer_model_hud: joinNonEmpty([
+      joinNonEmpty([f.manufacturer, f.model], ' '),
+      f.label_number_1,
+    ], ' / '),
+    manufacturer_model_serial: joinNonEmpty([
+      joinNonEmpty([f.manufacturer, f.model], ' '),
+      f.serial_number_1,
+    ], ' / '),
     manufacturer_city_state_zip: manufacturerCityStateZip,
     manufacturer_full_address: fullAddress(f.manufacturer_address, manufacturerCityStateZip),
     installer_address_city_state_zip: installerFullAddress,
@@ -1824,6 +1846,7 @@ function Step2({ data, onChange, resetKey, inventory, inventoryLoading, onNext, 
             onChange={c}
             resetKey={resetKey}
             third
+            required
             autoFilled={isAutoFilled('label_number_1')}
             helperText={selectedHome && !isAutoFilled('label_number_1') ? 'Enter manually — not in inventory feed' : undefined}
           />
