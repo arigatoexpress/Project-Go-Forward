@@ -148,6 +148,44 @@ def test_manufacturer_location_is_required_when_template_maps_it():
     assert "manufacturer_city_state_zip" in result["missing_fields"]
 
 
+def test_partial_manufacturer_location_does_not_satisfy_required_alias():
+    result = generate_batch(
+        ["TDHCA_1023-Statement-Ownership.pdf"],
+        {
+            **BASE_DATA,
+            "manufacturer_address": "500 Factory Road",
+            "manufacturer_state": "TX",
+            "manufacturer_zip": "76101",
+        },
+        merge=True,
+    )
+
+    assert result["success"] is False
+    assert result["error"] == "missing_required_fields"
+    assert "manufacturer_city_state_zip" in result["missing_fields"]
+
+
+def test_partial_buyer_name_and_city_do_not_satisfy_composite_requirements():
+    issues = validate_required_document_data(
+        {
+            **BASE_DATA,
+            "buyer_name": "",
+            "buyer_first_name": "Lee",
+            "buyer_address": "123 Closing Ln",
+            "buyer_city": "Austin",
+            "buyer_state": "TX",
+            "buyer_zip": "",
+        },
+        ["buyer_name", "buyer_city_state_zip", "buyer_full_address"],
+    )
+
+    assert [issue.field for issue in issues] == [
+        "buyer_name",
+        "buyer_city_state_zip",
+        "buyer_full_address",
+    ]
+
+
 def test_production_packet_manufacturer_identity_fields_are_mapped():
     with open("config/pdf_field_inventory.json") as f:
         inventory = json.load(f)

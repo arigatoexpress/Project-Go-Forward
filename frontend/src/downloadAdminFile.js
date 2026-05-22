@@ -14,7 +14,9 @@ export default async function downloadAdminFile(url, fallbackFilename = 'documen
       : `Download failed (${response.status})`;
     try {
       const body = await response.json();
-      message = body.error || body.detail || message;
+      if (response.status !== 401) {
+        message = body.error || body.detail || message;
+      }
     } catch {
       // Keep the status-based message when the response is not JSON.
     }
