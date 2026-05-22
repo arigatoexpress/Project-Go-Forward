@@ -22,7 +22,13 @@ SAMPLE_DATA = {
     "buyer_phone": "555-0123",
     "manufacturer": "TRU Homes",
     "model": "The Marvel",
+    "date_of_manufacture": "2026-01-15",
+    "manufacturer_address": "500 Factory Road",
+    "manufacturer_city": "Fort Worth",
+    "manufacturer_state": "TX",
+    "manufacturer_zip": "76101",
     "serial_number_1": "TRU-987654",
+    "label_number_1": "TEX482913",
     "sales_price": "95000",
     "down_payment": "5000",
     "loan_term": "240",
@@ -86,13 +92,77 @@ def test_v2_maps_manufacturer_location_from_split_fields(monkeypatch, tmp_path):
     )
 
     assert result["success"] is True
-    assert (
-        captured["topmostSubform[0].Page1[0].Manufacturer_Address[0]"]
-        == "500 Factory Road"
-    )
+    assert captured["topmostSubform[0].Page1[0].Manufacturer_Address[0]"] == "500 Factory Road"
     assert (
         captured["topmostSubform[0].Page1[0].Manufacturer_City_State_Zip[0]"]
         == "Fort Worth, TX 76101"
+    )
+
+
+def test_v2_maps_full_packet_manufacturer_identity_fields(monkeypatch, tmp_path):
+    import tools.document_engine_v2 as engine_module
+
+    captures = {}
+
+    def _capture_fill(template_path, pdf_data, output_filename):
+        captures[os.path.basename(template_path)] = dict(pdf_data)
+        output_path = tmp_path / output_filename
+        output_path.write_bytes(b"%PDF-1.4\n%%EOF")
+        return str(output_path)
+
+    monkeypatch.setattr(engine_module, "fill_pdf_form", _capture_fill)
+
+    templates = [
+        "TMHA_LimitedWarranty.pdf",
+        "Internal_AoA.pdf",
+        "Internal_Homestead.pdf",
+        "State_ImportantHealth.pdf",
+        "TDHCA_1054_Habitability_Warranty.pdf",
+        "TDHCA_WarrantyUsedHome.pdf",
+        "TMHA-SalesContractDepositAgreement.pdf",
+    ]
+    result = engine_module.generate_batch(templates, SAMPLE_DATA, merge=False)
+
+    assert result["success"] is True
+    assert (
+        captures["TMHA_LimitedWarranty.pdf"]["topmostSubform[0].Page3[0].Manufacturer_Address[0]"]
+        == "500 Factory Road"
+    )
+    assert (
+        captures["TMHA_LimitedWarranty.pdf"][
+            "topmostSubform[0].Page3[0].Manufacturer_City_State_Zip[0]"
+        ]
+        == "Fort Worth, TX 76101"
+    )
+    assert (
+        captures["Internal_AoA.pdf"]["topmostSubform[0].Page2[0].Manufacturer_Model_HUD[0]"]
+        == "TRU Homes The Marvel / TEX482913"
+    )
+    assert (
+        captures["Internal_Homestead.pdf"][
+            "topmostSubform[0].Page2[0].Manufacturer_Model_Serial[0]"
+        ]
+        == "TRU Homes The Marvel / TRU-987654"
+    )
+    assert (
+        captures["State_ImportantHealth.pdf"]["topmostSubform[0].Page1[0].Manufacturer_Address[0]"]
+        == "500 Factory Road"
+    )
+    assert (
+        captures["TDHCA_1054_Habitability_Warranty.pdf"][
+            "topmostSubform[0].Page1[0].Manu_Address[0]"
+        ]
+        == "500 Factory Road"
+    )
+    assert (
+        captures["TDHCA_WarrantyUsedHome.pdf"]["topmostSubform[0].Page1[0].Manu_City_State_Zip[0]"]
+        == "Fort Worth, TX 76101"
+    )
+    assert (
+        captures["TMHA-SalesContractDepositAgreement.pdf"][
+            "topmostSubform[0].Page1[0].Seller_Phone[0]"
+        ]
+        == "(281) 324-3020"
     )
 
 

@@ -22,16 +22,21 @@ class TestDocumentGeneration:
     def test_templates_available(self):
         """At least 60 templates should be loadable."""
         from tools.document_engine import list_available_templates
+
         templates = list_available_templates()
         assert len(templates) >= 60, f"Only {len(templates)} templates"
 
     def test_generate_tdhca_disclosure(self):
         """Generate a TDHCA form and verify output exists."""
         from tools.document_engine import generate_document
-        result = generate_document("TDHCA_1038_Consumer_Disclosure.pdf", {
-            "buyer_name": "Test Buyer",
-            "salesrep": "Test Rep",
-        })
+
+        result = generate_document(
+            "TDHCA_1038_Consumer_Disclosure.pdf",
+            {
+                "buyer_name": "Test Buyer",
+                "salesrep": "Test Rep",
+            },
+        )
         assert result["success"], f"Generation failed: {result}"
         assert os.path.exists(result["file_path"]), "PDF not created"
         assert os.path.getsize(result["file_path"]) > 1000, "PDF too small"
@@ -39,38 +44,58 @@ class TestDocumentGeneration:
     def test_generate_tmha_sales_contract(self):
         """Generate a TMHA sales contract with required fields."""
         from tools.document_engine import generate_document
-        result = generate_document("TMHA_SalesContract.pdf", {
-            "buyer_address": "123 Test St",
-            "buyer_city": "Houston",
-            "buyer_county": "Harris",
-            "buyer_state": "TX",
-            "buyer_zip": "77001",
-            "manufacturer": "Clayton",
-            "model": "Test Model",
-            "serial_number_1": "TEST-001",
-            "sales_price": "50000",
-        })
+
+        result = generate_document(
+            "TMHA_SalesContract.pdf",
+            {
+                "buyer_address": "123 Test St",
+                "buyer_city": "Houston",
+                "buyer_county": "Harris",
+                "buyer_state": "TX",
+                "buyer_zip": "77001",
+                "manufacturer": "Clayton",
+                "model": "Test Model",
+                "serial_number_1": "TEST-001",
+                "label_number_1": "TEX482913",
+                "sales_price": "50000",
+            },
+        )
         assert result["success"], f"Generation failed: {result}"
 
     def test_generate_internal_form(self):
         """Generate an internal form."""
         from tools.document_engine import generate_document
-        result = generate_document("Internal_Homestead.pdf", {
-            "buyer_name": "Test Buyer",
-            "buyer_address": "123 Test St",
-        })
+
+        result = generate_document(
+            "Internal_Homestead.pdf",
+            {
+                "buyer_name": "Test Buyer",
+                "buyer_address": "123 Test St",
+                "buyer_city": "Houston",
+                "buyer_state": "TX",
+                "buyer_zip": "77001",
+                "manufacturer": "Clayton",
+                "model": "Test Model",
+                "serial_number_1": "TEST-001",
+            },
+        )
         assert result["success"], f"Generation failed: {result}"
 
     def test_xfa_data_in_pdf(self):
         """Verify XFA data is actually embedded in the generated PDF."""
         from tools.document_engine import generate_document
-        result = generate_document("TDHCA_1038_Consumer_Disclosure.pdf", {
-            "buyer_name": "XFA Verification Test",
-        })
+
+        result = generate_document(
+            "TDHCA_1038_Consumer_Disclosure.pdf",
+            {
+                "buyer_name": "XFA Verification Test",
+            },
+        )
         assert result["success"]
 
         from pypdf import PdfReader
         from pypdf.generic import ArrayObject
+
         reader = PdfReader(result["file_path"])
         acroform = reader.trailer["/Root"].get("/AcroForm", {})
         xfa = acroform.get("/XFA")
@@ -87,10 +112,14 @@ class TestDocumentGeneration:
     def test_missing_required_fields_rejected(self):
         """Generating without required fields should fail gracefully."""
         from tools.document_engine import generate_document
-        result = generate_document("TMHA_SalesContract.pdf", {
-            "buyer_name": "Test",
-            # Missing: buyer_address, manufacturer, etc.
-        })
+
+        result = generate_document(
+            "TMHA_SalesContract.pdf",
+            {
+                "buyer_name": "Test",
+                # Missing: buyer_address, manufacturer, etc.
+            },
+        )
         assert not result["success"]
         assert "required" in result.get("message", "").lower()
 
@@ -118,6 +147,7 @@ class TestCustomerData:
     def test_no_raw_ssn(self):
         """No raw SSNs should exist in customer data."""
         import re
+
         path = Path(__file__).parent.parent / "data" / "migrated_customers.json"
         if not path.exists():
             pytest.skip("No customer data")
@@ -135,6 +165,7 @@ class TestStartup:
     def test_imports_work(self):
         """All critical imports should succeed."""
         from tools.document_tools import DOCUMENTS_DIR
+
         assert os.path.isdir(DOCUMENTS_DIR), f"Templates dir missing: {DOCUMENTS_DIR}"
 
     def test_field_map_valid(self):

@@ -1,3 +1,6 @@
+import json
+import re
+
 from tools.document_engine_v2 import generate_batch, generate_document
 from tools.document_quality import (
     enrich_document_data,
@@ -58,6 +61,11 @@ def test_quality_enrichment_adds_seller_and_financing_aliases():
 
     assert enriched["seller_name"] == "Texas Home Outlet, Inc."
     assert enriched["seller_address"] == "10685 FM 1960 East"
+    assert enriched["seller_city"] == "Huffman"
+    assert enriched["seller_state"] == "TX"
+    assert enriched["seller_zip"] == "77336"
+    assert enriched["manufacturer_model_hud"] == "TRU Homes Delight / NTA7654321"
+    assert enriched["manufacturer_model_serial"] == "TRU Homes Delight / TRU-REAL-001"
     assert enriched["max_financed"] == "50,000.00"
     assert enriched["unpaid_balance"] == "50,000.00"
     assert enriched["interest_rate"] == "7.5"
@@ -138,3 +146,41 @@ def test_manufacturer_location_is_required_when_template_maps_it():
     assert result["error"] == "missing_required_fields"
     assert "manufacturer_address" in result["missing_fields"]
     assert "manufacturer_city_state_zip" in result["missing_fields"]
+
+
+def test_production_packet_manufacturer_identity_fields_are_mapped():
+    with open("config/pdf_field_inventory.json") as f:
+        inventory = json.load(f)
+    with open("config/field_map.json") as f:
+        field_map = json.load(f)
+
+    def leaf(path: str) -> str:
+        matches = re.findall(r"\.([^\.\[]+)\[\d+\]", path)
+        return matches[-1] if matches else path
+
+    allowed_unmapped = {
+        "Manufacturer_License",
+        "Manu_License",
+    }
+    missing = []
+    for packet_name in (
+        "standard_closing",
+        "used_home_closing",
+        "full_closing_new",
+        "full_closing_used",
+    ):
+        for template_name in field_map["packets"][packet_name]["templates"]:
+            source_fields = set(inventory.get(template_name, []))
+            mapped_fields = {
+                leaf(pdf_field)
+                for pdf_field in field_map["templates"].get(template_name, {}).get("field_map", {})
+            }
+            for field in source_fields:
+                if not re.search(r"manuf|make|mfg|factory|builder", field, re.I):
+                    continue
+                if field in allowed_unmapped or "License" in field:
+                    continue
+                if field not in mapped_fields:
+                    missing.append(f"{packet_name}:{template_name}:{field}")
+
+    assert missing == []

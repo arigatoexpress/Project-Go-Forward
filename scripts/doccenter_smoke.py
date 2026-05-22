@@ -17,12 +17,11 @@ import os
 import sys
 import time
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urljoin
 from urllib.request import HTTPCookieProcessor, Request, build_opener
-
 
 DEFAULT_BASE_URL = "https://tho.sapphirealpha.xyz"
 DEFAULT_TEMPLATE = "TMHA_SalesContract.pdf"
@@ -97,7 +96,7 @@ def _probe(name: str, status: int | None, elapsed_ms: int, ok: bool, evidence: s
 
 
 def _iso_stamp() -> str:
-    return datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+    return datetime.now(UTC).strftime("%Y%m%d%H%M%S")
 
 
 def _first(value: Any) -> Any:
@@ -159,6 +158,7 @@ def _build_document_data(inventory_home: dict[str, Any] | None, stamp: str) -> d
         "length": _clean(home.get("length"), "60"),
         "sq_ft": _clean(home.get("sq_ft") or home.get("sqft"), "820"),
         "wind_zone": _clean(home.get("wind_zone"), "II"),
+        "date_of_manufacture": _clean(home.get("date_of_manufacture"), "2026-01-15"),
         "weight_sec_1": _clean(home.get("weight_sec_1"), "10000"),
         "weight_sec_2": _clean(home.get("weight_sec_2")),
         "manufacturer_address": _clean(home.get("manufacturer_address"), "500 Factory Road"),
@@ -401,7 +401,9 @@ def run_smoke(
                 "customer_record_search",
                 status,
                 elapsed_ms,
-                status == 200 and data["buyer_name"] in serialized and "123-45-6789" not in serialized,
+                status == 200
+                and data["buyer_name"] in serialized
+                and "123-45-6789" not in serialized,
                 f"status={status}; contains_name={data['buyer_name'] in serialized}; raw_ssn={'123-45-6789' in serialized}",
             )
         )
