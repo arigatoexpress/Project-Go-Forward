@@ -195,6 +195,18 @@ def _direct_city_state_zip_has_value(value: Any) -> bool:
     )
 
 
+def _direct_full_address_has_value(value: Any) -> bool:
+    text = _clean(value)
+    match = re.search(
+        r"^(.+?),\s*[A-Za-z][A-Za-z .'-]{2,},\s*[A-Z]{2}\s+\d{5}(?:-\d{4})?$",
+        text,
+    )
+    if not match:
+        return False
+    street_part = match.group(1)
+    return bool(re.search(r"[A-Za-z]", street_part) and re.search(r"\d", street_part))
+
+
 def _city_state_zip_has_value(
     data: dict[str, Any],
     composite_field: str,
@@ -202,9 +214,11 @@ def _city_state_zip_has_value(
     state_field: str,
     zip_field: str,
 ) -> bool:
+    if _direct_city_state_zip_has_value(data.get(composite_field)):
+        return True
     if _any_have_values(data, city_field, state_field, zip_field):
         return _all_have_values(data, city_field, state_field, zip_field)
-    return _direct_city_state_zip_has_value(data.get(composite_field))
+    return False
 
 
 def _normalize_identifier(value: Any) -> str:
@@ -371,11 +385,13 @@ def _required_field_has_value(data: dict[str, Any], field: str) -> bool:
             data, "buyer_city_state_zip", "buyer_city", "buyer_state", "buyer_zip"
         )
     if field == "buyer_full_address":
+        if _direct_full_address_has_value(data.get("buyer_full_address")):
+            return True
         if _any_have_values(data, "buyer_address", "buyer_city", "buyer_state", "buyer_zip"):
             return _has_value(data.get("buyer_address")) and _required_field_has_value(
                 data, "buyer_city_state_zip"
             )
-        return _has_value(data.get("buyer_full_address"))
+        return False
     if field == "manufacturer_model":
         if _any_have_values(data, "manufacturer", "model"):
             return _all_have_values(data, "manufacturer", "model")
@@ -397,6 +413,8 @@ def _required_field_has_value(data: dict[str, Any], field: str) -> bool:
             "manufacturer_zip",
         )
     if field == "manufacturer_full_address":
+        if _direct_full_address_has_value(data.get("manufacturer_full_address")):
+            return True
         if _any_have_values(
             data,
             "manufacturer_address",
@@ -407,7 +425,7 @@ def _required_field_has_value(data: dict[str, Any], field: str) -> bool:
             return _has_value(data.get("manufacturer_address")) and _required_field_has_value(
                 data, "manufacturer_city_state_zip"
             )
-        return _has_value(data.get("manufacturer_full_address"))
+        return False
 
     if _has_value(data.get(field)):
         return True
