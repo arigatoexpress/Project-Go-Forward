@@ -15,6 +15,9 @@ from typing import Any
 BUSINESS_NAME = "Texas Home Outlet, Inc."
 BUSINESS_PHONE = "(281) 324-3020"
 BUSINESS_ADDRESS = "10685 FM 1960 East"
+BUSINESS_CITY = "Huffman"
+BUSINESS_STATE = "TX"
+BUSINESS_ZIP = "77336"
 BUSINESS_CITY_STATE_ZIP = "Huffman, TX 77336"
 
 
@@ -43,12 +46,19 @@ REQUIRED_FIELD_LABELS = {
     "manufacturer_full_address": "Manufacturer address",
     "model": "Model",
     "manufacturer_model": "Manufacturer/model",
+    "manufacturer_model_hud": "Manufacturer/model/HUD label",
+    "manufacturer_model_serial": "Manufacturer/model/serial",
     "serial_number_1": "Serial # 1",
     "serial_number_2": "Serial # 2",
     "label_number_1": "HUD label # 1",
     "label_number_2": "HUD label # 2",
+    "date_of_manufacture": "Date of manufacture",
     "seller_name": "Seller name",
     "seller_address": "Seller address",
+    "seller_phone": "Seller phone",
+    "seller_city": "Seller city",
+    "seller_state": "Seller state",
+    "seller_zip": "Seller ZIP",
     "sales_price": "Sales price",
     "down_payment": "Down payment",
     "creditor_name": "Creditor name",
@@ -64,6 +74,8 @@ REQUIRED_FIELD_ALIASES = {
     "mailing_full_address": ("mailing_full_address", "mailing_address"),
     "mailing_city_state_zip": ("mailing_city_state_zip", "mailing_city"),
     "manufacturer_model": ("manufacturer_model", "manufacturer", "model"),
+    "manufacturer_model_hud": ("manufacturer_model_hud",),
+    "manufacturer_model_serial": ("manufacturer_model_serial",),
     "manufacturer_full_address": ("manufacturer_full_address", "manufacturer_address"),
     "manufacturer_city_state_zip": ("manufacturer_city_state_zip", "manufacturer_city"),
     "seller_name": ("seller_name",),
@@ -196,6 +208,9 @@ def enrich_document_data(data: dict[str, Any]) -> dict[str, Any]:
     enriched.setdefault("seller_name", BUSINESS_NAME)
     enriched.setdefault("seller_phone", BUSINESS_PHONE)
     enriched.setdefault("seller_address", BUSINESS_ADDRESS)
+    enriched.setdefault("seller_city", BUSINESS_CITY)
+    enriched.setdefault("seller_state", BUSINESS_STATE)
+    enriched.setdefault("seller_zip", BUSINESS_ZIP)
     enriched.setdefault("seller_city_state_zip", BUSINESS_CITY_STATE_ZIP)
 
     if _is_blank(enriched.get("buyer_name")):
@@ -228,6 +243,22 @@ def enrich_document_data(data: dict[str, Any]) -> dict[str, Any]:
         manufacturer_model = _join_non_empty([enriched.get("manufacturer"), enriched.get("model")])
         if manufacturer_model:
             enriched["manufacturer_model"] = manufacturer_model
+
+    if _is_blank(enriched.get("manufacturer_model_hud")):
+        manufacturer_model_hud = _join_non_empty(
+            [enriched.get("manufacturer_model"), enriched.get("label_number_1")],
+            " / ",
+        )
+        if manufacturer_model_hud:
+            enriched["manufacturer_model_hud"] = manufacturer_model_hud
+
+    if _is_blank(enriched.get("manufacturer_model_serial")):
+        manufacturer_model_serial = _join_non_empty(
+            [enriched.get("manufacturer_model"), enriched.get("serial_number_1")],
+            " / ",
+        )
+        if manufacturer_model_serial:
+            enriched["manufacturer_model_serial"] = manufacturer_model_serial
 
     if _is_blank(enriched.get("manufacturer_city_state_zip")):
         manufacturer_city_state_zip = _join_non_empty(
@@ -296,6 +327,14 @@ def _required_field_has_value(data: dict[str, Any], field: str) -> bool:
     if field == "manufacturer_model":
         return _has_value(data.get("manufacturer_model")) or (
             _has_value(data.get("manufacturer")) and _has_value(data.get("model"))
+        )
+    if field == "manufacturer_model_hud":
+        return _required_field_has_value(data, "manufacturer_model") and _has_value(
+            data.get("label_number_1")
+        )
+    if field == "manufacturer_model_serial":
+        return _required_field_has_value(data, "manufacturer_model") and _has_value(
+            data.get("serial_number_1")
         )
     if field == "manufacturer_city_state_zip":
         return _has_value(data.get("manufacturer_city_state_zip")) or (

@@ -28,8 +28,17 @@ from config.field_map_loader import (
 from config.field_map_loader import (
     list_templates as _list_templates,
 )
+from tools.document_quality import (
+    BUSINESS_ADDRESS,
+    BUSINESS_CITY,
+    BUSINESS_CITY_STATE_ZIP,
+    BUSINESS_NAME,
+    BUSINESS_PHONE,
+    BUSINESS_STATE,
+    BUSINESS_ZIP,
+)
 from tools.document_tools import DOCUMENTS_DIR, OUTPUT_DIR, fill_pdf_form, upload_to_gcs
-from tools.drive_service import upload_to_drive, ensure_deal_folder
+from tools.drive_service import ensure_deal_folder, upload_to_drive
 
 logger = logging.getLogger(__name__)
 
@@ -157,6 +166,45 @@ def _normalize_document_data(data: dict[str, Any]) -> dict[str, Any]:
         "manufacturer_model",
         _join_nonempty([normalized.get("manufacturer"), normalized.get("model")], " "),
     )
+    manufacturer_city_state_zip = _city_state_zip(
+        normalized.get("manufacturer_city"),
+        normalized.get("manufacturer_state"),
+        normalized.get("manufacturer_zip"),
+    )
+    _set_if_missing(normalized, "manufacturer_city_state_zip", manufacturer_city_state_zip)
+    _set_if_missing(
+        normalized,
+        "manufacturer_full_address",
+        _full_address(
+            normalized.get("manufacturer_address"),
+            normalized.get("manufacturer_city_state_zip"),
+        ),
+    )
+    _set_if_missing(
+        normalized,
+        "manufacturer_model_hud",
+        _join_nonempty(
+            [normalized.get("manufacturer_model"), normalized.get("label_number_1")],
+            " / ",
+        ),
+    )
+    _set_if_missing(
+        normalized,
+        "manufacturer_model_serial",
+        _join_nonempty(
+            [normalized.get("manufacturer_model"), normalized.get("serial_number_1")],
+            " / ",
+        ),
+    )
+
+    _set_if_missing(normalized, "seller_name", BUSINESS_NAME)
+    _set_if_missing(normalized, "seller_phone", BUSINESS_PHONE)
+    _set_if_missing(normalized, "seller_address", BUSINESS_ADDRESS)
+    _set_if_missing(normalized, "seller_city", BUSINESS_CITY)
+    _set_if_missing(normalized, "seller_state", BUSINESS_STATE)
+    _set_if_missing(normalized, "seller_zip", BUSINESS_ZIP)
+    _set_if_missing(normalized, "seller_city_state_zip", BUSINESS_CITY_STATE_ZIP)
+
     _set_if_missing(
         normalized,
         "serial_label_combined",

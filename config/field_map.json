@@ -14,6 +14,7 @@
         "buyer_zip",
         "manufacturer",
         "model",
+        "label_number_1",
         "serial_number_1",
         "sales_price"
       ],
@@ -58,6 +59,15 @@
         "topmostSubform[0].Page4[0].Creditor_Address[0]": "creditor_address",
         "topmostSubform[0].Page4[0].Creditor_City_State_Zip[0]": "creditor_city_state_zip",
         "topmostSubform[0].Page4[0].Creditor_Phone_1[0]": "creditor_phone",
+        "topmostSubform[0].Page4[0].Creditor_Phone_2[0]": "creditor_phone",
+        "topmostSubform[0].Page4[0].Creditor_Phone_3[0]": "creditor_phone",
+        "topmostSubform[0].Page4[0].Creditor_Phone_4[0]": "creditor_phone",
+        "topmostSubform[0].Page4[0].Creditor_Phone_5[0]": "creditor_phone",
+        "topmostSubform[0].Page4[0].Creditor_Phone_6[0]": "creditor_phone",
+        "topmostSubform[0].Page4[0].Creditor_Phone_7[0]": "creditor_phone",
+        "topmostSubform[0].Page4[0].Creditor_Phone_8[0]": "creditor_phone",
+        "topmostSubform[0].Page4[0].Creditor_Phone_9[0]": "creditor_phone",
+        "topmostSubform[0].Page4[0].Creditor_Phone_10[0]": "creditor_phone",
         "topmostSubform[0].Page4[0].Install_Address[0]": "buyer_address",
         "topmostSubform[0].Page4[0].Install_City_State_Zip[0]": "buyer_city_state_zip"
       },
@@ -109,6 +119,8 @@
         "manufacturer_address",
         "manufacturer_city_state_zip",
         "model",
+        "date_of_manufacture",
+        "label_number_1",
         "serial_number_1",
         "buyer_address",
         "buyer_city",
@@ -161,11 +173,17 @@
       "description": "Required warranty document certifying used/pre-owned home meets habitability standards. Only applies to used home sales.",
       "required_fields": [
         "manufacturer",
+        "manufacturer_address",
+        "manufacturer_city_state_zip",
         "model",
+        "date_of_manufacture",
+        "label_number_1",
         "serial_number_1"
       ],
       "field_map": {
         "topmostSubform[0].Page1[0].Manufacturer[0]": "manufacturer",
+        "topmostSubform[0].Page1[0].Manu_Address[0]": "manufacturer_address",
+        "topmostSubform[0].Page1[0].Manu_City_State_Zip[0]": "manufacturer_city_state_zip",
         "topmostSubform[0].Page1[0].Model[0]": "model",
         "topmostSubform[0].Page1[0].Date_Const[0]": "date_of_manufacture",
         "topmostSubform[0].Page1[0].Square_Feet[0]": "sq_ft",
@@ -229,6 +247,7 @@
         "manufacturer",
         "manufacturer_address",
         "manufacturer_city_state_zip",
+        "label_number_1",
         "serial_number_1"
       ],
       "field_map": {
@@ -261,7 +280,10 @@
       "required_fields": [
         "buyer_name",
         "manufacturer",
-        "model"
+        "manufacturer_address",
+        "manufacturer_city_state_zip",
+        "model",
+        "label_number_1"
       ],
       "field_map": {
         "topmostSubform[0].Page3[0].Contract_Name[0]": "buyer_name",
@@ -270,7 +292,9 @@
         "topmostSubform[0].Page3[0].Seller_Name[0]": "seller_name",
         "topmostSubform[0].Page3[0].Seller_Address[0]": "seller_address",
         "topmostSubform[0].Page3[0].Seller_City_State_Zip[0]": "seller_city_state_zip",
-        "topmostSubform[0].Page3[0].Manufacturer[0]": "manufacturer"
+        "topmostSubform[0].Page3[0].Manufacturer[0]": "manufacturer",
+        "topmostSubform[0].Page3[0].Manufacturer_Address[0]": "manufacturer_address",
+        "topmostSubform[0].Page3[0].Manufacturer_City_State_Zip[0]": "manufacturer_city_state_zip"
       },
       "checkbox_fields": {},
       "static_values": {
@@ -290,7 +314,10 @@
       ],
       "field_map": {
         "topmostSubform[0].Page1[0].Buyer_Complete_Name[0]": "buyer_name",
-        "topmostSubform[0].Page1[0].Seller_Name[0]": "seller_name"
+        "topmostSubform[0].Page1[0].Seller_Name[0]": "seller_name",
+        "topmostSubform[0].Page1[0].Installer_Phone[0]": "installer_phone",
+        "topmostSubform[0].Page1[0].Installer_Name[0]": "installer_name",
+        "topmostSubform[0].Page1[0].Installer_Address_City_State_Zip[0]": "installer_address_city_state_zip"
       },
       "checkbox_fields": {},
       "static_values": {
@@ -320,7 +347,9 @@
       "description": "State compliance agreement for manufactured home purchase.",
       "required_fields": [
         "buyer_name",
-        "buyer_address"
+        "buyer_address",
+        "buyer_city_state_zip",
+        "manufacturer_model_hud"
       ],
       "field_map": {
         "topmostSubform[0].Page1[0].Contract_Name[0]": "buyer_name",
@@ -583,7 +612,8 @@
         "topmostSubform[0].Page2[0].Creditor_Name[0]": "creditor_name",
         "topmostSubform[0].Page2[0].Creditor_Address[0]": "creditor_address",
         "topmostSubform[0].Page2[0].Creditor_City_State_Zip[0]": "creditor_city_state_zip",
-        "topmostSubform[0].Page2[0].Creditor_Phone[0]": "creditor_phone"
+        "topmostSubform[0].Page2[0].Creditor_Phone[0]": "creditor_phone",
+        "topmostSubform[0].Page2[0].Manufacturer_Model_HUD[0]": "manufacturer_model_hud"
       },
       "checkbox_fields": {},
       "static_values": {
@@ -598,7 +628,9 @@
       "description": "Texas homestead exemption application for property tax purposes.",
       "required_fields": [
         "buyer_name",
-        "buyer_address"
+        "buyer_address",
+        "buyer_city_state_zip",
+        "manufacturer_model_serial"
       ],
       "field_map": {
         "topmostSubform[0].Page1[0].Buyer_Complete_Name[0]": "buyer_name",
@@ -607,6 +639,8 @@
         "topmostSubform[0].Page1[0].Phone1[0]": "buyer_phone",
         "topmostSubform[0].Page1[0].SSN1[0]": "buyer_ssn",
         "topmostSubform[0].Page1[0].Buyer_DOB[0]": "buyer_dob",
+        "topmostSubform[0].Page2[0].Install_Address_City_State_Zip[0]": "buyer_full_address",
+        "topmostSubform[0].Page2[0].Manufacturer_Model_Serial[0]": "manufacturer_model_serial",
         "topmostSubform[0].Page3[0].Buyer_Complete_Name[0]": "buyer_name"
       },
       "checkbox_fields": {},
@@ -968,7 +1002,13 @@
       "description": "State health and safety disclosure with manufacturer and buyer information.",
       "required_fields": [
         "buyer_name",
-        "manufacturer"
+        "buyer_address",
+        "buyer_city_state_zip",
+        "manufacturer",
+        "manufacturer_address",
+        "manufacturer_city_state_zip",
+        "serial_number_1",
+        "label_number_1"
       ],
       "field_map": {
         "topmostSubform[0].Page1[0].Buyer_Complete_Name[0]": "buyer_name",
@@ -976,6 +1016,8 @@
         "topmostSubform[0].Page1[0].Install_Address[0]": "buyer_address",
         "topmostSubform[0].Page1[0].Install_City_State_Zip[0]": "buyer_city_state_zip",
         "topmostSubform[0].Page1[0].Manufacturer[0]": "manufacturer",
+        "topmostSubform[0].Page1[0].Manufacturer_Address[0]": "manufacturer_address",
+        "topmostSubform[0].Page1[0].Manufacturer_City_State_Zip[0]": "manufacturer_city_state_zip",
         "topmostSubform[0].Page1[0].Serial[0]": "serial_number_1",
         "topmostSubform[0].Page1[0].HUD[0]": "label_number_1",
         "topmostSubform[0].Page1[0].Seller_Name[0]": "seller_name",
@@ -1279,11 +1321,17 @@
       "description": "Warranty disclosure for pre-owned manufactured home sales.",
       "required_fields": [
         "manufacturer",
+        "manufacturer_address",
+        "manufacturer_city_state_zip",
         "model",
+        "date_of_manufacture",
+        "label_number_1",
         "serial_number_1"
       ],
       "field_map": {
         "topmostSubform[0].Page1[0].Manufacturer[0]": "manufacturer",
+        "topmostSubform[0].Page1[0].Manu_Address[0]": "manufacturer_address",
+        "topmostSubform[0].Page1[0].Manu_City_State_Zip[0]": "manufacturer_city_state_zip",
         "topmostSubform[0].Page1[0].Model[0]": "model",
         "topmostSubform[0].Page1[0].Date_Const[0]": "date_of_manufacture",
         "topmostSubform[0].Page1[0].Square_Feet[0]": "sq_ft",
@@ -1308,6 +1356,7 @@
       "description": "Notice regarding construction standards and wind zone compliance.",
       "required_fields": [
         "buyer_name",
+        "label_number_1",
         "serial_number_1"
       ],
       "field_map": {
@@ -1391,6 +1440,8 @@
       "required_fields": [
         "buyer_name",
         "manufacturer",
+        "model",
+        "label_number_1",
         "serial_number_1"
       ],
       "field_map": {
@@ -1412,12 +1463,20 @@
         "topmostSubform[0].Page1[0].Install_Zip[0]": "buyer_zip",
         "topmostSubform[0].Page1[0].Seller_Name[0]": "seller_name",
         "topmostSubform[0].Page1[0].Seller_Address[0]": "seller_address",
+        "topmostSubform[0].Page1[0].Seller_City[0]": "seller_city",
+        "topmostSubform[0].Page1[0].Seller_State[0]": "seller_state",
+        "topmostSubform[0].Page1[0].Seller_Zip[0]": "seller_zip",
+        "topmostSubform[0].Page1[0].Seller_Phone[0]": "seller_phone",
         "topmostSubform[0].Page1[0].Seller_Email[0]": "seller_email",
         "topmostSubform[0].Page3[0].Install_Address[0]": "buyer_address",
         "topmostSubform[0].Page3[0].Install_City[0]": "buyer_city",
         "topmostSubform[0].Page3[0].Install_State[0]": "buyer_state",
         "topmostSubform[0].Page3[0].Install_Zip[0]": "buyer_zip",
         "topmostSubform[0].Page3[0].Seller_Name[0]": "seller_name",
+        "topmostSubform[0].Page3[0].Seller_City[0]": "seller_city",
+        "topmostSubform[0].Page3[0].Seller_State[0]": "seller_state",
+        "topmostSubform[0].Page3[0].Seller_Zip[0]": "seller_zip",
+        "topmostSubform[0].Page3[0].Seller_Phone[0]": "seller_phone",
         "topmostSubform[0].Page3[0].Contract_Name[0]": "buyer_name",
         "topmostSubform[0].Page3[0].Phone1[0]": "buyer_phone"
       },
