@@ -174,6 +174,39 @@ def _join_non_empty(values: list[Any], separator: str = " ") -> str:
     return separator.join(clean)
 
 
+def _all_have_values(data: dict[str, Any], *fields: str) -> bool:
+    return all(_has_value(data.get(field)) for field in fields)
+
+
+def _any_have_values(data: dict[str, Any], *fields: str) -> bool:
+    return any(_has_value(data.get(field)) for field in fields)
+
+
+def _direct_name_has_value(value: Any) -> bool:
+    return len([part for part in _clean(value).split() if part]) >= 2
+
+
+def _direct_city_state_zip_has_value(value: Any) -> bool:
+    return bool(
+        re.search(
+            r"^[A-Za-z][A-Za-z .'-]{2,},\s*[A-Z]{2}\s+\d{5}(?:-\d{4})?$",
+            _clean(value),
+        )
+    )
+
+
+def _city_state_zip_has_value(
+    data: dict[str, Any],
+    composite_field: str,
+    city_field: str,
+    state_field: str,
+    zip_field: str,
+) -> bool:
+    if _any_have_values(data, city_field, state_field, zip_field):
+        return _all_have_values(data, city_field, state_field, zip_field)
+    return _direct_city_state_zip_has_value(data.get(composite_field))
+
+
 def _normalize_identifier(value: Any) -> str:
     return re.sub(r"[^a-z0-9]", "", _clean(value).lower())
 
@@ -213,14 +246,18 @@ def enrich_document_data(data: dict[str, Any]) -> dict[str, Any]:
     enriched.setdefault("seller_zip", BUSINESS_ZIP)
     enriched.setdefault("seller_city_state_zip", BUSINESS_CITY_STATE_ZIP)
 
-    if _is_blank(enriched.get("buyer_name")):
+    if _is_blank(enriched.get("buyer_name")) and _all_have_values(
+        enriched, "buyer_first_name", "buyer_last_name"
+    ):
         buyer_name = _join_non_empty(
             [enriched.get("buyer_first_name"), enriched.get("buyer_last_name")]
         )
         if buyer_name:
             enriched["buyer_name"] = buyer_name
 
-    if _is_blank(enriched.get("buyer_city_state_zip")):
+    if _is_blank(enriched.get("buyer_city_state_zip")) and _all_have_values(
+        enriched, "buyer_city", "buyer_state", "buyer_zip"
+    ):
         buyer_city_state_zip = _join_non_empty(
             [
                 enriched.get("buyer_city"),
@@ -231,7 +268,11 @@ def enrich_document_data(data: dict[str, Any]) -> dict[str, Any]:
         if buyer_city_state_zip:
             enriched["buyer_city_state_zip"] = buyer_city_state_zip
 
-    if _is_blank(enriched.get("buyer_full_address")):
+    if _is_blank(enriched.get("buyer_full_address")) and _has_value(
+        enriched.get("buyer_address")
+    ) and _city_state_zip_has_value(
+        enriched, "buyer_city_state_zip", "buyer_city", "buyer_state", "buyer_zip"
+    ):
         buyer_full_address = _join_non_empty(
             [enriched.get("buyer_address"), enriched.get("buyer_city_state_zip")],
             ", ",
@@ -239,12 +280,16 @@ def enrich_document_data(data: dict[str, Any]) -> dict[str, Any]:
         if buyer_full_address:
             enriched["buyer_full_address"] = buyer_full_address
 
-    if _is_blank(enriched.get("manufacturer_model")):
+    if _is_blank(enriched.get("manufacturer_model")) and _all_have_values(
+        enriched, "manufacturer", "model"
+    ):
         manufacturer_model = _join_non_empty([enriched.get("manufacturer"), enriched.get("model")])
         if manufacturer_model:
             enriched["manufacturer_model"] = manufacturer_model
 
-    if _is_blank(enriched.get("manufacturer_model_hud")):
+    if _is_blank(enriched.get("manufacturer_model_hud")) and _all_have_values(
+        enriched, "manufacturer_model", "label_number_1"
+    ):
         manufacturer_model_hud = _join_non_empty(
             [enriched.get("manufacturer_model"), enriched.get("label_number_1")],
             " / ",
@@ -252,7 +297,9 @@ def enrich_document_data(data: dict[str, Any]) -> dict[str, Any]:
         if manufacturer_model_hud:
             enriched["manufacturer_model_hud"] = manufacturer_model_hud
 
-    if _is_blank(enriched.get("manufacturer_model_serial")):
+    if _is_blank(enriched.get("manufacturer_model_serial")) and _all_have_values(
+        enriched, "manufacturer_model", "serial_number_1"
+    ):
         manufacturer_model_serial = _join_non_empty(
             [enriched.get("manufacturer_model"), enriched.get("serial_number_1")],
             " / ",
@@ -260,7 +307,9 @@ def enrich_document_data(data: dict[str, Any]) -> dict[str, Any]:
         if manufacturer_model_serial:
             enriched["manufacturer_model_serial"] = manufacturer_model_serial
 
-    if _is_blank(enriched.get("manufacturer_city_state_zip")):
+    if _is_blank(enriched.get("manufacturer_city_state_zip")) and _all_have_values(
+        enriched, "manufacturer_city", "manufacturer_state", "manufacturer_zip"
+    ):
         manufacturer_city_state_zip = _join_non_empty(
             [
                 enriched.get("manufacturer_city"),
@@ -273,7 +322,15 @@ def enrich_document_data(data: dict[str, Any]) -> dict[str, Any]:
         if manufacturer_city_state_zip:
             enriched["manufacturer_city_state_zip"] = manufacturer_city_state_zip
 
-    if _is_blank(enriched.get("manufacturer_full_address")):
+    if _is_blank(enriched.get("manufacturer_full_address")) and _has_value(
+        enriched.get("manufacturer_address")
+    ) and _city_state_zip_has_value(
+        enriched,
+        "manufacturer_city_state_zip",
+        "manufacturer_city",
+        "manufacturer_state",
+        "manufacturer_zip",
+    ):
         manufacturer_full_address = _join_non_empty(
             [enriched.get("manufacturer_address"), enriched.get("manufacturer_city_state_zip")],
             ", ",
@@ -302,32 +359,27 @@ def enrich_document_data(data: dict[str, Any]) -> dict[str, Any]:
 
 
 def _required_field_has_value(data: dict[str, Any], field: str) -> bool:
-    if _has_value(data.get(field)):
-        if field == "sales_price":
-            amount = _decimal(data.get(field))
-            return amount is not None and amount > 0
-        return True
-
-    aliases = REQUIRED_FIELD_ALIASES.get(field, ())
+    if field == "sales_price":
+        amount = _decimal(data.get(field))
+        return amount is not None and amount > 0
     if field == "buyer_name":
-        return _has_value(data.get("buyer_name")) or (
-            _has_value(data.get("buyer_first_name")) and _has_value(data.get("buyer_last_name"))
-        )
+        if _any_have_values(data, "buyer_first_name", "buyer_last_name"):
+            return _all_have_values(data, "buyer_first_name", "buyer_last_name")
+        return _direct_name_has_value(data.get("buyer_name"))
     if field == "buyer_city_state_zip":
-        return _has_value(data.get("buyer_city_state_zip")) or (
-            _has_value(data.get("buyer_city"))
-            and _has_value(data.get("buyer_state"))
-            and _has_value(data.get("buyer_zip"))
+        return _city_state_zip_has_value(
+            data, "buyer_city_state_zip", "buyer_city", "buyer_state", "buyer_zip"
         )
     if field == "buyer_full_address":
-        return _has_value(data.get("buyer_full_address")) or (
-            _has_value(data.get("buyer_address"))
-            and _required_field_has_value(data, "buyer_city_state_zip")
-        )
+        if _any_have_values(data, "buyer_address", "buyer_city", "buyer_state", "buyer_zip"):
+            return _has_value(data.get("buyer_address")) and _required_field_has_value(
+                data, "buyer_city_state_zip"
+            )
+        return _has_value(data.get("buyer_full_address"))
     if field == "manufacturer_model":
-        return _has_value(data.get("manufacturer_model")) or (
-            _has_value(data.get("manufacturer")) and _has_value(data.get("model"))
-        )
+        if _any_have_values(data, "manufacturer", "model"):
+            return _all_have_values(data, "manufacturer", "model")
+        return _has_value(data.get("manufacturer_model"))
     if field == "manufacturer_model_hud":
         return _required_field_has_value(data, "manufacturer_model") and _has_value(
             data.get("label_number_1")
@@ -337,16 +389,30 @@ def _required_field_has_value(data: dict[str, Any], field: str) -> bool:
             data.get("serial_number_1")
         )
     if field == "manufacturer_city_state_zip":
-        return _has_value(data.get("manufacturer_city_state_zip")) or (
-            _has_value(data.get("manufacturer_city"))
-            and _has_value(data.get("manufacturer_state"))
-            and _has_value(data.get("manufacturer_zip"))
+        return _city_state_zip_has_value(
+            data,
+            "manufacturer_city_state_zip",
+            "manufacturer_city",
+            "manufacturer_state",
+            "manufacturer_zip",
         )
     if field == "manufacturer_full_address":
-        return _has_value(data.get("manufacturer_full_address")) or (
-            _has_value(data.get("manufacturer_address"))
-            and _required_field_has_value(data, "manufacturer_city_state_zip")
-        )
+        if _any_have_values(
+            data,
+            "manufacturer_address",
+            "manufacturer_city",
+            "manufacturer_state",
+            "manufacturer_zip",
+        ):
+            return _has_value(data.get("manufacturer_address")) and _required_field_has_value(
+                data, "manufacturer_city_state_zip"
+            )
+        return _has_value(data.get("manufacturer_full_address"))
+
+    if _has_value(data.get(field)):
+        return True
+
+    aliases = REQUIRED_FIELD_ALIASES.get(field, ())
     return any(_has_value(data.get(alias)) for alias in aliases)
 
 
