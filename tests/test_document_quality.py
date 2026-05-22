@@ -186,6 +186,56 @@ def test_partial_buyer_name_and_city_do_not_satisfy_composite_requirements():
     ]
 
 
+def test_direct_buyer_address_aliases_allow_partial_stale_components():
+    issues = validate_required_document_data(
+        {
+            **BASE_DATA,
+            "buyer_full_address": "987 Contract Ave, Dallas, TX 75201",
+            "buyer_city_state_zip": "Dallas, TX 75201",
+            "buyer_address": "",
+            "buyer_city": "Dallas",
+            "buyer_state": "TX",
+            "buyer_zip": "",
+        },
+        ["buyer_city_state_zip", "buyer_full_address"],
+    )
+
+    assert issues == []
+
+
+def test_direct_manufacturer_full_address_allows_partial_stale_components():
+    issues = validate_required_document_data(
+        {
+            **BASE_DATA,
+            "manufacturer_full_address": "500 Factory Road, Fort Worth, TX 76101",
+            "manufacturer_city_state_zip": "Fort Worth, TX 76101",
+            "manufacturer_address": "",
+            "manufacturer_city": "Fort Worth",
+            "manufacturer_state": "TX",
+            "manufacturer_zip": "",
+        },
+        ["manufacturer_city_state_zip", "manufacturer_full_address"],
+    )
+
+    assert issues == []
+
+
+def test_direct_full_address_must_include_street_and_city_state_zip():
+    issues = validate_required_document_data(
+        {
+            **BASE_DATA,
+            "buyer_full_address": "Dallas, TX 75201",
+            "buyer_address": "",
+            "buyer_city": "",
+            "buyer_state": "",
+            "buyer_zip": "",
+        },
+        ["buyer_full_address"],
+    )
+
+    assert [issue.field for issue in issues] == ["buyer_full_address"]
+
+
 def test_production_packet_manufacturer_identity_fields_are_mapped():
     with open("config/pdf_field_inventory.json") as f:
         inventory = json.load(f)
