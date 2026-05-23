@@ -169,6 +169,31 @@ def test_v2_maps_full_packet_manufacturer_identity_fields(monkeypatch, tmp_path)
     )
 
 
+def test_v2_defaults_installer_identity_for_installation_warranty(monkeypatch, tmp_path):
+    import tools.document_engine_v2 as engine_module
+
+    captured = {}
+
+    def _capture_fill(_template_path, pdf_data, output_filename):
+        captured.update(pdf_data)
+        output_path = tmp_path / output_filename
+        output_path.write_bytes(b"%PDF-1.4\n%%EOF")
+        return str(output_path)
+
+    monkeypatch.setattr(engine_module, "fill_pdf_form", _capture_fill)
+
+    result = engine_module.generate_document(
+        "TDHCA_1124_Installation_Warranty.pdf",
+        {key: value for key, value in SAMPLE_DATA.items() if not key.startswith("installer_")},
+    )
+
+    assert result["success"] is True
+    assert captured["topmostSubform[0].Page1[0].Installer_Name[0]"] == "Texas Home Outlet, Inc."
+    assert captured["THO_TDHCA1124_Installer_Contact_Name"] == "Texas Home Outlet, Inc."
+    assert captured["THO_TDHCA1124_Installer_Contact_Phone"] == "(281) 324-3020"
+    assert "topmostSubform[0].Page1[0].License[0]" not in captured
+
+
 def test_v2_generate_unified_template():
     # TMHA_SalesContract is in unified_schema.json
     result = generate_document("TMHA_SalesContract.pdf", SAMPLE_DATA)

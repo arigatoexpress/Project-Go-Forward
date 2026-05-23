@@ -487,6 +487,8 @@ function toDocumentData(f) {
     manufacturer_full_address: fullAddress(f.manufacturer_address, manufacturerCityStateZip),
     installer_address_city_state_zip: installerFullAddress,
     installer_name_address: joinNonEmpty([f.installer_name, installerFullAddress], ', '),
+    installer_contact_name: f.installer_contact_name || f.installer_name,
+    installer_contact_phone: f.installer_contact_phone || f.installer_phone,
     serial_label_combined: serialLabelCombined,
     unpaid_balance: hasValue(f.unpaid_balance) ? f.unpaid_balance : moneyString(financedAmount),
     total_unpaid_balance: hasValue(f.total_unpaid_balance) ? f.total_unpaid_balance : moneyString(financedAmount),

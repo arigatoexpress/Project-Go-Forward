@@ -175,6 +175,25 @@ def _join_non_empty(values: list[Any], separator: str = " ") -> str:
     return separator.join(clean)
 
 
+def _city_state_zip(city: Any, state: Any, zip_code: Any) -> str:
+    if not (_has_value(city) or _has_value(zip_code)):
+        return ""
+    city_part = _clean(city)
+    state_part = _clean(state) or "TX"
+    zip_part = _clean(zip_code)
+    prefix = f"{city_part}, " if city_part else ""
+    return f"{prefix}{state_part} {zip_part}".strip()
+
+
+def _full_address(address: Any, city_state_zip: Any) -> str:
+    if not _has_value(address):
+        return ""
+    address_part = _clean(address)
+    if _has_value(city_state_zip):
+        return f"{address_part}, {_clean(city_state_zip)}"
+    return address_part
+
+
 def _all_have_values(data: dict[str, Any], *fields: str) -> bool:
     return all(_has_value(data.get(field)) for field in fields)
 
@@ -266,6 +285,58 @@ def enrich_document_data(data: dict[str, Any]) -> dict[str, Any]:
     _set_if_blank(enriched, "seller_state", BUSINESS_STATE)
     _set_if_blank(enriched, "seller_zip", BUSINESS_ZIP)
     _set_if_blank(enriched, "seller_city_state_zip", BUSINESS_CITY_STATE_ZIP)
+
+    if _clean(enriched.get("installer_type")).lower() != "other":
+        _set_if_blank(enriched, "installer_name", BUSINESS_NAME)
+        _set_if_blank(enriched, "installer_phone", BUSINESS_PHONE)
+        _set_if_blank(enriched, "installer_address", BUSINESS_ADDRESS)
+        _set_if_blank(enriched, "installer_city", BUSINESS_CITY)
+        _set_if_blank(enriched, "installer_state", BUSINESS_STATE)
+        _set_if_blank(enriched, "installer_zip", BUSINESS_ZIP)
+
+    if _is_blank(enriched.get("installer_city_state_zip")) and _all_have_values(
+        enriched, "installer_city", "installer_state", "installer_zip"
+    ):
+        installer_city_state_zip = _city_state_zip(
+            enriched.get("installer_city"),
+            enriched.get("installer_state"),
+            enriched.get("installer_zip"),
+        )
+        if installer_city_state_zip:
+            enriched["installer_city_state_zip"] = installer_city_state_zip
+
+    if _is_blank(enriched.get("installer_address_city_state_zip")) and _has_value(
+        enriched.get("installer_address")
+    ):
+        installer_full_address = _full_address(
+            enriched.get("installer_address"),
+            enriched.get("installer_city_state_zip"),
+        )
+        if installer_full_address:
+            enriched["installer_address_city_state_zip"] = installer_full_address
+
+    if _is_blank(enriched.get("installer_name_address")) and _has_value(
+        enriched.get("installer_name")
+    ):
+        installer_name_address = _join_non_empty(
+            [
+                enriched.get("installer_name"),
+                enriched.get("installer_address_city_state_zip"),
+            ],
+            ", ",
+        )
+        if installer_name_address:
+            enriched["installer_name_address"] = installer_name_address
+
+    if _is_blank(enriched.get("installer_contact_name")) and _has_value(
+        enriched.get("installer_name")
+    ):
+        enriched["installer_contact_name"] = _clean(enriched.get("installer_name"))
+
+    if _is_blank(enriched.get("installer_contact_phone")) and _has_value(
+        enriched.get("installer_phone")
+    ):
+        enriched["installer_contact_phone"] = _clean(enriched.get("installer_phone"))
 
     if _is_blank(enriched.get("buyer_name")) and _all_have_values(
         enriched, "buyer_first_name", "buyer_last_name"

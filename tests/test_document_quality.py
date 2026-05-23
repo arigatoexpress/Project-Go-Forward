@@ -65,6 +65,15 @@ def test_quality_enrichment_adds_seller_and_financing_aliases():
     assert enriched["seller_city"] == "Huffman"
     assert enriched["seller_state"] == "TX"
     assert enriched["seller_zip"] == "77336"
+    assert enriched["installer_name"] == "Texas Home Outlet, Inc."
+    assert enriched["installer_phone"] == "(281) 324-3020"
+    assert enriched["installer_address_city_state_zip"] == "10685 FM 1960 East, Huffman, TX 77336"
+    assert (
+        enriched["installer_name_address"]
+        == "Texas Home Outlet, Inc., 10685 FM 1960 East, Huffman, TX 77336"
+    )
+    assert enriched["installer_contact_name"] == "Texas Home Outlet, Inc."
+    assert enriched["installer_contact_phone"] == "(281) 324-3020"
     assert enriched["manufacturer_model_hud"] == "TRU Homes Delight / NTA7654321"
     assert enriched["manufacturer_model_serial"] == "TRU Homes Delight / TRU-REAL-001"
     assert enriched["max_financed"] == "50,000.00"
@@ -85,6 +94,29 @@ def test_quality_enrichment_repairs_blank_seller_defaults():
     assert enriched["seller_name"] == "Texas Home Outlet, Inc."
     assert enriched["seller_rbi"] == "35248"
     assert enriched["seller_address"] == "10685 FM 1960 East"
+
+
+def test_quality_enrichment_preserves_blank_alternate_installer():
+    enriched = enrich_document_data(
+        {
+            **BASE_DATA,
+            "installer_type": "other",
+            "installer_name": "",
+            "installer_phone": "",
+            "installer_address": "",
+            "installer_city": "",
+            "installer_state": "TX",
+            "installer_zip": "",
+        }
+    )
+
+    assert enriched["installer_name"] == ""
+    assert enriched["installer_phone"] == ""
+    assert enriched["installer_address"] == ""
+    assert "installer_address_city_state_zip" not in enriched
+    assert "installer_name_address" not in enriched
+    assert "installer_contact_name" not in enriched
+    assert "installer_contact_phone" not in enriched
 
 
 def test_quality_enrichment_adds_manufacturer_address_aliases():
