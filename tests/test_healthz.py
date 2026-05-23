@@ -74,6 +74,33 @@ def test_healthz_is_not_rate_limited(monkeypatch):
     assert trailing_slash.status_code == 200
 
 
+def test_llms_txt_serves_plain_text_agent_context(monkeypatch):
+    client, _main, _db, _logger = create_client(monkeypatch)
+
+    response = client.get("/llms.txt")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/plain")
+    assert response.headers["cache-control"] == "public, max-age=3600"
+    body = response.text
+    assert "# Texas Home Outlet" in body
+    assert "https://tho.sapphirealpha.xyz/" in body
+    assert "No public THO route authorizes private customer-data disclosure" in body
+
+
+def test_llms_txt_does_not_redirect_from_run_app_host(monkeypatch):
+    client, _main, _db, _logger = create_client(monkeypatch)
+
+    response = client.get(
+        "/llms.txt",
+        headers={"host": "project-go-forward-trgi34bxuq-uc.a.run.app"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/plain")
+
+
 def test_unknown_api_paths_do_not_fall_back_to_spa(monkeypatch):
     client, _main, _db, _logger = create_client(monkeypatch)
 
