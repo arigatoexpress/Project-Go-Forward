@@ -14,6 +14,7 @@
         "buyer_zip",
         "manufacturer",
         "model",
+        "no_of_sections",
         "label_number_1",
         "serial_number_1",
         "sales_price"
@@ -153,6 +154,8 @@
         "topmostSubform[0].Page1[0].Contract_Name[0]": "buyer_name",
         "topmostSubform[0].Page1[0].Install_City_State_Zip[0]": "buyer_city_state_zip",
         "topmostSubform[0].Page2[0].Creditor_Name[0]": "creditor_name",
+        "topmostSubform[0].Page2[0].HUD[0]": "label_number_1",
+        "topmostSubform[0].Page2[0].Serial[0]": "serial_number_1",
         "topmostSubform[0].Page2[0].Creditor_Address[0]": "creditor_address",
         "topmostSubform[0].Page2[0].Creditor_City_State_Zip[0]": "creditor_city_state_zip"
       },
@@ -258,9 +261,10 @@
         "topmostSubform[0].Page1[0].Manufacturer_Address[0]": "manufacturer_address",
         "topmostSubform[0].Page1[0].Manufacturer_City_State_Zip[0]": "manufacturer_city_state_zip",
         "topmostSubform[0].Page1[0].Wind_Zone[0]": "wind_zone",
-        "topmostSubform[0].Page1[0].Installer_Name_Address[0]": "installer_name_address",
-        "topmostSubform[0].Page1[0].Installer_Phone[0]": "installer_phone",
-        "topmostSubform[0].Page1[0].Installer_License[0]": "installer_license",
+        "topmostSubform[0].Page1[0].Installer_Name[0]": "installer_name",
+        "topmostSubform[0].Page1[0].License[0]": "installer_license",
+        "THO_TDHCA1124_Installer_Contact_Name": "installer_contact_name",
+        "THO_TDHCA1124_Installer_Contact_Phone": "installer_contact_phone",
         "topmostSubform[0].Page1[0].LabelSeal_NumberSection_1[0]": "label_number_1",
         "topmostSubform[0].Page1[0].Serial_NumberSection_1[0]": "serial_number_1",
         "topmostSubform[0].Page1[0].LabelSeal_NumberSection_2[0]": "label_number_2",
@@ -1441,6 +1445,7 @@
         "buyer_name",
         "manufacturer",
         "model",
+        "no_of_sections",
         "label_number_1",
         "serial_number_1"
       ],
@@ -1833,7 +1838,8 @@
       "label": "Seller RBI License #",
       "type": "string",
       "section": "seller",
-      "required": false
+      "required": false,
+      "default": "35248"
     },
     "seller_address": {
       "label": "Seller Address",

@@ -63,6 +63,14 @@ def test_handleselecthome_uses_onautofill(source: str):
     assert "patch" in body, "handleSelectHome should build a patch object"
     for key in ("manufacturer", "model", "year", "no_of_sections"):
         assert key in body, f"handleSelectHome should populate {key}"
+    assert "normalizeSections(home.sections)" in body
+
+
+def test_sections_are_required_and_normalized_for_documents(source: str):
+    assert "const normalizeSections" in source
+    assert "field: 'no_of_sections', label: '# of Sections', step: 2" in source
+    assert "# of Sections is required" in source
+    assert "no_of_sections: normalizeSections(f.no_of_sections)" in source
 
 
 def test_handleselecthome_populates_factory_document_fields(source: str):
@@ -105,6 +113,9 @@ def test_document_center_uses_shared_tho_business_constants(source: str):
     assert "BUSINESS_PHONE" in source
     assert "BUSINESS_ADDRESS" in source
     assert "BUSINESS_ZIP" in source
+    assert "BUSINESS_LICENSE" in source
+    assert "seller_rbi: BUSINESS_LICENSE" in source
+    assert "seller_rbi: f.seller_rbi || BUSINESS_LICENSE" in source
 
 
 def test_field_renders_autofilled_badge(source: str):
@@ -307,12 +318,17 @@ def test_step3_makes_not_ready_packets_unselectable(source: str):
     assert "NOT READY" in source
     assert "Use the Standard Closing Packet or ready individual documents." in source
     assert "disabled={isPacketDisabled}" in source
-    assert "const isExactPacketSelection = selected.length === cnt && selectedCount === cnt" in source
+    assert (
+        "const isExactPacketSelection = selected.length === cnt && selectedCount === cnt" in source
+    )
     assert "return isExactPacketSelection ? [] : [...tpls]" in source
 
 
 def test_step3_makes_not_ready_individual_documents_unselectable(source: str):
-    assert "const productionBlockMessage = getTemplateProductionBlockMessage(doc.template_name)" in source
+    assert (
+        "const productionBlockMessage = getTemplateProductionBlockMessage(doc.template_name)"
+        in source
+    )
     assert "const docNotReady = Boolean(productionBlockMessage)" in source
     assert "disabled={docNotReady}" in source
     assert "Not ready for Document Center yet: lender/note mapping is incomplete." in source
@@ -367,7 +383,10 @@ def test_manufacturer_location_required_fields_have_human_guidance(source: str):
     Step 2 inputs rather than silently leaving official PDF fields empty."""
     assert "manufacturer_address: 'Manufacturer address'" in source
     assert "manufacturer_city_state_zip: 'Manufacturer city/state/ZIP'" in source
-    assert "manufacturer_city_state_zip: ['manufacturer_city', 'manufacturer_state', 'manufacturer_zip']" in source
+    assert (
+        "manufacturer_city_state_zip: ['manufacturer_city', 'manufacturer_state', 'manufacturer_zip']"
+        in source
+    )
     assert "Manufacturer ZIP" in source
 
 

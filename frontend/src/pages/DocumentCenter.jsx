@@ -18,6 +18,7 @@ import {
   BUSINESS_CITY,
   BUSINESS_STATE,
   BUSINESS_ZIP,
+  BUSINESS_LICENSE,
 } from '../constants';
 
 /* ─── Constants ──────────────────────────────────────────── */
@@ -56,6 +57,7 @@ const INITIAL_FORM = {
   installer_city: BUSINESS_CITY,
   installer_state: BUSINESS_STATE,
   installer_zip: BUSINESS_ZIP,
+  seller_rbi: BUSINESS_LICENSE,
   // Financial
   sales_price: '', down_payment: '',
   creditor_name: '', creditor_phone: '', creditor_address: '', creditor_city_state_zip: '',
@@ -166,6 +168,27 @@ const moneyString = value => (
   Number.isFinite(value) ? value.toFixed(2) : undefined
 );
 
+const normalizeSections = value => {
+  if (!hasValue(value)) return '';
+  const clean = String(value).trim();
+  const lower = clean.toLowerCase();
+  const wordCounts = {
+    single: '1',
+    one: '1',
+    double: '2',
+    two: '2',
+    triple: '3',
+    three: '3',
+    quad: '4',
+    four: '4',
+  };
+  for (const [word, count] of Object.entries(wordCounts)) {
+    if (new RegExp(`\\b${word}\\b`).test(lower)) return count;
+  }
+  const match = lower.match(/\b([1-4])\b/);
+  return match ? match[1] : clean;
+};
+
 const formatPositiveCurrency = value => {
   const amount = numericMoney(value);
   if (!Number.isFinite(amount) || amount <= 0) return '';
@@ -252,6 +275,7 @@ const DOCUMENT_PACKET_BASELINE_FIELDS = [
   { field: 'buyer_phone', label: 'Buyer phone', step: 1 },
   { field: 'manufacturer', label: 'Manufacturer', step: 2 },
   { field: 'model', label: 'Model name', step: 2 },
+  { field: 'no_of_sections', label: '# of Sections', step: 2 },
   { field: 'serial_number_1', label: 'Serial # 1', step: 2 },
   { field: 'label_number_1', label: 'HUD label # 1', step: 2 },
   { field: 'buyer_address', label: 'Installation street address', step: 2 },
@@ -459,6 +483,7 @@ function toDocumentData(f) {
   return {
     ...f,
     seller_name: f.seller_name || BUSINESS_LEGAL_NAME,
+    seller_rbi: f.seller_rbi || BUSINESS_LICENSE,
     seller_phone: f.seller_phone || BUSINESS_PHONE,
     seller_address: f.seller_address || BUSINESS_ADDRESS,
     seller_city: f.seller_city || BUSINESS_CITY,
@@ -482,8 +507,11 @@ function toDocumentData(f) {
     ], ' / '),
     manufacturer_city_state_zip: manufacturerCityStateZip,
     manufacturer_full_address: fullAddress(f.manufacturer_address, manufacturerCityStateZip),
+    no_of_sections: normalizeSections(f.no_of_sections),
     installer_address_city_state_zip: installerFullAddress,
     installer_name_address: joinNonEmpty([f.installer_name, installerFullAddress], ', '),
+    installer_contact_name: f.installer_contact_name || f.installer_name,
+    installer_contact_phone: f.installer_contact_phone || f.installer_phone,
     serial_label_combined: serialLabelCombined,
     unpaid_balance: hasValue(f.unpaid_balance) ? f.unpaid_balance : moneyString(financedAmount),
     total_unpaid_balance: hasValue(f.total_unpaid_balance) ? f.total_unpaid_balance : moneyString(financedAmount),
@@ -1469,7 +1497,7 @@ function Step2({ data, onChange, resetKey, inventory, inventoryLoading, onNext, 
     if (hasValue(home.serial_number_2)) patch.serial_number_2 = String(home.serial_number_2);
     if (hasValue(home.label_number)) patch.label_number_1 = String(home.label_number);
     if (hasValue(home.label_number_2)) patch.label_number_2 = String(home.label_number_2);
-    if (hasValue(home.sections)) patch.no_of_sections = String(home.sections);
+    if (hasValue(home.sections)) patch.no_of_sections = normalizeSections(home.sections);
     const width = pickHomeValue(home, 'width', 'home_width', 'total_size_w');
     const length = pickHomeValue(home, 'length', 'home_length', 'total_size_l');
     const sqft = pickHomeValue(home, 'sq_ft', 'sqft', 'square_feet', 'total_sqft');
@@ -1851,7 +1879,7 @@ function Step2({ data, onChange, resetKey, inventory, inventoryLoading, onNext, 
             helperText={selectedHome && !isAutoFilled('label_number_1') ? 'Enter manually — not in inventory feed' : undefined}
           />
           <Field label="Label # 2" name="label_number_2" value={data.label_number_2} onChange={c} resetKey={resetKey} third />
-          <Field label="# of Sections" name="no_of_sections" value={data.no_of_sections} onChange={c} resetKey={resetKey} third autoFilled={isAutoFilled('no_of_sections')} />
+          <Field label="# of Sections" name="no_of_sections" value={data.no_of_sections} onChange={c} resetKey={resetKey} third required autoFilled={isAutoFilled('no_of_sections')} />
         </Row>
         <Row>
           <Field label="Width (ft)" name="width" value={data.width} onChange={c} resetKey={resetKey} third autoFilled={isAutoFilled('width')} />
@@ -2841,6 +2869,7 @@ function getValidationState(form, step) {
   if (step === 2) {
     if (!form.manufacturer?.trim()) push('manufacturer', 'Manufacturer is required');
     if (!form.model?.trim()) push('model', 'Model name is required');
+    if (!form.no_of_sections?.trim()) push('no_of_sections', '# of Sections is required');
     if (!form.serial_number_1?.trim()) push('serial_number_1', 'Serial # 1 is required');
     if (isPlaceholderIdentifier(form.serial_number_1)) push('serial_number_1', 'Serial # 1 looks like a placeholder');
     if (isPlaceholderIdentifier(form.serial_number_2)) push('serial_number_2', 'Serial # 2 looks like a placeholder');

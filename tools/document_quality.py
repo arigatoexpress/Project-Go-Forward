@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import asdict, dataclass
-from decimal import Decimal, InvalidOperation
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any
 
 BUSINESS_NAME = "Texas Home Outlet, Inc."
@@ -19,6 +19,7 @@ BUSINESS_CITY = "Huffman"
 BUSINESS_STATE = "TX"
 BUSINESS_ZIP = "77336"
 BUSINESS_CITY_STATE_ZIP = "Huffman, TX 77336"
+BUSINESS_RBI = "35248"
 
 
 IDENTITY_FIELDS = {
@@ -53,6 +54,7 @@ REQUIRED_FIELD_LABELS = {
     "label_number_1": "HUD label # 1",
     "label_number_2": "HUD label # 2",
     "date_of_manufacture": "Date of manufacture",
+    "no_of_sections": "Number of sections",
     "seller_name": "Seller name",
     "seller_address": "Seller address",
     "seller_phone": "Seller phone",
@@ -166,12 +168,87 @@ def _decimal(value: Any) -> Decimal | None:
 def _money(value: Decimal | None) -> str | None:
     if value is None:
         return None
-    return f"{value.quantize(Decimal('0.01')):,.2f}"
+    return f"{value.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP):,.2f}"
+
+
+def _round_money(value: Decimal) -> Decimal:
+    return value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
+def _int(value: Any) -> int | None:
+    text = _clean(value)
+    if not text:
+        return None
+    match = re.search(r"\d+", text)
+    if not match:
+        return None
+    try:
+        return int(match.group(0))
+    except ValueError:
+        return None
+
+
+def _compute_monthly_payment(
+    amount_financed: Decimal,
+    loan_term: int,
+    apr: Decimal,
+) -> Decimal | None:
+    if loan_term <= 0:
+        return None
+    monthly_rate = (apr / Decimal("100")) / Decimal("12")
+    if monthly_rate <= 0:
+        return _round_money(amount_financed / Decimal(loan_term))
+    power = (Decimal("1") + monthly_rate) ** loan_term
+    return _round_money(amount_financed * monthly_rate * power / (power - Decimal("1")))
+
+
+def normalize_section_count(value: Any) -> str:
+    """Return the compact section count expected by tiny PDF fields."""
+    text = _clean(value)
+    if not text:
+        return ""
+    lowered = text.lower()
+    word_counts = {
+        "single": "1",
+        "one": "1",
+        "double": "2",
+        "two": "2",
+        "triple": "3",
+        "three": "3",
+        "quad": "4",
+        "four": "4",
+    }
+    for word, count in word_counts.items():
+        if re.search(rf"\b{word}\b", lowered):
+            return count
+    match = re.search(r"\b([1-4])\b", lowered)
+    if match:
+        return match.group(1)
+    return text
 
 
 def _join_non_empty(values: list[Any], separator: str = " ") -> str:
     clean = [_clean(value) for value in values if _has_value(value)]
     return separator.join(clean)
+
+
+def _city_state_zip(city: Any, state: Any, zip_code: Any) -> str:
+    if not (_has_value(city) or _has_value(zip_code)):
+        return ""
+    city_part = _clean(city)
+    state_part = _clean(state) or "TX"
+    zip_part = _clean(zip_code)
+    prefix = f"{city_part}, " if city_part else ""
+    return f"{prefix}{state_part} {zip_part}".strip()
+
+
+def _full_address(address: Any, city_state_zip: Any) -> str:
+    if not _has_value(address):
+        return ""
+    address_part = _clean(address)
+    if _has_value(city_state_zip):
+        return f"{address_part}, {_clean(city_state_zip)}"
+    return address_part
 
 
 def _all_have_values(data: dict[str, Any], *fields: str) -> bool:
@@ -180,6 +257,11 @@ def _all_have_values(data: dict[str, Any], *fields: str) -> bool:
 
 def _any_have_values(data: dict[str, Any], *fields: str) -> bool:
     return any(_has_value(data.get(field)) for field in fields)
+
+
+def _set_if_blank(data: dict[str, Any], key: str, value: Any) -> None:
+    if _is_blank(data.get(key)):
+        data[key] = value
 
 
 def _direct_name_has_value(value: Any) -> bool:
@@ -252,13 +334,72 @@ def enrich_document_data(data: dict[str, Any]) -> dict[str, Any]:
     """
     enriched = dict(data or {})
 
-    enriched.setdefault("seller_name", BUSINESS_NAME)
-    enriched.setdefault("seller_phone", BUSINESS_PHONE)
-    enriched.setdefault("seller_address", BUSINESS_ADDRESS)
-    enriched.setdefault("seller_city", BUSINESS_CITY)
-    enriched.setdefault("seller_state", BUSINESS_STATE)
-    enriched.setdefault("seller_zip", BUSINESS_ZIP)
-    enriched.setdefault("seller_city_state_zip", BUSINESS_CITY_STATE_ZIP)
+    section_count = normalize_section_count(
+        enriched.get("no_of_sections") or enriched.get("sections")
+    )
+    if section_count:
+        enriched["no_of_sections"] = section_count
+
+    _set_if_blank(enriched, "seller_name", BUSINESS_NAME)
+    _set_if_blank(enriched, "seller_rbi", BUSINESS_RBI)
+    _set_if_blank(enriched, "seller_phone", BUSINESS_PHONE)
+    _set_if_blank(enriched, "seller_address", BUSINESS_ADDRESS)
+    _set_if_blank(enriched, "seller_city", BUSINESS_CITY)
+    _set_if_blank(enriched, "seller_state", BUSINESS_STATE)
+    _set_if_blank(enriched, "seller_zip", BUSINESS_ZIP)
+    _set_if_blank(enriched, "seller_city_state_zip", BUSINESS_CITY_STATE_ZIP)
+
+    if _clean(enriched.get("installer_type")).lower() != "other":
+        _set_if_blank(enriched, "installer_name", BUSINESS_NAME)
+        _set_if_blank(enriched, "installer_phone", BUSINESS_PHONE)
+        _set_if_blank(enriched, "installer_address", BUSINESS_ADDRESS)
+        _set_if_blank(enriched, "installer_city", BUSINESS_CITY)
+        _set_if_blank(enriched, "installer_state", BUSINESS_STATE)
+        _set_if_blank(enriched, "installer_zip", BUSINESS_ZIP)
+
+    if _is_blank(enriched.get("installer_city_state_zip")) and _all_have_values(
+        enriched, "installer_city", "installer_state", "installer_zip"
+    ):
+        installer_city_state_zip = _city_state_zip(
+            enriched.get("installer_city"),
+            enriched.get("installer_state"),
+            enriched.get("installer_zip"),
+        )
+        if installer_city_state_zip:
+            enriched["installer_city_state_zip"] = installer_city_state_zip
+
+    if _is_blank(enriched.get("installer_address_city_state_zip")) and _has_value(
+        enriched.get("installer_address")
+    ):
+        installer_full_address = _full_address(
+            enriched.get("installer_address"),
+            enriched.get("installer_city_state_zip"),
+        )
+        if installer_full_address:
+            enriched["installer_address_city_state_zip"] = installer_full_address
+
+    if _is_blank(enriched.get("installer_name_address")) and _has_value(
+        enriched.get("installer_name")
+    ):
+        installer_name_address = _join_non_empty(
+            [
+                enriched.get("installer_name"),
+                enriched.get("installer_address_city_state_zip"),
+            ],
+            ", ",
+        )
+        if installer_name_address:
+            enriched["installer_name_address"] = installer_name_address
+
+    if _is_blank(enriched.get("installer_contact_name")) and _has_value(
+        enriched.get("installer_name")
+    ):
+        enriched["installer_contact_name"] = _clean(enriched.get("installer_name"))
+
+    if _is_blank(enriched.get("installer_contact_phone")) and _has_value(
+        enriched.get("installer_phone")
+    ):
+        enriched["installer_contact_phone"] = _clean(enriched.get("installer_phone"))
 
     if _is_blank(enriched.get("buyer_name")) and _all_have_values(
         enriched, "buyer_first_name", "buyer_last_name"
@@ -282,10 +423,12 @@ def enrich_document_data(data: dict[str, Any]) -> dict[str, Any]:
         if buyer_city_state_zip:
             enriched["buyer_city_state_zip"] = buyer_city_state_zip
 
-    if _is_blank(enriched.get("buyer_full_address")) and _has_value(
-        enriched.get("buyer_address")
-    ) and _city_state_zip_has_value(
-        enriched, "buyer_city_state_zip", "buyer_city", "buyer_state", "buyer_zip"
+    if (
+        _is_blank(enriched.get("buyer_full_address"))
+        and _has_value(enriched.get("buyer_address"))
+        and _city_state_zip_has_value(
+            enriched, "buyer_city_state_zip", "buyer_city", "buyer_state", "buyer_zip"
+        )
     ):
         buyer_full_address = _join_non_empty(
             [enriched.get("buyer_address"), enriched.get("buyer_city_state_zip")],
@@ -336,14 +479,16 @@ def enrich_document_data(data: dict[str, Any]) -> dict[str, Any]:
         if manufacturer_city_state_zip:
             enriched["manufacturer_city_state_zip"] = manufacturer_city_state_zip
 
-    if _is_blank(enriched.get("manufacturer_full_address")) and _has_value(
-        enriched.get("manufacturer_address")
-    ) and _city_state_zip_has_value(
-        enriched,
-        "manufacturer_city_state_zip",
-        "manufacturer_city",
-        "manufacturer_state",
-        "manufacturer_zip",
+    if (
+        _is_blank(enriched.get("manufacturer_full_address"))
+        and _has_value(enriched.get("manufacturer_address"))
+        and _city_state_zip_has_value(
+            enriched,
+            "manufacturer_city_state_zip",
+            "manufacturer_city",
+            "manufacturer_state",
+            "manufacturer_zip",
+        )
     ):
         manufacturer_full_address = _join_non_empty(
             [enriched.get("manufacturer_address"), enriched.get("manufacturer_city_state_zip")],
@@ -356,18 +501,36 @@ def enrich_document_data(data: dict[str, Any]) -> dict[str, Any]:
     down_payment = _decimal(enriched.get("down_payment")) or Decimal("0")
     loan_amount = None
     if sales_price is not None:
-        loan_amount = sales_price - down_payment
+        loan_amount = _round_money(sales_price - down_payment)
         for key in ("unpaid_balance", "total_unpaid_balance", "max_financed"):
-            if _is_blank(enriched.get(key)):
-                enriched[key] = _money(loan_amount)
+            enriched[key] = _money(loan_amount)
 
     apr = _decimal(enriched.get("apr"))
     if apr is not None and _is_blank(enriched.get("interest_rate")):
         enriched["interest_rate"] = str(apr.normalize())
 
     monthly_payment = _decimal(enriched.get("monthly_payment"))
-    if monthly_payment is not None and _is_blank(enriched.get("total_monthly_payment")):
+    loan_term = _int(enriched.get("loan_term")) or 240
+    if monthly_payment is None and loan_amount is not None:
+        monthly_payment = _compute_monthly_payment(loan_amount, loan_term, apr or Decimal("7.5"))
+
+    if monthly_payment is not None:
         enriched["total_monthly_payment"] = _money(monthly_payment)
+        if _is_blank(enriched.get("monthly_payment")):
+            enriched["monthly_payment"] = _money(monthly_payment)
+
+    if loan_amount is not None and monthly_payment is not None:
+        total_payments = _round_money(monthly_payment * Decimal(loan_term))
+        total_paid = _round_money(total_payments + down_payment)
+        finance_charge = _round_money(total_payments - loan_amount)
+        enriched["total_payments"] = _money(total_payments)
+        enriched["total_paid"] = _money(total_paid)
+        enriched["total_sale_price"] = _money(total_paid)
+        enriched["finance_charge"] = _money(finance_charge)
+        if _is_blank(enriched.get("payment_breakdown")):
+            enriched["payment_breakdown"] = (
+                f"{loan_term} monthly payments of ${_money(monthly_payment)}"
+            )
 
     return enriched
 
