@@ -100,16 +100,24 @@ class TestDocumentTools:
             str(index) for index in range(10)
         ]
 
-    def test_tmha_install_address_uses_overlay_not_acroform_appearance(self):
+    def test_tmha_sales_contract_overlap_prone_fields_use_overlays(self):
         from tools.document_tools import _prepare_acroform_appearance_data
 
-        field = "topmostSubform[0].Page1[0].Install_Address[0]"
+        fields = {
+            "topmostSubform[0].Page1[0].Install_Address[0]",
+            "topmostSubform[0].Page1[0].No_of_Sections[0]",
+            "topmostSubform[0].Page1[0].SalePrice[0]",
+            "topmostSubform[0].Page1[0].DownPmt[0]",
+            "topmostSubform[0].Page2[0].Total_Pmts[0]",
+            "topmostSubform[0].Page2[0].Total_Paid[0]",
+            "topmostSubform[0].Page2[0].Finance_Charge[0]",
+        }
         prepared = _prepare_acroform_appearance_data(
             "TMHA_SalesContract.pdf",
-            {field: "123 Smoke Test Loop"},
+            {field: "value" for field in fields},
         )
 
-        assert field not in prepared
+        assert fields.isdisjoint(prepared)
 
     def test_tmha_install_address_widget_rect_is_constrained(self):
         from pypdf import PdfReader, PdfWriter
@@ -148,15 +156,24 @@ class TestDocumentTools:
         _apply_pdf_text_overlays(
             "TMHA_SalesContract.pdf",
             writer,
-            {"topmostSubform[0].Page1[0].Install_Address[0]": "123 Smoke Test Loop"},
+            {
+                "topmostSubform[0].Page1[0].Install_Address[0]": "123 Smoke Test Loop",
+                "topmostSubform[0].Page1[0].No_of_Sections[0]": "2",
+                "topmostSubform[0].Page2[0].Total_Pmts[0]": "187,449.60",
+                "topmostSubform[0].Page2[0].Total_Paid[0]": "192,449.60",
+            },
         )
 
         output_path = tmp_path / "tmha-install-address-overlay.pdf"
         with output_path.open("wb") as output:
             writer.write(output)
 
-        extracted = PdfReader(str(output_path)).pages[0].extract_text() or ""
-        assert "123 Smoke Test Loop" in extracted
+        pages = PdfReader(str(output_path)).pages
+        first_page = pages[0].extract_text() or ""
+        second_page = pages[1].extract_text() or ""
+        assert "123 Smoke Test Loop" in first_page
+        assert "187,449.60" in second_page
+        assert "192,449.60" in second_page
 
     def test_tdhca_1124_contact_overlay_adds_pdf_content(self, tmp_path):
         from pypdf import PdfReader, PdfWriter

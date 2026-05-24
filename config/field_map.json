@@ -14,6 +14,7 @@
         "buyer_zip",
         "manufacturer",
         "model",
+        "no_of_sections",
         "label_number_1",
         "serial_number_1",
         "sales_price"
@@ -153,6 +154,8 @@
         "topmostSubform[0].Page1[0].Contract_Name[0]": "buyer_name",
         "topmostSubform[0].Page1[0].Install_City_State_Zip[0]": "buyer_city_state_zip",
         "topmostSubform[0].Page2[0].Creditor_Name[0]": "creditor_name",
+        "topmostSubform[0].Page2[0].HUD[0]": "label_number_1",
+        "topmostSubform[0].Page2[0].Serial[0]": "serial_number_1",
         "topmostSubform[0].Page2[0].Creditor_Address[0]": "creditor_address",
         "topmostSubform[0].Page2[0].Creditor_City_State_Zip[0]": "creditor_city_state_zip"
       },
@@ -1442,6 +1445,7 @@
         "buyer_name",
         "manufacturer",
         "model",
+        "no_of_sections",
         "label_number_1",
         "serial_number_1"
       ],

@@ -166,6 +166,22 @@ PDF_WIDGET_RECT_OVERRIDES = {
 PDF_ACROFORM_APPEARANCE_SUPPRESSED_FIELDS = {
     "TMHA_SalesContract.pdf": {
         "topmostSubform[0].Page1[0].Install_Address[0]",
+        "topmostSubform[0].Page1[0].No_of_Sections[0]",
+        "topmostSubform[0].Page1[0].SalePrice[0]",
+        "topmostSubform[0].Page1[0].DownPmt[0]",
+        "topmostSubform[0].Page1[0].Unpaid_Balance[0]",
+        "topmostSubform[0].Page1[0].Total_Paid_To_Others[0]",
+        "topmostSubform[0].Page1[0].Total_Unpaid_Balance[0]",
+        "topmostSubform[0].Page2[0].Loan_Term[0]",
+        "topmostSubform[0].Page2[0].Total_Payment[0]",
+        "topmostSubform[0].Page2[0].Pmt_Start_Date[0]",
+        "topmostSubform[0].Page2[0].Payment_Breakdown[0]",
+        "topmostSubform[0].Page2[0].APR[0]",
+        "topmostSubform[0].Page2[0].Finance_Charge[0]",
+        "topmostSubform[0].Page2[0].Max_Financed[0]",
+        "topmostSubform[0].Page2[0].Total_Pmts[0]",
+        "topmostSubform[0].Page2[0].Total_Paid[0]",
+        "topmostSubform[0].Page2[0].DownPmt[0]",
     },
 }
 
@@ -175,10 +191,169 @@ PDF_TEXT_OVERLAYS = {
             {
                 "field": "topmostSubform[0].Page1[0].Install_Address[0]",
                 "x": 274,
-                "y": 666,
+                "y": 675,
                 "max_width": 290,
                 "font_size": 10,
                 "clear_background": True,
+            },
+            {
+                "field": "topmostSubform[0].Page1[0].No_of_Sections[0]",
+                "x": 218,
+                "y": 533,
+                "max_width": 46,
+                "font_size": 10,
+                "align": "center",
+                "clear_background": True,
+            },
+            {
+                "field": "topmostSubform[0].Page1[0].SalePrice[0]",
+                "x": 199,
+                "y": 411,
+                "max_width": 64,
+                "font_size": 9,
+                "align": "right",
+                "clear_background": True,
+                "clear_width": 64,
+            },
+            {
+                "field": "topmostSubform[0].Page1[0].DownPmt[0]",
+                "x": 135,
+                "y": 388,
+                "max_width": 64,
+                "font_size": 9,
+                "align": "right",
+                "clear_background": True,
+                "clear_width": 64,
+            },
+            {
+                "field": "topmostSubform[0].Page1[0].Unpaid_Balance[0]",
+                "x": 199,
+                "y": 364,
+                "max_width": 64,
+                "font_size": 9,
+                "align": "right",
+                "clear_background": True,
+                "clear_width": 64,
+            },
+            {
+                "field": "topmostSubform[0].Page1[0].Total_Paid_To_Others[0]",
+                "x": 205,
+                "y": 186,
+                "max_width": 58,
+                "font_size": 9,
+                "align": "right",
+                "clear_background": True,
+                "clear_width": 58,
+            },
+            {
+                "field": "topmostSubform[0].Page1[0].Total_Unpaid_Balance[0]",
+                "x": 199,
+                "y": 162,
+                "max_width": 64,
+                "font_size": 9,
+                "align": "right",
+                "clear_background": True,
+                "clear_width": 64,
+            },
+        ),
+        2: (
+            {
+                "field": "topmostSubform[0].Page2[0].APR[0]",
+                "x": 68,
+                "y": 508,
+                "max_width": 57,
+                "font_size": 9,
+                "align": "center",
+                "clear_background": True,
+                "clear_width": 57,
+            },
+            {
+                "field": "topmostSubform[0].Page2[0].Finance_Charge[0]",
+                "x": 158,
+                "y": 508,
+                "max_width": 80,
+                "font_size": 9,
+                "align": "right",
+                "clear_background": True,
+                "clear_width": 80,
+            },
+            {
+                "field": "topmostSubform[0].Page2[0].Max_Financed[0]",
+                "x": 247,
+                "y": 508,
+                "max_width": 88,
+                "font_size": 9,
+                "align": "right",
+                "clear_background": True,
+                "clear_width": 88,
+            },
+            {
+                "field": "topmostSubform[0].Page2[0].Total_Pmts[0]",
+                "x": 342,
+                "y": 508,
+                "max_width": 90,
+                "font_size": 9,
+                "align": "right",
+                "clear_background": True,
+                "clear_width": 90,
+            },
+            {
+                "field": "topmostSubform[0].Page2[0].Total_Paid[0]",
+                "x": 445,
+                "y": 508,
+                "max_width": 82,
+                "font_size": 9,
+                "align": "right",
+                "clear_background": True,
+                "clear_width": 82,
+            },
+            {
+                "field": "topmostSubform[0].Page2[0].DownPmt[0]",
+                "x": 460,
+                "y": 544,
+                "max_width": 62,
+                "font_size": 9,
+                "align": "right",
+                "clear_background": True,
+                "clear_width": 62,
+            },
+            {
+                "field": "topmostSubform[0].Page2[0].Loan_Term[0]",
+                "x": 58,
+                "y": 447,
+                "max_width": 80,
+                "font_size": 9,
+                "align": "center",
+                "clear_background": True,
+                "clear_width": 80,
+            },
+            {
+                "field": "topmostSubform[0].Page2[0].Total_Payment[0]",
+                "x": 157,
+                "y": 447,
+                "max_width": 80,
+                "font_size": 9,
+                "align": "right",
+                "clear_background": True,
+                "clear_width": 80,
+            },
+            {
+                "field": "topmostSubform[0].Page2[0].Pmt_Start_Date[0]",
+                "x": 249,
+                "y": 447,
+                "max_width": 300,
+                "font_size": 9,
+                "clear_background": True,
+                "clear_width": 300,
+            },
+            {
+                "field": "topmostSubform[0].Page2[0].Payment_Breakdown[0]",
+                "x": 182,
+                "y": 480,
+                "max_width": 372,
+                "font_size": 8.5,
+                "clear_background": True,
+                "clear_width": 372,
             },
         ),
     },
@@ -268,6 +443,8 @@ def _draw_fit_text(
     max_width: float,
     font_size: float,
     clear_background: bool = False,
+    clear_width: float | None = None,
+    align: str = "left",
 ) -> None:
     text = str(value or "").strip()
     if not text:
@@ -278,14 +455,30 @@ def _draw_fit_text(
     while size > 6 and pdf_canvas.stringWidth(text, font_name, size) > max_width:
         size -= 0.5
 
+    text_width = pdf_canvas.stringWidth(text, font_name, size)
+    if align == "right":
+        draw_x = x + max_width - text_width
+    elif align == "center":
+        draw_x = x + (max_width - text_width) / 2
+    else:
+        draw_x = x
+
     if clear_background:
-        text_width = pdf_canvas.stringWidth(text, font_name, size)
+        background_width = clear_width if clear_width is not None else text_width
+        background_x = x if clear_width is not None else draw_x
         pdf_canvas.setFillColorRGB(1, 1, 1)
-        pdf_canvas.rect(x - 1, y - 2, text_width + 2, size + 4, fill=1, stroke=0)
+        pdf_canvas.rect(
+            background_x - 1,
+            y - 2,
+            background_width + 2,
+            size + 4,
+            fill=1,
+            stroke=0,
+        )
         pdf_canvas.setFillColorRGB(0, 0, 0)
 
     pdf_canvas.setFont(font_name, size)
-    pdf_canvas.drawString(x, y, text)
+    pdf_canvas.drawString(draw_x, y, text)
 
 
 def _apply_pdf_text_overlays(
@@ -317,6 +510,8 @@ def _apply_pdf_text_overlays(
                 max_width=overlay["max_width"],
                 font_size=overlay["font_size"],
                 clear_background=overlay.get("clear_background", False),
+                clear_width=overlay.get("clear_width"),
+                align=overlay.get("align", "left"),
             )
             drew_overlay = True
 

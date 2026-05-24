@@ -19,6 +19,7 @@ BASE_DATA = {
     "model": "Delight",
     "serial_number_1": "TRU-REAL-001",
     "label_number_1": "NTA7654321",
+    "no_of_sections": "Double Section",
     "sales_price": "55000",
     "down_payment": "5000",
     "loan_term": "240",
@@ -76,9 +77,32 @@ def test_quality_enrichment_adds_seller_and_financing_aliases():
     assert enriched["installer_contact_phone"] == "(281) 324-3020"
     assert enriched["manufacturer_model_hud"] == "TRU Homes Delight / NTA7654321"
     assert enriched["manufacturer_model_serial"] == "TRU Homes Delight / TRU-REAL-001"
+    assert enriched["no_of_sections"] == "2"
     assert enriched["max_financed"] == "50,000.00"
     assert enriched["unpaid_balance"] == "50,000.00"
+    assert enriched["total_payments"] == "96,672.00"
+    assert enriched["total_paid"] == "101,672.00"
+    assert enriched["finance_charge"] == "46,672.00"
+    assert enriched["payment_breakdown"] == "240 monthly payments of $402.80"
     assert enriched["interest_rate"] == "7.5"
+
+
+def test_quality_enrichment_overrides_stale_financial_totals():
+    enriched = enrich_document_data(
+        {
+            **BASE_DATA,
+            "total_payments": "1.00",
+            "total_paid": "2.00",
+            "finance_charge": "3.00",
+            "unpaid_balance": "4.00",
+        }
+    )
+
+    assert enriched["unpaid_balance"] == "50,000.00"
+    assert enriched["max_financed"] == "50,000.00"
+    assert enriched["total_payments"] == "96,672.00"
+    assert enriched["total_paid"] == "101,672.00"
+    assert enriched["finance_charge"] == "46,672.00"
 
 
 def test_quality_enrichment_repairs_blank_seller_defaults():

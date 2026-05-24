@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import asdict, dataclass
-from decimal import Decimal, InvalidOperation
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any
 
 BUSINESS_NAME = "Texas Home Outlet, Inc."
@@ -54,6 +54,7 @@ REQUIRED_FIELD_LABELS = {
     "label_number_1": "HUD label # 1",
     "label_number_2": "HUD label # 2",
     "date_of_manufacture": "Date of manufacture",
+    "no_of_sections": "Number of sections",
     "seller_name": "Seller name",
     "seller_address": "Seller address",
     "seller_phone": "Seller phone",
@@ -167,7 +168,63 @@ def _decimal(value: Any) -> Decimal | None:
 def _money(value: Decimal | None) -> str | None:
     if value is None:
         return None
-    return f"{value.quantize(Decimal('0.01')):,.2f}"
+    return f"{value.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP):,.2f}"
+
+
+def _round_money(value: Decimal) -> Decimal:
+    return value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
+def _int(value: Any) -> int | None:
+    text = _clean(value)
+    if not text:
+        return None
+    match = re.search(r"\d+", text)
+    if not match:
+        return None
+    try:
+        return int(match.group(0))
+    except ValueError:
+        return None
+
+
+def _compute_monthly_payment(
+    amount_financed: Decimal,
+    loan_term: int,
+    apr: Decimal,
+) -> Decimal | None:
+    if loan_term <= 0:
+        return None
+    monthly_rate = (apr / Decimal("100")) / Decimal("12")
+    if monthly_rate <= 0:
+        return _round_money(amount_financed / Decimal(loan_term))
+    power = (Decimal("1") + monthly_rate) ** loan_term
+    return _round_money(amount_financed * monthly_rate * power / (power - Decimal("1")))
+
+
+def normalize_section_count(value: Any) -> str:
+    """Return the compact section count expected by tiny PDF fields."""
+    text = _clean(value)
+    if not text:
+        return ""
+    lowered = text.lower()
+    word_counts = {
+        "single": "1",
+        "one": "1",
+        "double": "2",
+        "two": "2",
+        "triple": "3",
+        "three": "3",
+        "quad": "4",
+        "four": "4",
+    }
+    for word, count in word_counts.items():
+        if re.search(rf"\b{word}\b", lowered):
+            return count
+    match = re.search(r"\b([1-4])\b", lowered)
+    if match:
+        return match.group(1)
+    return text
 
 
 def _join_non_empty(values: list[Any], separator: str = " ") -> str:
@@ -276,6 +333,12 @@ def enrich_document_data(data: dict[str, Any]) -> dict[str, Any]:
     present in the form.
     """
     enriched = dict(data or {})
+
+    section_count = normalize_section_count(
+        enriched.get("no_of_sections") or enriched.get("sections")
+    )
+    if section_count:
+        enriched["no_of_sections"] = section_count
 
     _set_if_blank(enriched, "seller_name", BUSINESS_NAME)
     _set_if_blank(enriched, "seller_rbi", BUSINESS_RBI)
@@ -438,18 +501,36 @@ def enrich_document_data(data: dict[str, Any]) -> dict[str, Any]:
     down_payment = _decimal(enriched.get("down_payment")) or Decimal("0")
     loan_amount = None
     if sales_price is not None:
-        loan_amount = sales_price - down_payment
+        loan_amount = _round_money(sales_price - down_payment)
         for key in ("unpaid_balance", "total_unpaid_balance", "max_financed"):
-            if _is_blank(enriched.get(key)):
-                enriched[key] = _money(loan_amount)
+            enriched[key] = _money(loan_amount)
 
     apr = _decimal(enriched.get("apr"))
     if apr is not None and _is_blank(enriched.get("interest_rate")):
         enriched["interest_rate"] = str(apr.normalize())
 
     monthly_payment = _decimal(enriched.get("monthly_payment"))
-    if monthly_payment is not None and _is_blank(enriched.get("total_monthly_payment")):
+    loan_term = _int(enriched.get("loan_term")) or 240
+    if monthly_payment is None and loan_amount is not None:
+        monthly_payment = _compute_monthly_payment(loan_amount, loan_term, apr or Decimal("7.5"))
+
+    if monthly_payment is not None:
         enriched["total_monthly_payment"] = _money(monthly_payment)
+        if _is_blank(enriched.get("monthly_payment")):
+            enriched["monthly_payment"] = _money(monthly_payment)
+
+    if loan_amount is not None and monthly_payment is not None:
+        total_payments = _round_money(monthly_payment * Decimal(loan_term))
+        total_paid = _round_money(total_payments + down_payment)
+        finance_charge = _round_money(total_payments - loan_amount)
+        enriched["total_payments"] = _money(total_payments)
+        enriched["total_paid"] = _money(total_paid)
+        enriched["total_sale_price"] = _money(total_paid)
+        enriched["finance_charge"] = _money(finance_charge)
+        if _is_blank(enriched.get("payment_breakdown")):
+            enriched["payment_breakdown"] = (
+                f"{loan_term} monthly payments of ${_money(monthly_payment)}"
+            )
 
     return enriched
 

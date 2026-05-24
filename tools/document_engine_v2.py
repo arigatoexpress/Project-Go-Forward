@@ -22,6 +22,7 @@ from tools.document_quality import (
     quality_failure_response,
     validate_document_quality,
     validate_required_document_data,
+    normalize_section_count,
 )
 
 # Local imports
@@ -58,7 +59,10 @@ LEGACY_FIELD_SOURCES: dict[str, tuple[str, ...]] = {
     "monthly_payment": ("financial.monthly_payment",),
     "total_monthly_payment": ("financial.monthly_payment",),
     "total_payments": ("financial.total_of_payments",),
+    "total_paid": ("financial.total_paid", "financial.total_sale_price"),
+    "total_sale_price": ("financial.total_sale_price", "financial.total_paid"),
     "finance_charge": ("financial.finance_charge",),
+    "payment_breakdown": ("financial.payment_breakdown",),
     "unpaid_balance": ("financial.loan_amount",),
     "total_unpaid_balance": ("financial.loan_amount",),
     "max_financed": ("financial.loan_amount",),
@@ -141,6 +145,11 @@ class ProductModel(BaseModel):
     manufacturer_full_address: str | None = None
     manufacturer_model: str | None = None
 
+    @field_validator("no_of_sections", mode="before")
+    @classmethod
+    def compact_section_count(cls, value: Any) -> Any:
+        return normalize_section_count(value) or None
+
     @model_validator(mode="after")
     def validate_exclusion(self):
         if self.is_new and self.is_used:
@@ -163,6 +172,9 @@ class FinancialModel(BaseModel):
     unpaid_balance: Decimal | None = None
     total_payments: Decimal | None = None
     total_paid_to_others: Decimal | None = None
+    total_paid: Decimal | None = None
+    total_sale_price: Decimal | None = None
+    payment_breakdown: str | None = None
 
     # Computed fields
     loan_amount: Decimal | None = None
@@ -206,6 +218,8 @@ class FinancialModel(BaseModel):
         "unpaid_balance",
         "total_payments",
         "total_paid_to_others",
+        "total_paid",
+        "total_sale_price",
         mode="before",
     )
     @classmethod
@@ -234,10 +248,19 @@ class FinancialModel(BaseModel):
                 Decimal("0.01")
             )
 
-        self.total_of_payments = (
-            self.monthly_payment * self.loan_term + self.down_payment
-        ).quantize(Decimal("0.01"))
-        self.finance_charge = (self.total_of_payments - self.sales_price).quantize(Decimal("0.01"))
+        self.total_of_payments = (self.monthly_payment * self.loan_term).quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_UP
+        )
+        self.total_paid = (self.total_of_payments + self.down_payment).quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_UP
+        )
+        self.total_sale_price = self.total_paid
+        self.finance_charge = (self.total_of_payments - self.loan_amount).quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_UP
+        )
+        self.payment_breakdown = (
+            f"{self.loan_term} monthly payments of ${self.monthly_payment:,.2f}"
+        )
         return self
 
 
@@ -313,6 +336,8 @@ class UnifiedPayload(BaseModel):
             "apr": "financial",
             "doc_fee": "financial",
             "amt_points": "financial",
+            "total_paid": "financial",
+            "total_sale_price": "financial",
         }
 
         normalized = {"person": {}, "product": {}, "financial": {}, "meta": {}}
@@ -497,6 +522,8 @@ class DocumentEngineV2:
                                 "monthly_payment",
                                 "total_monthly_payment",
                                 "total_payments",
+                                "total_paid",
+                                "total_sale_price",
                                 "max_financed",
                                 "unpaid_balance",
                                 "total_unpaid_balance",

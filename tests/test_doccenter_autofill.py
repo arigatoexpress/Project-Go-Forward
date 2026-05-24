@@ -63,6 +63,14 @@ def test_handleselecthome_uses_onautofill(source: str):
     assert "patch" in body, "handleSelectHome should build a patch object"
     for key in ("manufacturer", "model", "year", "no_of_sections"):
         assert key in body, f"handleSelectHome should populate {key}"
+    assert "normalizeSections(home.sections)" in body
+
+
+def test_sections_are_required_and_normalized_for_documents(source: str):
+    assert "const normalizeSections" in source
+    assert "field: 'no_of_sections', label: '# of Sections', step: 2" in source
+    assert "# of Sections is required" in source
+    assert "no_of_sections: normalizeSections(f.no_of_sections)" in source
 
 
 def test_handleselecthome_populates_factory_document_fields(source: str):
