@@ -29,6 +29,9 @@ frontend/dist/
 
 # Build output
 frontend_build/
+dist/
+build/
+*.egg-info/
 
 # IDE
 .vscode/
