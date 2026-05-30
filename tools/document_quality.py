@@ -12,7 +12,12 @@ from dataclasses import asdict, dataclass
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any
 
-BUSINESS_NAME = "Texas Home Outlet, Inc."
+# Registered legal entity of record for all closing documents. Per founding
+# partner directive (2026-05-18): the company is "Prosperity Acquisitions, Inc.
+# dba Texas Home Outlet" (no longer an LLC). Documents that do not name the
+# correct INC entity are rejected and must be redone, so this is the seller /
+# installer name baked into every generated contract and disclosure.
+BUSINESS_NAME = "Prosperity Acquisitions, Inc. dba Texas Home Outlet"
 BUSINESS_PHONE = "(281) 324-3020"
 BUSINESS_ADDRESS = "10685 FM 1960 East"
 BUSINESS_CITY = "Huffman"

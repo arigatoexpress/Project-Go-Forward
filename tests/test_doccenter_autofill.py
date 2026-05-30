@@ -206,7 +206,7 @@ def test_document_center_adds_seller_and_financing_aliases(source: str):
 def test_document_center_defaults_to_tho_legal_entity_for_documents(source: str):
     """Documents should use THO's legal entity name, not just the public
     retail brand, when defaulting seller/installer fields."""
-    assert 'BUSINESS_LEGAL_NAME = "Texas Home Outlet, Inc."' in (
+    assert 'BUSINESS_LEGAL_NAME = "Prosperity Acquisitions, Inc. dba Texas Home Outlet"' in (
         (REPO_ROOT / "frontend" / "src" / "constants.js").read_text()
     )
     assert "installer_name: BUSINESS_LEGAL_NAME" in source

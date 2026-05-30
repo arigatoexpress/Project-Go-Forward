@@ -60,20 +60,20 @@ def test_quality_gate_blocks_unmapped_note_security_templates():
 def test_quality_enrichment_adds_seller_and_financing_aliases():
     enriched = enrich_document_data(BASE_DATA)
 
-    assert enriched["seller_name"] == "Texas Home Outlet, Inc."
+    assert enriched["seller_name"] == "Prosperity Acquisitions, Inc. dba Texas Home Outlet"
     assert enriched["seller_address"] == "10685 FM 1960 East"
     assert enriched["seller_rbi"] == "35248"
     assert enriched["seller_city"] == "Huffman"
     assert enriched["seller_state"] == "TX"
     assert enriched["seller_zip"] == "77336"
-    assert enriched["installer_name"] == "Texas Home Outlet, Inc."
+    assert enriched["installer_name"] == "Prosperity Acquisitions, Inc. dba Texas Home Outlet"
     assert enriched["installer_phone"] == "(281) 324-3020"
     assert enriched["installer_address_city_state_zip"] == "10685 FM 1960 East, Huffman, TX 77336"
     assert (
         enriched["installer_name_address"]
-        == "Texas Home Outlet, Inc., 10685 FM 1960 East, Huffman, TX 77336"
+        == "Prosperity Acquisitions, Inc. dba Texas Home Outlet, 10685 FM 1960 East, Huffman, TX 77336"
     )
-    assert enriched["installer_contact_name"] == "Texas Home Outlet, Inc."
+    assert enriched["installer_contact_name"] == "Prosperity Acquisitions, Inc. dba Texas Home Outlet"
     assert enriched["installer_contact_phone"] == "(281) 324-3020"
     assert enriched["manufacturer_model_hud"] == "TRU Homes Delight / NTA7654321"
     assert enriched["manufacturer_model_serial"] == "TRU Homes Delight / TRU-REAL-001"
@@ -115,7 +115,7 @@ def test_quality_enrichment_repairs_blank_seller_defaults():
         }
     )
 
-    assert enriched["seller_name"] == "Texas Home Outlet, Inc."
+    assert enriched["seller_name"] == "Prosperity Acquisitions, Inc. dba Texas Home Outlet"
     assert enriched["seller_rbi"] == "35248"
     assert enriched["seller_address"] == "10685 FM 1960 East"
 

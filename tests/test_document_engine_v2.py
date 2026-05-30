@@ -99,7 +99,7 @@ def test_v2_maps_manufacturer_location_from_split_fields(monkeypatch, tmp_path):
         == "Fort Worth, TX 76101"
     )
     assert captured["topmostSubform[0].Page1[0].Seller_RBI[0]"] == " 35248"
-    assert captured["topmostSubform[0].Page1[0].Seller_Name[0]"] == " Texas Home Outlet, Inc."
+    assert captured["topmostSubform[0].Page1[0].Seller_Name[0]"] == " Prosperity Acquisitions, Inc. dba Texas Home Outlet"
     assert captured["topmostSubform[0].Page1[0].Seller_Address[0]"] == " 10685 FM 1960 East"
 
 
@@ -189,8 +189,8 @@ def test_v2_defaults_installer_identity_for_installation_warranty(monkeypatch, t
     )
 
     assert result["success"] is True
-    assert captured["topmostSubform[0].Page1[0].Installer_Name[0]"] == "Texas Home Outlet, Inc."
-    assert captured["THO_TDHCA1124_Installer_Contact_Name"] == "Texas Home Outlet, Inc."
+    assert captured["topmostSubform[0].Page1[0].Installer_Name[0]"] == "Prosperity Acquisitions, Inc. dba Texas Home Outlet"
+    assert captured["THO_TDHCA1124_Installer_Contact_Name"] == "Prosperity Acquisitions, Inc. dba Texas Home Outlet"
     assert captured["THO_TDHCA1124_Installer_Contact_Phone"] == "(281) 324-3020"
     assert "topmostSubform[0].Page1[0].License[0]" not in captured
 
