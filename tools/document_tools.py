@@ -565,12 +565,17 @@ def fill_pdf_form(template_path: str, data_dict: dict[str, Any], output_filename
         if xfa and isinstance(xfa, ArrayObject):
             xfa_filled = _fill_xfa(writer, xfa, fill_data)
 
-        # AcroForm fill with appearance regeneration — bakes values into the
-        # page content stream so they render in any viewer and survive merge.
+        # AcroForm fill with baked appearance streams. auto_regenerate=False
+        # makes pypdf GENERATE the /AP appearance stream for each field instead
+        # of setting /NeedAppearances and deferring rendering to the viewer.
+        # This is critical for closing packets: PdfWriter merge strips the
+        # document AcroForm/XFA/NeedAppearances, so any field without a baked
+        # /AP renders blank in non-Acrobat viewers (Preview, print, mobile).
+        # Baking the /AP makes every value render identically in every viewer.
         try:
             appearance_data = _prepare_acroform_appearance_data(template_name, fill_data)
             for page in writer.pages:
-                writer.update_page_form_field_values(page, appearance_data, auto_regenerate=True)
+                writer.update_page_form_field_values(page, appearance_data, auto_regenerate=False)
             _apply_pdf_text_overlays(template_name, writer, fill_data)
             acroform_filled = True
         except Exception as e:
