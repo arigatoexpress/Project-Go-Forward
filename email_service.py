@@ -32,7 +32,13 @@ RESEND_FROM = os.environ.get(
     "Texas Home Outlet <noreply@texashomeoutlet.com>",
 )
 RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
-NOTIFICATION_EMAIL = os.environ.get("NOTIFICATION_EMAIL", "aribspector@gmail.com")
+# Owner alert recipient (new leads/appointments). MUST be a monitored THO
+# mailbox — the old aribspector@gmail.com fallback was a deleted account, so
+# alerts were silently lost. Override per-environment with NOTIFICATION_EMAIL.
+NOTIFICATION_EMAIL = os.environ.get("NOTIFICATION_EMAIL", "sales@texashomeoutlet.com")
+# Customer-facing emails say "reply to this email"; route those replies to a
+# monitored mailbox instead of the unattended noreply@ From address.
+REPLY_TO = os.environ.get("REPLY_TO", "sales@texashomeoutlet.com")
 BUSINESS_PHONE = "(281) 324-3020"
 BUSINESS_ADDRESS = "10685 FM 1960 East, Huffman, TX"
 # Public site origin used to build absolute download URLs in document emails.
@@ -142,6 +148,7 @@ def send_email(
         payload = {
             "from": sender,
             "to": [to],
+            "reply_to": REPLY_TO,
             "subject": subject,
             "html": html,
             "text": text if text is not None else _html_to_text(html),
