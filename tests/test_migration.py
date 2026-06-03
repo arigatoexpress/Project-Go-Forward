@@ -14,18 +14,26 @@ CUSTOMERS_PATH = DATA_DIR / "migrated_customers.json"
 REPORT_PATH = DATA_DIR / "migration_report.json"
 
 
+# These artifacts (migrated_customers.json / migration_report.json) hold raw
+# customer PII and were purged from git history during the 2026-06-02 security
+# cleanup. They are intentionally absent from the repo and from CI; they only
+# exist on a machine that has run migrate_fastcontract.py locally. Skip rather
+# than error when they are missing so CI and clean clones stay green — the data
+# integrity checks still run wherever the migration output is present.
 @pytest.fixture(scope="module")
 def customers():
-    """Load migrated customers."""
-    assert CUSTOMERS_PATH.exists(), "Run migrate_fastcontract.py first"
+    """Load migrated customers, or skip if the local migration output is absent."""
+    if not CUSTOMERS_PATH.exists():
+        pytest.skip("migrated_customers.json not present (purged PII; run migrate_fastcontract.py locally)")
     with open(CUSTOMERS_PATH) as f:
         return json.load(f)
 
 
 @pytest.fixture(scope="module")
 def report():
-    """Load migration report."""
-    assert REPORT_PATH.exists(), "Run migrate_fastcontract.py first"
+    """Load migration report, or skip if the local migration output is absent."""
+    if not REPORT_PATH.exists():
+        pytest.skip("migration_report.json not present (purged PII; run migrate_fastcontract.py locally)")
     with open(REPORT_PATH) as f:
         return json.load(f)
 
