@@ -32,12 +32,39 @@ RESEND_FROM = os.environ.get(
     "Texas Home Outlet <noreply@texashomeoutlet.com>",
 )
 RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
-# Owner alert recipient (new leads/appointments). MUST be a monitored THO
-# mailbox — the old aribspector@gmail.com fallback was a deleted account, so
-# alerts were silently lost. Override per-environment with NOTIFICATION_EMAIL.
-NOTIFICATION_EMAIL = os.environ.get("NOTIFICATION_EMAIL", "sales@texashomeoutlet.com")
+
+
+def _parse_recipients(raw: str) -> list:
+    """Split a comma/semicolon-separated recipient string into a clean,
+    de-duplicated list (order preserved, case-insensitive dedupe)."""
+    if not raw:
+        return []
+    seen: set = set()
+    out: list = []
+    for part in raw.replace(";", ",").split(","):
+        addr = part.strip()
+        if addr and addr.lower() not in seen:
+            seen.add(addr.lower())
+            out.append(addr)
+    return out
+
+
+# Internal staff alert recipients (new leads + new appointments). These fan out
+# to the whole THO team so no lead is missed — the old single aribspector@gmail.com
+# fallback was a deleted account, so alerts were silently lost. Override with the
+# NOTIFICATION_EMAIL env var as a comma-separated list (one or many addresses).
+NOTIFICATION_EMAILS = _parse_recipients(
+    os.environ.get(
+        "NOTIFICATION_EMAIL",
+        "ben@texashomeoutlet.com,lee@texashomeoutlet.com,"
+        "celeste@texashomeoutlet.com,mark@texashomeoutlet.com",
+    )
+)
+# Back-compat string view (joined) for any caller still referencing the scalar.
+NOTIFICATION_EMAIL = ",".join(NOTIFICATION_EMAILS)
 # Customer-facing emails say "reply to this email"; route those replies to a
-# monitored mailbox instead of the unattended noreply@ From address.
+# single monitored shared mailbox (not every staff inbox) and never the
+# unattended noreply@ From address.
 REPLY_TO = os.environ.get("REPLY_TO", "sales@texashomeoutlet.com")
 BUSINESS_PHONE = "(281) 324-3020"
 BUSINESS_ADDRESS = "10685 FM 1960 East, Huffman, TX"
@@ -107,7 +134,7 @@ def _html_to_text(html: str) -> str:
 
 
 def send_email(
-    to: str,
+    to,
     subject: str,
     html: str,
     email_type: str = "general",
@@ -118,7 +145,8 @@ def send_email(
     Send an email via Resend.
 
     Args:
-        to: Recipient email address
+        to: Recipient email address, or a list of addresses for a single send
+            delivered to multiple recipients (e.g. internal staff alerts).
         subject: Email subject line
         html: HTML body content
         email_type: Type for logging (appointment_confirmation, lead_followup, etc.)
@@ -129,6 +157,9 @@ def send_email(
     Returns:
         dict with success status and Resend message ID or error
     """
+    recipients = [to] if isinstance(to, str) else [r for r in to if r]
+    to_display = ", ".join(recipients)
+
     if not RESEND_API_KEY:
         logger.warning("RESEND_API_KEY not set — email not sent")
         return {
@@ -147,7 +178,7 @@ def send_email(
         sender = _current_from()
         payload = {
             "from": sender,
-            "to": [to],
+            "to": recipients,
             "reply_to": REPLY_TO,
             "subject": subject,
             "html": html,
@@ -155,9 +186,11 @@ def send_email(
         }
         result = resend.Emails.send(payload)
 
-        _log_email_activity(to, subject, email_type, related_id)
+        _log_email_activity(to_display, subject, email_type, related_id)
 
-        logger.info(f"Email sent: {email_type} to {to} (id: {result.get('id', 'unknown')})")
+        logger.info(
+            f"Email sent: {email_type} to {to_display} (id: {result.get('id', 'unknown')})"
+        )
         return {
             "success": True,
             "message_id": result.get("id"),
@@ -498,8 +531,8 @@ def send_document_email(
 def notify_new_lead(
     customer_name: str, phone: str, email: str = None, source: str = "website"
 ) -> dict:
-    """Notify owner when a new lead comes in."""
-    if not NOTIFICATION_EMAIL:
+    """Notify all THO staff when a new lead comes in."""
+    if not NOTIFICATION_EMAILS:
         return {"success": False, "error": "No notification email configured"}
 
     esc = html_mod.escape
@@ -516,7 +549,7 @@ def notify_new_lead(
     """
 
     return send_email(
-        to=NOTIFICATION_EMAIL,
+        to=NOTIFICATION_EMAILS,
         subject=f"New Lead: {customer_name} — {phone}",
         html=_base_wrapper(content),
         email_type="admin_lead_notification",
@@ -531,8 +564,8 @@ def notify_new_appointment(
     email: str = None,
     notes: str = None,
 ) -> dict:
-    """Notify owner when a new appointment is booked."""
-    if not NOTIFICATION_EMAIL:
+    """Notify all THO staff when a new appointment is booked."""
+    if not NOTIFICATION_EMAILS:
         return {"success": False, "error": "No notification email configured"}
 
     esc = html_mod.escape
@@ -550,7 +583,7 @@ def notify_new_appointment(
     """
 
     return send_email(
-        to=NOTIFICATION_EMAIL,
+        to=NOTIFICATION_EMAILS,
         subject=f"Appointment: {customer_name} — {date} {time_slot}",
         html=_base_wrapper(content),
         email_type="admin_appointment_notification",
