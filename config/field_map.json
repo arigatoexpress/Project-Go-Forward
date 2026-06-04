@@ -15,7 +15,6 @@
         "manufacturer",
         "model",
         "no_of_sections",
-        "label_number_1",
         "serial_number_1",
         "sales_price"
       ],
@@ -121,7 +120,6 @@
         "manufacturer_city_state_zip",
         "model",
         "date_of_manufacture",
-        "label_number_1",
         "serial_number_1",
         "buyer_address",
         "buyer_city",
@@ -171,7 +169,7 @@
       "pii_fields": []
     },
     "TDHCA_1054_Habitability_Warranty.pdf": {
-      "display_name": "TDHCA Habitability Warranty (1054) — Used Homes Only",
+      "display_name": "TDHCA Habitability Warranty (1054) \u2014 Used Homes Only",
       "category": "TDHCA",
       "description": "Required warranty document certifying used/pre-owned home meets habitability standards. Only applies to used home sales.",
       "required_fields": [
@@ -180,7 +178,6 @@
         "manufacturer_city_state_zip",
         "model",
         "date_of_manufacture",
-        "label_number_1",
         "serial_number_1"
       ],
       "field_map": {
@@ -249,7 +246,6 @@
         "buyer_name",
         "buyer_address",
         "manufacturer",
-        "label_number_1",
         "serial_number_1"
       ],
       "field_map": {
@@ -283,8 +279,7 @@
         "manufacturer",
         "manufacturer_address",
         "manufacturer_city_state_zip",
-        "model",
-        "label_number_1"
+        "model"
       ],
       "field_map": {
         "topmostSubform[0].Page3[0].Contract_Name[0]": "buyer_name",
@@ -1008,8 +1003,7 @@
         "manufacturer",
         "manufacturer_address",
         "manufacturer_city_state_zip",
-        "serial_number_1",
-        "label_number_1"
+        "serial_number_1"
       ],
       "field_map": {
         "topmostSubform[0].Page1[0].Buyer_Complete_Name[0]": "buyer_name",
@@ -1323,7 +1317,6 @@
         "manufacturer_city_state_zip",
         "model",
         "date_of_manufacture",
-        "label_number_1",
         "serial_number_1"
       ],
       "field_map": {
@@ -1354,7 +1347,6 @@
       "description": "Notice regarding construction standards and wind zone compliance.",
       "required_fields": [
         "buyer_name",
-        "label_number_1",
         "serial_number_1"
       ],
       "field_map": {
@@ -1440,7 +1432,6 @@
         "manufacturer",
         "model",
         "no_of_sections",
-        "label_number_1",
         "serial_number_1"
       ],
       "field_map": {
@@ -1583,7 +1574,7 @@
     },
     "used_home_closing": {
       "display_name": "Used Home Closing Packet",
-      "description": "Closing documents for pre-owned/used manufactured home sales — includes habitability warranty and used home warranty forms.",
+      "description": "Closing documents for pre-owned/used manufactured home sales \u2014 includes habitability warranty and used home warranty forms.",
       "templates": [
         "TMHA_SalesContract.pdf",
         "TDHCA_1023-Statement-Ownership.pdf",
