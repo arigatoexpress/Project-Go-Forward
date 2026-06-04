@@ -3,11 +3,11 @@ DocuSeal Service — Orchestrates e-sign submissions and template mapping.
 """
 
 import json
-import logging
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import httpx
+
 from structured_logging import logger as struct_logger
 
 # Env vars (set in Cloud Run)
@@ -22,7 +22,7 @@ MAPPING_FILE = os.path.join(
     "docuseal_templates.json",
 )
 
-_template_cache: Dict[str, Dict[str, Any]] = {}
+_template_cache: dict[str, dict[str, Any]] = {}
 
 
 def _load_templates():
@@ -33,14 +33,14 @@ def _load_templates():
 
     if os.path.exists(MAPPING_FILE):
         try:
-            with open(MAPPING_FILE, "r", encoding="utf-8") as f:
+            with open(MAPPING_FILE, encoding="utf-8") as f:
                 _template_cache = json.load(f)
         except Exception as e:
             struct_logger.error("Failed to load DocuSeal templates", error=str(e))
     return _template_cache
 
 
-def get_template_id(filename: str) -> Optional[int]:
+def get_template_id(filename: str) -> int | None:
     """Resolve a PDF filename to its DocuSeal template ID."""
     templates = _load_templates()
     entry = templates.get(filename)
@@ -54,10 +54,10 @@ async def send_for_signature(
     email: str,
     name: str,
     template_name: str,
-    deal_id: Optional[str] = None,
-    metadata: Optional[Dict[str, Any]] = None,
-    values: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
+    deal_id: str | None = None,
+    metadata: dict[str, Any] | None = None,
+    values: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """
     Send a document for signature via DocuSeal.
     
@@ -113,7 +113,7 @@ async def send_for_signature(
                 error_detail = resp.text
                 try:
                     error_detail = resp.json()
-                except:
+                except Exception:
                     pass
                 struct_logger.error(
                     "DocuSeal API error",
@@ -139,13 +139,19 @@ async def send_file_for_signature(
     name: str,
     file_path: str,
     display_name: str,
-    deal_id: Optional[str] = None,
-    metadata: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
+    deal_id: str | None = None,
+    metadata: dict[str, Any] | None = None,
+    include_esign_consent: bool = True,
+) -> dict[str, Any]:
     """
     Upload a local PDF file to DocuSeal and send it for signature.
-    
+
     Used for custom-generated packets that aren't fixed templates.
+
+    When ``include_esign_consent`` is True (default), an ESIGN consumer-consent
+    disclosure page is prepended as the first document so the signer affirmatively
+    consents to electronic records/signatures before the substantive documents —
+    required by 15 U.S.C. §7001(c). See esign_consent.py.
     """
     if not API_URL or not API_TOKEN:
         return {"success": False, "error": "DocuSeal credentials missing"}
@@ -158,14 +164,22 @@ async def send_file_for_signature(
         with open(file_path, "rb") as f:
             file_content = base64.b64encode(f.read()).decode("utf-8")
 
+        documents: list[dict[str, Any]] = []
+        if include_esign_consent:
+            try:
+                from esign_consent import build_consent_document
+
+                documents.append(build_consent_document())
+            except Exception as consent_err:  # never let consent gen block signing
+                struct_logger.warning(
+                    "ESIGN consent page generation failed; sending without it",
+                    error=str(consent_err),
+                )
+        documents.append({"name": display_name, "file": file_content})
+
         payload = {
             "send_email": True,
-            "documents": [
-                {
-                    "name": display_name,
-                    "file": file_content,
-                }
-            ],
+            "documents": documents,
             "submitters": [
                 {
                     "role": "Buyer",
@@ -176,6 +190,7 @@ async def send_file_for_signature(
             "metadata": {
                 "deal_id": deal_id,
                 "is_custom_file": True,
+                "esign_consent_included": include_esign_consent and len(documents) > 1,
                 **(metadata or {}),
             },
         }
@@ -202,7 +217,7 @@ async def send_file_for_signature(
 async def maybe_trigger_automated_signing(
     *,
     event_type: str,
-    payload: Dict[str, Any],
+    payload: dict[str, Any],
 ) -> None:
     """
     Trigger automated e-sign envelopes based on business events.
