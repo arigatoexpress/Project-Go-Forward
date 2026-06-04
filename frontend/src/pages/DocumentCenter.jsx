@@ -68,6 +68,14 @@ const INITIAL_FORM = {
 const DRAFT_KEY = 'document_center_draft';
 const LAST_EDITABLE_STEP = 3;
 
+// The TDHCA Statement of Ownership (Form 1023) carries special filing duties:
+// it must be filed with TDHCA within 60 days of the sale (ownership does not
+// legally vest until it is filed — Tex. Occ. Code §1201.206), and the HUD label
+// and serial numbers are legally-required identifiers on it (§1201.205). When
+// this document is generated we surface a pre-filing checklist on the results
+// screen. See docs/TX_MH_COMPLIANCE_RESEARCH.md.
+const SOO_TEMPLATE_NAME = 'TDHCA_1023-Statement-Ownership.pdf';
+
 function getRestorableDraftStep(draft) {
   const savedStep = Number(draft?.step || 1);
   if (savedStep >= 1 && savedStep <= LAST_EDITABLE_STEP) return savedStep;
@@ -2488,7 +2496,58 @@ function Step3({ templates, packets, selected, onToggle, onSelectPacket, isNew, 
 
 /* ─── Step 4: Generate & Download ────────────────────────── */
 
-function Step4({ results, generating, error, onBack, onReset, onDownload, downloadingDoc, downloadError, downloadSuccess }) {
+function SooChecklistItem({ ok, children }) {
+  return (
+    <li className="flex items-start gap-2">
+      {ok
+        ? <CheckCircle size={18} className="mt-0.5 flex-shrink-0 text-green-600" />
+        : <AlertCircle size={18} className="mt-0.5 flex-shrink-0 text-amber-600" />}
+      <span className={ok ? 'text-gray-700' : 'font-semibold text-amber-800'}>{children}</span>
+    </li>
+  );
+}
+
+/**
+ * Pre-filing checklist shown when a Statement of Ownership (Form 1023) is
+ * generated. The SOO is filed with TDHCA by the licensed retailer (not by this
+ * app), so this is a plain-language reminder of the legal duties before filing:
+ * the 60-day deadline and the required HUD label + serial identifiers.
+ */
+function SooFilingChecklist({ form }) {
+  const hasLabel = hasValue(form?.label_number_1);
+  const hasSerial = hasValue(form?.serial_number_1);
+  const Item = SooChecklistItem;
+  return (
+    <div className="rounded-xl border-2 border-amber-200 bg-amber-50 px-6 py-5">
+      <h3 className="flex items-center gap-2 text-lg font-bold text-amber-900">
+        <FileText size={20} className="text-amber-600" />
+        Before you file the Statement of Ownership
+      </h3>
+      <p className="mt-1 text-sm text-amber-800">
+        This form must be filed with TDHCA <strong>within 60 days of the sale</strong> — the buyer
+        does not legally own the home until it is filed.
+      </p>
+      <ul className="mt-3 space-y-2 text-sm">
+        <Item ok={hasLabel}>
+          {hasLabel
+            ? 'HUD label number is entered'
+            : 'HUD label number is blank — TDHCA requires it to identify the home. Add it before filing.'}
+        </Item>
+        <Item ok={hasSerial}>
+          {hasSerial
+            ? 'Serial number is entered'
+            : 'Serial number is blank — TDHCA requires it to identify the home. Add it before filing.'}
+        </Item>
+        <Item ok>File with TDHCA within 60 days of the sale (online retailer system or by mail).</Item>
+      </ul>
+      <p className="mt-3 text-xs text-amber-700">
+        Required by Tex. Occ. Code §§1201.205–1201.206. TDHCA is actively enforcing the 60-day deadline.
+      </p>
+    </div>
+  );
+}
+
+function Step4({ results, form, generating, error, onBack, onReset, onDownload, downloadingDoc, downloadError, downloadSuccess }) {
   if (generating) {
     return (
       <div className="flex flex-col items-center justify-center py-20">
@@ -2540,6 +2599,7 @@ function Step4({ results, generating, error, onBack, onReset, onDownload, downlo
 
   const ok = (results.documents || []).filter(d => d.success);
   const fail = (results.documents || []).filter(d => !d.success);
+  const generatedSoo = ok.some(d => d.template_name === SOO_TEMPLATE_NAME);
 
   return (
     <div className="space-y-6">
@@ -2557,6 +2617,9 @@ function Step4({ results, generating, error, onBack, onReset, onDownload, downlo
           </p>
         )}
       </div>
+
+      {/* Statement of Ownership pre-filing checklist (compliance) */}
+      {generatedSoo && <SooFilingChecklist form={form} />}
 
       {/* Download All Button */}
       {results.merged && (
@@ -3675,6 +3738,7 @@ export default function DocumentCenter() {
       {step === 4 && (
         <Step4
           results={results}
+          form={form}
           generating={generating}
           error={genErr}
           onBack={() => setStep(3)}
