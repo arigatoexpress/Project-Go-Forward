@@ -277,7 +277,9 @@ const DOCUMENT_PACKET_BASELINE_FIELDS = [
   { field: 'model', label: 'Model name', step: 2 },
   { field: 'no_of_sections', label: '# of Sections', step: 2 },
   { field: 'serial_number_1', label: 'Serial # 1', step: 2 },
-  { field: 'label_number_1', label: 'HUD label # 1', step: 2 },
+  // HUD label # 1 is intentionally NOT a hard requirement: it is never in the
+  // inventory feed and must be hand-entered, so it blocked staff on every deal.
+  // It is surfaced as a soft warning via DOCUMENT_RECOMMENDED_FIELDS instead.
   { field: 'buyer_address', label: 'Installation street address', step: 2 },
   { field: 'buyer_city', label: 'Installation city', step: 2 },
   { field: 'buyer_county', label: 'Installation county', step: 2 },
@@ -1868,17 +1870,16 @@ function Step2({ data, onChange, resetKey, inventory, inventoryLoading, onNext, 
         </Row>
         <Row>
           <Field
-            label="Label # 1"
+            label="HUD Label # 1"
             name="label_number_1"
             value={data.label_number_1}
             onChange={c}
             resetKey={resetKey}
             third
-            required
             autoFilled={isAutoFilled('label_number_1')}
-            helperText={selectedHome && !isAutoFilled('label_number_1') ? 'Enter manually — not in inventory feed' : undefined}
+            helperText={selectedHome && !isAutoFilled('label_number_1') ? 'Recommended — enter from the home’s HUD data plate (not in inventory feed)' : undefined}
           />
-          <Field label="Label # 2" name="label_number_2" value={data.label_number_2} onChange={c} resetKey={resetKey} third />
+          <Field label="HUD Label # 2" name="label_number_2" value={data.label_number_2} onChange={c} resetKey={resetKey} third />
           <Field label="# of Sections" name="no_of_sections" value={data.no_of_sections} onChange={c} resetKey={resetKey} third required autoFilled={isAutoFilled('no_of_sections')} />
         </Row>
         <Row>

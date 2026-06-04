@@ -55,6 +55,41 @@ def test_serial_label_combined_respects_existing_value():
     assert enriched["serial_label_combined"] == "PRESET VALUE"
 
 
+def test_hud_label_is_not_a_hard_requirement():
+    """HUD label # 1 must not block generation (client decision 2026-06-04).
+
+    It is never present in the inventory feed, so requiring it blocked staff on
+    every deal. It must stay OUT of required_fields (it is still mapped and fills
+    when provided, and is surfaced as a soft recommendation in the UI).
+    """
+    fmap = get_field_map()
+    offenders = [
+        name
+        for name, cfg in fmap["templates"].items()
+        if "label_number_1" in (cfg.get("required_fields") or [])
+    ]
+    assert not offenders, f"label_number_1 is hard-required again in: {offenders}"
+
+
+def test_generation_succeeds_without_hud_label():
+    """A full new-home packet must generate when the HUD label is the ONLY gap.
+
+    Uses an otherwise-complete deal and drops only the label fields, so a failure
+    here means the HUD label is still blocking (the regression we are guarding).
+    """
+    from scripts.validate_document_fills import FULL_DEAL
+    from tools.document_engine_v2 import generate_batch
+
+    templates = get_field_map()["packets"]["full_closing_new"]["templates"]
+    data = dict(FULL_DEAL)
+    data.pop("label_number_1", None)
+    data.pop("label_number_2", None)
+
+    result = generate_batch(templates, dict(data), merge=True)
+    assert result["success"], f"packet blocked without HUD label: {result.get('message')}"
+    assert result["successful"] == result["total"]
+
+
 @pytest.mark.skipif(
     shutil.which("pdftotext") is None,
     reason="pdftotext (poppler-utils) not installed; render-level check skipped",
