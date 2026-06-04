@@ -1063,6 +1063,42 @@ function ValidationErrors({ errors }) {
 
 /* ─── Step 1: Customer Info ──────────────────────────────── */
 
+const STEP_INTROS = {
+  1: {
+    title: 'Who is buying this home?',
+    instruction:
+      'Start a new deal by typing the customer’s name, or load an existing deal. You can fill in the rest as you go.',
+  },
+  2: {
+    title: 'Which home are they buying?',
+    instruction:
+      'Pick a home from inventory to fill in the details automatically — or type them in by hand.',
+  },
+  3: {
+    title: 'What do you need to print?',
+    instruction:
+      'Choose a ready-made packet (easiest) or tick the individual documents you need.',
+  },
+};
+
+/**
+ * Friendly, plain-language orientation shown at the top of each step so
+ * non-technical staff always know where they are and what to do next.
+ */
+function StepIntro({ step }) {
+  const intro = STEP_INTROS[step];
+  if (!intro) return null;
+  return (
+    <div className="text-center mb-6">
+      <span className="inline-block rounded-full bg-blue-100 px-3 py-1 text-xs font-bold uppercase tracking-wide text-blue-700">
+        Step {step} of 4
+      </span>
+      <h2 className="mt-3 text-2xl font-bold text-gray-800">{intro.title}</h2>
+      <p className="mx-auto mt-2 max-w-2xl text-lg text-gray-600">{intro.instruction}</p>
+    </div>
+  );
+}
+
 function Step1({ data, onChange, onLoadCustomer, resetKey, deals, dealsLoading, onLoadDeal, onNext, validationErrors, missingFields, duplicateWarning, onViewDuplicate }) {
   const [q, setQ] = useState('');
   const [showPicker, setShowPicker] = useState(false);
@@ -1175,9 +1211,11 @@ function Step1({ data, onChange, onLoadCustomer, resetKey, deals, dealsLoading, 
 
   return (
     <div className="space-y-6">
+      <StepIntro step={1} />
+
       {/* Validation Errors */}
       <ValidationErrors errors={validationErrors} />
-      
+
       {/* Duplicate Warning */}
       <DuplicateWarning warning={duplicateWarning} onViewDeal={onViewDuplicate} />
       
@@ -1640,14 +1678,10 @@ function Step2({ data, onChange, resetKey, inventory, inventoryLoading, onNext, 
 
   return (
     <div className="space-y-6">
+      <StepIntro step={2} />
+
       {/* Validation Errors */}
       <ValidationErrors errors={validationErrors} />
-
-      {/* Header */}
-      <div className="text-center mb-6">
-        <h2 className="text-2xl font-bold text-gray-800">Select a Home from Inventory</h2>
-        <p className="text-gray-600 mt-2">Choose a home to auto-fill the details, or enter manually</p>
-      </div>
 
       {/* Filters */}
       <div className="flex flex-wrap items-center justify-between gap-4">
@@ -2128,11 +2162,7 @@ function Step3({ templates, packets, selected, onToggle, onSelectPacket, isNew, 
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="text-center mb-6">
-        <h2 className="text-2xl font-bold text-gray-800">Select Documents to Generate</h2>
-        <p className="text-gray-600 mt-2">Choose a pre-made packet or select individual documents</p>
-      </div>
+      <StepIntro step={3} />
 
       <ValidationErrors errors={validationErrors} />
 
@@ -3266,6 +3296,19 @@ export default function DocumentCenter() {
   
   // Clear draft
   const startNewDocument = useCallback(() => {
+    // Guard against accidental data loss: if the user has entered customer/home
+    // details or selected documents (and hasn't finished generating yet), make
+    // them confirm before we wipe everything. Once on Step 4 the documents are
+    // already generated and saved, so no confirmation is needed.
+    const formDirty = JSON.stringify(form) !== JSON.stringify(INITIAL_FORM);
+    const hasWorkToLose = step < 4 && (formDirty || selDocs.length > 0);
+    if (hasWorkToLose && typeof window !== 'undefined' && typeof window.confirm === 'function') {
+      const confirmed = window.confirm(
+        'Start over and clear everything?\n\n' +
+          'This erases the customer and home details you have entered. This cannot be undone.',
+      );
+      if (!confirmed) return;
+    }
     localStorage.removeItem(DRAFT_KEY);
     setForm({ ...INITIAL_FORM });
     setSelDocs([]);
@@ -3279,7 +3322,7 @@ export default function DocumentCenter() {
     setShowDuplicateWarning(null);
     setAutoFilledFields(new Set());
     setFormResetKey(k => k + 1); // Force Fields to clear
-  }, []);
+  }, [form, step, selDocs]);
 
   const loadDeal = useCallback(d => {
     const m = { ...INITIAL_FORM };
