@@ -469,6 +469,28 @@ def enrich_document_data(data: dict[str, Any]) -> dict[str, Any]:
         if manufacturer_model_serial:
             enriched["manufacturer_model_serial"] = manufacturer_model_serial
 
+    if _is_blank(enriched.get("serial_label_combined")) and (
+        _has_value(enriched.get("serial_number_1"))
+        or _has_value(enriched.get("label_number_1"))
+    ):
+        serial_label_parts = [
+            f"S/N: {_clean(enriched['serial_number_1'])}"
+            if _has_value(enriched.get("serial_number_1"))
+            else None,
+            f"S/N2: {_clean(enriched['serial_number_2'])}"
+            if _has_value(enriched.get("serial_number_2"))
+            else None,
+            f"HUD: {_clean(enriched['label_number_1'])}"
+            if _has_value(enriched.get("label_number_1"))
+            else None,
+            f"HUD2: {_clean(enriched['label_number_2'])}"
+            if _has_value(enriched.get("label_number_2"))
+            else None,
+        ]
+        serial_label_combined = _join_non_empty(serial_label_parts, " | ")
+        if serial_label_combined:
+            enriched["serial_label_combined"] = serial_label_combined
+
     if _is_blank(enriched.get("manufacturer_city_state_zip")) and _all_have_values(
         enriched, "manufacturer_city", "manufacturer_state", "manufacturer_zip"
     ):
