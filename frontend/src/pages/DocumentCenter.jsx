@@ -871,7 +871,7 @@ function Badge({ children, color = 'blue' }) {
   );
 }
 
-function DocumentDesk({ readiness, history, loading, error, downloadingDoc, downloadError, onRefresh, onDownload }) {
+function DocumentDesk({ readiness, history, loading, error, downloadingDoc, downloadError, downloadSuccess, onRefresh, onDownload }) {
   const statusReady = readiness?.status === 'ready';
   const recentDocs = (history || []).slice(0, 4);
 
@@ -974,6 +974,15 @@ function DocumentDesk({ readiness, history, loading, error, downloadingDoc, down
         ) : (
           <div className="rounded-xl bg-gray-50 border border-dashed border-gray-300 p-5 text-center text-sm text-gray-500">
             No generated documents found yet.
+          </div>
+        )}
+
+        {downloadSuccess && (
+          <div className="mt-3 rounded-lg bg-green-50 border border-green-200 px-3 py-2 text-sm text-green-800 flex items-start gap-2">
+            <CheckCircle size={16} className="text-green-600 flex-shrink-0 mt-0.5" />
+            <span>
+              Download started — look for <span className="font-semibold break-all">“{downloadSuccess}”</span> in your Downloads folder.
+            </span>
           </div>
         )}
 
@@ -2449,7 +2458,7 @@ function Step3({ templates, packets, selected, onToggle, onSelectPacket, isNew, 
 
 /* ─── Step 4: Generate & Download ────────────────────────── */
 
-function Step4({ results, generating, error, onBack, onReset, onDownload, downloadingDoc, downloadError }) {
+function Step4({ results, generating, error, onBack, onReset, onDownload, downloadingDoc, downloadError, downloadSuccess }) {
   if (generating) {
     return (
       <div className="flex flex-col items-center justify-center py-20">
@@ -2521,20 +2530,50 @@ function Step4({ results, generating, error, onBack, onReset, onDownload, downlo
 
       {/* Download All Button */}
       {results.merged && (
-        <button
-          type="button"
-          onClick={() => onDownload(results.merged.download_url, results.merged.filename)}
-          disabled={downloadingDoc === results.merged.download_url}
-          className="flex items-center justify-center gap-3 w-full py-5 bg-blue-600 text-white rounded-xl font-bold text-xl hover:bg-blue-700 transition-all shadow-lg shadow-blue-200 disabled:bg-blue-300"
-        >
-          {downloadingDoc === results.merged.download_url ? <Loader2 size={28} className="animate-spin" /> : <Download size={28} />}
-          Download All Documents ({results.merged.page_count} pages)
-        </button>
+        <div className="space-y-2">
+          <button
+            type="button"
+            onClick={() => onDownload(results.merged.download_url, results.merged.filename)}
+            disabled={downloadingDoc === results.merged.download_url}
+            className="flex items-center justify-center gap-3 w-full py-5 bg-blue-600 text-white rounded-xl font-bold text-xl hover:bg-blue-700 transition-all shadow-lg shadow-blue-200 disabled:bg-blue-300"
+          >
+            {downloadingDoc === results.merged.download_url
+              ? <><Loader2 size={28} className="animate-spin" /> Preparing your download…</>
+              : <><Download size={28} /> Download All Documents ({results.merged.page_count} pages)</>}
+          </button>
+          <p className="text-center text-sm text-gray-500">
+            One PDF with everything inside — best for printing or emailing.
+          </p>
+        </div>
+      )}
+
+      {/* Plain-language confirmation so non-technical staff know it worked */}
+      {downloadSuccess && (
+        <div className="rounded-xl bg-green-50 border-2 border-green-200 px-5 py-4 text-green-800">
+          <div className="flex items-start gap-3">
+            <CheckCircle size={22} className="text-green-600 flex-shrink-0 mt-0.5" />
+            <div className="text-sm leading-relaxed">
+              <p className="font-bold">Download started!</p>
+              <p>
+                Look for <span className="font-semibold break-all">“{downloadSuccess}”</span> in your
+                computer’s <span className="font-semibold">Downloads</span> folder (it usually pops up at
+                the bottom or top-right of your screen).
+              </p>
+              <p className="mt-1 text-green-700">Didn’t see it? Just click the button again.</p>
+            </div>
+          </div>
+        </div>
       )}
 
       {downloadError && (
-        <div className="rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
-          {downloadError}
+        <div className="rounded-xl bg-red-50 border-2 border-red-200 px-5 py-4 text-red-700">
+          <div className="flex items-start gap-3">
+            <AlertCircle size={22} className="text-red-500 flex-shrink-0 mt-0.5" />
+            <div className="text-sm leading-relaxed">
+              <p className="font-bold">That download didn’t go through.</p>
+              <p>{downloadError}</p>
+            </div>
+          </div>
         </div>
       )}
 
@@ -2565,7 +2604,7 @@ function Step4({ results, generating, error, onBack, onReset, onDownload, downlo
                 className="flex items-center gap-2 px-4 py-2 bg-blue-100 text-blue-700 rounded-lg font-bold hover:bg-blue-200 transition-colors flex-shrink-0 disabled:opacity-60"
               >
                 {downloadingDoc === d.download_url ? <Loader2 size={18} className="animate-spin" /> : <Download size={18} />}
-                PDF
+                Download
               </button>
             </div>
           );
@@ -3033,6 +3072,7 @@ export default function DocumentCenter() {
   const [deskError, setDeskError] = useState('');
   const [downloadingDoc, setDownloadingDoc] = useState('');
   const [downloadError, setDownloadError] = useState('');
+  const [downloadSuccess, setDownloadSuccess] = useState('');
   const [autoFilledFields, setAutoFilledFields] = useState(new Set());
 
   // Refs to avoid stale closures in useCallback (prevents re-render on every keystroke)
@@ -3075,9 +3115,11 @@ export default function DocumentCenter() {
 
   const handleDocumentDownload = useCallback(async (url, filename) => {
     setDownloadError('');
+    setDownloadSuccess('');
     setDownloadingDoc(url);
     try {
-      await downloadAdminFile(url, filename);
+      const savedName = await downloadAdminFile(url, filename);
+      setDownloadSuccess(savedName || filename || 'your document');
     } catch (e) {
       setDownloadError(e.message || 'Download failed');
     } finally {
@@ -3501,6 +3543,7 @@ export default function DocumentCenter() {
         error={deskError}
         downloadingDoc={downloadingDoc}
         downloadError={downloadError}
+        downloadSuccess={downloadSuccess}
         onRefresh={loadDocumentDesk}
         onDownload={handleDocumentDownload}
       />
@@ -3596,6 +3639,7 @@ export default function DocumentCenter() {
           onDownload={handleDocumentDownload}
           downloadingDoc={downloadingDoc}
           downloadError={downloadError}
+          downloadSuccess={downloadSuccess}
         />
       )}
 
