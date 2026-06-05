@@ -86,6 +86,13 @@ project-go-forward/
 - **Keep backward compatibility** with existing `/api/documents/sales-contract` endpoint
 - **Test against TMHA_SalesContract.pdf** as baseline reference for document generation
 
+## FCD Migration Handoff — 2026-06-04
+- Old platform: `https://www.fastcontractdocs.com/manager` (FastContractDocs, singular `contract`). The old host currently has an expired TLS certificate, so treat live scraping as a one-off read-only recovery path, not a production integration.
+- Secure local handoff: `/Users/aribs/Documents/Cowork/Project-Go-Forward/fcd_differential_latest` points to the latest timestamped differential bundle.
+- Refreshed canonical source CSV: `/Users/aribs/Documents/Business/Kadima Digital Strategies 2026/THO_MASTER/full_migration_export.csv` (local-only raw source; do not commit, paste, or log rows).
+- Refreshed Project-Go-Forward sanitized artifact: `data/migrated_customers.json` now represents 2,005 sanitized customers from 2,008 live FCD rows. The 2026-06-04 differential found 42 new sanitized customers, 5 existing sanitized records with updates, and 3 skipped rows handled by the sanitizer.
+- Read the handoff Markdown in the secure bundle before touching FCD import work. Use `legacy_id` / `fcd_app_id` for idempotent matching, preserve existing customer IDs, and require an explicit dry-run plus human approval before any Firestore write.
+
 ## Build & Run Commands
 ```bash
 # Frontend
