@@ -29,6 +29,7 @@ SAMPLE_DATA = {
     "manufacturer_zip": "76101",
     "serial_number_1": "TRU-987654",
     "label_number_1": "TEX482913",
+    "no_of_sections": "Double Section",
     "sales_price": "95000",
     "down_payment": "5000",
     "loan_term": "240",
@@ -97,6 +98,9 @@ def test_v2_maps_manufacturer_location_from_split_fields(monkeypatch, tmp_path):
         captured["topmostSubform[0].Page1[0].Manufacturer_City_State_Zip[0]"]
         == "Fort Worth, TX 76101"
     )
+    assert captured["topmostSubform[0].Page1[0].Seller_RBI[0]"] == " 35248"
+    assert captured["topmostSubform[0].Page1[0].Seller_Name[0]"] == " Prosperity Acquisitions, Inc. dba Texas Home Outlet"
+    assert captured["topmostSubform[0].Page1[0].Seller_Address[0]"] == " 10685 FM 1960 East"
 
 
 def test_v2_maps_full_packet_manufacturer_identity_fields(monkeypatch, tmp_path):
@@ -164,6 +168,87 @@ def test_v2_maps_full_packet_manufacturer_identity_fields(monkeypatch, tmp_path)
         ]
         == "(281) 324-3020"
     )
+
+
+def test_v2_defaults_installer_identity_for_installation_warranty(monkeypatch, tmp_path):
+    import tools.document_engine_v2 as engine_module
+
+    captured = {}
+
+    def _capture_fill(_template_path, pdf_data, output_filename):
+        captured.update(pdf_data)
+        output_path = tmp_path / output_filename
+        output_path.write_bytes(b"%PDF-1.4\n%%EOF")
+        return str(output_path)
+
+    monkeypatch.setattr(engine_module, "fill_pdf_form", _capture_fill)
+
+    result = engine_module.generate_document(
+        "TDHCA_1124_Installation_Warranty.pdf",
+        {key: value for key, value in SAMPLE_DATA.items() if not key.startswith("installer_")},
+    )
+
+    assert result["success"] is True
+    assert captured["topmostSubform[0].Page1[0].Installer_Name[0]"] == "Prosperity Acquisitions, Inc. dba Texas Home Outlet"
+    assert captured["THO_TDHCA1124_Installer_Contact_Name"] == "Prosperity Acquisitions, Inc. dba Texas Home Outlet"
+    assert captured["THO_TDHCA1124_Installer_Contact_Phone"] == "(281) 324-3020"
+    assert "topmostSubform[0].Page1[0].License[0]" not in captured
+
+
+def test_v2_maps_sales_contract_totals_and_compact_sections(monkeypatch, tmp_path):
+    import tools.document_engine_v2 as engine_module
+
+    captured = {}
+
+    def _capture_fill(_template_path, pdf_data, output_filename):
+        captured.update(pdf_data)
+        output_path = tmp_path / output_filename
+        output_path.write_bytes(b"%PDF-1.4\n%%EOF")
+        return str(output_path)
+
+    monkeypatch.setattr(engine_module, "fill_pdf_form", _capture_fill)
+
+    result = engine_module.generate_document(
+        "TMHA_SalesContract.pdf",
+        {
+            **SAMPLE_DATA,
+            "total_payments": "1.00",
+            "total_paid": "2.00",
+            "finance_charge": "3.00",
+            "unpaid_balance": "4.00",
+        },
+    )
+
+    assert result["success"] is True
+    assert captured["topmostSubform[0].Page1[0].No_of_Sections[0]"] == "2"
+    assert captured["topmostSubform[0].Page1[0].Unpaid_Balance[0]"] == "90,000.00"
+    assert captured["topmostSubform[0].Page2[0].Total_Pmts[0]"] == "187,449.60"
+    assert captured["topmostSubform[0].Page2[0].Total_Paid[0]"] == "192,449.60"
+    assert captured["topmostSubform[0].Page2[0].Finance_Charge[0]"] == "97,449.60"
+    assert (
+        captured["topmostSubform[0].Page2[0].Payment_Breakdown[0]"]
+        == "240 monthly payments of $781.04"
+    )
+
+
+def test_v2_maps_statement_of_ownership_page2_identity(monkeypatch, tmp_path):
+    import tools.document_engine_v2 as engine_module
+
+    captured = {}
+
+    def _capture_fill(_template_path, pdf_data, output_filename):
+        captured.update(pdf_data)
+        output_path = tmp_path / output_filename
+        output_path.write_bytes(b"%PDF-1.4\n%%EOF")
+        return str(output_path)
+
+    monkeypatch.setattr(engine_module, "fill_pdf_form", _capture_fill)
+
+    result = engine_module.generate_document("TDHCA_1023-Statement-Ownership.pdf", SAMPLE_DATA)
+
+    assert result["success"] is True
+    assert captured["topmostSubform[0].Page2[0].HUD[0]"] == "TEX482913"
+    assert captured["topmostSubform[0].Page2[0].Serial[0]"] == "TRU-987654"
 
 
 def test_v2_generate_unified_template():

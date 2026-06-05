@@ -86,6 +86,7 @@ class SalesContractForm(BaseModel):
     manufacturer: str
     model: str
     year: str | None = None
+    no_of_sections: str | None = None
     serial_number_1: str
     serial_number_2: str | None = None
     label_number_1: str | None = None  # HUD Label

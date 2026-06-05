@@ -1,62 +1,52 @@
-# Project-Go-Forward — Shared Agent Guide
+# AGENTS.md — Project-Go-Forward
 
-This repo is the Texas Home Outlet app (`arigatoexpress/Project-Go-Forward`): a FastAPI + React application that powers the live THO site, CRM flows, document generation, partner API endpoints, and regulatory PDF RAG search. It auto-deploys to Cloud Run on every push to `main`, so agent work here is always production-adjacent.
+## What this repo does
 
-## Production State
+Texas Home Outlet's live business system. FastAPI + React app serving the public storefront, internal CRM, document generation, marketing studio, and partner API. Auto-deploys to Cloud Run on every push to `main`.
 
-- Canonical production URL: `https://tho.sapphirealpha.xyz`
-- Direct Cloud Run URL: `https://project-go-forward-trgi34bxuq-uc.a.run.app`
-- Authoritative DNS lives in Google Cloud project `sapphire-479610`, zone `sapphirealpha-xyz`.
-- Cloud Run service and runtime secrets live in Google Cloud project `tho-ai-agent`.
-- Health checks:
-  - Readiness: `curl -fsS https://tho.sapphirealpha.xyz/health`
-  - Cloud Run liveness: `curl -fsS https://tho.sapphirealpha.xyz/healthz/`
-  - Direct liveness: `curl -fsS https://project-go-forward-trgi34bxuq-uc.a.run.app/healthz/`
-- Logs live in Google Cloud Logging for Cloud Run service `project-go-forward` in project `tho-ai-agent`
-- CLI log check:
-  - `gcloud logging read 'resource.type="cloud_run_revision" AND resource.labels.service_name="project-go-forward"' --project tho-ai-agent --limit 50`
-- Rollback:
-  - `gcloud run revisions list --service project-go-forward --project tho-ai-agent --region us-central1`
-  - `gcloud run services update-traffic project-go-forward --project tho-ai-agent --region us-central1 --to-revisions <REVISION>=100`
-- Claude-specific build/deploy detail stays in [CLAUDE.md](CLAUDE.md)
+## Key directories and files
 
-## Workflow For Any AI Agent
+| Path | Role |
+|---|---|
+| `main.py` | FastAPI service, API routes, SPA hosting |
+| `root_agent.py` | Google ADK agent orchestration |
+| `frontend/src/` | React app, public app, admin surfaces |
+| `database/` | Firestore client and Pydantic models |
+| `tools/` | Inventory, CRM, document, marketing, RAG tools |
+| `schemas/` | Request/response and document schemas |
+| `config/field_map.json` | PDF template field registry |
+| `tho_documents/` | Regulatory PDF originals (read-only) |
+| `tests/` | Backend tests and smoke coverage |
 
-- Always branch from the real remote main, never from local `main`:
-  - `git fetch origin && git switch -c <branch> origin/main`
-- Branch naming:
-  - `feat/*`, `fix/*`, `chore/*`, `docs/*`, `test/*`
-- Commit style:
-  - imperative, scoped when useful, matching existing history like `feat(rag): ...`, `fix(ci): ...`, `chore: ...`
-- Open a draft PR by default unless the branch is clearly throwaway or exploratory
-- Never merge your own PR without explicit human approval
-- This repo is production-adjacent, so even trivial-looking changes still require a human before merge
-- Run pre-commit before push:
-  - `pre-commit run --files <changed-files>`
-  - Use `pre-commit run --all-files` only for explicit repo-wide hygiene branches
+## How to run tests / dev server
 
-## Division Of Labor
+```bash
+# Install
+pip install -r requirements.txt -r requirements-dev.txt
+npm --prefix frontend install
 
-- Claude Code: ongoing review, architecture, deployment-sensitive coordination, large cross-cutting changes
-- Codex: well-scoped refactors, repo hygiene, test-writing, toolchain and automation cleanup
-- Kimi Code: TODO document the best-fit tasks after more direct usage data from this repo
+# Build frontend
+npm --prefix frontend run build
 
-## Conflict Avoidance
+# Run server
+python main.py   # http://127.0.0.1:8080
 
-- Before starting, check both:
-  - `gh pr list --limit 20`
-  - `git worktree list`
-- If another branch already touches the same area, prefer stacking on that branch or rebasing onto it instead of parallel edits
-- If multiple agents are active, call out intended file ownership in the PR description or handoff note
+# Tests
+python -m pytest tests/test_healthz.py tests/test_api_v1.py tests/test_document_engine.py -q
+```
 
-## File-Level Ownership Hints
+## Safety boundaries
 
-- `main.py` is large and frequently edited by multiple agents; if two branches touch it, the later branch rebases
-- `frontend/src/pages/CRM.jsx`, `frontend/src/App.jsx`, and `database/models.py` also see frequent overlap during feature work
-- `tho_documents/` contains regulatory PDFs; never modify those files in agent work
+1. **Do NOT** expose secrets, API keys, or admin PINs in code, logs, or chat
+2. **Do NOT** modify `tho_documents/` regulatory PDFs in agent work
+3. **Do NOT** send unsanitized PII to Gemini; use `tools/pii_guard.py`
+4. **Do NOT** push directly to `main`. Branch, PR, and get human approval before merge
+5. **Do NOT** modify Firestore schema without updating `database/models.py` and tests
+6. Pre-commit before push: `pre-commit run --files <changed-files>`
 
-## Local Environment
+## Current status
 
-- Canonical Python target: `3.11` via [`.python-version`](.python-version)
-- Install dev tooling with [docs/DEV_SETUP.md](docs/DEV_SETUP.md)
-- Keep local `main` disposable; if it drifts, back it up and recreate it from `origin/main` rather than branching from stale history
+- Production live at `https://tho.sapphirealpha.xyz`
+- Cloud Run service `project-go-forward` in `tho-ai-agent`
+- Health: `/health` (readiness), `/healthz/` (liveness)
+- Rollback via `gcloud run revisions list` + `gcloud run services update-traffic`

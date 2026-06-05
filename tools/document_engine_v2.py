@@ -19,6 +19,7 @@ from config.field_map_loader import get_field_map
 from tools.document_quality import (
     PRODUCTION_BLOCKED_TEMPLATES,
     enrich_document_data,
+    normalize_section_count,
     quality_failure_response,
     validate_document_quality,
     validate_required_document_data,
@@ -29,6 +30,18 @@ from tools.document_tools import DOCUMENTS_DIR, OUTPUT_DIR, fill_pdf_form, uploa
 from tools.drive_service import ensure_deal_folder, upload_to_drive
 
 logger = logging.getLogger(__name__)
+
+# Seller/retailer name varies by form family (founding-partner requirement):
+# TMHA forms read the short trade name; TDHCA, State, and Internal forms read the
+# full registered legal entity. See _seller_name_for_category().
+SELLER_NAME_LEGAL = "Prosperity Acquisitions, Inc. dba Texas Home Outlet"
+SELLER_NAME_SHORT = "Texas Home Outlet"
+
+
+def _seller_name_for_category(category: str | None) -> str:
+    """Return the seller name appropriate to a template's form family."""
+    return SELLER_NAME_SHORT if str(category or "").strip().upper() == "TMHA" else SELLER_NAME_LEGAL
+
 
 LEGACY_FIELD_SOURCES: dict[str, tuple[str, ...]] = {
     "buyer_name": ("person.buyer_name",),
@@ -58,7 +71,10 @@ LEGACY_FIELD_SOURCES: dict[str, tuple[str, ...]] = {
     "monthly_payment": ("financial.monthly_payment",),
     "total_monthly_payment": ("financial.monthly_payment",),
     "total_payments": ("financial.total_of_payments",),
+    "total_paid": ("financial.total_paid", "financial.total_sale_price"),
+    "total_sale_price": ("financial.total_sale_price", "financial.total_paid"),
     "finance_charge": ("financial.finance_charge",),
+    "payment_breakdown": ("financial.payment_breakdown",),
     "unpaid_balance": ("financial.loan_amount",),
     "total_unpaid_balance": ("financial.loan_amount",),
     "max_financed": ("financial.loan_amount",),
@@ -67,6 +83,23 @@ LEGACY_FIELD_SOURCES: dict[str, tuple[str, ...]] = {
 
 def _has_value(value: Any) -> bool:
     return value is not None and str(value).strip() != ""
+
+
+PDF_FIELD_LEADING_SPACE_POLISH: dict[str, tuple[str, ...]] = {
+    "TDHCA_1023-Statement-Ownership.pdf": (
+        "topmostSubform[0].Page1[0].Seller_RBI[0]",
+        "topmostSubform[0].Page1[0].Seller_Name[0]",
+        "topmostSubform[0].Page1[0].Seller_Address[0]",
+    ),
+}
+
+
+def _apply_pdf_field_polish(template_name: str, pdf_data: dict[str, Any]) -> None:
+    """Add safe visual padding for fields that sit flush against fixed labels."""
+    for pdf_field in PDF_FIELD_LEADING_SPACE_POLISH.get(template_name, ()):
+        value = pdf_data.get(pdf_field)
+        if isinstance(value, str) and value and not value.startswith(" "):
+            pdf_data[pdf_field] = f" {value}"
 
 
 # ─── Pydantic Models ────────────────────────────────────────────────────────
@@ -124,6 +157,11 @@ class ProductModel(BaseModel):
     manufacturer_full_address: str | None = None
     manufacturer_model: str | None = None
 
+    @field_validator("no_of_sections", mode="before")
+    @classmethod
+    def compact_section_count(cls, value: Any) -> Any:
+        return normalize_section_count(value) or None
+
     @model_validator(mode="after")
     def validate_exclusion(self):
         if self.is_new and self.is_used:
@@ -146,6 +184,9 @@ class FinancialModel(BaseModel):
     unpaid_balance: Decimal | None = None
     total_payments: Decimal | None = None
     total_paid_to_others: Decimal | None = None
+    total_paid: Decimal | None = None
+    total_sale_price: Decimal | None = None
+    payment_breakdown: str | None = None
 
     # Computed fields
     loan_amount: Decimal | None = None
@@ -189,6 +230,8 @@ class FinancialModel(BaseModel):
         "unpaid_balance",
         "total_payments",
         "total_paid_to_others",
+        "total_paid",
+        "total_sale_price",
         mode="before",
     )
     @classmethod
@@ -217,10 +260,19 @@ class FinancialModel(BaseModel):
                 Decimal("0.01")
             )
 
-        self.total_of_payments = (
-            self.monthly_payment * self.loan_term + self.down_payment
-        ).quantize(Decimal("0.01"))
-        self.finance_charge = (self.total_of_payments - self.sales_price).quantize(Decimal("0.01"))
+        self.total_of_payments = (self.monthly_payment * self.loan_term).quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_UP
+        )
+        self.total_paid = (self.total_of_payments + self.down_payment).quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_UP
+        )
+        self.total_sale_price = self.total_paid
+        self.finance_charge = (self.total_of_payments - self.loan_amount).quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_UP
+        )
+        self.payment_breakdown = (
+            f"{self.loan_term} monthly payments of ${self.monthly_payment:,.2f}"
+        )
         return self
 
 
@@ -296,6 +348,8 @@ class UnifiedPayload(BaseModel):
             "apr": "financial",
             "doc_fee": "financial",
             "amt_points": "financial",
+            "total_paid": "financial",
+            "total_sale_price": "financial",
         }
 
         normalized = {"person": {}, "product": {}, "financial": {}, "meta": {}}
@@ -396,6 +450,12 @@ class DocumentEngineV2:
         Generate a single document using the v2 engine.
         """
         data = enrich_document_data(data)
+        # Category-aware seller name: TMHA forms use the short trade name; all
+        # other families (TDHCA, State, Internal) use the full legal entity.
+        data = dict(data)
+        data["seller_name"] = _seller_name_for_category(
+            (self._template_config(template_name) or {}).get("category")
+        )
         quality_failure = self._quality_gate(data, [template_name])
         if quality_failure:
             return quality_failure
@@ -480,6 +540,8 @@ class DocumentEngineV2:
                                 "monthly_payment",
                                 "total_monthly_payment",
                                 "total_payments",
+                                "total_paid",
+                                "total_sale_price",
                                 "max_financed",
                                 "unpaid_balance",
                                 "total_unpaid_balance",
@@ -510,6 +572,8 @@ class DocumentEngineV2:
             for k, v in legacy_tpl_config.get("static_values", {}).items():
                 if k not in pdf_data:
                     pdf_data[k] = v
+
+        _apply_pdf_field_polish(template_name, pdf_data)
 
         # 5. Output Filename
         if not output_filename:

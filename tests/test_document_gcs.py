@@ -20,16 +20,19 @@ class TestDocumentTools:
 
     def test_output_dir_exists(self):
         from tools.document_tools import OUTPUT_DIR
+
         assert os.path.isdir(OUTPUT_DIR) or OUTPUT_DIR.startswith("/tmp")
 
     def test_documents_dir_has_templates(self):
         from tools.document_tools import DOCUMENTS_DIR
+
         if os.path.isdir(DOCUMENTS_DIR):
             pdfs = [f for f in os.listdir(DOCUMENTS_DIR) if f.endswith(".pdf")]
             assert len(pdfs) >= 60
 
     def test_fill_pdf_form_creates_file(self):
-        from tools.document_tools import fill_pdf_form, DOCUMENTS_DIR
+        from tools.document_tools import DOCUMENTS_DIR, fill_pdf_form
+
         template = os.path.join(DOCUMENTS_DIR, "TDHCA_1038_Consumer_Disclosure.pdf")
         if not os.path.exists(template):
             pytest.skip("Template not available locally")
@@ -42,9 +45,9 @@ class TestDocumentTools:
 
     def test_fill_pdf_form_summary_fallback(self):
         """If template has no forms, should create summary PDF."""
-        from tools.document_tools import OUTPUT_DIR
         # Use a known simple PDF that might not have forms
-        from tools.document_tools import create_summary_pdf
+        from tools.document_tools import OUTPUT_DIR, create_summary_pdf
+
         out_path = os.path.join(OUTPUT_DIR, "test_summary.pdf")
         create_summary_pdf({"buyer_name": "Summary Test", "price": "50000"}, out_path)
         assert os.path.exists(out_path)
@@ -54,6 +57,7 @@ class TestDocumentTools:
     def test_fill_pdf_form_creates_missing_output_dir(self, monkeypatch, tmp_path):
         """Fresh worktrees may not have the ignored generated-docs directory."""
         from reportlab.pdfgen import canvas
+
         import tools.document_tools as document_tools
 
         template_path = tmp_path / "blank-template.pdf"
@@ -74,6 +78,129 @@ class TestDocumentTools:
         assert os.path.exists(output)
         assert os.path.getsize(output) > 500
 
+    def test_tmha_creditor_phone_box_fields_are_split_to_digits(self):
+        from tools.document_tools import TMHA_CREDITOR_PHONE_FIELDS, _prepare_pdf_fill_data
+
+        prepared = _prepare_pdf_fill_data(
+            "TMHA_SalesContract.pdf",
+            {field: "(555) 010-3000" for field in TMHA_CREDITOR_PHONE_FIELDS},
+        )
+
+        assert [prepared[field] for field in TMHA_CREDITOR_PHONE_FIELDS] == list("5550103000")
+
+    def test_tmha_creditor_phone_box_fields_preserve_existing_digit_values(self):
+        from tools.document_tools import TMHA_CREDITOR_PHONE_FIELDS, _prepare_pdf_fill_data
+
+        prepared = _prepare_pdf_fill_data(
+            "TMHA_SalesContract.pdf",
+            {field: str(index) for index, field in enumerate(TMHA_CREDITOR_PHONE_FIELDS)},
+        )
+
+        assert [prepared[field] for field in TMHA_CREDITOR_PHONE_FIELDS] == [
+            str(index) for index in range(10)
+        ]
+
+    def test_tmha_sales_contract_overlap_prone_fields_use_overlays(self):
+        from tools.document_tools import _prepare_acroform_appearance_data
+
+        fields = {
+            "topmostSubform[0].Page1[0].Install_Address[0]",
+            "topmostSubform[0].Page1[0].No_of_Sections[0]",
+            "topmostSubform[0].Page1[0].SalePrice[0]",
+            "topmostSubform[0].Page1[0].DownPmt[0]",
+            "topmostSubform[0].Page2[0].Total_Pmts[0]",
+            "topmostSubform[0].Page2[0].Total_Paid[0]",
+            "topmostSubform[0].Page2[0].Finance_Charge[0]",
+        }
+        prepared = _prepare_acroform_appearance_data(
+            "TMHA_SalesContract.pdf",
+            {field: "value" for field in fields},
+        )
+
+        assert fields.isdisjoint(prepared)
+
+    def test_tmha_install_address_widget_rect_is_constrained(self):
+        from pypdf import PdfReader, PdfWriter
+
+        from tools.document_tools import _apply_pdf_widget_rect_overrides
+
+        reader = PdfReader("tho_documents/TMHA_SalesContract.pdf")
+        writer = PdfWriter()
+        writer.append(reader)
+
+        _apply_pdf_widget_rect_overrides("TMHA_SalesContract.pdf", writer)
+
+        page = writer.pages[0]
+        install_address_widgets = [
+            annotation.get_object()
+            for annotation in page.get("/Annots", [])
+            if str(annotation.get_object().get("/T") or "") == "Install_Address[0]"
+        ]
+        assert install_address_widgets
+        assert [float(value) for value in install_address_widgets[0]["/Rect"]] == [
+            266.794,
+            668.0,
+            573.531,
+            689.0,
+        ]
+
+    def test_tmha_install_address_overlay_adds_pdf_content(self, tmp_path):
+        from pypdf import PdfReader, PdfWriter
+
+        from tools.document_tools import _apply_pdf_text_overlays
+
+        reader = PdfReader("tho_documents/TMHA_SalesContract.pdf")
+        writer = PdfWriter()
+        writer.append(reader)
+
+        _apply_pdf_text_overlays(
+            "TMHA_SalesContract.pdf",
+            writer,
+            {
+                "topmostSubform[0].Page1[0].Install_Address[0]": "123 Smoke Test Loop",
+                "topmostSubform[0].Page1[0].No_of_Sections[0]": "2",
+                "topmostSubform[0].Page2[0].Total_Pmts[0]": "187,449.60",
+                "topmostSubform[0].Page2[0].Total_Paid[0]": "192,449.60",
+            },
+        )
+
+        output_path = tmp_path / "tmha-install-address-overlay.pdf"
+        with output_path.open("wb") as output:
+            writer.write(output)
+
+        pages = PdfReader(str(output_path)).pages
+        first_page = pages[0].extract_text() or ""
+        second_page = pages[1].extract_text() or ""
+        assert "123 Smoke Test Loop" in first_page
+        assert "187,449.60" in second_page
+        assert "192,449.60" in second_page
+
+    def test_tdhca_1124_contact_overlay_adds_pdf_content(self, tmp_path):
+        from pypdf import PdfReader, PdfWriter
+
+        from tools.document_tools import _apply_pdf_text_overlays
+
+        reader = PdfReader("tho_documents/TDHCA_1124_Installation_Warranty.pdf")
+        writer = PdfWriter()
+        writer.append(reader)
+
+        _apply_pdf_text_overlays(
+            "TDHCA_1124_Installation_Warranty.pdf",
+            writer,
+            {
+                "THO_TDHCA1124_Installer_Contact_Name": "Texas Home Outlet, Inc.",
+                "THO_TDHCA1124_Installer_Contact_Phone": "(281) 324-3020",
+            },
+        )
+
+        output_path = tmp_path / "tdhca1124-overlay.pdf"
+        with output_path.open("wb") as output:
+            writer.write(output)
+
+        extracted = PdfReader(str(output_path)).pages[0].extract_text() or ""
+        assert "Texas Home Outlet, Inc." in extracted
+        assert "(281) 324-3020" in extracted
+
 
 class TestGCSFunctions:
     """Test GCS upload/download/list functions."""
@@ -86,6 +213,7 @@ class TestGCSFunctions:
     def test_gcs_bucket_accessible(self):
         """GCS bucket should be accessible (may fail in CI without credentials)."""
         from tools.document_tools import _get_gcs_bucket
+
         bucket = _get_gcs_bucket()
         if bucket is None:
             pytest.skip("GCS not available (no credentials)")
@@ -94,6 +222,7 @@ class TestGCSFunctions:
     def test_gcs_list_documents(self):
         """List should return documents or empty list."""
         from tools.document_tools import list_gcs_documents
+
         docs = list_gcs_documents()
         assert isinstance(docs, list)
         # Should have at least one doc from our earlier E2E test
@@ -104,6 +233,7 @@ class TestGCSFunctions:
     def test_gcs_download_nonexistent(self):
         """Downloading a nonexistent file should return False."""
         from tools.document_tools import download_from_gcs
+
         result = download_from_gcs("totally_fake_file_999.pdf", "/tmp/fake_download.pdf")
         assert result is False
 
@@ -113,6 +243,7 @@ class TestDocumentEngine:
 
     def test_list_templates(self):
         from tools.document_engine import list_available_templates
+
         templates = list_available_templates()
         assert len(templates) >= 60
         # Each template should have required fields
@@ -122,18 +253,22 @@ class TestDocumentEngine:
 
     def test_generate_with_valid_data(self):
         from tools.document_engine import generate_document
-        result = generate_document("TDHCA_1038_Consumer_Disclosure.pdf", {
-            "buyer_name": "Test Engine",
-            "buyer_address": "123 Test",
-            "buyer_city": "Houston",
-            "buyer_county": "Harris",
-            "buyer_state": "TX",
-            "buyer_zip": "77001",
-            "manufacturer": "Clayton",
-            "model": "Breeze",
-            "serial_number_1": "TEST-ENG-001",
-            "sales_price": "50000",
-        })
+
+        result = generate_document(
+            "TDHCA_1038_Consumer_Disclosure.pdf",
+            {
+                "buyer_name": "Test Engine",
+                "buyer_address": "123 Test",
+                "buyer_city": "Houston",
+                "buyer_county": "Harris",
+                "buyer_state": "TX",
+                "buyer_zip": "77001",
+                "manufacturer": "Clayton",
+                "model": "Breeze",
+                "serial_number_1": "TEST-ENG-001",
+                "sales_price": "50000",
+            },
+        )
         assert result["success"], f"Failed: {result}"
         # Cleanup
         if os.path.exists(result.get("file_path", "")):
@@ -141,20 +276,26 @@ class TestDocumentEngine:
 
     def test_generate_missing_required_fields(self):
         from tools.document_engine import generate_document
-        result = generate_document("TMHA_SalesContract.pdf", {
-            "buyer_name": "Incomplete",
-        })
+
+        result = generate_document(
+            "TMHA_SalesContract.pdf",
+            {
+                "buyer_name": "Incomplete",
+            },
+        )
         assert not result["success"]
         assert "required" in result.get("message", "").lower()
 
     def test_generate_nonexistent_template(self):
         from tools.document_engine import generate_document
+
         result = generate_document("NONEXISTENT_TEMPLATE.pdf", {"buyer_name": "Test"})
         assert not result["success"]
 
     def test_template_field_definitions(self):
         """Field map should provide field definitions for each template."""
         from config.field_map_loader import get_template_config
+
         config = get_template_config("TMHA_SalesContract.pdf")
         assert config is not None
         assert "sections" in config or "fields" in config or "required_fields" in config

@@ -13,7 +13,10 @@ business:
   address: "10685 FM 1960 East, Huffman, TX 77338"
   phone: "(281) 324-3020"
   email: "sales@texashomeoutlet.com"
-  notification_email: "aribspector@gmail.com"  # Owner — receives lead/appointment alerts
+  # Staff who receive new-lead / new-appointment alerts. Fans out to the whole
+  # team so no lead is missed. Operative value is the NOTIFICATION_EMAIL env var
+  # (comma-separated) read by email_service.py; this line documents the intent.
+  notification_email: "ben@texashomeoutlet.com,lee@texashomeoutlet.com,celeste@texashomeoutlet.com,mark@texashomeoutlet.com"
   website: "https://www.texashomeoutlet.com"
   
   # Operating hours

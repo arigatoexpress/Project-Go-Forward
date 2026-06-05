@@ -14,7 +14,7 @@
         "buyer_zip",
         "manufacturer",
         "model",
-        "label_number_1",
+        "no_of_sections",
         "serial_number_1",
         "sales_price"
       ],
@@ -97,10 +97,10 @@
         "buyer_name"
       ],
       "field_map": {
-        "topmostSubform[0].Page1[0].Seller_RBI[0]": "seller_rbi",
-        "topmostSubform[0].Page1[0].Seller_Name[0]": "seller_name",
-        "topmostSubform[0].Page2[0].Buyer_Complete_Name[0]": "buyer_name",
-        "topmostSubform[0].Page2[0].CoBuyer_Complete_Name[0]": "co_buyer_name"
+        "topmostSubform[0].Page3[0].Seller_RBI[0]": "seller_rbi",
+        "topmostSubform[0].Page3[0].Seller_Name[0]": "seller_name",
+        "topmostSubform[0].Page3[0].Buyer_Complete_Name[0]": "buyer_name",
+        "topmostSubform[0].Page3[0].CoBuyer_Complete_Name[0]": "co_buyer_name"
       },
       "checkbox_fields": {},
       "static_values": {
@@ -120,7 +120,6 @@
         "manufacturer_city_state_zip",
         "model",
         "date_of_manufacture",
-        "label_number_1",
         "serial_number_1",
         "buyer_address",
         "buyer_city",
@@ -153,6 +152,8 @@
         "topmostSubform[0].Page1[0].Contract_Name[0]": "buyer_name",
         "topmostSubform[0].Page1[0].Install_City_State_Zip[0]": "buyer_city_state_zip",
         "topmostSubform[0].Page2[0].Creditor_Name[0]": "creditor_name",
+        "topmostSubform[0].Page2[0].HUD[0]": "label_number_1",
+        "topmostSubform[0].Page2[0].Serial[0]": "serial_number_1",
         "topmostSubform[0].Page2[0].Creditor_Address[0]": "creditor_address",
         "topmostSubform[0].Page2[0].Creditor_City_State_Zip[0]": "creditor_city_state_zip"
       },
@@ -168,7 +169,7 @@
       "pii_fields": []
     },
     "TDHCA_1054_Habitability_Warranty.pdf": {
-      "display_name": "TDHCA Habitability Warranty (1054) — Used Homes Only",
+      "display_name": "TDHCA Habitability Warranty (1054) \u2014 Used Homes Only",
       "category": "TDHCA",
       "description": "Required warranty document certifying used/pre-owned home meets habitability standards. Only applies to used home sales.",
       "required_fields": [
@@ -177,7 +178,6 @@
         "manufacturer_city_state_zip",
         "model",
         "date_of_manufacture",
-        "label_number_1",
         "serial_number_1"
       ],
       "field_map": {
@@ -241,13 +241,11 @@
       "display_name": "TDHCA Installation Warranty (1124)",
       "category": "TDHCA",
       "description": "Installation warranty document for manufactured home setup.",
+      "_notes": "MHD Form 1124 BLOCK 2 (Home Information) only provides Manufacturer Name, Wind Zone, and the Label/Serial table. The form has NO manufacturer address line, so manufacturer_address / manufacturer_city_state_zip were removed from required_fields and their non-existent Manufacturer_Address[0] / Manufacturer_City_State_Zip[0] widget mappings deleted (they would otherwise render as false blanks).",
       "required_fields": [
         "buyer_name",
         "buyer_address",
         "manufacturer",
-        "manufacturer_address",
-        "manufacturer_city_state_zip",
-        "label_number_1",
         "serial_number_1"
       ],
       "field_map": {
@@ -255,12 +253,11 @@
         "topmostSubform[0].Page1[0].Address[0]": "buyer_address",
         "topmostSubform[0].Page1[0].City_State_Zip[0]": "buyer_city_state_zip",
         "topmostSubform[0].Page1[0].Manufacturer_Name[0]": "manufacturer",
-        "topmostSubform[0].Page1[0].Manufacturer_Address[0]": "manufacturer_address",
-        "topmostSubform[0].Page1[0].Manufacturer_City_State_Zip[0]": "manufacturer_city_state_zip",
         "topmostSubform[0].Page1[0].Wind_Zone[0]": "wind_zone",
-        "topmostSubform[0].Page1[0].Installer_Name_Address[0]": "installer_name_address",
-        "topmostSubform[0].Page1[0].Installer_Phone[0]": "installer_phone",
-        "topmostSubform[0].Page1[0].Installer_License[0]": "installer_license",
+        "topmostSubform[0].Page1[0].Installer_Name[0]": "installer_name",
+        "topmostSubform[0].Page1[0].License[0]": "installer_license",
+        "THO_TDHCA1124_Installer_Contact_Name": "installer_contact_name",
+        "THO_TDHCA1124_Installer_Contact_Phone": "installer_contact_phone",
         "topmostSubform[0].Page1[0].LabelSeal_NumberSection_1[0]": "label_number_1",
         "topmostSubform[0].Page1[0].Serial_NumberSection_1[0]": "serial_number_1",
         "topmostSubform[0].Page1[0].LabelSeal_NumberSection_2[0]": "label_number_2",
@@ -282,8 +279,7 @@
         "manufacturer",
         "manufacturer_address",
         "manufacturer_city_state_zip",
-        "model",
-        "label_number_1"
+        "model"
       ],
       "field_map": {
         "topmostSubform[0].Page3[0].Contract_Name[0]": "buyer_name",
@@ -345,11 +341,11 @@
       "display_name": "Compliance Agreement",
       "category": "State",
       "description": "State compliance agreement for manufactured home purchase.",
+      "_notes": "This Lender/Borrower compliance (errors-and-omissions) agreement has no manufacturer/model/HUD field on the form (only Lender, Borrower, Property Address, City/State/Zip, Loan Number, and signatures). manufacturer_model_hud was removed from required_fields because there is no widget or labeled line to receive it; it would otherwise be a false blank.",
       "required_fields": [
         "buyer_name",
         "buyer_address",
-        "buyer_city_state_zip",
-        "manufacturer_model_hud"
+        "buyer_city_state_zip"
       ],
       "field_map": {
         "topmostSubform[0].Page1[0].Contract_Name[0]": "buyer_name",
@@ -1007,8 +1003,7 @@
         "manufacturer",
         "manufacturer_address",
         "manufacturer_city_state_zip",
-        "serial_number_1",
-        "label_number_1"
+        "serial_number_1"
       ],
       "field_map": {
         "topmostSubform[0].Page1[0].Buyer_Complete_Name[0]": "buyer_name",
@@ -1118,17 +1113,14 @@
       "display_name": "TDHCA Form T - Installation Report (1026)",
       "category": "TDHCA",
       "description": "Required installation report for manufactured home setup with installer and home details.",
+      "_notes": "MHD Form 1026 (Notice of Installation / Form T) captures only Manufacturer Name, Model, and Date of Manufacture for the home; it has NO manufacturer address line (the Address columns on the form belong to the Retailer/Installer rows, not the manufacturer). manufacturer_address / manufacturer_city_state_zip were removed from required_fields and their non-existent Manufacturer_Address[0] / Manufacturer_City_State_Zip[0] widget mappings deleted to avoid false blanks.",
       "required_fields": [
         "manufacturer",
-        "manufacturer_address",
-        "manufacturer_city_state_zip",
         "serial_number_1",
         "buyer_name"
       ],
       "field_map": {
         "topmostSubform[0].Page1[0].Manufacturer_Name[0]": "manufacturer",
-        "topmostSubform[0].Page1[0].Manufacturer_Address[0]": "manufacturer_address",
-        "topmostSubform[0].Page1[0].Manufacturer_City_State_Zip[0]": "manufacturer_city_state_zip",
         "topmostSubform[0].Page1[0].Model__Name[0]": "model",
         "topmostSubform[0].Page1[0].Date_of_manufacture[0]": "date_of_manufacture",
         "topmostSubform[0].Page1[0].Installer_Name[0]": "installer_name",
@@ -1325,7 +1317,6 @@
         "manufacturer_city_state_zip",
         "model",
         "date_of_manufacture",
-        "label_number_1",
         "serial_number_1"
       ],
       "field_map": {
@@ -1356,7 +1347,6 @@
       "description": "Notice regarding construction standards and wind zone compliance.",
       "required_fields": [
         "buyer_name",
-        "label_number_1",
         "serial_number_1"
       ],
       "field_map": {
@@ -1441,7 +1431,7 @@
         "buyer_name",
         "manufacturer",
         "model",
-        "label_number_1",
+        "no_of_sections",
         "serial_number_1"
       ],
       "field_map": {
@@ -1583,7 +1573,7 @@
     },
     "used_home_closing": {
       "display_name": "Used Home Closing Packet",
-      "description": "Closing documents for pre-owned/used manufactured home sales — includes habitability warranty and used home warranty forms.",
+      "description": "Closing documents for pre-owned/used manufactured home sales \u2014 includes habitability warranty and used home warranty forms.",
       "templates": [
         "TMHA_SalesContract.pdf",
         "TDHCA_1023-Statement-Ownership.pdf",
@@ -1617,8 +1607,6 @@
         "Internal_PropertyLocation.pdf",
         "Internal_AoA.pdf",
         "Internal_Homestead.pdf",
-        "Internal_AssignmentBySeller.pdf",
-        "Internal_CheckDraftAuth.pdf",
         "Internal_ImportantNoticeTax.pdf",
         "Internal_Air_Conditioning_Acknowledgement_Form.pdf",
         "Internal_Consumer_Home_Acceptance_Acknowledgement.pdf",
@@ -1635,8 +1623,6 @@
         "TDHCA-retmonlist.pdf",
         "TDHCA_1058_Compliance_Review.pdf",
         "Internal_Generic_landlord_waiver.pdf",
-        "Internal_Proof_of_Insurance.pdf",
-        "State_NoticeNegativeInfo.pdf",
         "State_PatriotAct.pdf",
         "State_VoluntaryWaiver.pdf",
         "State_ImportantHealth.pdf",
@@ -1644,7 +1630,6 @@
         "TDHCA_1038-Consumer-Disclosure_0.pdf",
         "TDHCA_1040-Consumer-Disclosure_0_SP.pdf",
         "TDHCA_1040_Consumer_Disclosure_Spanish.pdf",
-        "TDHCA_1026_Form_T.pdf",
         "TDHCA_1062_Install_Checklist.pdf",
         "TDHCA_1067_Unlicensed_Installers.pdf",
         "TDHCA_1074_Vacate_If_No_Financing.pdf",
@@ -1681,8 +1666,6 @@
         "Internal_PropertyLocation.pdf",
         "Internal_AoA.pdf",
         "Internal_Homestead.pdf",
-        "Internal_AssignmentBySeller.pdf",
-        "Internal_CheckDraftAuth.pdf",
         "Internal_ImportantNoticeTax.pdf",
         "Internal_Air_Conditioning_Acknowledgement_Form.pdf",
         "Internal_Consumer_Home_Acceptance_Acknowledgement.pdf",
@@ -1699,8 +1682,6 @@
         "TDHCA-retmonlist.pdf",
         "TDHCA_1058_Compliance_Review.pdf",
         "Internal_Generic_landlord_waiver.pdf",
-        "Internal_Proof_of_Insurance.pdf",
-        "State_NoticeNegativeInfo.pdf",
         "State_PatriotAct.pdf",
         "State_VoluntaryWaiver.pdf",
         "State_ImportantHealth.pdf",
@@ -1708,7 +1689,6 @@
         "TDHCA_1038-Consumer-Disclosure_0.pdf",
         "TDHCA_1040-Consumer-Disclosure_0_SP.pdf",
         "TDHCA_1040_Consumer_Disclosure_Spanish.pdf",
-        "TDHCA_1026_Form_T.pdf",
         "TDHCA_1062_Install_Checklist.pdf",
         "TDHCA_1067_Unlicensed_Installers.pdf",
         "TDHCA_1074_Vacate_If_No_Financing.pdf",
@@ -1731,8 +1711,7 @@
       "templates": [
         "creditapp.pdf",
         "State_CreditAuth.pdf",
-        "State_PatriotAct.pdf",
-        "State_NoticeNegativeInfo.pdf"
+        "State_PatriotAct.pdf"
       ],
       "include_cover_page": false,
       "cover_page_template": null
@@ -1827,13 +1806,14 @@
       "type": "string",
       "section": "seller",
       "required": false,
-      "default": "Texas Home Outlet, Inc."
+      "default": "Prosperity Acquisitions, Inc. dba Texas Home Outlet"
     },
     "seller_rbi": {
       "label": "Seller RBI License #",
       "type": "string",
       "section": "seller",
-      "required": false
+      "required": false,
+      "default": "35248"
     },
     "seller_address": {
       "label": "Seller Address",

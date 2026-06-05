@@ -37,6 +37,9 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt -r requirements-dev.txt
 
+      - name: Install poppler-utils (pdftotext for document render QA)
+        run: sudo apt-get update && sudo apt-get install -y poppler-utils
+
       - name: Run ruff on health probe tests
         run: python -m ruff check tests/test_healthz.py
 

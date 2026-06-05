@@ -1,0 +1,147 @@
+# Deploy the DocuSeal e-signature server to Google Cloud (Cloud Run + Cloud SQL).
+#
+# This stands up the SELF-HOSTED DocuSeal instance that the THO app talks to
+# (the app integration is already built — see docuseal_service.py / esign_consent.py
+# and docs/DOCUSEAL_DEPLOY_RUNBOOK.md). It runs through the SAME keyless Workload
+# Identity Federation auth as deploy.yml, so no service-account keys are needed.
+#
+# IMPORTANT — this is manual-trigger only (workflow_dispatch). It does NOT run on
+# push and cannot break the app deploy. Run it from the Actions tab when ready.
+#
+# PREREQUISITES (one-time):
+#   The WIF service account (secrets.WIF_SERVICE_ACCOUNT) must have, on project
+#   tho-ai-agent: roles/run.admin, roles/cloudsql.admin, roles/secretmanager.admin,
+#   roles/iam.serviceAccountUser, and the Cloud SQL Admin API + Secret Manager API
+#   enabled. If a step 403s, grant the missing role and re-run (the workflow is
+#   idempotent — it skips resources that already exist).
+#
+# AFTER it succeeds (manual, ~5 min — cannot be automated, needs a human):
+#   1. Open the printed DocuSeal URL, create the admin account, and in
+#      Settings -> API copy the API token.
+#   2. Create the three APP secrets the THO app reads, then wire them into
+#      deploy.yml's --update-secrets and redeploy the app:
+#        gcloud secrets create docuseal-api-url    --data-file=- <<< "<DOCUSEAL_URL>"
+#        gcloud secrets create docuseal-api-token   --data-file=- <<< "<API_TOKEN>"
+#        gcloud secrets create docuseal-webhook-secret --data-file=- <<< "$(openssl rand -hex 32)"
+#   3. In DocuSeal -> Settings -> Webhooks, point to
+#      https://<app-domain>/api/docuseal/webhook and set the secret to match.
+#   4. Upload templates: python tools/docuseal_template_uploader.py --apply
+#   See docs/DOCUSEAL_DEPLOY_RUNBOOK.md for the full checklist + the HMAC caveat.
+
+name: Deploy DocuSeal (e-sign server)
+
+on:
+  workflow_dispatch:
+    inputs:
+      region:
+        description: "Cloud Run / Cloud SQL region"
+        required: true
+        default: "us-central1"
+      db_tier:
+        description: "Cloud SQL machine tier"
+        required: true
+        default: "db-g1-small"
+      allow_unauthenticated:
+        description: "Allow public access to DocuSeal (signers need to reach it)"
+        required: true
+        default: "true"
+
+env:
+  PROJECT_ID: tho-ai-agent
+  SQL_INSTANCE: docuseal-db
+  SQL_DB: docuseal
+  SQL_USER: docuseal
+  SERVICE: docuseal
+
+jobs:
+  deploy-docuseal:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Authenticate to Google Cloud (WIF, keyless)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Enable required APIs
+        run: |
+          gcloud services enable run.googleapis.com sqladmin.googleapis.com \
+            secretmanager.googleapis.com --project="$PROJECT_ID"
+
+      - name: Ensure Rails SECRET_KEY_BASE + DB password secrets exist
+        run: |
+          set -euo pipefail
+          ensure_secret() {
+            local name="$1"; local value="$2"
+            if ! gcloud secrets describe "$name" --project="$PROJECT_ID" >/dev/null 2>&1; then
+              printf '%s' "$value" | gcloud secrets create "$name" \
+                --data-file=- --project="$PROJECT_ID"
+              echo "Created secret $name"
+            else
+              echo "Secret $name already exists — leaving as-is"
+            fi
+          }
+          ensure_secret docuseal-secret-key-base "$(openssl rand -hex 64)"
+          ensure_secret docuseal-db-password "$(openssl rand -hex 24)"
+
+      - name: Ensure Cloud SQL (Postgres) instance, database, and user
+        run: |
+          set -euo pipefail
+          REGION="${{ github.event.inputs.region }}"
+          if ! gcloud sql instances describe "$SQL_INSTANCE" --project="$PROJECT_ID" >/dev/null 2>&1; then
+            echo "Creating Cloud SQL instance $SQL_INSTANCE (this can take ~10 min)..."
+            gcloud sql instances create "$SQL_INSTANCE" \
+              --project="$PROJECT_ID" --region="$REGION" \
+              --database-version=POSTGRES_15 --tier="${{ github.event.inputs.db_tier }}" \
+              --storage-size=10GB --storage-auto-increase
+          else
+            echo "Cloud SQL instance $SQL_INSTANCE already exists"
+          fi
+          gcloud sql databases describe "$SQL_DB" --instance="$SQL_INSTANCE" --project="$PROJECT_ID" >/dev/null 2>&1 \
+            || gcloud sql databases create "$SQL_DB" --instance="$SQL_INSTANCE" --project="$PROJECT_ID"
+          DB_PW="$(gcloud secrets versions access latest --secret=docuseal-db-password --project="$PROJECT_ID")"
+          if ! gcloud sql users list --instance="$SQL_INSTANCE" --project="$PROJECT_ID" --format='value(name)' | grep -qx "$SQL_USER"; then
+            gcloud sql users create "$SQL_USER" --instance="$SQL_INSTANCE" --password="$DB_PW" --project="$PROJECT_ID"
+          else
+            gcloud sql users set-password "$SQL_USER" --instance="$SQL_INSTANCE" --password="$DB_PW" --project="$PROJECT_ID"
+          fi
+
+      - name: Deploy DocuSeal to Cloud Run
+        id: deploy
+        run: |
+          set -euo pipefail
+          REGION="${{ github.event.inputs.region }}"
+          CONN_NAME="$(gcloud sql instances describe "$SQL_INSTANCE" --project="$PROJECT_ID" --format='value(connectionName)')"
+          DB_PW="$(gcloud secrets versions access latest --secret=docuseal-db-password --project="$PROJECT_ID")"
+          # URL-encode nothing fancy — the password is hex so it is URL-safe.
+          DATABASE_URL="postgresql://${SQL_USER}:${DB_PW}@/${SQL_DB}?host=/cloudsql/${CONN_NAME}"
+          AUTH_FLAG="--allow-unauthenticated"
+          [ "${{ github.event.inputs.allow_unauthenticated }}" = "true" ] || AUTH_FLAG="--no-allow-unauthenticated"
+          gcloud run deploy "$SERVICE" \
+            --image=docuseal/docuseal:latest \
+            --project="$PROJECT_ID" --region="$REGION" \
+            --port=3000 --min-instances=1 --memory=1Gi --cpu=1 \
+            --add-cloudsql-instances="$CONN_NAME" \
+            --set-env-vars="DATABASE_URL=${DATABASE_URL},FORCE_SSL=true" \
+            --set-secrets="SECRET_KEY_BASE=docuseal-secret-key-base:latest" \
+            $AUTH_FLAG --quiet
+          URL="$(gcloud run services describe "$SERVICE" --project="$PROJECT_ID" --region="$REGION" --format='value(status.url)')"
+          echo "docuseal_url=$URL" >> "$GITHUB_OUTPUT"
+
+      - name: Next steps
+        run: |
+          echo "✅ DocuSeal deployed at: ${{ steps.deploy.outputs.docuseal_url }}"
+          echo ""
+          echo "MANUAL STEPS (cannot be automated — see docs/DOCUSEAL_DEPLOY_RUNBOOK.md):"
+          echo "  1. Open the URL, create the admin account, copy the API token (Settings -> API)."
+          echo "  2. Create app secrets: docuseal-api-url (= the URL above), docuseal-api-token,"
+          echo "     docuseal-webhook-secret (openssl rand -hex 32)."
+          echo "  3. Add them to deploy.yml --update-secrets and redeploy the app."
+          echo "  4. DocuSeal -> Settings -> Webhooks -> https://<app-domain>/api/docuseal/webhook (set the secret)."
+          echo "  5. python tools/docuseal_template_uploader.py --apply"

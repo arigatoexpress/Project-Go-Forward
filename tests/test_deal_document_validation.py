@@ -182,7 +182,7 @@ class TestValidateForDocuments:
 
         data = Deal().to_document_data()
 
-        assert data["seller_name"] == "Texas Home Outlet, Inc."
+        assert data["seller_name"] == "Prosperity Acquisitions, Inc. dba Texas Home Outlet"
 
     def test_rejects_non_dict_non_model_input(self):
         from database.deal_validation import validate_for_documents

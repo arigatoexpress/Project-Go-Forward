@@ -446,6 +446,7 @@ class TestBackwardCompatibility:
             buyer_zip="75201",
             manufacturer="Champion",
             model="The Victory",
+            no_of_sections="2",
             serial_number_1="XYZ789",
             label_number_1="TEX482913",
             sales_price=95000,

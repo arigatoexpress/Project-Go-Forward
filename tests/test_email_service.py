@@ -172,6 +172,58 @@ class TestSendDocumentEmail:
         assert "noreply@texashomeoutlet.com" in sent_payloads[0]["from"]
         assert "documents@texashomeoutlet.com" in sent_payloads[1]["from"]
 
+    def test_staff_alerts_fan_out_to_all_recipients(self, monkeypatch):
+        """notify_new_lead sends ONE email addressed to every configured staff
+        recipient; replies still route to the shared mailbox, and the email_log
+        records the joined recipient string."""
+        monkeypatch.setenv("RESEND_API_KEY", "re_test")
+        monkeypatch.setenv(
+            "NOTIFICATION_EMAIL",
+            "ben@texashomeoutlet.com, lee@texashomeoutlet.com ;celeste@texashomeoutlet.com",
+        )
+        email_service = _fresh_email_service(monkeypatch)
+
+        # The comma/semicolon list is parsed and de-duplicated into a clean list.
+        assert email_service.NOTIFICATION_EMAILS == [
+            "ben@texashomeoutlet.com",
+            "lee@texashomeoutlet.com",
+            "celeste@texashomeoutlet.com",
+        ]
+
+        sent_payloads: list[dict] = []
+        logged: list[tuple] = []
+        fake_resend = types.SimpleNamespace(
+            api_key="",
+            Emails=types.SimpleNamespace(
+                send=lambda payload: (sent_payloads.append(payload) or {"id": "msg_fanout"}),
+            ),
+        )
+        monkeypatch.setitem(sys.modules, "resend", fake_resend)
+        monkeypatch.setattr(
+            email_service,
+            "_log_email_activity",
+            lambda to, *a, **k: logged.append((to, *a)),
+        )
+
+        result = email_service.notify_new_lead(
+            customer_name="Carol Lead", phone="555-0100", email="carol@example.com"
+        )
+
+        assert result["success"] is True
+        assert len(sent_payloads) == 1
+        # ONE email, delivered to ALL staff recipients.
+        assert sent_payloads[0]["to"] == [
+            "ben@texashomeoutlet.com",
+            "lee@texashomeoutlet.com",
+            "celeste@texashomeoutlet.com",
+        ]
+        # Customer replies still route to the shared mailbox, not the staff list.
+        assert sent_payloads[0]["reply_to"] == "sales@texashomeoutlet.com"
+        # The activity log captures the joined recipient string.
+        assert logged[0][0] == (
+            "ben@texashomeoutlet.com, lee@texashomeoutlet.com, celeste@texashomeoutlet.com"
+        )
+
     def test_skips_send_when_api_key_missing(self, monkeypatch):
         monkeypatch.delenv("RESEND_API_KEY", raising=False)
         email_service = _fresh_email_service(monkeypatch)

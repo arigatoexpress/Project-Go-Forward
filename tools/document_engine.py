@@ -34,6 +34,7 @@ from tools.document_quality import (
     BUSINESS_CITY_STATE_ZIP,
     BUSINESS_NAME,
     BUSINESS_PHONE,
+    BUSINESS_RBI,
     BUSINESS_STATE,
     BUSINESS_ZIP,
 )
@@ -198,12 +199,49 @@ def _normalize_document_data(data: dict[str, Any]) -> dict[str, Any]:
     )
 
     _set_if_missing(normalized, "seller_name", BUSINESS_NAME)
+    _set_if_missing(normalized, "seller_rbi", BUSINESS_RBI)
     _set_if_missing(normalized, "seller_phone", BUSINESS_PHONE)
     _set_if_missing(normalized, "seller_address", BUSINESS_ADDRESS)
     _set_if_missing(normalized, "seller_city", BUSINESS_CITY)
     _set_if_missing(normalized, "seller_state", BUSINESS_STATE)
     _set_if_missing(normalized, "seller_zip", BUSINESS_ZIP)
     _set_if_missing(normalized, "seller_city_state_zip", BUSINESS_CITY_STATE_ZIP)
+
+    if str(normalized.get("installer_type", "")).strip().lower() != "other":
+        _set_if_missing(normalized, "installer_name", BUSINESS_NAME)
+        _set_if_missing(normalized, "installer_phone", BUSINESS_PHONE)
+        _set_if_missing(normalized, "installer_address", BUSINESS_ADDRESS)
+        _set_if_missing(normalized, "installer_city", BUSINESS_CITY)
+        _set_if_missing(normalized, "installer_state", BUSINESS_STATE)
+        _set_if_missing(normalized, "installer_zip", BUSINESS_ZIP)
+
+    installer_city_state_zip = _city_state_zip(
+        normalized.get("installer_city"),
+        normalized.get("installer_state"),
+        normalized.get("installer_zip"),
+    )
+    _set_if_missing(normalized, "installer_city_state_zip", installer_city_state_zip)
+    _set_if_missing(
+        normalized,
+        "installer_address_city_state_zip",
+        _full_address(
+            normalized.get("installer_address"),
+            normalized.get("installer_city_state_zip"),
+        ),
+    )
+    _set_if_missing(
+        normalized,
+        "installer_name_address",
+        _join_nonempty(
+            [
+                normalized.get("installer_name"),
+                normalized.get("installer_address_city_state_zip"),
+            ],
+            ", ",
+        ),
+    )
+    _set_if_missing(normalized, "installer_contact_name", normalized.get("installer_name"))
+    _set_if_missing(normalized, "installer_contact_phone", normalized.get("installer_phone"))
 
     _set_if_missing(
         normalized,

@@ -18,6 +18,7 @@ import {
   BUSINESS_CITY,
   BUSINESS_STATE,
   BUSINESS_ZIP,
+  BUSINESS_LICENSE,
 } from '../constants';
 
 /* ─── Constants ──────────────────────────────────────────── */
@@ -56,6 +57,7 @@ const INITIAL_FORM = {
   installer_city: BUSINESS_CITY,
   installer_state: BUSINESS_STATE,
   installer_zip: BUSINESS_ZIP,
+  seller_rbi: BUSINESS_LICENSE,
   // Financial
   sales_price: '', down_payment: '',
   creditor_name: '', creditor_phone: '', creditor_address: '', creditor_city_state_zip: '',
@@ -65,6 +67,14 @@ const INITIAL_FORM = {
 
 const DRAFT_KEY = 'document_center_draft';
 const LAST_EDITABLE_STEP = 3;
+
+// The TDHCA Statement of Ownership (Form 1023) carries special filing duties:
+// it must be filed with TDHCA within 60 days of the sale (ownership does not
+// legally vest until it is filed — Tex. Occ. Code §1201.206), and the HUD label
+// and serial numbers are legally-required identifiers on it (§1201.205). When
+// this document is generated we surface a pre-filing checklist on the results
+// screen. See docs/TX_MH_COMPLIANCE_RESEARCH.md.
+const SOO_TEMPLATE_NAME = 'TDHCA_1023-Statement-Ownership.pdf';
 
 function getRestorableDraftStep(draft) {
   const savedStep = Number(draft?.step || 1);
@@ -166,6 +176,27 @@ const moneyString = value => (
   Number.isFinite(value) ? value.toFixed(2) : undefined
 );
 
+const normalizeSections = value => {
+  if (!hasValue(value)) return '';
+  const clean = String(value).trim();
+  const lower = clean.toLowerCase();
+  const wordCounts = {
+    single: '1',
+    one: '1',
+    double: '2',
+    two: '2',
+    triple: '3',
+    three: '3',
+    quad: '4',
+    four: '4',
+  };
+  for (const [word, count] of Object.entries(wordCounts)) {
+    if (new RegExp(`\\b${word}\\b`).test(lower)) return count;
+  }
+  const match = lower.match(/\b([1-4])\b/);
+  return match ? match[1] : clean;
+};
+
 const formatPositiveCurrency = value => {
   const amount = numericMoney(value);
   if (!Number.isFinite(amount) || amount <= 0) return '';
@@ -252,8 +283,11 @@ const DOCUMENT_PACKET_BASELINE_FIELDS = [
   { field: 'buyer_phone', label: 'Buyer phone', step: 1 },
   { field: 'manufacturer', label: 'Manufacturer', step: 2 },
   { field: 'model', label: 'Model name', step: 2 },
+  { field: 'no_of_sections', label: '# of Sections', step: 2 },
   { field: 'serial_number_1', label: 'Serial # 1', step: 2 },
-  { field: 'label_number_1', label: 'HUD label # 1', step: 2 },
+  // HUD label # 1 is intentionally NOT a hard requirement: it is never in the
+  // inventory feed and must be hand-entered, so it blocked staff on every deal.
+  // It is surfaced as a soft warning via DOCUMENT_RECOMMENDED_FIELDS instead.
   { field: 'buyer_address', label: 'Installation street address', step: 2 },
   { field: 'buyer_city', label: 'Installation city', step: 2 },
   { field: 'buyer_county', label: 'Installation county', step: 2 },
@@ -459,6 +493,7 @@ function toDocumentData(f) {
   return {
     ...f,
     seller_name: f.seller_name || BUSINESS_LEGAL_NAME,
+    seller_rbi: f.seller_rbi || BUSINESS_LICENSE,
     seller_phone: f.seller_phone || BUSINESS_PHONE,
     seller_address: f.seller_address || BUSINESS_ADDRESS,
     seller_city: f.seller_city || BUSINESS_CITY,
@@ -482,8 +517,11 @@ function toDocumentData(f) {
     ], ' / '),
     manufacturer_city_state_zip: manufacturerCityStateZip,
     manufacturer_full_address: fullAddress(f.manufacturer_address, manufacturerCityStateZip),
+    no_of_sections: normalizeSections(f.no_of_sections),
     installer_address_city_state_zip: installerFullAddress,
     installer_name_address: joinNonEmpty([f.installer_name, installerFullAddress], ', '),
+    installer_contact_name: f.installer_contact_name || f.installer_name,
+    installer_contact_phone: f.installer_contact_phone || f.installer_phone,
     serial_label_combined: serialLabelCombined,
     unpaid_balance: hasValue(f.unpaid_balance) ? f.unpaid_balance : moneyString(financedAmount),
     total_unpaid_balance: hasValue(f.total_unpaid_balance) ? f.total_unpaid_balance : moneyString(financedAmount),
@@ -841,7 +879,7 @@ function Badge({ children, color = 'blue' }) {
   );
 }
 
-function DocumentDesk({ readiness, history, loading, error, downloadingDoc, downloadError, onRefresh, onDownload }) {
+function DocumentDesk({ readiness, history, loading, error, downloadingDoc, downloadError, downloadSuccess, onRefresh, onDownload }) {
   const statusReady = readiness?.status === 'ready';
   const recentDocs = (history || []).slice(0, 4);
 
@@ -947,6 +985,15 @@ function DocumentDesk({ readiness, history, loading, error, downloadingDoc, down
           </div>
         )}
 
+        {downloadSuccess && (
+          <div className="mt-3 rounded-lg bg-green-50 border border-green-200 px-3 py-2 text-sm text-green-800 flex items-start gap-2">
+            <CheckCircle size={16} className="text-green-600 flex-shrink-0 mt-0.5" />
+            <span>
+              Download started — look for <span className="font-semibold break-all">“{downloadSuccess}”</span> in your Downloads folder.
+            </span>
+          </div>
+        )}
+
         {downloadError && (
           <div className="mt-3 rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">
             {downloadError}
@@ -1023,6 +1070,42 @@ function ValidationErrors({ errors }) {
 }
 
 /* ─── Step 1: Customer Info ──────────────────────────────── */
+
+const STEP_INTROS = {
+  1: {
+    title: 'Who is buying this home?',
+    instruction:
+      'Start a new deal by typing the customer’s name, or load an existing deal. You can fill in the rest as you go.',
+  },
+  2: {
+    title: 'Which home are they buying?',
+    instruction:
+      'Pick a home from inventory to fill in the details automatically — or type them in by hand.',
+  },
+  3: {
+    title: 'What do you need to print?',
+    instruction:
+      'Choose a ready-made packet (easiest) or tick the individual documents you need.',
+  },
+};
+
+/**
+ * Friendly, plain-language orientation shown at the top of each step so
+ * non-technical staff always know where they are and what to do next.
+ */
+function StepIntro({ step }) {
+  const intro = STEP_INTROS[step];
+  if (!intro) return null;
+  return (
+    <div className="text-center mb-6">
+      <span className="inline-block rounded-full bg-blue-100 px-3 py-1 text-xs font-bold uppercase tracking-wide text-blue-700">
+        Step {step} of 4
+      </span>
+      <h2 className="mt-3 text-2xl font-bold text-gray-800">{intro.title}</h2>
+      <p className="mx-auto mt-2 max-w-2xl text-lg text-gray-600">{intro.instruction}</p>
+    </div>
+  );
+}
 
 function Step1({ data, onChange, onLoadCustomer, resetKey, deals, dealsLoading, onLoadDeal, onNext, validationErrors, missingFields, duplicateWarning, onViewDuplicate }) {
   const [q, setQ] = useState('');
@@ -1136,9 +1219,11 @@ function Step1({ data, onChange, onLoadCustomer, resetKey, deals, dealsLoading, 
 
   return (
     <div className="space-y-6">
+      <StepIntro step={1} />
+
       {/* Validation Errors */}
       <ValidationErrors errors={validationErrors} />
-      
+
       {/* Duplicate Warning */}
       <DuplicateWarning warning={duplicateWarning} onViewDeal={onViewDuplicate} />
       
@@ -1469,7 +1554,7 @@ function Step2({ data, onChange, resetKey, inventory, inventoryLoading, onNext, 
     if (hasValue(home.serial_number_2)) patch.serial_number_2 = String(home.serial_number_2);
     if (hasValue(home.label_number)) patch.label_number_1 = String(home.label_number);
     if (hasValue(home.label_number_2)) patch.label_number_2 = String(home.label_number_2);
-    if (hasValue(home.sections)) patch.no_of_sections = String(home.sections);
+    if (hasValue(home.sections)) patch.no_of_sections = normalizeSections(home.sections);
     const width = pickHomeValue(home, 'width', 'home_width', 'total_size_w');
     const length = pickHomeValue(home, 'length', 'home_length', 'total_size_l');
     const sqft = pickHomeValue(home, 'sq_ft', 'sqft', 'square_feet', 'total_sqft');
@@ -1601,14 +1686,10 @@ function Step2({ data, onChange, resetKey, inventory, inventoryLoading, onNext, 
 
   return (
     <div className="space-y-6">
+      <StepIntro step={2} />
+
       {/* Validation Errors */}
       <ValidationErrors errors={validationErrors} />
-
-      {/* Header */}
-      <div className="text-center mb-6">
-        <h2 className="text-2xl font-bold text-gray-800">Select a Home from Inventory</h2>
-        <p className="text-gray-600 mt-2">Choose a home to auto-fill the details, or enter manually</p>
-      </div>
 
       {/* Filters */}
       <div className="flex flex-wrap items-center justify-between gap-4">
@@ -1840,18 +1921,17 @@ function Step2({ data, onChange, resetKey, inventory, inventoryLoading, onNext, 
         </Row>
         <Row>
           <Field
-            label="Label # 1"
+            label="HUD Label # 1"
             name="label_number_1"
             value={data.label_number_1}
             onChange={c}
             resetKey={resetKey}
             third
-            required
             autoFilled={isAutoFilled('label_number_1')}
-            helperText={selectedHome && !isAutoFilled('label_number_1') ? 'Enter manually — not in inventory feed' : undefined}
+            helperText={selectedHome && !isAutoFilled('label_number_1') ? 'Recommended — enter from the home’s HUD data plate (not in inventory feed)' : undefined}
           />
-          <Field label="Label # 2" name="label_number_2" value={data.label_number_2} onChange={c} resetKey={resetKey} third />
-          <Field label="# of Sections" name="no_of_sections" value={data.no_of_sections} onChange={c} resetKey={resetKey} third autoFilled={isAutoFilled('no_of_sections')} />
+          <Field label="HUD Label # 2" name="label_number_2" value={data.label_number_2} onChange={c} resetKey={resetKey} third />
+          <Field label="# of Sections" name="no_of_sections" value={data.no_of_sections} onChange={c} resetKey={resetKey} third required autoFilled={isAutoFilled('no_of_sections')} />
         </Row>
         <Row>
           <Field label="Width (ft)" name="width" value={data.width} onChange={c} resetKey={resetKey} third autoFilled={isAutoFilled('width')} />
@@ -2090,11 +2170,7 @@ function Step3({ templates, packets, selected, onToggle, onSelectPacket, isNew, 
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="text-center mb-6">
-        <h2 className="text-2xl font-bold text-gray-800">Select Documents to Generate</h2>
-        <p className="text-gray-600 mt-2">Choose a pre-made packet or select individual documents</p>
-      </div>
+      <StepIntro step={3} />
 
       <ValidationErrors errors={validationErrors} />
 
@@ -2420,7 +2496,58 @@ function Step3({ templates, packets, selected, onToggle, onSelectPacket, isNew, 
 
 /* ─── Step 4: Generate & Download ────────────────────────── */
 
-function Step4({ results, generating, error, onBack, onReset, onDownload, downloadingDoc, downloadError }) {
+function SooChecklistItem({ ok, children }) {
+  return (
+    <li className="flex items-start gap-2">
+      {ok
+        ? <CheckCircle size={18} className="mt-0.5 flex-shrink-0 text-green-600" />
+        : <AlertCircle size={18} className="mt-0.5 flex-shrink-0 text-amber-600" />}
+      <span className={ok ? 'text-gray-700' : 'font-semibold text-amber-800'}>{children}</span>
+    </li>
+  );
+}
+
+/**
+ * Pre-filing checklist shown when a Statement of Ownership (Form 1023) is
+ * generated. The SOO is filed with TDHCA by the licensed retailer (not by this
+ * app), so this is a plain-language reminder of the legal duties before filing:
+ * the 60-day deadline and the required HUD label + serial identifiers.
+ */
+function SooFilingChecklist({ form }) {
+  const hasLabel = hasValue(form?.label_number_1);
+  const hasSerial = hasValue(form?.serial_number_1);
+  const Item = SooChecklistItem;
+  return (
+    <div className="rounded-xl border-2 border-amber-200 bg-amber-50 px-6 py-5">
+      <h3 className="flex items-center gap-2 text-lg font-bold text-amber-900">
+        <FileText size={20} className="text-amber-600" />
+        Before you file the Statement of Ownership
+      </h3>
+      <p className="mt-1 text-sm text-amber-800">
+        This form must be filed with TDHCA <strong>within 60 days of the sale</strong> — the buyer
+        does not legally own the home until it is filed.
+      </p>
+      <ul className="mt-3 space-y-2 text-sm">
+        <Item ok={hasLabel}>
+          {hasLabel
+            ? 'HUD label number is entered'
+            : 'HUD label number is blank — TDHCA requires it to identify the home. Add it before filing.'}
+        </Item>
+        <Item ok={hasSerial}>
+          {hasSerial
+            ? 'Serial number is entered'
+            : 'Serial number is blank — TDHCA requires it to identify the home. Add it before filing.'}
+        </Item>
+        <Item ok>File with TDHCA within 60 days of the sale (online retailer system or by mail).</Item>
+      </ul>
+      <p className="mt-3 text-xs text-amber-700">
+        Required by Tex. Occ. Code §§1201.205–1201.206. TDHCA is actively enforcing the 60-day deadline.
+      </p>
+    </div>
+  );
+}
+
+function Step4({ results, form, generating, error, onBack, onReset, onDownload, downloadingDoc, downloadError, downloadSuccess }) {
   if (generating) {
     return (
       <div className="flex flex-col items-center justify-center py-20">
@@ -2472,6 +2599,7 @@ function Step4({ results, generating, error, onBack, onReset, onDownload, downlo
 
   const ok = (results.documents || []).filter(d => d.success);
   const fail = (results.documents || []).filter(d => !d.success);
+  const generatedSoo = ok.some(d => d.template_name === SOO_TEMPLATE_NAME);
 
   return (
     <div className="space-y-6">
@@ -2490,22 +2618,55 @@ function Step4({ results, generating, error, onBack, onReset, onDownload, downlo
         )}
       </div>
 
+      {/* Statement of Ownership pre-filing checklist (compliance) */}
+      {generatedSoo && <SooFilingChecklist form={form} />}
+
       {/* Download All Button */}
       {results.merged && (
-        <button
-          type="button"
-          onClick={() => onDownload(results.merged.download_url, results.merged.filename)}
-          disabled={downloadingDoc === results.merged.download_url}
-          className="flex items-center justify-center gap-3 w-full py-5 bg-blue-600 text-white rounded-xl font-bold text-xl hover:bg-blue-700 transition-all shadow-lg shadow-blue-200 disabled:bg-blue-300"
-        >
-          {downloadingDoc === results.merged.download_url ? <Loader2 size={28} className="animate-spin" /> : <Download size={28} />}
-          Download All Documents ({results.merged.page_count} pages)
-        </button>
+        <div className="space-y-2">
+          <button
+            type="button"
+            onClick={() => onDownload(results.merged.download_url, results.merged.filename)}
+            disabled={downloadingDoc === results.merged.download_url}
+            className="flex items-center justify-center gap-3 w-full py-5 bg-blue-600 text-white rounded-xl font-bold text-xl hover:bg-blue-700 transition-all shadow-lg shadow-blue-200 disabled:bg-blue-300"
+          >
+            {downloadingDoc === results.merged.download_url
+              ? <><Loader2 size={28} className="animate-spin" /> Preparing your download…</>
+              : <><Download size={28} /> Download All Documents ({results.merged.page_count} pages)</>}
+          </button>
+          <p className="text-center text-sm text-gray-500">
+            One PDF with everything inside — best for printing or emailing.
+          </p>
+        </div>
+      )}
+
+      {/* Plain-language confirmation so non-technical staff know it worked */}
+      {downloadSuccess && (
+        <div className="rounded-xl bg-green-50 border-2 border-green-200 px-5 py-4 text-green-800">
+          <div className="flex items-start gap-3">
+            <CheckCircle size={22} className="text-green-600 flex-shrink-0 mt-0.5" />
+            <div className="text-sm leading-relaxed">
+              <p className="font-bold">Download started!</p>
+              <p>
+                Look for <span className="font-semibold break-all">“{downloadSuccess}”</span> in your
+                computer’s <span className="font-semibold">Downloads</span> folder (it usually pops up at
+                the bottom or top-right of your screen).
+              </p>
+              <p className="mt-1 text-green-700">Didn’t see it? Just click the button again.</p>
+            </div>
+          </div>
+        </div>
       )}
 
       {downloadError && (
-        <div className="rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
-          {downloadError}
+        <div className="rounded-xl bg-red-50 border-2 border-red-200 px-5 py-4 text-red-700">
+          <div className="flex items-start gap-3">
+            <AlertCircle size={22} className="text-red-500 flex-shrink-0 mt-0.5" />
+            <div className="text-sm leading-relaxed">
+              <p className="font-bold">That download didn’t go through.</p>
+              <p>{downloadError}</p>
+            </div>
+          </div>
         </div>
       )}
 
@@ -2536,7 +2697,7 @@ function Step4({ results, generating, error, onBack, onReset, onDownload, downlo
                 className="flex items-center gap-2 px-4 py-2 bg-blue-100 text-blue-700 rounded-lg font-bold hover:bg-blue-200 transition-colors flex-shrink-0 disabled:opacity-60"
               >
                 {downloadingDoc === d.download_url ? <Loader2 size={18} className="animate-spin" /> : <Download size={18} />}
-                PDF
+                Download
               </button>
             </div>
           );
@@ -2841,6 +3002,7 @@ function getValidationState(form, step) {
   if (step === 2) {
     if (!form.manufacturer?.trim()) push('manufacturer', 'Manufacturer is required');
     if (!form.model?.trim()) push('model', 'Model name is required');
+    if (!form.no_of_sections?.trim()) push('no_of_sections', '# of Sections is required');
     if (!form.serial_number_1?.trim()) push('serial_number_1', 'Serial # 1 is required');
     if (isPlaceholderIdentifier(form.serial_number_1)) push('serial_number_1', 'Serial # 1 looks like a placeholder');
     if (isPlaceholderIdentifier(form.serial_number_2)) push('serial_number_2', 'Serial # 2 looks like a placeholder');
@@ -3003,6 +3165,7 @@ export default function DocumentCenter() {
   const [deskError, setDeskError] = useState('');
   const [downloadingDoc, setDownloadingDoc] = useState('');
   const [downloadError, setDownloadError] = useState('');
+  const [downloadSuccess, setDownloadSuccess] = useState('');
   const [autoFilledFields, setAutoFilledFields] = useState(new Set());
 
   // Refs to avoid stale closures in useCallback (prevents re-render on every keystroke)
@@ -3045,9 +3208,11 @@ export default function DocumentCenter() {
 
   const handleDocumentDownload = useCallback(async (url, filename) => {
     setDownloadError('');
+    setDownloadSuccess('');
     setDownloadingDoc(url);
     try {
-      await downloadAdminFile(url, filename);
+      const savedName = await downloadAdminFile(url, filename);
+      setDownloadSuccess(savedName || filename || 'your document');
     } catch (e) {
       setDownloadError(e.message || 'Download failed');
     } finally {
@@ -3194,6 +3359,19 @@ export default function DocumentCenter() {
   
   // Clear draft
   const startNewDocument = useCallback(() => {
+    // Guard against accidental data loss: if the user has entered customer/home
+    // details or selected documents (and hasn't finished generating yet), make
+    // them confirm before we wipe everything. Once on Step 4 the documents are
+    // already generated and saved, so no confirmation is needed.
+    const formDirty = JSON.stringify(form) !== JSON.stringify(INITIAL_FORM);
+    const hasWorkToLose = step < 4 && (formDirty || selDocs.length > 0);
+    if (hasWorkToLose && typeof window !== 'undefined' && typeof window.confirm === 'function') {
+      const confirmed = window.confirm(
+        'Start over and clear everything?\n\n' +
+          'This erases the customer and home details you have entered. This cannot be undone.',
+      );
+      if (!confirmed) return;
+    }
     localStorage.removeItem(DRAFT_KEY);
     setForm({ ...INITIAL_FORM });
     setSelDocs([]);
@@ -3207,7 +3385,7 @@ export default function DocumentCenter() {
     setShowDuplicateWarning(null);
     setAutoFilledFields(new Set());
     setFormResetKey(k => k + 1); // Force Fields to clear
-  }, []);
+  }, [form, step, selDocs]);
 
   const loadDeal = useCallback(d => {
     const m = { ...INITIAL_FORM };
@@ -3471,6 +3649,7 @@ export default function DocumentCenter() {
         error={deskError}
         downloadingDoc={downloadingDoc}
         downloadError={downloadError}
+        downloadSuccess={downloadSuccess}
         onRefresh={loadDocumentDesk}
         onDownload={handleDocumentDownload}
       />
@@ -3559,6 +3738,7 @@ export default function DocumentCenter() {
       {step === 4 && (
         <Step4
           results={results}
+          form={form}
           generating={generating}
           error={genErr}
           onBack={() => setStep(3)}
@@ -3566,6 +3746,7 @@ export default function DocumentCenter() {
           onDownload={handleDocumentDownload}
           downloadingDoc={downloadingDoc}
           downloadError={downloadError}
+          downloadSuccess={downloadSuccess}
         />
       )}
 

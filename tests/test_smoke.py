@@ -55,6 +55,7 @@ class TestDocumentGeneration:
                 "buyer_zip": "77001",
                 "manufacturer": "Clayton",
                 "model": "Test Model",
+                "no_of_sections": "2",
                 "serial_number_1": "TEST-001",
                 "label_number_1": "TEX482913",
                 "sales_price": "50000",

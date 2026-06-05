@@ -237,7 +237,9 @@ class Deal(BaseModel):
     status: DealStatus = DealStatus.PENDING
 
     # ─── Seller ───
-    seller_name: str = "Texas Home Outlet, Inc."
+    # Registered legal entity (per founding-partner directive 2026-05-18):
+    # "Prosperity Acquisitions, Inc. dba Texas Home Outlet" — no longer an LLC.
+    seller_name: str = "Prosperity Acquisitions, Inc. dba Texas Home Outlet"
     seller_rbi: str | None = "35248"
     seller_phone: str | None = "(281) 324-3020"
     seller_address: str | None = "10685 FM 1960 East"
