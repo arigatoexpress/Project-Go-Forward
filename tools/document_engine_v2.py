@@ -19,10 +19,10 @@ from config.field_map_loader import get_field_map
 from tools.document_quality import (
     PRODUCTION_BLOCKED_TEMPLATES,
     enrich_document_data,
+    normalize_section_count,
     quality_failure_response,
     validate_document_quality,
     validate_required_document_data,
-    normalize_section_count,
 )
 
 # Local imports
@@ -30,6 +30,18 @@ from tools.document_tools import DOCUMENTS_DIR, OUTPUT_DIR, fill_pdf_form, uploa
 from tools.drive_service import ensure_deal_folder, upload_to_drive
 
 logger = logging.getLogger(__name__)
+
+# Seller/retailer name varies by form family (founding-partner requirement):
+# TMHA forms read the short trade name; TDHCA, State, and Internal forms read the
+# full registered legal entity. See _seller_name_for_category().
+SELLER_NAME_LEGAL = "Prosperity Acquisitions, Inc. dba Texas Home Outlet"
+SELLER_NAME_SHORT = "Texas Home Outlet"
+
+
+def _seller_name_for_category(category: str | None) -> str:
+    """Return the seller name appropriate to a template's form family."""
+    return SELLER_NAME_SHORT if str(category or "").strip().upper() == "TMHA" else SELLER_NAME_LEGAL
+
 
 LEGACY_FIELD_SOURCES: dict[str, tuple[str, ...]] = {
     "buyer_name": ("person.buyer_name",),
@@ -438,6 +450,12 @@ class DocumentEngineV2:
         Generate a single document using the v2 engine.
         """
         data = enrich_document_data(data)
+        # Category-aware seller name: TMHA forms use the short trade name; all
+        # other families (TDHCA, State, Internal) use the full legal entity.
+        data = dict(data)
+        data["seller_name"] = _seller_name_for_category(
+            (self._template_config(template_name) or {}).get("category")
+        )
         quality_failure = self._quality_gate(data, [template_name])
         if quality_failure:
             return quality_failure

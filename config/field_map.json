@@ -1566,7 +1566,6 @@
         "TDHCA_1124_Installation_Warranty.pdf",
         "TMHA_LimitedWarranty.pdf",
         "Internal_Arbitration_Agreement11.pdf",
-        "Internal_Proof_of_Insurance.pdf",
         "State_ComplianceAgreement.pdf"
       ],
       "include_cover_page": true,
@@ -1585,7 +1584,6 @@
         "TDHCA_WarrantyUsedHome.pdf",
         "TMHA_LimitedWarrantyUsed.pdf",
         "Internal_Arbitration_Agreement11.pdf",
-        "Internal_Proof_of_Insurance.pdf",
         "State_ComplianceAgreement.pdf"
       ],
       "include_cover_page": true,
@@ -1609,8 +1607,6 @@
         "Internal_PropertyLocation.pdf",
         "Internal_AoA.pdf",
         "Internal_Homestead.pdf",
-        "Internal_AssignmentBySeller.pdf",
-        "Internal_CheckDraftAuth.pdf",
         "Internal_ImportantNoticeTax.pdf",
         "Internal_Air_Conditioning_Acknowledgement_Form.pdf",
         "Internal_Consumer_Home_Acceptance_Acknowledgement.pdf",
@@ -1627,8 +1623,6 @@
         "TDHCA-retmonlist.pdf",
         "TDHCA_1058_Compliance_Review.pdf",
         "Internal_Generic_landlord_waiver.pdf",
-        "Internal_Proof_of_Insurance.pdf",
-        "State_NoticeNegativeInfo.pdf",
         "State_PatriotAct.pdf",
         "State_VoluntaryWaiver.pdf",
         "State_ImportantHealth.pdf",
@@ -1636,7 +1630,6 @@
         "TDHCA_1038-Consumer-Disclosure_0.pdf",
         "TDHCA_1040-Consumer-Disclosure_0_SP.pdf",
         "TDHCA_1040_Consumer_Disclosure_Spanish.pdf",
-        "TDHCA_1026_Form_T.pdf",
         "TDHCA_1062_Install_Checklist.pdf",
         "TDHCA_1067_Unlicensed_Installers.pdf",
         "TDHCA_1074_Vacate_If_No_Financing.pdf",
@@ -1673,8 +1666,6 @@
         "Internal_PropertyLocation.pdf",
         "Internal_AoA.pdf",
         "Internal_Homestead.pdf",
-        "Internal_AssignmentBySeller.pdf",
-        "Internal_CheckDraftAuth.pdf",
         "Internal_ImportantNoticeTax.pdf",
         "Internal_Air_Conditioning_Acknowledgement_Form.pdf",
         "Internal_Consumer_Home_Acceptance_Acknowledgement.pdf",
@@ -1691,8 +1682,6 @@
         "TDHCA-retmonlist.pdf",
         "TDHCA_1058_Compliance_Review.pdf",
         "Internal_Generic_landlord_waiver.pdf",
-        "Internal_Proof_of_Insurance.pdf",
-        "State_NoticeNegativeInfo.pdf",
         "State_PatriotAct.pdf",
         "State_VoluntaryWaiver.pdf",
         "State_ImportantHealth.pdf",
@@ -1700,7 +1689,6 @@
         "TDHCA_1038-Consumer-Disclosure_0.pdf",
         "TDHCA_1040-Consumer-Disclosure_0_SP.pdf",
         "TDHCA_1040_Consumer_Disclosure_Spanish.pdf",
-        "TDHCA_1026_Form_T.pdf",
         "TDHCA_1062_Install_Checklist.pdf",
         "TDHCA_1067_Unlicensed_Installers.pdf",
         "TDHCA_1074_Vacate_If_No_Financing.pdf",
@@ -1723,8 +1711,7 @@
       "templates": [
         "creditapp.pdf",
         "State_CreditAuth.pdf",
-        "State_PatriotAct.pdf",
-        "State_NoticeNegativeInfo.pdf"
+        "State_PatriotAct.pdf"
       ],
       "include_cover_page": false,
       "cover_page_template": null
