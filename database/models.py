@@ -245,7 +245,7 @@ class Deal(BaseModel):
     seller_address: str | None = "10685 FM 1960 East"
     seller_city: str | None = "Huffman"
     seller_state: str = "TX"
-    seller_zip: str | None = None
+    seller_zip: str | None = "77336"
 
     # ─── Buyer ───
     buyer_first_name: str | None = None

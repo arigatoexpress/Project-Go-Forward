@@ -66,8 +66,13 @@ NOTIFICATION_EMAIL = ",".join(NOTIFICATION_EMAILS)
 # single monitored shared mailbox (not every staff inbox) and never the
 # unattended noreply@ From address.
 REPLY_TO = os.environ.get("REPLY_TO", "sales@texashomeoutlet.com")
-BUSINESS_PHONE = "(281) 324-3020"
-BUSINESS_ADDRESS = "10685 FM 1960 East, Huffman, TX 77336"
+# Business contact details come from config.yaml (single source of truth); a
+# guard test enforces that these agree across modules.
+from config_loader import business_address as _cfg_business_address
+from config_loader import business_phone as _cfg_business_phone
+
+BUSINESS_PHONE = _cfg_business_phone()
+BUSINESS_ADDRESS = _cfg_business_address()
 # Public site origin used to build absolute download URLs in document emails.
 # Falls back to the empty string so callers must pass an already-resolved URL.
 PUBLIC_SITE_URL = os.environ.get("PUBLIC_SITE_URL", "").rstrip("/")
