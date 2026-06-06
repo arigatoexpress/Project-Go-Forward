@@ -89,7 +89,7 @@
       "pii_fields": []
     },
     "TDHCA_1038_Consumer_Disclosure.pdf": {
-      "display_name": "TDHCA Consumer Disclosure (1038)",
+      "display_name": "Consumer Disclosure (MHD Form 1038) \u2014 English",
       "category": "TDHCA",
       "description": "Required state consumer disclosure form for manufactured housing transactions.",
       "required_fields": [
@@ -1088,7 +1088,7 @@
       "pii_fields": []
     },
     "TDHCA_1040_Consumer_Disclosure_Spanish.pdf": {
-      "display_name": "TDHCA Consumer Disclosure (Spanish)",
+      "display_name": "Consumer Disclosure (MHD Form 1040) \u2014 Spanish",
       "category": "TDHCA",
       "description": "Consumer disclosure form for manufactured housing transactions.",
       "required_fields": [
@@ -1617,7 +1617,6 @@
         "Internal_Installing_and_Testing_a_GFCI_Receptacle.pdf",
         "Internal_Mini-blind_notice.pdf",
         "Internal_SkirtingIncludedNotice.pdf",
-        "Internal_SkirtingInhouseNotice.pdf",
         "Internal_Temporary_Steps_Disclosure.pdf",
         "State_ImportantNotice.pdf",
         "TDHCA-retmonlist.pdf",
@@ -1627,9 +1626,6 @@
         "State_VoluntaryWaiver.pdf",
         "State_ImportantHealth.pdf",
         "TDHCA-ImproperSite.pdf",
-        "TDHCA_1038-Consumer-Disclosure_0.pdf",
-        "TDHCA_1040-Consumer-Disclosure_0_SP.pdf",
-        "TDHCA_1040_Consumer_Disclosure_Spanish.pdf",
         "TDHCA_1062_Install_Checklist.pdf",
         "TDHCA_1067_Unlicensed_Installers.pdf",
         "TDHCA_1074_Vacate_If_No_Financing.pdf",
@@ -1676,7 +1672,6 @@
         "Internal_Installing_and_Testing_a_GFCI_Receptacle.pdf",
         "Internal_Mini-blind_notice.pdf",
         "Internal_SkirtingIncludedNotice.pdf",
-        "Internal_SkirtingInhouseNotice.pdf",
         "Internal_Temporary_Steps_Disclosure.pdf",
         "State_ImportantNotice.pdf",
         "TDHCA-retmonlist.pdf",
@@ -1686,9 +1681,6 @@
         "State_VoluntaryWaiver.pdf",
         "State_ImportantHealth.pdf",
         "TDHCA-ImproperSite.pdf",
-        "TDHCA_1038-Consumer-Disclosure_0.pdf",
-        "TDHCA_1040-Consumer-Disclosure_0_SP.pdf",
-        "TDHCA_1040_Consumer_Disclosure_Spanish.pdf",
         "TDHCA_1062_Install_Checklist.pdf",
         "TDHCA_1067_Unlicensed_Installers.pdf",
         "TDHCA_1074_Vacate_If_No_Financing.pdf",
