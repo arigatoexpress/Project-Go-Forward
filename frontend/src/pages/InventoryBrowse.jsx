@@ -5,7 +5,7 @@ import {
   MessageCircle, Grid3X3, Loader2, Eye, ArrowUpDown, Calendar,
   DollarSign, Video, CheckCircle2, AlertCircle
 } from 'lucide-react';
-import { BUSINESS_PHONE, BUSINESS_PHONE_RAW, BUSINESS_ADDRESS, BUSINESS_CITY, BUSINESS_HOURS } from '../constants';
+import { BUSINESS_PHONE, BUSINESS_PHONE_RAW, BUSINESS_FULL_ADDRESS, BUSINESS_HOURS } from '../constants';
 import Card from '../components/Card';
 import EmptyState from '../components/EmptyState';
 import StatusBadge from '../components/StatusBadge';
@@ -757,7 +757,7 @@ export default function InventoryBrowse({ adminAuthed = false, onAskTex, onCreat
               </a>
             </div>
             <div className="mt-6 flex flex-wrap items-center gap-3 text-xs font-medium text-white/80">
-              <span className="inline-flex items-center gap-1.5"><MapPin size={14} /> {BUSINESS_ADDRESS}, {BUSINESS_CITY}</span>
+              <span className="inline-flex items-center gap-1.5"><MapPin size={14} /> {BUSINESS_FULL_ADDRESS}</span>
               <span className="hidden h-1 w-1 rounded-full bg-white/55 sm:inline-block" />
               <span>{BUSINESS_HOURS}</span>
               <span className="hidden h-1 w-1 rounded-full bg-white/55 sm:inline-block" />
@@ -1476,7 +1476,7 @@ function HomeDetailModal({
           {/* Location */}
           <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg bg-slate-50 text-sm text-gray-500">
             <MapPin size={14} />
-            <span>{BUSINESS_ADDRESS}, {BUSINESS_CITY} — {BUSINESS_HOURS}</span>
+            <span>{BUSINESS_FULL_ADDRESS} — {BUSINESS_HOURS}</span>
           </div>
 
           {/* Similar Homes */}

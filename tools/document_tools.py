@@ -753,7 +753,7 @@ WORK_ORDER_TEMPLATE = """
     {cost_section}
     
     <div class="footer">
-        <p>Texas Home Outlet • 2915 FM 1960 E, Huffman • (281) 324-3020</p>
+        <p>Texas Home Outlet • 10685 FM 1960 East, Huffman, TX 77336 • (281) 324-3020</p>
         <p>Thank you for choosing Texas Home Outlet!</p>
     </div>
 </body>
@@ -1007,7 +1007,7 @@ Great news! Your appointment at Texas Home Outlet is confirmed.
 
 📅 Date: {appointment_details.get('date', 'TBD') if appointment_details else 'TBD'}
 🕐 Time: {appointment_details.get('time', 'TBD') if appointment_details else 'TBD'}
-📍 Location: 2915 FM 1960 E, Huffman
+📍 Location: 10685 FM 1960 East, Huffman, TX 77336
 
 When you arrive, ask for Ben or Mark - they're excited to meet you!
 

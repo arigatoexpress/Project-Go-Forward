@@ -11,8 +11,8 @@ import ReportIssue from './components/ReportIssue';
 import ErrorBoundary from './components/ErrorBoundary';
 import { v4 as uuidv4 } from 'uuid';
 import {
-  BUSINESS_NAME, BUSINESS_PHONE, BUSINESS_PHONE_RAW, BUSINESS_ADDRESS,
-  BUSINESS_CITY, BUSINESS_HOURS, BUSINESS_LICENSE
+  BUSINESS_NAME, BUSINESS_PHONE, BUSINESS_PHONE_RAW, BUSINESS_FULL_ADDRESS,
+  BUSINESS_HOURS, BUSINESS_LICENSE
 } from './constants';
 
 const API_URL = '/run'; // Relative path for single-container deployment
@@ -85,7 +85,7 @@ function NavBar({
           </a>
           <div className="hidden sm:flex items-center gap-2">
             <MapPin size={13} />
-            <span>{BUSINESS_ADDRESS}, {BUSINESS_CITY}</span>
+            <span>{BUSINESS_FULL_ADDRESS}</span>
           </div>
           <span className="hidden md:inline">{BUSINESS_HOURS}</span>
         </div>
@@ -237,7 +237,7 @@ function Footer({ adminAuthed, onAdminAccess }) {
   return (
     <footer className="bg-[var(--cp-bg-2)] border-t border-[var(--cp-border)] py-4 text-center text-xs text-[var(--cp-muted)]">
       <div className="flex items-center justify-center gap-6 flex-wrap">
-        <span className="flex items-center"><MapPin size={12} className="mr-1 text-[var(--cp-accent)]" aria-hidden="true" /> {BUSINESS_ADDRESS}, {BUSINESS_CITY}</span>
+        <span className="flex items-center"><MapPin size={12} className="mr-1 text-[var(--cp-accent)]" aria-hidden="true" /> {BUSINESS_FULL_ADDRESS}</span>
         <a href={`tel:${BUSINESS_PHONE_RAW}`} className="flex items-center hover:text-[var(--cp-accent)] transition-colors">
           <Phone size={12} className="mr-1" aria-hidden="true" /> {BUSINESS_PHONE}
         </a>

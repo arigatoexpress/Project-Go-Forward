@@ -67,7 +67,7 @@ NOTIFICATION_EMAIL = ",".join(NOTIFICATION_EMAILS)
 # unattended noreply@ From address.
 REPLY_TO = os.environ.get("REPLY_TO", "sales@texashomeoutlet.com")
 BUSINESS_PHONE = "(281) 324-3020"
-BUSINESS_ADDRESS = "10685 FM 1960 East, Huffman, TX"
+BUSINESS_ADDRESS = "10685 FM 1960 East, Huffman, TX 77336"
 # Public site origin used to build absolute download URLs in document emails.
 # Falls back to the empty string so callers must pass an already-resolved URL.
 PUBLIC_SITE_URL = os.environ.get("PUBLIC_SITE_URL", "").rstrip("/")

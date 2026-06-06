@@ -1,8 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Calendar, Clock, User, CheckCircle, ArrowLeft, ArrowRight, MapPin, Phone, Loader2, Download } from 'lucide-react';
-import { BUSINESS_NAME, BUSINESS_PHONE, BUSINESS_ADDRESS, BUSINESS_CITY, BUSINESS_STATE } from '../constants';
-
-const BUSINESS_FULL_ADDRESS = `${BUSINESS_ADDRESS}, ${BUSINESS_CITY}, ${BUSINESS_STATE}`;
+import { BUSINESS_NAME, BUSINESS_PHONE, BUSINESS_FULL_ADDRESS } from '../constants';
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',

@@ -17,16 +17,38 @@ Usage:
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
+import os
 import random
 import re
 import sys
 from pathlib import Path
 
-CSV_PATH = Path.home() / "Documents" / "Business" / "Kadima Digital Strategies 2026" / "THO_MASTER" / "full_migration_export.csv"
-JSON_PATH = Path(__file__).parent.parent / "data" / "migrated_customers.json"
+CSV_PATH = Path(
+    os.environ.get(
+        "FCD_MIGRATION_CSV_PATH",
+        Path.home()
+        / "Documents"
+        / "Business"
+        / "Kadima Digital Strategies 2026"
+        / "THO_MASTER"
+        / "full_migration_export.csv",
+    )
+)
+JSON_PATH = Path(
+    os.environ.get(
+        "FCD_MIGRATION_JSON_PATH",
+        Path(__file__).parent.parent / "data" / "migrated_customers.json",
+    )
+)
 
 VALID_STATUSES = {"ENROLLED", "LEAD", "SOLD", "CLOSED"}
+
+
+def _short_hash(value: str) -> str:
+    """Return a short stable identifier for logs without printing source IDs."""
+    return hashlib.sha256(value.encode()).hexdigest()[:12]
 
 
 def validate():
@@ -41,6 +63,11 @@ def validate():
 
     with open(JSON_PATH) as f:
         customers = json.load(f)
+
+    csv_rows = {}
+    if CSV_PATH.exists():
+        with open(CSV_PATH, newline="", encoding="utf-8-sig") as f:
+            csv_rows = {r["AppID"]: r for r in csv.DictReader(f) if r.get("AppID")}
 
     checks_passed = 0
     checks_failed = 0
@@ -57,8 +84,13 @@ def validate():
     # 1. Record count
     print("\n--- Record Count ---")
     check("Has records", len(customers) > 0, f"Got {len(customers)}")
-    check("Reasonable count (>1900)", len(customers) > 1900, f"Got {len(customers)}")
-    check("Not too many (<2000)", len(customers) < 2000, f"Got {len(customers)}")
+    if csv_rows:
+        source_delta = len(csv_rows) - len(customers)
+        check("Source CSV has records", len(csv_rows) > 0, f"Got {len(csv_rows)}")
+        check("Customers do not exceed source CSV", source_delta >= 0, f"Delta {source_delta}")
+        check("Source-to-customer delta is small", source_delta <= 20, f"Delta {source_delta}")
+    else:
+        check("Reasonable count (>1900)", len(customers) > 1900, f"Got {len(customers)}")
     print(f"  Total: {len(customers)} records")
 
     # 2. No duplicate IDs
@@ -68,6 +100,10 @@ def validate():
     legacy_ids = [c.get("legacy_id", "") for c in customers if c.get("legacy_id")]
     check("No duplicate legacy IDs", len(legacy_ids) == len(set(legacy_ids)),
           f"{len(legacy_ids) - len(set(legacy_ids))} duplicates")
+    if csv_rows:
+        missing_legacy_ids = [legacy_id for legacy_id in legacy_ids if legacy_id not in csv_rows]
+        check("All migrated legacy IDs exist in source CSV", len(missing_legacy_ids) == 0,
+              f"{len(missing_legacy_ids)} missing")
 
     # 3. Required fields
     print("\n--- Required Fields ---")
@@ -117,10 +153,7 @@ def validate():
 
     # 7. Spot-check against CSV
     print("\n--- Spot Check (5 random records) ---")
-    if CSV_PATH.exists():
-        with open(CSV_PATH, newline="", encoding="utf-8-sig") as f:
-            csv_rows = {r["AppID"]: r for r in csv.DictReader(f)}
-
+    if csv_rows:
         sample = random.sample(customers, min(5, len(customers)))
         for c in sample:
             lid = c.get("legacy_id", "")
@@ -128,10 +161,10 @@ def validate():
                 csv_row = csv_rows[lid]
                 csv_name = f"{csv_row.get('Buyer_First_Name', '')} {csv_row.get('Buyer_Last_Name', '')}".strip()
                 match = csv_name.lower() == c["full_name"].lower()
-                check(f"Spot: {c['full_name'][:25]} (ID: {lid})", match,
-                      f"CSV name '{csv_name}' != migrated '{c['full_name']}'")
+                check(f"Spot legacy hash: {_short_hash(lid)}", match,
+                      "CSV/customer names differ")
             else:
-                check(f"Spot: {c['full_name'][:25]} (ID: {lid})", False, "Legacy ID not found in CSV")
+                check(f"Spot legacy hash: {_short_hash(lid)}", False, "Legacy ID not found in CSV")
     else:
         print("  ⚠️  CSV not available for spot-check")
 

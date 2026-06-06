@@ -47,6 +47,31 @@ OWN_RENT_MAP = {
     "": None,
 }
 
+SENSITIVE_LOG_TOKENS = (
+    "app_id",
+    "email",
+    "phone",
+    "ssn",
+    "name",
+    "address",
+    "city",
+    "zip",
+    "reference",
+    "notes",
+    "employer",
+    "occupation",
+)
+
+
+def redact_for_log(key: str, value):
+    """Avoid printing customer PII during dry-run previews."""
+    if value is None:
+        return None
+    key_lower = key.lower()
+    if any(token in key_lower for token in SENSITIVE_LOG_TOKENS):
+        return "<redacted>"
+    return value
+
 
 def parse_ssn(raw: str) -> str | None:
     """Format raw SSN digits into XXX-XX-XXXX format."""
@@ -227,11 +252,11 @@ def main():
         print(f"  {s}: {c}")
 
     # Sample
-    print("\nSample deal (first):")
+    print("\nSample deal (first, redacted):")
     if deals:
         sample = deals[0]
         for k, v in sample.items():
-            print(f"  {k}: {v}")
+            print(f"  {k}: {redact_for_log(k, v)}")
 
     if not args.commit:
         print("\n--- DRY RUN COMPLETE ---")

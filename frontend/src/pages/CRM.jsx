@@ -377,15 +377,15 @@ export default function CRM({ onBack }) {
   // Stat tile colors — inline so Tailwind picks them up at build time.
   const STAT_TILES = [
     { label: 'Total Leads', value: stats.totalLeads, valueClass: 'text-slate-800' },
-    { label: 'New', value: stats.newLeads, valueClass: 'text-blue-500' },
-    { label: 'Active Deals', value: stats.activeDeals, valueClass: 'text-violet-500' },
-    { label: 'Appointments', value: stats.upcomingAppts, valueClass: 'text-green-500' },
-    { label: 'Emails Sent', value: stats.emailsSent, valueClass: 'text-amber-500' },
-    { label: 'Pending Tasks', value: stats.pendingTasks, valueClass: 'text-pink-500' },
+    { label: 'New', value: stats.newLeads, valueClass: 'text-blue-700' },
+    { label: 'Active Deals', value: stats.activeDeals, valueClass: 'text-violet-700' },
+    { label: 'Appointments', value: stats.upcomingAppts, valueClass: 'text-green-700' },
+    { label: 'Emails Sent', value: stats.emailsSent, valueClass: 'text-amber-700' },
+    { label: 'Pending Tasks', value: stats.pendingTasks, valueClass: 'text-pink-700' },
   ];
 
   return (
-    <div className="min-h-screen bg-gray-100 font-sans">
+    <div className="min-h-screen bg-gray-50 font-sans">
       {/* Header */}
       <header className="bg-slate-800 text-white px-6 py-4 flex items-center justify-between sticky top-0 z-30">
         <div className="flex items-center gap-3">
@@ -447,7 +447,7 @@ export default function CRM({ onBack }) {
             className="flex-1 min-w-[33%] sm:min-w-0 bg-white p-4 text-center flex flex-col gap-1"
           >
             <span className={`text-2xl font-bold ${tile.valueClass}`}>{tile.value}</span>
-            <span className="text-[11px] text-gray-500 uppercase tracking-wider">{tile.label}</span>
+            <span className="text-[11px] text-gray-700 uppercase tracking-wider">{tile.label}</span>
           </div>
         ))}
       </div>
@@ -460,8 +460,8 @@ export default function CRM({ onBack }) {
             className={
               'flex items-center gap-1.5 px-4 py-2.5 bg-transparent text-[13px] font-medium whitespace-nowrap border-b-2 transition-colors ' +
               (activeTab === tab.id
-                ? 'text-blue-500 border-blue-500'
-                : 'text-gray-500 border-transparent hover:text-slate-800')
+                ? 'text-blue-700 border-blue-500'
+                : 'text-gray-700 border-transparent hover:text-slate-800')
             }
             onClick={() => { setActiveTab(tab.id); setStatusFilter(''); setSearchQuery(''); }}
           >
@@ -470,7 +470,7 @@ export default function CRM({ onBack }) {
           </button>
         ))}
         <button
-          className="hidden sm:flex items-center gap-1.5 ml-auto px-4 py-2.5 text-blue-500 font-semibold text-[13px] border-b-2 border-transparent hover:bg-blue-50 hover:rounded-t-lg whitespace-nowrap"
+          className="hidden sm:flex items-center gap-1.5 ml-auto px-4 py-2.5 text-blue-700 font-semibold text-[13px] border-b-2 border-transparent hover:bg-blue-50 hover:rounded-t-lg whitespace-nowrap"
           onClick={() => setShowEmailCompose(true)}
         >
           <Send size={16} />
@@ -480,8 +480,8 @@ export default function CRM({ onBack }) {
 
       {/* Search & Filter */}
       <div className="px-6 py-3 bg-white border-b border-gray-200">
-        <div className="flex items-center gap-2 bg-gray-100 border border-gray-200 rounded-lg px-3 py-2 max-w-md">
-          <Search size={16} className="text-gray-400 shrink-0" />
+        <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 max-w-md">
+          <Search size={16} className="text-gray-600 shrink-0" />
           <input
             type="text"
             value={searchQuery}
@@ -492,7 +492,7 @@ export default function CRM({ onBack }) {
           {searchQuery && (
             <button
               onClick={() => setSearchQuery('')}
-              className="bg-transparent border-0 text-gray-400 hover:text-gray-600 p-0.5 flex"
+              className="bg-transparent border-0 text-gray-600 hover:text-gray-600 p-0.5 flex"
               aria-label="Clear search"
             >
               <X size={14} />
@@ -503,7 +503,7 @@ export default function CRM({ onBack }) {
 
       {/* Content */}
       <div className="px-6 pb-6">
-        {loading && <div className="text-center py-12 text-gray-500">Loading...</div>}
+        {loading && <div className="text-center py-12 text-gray-700">Loading...</div>}
 
         {/* LEADS TAB */}
         {activeTab === 'leads' && !loading && (
@@ -515,8 +515,8 @@ export default function CRM({ onBack }) {
                   className={
                     'px-3.5 py-1.5 text-xs rounded-full border transition-colors capitalize ' +
                     (statusFilter === s
-                      ? 'border-blue-500 text-blue-500 bg-blue-50'
-                      : 'border-gray-300 text-gray-500 bg-white hover:border-gray-400')
+                      ? 'border-blue-500 text-blue-700 bg-blue-50'
+                      : 'border-gray-300 text-gray-700 bg-white hover:border-gray-400')
                   }
                   onClick={() => setStatusFilter(s)}
                   style={s && statusFilter === s ? { borderColor: STATUS_COLORS[s], color: STATUS_COLORS[s] } : {}}
@@ -540,12 +540,12 @@ export default function CRM({ onBack }) {
             ) : (
               <div className="flex flex-col gap-0.5">
                 {filteredLeads.length === 0 && (
-                  <div className="text-center py-12 text-gray-400 text-sm">No leads found</div>
+                  <div className="text-center py-12 text-gray-600 text-sm">No leads found</div>
                 )}
                 {filteredLeads.map(lead => (
                   <div
                     key={lead.lead_id}
-                    className="flex items-center gap-3 px-4 py-3.5 bg-white rounded-lg cursor-pointer transition hover:bg-slate-50 hover:shadow-sm"
+                    className="flex items-center gap-3 px-4 py-3.5 bg-white rounded-lg cursor-pointer transition hover:bg-white hover:shadow-sm"
                     onClick={() => setSelectedLead(lead)}
                   >
                     <div
@@ -556,17 +556,17 @@ export default function CRM({ onBack }) {
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="font-semibold text-sm text-slate-800">{lead.name || 'Unknown'}</div>
-                      <div className="flex flex-wrap gap-3 mt-1 text-xs text-gray-500">
+                      <div className="flex flex-wrap gap-3 mt-1 text-xs text-gray-700">
                         {lead.phone && <span className="flex items-center gap-1"><Phone size={12} /> {lead.phone}</span>}
                         {lead.email && <span className="flex items-center gap-1"><Mail size={12} /> {lead.email}</span>}
                         {lead.source && (
-                          <span className="bg-gray-100 px-2 py-0.5 rounded text-[11px]">{lead.source}</span>
+                          <span className="bg-gray-50 px-2 py-0.5 rounded text-[11px]">{lead.source}</span>
                         )}
                       </div>
                     </div>
                     <div className="flex flex-col items-end gap-1.5 shrink-0">
                       <StatusBadge status={lead.status} kind="lead" size="sm" />
-                      <span className="text-[11px] text-gray-400">{timeAgo(lead.created_at)}</span>
+                      <span className="text-[11px] text-gray-600">{timeAgo(lead.created_at)}</span>
                     </div>
                     <ChevronRight size={16} className="text-gray-300 shrink-0" />
                   </div>
@@ -586,7 +586,7 @@ export default function CRM({ onBack }) {
               return (
                 <div
                   key={status}
-                  className="md:min-w-[240px] flex-1 bg-slate-50 rounded-lg flex flex-col"
+                  className="md:min-w-[240px] flex-1 bg-white rounded-lg flex flex-col"
                 >
                   <div
                     className="px-3.5 py-3 border-t-[3px] flex justify-between items-center"
@@ -595,7 +595,7 @@ export default function CRM({ onBack }) {
                     <span className="text-[13px] font-semibold text-slate-800">
                       {status.charAt(0).toUpperCase() + status.slice(1)}
                     </span>
-                    <span className="bg-gray-200 text-gray-500 px-2 py-0.5 rounded-full text-xs font-semibold">
+                    <span className="bg-gray-200 text-gray-700 px-2 py-0.5 rounded-full text-xs font-semibold">
                       {statusDeals.length}
                     </span>
                   </div>
@@ -609,7 +609,7 @@ export default function CRM({ onBack }) {
                       />
                     ))}
                     {statusDeals.length === 0 && (
-                      <div className="text-center text-gray-400 text-[13px] py-6">No deals</div>
+                      <div className="text-center text-gray-600 text-[13px] py-6">No deals</div>
                     )}
                   </div>
                 </div>
@@ -629,8 +629,8 @@ export default function CRM({ onBack }) {
                   className={
                     'px-3.5 py-1.5 text-xs rounded-full border transition-colors capitalize ' +
                     (statusFilter === s
-                      ? 'border-blue-500 text-blue-500 bg-blue-50'
-                      : 'border-gray-300 text-gray-500 bg-white hover:border-gray-400')
+                      ? 'border-blue-500 text-blue-700 bg-blue-50'
+                      : 'border-gray-300 text-gray-700 bg-white hover:border-gray-400')
                   }
                   onClick={() => setStatusFilter(s)}
                 >
@@ -640,7 +640,7 @@ export default function CRM({ onBack }) {
             </div>
             <div className="flex flex-col gap-0.5">
               {filteredAppointments.length === 0 && (
-                <div className="text-center py-12 text-gray-400 text-sm">No appointments found</div>
+                <div className="text-center py-12 text-gray-600 text-sm">No appointments found</div>
               )}
               {filteredAppointments.map(appt => (
                 <div
@@ -654,7 +654,7 @@ export default function CRM({ onBack }) {
                   </div>
                   <div className="flex-1">
                     <div className="font-semibold text-sm text-slate-800">{appt.name}</div>
-                    <div className="flex flex-wrap gap-3 text-xs text-gray-500 mt-1">
+                    <div className="flex flex-wrap gap-3 text-xs text-gray-700 mt-1">
                       <span className="flex items-center gap-1"><Phone size={12} /> {appt.phone}</span>
                       {appt.email && <span className="flex items-center gap-1"><Mail size={12} /> {appt.email}</span>}
                       {appt.notes && <span className="italic">{appt.notes}</span>}
@@ -680,7 +680,7 @@ export default function CRM({ onBack }) {
             </div>
             <div className="flex flex-col gap-0.5">
               {tasks.length === 0 && (
-                <div className="text-center py-12 text-gray-400 text-sm">No tasks yet</div>
+                <div className="text-center py-12 text-gray-600 text-sm">No tasks yet</div>
               )}
               {tasks.map(task => {
                 const completed = task.status === 'completed';
@@ -710,12 +710,12 @@ export default function CRM({ onBack }) {
                       <div
                         className={
                           'font-semibold text-sm mb-1 ' +
-                          (completed ? 'line-through text-gray-400' : 'text-slate-800')
+                          (completed ? 'line-through text-gray-600' : 'text-slate-800')
                         }
                       >
                         {task.title}
                       </div>
-                      <div className="flex flex-wrap items-center gap-3 text-xs text-gray-500">
+                      <div className="flex flex-wrap items-center gap-3 text-xs text-gray-700">
                         {task.due_date && (
                           <span
                             className={
@@ -736,7 +736,7 @@ export default function CRM({ onBack }) {
                         )}
                       </div>
                       {task.description && (
-                        <div className="text-[13px] text-gray-500 mt-1.5 leading-snug">{task.description}</div>
+                        <div className="text-[13px] text-gray-700 mt-1.5 leading-snug">{task.description}</div>
                       )}
                     </div>
                   </div>
@@ -750,21 +750,21 @@ export default function CRM({ onBack }) {
         {activeTab === 'emails' && !loading && (
           <div className="flex flex-col gap-0.5">
             {emails.length === 0 && (
-              <div className="text-center py-12 text-gray-400 text-sm">No emails sent yet</div>
+              <div className="text-center py-12 text-gray-600 text-sm">No emails sent yet</div>
             )}
             {emails.map((email, idx) => (
               <div key={idx} className="flex items-center gap-3 px-4 py-3.5 bg-white rounded-lg">
-                <div className="w-9 h-9 rounded-lg bg-blue-50 flex items-center justify-center text-blue-500 shrink-0">
+                <div className="w-9 h-9 rounded-lg bg-blue-50 flex items-center justify-center text-blue-700 shrink-0">
                   <Mail size={16} />
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="font-semibold text-[13px] text-slate-800 truncate">{email.subject}</div>
-                  <div className="flex flex-wrap gap-3 text-xs text-gray-500 mt-0.5">
+                  <div className="flex flex-wrap gap-3 text-xs text-gray-700 mt-0.5">
                     <span>To: {email.to}</span>
-                    <span className="bg-gray-100 px-2 py-0.5 rounded text-[11px]">{email.email_type}</span>
+                    <span className="bg-gray-50 px-2 py-0.5 rounded text-[11px]">{email.email_type}</span>
                   </div>
                 </div>
-                <div className="text-xs text-gray-400 shrink-0">{timeAgo(email.sent_at)}</div>
+                <div className="text-xs text-gray-600 shrink-0">{timeAgo(email.sent_at)}</div>
               </div>
             ))}
           </div>
@@ -787,7 +787,7 @@ export default function CRM({ onBack }) {
               <h3 className="m-0 text-[17px] font-bold text-slate-800">Compose Email</h3>
               <button
                 onClick={() => { setShowEmailCompose(false); setEmailResult(null); }}
-                className="bg-transparent border-0 text-gray-500 hover:text-gray-700 p-1 cursor-pointer"
+                className="bg-transparent border-0 text-gray-700 hover:text-gray-700 p-1 cursor-pointer"
                 aria-label="Close"
               >
                 <X size={20} />
@@ -796,7 +796,7 @@ export default function CRM({ onBack }) {
             <form onSubmit={handleSendEmail} className="px-6 py-6 flex flex-col gap-3.5">
               {/* Template Selector */}
               <div>
-                <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">
+                <label className="block text-xs font-semibold text-gray-700 mb-1 uppercase tracking-wide">
                   Template
                 </label>
                 <select
@@ -811,7 +811,7 @@ export default function CRM({ onBack }) {
                 </select>
               </div>
               <div>
-                <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">To</label>
+                <label className="block text-xs font-semibold text-gray-700 mb-1 uppercase tracking-wide">To</label>
                 <input
                   type="email"
                   value={emailForm.to}
@@ -822,7 +822,7 @@ export default function CRM({ onBack }) {
                 />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">Name</label>
+                <label className="block text-xs font-semibold text-gray-700 mb-1 uppercase tracking-wide">Name</label>
                 <input
                   type="text"
                   value={emailForm.customer_name}
@@ -832,7 +832,7 @@ export default function CRM({ onBack }) {
                 />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">Subject</label>
+                <label className="block text-xs font-semibold text-gray-700 mb-1 uppercase tracking-wide">Subject</label>
                 <input
                   type="text"
                   value={emailForm.subject}
@@ -843,7 +843,7 @@ export default function CRM({ onBack }) {
                 />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wide">Message</label>
+                <label className="block text-xs font-semibold text-gray-700 mb-1 uppercase tracking-wide">Message</label>
                 <textarea
                   value={emailForm.message}
                   onChange={e => setEmailForm(f => ({ ...f, message: e.target.value }))}
@@ -894,7 +894,7 @@ export default function CRM({ onBack }) {
               <h3 className="m-0 text-[17px] font-bold text-slate-800">Create New Task</h3>
               <button
                 onClick={() => setShowTaskModal(false)}
-                className="bg-transparent border-0 text-gray-500 hover:text-gray-700 p-1 cursor-pointer"
+                className="bg-transparent border-0 text-gray-700 hover:text-gray-700 p-1 cursor-pointer"
                 aria-label="Close"
               >
                 <X size={20} />
@@ -902,7 +902,7 @@ export default function CRM({ onBack }) {
             </div>
             <form onSubmit={handleCreateTask} className="px-6 py-6 flex flex-col gap-4">
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Title *</label>
+                <label className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Title *</label>
                 <input
                   type="text"
                   value={taskForm.title}
@@ -913,7 +913,7 @@ export default function CRM({ onBack }) {
                 />
               </div>
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Description</label>
+                <label className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Description</label>
                 <textarea
                   value={taskForm.description}
                   onChange={e => setTaskForm(f => ({ ...f, description: e.target.value }))}
@@ -924,7 +924,7 @@ export default function CRM({ onBack }) {
               </div>
               <div className="flex gap-4">
                 <div className="flex flex-col gap-1.5 flex-1">
-                  <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Due Date</label>
+                  <label className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Due Date</label>
                   <input
                     type="date"
                     value={taskForm.due_date}
@@ -933,7 +933,7 @@ export default function CRM({ onBack }) {
                   />
                 </div>
                 <div className="flex flex-col gap-1.5 flex-1">
-                  <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Priority</label>
+                  <label className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Priority</label>
                   <select
                     value={taskForm.priority}
                     onChange={e => setTaskForm(f => ({ ...f, priority: e.target.value }))}
@@ -946,7 +946,7 @@ export default function CRM({ onBack }) {
                 </div>
               </div>
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                <label className="text-xs font-semibold text-gray-700 uppercase tracking-wide">
                   Related Lead (optional)
                 </label>
                 <select
@@ -981,7 +981,7 @@ function LeadDetail({ lead, onClose, onUpdateStatus, onEmail, appointments, emai
     <div className="bg-white rounded-xl p-6">
       <button
         onClick={onClose}
-        className="flex items-center gap-1.5 bg-transparent border-0 text-blue-500 hover:text-blue-600 text-[13px] cursor-pointer p-0 mb-5"
+        className="flex items-center gap-1.5 bg-transparent border-0 text-blue-700 hover:text-blue-600 text-[13px] cursor-pointer p-0 mb-5"
       >
         <ArrowLeft size={16} /> Back to leads
       </button>
@@ -995,7 +995,7 @@ function LeadDetail({ lead, onClose, onUpdateStatus, onEmail, appointments, emai
         </div>
         <div>
           <h2 className="text-xl font-bold text-slate-800 m-0">{lead.name || 'Unknown'}</h2>
-          <div className="flex flex-wrap gap-4 mt-1 text-[13px] text-gray-500">
+          <div className="flex flex-wrap gap-4 mt-1 text-[13px] text-gray-700">
             {lead.phone && <span className="flex items-center gap-1"><Phone size={14} /> {lead.phone}</span>}
             {lead.email && <span className="flex items-center gap-1"><Mail size={14} /> {lead.email}</span>}
           </div>
@@ -1003,8 +1003,8 @@ function LeadDetail({ lead, onClose, onUpdateStatus, onEmail, appointments, emai
       </div>
 
       {/* Status Actions */}
-      <div className="mb-5 pb-5 border-b border-gray-100">
-        <h3 className="text-xs uppercase tracking-wide text-gray-500 m-0 mb-2.5 font-semibold">Status</h3>
+      <div className="mb-5 pb-5 border-b border-gray-200">
+        <h3 className="text-xs uppercase tracking-wide text-gray-700 m-0 mb-2.5 font-semibold">Status</h3>
         <div className="flex flex-wrap gap-2">
           {['new', 'contacted', 'qualified', 'converted'].map(s => (
             <button
@@ -1026,8 +1026,8 @@ function LeadDetail({ lead, onClose, onUpdateStatus, onEmail, appointments, emai
 
       {/* Preferences */}
       {(lead.bedrooms || lead.bathrooms || lead.budget_max || lead.home_type) && (
-        <div className="mb-5 pb-5 border-b border-gray-100">
-          <h3 className="text-xs uppercase tracking-wide text-gray-500 m-0 mb-2.5 font-semibold">Preferences</h3>
+        <div className="mb-5 pb-5 border-b border-gray-200">
+          <h3 className="text-xs uppercase tracking-wide text-gray-700 m-0 mb-2.5 font-semibold">Preferences</h3>
           <div className="flex flex-wrap gap-4 text-[13px] text-gray-700">
             {lead.bedrooms && <span className="flex items-center gap-1"><Home size={14} /> {lead.bedrooms} bed</span>}
             {lead.bathrooms && <span className="flex items-center gap-1">{lead.bathrooms} bath</span>}
@@ -1043,8 +1043,8 @@ function LeadDetail({ lead, onClose, onUpdateStatus, onEmail, appointments, emai
       )}
 
       {/* Engagement */}
-      <div className="mb-5 pb-5 border-b border-gray-100">
-        <h3 className="text-xs uppercase tracking-wide text-gray-500 m-0 mb-2.5 font-semibold">Engagement</h3>
+      <div className="mb-5 pb-5 border-b border-gray-200">
+        <h3 className="text-xs uppercase tracking-wide text-gray-700 m-0 mb-2.5 font-semibold">Engagement</h3>
         <div className="flex flex-wrap gap-4 text-[13px] text-gray-700">
           <span className="flex items-center gap-1">Source: <strong>{lead.source}</strong></span>
           <span className="flex items-center gap-1">Appointment: <strong>{lead.appointment_requested ? 'Yes' : 'No'}</strong></span>
@@ -1056,8 +1056,8 @@ function LeadDetail({ lead, onClose, onUpdateStatus, onEmail, appointments, emai
       </div>
 
       {/* Actions */}
-      <div className="mb-5 pb-5 border-b border-gray-100">
-        <h3 className="text-xs uppercase tracking-wide text-gray-500 m-0 mb-2.5 font-semibold">Actions</h3>
+      <div className="mb-5 pb-5 border-b border-gray-200">
+        <h3 className="text-xs uppercase tracking-wide text-gray-700 m-0 mb-2.5 font-semibold">Actions</h3>
         <div className="flex flex-col sm:flex-row gap-2.5">
           {lead.phone && (
             <a
@@ -1079,8 +1079,8 @@ function LeadDetail({ lead, onClose, onUpdateStatus, onEmail, appointments, emai
       </div>
 
       {/* Activity Timeline */}
-      <div className="mb-5 pb-5 border-b border-gray-100">
-        <h3 className="text-xs uppercase tracking-wide text-gray-500 m-0 mb-2.5 font-semibold">Activity</h3>
+      <div className="mb-5 pb-5 border-b border-gray-200">
+        <h3 className="text-xs uppercase tracking-wide text-gray-700 m-0 mb-2.5 font-semibold">Activity</h3>
         <div className="flex flex-col pl-3">
           {/* Created */}
           <div className="flex gap-3 py-2.5 pl-4 border-l-2 border-gray-200 relative">
@@ -1091,7 +1091,7 @@ function LeadDetail({ lead, onClose, onUpdateStatus, onEmail, appointments, emai
             <div className="flex flex-col gap-0.5">
               <span className="text-[13px] text-gray-700">Lead created via {lead.source}</span>
               {lead.created_at && (
-                <span className="text-[11px] text-gray-400">{formatDate(lead.created_at)}</span>
+                <span className="text-[11px] text-gray-600">{formatDate(lead.created_at)}</span>
               )}
             </div>
           </div>
@@ -1111,7 +1111,7 @@ function LeadDetail({ lead, onClose, onUpdateStatus, onEmail, appointments, emai
                   Appointment {appt.status} — {appt.date} at {appt.time_slot}
                 </span>
                 {appt.created_at && (
-                  <span className="text-[11px] text-gray-400">{formatDate(appt.created_at)}</span>
+                  <span className="text-[11px] text-gray-600">{formatDate(appt.created_at)}</span>
                 )}
               </div>
             </div>
@@ -1127,19 +1127,19 @@ function LeadDetail({ lead, onClose, onUpdateStatus, onEmail, appointments, emai
               <div className="flex flex-col gap-0.5">
                 <span className="text-[13px] text-gray-700">Email sent: {email.subject}</span>
                 {email.sent_at && (
-                  <span className="text-[11px] text-gray-400">{formatDate(email.sent_at)}</span>
+                  <span className="text-[11px] text-gray-600">{formatDate(email.sent_at)}</span>
                 )}
               </div>
             </div>
           ))}
 
           {appointments.length === 0 && emails.length === 0 && (
-            <div className="text-[13px] text-gray-400 py-2">No activity yet beyond lead creation</div>
+            <div className="text-[13px] text-gray-600 py-2">No activity yet beyond lead creation</div>
           )}
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-4 text-[11px] text-gray-400 mt-4">
+      <div className="flex flex-wrap gap-4 text-[11px] text-gray-600 mt-4">
         {lead.lead_id && <span>ID: {lead.lead_id}</span>}
         {lead.created_at && <span>Created: {formatDate(lead.created_at)}</span>}
         {lead.updated_at && <span>Updated: {formatDate(lead.updated_at)}</span>}
@@ -1267,7 +1267,7 @@ function FunnelPanel() {
       .finally(() => setLoading(false));
   }, []);
 
-  if (loading) return <div className="text-center py-6 text-gray-400 text-sm">Loading funnel...</div>;
+  if (loading) return <div className="text-center py-6 text-gray-600 text-sm">Loading funnel...</div>;
   if (!funnel?.stages?.length) return null;
 
   const top = funnel.stages[0]?.count || 1;
@@ -1345,7 +1345,7 @@ function LeadSourceChart() {
     return () => { alive = false; };
   }, [days]);
 
-  if (loading) return <div className="text-center py-4 text-gray-400 text-xs">Loading lead sources...</div>;
+  if (loading) return <div className="text-center py-4 text-gray-600 text-xs">Loading lead sources...</div>;
   if (!data?.categories?.length) return null;
 
   const chartData = data.categories.map((c, i) => ({
@@ -1450,8 +1450,8 @@ function CustomerAnalytics() {
     } catch { setResults([]); }
   };
 
-  if (loading) return <div className="text-center py-12 text-gray-400 text-sm">Loading customer analytics...</div>;
-  if (!data) return <div className="text-center py-12 text-gray-400 text-sm">Failed to load analytics</div>;
+  if (loading) return <div className="text-center py-12 text-gray-600 text-sm">Loading customer analytics...</div>;
+  if (!data) return <div className="text-center py-12 text-gray-600 text-sm">Failed to load analytics</div>;
 
   return (
     <div style={{ padding: '0 4px' }}>
@@ -1635,7 +1635,7 @@ function DealCard({ deal, onUpdateStatus, statusOrder }) {
       <div className="flex justify-between items-start cursor-pointer" onClick={() => setExpanded(!expanded)}>
         <div>
           <div className="font-semibold text-[13px] text-slate-800">{buyerName || 'No Name'}</div>
-          <div className="text-xs text-gray-500 mt-0.5">{homeLabel}</div>
+          <div className="text-xs text-gray-700 mt-0.5">{homeLabel}</div>
         </div>
         {expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
       </div>
@@ -1647,7 +1647,7 @@ function DealCard({ deal, onUpdateStatus, statusOrder }) {
       )}
 
       {expanded && (
-        <div className="mt-2.5 pt-2.5 border-t border-gray-100 text-xs text-gray-500 flex flex-col gap-1">
+        <div className="mt-2.5 pt-2.5 border-t border-gray-200 text-xs text-gray-700 flex flex-col gap-1">
           {deal.buyer_phone && <div className="flex items-center gap-1"><Phone size={12} /> {deal.buyer_phone}</div>}
           {deal.buyer_email && <div className="flex items-center gap-1"><Mail size={12} /> {deal.buyer_email}</div>}
           {deal.salesrep && <div className="flex items-center gap-1">Rep: {deal.salesrep}</div>}
@@ -1659,11 +1659,11 @@ function DealCard({ deal, onUpdateStatus, statusOrder }) {
             </div>
           )}
           {deal.created_at && (
-            <div className="text-gray-400 mt-1">Created: {formatDate(deal.created_at)}</div>
+            <div className="text-gray-600 mt-1">Created: {formatDate(deal.created_at)}</div>
           )}
 
           {/* Document Generation Actions */}
-          <div className="mt-2.5 text-[11px] text-gray-500 font-semibold uppercase tracking-wide">
+          <div className="mt-2.5 text-[11px] text-gray-700 font-semibold uppercase tracking-wide">
             Generate Documents
           </div>
           <div className="mt-1.5 flex flex-wrap gap-1.5">
@@ -1750,11 +1750,11 @@ function DealCard({ deal, onUpdateStatus, statusOrder }) {
             >
               {genResult.success ? (
                 <div className="flex items-center gap-1.5">
-                  <CheckCircle size={14} className="text-green-500" />
+                  <CheckCircle size={14} className="text-green-700" />
                   <span>{genResult.message}</span>
                   <button
                     onClick={() => handleDownload(genResult.download_url)}
-                    className="ml-auto flex items-center gap-1 px-2 py-1 bg-green-500 text-black border-0 rounded text-[11px] font-semibold cursor-pointer"
+                    className="ml-auto flex items-center gap-1 px-2 py-1 bg-green-700 text-white border-0 rounded text-[11px] font-semibold cursor-pointer"
                   >
                     <Download size={12} /> Download
                   </button>
@@ -1765,7 +1765,7 @@ function DealCard({ deal, onUpdateStatus, statusOrder }) {
                 </div>
               )}
               {genResult.documents_included && (
-                <div className="mt-1.5 text-gray-500 text-[11px]">
+                <div className="mt-1.5 text-gray-700 text-[11px]">
                   {genResult.page_count} pages • {genResult.documents_included.length} documents
                 </div>
               )}
@@ -1776,7 +1776,7 @@ function DealCard({ deal, onUpdateStatus, statusOrder }) {
 
       {nextStatus && (
         <button
-          className="mt-2.5 w-full px-2 py-1.5 border border-dashed border-gray-300 hover:border-blue-500 hover:bg-blue-50 bg-transparent rounded-md text-xs text-blue-500 cursor-pointer transition-colors"
+          className="mt-2.5 w-full px-2 py-1.5 border border-dashed border-gray-300 hover:border-blue-500 hover:bg-blue-50 bg-transparent rounded-md text-xs text-blue-700 cursor-pointer transition-colors"
           onClick={() => onUpdateStatus(deal.id, nextStatus)}
         >
           Move to {nextStatus} →

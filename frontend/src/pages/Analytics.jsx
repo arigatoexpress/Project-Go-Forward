@@ -7,9 +7,9 @@ const PIE_COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4
 const AREA_COLORS = ['#3B82F6', '#10B981', '#F59E0B'];
 
 const MetricCard = ({ title, value, icon, trend, trendUp, accent, subtitle }) => (
-    <div className={`bg-white p-6 rounded-xl shadow-sm border ${accent ? 'border-blue-200 bg-gradient-to-br from-blue-50 to-white' : 'border-gray-100'} flex items-start justify-between hover:shadow-md transition-shadow`}>
+    <div className={`bg-white p-6 rounded-xl shadow-sm border ${accent ? 'border-blue-200 bg-gradient-to-br from-blue-50 to-white' : 'border-gray-200'} flex items-start justify-between hover:shadow-md transition-shadow`}>
         <div>
-            <p className="text-sm font-medium text-gray-500 mb-1">{title}</p>
+            <p className="text-sm font-medium text-gray-700 mb-1">{title}</p>
             <h3 className="text-2xl font-bold text-gray-900">{value}</h3>
             {trend && (
                 <div className={`flex items-center mt-2 text-sm ${trendUp ? 'text-green-600' : 'text-red-600'}`}>
@@ -17,7 +17,7 @@ const MetricCard = ({ title, value, icon, trend, trendUp, accent, subtitle }) =>
                     <span>{trend}</span>
                 </div>
             )}
-            {subtitle && <p className="text-xs text-gray-400 mt-1">{subtitle}</p>}
+            {subtitle && <p className="text-xs text-gray-600 mt-1">{subtitle}</p>}
         </div>
         <div className={`p-3 ${accent ? 'bg-blue-100' : 'bg-gray-50'} rounded-lg ${accent ? 'text-blue-600' : 'text-gray-600'}`}>
             {React.createElement(icon, { size: 24 })}
@@ -26,7 +26,7 @@ const MetricCard = ({ title, value, icon, trend, trendUp, accent, subtitle }) =>
 );
 
 const TimeRangeSelector = ({ value, onChange }) => (
-    <div className="flex bg-gray-100 rounded-lg p-1">
+    <div className="flex bg-gray-50 rounded-lg p-1">
         {['7d', '30d', '90d', 'all'].map((range) => (
             <button
                 key={range}
@@ -34,7 +34,7 @@ const TimeRangeSelector = ({ value, onChange }) => (
                 className={`px-3 py-1.5 rounded-md text-sm font-medium transition-all ${
                     value === range 
                         ? 'bg-white text-gray-900 shadow-sm' 
-                        : 'text-gray-500 hover:text-gray-700'
+                        : 'text-gray-700 hover:text-gray-700'
                 }`}
             >
                 {range === '7d' ? '7 Days' : range === '30d' ? '30 Days' : range === '90d' ? '90 Days' : 'All Time'}
@@ -138,7 +138,7 @@ export default function Analytics() {
             <div className="min-h-screen bg-gray-50 flex items-center justify-center">
                 <div className="text-center">
                     <Loader2 className="h-10 w-10 animate-spin text-blue-600 mx-auto mb-3" />
-                    <p className="text-gray-500">Loading analytics...</p>
+                    <p className="text-gray-700">Loading analytics...</p>
                 </div>
             </div>
         );
@@ -169,7 +169,7 @@ export default function Analytics() {
                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                     <div>
                         <h1 className="text-3xl font-bold text-gray-900">Analytics Dashboard</h1>
-                        <p className="text-sm text-gray-500 mt-1">Real-time insights into your business</p>
+                        <p className="text-sm text-gray-700 mt-1">Real-time insights into your business</p>
                     </div>
                     <div className="flex items-center gap-3">
                         <TimeRangeSelector value={timeRange} onChange={setTimeRange} />
@@ -198,7 +198,7 @@ export default function Analytics() {
                             className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
                                 activeTab === tab.id
                                     ? 'border-blue-600 text-blue-600'
-                                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                                    : 'border-transparent text-gray-700 hover:text-gray-700'
                             }`}
                         >
                             <tab.icon size={16} />
@@ -243,35 +243,35 @@ export default function Analytics() {
 
                         {/* Conversion Rates */}
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 text-center">
+                            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 text-center">
                                 <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-3">
                                     <Target className="text-blue-600" size={24} />
                                 </div>
-                                <p className="text-sm text-gray-500 mb-1">Lead Conversion Rate</p>
+                                <p className="text-sm text-gray-700 mb-1">Lead Conversion Rate</p>
                                 <p className="text-4xl font-bold text-blue-600">{conversionRate}%</p>
-                                <p className="text-xs text-gray-400 mt-1">Share contact info</p>
+                                <p className="text-xs text-gray-600 mt-1">Share contact info</p>
                             </div>
-                            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 text-center">
+                            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 text-center">
                                 <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-3">
                                     <Calendar className="text-green-600" size={24} />
                                 </div>
-                                <p className="text-sm text-gray-500 mb-1">Appointment Rate</p>
+                                <p className="text-sm text-gray-700 mb-1">Appointment Rate</p>
                                 <p className="text-4xl font-bold text-green-600">{appointmentRate}%</p>
-                                <p className="text-xs text-gray-400 mt-1">Request showroom visits</p>
+                                <p className="text-xs text-gray-600 mt-1">Request showroom visits</p>
                             </div>
-                            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 text-center">
+                            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 text-center">
                                 <div className="w-12 h-12 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-3">
                                     <DollarSign className="text-amber-600" size={24} />
                                 </div>
-                                <p className="text-sm text-gray-500 mb-1">Financing Interest</p>
+                                <p className="text-sm text-gray-700 mb-1">Financing Interest</p>
                                 <p className="text-4xl font-bold text-amber-600">{financingRate}%</p>
-                                <p className="text-xs text-gray-400 mt-1">Ask about financing</p>
+                                <p className="text-xs text-gray-600 mt-1">Ask about financing</p>
                             </div>
                         </div>
 
                         {/* Time Series Chart */}
                         {timeSeriesData.length > 0 && (
-                            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
                                 <h3 className="text-lg font-bold text-gray-900 mb-6">Lead Activity Over Time</h3>
                                 <div className="h-80 w-full">
                                     <ResponsiveContainer width="100%" height="100%">
@@ -316,7 +316,7 @@ export default function Analytics() {
                     <>
                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                             {/* Status Distribution */}
-                            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
                                 <h3 className="text-lg font-bold text-gray-900 mb-6">Lead Status Distribution</h3>
                                 {statusChartData.length > 0 ? (
                                     <div className="h-80 w-full">
@@ -340,14 +340,14 @@ export default function Analytics() {
                                         </ResponsiveContainer>
                                     </div>
                                 ) : (
-                                    <div className="h-80 flex items-center justify-center text-gray-400">
+                                    <div className="h-80 flex items-center justify-center text-gray-600">
                                         <p>No status data available</p>
                                     </div>
                                 )}
                             </div>
 
                             {/* Engagement Breakdown */}
-                            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
                                 <h3 className="text-lg font-bold text-gray-900 mb-6">Lead Engagement</h3>
                                 <div className="h-80 w-full">
                                     <ResponsiveContainer width="100%" height="100%">
@@ -377,12 +377,12 @@ export default function Analytics() {
                         </div>
 
                         {/* Lead Pipeline Table */}
-                        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
                             <h3 className="text-lg font-bold text-gray-900 mb-4">Lead Pipeline Summary</h3>
                             <div className="overflow-x-auto">
                                 <table className="w-full text-sm">
                                     <thead>
-                                        <tr className="text-left text-gray-500 border-b border-gray-100">
+                                        <tr className="text-left text-gray-700 border-b border-gray-200">
                                             <th className="pb-3 font-medium">Status</th>
                                             <th className="pb-3 font-medium text-right">Count</th>
                                             <th className="pb-3 font-medium text-right">% of Total</th>
@@ -398,7 +398,7 @@ export default function Analytics() {
                                                         status === 'contacted' ? 'bg-yellow-100 text-yellow-700' :
                                                         status === 'qualified' ? 'bg-green-100 text-green-700' :
                                                         status === 'converted' ? 'bg-purple-100 text-purple-700' :
-                                                        'bg-gray-100 text-gray-700'
+                                                        'bg-gray-50 text-gray-700'
                                                     }`}>
                                                         <div className={`w-1.5 h-1.5 rounded-full ${
                                                             status === 'new' ? 'bg-blue-500' :
@@ -411,7 +411,7 @@ export default function Analytics() {
                                                     </span>
                                                 </td>
                                                 <td className="py-3 text-right font-medium">{count}</td>
-                                                <td className="py-3 text-right text-gray-500">
+                                                <td className="py-3 text-right text-gray-700">
                                                     {leadStats?.total > 0 ? ((count / leadStats.total) * 100).toFixed(1) : '0.0'}%
                                                 </td>
                                                 <td className="py-3 text-right">
@@ -420,7 +420,7 @@ export default function Analytics() {
                                                     ) : leadStats?.status_trends?.[status] < 0 ? (
                                                         <span className="text-red-600 text-xs">↓ {Math.abs(leadStats.status_trends[status])}</span>
                                                     ) : (
-                                                        <span className="text-gray-400 text-xs">—</span>
+                                                        <span className="text-gray-600 text-xs">—</span>
                                                     )}
                                                 </td>
                                             </tr>
@@ -458,7 +458,7 @@ export default function Analytics() {
 
                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                             {/* Document Types */}
-                            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
                                 <h3 className="text-lg font-bold text-gray-900 mb-6">Documents by Type</h3>
                                 {documentTypeData.length > 0 ? (
                                     <div className="h-80 w-full">
@@ -473,14 +473,14 @@ export default function Analytics() {
                                         </ResponsiveContainer>
                                     </div>
                                 ) : (
-                                    <div className="h-80 flex items-center justify-center text-gray-400">
+                                    <div className="h-80 flex items-center justify-center text-gray-600">
                                         <p>No document data available</p>
                                     </div>
                                 )}
                             </div>
 
                             {/* Recent Activity */}
-                            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
                                 <h3 className="text-lg font-bold text-gray-900 mb-6">Recent Document Activity</h3>
                                 <div className="space-y-4">
                                     {(documentStats?.recent || []).slice(0, 5).map((doc, i) => (
@@ -490,15 +490,15 @@ export default function Analytics() {
                                             </div>
                                             <div className="flex-1 min-w-0">
                                                 <p className="font-medium text-gray-900 truncate">{doc.template_name}</p>
-                                                <p className="text-sm text-gray-500">{doc.buyer_name}</p>
+                                                <p className="text-sm text-gray-700">{doc.buyer_name}</p>
                                             </div>
-                                            <span className="text-xs text-gray-400">
+                                            <span className="text-xs text-gray-600">
                                                 {new Date(doc.created_at).toLocaleDateString()}
                                             </span>
                                         </div>
                                     ))}
                                     {(!documentStats?.recent || documentStats.recent.length === 0) && (
-                                        <p className="text-center text-gray-400 py-8">No recent activity</p>
+                                        <p className="text-center text-gray-600 py-8">No recent activity</p>
                                     )}
                                 </div>
                             </div>
@@ -536,12 +536,12 @@ export default function Analytics() {
                         </div>
 
                         {/* Top Viewed Homes */}
-                        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
                             <h3 className="text-lg font-bold text-gray-900 mb-4">Most Viewed Homes</h3>
                             <div className="overflow-x-auto">
                                 <table className="w-full text-sm">
                                     <thead>
-                                        <tr className="text-left text-gray-500 border-b border-gray-100">
+                                        <tr className="text-left text-gray-700 border-b border-gray-200">
                                             <th className="pb-3 font-medium">Home</th>
                                             <th className="pb-3 font-medium">Manufacturer</th>
                                             <th className="pb-3 font-medium text-right">Views</th>
@@ -556,21 +556,21 @@ export default function Analytics() {
                                                         {home.image_url ? (
                                                             <img src={home.image_url} alt="" className="w-10 h-10 rounded-lg object-cover" />
                                                         ) : (
-                                                            <div className="w-10 h-10 bg-gray-100 rounded-lg flex items-center justify-center">
-                                                                <Home size={16} className="text-gray-400" />
+                                                            <div className="w-10 h-10 bg-gray-50 rounded-lg flex items-center justify-center">
+                                                                <Home size={16} className="text-gray-600" />
                                                             </div>
                                                         )}
                                                         <span className="font-medium">{home.model_name}</span>
                                                     </div>
                                                 </td>
-                                                <td className="py-3 text-gray-500">{home.manufacturer}</td>
+                                                <td className="py-3 text-gray-700">{home.manufacturer}</td>
                                                 <td className="py-3 text-right font-medium">{home.view_count?.toLocaleString()}</td>
                                                 <td className="py-3 text-right">{home.inquiry_count || 0}</td>
                                             </tr>
                                         ))}
                                         {topHomesData.length === 0 && (
                                             <tr>
-                                                <td colSpan="4" className="py-8 text-center text-gray-400">
+                                                <td colSpan="4" className="py-8 text-center text-gray-600">
                                                     No view data available
                                                 </td>
                                             </tr>

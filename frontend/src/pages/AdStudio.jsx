@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
     Sparkles, Film, TrendingUp, Calendar, BarChart3, X,
     ArrowLeft, Copy, Check, ChevronDown, Loader2,
@@ -81,21 +81,29 @@ const IMAGE_STYLES = [
     { id: 'twilight', label: 'Twilight', icon: '🌅' }
 ];
 
+const INVENTORY_PICKER_LIMIT = 40;
+
 /* ─────────────────── API helpers ─────────────────── */
+async function readJsonOrThrow(resp, fallbackMessage) {
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) {
+        throw new Error(data.error || data.detail || fallbackMessage);
+    }
+    return data;
+}
+
 async function apiGenerateScript(params) {
     const resp = await adminFetch('/api/marketing/generate-script', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(params)
     });
-    if (!resp.ok) throw new Error('Script generation failed');
-    return resp.json();
+    return readJsonOrThrow(resp, 'Script generation failed');
 }
 
 async function apiGetIdeas() {
     const resp = await adminFetch('/api/marketing/trending-ideas');
-    if (!resp.ok) throw new Error('Failed to load ideas');
-    return resp.json();
+    return readJsonOrThrow(resp, 'Failed to load ideas');
 }
 
 async function apiSchedulePost(params) {
@@ -104,32 +112,27 @@ async function apiSchedulePost(params) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(params)
     });
-    if (!resp.ok) throw new Error('Scheduling failed');
-    return resp.json();
+    return readJsonOrThrow(resp, 'Scheduling failed');
 }
 
 async function apiGetAnalytics() {
     const resp = await adminFetch('/api/marketing/analytics');
-    if (!resp.ok) throw new Error('Analytics load failed');
-    return resp.json();
+    return readJsonOrThrow(resp, 'Analytics load failed');
 }
 
 async function apiGetGcpReadiness() {
     const resp = await adminFetch('/api/marketing/gcp-readiness');
-    if (!resp.ok) throw new Error('GCP readiness load failed');
-    return resp.json();
+    return readJsonOrThrow(resp, 'GCP readiness load failed');
 }
 
 async function apiGetSocialReadiness() {
     const resp = await adminFetch('/api/marketing/social-readiness');
-    if (!resp.ok) throw new Error('Social readiness load failed');
-    return resp.json();
+    return readJsonOrThrow(resp, 'Social readiness load failed');
 }
 
 async function apiGetInventory() {
     const resp = await adminFetch('/api/marketing/inventory-context');
-    if (!resp.ok) throw new Error('Failed to load inventory');
-    return resp.json();
+    return readJsonOrThrow(resp, 'Failed to load inventory');
 }
 
 async function apiGenerateImage(params) {
@@ -138,8 +141,7 @@ async function apiGenerateImage(params) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(params)
     });
-    if (!resp.ok) throw new Error('Image generation failed');
-    return resp.json();
+    return readJsonOrThrow(resp, 'Image generation failed');
 }
 
 async function apiGenerateFlyer(params) {
@@ -148,8 +150,7 @@ async function apiGenerateFlyer(params) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(params)
     });
-    if (!resp.ok) throw new Error('Flyer generation failed');
-    return resp.json();
+    return readJsonOrThrow(resp, 'Flyer generation failed');
 }
 
 async function apiGenerateVideo(params) {
@@ -158,8 +159,7 @@ async function apiGenerateVideo(params) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(params)
     });
-    if (!resp.ok) throw new Error('Video generation failed');
-    return resp.json();
+    return readJsonOrThrow(resp, 'Video generation failed');
 }
 
 async function apiGenerateGenAIClip(params) {
@@ -168,8 +168,7 @@ async function apiGenerateGenAIClip(params) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(params)
     });
-    if (!resp.ok) throw new Error('GenAI clip generation failed');
-    return resp.json();
+    return readJsonOrThrow(resp, 'GenAI clip generation failed');
 }
 
 async function apiGenerateVoiceover(params) {
@@ -178,14 +177,12 @@ async function apiGenerateVoiceover(params) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(params)
     });
-    if (!resp.ok) throw new Error('Voiceover generation failed');
-    return resp.json();
+    return readJsonOrThrow(resp, 'Voiceover generation failed');
 }
 
 async function apiGetVoices() {
     const resp = await adminFetch('/api/marketing/voiceover-voices');
-    if (!resp.ok) throw new Error('Failed to load voices');
-    return resp.json();
+    return readJsonOrThrow(resp, 'Failed to load voices');
 }
 
 /* ─────────────────── Component ─────────────────── */
@@ -213,6 +210,8 @@ export default function AdStudio({ onBack }) {
     // Inventory picker
     const [inventoryHomes, setInventoryHomes] = useState([]);
     const [loadingInventory, setLoadingInventory] = useState(false);
+    const [inventoryError, setInventoryError] = useState(null);
+    const [inventoryQuery, setInventoryQuery] = useState('');
     const [showInventoryPicker, setShowInventoryPicker] = useState(false);
     const [selectedHome, setSelectedHome] = useState(null);
 
@@ -313,6 +312,27 @@ export default function AdStudio({ onBack }) {
             : (imageCategories[activeCategory] || []).map(resolvePhotoUrl).filter(Boolean)
     ).filter(url => !failedPhotoUrls.has(url));
     const selectedPhotoUrl = visiblePhotoUrls[selectedPhotoIdx] || visiblePhotoUrls[0] || availableRealPhotos[0] || '';
+
+    const filteredInventoryHomes = useMemo(() => {
+        const query = inventoryQuery.trim().toLowerCase();
+        if (!query) return inventoryHomes;
+        return inventoryHomes.filter(home => {
+            const specs = home.specs || {};
+            const haystack = [
+                home.model_name,
+                home.manufacturer,
+                home.status,
+                home.classification,
+                home.display_price,
+                specs.beds ? `${specs.beds} bedroom ${specs.beds}br` : '',
+                specs.baths ? `${specs.baths} bathroom ${specs.baths}ba` : '',
+                specs.sq_ft ? `${specs.sq_ft} sqft` : '',
+            ].filter(Boolean).join(' ').toLowerCase();
+            return haystack.includes(query);
+        });
+    }, [inventoryHomes, inventoryQuery]);
+
+    const visibleInventoryHomes = filteredInventoryHomes.slice(0, INVENTORY_PICKER_LIMIT);
 
     /* ─── handlers ─── */
     const handleGenerate = async () => {
@@ -445,14 +465,18 @@ export default function AdStudio({ onBack }) {
 
     const handleLoadInventory = async () => {
         setLoadingInventory(true);
+        setInventoryError(null);
         try {
             const result = await apiGetInventory();
             if (result.success && result.homes) {
                 setInventoryHomes(result.homes);
+                setInventoryQuery('');
                 setShowInventoryPicker(true);
+            } else {
+                setInventoryError(result.message || result.error || 'Inventory did not return any homes.');
             }
         } catch (err) {
-            console.error('Inventory load failed:', err);
+            setInventoryError(`Inventory load failed: ${err.message}`);
         } finally {
             setLoadingInventory(false);
         }
@@ -1282,8 +1306,23 @@ export default function AdStudio({ onBack }) {
                         <X size={18} />
                     </button>
                 </div>
+                <div className="tho-inventory-search">
+                    <Search size={14} />
+                    <input
+                        type="search"
+                        value={inventoryQuery}
+                        onChange={e => setInventoryQuery(e.target.value)}
+                        placeholder="Search model, maker, bedrooms, status..."
+                    />
+                </div>
+                {inventoryHomes.length > 0 && (
+                    <div className="tho-inventory-count">
+                        Showing {visibleInventoryHomes.length} of {filteredInventoryHomes.length} matches
+                        {filteredInventoryHomes.length > visibleInventoryHomes.length ? '; narrow search to see the rest' : ''}
+                    </div>
+                )}
                 <div className="tho-inventory-list">
-                    {inventoryHomes.map((home, i) => (
+                    {visibleInventoryHomes.map((home, i) => (
                         <button
                             key={home.id || i}
                             className={`tho-inventory-item ${selectedHome?.id === home.id ? 'selected' : ''}`}
@@ -1345,7 +1384,12 @@ export default function AdStudio({ onBack }) {
                     ))}
                     {inventoryHomes.length === 0 && (
                         <div className="tho-empty-state" style={{ padding: '2rem' }}>
-                            <p>No inventory loaded</p>
+                            <p>{inventoryError || 'No inventory loaded'}</p>
+                        </div>
+                    )}
+                    {inventoryHomes.length > 0 && filteredInventoryHomes.length === 0 && (
+                        <div className="tho-empty-state" style={{ padding: '2rem' }}>
+                            <p>No homes match that search.</p>
                         </div>
                     )}
                 </div>
@@ -1604,6 +1648,14 @@ export default function AdStudio({ onBack }) {
                         </button>
                         <span className="tho-or-divider">or enter manually:</span>
                     </div>
+                    {inventoryError && (
+                        <div className="tho-image-error mt-3">
+                            <AlertTriangle size={14} />
+                            <span>{inventoryError}</span>
+                            <button onClick={handleLoadInventory} className="tho-btn tho-btn-primary" style={{padding: '3px 8px', fontSize: '10px', height: 'auto', minHeight: '0'}}>Retry</button>
+                            <button onClick={() => setInventoryError(null)} className="tho-error-dismiss"><X size={12} /></button>
+                        </div>
+                    )}
 
                     <div className="tho-input-group">
                         <input
