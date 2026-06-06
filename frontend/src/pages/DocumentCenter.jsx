@@ -31,6 +31,8 @@ const STEPS = [
 ];
 
 const INITIAL_FORM = {
+  // Consumer Disclosure language: 'en' (MHD 1038) or 'es' (MHD 1040).
+  disclosure_language: 'en',
   // Customer Info
   salesrep: '',
   buyer_first_name: '', buyer_last_name: '', buyer_phone: '', buyer_email: '',
@@ -75,6 +77,31 @@ const LAST_EDITABLE_STEP = 3;
 // this document is generated we surface a pre-filing checklist on the results
 // screen. See docs/TX_MH_COMPLIANCE_RESEARCH.md.
 const SOO_TEMPLATE_NAME = 'TDHCA_1023-Statement-Ownership.pdf';
+
+// Consumer Disclosure comes in English (MHD 1038) and Spanish (MHD 1040). Staff
+// pick the language; at generate time we swap the English template for the
+// Spanish one. Packets carry only the English version by default.
+const CONSUMER_DISCLOSURE_EN = 'TDHCA_1038_Consumer_Disclosure.pdf';
+const CONSUMER_DISCLOSURE_ES = 'TDHCA_1040_Consumer_Disclosure_Spanish.pdf';
+
+/**
+ * Return the template list with the Consumer Disclosure set to the chosen
+ * language. Spanish swaps EN->ES; English leaves the list unchanged. De-dupes so
+ * a list never carries both editions. Order is preserved.
+ */
+export function applyDisclosureLanguage(templates, language) {
+  const list = Array.isArray(templates) ? templates : [];
+  if (language !== 'es') {
+    // Ensure no stray Spanish edition slipped in.
+    return list.filter(t => t !== CONSUMER_DISCLOSURE_ES);
+  }
+  const out = [];
+  for (const t of list) {
+    const mapped = t === CONSUMER_DISCLOSURE_EN ? CONSUMER_DISCLOSURE_ES : t;
+    if (!out.includes(mapped)) out.push(mapped);
+  }
+  return out;
+}
 
 function getRestorableDraftStep(draft) {
   const savedStep = Number(draft?.step || 1);
@@ -2131,7 +2158,7 @@ function Step2({ data, onChange, resetKey, inventory, inventoryLoading, onNext, 
 
 /* ─── Step 3: Select Documents ───────────────────────────── */
 
-function Step3({ templates, packets, selected, onToggle, onSelectPacket, isNew, onNext, onBack, templatesLoading, error, validationErrors, documentReadiness }) {
+function Step3({ templates, packets, selected, onToggle, onSelectPacket, isNew, onNext, onBack, templatesLoading, error, validationErrors, documentReadiness, disclosureLanguage, onDisclosureLanguage }) {
   const [expandedCats, setExpandedCats] = useState({ TMHA: true, TDHCA: false, State: false, Internal: false });
   const [viewMode, setViewMode] = useState('packets'); // packets, individual
 
@@ -2173,6 +2200,40 @@ function Step3({ templates, packets, selected, onToggle, onSelectPacket, isNew, 
       <StepIntro step={3} />
 
       <ValidationErrors errors={validationErrors} />
+
+      {/* Consumer Disclosure language: English (MHD 1038) or Spanish (MHD 1040) */}
+      <div className="flex flex-wrap items-center gap-3 rounded-xl border-2 border-gray-200 bg-gray-50 px-4 py-3">
+        <span className="text-sm font-semibold text-gray-700">Consumer Disclosure language:</span>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => onDisclosureLanguage?.('en')}
+            className={`rounded-lg px-4 py-1.5 text-sm font-bold transition-colors ${
+              disclosureLanguage !== 'es'
+                ? 'bg-blue-600 text-white'
+                : 'bg-white text-gray-600 border border-gray-300 hover:bg-gray-100'
+            }`}
+          >
+            English (Form 1038)
+          </button>
+          <button
+            type="button"
+            onClick={() => onDisclosureLanguage?.('es')}
+            className={`rounded-lg px-4 py-1.5 text-sm font-bold transition-colors ${
+              disclosureLanguage === 'es'
+                ? 'bg-blue-600 text-white'
+                : 'bg-white text-gray-600 border border-gray-300 hover:bg-gray-100'
+            }`}
+          >
+            Español (Form 1040)
+          </button>
+        </div>
+        <span className="text-xs text-gray-500">
+          {disclosureLanguage === 'es'
+            ? 'The Spanish MHD 1040 will be included in place of the English disclosure.'
+            : 'The English MHD 1038 disclosure will be included.'}
+        </span>
+      </div>
 
       {selected.length > 0 && (
         <div
@@ -3553,7 +3614,7 @@ export default function DocumentCenter() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          templates: selDocs,
+          templates: applyDisclosureLanguage(selDocs, form.disclosure_language),
           data: toDocumentData(form),
           merge: true
         }),
@@ -3732,6 +3793,8 @@ export default function DocumentCenter() {
           templatesLoading={templatesLoading}
           error={genErr || templatesError}
           validationErrors={validationErrors}
+          disclosureLanguage={form.disclosure_language}
+          onDisclosureLanguage={(lang) => chg('disclosure_language', lang)}
         />
       )}
 
