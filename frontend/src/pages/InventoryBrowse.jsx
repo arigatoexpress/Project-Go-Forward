@@ -3,7 +3,7 @@ import {
   Search, SlidersHorizontal, X, Home, Bed, Bath, Maximize2,
   Camera, Box, ChevronLeft, ChevronRight, MapPin, Phone,
   MessageCircle, Grid3X3, Loader2, Eye, ArrowUpDown, Calendar,
-  DollarSign, Video, CheckCircle2, AlertCircle
+  DollarSign, Video, CheckCircle2, AlertCircle, Tag
 } from 'lucide-react';
 import { BUSINESS_PHONE, BUSINESS_PHONE_RAW, BUSINESS_FULL_ADDRESS, BUSINESS_HOURS } from '../constants';
 import Card from '../components/Card';
@@ -686,6 +686,9 @@ export default function InventoryBrowse({ adminAuthed = false, onAskTex, onCreat
   const preOwnedCount = homes.filter(h => getAvailabilityKind(h) === 'pre_owned').length;
   const orderableCount = homes.filter(h => getAvailabilityKind(h) === 'orderable_floorplan').length;
   const tourCount = homes.filter(h => h.matterport_id).length;
+  // Total houses the customer can get = on-lot homes + orderable floorplans.
+  // The on-lot homes (lot models) are surfaced as "Special Deals".
+  const housesCount = newCount + orderableCount;
   const heroHome = homes.find(home => getHomeImage(home) && getAvailabilityKind(home) !== 'orderable_floorplan') || homes.find(home => getHomeImage(home)) || homes[0];
   const heroImage = getHomeImage(heroHome);
 
@@ -716,8 +719,8 @@ export default function InventoryBrowse({ adminAuthed = false, onAskTex, onCreat
             </p>
 
             <div className="mt-6 grid gap-3 sm:grid-cols-3">
-              <InventoryMetric icon={CheckCircle2} label="Available Now" value={newCount} tone="blue" />
-              <InventoryMetric icon={Home} label="Orderable Plans" value={orderableCount} />
+              <InventoryMetric icon={Home} label="Houses" value={housesCount} tone="blue" />
+              <InventoryMetric icon={Tag} label="Special Deals" value={newCount} />
               <InventoryMetric icon={Box} label="3D Tours" value={tourCount} tone="warn" />
             </div>
 
@@ -793,7 +796,7 @@ export default function InventoryBrowse({ adminAuthed = false, onAskTex, onCreat
             <button
               onClick={() => setFilters(f => ({ ...f, status: 'available_now' }))}
               className={`${PILL_BTN} ${filters.status === 'available_now' ? 'bg-[var(--cp-accent)] text-[var(--cp-bg)]' : 'bg-[var(--cp-panel)] text-[var(--cp-muted)] hover:text-[var(--cp-text)] hover:border-[var(--cp-border-light)]'}`}
-            >Available Now ({newCount})</button>
+            >Special Deals ({newCount})</button>
             <button
               onClick={() => setFilters(f => ({ ...f, status: 'orderable_floorplan' }))}
               className={`${PILL_BTN} ${filters.status === 'orderable_floorplan' ? 'bg-[var(--cp-accent)] text-[var(--cp-bg)]' : 'bg-[var(--cp-panel)] text-[var(--cp-muted)] hover:text-[var(--cp-text)] hover:border-[var(--cp-border-light)]'}`}

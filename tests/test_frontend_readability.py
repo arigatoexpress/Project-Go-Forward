@@ -77,8 +77,12 @@ def test_inventory_browse_exposes_orderable_floorplan_filter():
 
     assert "function getAvailabilityKind(home)" in source
     assert "orderable_floorplan" in source
+    # The orderable affordance is the FILTER chip + the "orderable floorplans
+    # visible" subtext. (The hero stat card was relabeled "Houses" per client
+    # feedback — on-lot lot models now surface as "Special Deals" — so the old
+    # "Orderable Plans" hero label is intentionally gone.)
     assert "Orderable ({orderableCount})" in source
-    assert "Orderable Plans" in source
+    assert "orderable floorplans visible" in source
 
 
 def test_document_center_inactive_navigation_remains_readable():
