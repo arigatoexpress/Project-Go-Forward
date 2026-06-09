@@ -1655,8 +1655,6 @@ def llms_txt() -> FileResponse:
     )
 
 
-@app.get("/healthz", response_class=JSONResponse)
-@app.get("/healthz/", response_class=JSONResponse)
 @app.api_route("/healthz", methods=["GET", "HEAD"], response_class=JSONResponse)
 @app.api_route("/healthz/", methods=["GET", "HEAD"], response_class=JSONResponse)
 @limiter.exempt
