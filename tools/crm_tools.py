@@ -204,7 +204,7 @@ def check_available_slots(
         "day_name": d.strftime("%A"),
         "business_hours": f"{open_time} - {close_time}",
         "available_slots": slots,
-        "location": "Texas Home Outlet, 10685 FM 1960 East, Huffman",
+        "location": "Texas Home Outlet, 10685 FM 1960 East, Huffman, TX 77336",
         "note": "Each appointment is 1 hour. Please arrive 5 minutes early."
     }
 
@@ -271,7 +271,7 @@ def book_appointment(
             f"Your appointment is confirmed!\n\n"
             f"**Date:** {d.strftime('%A, %B %d, %Y')}\n"
             f"**Time:** {time_slot}\n"
-            f"**Location:** Texas Home Outlet, 10685 FM 1960 East, Huffman\n"
+            f"**Location:** Texas Home Outlet, 10685 FM 1960 East, Huffman, TX 77336\n"
             f"**Phone:** (281) 324-3020\n\n"
             f"Please arrive 5 minutes early. We look forward to seeing you, {user_name}!"
         ),
@@ -323,7 +323,7 @@ def get_business_hours(tool_context: ToolContext = None) -> dict:
         Hours schedule, location, and booking info.
     """
     return {
-        "location": "Texas Home Outlet, 10685 FM 1960 East, Huffman",
+        "location": "Texas Home Outlet, 10685 FM 1960 East, Huffman, TX 77336",
         "hours": "Mon-Fri: 9am-6pm, Sat: 9am-5pm, Sun: 12pm-3pm",
         "phone": "(281) 324-3020",
         "appointments": "Appointments can be booked up to 30 days in advance. Each visit is approximately 1 hour."

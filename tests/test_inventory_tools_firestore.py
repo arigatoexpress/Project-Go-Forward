@@ -72,3 +72,33 @@ def test_firestore_inventory_loader_maps_current_firestore_fields(monkeypatch):
             "matterport_id": "abc123",
         }
     ]
+
+
+def test_normalized_specs_infers_bathrooms_when_beds_exist():
+    specs = inventory_tools._normalized_specs({"beds": 1, "baths": None, "sq_ft": 399})
+
+    assert specs == {"beds": 1, "baths": 1, "sq_ft": 399, "dimensions": ""}
+
+
+def test_search_inventory_returns_fast_shortlist_with_total_matches(monkeypatch):
+    homes = [
+        {
+            "id": f"home-{i}",
+            "model_name": f"Home {i}",
+            "classification": "Single Wide",
+            "status": "Available",
+            "specs": {"beds": 1, "baths": None, "sq_ft": 399 + i},
+            "pricing": {"price_value": 40000 + i, "display_price": "$40,000"},
+            "features": [],
+        }
+        for i in range(15)
+    ]
+    monkeypatch.setattr(inventory_tools, "_load_inventory", lambda: homes)
+
+    result = inventory_tools.search_inventory(min_beds=1, limit=5)
+
+    assert result["success"] is True
+    assert result["count"] == 5
+    assert result["total_matches"] == 15
+    assert "Showing 5 of 15" in result["search_summary"]
+    assert all(home["specs"]["baths"] == 1 for home in result["homes"])

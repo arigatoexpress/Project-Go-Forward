@@ -93,10 +93,21 @@ def _wrap(text: str, max_chars: int) -> list[str]:
 def build_consent_pdf_bytes(
     business_name: str = DEFAULT_BUSINESS_NAME,
     *,
-    business_phone: str = "(281) 324-3020",
-    business_address: str = "10685 FM 1960 East, Huffman, TX",
+    business_phone: str | None = None,
+    business_address: str | None = None,
 ) -> bytes:
-    """Render the ESIGN consent disclosure as a single-page PDF (bytes)."""
+    """Render the ESIGN consent disclosure as a single-page PDF (bytes).
+
+    Phone/address default to the canonical values from config.yaml (single
+    source of truth) so the disclosure never drifts from the live business info.
+    """
+    from config_loader import business_address as _cfg_business_address
+    from config_loader import business_phone as _cfg_business_phone
+
+    if business_phone is None:
+        business_phone = _cfg_business_phone()
+    if business_address is None:
+        business_address = _cfg_business_address()
     buffer = io.BytesIO()
     c = canvas.Canvas(buffer, pagesize=letter)
     width, height = letter

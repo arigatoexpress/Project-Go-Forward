@@ -34,6 +34,34 @@ except ImportError:
 INVENTORY_CACHE_KEY = "inventory_dataset"
 
 
+def _to_number(value):
+    """Coerce numeric inventory fields while preserving missing values."""
+    if value in (None, ""):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if number <= 0:
+        return None
+    return int(number) if number.is_integer() else number
+
+
+def _normalized_specs(raw_specs: dict | None = None, *, beds=None, baths=None, sq_ft=None, dimensions=None) -> dict:
+    """Return compact specs with conservative bath inference for Tex/search."""
+    specs = raw_specs or {}
+    bed_count = _to_number(beds if beds is not None else specs.get("beds") or specs.get("bedrooms"))
+    bath_count = _to_number(baths if baths is not None else specs.get("baths") or specs.get("bathrooms"))
+    if bed_count and not bath_count:
+        bath_count = 1 if bed_count <= 2 else 2
+    return {
+        "beds": bed_count,
+        "baths": bath_count,
+        "sq_ft": _to_number(sq_ft if sq_ft is not None else specs.get("sq_ft") or specs.get("sqft")),
+        "dimensions": dimensions if dimensions is not None else specs.get("dimensions", ""),
+    }
+
+
 def _load_inventory_from_firestore():
     """Load inventory from Firestore (cloud-native)"""
     try:
@@ -93,14 +121,14 @@ def _load_inventory_from_firestore():
                 "model_name": item.get("model_name", ""),
                 "classification": classification,
                 "status": status,
-                "specs": {
-                    "beds": item.get("bedrooms"),
-                    "baths": item.get("bathrooms"),
-                    "sq_ft": item.get("sqft") or item.get("sq_ft"),
-                    "dimensions": f"{item.get('width')}x{item.get('length')}"
+                "specs": _normalized_specs(
+                    beds=item.get("bedrooms"),
+                    baths=item.get("bathrooms"),
+                    sq_ft=item.get("sqft") or item.get("sq_ft"),
+                    dimensions=f"{item.get('width')}x{item.get('length')}"
                     if item.get("width") and item.get("length")
                     else "",
-                },
+                ),
                 "pricing": {
                     "price_value": price_value,
                     "display_price": f"${price_value:,.0f}"
@@ -208,12 +236,12 @@ def _load_website_homes():
             "model_name": asset["name"],
             "classification": classification,
             "status": "Available" if asset.get("is_new") else "Pre-Owned",
-            "specs": {
-                "beds": asset.get("beds"),
-                "baths": asset.get("baths"),
-                "sq_ft": asset.get("sqft"),
-                "dimensions": asset.get("dims"),
-            },
+            "specs": _normalized_specs(
+                beds=asset.get("beds"),
+                baths=asset.get("baths"),
+                sq_ft=asset.get("sqft"),
+                dimensions=asset.get("dims"),
+            ),
             "pricing": {
                 "price_value": price_value,
                 "display_price": "Call for Price",
@@ -302,6 +330,7 @@ def search_inventory(
     classification: str | None = None,
     status: str | None = None,
     features: list[str] | None = None,
+    limit: int = 12,
     tool_context: ToolContext = None,
 ) -> dict:
     """
@@ -315,6 +344,7 @@ def search_inventory(
         classification: Home type - "Single Wide" or "Double Wide"
         status: Home condition - "Available" (new homes) or "Pre-Owned" (used homes). Leave empty to search all.
         features: Required features list (e.g., ["Pre-Owned", "4 Bedroom"])
+        limit: Maximum number of homes to return to Tex. Total matches are still reported.
         tool_context: ADK tool context
 
     Returns:
@@ -328,6 +358,7 @@ def search_inventory(
     for home in inventory:
         # Apply filters
         # Note: JSON data already has integer/float types for specs
+        home["specs"] = _normalized_specs(home.get("specs"))
         beds = home["specs"].get("beds")
         baths = home["specs"].get("baths")
 
@@ -359,11 +390,14 @@ def search_inventory(
     # Sort by price (homes without pricing go last)
     results.sort(key=lambda x: x.get("pricing", {}).get("price_value", 0) or 999999999)
 
+    limited_results = results[: max(1, min(limit or 12, 25))]
+
     return {
         "success": True,
-        "count": len(results),
-        "homes": results,
-        "search_summary": f"Found {len(results)} homes matching your criteria.",
+        "count": len(limited_results),
+        "total_matches": len(results),
+        "homes": limited_results,
+        "search_summary": f"Showing {len(limited_results)} of {len(results)} homes matching your criteria.",
         "tip": "Book an appointment to visit our showroom!"
         if results
         else "Try broadening your search criteria.",

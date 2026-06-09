@@ -242,8 +242,11 @@ def render_nurture_email(customer: dict) -> tuple[str, str]:
     cta_url = _utm_url(NURTURE_CTA_BASE)
     cta_url_html = html_mod.escape(cta_url, quote=True)
 
-    business_phone = "(281) 324-3020"
-    business_address = "10685 FM 1960 East, Huffman, TX"
+    from config_loader import business_address as _cfg_business_address
+    from config_loader import business_phone as _cfg_business_phone
+
+    business_phone = _cfg_business_phone()
+    business_address = _cfg_business_address()
 
     html_body = f"""
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff;">

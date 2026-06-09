@@ -55,6 +55,26 @@ def business_address():
 def business_phone():
     return get_business().get("phone", "")
 
+def business_email():
+    return get_business().get("email", "")
+
+def business_street():
+    return get_business().get("street", "")
+
+def business_city():
+    return get_business().get("city", "")
+
+def business_state():
+    return get_business().get("state", "")
+
+def business_zip():
+    return get_business().get("zip", "")
+
+def business_city_state_zip():
+    """'Huffman, TX 77336' — built from the structured config components."""
+    region = " ".join(p for p in (business_state(), business_zip()) if p)
+    return ", ".join(p for p in (business_city(), region) if p)
+
 def business_hours():
     hours = get_business().get("hours", {})
     return f"{hours.get('weekday', 'Mon-Fri 9-5')}, {hours.get('saturday', '')}, {hours.get('sunday', '')}"

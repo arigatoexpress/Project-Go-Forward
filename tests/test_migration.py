@@ -42,8 +42,11 @@ class TestMigrationData:
     """Test migrated customer data integrity."""
 
     def test_record_count(self, customers):
+        # Sanity band, not an exact count. Floor catches data loss; ceiling
+        # catches a runaway/duplicating import. Bumped after the 2026-06-04 FCD
+        # differential grew the sanitized set to ~2005 (was ~1963).
         assert len(customers) >= 1900
-        assert len(customers) < 2000
+        assert len(customers) < 2200
 
     def test_no_duplicate_ids(self, customers):
         ids = [c["id"] for c in customers]

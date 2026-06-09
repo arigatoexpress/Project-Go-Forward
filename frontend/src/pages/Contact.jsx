@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Mail, Phone, MapPin, Send, CheckCircle, Loader2 } from 'lucide-react';
-import { BUSINESS_NAME, BUSINESS_URL, BUSINESS_PHONE, BUSINESS_PHONE_RAW, BUSINESS_ADDRESS, BUSINESS_CITY, BUSINESS_HOURS } from '../constants';
+import { BUSINESS_NAME, BUSINESS_URL, BUSINESS_PHONE, BUSINESS_PHONE_RAW, BUSINESS_FULL_ADDRESS, BUSINESS_HOURS } from '../constants';
 
 const Contact = ({ onBack }) => {
     const [submitted, setSubmitted] = useState(false);
@@ -81,7 +81,15 @@ const Contact = ({ onBack }) => {
                             </div>
                             <div>
                                 <h3 className="text-lg font-bold text-gray-900">Visit Our Showroom</h3>
-                                <p className="text-gray-600 mt-1">{BUSINESS_ADDRESS}<br />{BUSINESS_CITY}</p>
+                                <p className="text-gray-700 mt-1 font-medium">{BUSINESS_FULL_ADDRESS}</p>
+                                <a
+                                    href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(BUSINESS_FULL_ADDRESS)}`}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="text-sm text-blue-700 hover:text-blue-900 hover:underline mt-2 inline-block"
+                                >
+                                    Get directions
+                                </a>
                             </div>
                         </div>
                     </div>
