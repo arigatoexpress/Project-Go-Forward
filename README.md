@@ -20,7 +20,8 @@ A FastAPI + React application that powers the live THO site:
 ## Quick start
 
 ```bash
-cd /Users/aribs/Code/Project-Go-Forward
+git clone https://github.com/arigatoexpress/Project-Go-Forward.git
+cd Project-Go-Forward
 python3.11 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt -r requirements-dev.txt

@@ -36,6 +36,16 @@ def test_healthz_trailing_slash_returns_minimal_probe(monkeypatch):
     assert body["version"] == "test-sha"
 
 
+def test_head_requests_supported_for_uptime_monitors(monkeypatch):
+    """Uptime monitors default to HEAD; '/' and the health probes must not 405."""
+    client, _main, _db, _logger = create_client(monkeypatch)
+
+    for path in ("/", "/health", "/healthz", "/healthz/"):
+        response = client.head(path)
+        assert response.status_code == 200, path
+        assert response.content == b"", path
+
+
 def test_healthz_body_is_strict_json_with_concrete_values(monkeypatch):
     """Regression: the body must be parseable JSON with concrete values, NEVER
     a schema-style description (e.g. ``{ status: string, uptime_s: int }``).
