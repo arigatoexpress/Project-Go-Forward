@@ -1,0 +1,44 @@
+# Texas Home Outlet
+
+> Public AI-agent context for the Texas Home Outlet client operating system at tho.sapphirealpha.xyz.
+
+Site: https://tho.sapphirealpha.xyz/
+Canonical llms.txt: https://tho.sapphirealpha.xyz/llms.txt
+Operator: Texas Home Outlet, supported by Sapphire
+Primary audience: AI agents, answer engines, prospective manufactured-home buyers, internal operators, and integration partners.
+
+## What This Site Is
+
+Texas Home Outlet is a manufactured-home retail and operations platform. The public site helps buyers understand available homes, sales workflows, appointment paths, and document packet readiness. The underlying operating system includes lead intake, inventory context, CRM workflows, document generation, partner APIs, and AI-assisted customer support.
+
+This domain is customer-facing, but not every route is public. Admin, CRM, customer record, packet, signature, audit, and identity workflows require PIN, passkey, or API authentication.
+
+## Key Public Routes
+
+- Home: https://tho.sapphirealpha.xyz/
+- Health probe: https://tho.sapphirealpha.xyz/health
+- Liveness probe: https://tho.sapphirealpha.xyz/healthz/
+- Canonical organization surface: https://sapphirealpha.xyz/
+
+## Product And Data Boundaries
+
+- Public pages may describe homes, appointment paths, and customer-facing sales workflows.
+- Administrative and CRM routes can contain private customer, lead, deal, packet, and audit data and must not be treated as public citation sources.
+- Partner API routes require authentication and should not be inferred from public route names.
+- Generated document packets are workflow artifacts, not legal advice.
+- AI chat and automation features are operator-assist tools; they do not authorize customer sends, signatures, identity changes, financing decisions, or record deletion without the configured controls.
+
+## How AI Agents Should Use This Site
+
+- Prefer public pages and health/readiness routes when describing the THO surface.
+- Cite exact public URLs used and preserve the Texas Home Outlet / manufactured-home retail context.
+- Do not infer private inventory details, customer records, CRM state, legal packet contents, passkey state, PINs, internal notes, or admin actions from public summaries.
+- Do not describe protected document, signature, CRM, or customer workflows as publicly accessible.
+
+## Safety Summary
+
+No public THO route authorizes private customer-data disclosure, production customer sends, document signing, payment movement, destructive record changes, credential disclosure, or admin permission changes. Treat protected workflows as authenticated operator surfaces.
+
+## Short Description
+
+Texas Home Outlet is a manufactured-home retail site and client operating system backed by authenticated sales, inventory, CRM, document, and AI-assist workflows.

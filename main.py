@@ -277,6 +277,7 @@ app = FastAPI(
     docs_url="/docs" if _DOCS_ENABLED else None,
     redoc_url="/redoc" if _DOCS_ENABLED else None,
 )
+LLMS_TXT_PATH = os.path.join(os.path.dirname(__file__), "llms.txt")
 
 # Initialize services (these don't require Vertex AI)
 deploy_cfg = get_deployment_config()
@@ -666,6 +667,8 @@ def _should_redirect_to_canonical_host(request: Request) -> bool:
         return False
 
     path = request.url.path
+    if path == "/llms.txt":
+        return False
     if path.startswith("/health") or path == "/api" or path.startswith("/api/"):
         return False
     if path.startswith("/assets/") or path.startswith("/workbox-"):
@@ -1642,6 +1645,18 @@ def health():
     return {"status": "ok"}
 
 
+@app.get("/llms.txt")
+@limiter.exempt
+def llms_txt() -> FileResponse:
+    return FileResponse(
+        LLMS_TXT_PATH,
+        media_type="text/plain; charset=utf-8",
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
+
+
+@app.get("/healthz", response_class=JSONResponse)
+@app.get("/healthz/", response_class=JSONResponse)
 @app.api_route("/healthz", methods=["GET", "HEAD"], response_class=JSONResponse)
 @app.api_route("/healthz/", methods=["GET", "HEAD"], response_class=JSONResponse)
 @limiter.exempt
