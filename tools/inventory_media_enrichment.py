@@ -599,7 +599,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=Path("/Users/aribs/Documents/Cowork/tho-cutover-2026-05-06/private"),
+        default=Path(os.environ.get("THO_LOCAL_DATA_DIR", "data/local_private")),
+        help="Local-only output dir for enrichment artifacts; never committed "
+        "(see docs/LOCAL_DATA.md). Defaults to $THO_LOCAL_DATA_DIR.",
     )
     parser.add_argument("--dry-run", action="store_true", help="Plan only; do not write Firestore")
     parser.add_argument("--apply", action="store_true", help="Apply allow-listed media updates")

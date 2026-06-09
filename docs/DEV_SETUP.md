@@ -2,10 +2,11 @@
 
 Use Python 3.11 for this repo. The Docker image and GitHub Actions deploy workflow both target Python 3.11, so local development should match that runtime.
 
+All commands below run from the repo root unless noted otherwise.
+
 ## Python
 
 ```bash
-cd /Users/aribs/Code/Project-Go-Forward
 python3.11 -m venv .venv
 source .venv/bin/activate
 pip install --upgrade pip
@@ -18,7 +19,7 @@ If you use `pyenv`, `asdf`, or `mise`, the repo-level [`.python-version`](../.py
 ## Frontend
 
 ```bash
-cd /Users/aribs/Code/Project-Go-Forward/frontend
+cd frontend
 npm ci
 npm run build
 ```
@@ -26,7 +27,6 @@ npm run build
 ## Pre-commit
 
 ```bash
-cd /Users/aribs/Code/Project-Go-Forward
 pip install pre-commit
 pre-commit install
 pre-commit run --files <changed-files>
@@ -39,13 +39,11 @@ Use `pre-commit run --all-files` only when you intentionally want a repo-wide cl
 CI-critical checks:
 
 ```bash
-cd /Users/aribs/Code/Project-Go-Forward
 python -m pytest tests/test_admin_auth.py tests/test_smoke.py -v --tb=short
 ```
 
 Full suite:
 
 ```bash
-cd /Users/aribs/Code/Project-Go-Forward
 python -m pytest tests/ -q
 ```
