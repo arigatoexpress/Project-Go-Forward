@@ -5,7 +5,7 @@ PII fields are explicitly excluded from the extraction prompt.
 """
 
 import logging
-from typing import Dict, Any, Optional
+from typing import Any
 
 from config.field_map_loader import get_fields_for_template
 
@@ -16,7 +16,7 @@ async def extract_form_data_from_session(
     session_id: str,
     template_name: str,
     runner=None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Extract form field data from a chat conversation session.
 
@@ -49,10 +49,12 @@ async def extract_form_data_from_session(
         return {"extracted_data": {}, "message": "No conversation history found"}
 
     # Build the extraction prompt
-    field_list = "\n".join([
-        f"- {name}: {defn.get('label', name)} (type: {defn.get('type', 'string')})"
-        for name, defn in safe_fields.items()
-    ])
+    field_list = "\n".join(
+        [
+            f"- {name}: {defn.get('label', name)} (type: {defn.get('type', 'string')})"
+            for name, defn in safe_fields.items()
+        ]
+    )
 
     prompt = f"""Extract form field values from the following conversation transcript.
 Only extract values that are explicitly mentioned or clearly implied in the conversation.
@@ -79,6 +81,7 @@ Return ONLY a valid JSON object with the extracted field values. No explanation,
 
         # Parse the response
         import json
+
         response_text = response.text.strip()
         # Remove markdown code fences if present
         if response_text.startswith("```"):
@@ -96,17 +99,23 @@ Return ONLY a valid JSON object with the extracted field values. No explanation,
                 validated[key] = str(value)
 
         logger.info(f"Extracted {len(validated)} fields from session {session_id}")
-        return {"extracted_data": validated, "message": f"Extracted {len(validated)} fields from conversation"}
+        return {
+            "extracted_data": validated,
+            "message": f"Extracted {len(validated)} fields from conversation",
+        }
 
     except ImportError:
         logger.warning("google-genai not available for form extraction")
-        return {"extracted_data": {}, "message": "AI extraction not available (genai not installed)"}
+        return {
+            "extracted_data": {},
+            "message": "AI extraction not available (genai not installed)",
+        }
     except Exception as e:
         logger.error(f"Form extraction failed: {e}")
         return {"extracted_data": {}, "message": f"Extraction failed: {str(e)}"}
 
 
-async def _get_conversation_text(session_id: str, runner=None) -> Optional[str]:
+async def _get_conversation_text(session_id: str, runner=None) -> str | None:
     """
     Retrieve conversation text from ADK session or conversation memory.
     Returns a formatted transcript string.
@@ -138,6 +147,7 @@ async def _get_conversation_text(session_id: str, runner=None) -> Optional[str]:
     # Fallback: try conversation memory from Firestore
     try:
         from conversation_memory import ConversationMemory
+
         memory = ConversationMemory()
         context = memory.get_context(session_id)
         if context and hasattr(context, "recent_messages"):

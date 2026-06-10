@@ -22,6 +22,12 @@ extend-exclude = [
 select = ["E", "F", "I", "UP"]
 ignore = ["E501"]
 
+[tool.ruff.lint.per-file-ignores]
+# str+Enum classes serialize via their value in API payloads and Firestore
+# documents; converting to StrEnum changes str() behavior and is not worth
+# the regression risk on a live system.
+"database/models.py" = ["UP042"]
+
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"

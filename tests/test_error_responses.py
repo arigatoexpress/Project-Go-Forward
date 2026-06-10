@@ -89,7 +89,7 @@ def test_static_assets_do_not_consume_global_rate_limit(monkeypatch):
     service_worker = REPO_ROOT / "frontend" / "dist" / "registerSW.js"
     service_worker.write_text("console.log('sw registration')\n")
     icon = REPO_ROOT / "frontend" / "dist" / "tex-icon.svg"
-    icon.write_text("<svg xmlns=\"http://www.w3.org/2000/svg\" />\n")
+    icon.write_text('<svg xmlns="http://www.w3.org/2000/svg" />\n')
 
     static_paths = [
         "/assets/app.deadbeef.js",

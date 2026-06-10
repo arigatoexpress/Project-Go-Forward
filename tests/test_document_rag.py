@@ -150,9 +150,7 @@ def test_query_caps_k_to_chunk_count(tmp_path):
         {"id": "a", "template": "x.pdf", "page": 1, "text": "alpha"},
         {"id": "b", "template": "x.pdf", "page": 2, "text": "beta"},
     ]
-    embeddings = np.array(
-        [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=np.float32
-    )
+    embeddings = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=np.float32)
     index_dir = _build_fake_index(tmp_path, chunks, embeddings)
 
     client = FakeEmbeddingClient({"alpha": np.array([1.0, 0.0, 0.0], dtype=np.float32)})

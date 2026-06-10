@@ -21,7 +21,6 @@ if str(REPO_ROOT) not in sys.path:
 
 from tools import partner_webhooks  # noqa: E402
 
-
 # ─── helpers ────────────────────────────────────────────────────────────────
 
 
@@ -196,9 +195,7 @@ def test_non_2xx_response_logged_as_failure(monkeypatch, clean_env):
     )
 
     db = FakeDB()
-    partner_webhooks.dispatch_partner_event(
-        "deal.funded", {"deal_id": "d1"}, db=db, blocking=True
-    )
+    partner_webhooks.dispatch_partner_event("deal.funded", {"deal_id": "d1"}, db=db, blocking=True)
 
     (activity,) = db.activities.values()
     assert activity["metadata"]["success"] is False
@@ -215,9 +212,7 @@ def test_network_error_logged_as_failure(monkeypatch, clean_env):
     monkeypatch.setattr(partner_webhooks.requests, "post", _raise)
 
     db = FakeDB()
-    partner_webhooks.dispatch_partner_event(
-        "deal.funded", {"deal_id": "d1"}, db=db, blocking=True
-    )
+    partner_webhooks.dispatch_partner_event("deal.funded", {"deal_id": "d1"}, db=db, blocking=True)
 
     (activity,) = db.activities.values()
     assert activity["metadata"]["success"] is False
@@ -230,9 +225,7 @@ def test_missing_signing_key_still_delivers_but_no_signature(monkeypatch, clean_
     monkeypatch.setenv("PARTNER_WEBHOOK_URL_ETAI", "https://example.com/etai")
     # PARTNER_WEBHOOK_SIGNING_KEY intentionally unset
 
-    partner_webhooks.dispatch_partner_event(
-        "deal.funded", {"deal_id": "d1"}, blocking=True
-    )
+    partner_webhooks.dispatch_partner_event("deal.funded", {"deal_id": "d1"}, blocking=True)
 
     assert len(fake_post) == 1
     assert "X-THO-Signature" not in fake_post[0]["headers"]

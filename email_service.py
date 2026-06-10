@@ -68,8 +68,8 @@ NOTIFICATION_EMAIL = ",".join(NOTIFICATION_EMAILS)
 REPLY_TO = os.environ.get("REPLY_TO", "sales@texashomeoutlet.com")
 # Business contact details come from config.yaml (single source of truth); a
 # guard test enforces that these agree across modules.
-from config_loader import business_address as _cfg_business_address
-from config_loader import business_phone as _cfg_business_phone
+from config_loader import business_address as _cfg_business_address  # noqa: E402
+from config_loader import business_phone as _cfg_business_phone  # noqa: E402
 
 BUSINESS_PHONE = _cfg_business_phone()
 BUSINESS_ADDRESS = _cfg_business_address()
@@ -193,9 +193,7 @@ def send_email(
 
         _log_email_activity(to_display, subject, email_type, related_id)
 
-        logger.info(
-            f"Email sent: {email_type} to {to_display} (id: {result.get('id', 'unknown')})"
-        )
+        logger.info(f"Email sent: {email_type} to {to_display} (id: {result.get('id', 'unknown')})")
         return {
             "success": True,
             "message_id": result.get("id"),

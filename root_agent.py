@@ -14,15 +14,21 @@ Enhancements (Google Cloud course learnings):
 import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo
+
 from google.adk.agents import LlmAgent
 from google.genai import types
 
 from config_loader import (
-    business_name, business_address, business_phone,
-    business_hours, model_name,
-    product_singular, product_plural,
-    get_agent_config, get_product_config,
+    business_address,
+    business_hours,
+    business_name,
+    business_phone,
+    get_agent_config,
     get_model_config,
+    get_product_config,
+    model_name,
+    product_plural,
+    product_singular,
 )
 
 logger = logging.getLogger(__name__)
@@ -62,24 +68,27 @@ def _build_generate_content_config() -> types.GenerateContentConfig:
 
     logger.info(
         "GenerateContentConfig: temp=%.1f, max_tokens=%d, top_p=%.2f, safety=%s",
-        config.temperature, config.max_output_tokens, config.top_p, threshold,
+        config.temperature,
+        config.max_output_tokens,
+        config.top_p,
+        threshold,
     )
     return config
 
 
 def _build_planner():
     """Build BuiltInPlanner with ThinkingConfig if enabled in config.yaml.
-    
+
     NOTE: Disabled for production - the thinking output was being shown to users.
     Re-enable only after fixing the config to include_thoughts=False
     """
     return None  # DISABLED - was causing internal monologue in user-facing output
-    
+
     # Original code (disabled):
     # thinking_cfg = get_thinking_config()
     # if not thinking_cfg.get("enabled", False):
     #     return None
-    # 
+    #
     # planner = BuiltInPlanner(
     #     thinking_config=types.ThinkingConfig(
     #         include_thoughts=thinking_cfg.get("include_thoughts", True),
@@ -93,9 +102,25 @@ def _build_planner():
 def _create_sales_agent() -> LlmAgent:
     """Create the Sales Agent with inventory and search tools."""
     try:
-        from tools import search_inventory, book_appointment, get_business_hours, save_lead, check_available_slots, cancel_appointment, get_current_datetime
+        from tools import (
+            book_appointment,
+            cancel_appointment,
+            check_available_slots,
+            get_business_hours,
+            get_current_datetime,
+            save_lead,
+            search_inventory,
+        )
     except ImportError:
-        from .tools import search_inventory, book_appointment, get_business_hours, save_lead, check_available_slots, cancel_appointment, get_current_datetime
+        from .tools import (
+            book_appointment,
+            cancel_appointment,
+            check_available_slots,
+            get_business_hours,
+            get_current_datetime,
+            save_lead,
+            search_inventory,
+        )
 
     product_cfg = get_product_config()
     agent_cfg = get_agent_config()
@@ -105,8 +130,10 @@ def _create_sales_agent() -> LlmAgent:
     _today_str = _now_ct.strftime("%A, %B %d, %Y")
     _today_iso = _now_ct.strftime("%Y-%m-%d")
 
-    spec_fields_str = ", ".join([f.get("label", f.get("key")) for f in product_cfg.get("spec_fields", [])])
-    
+    spec_fields_str = ", ".join(
+        [f.get("label", f.get("key")) for f in product_cfg.get("spec_fields", [])]
+    )
+
     instruction = f"""You are a Senior Consultant at {business_name()} — think of yourself as a knowledgeable friend who genuinely wants to help people find their dream home. Your name is Tex.
 
 Guide customers from browsing to booking:
@@ -176,7 +203,7 @@ If a time slot is not available, suggest nearby alternatives.
 **Switching Agents:**
 If the customer has a service or warranty issue, or says something like "I need service" or "my home has a problem", acknowledge it and say "Let me get my service team to help you with that." Then end your response. The system will route them back to the Service Agent.
 """
-    
+
     return LlmAgent(
         name="sales_agent",
         model=model_name(),
@@ -190,17 +217,29 @@ If the customer has a service or warranty issue, or says something like "I need 
             book_appointment,
             cancel_appointment,
             get_business_hours,
-            save_lead
-        ]
+            save_lead,
+        ],
     )
 
 
 def _create_service_agent() -> LlmAgent:
     """Create the Service Agent for warranty and support."""
     try:
-        from tools import check_warranty_status, analyze_defect_image, generate_work_order_pdf, generate_service_ticket, generate_customer_email
+        from tools import (
+            analyze_defect_image,
+            check_warranty_status,
+            generate_customer_email,
+            generate_service_ticket,
+            generate_work_order_pdf,
+        )
     except ImportError:
-        from .tools import check_warranty_status, analyze_defect_image, generate_work_order_pdf, generate_service_ticket, generate_customer_email
+        from .tools import (
+            analyze_defect_image,
+            check_warranty_status,
+            generate_customer_email,
+            generate_service_ticket,
+            generate_work_order_pdf,
+        )
 
     return LlmAgent(
         name="service_agent",
@@ -234,8 +273,8 @@ If the customer mentions they are looking to buy a new home, asks about prices o
             analyze_defect_image,
             generate_work_order_pdf,
             generate_service_ticket,
-            generate_customer_email
-        ]
+            generate_customer_email,
+        ],
     )
 
 
@@ -245,12 +284,12 @@ def _create_root_agent() -> LlmAgent:
         from tools import get_business_hours
     except ImportError:
         from .tools import get_business_hours
-    
+
     sales_agent = _create_sales_agent()
     service_agent = _create_service_agent()
-    
+
     agent_cfg = get_agent_config()
-    
+
     planner = _build_planner()
 
     kwargs = dict(

@@ -52,39 +52,74 @@ from tools.document_tools import OUTPUT_DIR  # noqa: E402
 # "Sample"/"Test" values. installer_* are auto-filled from business constants by
 # enrich_document_data, mirroring the frontend default (installer = THO).
 FULL_DEAL: dict[str, object] = {
-    "buyer_first_name": "Jordan", "buyer_last_name": "Brooks",
+    "buyer_first_name": "Jordan",
+    "buyer_last_name": "Brooks",
     "buyer_name": "Jordan Avery Brooks",
-    "buyer_address": "456 Meadow Lane", "buyer_city": "Austin",
-    "buyer_county": "Travis", "buyer_state": "TX", "buyer_zip": "78701",
-    "buyer_phone": "512-555-0123", "buyer_email": "jordan.brooks@example.com",
-    "buyer_ssn": "456-12-7890", "buyer_dob": "1986-04-12",
-    "buyer_marital_status": "Married", "buyer_income": "78000",
-    "co_buyer_first_name": "Taylor", "co_buyer_last_name": "Brooks",
-    "co_buyer_name": "Taylor Morgan Brooks", "co_buyer_phone": "512-555-0144",
-    "co_buyer_ssn": "457-22-3344", "co_buyer_dob": "1988-09-30",
-    "employer_name": "Lone Star Logistics", "occupation": "Operations Manager",
-    "occupation_length": "6 years", "work_phone": "512-555-0199",
-    "co_buyer_employer": "Austin ISD", "co_buyer_occupation": "Teacher",
-    "co_buyer_occupation_length": "4 years", "co_buyer_work_phone": "512-555-0166",
-    "mailing_address": "456 Meadow Lane", "mailing_city": "Austin",
-    "mailing_state": "TX", "mailing_zip": "78701", "mailing_length": "3 years",
+    "buyer_address": "456 Meadow Lane",
+    "buyer_city": "Austin",
+    "buyer_county": "Travis",
+    "buyer_state": "TX",
+    "buyer_zip": "78701",
+    "buyer_phone": "512-555-0123",
+    "buyer_email": "jordan.brooks@example.com",
+    "buyer_ssn": "456-12-7890",
+    "buyer_dob": "1986-04-12",
+    "buyer_marital_status": "Married",
+    "buyer_income": "78000",
+    "co_buyer_first_name": "Taylor",
+    "co_buyer_last_name": "Brooks",
+    "co_buyer_name": "Taylor Morgan Brooks",
+    "co_buyer_phone": "512-555-0144",
+    "co_buyer_ssn": "457-22-3344",
+    "co_buyer_dob": "1988-09-30",
+    "employer_name": "Lone Star Logistics",
+    "occupation": "Operations Manager",
+    "occupation_length": "6 years",
+    "work_phone": "512-555-0199",
+    "co_buyer_employer": "Austin ISD",
+    "co_buyer_occupation": "Teacher",
+    "co_buyer_occupation_length": "4 years",
+    "co_buyer_work_phone": "512-555-0166",
+    "mailing_address": "456 Meadow Lane",
+    "mailing_city": "Austin",
+    "mailing_state": "TX",
+    "mailing_zip": "78701",
+    "mailing_length": "3 years",
     "mailing_own_rent": "Rent",
-    "reference1_name": "Pat Rivera", "reference1_phone": "512-555-0177",
-    "reference2_name": "Sam Delgado", "reference2_phone": "512-555-0188",
-    "is_new": True, "is_used": False,
-    "manufacturer": "TRU Homes", "model": "The Marvel",
-    "manufacturer_model": "TRU Homes The Marvel", "year": "2026",
-    "serial_number_1": "TRU0987654A", "serial_number_2": "TRU0987654B",
-    "label_number_1": "TEX0482913", "label_number_2": "TEX0482914",
-    "no_of_sections": "Double Section", "width": "32", "length": "76",
-    "sq_ft": "2128", "wind_zone": "2",
-    "weight_sec_1": "21000", "weight_sec_2": "21500",
+    "reference1_name": "Pat Rivera",
+    "reference1_phone": "512-555-0177",
+    "reference2_name": "Sam Delgado",
+    "reference2_phone": "512-555-0188",
+    "is_new": True,
+    "is_used": False,
+    "manufacturer": "TRU Homes",
+    "model": "The Marvel",
+    "manufacturer_model": "TRU Homes The Marvel",
+    "year": "2026",
+    "serial_number_1": "TRU0987654A",
+    "serial_number_2": "TRU0987654B",
+    "label_number_1": "TEX0482913",
+    "label_number_2": "TEX0482914",
+    "no_of_sections": "Double Section",
+    "width": "32",
+    "length": "76",
+    "sq_ft": "2128",
+    "wind_zone": "2",
+    "weight_sec_1": "21000",
+    "weight_sec_2": "21500",
     "date_of_manufacture": "2026-01-15",
-    "manufacturer_address": "500 Factory Road", "manufacturer_city": "Fort Worth",
-    "manufacturer_state": "TX", "manufacturer_zip": "76101",
-    "sales_price": "95000", "down_payment": "5000", "loan_term": "240",
-    "apr": "8.5", "doc_fee": "150", "insurance_premium": "1200",
-    "payment_start_date": "2026-08-01", "date_of_sale": "2026-06-04",
+    "manufacturer_address": "500 Factory Road",
+    "manufacturer_city": "Fort Worth",
+    "manufacturer_state": "TX",
+    "manufacturer_zip": "76101",
+    "sales_price": "95000",
+    "down_payment": "5000",
+    "loan_term": "240",
+    "apr": "8.5",
+    "doc_fee": "150",
+    "insurance_premium": "1200",
+    "payment_start_date": "2026-08-01",
+    "date_of_sale": "2026-06-04",
     "creditor_name": "21st Mortgage Corporation",
     "creditor_address": "620 Market Street",
     "creditor_city_state_zip": "Knoxville, TN 37902",
@@ -96,9 +131,18 @@ FULL_DEAL: dict[str, object] = {
 # Distinctive values used to prove a fill survives the packet merge. Each must
 # be long/unique enough that an incidental match is implausible.
 SURVIVAL_PROBE_KEYS = [
-    "buyer_address", "buyer_city", "buyer_county", "manufacturer", "model",
-    "serial_number_1", "serial_number_2", "label_number_1", "label_number_2",
-    "creditor_name", "sales_price", "manufacturer_address",
+    "buyer_address",
+    "buyer_city",
+    "buyer_county",
+    "manufacturer",
+    "model",
+    "serial_number_1",
+    "serial_number_2",
+    "label_number_1",
+    "label_number_2",
+    "creditor_name",
+    "sales_price",
+    "manufacturer_address",
 ]
 
 _NUM_RE = re.compile(r"^\$?-?[\d,]+(\.\d+)?$")
@@ -133,7 +177,9 @@ def render_text(pdf_path: str) -> str:
     # field value across the page, producing false "did not render" matches.
     out = subprocess.run(
         ["pdftotext", "-raw", pdf_path, "-"],
-        check=True, capture_output=True, text=True,
+        check=True,
+        capture_output=True,
+        text=True,
     ).stdout
     return _norm(out)
 
@@ -173,7 +219,7 @@ def validate_packet(packet_name: str, fmap: dict) -> dict:
     enriched = enrich_document_data(dict(FULL_DEAL))
 
     required_failures: list[dict] = []
-    rendered_probes: set[str] = set()       # probe keys that rendered somewhere
+    rendered_probes: set[str] = set()  # probe keys that rendered somewhere
     gen_errors: list[dict] = []
 
     for tpl in templates:
@@ -228,9 +274,7 @@ def validate_packet(packet_name: str, fmap: dict) -> dict:
     return {
         "packet": packet_name,
         "ok": ok,
-        "fillable_docs": sum(
-            1 for t in templates if fmap["templates"].get(t, {}).get("field_map")
-        ),
+        "fillable_docs": sum(1 for t in templates if fmap["templates"].get(t, {}).get("field_map")),
         "generation_errors": gen_errors,
         "required_field_failures": required_failures,
         "probes_rendered": sorted(rendered_probes),
@@ -261,9 +305,11 @@ def main() -> int:
 
     for r in results:
         status = "PASS" if r["ok"] else "FAIL"
-        print(f"\n[{status}] {r['packet']}  "
-              f"({r['fillable_docs']} fillable docs, {r['merged_pages']} merged pages, "
-              f"{len(r['probes_rendered'])} probes rendered)")
+        print(
+            f"\n[{status}] {r['packet']}  "
+            f"({r['fillable_docs']} fillable docs, {r['merged_pages']} merged pages, "
+            f"{len(r['probes_rendered'])} probes rendered)"
+        )
         for e in r["generation_errors"]:
             print(f"   ! GENERATION FAILED {e['template']}: {e['error']}")
         for f in r["required_field_failures"]:
@@ -273,10 +319,14 @@ def main() -> int:
         if r["merged_blank_pages"]:
             print(f"   ! BLANK PAGES in merged packet: {r['merged_blank_pages']}")
         if r["merge_dropped_values"]:
-            print(f"   ! MERGE DROPPED values that rendered standalone: {r['merge_dropped_values']}")
+            print(
+                f"   ! MERGE DROPPED values that rendered standalone: {r['merge_dropped_values']}"
+            )
 
     clean = sum(1 for r in results if r["ok"])
-    print(f"\n{'=' * 60}\nOVERALL: {'PASS' if overall_ok else 'FAIL'}  ({clean}/{len(results)} packets clean)")
+    print(
+        f"\n{'=' * 60}\nOVERALL: {'PASS' if overall_ok else 'FAIL'}  ({clean}/{len(results)} packets clean)"
+    )
     return 0 if overall_ok else 1
 
 

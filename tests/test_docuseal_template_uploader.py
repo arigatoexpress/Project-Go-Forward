@@ -7,12 +7,11 @@ Covers:
   3. Skip-if-already-mapped logic (without --force)
 """
 
+import importlib.util
 import json
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
-
-import importlib.util
 
 import pytest
 
@@ -33,6 +32,7 @@ _MOD = "docuseal_template_uploader"
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture()
 def tmp_repo(tmp_path, monkeypatch):
@@ -59,6 +59,7 @@ def tmp_repo(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 # Test 1: DRY-RUN makes no HTTP calls
 # ---------------------------------------------------------------------------
+
 
 def test_dry_run_makes_no_http_calls(tmp_repo):
     with patch(f"{_MOD}.requests.post") as mock_post:
@@ -87,6 +88,7 @@ def test_dry_run_does_not_write_mapping(tmp_repo):
 # Test 2: --apply with mocked DocuSeal writes mapping
 # ---------------------------------------------------------------------------
 
+
 def _make_docuseal_response(template_id: int, fields_count: int = 5):
     """Build a minimal DocuSeal-style response dict."""
     mock_resp = MagicMock()
@@ -106,8 +108,10 @@ def test_apply_uploads_all_pdfs_and_writes_mapping(tmp_repo):
         _make_docuseal_response(103, 0),
     ]
 
-    with patch(f"{_MOD}.requests.post", side_effect=responses) as mock_post, \
-         patch(f"{_MOD}.time.sleep"):
+    with (
+        patch(f"{_MOD}.requests.post", side_effect=responses) as mock_post,
+        patch(f"{_MOD}.time.sleep"),
+    ):
         uploader.run(
             api_url="https://sign.example.com",
             api_token="test-token",
@@ -126,9 +130,10 @@ def test_apply_uploads_all_pdfs_and_writes_mapping(tmp_repo):
 
 
 def test_apply_uses_correct_url_and_token(tmp_repo):
-    with patch(f"{_MOD}.requests.post",
-               side_effect=[_make_docuseal_response(1)] * 3) as mock_post, \
-         patch(f"{_MOD}.time.sleep"):
+    with (
+        patch(f"{_MOD}.requests.post", side_effect=[_make_docuseal_response(1)] * 3) as mock_post,
+        patch(f"{_MOD}.time.sleep"),
+    ):
         uploader.run(
             api_url="https://sign.example.com",
             api_token="secret-abc",
@@ -142,9 +147,10 @@ def test_apply_uses_correct_url_and_token(tmp_repo):
 
 
 def test_apply_writes_report_file(tmp_repo):
-    with patch(f"{_MOD}.requests.post",
-               side_effect=[_make_docuseal_response(i) for i in range(3)]), \
-         patch(f"{_MOD}.time.sleep"):
+    with (
+        patch(f"{_MOD}.requests.post", side_effect=[_make_docuseal_response(i) for i in range(3)]),
+        patch(f"{_MOD}.time.sleep"),
+    ):
         uploader.run(
             api_url="https://sign.example.com",
             api_token="tok",
@@ -162,11 +168,10 @@ def test_apply_writes_report_file(tmp_repo):
 # Test 3: Skip-if-already-mapped
 # ---------------------------------------------------------------------------
 
+
 def test_skip_already_mapped_without_force(tmp_repo):
     # Pre-populate mapping with Alpha.pdf
-    existing = {
-        "Alpha.pdf": {"docuseal_template_id": 999, "fields_count": 4}
-    }
+    existing = {"Alpha.pdf": {"docuseal_template_id": 999, "fields_count": 4}}
     uploader.MAPPING_FILE.write_text(json.dumps(existing))
 
     responses = [
@@ -174,8 +179,10 @@ def test_skip_already_mapped_without_force(tmp_repo):
         _make_docuseal_response(103, 6),
     ]
 
-    with patch(f"{_MOD}.requests.post", side_effect=responses) as mock_post, \
-         patch(f"{_MOD}.time.sleep"):
+    with (
+        patch(f"{_MOD}.requests.post", side_effect=responses) as mock_post,
+        patch(f"{_MOD}.time.sleep"),
+    ):
         uploader.run(
             api_url="https://sign.example.com",
             api_token="tok",
@@ -205,8 +212,10 @@ def test_force_re_uploads_already_mapped(tmp_repo):
         _make_docuseal_response(203, 5),
     ]
 
-    with patch(f"{_MOD}.requests.post", side_effect=responses) as mock_post, \
-         patch(f"{_MOD}.time.sleep"):
+    with (
+        patch(f"{_MOD}.requests.post", side_effect=responses) as mock_post,
+        patch(f"{_MOD}.time.sleep"),
+    ):
         uploader.run(
             api_url="https://sign.example.com",
             api_token="tok",
@@ -228,8 +237,7 @@ def test_skip_does_not_overwrite_existing_id(tmp_repo):
 
     # Bravo and Charlie get uploaded; Alpha is skipped
     responses = [_make_docuseal_response(201), _make_docuseal_response(202)]
-    with patch(f"{_MOD}.requests.post", side_effect=responses), \
-         patch(f"{_MOD}.time.sleep"):
+    with patch(f"{_MOD}.requests.post", side_effect=responses), patch(f"{_MOD}.time.sleep"):
         uploader.run(
             api_url="https://sign.example.com",
             api_token="tok",
@@ -244,6 +252,7 @@ def test_skip_does_not_overwrite_existing_id(tmp_repo):
 # ---------------------------------------------------------------------------
 # Test 4: CLI argument validation
 # ---------------------------------------------------------------------------
+
 
 def test_main_exits_when_apply_missing_url(tmp_repo, capsys):
     with pytest.raises(SystemExit) as exc_info:

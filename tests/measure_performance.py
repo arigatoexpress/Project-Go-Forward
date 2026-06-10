@@ -1,10 +1,10 @@
-import time
-import requests
-import uuid
-import statistics
-
 import os
+import statistics
 import sys
+import time
+import uuid
+
+import requests
 
 # Configuration
 # Default to local, but allow override or easy switch to prod
@@ -21,27 +21,25 @@ print(f"Targeting API: {BASE_URL}")
 
 NUM_REQUESTS = 5
 
+
 def measure_chat_latency():
     print(f"Measuring latency for {NUM_REQUESTS} requests...")
     latencies = []
-    
+
     session_id = str(uuid.uuid4())
     user_id = f"perf_test_{session_id[:8]}"
-    
+
     # payload pattern
     payload = {
         "userId": user_id,
         "sessionId": session_id,
-        "newMessage": {
-            "role": "user",
-            "parts": [{"text": "Show me 3 bedroom homes"}]
-        }
+        "newMessage": {"role": "user", "parts": [{"text": "Show me 3 bedroom homes"}]},
     }
-    
+
     for i in range(NUM_REQUESTS):
         start = time.time()
         try:
-            # We are assuming the server is running locally. 
+            # We are assuming the server is running locally.
             # If not, this will fail connection, which is fine for the artifact creation.
             # In a real scenario, we'd ensure the server is up.
             response = requests.post(f"{BASE_URL}/run", json=payload, timeout=30)
@@ -53,7 +51,7 @@ def measure_chat_latency():
                 print(f"Request {i+1}: Failed ({response.status_code})")
         except Exception as e:
             print(f"Request {i+1}: Error - {e}")
-            
+
     if latencies:
         print("\n--- Results ---")
         print(f"Avg Latency: {statistics.mean(latencies):.2f}ms")
@@ -61,6 +59,7 @@ def measure_chat_latency():
         print(f"Max Latency: {max(latencies):.2f}ms")
     else:
         print("\nNo successful requests to measure.")
+
 
 if __name__ == "__main__":
     measure_chat_latency()

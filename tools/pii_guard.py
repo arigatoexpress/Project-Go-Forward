@@ -3,24 +3,23 @@ PII Guard — Protects personally identifiable information from leaking to logs 
 """
 
 import re
-from typing import Dict, Any, Set
+from typing import Any
 
 from config.field_map_loader import get_field_definitions
 
-
 # Patterns that indicate PII in free text
-SSN_PATTERN = re.compile(r'\b\d{3}[-\s]?\d{2}[-\s]?\d{4}\b')
-CREDIT_CARD_PATTERN = re.compile(r'\b\d{4}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}\b')
-BANK_ACCOUNT_PATTERN = re.compile(r'\b\d{8,17}\b')
+SSN_PATTERN = re.compile(r"\b\d{3}[-\s]?\d{2}[-\s]?\d{4}\b")
+CREDIT_CARD_PATTERN = re.compile(r"\b\d{4}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}\b")
+BANK_ACCOUNT_PATTERN = re.compile(r"\b\d{8,17}\b")
 
 
-def get_pii_field_names() -> Set[str]:
+def get_pii_field_names() -> set[str]:
     """Get all field names marked as PII in data_field_definitions."""
     defs = get_field_definitions()
     return {name for name, defn in defs.items() if defn.get("pii", False)}
 
 
-def sanitize_for_logging(data: Dict[str, Any]) -> Dict[str, Any]:
+def sanitize_for_logging(data: dict[str, Any]) -> dict[str, Any]:
     """
     Create a copy of data with PII fields masked for safe logging.
     SSN becomes '***-**-1234', other PII becomes '***REDACTED***'.
@@ -40,7 +39,7 @@ def sanitize_for_logging(data: Dict[str, Any]) -> Dict[str, Any]:
     return sanitized
 
 
-def sanitize_for_llm(data: Dict[str, Any]) -> Dict[str, Any]:
+def sanitize_for_llm(data: dict[str, Any]) -> dict[str, Any]:
     """
     Create a copy of data with PII fields completely removed.
     Used before sending data to Gemini or any LLM.
@@ -49,7 +48,7 @@ def sanitize_for_llm(data: Dict[str, Any]) -> Dict[str, Any]:
     return {k: v for k, v in data.items() if k not in pii_fields}
 
 
-def validate_no_pii_in_text(text: str) -> Dict[str, Any]:
+def validate_no_pii_in_text(text: str) -> dict[str, Any]:
     """
     Scan text for PII patterns (SSN, credit card numbers).
     Returns dict with 'clean' (bool) and 'findings' (list of pattern matches).
@@ -74,7 +73,7 @@ def redact_pii_from_text(text: str) -> str:
     """
     Redact PII patterns from free text. Used for logging conversation excerpts.
     """
-    text = SSN_PATTERN.sub('[SSN-REDACTED]', text)
-    text = CREDIT_CARD_PATTERN.sub('[CC-REDACTED]', text)
-    text = BANK_ACCOUNT_PATTERN.sub('[ACCT-REDACTED]', text)
+    text = SSN_PATTERN.sub("[SSN-REDACTED]", text)
+    text = CREDIT_CARD_PATTERN.sub("[CC-REDACTED]", text)
+    text = BANK_ACCOUNT_PATTERN.sub("[ACCT-REDACTED]", text)
     return text

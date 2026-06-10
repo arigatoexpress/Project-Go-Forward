@@ -40,8 +40,8 @@ jobs:
       - name: Install poppler-utils (pdftotext for document render QA)
         run: sudo apt-get update && sudo apt-get install -y poppler-utils
 
-      - name: Run ruff on health probe tests
-        run: python -m ruff check tests/test_healthz.py
+      - name: Run ruff (repo-wide)
+        run: python -m ruff check .
 
       - name: Build frontend
         working-directory: frontend

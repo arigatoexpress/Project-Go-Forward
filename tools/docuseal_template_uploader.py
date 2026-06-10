@@ -47,6 +47,7 @@ RATE_LIMIT_SECONDS = 2
 # Mapping helpers
 # ---------------------------------------------------------------------------
 
+
 def load_mapping() -> dict:
     if MAPPING_FILE.exists():
         with open(MAPPING_FILE) as f:
@@ -65,6 +66,7 @@ def save_mapping(mapping: dict) -> None:
 # DocuSeal API
 # ---------------------------------------------------------------------------
 
+
 def upload_template(pdf_path: Path, api_url: str, api_token: str) -> dict:
     """POST a single PDF to DocuSeal and return the response JSON."""
     url = api_url.rstrip("/") + DOCUSEAL_UPLOAD_ENDPOINT
@@ -82,6 +84,7 @@ def upload_template(pdf_path: Path, api_url: str, api_token: str) -> dict:
 # ---------------------------------------------------------------------------
 # Core logic
 # ---------------------------------------------------------------------------
+
 
 def collect_pdfs() -> list[Path]:
     if not TEMPLATES_DIR.exists():
@@ -104,24 +107,30 @@ def run(api_url: str, api_token: str, apply: bool, force: bool) -> None:
         name = pdf.name
 
         if not force and name in mapping:
-            results.append({
-                "file": name,
-                "status": "SKIPPED",
-                "template_id": mapping[name].get("docuseal_template_id"),
-                "fields_count": mapping[name].get("fields_count"),
-                "note": "already in mapping (use --force to re-upload)",
-            })
-            print(f"  SKIP  {name}  (already mapped → id={mapping[name].get('docuseal_template_id')})")
+            results.append(
+                {
+                    "file": name,
+                    "status": "SKIPPED",
+                    "template_id": mapping[name].get("docuseal_template_id"),
+                    "fields_count": mapping[name].get("fields_count"),
+                    "note": "already in mapping (use --force to re-upload)",
+                }
+            )
+            print(
+                f"  SKIP  {name}  (already mapped → id={mapping[name].get('docuseal_template_id')})"
+            )
             continue
 
         if not apply:
-            results.append({
-                "file": name,
-                "status": "DRY-RUN",
-                "template_id": None,
-                "fields_count": None,
-                "note": "would POST to DocuSeal",
-            })
+            results.append(
+                {
+                    "file": name,
+                    "status": "DRY-RUN",
+                    "template_id": None,
+                    "fields_count": None,
+                    "note": "would POST to DocuSeal",
+                }
+            )
             print(f"  DRY   {name}")
             continue
 
@@ -141,34 +150,40 @@ def run(api_url: str, api_token: str, apply: bool, force: bool) -> None:
             }
             save_mapping(mapping)
 
-            results.append({
-                "file": name,
-                "status": "UPLOADED",
-                "template_id": template_id,
-                "fields_count": fields_count,
-                "note": "",
-            })
+            results.append(
+                {
+                    "file": name,
+                    "status": "UPLOADED",
+                    "template_id": template_id,
+                    "fields_count": fields_count,
+                    "note": "",
+                }
+            )
             print(f"id={template_id}  fields={fields_count}")
             time.sleep(RATE_LIMIT_SECONDS)
 
         except requests.HTTPError as exc:
-            results.append({
-                "file": name,
-                "status": "ERROR",
-                "template_id": None,
-                "fields_count": None,
-                "note": str(exc),
-            })
+            results.append(
+                {
+                    "file": name,
+                    "status": "ERROR",
+                    "template_id": None,
+                    "fields_count": None,
+                    "note": str(exc),
+                }
+            )
             print(f"ERROR  {exc}")
 
         except Exception as exc:  # noqa: BLE001
-            results.append({
-                "file": name,
-                "status": "ERROR",
-                "template_id": None,
-                "fields_count": None,
-                "note": str(exc),
-            })
+            results.append(
+                {
+                    "file": name,
+                    "status": "ERROR",
+                    "template_id": None,
+                    "fields_count": None,
+                    "note": str(exc),
+                }
+            )
             print(f"ERROR  {exc}")
 
     _write_report(results, apply)
@@ -179,6 +194,7 @@ def run(api_url: str, api_token: str, apply: bool, force: bool) -> None:
 # Report
 # ---------------------------------------------------------------------------
 
+
 def _write_report(results: list[dict], applied: bool) -> Path:
     today = date.today().isoformat()
     report_path = REPORT_DIR / f".docuseal-upload-report-{today}.md"
@@ -187,8 +203,8 @@ def _write_report(results: list[dict], applied: bool) -> Path:
     lines = [
         f"# DocuSeal Template Upload Report — {today} ({mode_label})",
         "",
-        f"| # | File | Status | Template ID | Fields |",
-        f"|---|------|--------|-------------|--------|",
+        "| # | File | Status | Template ID | Fields |",
+        "|---|------|--------|-------------|--------|",
     ]
     for i, r in enumerate(results, 1):
         tid = r["template_id"] or "—"
@@ -209,7 +225,7 @@ def _write_report(results: list[dict], applied: bool) -> Path:
 
     lines += [
         "",
-        f"Mapping file: `config/docuseal_templates.json`",
+        "Mapping file: `config/docuseal_templates.json`",
         "",
         "_Generated by `tools/docuseal_template_uploader.py`_",
     ]
@@ -224,14 +240,13 @@ def _print_summary(results: list[dict]) -> None:
     skipped = sum(1 for r in results if r["status"] == "SKIPPED")
     dry = sum(1 for r in results if r["status"] == "DRY-RUN")
     errors = sum(1 for r in results if r["status"] == "ERROR")
-    print(
-        f"\nDone — uploaded={uploaded}  skipped={skipped}  dry-run={dry}  errors={errors}"
-    )
+    print(f"\nDone — uploaded={uploaded}  skipped={skipped}  dry-run={dry}  errors={errors}")
 
 
 # ---------------------------------------------------------------------------
 # CLI entry point
 # ---------------------------------------------------------------------------
+
 
 def _parse_args(argv=None):
     parser = argparse.ArgumentParser(

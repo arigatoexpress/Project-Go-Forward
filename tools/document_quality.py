@@ -470,8 +470,7 @@ def enrich_document_data(data: dict[str, Any]) -> dict[str, Any]:
             enriched["manufacturer_model_serial"] = manufacturer_model_serial
 
     if _is_blank(enriched.get("serial_label_combined")) and (
-        _has_value(enriched.get("serial_number_1"))
-        or _has_value(enriched.get("label_number_1"))
+        _has_value(enriched.get("serial_number_1")) or _has_value(enriched.get("label_number_1"))
     ):
         serial_label_parts = [
             f"S/N: {_clean(enriched['serial_number_1'])}"

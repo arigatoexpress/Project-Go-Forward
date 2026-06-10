@@ -24,7 +24,9 @@ REPORT_PATH = DATA_DIR / "migration_report.json"
 def customers():
     """Load migrated customers, or skip if the local migration output is absent."""
     if not CUSTOMERS_PATH.exists():
-        pytest.skip("migrated_customers.json not present (purged PII; run migrate_fastcontract.py locally)")
+        pytest.skip(
+            "migrated_customers.json not present (purged PII; run migrate_fastcontract.py locally)"
+        )
     with open(CUSTOMERS_PATH) as f:
         return json.load(f)
 
@@ -33,7 +35,9 @@ def customers():
 def report():
     """Load migration report, or skip if the local migration output is absent."""
     if not REPORT_PATH.exists():
-        pytest.skip("migration_report.json not present (purged PII; run migrate_fastcontract.py locally)")
+        pytest.skip(
+            "migration_report.json not present (purged PII; run migrate_fastcontract.py locally)"
+        )
     with open(REPORT_PATH) as f:
         return json.load(f)
 
@@ -72,6 +76,7 @@ class TestMigrationData:
 
     def test_no_raw_ssn(self, customers):
         import re
+
         raw_pattern = re.compile(r"^\d{3}-\d{2}-\d{4}$")
         for c in customers:
             ssn = c.get("ssn_masked", "")
@@ -81,22 +86,30 @@ class TestMigrationData:
 
     def test_valid_emails(self, customers):
         import re
+
         pattern = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
         for c in customers:
             if c.get("email"):
-                assert pattern.match(c["email"]), f"Invalid email '{c['email']}' for {c['full_name']}"
+                assert pattern.match(
+                    c["email"]
+                ), f"Invalid email '{c['email']}' for {c['full_name']}"
 
     def test_valid_phones(self, customers):
         import re
+
         pattern = re.compile(r"^\d{3}-\d{3}-\d{4}$")
         for c in customers:
             if c.get("phone"):
-                assert pattern.match(c["phone"]), f"Invalid phone '{c['phone']}' for {c['full_name']}"
+                assert pattern.match(
+                    c["phone"]
+                ), f"Invalid phone '{c['phone']}' for {c['full_name']}"
 
     def test_no_test_records(self, customers):
         test_names = {"jermaine test", "test test", "test user"}
         for c in customers:
-            assert c["full_name"].lower() not in test_names, f"Test record not filtered: {c['full_name']}"
+            assert (
+                c["full_name"].lower() not in test_names
+            ), f"Test record not filtered: {c['full_name']}"
 
     def test_coverage_stats(self, customers):
         """Verify data coverage meets expectations."""

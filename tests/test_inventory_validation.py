@@ -21,8 +21,9 @@ from pydantic import ValidationError
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from database.models import Inventory, InventoryStatus
 from test_api_v1 import create_client
+
+from database.models import Inventory, InventoryStatus
 from tools.inventory_sync import InventoryItem
 
 # ─────────────────────────────────────────────────────────────────────────────
