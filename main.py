@@ -1651,7 +1651,8 @@ def llms_txt() -> FileResponse:
     return FileResponse(
         LLMS_TXT_PATH,
         media_type="text/plain; charset=utf-8",
-        headers={"Cache-Control": "public, max-age=3600"},
+        # noindex per Google guidance: llms.txt can otherwise leak into SERPs.
+        headers={"Cache-Control": "public, max-age=3600", "X-Robots-Tag": "noindex"},
     )
 
 
@@ -6085,6 +6086,35 @@ app.include_router(pm_router, dependencies=[Depends(require_admin)])
 app.include_router(passkey_router)
 
 
+# SEO surface: robots.txt, sitemap.xml, and per-route head/body injection for
+# the SPA shell (see seo_routes.py and docs/SEO_MIGRATION.md).
+import seo_routes
+
+
+def _seo_public_homes() -> list:
+    """Same merged public inventory the browse page renders, for sitemap,
+    legacy detail URLs, and crawlable HTML. Loaders are cached upstream."""
+    legacy_result = load_legacy_inventory_context(limit=100)
+    if not (legacy_result.get("success") and legacy_result.get("homes")):
+        return []
+    floorplan_result = load_legacy_floorplan_catalog_context(limit=500)
+    merged = merge_orderable_floorplan_catalog(
+        legacy_result,
+        assets=PROPERTY_ASSETS,
+        floorplan_context=floorplan_result
+        if floorplan_result.get("success") and floorplan_result.get("homes")
+        else None,
+    )
+    return merged.get("homes", [])
+
+
+seo_routes.configure(
+    get_homes=_seo_public_homes,
+    get_canonical_base=lambda: CANONICAL_PUBLIC_URL,
+)
+app.include_router(seo_routes.router)
+
+
 # Serve Frontend — Must be last to avoid catching API routes
 app.mount("/assets", ImmutableStaticFiles(directory="frontend/dist/assets"), name="assets")
 
@@ -6100,6 +6130,12 @@ async def serve_spa(full_path: str):
         # (JSON 404, no SPA fallback).
         raise HTTPException(status_code=404, detail="Not Found")
 
+    # SEO-aware rendering: known public/admin routes, legacy detail URLs, and
+    # quote redirects. Returns None for paths that may be real dist files.
+    seo_response = seo_routes.render_spa_response(full_path)
+    if seo_response is not None:
+        return seo_response
+
     # Serve actual files from dist if they exist (e.g., tex-icon.svg, vite.svg)
     if full_path:
         file_path = os.path.join("frontend/dist", full_path)
@@ -6110,12 +6146,9 @@ async def serve_spa(full_path: str):
                 response.headers["Pragma"] = "no-cache"
                 response.headers["Expires"] = "0"
             return response
-    # No-cache on index.html so clients always get latest JS chunk references
-    response = FileResponse("frontend/dist/index.html")
-    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-    response.headers["Pragma"] = "no-cache"
-    response.headers["Expires"] = "0"
-    return response
+    # Unknown route and not a dist file: real 404 with the SPA shell so
+    # crawlers don't index every typo as a page (soft-404 avoidance).
+    return seo_routes.render_not_found()
 
 
 if __name__ == "__main__":

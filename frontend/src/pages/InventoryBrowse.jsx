@@ -179,6 +179,8 @@ function getLegacyInventoryIntent(pathname) {
   const path = String(pathname || '');
   const detailMatch = path.match(/\/inventory-detail\/(\d+)/i);
   if (detailMatch) return { id: detailMatch[1], intent: 'detail' };
+  const planMatch = path.match(/\/plan\/(\d+)/i);
+  if (planMatch) return { id: planMatch[1], intent: 'detail' };
   const quoteCardMatch = path.match(/\/quote\/inventory\/\d+\/(\d+)/i);
   if (quoteCardMatch) return { id: quoteCardMatch[1], intent: 'quote' };
   const quoteDetailMatch = path.match(/\/quote\/inventory\/(\d+)\/dealer\/\d+/i);
@@ -192,8 +194,11 @@ function resolveLegacyHome(homes, legacyId) {
   return homes.find(home => {
     const id = normalizeInventoryText(home.id);
     const legacyInventoryId = normalizeInventoryText(home.legacy_inventory_id);
+    const legacyPlanId = normalizeInventoryText(home.legacy_plan_id);
     const name = normalizeInventoryText(home.model_name);
-    return wanted.some(value => id === value || legacyInventoryId === value || name.includes(value));
+    return wanted.some(value => (
+      id === value || legacyInventoryId === value || legacyPlanId === value || name.includes(value)
+    ));
   });
 }
 
