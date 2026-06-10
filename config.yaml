@@ -32,6 +32,19 @@ business:
     saturday: "Sat 9:00 AM - 5:00 PM"
     sunday: "Sun 12:00 PM - 3:00 PM"
 
+  # Machine-readable mirror of `hours` for schema.org openingHoursSpecification
+  # (LocalBusiness JSON-LD in seo_routes.py). Keep in sync with `hours` above.
+  hours_structured:
+    - days: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
+      opens: "09:00"
+      closes: "18:00"
+    - days: ["Saturday"]
+      opens: "09:00"
+      closes: "17:00"
+    - days: ["Sunday"]
+      opens: "12:00"
+      closes: "15:00"
+
 agent:
   # The name your AI assistant goes by
   assistant_name: "AI Assistant"

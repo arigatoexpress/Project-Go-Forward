@@ -18,6 +18,7 @@ Last updated: 2026-06-10 (session: Phase 0 + Phase 1 partial).
 | 7 | PR #118 (llms.txt) | ✅ DONE | Merged 2026-06-09; prod serves `/llms.txt`. |
 | 8 | Operational readiness | ⚠️ PARTIAL | `docs/RUNBOOK.md` written (rollback, triage tree, secret rotation). **Still needed (GCP console): uptime check + alerting to phone/email, 5xx error-rate alert, budget alarm on `tho-ai-agent`, Firestore backup schedule + tested restore.** |
 | 9 | Pre-launch gauntlet | ⚠️ PARTIAL | See below. |
+| 10 | SEO cutover surface (client request 2026-06-10) | ✅ CODE DONE — operator steps remain | `seo_routes.py`: all 279 legacy texashomeoutlet.com detail URLs kept alive at 200 with per-home meta/JSON-LD/crawlable HTML; 279 quote-URL 301s; sitemap.xml; robots.txt; real 404s; noindex on admin routes; llms.txt rewrite. 13 new tests. **Operator: cutover checklist in `docs/SEO_MIGRATION.md`** (GSC domain property, DNS TTL, sitemap submission, GBP check, `CANONICAL_PUBLIC_URL` env). |
 
 ## Gauntlet evidence (item 9)
 
