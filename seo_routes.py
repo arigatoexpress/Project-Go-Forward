@@ -325,11 +325,10 @@ def _head_block(title, description, canonical_url, og_image=None, jsonld=None, n
         if og_image:
             parts.append(f'<meta property="og:image" content="{e(og_image)}" />')
     for block in jsonld or []:
-        parts.append(
-            '<script type="application/ld+json">'
-            + json.dumps(block, ensure_ascii=False)
-            + "</script>"
-        )
+        # Escape "<" so crawled values containing "</script>" cannot break
+        # out of the JSON-LD block (< is valid JSON, inert in HTML).
+        payload = json.dumps(block, ensure_ascii=False).replace("<", "\\u003c")
+        parts.append('<script type="application/ld+json">' + payload + "</script>")
     return "\n    ".join(parts)
 
 

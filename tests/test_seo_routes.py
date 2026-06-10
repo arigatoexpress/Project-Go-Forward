@@ -180,6 +180,28 @@ def test_llms_txt_has_noindex_header(monkeypatch):
     assert response.headers.get("x-robots-tag") == "noindex"
 
 
+def test_jsonld_escapes_script_breakout(monkeypatch):
+    """Crawled values containing </script> must not escape the JSON-LD block."""
+    client, _ = seo_client(monkeypatch)
+    import seo_routes
+
+    evil = dict(FAKE_HOMES[0])
+    evil["description"] = 'nice home</script><script>alert("xss")</script>'
+    monkeypatch.setattr(seo_routes, "_get_homes", lambda: [evil])
+    monkeypatch.setattr(seo_routes, "_registry_cache", None)
+    monkeypatch.setattr(seo_routes, "_registry_built_at", 0.0)
+
+    body = client.get("/inventory-detail/43372/texas-home-outlet/huffman/premier/").text
+    jsonld = re.search(
+        r'<script type="application/ld\+json">(.*?)</script>', body, re.DOTALL
+    ).group(1)
+    assert "</script>" not in jsonld
+    assert "\\u003c" in jsonld
+    # payload still parses to the original value
+    assert "</script>" in json.loads(jsonld)["description"]
+    assert '<script>alert("xss")</script>' not in body
+
+
 def test_seo_failure_never_breaks_page_serving(monkeypatch):
     """If the inventory provider blows up, pages still render."""
     client, _ = seo_client(monkeypatch)
