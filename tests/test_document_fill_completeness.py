@@ -103,15 +103,15 @@ def test_packet_fields_render(packet_name):
 
     result = validate_packet(packet_name, get_field_map())
 
-    assert not result["generation_errors"], (
-        f"{packet_name}: generation errors: {result['generation_errors']}"
-    )
-    assert not result["required_field_failures"], (
-        f"{packet_name}: required fields did not render: {result['required_field_failures']}"
-    )
-    assert not result["merged_blank_pages"], (
-        f"{packet_name}: blank pages in merged packet: {result['merged_blank_pages']}"
-    )
+    assert not result[
+        "generation_errors"
+    ], f"{packet_name}: generation errors: {result['generation_errors']}"
+    assert not result[
+        "required_field_failures"
+    ], f"{packet_name}: required fields did not render: {result['required_field_failures']}"
+    assert not result[
+        "merged_blank_pages"
+    ], f"{packet_name}: blank pages in merged packet: {result['merged_blank_pages']}"
     assert not result["merge_dropped_values"], (
         f"{packet_name}: values rendered standalone but lost in merge: "
         f"{result['merge_dropped_values']}"

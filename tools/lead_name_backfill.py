@@ -19,11 +19,10 @@ Options:
 import argparse
 import asyncio
 import json
+import os
 import re
 import sys
-import os
 from datetime import datetime
-from typing import List, Optional, Tuple
 
 from pydantic import BaseModel, Field
 
@@ -32,7 +31,7 @@ _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
-from structured_logging import StructuredLogger
+from structured_logging import StructuredLogger  # noqa: E402
 
 logger = StructuredLogger("lead-name-backfill")
 
@@ -41,9 +40,10 @@ logger = StructuredLogger("lead-name-backfill")
 # Output schema
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 class LeadNamePatch(BaseModel):
     lead_id: str
-    current_name: Optional[str]
+    current_name: str | None
     proposed_name: str
     source_session_id: str
     source_message_excerpt: str
@@ -61,7 +61,7 @@ class LeadNamePatch(BaseModel):
 _NAME_TOKEN = r"(?-i:([A-Z][a-z]+(?: [A-Z][a-z]+){0,2}))"
 
 # Ordered highest → lowest confidence; first match wins per message.
-_NAME_PATTERNS: List[Tuple[float, re.Pattern]] = [
+_NAME_PATTERNS: list[tuple[float, re.Pattern]] = [
     (0.95, re.compile(rf"\bmy name is {_NAME_TOKEN}", re.IGNORECASE)),
     (0.93, re.compile(rf"\bmy name'?s {_NAME_TOKEN}", re.IGNORECASE)),
     (0.90, re.compile(rf"\b(?:hi|hello|hey),?\s+i(?:'m| am) {_NAME_TOKEN}", re.IGNORECASE)),
@@ -73,19 +73,62 @@ _NAME_PATTERNS: List[Tuple[float, re.Pattern]] = [
 
 # Title-cased tokens that are common words, not names.
 _STOP_NAMES: set = {
-    "I", "Me", "My", "We", "Us", "He", "She", "They", "You", "It",
-    "The", "A", "An", "And", "Or", "But", "For", "Yes", "No",
-    "Hi", "Hello", "Hey", "Thanks", "Thank", "Ok", "Okay",
-    "Texas", "Home", "Outlet", "Looking", "Just",
-    "Actually", "Well", "So", "Also", "Sure", "Great", "Good",
-    "Need", "Want", "Like", "Please", "Here", "There",
-    "New", "Used", "Single", "Double", "Wide", "Not",
+    "I",
+    "Me",
+    "My",
+    "We",
+    "Us",
+    "He",
+    "She",
+    "They",
+    "You",
+    "It",
+    "The",
+    "A",
+    "An",
+    "And",
+    "Or",
+    "But",
+    "For",
+    "Yes",
+    "No",
+    "Hi",
+    "Hello",
+    "Hey",
+    "Thanks",
+    "Thank",
+    "Ok",
+    "Okay",
+    "Texas",
+    "Home",
+    "Outlet",
+    "Looking",
+    "Just",
+    "Actually",
+    "Well",
+    "So",
+    "Also",
+    "Sure",
+    "Great",
+    "Good",
+    "Need",
+    "Want",
+    "Like",
+    "Please",
+    "Here",
+    "There",
+    "New",
+    "Used",
+    "Single",
+    "Double",
+    "Wide",
+    "Not",
 }
 
 
 def extract_name_from_messages(
-    messages: List[dict],
-) -> Optional[Tuple[str, float, str]]:
+    messages: list[dict],
+) -> tuple[str, float, str] | None:
     """
     Scan user-role messages for a customer name using regex patterns.
 
@@ -111,15 +154,13 @@ def extract_name_from_messages(
             start = max(0, m.start() - 20)
             end = min(len(text), m.end() + 20)
             excerpt = (
-                ("..." if start > 0 else "")
-                + text[start:end]
-                + ("..." if end < len(text) else "")
+                ("..." if start > 0 else "") + text[start:end] + ("..." if end < len(text) else "")
             )
             return (name, confidence, excerpt)
     return None
 
 
-async def extract_name_with_llm(messages: List[dict]) -> Optional[Tuple[str, float, str]]:
+async def extract_name_with_llm(messages: list[dict]) -> tuple[str, float, str] | None:
     """
     LLM fallback: ask Gemini to find the customer's name in the conversation.
     Only called when regex extraction yields nothing and --llm flag is set.
@@ -172,14 +213,15 @@ async def extract_name_with_llm(messages: List[dict]) -> Optional[Tuple[str, flo
 # Helpers
 # ──────────────────────────────────────────────────────────────────────────────
 
-def _is_unknown_name(name: Optional[str]) -> bool:
+
+def _is_unknown_name(name: str | None) -> bool:
     """Return True when the lead name is blank / a placeholder."""
     if not name:
         return True
     return name.strip().lower() in {"unknown", "anonymous", "guest", "user", "n/a", ""}
 
 
-def _messages_to_dicts(messages) -> List[dict]:
+def _messages_to_dicts(messages) -> list[dict]:
     """
     Normalise ChatMessage objects (or plain dicts) to ``[{role, text}]`` dicts.
     """
@@ -196,10 +238,11 @@ def _messages_to_dicts(messages) -> List[dict]:
 # Core pipeline
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 async def collect_patches(
     use_llm: bool = False,
-    limit: Optional[int] = None,
-) -> List[LeadNamePatch]:
+    limit: int | None = None,
+) -> list[LeadNamePatch]:
     """
     Read-only pass over Firestore:
       1. List leads whose name is empty / Unknown.
@@ -207,8 +250,8 @@ async def collect_patches(
       3. Extract a customer name from the session messages.
       4. Yield a LeadNamePatch record for each successful extraction.
     """
-    from lead_management import LeadManager
     from chat_history import ChatHistory
+    from lead_management import LeadManager
 
     lead_mgr = LeadManager()
     chat_hist = ChatHistory()
@@ -223,7 +266,7 @@ async def collect_patches(
         unknown=len(unknown_leads),
     )
 
-    patches: List[LeadNamePatch] = []
+    patches: list[LeadNamePatch] = []
 
     for lead in unknown_leads:
         logger.debug("Processing lead", lead_id=lead.lead_id, session_id=lead.session_id)
@@ -304,7 +347,7 @@ async def collect_patches(
 
 
 async def apply_patches(
-    patches: List[LeadNamePatch],
+    patches: list[LeadNamePatch],
     min_confidence: float = 0.8,
     skip_confirm: bool = False,
 ) -> int:
@@ -312,7 +355,7 @@ async def apply_patches(
     Write approved patches to Firestore.  Skips patches below min_confidence.
     Returns the number of leads updated.
     """
-    from lead_management import LeadManager, Lead
+    from lead_management import LeadManager
 
     eligible = [p for p in patches if p.confidence >= min_confidence]
     logger.info(
@@ -329,7 +372,9 @@ async def apply_patches(
     if not skip_confirm:
         print(f"\n{len(eligible)} lead(s) will be updated:")
         for p in eligible:
-            print(f"  [{p.lead_id}] {p.current_name!r} → {p.proposed_name!r}  (conf={p.confidence})")
+            print(
+                f"  [{p.lead_id}] {p.current_name!r} → {p.proposed_name!r}  (conf={p.confidence})"
+            )
         answer = input("\nProceed? [y/N] ").strip().lower()
         if answer not in {"y", "yes"}:
             print("Aborted — no changes written.")
@@ -357,6 +402,7 @@ async def apply_patches(
 # ──────────────────────────────────────────────────────────────────────────────
 # CLI entry point
 # ──────────────────────────────────────────────────────────────────────────────
+
 
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(

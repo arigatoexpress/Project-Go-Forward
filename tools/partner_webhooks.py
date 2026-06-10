@@ -32,7 +32,7 @@ import logging
 import os
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import requests
@@ -97,7 +97,7 @@ def _log_delivery(
             "success": success,
             "error": error,
         },
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": datetime.now(UTC).isoformat(),
     }
     try:
         db.collection("activities").document(delivery_id).set(activity)
@@ -118,7 +118,7 @@ def _deliver_one(
     delivery_id = str(uuid.uuid4())
     body = {
         "event": event,
-        "delivered_at": datetime.now(timezone.utc).isoformat(),
+        "delivered_at": datetime.now(UTC).isoformat(),
         "idempotency_key": delivery_id,
         "data": payload,
     }
@@ -150,12 +150,19 @@ def _deliver_one(
     if success:
         logger.info(
             "Partner webhook delivered partner_id=%s event=%s status=%s delivery_id=%s",
-            partner_id, event, status_code, delivery_id,
+            partner_id,
+            event,
+            status_code,
+            delivery_id,
         )
     else:
         logger.warning(
             "Partner webhook delivery failed partner_id=%s event=%s status=%s error=%s delivery_id=%s",
-            partner_id, event, status_code, error, delivery_id,
+            partner_id,
+            event,
+            status_code,
+            error,
+            delivery_id,
         )
 
     _log_delivery(db, partner_id, event, delivery_id, status_code, success, error, url)

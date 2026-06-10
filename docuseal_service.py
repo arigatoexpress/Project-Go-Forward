@@ -60,7 +60,7 @@ async def send_for_signature(
 ) -> dict[str, Any]:
     """
     Send a document for signature via DocuSeal.
-    
+
     Returns a success/error dict.
     """
     if not API_URL or not API_TOKEN:
@@ -126,7 +126,7 @@ async def send_for_signature(
                     "error": f"DocuSeal API returned {resp.status_code}",
                     "detail": error_detail,
                 }
-            
+
             return {"success": True, "submission": resp.json()}
     except Exception as exc:
         struct_logger.error("DocuSeal submission failed", error=str(exc))
@@ -161,6 +161,7 @@ async def send_file_for_signature(
 
     try:
         import base64
+
         with open(file_path, "rb") as f:
             file_content = base64.b64encode(f.read()).decode("utf-8")
 
@@ -205,8 +206,12 @@ async def send_file_for_signature(
                 json=payload,
             )
             if resp.status_code >= 400:
-                return {"success": False, "error": f"DocuSeal API error {resp.status_code}", "detail": resp.text}
-            
+                return {
+                    "success": False,
+                    "error": f"DocuSeal API error {resp.status_code}",
+                    "detail": resp.text,
+                }
+
             return {"success": True, "submission": resp.json()}
 
     except Exception as exc:
@@ -221,7 +226,7 @@ async def maybe_trigger_automated_signing(
 ) -> None:
     """
     Trigger automated e-sign envelopes based on business events.
-    
+
     Supported events:
       - lead.captured: Send Welcome/Disclosure
       - deal.status_change: Send contract when status becomes 'contract'
@@ -242,10 +247,10 @@ async def maybe_trigger_automated_signing(
         new_status = payload.get("to")
         deal_id = payload.get("deal_id")
         deal_data = payload.get("deal_data", {})
-        
+
         email = deal_data.get("buyer_email")
         name = f"{deal_data.get('buyer_first_name', '')} {deal_data.get('buyer_last_name', '')}".strip()
-        
+
         if not email or not name or not deal_id:
             return
 

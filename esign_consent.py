@@ -140,7 +140,8 @@ def build_consent_pdf_bytes(
     y -= 0.30 * inch
     c.setFont("Helvetica-Bold", 10)
     c.drawString(
-        left, y,
+        left,
+        y,
         "I have read this notice and consent to use electronic records and signatures:",
     )
     # Signature/date line for the consumer (DocuSeal positions its own fields, but

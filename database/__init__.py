@@ -1,25 +1,29 @@
 # Database Package
-from .models import (
-    Customer, CustomerStatus,
-    Property,
-    Inventory, InventoryStatus,
-    Sale,
-    Lease,
-    TaxPayment,
-    ServiceRequest
-)
 from .firestore_client import THODatabase, get_database
+from .models import (
+    Customer,
+    CustomerStatus,
+    Inventory,
+    InventoryStatus,
+    Lease,
+    Property,
+    Sale,
+    ServiceRequest,
+    TaxPayment,
+)
 
 __all__ = [
     # Models
-    "Customer", "CustomerStatus",
+    "Customer",
+    "CustomerStatus",
     "Property",
-    "Inventory", "InventoryStatus",
+    "Inventory",
+    "InventoryStatus",
     "Sale",
     "Lease",
     "TaxPayment",
     "ServiceRequest",
     # Client
     "THODatabase",
-    "get_database"
+    "get_database",
 ]

@@ -13,6 +13,7 @@ import esign_consent
 
 # ─── Consent PDF generation ──────────────────────────────────────
 
+
 def test_build_consent_pdf_bytes_is_a_pdf():
     pdf = esign_consent.build_consent_pdf_bytes()
     assert isinstance(pdf, bytes)
@@ -31,13 +32,14 @@ def test_build_consent_document_shape():
 def test_consent_covers_required_esign_elements():
     """All four ESIGN §7001(c) disclosures must be present in the consent copy."""
     blob = " ".join(h + " " + b for h, b in esign_consent.CONSENT_SECTIONS).lower()
-    assert "paper copy" in blob          # right to paper
-    assert "withdraw" in blob            # right to withdraw consent
+    assert "paper copy" in blob  # right to paper
+    assert "withdraw" in blob  # right to withdraw consent
     assert "hardware and software" in blob or "software you need" in blob  # system reqs
-    assert "scope" in blob               # scope of consent
+    assert "scope" in blob  # scope of consent
 
 
 # ─── Wiring into the signing flow ────────────────────────────────
+
 
 def _mock_httpx_capture():
     """Return (patch_target, captured) where captured['json'] gets the payload."""

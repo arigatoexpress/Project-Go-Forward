@@ -4,9 +4,8 @@ Unit tests for tools/lead_name_backfill.py name-extraction logic.
 All tests are offline — no Firestore, no LLM calls.
 """
 
-import sys
-import os
 import importlib.util
+import os
 
 # Load the module directly to avoid tools/__init__.py pulling in pypdf.
 _MODULE_PATH = os.path.join(os.path.dirname(__file__), "..", "tools", "lead_name_backfill.py")
@@ -24,6 +23,7 @@ LeadNamePatch = _mod.LeadNamePatch
 # Helpers
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 def _user(text: str) -> dict:
     return {"role": "user", "text": text}
 
@@ -35,6 +35,7 @@ def _agent(text: str) -> dict:
 # ──────────────────────────────────────────────────────────────────────────────
 # Edge-case 1: No name mentioned anywhere in the conversation
 # ──────────────────────────────────────────────────────────────────────────────
+
 
 class TestNoNameMentioned:
     def test_empty_messages_returns_none(self):
@@ -69,7 +70,7 @@ class TestNoNameMentioned:
     def test_common_words_not_names(self):
         msgs = [
             _user("My name is Texas Home Outlet!"),  # stop words in name slot
-            _user("I am Looking for a new home."),   # stop word "Looking"
+            _user("I am Looking for a new home."),  # stop word "Looking"
         ]
         result = extract_name_from_messages(msgs)
         assert result is None, f"Stop words should be rejected, got {result}"
@@ -78,6 +79,7 @@ class TestNoNameMentioned:
 # ──────────────────────────────────────────────────────────────────────────────
 # Edge-case 2: Multiple names mentioned — first strongest match wins
 # ──────────────────────────────────────────────────────────────────────────────
+
 
 class TestMultipleNames:
     def test_first_high_confidence_match_returned(self):
@@ -127,6 +129,7 @@ class TestMultipleNames:
 # Edge-case 3: Pronoun / generic word patterns that look like names
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 class TestPronounAndStopWordGuards:
     def test_i_am_not_extracted(self):
         msgs = [_user("I am interested in a double-wide.")]
@@ -163,6 +166,7 @@ class TestPronounAndStopWordGuards:
 # ──────────────────────────────────────────────────────────────────────────────
 # Positive extraction patterns
 # ──────────────────────────────────────────────────────────────────────────────
+
 
 class TestPositiveExtractionPatterns:
     def test_my_name_is(self):
@@ -215,6 +219,7 @@ class TestPositiveExtractionPatterns:
 # _is_unknown_name helper
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 class TestIsUnknownName:
     def test_none(self):
         assert _is_unknown_name(None) is True
@@ -247,6 +252,7 @@ class TestIsUnknownName:
 # _messages_to_dicts normalisation
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 class TestMessagesToDicts:
     def test_dict_input_passthrough(self):
         raw = [{"role": "user", "text": "hello"}]
@@ -269,6 +275,7 @@ class TestMessagesToDicts:
 # LeadNamePatch Pydantic model
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 class TestLeadNamePatch:
     def test_serialises_to_jsonl(self):
         patch = LeadNamePatch(
@@ -281,6 +288,7 @@ class TestLeadNamePatch:
         )
         line = patch.model_dump_json()
         import json
+
         data = json.loads(line)
         assert data["lead_id"] == "lead_abc"
         assert data["proposed_name"] == "John Smith"
@@ -290,6 +298,7 @@ class TestLeadNamePatch:
     def test_confidence_bounds_validated(self):
         import pytest
         from pydantic import ValidationError
+
         with pytest.raises(ValidationError):
             LeadNamePatch(
                 lead_id="x",

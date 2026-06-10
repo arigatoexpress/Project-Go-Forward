@@ -1,4 +1,5 @@
 """Global test configuration for Project-Go-Forward."""
+
 import hashlib
 import os
 

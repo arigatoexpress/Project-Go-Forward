@@ -18,9 +18,7 @@ import os
 import sys
 import types
 
-import pytest
 import requests
-
 
 # ─── Load tools/image_url_backfill.py directly, bypassing tools/__init__.py ──
 # tools/__init__.py eagerly imports document_tools (pypdf). When running locally
@@ -137,10 +135,14 @@ class TestBuildPreownedUrl:
 class TestProbeUrl:
     def test_200_response(self, requests_mock):
         url = "https://d132mt2yijm03y.cloudfront.net/manufacturer/3335/floorplan/225053/1.jpg"
-        requests_mock.head(url, status_code=200, headers={
-            "Content-Length": "54321",
-            "Content-Type": "image/jpeg",
-        })
+        requests_mock.head(
+            url,
+            status_code=200,
+            headers={
+                "Content-Length": "54321",
+                "Content-Type": "image/jpeg",
+            },
+        )
         result = probe_url(url)
         assert result["head_status"] == 200
         assert result["content_length"] == "54321"
@@ -265,13 +267,15 @@ class TestProcessRow:
         assert result["inventory_id"] == "firestore-uuid-999"
 
     def test_known_model_probes_url(self, requests_mock):
-        first_image_url = (
-            f"{CDN_BASE}/manufacturer/3335/floorplan/225053/big-steve-kit-1.jpg"
+        first_image_url = f"{CDN_BASE}/manufacturer/3335/floorplan/225053/big-steve-kit-1.jpg"
+        requests_mock.head(
+            first_image_url,
+            status_code=200,
+            headers={
+                "Content-Type": "image/jpeg",
+                "Content-Length": "102400",
+            },
         )
-        requests_mock.head(first_image_url, status_code=200, headers={
-            "Content-Type": "image/jpeg",
-            "Content-Length": "102400",
-        })
         row = {
             "id": "inv-001",
             "model_name": "The Big Steve",
@@ -285,10 +289,22 @@ class TestProcessRow:
     def test_result_keys_present(self, requests_mock):
         url = f"{CDN_BASE}/dealer/3522/inventory/12345/1.jpg"
         requests_mock.head(url, status_code=404)
-        row = {"id": "12345", "model_name": "Some Pre-Owned", "manufacturer": "Pre-Owned", "is_new": False}
+        row = {
+            "id": "12345",
+            "model_name": "Some Pre-Owned",
+            "manufacturer": "Pre-Owned",
+            "is_new": False,
+        }
         result = process_row(row)
-        for key in ("inventory_id", "model_name", "manufacturer", "candidate_url",
-                    "head_status", "content_length", "content_type"):
+        for key in (
+            "inventory_id",
+            "model_name",
+            "manufacturer",
+            "candidate_url",
+            "head_status",
+            "content_length",
+            "content_type",
+        ):
             assert key in result, f"Missing key: {key}"
 
 
@@ -301,7 +317,12 @@ class TestRunDryRun:
     def test_run_produces_jsonl_for_each_row(self, tmp_path, monkeypatch):
         fake_rows = [
             {"id": "44490", "model_name": "Big Blue", "manufacturer": "Pre-Owned", "is_new": False},
-            {"id": "inv-uuid-xyz", "model_name": "Totally Unknown ZXQABC", "manufacturer": "Unknown", "is_new": True},
+            {
+                "id": "inv-uuid-xyz",
+                "model_name": "Totally Unknown ZXQABC",
+                "manufacturer": "Unknown",
+                "is_new": True,
+            },
         ]
 
         # Patch directly on the loaded module object (the tools stub package
@@ -310,11 +331,10 @@ class TestRunDryRun:
 
         # Big Blue IS in the asset catalog; its first image uses the manufacturer path.
         # Register that URL as 200; all other HEAD calls return 404.
-        big_blue_url = (
-            f"{CDN_BASE}/dealer/3522/inventory/44490/floor-plans-SMALL.jpg"
-        )
+        big_blue_url = f"{CDN_BASE}/dealer/3522/inventory/44490/floor-plans-SMALL.jpg"
 
         import requests_mock as rm_lib  # noqa: PLC0415
+
         with rm_lib.Mocker() as m:
             m.head(big_blue_url, status_code=200, headers={"Content-Type": "image/jpeg"})
             # Allow any other URL to return 404 rather than raising NoMockAddress

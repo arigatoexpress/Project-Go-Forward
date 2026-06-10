@@ -16,6 +16,7 @@ def run(coro):
     """Run a coroutine synchronously."""
     return asyncio.run(coro)
 
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # Patch firestore before importing appointment_manager so we don't need credentials
@@ -35,6 +36,7 @@ with patch("google.cloud.firestore.Client"):
 # ---------------------------------------------------------------------------
 # _get_hours_for_date — pure function, no mocks needed
 # ---------------------------------------------------------------------------
+
 
 class TestGetHoursForDate:
     def test_monday_returns_nine_to_six(self):
@@ -67,6 +69,7 @@ class TestGetHoursForDate:
 # _generate_slots — pure function
 # ---------------------------------------------------------------------------
 
+
 class TestGenerateSlots:
     def test_monday_slots(self):
         slots = _generate_slots(9, 18)
@@ -96,6 +99,7 @@ class TestGenerateSlots:
 # ---------------------------------------------------------------------------
 # Appointment dataclass
 # ---------------------------------------------------------------------------
+
 
 class TestAppointmentDataclass:
     def _make(self, **kwargs):
@@ -155,6 +159,7 @@ class TestAppointmentDataclass:
 # ---------------------------------------------------------------------------
 # AppointmentManager.get_available_slots — mock Firestore + internal method
 # ---------------------------------------------------------------------------
+
 
 class TestGetAvailableSlots:
     """Tests for the complex slot-availability logic, with Firestore mocked."""
@@ -255,13 +260,21 @@ class TestGetAvailableSlots:
         mgr.get_appointments_by_date = AsyncMock(return_value=[])
         result = run(mgr.get_available_slots(next_monday.isoformat()))
 
-        required_keys = {"date", "day_name", "business_hours", "available_slots", "total_slots", "booked_slots"}
+        required_keys = {
+            "date",
+            "day_name",
+            "business_hours",
+            "available_slots",
+            "total_slots",
+            "booked_slots",
+        }
         assert required_keys.issubset(result.keys())
 
 
 # ---------------------------------------------------------------------------
 # AppointmentManager.create_appointment — date validation (no Firestore needed)
 # ---------------------------------------------------------------------------
+
 
 class TestCreateAppointmentValidation:
     def _manager(self):

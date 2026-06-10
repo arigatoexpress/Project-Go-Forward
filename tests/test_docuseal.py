@@ -13,7 +13,6 @@ Run: python -m pytest tests/test_docuseal.py -v
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import hmac
 import json
@@ -22,8 +21,7 @@ import sys
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
 
@@ -99,9 +97,7 @@ def _build_docuseal_app(
 
         body = await request.body()
         incoming_sig = request.headers.get("X-Docuseal-Signature", "")
-        expected_sig = hmac.new(
-            webhook_secret.encode(), body, hashlib.sha256
-        ).hexdigest()
+        expected_sig = hmac.new(webhook_secret.encode(), body, hashlib.sha256).hexdigest()
         if not hmac.compare_digest(incoming_sig, expected_sig):
             raise HTTPException(status_code=401, detail="Invalid webhook signature")
 
@@ -135,6 +131,7 @@ def _build_docuseal_app(
         gcs_uri = None
         try:
             from google.cloud import storage as _gcs  # type: ignore
+
             _client = _gcs.Client()
             bucket_name = os.getenv("GCS_DOCUMENTS_BUCKET", "tho-secure-documents")
             _bucket = _client.bucket(bucket_name)
@@ -153,6 +150,7 @@ def _sign(secret: str, body: bytes) -> str:
 
 
 # ─── Test 1: /api/docuseal/send — 501 vs 200 ─────────────────────────────────
+
 
 class TestDocuSealSend:
     def test_returns_501_when_not_configured(self):
@@ -209,6 +207,7 @@ class TestDocuSealSend:
 
 # ─── Test 2: webhook HMAC signature validation ───────────────────────────────
 
+
 class TestDocuSealWebhookSignature:
     def test_rejects_invalid_signature(self):
         client = TestClient(
@@ -234,13 +233,17 @@ class TestDocuSealWebhookSignature:
         resp = client.post(
             "/api/docuseal/webhook",
             content=payload,
-            headers={"Content-Type": "application/json", "X-Docuseal-Signature": _sign(secret, payload)},
+            headers={
+                "Content-Type": "application/json",
+                "X-Docuseal-Signature": _sign(secret, payload),
+            },
         )
         assert resp.status_code == 200
         assert resp.json()["status"] == "ignored"
 
 
 # ─── Test 3: GCS mirror path ─────────────────────────────────────────────────
+
 
 class TestDocuSealGCSMirror:
     def test_signed_pdf_stored_at_correct_gcs_path(self, monkeypatch):
@@ -269,6 +272,7 @@ class TestDocuSealGCSMirror:
         class FakeBlob:
             def __init__(self, path):
                 self._path = path
+
             def upload_from_filename(self, local_path, content_type=None):
                 uploaded_blobs.append(self._path)
 
@@ -289,13 +293,18 @@ class TestDocuSealGCSMirror:
         mock_http.get = AsyncMock(return_value=fake_dl)
 
         # Stub google.cloud.storage.Client so no real GCP call is made
-        fake_gcs_module = types_module = MagicMock()
+        fake_gcs_module = MagicMock()
         fake_gcs_module.Client.return_value = fake_gcs_client
 
         with (
             patch("httpx.AsyncClient", return_value=mock_http),
-            patch.dict(sys.modules, {"google.cloud.storage": fake_gcs_module,
-                                     "google.cloud": MagicMock(storage=fake_gcs_module)}),
+            patch.dict(
+                sys.modules,
+                {
+                    "google.cloud.storage": fake_gcs_module,
+                    "google.cloud": MagicMock(storage=fake_gcs_module),
+                },
+            ),
         ):
             resp = client.post(
                 "/api/docuseal/webhook",

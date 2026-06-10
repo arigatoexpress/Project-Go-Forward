@@ -24,8 +24,8 @@ from pypdf import PdfReader
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from tools.document_engine_v2 import generate_batch  # noqa: E402
 from config.field_map_loader import get_field_map  # noqa: E402
+from tools.document_engine_v2 import generate_batch  # noqa: E402
 
 # Realistic, non-placeholder data (the quality gate rejects "Sample"/"Test").
 PACKET_DATA = {
@@ -120,6 +120,7 @@ def test_full_packet_has_no_blank_pages(packet_name):
     # the freshest merged artifact from the output directory.
     if blanks is None:
         import glob
+
         from tools.document_tools import OUTPUT_DIR
 
         candidates = sorted(
@@ -129,4 +130,6 @@ def test_full_packet_has_no_blank_pages(packet_name):
         assert candidates, f"{packet_name}: no merged PDF found on disk"
         blanks = _blank_pages(candidates[-1])
 
-    assert not blanks, f"{packet_name}: blank pages detected at {blanks} (clients see these as empty)"
+    assert (
+        not blanks
+    ), f"{packet_name}: blank pages detected at {blanks} (clients see these as empty)"

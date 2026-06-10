@@ -16,17 +16,17 @@ import csv
 import os
 import sys
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # ─── FCD Status → Deal Status mapping ───
 STATUS_MAP = {
-    "Contract": "complete",     # Old contracts → completed
-    "Pending": "archived",      # Old pending → archived (stale leads)
-    "Approved": "complete",     # Old approved → completed
-    "Archived": "archived",     # Already archived
+    "Contract": "complete",  # Old contracts → completed
+    "Pending": "archived",  # Old pending → archived (stale leads)
+    "Approved": "complete",  # Old approved → completed
+    "Archived": "archived",  # Already archived
 }
 
 # Marital status normalization
@@ -124,17 +124,15 @@ def row_to_deal(row: dict) -> dict | None:
 
     # Parse creation date from AppID
     created = parse_appid_date(row.get("AppID", ""))
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     deal = {
         "id": str(uuid.uuid4()),
         "source": "fcd_import",  # Tag so we can identify imported records
         "fcd_app_id": row.get("AppID", ""),
-
         # Status
         "status": STATUS_MAP.get(row.get("ChangeAppStatus", ""), "archived"),
         "salesrep": row.get("Salesrep", "").strip() or None,
-
         # Buyer
         "buyer_first_name": first or None,
         "buyer_last_name": last or None,
@@ -142,14 +140,12 @@ def row_to_deal(row: dict) -> dict | None:
         "buyer_email": row.get("Buyer_Email", "").strip() or None,
         "buyer_ssn": parse_ssn(row.get("SSN1", "")),
         "buyer_marital_status": MARITAL_MAP.get(row.get("Buyer_Marital_Status", ""), None),
-
         # Co-Buyer
         "co_buyer_first_name": row.get("CoBuyer_First_Name", "").strip() or None,
         "co_buyer_last_name": row.get("CoBuyer_Last_Name", "").strip() or None,
         "co_buyer_ssn": parse_ssn(row.get("SSN2", "")),
         "co_buyer_marital_status": MARITAL_MAP.get(row.get("CoBuyer_Marital_Status", ""), None),
         "co_buyer_work_phone": parse_phone(row.get("CoBuyer_Work_Phone1", "")),
-
         # Employment (Buyer)
         "employer_name": row.get("Employer_Name", "").strip() or None,
         "occupation": row.get("Occupation", "").strip() or None,
@@ -158,13 +154,12 @@ def row_to_deal(row: dict) -> dict | None:
         "self_employed": row.get("Buyer_Self_Emp", "").strip().upper() in ("Y", "YES", "TRUE", "1"),
         "previous_employer": row.get("Previous_Employer_Name", "").strip() or None,
         "previous_occupation": row.get("Previous_Occupation", "").strip() or None,
-
         # Employment (Co-Buyer)
         "co_buyer_employer": row.get("CoBuyer_Employer_Name", "").strip() or None,
         "co_buyer_occupation": row.get("CoBuyer_Occupation", "").strip() or None,
         "co_buyer_occupation_length": row.get("CoBuyer_Occupation_Length", "").strip() or None,
-        "co_buyer_self_employed": row.get("CoBuyer_Self_Emp", "").strip().upper() in ("Y", "YES", "TRUE", "1"),
-
+        "co_buyer_self_employed": row.get("CoBuyer_Self_Emp", "").strip().upper()
+        in ("Y", "YES", "TRUE", "1"),
         # Mailing Address
         "mailing_address": row.get("Mailing_Address", "").strip() or None,
         "mailing_city": row.get("Mailing_City", "").strip() or None,
@@ -172,20 +167,16 @@ def row_to_deal(row: dict) -> dict | None:
         "mailing_zip": row.get("Mailing_Zip", "").strip() or None,
         "mailing_length": row.get("Mailing_Length", "").strip() or None,
         "mailing_own_rent": OWN_RENT_MAP.get(row.get("Mailing_Own", ""), None),
-
         # References
         "reference1_name": row.get("Reference1_Name", "").strip() or None,
         "reference1_phone": parse_phone(row.get("Reference1_Phone", "")),
         "reference2_name": row.get("Reference2_Name", "").strip() or None,
         "reference2_phone": parse_phone(row.get("Reference2_Phone", "")),
-
         # Notes
         "notes": row.get("Notes", "").strip() or None,
-
         # Home info — FCD didn't store home details in the export, those were in separate tables
         # These will be empty; employees can link inventory later
         "is_new": True,
-
         # Timestamps
         "created_at": created.isoformat() if created else now.isoformat(),
         "updated_at": now.isoformat(),
@@ -197,7 +188,9 @@ def row_to_deal(row: dict) -> dict | None:
 
 def main():
     parser = argparse.ArgumentParser(description="Import FCD records into Firestore deals")
-    parser.add_argument("--commit", action="store_true", help="Actually write to Firestore (default is dry-run)")
+    parser.add_argument(
+        "--commit", action="store_true", help="Actually write to Firestore (default is dry-run)"
+    )
     parser.add_argument("--limit", type=int, default=0, help="Max records to import (0 = all)")
     parser.add_argument("--csv-path", default=None, help="Path to CSV file")
     args = parser.parse_args()
@@ -205,7 +198,7 @@ def main():
     # Find CSV
     csv_path = args.csv_path or os.path.join(
         os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-        "full_migration_export.csv"
+        "full_migration_export.csv",
     )
 
     if not os.path.exists(csv_path):
@@ -219,7 +212,7 @@ def main():
     print()
 
     # Read CSV
-    with open(csv_path, "r", encoding="utf-8") as f:
+    with open(csv_path, encoding="utf-8") as f:
         reader = csv.DictReader(f)
         rows = list(reader)
 
@@ -239,7 +232,7 @@ def main():
     print(f"Skipped (no name): {skipped}")
 
     if args.limit:
-        deals = deals[:args.limit]
+        deals = deals[: args.limit]
         print(f"After limit: {len(deals)}")
 
     # Status breakdown
@@ -269,7 +262,9 @@ def main():
     try:
         from google.cloud import firestore
     except ImportError:
-        print("ERROR: google-cloud-firestore not installed. Run: pip install google-cloud-firestore")
+        print(
+            "ERROR: google-cloud-firestore not installed. Run: pip install google-cloud-firestore"
+        )
         sys.exit(1)
 
     project_id = os.getenv("GCP_PROJECT_ID") or os.getenv("GOOGLE_CLOUD_PROJECT", "tho-ai-agent")
@@ -285,7 +280,7 @@ def main():
 
     for i in range(0, len(deals), batch_size):
         batch = db.batch()
-        chunk = deals[i:i + batch_size]
+        chunk = deals[i : i + batch_size]
 
         for deal in chunk:
             doc_ref = collection.document(deal["id"])
@@ -299,7 +294,7 @@ def main():
             errors += len(chunk)
             print(f"  Batch {i // batch_size + 1}: ERROR - {e}")
 
-    print(f"\n=== IMPORT COMPLETE ===")
+    print("\n=== IMPORT COMPLETE ===")
     print(f"Written: {written}")
     print(f"Errors: {errors}")
     print(f"Total: {written + errors}")

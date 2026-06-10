@@ -20,10 +20,17 @@ import json
 import re
 import sys
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
-CSV_PATH = Path.home() / "Documents" / "Business" / "Kadima Digital Strategies 2026" / "THO_MASTER" / "full_migration_export.csv"
+CSV_PATH = (
+    Path.home()
+    / "Documents"
+    / "Business"
+    / "Kadima Digital Strategies 2026"
+    / "THO_MASTER"
+    / "full_migration_export.csv"
+)
 OUTPUT_JSON = Path(__file__).parent.parent / "data" / "migrated_customers.json"
 REPORT_PATH = Path(__file__).parent.parent / "data" / "migration_report.json"
 
@@ -164,10 +171,12 @@ def parse_row(row: dict) -> dict | None:
         "co_buyer": co_buyer,
         "references": references,
         "mailing_own_rent": (row.get("Mailing_Own") or "").strip() or None,
-        "mailing_length_years": int(row.get("Mailing_Length") or 0) if (row.get("Mailing_Length") or "").isdigit() else None,
-        "created_at": datetime.now(timezone.utc).isoformat(),
-        "updated_at": datetime.now(timezone.utc).isoformat(),
-        "migrated_at": datetime.now(timezone.utc).isoformat(),
+        "mailing_length_years": int(row.get("Mailing_Length") or 0)
+        if (row.get("Mailing_Length") or "").isdigit()
+        else None,
+        "created_at": datetime.now(UTC).isoformat(),
+        "updated_at": datetime.now(UTC).isoformat(),
+        "migrated_at": datetime.now(UTC).isoformat(),
     }
 
 
@@ -194,12 +203,20 @@ def migrate(load_to_firestore: bool = False, save_json: bool = False) -> dict:
         try:
             customer = parse_row(row)
             if customer is None:
-                skipped.append({"row": i + 2, "reason": "empty name or test record", "name": f"{row.get('Buyer_First_Name', '')} {row.get('Buyer_Last_Name', '')}"})
+                skipped.append(
+                    {
+                        "row": i + 2,
+                        "reason": "empty name or test record",
+                        "name": f"{row.get('Buyer_First_Name', '')} {row.get('Buyer_Last_Name', '')}",
+                    }
+                )
                 continue
 
             # Deduplicate by legacy_id
             if customer["legacy_id"] in seen_ids:
-                skipped.append({"row": i + 2, "reason": "duplicate AppID", "id": customer["legacy_id"]})
+                skipped.append(
+                    {"row": i + 2, "reason": "duplicate AppID", "id": customer["legacy_id"]}
+                )
                 continue
             seen_ids.add(customer["legacy_id"])
 
@@ -224,7 +241,7 @@ def migrate(load_to_firestore: bool = False, save_json: bool = False) -> dict:
         salesrep_counts[rep] = salesrep_counts.get(rep, 0) + 1
 
     report = {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
         "source": str(CSV_PATH),
         "raw_records": len(rows),
         "imported": len(customers),
@@ -280,6 +297,7 @@ def migrate(load_to_firestore: bool = False, save_json: bool = False) -> dict:
         try:
             sys.path.insert(0, str(Path(__file__).parent.parent))
             from database.firestore_client import THODatabase
+
             db = THODatabase()
 
             loaded = 0

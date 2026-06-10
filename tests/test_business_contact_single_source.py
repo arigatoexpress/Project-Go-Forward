@@ -15,8 +15,8 @@ from pathlib import Path
 import config_loader
 
 REPO = Path(__file__).resolve().parent.parent
-EXPECTED_ZIP = "77336"          # Huffman, TX
-WRONG_ZIP = "77338"             # Humble, TX — the bug we fixed; must appear nowhere
+EXPECTED_ZIP = "77336"  # Huffman, TX
+WRONG_ZIP = "77338"  # Humble, TX — the bug we fixed; must appear nowhere
 
 # Files that legitimately reference the physical business address.
 SCANNED = [

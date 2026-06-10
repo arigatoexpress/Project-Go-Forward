@@ -1645,7 +1645,7 @@ def health():
     return {"status": "ok"}
 
 
-@app.get("/llms.txt")
+@app.api_route("/llms.txt", methods=["GET", "HEAD"])
 @limiter.exempt
 def llms_txt() -> FileResponse:
     return FileResponse(

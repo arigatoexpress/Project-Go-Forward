@@ -25,7 +25,9 @@ PLACEHOLDER_PATTERNS = {
         r"(IRREGULA|RREGULAR|01234\s+6789|DDDDDDDDDD|\$\$00000000000000|x{8,}|000000000%)",
         re.I,
     ),
-    "template_token": re.compile(r"(\{\{|\}\}|\$\{[^}]+\}|\[object Object\]|\bundefined\b|\bNaN\b)", re.I),
+    "template_token": re.compile(
+        r"(\{\{|\}\}|\$\{[^}]+\}|\[object Object\]|\bundefined\b|\bNaN\b)", re.I
+    ),
 }
 
 
@@ -36,9 +38,7 @@ def _normalize_text(value: str) -> str:
 def _missing_expected_texts(combined_text: str, expected_texts: list[str] | None) -> list[str]:
     normalized = _normalize_text(combined_text)
     return [
-        expected
-        for expected in expected_texts or []
-        if _normalize_text(expected) not in normalized
+        expected for expected in expected_texts or [] if _normalize_text(expected) not in normalized
     ]
 
 

@@ -20,20 +20,19 @@ import json
 import logging
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Optional
 
 import requests
 
 try:
-    from tools.asset_scraper import CDN_BASE, PROPERTY_ASSETS, get_assets_for_home
+    from tools.asset_scraper import CDN_BASE, get_assets_for_home
 except ImportError:
-    from .asset_scraper import CDN_BASE, PROPERTY_ASSETS, get_assets_for_home  # type: ignore
+    from .asset_scraper import CDN_BASE, get_assets_for_home  # type: ignore
 
 logger = logging.getLogger(__name__)
 
 DEALER_ID = "3522"
-HEAD_TIMEOUT = 5   # seconds per attempt
-MAX_WORKERS = 10   # <<< well below the 50-request fan-out limit
+HEAD_TIMEOUT = 5  # seconds per attempt
+MAX_WORKERS = 10  # <<< well below the 50-request fan-out limit
 
 
 # ─── URL construction helpers ────────────────────────────────────────────────
@@ -52,7 +51,7 @@ def build_preowned_url(inventory_id: str, filename: str = "1.jpg") -> str:
 # ─── URL resolution ──────────────────────────────────────────────────────────
 
 
-def resolve_candidate_url(row: dict) -> Optional[str]:
+def resolve_candidate_url(row: dict) -> str | None:
     """
     Derive the most likely CDN image URL for a Firestore inventory row.
 
@@ -117,9 +116,17 @@ def probe_url(url: str, timeout: int = HEAD_TIMEOUT) -> dict:
         except requests.Timeout:
             last_result = {"head_status": "timeout", "content_length": None, "content_type": None}
         except requests.ConnectionError as exc:
-            last_result = {"head_status": f"connection_error:{exc}", "content_length": None, "content_type": None}
+            last_result = {
+                "head_status": f"connection_error:{exc}",
+                "content_length": None,
+                "content_type": None,
+            }
         except Exception as exc:
-            last_result = {"head_status": f"error:{exc}", "content_length": None, "content_type": None}
+            last_result = {
+                "head_status": f"error:{exc}",
+                "content_length": None,
+                "content_type": None,
+            }
     return last_result
 
 
@@ -165,6 +172,7 @@ def load_inventory_missing_image() -> list:
     """
     try:
         from database.firestore_client import get_database
+
         db = get_database()
     except Exception as exc:
         logger.error("Cannot connect to Firestore: %s", exc)
@@ -192,6 +200,7 @@ def _apply_verified(results: list) -> None:
     """
     try:
         from database.firestore_client import get_database
+
         db = get_database()
     except Exception as exc:
         logger.error("Cannot connect to Firestore for apply: %s", exc)

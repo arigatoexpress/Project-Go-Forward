@@ -98,12 +98,18 @@ def validate():
     ids = [c["id"] for c in customers]
     check("No duplicate UUIDs", len(ids) == len(set(ids)), f"{len(ids) - len(set(ids))} duplicates")
     legacy_ids = [c.get("legacy_id", "") for c in customers if c.get("legacy_id")]
-    check("No duplicate legacy IDs", len(legacy_ids) == len(set(legacy_ids)),
-          f"{len(legacy_ids) - len(set(legacy_ids))} duplicates")
+    check(
+        "No duplicate legacy IDs",
+        len(legacy_ids) == len(set(legacy_ids)),
+        f"{len(legacy_ids) - len(set(legacy_ids))} duplicates",
+    )
     if csv_rows:
         missing_legacy_ids = [legacy_id for legacy_id in legacy_ids if legacy_id not in csv_rows]
-        check("All migrated legacy IDs exist in source CSV", len(missing_legacy_ids) == 0,
-              f"{len(missing_legacy_ids)} missing")
+        check(
+            "All migrated legacy IDs exist in source CSV",
+            len(missing_legacy_ids) == 0,
+            f"{len(missing_legacy_ids)} missing",
+        )
 
     # 3. Required fields
     print("\n--- Required Fields ---")
@@ -119,16 +125,20 @@ def validate():
     raw_ssn_pattern = re.compile(r"\d{3}-\d{2}-\d{4}")
     raw_ssns = sum(1 for c in customers if raw_ssn_pattern.match(c.get("ssn_masked", "")))
     check("No raw SSNs in ssn_masked", raw_ssns == 0, f"{raw_ssns} raw SSNs found!")
-    masked_format = sum(1 for c in customers if c.get("ssn_masked") and c["ssn_masked"].startswith("***-**-"))
+    masked_format = sum(
+        1 for c in customers if c.get("ssn_masked") and c["ssn_masked"].startswith("***-**-")
+    )
     has_ssn = sum(1 for c in customers if c.get("ssn_masked"))
-    check("SSNs properly masked (***-**-XXXX)", masked_format == has_ssn,
-          f"{has_ssn - masked_format} improperly masked")
+    check(
+        "SSNs properly masked (***-**-XXXX)",
+        masked_format == has_ssn,
+        f"{has_ssn - masked_format} improperly masked",
+    )
 
     # 5. Valid statuses
     print("\n--- Status Values ---")
     invalid_statuses = [c["status"] for c in customers if c["status"] not in VALID_STATUSES]
-    check("All statuses valid", len(invalid_statuses) == 0,
-          f"Invalid: {set(invalid_statuses)}")
+    check("All statuses valid", len(invalid_statuses) == 0, f"Invalid: {set(invalid_statuses)}")
     for status in VALID_STATUSES:
         count = sum(1 for c in customers if c["status"] == status)
         if count > 0:
@@ -149,7 +159,9 @@ def validate():
     with_address = sum(1 for c in customers if c.get("address"))
     print(f"    Email coverage: {with_email}/{len(customers)} ({with_email*100//len(customers)}%)")
     print(f"    Phone coverage: {with_phone}/{len(customers)} ({with_phone*100//len(customers)}%)")
-    print(f"    Address coverage: {with_address}/{len(customers)} ({with_address*100//len(customers)}%)")
+    print(
+        f"    Address coverage: {with_address}/{len(customers)} ({with_address*100//len(customers)}%)"
+    )
 
     # 7. Spot-check against CSV
     print("\n--- Spot Check (5 random records) ---")
@@ -161,8 +173,7 @@ def validate():
                 csv_row = csv_rows[lid]
                 csv_name = f"{csv_row.get('Buyer_First_Name', '')} {csv_row.get('Buyer_Last_Name', '')}".strip()
                 match = csv_name.lower() == c["full_name"].lower()
-                check(f"Spot legacy hash: {_short_hash(lid)}", match,
-                      "CSV/customer names differ")
+                check(f"Spot legacy hash: {_short_hash(lid)}", match, "CSV/customer names differ")
             else:
                 check(f"Spot legacy hash: {_short_hash(lid)}", False, "Legacy ID not found in CSV")
     else:

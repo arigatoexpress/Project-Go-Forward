@@ -5,26 +5,24 @@ These tools allow the agent to capture customer leads, book appointments,
 and manage scheduling for the sales team.
 """
 
-from google.adk.tools import ToolContext
 import json
 import logging
 import os
 import re
-from datetime import datetime, date, timedelta
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
+from google.adk.tools import ToolContext
+
 # Configure structured logging for production
-logging.basicConfig(level=logging.INFO, format='%(message)s')
+logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger("crm_tools")
 
 TIMEZONE = ZoneInfo("America/Chicago")
 
 
 def save_lead(
-    user_name: str,
-    phone_number: str,
-    interest_notes: str,
-    tool_context: ToolContext = None
+    user_name: str, phone_number: str, interest_notes: str, tool_context: ToolContext = None
 ) -> dict:
     """
     Save a customer lead for sales follow-up.
@@ -44,17 +42,14 @@ def save_lead(
 
     # 1. basic validation
     if not user_name or not phone_number:
-        return {
-            "success": False,
-            "message": "Please provide both a name and phone number."
-        }
+        return {"success": False, "message": "Please provide both a name and phone number."}
 
     # clean phone number
-    phone_digits = re.sub(r'\D', '', phone_number)
+    phone_digits = re.sub(r"\D", "", phone_number)
     if len(phone_digits) < 10:
         return {
             "success": False,
-            "message": "Phone number appears invalid (too short). Please provide a 10-digit number."
+            "message": "Phone number appears invalid (too short). Please provide a 10-digit number.",
         }
 
     # 2. Structure the lead data
@@ -63,9 +58,9 @@ def save_lead(
         "event_type": "LEAD_CAPTURE",
         "timestamp": timestamp,
         "name": user_name,
-        "phone": phone_number, # Keep original format for readability
+        "phone": phone_number,  # Keep original format for readability
         "notes": interest_notes,
-        "source": "AI_AGENT"
+        "source": "AI_AGENT",
     }
 
     # 3. Log to stdout (Cloud Logging)
@@ -82,15 +77,15 @@ def save_lead(
         leads = []
         if os.path.exists(leads_file):
             try:
-                with open(leads_file, 'r') as f:
+                with open(leads_file) as f:
                     leads = json.load(f)
-            except (json.JSONDecodeError, IOError):
+            except (OSError, json.JSONDecodeError):
                 leads = []
 
         leads.append(lead_data)
 
-        if os.access(os.path.dirname(leads_file) or '.', os.W_OK):
-            with open(leads_file, 'w') as f:
+        if os.access(os.path.dirname(leads_file) or ".", os.W_OK):
+            with open(leads_file, "w") as f:
                 json.dump(leads, f, indent=2)
 
     except Exception as e:
@@ -98,7 +93,7 @@ def save_lead(
 
     return {
         "success": True,
-        "message": f"Thanks {user_name}! I've saved your info. A sales representative will call you at {phone_number} shortly."
+        "message": f"Thanks {user_name}! I've saved your info. A sales representative will call you at {phone_number} shortly.",
     }
 
 
@@ -129,14 +124,11 @@ def get_current_datetime(tool_context: ToolContext = None) -> dict:
         "day_of_week": now.strftime("%A"),
         "formatted": now.strftime("%A, %B %d, %Y at %-I:%M %p CT"),
         "upcoming_days": upcoming,
-        "note": "All dates are in Central Time (America/Chicago)."
+        "note": "All dates are in Central Time (America/Chicago).",
     }
 
 
-def check_available_slots(
-    date_str: str,
-    tool_context: ToolContext = None
-) -> dict:
+def check_available_slots(date_str: str, tool_context: ToolContext = None) -> dict:
     """
     Check available appointment time slots for a given date.
 
@@ -166,7 +158,11 @@ def check_available_slots(
 
     # Business hours by day of week: (open_hour, close_hour)
     hours_by_day = {
-        0: (9, 18), 1: (9, 18), 2: (9, 18), 3: (9, 18), 4: (9, 18),  # Mon-Fri
+        0: (9, 18),
+        1: (9, 18),
+        2: (9, 18),
+        3: (9, 18),
+        4: (9, 18),  # Mon-Fri
         5: (9, 17),  # Saturday
         6: (12, 15),  # Sunday
     }
@@ -177,7 +173,7 @@ def check_available_slots(
             "date": date_str,
             "day_name": d.strftime("%A"),
             "available_slots": [],
-            "message": "We are closed on this day."
+            "message": "We are closed on this day.",
         }
 
     open_hour, close_hour = hours
@@ -205,7 +201,7 @@ def check_available_slots(
         "business_hours": f"{open_time} - {close_time}",
         "available_slots": slots,
         "location": "Texas Home Outlet, 10685 FM 1960 East, Huffman, TX 77336",
-        "note": "Each appointment is 1 hour. Please arrive 5 minutes early."
+        "note": "Each appointment is 1 hour. Please arrive 5 minutes early.",
     }
 
 
@@ -215,7 +211,7 @@ def book_appointment(
     appointment_date: str,
     time_slot: str,
     notes: str = "",
-    tool_context: ToolContext = None
+    tool_context: ToolContext = None,
 ) -> dict:
     """
     Book a showroom appointment for a customer.
@@ -237,14 +233,20 @@ def book_appointment(
     if not user_name or not phone_number:
         return {"success": False, "message": "Please provide both a name and phone number."}
 
-    phone_digits = re.sub(r'\D', '', phone_number)
+    phone_digits = re.sub(r"\D", "", phone_number)
     if len(phone_digits) < 10:
-        return {"success": False, "message": "Phone number appears invalid. Please provide a 10-digit number."}
+        return {
+            "success": False,
+            "message": "Phone number appears invalid. Please provide a 10-digit number.",
+        }
 
     try:
         d = date.fromisoformat(appointment_date)
     except ValueError:
-        return {"success": False, "message": f"Invalid date format '{appointment_date}'. Use YYYY-MM-DD."}
+        return {
+            "success": False,
+            "message": f"Invalid date format '{appointment_date}'. Use YYYY-MM-DD.",
+        }
 
     if d < datetime.now(TIMEZONE).date():
         return {"success": False, "message": "Cannot book an appointment in the past."}
@@ -258,12 +260,17 @@ def book_appointment(
         "date": appointment_date,
         "time_slot": time_slot,
         "notes": notes,
-        "source": "AI_AGENT"
+        "source": "AI_AGENT",
     }
     logger.info(json.dumps(appt_data))
 
     # Also save as a lead
-    save_lead(user_name, phone_number, f"APPOINTMENT: {appointment_date} at {time_slot}. {notes}", tool_context)
+    save_lead(
+        user_name,
+        phone_number,
+        f"APPOINTMENT: {appointment_date} at {time_slot}. {notes}",
+        tool_context,
+    )
 
     return {
         "success": True,
@@ -279,14 +286,12 @@ def book_appointment(
             "date": appointment_date,
             "time_slot": time_slot,
             "name": user_name,
-        }
+        },
     }
 
 
 def cancel_appointment(
-    appointment_id: str,
-    phone_number: str,
-    tool_context: ToolContext = None
+    appointment_id: str, phone_number: str, tool_context: ToolContext = None
 ) -> dict:
     """
     Cancel an existing appointment.
@@ -300,18 +305,25 @@ def cancel_appointment(
         Cancellation confirmation.
     """
     if not appointment_id or not phone_number:
-        return {"success": False, "message": "Please provide both the appointment ID and phone number."}
+        return {
+            "success": False,
+            "message": "Please provide both the appointment ID and phone number.",
+        }
 
-    logger.info(json.dumps({
-        "event_type": "APPOINTMENT_CANCEL_REQUEST",
-        "timestamp": datetime.now(TIMEZONE).isoformat(),
-        "appointment_id": appointment_id,
-        "phone": phone_number,
-    }))
+    logger.info(
+        json.dumps(
+            {
+                "event_type": "APPOINTMENT_CANCEL_REQUEST",
+                "timestamp": datetime.now(TIMEZONE).isoformat(),
+                "appointment_id": appointment_id,
+                "phone": phone_number,
+            }
+        )
+    )
 
     return {
         "success": True,
-        "message": f"I've submitted a cancellation request for appointment {appointment_id}. Our team will confirm the cancellation shortly."
+        "message": f"I've submitted a cancellation request for appointment {appointment_id}. Our team will confirm the cancellation shortly.",
     }
 
 
@@ -326,5 +338,5 @@ def get_business_hours(tool_context: ToolContext = None) -> dict:
         "location": "Texas Home Outlet, 10685 FM 1960 East, Huffman, TX 77336",
         "hours": "Mon-Fri: 9am-6pm, Sat: 9am-5pm, Sun: 12pm-3pm",
         "phone": "(281) 324-3020",
-        "appointments": "Appointments can be booked up to 30 days in advance. Each visit is approximately 1 hour."
+        "appointments": "Appointments can be booked up to 30 days in advance. Each visit is approximately 1 hour.",
     }

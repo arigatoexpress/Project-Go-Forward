@@ -47,17 +47,23 @@ def _to_number(value):
     return int(number) if number.is_integer() else number
 
 
-def _normalized_specs(raw_specs: dict | None = None, *, beds=None, baths=None, sq_ft=None, dimensions=None) -> dict:
+def _normalized_specs(
+    raw_specs: dict | None = None, *, beds=None, baths=None, sq_ft=None, dimensions=None
+) -> dict:
     """Return compact specs with conservative bath inference for Tex/search."""
     specs = raw_specs or {}
     bed_count = _to_number(beds if beds is not None else specs.get("beds") or specs.get("bedrooms"))
-    bath_count = _to_number(baths if baths is not None else specs.get("baths") or specs.get("bathrooms"))
+    bath_count = _to_number(
+        baths if baths is not None else specs.get("baths") or specs.get("bathrooms")
+    )
     if bed_count and not bath_count:
         bath_count = 1 if bed_count <= 2 else 2
     return {
         "beds": bed_count,
         "baths": bath_count,
-        "sq_ft": _to_number(sq_ft if sq_ft is not None else specs.get("sq_ft") or specs.get("sqft")),
+        "sq_ft": _to_number(
+            sq_ft if sq_ft is not None else specs.get("sq_ft") or specs.get("sqft")
+        ),
         "dimensions": dimensions if dimensions is not None else specs.get("dimensions", ""),
     }
 

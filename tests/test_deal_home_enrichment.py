@@ -43,6 +43,7 @@ def main_module(monkeypatch):
             raise RuntimeError("Tests must not exercise live Firestore queries")
 
     from google.cloud import firestore as _firestore_module
+
     monkeypatch.setattr(_firestore_module, "Client", _FakeFirestoreClient)
 
     fake_db = types.SimpleNamespace(
@@ -54,9 +55,7 @@ def main_module(monkeypatch):
     fake_firestore_client_module = types.ModuleType("database.firestore_client")
     fake_firestore_client_module.get_database = lambda: fake_db
     fake_firestore_client_module.THODatabase = type("THODatabase", (), {})
-    monkeypatch.setitem(
-        sys.modules, "database.firestore_client", fake_firestore_client_module
-    )
+    monkeypatch.setitem(sys.modules, "database.firestore_client", fake_firestore_client_module)
 
     sys.modules.pop("main", None)
     return importlib.import_module("main")
@@ -86,13 +85,15 @@ class TestEnrichDealsWithHome:
             "model": None,
             "manufacturer": None,
         }
-        db = _FakeDB({
-            "1394": {
-                "model_name": "Champion 38SLT",
-                "manufacturer": "Champion Homes",
-                "serial_number": "1394",
+        db = _FakeDB(
+            {
+                "1394": {
+                    "model_name": "Champion 38SLT",
+                    "manufacturer": "Champion Homes",
+                    "serial_number": "1394",
+                }
             }
-        })
+        )
         result = main_module._enrich_deals_with_home([deal], db)
         assert result[0]["home_label"] == "Champion 38SLT"
         assert result[0]["home_manufacturer"] == "Champion Homes"
@@ -137,13 +138,15 @@ class TestEnrichDealsWithHome:
             "serial_number_1": "ABC123",
             "model": None,
         }
-        db = _FakeDB({
-            "ABC123": {
-                "model_name": "Test Home",
-                "manufacturer": "Acme",
-                "serial_number": "ABC123",
+        db = _FakeDB(
+            {
+                "ABC123": {
+                    "model_name": "Test Home",
+                    "manufacturer": "Acme",
+                    "serial_number": "ABC123",
+                }
             }
-        })
+        )
         result = main_module._enrich_deals_with_home([deal], db)
         assert result[0]["home_label"] == "Test Home"
         assert result[0]["home_manufacturer"] == "Acme"
@@ -151,14 +154,13 @@ class TestEnrichDealsWithHome:
     def test_lookup_is_batched_not_per_deal(self, main_module):
         """All serials must be sent in a single (or chunked) call, not N
         per-deal calls."""
-        deals = [
-            {"id": f"deal-{i}", "serial_number": f"S{i}", "model": None}
-            for i in range(5)
-        ]
-        db = _FakeDB({
-            "S0": {"model_name": "Home0", "manufacturer": "M", "serial_number": "S0"},
-            "S2": {"model_name": "Home2", "manufacturer": "M", "serial_number": "S2"},
-        })
+        deals = [{"id": f"deal-{i}", "serial_number": f"S{i}", "model": None} for i in range(5)]
+        db = _FakeDB(
+            {
+                "S0": {"model_name": "Home0", "manufacturer": "M", "serial_number": "S0"},
+                "S2": {"model_name": "Home2", "manufacturer": "M", "serial_number": "S2"},
+            }
+        )
         main_module._enrich_deals_with_home(deals, db)
         # Single batched call, all 5 serials, regardless of which had matches
         assert len(db.calls) == 1
@@ -179,6 +181,7 @@ class TestEnrichDealsWithHome:
     def test_inventory_lookup_failure_does_not_break_listing(self, main_module):
         """If the batched lookup raises, deals must still be returned —
         enrichment is best-effort."""
+
         class _BrokenDB:
             def get_inventory_by_serials(self, serials):
                 raise RuntimeError("Firestore is on fire")
@@ -193,6 +196,7 @@ class TestEnrichDealsWithHome:
     def test_falls_back_to_per_serial_lookup_if_batch_unavailable(self, main_module):
         """Older test stubs / DB shims may only implement the singular
         method. The helper must degrade gracefully."""
+
         class _LegacyDB:
             def __init__(self, inv):
                 self._inv = inv
@@ -203,13 +207,15 @@ class TestEnrichDealsWithHome:
                 return self._inv.get(serial)
 
         deal = {"id": "deal-6", "serial_number": "9949", "model": None}
-        db = _LegacyDB({
-            "9949": {
-                "model_name": "Elite Series Jackson",
-                "manufacturer": "Jessup Housing",
-                "serial_number": "9949",
+        db = _LegacyDB(
+            {
+                "9949": {
+                    "model_name": "Elite Series Jackson",
+                    "manufacturer": "Jessup Housing",
+                    "serial_number": "9949",
+                }
             }
-        })
+        )
         result = main_module._enrich_deals_with_home([deal], db)
         assert result[0]["home_label"] == "Elite Series Jackson"
         assert result[0]["home_manufacturer"] == "Jessup Housing"

@@ -73,7 +73,9 @@ def test_quality_enrichment_adds_seller_and_financing_aliases():
         enriched["installer_name_address"]
         == "Prosperity Acquisitions, Inc. dba Texas Home Outlet, 10685 FM 1960 East, Huffman, TX 77336"
     )
-    assert enriched["installer_contact_name"] == "Prosperity Acquisitions, Inc. dba Texas Home Outlet"
+    assert (
+        enriched["installer_contact_name"] == "Prosperity Acquisitions, Inc. dba Texas Home Outlet"
+    )
     assert enriched["installer_contact_phone"] == "(281) 324-3020"
     assert enriched["manufacturer_model_hud"] == "TRU Homes Delight / NTA7654321"
     assert enriched["manufacturer_model_serial"] == "TRU Homes Delight / TRU-REAL-001"

@@ -6,6 +6,7 @@ Fails (exit 1) if any probe detects:
   - missing Cache-Control: no-store header
   - schema-text placeholder values ("string", "int", "bool", "float") in the body
 """
+
 from __future__ import annotations
 
 import concurrent.futures

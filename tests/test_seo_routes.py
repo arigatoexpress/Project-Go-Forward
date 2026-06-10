@@ -197,6 +197,9 @@ def test_llms_txt_has_noindex_header(monkeypatch):
     response = client.get("/llms.txt")
     assert response.status_code == 200
     assert response.headers.get("x-robots-tag") == "noindex"
+    # uptime checks and crawlers probe with HEAD; must not fall into the
+    # catch-all 404
+    assert client.head("/llms.txt").status_code == 200
 
 
 def test_jsonld_escapes_script_breakout(monkeypatch):

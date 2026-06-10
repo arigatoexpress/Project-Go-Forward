@@ -370,7 +370,6 @@ def apply_classifier_to_home(home: dict) -> dict:
         cleaned["real_photos"],
     )
 
-
     return home
 
 
