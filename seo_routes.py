@@ -410,6 +410,7 @@ def render_spa_response(full_path: str) -> Response | None:
 
 
 def _render_spa_response(full_path: str) -> Response | None:
+    raw_path = "/" + full_path if full_path else "/"
     path = "/" + full_path.strip("/") if full_path else "/"
     base = _base()
 
@@ -418,11 +419,14 @@ def _render_spa_response(full_path: str) -> Response | None:
         target = _registry()["quote_redirects"].get(path.rstrip("/"))
         return RedirectResponse(target or "/inventory", status_code=301)
 
-    # 2. Legacy listing path: /inventory/ was the old hub -> new /inventory.
-    if path.lower() in ("/inventory/", "/home", "/index.html") or (
-        path != "/inventory" and path.lower().rstrip("/") == "/inventory"
-    ):
+    # 2. Legacy aliases for the listing hub -> new /inventory.
+    if path.lower() in ("/home", "/index.html"):
         return RedirectResponse("/inventory", status_code=301)
+
+    # 3. One URL per page: trailing-slash (or doubled-slash) variants of
+    #    public routes 301 to the canonical no-slash form.
+    if path in PUBLIC_ROUTES and raw_path != path:
+        return RedirectResponse(path, status_code=301)
 
     no_cache = {
         "Cache-Control": "no-cache, no-store, must-revalidate",
@@ -430,7 +434,7 @@ def _render_spa_response(full_path: str) -> Response | None:
         "Expires": "0",
     }
 
-    # 3. Live legacy detail/plan URLs: 200 + per-home head + crawlable body.
+    # 4. Live legacy detail/plan URLs: 200 + per-home head + crawlable body.
     m = _DETAIL_RE.match(path)
     if m:
         reg = _registry()
@@ -444,8 +448,10 @@ def _render_spa_response(full_path: str) -> Response | None:
             )
             return HTMLResponse(_inject(_shell(), head, None), status_code=404, headers=no_cache)
         canonical_path = reg["detail_path_by_id"][m.group(2)]
-        if path != canonical_path and path.rstrip("/") == canonical_path.rstrip("/"):
-            canonical_path = path  # tolerate trailing-slash variants
+        # One URL per home: slash/no-slash and slug variants 301 to the
+        # exact legacy path that carries the indexed equity.
+        if raw_path != canonical_path:
+            return RedirectResponse(canonical_path, status_code=301)
         canonical_url = base + canonical_path
         title = (
             f"{home.get('model_name') or 'Manufactured Home'} — {business_name()}, {_CITY_STATE}"
@@ -476,7 +482,7 @@ def _render_spa_response(full_path: str) -> Response | None:
             _inject(_shell(), head, _crawlable_detail_block(home)), headers=no_cache
         )
 
-    # 4. Known public static routes: 200 + route meta (+ inventory block).
+    # 5. Known public static routes: 200 + route meta (+ inventory block).
     if path in PUBLIC_ROUTES:
         title, description = PUBLIC_ROUTES[path]
         jsonld = [_local_business_jsonld()] if path in ("/", "/inventory", "/contact") else []
@@ -484,12 +490,12 @@ def _render_spa_response(full_path: str) -> Response | None:
         body = _crawlable_inventory_block() if path in ("/", "/inventory") else None
         return HTMLResponse(_inject(_shell(), head, body), headers=no_cache)
 
-    # 5. Operator/admin routes: 200, noindex.
+    # 6. Operator/admin routes: 200, noindex.
     if any(path.startswith(p) or path == p.rstrip("/") for p in NOINDEX_PREFIXES):
         head = _head_block(business_name(), "Operator tools.", base + path, noindex=True)
         return HTMLResponse(_inject(_shell(), head, None), headers=no_cache)
 
-    # 6. Anything else the caller can't match to a real file: defer to
+    # 7. Anything else the caller can't match to a real file: defer to
     #    caller for file checks; caller asks us again via render_not_found.
     return None
 

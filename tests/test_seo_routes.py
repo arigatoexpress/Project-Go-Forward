@@ -127,6 +127,25 @@ def test_call_for_price_home_has_no_offer_block(monkeypatch):
     assert products and "offers" not in products[0]  # no fabricated $0 price
 
 
+def test_trailing_slash_variants_301_to_canonical(monkeypatch):
+    client, _ = seo_client(monkeypatch)
+    # Public routes: slash variant -> no-slash canonical
+    for path in ("/contact/", "/inventory/", "/appointments/"):
+        response = client.get(path, follow_redirects=False)
+        assert response.status_code == 301, path
+        assert response.headers["location"] == path.rstrip("/"), path
+    # Detail URLs: the canonical carries a trailing slash (legacy format);
+    # the slashless variant must 301 to it, not serve duplicate 200s.
+    response = client.get(
+        "/inventory-detail/43372/texas-home-outlet/huffman/premier",
+        follow_redirects=False,
+    )
+    assert response.status_code == 301
+    assert response.headers["location"] == (
+        "/inventory-detail/43372/texas-home-outlet/huffman/premier/"
+    )
+
+
 def test_unknown_detail_id_is_404(monkeypatch):
     client, _ = seo_client(monkeypatch)
     response = client.get("/inventory-detail/99999/whatever/")
