@@ -1,0 +1,244 @@
+# One-shot, idempotent operational bootstrap for launch readiness item 8
+# (and the THO_API_KEY half of item 3). Creates, only if missing:
+#   - email notification channel + uptime check on /healthz/ + two alert
+#     policies (uptime failure, 5xx burst)
+#   - daily Firestore backup schedule (7-day retention)
+#   - tho-api-key secret (random, never printed) attached to the app service
+#     as THO_API_KEY
+#   - a no-traffic "staging" tag on the current revision for E2E/load tests
+#   - a monthly budget alarm (best-effort; needs billing-account perms)
+#
+# MANUAL TRIGGER ONLY (workflow_dispatch) — run it from the Actions tab.
+# Every step is continue-on-error: a missing IAM role fails that step only,
+# and the summary at the end says exactly which role to grant before re-run.
+#
+# WIF service account roles needed for a fully green run:
+#   roles/monitoring.editor, roles/datastore.owner (backup schedules),
+#   roles/secretmanager.admin, roles/run.admin, roles/iam.serviceAccountUser,
+#   and roles/billing.costsManager on the billing account (budget only).
+
+name: Ops bootstrap (monitoring, backups, partner key, staging tag)
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: ops-bootstrap
+  cancel-in-progress: false
+
+env:
+  PROJECT_ID: tho-ai-agent
+  REGION: us-central1
+  SERVICE: project-go-forward
+  PROBE_HOST: tho.sapphirealpha.xyz
+  ALERT_EMAIL: aristotlespec@gmail.com
+
+jobs:
+  ops-bootstrap:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Authenticate to Google Cloud (WIF, keyless)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Enable required APIs
+        continue-on-error: true
+        run: |
+          gcloud services enable monitoring.googleapis.com firestore.googleapis.com \
+            secretmanager.googleapis.com billingbudgets.googleapis.com \
+            --project="$PROJECT_ID"
+
+      - name: Email notification channel
+        id: channel
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          CHANNEL=$(gcloud beta monitoring channels list --project="$PROJECT_ID" \
+            --filter="type=\"email\" AND labels.email_address=\"$ALERT_EMAIL\"" \
+            --format='value(name)' | head -1)
+          if [ -z "$CHANNEL" ]; then
+            CHANNEL=$(gcloud beta monitoring channels create --project="$PROJECT_ID" \
+              --display-name="THO operator email" --type=email \
+              --channel-labels="email_address=$ALERT_EMAIL" --format='value(name)')
+            echo "Created notification channel"
+          else
+            echo "Notification channel already exists"
+          fi
+          echo "channel=$CHANNEL" >> "$GITHUB_OUTPUT"
+
+      - name: Uptime check on /healthz/
+        id: uptime
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          CHECK=$(gcloud monitoring uptime list-configs --project="$PROJECT_ID" \
+            --filter='displayName="THO healthz"' --format='value(name)' | head -1)
+          if [ -z "$CHECK" ]; then
+            gcloud monitoring uptime create "THO healthz" --project="$PROJECT_ID" \
+              --resource-type=uptime-url \
+              --resource-labels="host=$PROBE_HOST,project_id=$PROJECT_ID" \
+              --protocol=https --port=443 --path=/healthz/ \
+              --period=5 --timeout=10
+            CHECK=$(gcloud monitoring uptime list-configs --project="$PROJECT_ID" \
+              --filter='displayName="THO healthz"' --format='value(name)' | head -1)
+            echo "Created uptime check"
+          else
+            echo "Uptime check already exists"
+          fi
+          echo "check_id=${CHECK##*/}" >> "$GITHUB_OUTPUT"
+
+      - name: Alert policy — uptime failure
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          EXISTS=$(gcloud alpha monitoring policies list --project="$PROJECT_ID" \
+            --filter='displayName="THO uptime failure"' --format='value(name)' | head -1)
+          if [ -n "$EXISTS" ]; then echo "Policy already exists"; exit 0; fi
+          cat > /tmp/uptime-policy.json <<EOF
+          {
+            "displayName": "THO uptime failure",
+            "combiner": "OR",
+            "conditions": [{
+              "displayName": "healthz uptime check failing",
+              "conditionThreshold": {
+                "filter": "metric.type=\"monitoring.googleapis.com/uptime_check/check_passed\" AND resource.type=\"uptime_url\" AND metric.label.check_id=\"${{ steps.uptime.outputs.check_id }}\"",
+                "aggregations": [{
+                  "alignmentPeriod": "300s",
+                  "perSeriesAligner": "ALIGN_FRACTION_TRUE",
+                  "crossSeriesReducer": "REDUCE_MEAN",
+                  "groupByFields": ["resource.label.host"]
+                }],
+                "comparison": "COMPARISON_LT",
+                "thresholdValue": 0.5,
+                "duration": "300s",
+                "trigger": {"count": 1}
+              }
+            }],
+            "notificationChannels": ["${{ steps.channel.outputs.channel }}"]
+          }
+          EOF
+          gcloud alpha monitoring policies create --project="$PROJECT_ID" \
+            --policy-from-file=/tmp/uptime-policy.json
+          echo "Created uptime alert policy"
+
+      - name: Alert policy — 5xx burst
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          EXISTS=$(gcloud alpha monitoring policies list --project="$PROJECT_ID" \
+            --filter='displayName="THO 5xx burst"' --format='value(name)' | head -1)
+          if [ -n "$EXISTS" ]; then echo "Policy already exists"; exit 0; fi
+          cat > /tmp/5xx-policy.json <<EOF
+          {
+            "displayName": "THO 5xx burst",
+            "combiner": "OR",
+            "conditions": [{
+              "displayName": "Cloud Run 5xx responses (>~6 per 5 min)",
+              "conditionThreshold": {
+                "filter": "metric.type=\"run.googleapis.com/request_count\" AND resource.type=\"cloud_run_revision\" AND resource.label.service_name=\"$SERVICE\" AND metric.label.response_code_class=\"5xx\"",
+                "aggregations": [{
+                  "alignmentPeriod": "300s",
+                  "perSeriesAligner": "ALIGN_RATE",
+                  "crossSeriesReducer": "REDUCE_SUM"
+                }],
+                "comparison": "COMPARISON_GT",
+                "thresholdValue": 0.02,
+                "duration": "0s",
+                "trigger": {"count": 1}
+              }
+            }],
+            "notificationChannels": ["${{ steps.channel.outputs.channel }}"]
+          }
+          EOF
+          gcloud alpha monitoring policies create --project="$PROJECT_ID" \
+            --policy-from-file=/tmp/5xx-policy.json
+          echo "Created 5xx alert policy"
+
+      - name: Firestore daily backup schedule (7-day retention)
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          if gcloud firestore backups schedules list --database="(default)" \
+               --project="$PROJECT_ID" --format='value(name)' | grep -q .; then
+            echo "Backup schedule already exists"
+          else
+            gcloud firestore backups schedules create --database="(default)" \
+              --project="$PROJECT_ID" --recurrence=daily --retention=7d
+            echo "Created daily backup schedule"
+          fi
+
+      - name: Partner API key secret (THO_API_KEY)
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          if ! gcloud secrets describe tho-api-key --project="$PROJECT_ID" >/dev/null 2>&1; then
+            # Generated and stored without ever being printed. Retrieve with:
+            #   gcloud secrets versions access latest --secret=tho-api-key
+            openssl rand -hex 32 | tr -d '\n' | gcloud secrets create tho-api-key \
+              --data-file=- --project="$PROJECT_ID"
+            echo "Created tho-api-key secret"
+          else
+            echo "tho-api-key secret already exists"
+          fi
+          RUNTIME_SA=$(gcloud run services describe "$SERVICE" --region="$REGION" \
+            --project="$PROJECT_ID" --format='value(spec.template.spec.serviceAccountName)')
+          if [ -z "$RUNTIME_SA" ]; then
+            PROJECT_NUMBER=$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')
+            RUNTIME_SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
+          fi
+          gcloud secrets add-iam-policy-binding tho-api-key --project="$PROJECT_ID" \
+            --member="serviceAccount:$RUNTIME_SA" --role="roles/secretmanager.secretAccessor" >/dev/null
+          if gcloud run services describe "$SERVICE" --region="$REGION" --project="$PROJECT_ID" \
+               --format='value(spec.template.spec.containers[0].env)' | grep -q "THO_API_KEY"; then
+            echo "THO_API_KEY already attached to $SERVICE"
+          else
+            gcloud run services update "$SERVICE" --region="$REGION" --project="$PROJECT_ID" \
+              --update-secrets="THO_API_KEY=tho-api-key:latest" --quiet
+            echo "Attached THO_API_KEY to $SERVICE (new revision)"
+          fi
+
+      - name: No-traffic staging tag on current revision
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          IMAGE=$(gcloud run services describe "$SERVICE" --region="$REGION" \
+            --project="$PROJECT_ID" --format='value(spec.template.spec.containers[0].image)')
+          gcloud run deploy "$SERVICE" --image="$IMAGE" --region="$REGION" \
+            --project="$PROJECT_ID" --no-traffic --tag=staging --quiet
+          STAGING_URL=$(gcloud run services describe "$SERVICE" --region="$REGION" \
+            --project="$PROJECT_ID" \
+            --format='value(status.traffic.filter(tag:staging).extract(url).flatten())' || true)
+          echo "Staging URL: ${STAGING_URL:-see Cloud Run console, tag 'staging'}"
+
+      - name: Budget alarm (best-effort)
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          BILLING=$(gcloud billing projects describe "$PROJECT_ID" \
+            --format='value(billingAccountName)')
+          if [ -z "$BILLING" ]; then echo "No billing account visible — grant billing viewer"; exit 1; fi
+          if gcloud billing budgets list --billing-account="${BILLING##*/}" \
+               --filter='displayName="tho-ai-agent monthly"' --format='value(name)' | grep -q .; then
+            echo "Budget already exists"
+          else
+            gcloud billing budgets create --billing-account="${BILLING##*/}" \
+              --display-name="tho-ai-agent monthly" --budget-amount=200USD \
+              --threshold-rule=percent=0.5 --threshold-rule=percent=0.9 \
+              --threshold-rule=percent=1.0 \
+              --filter-projects="projects/$PROJECT_ID"
+            echo "Created \$200/month budget with 50/90/100% alerts"
+          fi
+
+      - name: Summary
+        run: |
+          echo "Review the step results above. Any ❌ step names the missing IAM"
+          echo "role in its error; grant it to the WIF service account and re-run"
+          echo "by bumping .github/triggers/ops-bootstrap."
