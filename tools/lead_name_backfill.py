@@ -191,7 +191,7 @@ async def extract_name_with_llm(messages: list[dict]) -> tuple[str, float, str] 
 
         client = genai.Client()
         response = client.models.generate_content(
-            model="gemini-2.0-flash-001",
+            model=os.environ.get("THO_BACKFILL_MODEL", "gemini-2.0-flash-001"),
             contents=prompt,
         )
         raw = response.text.strip()

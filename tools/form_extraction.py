@@ -5,6 +5,7 @@ PII fields are explicitly excluded from the extraction prompt.
 """
 
 import logging
+import os
 from typing import Any
 
 from config.field_map_loader import get_fields_for_template
@@ -75,7 +76,7 @@ Return ONLY a valid JSON object with the extracted field values. No explanation,
 
         client = genai.Client()
         response = client.models.generate_content(
-            model="gemini-2.0-flash-001",
+            model=os.environ.get("THO_EXTRACTION_MODEL", "gemini-2.0-flash-001"),
             contents=prompt,
         )
 

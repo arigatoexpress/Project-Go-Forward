@@ -391,9 +391,24 @@ function App() {
     if (p.startsWith('/chat-history')) return 'chat-history';
     if (p.startsWith('/chat')) return 'chat';
     if (p.startsWith('/inventory')) return 'inventory';
+    // Legacy texashomeoutlet.com deep links resolve inside the inventory page
+    if (p.startsWith('/plan/') || p.startsWith('/quote/')) return 'inventory';
     if (p.startsWith('/hub/')) return 'hub';
     if (p.startsWith('/system')) return 'system';
-    return 'inventory';
+    if (p === '/' || p === '') return 'inventory';
+    // Unknown path: the server already responded 404 — render a friendly
+    // not-found view instead of silently showing inventory.
+    return 'not-found';
+  };
+
+  // Keep the document title in sync on client-side navigation (the server
+  // injects per-route titles, but SPA navs don't re-fetch the shell).
+  const PAGE_TITLES = {
+    inventory: 'Mobile & Manufactured Homes for Sale in Huffman, TX | Texas Home Outlet',
+    chat: 'Chat with Tex — Texas Home Outlet Home Finder',
+    contact: 'Contact Texas Home Outlet — Huffman, TX',
+    appointments: 'Book a Showroom Visit | Texas Home Outlet',
+    'not-found': 'Page not found | Texas Home Outlet',
   };
   const [activePage, setActivePage] = useState(() => pageFromPath(window.location.pathname));
   const isStandaloneMode = window.location.pathname.startsWith('/app/') || window.location.search.includes('standalone=1');
@@ -408,6 +423,11 @@ function App() {
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
+
+  useEffect(() => {
+    if (PAGE_TITLES[activePage]) document.title = PAGE_TITLES[activePage];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activePage]);
 
   // Admin auth — token validated by backend via httpOnly cookie
   const [adminAuthed, setAdminAuthed] = useState(false);
@@ -1253,6 +1273,47 @@ function App() {
             <Appointments onBack={() => navigateTo('inventory')} />
           </Suspense>
         </ErrorBoundary>
+      </div>
+    );
+  }
+
+  if (activePage === 'not-found') {
+    return (
+      <div className="bg-[var(--cp-bg)] min-h-screen flex flex-col">
+        {appModals}
+        <NavBar {...navProps} />
+        <main className="flex-1 flex items-center justify-center px-6 py-16">
+          <div className="max-w-md text-center">
+            <p className="text-6xl font-bold text-[var(--cp-accent)] mb-3">404</p>
+            <h1 className="text-2xl font-bold text-[var(--cp-text)] mb-2">
+              Well, that page wandered off the lot
+            </h1>
+            <p className="text-[var(--cp-text-dim)] mb-8">
+              The page you're looking for doesn't exist or may have moved.
+              The homes are still right where we left them.
+            </p>
+            <div className="flex flex-wrap justify-center gap-3">
+              <button
+                onClick={() => navigateTo('inventory')}
+                className="rounded-md bg-[var(--cp-accent)] px-5 py-3 text-sm font-bold text-[var(--cp-bg)] transition hover:bg-[var(--cp-accent-hot)]"
+              >
+                Browse Homes
+              </button>
+              <button
+                onClick={() => navigateTo('chat')}
+                className="rounded-md border border-[var(--cp-border-light)] bg-[var(--cp-panel)] px-5 py-3 text-sm font-semibold text-[var(--cp-text)] transition hover:border-[var(--cp-secondary)]"
+              >
+                Ask Tex
+              </button>
+              <button
+                onClick={() => navigateTo('contact')}
+                className="rounded-md border border-[var(--cp-border-light)] bg-[var(--cp-panel)] px-5 py-3 text-sm font-semibold text-[var(--cp-text)] transition hover:border-[var(--cp-secondary)]"
+              >
+                Contact Us
+              </button>
+            </div>
+          </div>
+        </main>
       </div>
     );
   }
