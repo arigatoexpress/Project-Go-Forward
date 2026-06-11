@@ -12,7 +12,7 @@ import ErrorBoundary from './components/ErrorBoundary';
 import { v4 as uuidv4 } from 'uuid';
 import {
   BUSINESS_NAME, BUSINESS_PHONE, BUSINESS_PHONE_RAW, BUSINESS_FULL_ADDRESS,
-  BUSINESS_HOURS, BUSINESS_LICENSE
+  BUSINESS_HOURS, BUSINESS_LICENSE, BUSINESS_CITY, BUSINESS_STATE
 } from './constants';
 
 const API_URL = '/run'; // Relative path for single-container deployment
@@ -401,15 +401,6 @@ function App() {
     return 'not-found';
   };
 
-  // Keep the document title in sync on client-side navigation (the server
-  // injects per-route titles, but SPA navs don't re-fetch the shell).
-  const PAGE_TITLES = {
-    inventory: 'Mobile & Manufactured Homes for Sale in Huffman, TX | Texas Home Outlet',
-    chat: 'Chat with Tex — Texas Home Outlet Home Finder',
-    contact: 'Contact Texas Home Outlet — Huffman, TX',
-    appointments: 'Book a Showroom Visit | Texas Home Outlet',
-    'not-found': 'Page not found | Texas Home Outlet',
-  };
   const [activePage, setActivePage] = useState(() => pageFromPath(window.location.pathname));
   const isStandaloneMode = window.location.pathname.startsWith('/app/') || window.location.search.includes('standalone=1');
 
@@ -424,10 +415,6 @@ function App() {
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
-  useEffect(() => {
-    if (PAGE_TITLES[activePage]) document.title = PAGE_TITLES[activePage];
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activePage]);
 
   // Admin auth — token validated by backend via httpOnly cookie
   const [adminAuthed, setAdminAuthed] = useState(false);
@@ -728,23 +715,29 @@ function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [addToast]);
 
-  // Update page title per page
+  // Update page title per page. Public pages mirror the server-injected SEO
+  // titles (seo_routes.py PUBLIC_ROUTES) so client-side navs stay in sync;
+  // operator pages keep the short "Page | Business" pattern.
   useEffect(() => {
-    const titles = {
-      inventory: 'Browse Homes',
-      chat: 'Chat with Tex',
+    const fullTitles = {
+      inventory: `Mobile & Manufactured Homes for Sale in ${BUSINESS_CITY}, ${BUSINESS_STATE} | ${BUSINESS_NAME}`,
+      chat: `Chat with Tex — ${BUSINESS_NAME} Home Finder`,
+      contact: `Contact ${BUSINESS_NAME} — ${BUSINESS_CITY}, ${BUSINESS_STATE}`,
+      appointments: `Book a Showroom Visit | ${BUSINESS_NAME}`,
+      'not-found': `Page not found | ${BUSINESS_NAME}`,
+    };
+    const shortTitles = {
       documents: 'Documents',
       adstudio: 'Ad Studio',
-      contact: 'Contact Us',
-      appointments: 'Book a Visit',
       analytics: 'Analytics',
       crm: 'CRM Dashboard',
       system: 'THO System Hub',
       'getting-started': 'Getting Started',
+      'chat-history': 'Chat History',
     };
-    document.title = titles[activePage]
-      ? `${titles[activePage]} | ${BUSINESS_NAME}`
-      : BUSINESS_NAME;
+    document.title =
+      fullTitles[activePage] ||
+      (shortTitles[activePage] ? `${shortTitles[activePage]} | ${BUSINESS_NAME}` : BUSINESS_NAME);
   }, [activePage]);
 
   const scrollToBottom = () => {
