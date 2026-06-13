@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, PieChart, Pie, Cell, LineChart, Line, AreaChart, Area } from 'recharts';
 import { Users, Search, MessageSquare, TrendingUp, ArrowUp, ArrowDown, Phone, Calendar, DollarSign, Loader2, RefreshCw, AlertCircle, FileText, Home, Clock, Target, Zap } from 'lucide-react';
 import adminFetch from '../adminFetch';
+import { generateSrcSet, getImageSizes } from '../utils/imageOptimization';
 
 const PIE_COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899'];
 const AREA_COLORS = ['#3B82F6', '#10B981', '#F59E0B'];
@@ -554,7 +555,15 @@ export default function Analytics() {
                                                 <td className="py-3">
                                                     <div className="flex items-center gap-3">
                                                         {home.image_url ? (
-                                                            <img src={home.image_url} alt="" className="w-10 h-10 rounded-lg object-cover" />
+                                                        <img
+                                                            src={home.image_url}
+                                                            srcSet={generateSrcSet(home.image_url)}
+                                                            sizes={getImageSizes('analytics-table')}
+                                                            alt=""
+                                                            className="w-10 h-10 rounded-lg object-cover"
+                                                            loading="lazy"
+                                                            decoding="async"
+                                                        />
                                                         ) : (
                                                             <div className="w-10 h-10 bg-gray-50 rounded-lg flex items-center justify-center">
                                                                 <Home size={16} className="text-gray-600" />

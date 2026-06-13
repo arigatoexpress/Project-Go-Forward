@@ -19,9 +19,10 @@ import json
 import logging
 import re
 import secrets
+import threading
 import time
 import uuid
-from collections import defaultdict
+from collections import defaultdict, deque
 from datetime import UTC, datetime, timedelta
 from json import JSONDecodeError
 from urllib.parse import urlsplit, urlunsplit
@@ -456,6 +457,94 @@ class InputSanitizationMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
+class _MetricsStore:
+    """Thread-safe rolling-window store for request latency metrics."""
+
+    def __init__(self):
+        self._global_buffer = deque(maxlen=5000)
+        self._endpoint_buffers = defaultdict(lambda: deque(maxlen=1000))
+        self._lock = threading.Lock()
+
+    def record(self, endpoint_key: str, duration_ms: float, status_code: int) -> None:
+        with self._lock:
+            self._global_buffer.append((duration_ms, status_code))
+            self._endpoint_buffers[endpoint_key].append((duration_ms, status_code))
+
+    @staticmethod
+    def _calculate_percentiles(durations: list[float]) -> dict:
+        if not durations:
+            return {"p50": None, "p95": None, "p99": None}
+        sorted_durations = sorted(durations)
+        n = len(sorted_durations)
+
+        def _p(p: float) -> float:
+            k = (n - 1) * p / 100.0
+            f = int(k)
+            c = min(f + 1, n - 1)
+            if f == c:
+                return sorted_durations[f]
+            return sorted_durations[f] * (c - k) + sorted_durations[c] * (k - f)
+
+        return {"p50": round(_p(50), 2), "p95": round(_p(95), 2), "p99": round(_p(99), 2)}
+
+    def get_metrics(self) -> dict:
+        with self._lock:
+            global_data = list(self._global_buffer)
+            endpoint_data = {
+                key: list(buf) for key, buf in self._endpoint_buffers.items()
+            }
+
+        global_durations = [d for d, _ in global_data]
+        overall = self._calculate_percentiles(global_durations)
+        overall["count"] = len(global_data)
+
+        endpoints = {}
+        for key, records in endpoint_data.items():
+            durations = [d for d, _ in records]
+            status_codes = [s for _, s in records]
+            error_count = sum(1 for s in status_codes if s >= 400)
+            endpoints[key] = {
+                **self._calculate_percentiles(durations),
+                "count": len(records),
+                "error_rate": round(error_count / len(records), 4) if records else 0.0,
+            }
+
+        return {"overall": overall, "endpoints": endpoints}
+
+
+_metrics_store = _MetricsStore()
+
+
+class PerformanceMetricsMiddleware(BaseHTTPMiddleware):
+    """Track request latency and record structured metrics per endpoint."""
+
+    async def dispatch(self, request: Request, call_next):
+        if request.url.path in {"/health", "/healthz", "/healthz/"}:
+            return await call_next(request)
+
+        start = time.perf_counter()
+        status_code = None
+        try:
+            response = await call_next(request)
+            status_code = response.status_code
+            return response
+        except Exception:
+            status_code = 500
+            raise
+        finally:
+            duration_ms = (time.perf_counter() - start) * 1000
+            endpoint_key = f"{request.method} {request.url.path}"
+            _metrics_store.record(endpoint_key, duration_ms, status_code)
+            struct_logger.info(
+                "request",
+                method=request.method,
+                path=request.url.path,
+                status_code=status_code,
+                duration_ms=round(duration_ms, 2),
+                timestamp=datetime.now(UTC).isoformat(),
+            )
+
+
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(RateLimitMiddleware)
 app.add_middleware(RequestSizeLimitMiddleware)
@@ -717,6 +806,7 @@ class CanonicalHostMiddleware(BaseHTTPMiddleware):
 
 
 app.add_middleware(CanonicalHostMiddleware)
+app.add_middleware(PerformanceMetricsMiddleware)
 
 
 # ─── Admin Auth Setup ───
@@ -874,6 +964,12 @@ async def require_admin(request: Request):
         )
     if not _verify_csrf(request):
         raise HTTPException(status_code=403, detail="CSRF token missing or invalid")
+
+
+@app.get("/api/metrics", dependencies=[Depends(require_admin)])
+async def get_metrics():
+    """Return rolling-window performance metrics for admin review."""
+    return _metrics_store.get_metrics()
 
 
 def _audit_actor(request: Request) -> str:
