@@ -33,32 +33,28 @@ jobs:
 
       - name: Add texashomeoutlet.com domain mapping
         run: |
+          set -x
           gcloud run domain-mappings create \
-            --service ${{ env.SERVICE }} \
-            --region ${{ env.REGION }} \
-            --project ${{ env.PROJECT_ID }} \
-            --domain texashomeoutlet.com \
-            --quiet || echo "Domain mapping may already exist or be pending verification"
+            --service=${{ env.SERVICE }} \
+            --region=${{ env.REGION }} \
+            --project=${{ env.PROJECT_ID }} \
+            --domain=texashomeoutlet.com \
+            --quiet
 
       - name: Add www.texashomeoutlet.com domain mapping
         run: |
+          set -x
           gcloud run domain-mappings create \
-            --service ${{ env.SERVICE }} \
-            --region ${{ env.REGION }} \
-            --project ${{ env.PROJECT_ID }} \
-            --domain www.texashomeoutlet.com \
-            --quiet || echo "Domain mapping may already exist or be pending verification"
+            --service=${{ env.SERVICE }} \
+            --region=${{ env.REGION }} \
+            --project=${{ env.PROJECT_ID }} \
+            --domain=www.texashomeoutlet.com \
+            --quiet
 
-      - name: List all domain mappings
-        run: |
-          gcloud run domain-mappings list \
-            --region ${{ env.REGION }} \
-            --project ${{ env.PROJECT_ID }} \
-            --format='table(DOMAIN, SERVICE, STATUS)'
-
-      - name: Show DNS records required
+      - name: Show required DNS records
         run: |
           echo "=== DNS records to add in Turbify/Route 53 ==="
+          echo ""
           echo "Apex (texashomeoutlet.com): 4x A records"
           echo "  216.239.32.21"
           echo "  216.239.34.21"
