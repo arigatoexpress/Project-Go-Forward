@@ -126,6 +126,7 @@ from email_service import (
 )
 from lead_management import Lead, LeadManager
 from structured_logging import logger as struct_logger
+from tools.input_sanitizer import sanitize_body
 from tools.pii_guard import redact_pii_from_text, validate_no_pii_in_text
 
 
@@ -435,9 +436,30 @@ class RequestSizeLimitMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
+class InputSanitizationMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        if (
+            request.method in {"POST", "PUT", "PATCH"}
+            and request.url.path.startswith("/api/")
+            and not request.url.path.startswith("/api/v1/")
+        ):
+            content_type = request.headers.get("content-type", "")
+            if content_type.startswith("application/json"):
+                try:
+                    body = await request.body()
+                    if body:
+                        data = json.loads(body)
+                        sanitized = sanitize_body(data)
+                        request._body = json.dumps(sanitized).encode("utf-8")
+                except Exception:
+                    pass  # Not valid JSON or sanitization failed — leave body untouched
+        return await call_next(request)
+
+
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(RateLimitMiddleware)
 app.add_middleware(RequestSizeLimitMiddleware)
+app.add_middleware(InputSanitizationMiddleware)
 # slowapi middleware is registered last so it sits outermost and runs
 # before the legacy per-IP RateLimitMiddleware. Per-route caps via
 # @limiter.limit decorators short-circuit hot paths (e.g. /api/admin/verify
@@ -811,6 +833,34 @@ def _admin_token_from_request(request: Request) -> str:
     return ""
 
 
+def _create_csrf_token() -> str:
+    """Generate a random CSRF token for double-submit cookie pattern."""
+    return secrets.token_hex(32)
+
+
+def _verify_csrf(request: Request) -> bool:
+    """Verify CSRF token for state-changing admin requests.
+
+    Safe methods (GET, HEAD, OPTIONS) are exempt.
+    Requests using X-Admin-Token or Authorization: Bearer header
+    (custom headers, already CSRF-safe) are exempt.
+    Cookie-based auth requests must provide matching X-CSRF-Token header.
+    """
+    if request.method in {"GET", "HEAD", "OPTIONS"}:
+        return True
+    # If using header-based auth, skip CSRF (custom headers are CSRF-safe)
+    if request.headers.get("X-Admin-Token", "").strip():
+        return True
+    auth = request.headers.get("Authorization", "").strip()
+    if auth.lower().startswith("bearer "):
+        return True
+    csrf_cookie = request.cookies.get("tho_csrf_token", "")
+    csrf_header = request.headers.get("X-CSRF-Token", "")
+    if not csrf_cookie or not csrf_header:
+        return False
+    return secrets.compare_digest(csrf_cookie, csrf_header)
+
+
 async def require_admin(request: Request):
     """FastAPI dependency that validates the stateless admin token or passkey session."""
     if _verify_passkey_cookie(request):
@@ -822,6 +872,8 @@ async def require_admin(request: Request):
         raise HTTPException(
             status_code=401, detail="Admin session expired. Please re-authenticate."
         )
+    if not _verify_csrf(request):
+        raise HTTPException(status_code=403, detail="CSRF token missing or invalid")
 
 
 def _audit_actor(request: Request) -> str:
@@ -4638,6 +4690,7 @@ async def verify_admin_pin(request: Request):
     # Successful login — clear attempt history
     _clear_pin_attempts(client_ip)
     token = _create_admin_token()
+    csrf_token = _create_csrf_token()
     struct_logger.info("Admin login succeeded", client_ip=client_ip)
     # Audit trail: track who logged in and when. Use a hash of the freshly
     # minted token as the actor id so the entry is correlatable with later
@@ -4651,11 +4704,19 @@ async def verify_admin_pin(request: Request):
         details={"client_ip": client_ip},
         request=request,
     )
-    response = JSONResponse({"success": True})
+    response = JSONResponse({"success": True, "csrf_token": csrf_token})
     response.set_cookie(
         key="tho_admin_token",
         value=token,
         httponly=True,
+        secure=not IS_LOCAL,
+        samesite="strict",
+        max_age=ADMIN_TOKEN_TTL,
+    )
+    response.set_cookie(
+        key="tho_csrf_token",
+        value=csrf_token,
+        httponly=False,
         secure=not IS_LOCAL,
         samesite="strict",
         max_age=ADMIN_TOKEN_TTL,
