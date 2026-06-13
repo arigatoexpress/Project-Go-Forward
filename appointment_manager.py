@@ -3,6 +3,7 @@ Appointment Scheduling System for THO AI Agent
 Manages showroom appointment booking with Firestore persistence.
 """
 
+import asyncio
 import logging
 from collections import Counter
 from dataclasses import asdict, dataclass
@@ -104,6 +105,10 @@ class AppointmentManager:
 
     async def create_appointment(self, appt: Appointment) -> Appointment:
         """Create appointment with double-booking protection via transaction."""
+        return await asyncio.to_thread(self.create_appointment_sync, appt)
+
+    def create_appointment_sync(self, appt: Appointment) -> Appointment:
+        """Synchronous version of create_appointment for non-async callers."""
         # Validate date is not in the past
         try:
             appt_date = datetime.strptime(appt.date, "%Y-%m-%d").date()
@@ -142,38 +147,50 @@ class AppointmentManager:
 
     async def cancel_appointment(self, appointment_id: str) -> Optional["Appointment"]:
         """Cancel an appointment, freeing the slot."""
-        doc_ref = self._collection().document(appointment_id)
-        doc = doc_ref.get()
-        if not doc.exists:
-            return None
+        def _cancel():
+            doc_ref = self._collection().document(appointment_id)
+            doc = doc_ref.get()
+            if not doc.exists:
+                return None
 
-        appt = Appointment.from_dict(doc.to_dict())
-        appt.status = "cancelled"
-        appt.updated_at = datetime.now(TIMEZONE).isoformat()
-        doc_ref.update({"status": "cancelled", "updated_at": appt.updated_at})
-        return appt
+            appt = Appointment.from_dict(doc.to_dict())
+            appt.status = "cancelled"
+            appt.updated_at = datetime.now(TIMEZONE).isoformat()
+            doc_ref.update({"status": "cancelled", "updated_at": appt.updated_at})
+            return appt
+
+        return await asyncio.to_thread(_cancel)
 
     async def get_appointment(self, appointment_id: str) -> Appointment | None:
         """Retrieve appointment by ID."""
-        doc = self._collection().document(appointment_id).get()
-        if doc.exists:
-            return Appointment.from_dict(doc.to_dict())
-        return None
+        def _get():
+            doc = self._collection().document(appointment_id).get()
+            if doc.exists:
+                return Appointment.from_dict(doc.to_dict())
+            return None
+
+        return await asyncio.to_thread(_get)
 
     async def get_appointments_by_date(self, date_str: str) -> list[Appointment]:
         """Get all confirmed appointments for a date."""
-        query = self._collection().where("date", "==", date_str).where("status", "==", "confirmed")
-        return [Appointment.from_dict(doc.to_dict()) for doc in query.stream()]
+        def _query():
+            q = self._collection().where("date", "==", date_str).where("status", "==", "confirmed")
+            return [Appointment.from_dict(doc.to_dict()) for doc in q.stream()]
+
+        return await asyncio.to_thread(_query)
 
     async def get_appointments_by_phone(self, phone: str) -> list[Appointment]:
         """Get appointments for a customer by phone number."""
-        query = (
-            self._collection()
-            .where("phone", "==", phone)
-            .where("status", "==", "confirmed")
-            .order_by("date")
-        )
-        return [Appointment.from_dict(doc.to_dict()) for doc in query.stream()]
+        def _query():
+            q = (
+                self._collection()
+                .where("phone", "==", phone)
+                .where("status", "==", "confirmed")
+                .order_by("date")
+            )
+            return [Appointment.from_dict(doc.to_dict()) for doc in q.stream()]
+
+        return await asyncio.to_thread(_query)
 
     async def get_available_slots(self, date_str: str) -> dict:
         """
@@ -237,8 +254,11 @@ class AppointmentManager:
         self, status: str | None = None, limit: int = 100
     ) -> list[Appointment]:
         """List appointments with optional status filter."""
-        query = self._collection()
-        if status:
-            query = query.where("status", "==", status)
-        query = query.order_by("date", direction=firestore.Query.DESCENDING).limit(limit)
-        return [Appointment.from_dict(doc.to_dict()) for doc in query.stream()]
+        def _query():
+            q = self._collection()
+            if status:
+                q = q.where("status", "==", status)
+            q = q.order_by("date", direction=firestore.Query.DESCENDING).limit(limit)
+            return [Appointment.from_dict(doc.to_dict()) for doc in q.stream()]
+
+        return await asyncio.to_thread(_query)
