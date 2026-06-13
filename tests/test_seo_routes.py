@@ -146,6 +146,31 @@ def test_trailing_slash_variants_301_to_canonical(monkeypatch):
     )
 
 
+def test_legacy_vendor_pages_301_to_relevant_targets(monkeypatch):
+    # Old WordPress/Yoast marketing, brand, and city pages must 301 (not hard-404)
+    # to preserve search equity on cutover. Source: old site page-sitemap.xml.
+    client, _ = seo_client(monkeypatch)
+    cases = {
+        "/tru-homes/": "/inventory",                        # brand
+        "/manufactured-homes-in-beaumont-tx/": "/inventory",  # city / local SEO
+        "/single-wide/": "/inventory",                       # category
+        "/financing/": "/contact",                           # info
+        "/about-us/": "/contact",
+        "/accessibility-statement/": "/",                    # boilerplate
+    }
+    for path, target in cases.items():
+        response = client.get(path, follow_redirects=False)
+        assert response.status_code == 301, path
+        assert response.headers["location"] == target, path
+    # Case-insensitive + slashless variants resolve the same.
+    response = client.get("/Financing", follow_redirects=False)
+    assert response.status_code == 301
+    assert response.headers["location"] == "/contact"
+    # A genuinely unknown marketing path is NOT over-broadly caught — still 404.
+    response = client.get("/totally-made-up-page/", follow_redirects=False)
+    assert response.status_code == 404
+
+
 def test_unknown_detail_id_is_404(monkeypatch):
     client, _ = seo_client(monkeypatch)
     response = client.get("/inventory-detail/99999/whatever/")

@@ -27,6 +27,7 @@ EXCLUDED_PARTS = {
     "docs",
     "tests",
     "scripts",
+    "scratch",  # local-only scratch files (untracked, never shipped)
 }
 
 # Hardware/OS/local-host assumptions that must never appear in source.

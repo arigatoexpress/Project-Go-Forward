@@ -22,3 +22,9 @@ data/generated_ads/*
 
 # NOTE: tho_documents/ is NOT excluded here — it must be in the Docker image
 # for document generation to work on Cloud Run
+
+# PII artifacts — must never enter the build/deploy context
+data/migrated_customers.json
+data/migration_report.json
+data/leads.json
+scratch/

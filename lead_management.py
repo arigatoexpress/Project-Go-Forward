@@ -53,8 +53,15 @@ class Lead:
 
     @classmethod
     def from_dict(cls, data: dict) -> "Lead":
-        """Create from dictionary"""
-        return cls(**data)
+        """Create from dictionary, ignoring unknown keys.
+
+        Mirrors ``Appointment.from_dict``: a malformed or out-of-band Firestore
+        document (extra/legacy fields) must not 500 the admin CRM list — the
+        owner's only post-cutover visibility while email is off.
+        """
+        valid_fields = {f.name for f in __import__("dataclasses").fields(cls)}
+        filtered = {k: v for k, v in data.items() if k in valid_fields}
+        return cls(**filtered)
 
     def to_csv_row(self) -> dict:
         """Convert to CSV-friendly format"""
