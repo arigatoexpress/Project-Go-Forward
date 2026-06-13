@@ -97,8 +97,6 @@ def _create_sales_agent() -> LlmAgent:
     """Create the Sales Agent with inventory and search tools."""
     try:
         from tools import (
-            book_appointment,
-            cancel_appointment,
             check_available_slots,
             get_business_hours,
             get_current_datetime,
@@ -107,8 +105,6 @@ def _create_sales_agent() -> LlmAgent:
         )
     except ImportError:
         from .tools import (
-            book_appointment,
-            cancel_appointment,
             check_available_slots,
             get_business_hours,
             get_current_datetime,
@@ -128,8 +124,6 @@ def _create_sales_agent() -> LlmAgent:
             search_inventory,
             get_current_datetime,
             check_available_slots,
-            book_appointment,
-            cancel_appointment,
             get_business_hours,
             save_lead,
         ],
