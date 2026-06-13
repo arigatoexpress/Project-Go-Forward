@@ -42,6 +42,24 @@ jobs:
           TOKEN=$(gcloud auth print-access-token)
           echo "Got access token (length: ${#TOKEN})" >> $GITHUB_STEP_SUMMARY
 
+          # Get verification token via Google Site Verification API
+          echo "### Google Site Verification API token" >> $GITHUB_STEP_SUMMARY
+          echo '```json' >> $GITHUB_STEP_SUMMARY
+          curl -s -X POST \
+            "https://www.googleapis.com/siteVerification/v1/token" \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "site": {
+                "type": "INET_DOMAIN",
+                "identifier": "'${{ env.DOMAIN }}'"
+              },
+              "verificationMethod": "DNS_TXT"
+            }' >> $GITHUB_STEP_SUMMARY 2>&1 || true
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
           # Try to create domain mapping via API and capture response
           # Correct endpoint: /apis/domains.cloudrun.com/v1/ (not /v1/)
           echo "### API response for domain mapping creation" >> $GITHUB_STEP_SUMMARY
