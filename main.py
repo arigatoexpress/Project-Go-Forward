@@ -4023,6 +4023,7 @@ async def download_ad_image(filename: str):
 
 
 @app.post("/api/contact")
+@limiter.limit("10/minute")
 async def submit_contact_form(request: Request):
     """Receive contact form submissions and log as leads."""
     try:
@@ -4111,6 +4112,7 @@ async def get_available_slots(date: str):
 
 
 @app.post("/api/appointments")
+@limiter.limit("10/minute")
 async def create_appointment(request: Request):
     """Book a new appointment."""
     try:

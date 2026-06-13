@@ -114,6 +114,55 @@ NOINDEX_PREFIXES = (
 _DETAIL_RE = re.compile(r"^/(inventory-detail|plan)/(\d+)(/|$)", re.IGNORECASE)
 _QUOTE_RE = re.compile(r"^/quote(/|$)", re.IGNORECASE)
 
+# Legacy vendor (WordPress/Yoast) marketing, brand, and city/local pages from the
+# OLD manufacturedhomes.com-era site. These hold real search equity + backlinks but
+# have no 1:1 page on the new app, so they 301 to the closest relevant destination
+# instead of hard-404ing (which would drop the rankings on cutover). Source of truth:
+# the old site's live page-sitemap.xml, crawled 2026-06-12. Keys are normalized to a
+# lowercase, no-trailing-slash path. Detail/plan/quote/inventory URLs are intentionally
+# absent — they are already handled by the registry/regex logic in _render_spa_response.
+# Re-crawl the old sitemap and extend this map before flipping DNS if pages changed.
+_LEGACY_VENDOR_REDIRECTS: dict[str, str] = {
+    # Brand / manufacturer showcase pages -> the unified inventory.
+    "/tru-homes": "/inventory",
+    "/clayton-homes": "/inventory",
+    "/cavco-homes": "/inventory",
+    "/cavco-homes-of-texas": "/inventory",
+    "/champion-homes": "/inventory",
+    "/skyline-homes": "/inventory",
+    "/meridian-homes": "/inventory",
+    "/new-vision-manufacturing": "/inventory",
+    "/jessup-housing": "/inventory",
+    "/southern-energy-homes": "/inventory",
+    "/schult-homes-waco": "/inventory",
+    # City / local-SEO landing pages -> inventory (local intent = browse homes).
+    "/manufactured-homes-in-baytown-tx": "/inventory",
+    "/manufactured-homes-in-beaumont-tx": "/inventory",
+    "/manufactured-homes-in-cleveland-tx": "/inventory",
+    "/manufactured-homes-in-conroe-tx": "/inventory",
+    "/manufactured-homes-in-jasper-tx": "/inventory",
+    "/manufactured-homes-in-livingston-tx": "/inventory",
+    "/manufactured-homes-in-lumberton-tx": "/inventory",
+    # Category pages -> inventory.
+    "/single-wide": "/inventory",
+    "/double-wide": "/inventory",
+    "/used-homes": "/inventory",
+    "/pre-owned-homes": "/inventory",
+    "/tiny-homes-cabin": "/inventory",
+    "/red-tag-sales": "/inventory",
+    "/floor-plans": "/inventory",
+    # Info / contact / financing pages -> contact.
+    "/about-us": "/contact",
+    "/contact-us": "/contact",
+    "/contact-modal": "/contact",
+    "/financing": "/contact",
+    "/trade": "/contact",
+    "/moving": "/contact",
+    "/brochure": "/contact",
+    # Boilerplate -> home.
+    "/accessibility-statement": "/",
+}
+
 
 # ── Inventory-backed URL registry (cached) ──────────────────────────────────
 
@@ -422,6 +471,12 @@ def _render_spa_response(full_path: str) -> Response | None:
     # 2. Legacy aliases for the listing hub -> new /inventory.
     if path.lower() in ("/home", "/index.html"):
         return RedirectResponse("/inventory", status_code=301)
+
+    # 2b. Legacy vendor marketing/brand/city pages -> closest relevant page (301).
+    #     Preserves the old site's search equity instead of hard-404ing on cutover.
+    vendor_target = _LEGACY_VENDOR_REDIRECTS.get(path.lower())
+    if vendor_target:
+        return RedirectResponse(vendor_target, status_code=301)
 
     # 3. One URL per page: trailing-slash (or doubled-slash) variants of
     #    public routes 301 to the canonical no-slash form.

@@ -16,3 +16,9 @@ tests
 !CLAUDE.md
 data/generated_docs/*
 data/generated_ads/*
+
+# PII artifacts — must never enter the build/deploy context
+data/migrated_customers.json
+data/migration_report.json
+data/leads.json
+scratch/
