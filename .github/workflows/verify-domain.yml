@@ -5,6 +5,8 @@ on:
 
 env:
   PROJECT_ID: tho-ai-agent
+  REGION: us-central1
+  SERVICE: project-go-forward
   DOMAIN: texashomeoutlet.com
 
 jobs:
@@ -25,37 +27,67 @@ jobs:
 
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
+        with:
+          install_components: 'beta'
 
-      - name: Attempt domain verification
+      - name: Set gcloud run region property
+        run: gcloud config set run/region ${{ env.REGION }}
+
+      - name: Get verification token via Cloud Run API
         run: |
-          echo "=== Attempting to verify ${{ env.DOMAIN }} ==="
-          echo ""
-          # Run gcloud domains verify to see the verification token/instructions
-          gcloud domains verify ${{ env.DOMAIN }} --project=${{ env.PROJECT_ID }} || true
-          echo ""
-          echo "=== If the above failed, try alternative methods ==="
-          echo "1. Check gcloud domains list"
-          gcloud domains list --project=${{ env.PROJECT_ID }} || true
-          echo ""
-          echo "2. Check gcloud domains describe"
-          gcloud domains describe ${{ env.DOMAIN }} --project=${{ env.PROJECT_ID }} || true
-          echo ""
-          echo "=== Verification instructions ==="
-          echo "You need to verify domain ownership in Google Cloud before mapping to Cloud Run."
-          echo "Options:"
-          echo "  A. Google Cloud Console: https://console.cloud.google.com/run/domains?project=${{ env.PROJECT_ID }}"
-          echo "  B. Google Search Console: https://search.google.com/search-console"
-          echo "  C. gcloud domains verify command (shown above)"
-          echo ""
-          echo "For DNS TXT verification, add a TXT record like:"
-          echo "  Name: @ (or texashomeoutlet.com)"
-          echo "  Value: [token from gcloud domains verify output]"
-          echo ""
-          echo "Current DNS records for reference:"
-          dig +short A ${{ env.DOMAIN }} || true
-          dig +short NS ${{ env.DOMAIN }} || true
-          echo ""
-          echo "=== Next steps ==="
-          echo "1. Add the verification TXT record to Turbify/Route 53"
-          echo "2. Wait for DNS propagation (up to 5 min with TTL 300)"
-          echo "3. Run the Add Custom Domain Mappings workflow again"
+          echo "## Domain Verification for ${{ env.DOMAIN }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Get access token
+          TOKEN=$(gcloud auth print-access-token)
+          echo "Got access token (length: ${#TOKEN})" >> $GITHUB_STEP_SUMMARY
+
+          # Try to create domain mapping via API and capture response
+          echo "### API response for domain mapping creation" >> $GITHUB_STEP_SUMMARY
+          echo '```json' >> $GITHUB_STEP_SUMMARY
+          curl -s -X POST \
+            "https://run.googleapis.com/v1/namespaces/${{ env.PROJECT_ID }}/domainmappings" \
+            -H "Authorization: Bearer $TOKEN" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "apiVersion": "domains.cloudrun.com/v1",
+              "kind": "DomainMapping",
+              "metadata": {"name": "'${{ env.DOMAIN }}'"},
+              "spec": {"routeName": "'${{ env.SERVICE }}'"}
+            }' >> $GITHUB_STEP_SUMMARY 2>&1 || true
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # Also try gcloud domains verify with proper stderr capture
+          echo "### gcloud domains verify output" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          gcloud domains verify ${{ env.DOMAIN }} --project=${{ env.PROJECT_ID }} >> $GITHUB_STEP_SUMMARY 2>&1 || true
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # List existing domain mappings
+          echo "### Existing domain mappings" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          gcloud beta run domain-mappings list --project=${{ env.PROJECT_ID }} >> $GITHUB_STEP_SUMMARY 2>&1 || true
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # List verified domains
+          echo "### Verified domains" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          gcloud domains list --project=${{ env.PROJECT_ID }} >> $GITHUB_STEP_SUMMARY 2>&1 || true
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "### DNS Records for ${{ env.DOMAIN }}" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          dig +short A ${{ env.DOMAIN }} >> $GITHUB_STEP_SUMMARY 2>&1 || true
+          dig +short NS ${{ env.DOMAIN }} >> $GITHUB_STEP_SUMMARY 2>&1 || true
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "**Next steps:**" >> $GITHUB_STEP_SUMMARY
+          echo "1. Add the verification TXT record to Turbify/Route 53" >> $GITHUB_STEP_SUMMARY
+          echo "2. Wait for DNS propagation (up to 5 min with TTL 300)" >> $GITHUB_STEP_SUMMARY
+          echo "3. Run the Add Custom Domain Mappings workflow again" >> $GITHUB_STEP_SUMMARY
