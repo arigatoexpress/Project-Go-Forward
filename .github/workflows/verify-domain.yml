@@ -1,0 +1,61 @@
+name: Verify Domain for Cloud Run
+
+on:
+  workflow_dispatch:
+
+env:
+  PROJECT_ID: tho-ai-agent
+  DOMAIN: texashomeoutlet.com
+
+jobs:
+  verify-domain:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud (WIF, keyless)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Attempt domain verification
+        run: |
+          echo "=== Attempting to verify ${{ env.DOMAIN }} ==="
+          echo ""
+          # Run gcloud domains verify to see the verification token/instructions
+          gcloud domains verify ${{ env.DOMAIN }} --project=${{ env.PROJECT_ID }} || true
+          echo ""
+          echo "=== If the above failed, try alternative methods ==="
+          echo "1. Check gcloud domains list"
+          gcloud domains list --project=${{ env.PROJECT_ID }} || true
+          echo ""
+          echo "2. Check gcloud domains describe"
+          gcloud domains describe ${{ env.DOMAIN }} --project=${{ env.PROJECT_ID }} || true
+          echo ""
+          echo "=== Verification instructions ==="
+          echo "You need to verify domain ownership in Google Cloud before mapping to Cloud Run."
+          echo "Options:"
+          echo "  A. Google Cloud Console: https://console.cloud.google.com/run/domains?project=${{ env.PROJECT_ID }}"
+          echo "  B. Google Search Console: https://search.google.com/search-console"
+          echo "  C. gcloud domains verify command (shown above)"
+          echo ""
+          echo "For DNS TXT verification, add a TXT record like:"
+          echo "  Name: @ (or texashomeoutlet.com)"
+          echo "  Value: [token from gcloud domains verify output]"
+          echo ""
+          echo "Current DNS records for reference:"
+          dig +short A ${{ env.DOMAIN }} || true
+          dig +short NS ${{ env.DOMAIN }} || true
+          echo ""
+          echo "=== Next steps ==="
+          echo "1. Add the verification TXT record to Turbify/Route 53"
+          echo "2. Wait for DNS propagation (up to 5 min with TTL 300)"
+          echo "3. Run the Add Custom Domain Mappings workflow again"
