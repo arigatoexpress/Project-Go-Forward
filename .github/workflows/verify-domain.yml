@@ -43,10 +43,11 @@ jobs:
           echo "Got access token (length: ${#TOKEN})" >> $GITHUB_STEP_SUMMARY
 
           # Try to create domain mapping via API and capture response
+          # Correct endpoint: /apis/domains.cloudrun.com/v1/ (not /v1/)
           echo "### API response for domain mapping creation" >> $GITHUB_STEP_SUMMARY
           echo '```json' >> $GITHUB_STEP_SUMMARY
           curl -s -X POST \
-            "https://run.googleapis.com/v1/namespaces/${{ env.PROJECT_ID }}/domainmappings" \
+            "https://run.googleapis.com/apis/domains.cloudrun.com/v1/namespaces/${{ env.PROJECT_ID }}/domainmappings" \
             -H "Authorization: Bearer $TOKEN" \
             -H "Content-Type: application/json" \
             -d '{
@@ -59,10 +60,10 @@ jobs:
           echo '```' >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
-          # Also try gcloud domains verify with proper stderr capture
-          echo "### gcloud domains verify output" >> $GITHUB_STEP_SUMMARY
+          # Also try gcloud domain-mappings create to capture any verification token
+          echo "### gcloud beta run domain-mappings create (expected to fail with token)" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
-          gcloud domains verify ${{ env.DOMAIN }} --project=${{ env.PROJECT_ID }} >> $GITHUB_STEP_SUMMARY 2>&1 || true
+          gcloud beta run domain-mappings create --service=${{ env.SERVICE }} --domain=${{ env.DOMAIN }} --project=${{ env.PROJECT_ID }} --region=${{ env.REGION }} >> $GITHUB_STEP_SUMMARY 2>&1 || true
           echo '```' >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
