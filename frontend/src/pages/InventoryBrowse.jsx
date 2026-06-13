@@ -10,6 +10,7 @@ import Card from '../components/Card';
 import EmptyState from '../components/EmptyState';
 import StatusBadge from '../components/StatusBadge';
 import { Skeleton, SkeletonCard } from '../components/Skeleton';
+import { generateSrcSet, getImageSizes } from '../utils/imageOptimization';
 
 const MATTERPORT_BASE = "https://my.matterport.com/show/?m=";
 
@@ -240,8 +241,12 @@ function FeaturedHomeSpotlight({ home, onClick, onScheduleTour }) {
           {image ? (
             <img
               src={image}
+              srcSet={generateSrcSet(image)}
+              sizes={getImageSizes('featured-spotlight')}
               alt={home.model_name}
               className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
+              loading="lazy"
+              decoding="async"
             />
           ) : (
             <div className="flex flex-col h-full items-center justify-center gap-3 bg-[var(--cp-bg-2)]">
@@ -704,9 +709,13 @@ export default function InventoryBrowse({ adminAuthed = false, onAskTex, onCreat
         {heroImage && (
           <img
             src={heroImage}
+            srcSet={generateSrcSet(heroImage)}
+            sizes={getImageSizes('hero-background')}
             alt=""
             aria-hidden="true"
             className="absolute inset-0 -z-10 h-full w-full object-cover opacity-35"
+            loading="eager"
+            decoding="async"
           />
         )}
         <div className="absolute inset-0 -z-10 bg-[linear-gradient(90deg,rgba(5,6,8,0.96),rgba(5,6,8,0.74),rgba(5,6,8,0.9))]" />
@@ -1018,6 +1027,8 @@ function HomeCard({ home, onClick, onScheduleTour }) {
         {heroImage && heroLoadState !== 'failed' ? (
           <img
             src={heroImage}
+            srcSet={generateSrcSet(heroImage)}
+            sizes={getImageSizes('card-grid')}
             alt={home.model_name}
             className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
             loading="lazy"
@@ -1227,8 +1238,12 @@ function HomeDetailModal({
                 <>
                   <img
                     src={floorplan}
+                    srcSet={generateSrcSet(floorplan)}
+                    sizes={getImageSizes('modal')}
                     alt={`${home.model_name} floorplan`}
                     className="max-w-full max-h-full object-contain bg-white"
+                    loading="lazy"
+                    decoding="async"
                     onError={(e) => { e.target.classList.add('hidden'); }}
                   />
                   <a
@@ -1255,8 +1270,12 @@ function HomeDetailModal({
             >
               <img
                 src={photos[activePhotoIndex]}
+                srcSet={generateSrcSet(photos[activePhotoIndex])}
+                sizes={getImageSizes('modal')}
                 alt={`${home.model_name} photo ${activePhotoIndex + 1}`}
                 className="max-w-full max-h-full object-contain"
+                loading="lazy"
+                decoding="async"
                 onError={(e) => { e.target.classList.add('opacity-0'); }}
               />
               {photos.length > 1 && (
@@ -1342,7 +1361,15 @@ function HomeDetailModal({
                     className={`flex-shrink-0 w-20 h-[60px] rounded-md overflow-hidden border-2 transition ${idx === activePhotoIndex ? 'border-blue-500 opacity-100' : 'border-transparent opacity-70 hover:opacity-100 hover:border-blue-500'}`}
                     onClick={() => onSetPhotoIndex(idx)}
                   >
-                    <img src={photo} alt={`Thumb ${idx + 1}`} className="w-full h-full object-cover" loading="lazy" />
+                    <img
+                      src={photo}
+                      srcSet={generateSrcSet(photo)}
+                      sizes={getImageSizes('modal-thumbnail')}
+                      alt={`Thumb ${idx + 1}`}
+                      className="w-full h-full object-cover"
+                      loading="lazy"
+                      decoding="async"
+                    />
                   </button>
                 ))}
               </div>
@@ -1570,7 +1597,15 @@ function SimilarHomes({ currentHome, allHomes, onSelectHome }) {
             >
               <div className="h-[100px] rounded-lg overflow-hidden bg-slate-200 flex items-center justify-center mb-3">
                 {image ? (
-                  <img src={image} alt={home.model_name} className="w-full h-full object-cover" loading="lazy" />
+                  <img
+                    src={image}
+                    srcSet={generateSrcSet(image)}
+                    sizes={getImageSizes('similar-homes')}
+                    alt={home.model_name}
+                    className="w-full h-full object-cover"
+                    loading="lazy"
+                    decoding="async"
+                  />
                 ) : (
                   <Home size={24} className="text-gray-300" />
                 )}

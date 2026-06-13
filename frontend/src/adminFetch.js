@@ -15,6 +15,15 @@ async function sleep(ms) {
 export default async function adminFetch(url, options = {}) {
   let lastError;
 
+  // Inject CSRF token into headers for admin endpoints
+  const csrfMatch = document.cookie.match(/tho_csrf_token=([^;]+)/);
+  if (csrfMatch) {
+    options.headers = {
+      ...(options.headers || {}),
+      'X-CSRF-Token': csrfMatch[1],
+    };
+  }
+
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     try {
       const response = await fetch(url, options);

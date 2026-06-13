@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Home, Bed, Bath, Maximize, Plus, Check, ChevronLeft, ChevronRight, X, Images } from 'lucide-react';
+import { generateSrcSet, getImageSizes } from '../utils/imageOptimization';
 
 function GalleryModal({
     allImages,
@@ -44,8 +45,12 @@ function GalleryModal({
 
                 <img
                     src={allImages[currentImageIndex]}
+                    srcSet={generateSrcSet(allImages[currentImageIndex])}
+                    sizes={getImageSizes('modal')}
                     alt={`${modelName} - Photo ${currentImageIndex + 1} of ${allImages.length}`}
                     className="max-w-full max-h-[85vh] object-contain rounded-lg"
+                    loading="lazy"
+                    decoding="async"
                 />
 
                 {hasMultipleImages && (
@@ -69,7 +74,15 @@ function GalleryModal({
                                 aria-label={`View photo ${idx + 1} of ${allImages.length}`}
                                 aria-current={idx === currentImageIndex ? 'true' : undefined}
                             >
-                                <img src={img} alt="" className="w-full h-full object-cover" />
+                                <img
+                                    src={img}
+                                    srcSet={generateSrcSet(img)}
+                                    sizes={getImageSizes('modal-thumbnail')}
+                                    alt=""
+                                    className="w-full h-full object-cover"
+                                    loading="lazy"
+                                    decoding="async"
+                                />
                             </button>
                         ))}
                     </div>
@@ -195,8 +208,11 @@ const PropertyCard = ({ property, onToggleCompare, isSelected }) => {
                         <>
                             <img
                                 src={allImages[currentImageIndex]}
+                                srcSet={generateSrcSet(allImages[currentImageIndex])}
+                                sizes={getImageSizes('card-hero')}
                                 alt={model_name}
                                 loading="lazy"
+                                decoding="async"
                                 className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
                                 onError={() => setImageError(true)}
                             />

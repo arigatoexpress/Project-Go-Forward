@@ -83,14 +83,14 @@ class ConversationContext:
 
         # Extract bedroom preferences
         if "bedroom" in message_lower or " bed" in message_lower:
-            for num in range(1, 7):
+            for num in range(6, 0, -1):
                 if str(num) in message or self._number_word_to_int(message_lower) == num:
                     self.preferences.bedrooms = num
                     break
 
         # Extract bathroom preferences
         if "bathroom" in message_lower or " bath" in message_lower:
-            for num in range(1, 5):
+            for num in range(4, 0, -1):
                 if str(num) in message or self._number_word_to_int(message_lower) == num:
                     self.preferences.bathrooms = num
                     break
