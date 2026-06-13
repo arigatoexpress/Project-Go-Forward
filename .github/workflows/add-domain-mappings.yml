@@ -38,6 +38,9 @@ jobs:
           gcloud --version
           gcloud run domain-mappings create --help || true
 
+      - name: Set gcloud run region property
+        run: gcloud config set run/region ${{ env.REGION }}
+
       - name: Add texashomeoutlet.com domain mapping
         run: |
           set -x
