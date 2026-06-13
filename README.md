@@ -1,113 +1,128 @@
-# Project Go Forward
+# Project Go Forward — Texas Home Outlet
 
-[![Production](https://img.shields.io/badge/production-tho.sapphirealpha.xyz-0f766e)](https://tho.sapphirealpha.xyz/)
+**The digital storefront and back office for Texas Home Outlet — built, owned, and operated by the business instead of rented from third-party vendors.**
+
+[![Live site](https://img.shields.io/badge/live-tho.sapphirealpha.xyz-0f766e)](https://tho.sapphirealpha.xyz/)
+[![Tests](https://img.shields.io/badge/tests-655%20passing-22c55e)](tests/)
 [![Backend](https://img.shields.io/badge/backend-FastAPI%20%2B%20Firestore-009688)](main.py)
 [![Frontend](https://img.shields.io/badge/frontend-React%2019%20%2B%20Vite-111827)](frontend/)
+[![AI](https://img.shields.io/badge/AI-Gemini%20on%20Vertex%20AI-4285F4)](root_agent.py)
 
-**Texas Home Outlet's digital operating layer — a business system replacement concept.**
+![The Texas Home Outlet storefront — live inventory with photos, specs, and 3D tours](docs/assets/storefront-inventory.jpg)
 
-Serves the public storefront, internal CRM, document generation, marketing studio, and partner API from a single Cloud Run service. This repo is a concrete product, not a generic framework.
+## What is this?
 
-## What this does
+One system that replaces several vendor subscriptions and manual processes:
 
-A FastAPI + React application that powers the live THO site:
-- Customer-facing inventory browsing and AI sales assistant
-- Internal CRM (leads, customers, deals, appointments)
-- Document Center (regulatory PDF packet generation)
-- Ad Studio (inventory-aware marketing campaigns)
-- Partner API (`/api/v1/*`) for Notion, n8n, and third-party integrations
+| Before | Now |
+|---|---|
+| Website hosted and controlled by a third-party vendor | Our own site — we control content, speed, and search ranking |
+| FastContractDocs for contract paperwork | Built-in Document Center generating the full TX regulatory packet |
+| Leads scattered across calls, walk-ins, and sticky notes | Every lead captured, tracked, and followed up in one CRM |
+| No after-hours coverage | **Tex**, an AI consultant who answers questions, searches inventory, and books showroom visits 24/7 |
+| Marketing made one ad at a time | Ad Studio drafts campaigns straight from live inventory |
 
-## Quick start
+It runs as a single service on Google Cloud and deploys automatically every time a
+change is approved and merged in this repository.
+
+## The customer experience
+
+### Browse real inventory
+Every home on the lot plus 260 orderable floorplans — photos, floor plans,
+3D walkthroughs, and honest specs. Works just as well on a phone.
+
+| Home detail with gallery + 3D tour | On a phone |
+|---|---|
+| ![Home detail view with photo gallery, 3D tour, floor plan, and specs](docs/assets/home-detail.jpg) | ![Mobile inventory browsing](docs/assets/mobile-inventory.jpg) |
+
+### Talk to Tex
+Tex is the AI consultant — trained on our inventory, our hours, and our way of
+talking to neighbors. Tex searches homes, answers questions in English or
+Spanish, takes lead info, and books appointments. Tex is also honest: it only
+quotes homes and prices that come from our live inventory, never guesses
+financing, and hands anything sensitive to a human.
+
+![Chat with Tex, the AI housing consultant](docs/assets/tex-chat.jpg)
+
+### Book a visit, get in touch
+Customers pick a real open slot — staff get notified instantly, and the
+appointment lands in the CRM.
+
+| Showroom booking | Contact |
+|---|---|
+| ![Appointment booking](docs/assets/appointments.jpg) | ![Contact page with directions and message form](docs/assets/contact.jpg) |
+
+## The staff side (behind the lock)
+
+Staff surfaces — Document Center, CRM, Ad Studio, analytics — sit behind a
+PIN + passkey gate. The Document Center fills the complete Texas
+manufactured-housing closing packet (TMHA/TDHCA forms) from deal data and
+sends it for e-signature with the federally required consent step.
+
+![Staff areas require PIN or passkey authentication](docs/assets/admin-gate.jpg)
+
+## How it's built
+
+```mermaid
+flowchart LR
+    subgraph Customer
+        V[Visitor / Buyer]
+    end
+    subgraph "Google Cloud Run"
+        APP["One service:<br/>React storefront + FastAPI"]
+        TEX["Tex — AI agents<br/>prompts/ + Gemini on Vertex AI"]
+    end
+    subgraph "Google Cloud"
+        FS[("Firestore<br/>leads · customers · deals")]
+        GCS[("Cloud Storage<br/>signed documents")]
+    end
+    DS["DocuSeal<br/>e-signature"]
+    EM["Resend<br/>email notifications"]
+
+    V -->|browse, chat, book| APP
+    APP --> TEX
+    APP --> FS
+    APP --> DS
+    APP --> EM
+    DS --> GCS
+```
+
+Every change follows the same path: branch → pull request → 655 automated
+tests must pass → human approval → merge → automatic deploy. Nobody — human
+or AI — can push code straight to production.
+
+## Trust, safety, and operations
+
+- **655 automated tests** run on every change; the deploy is blocked if any fail
+- **Branch protection** verified: direct pushes to production are rejected at the platform level
+- **PII guardrails**: SSNs and financial data are stripped before anything reaches logs or the AI; Tex refuses to collect them in chat
+- **Monitoring**: uptime checks, error alerts, daily Firestore backups, and a written [incident runbook](docs/RUNBOOK.md)
+- **Search ranking protected**: all 279 indexed URLs from the old website stay alive here, with structured data the old site never had ([migration plan](docs/SEO_MIGRATION.md))
+- **AI behavior is reviewable**: Tex's instructions are plain-English files in [`prompts/`](prompts/) — anyone can read exactly what the AI is told to do
+
+## Key documents
+
+| Document | What it covers |
+|---|---|
+| [`LAUNCH_READINESS.md`](LAUNCH_READINESS.md) | Go-live checklist with evidence — the honest status board |
+| [`docs/RUNBOOK.md`](docs/RUNBOOK.md) | What to do when something breaks |
+| [`docs/SEO_MIGRATION.md`](docs/SEO_MIGRATION.md) | How we keep (and improve) our Google ranking at cutover |
+| [`docs/GCP_ENTERPRISE_PLAN.md`](docs/GCP_ENTERPRISE_PLAN.md) | Next phase: staff SSO, BigQuery dashboards, enterprise AI |
+| [`docs/WALKTHROUGH.md`](docs/WALKTHROUGH.md) | Guided tour of this repository for presentations |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Technical deep-dive |
+
+## For developers
 
 ```bash
 git clone https://github.com/arigatoexpress/Project-Go-Forward.git
 cd Project-Go-Forward
-python3.11 -m venv .venv
-source .venv/bin/activate
+python3.11 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt -r requirements-dev.txt
-npm --prefix frontend install
-npm --prefix frontend run build
-python main.py
+npm --prefix frontend install && npm --prefix frontend run build
+python main.py   # http://127.0.0.1:8080
 ```
 
-Local app: `http://127.0.0.1:8080`
-
-Focused checks:
-```bash
-python -m pytest tests/test_healthz.py tests/test_api_v1.py tests/test_document_engine.py -q
-npm --prefix frontend run build
-ruff check .
-```
-
-## Architecture
-
-```
-Buyer / Staff
-      │
-      ▼
-┌─────────────────┐
-│ React 19 + Vite │
-│   (SPA + Studio)│
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────────────┐
-│ FastAPI Cloud Run svc   │
-│  - Public storefront    │
-│  - Admin surfaces       │
-│  - Partner API /api/v1  │
-│  - Document + RAG       │
-└────────┬────────────────┘
-         │
-    ┌────┴────┐
-    ▼         ▼
-Firestore   PDF templates
-(tho-ai-agent)  (tho_documents/)
-```
-
-## Key features
-
-- **Public storefront** — inventory search, comparison, AI chat
-- **CRM** — leads, customers, deals, appointments, email activity
-- **Document Center** — field-map driven PDF packets, batch generation
-- **Ad Studio** — inventory-aware campaigns, scripts, media workflow
-- **Analytics** — lead, document, inventory, and customer metrics
-- **Partner API** — customers, inventory, leads, stats, webhook notify, regulatory RAG
-
-## Tech stack
-
-- Python 3.11, FastAPI, Firestore, Pydantic
-- React 19 + Vite, vanilla CSS
-- Google ADK + Gemini for AI assistant
-- Cloud Run, Workload Identity Federation
-
-## Live surfaces
-
-| Surface | Path | Access |
-|---|---|---|
-| Storefront | `/` | Public |
-| Ad Studio | `/studio` | Admin-gated |
-| Document Center | `/documents` | Admin-gated |
-| CRM | `/crm` | Admin-gated |
-| Analytics | `/analytics` | Admin-gated |
-| Partner API | `/api/v1/*` | `THO_API_KEY` |
-| Health | `/health`, `/healthz/` | Public |
-
-## Governance notes
-
-- **Production-adjacent** — auto-deploys to Cloud Run on push to `main`
-- **PII boundaries** — customer data is PII; sanitize before sending to Gemini
-- **Admin PIN** — hashed with SHA-256; never paste plaintext into chat or docs
-- **Regulatory PDFs** in `tho_documents/` are source documents; do not modify casually
-- **Firestore** lives in `tho-ai-agent`; DNS in `sapphire-479610`
-
-## Agent collaborators
-
-See [AGENTS.md](AGENTS.md) for branch conventions, safety boundaries, rollback commands, and file ownership.
-
-## Documentation
-
-- [docs/SHOWCASE.md](docs/SHOWCASE.md) — demo script and screenshot safety
-- [docs/PRODUCTION_READINESS.md](docs/PRODUCTION_READINESS.md) — smoke checks and rollback
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — system overview and deployment
-- [docs/SECURITY.md](docs/SECURITY.md) — auth model and PII handling
+Checks before any PR: `python -m pytest tests/ -q` · `ruff check .` ·
+`npm --prefix frontend run build` · `pre-commit run --files <changed>`.
+Setup details: [`docs/DEV_SETUP.md`](docs/DEV_SETUP.md). Working agreements:
+[`AGENTS.md`](AGENTS.md) and [`CLAUDE.md`](CLAUDE.md).
