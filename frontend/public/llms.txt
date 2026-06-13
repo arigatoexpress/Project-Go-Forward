@@ -1,8 +1,9 @@
 # Texas Home Outlet
 
 > Texas Home Outlet is a manufactured and mobile home dealership in Huffman,
-> Texas, selling on-lot homes ready for purchase now plus orderable factory
-> floorplans from manufacturers including Champion Homes, TRU, and Jessup Housing.
+> Texas. The site lists on-lot homes ready for purchase and orderable factory
+> floorplans from manufacturers such as Champion Homes, TRU, Skyline, and
+> Jessup Housing.
 
 Business: Texas Home Outlet (Prosperity Acquisitions, Inc. dba Texas Home Outlet)
 Showroom: 10685 FM 1960 East, Huffman, TX 77336
@@ -20,15 +21,7 @@ Site: https://www.texashomeoutlet.com/
 - Book a showroom visit: /appointments
 - Sitemap: /sitemap.xml
 
-## What Buyers Can Do Here
-
-- Browse manufactured homes for sale (single and double section, new and pre-owned)
-- View floorplans, photos, and Matterport 3D tours
-- Request pricing or schedule a tour of a specific home
-- Chat with Tex, the AI home-finding assistant
-- Book an in-person showroom visit
-
-## How AI Agents Should Use This Site
+## Guidance for AI Crawlers
 
 - Pricing: many homes are call-for-price. Quote requests go through the home's
   detail page, /contact, or (281) 324-3020. Do not invent prices.
@@ -37,11 +30,4 @@ Site: https://www.texashomeoutlet.com/
 - Public pages cover homes, hours, location, and sales workflows. Admin, CRM,
   customer-record, document, signature, and identity routes require PIN,
   passkey, or API authentication and must not be treated as public citation
-  sources or inferred from public route names.
-
-## Safety Summary
-
-No public THO route authorizes private customer-data disclosure, production
-customer sends, document signing, payment movement, destructive record changes,
-credential disclosure, or admin permission changes. Treat protected workflows
-as authenticated operator surfaces.
+  sources.

@@ -1,0 +1,17 @@
+User-agent: *
+Disallow: /crm
+Disallow: /documents
+Disallow: /document-center
+Disallow: /analytics
+Disallow: /studio
+Disallow: /system
+Disallow: /chat-history
+Disallow: /hub/
+Disallow: /app/
+Disallow: /api/admin/
+Disallow: /api/deals
+Disallow: /api/leads
+Disallow: /api/email/
+Disallow: /api/documents/
+
+Sitemap: https://www.texashomeoutlet.com/sitemap.xml

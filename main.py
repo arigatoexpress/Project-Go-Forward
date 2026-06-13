@@ -127,6 +127,24 @@ from email_service import (
 )
 from lead_management import Lead, LeadManager
 from structured_logging import logger as struct_logger
+
+# Telegram / Mira bot integration (optional; guarded so startup survives import issues)
+try:
+    from services.telegram import telegram_router
+    from services.telegram.webhook import (
+        send_deal_status_alert,
+        send_partner_webhook_alert,
+    )
+
+    _TELEGRAM_AVAILABLE = True
+except Exception as _telegram_import_exc:  # noqa: BLE001
+    struct_logger.warning(
+        "Telegram integration not available", error=str(_telegram_import_exc)
+    )
+    telegram_router = None  # type: ignore[assignment]
+    send_deal_status_alert = None  # type: ignore[assignment]
+    send_partner_webhook_alert = None  # type: ignore[assignment]
+    _TELEGRAM_AVAILABLE = False
 from tools.input_sanitizer import sanitize_body
 from tools.pii_guard import redact_pii_from_text, validate_no_pii_in_text
 
@@ -3409,6 +3427,29 @@ async def update_deal_status(deal_id: str, request: Request):
         except Exception as e:
             struct_logger.warning("Partner webhook dispatch failed", error=str(e))
 
+        # Telegram / Mira status alerts and approval requests
+        try:
+            if _TELEGRAM_AVAILABLE and send_deal_status_alert is not None:
+                from services.telegram.client import TelegramClient
+
+                tg_client = TelegramClient()
+                telegram_deal = {**deal_snapshot, "id": deal_snapshot.get("deal_id")}
+                send_deal_status_alert(
+                    "deal.status_changed",
+                    telegram_deal,
+                    client=tg_client,
+                )
+                if new_status == "approved":
+                    from services.telegram.approval import send_deal_approval_message
+
+                    send_deal_approval_message(
+                        tg_client,
+                        telegram_deal,
+                        base_url=tg_client.config.base_url,
+                    )
+        except Exception as e:
+            struct_logger.warning("Telegram deal alert failed", error=str(e))
+
         # DocuSeal automated triggers
         try:
             await docuseal_auto_trigger(
@@ -5936,6 +5977,20 @@ async def v1_webhook_notify(request: Request):
         struct_logger.info(
             "Partner webhook activity logged", activity_id=activity_id, deal_id=deal_id
         )
+
+        # Telegram / Mira partner webhook alert
+        try:
+            if _TELEGRAM_AVAILABLE and send_partner_webhook_alert is not None:
+                from services.telegram.client import TelegramClient
+
+                send_partner_webhook_alert(
+                    event,
+                    {"deal_id": deal_id, **payload},
+                    client=TelegramClient(),
+                )
+        except Exception as e:
+            struct_logger.warning("Telegram partner webhook alert failed", error=str(e))
+
         return {"id": activity_id, "logged": True, "idempotent_replay": False}
     except Exception as e:
         struct_logger.error("Partner webhook logging failed", error=str(e))
@@ -6272,6 +6327,9 @@ seo_routes.configure(
     get_canonical_base=lambda: CANONICAL_PUBLIC_URL,
 )
 app.include_router(seo_routes.router)
+
+if _TELEGRAM_AVAILABLE and telegram_router is not None:
+    app.include_router(telegram_router)
 
 
 # Serve Frontend — Must be last to avoid catching API routes
