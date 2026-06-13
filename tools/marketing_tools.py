@@ -30,6 +30,76 @@ def _split_env_list(name: str, default: str) -> list[str]:
     return [item.strip() for item in os.environ.get(name, default).split(",") if item.strip()]
 
 
+def _user_safe_ai_error(exc: Exception | str) -> dict:
+    """Map a raw GenAI/Vertex exception to a client-safe error payload.
+
+    Raw Vertex AI / Gemini exceptions can embed infrastructure details — GCP
+    project numbers, billing/dunning internals, stack traces — that must never
+    reach end users. Call sites log the full exception; this returns only a
+    friendly, actionable message plus an ``error_code`` so ops/the frontend can
+    correlate without exposing internals.
+    """
+    lowered = str(exc).lower()
+
+    # Billing / account suspension (e.g. GCP "dunning decision is deny",
+    # closed billing account, or a bare PERMISSION_DENIED on the project).
+    if (
+        "dunning" in lowered
+        or "billing" in lowered
+        or "consumer_suspended" in lowered
+        or ("permission_denied" in lowered and "project" in lowered)
+    ):
+        return {
+            "error": (
+                "AI generation is temporarily unavailable while we resolve a "
+                "service configuration issue on our end. Our team has been "
+                "notified — please try again a little later."
+            ),
+            "error_code": "ai_service_unavailable",
+        }
+
+    # Quota / rate limit.
+    if (
+        "resource_exhausted" in lowered
+        or "429" in lowered
+        or "quota" in lowered
+        or "rate limit" in lowered
+    ):
+        return {
+            "error": "AI generation is busy right now. Please wait a moment and try again.",
+            "error_code": "ai_rate_limited",
+        }
+
+    # Auth / credentials.
+    if "unauthenticated" in lowered or "credential" in lowered or "401" in lowered:
+        return {
+            "error": (
+                "AI generation is temporarily unavailable due to a service "
+                "configuration issue. Our team has been notified."
+            ),
+            "error_code": "ai_auth_error",
+        }
+
+    # Network / transient unavailability.
+    if (
+        "timeout" in lowered
+        or "timed out" in lowered
+        or "connection" in lowered
+        or "unavailable" in lowered
+        or "503" in lowered
+    ):
+        return {
+            "error": "Couldn't reach the AI service. Check your connection and try again.",
+            "error_code": "ai_network_error",
+        }
+
+    # Generic fallback — never echo the raw exception text.
+    return {
+        "error": "AI generation failed unexpectedly. Please try again in a moment.",
+        "error_code": "ai_unknown_error",
+    }
+
+
 def _gcp_project() -> str:
     return os.environ.get("GOOGLE_CLOUD_PROJECT", "tho-ai-agent")
 
@@ -485,7 +555,7 @@ def generate_ad_image(
         logger.error(f"Imagen generation failed: {e}")
         return {
             "success": False,
-            "error": f"Image generation failed: {str(e)}",
+            **_user_safe_ai_error(e),
             "hint": (
                 "Ensure Vertex AI and Imagen access are enabled for the GCP project, "
                 "and try a simpler prompt if the request was filtered."
@@ -702,7 +772,7 @@ def generate_ad_flyer(
         }
     except Exception as e:
         logger.error(f"Flyer generation failed: {e}")
-        return {"success": False, "error": f"Flyer generation failed: {str(e)}"}
+        return {"success": False, **_user_safe_ai_error(e)}
 
 
 # ─── Content Script Generation ───
@@ -1528,7 +1598,7 @@ Output as JSON format:
             }
     except Exception as e:
         logger.error(f"AI Generation failed: {e}")
-        return {"success": False, "error": f"AI Generation failed: {str(e)}", "status": "error"}
+        return {"success": False, "status": "error", **_user_safe_ai_error(e)}
 
 
 def get_trending_content_ideas(
@@ -1946,7 +2016,7 @@ def generate_script_voiceover(
         logger.error(f"Voiceover generation failed: {e}")
         return {
             "success": False,
-            "error": f"Voiceover generation failed: {str(e)}",
+            **_user_safe_ai_error(e),
             "setup_instructions": "Ensure GOOGLE_CLOUD_PROJECT is set and Text-to-Speech API is enabled.",
         }
 
