@@ -8,6 +8,7 @@ Provides full conversation persistence with:
 - Admin review capabilities
 """
 
+import asyncio
 import logging
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
@@ -110,7 +111,11 @@ class ChatHistory:
     ) -> ChatSession:
         """Get existing session or create new one"""
         doc_ref = self.db.collection(self.collection_name).document(session_id)
-        doc = doc_ref.get()
+
+        def _get():
+            return doc_ref.get()
+
+        doc = await asyncio.to_thread(_get)
 
         if doc.exists:
             return ChatSession.from_dict(doc.to_dict())
@@ -132,7 +137,11 @@ class ChatHistory:
         """Save chat session to Firestore"""
         try:
             doc_ref = self.db.collection(self.collection_name).document(session.session_id)
-            doc_ref.set(session.to_dict())
+
+            def _save():
+                doc_ref.set(session.to_dict())
+
+            await asyncio.to_thread(_save)
             logger.info(
                 f"Saved chat session {session.session_id} with {len(session.messages)} messages"
             )
@@ -152,7 +161,11 @@ class ChatHistory:
     async def get_session(self, session_id: str) -> ChatSession | None:
         """Get a specific chat session"""
         doc_ref = self.db.collection(self.collection_name).document(session_id)
-        doc = doc_ref.get()
+
+        def _get():
+            return doc_ref.get()
+
+        doc = await asyncio.to_thread(_get)
         if doc.exists:
             return ChatSession.from_dict(doc.to_dict())
         return None
@@ -168,8 +181,10 @@ class ChatHistory:
 
         query = query.order_by("updated_at", direction=firestore.Query.DESCENDING).limit(limit)
 
-        docs = query.stream()
-        return [ChatSession.from_dict(d.to_dict()) for d in docs]
+        def _stream():
+            return [ChatSession.from_dict(d.to_dict()) for d in query.stream()]
+
+        return await asyncio.to_thread(_stream)
 
     async def get_recent_sessions(self, hours: int = 24, limit: int = 100) -> list[ChatSession]:
         """Get recent chat sessions (for admin review)"""
@@ -182,8 +197,10 @@ class ChatHistory:
             .limit(limit)
         )
 
-        docs = query.stream()
-        return [ChatSession.from_dict(d.to_dict()) for d in docs]
+        def _stream():
+            return [ChatSession.from_dict(d.to_dict()) for d in query.stream()]
+
+        return await asyncio.to_thread(_stream)
 
     async def update_session_status(self, session_id: str, status: str, lead_id: str = None):
         """Update session status (e.g., when converted to lead)"""
@@ -191,7 +208,11 @@ class ChatHistory:
         updates = {"status": status, "updated_at": datetime.utcnow().isoformat()}
         if lead_id:
             updates["lead_id"] = lead_id
-        doc_ref.update(updates)
+
+        def _update():
+            doc_ref.update(updates)
+
+        await asyncio.to_thread(_update)
 
     async def get_context_for_agent(
         self, session_id: str, user_id: str, max_messages: int = 10
@@ -218,29 +239,32 @@ class ChatHistory:
         # Note: This is a simple implementation. For production,
         # consider using Algolia or Firestore full-text search
 
-        sessions = []
-        docs = self.db.collection(self.collection_name).limit(100).stream()
+        def _search():
+            sessions = []
+            docs = self.db.collection(self.collection_name).limit(100).stream()
 
-        for doc in docs:
-            data = doc.to_dict()
-            # Simple text search in messages
-            messages = data.get("messages", [])
-            for msg in messages:
-                if query.lower() in msg.get("text", "").lower():
-                    sessions.append(
-                        {
-                            "session_id": data["session_id"],
-                            "user_id": data["user_id"],
-                            "created_at": data["created_at"],
-                            "message_preview": msg["text"][:100] + "..."
-                            if len(msg["text"]) > 100
-                            else msg["text"],
-                            "status": data.get("status", "unknown"),
-                        }
-                    )
+            for doc in docs:
+                data = doc.to_dict()
+                # Simple text search in messages
+                messages = data.get("messages", [])
+                for msg in messages:
+                    if query.lower() in msg.get("text", "").lower():
+                        sessions.append(
+                            {
+                                "session_id": data["session_id"],
+                                "user_id": data["user_id"],
+                                "created_at": data["created_at"],
+                                "message_preview": msg["text"][:100] + "..."
+                                if len(msg["text"]) > 100
+                                else msg["text"],
+                                "status": data.get("status", "unknown"),
+                            }
+                        )
+                        break
+
+                if len(sessions) >= limit:
                     break
 
-            if len(sessions) >= limit:
-                break
+            return sessions
 
-        return sessions
+        return await asyncio.to_thread(_search)

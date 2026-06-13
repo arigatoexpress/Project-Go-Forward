@@ -3,6 +3,7 @@ Lead Capture and Management System for THO AI Agent
 Stores lead information in Firestore and provides export capabilities
 """
 
+import asyncio
 import json
 from dataclasses import asdict, dataclass
 from datetime import datetime
@@ -93,20 +94,32 @@ class LeadManager:
     async def create_lead(self, lead: Lead) -> Lead:
         """Create a new lead"""
         doc_ref = self.db.collection(self.collection_name).document(lead.lead_id)
-        doc_ref.set(lead.to_dict())
+
+        def _save():
+            doc_ref.set(lead.to_dict())
+
+        await asyncio.to_thread(_save)
         return lead
 
     async def update_lead(self, lead: Lead) -> Lead:
         """Update existing lead"""
         lead.updated_at = datetime.utcnow().isoformat()
         doc_ref = self.db.collection(self.collection_name).document(lead.lead_id)
-        doc_ref.set(lead.to_dict(), merge=True)
+
+        def _update():
+            doc_ref.set(lead.to_dict(), merge=True)
+
+        await asyncio.to_thread(_update)
         return lead
 
     async def get_lead(self, lead_id: str) -> Lead | None:
         """Retrieve lead by ID"""
         doc_ref = self.db.collection(self.collection_name).document(lead_id)
-        doc = doc_ref.get()
+
+        def _get():
+            return doc_ref.get()
+
+        doc = await asyncio.to_thread(_get)
 
         if doc.exists:
             return Lead.from_dict(doc.to_dict())
@@ -117,11 +130,13 @@ class LeadManager:
         query = (
             self.db.collection(self.collection_name).where("session_id", "==", session_id).limit(1)
         )
-        docs = query.stream()
 
-        for doc in docs:
-            return Lead.from_dict(doc.to_dict())
-        return None
+        def _stream():
+            for doc in query.stream():
+                return Lead.from_dict(doc.to_dict())
+            return None
+
+        return await asyncio.to_thread(_stream)
 
     async def list_leads(self, status: str | None = None, limit: int = 100) -> list[Lead]:
         """List leads with optional status filter"""
@@ -131,9 +146,11 @@ class LeadManager:
             query = query.where("status", "==", status)
 
         query = query.order_by("created_at", direction=firestore.Query.DESCENDING).limit(limit)
-        docs = query.stream()
 
-        return [Lead.from_dict(doc.to_dict()) for doc in docs]
+        def _stream():
+            return [Lead.from_dict(doc.to_dict()) for doc in query.stream()]
+
+        return await asyncio.to_thread(_stream)
 
     def export_to_csv(self, leads: list[Lead], filename: str = "leads_export.csv") -> str:
         """Export leads to CSV file"""

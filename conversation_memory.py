@@ -3,6 +3,7 @@ Conversation Memory System for THO AI Agent
 Tracks user preferences and conversation context within a session
 """
 
+import asyncio
 import logging
 from dataclasses import asdict, dataclass
 from datetime import datetime
@@ -198,7 +199,11 @@ class ConversationMemory:
     async def get_context(self, session_id: str, user_id: str) -> ConversationContext:
         """Retrieve or create conversation context"""
         doc_ref = self.db.collection(self.collection_name).document(session_id)
-        doc = doc_ref.get()
+
+        def _get():
+            return doc_ref.get()
+
+        doc = await asyncio.to_thread(_get)
 
         if doc.exists:
             return ConversationContext.from_dict(doc.to_dict())
@@ -212,7 +217,11 @@ class ConversationMemory:
     async def save_context(self, context: ConversationContext):
         """Save conversation context to Firestore"""
         doc_ref = self.db.collection(self.collection_name).document(context.session_id)
-        doc_ref.set(context.to_dict())
+
+        def _save():
+            doc_ref.set(context.to_dict())
+
+        await asyncio.to_thread(_save)
 
     async def update_from_interaction(
         self,
