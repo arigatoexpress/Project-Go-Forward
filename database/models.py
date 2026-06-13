@@ -8,7 +8,7 @@ import uuid
 from datetime import date, datetime
 from enum import Enum
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class CustomerStatus(str, Enum):
@@ -55,8 +55,7 @@ class Customer(BaseModel):
             raise ValueError("Phone must contain at least 10 digits")
         return v
 
-    class Config:
-        use_enum_values = True
+    model_config = ConfigDict(use_enum_values=True)
 
 
 class Property(BaseModel):
@@ -78,8 +77,7 @@ class Property(BaseModel):
     # Owner reference
     customer_id: str | None = None
 
-    class Config:
-        use_enum_values = True
+    model_config = ConfigDict(use_enum_values=True)
 
 
 class Inventory(BaseModel):
@@ -143,8 +141,7 @@ class Inventory(BaseModel):
                 raise ValueError("AVAILABLE inventory must have msrp or sale_price > 0")
         return v
 
-    class Config:
-        use_enum_values = True
+    model_config = ConfigDict(use_enum_values=True)
 
 
 class Sale(BaseModel):
@@ -340,8 +337,7 @@ class Deal(BaseModel):
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
-    class Config:
-        use_enum_values = True
+    model_config = ConfigDict(use_enum_values=True)
 
     def to_document_data(self) -> dict:
         """

@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import adminFetch from '../adminFetch';
 import downloadAdminFile from '../downloadAdminFile';
+import { generateSrcSet, getImageSizes } from '../utils/imageOptimization';
 import {
   BUSINESS_NAME,
   BUSINESS_LEGAL_NAME,
@@ -1785,8 +1786,12 @@ function Step2({ data, onChange, resetKey, inventory, inventoryLoading, onNext, 
                   <div className="aspect-video bg-gray-100 rounded-lg mb-3 overflow-hidden">
                     <img
                       src={home.image_url}
+                      srcSet={generateSrcSet(home.image_url)}
+                      sizes={getImageSizes('document-center-card')}
                       alt={home.model_name}
                       className="w-full h-full object-cover"
+                      loading="lazy"
+                      decoding="async"
                       onError={e => { e.target.style.display = 'none'; }}
                     />
                   </div>
