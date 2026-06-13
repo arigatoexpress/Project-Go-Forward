@@ -1,0 +1,74 @@
+name: Add Custom Domain Mappings
+
+on:
+  workflow_dispatch:
+
+env:
+  PROJECT_ID: tho-ai-agent
+  REGION: us-central1
+  SERVICE: project-go-forward
+  # Opt into Node.js 24 early to suppress deprecation warnings for actions
+  # still on Node.js 20 (checkout@v4, setup-node@v4, setup-python@v5).
+  # GitHub will make this the default on 2026-06-02.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  add-domain-mappings:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud (WIF, keyless)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Add texashomeoutlet.com domain mapping
+        run: |
+          gcloud run domain-mappings create \
+            --service ${{ env.SERVICE }} \
+            --region ${{ env.REGION }} \
+            --project ${{ env.PROJECT_ID }} \
+            --domain texashomeoutlet.com \
+            --quiet || echo "Domain mapping may already exist or be pending verification"
+
+      - name: Add www.texashomeoutlet.com domain mapping
+        run: |
+          gcloud run domain-mappings create \
+            --service ${{ env.SERVICE }} \
+            --region ${{ env.REGION }} \
+            --project ${{ env.PROJECT_ID }} \
+            --domain www.texashomeoutlet.com \
+            --quiet || echo "Domain mapping may already exist or be pending verification"
+
+      - name: List all domain mappings
+        run: |
+          gcloud run domain-mappings list \
+            --region ${{ env.REGION }} \
+            --project ${{ env.PROJECT_ID }} \
+            --format='table(DOMAIN, SERVICE, STATUS)'
+
+      - name: Show DNS records required
+        run: |
+          echo "=== DNS records to add in Turbify/Route 53 ==="
+          echo "Apex (texashomeoutlet.com): 4x A records"
+          echo "  216.239.32.21"
+          echo "  216.239.34.21"
+          echo "  216.239.36.21"
+          echo "  216.239.38.21"
+          echo ""
+          echo "WWW (www.texashomeoutlet.com): CNAME"
+          echo "  ghs.googlehosted.com"
+          echo ""
+          echo "MX records: LEAVE AS-IS (Yahoo/Turbify mail)"
+          echo ""
+          echo "After adding domain mappings, wait for Google to verify (can take 5-30 min)."
+          echo "Then update DNS in Turbify/Route 53 and wait for propagation."
