@@ -39,7 +39,7 @@ jobs:
       - name: Add texashomeoutlet.com domain mapping
         run: |
           set -x
-          gcloud run domain-mappings create \
+          gcloud beta run domain-mappings create \
             --service=${{ env.SERVICE }} \
             --project=${{ env.PROJECT_ID }} \
             --domain=texashomeoutlet.com \
@@ -48,7 +48,7 @@ jobs:
       - name: Add www.texashomeoutlet.com domain mapping
         run: |
           set -x
-          gcloud run domain-mappings create \
+          gcloud beta run domain-mappings create \
             --service=${{ env.SERVICE }} \
             --project=${{ env.PROJECT_ID }} \
             --domain=www.texashomeoutlet.com \
