@@ -86,9 +86,13 @@ async def cutover_notify(request: Request):
     status = dns_mx_cutover.get_full_cutover_status()
     merged_payload = {"cutover_status": status, **payload}
 
+    # Namespace the outbound event as cutover.<name>; avoid double-prefixing if
+    # the caller already supplied the full namespace.
+    outbound_event = event if event.startswith("cutover.") else f"cutover.{event}"
+
     try:
         partner_ids = dispatch_partner_event(
-            event=f"cutover.{event}",
+            event=outbound_event,
             payload=merged_payload,
             db=_get_db(request),
             blocking=True,

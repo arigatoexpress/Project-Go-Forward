@@ -244,7 +244,7 @@ def test_notify_dispatches_to_configured_partner(client, monkeypatch):
     assert "cutover_status" in data
 
     assert len(captured) == 1
-    assert captured[0]["event"] == "cutover.cutover.complete"
+    assert captured[0]["event"] == "cutover.complete"
     assert captured[0]["payload"]["note"] == "done"
     assert "cutover_status" in captured[0]["payload"]
     assert captured[0]["blocking"] is True
