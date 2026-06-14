@@ -25,7 +25,7 @@ import os
 import re
 import threading
 import time
-from urllib.parse import unquote, urlparse
+from urllib.parse import quote_plus, unquote, urlparse
 
 from fastapi import APIRouter
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
@@ -70,9 +70,8 @@ _CITY_STATE = f"{business_city()}, {business_state()}"
 PUBLIC_ROUTES = {
     "/": (
         f"Mobile & Manufactured Homes for Sale in {_CITY_STATE} | {business_name()}",
-        f"Browse manufactured and mobile homes for sale at {business_name()} in "
-        f"{_CITY_STATE}. On-lot homes ready now plus orderable floorplans. "
-        f"Visit our showroom at {business_address()} or call {business_phone()}.",
+        f"Browse manufactured & mobile homes for sale at {business_name()} in "
+        f"{_CITY_STATE} — on-lot homes ready now plus orderable factory floorplans.",
     ),
     "/inventory": (
         f"Home Inventory — Mobile & Manufactured Homes in {_CITY_STATE} | {business_name()}",
@@ -264,13 +263,28 @@ def _local_business_jsonld() -> dict:
             }
             for spec in hours
         ]
-    geo = (get_business() or {}).get("geo")
+    biz = get_business() or {}
+    geo = biz.get("geo")
     if geo and geo.get("latitude") and geo.get("longitude"):
         data["geo"] = {
             "@type": "GeoCoordinates",
             "latitude": geo["latitude"],
             "longitude": geo["longitude"],
         }
+    # Recommended LocalBusiness fields Google uses for local-pack/maps placement.
+    # All config-driven (config.yaml business.*); each only emitted when present.
+    if biz.get("email"):
+        data["email"] = biz["email"]
+    if biz.get("price_range"):
+        data["priceRange"] = biz["price_range"]
+    if biz.get("area_served"):
+        data["areaServed"] = [{"@type": "City", "name": c} for c in biz["area_served"]]
+    same_as = [s for s in (biz.get("same_as") or []) if s]
+    if same_as:
+        data["sameAs"] = same_as
+    image = os.environ.get("OG_IMAGE_URL") or biz.get("image")
+    if image:
+        data["image"] = image if str(image).startswith("http") else _base() + str(image)
     return data
 
 
@@ -622,6 +636,55 @@ def _crawlable_detail_block(home: dict) -> str:
     )
 
 
+def _crawlable_contact_block() -> str:
+    # Server-rendered NAP + h1 so /contact is not an empty page to non-JS crawlers
+    # (the strongest local-relevance/NAP signal on the site).
+    e = html.escape
+    email = (get_business() or {}).get("email", "")
+    maps = "https://www.google.com/maps/search/?api=1&query=" + quote_plus(
+        f"{business_name()} {business_address()}"
+    )
+    return (
+        f"<h1>Contact {e(business_name())} — {e(_CITY_STATE)}</h1>"
+        f"<p>{e(business_name())} is a manufactured &amp; mobile home dealership in "
+        f"{e(_CITY_STATE)}. Call, text, or visit our showroom.</p>"
+        "<ul>"
+        f"<li>Address: {e(business_address())}</li>"
+        f'<li>Phone: <a href="tel:{e(business_phone())}">{e(business_phone())}</a></li>'
+        + (f'<li>Email: <a href="mailto:{e(email)}">{e(email)}</a></li>' if email else "")
+        + f"<li>Hours: {e(business_hours())}</li>"
+        "</ul>"
+        f'<p><a href="{e(maps)}">Get directions</a></p>'
+    )
+
+
+def _crawlable_appointments_block() -> str:
+    e = html.escape
+    return (
+        f"<h1>Book a Showroom Visit at {e(business_name())}</h1>"
+        f"<p>Schedule a visit to tour manufactured &amp; mobile homes in person at "
+        f"{e(business_name())} in {e(_CITY_STATE)}.</p>"
+        "<ul>"
+        f"<li>Showroom: {e(business_address())}</li>"
+        f'<li>Phone: <a href="tel:{e(business_phone())}">{e(business_phone())}</a></li>'
+        f"<li>Hours: {e(business_hours())}</li>"
+        "</ul>"
+    )
+
+
+def _breadcrumb_jsonld(name: str, canonical_url: str) -> dict:
+    b = _base()
+    return {
+        "@context": "https://schema.org",
+        "@type": "BreadcrumbList",
+        "itemListElement": [
+            {"@type": "ListItem", "position": 1, "name": "Home", "item": b + "/"},
+            {"@type": "ListItem", "position": 2, "name": "Inventory", "item": b + "/inventory"},
+            {"@type": "ListItem", "position": 3, "name": name, "item": canonical_url},
+        ],
+    }
+
+
 def _inject(shell: str, head_block: str, body_block: str | None) -> str:
     out = _TITLE_RE.sub("", shell, count=1)
     out = _DESC_RE.sub("", out, count=1)
@@ -722,7 +785,8 @@ def _render_spa_response(full_path: str) -> Response | None:
             description,
             canonical_url,
             og_image=_first_image(home),
-            jsonld=[x for x in (_product_jsonld(home, canonical_url),) if x],
+            jsonld=[x for x in (_product_jsonld(home, canonical_url),) if x]
+            + [_breadcrumb_jsonld(home.get("model_name") or "Manufactured Home", canonical_url)],
         )
         return HTMLResponse(
             _inject(_shell(), head, _crawlable_detail_block(home)), headers=no_cache
@@ -733,7 +797,14 @@ def _render_spa_response(full_path: str) -> Response | None:
         title, description = PUBLIC_ROUTES[path]
         jsonld = [_local_business_jsonld()] if path in ("/", "/inventory", "/contact") else []
         head = _head_block(title, description, base + (path if path != "/" else "/"), jsonld=jsonld)
-        body = _crawlable_inventory_block() if path in ("/", "/inventory") else None
+        if path in ("/", "/inventory"):
+            body = _crawlable_inventory_block()
+        elif path == "/contact":
+            body = _crawlable_contact_block()
+        elif path == "/appointments":
+            body = _crawlable_appointments_block()
+        else:
+            body = None
         return HTMLResponse(_inject(_shell(), head, body), headers=no_cache)
 
     # 6. Operator/admin routes: 200, noindex.

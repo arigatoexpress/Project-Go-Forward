@@ -25,7 +25,31 @@ business:
   # (comma-separated) read by email_service.py; this line documents the intent.
   notification_email: "ben@texashomeoutlet.com,lee@texashomeoutlet.com,celeste@texashomeoutlet.com,mark@texashomeoutlet.com"
   website: "https://www.texashomeoutlet.com"
-  
+
+  # LocalBusiness SEO fields (schema.org JSON-LD via seo_routes.py). Each optional.
+  price_range: "$$"
+  # Cities served — emitted as schema.org areaServed for local relevance.
+  area_served:
+    - "Huffman"
+    - "Humble"
+    - "Atascocita"
+    - "Crosby"
+    - "Kingwood"
+    - "New Caney"
+    - "Baytown"
+    - "Beaumont"
+    - "Cleveland"
+    - "Conroe"
+    - "Livingston"
+  # Social / Google Business Profile URLs — FILL IN to strengthen local SEO + map
+  # placement (schema.org sameAs): Facebook, Instagram, Google Business Profile, etc.
+  same_as: []
+  # Exact showroom coordinates for schema.org geo — get lat/lng from your Google
+  # Business Profile and fill in (improves Google Maps / local-pack placement).
+  geo:
+    latitude: null
+    longitude: null
+
   # Operating hours
   hours:
     weekday: "Mon-Fri 9:00 AM - 6:00 PM"

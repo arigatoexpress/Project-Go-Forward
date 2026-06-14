@@ -37,6 +37,7 @@ from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.gzip import GZipMiddleware
 
 import caching
 from auth.routes import router as passkey_router
@@ -870,6 +871,10 @@ class CanonicalHostMiddleware(BaseHTTPMiddleware):
 
 app.add_middleware(CanonicalHostMiddleware)
 app.add_middleware(PerformanceMetricsMiddleware)
+# Outermost layer: gzip the fully-formed response. minimum_size skips tiny
+# payloads (redirects, JSON acks) where compression overhead isn't worth it;
+# the server-rendered SEO HTML + JSON-LD shrink ~70%, a real TTFB/bandwidth win.
+app.add_middleware(GZipMiddleware, minimum_size=500)
 
 
 # ─── Admin Auth Setup ───
