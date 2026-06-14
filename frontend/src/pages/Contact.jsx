@@ -153,7 +153,7 @@ const Contact = ({ onBack }) => {
                                 aria-describedby={formData.phone && !isPhoneValid ? 'contact-phone-error' : undefined}
                             />
                             {formData.phone && !isPhoneValid && (
-                                <p id="contact-phone-error" className="text-xs text-red-500 mt-1">Enter a valid 10-digit phone number</p>
+                                <p id="contact-phone-error" className="text-xs text-red-700 mt-1">Enter a valid 10-digit phone number</p>
                             )}
                         </div>
                         <div>

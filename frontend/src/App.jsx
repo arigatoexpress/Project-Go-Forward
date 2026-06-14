@@ -1355,11 +1355,18 @@ function App() {
   // ─── Chat Page (default) ───
   return (
     <div className="flex flex-col h-screen bg-[var(--cp-bg)] font-sans text-[var(--cp-text)]">
+      {/* WCAG 2.4.1 bypass-blocks: lets keyboard users jump past the nav. */}
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-[200] focus:px-4 focus:py-2 focus:rounded-lg focus:bg-[var(--cp-accent)] focus:text-[var(--cp-bg)] focus:shadow-lg"
+      >
+        Skip to main content
+      </a>
       {appModals}
       <NavBar {...navProps} showSearchFilters onApplyFilters={handleApplyFilters} onClearFilters={handleClearFilters} />
 
       {/* Main Chat Area */}
-      <main className="flex-1 overflow-hidden flex flex-col max-w-4xl mx-auto w-full bg-[var(--cp-panel)] shadow-xl md:my-4 md:rounded-lg relative border border-[var(--cp-border)]">
+      <main id="main-content" tabIndex={-1} className="flex-1 overflow-hidden flex flex-col max-w-4xl mx-auto w-full bg-[var(--cp-panel)] shadow-xl md:my-4 md:rounded-lg relative border border-[var(--cp-border)] focus:outline-none">
 
         {/* Messages List */}
         <div className="flex-1 overflow-y-auto p-4 space-y-6 scrollbar-thin pb-20">
@@ -1461,7 +1468,7 @@ function App() {
               <Send size={18} />
             </button>
           </form>
-          <div className="mt-2 flex items-center justify-center gap-4 text-xs text-[var(--cp-faint)] font-mono">
+          <div className="mt-2 flex items-center justify-center gap-4 text-xs text-[var(--cp-muted)] font-mono">
             <span>AI can make mistakes. Please verify pricing with an agent.</span>
             <span className="hidden sm:inline">•</span>
             <span className="hidden sm:inline">Ctrl+K to focus</span>
