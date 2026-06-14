@@ -285,7 +285,25 @@ def _first_image(home: dict) -> str | None:
     return None
 
 
-def _product_jsonld(home: dict, canonical_url: str) -> dict:
+def _product_jsonld(home: dict, canonical_url: str) -> dict | None:
+    # Google's Product snippet requires one of offers/review/aggregateRating, and
+    # a valid Offer REQUIRES a real price. THO lists every home "call for price"
+    # (no online price) with no per-home ratings/reviews, so a Product snippet
+    # cannot be made valid honestly: a $0/placeholder price violates Google's
+    # "data must match the page" policy, and fabricating ratings/reviews is barred.
+    # So emit Product structured data ONLY when a real positive price exists (a
+    # priced home then becomes rich-result eligible with a valid Product+Offer);
+    # otherwise return None, so Search Console is not flagged for an
+    # unsatisfiable Product. Price-less pages still rank on their
+    # title/description/OG tags/crawlable body.
+    price = home.get("price_value")
+    try:
+        price = float(price) if price is not None else None
+    except (TypeError, ValueError):
+        price = None
+    if not (price and price > 0):
+        return None
+
     specs = home.get("specs") or {}
     bits = []
     if specs.get("beds"):
@@ -310,21 +328,18 @@ def _product_jsonld(home: dict, canonical_url: str) -> dict:
     image = _first_image(home)
     if image:
         data["image"] = image
-    # Honest pricing only: a placeholder/zero price violates Google's
-    # "data must match the page" policy for call-for-price listings.
-    price = home.get("price_value")
-    try:
-        price = float(price) if price is not None else None
-    except (TypeError, ValueError):
-        price = None
-    if price and price > 0:
-        data["offers"] = {
-            "@type": "Offer",
-            "price": f"{price:.0f}",
-            "priceCurrency": "USD",
-            "availability": "https://schema.org/InStock",
-            "url": canonical_url,
-        }
+    availability = (
+        "https://schema.org/PreOrder"
+        if "order" in str(home.get("status", "")).lower()
+        else "https://schema.org/InStock"
+    )
+    data["offers"] = {
+        "@type": "Offer",
+        "price": f"{price:.0f}",
+        "priceCurrency": "USD",
+        "availability": availability,
+        "url": canonical_url,
+    }
     return data
 
 
@@ -707,7 +722,7 @@ def _render_spa_response(full_path: str) -> Response | None:
             description,
             canonical_url,
             og_image=_first_image(home),
-            jsonld=[_product_jsonld(home, canonical_url)],
+            jsonld=[x for x in (_product_jsonld(home, canonical_url),) if x],
         )
         return HTMLResponse(
             _inject(_shell(), head, _crawlable_detail_block(home)), headers=no_cache

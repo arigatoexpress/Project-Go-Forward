@@ -117,14 +117,23 @@ def test_legacy_detail_url_serves_200_with_product_jsonld(monkeypatch):
     assert product["brand"]["name"] == "Champion Homes"
 
 
-def test_call_for_price_home_has_no_offer_block(monkeypatch):
+def test_call_for_price_home_emits_no_product_snippet(monkeypatch):
+    # A "call for price" home (no price_value) cannot satisfy Google's Product
+    # snippet rule (offers/review/aggregateRating, and a valid Offer needs a
+    # real price) without fabricating data, so it must emit NO Product JSON-LD
+    # rather than an invalid one Search Console would flag. The page still
+    # renders fully (title/OG/crawlable body).
     client, _ = seo_client(monkeypatch)
-    body = client.get("/plan/223034/skyliner/4732b/").text
-    jsonld_blocks = re.findall(
-        r'<script type="application/ld\+json">(.*?)</script>', body, re.DOTALL
-    )
-    products = [json.loads(b) for b in jsonld_blocks if '"Product"' in b]
-    assert products and "offers" not in products[0]  # no fabricated $0 price
+    response = client.get("/plan/223034/skyliner/4732b/")
+    assert response.status_code == 200
+    products = [
+        json.loads(b)
+        for b in re.findall(
+            r'<script type="application/ld\+json">(.*?)</script>', response.text, re.DOTALL
+        )
+        if '"Product"' in b
+    ]
+    assert not products, "call-for-price home must not emit a Product snippet"
 
 
 def test_trailing_slash_variants_301_to_canonical(monkeypatch):
