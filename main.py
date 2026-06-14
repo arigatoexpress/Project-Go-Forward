@@ -4289,7 +4289,10 @@ async def submit_contact_form(request: Request):
         except Exception as e:
             warnings.append("lead_storage_failed")
             struct_logger.error(
-                "Contact lead creation failed", error=str(e), lead_id=lead_id
+                "Contact lead creation failed",
+                event="lead_storage_failed",
+                error=str(e),
+                lead_id=lead_id,
             )
 
         # Send welcome email if email provided
@@ -4334,6 +4337,43 @@ async def submit_contact_form(request: Request):
         }
 
 
+@app.post("/api/analytics")
+@limiter.limit("120/minute")
+async def track_analytics_event(request: Request):
+    """Fire-and-forget client event sink (home views, form opens, quote/tour
+    clicks). Public + best-effort: it must NEVER error or block the page, so all
+    failures are swallowed after a structured log. Previously these events were
+    POSTed to /api/contact and silently rejected — losing the entire client
+    event stream and polluting the contact-form logs."""
+    try:
+        data = await request.json()
+    except Exception:
+        return {"ok": True}  # never reject a beacon
+    if not isinstance(data, dict):
+        return {"ok": True}
+    event = str(data.get("event") or data.get("_event") or "").strip()[:64]
+    if not event:
+        return {"ok": True}
+    # Keep only small string-ish props; cap count + length to bound abuse/cost.
+    props = {
+        str(k)[:40]: (str(v)[:200] if v is not None else None)
+        for k, v in list(data.items())[:25]
+        if k not in ("event", "_event")
+    }
+    record = {
+        "event": event,
+        "props": props,
+        "client_ip": _get_client_ip(request),
+        "created_at": datetime.now(UTC).isoformat(),
+    }
+    try:
+        if _db and getattr(_db, "db", None):
+            _db.db.collection("analytics_events").add(record)
+    except Exception as e:
+        struct_logger.warning("Analytics event store failed", event=event, error=str(e))
+    return {"ok": True}
+
+
 # ─── Appointment Scheduling API ───
 
 
@@ -4368,6 +4408,7 @@ async def create_appointment(request: Request):
         if len(phone_digits) < 10:
             return {"success": False, "error": "Please provide a valid 10-digit phone number."}
 
+        warnings: list[str] = []
         appt = Appointment(
             appointment_id=f"appt_{int(time.time())}_{uuid.uuid4().hex[:6]}",
             name=name,
@@ -4393,6 +4434,7 @@ async def create_appointment(request: Request):
                     notes=appt.notes,
                 )
             except Exception as e:
+                warnings.append("appointment_confirmation_failed")
                 struct_logger.warning("Appointment confirmation email failed", error=str(e))
 
         # Notify owner of new appointment
@@ -4406,6 +4448,7 @@ async def create_appointment(request: Request):
                 notes=appt.notes,
             )
         except Exception as e:
+            warnings.append("owner_notify_failed")
             struct_logger.warning("Appointment admin notification failed", error=str(e))
 
         # Also create a lead for the CRM funnel
@@ -4422,13 +4465,21 @@ async def create_appointment(request: Request):
             )
             await lead_manager.create_lead(lead)
         except Exception as e:
-            struct_logger.warning("Appointment lead creation failed", error=str(e))
+            warnings.append("lead_storage_failed")
+            struct_logger.error(
+                "Appointment lead creation failed",
+                event="lead_storage_failed",
+                error=str(e),
+            )
 
-        return {
+        result = {
             "success": True,
             "appointment": created.to_dict(),
             "message": f"Appointment confirmed for {appt_date} at {time_slot}. We look forward to seeing you!",
         }
+        if warnings:
+            result["warnings"] = warnings
+        return result
     except ValueError as e:
         return {"success": False, "error": str(e)}
     except Exception as e:
