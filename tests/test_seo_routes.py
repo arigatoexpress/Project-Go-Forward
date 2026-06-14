@@ -425,6 +425,22 @@ def test_local_business_jsonld_has_local_seo_fields(monkeypatch):
     assert all(c["@type"] == "City" for c in biz["areaServed"])
 
 
+def test_local_business_jsonld_has_organization_entity_fields(monkeypatch):
+    # Organization-level signals enrich Google's knowledge-graph understanding:
+    # logo (config-driven), a sales contactPoint, and knowsAbout topics. All
+    # accurate + additive — no price/review/FAQ data, so no policy risk.
+    client, _ = seo_client(monkeypatch)
+    biz = next(
+        b for b in _jsonld_blocks(client.get("/").text)
+        if b.get("@type") == "LocalBusiness"
+    )
+    assert biz["logo"].startswith("http") and biz["logo"].endswith(".svg")
+    cp = biz["contactPoint"]
+    assert cp["@type"] == "ContactPoint"
+    assert cp["contactType"] == "sales" and cp["telephone"]
+    assert "Manufactured homes" in biz["knowsAbout"]
+
+
 def test_contact_page_has_crawlable_nap_block(monkeypatch):
     # /contact must not be an empty SPA shell to non-JS crawlers — it is the
     # strongest NAP (name/address/phone) signal on the site. Server-render an

@@ -285,6 +285,25 @@ def _local_business_jsonld() -> dict:
     image = os.environ.get("OG_IMAGE_URL") or biz.get("image")
     if image:
         data["image"] = image if str(image).startswith("http") else _base() + str(image)
+    # Organization-level entity signals (LocalBusiness inherits from Organization)
+    # — richer knowledge-graph understanding for Google. All accurate + additive;
+    # none are price/review data, so no structured-data policy risk.
+    logo = biz.get("logo_url")
+    if logo:
+        data["logo"] = logo if str(logo).startswith("http") else _base() + str(logo)
+    data["contactPoint"] = {
+        "@type": "ContactPoint",
+        "telephone": business_phone(),
+        "contactType": "sales",
+        "areaServed": "US-TX",
+        "availableLanguage": ["English"],
+    }
+    data["knowsAbout"] = [
+        "Manufactured homes",
+        "Mobile homes",
+        "Modular homes",
+        "Manufactured home financing",
+    ]
     return data
 
 

@@ -28,6 +28,10 @@ business:
 
   # LocalBusiness SEO fields (schema.org JSON-LD via seo_routes.py). Each optional.
   price_range: "$$"
+  # Brand logo for the Organization/LocalBusiness `logo` field (served from
+  # frontend/public). Swap to a raster (PNG/JPG) URL if you have one — Google's
+  # knowledge-panel logo prefers raster over SVG.
+  logo_url: "/tex-icon.svg"
   # Cities served — emitted as schema.org areaServed for local relevance.
   area_served:
     - "Huffman"
