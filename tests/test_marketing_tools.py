@@ -339,3 +339,70 @@ def test_script_quality_normalizes_structured_model_fields():
     assert script["cta"] == "Call to tour today"
     assert script["hashtags"] == ["#TexasHomeOutlet", "#HoustonHomes"]
     assert script["suggested_image_prompts"] == ["Sunny exterior photo"]
+
+
+# ── UTM-tagged CTA links on Ad Studio posts (opt-in, env-gated) ─────────────
+
+from tools import social_publishers
+
+
+def test_campaign_slug_rule():
+    assert (
+        social_publishers._campaign_slug("TRU Single Section Delight")
+        == "tru-single-section-delight"
+    )
+    assert social_publishers._campaign_slug("  The Oak  ") == "the-oak"
+    assert social_publishers._campaign_slug("28x60 / Clayton!!!") == "28x60-clayton"
+    assert social_publishers._campaign_slug(None) == "ad-studio"
+    assert social_publishers._campaign_slug("   ") == "ad-studio"
+
+
+def test_utm_cta_no_op_when_disabled(monkeypatch):
+    monkeypatch.delenv("THO_UTM_CTA_ENABLED", raising=False)
+    monkeypatch.setenv("PUBLIC_SITE_URL", "https://www.texashomeoutlet.com")
+    assert social_publishers._utm_cta_link("tiktok", "The Oak") is None
+
+
+def test_utm_cta_no_op_without_origin(monkeypatch):
+    monkeypatch.setenv("THO_UTM_CTA_ENABLED", "1")
+    monkeypatch.delenv("PUBLIC_SITE_URL", raising=False)
+    monkeypatch.setattr(social_publishers, "_canonical_origin", lambda: None)
+    assert social_publishers._utm_cta_link("tiktok", "The Oak") is None
+
+
+def test_utm_cta_link_when_enabled(monkeypatch):
+    monkeypatch.setenv("THO_UTM_CTA_ENABLED", "1")
+    monkeypatch.setenv("PUBLIC_SITE_URL", "https://www.texashomeoutlet.com/")
+    link = social_publishers._utm_cta_link("tiktok", "TRU Single Section")
+    assert link.startswith("https://www.texashomeoutlet.com/?")
+    assert "utm_source=tiktok" in link
+    assert "utm_medium=social" in link
+    assert "utm_campaign=tru-single-section" in link
+
+
+def test_schedule_post_appends_utm_cta_only_when_enabled(monkeypatch):
+    from tools.marketing_tools import schedule_social_post
+
+    monkeypatch.setenv("PUBLIC_SITE_URL", "https://www.texashomeoutlet.com")
+
+    # Disabled (default): caption unchanged, no utm.
+    monkeypatch.delenv("THO_UTM_CTA_ENABLED", raising=False)
+    off = schedule_social_post(
+        platform="facebook",  # non-tiktok/ig -> local draft, never a live publish
+        content_type="image",
+        caption="New home just listed",
+        home_name="The Oak 2860",
+    )
+    assert "utm_" not in off.get("caption", "")
+
+    # Enabled: caption gains a UTM CTA derived from the featured home name.
+    monkeypatch.setenv("THO_UTM_CTA_ENABLED", "1")
+    on = schedule_social_post(
+        platform="facebook",
+        content_type="image",
+        caption="New home just listed",
+        home_name="The Oak 2860",
+    )
+    cap = on.get("caption", "")
+    assert "New home just listed" in cap
+    assert "utm_campaign=the-oak-2860" in cap

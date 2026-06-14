@@ -5,10 +5,13 @@ Stores lead information in Firestore and provides export capabilities
 
 import asyncio
 import json
+import logging
 from dataclasses import asdict, dataclass
 from datetime import datetime
 
 from google.cloud import firestore
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -148,7 +151,21 @@ class LeadManager:
         query = query.order_by("created_at", direction=firestore.Query.DESCENDING).limit(limit)
 
         def _stream():
-            return [Lead.from_dict(doc.to_dict()) for doc in query.stream()]
+            leads: list[Lead] = []
+            for doc in query.stream():
+                try:
+                    leads.append(Lead.from_dict(doc.to_dict()))
+                except Exception as exc:
+                    # One malformed / out-of-band Firestore document must not
+                    # 500 the whole admin CRM list (the owner's only
+                    # post-cutover visibility while email is off). Skip + log
+                    # the offender instead of failing the entire response.
+                    logger.warning(
+                        "Skipping unparseable lead doc %s: %s",
+                        getattr(doc, "id", "?"),
+                        exc,
+                    )
+            return leads
 
         return await asyncio.to_thread(_stream)
 

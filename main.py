@@ -252,7 +252,15 @@ if os.environ.get("SENTRY_DSN") and not os.environ.get("PYTEST_CURRENT_TEST"):
         path = (ctx.get("asgi_scope") or {}).get("path", "")
         if path.startswith("/health"):
             return 0
-        return 0.05
+        # Conservative 0.05 default; tunable via env without a redeploy (e.g.
+        # raise during an incident, set 0.0 to disable). Clamped to [0,1]; a
+        # malformed value falls back to the default. Only reached when
+        # SENTRY_DSN is set, so the no-op-when-unconfigured contract holds.
+        try:
+            rate = float(os.environ.get("SENTRY_TRACES_SAMPLE_RATE", "0.05"))
+        except (TypeError, ValueError):
+            rate = 0.05
+        return min(max(rate, 0.0), 1.0)
 
     sentry_sdk.init(
         dsn=os.environ["SENTRY_DSN"],
@@ -299,16 +307,31 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["X-XSS-Protection"] = "1; mode=block"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
-        # CSP: allow self, inline styles (Tailwind), Google Fonts, Matterport iframes, CloudFront CDN images.
-        response.headers["Content-Security-Policy"] = (
-            "default-src 'self'; "
-            "script-src 'self' 'unsafe-inline'; "
-            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
-            "img-src 'self' https://d132mt2yijm03y.cloudfront.net https: data:; "
-            "frame-src https://my.matterport.com; "
-            "connect-src 'self'; "
-            "font-src 'self' https://fonts.gstatic.com data:; "
-            "frame-ancestors 'none'"
+        # CSP: allow self, inline styles (Tailwind), Google Fonts, Matterport
+        # iframes, CloudFront CDN images. Vendor analytics/pixel script+connect
+        # hosts are appended ONLY for IDs that are validly set (see
+        # seo_routes.analytics_csp_sources, same _clean_id gate as the snippet);
+        # with none set this header is byte-identical to the static baseline.
+        import seo_routes
+
+        _csp = [
+            ("default-src", ["'self'"]),
+            ("script-src", ["'self'", "'unsafe-inline'"]),
+            ("style-src", ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"]),
+            ("img-src", ["'self'", "https://d132mt2yijm03y.cloudfront.net", "https:", "data:"]),
+            ("frame-src", ["https://my.matterport.com"]),
+            ("connect-src", ["'self'"]),
+            ("font-src", ["'self'", "https://fonts.gstatic.com", "data:"]),
+            ("frame-ancestors", ["'none'"]),
+        ]
+        _extra = seo_routes.analytics_csp_sources()
+        if _extra:
+            for _name, _hosts in _csp:
+                for _h in _extra.get(_name, []):
+                    if _h not in _hosts:
+                        _hosts.append(_h)
+        response.headers["Content-Security-Policy"] = "; ".join(
+            f"{_name} {' '.join(_hosts)}" for _name, _hosts in _csp
         )
         # HSTS: enforce HTTPS for 1 year (only effective on HTTPS connections)
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
@@ -342,6 +365,15 @@ limiter = Limiter(
     key_func=_get_client_ip,
     default_limits=["100/minute"],
     headers_enabled=False,
+    # Fail-open hardening. With slowapi's default in-process memory storage
+    # (no RATELIMIT_STORAGE_URI set) these are a no-op and limiting behaves
+    # exactly as before. They only matter if an operator later points slowapi
+    # at an external backend (e.g. Redis): in_memory_fallback_enabled re-checks
+    # against in-memory storage if that backend is unreachable, and
+    # swallow_errors lets the request through rather than 500 if even that path
+    # fails — a rate-limit backend outage can never take a public route down.
+    swallow_errors=True,
+    in_memory_fallback_enabled=True,
 )
 app.state.limiter = limiter
 
@@ -361,6 +393,37 @@ def _rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONRespons
 
 
 app.add_exception_handler(RateLimitExceeded, _rate_limit_handler)
+
+
+# ── Per-route rate-limit values, operator-tunable via env ──────────────────
+# slowapi accepts a Callable[..., str] as a limit value and evaluates it per
+# request, so these caps can be tuned in Cloud Run with --update-env-vars and
+# ZERO redeploy. When the env var is ABSENT the callable returns the
+# conservative default below — identical to the previously-hardcoded value
+# (strict no-op). A blank OR malformed override (anything slowapi's parser
+# rejects, e.g. "10/sec") also falls back to the default, so a fat-fingered env
+# var can never silently weaken or disable the per-route cap.
+def _route_rate_limit(env_var: str, default: str):
+    def _resolve() -> str:
+        value = os.environ.get(env_var, "").strip()
+        if not value:
+            return default
+        try:
+            from limits import parse_many
+
+            parse_many(value)  # validate it parses as a rate string
+        except Exception:
+            return default
+        return value
+
+    return _resolve
+
+
+# Conservative defaults: a real human submits the contact form / books an
+# appointment once. 10/min/IP leaves headroom for retries, shared NAT, and
+# double-clicks while throttling an email-flood bot on the fresh Resend domain.
+CONTACT_RATE_LIMIT = _route_rate_limit("CONTACT_RATE_LIMIT", "10/minute")
+APPOINTMENTS_RATE_LIMIT = _route_rate_limit("APPOINTMENTS_RATE_LIMIT", "10/minute")
 
 # Rate limiting middleware — per-IP sliding window
 MAX_REQUESTS_PER_MINUTE = int(os.environ.get("RATE_LIMIT_RPM", "60"))
@@ -3837,6 +3900,8 @@ async def api_schedule_post(request: Request):
             caption=data.get("caption"),
             hashtags=data.get("hashtags"),
             video_url=data.get("video_url"),
+            home_name=data.get("home_name"),
+            campaign=data.get("campaign"),
         )
         return result
     except Exception as e:
@@ -4171,7 +4236,7 @@ async def download_ad_image(filename: str):
 
 
 @app.post("/api/contact")
-@limiter.limit("10/minute")
+@limiter.limit(CONTACT_RATE_LIMIT)
 async def submit_contact_form(request: Request):
     """Receive contact form submissions and log as leads."""
     try:
@@ -4260,7 +4325,7 @@ async def get_available_slots(date: str):
 
 
 @app.post("/api/appointments")
-@limiter.limit("10/minute")
+@limiter.limit(APPOINTMENTS_RATE_LIMIT)
 async def create_appointment(request: Request):
     """Book a new appointment."""
     try:

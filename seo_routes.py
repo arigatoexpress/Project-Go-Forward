@@ -25,7 +25,7 @@ import os
 import re
 import threading
 import time
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 from fastapi import APIRouter
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
@@ -351,6 +351,168 @@ def _shell() -> str:
         return '<!doctype html><html><head><title></title></head><body><div id="root"></div></body></html>'
 
 
+# ── Analytics / ad-pixel injection (opt-in, runtime env-gated) ──────────────
+#
+# Snippets are emitted server-side here (this module already owns <head>
+# injection for every SPA navigation) so an operator activates a tag at Cloud
+# Run RUNTIME with `--update-env-vars` and ZERO rebuild. Each tag is a strict
+# no-op until its ID env var is set AND matches a strict format: absent or
+# malformed -> no markup, no CSP change, head byte-identical to today. IDs are
+# NEVER hardcoded. Pixels load only on indexable pages (see _head_block: the
+# snippet is appended only when noindex is False), so they never fire on
+# operator/admin/CRM/404 surfaces.
+#
+# OPERATOR/LEGAL GATE: activating analytics or ad pixels sets third-party
+# cookies / sends visitor data to Google/Meta/TikTok. No consent-management
+# platform exists yet — make a privacy-policy / cookie-consent decision before
+# setting any *_PIXEL_ID. The code ships inert; turning it on is your call.
+
+_GA4_RE = re.compile(r"^G-[A-Z0-9]{4,15}$")
+_GTM_RE = re.compile(r"^GTM-[A-Z0-9]{4,10}$")
+_META_PIXEL_RE = re.compile(r"^\d{8,20}$")
+_TIKTOK_PIXEL_RE = re.compile(r"^[A-Za-z0-9]{16,30}$")
+
+_ANALYTICS_IDS = (
+    ("GA4_MEASUREMENT_ID", _GA4_RE),
+    ("GTM_CONTAINER_ID", _GTM_RE),
+    ("META_PIXEL_ID", _META_PIXEL_RE),
+    ("TIKTOK_PIXEL_ID", _TIKTOK_PIXEL_RE),
+)
+
+# Extra CSP hosts each tag needs, added ONLY when that ID is validly set.
+# img-src already allows `https:` so pixel images need no addition.
+_ANALYTICS_CSP = {
+    "GA4_MEASUREMENT_ID": {
+        "script-src": ("https://www.googletagmanager.com",),
+        "connect-src": (
+            "https://www.google-analytics.com",
+            "https://*.google-analytics.com",
+            "https://*.analytics.google.com",
+        ),
+    },
+    "GTM_CONTAINER_ID": {
+        "script-src": ("https://www.googletagmanager.com",),
+        "connect-src": ("https://www.googletagmanager.com",),
+    },
+    "META_PIXEL_ID": {
+        "script-src": ("https://connect.facebook.net",),
+        "connect-src": ("https://www.facebook.com",),
+    },
+    "TIKTOK_PIXEL_ID": {
+        "script-src": ("https://analytics.tiktok.com",),
+        "connect-src": ("https://analytics.tiktok.com",),
+    },
+}
+
+
+def _clean_id(env_name: str, pattern: "re.Pattern") -> str | None:
+    """Return the env value only if present AND format-valid, else None.
+
+    A malformed / leftover value is treated as unset: no markup is emitted and
+    the CSP is not widened for it.
+    """
+    raw = (os.environ.get(env_name) or "").strip()
+    return raw if raw and pattern.match(raw) else None
+
+
+def _analytics_ids() -> dict:
+    """Validated analytics IDs that are currently active (empty when none)."""
+    out = {}
+    for env_name, pattern in _ANALYTICS_IDS:
+        val = _clean_id(env_name, pattern)
+        if val:
+            out[env_name] = val
+    return out
+
+
+def analytics_csp_sources() -> dict:
+    """Extra CSP hosts for the validly-configured tags (uses the SAME _clean_id
+    gate as the snippet). Returns {} when none are set, so main.py's CSP header
+    is byte-identical to today until an operator sets a valid ID."""
+    extra: dict[str, set] = {}
+    for env_name in _analytics_ids():
+        for directive, hosts in _ANALYTICS_CSP.get(env_name, {}).items():
+            extra.setdefault(directive, set()).update(hosts)
+    return {k: sorted(v) for k, v in extra.items()}
+
+
+def _analytics_head() -> str:
+    """Inline analytics/pixel <script> snippets for whichever IDs are validly
+    set. Returns '' when none are configured (head unchanged from today)."""
+    ids = _analytics_ids()
+    if not ids:
+        return ""
+    e = html.escape
+    out = []
+    ga4 = ids.get("GA4_MEASUREMENT_ID")
+    if ga4:
+        out.append(
+            '<script async src="https://www.googletagmanager.com/gtag/js?id='
+            + e(ga4) + '"></script>'
+            "<script>window.dataLayer=window.dataLayer||[];"
+            "function gtag(){dataLayer.push(arguments);}"
+            "gtag('js',new Date());gtag('config','" + e(ga4) + "');</script>"
+        )
+    gtm = ids.get("GTM_CONTAINER_ID")
+    if gtm:
+        out.append(
+            "<script>(function(w,d,s,l,i){w[l]=w[l]||[];"
+            "w[l].push({'gtm.start':new Date().getTime(),event:'gtm.js'});"
+            "var f=d.getElementsByTagName(s)[0],j=d.createElement(s),"
+            "dl=l!='dataLayer'?'&l='+l:'';j.async=true;"
+            "j.src='https://www.googletagmanager.com/gtm.js?id='+i+dl;"
+            "f.parentNode.insertBefore(j,f);})"
+            "(window,document,'script','dataLayer','" + e(gtm) + "');</script>"
+        )
+    meta = ids.get("META_PIXEL_ID")
+    if meta:
+        out.append(
+            "<script>!function(f,b,e,v,n,t,s){if(f.fbq)return;"
+            "n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):"
+            "n.queue.push(arguments)};if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;"
+            "n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;"
+            "t.src=v;s=b.getElementsByTagName(e)[0];"
+            "s.parentNode.insertBefore(t,s)}(window,document,'script',"
+            "'https://connect.facebook.net/en_US/fbevents.js');"
+            "fbq('init','" + e(meta) + "');fbq('track','PageView');</script>"
+        )
+    tiktok = ids.get("TIKTOK_PIXEL_ID")
+    if tiktok:
+        out.append(
+            "<script>!function(w,d,t){w.TiktokAnalyticsObject=t;"
+            "var ttq=w[t]=w[t]||[];ttq.methods=['page','track','identify',"
+            "'instances','debug','on','off','once','ready','alias','group',"
+            "'enableCookie','disableCookie'];ttq.setAndDefer=function(t,e){"
+            "t[e]=function(){t.push([e].concat(Array.prototype.slice.call("
+            "arguments,0)))}};for(var i=0;i<ttq.methods.length;i++)"
+            "ttq.setAndDefer(ttq,ttq.methods[i]);ttq.load=function(e,n){"
+            "var i='https://analytics.tiktok.com/i18n/pixel/events.js';"
+            "ttq._i=ttq._i||{},ttq._i[e]=[],ttq._i[e]._u=i,ttq._t=ttq._t||{},"
+            "ttq._t[e]=+new Date,ttq._o=ttq._o||{},ttq._o[e]=n||{};"
+            "var o=d.createElement('script');o.type='text/javascript',"
+            "o.async=!0,o.src=i+'?sdkid='+e+'&lib='+t;"
+            "var a=d.getElementsByTagName('script')[0];"
+            "a.parentNode.insertBefore(o,a)};ttq.load('" + e(tiktok) + "');"
+            "ttq.page();}(window,document,'ttq');</script>"
+        )
+    return "\n    ".join(out)
+
+
+def _default_og_image() -> str | None:
+    """Brand social-share image (og:image / twitter:image) from OG_IMAGE_URL.
+
+    No-op when unset: pages emit no og:image (today's behavior). A relative
+    value (starts with "/") is resolved against the canonical base so the
+    emitted URL is absolute, as social scrapers require. Set this ONLY once a
+    real 1200x630 raster exists at that URL — scrapers reject SVG, and a
+    missing asset would make og:image a broken link (worse than none).
+    """
+    raw = (os.environ.get("OG_IMAGE_URL") or "").strip()
+    if not raw:
+        return None
+    return _base() + raw if raw.startswith("/") else raw
+
+
 def _head_block(title, description, canonical_url, og_image=None, jsonld=None, noindex=False):
     e = html.escape
     parts = [
@@ -371,13 +533,21 @@ def _head_block(title, description, canonical_url, og_image=None, jsonld=None, n
                 '<meta name="twitter:card" content="summary_large_image" />',
             ]
         )
+        if og_image is None:
+            og_image = _default_og_image()
         if og_image:
             parts.append(f'<meta property="og:image" content="{e(og_image)}" />')
+            parts.append(f'<meta name="twitter:image" content="{e(og_image)}" />')
     for block in jsonld or []:
         # Escape "<" so crawled values containing "</script>" cannot break
         # out of the JSON-LD block (< is valid JSON, inert in HTML).
         payload = json.dumps(block, ensure_ascii=False).replace("<", "\\u003c")
         parts.append('<script type="application/ld+json">' + payload + "</script>")
+    # Analytics/ad pixels: indexable pages only (never noindex admin/CRM/404).
+    if not noindex:
+        snippet = _analytics_head()
+        if snippet:
+            parts.append(snippet)
     return "\n    ".join(parts)
 
 
@@ -504,8 +674,14 @@ def _render_spa_response(full_path: str) -> Response | None:
             return HTMLResponse(_inject(_shell(), head, None), status_code=404, headers=no_cache)
         canonical_path = reg["detail_path_by_id"][m.group(2)]
         # One URL per home: slash/no-slash and slug variants 301 to the
-        # exact legacy path that carries the indexed equity.
-        if raw_path != canonical_path:
+        # exact legacy path that carries the indexed equity. Compare on the
+        # percent-DECODED form: the registry stores the ENCODED legacy path
+        # (urlparse does not decode) while Starlette DECODES the request path,
+        # so a raw `!=` on a %-encoded slug (e.g. "é" == "%C3%A9") made the
+        # canonical 301 to itself forever (ERR_TOO_MANY_REDIRECTS). unquote()
+        # on both sides makes the canonical reachable (200) while still 301ing
+        # genuinely different slug variants for the same id.
+        if unquote(raw_path) != unquote(canonical_path):
             return RedirectResponse(canonical_path, status_code=301)
         canonical_url = base + canonical_path
         title = (
