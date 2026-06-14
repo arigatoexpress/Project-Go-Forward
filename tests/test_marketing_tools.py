@@ -3,7 +3,7 @@ import sys
 import types
 from io import BytesIO
 
-from tools import marketing_tools
+from tools import marketing_tools, social_publishers
 
 
 def test_get_inventory_for_ads_preserves_live_firestore_media(monkeypatch):
@@ -342,8 +342,6 @@ def test_script_quality_normalizes_structured_model_fields():
 
 
 # ── UTM-tagged CTA links on Ad Studio posts (opt-in, env-gated) ─────────────
-
-from tools import social_publishers
 
 
 def test_campaign_slug_rule():

@@ -420,7 +420,7 @@ _ANALYTICS_CSP = {
 }
 
 
-def _clean_id(env_name: str, pattern: "re.Pattern") -> str | None:
+def _clean_id(env_name: str, pattern: re.Pattern) -> str | None:
     """Return the env value only if present AND format-valid, else None.
 
     A malformed / leftover value is treated as unset: no markup is emitted and
