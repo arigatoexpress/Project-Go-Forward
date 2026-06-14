@@ -398,3 +398,81 @@ def test_detail_page_prefers_home_photo_for_og_image(monkeypatch):
     m = re.search(r'<meta property="og:image" content="([^"]+)"', body)
     assert m, "detail page should have an og:image"
     assert "og-card.png" not in m.group(1)  # used the home photo, not the default
+
+
+def _jsonld_blocks(body):
+    return [
+        json.loads(b)
+        for b in re.findall(
+            r'<script type="application/ld\+json">(.*?)</script>', body, re.DOTALL
+        )
+    ]
+
+
+def test_local_business_jsonld_has_local_seo_fields(monkeypatch):
+    # The homepage LocalBusiness node should carry the recommended local-pack
+    # signals Google uses for maps placement: priceRange + areaServed (cities).
+    # These are config-driven (config.yaml business.*), so they ride along on
+    # every public page without code changes.
+    client, _ = seo_client(monkeypatch)
+    biz = next(
+        b for b in _jsonld_blocks(client.get("/").text)
+        if b.get("@type") == "LocalBusiness"
+    )
+    assert biz["priceRange"]  # non-empty (config: "$$")
+    served = {c["name"] for c in biz["areaServed"]}
+    assert {"Huffman", "Humble", "Baytown"} <= served
+    assert all(c["@type"] == "City" for c in biz["areaServed"])
+
+
+def test_contact_page_has_crawlable_nap_block(monkeypatch):
+    # /contact must not be an empty SPA shell to non-JS crawlers — it is the
+    # strongest NAP (name/address/phone) signal on the site. Server-render an
+    # <h1> + the canonical NAP so search engines can read it without executing JS.
+    client, _ = seo_client(monkeypatch)
+    body = client.get("/contact").text
+    assert "<h1>Contact Texas Home Outlet" in body
+    assert "10685 FM 1960 East" in body
+    assert 'href="tel:(281) 324-3020"' in body
+    assert "google.com/maps/search" in body  # directions link
+
+
+def test_appointments_page_has_crawlable_block(monkeypatch):
+    client, _ = seo_client(monkeypatch)
+    body = client.get("/appointments").text
+    assert "<h1>Book a Showroom Visit" in body
+    assert "10685 FM 1960 East" in body  # showroom address rendered server-side
+
+
+def test_detail_page_emits_breadcrumb_jsonld(monkeypatch):
+    # A BreadcrumbList (Home -> Inventory -> model) gives Google a breadcrumb
+    # rich result and reinforces site hierarchy. It's independent of price, so
+    # even call-for-price homes (no Product snippet) still get one.
+    client, _ = seo_client(monkeypatch)
+    body = client.get("/inventory-detail/43372/texas-home-outlet/huffman/premier/").text
+    crumbs = [b for b in _jsonld_blocks(body) if b.get("@type") == "BreadcrumbList"]
+    assert crumbs, "detail page should emit a BreadcrumbList"
+    items = crumbs[0]["itemListElement"]
+    assert [i["name"] for i in items] == ["Home", "Inventory", "Premier / Creole 3256H32447"]
+    assert [i["position"] for i in items] == [1, 2, 3]
+    assert items[1]["item"].endswith("/inventory")
+
+
+def test_call_for_price_page_still_gets_breadcrumb(monkeypatch):
+    client, _ = seo_client(monkeypatch)
+    body = client.get("/plan/223034/skyliner/4732b/").text
+    blocks = _jsonld_blocks(body)
+    assert not [b for b in blocks if b.get("@type") == "Product"]  # no Product (no price)
+    assert [b for b in blocks if b.get("@type") == "BreadcrumbList"]  # but breadcrumb yes
+
+
+def test_gzip_middleware_registered_and_serves(monkeypatch):
+    # Compression is registered as the outermost layer; the large SEO HTML is
+    # exactly the payload it should shrink. Assert registration (deterministic)
+    # and that a large page still round-trips correctly through it.
+    from starlette.middleware.gzip import GZipMiddleware
+
+    client, main = seo_client(monkeypatch)
+    assert any(m.cls is GZipMiddleware for m in main.app.user_middleware)
+    body = client.get("/", headers={"Accept-Encoding": "gzip"}).text
+    assert "Texas Home Outlet" in body and len(body) > 500
