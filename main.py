@@ -2581,6 +2581,7 @@ from database.firestore_client import get_database
 from database.models import Deal, DealStatus, Inventory
 
 _db = get_database()
+app.state.db = _db
 INVENTORY_PLACEHOLDER_IMAGE_URL = "/tex-icon.svg"
 _INVENTORY_MEDIA_INDEX_CACHE = {"loaded_at": 0.0, "index": {}}
 _INVENTORY_MEDIA_INDEX_TTL_SECONDS = 15 * 60
@@ -6361,6 +6362,16 @@ seo_routes.configure(
     get_canonical_base=lambda: CANONICAL_PUBLIC_URL,
 )
 app.include_router(seo_routes.router)
+
+
+# DNS/MX cutover monitoring routes (partner API key auth, HMAC-signed outbound
+# webhooks).  Kept separate from the Telegram/Mira workstream by design.
+import dns_mx_cutover_routes
+
+app.include_router(
+    dns_mx_cutover_routes.router,
+    dependencies=[Depends(require_partner_api_key)],
+)
 
 
 # Serve Frontend — Must be last to avoid catching API routes
