@@ -1629,7 +1629,7 @@ function SimilarHomes({ currentHome, allHomes, onSelectHome }) {
 
 
 // ─── Lead Capture Form Modal ───
-function LeadCaptureForm({ home, type, onClose }) {
+export function LeadCaptureForm({ home, type, onClose }) {
   const [formData, setFormData] = useState({ name: '', phone: '', email: '', message: '' });
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
@@ -1641,6 +1641,10 @@ function LeadCaptureForm({ home, type, onClose }) {
     e.preventDefault();
     if (!formData.name || !formData.phone) {
       setError('Name and phone number are required.');
+      return;
+    }
+    if (formData.phone.replace(/\D/g, '').length < 10) {
+      setError('Please enter a valid 10-digit phone number.');
       return;
     }
     setSubmitting(true);
@@ -1656,7 +1660,14 @@ function LeadCaptureForm({ home, type, onClose }) {
           message: `${type === 'tour' ? 'Tour Request' : 'Price Quote Request'} — ${home.model_name}. ${formData.message}`.trim(),
         }),
       });
-      if (!resp.ok) throw new Error('Submission failed');
+      // The backend returns HTTP 200 with {success:false} on validation or
+      // storage failure, so checking resp.ok alone showed a false success
+      // screen and silently dropped the lead. Check the parsed body too.
+      const result = await resp.json().catch(() => ({}));
+      if (!resp.ok || !result.success) {
+        setError(result.error || `Something went wrong. Please call us at ${BUSINESS_PHONE}.`);
+        return;
+      }
       setSubmitted(true);
       trackEvent('lead_captured', { home: home.model_name, type });
     } catch {

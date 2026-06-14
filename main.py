@@ -4254,6 +4254,11 @@ async def submit_contact_form(request: Request):
 
         if not name or not phone:
             return {"success": False, "error": "Name and phone are required"}
+        if len(re.sub(r"\D", "", phone)) < 10:
+            return {
+                "success": False,
+                "error": "Please enter a valid 10-digit phone number.",
+            }
 
         struct_logger.info(
             "Contact form submitted",
@@ -4263,8 +4268,13 @@ async def submit_contact_form(request: Request):
         )
 
         lead_id = f"contact_{int(time.time())}_{uuid.uuid4().hex[:4]}"
+        warnings: list[str] = []
 
-        # Create a lead from the contact form
+        # Create a lead from the contact form. A storage failure = a lost lead =
+        # lost revenue, so make it LOUD: log at error level + flag it in the
+        # response `warnings` so a Cloud Run log-based alert can fire on
+        # "lead_storage_failed". The owner notification below is the fallback
+        # delivery path, so the visitor still gets a success response.
         try:
             new_lead = Lead(
                 lead_id=lead_id,
@@ -4277,13 +4287,17 @@ async def submit_contact_form(request: Request):
             )
             await lead_manager.create_lead(new_lead)
         except Exception as e:
-            struct_logger.warning("Contact lead creation failed", error=str(e))
+            warnings.append("lead_storage_failed")
+            struct_logger.error(
+                "Contact lead creation failed", error=str(e), lead_id=lead_id
+            )
 
         # Send welcome email if email provided
         if email:
             try:
                 send_lead_welcome(to=email, customer_name=name, lead_id=lead_id)
             except Exception as e:
+                warnings.append("welcome_email_failed")
                 struct_logger.warning("Lead welcome email failed", error=str(e))
 
         # Automate DocuSeal Welcome/Credit Auth early
@@ -4293,9 +4307,10 @@ async def submit_contact_form(request: Request):
                 payload={"email": email, "name": name, "lead_id": lead_id},
             )
         except Exception as e:
+            warnings.append("docuseal_failed")
             struct_logger.warning("Lead DocuSeal trigger failed", error=str(e))
 
-        # Notify owner of new lead
+        # Notify owner of new lead (fallback delivery path if storage failed)
         try:
             notify_new_lead(
                 customer_name=name,
@@ -4304,9 +4319,13 @@ async def submit_contact_form(request: Request):
                 source=data.get("source", "contact_form"),
             )
         except Exception as e:
+            warnings.append("owner_notify_failed")
             struct_logger.warning("Lead admin notification failed", error=str(e))
 
-        return {"success": True, "message": "Thank you! We'll be in touch shortly."}
+        result = {"success": True, "message": "Thank you! We'll be in touch shortly."}
+        if warnings:
+            result["warnings"] = warnings
+        return result
     except Exception as e:
         struct_logger.error("Contact form failed", error=str(e))
         return {
