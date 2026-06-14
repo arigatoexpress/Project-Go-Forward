@@ -10,10 +10,11 @@ pretending a simulated post was published.
 from __future__ import annotations
 
 import os
+import re
 import uuid
 from datetime import datetime
 from typing import Any
-from urllib.parse import urljoin
+from urllib.parse import urlencode, urljoin
 
 import requests
 
@@ -28,6 +29,60 @@ def _enabled(name: str) -> bool:
 
 def _configured(*names: str) -> dict[str, bool]:
     return {name: bool((os.environ.get(name) or "").strip()) for name in names}
+
+
+def _canonical_origin() -> str | None:
+    """Resolve the canonical public site origin (no trailing slash).
+
+    Precedence: PUBLIC_SITE_URL env var, then config.yaml business.website.
+    Returns None when neither is set so callers can no-op cleanly.
+    """
+    origin = (os.environ.get("PUBLIC_SITE_URL") or "").strip()
+    if not origin:
+        try:
+            from config_loader import get_business
+
+            origin = (get_business().get("website") or "").strip()
+        except Exception:
+            origin = ""
+    return origin.rstrip("/") or None
+
+
+def _campaign_slug(*parts: str | None) -> str:
+    """Slugify a home/plan name into a UTM-safe campaign token.
+
+    Lowercase; keep [a-z0-9]; collapse every other run to a single hyphen; trim
+    leading/trailing hyphens; cap at 60 chars. Returns "ad-studio" when no
+    usable text is provided so utm_campaign is never empty.
+    """
+    raw = " ".join(p for p in parts if p and p.strip())
+    slug = re.sub(r"[^a-z0-9]+", "-", raw.lower()).strip("-")[:60].strip("-")
+    return slug or "ad-studio"
+
+
+def _utm_cta_link(platform: str, campaign: str | None) -> str | None:
+    """Build the UTM-tagged outbound CTA link, or None to no-op.
+
+    Strict no-op (returns None) unless THO_UTM_CTA_ENABLED is truthy AND a
+    canonical origin is resolvable. utm_source defaults to the platform,
+    utm_medium to "social"; both overridable via env for ad-account
+    conventions. Never hardcodes a tracking id.
+    """
+    if not _enabled("THO_UTM_CTA_ENABLED"):
+        return None
+    origin = _canonical_origin()
+    if not origin:
+        return None
+    source = (os.environ.get("THO_UTM_SOURCE") or platform or "social").strip()
+    medium = (os.environ.get("THO_UTM_MEDIUM") or "social").strip()
+    params = urlencode(
+        {
+            "utm_source": source,
+            "utm_medium": medium,
+            "utm_campaign": _campaign_slug(campaign),
+        }
+    )
+    return f"{origin}/?{params}"
 
 
 def _absolute_asset_url(url: str | None) -> str | None:
@@ -176,6 +231,7 @@ def prepare_or_publish_social_post(
     caption: str,
     hashtags: list[str] | None = None,
     video_url: str | None = None,
+    campaign: str | None = None,
 ) -> dict[str, Any]:
     """Create a safe draft or publish through the configured platform adapter."""
     hashtags = hashtags or []
@@ -183,6 +239,12 @@ def prepare_or_publish_social_post(
     full_caption = (caption or "").strip()
     if hashtags:
         full_caption = f"{full_caption} {' '.join(hashtags)}".strip()
+    # Opt-in UTM-tagged CTA link appended to the caption. No-op unless
+    # THO_UTM_CTA_ENABLED is set and a canonical origin resolves, so default
+    # behavior is byte-for-byte unchanged for the live site.
+    cta_link = _utm_cta_link(platform, campaign)
+    if cta_link:
+        full_caption = f"{full_caption}\n{cta_link}".strip()
 
     if platform not in {"tiktok", "instagram_reels"}:
         return _draft_response(

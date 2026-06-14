@@ -146,6 +146,47 @@ def test_trailing_slash_variants_301_to_canonical(monkeypatch):
     )
 
 
+def test_accented_detail_url_does_not_redirect_loop(monkeypatch):
+    # Regression (F3): a percent-encoded non-ASCII char in a plan slug
+    # (e.g. "é" == "%C3%A9"). _build_registry stores the ENCODED path
+    # (urlparse does not decode) while Starlette DECODES the request path, so
+    # a naive `raw_path != canonical_path` compared "cortés" vs "cort%C3%A9s"
+    # and 301'd to itself forever -> ERR_TOO_MANY_REDIRECTS, an unindexable
+    # page. The two real-world victims were the Compass "Cortés"/"Fernández"
+    # plans, both listed in sitemap.xml.
+    import seo_routes
+
+    accented = [
+        {
+            "id": "floorplan-222026",
+            "legacy_plan_id": "222026",
+            "model_name": "Compass / Cortés 230",
+            "manufacturer": "Compass",
+            "status": "Orderable",
+            "detail_url": "https://www.texashomeoutlet.com/plan/222026/compass/cort%C3%A9s-230/",
+            "specs": {"beds": 3, "baths": 2},
+        }
+    ]
+    client, _ = seo_client(monkeypatch)
+    monkeypatch.setattr(seo_routes, "_get_homes", lambda: accented)
+    monkeypatch.setattr(seo_routes, "_registry_cache", None)
+    monkeypatch.setattr(seo_routes, "_registry_built_at", 0.0)
+
+    # The canonical (percent-encoded) URL must serve 200, not loop on 301.
+    resp = client.get(
+        "/plan/222026/compass/cort%C3%A9s-230/", follow_redirects=False
+    )
+    assert resp.status_code == 200, f"expected 200, got {resp.status_code} (loop?)"
+    assert "Cort" in resp.text  # rendered the home page, not a redirect
+
+    # A genuinely different slug for the same id still 301s once to canonical.
+    resp2 = client.get(
+        "/plan/222026/compass/wrong-slug-230/", follow_redirects=False
+    )
+    assert resp2.status_code == 301
+    assert resp2.headers["location"] == "/plan/222026/compass/cort%C3%A9s-230/"
+
+
 def test_legacy_vendor_pages_301_to_relevant_targets(monkeypatch):
     # Old WordPress/Yoast marketing, brand, and city pages must 301 (not hard-404)
     # to preserve search equity on cutover. Source: old site page-sitemap.xml.
@@ -262,3 +303,89 @@ def test_seo_failure_never_breaks_page_serving(monkeypatch):
     response = client.get("/")
     assert response.status_code == 200
     assert client.get("/sitemap.xml").status_code == 200
+
+
+# ── Analytics / ad-pixel injection (opt-in, runtime env-gated) ──────────────
+
+_ANALYTICS_ENV = ("GA4_MEASUREMENT_ID", "GTM_CONTAINER_ID", "META_PIXEL_ID", "TIKTOK_PIXEL_ID")
+
+
+def test_analytics_no_op_when_unconfigured(monkeypatch):
+    """No analytics env -> no third-party snippet anywhere (head unchanged)."""
+    for var in _ANALYTICS_ENV:
+        monkeypatch.delenv(var, raising=False)
+    client, _ = seo_client(monkeypatch)
+    body = client.get("/").text
+    assert "googletagmanager.com" not in body
+    assert "fbq(" not in body
+    assert "TiktokAnalyticsObject" not in body
+
+
+def test_ga4_snippet_emitted_only_with_valid_id(monkeypatch):
+    for var in _ANALYTICS_ENV:
+        monkeypatch.delenv(var, raising=False)
+    client, _ = seo_client(monkeypatch)
+    # malformed id -> treated as unset, no snippet
+    monkeypatch.setenv("GA4_MEASUREMENT_ID", "not-a-valid-id")
+    assert "googletagmanager.com/gtag/js" not in client.get("/").text
+    # valid id -> exactly that id appears in a gtag snippet on the public page
+    monkeypatch.setenv("GA4_MEASUREMENT_ID", "G-ABC1234XYZ")
+    body = client.get("/").text
+    assert "https://www.googletagmanager.com/gtag/js?id=G-ABC1234XYZ" in body
+    assert "gtag('config','G-ABC1234XYZ')" in body
+
+
+def test_meta_and_tiktok_pixels_emitted_with_valid_ids(monkeypatch):
+    for var in _ANALYTICS_ENV:
+        monkeypatch.delenv(var, raising=False)
+    client, _ = seo_client(monkeypatch)
+    monkeypatch.setenv("META_PIXEL_ID", "1234567890123456")
+    monkeypatch.setenv("TIKTOK_PIXEL_ID", "CABCDEF1234567890GHIJK")
+    body = client.get("/").text
+    assert "fbq('init','1234567890123456')" in body
+    assert "ttq.load('CABCDEF1234567890GHIJK')" in body
+
+
+def test_analytics_never_emitted_on_noindex_routes(monkeypatch):
+    """Even with valid IDs set, pixels must NOT load on operator/admin/404
+    (noindex) surfaces — only on indexable public pages."""
+    for var in _ANALYTICS_ENV:
+        monkeypatch.delenv(var, raising=False)
+    client, _ = seo_client(monkeypatch)
+    monkeypatch.setenv("GA4_MEASUREMENT_ID", "G-ABC1234XYZ")
+    monkeypatch.setenv("META_PIXEL_ID", "1234567890123456")
+    # public page DOES get the pixels...
+    assert "G-ABC1234XYZ" in client.get("/").text
+    # ...but noindex admin routes and the 404 page do NOT.
+    for path in ("/crm", "/documents", "/this-page-does-not-exist"):
+        body = client.get(path).text
+        assert "G-ABC1234XYZ" not in body, path
+        assert "fbq('init'" not in body, path
+        assert "googletagmanager.com" not in body, path
+
+
+def test_og_image_default_is_opt_in(monkeypatch):
+    """F4: public pages get a brand og:image/twitter:image only when
+    OG_IMAGE_URL is set; unset = no og:image (no broken link)."""
+    monkeypatch.delenv("OG_IMAGE_URL", raising=False)
+    client, _ = seo_client(monkeypatch)
+    assert 'property="og:image"' not in client.get("/").text
+    monkeypatch.setenv("OG_IMAGE_URL", "/og-card.png")
+    body = client.get("/").text
+    assert re.search(
+        r'<meta property="og:image" content="https?://[^"]+/og-card\.png"', body
+    )
+    assert 'name="twitter:image"' in body
+
+
+def test_detail_page_prefers_home_photo_for_og_image(monkeypatch):
+    """A detail page with a hero image uses the HOME photo (so sharing a
+    specific home shows that home), not the brand default."""
+    monkeypatch.setenv("OG_IMAGE_URL", "/og-card.png")
+    client, _ = seo_client(monkeypatch)
+    body = client.get(
+        "/inventory-detail/43372/texas-home-outlet/huffman/premier/"
+    ).text
+    m = re.search(r'<meta property="og:image" content="([^"]+)"', body)
+    assert m, "detail page should have an og:image"
+    assert "og-card.png" not in m.group(1)  # used the home photo, not the default

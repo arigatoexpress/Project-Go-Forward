@@ -1786,6 +1786,8 @@ def schedule_social_post(
     caption: str | None = None,
     hashtags: list[str] | None = None,
     video_url: str | None = None,
+    home_name: str | None = None,
+    campaign: str | None = None,
     tool_context: ToolContext = None,
 ) -> dict:
     """
@@ -1804,6 +1806,8 @@ def schedule_social_post(
         caption=caption or "",
         hashtags=hashtags or [],
         video_url=video_url,
+        # utm_campaign source: explicit campaign wins, else the featured home/plan.
+        campaign=campaign or home_name,
     )
 
     optimal_times = {
