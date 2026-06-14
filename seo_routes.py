@@ -685,6 +685,37 @@ def _breadcrumb_jsonld(name: str, canonical_url: str) -> dict:
     }
 
 
+def _inventory_itemlist_jsonld(limit: int = 25) -> dict | None:
+    """ItemList of homes for the listing pages — a carousel/list rich-result
+    candidate for "manufactured homes in <city>" queries. Each item is only
+    position + url + name; no price/rating (homes are "Call for Price", so a
+    priced ListItem would fabricate data Google penalizes)."""
+    reg = _registry()
+    base = _base()
+    elements = []
+    for legacy_id, home in list(reg["detail_by_id"].items()):
+        path = reg["detail_path_by_id"].get(legacy_id)
+        if not path:
+            continue
+        elements.append(
+            {
+                "@type": "ListItem",
+                "position": len(elements) + 1,
+                "url": base + path,
+                "name": home.get("model_name") or "Manufactured home",
+            }
+        )
+        if len(elements) >= limit:
+            break
+    if not elements:
+        return None
+    return {
+        "@context": "https://schema.org",
+        "@type": "ItemList",
+        "itemListElement": elements,
+    }
+
+
 def _inject(shell: str, head_block: str, body_block: str | None) -> str:
     out = _TITLE_RE.sub("", shell, count=1)
     out = _DESC_RE.sub("", out, count=1)
@@ -796,6 +827,10 @@ def _render_spa_response(full_path: str) -> Response | None:
     if path in PUBLIC_ROUTES:
         title, description = PUBLIC_ROUTES[path]
         jsonld = [_local_business_jsonld()] if path in ("/", "/inventory", "/contact") else []
+        if path in ("/", "/inventory"):
+            itemlist = _inventory_itemlist_jsonld()
+            if itemlist:
+                jsonld.append(itemlist)
         head = _head_block(title, description, base + (path if path != "/" else "/"), jsonld=jsonld)
         if path in ("/", "/inventory"):
             body = _crawlable_inventory_block()

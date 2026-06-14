@@ -240,7 +240,7 @@ const ContactForm = ({ formData, onChange, onSubmit, onBack, submitting }) => {
             aria-describedby={formData.phone && formData.phone.replace(/\D/g, '').length < 10 ? 'appt-phone-error' : undefined}
           />
           {formData.phone && formData.phone.replace(/\D/g, '').length < 10 && (
-            <p id="appt-phone-error" className="text-xs text-red-500 mt-1">Enter a valid 10-digit phone number</p>
+            <p id="appt-phone-error" className="text-xs text-red-700 mt-1">Enter a valid 10-digit phone number</p>
           )}
         </div>
         <div>

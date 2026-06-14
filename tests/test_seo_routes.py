@@ -476,3 +476,18 @@ def test_gzip_middleware_registered_and_serves(monkeypatch):
     assert any(m.cls is GZipMiddleware for m in main.app.user_middleware)
     body = client.get("/", headers={"Accept-Encoding": "gzip"}).text
     assert "Texas Home Outlet" in body and len(body) > 500
+
+
+def test_inventory_page_emits_itemlist_jsonld(monkeypatch):
+    # /inventory (and /) emit an ItemList of homes -> a list/carousel rich-result
+    # candidate. Items carry only position/url/name (no fabricated price/rating).
+    client, _ = seo_client(monkeypatch)
+    lists = [b for b in _jsonld_blocks(client.get("/inventory").text) if b.get("@type") == "ItemList"]
+    assert lists, "/inventory should emit an ItemList"
+    items = lists[0]["itemListElement"]
+    assert items and all(i["@type"] == "ListItem" for i in items)
+    # positions are 1-indexed and sequential
+    assert [i["position"] for i in items] == list(range(1, len(items) + 1))
+    # each item links to a real detail/plan URL, with no price/offer fabrication
+    assert any("/inventory-detail/43372/" in i["url"] for i in items)
+    assert all("offers" not in i and "price" not in i for i in items)
