@@ -11,21 +11,13 @@ Run: python -m pytest tests/test_dns_mx_cutover.py -v
 from __future__ import annotations
 
 import os
-import sys
-from pathlib import Path
-from unittest import mock
 
 import pytest
 from fastapi import Depends, FastAPI, Request
 from fastapi.testclient import TestClient
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
-
 import dns_mx_cutover
 import dns_mx_cutover_routes
-
 
 # ── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -263,7 +255,6 @@ def test_notify_dispatches_to_configured_partner(client, monkeypatch):
 
 def test_notify_uses_hmac_signing_when_key_configured(client, monkeypatch):
     """End-to-end: dispatcher signs the body and logs to Firestore."""
-    from tools.partner_webhooks import dispatch_partner_event
 
     # Stub requests.post to avoid network calls
     class FakeResponse:
@@ -306,7 +297,6 @@ def test_notify_uses_hmac_signing_when_key_configured(client, monkeypatch):
 
 def test_router_requires_partner_key_when_using_main_auth(monkeypatch):
     """Mount the router with main.py's require_partner_api_key logic."""
-    import hashlib
     import hmac
 
     monkeypatch.setenv("THO_API_KEY", "test-api-key")

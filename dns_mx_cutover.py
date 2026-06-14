@@ -10,7 +10,8 @@ from __future__ import annotations
 import logging
 import os
 import socket
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -57,9 +58,9 @@ _resolve_txt: Callable[[str], list[str]] | None = None
 def _load_dns_python_resolver() -> tuple[Callable, Callable, Callable, Callable] | None:
     """Return resolver functions backed by dnspython, or None if unavailable."""
     try:
-        import dns.resolver  # type: ignore[import-untyped]
         import dns.exception  # type: ignore[import-untyped]
         import dns.rdatatype  # type: ignore[import-untyped]
+        import dns.resolver  # type: ignore[import-untyped]
     except Exception:
         return None
 
