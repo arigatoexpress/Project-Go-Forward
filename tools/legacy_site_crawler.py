@@ -11,6 +11,7 @@ import argparse
 import csv
 import json
 import logging
+import os
 import re
 import sys
 from datetime import UTC, datetime
@@ -40,7 +41,14 @@ except ImportError:  # pragma: no cover - script use outside package import path
 
 LOG = logging.getLogger(__name__)
 
-LEGACY_BASE_URL = "https://www.texashomeoutlet.com"
+# Legacy inventory source — overridable via env so the live refresh can be
+# re-pointed at the current vendor feed. After the 2026 domain cutover, the old
+# default (the WordPress site at this domain) now serves the NEW app, so the live
+# scrape no longer reaches the legacy inventory and the snapshot silently freezes.
+# Set LEGACY_INVENTORY_BASE_URL to the real source to re-enable a live refresh.
+LEGACY_BASE_URL = os.environ.get(
+    "LEGACY_INVENTORY_BASE_URL", "https://www.texashomeoutlet.com"
+).rstrip("/")
 LEGACY_INVENTORY_URL = f"{LEGACY_BASE_URL}/inventory/"
 LEGACY_FLOORPLAN_URL = f"{LEGACY_BASE_URL}/floor-plans/"
 LEGACY_DEALER_ID = "3522"
@@ -1026,6 +1034,39 @@ def _load_floorplan_snapshot_context() -> dict[str, Any] | None:
     return context
 
 
+# Snapshot age (days) past which we WARN that inventory is frozen. Overridable.
+SNAPSHOT_STALE_AFTER_DAYS = int(os.environ.get("LEGACY_SNAPSHOT_STALE_DAYS", "14"))
+
+
+def _log_snapshot_staleness(context: dict[str, Any] | None) -> int | None:
+    """WARN when the served inventory snapshot is older than the staleness
+    threshold, so frozen inventory surfaces in logs instead of shipping
+    silently. Returns the snapshot age in days (None if unknown). The live
+    refresh scrapes LEGACY_INVENTORY_URL; after the domain cutover that URL
+    serves the new app, so the snapshot can go stale with nothing to flag it.
+    """
+    if not context:
+        return None
+    retrieved_at = context.get("retrieved_at")
+    if not retrieved_at:
+        return None
+    try:
+        ts = datetime.fromisoformat(str(retrieved_at).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    age_days = (datetime.now(UTC) - ts).days
+    if age_days >= SNAPSHOT_STALE_AFTER_DAYS:
+        LOG.warning(
+            "serving STALE legacy inventory snapshot: retrieved_at=%s age_days=%d "
+            "source=%s (regenerate the snapshot against LEGACY_INVENTORY_BASE_URL "
+            "to refresh)",
+            retrieved_at,
+            age_days,
+            LEGACY_INVENTORY_URL,
+        )
+    return age_days
+
+
 def load_legacy_inventory_context(
     limit: int = 100,
     ttl_seconds: int = 300,
@@ -1042,6 +1083,7 @@ def load_legacy_inventory_context(
     if prefer_snapshot and not force_refresh and snapshot_fallback:
         snapshot = _load_snapshot_context()
         if snapshot and snapshot.get("homes"):
+            _log_snapshot_staleness(snapshot)
             limited = _limit_context(_apply_media_recovery_to_context(snapshot), limit)
             if cache_set:
                 cache_set(LEGACY_CACHE_KEY, limited, ttl_seconds=ttl_seconds)
@@ -1057,6 +1099,7 @@ def load_legacy_inventory_context(
         if snapshot_fallback:
             snapshot = _load_snapshot_context()
             if snapshot and snapshot.get("homes"):
+                _log_snapshot_staleness(snapshot)
                 return _limit_context(_apply_media_recovery_to_context(snapshot), limit)
         return {
             "success": False,
