@@ -339,3 +339,47 @@ def test_inventory_context_uses_snapshot_before_live_crawl(monkeypatch):
 
     assert context["homes"][0]["model_name"] == "Archived Home"
     assert context["total_inventory"] == 1
+
+
+def test_legacy_base_url_is_env_configurable(monkeypatch):
+    """LEGACY_INVENTORY_BASE_URL re-points the live-refresh source so the
+    crawler can be reconnected to the current vendor feed after the cutover."""
+    import importlib
+
+    monkeypatch.setenv("LEGACY_INVENTORY_BASE_URL", "https://vendor.example.com/")
+    mod = importlib.reload(legacy_site_crawler)
+    try:
+        assert mod.LEGACY_BASE_URL == "https://vendor.example.com"
+        assert mod.LEGACY_INVENTORY_URL == "https://vendor.example.com/inventory/"
+        assert mod.LEGACY_FLOORPLAN_URL == "https://vendor.example.com/floor-plans/"
+    finally:
+        monkeypatch.delenv("LEGACY_INVENTORY_BASE_URL", raising=False)
+        importlib.reload(legacy_site_crawler)  # restore module-level defaults
+
+
+def test_log_snapshot_staleness_warns_when_old(caplog):
+    import logging
+    from datetime import UTC, datetime, timedelta
+
+    old = (datetime.now(UTC) - timedelta(days=400)).isoformat()
+    with caplog.at_level(logging.WARNING):
+        age = legacy_site_crawler._log_snapshot_staleness({"retrieved_at": old})
+    assert age is not None and age >= 14
+    assert any("STALE legacy inventory snapshot" in r.getMessage() for r in caplog.records)
+
+
+def test_log_snapshot_staleness_silent_when_fresh(caplog):
+    import logging
+    from datetime import UTC, datetime, timedelta
+
+    fresh = (datetime.now(UTC) - timedelta(days=1)).isoformat()
+    with caplog.at_level(logging.WARNING):
+        age = legacy_site_crawler._log_snapshot_staleness({"retrieved_at": fresh})
+    assert age == 1
+    assert not any("STALE" in r.getMessage() for r in caplog.records)
+
+
+def test_log_snapshot_staleness_handles_missing_or_bad_timestamp():
+    assert legacy_site_crawler._log_snapshot_staleness(None) is None
+    assert legacy_site_crawler._log_snapshot_staleness({}) is None
+    assert legacy_site_crawler._log_snapshot_staleness({"retrieved_at": "nope"}) is None
