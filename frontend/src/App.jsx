@@ -29,6 +29,11 @@ const ChatHistory = lazy(() => import('./pages/ChatHistory'));
 const SystemHub = lazy(() => import('./pages/SystemHub'));
 const GettingStarted = lazy(() => import('./pages/GettingStarted'));
 const SecureHub = lazy(() => import('./pages/SecureHub'));
+const About = lazy(() => import('./pages/About'));
+const Financing = lazy(() => import('./pages/Financing'));
+const FAQ = lazy(() => import('./pages/FAQ'));
+const Warranty = lazy(() => import('./pages/Warranty'));
+const Delivery = lazy(() => import('./pages/Delivery'));
 const ADMIN_PIN_LENGTH = 8;
 const ADMIN_PAGE_KEYS = new Set(['analytics', 'crm', 'chat-history', 'documents', 'adstudio', 'system', 'getting-started']);
 
@@ -233,20 +238,33 @@ function NavBar({
 }
 
 // ─── Footer Component ───
-function Footer({ adminAuthed, onAdminAccess }) {
+function Footer({ adminAuthed, onAdminAccess, onNavigate }) {
+  const linkClass = "hover:text-[var(--cp-accent)] transition-colors";
   return (
-    <footer className="bg-[var(--cp-bg-2)] border-t border-[var(--cp-border)] py-4 text-center text-xs text-[var(--cp-muted)]">
-      <div className="flex items-center justify-center gap-6 flex-wrap">
-        <span className="flex items-center"><MapPin size={12} className="mr-1 text-[var(--cp-accent)]" aria-hidden="true" /> {BUSINESS_FULL_ADDRESS}</span>
-        <a href={`tel:${BUSINESS_PHONE_RAW}`} className="flex items-center hover:text-[var(--cp-accent)] transition-colors">
-          <Phone size={12} className="mr-1" aria-hidden="true" /> {BUSINESS_PHONE}
-        </a>
-        <span>{BUSINESS_HOURS}</span>
-        <span className="flex items-center"><ShieldCheck size={12} className="mr-1 text-green-600" /> License #{BUSINESS_LICENSE}</span>
-        <button onClick={onAdminAccess} className="flex items-center hover:text-[var(--cp-accent)] transition-colors">
-          {adminAuthed ? <ShieldCheck size={12} className="mr-1 text-[var(--cp-accent)]" /> : <Lock size={12} className="mr-1" />}
-          Admin
-        </button>
+    <footer className="bg-[var(--cp-bg-2)] border-t border-[var(--cp-border)] py-6 text-center text-xs text-[var(--cp-muted)]">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="flex flex-col md:flex-row items-center justify-center gap-4 md:gap-6 flex-wrap mb-4">
+          <span className="flex items-center"><MapPin size={12} className="mr-1 text-[var(--cp-accent)]" aria-hidden="true" /> {BUSINESS_FULL_ADDRESS}</span>
+          <a href={`tel:${BUSINESS_PHONE_RAW}`} className="flex items-center hover:text-[var(--cp-accent)] transition-colors">
+            <Phone size={12} className="mr-1" aria-hidden="true" /> {BUSINESS_PHONE}
+          </a>
+          <span>{BUSINESS_HOURS}</span>
+          <span className="flex items-center"><ShieldCheck size={12} className="mr-1 text-green-600" /> License #{BUSINESS_LICENSE}</span>
+        </div>
+        <nav aria-label="Footer" className="flex flex-wrap items-center justify-center gap-4 md:gap-6 mb-4">
+          <button onClick={() => onNavigate('about')} className={linkClass}>About</button>
+          <button onClick={() => onNavigate('financing')} className={linkClass}>Financing</button>
+          <button onClick={() => onNavigate('faq')} className={linkClass}>FAQ</button>
+          <button onClick={() => onNavigate('warranty')} className={linkClass}>Warranty</button>
+          <button onClick={() => onNavigate('delivery')} className={linkClass}>Delivery & Setup</button>
+          <a href="/contact" className={linkClass} onClick={(e) => { e.preventDefault(); onNavigate('contact'); }}>Contact</a>
+        </nav>
+        <div className="flex items-center justify-center">
+          <button onClick={onAdminAccess} className="flex items-center hover:text-[var(--cp-accent)] transition-colors">
+            {adminAuthed ? <ShieldCheck size={12} className="mr-1 text-[var(--cp-accent)]" /> : <Lock size={12} className="mr-1" />}
+            Admin
+          </button>
+        </div>
       </div>
     </footer>
   );
@@ -388,6 +406,11 @@ function App() {
     if (p.startsWith('/getting-started') || p.startsWith('/guide')) return 'getting-started';
     if (p.startsWith('/contact')) return 'contact';
     if (p.startsWith('/appointments')) return 'appointments';
+    if (p.startsWith('/about')) return 'about';
+    if (p.startsWith('/financing')) return 'financing';
+    if (p.startsWith('/faq')) return 'faq';
+    if (p.startsWith('/warranty')) return 'warranty';
+    if (p.startsWith('/delivery')) return 'delivery';
     if (p.startsWith('/chat-history')) return 'chat-history';
     if (p.startsWith('/chat')) return 'chat';
     if (p.startsWith('/inventory')) return 'inventory';
@@ -726,6 +749,11 @@ function App() {
       chat: `Chat with Tex — ${BUSINESS_NAME} Home Finder`,
       contact: `Contact ${BUSINESS_NAME} — ${BUSINESS_CITY}, ${BUSINESS_STATE}`,
       appointments: `Book a Showroom Visit | ${BUSINESS_NAME}`,
+      about: `About Us | ${BUSINESS_NAME}`,
+      financing: `Financing Options | ${BUSINESS_NAME}`,
+      faq: `Frequently Asked Questions | ${BUSINESS_NAME}`,
+      warranty: `Warranty & Service | ${BUSINESS_NAME}`,
+      delivery: `Delivery & Setup | ${BUSINESS_NAME}`,
       'not-found': `Page not found | ${BUSINESS_NAME}`,
     };
     const shortTitles = {
@@ -760,6 +788,11 @@ function App() {
       chat: '/chat',
       contact: '/contact',
       appointments: '/appointments',
+      about: '/about',
+      financing: '/financing',
+      faq: '/faq',
+      warranty: '/warranty',
+      delivery: '/delivery',
       documents: '/documents',
       adstudio: '/studio',
       crm: '/crm',
@@ -1272,6 +1305,81 @@ function App() {
     );
   }
 
+  if (activePage === 'about') {
+    return (
+      <div className="bg-[var(--cp-bg)] min-h-screen">
+        {appModals}
+        <NavBar {...navProps} />
+        <ErrorBoundary scope="about">
+          <Suspense fallback={<PageLoader />}>
+            <About onBack={() => navigateTo('inventory')} />
+          </Suspense>
+        </ErrorBoundary>
+        <Footer adminAuthed={adminAuthed} onAdminAccess={handleAdminAccess} onNavigate={navigateTo} />
+      </div>
+    );
+  }
+
+  if (activePage === 'financing') {
+    return (
+      <div className="bg-[var(--cp-bg)] min-h-screen">
+        {appModals}
+        <NavBar {...navProps} />
+        <ErrorBoundary scope="financing">
+          <Suspense fallback={<PageLoader />}>
+            <Financing onBack={() => navigateTo('inventory')} />
+          </Suspense>
+        </ErrorBoundary>
+        <Footer adminAuthed={adminAuthed} onAdminAccess={handleAdminAccess} onNavigate={navigateTo} />
+      </div>
+    );
+  }
+
+  if (activePage === 'faq') {
+    return (
+      <div className="bg-[var(--cp-bg)] min-h-screen">
+        {appModals}
+        <NavBar {...navProps} />
+        <ErrorBoundary scope="faq">
+          <Suspense fallback={<PageLoader />}>
+            <FAQ onBack={() => navigateTo('inventory')} />
+          </Suspense>
+        </ErrorBoundary>
+        <Footer adminAuthed={adminAuthed} onAdminAccess={handleAdminAccess} onNavigate={navigateTo} />
+      </div>
+    );
+  }
+
+  if (activePage === 'warranty') {
+    return (
+      <div className="bg-[var(--cp-bg)] min-h-screen">
+        {appModals}
+        <NavBar {...navProps} />
+        <ErrorBoundary scope="warranty">
+          <Suspense fallback={<PageLoader />}>
+            <Warranty onBack={() => navigateTo('inventory')} />
+          </Suspense>
+        </ErrorBoundary>
+        <Footer adminAuthed={adminAuthed} onAdminAccess={handleAdminAccess} onNavigate={navigateTo} />
+      </div>
+    );
+  }
+
+  if (activePage === 'delivery') {
+    return (
+      <div className="bg-[var(--cp-bg)] min-h-screen">
+        {appModals}
+        <NavBar {...navProps} />
+        <ErrorBoundary scope="delivery">
+          <Suspense fallback={<PageLoader />}>
+            <Delivery onBack={() => navigateTo('inventory')} />
+          </Suspense>
+        </ErrorBoundary>
+        <Footer adminAuthed={adminAuthed} onAdminAccess={handleAdminAccess} onNavigate={navigateTo} />
+      </div>
+    );
+  }
+
   if (activePage === 'not-found') {
     return (
       <div className="bg-[var(--cp-bg)] min-h-screen flex flex-col">
@@ -1349,7 +1457,7 @@ function App() {
           </span>
         </button>
 
-        <Footer adminAuthed={adminAuthed} onAdminAccess={handleAdminAccess} />
+        <Footer adminAuthed={adminAuthed} onAdminAccess={handleAdminAccess} onNavigate={navigateTo} />
       </div>
     );
   }
@@ -1489,7 +1597,7 @@ function App() {
 
       </main>
 
-      <Footer adminAuthed={adminAuthed} onAdminAccess={handleAdminAccess} />
+      <Footer adminAuthed={adminAuthed} onAdminAccess={handleAdminAccess} onNavigate={navigateTo} />
       <ReportIssue />
     </div>
   );
