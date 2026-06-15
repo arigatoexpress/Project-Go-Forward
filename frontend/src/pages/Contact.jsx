@@ -130,6 +130,7 @@ const Contact = ({ onBack }) => {
                             <input
                                 id="contact-name"
                                 type="text"
+                                autoComplete="name"
                                 required
                                 value={formData.name}
                                 onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
@@ -142,6 +143,7 @@ const Contact = ({ onBack }) => {
                             <input
                                 id="contact-phone"
                                 type="tel"
+                                autoComplete="tel"
                                 required
                                 value={formData.phone}
                                 onChange={(e) => {
@@ -161,6 +163,7 @@ const Contact = ({ onBack }) => {
                             <input
                                 id="contact-email"
                                 type="email"
+                                autoComplete="email"
                                 value={formData.email}
                                 onChange={(e) => setFormData(prev => ({ ...prev, email: e.target.value }))}
                                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
@@ -182,7 +185,7 @@ const Contact = ({ onBack }) => {
                             <p className="text-xs text-gray-400 text-right mt-1">{formData.message.length}/2000</p>
                         </div>
                         {submitError && (
-                            <p className="text-sm text-red-600 bg-red-50 p-3 rounded-lg">{submitError}</p>
+                            <p role="alert" className="text-sm text-red-600 bg-red-50 p-3 rounded-lg">{submitError}</p>
                         )}
                         <button
                             type="submit"
