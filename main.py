@@ -1734,8 +1734,11 @@ async def get_event_analytics(range: str = "30d"):
         from collections import Counter
         from datetime import datetime, timedelta
 
-        days = {"7d": 7, "30d": 30, "90d": 90}.get(range, 30)
-        cutoff = (datetime.now(UTC) - timedelta(days=days)).isoformat()
+        if range == "all":
+            cutoff = ""  # empty string sorts before any ISO timestamp -> keep every event
+        else:
+            days = {"7d": 7, "30d": 30, "90d": 90}.get(range, 30)
+            cutoff = (datetime.now(UTC) - timedelta(days=days)).isoformat()
 
         events: list[dict] = []
         try:

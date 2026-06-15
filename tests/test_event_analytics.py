@@ -64,6 +64,26 @@ def test_event_analytics_respects_range_window(monkeypatch):
     assert body["top_homes"][0]["home"] == "Recent"
 
 
+def test_event_analytics_all_range_includes_old_events(monkeypatch):
+    """range=all (the 'All Time' tab) must NOT silently fall back to 30 days."""
+    client, main, *_ = create_client(monkeypatch)
+    token = main._create_admin_token()
+    old = (datetime.now(UTC) - timedelta(days=400)).isoformat()
+    recent = datetime.now(UTC).isoformat()
+    _seed_events(
+        main,
+        [
+            {"event": "home_view", "props": {"home": "Ancient"}, "created_at": old},
+            {"event": "home_view", "props": {"home": "Recent"}, "created_at": recent},
+        ],
+    )
+    body = client.get(
+        "/api/analytics/events?range=all", headers={"X-Admin-Token": token}
+    ).json()
+    assert body["total_events"] == 2  # both, including the 400-day-old event
+    assert {h["home"] for h in body["top_homes"]} == {"Ancient", "Recent"}
+
+
 def test_event_analytics_never_500s_on_empty(monkeypatch):
     client, main, *_ = create_client(monkeypatch)
     token = main._create_admin_token()
