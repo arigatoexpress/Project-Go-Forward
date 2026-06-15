@@ -33,6 +33,18 @@ from .document_tools import (
     generate_service_ticket,
     generate_work_order_pdf,
 )
+from .local_seo_citations import (
+    audit_nap_consistency,
+    build_listing_payload,
+    canonical_nap,
+    default_citation_sites,
+    ensure_default_statuses,
+    generate_csv,
+    generate_json_report,
+    generate_markdown_checklist,
+    load_statuses,
+    save_statuses,
+)
 
 __all__ = [
     "search_inventory",
@@ -59,4 +71,14 @@ __all__ = [
     "analyze_content_performance",
     "generate_ad_image",
     "get_inventory_for_ads",
+    "default_citation_sites",
+    "build_listing_payload",
+    "canonical_nap",
+    "audit_nap_consistency",
+    "generate_csv",
+    "generate_markdown_checklist",
+    "generate_json_report",
+    "load_statuses",
+    "save_statuses",
+    "ensure_default_statuses",
 ]

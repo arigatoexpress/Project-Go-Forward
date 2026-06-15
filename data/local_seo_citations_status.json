@@ -1,0 +1,104 @@
+{
+  "google_business_profile": {
+    "status": "pending",
+    "profile_url": "",
+    "notes": "",
+    "updated_at": ""
+  },
+  "bing_places_for_business": {
+    "status": "pending",
+    "profile_url": "",
+    "notes": "",
+    "updated_at": ""
+  },
+  "apple_business_connect": {
+    "status": "pending",
+    "profile_url": "",
+    "notes": "",
+    "updated_at": ""
+  },
+  "yelp_for_business": {
+    "status": "pending",
+    "profile_url": "",
+    "notes": "",
+    "updated_at": ""
+  },
+  "facebook_business_page": {
+    "status": "pending",
+    "profile_url": "",
+    "notes": "",
+    "updated_at": ""
+  },
+  "better_business_bureau": {
+    "status": "pending",
+    "profile_url": "",
+    "notes": "",
+    "updated_at": ""
+  },
+  "yellow_pages_(yp)": {
+    "status": "pending",
+    "profile_url": "",
+    "notes": "",
+    "updated_at": ""
+  },
+  "mapquest": {
+    "status": "pending",
+    "profile_url": "",
+    "notes": "",
+    "updated_at": ""
+  },
+  "foursquare_for_business": {
+    "status": "pending",
+    "profile_url": "",
+    "notes": "",
+    "updated_at": ""
+  },
+  "nextdoor_business": {
+    "status": "pending",
+    "profile_url": "",
+    "notes": "",
+    "updated_at": ""
+  },
+  "chamber_of_commerce": {
+    "status": "pending",
+    "profile_url": "",
+    "notes": "",
+    "updated_at": ""
+  },
+  "manta": {
+    "status": "pending",
+    "profile_url": "",
+    "notes": "",
+    "updated_at": ""
+  },
+  "mhvillage": {
+    "status": "pending",
+    "profile_url": "",
+    "notes": "",
+    "updated_at": ""
+  },
+  "manufacturedhomes_com": {
+    "status": "pending",
+    "profile_url": "",
+    "notes": "",
+    "updated_at": ""
+  },
+  "modularhomes_com": {
+    "status": "pending",
+    "profile_url": "",
+    "notes": "",
+    "updated_at": ""
+  },
+  "angi": {
+    "status": "pending",
+    "profile_url": "",
+    "notes": "",
+    "updated_at": ""
+  },
+  "thumbtack": {
+    "status": "pending",
+    "profile_url": "",
+    "notes": "",
+    "updated_at": ""
+  }
+}
