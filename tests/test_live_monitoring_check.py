@@ -127,7 +127,9 @@ def test_run_checks_with_api_key_covers_all_partner_endpoints(monkeypatch):
                 else {"domain": "example.test", "overall_ready": True, "inbound": {}, "resend": {}}
             )
         else:
-            responses[path] = _json_response({key: "" for key in keys})
+            responses[path] = _json_response(
+                {key: ("healthy" if key == "status" else "") for key in keys}
+            )
 
     fake = _FakeGet(responses)
     monkeypatch.setattr(lmc, "_get", fake)
@@ -220,7 +222,9 @@ def test_main_prints_json_and_exits_0_when_all_ok(monkeypatch, capsys):
                 else {"domain": "example.test", "overall_ready": True, "inbound": {}, "resend": {}}
             )
         else:
-            responses[path] = _json_response({key: "" for key in keys})
+            responses[path] = _json_response(
+                {key: ("healthy" if key == "status" else "") for key in keys}
+            )
     fake = _FakeGet(responses)
     monkeypatch.setattr(lmc, "_get", fake)
 
