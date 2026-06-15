@@ -21,7 +21,7 @@ The **Ops bootstrap workflow** (`.github/workflows/ops-bootstrap.yml`) creates a
 - **Retention:** 7 days
 - **Database:** `(default)`
 
-This is a **managed Firestore backup**, not an `gcloud firestore export`. Restores are done through the Cloud Console or `gcloud alpha firestore backups restore`.
+This is a **managed Firestore backup**, not an `gcloud firestore export`. Restores are done through the Cloud Console or `gcloud alpha firestore databases restore`.
 
 ---
 
@@ -75,7 +75,8 @@ Pick a backup whose `snapshotTime` is before the incident.
 ```bash
 NEW_DB=tho-restore-$(date -u +%Y%m%d%H%M%S)
 
-gcloud alpha firestore backups restore "$BACKUP" \
+gcloud alpha firestore databases restore \
+  --source-backup="$BACKUP" \
   --project="$PROJECT_ID" \
   --destination-database="$NEW_DB" \
   --format="value(name)"
@@ -91,7 +92,7 @@ Only after validation, point the Cloud Run service at the new database by settin
 gcloud run services update project-go-forward \
   --project="$PROJECT_ID" \
   --region=us-central1 \
-  --set-env-vars="FIRESTORE_DATABASE=$NEW_DB"
+  --update-env-vars="FIRESTORE_DATABASE=$NEW_DB"   # --update, NOT --set: --set wipes every other env var (WEBAUTHN_*, ADMIN_PIN_HASH, Resend key)
 ```
 
 > **Warning:** This deploys a new revision. Have your rollback command ready (`docs/RUNBOOK.md` §2).
@@ -161,7 +162,8 @@ PY
 # 4. Lead-capture end-to-end (do not submit real PII; use a test email)
 curl -fsS -X POST https://www.texashomeoutlet.com/api/contact \
   -H "Content-Type: application/json" \
-  -d '{"name":"Restore Test","email":"restore-test@example.invalid","message":"SLO restore validation."}'
+  -d '{"name":"Restore Test","phone":"+15555550100","email":"restore-test@example.invalid","message":"SLO restore validation."}'
+# phone is REQUIRED by /api/contact — omitting it returns {"success":false} and the smoke test silently fails
 ```
 
 ---
