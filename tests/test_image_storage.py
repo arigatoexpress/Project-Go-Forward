@@ -126,3 +126,58 @@ def test_order_sidecar_not_listed_as_photo():
     names = [p.filename for p in image_storage.list_photos("99004")]
     assert names == [a]
     assert image_storage._ORDER_FILE not in names
+
+
+def test_process_image_leaves_gif_untouched():
+    data = b"GIF89a" + b"\x00" * 32
+    assert image_storage.process_image(data, "image/gif") == data
+
+
+def test_process_image_disabled_returns_original(monkeypatch):
+    monkeypatch.setenv("THO_DISABLE_IMAGE_PROCESSING", "1")
+    assert image_storage.process_image(b"anything", "image/jpeg") == b"anything"
+
+
+def test_process_image_downscales_large_photo():
+    pytest.importorskip("PIL")
+    import io
+
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new("RGB", (3000, 1500), "blue").save(buf, format="JPEG")
+    out = image_storage.process_image(buf.getvalue(), "image/jpeg")
+    with Image.open(io.BytesIO(out)) as im:
+        assert max(im.size) <= image_storage.MAX_IMAGE_DIM
+
+
+def test_process_image_applies_exif_orientation():
+    pytest.importorskip("PIL")
+    import io
+
+    from PIL import Image
+
+    img = Image.new("RGB", (200, 100), "red")  # landscape on disk
+    exif = img.getexif()
+    exif[274] = 6  # orientation tag: display rotated 90° → becomes portrait
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", exif=exif.tobytes())
+    out = image_storage.process_image(buf.getvalue(), "image/jpeg")
+    with Image.open(io.BytesIO(out)) as im:
+        assert im.size == (100, 200)  # auto-rotated
+        assert im.getexif().get(274) in (None, 1)  # orientation stripped/normalized
+
+
+def test_store_photo_downscales_on_upload():
+    pytest.importorskip("PIL")
+    import io
+
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new("RGB", (4000, 2000), "green").save(buf, format="JPEG")
+    photo = image_storage.store_photo("99005", buf.getvalue(), declared_content_type="image/jpeg")
+    fetched = image_storage.get_photo("99005", photo.filename)
+    assert fetched is not None
+    with Image.open(io.BytesIO(fetched[0])) as im:
+        assert max(im.size) <= image_storage.MAX_IMAGE_DIM

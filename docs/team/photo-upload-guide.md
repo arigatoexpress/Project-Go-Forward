@@ -144,8 +144,10 @@ Make sure you picked a home first (the box is greyed out until you do). If it's
 still stuck, refresh the page and log in again.
 
 ### "My photo is sideways on the website"
-Rotate it in your phone's Photos app **before** uploading, then add it again and
-delete the sideways one.
+Photos are **auto-rotated** when you upload them, so this is rare. If one still
+looks sideways, rotate it in your phone's Photos app, then add it again and
+delete the sideways one. (Big photos are also automatically shrunk so the
+website stays fast — you don't need to resize anything yourself.)
 
 ### "I added the photo but it's not on the website"
 Wait one minute and refresh the Inventory page. Photos appear within about a
