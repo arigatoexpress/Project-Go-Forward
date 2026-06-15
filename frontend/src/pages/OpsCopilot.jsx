@@ -10,6 +10,15 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Bot, Send, Loader2, Lock, User, Sparkles } from 'lucide-react';
 import adminFetch from '../adminFetch';
+import SafeMarkdown from '../components/SafeMarkdown';
+
+// Map the prose typography colors onto the app theme tokens so markdown stays
+// readable in both light and dark mode (prose otherwise hardcodes gray text,
+// which is unreadable on the dark assistant bubble).
+const MD_THEME =
+  '[--tw-prose-body:var(--cp-text)] [--tw-prose-headings:var(--cp-text)] ' +
+  '[--tw-prose-bold:var(--cp-text)] [--tw-prose-bullets:var(--cp-muted)] ' +
+  '[--tw-prose-counters:var(--cp-muted)] [--tw-prose-links:var(--cp-accent)]';
 
 const SUGGESTIONS = [
   'How many new leads do we have?',
@@ -34,13 +43,19 @@ function Bubble({ role, content }) {
         )}
       </div>
       <div
-        className={`max-w-[80%] rounded-2xl px-4 py-3 text-[15px] leading-relaxed whitespace-pre-wrap ${
+        className={`max-w-[80%] rounded-2xl px-4 py-3 text-[15px] leading-relaxed ${
           isUser
-            ? 'bg-[var(--cp-accent)] text-white rounded-tr-sm'
+            ? 'bg-[var(--cp-accent)] text-white rounded-tr-sm whitespace-pre-wrap'
             : 'bg-[var(--cp-panel)] text-[var(--cp-text)] border border-[var(--cp-border)] rounded-tl-sm'
         }`}
       >
-        {content}
+        {isUser ? (
+          content
+        ) : (
+          <div className={MD_THEME}>
+            <SafeMarkdown content={content} />
+          </div>
+        )}
       </div>
     </div>
   );
