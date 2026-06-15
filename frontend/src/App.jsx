@@ -391,6 +391,8 @@ function App() {
     if (p.startsWith('/chat-history')) return 'chat-history';
     if (p.startsWith('/chat')) return 'chat';
     if (p.startsWith('/inventory')) return 'inventory';
+    // City landing pages (/manufactured-homes-in-{city}-tx) render the inventory.
+    if (p.startsWith('/manufactured-homes-in-')) return 'inventory';
     // Legacy texashomeoutlet.com deep links resolve inside the inventory page
     if (p.startsWith('/plan/') || p.startsWith('/quote/')) return 'inventory';
     if (p.startsWith('/hub/')) return 'hub';
