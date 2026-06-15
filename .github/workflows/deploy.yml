@@ -7,6 +7,14 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# Serialize runs for the same ref so rapid back-to-back merges don't race the
+# deploy. cancel-in-progress supersedes an in-flight run when a newer commit
+# lands, so the LATEST main is what reaches prod — instead of "whichever deploy
+# happened to finish last" leaving prod on a stale revision.
+concurrency:
+  group: deploy-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   PROJECT_ID: tho-ai-agent
   REGION: us-central1
