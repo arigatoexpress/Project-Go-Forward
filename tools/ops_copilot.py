@@ -28,6 +28,7 @@ from __future__ import annotations
 import os
 import re
 from collections import Counter
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi.concurrency import run_in_threadpool
@@ -95,6 +96,50 @@ def _count_by_status(collection_name: str, status_field: str = "status") -> dict
 # --------------------------------------------------------------------------- #
 # Read-only data layer — the live "what's happening in the business" snapshot
 # --------------------------------------------------------------------------- #
+def _load_inventory_snapshot() -> dict[str, Any] | None:
+    """Seam (monkeypatched in tests) for the legacy inventory snapshot."""
+    from tools import legacy_site_crawler
+
+    return legacy_site_crawler._load_snapshot_context()
+
+
+def get_inventory_freshness() -> dict[str, Any]:
+    """Read-only freshness of the public inventory the site shows.
+
+    The public site serves homes from a legacy snapshot whose auto-refresh can
+    silently freeze after the domain cutover (see legacy_site_crawler). Surfacing
+    the snapshot's age lets staff ask the Copilot 'is our inventory up to date?'
+    and get a real answer instead of assuming it's live.
+    """
+    try:
+        from tools import legacy_site_crawler
+
+        ctx = _load_inventory_snapshot()
+        if not ctx:
+            return {"available": False}
+        retrieved_at = ctx.get("retrieved_at")
+        age_days: int | None = None
+        stale: bool | None = None
+        if retrieved_at:
+            try:
+                ts = datetime.fromisoformat(str(retrieved_at).replace("Z", "+00:00"))
+                age_days = (datetime.now(UTC) - ts).days
+                stale = age_days >= legacy_site_crawler.SNAPSHOT_STALE_AFTER_DAYS
+            except ValueError:
+                pass
+        return {
+            "available": True,
+            "source": ctx.get("source"),
+            "last_refreshed": retrieved_at,
+            "age_days": age_days,
+            "stale": stale,
+            "total_homes": len(ctx.get("homes") or []),
+        }
+    except Exception as exc:
+        logger.error("ops_copilot inventory freshness failed", error=str(exc))
+        return {"available": False}
+
+
 async def get_business_snapshot() -> dict[str, Any]:
     """Aggregate a compact, PII-free snapshot of the live business state.
 
@@ -134,6 +179,8 @@ async def get_business_snapshot() -> dict[str, Any]:
     except Exception as exc:
         logger.error("ops_copilot feedback snapshot failed", error=str(exc))
         snapshot["feedback"] = {"error": "unavailable"}
+
+    snapshot["inventory_freshness"] = get_inventory_freshness()
 
     return snapshot
 
@@ -241,6 +288,17 @@ HELP_TOPICS: list[dict[str, Any]] = [
         ),
     },
     {
+        "title": "Are the home listings up to date?",
+        "keywords": ["up to date", "current", "fresh", "stale", "outdated", "old", "refresh", "listings", "inventory updated", "new homes", "last updated"],
+        "body": (
+            "The homes shown on the site come from our listing feed. Ask me "
+            "'is our inventory up to date?' and I'll tell you when it last "
+            "refreshed. If it's been a while, the photos already on the site keep "
+            "working, but a manager should check that the listing source is still "
+            "connected so newly added homes show up."
+        ),
+    },
+    {
         "title": "What this assistant can do",
         "keywords": ["you", "assistant", "copilot", "what can you do", "help me", "bot", "ai"],
         "body": (
@@ -306,6 +364,11 @@ SYSTEM_PREAMBLE = (
     "available right now rather than guessing.\n"
     "- Keep answers short, warm, and plain-spoken — many teammates are not "
     "technical. Use simple words and, when giving steps, number them.\n"
+    "- If asked whether the inventory/listings are up to date, use "
+    "inventory_freshness (last_refreshed, age_days, stale, total_homes). If "
+    "stale is true, gently say the listing feed hasn't refreshed in a while and "
+    "a manager should check the inventory source — don't alarm; the photos "
+    "already on the site still work.\n"
     "- Only discuss Texas Home Outlet and how to use this platform. If asked about "
     "something unrelated, gently steer back.\n"
 )
