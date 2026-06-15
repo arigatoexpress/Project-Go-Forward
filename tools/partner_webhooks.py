@@ -175,28 +175,12 @@ def dispatch_partner_event(
     *,
     timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
     blocking: bool = False,
+    partner_ids: list[str] | None = None,
 ) -> list[str]:
-    """Dispatch `event` to every configured partner webhook.
+    """Dispatch `event` to configured partner webhooks.
 
-    Returns the list of partner_ids that received a delivery attempt
-    (useful for tests and for the admin endpoint to confirm dispatch).
-
-    If no partner webhooks are configured, returns [] and does nothing —
-    this is the expected state until a partner's URL is set.
-
-    Parameters
-    ----------
-    event : str            e.g. "deal.status_changed", "deal.funded"
-    payload : dict         event-specific body. Must be JSON-serializable.
-    db : THODatabase | None
-        When provided, each delivery attempt is logged to the
-        `activities/` collection. Accepts the singleton or a fake.
-    timeout_seconds : float
-        Per-request timeout. Default 8s — long enough for a slow partner,
-        short enough that a dead URL doesn't hold a worker thread forever.
-    blocking : bool
-        If True, wait for all deliveries to complete before returning.
-        Default False (fire-and-forget). Used by tests for determinism.
+    Returns the list of partner_ids that received a delivery attempt.
+    If partner_ids is provided, only those partners are targeted.
     """
     urls = _get_partner_webhook_urls()
     signing_key = _get_signing_key()
@@ -204,9 +188,16 @@ def dispatch_partner_event(
     if not urls:
         return []
 
-    partner_ids = list(urls.keys())
+    targets = list(urls.items())
+    if partner_ids is not None:
+        allowed = {p.lower() for p in partner_ids}
+        targets = [(pid, url) for pid, url in targets if pid in allowed]
+
+    if not targets:
+        return []
+
     futures = []
-    for partner_id, url in urls.items():
+    for partner_id, url in targets:
         fut = _DELIVERY_POOL.submit(
             _deliver_one,
             partner_id,
@@ -226,4 +217,4 @@ def dispatch_partner_event(
             except Exception as e:
                 logger.warning("Partner webhook future error: %s", e)
 
-    return partner_ids
+    return [partner_id for partner_id, _ in targets]
