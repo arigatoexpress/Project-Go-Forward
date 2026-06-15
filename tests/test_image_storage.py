@@ -88,3 +88,41 @@ def test_blocks_path_traversal_in_filename():
 def test_rejects_blank_home_id():
     with pytest.raises(image_storage.PhotoValidationError):
         image_storage.safe_home_id("   ")
+
+
+def _store(home):
+    return image_storage.store_photo(home, PNG_BYTES, declared_content_type="image/png").filename
+
+
+def test_set_photo_order_makes_first_the_hero():
+    a, b, c = _store("99001"), _store("99001"), _store("99001")
+    # Default order is by filename (upload order); reorder to put c first.
+    ordered = image_storage.set_photo_order("99001", [c, a])
+    assert [p.filename for p in ordered][:2] == [c, a]
+    # b was omitted from the order list but must still be present (appended).
+    assert b in {p.filename for p in ordered}
+    # The public grouped view honors the same order (hero = c).
+    grouped = image_storage.list_all_grouped(use_cache=False)
+    assert grouped["99001"][0].filename == c
+
+
+def test_order_ignores_unknown_filenames():
+    a = _store("99002")
+    ordered = image_storage.set_photo_order("99002", ["does-not-exist.jpg", a])
+    assert [p.filename for p in ordered] == [a]
+
+
+def test_deleting_main_photo_prunes_order():
+    a, b = _store("99003"), _store("99003")
+    image_storage.set_photo_order("99003", [b, a])
+    assert image_storage.delete_photo("99003", b) is True
+    remaining = image_storage.list_photos("99003")
+    assert [p.filename for p in remaining] == [a]
+
+
+def test_order_sidecar_not_listed_as_photo():
+    a = _store("99004")
+    image_storage.set_photo_order("99004", [a])
+    names = [p.filename for p in image_storage.list_photos("99004")]
+    assert names == [a]
+    assert image_storage._ORDER_FILE not in names

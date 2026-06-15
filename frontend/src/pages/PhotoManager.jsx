@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   ArrowLeft, Camera, UploadCloud, Trash2, CheckCircle, AlertCircle,
-  Loader2, Search, Home as HomeIcon, ImageOff,
+  Loader2, Search, ImageOff, Star,
 } from 'lucide-react';
 import adminFetch from '../adminFetch';
 
@@ -10,10 +10,18 @@ import adminFetch from '../adminFetch';
 
 const ACCEPT = 'image/jpeg,image/png,image/webp,image/gif';
 
+// A home "needs photos" when it has no real (non-floorplan) listing photos.
+// inventory-context already classifies floorplans out of real_photos and folds
+// in any staff uploads, so this is the honest "still needs pictures" signal.
+function needsPhotos(home) {
+  return !(Array.isArray(home.real_photos) && home.real_photos.length > 0);
+}
+
 function homeLabel(home) {
   const name = home.model_name || home.name || 'Home';
   const status = home.status ? ` — ${home.status}` : '';
-  return `${name}${status}`;
+  const flag = needsPhotos(home) ? '  ⚠ needs photos' : '';
+  return `${name}${status}${flag}`;
 }
 
 export default function PhotoManager({ onBack }) {
@@ -28,6 +36,7 @@ export default function PhotoManager({ onBack }) {
   const [uploading, setUploading] = useState(false);
   const [message, setMessage] = useState(null); // { type: 'ok'|'error', text }
   const [dragOver, setDragOver] = useState(false);
+  const [onlyNeedsPhotos, setOnlyNeedsPhotos] = useState(false);
   const fileInputRef = useRef(null);
 
   const selectedHome = homes.find(h => String(h.id) === String(selectedId));
@@ -130,9 +139,35 @@ export default function PhotoManager({ onBack }) {
     }
   };
 
+  // Make a photo the main one by moving it to the front of the saved order.
+  const handleMakeMain = async (filename) => {
+    const order = [filename, ...photos.map(p => p.filename).filter(f => f !== filename)];
+    try {
+      const res = await adminFetch(
+        `/api/inventory/${encodeURIComponent(selectedId)}/photos/order`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ order }),
+        },
+      );
+      const data = await res.json();
+      if (res.ok) {
+        setPhotos(Array.isArray(data?.photos) ? data.photos : photos);
+        setMessage({ type: 'ok', text: 'Main photo updated. The website will show it shortly.' });
+      } else {
+        setMessage({ type: 'error', text: 'Could not set the main photo.' });
+      }
+    } catch {
+      setMessage({ type: 'error', text: 'Could not set the main photo. Try again.' });
+    }
+  };
+
   const filteredHomes = homes.filter(h =>
-    !query || homeLabel(h).toLowerCase().includes(query.toLowerCase())
+    (!query || homeLabel(h).toLowerCase().includes(query.toLowerCase())) &&
+    (!onlyNeedsPhotos || needsPhotos(h))
   );
+  const needsCount = homes.filter(needsPhotos).length;
 
   return (
     <div className="min-h-screen bg-gray-50 font-sans">
@@ -179,6 +214,23 @@ export default function PhotoManager({ onBack }) {
               className="bg-transparent outline-none w-full text-[15px]"
             />
           </div>
+
+          {!loadingHomes && (
+            <label className="flex items-center gap-2 mb-3 text-sm text-slate-700 cursor-pointer select-none ml-8">
+              <input
+                type="checkbox"
+                checked={onlyNeedsPhotos}
+                onChange={e => setOnlyNeedsPhotos(e.target.checked)}
+                className="w-4 h-4"
+              />
+              Show only homes that still need photos
+              {needsCount > 0 && (
+                <span className="bg-amber-100 text-amber-800 rounded-full px-2 py-0.5 text-xs font-semibold">
+                  {needsCount} need photos
+                </span>
+              )}
+            </label>
+          )}
 
           {loadingHomes ? (
             <div className="flex items-center gap-2 text-gray-500 text-sm py-3">
@@ -263,6 +315,12 @@ export default function PhotoManager({ onBack }) {
               <span className="bg-slate-800 text-white rounded-full w-6 h-6 inline-flex items-center justify-center text-sm">3</span>
               Photos on this home
             </h2>
+            {photos.length > 1 && (
+              <p className="text-sm text-gray-500 mb-3 ml-8">
+                The <strong>Main</strong> photo (first one) is what customers see first. Use
+                “Make main” on any photo to feature it.
+              </p>
+            )}
 
             {loadingPhotos ? (
               <div className="flex items-center gap-2 text-gray-500 text-sm py-3">
@@ -275,14 +333,27 @@ export default function PhotoManager({ onBack }) {
               </div>
             ) : (
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                {photos.map(p => (
-                  <div key={p.filename} className="relative group rounded-lg overflow-hidden border border-gray-200 bg-gray-100">
+                {photos.map((p, idx) => (
+                  <div key={p.filename} className={`relative group rounded-lg overflow-hidden border bg-gray-100 ${idx === 0 ? 'border-blue-500 ring-2 ring-blue-200' : 'border-gray-200'}`}>
                     <img
                       src={p.url}
                       alt="Home"
                       loading="lazy"
                       className="w-full h-32 object-cover"
                     />
+                    {idx === 0 ? (
+                      <span className="absolute top-1.5 left-1.5 inline-flex items-center gap-1 bg-blue-600 text-white text-xs font-semibold rounded-full px-2 py-0.5 shadow">
+                        <Star size={12} fill="currentColor" /> Main
+                      </span>
+                    ) : (
+                      <button
+                        onClick={() => handleMakeMain(p.filename)}
+                        className="absolute bottom-1.5 left-1.5 inline-flex items-center gap-1 bg-white/90 hover:bg-blue-600 hover:text-white text-blue-700 text-xs font-semibold rounded-full px-2 py-1 shadow"
+                        title="Make this the main photo"
+                      >
+                        <Star size={12} /> Make main
+                      </button>
+                    )}
                     <button
                       onClick={() => handleDelete(p.filename)}
                       className="absolute top-1.5 right-1.5 bg-white/90 hover:bg-red-600 hover:text-white text-red-600 rounded-full p-1.5 shadow"
