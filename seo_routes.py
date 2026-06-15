@@ -135,12 +135,7 @@ _LEGACY_VENDOR_REDIRECTS: dict[str, str] = {
     "/southern-energy-homes": "/inventory",
     "/schult-homes-waco": "/inventory",
     # City / local-SEO landing pages -> inventory (local intent = browse homes).
-    "/manufactured-homes-in-baytown-tx": "/inventory",
-    "/manufactured-homes-in-beaumont-tx": "/inventory",
-    "/manufactured-homes-in-cleveland-tx": "/inventory",
-    "/manufactured-homes-in-conroe-tx": "/inventory",
     "/manufactured-homes-in-jasper-tx": "/inventory",
-    "/manufactured-homes-in-livingston-tx": "/inventory",
     "/manufactured-homes-in-lumberton-tx": "/inventory",
     # Category pages -> inventory.
     "/single-wide": "/inventory",
@@ -747,6 +742,34 @@ def _inject(shell: str, head_block: str, body_block: str | None) -> str:
     return out
 
 
+def _city_slug(city: str) -> str:
+    return city.strip().lower().replace(" ", "-").replace(".", "")
+
+
+def _city_pages() -> dict[str, str]:
+    """Map /manufactured-homes-in-{slug}-tx -> City for each served city
+    (config.yaml business.area_served) — local-SEO landing pages."""
+    return {
+        f"/manufactured-homes-in-{_city_slug(c)}-tx": c
+        for c in ((get_business() or {}).get("area_served") or [])
+    }
+
+
+def _crawlable_city_block(city: str) -> str:
+    e = html.escape
+    return (
+        f"<h1>Manufactured &amp; Mobile Homes in {e(city)}, TX</h1>"
+        f"<p>{e(business_name())} delivers new manufactured and mobile homes to "
+        f"{e(city)}, TX and the surrounding Houston area — single and double-section "
+        f"homes plus orderable factory floorplans. Visit our showroom at "
+        f"{e(business_address())} or call "
+        f'<a href="tel:{e(business_phone())}">{e(business_phone())}</a>.</p>'
+        f'<p><a href="/inventory">Browse all homes for sale at {e(business_name())}</a>'
+        f' · <a href="/appointments">Book a showroom visit</a></p>'
+        f"<p>{e(business_name())} · {e(business_address())} · {e(business_hours())}</p>"
+    )
+
+
 def render_spa_response(full_path: str) -> Response | None:
     """SEO-aware response for an SPA path; None means caller falls through
     to its default file handling. Never raises."""
@@ -786,6 +809,24 @@ def _render_spa_response(full_path: str) -> Response | None:
         "Pragma": "no-cache",
         "Expires": "0",
     }
+
+    # 3b. City landing pages: 200 + city-targeted head/body. A local-SEO page per
+    #     served city — recovers the legacy vendor city pages (which used to 301
+    #     to /inventory and bleed their backlink equity) and targets high-intent
+    #     "manufactured homes in {city}" queries.
+    city = _city_pages().get(path.lower())
+    if city:
+        if raw_path != path:
+            return RedirectResponse(path, status_code=301)
+        title = f"Manufactured & Mobile Homes in {city}, TX | {business_name()}"
+        desc = (
+            f"{business_name()} delivers manufactured & mobile homes to {city}, TX — "
+            f"on-lot homes ready now plus orderable floorplans. Call {business_phone()}."
+        )
+        head = _head_block(title, desc, base + path, jsonld=[_local_business_jsonld()])
+        return HTMLResponse(
+            _inject(_shell(), head, _crawlable_city_block(city)), headers=no_cache
+        )
 
     # 4. Live legacy detail/plan URLs: 200 + per-home head + crawlable body.
     m = _DETAIL_RE.match(path)
@@ -921,6 +962,7 @@ def robots_txt() -> PlainTextResponse:
 def sitemap_xml() -> Response:
     base = _base()
     urls = [base + p for p in ("/", "/inventory", "/contact", "/appointments")]
+    urls += [base + p for p in sorted(_city_pages())]
     urls += [base + p for p in sorted(_registry()["detail_path_by_id"].values())]
     # lastmod intentionally omitted: Google only trusts it when verifiably
     # accurate, and inventory records carry no reliable update timestamps.

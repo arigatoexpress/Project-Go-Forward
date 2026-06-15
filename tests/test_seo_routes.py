@@ -202,7 +202,7 @@ def test_legacy_vendor_pages_301_to_relevant_targets(monkeypatch):
     client, _ = seo_client(monkeypatch)
     cases = {
         "/tru-homes/": "/inventory",                        # brand
-        "/manufactured-homes-in-beaumont-tx/": "/inventory",  # city / local SEO
+        "/manufactured-homes-in-jasper-tx/": "/inventory",  # unserved city (still legacy 301)
         "/single-wide/": "/inventory",                       # category
         "/financing/": "/contact",                           # info
         "/about-us/": "/contact",
@@ -439,6 +439,48 @@ def test_local_business_jsonld_has_organization_entity_fields(monkeypatch):
     assert cp["@type"] == "ContactPoint"
     assert cp["contactType"] == "sales" and cp["telephone"]
     assert "Manufactured homes" in biz["knowsAbout"]
+
+
+def test_city_landing_page_serves_200_with_local_content(monkeypatch):
+    # A served city (config area_served) gets a real local-SEO landing page.
+    client, _ = seo_client(monkeypatch)
+    r = client.get("/manufactured-homes-in-humble-tx")
+    assert r.status_code == 200
+    body = r.text
+    assert "<h1>Manufactured &amp; Mobile Homes in Humble, TX</h1>" in body
+    assert 'rel="canonical"' in body and "/manufactured-homes-in-humble-tx" in body
+    assert '"@type": "LocalBusiness"' in body
+    assert "tel:" in body and "/inventory" in body  # NAP + CTA
+
+
+def test_served_city_no_longer_301s_to_inventory(monkeypatch):
+    # Baytown was a legacy-vendor 301 -> /inventory; now a real city page (200).
+    client, _ = seo_client(monkeypatch)
+    r = client.get("/manufactured-homes-in-baytown-tx", follow_redirects=False)
+    assert r.status_code == 200
+    assert "Baytown, TX" in r.text
+
+
+def test_unserved_city_still_301s(monkeypatch):
+    # Jasper isn't a served city -> keep the legacy 301 (no misleading page).
+    client, _ = seo_client(monkeypatch)
+    r = client.get("/manufactured-homes-in-jasper-tx", follow_redirects=False)
+    assert r.status_code == 301
+    assert r.headers["location"] == "/inventory"
+
+
+def test_city_page_trailing_slash_301s_to_canonical(monkeypatch):
+    client, _ = seo_client(monkeypatch)
+    r = client.get("/manufactured-homes-in-humble-tx/", follow_redirects=False)
+    assert r.status_code == 301
+    assert r.headers["location"] == "/manufactured-homes-in-humble-tx"
+
+
+def test_city_pages_listed_in_sitemap(monkeypatch):
+    client, _ = seo_client(monkeypatch)
+    body = client.get("/sitemap.xml").text
+    assert "/manufactured-homes-in-humble-tx</loc>" in body
+    assert "/manufactured-homes-in-baytown-tx</loc>" in body
 
 
 def test_contact_page_has_crawlable_nap_block(monkeypatch):
