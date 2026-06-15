@@ -32,6 +32,15 @@ business:
   # frontend/public). Swap to a raster (PNG/JPG) URL if you have one — Google's
   # knowledge-panel logo prefers raster over SVG.
   logo_url: "/tex-icon.svg"
+  # Short description used for directory listings and citation sites.
+  short_description: "Texas Home Outlet is a manufactured and mobile home dealership serving Huffman, TX and the greater Houston area."
+  # Directory categories (primary first) — keep consistent across Google Business Profile,
+  # Yelp, Bing Places, Apple Business Connect, and industry directories.
+  categories:
+    - "Mobile Home Dealer"
+    - "Manufactured Home Dealer"
+  # Year established, if known (helps directory profiles and knowledge-graph signals).
+  year_established: null
   # Cities served — emitted as schema.org areaServed for local relevance.
   area_served:
     - "Huffman"
