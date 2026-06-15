@@ -28,10 +28,10 @@ from json import JSONDecodeError
 from urllib.parse import urlsplit, urlunsplit
 
 import uvicorn
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
@@ -4113,6 +4113,46 @@ async def download_generated_video(filename: str):
     return {"error": "File not found"}
 
 
+def _overlay_staff_photos(homes: list[dict]) -> None:
+    """Prepend staff-uploaded photos onto matching homes (matched by `id`).
+
+    Uploaded photos are real on-lot photos, so they lead the gallery and become
+    the hero image; any existing CDN/legacy photos are kept after them. This
+    runs for every inventory source (legacy snapshot, Firestore, asset catalog)
+    so staff uploads show on the public site regardless of which source is live.
+    """
+    if not homes:
+        return
+    try:
+        from tools import image_storage
+
+        grouped = image_storage.list_all_grouped()
+    except Exception as exc:  # pragma: no cover - storage backend optional
+        struct_logger.warning("Staff photo overlay unavailable", error=str(exc))
+        return
+    if not grouped:
+        return
+    for home in homes:
+        raw_id = str(home.get("id") or "").strip()
+        if not raw_id:
+            continue
+        try:
+            key = image_storage.safe_home_id(raw_id)
+        except image_storage.PhotoValidationError:
+            continue
+        staff = grouped.get(key)
+        if not staff:
+            continue
+        urls = [p.url for p in staff]
+        existing = home.get("real_photos")
+        existing = existing if isinstance(existing, list) else []
+        merged = urls + [u for u in existing if u not in urls]
+        home["real_photos"] = merged
+        home["gallery_images"] = merged[:3]
+        home["image_url"] = urls[0]
+        home["has_staff_photos"] = True
+
+
 @app.get("/api/marketing/inventory-context")
 @limiter.limit("30/minute")
 async def api_inventory_context(request: Request):
@@ -4125,13 +4165,15 @@ async def api_inventory_context(request: Request):
         legacy_result = load_legacy_inventory_context(limit=100)
         if legacy_result.get("success") and legacy_result.get("homes"):
             floorplan_result = load_legacy_floorplan_catalog_context(limit=500)
-            return merge_orderable_floorplan_catalog(
+            merged = merge_orderable_floorplan_catalog(
                 legacy_result,
                 assets=PROPERTY_ASSETS,
                 floorplan_context=floorplan_result
                 if floorplan_result.get("success") and floorplan_result.get("homes")
                 else None,
             )
+            _overlay_staff_photos(merged.get("homes", []))
+            return merged
         if legacy_result.get("error"):
             struct_logger.warning(
                 "Legacy inventory context unavailable",
@@ -4218,6 +4260,7 @@ async def api_inventory_context(request: Request):
             else None,
         )
         result["website_homes"] = len(website_homes)
+        _overlay_staff_photos(result.get("homes", []))
         return result
     except Exception as e:
         struct_logger.error("Inventory context failed", error=str(e))
@@ -4236,6 +4279,136 @@ async def download_ad_image(filename: str):
     if os.path.isfile(resolved):
         return FileResponse(resolved, filename=safe_filename, media_type="image/png")
     return JSONResponse({"error": "Image not found"}, status_code=404)
+
+
+# ─── Staff Listing Photo Uploads ───
+# Staff add their own on-lot photos to a home here. Uploads are stored durably
+# (GCS, with a local-disk fallback for dev) and overlaid onto the home in
+# /api/marketing/inventory-context by matching the home's `id`, so they show up
+# on the public Inventory page regardless of which inventory source is live.
+
+# Max photos accepted in a single upload request (keeps requests bounded).
+_MAX_PHOTOS_PER_UPLOAD = 20
+
+
+@app.get("/api/inventory/photos/{home_id}/{filename}")
+async def serve_listing_photo(home_id: str, filename: str):
+    """Public: stream a staff-uploaded listing photo (no auth — photos are public)."""
+    from tools import image_storage
+
+    try:
+        result = image_storage.get_photo(home_id, filename)
+    except image_storage.PhotoValidationError:
+        return JSONResponse({"error": "Invalid request"}, status_code=400)
+    if result is None:
+        return JSONResponse({"error": "Photo not found"}, status_code=404)
+    data, content_type = result
+    return Response(
+        content=data,
+        media_type=content_type,
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+
+@app.get("/api/inventory/{home_id}/photos", dependencies=[Depends(require_admin)])
+async def list_listing_photos(home_id: str):
+    """Admin: list staff-uploaded photos for a home."""
+    from tools import image_storage
+
+    try:
+        photos = image_storage.list_photos(home_id)
+    except image_storage.PhotoValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "success": True,
+        "home_id": image_storage.safe_home_id(home_id),
+        "photos": [
+            {"filename": p.filename, "url": p.url, "size_bytes": p.size_bytes}
+            for p in photos
+        ],
+    }
+
+
+@app.post("/api/inventory/{home_id}/photos", dependencies=[Depends(require_admin)])
+@limiter.limit("30/minute")
+async def upload_listing_photos(
+    request: Request,
+    home_id: str,
+    files: list[UploadFile] = File(...),
+):
+    """Admin: upload one or more on-lot photos for a home."""
+    from tools import image_storage
+
+    if not files:
+        raise HTTPException(status_code=400, detail="No files were uploaded.")
+    if len(files) > _MAX_PHOTOS_PER_UPLOAD:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Too many files at once (max {_MAX_PHOTOS_PER_UPLOAD}). "
+            "Please upload in smaller batches.",
+        )
+
+    stored: list[dict] = []
+    errors: list[dict] = []
+    for upload in files:
+        try:
+            data = await upload.read()
+            photo = image_storage.store_photo(
+                home_id,
+                data,
+                original_name=upload.filename,
+                declared_content_type=upload.content_type,
+            )
+            stored.append(
+                {"filename": photo.filename, "url": photo.url, "size_bytes": photo.size_bytes}
+            )
+        except image_storage.PhotoValidationError as exc:
+            errors.append({"name": upload.filename, "error": str(exc)})
+        except Exception as exc:  # pragma: no cover - unexpected storage failure
+            struct_logger.error(
+                "Listing photo upload failed", home_id=home_id, error=str(exc)
+            )
+            errors.append({"name": upload.filename, "error": "Could not save this photo."})
+        finally:
+            await upload.close()
+
+    if stored:
+        struct_logger.info(
+            "Listing photos uploaded",
+            home_id=image_storage.safe_home_id(home_id),
+            count=len(stored),
+            actor=_audit_actor(request),
+        )
+    # 207-style summary: report both successes and per-file failures.
+    return {
+        "success": bool(stored),
+        "home_id": image_storage.safe_home_id(home_id),
+        "uploaded": stored,
+        "errors": errors,
+    }
+
+
+@app.delete(
+    "/api/inventory/{home_id}/photos/{filename}",
+    dependencies=[Depends(require_admin)],
+)
+async def delete_listing_photo(request: Request, home_id: str, filename: str):
+    """Admin: remove a staff-uploaded photo from a home."""
+    from tools import image_storage
+
+    try:
+        deleted = image_storage.delete_photo(home_id, filename)
+    except image_storage.PhotoValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Photo not found.")
+    struct_logger.info(
+        "Listing photo deleted",
+        home_id=image_storage.safe_home_id(home_id),
+        filename=os.path.basename(filename),
+        actor=_audit_actor(request),
+    )
+    return {"success": True}
 
 
 # ─── Contact Form API ───

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, lazy, Suspense, useCallback } from 'react';
-import { Send, Home, Menu, X, Phone, MapPin, Loader2, User, Bot, FileText, Video, Lock, ShieldCheck, CalendarDays, Users, MessageSquare, MessageCircle, RotateCcw, WifiOff, Moon, Sun, KeyRound, Fingerprint, BookOpen, Activity } from 'lucide-react';
+import { Send, Home, Menu, X, Phone, MapPin, Loader2, User, Bot, FileText, Video, Lock, ShieldCheck, CalendarDays, Users, MessageSquare, MessageCircle, RotateCcw, WifiOff, Moon, Sun, KeyRound, Fingerprint, BookOpen, Activity, Camera } from 'lucide-react';
 import { useDarkMode } from './hooks/useDarkMode';
 import SafeMarkdown from './components/SafeMarkdown';
 import SearchFilters from './components/SearchFilters';
@@ -34,8 +34,9 @@ const Financing = lazy(() => import('./pages/Financing'));
 const FAQ = lazy(() => import('./pages/FAQ'));
 const Warranty = lazy(() => import('./pages/Warranty'));
 const Delivery = lazy(() => import('./pages/Delivery'));
+const PhotoManager = lazy(() => import('./pages/PhotoManager'));
 const ADMIN_PIN_LENGTH = 8;
-const ADMIN_PAGE_KEYS = new Set(['analytics', 'crm', 'chat-history', 'documents', 'adstudio', 'system', 'getting-started']);
+const ADMIN_PAGE_KEYS = new Set(['analytics', 'crm', 'chat-history', 'documents', 'adstudio', 'system', 'getting-started', 'photos']);
 
 // Page loading fallback with skeleton
 const PageLoader = () => (
@@ -70,6 +71,7 @@ function NavBar({
 
   const adminItems = adminAuthed ? [
     { key: 'documents', label: 'Documents', icon: FileText },
+    { key: 'photos', label: 'Photos', icon: Camera },
     { key: 'crm', label: 'CRM', icon: Users },
     { key: 'system', label: 'System Hub', icon: Activity },
     { key: 'getting-started', label: 'Guide', icon: BookOpen },
@@ -1193,6 +1195,20 @@ function App() {
         <ErrorBoundary scope="crm">
           <Suspense fallback={<PageLoader />}>
             <CRM onBack={() => navigateTo('inventory')} />
+          </Suspense>
+        </ErrorBoundary>
+      </div>
+    );
+  }
+
+  if (activePage === 'photos' && adminAuthed) {
+    return (
+      <div className="bg-[var(--cp-bg)] min-h-screen">
+        {appModals}
+        <NavBar {...navProps} />
+        <ErrorBoundary scope="photos">
+          <Suspense fallback={<PageLoader />}>
+            <PhotoManager onBack={() => navigateTo('inventory')} />
           </Suspense>
         </ErrorBoundary>
       </div>
