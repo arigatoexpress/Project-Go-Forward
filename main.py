@@ -4458,6 +4458,32 @@ async def delete_listing_photo(request: Request, home_id: str, filename: str):
     return {"success": True}
 
 
+@app.put("/api/inventory/{home_id}/photos/order", dependencies=[Depends(require_admin)])
+async def reorder_listing_photos(request: Request, home_id: str):
+    """Admin: set the photo display order for a home (first = hero/main photo)."""
+    from tools import image_storage
+
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    order = body.get("order") if isinstance(body, dict) else None
+    if not isinstance(order, list) or not all(isinstance(x, str) for x in order):
+        raise HTTPException(status_code=400, detail="Body must be {\"order\": [filenames]}.")
+    try:
+        photos = image_storage.set_photo_order(home_id, order)
+    except image_storage.PhotoValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "success": True,
+        "home_id": image_storage.safe_home_id(home_id),
+        "photos": [
+            {"filename": p.filename, "url": p.url, "size_bytes": p.size_bytes}
+            for p in photos
+        ],
+    }
+
+
 # ─── Contact Form API ───
 
 

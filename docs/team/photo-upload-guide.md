@@ -79,11 +79,26 @@ like *"3 photos added. They will show on the website shortly."*
 
 Scroll down to **"Photos on this home"** to see everything you've added.
 
-### 6. (Optional) Remove a photo
+### 6. Choose the main photo (optional)
+
+The **first** photo, marked with a blue **★ Main** badge, is the big picture
+customers see first on the website. To feature a different one, hover over (or
+tap) any other photo and click **"★ Make main."** It jumps to the front.
+
+### 7. (Optional) Remove a photo
 
 Under **"Photos on this home,"** hover over (or tap) a picture and click the
 small **trash-can icon** in its corner. Confirm, and it's removed from the
 website.
+
+---
+
+## Find the homes that still need pictures
+
+On the **Pick the home** step there's a checkbox: **"Show only homes that still
+need photos."** Tick it to see just the homes with no real photos yet — a
+ready-made to-do list for your next photo run. The amber **"N need photos"**
+badge tells you how many are left.
 
 ---
 
@@ -147,6 +162,8 @@ minute. If it's been longer, tell Ari.
 | **Pick a home** | Type in the search box → click the home |
 | **Add pictures** | Click the dashed box → choose photos (or drag them in) |
 | **Check it worked** | Look for the green "photos added" message |
+| **Set the main photo** | "★ Make main" button on a picture |
+| **Find homes needing photos** | Tick "Show only homes that still need photos" |
 | **Remove a photo** | Trash-can icon on the picture |
 | **See it live** | Open the **Inventory** page and refresh |
 

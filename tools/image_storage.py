@@ -17,6 +17,7 @@ preferred whenever it is reachable so photos survive Cloud Run restarts.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
@@ -30,6 +31,11 @@ log = logging.getLogger(__name__)
 # secure-documents bucket. Falls back to local disk when GCS is unavailable.
 _GCS_BUCKET_NAME = os.getenv("GCS_LISTING_PHOTOS_BUCKET", "tho-listing-photos")
 _PREFIX = "listing_photos"
+
+# Sidecar that records the staff-chosen display order (first = hero photo).
+# Not an image, so it never appears in photo listings and cannot be uploaded
+# as a photo (it fails image validation).
+_ORDER_FILE = "_order.json"
 
 _LOCAL_DIR = os.getenv(
     "THO_LISTING_PHOTOS_DIR",
@@ -222,8 +228,59 @@ def store_photo(
     return StoredPhoto(home, filename, len(data), content_type, "local")
 
 
+def _read_order(home: str) -> list[str]:
+    """Read the staff-chosen filename order for a home (empty if none set)."""
+    bucket = _get_bucket()
+    if bucket is not None:
+        try:
+            blob = bucket.blob(_blob_path(home, _ORDER_FILE))
+            if blob.exists():
+                return [str(x) for x in json.loads(blob.download_as_bytes() or b"[]")]
+        except Exception as exc:  # pragma: no cover - depends on env
+            log.error("Listing-photo order read failed: %s", exc)
+    path = _local_path(home, _ORDER_FILE)
+    if os.path.isfile(path):
+        try:
+            with open(path) as fh:
+                return [str(x) for x in json.load(fh)]
+        except (OSError, ValueError):
+            return []
+    return []
+
+
+def _write_order(home: str, filenames: list[str]) -> None:
+    payload = json.dumps(list(filenames)).encode("utf-8")
+    bucket = _get_bucket()
+    if bucket is not None:
+        try:
+            blob = bucket.blob(_blob_path(home, _ORDER_FILE))
+            blob.upload_from_string(payload, content_type="application/json")
+            _invalidate_grouped_cache()
+            return
+        except Exception as exc:  # pragma: no cover - depends on env
+            log.error("Listing-photo order write failed, using local disk: %s", exc)
+    path = _local_path(home, _ORDER_FILE)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "wb") as fh:
+        fh.write(payload)
+    _invalidate_grouped_cache()
+
+
+def _ordered(home: str, photos: dict[str, StoredPhoto]) -> list[StoredPhoto]:
+    """Apply the saved order: known files first (in saved order), rest by name."""
+    if len(photos) <= 1:
+        return list(photos.values())
+    order = _read_order(home)
+    in_order = [photos[f] for f in order if f in photos]
+    placed = {f for f in order if f in photos}
+    rest = sorted(
+        (p for f, p in photos.items() if f not in placed), key=lambda p: p.filename
+    )
+    return in_order + rest
+
+
 def list_photos(home_id: str) -> list[StoredPhoto]:
-    """List stored photos for ``home_id`` from GCS and/or local disk."""
+    """List stored photos for ``home_id`` from GCS and/or local disk, in order."""
     home = safe_home_id(home_id)
     seen: dict[str, StoredPhoto] = {}
 
@@ -232,7 +289,7 @@ def list_photos(home_id: str) -> list[StoredPhoto]:
         try:
             for blob in bucket.list_blobs(prefix=f"{_PREFIX}/{home}/"):
                 name = blob.name.split("/")[-1]
-                if not name:
+                if not name or name == _ORDER_FILE:
                     continue
                 seen[name] = StoredPhoto(
                     home, name, blob.size or 0, _content_type_for(name), "gcs"
@@ -244,12 +301,29 @@ def list_photos(home_id: str) -> list[StoredPhoto]:
     if os.path.isdir(local_dir):
         for name in os.listdir(local_dir):
             full = os.path.join(local_dir, name)
-            if name in seen or not os.path.isfile(full):
+            if name in seen or name == _ORDER_FILE or not os.path.isfile(full):
                 continue
             seen[name] = StoredPhoto(
                 home, name, os.path.getsize(full), _content_type_for(name), "local"
             )
-    return sorted(seen.values(), key=lambda p: p.filename)
+    return _ordered(home, seen)
+
+
+def set_photo_order(home_id: str, filenames: list[str]) -> list[StoredPhoto]:
+    """Persist the display order for a home. First filename becomes the hero.
+
+    Filenames not currently stored are ignored; any stored photos missing from
+    the list are kept (appended after, by name). Returns the new ordered list.
+    """
+    home = safe_home_id(home_id)
+    existing = {p.filename for p in list_photos(home)}
+    clean: list[str] = []
+    for raw in filenames or []:
+        name = _safe_filename(raw)
+        if name in existing and name not in clean:
+            clean.append(name)
+    _write_order(home, clean)
+    return list_photos(home)
 
 
 def get_photo(home_id: str, filename: str) -> tuple[bytes, str] | None:
@@ -294,6 +368,9 @@ def delete_photo(home_id: str, filename: str) -> bool:
         os.remove(path)
         deleted = True
     if deleted:
+        order = _read_order(home)
+        if name in order:
+            _write_order(home, [f for f in order if f != name])
         _invalidate_grouped_cache()
     return deleted
 
@@ -320,6 +397,8 @@ def list_all_grouped(*, use_cache: bool = True) -> dict[str, list[StoredPhoto]]:
                 if len(parts) < 3 or not parts[-1]:
                     continue
                 home, name = parts[1], parts[-1]
+                if name == _ORDER_FILE:
+                    continue
                 grouped.setdefault(home, {})[name] = StoredPhoto(
                     home, name, blob.size or 0, _content_type_for(name), "gcs"
                 )
@@ -333,16 +412,13 @@ def list_all_grouped(*, use_cache: bool = True) -> dict[str, list[StoredPhoto]]:
                 continue
             for name in os.listdir(home_dir):
                 full = os.path.join(home_dir, name)
-                if name in grouped.get(home, {}) or not os.path.isfile(full):
+                if name in grouped.get(home, {}) or name == _ORDER_FILE or not os.path.isfile(full):
                     continue
                 grouped.setdefault(home, {})[name] = StoredPhoto(
                     home, name, os.path.getsize(full), _content_type_for(name), "local"
                 )
 
-    result = {
-        home: sorted(photos.values(), key=lambda p: p.filename)
-        for home, photos in grouped.items()
-    }
+    result = {home: _ordered(home, photos) for home, photos in grouped.items()}
     _grouped_cache = result
     _grouped_cache_at = now
     return result
