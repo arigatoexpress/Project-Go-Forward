@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   ArrowLeft, Camera, UploadCloud, Trash2, CheckCircle, AlertCircle,
-  Loader2, Search, ImageOff, Star,
+  Loader2, Search, ImageOff, Star, ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import adminFetch from '../adminFetch';
 
@@ -139,9 +139,9 @@ export default function PhotoManager({ onBack }) {
     }
   };
 
-  // Make a photo the main one by moving it to the front of the saved order.
-  const handleMakeMain = async (filename) => {
-    const order = [filename, ...photos.map(p => p.filename).filter(f => f !== filename)];
+  // Persist a new photo order (first = main). Shared by "make main" and the
+  // move-earlier/later arrows.
+  const applyOrder = async (order, okText) => {
     try {
       const res = await adminFetch(
         `/api/inventory/${encodeURIComponent(selectedId)}/photos/order`,
@@ -154,13 +154,27 @@ export default function PhotoManager({ onBack }) {
       const data = await res.json();
       if (res.ok) {
         setPhotos(Array.isArray(data?.photos) ? data.photos : photos);
-        setMessage({ type: 'ok', text: 'Main photo updated. The website will show it shortly.' });
+        setMessage({ type: 'ok', text: okText });
       } else {
-        setMessage({ type: 'error', text: 'Could not set the main photo.' });
+        setMessage({ type: 'error', text: 'Could not change the photo order.' });
       }
     } catch {
-      setMessage({ type: 'error', text: 'Could not set the main photo. Try again.' });
+      setMessage({ type: 'error', text: 'Could not change the photo order. Try again.' });
     }
+  };
+
+  const handleMakeMain = (filename) => {
+    const order = [filename, ...photos.map(p => p.filename).filter(f => f !== filename)];
+    return applyOrder(order, 'Main photo updated. The website will show it shortly.');
+  };
+
+  // Move a photo one slot earlier (toward the front) or later (toward the back).
+  const handleMove = (idx, delta) => {
+    const target = idx + delta;
+    if (target < 0 || target >= photos.length) return;
+    const order = photos.map(p => p.filename);
+    [order[idx], order[target]] = [order[target], order[idx]];
+    return applyOrder(order, 'Photo order updated.');
   };
 
   const filteredHomes = homes.filter(h =>
@@ -362,6 +376,28 @@ export default function PhotoManager({ onBack }) {
                     >
                       <Trash2 size={16} />
                     </button>
+                    {photos.length > 1 && (
+                      <div className="absolute bottom-1.5 right-1.5 flex gap-1">
+                        <button
+                          onClick={() => handleMove(idx, -1)}
+                          disabled={idx === 0}
+                          className="bg-white/90 hover:bg-slate-700 hover:text-white text-slate-700 rounded-full p-1 shadow disabled:opacity-30 disabled:cursor-not-allowed"
+                          aria-label="Move photo earlier"
+                          title="Move earlier"
+                        >
+                          <ChevronLeft size={16} />
+                        </button>
+                        <button
+                          onClick={() => handleMove(idx, 1)}
+                          disabled={idx === photos.length - 1}
+                          className="bg-white/90 hover:bg-slate-700 hover:text-white text-slate-700 rounded-full p-1 shadow disabled:opacity-30 disabled:cursor-not-allowed"
+                          aria-label="Move photo later"
+                          title="Move later"
+                        >
+                          <ChevronRight size={16} />
+                        </button>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
