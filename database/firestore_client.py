@@ -294,6 +294,22 @@ class THODatabase:
         self.db.collection("inventory").document(inventory_id).update(data)
         return True
 
+    def upsert_inventory(self, inventory_id: str, data: dict) -> str:
+        """Create-or-merge an inventory item at an explicit doc id (idempotent).
+
+        Uses ``set(merge=True)`` so re-seeding a known id updates fields in place
+        instead of duplicating, while preserving any staff-edited fields not in
+        ``data``. Mirrors ``create_customer``'s explicit-doc-id pattern.
+        """
+        doc_ref = self.db.collection("inventory").document(inventory_id)
+        doc_ref.set(data, merge=True)
+        return inventory_id
+
+    def delete_inventory(self, inventory_id: str) -> bool:
+        """Delete an inventory item (hard delete). Prefer status changes for retire."""
+        self.db.collection("inventory").document(inventory_id).delete()
+        return True
+
     # ============ PROPERTIES ============
 
     def get_property(self, property_id: str) -> dict | None:
