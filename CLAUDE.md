@@ -143,6 +143,7 @@ python scripts/batch_inspect_pdfs.py
 - `GET /api/inventory/photos/{home_id}/{filename}` — Public: serve a staff-uploaded listing photo
 - `GET /api/inventory/{home_id}/photos` — Admin: list staff-uploaded photos for a home
 - `POST /api/inventory/{home_id}/photos` — Admin: upload one or more photos (multipart) for a home
+- `PUT /api/inventory/{home_id}/photos/order` — Admin: set photo display order (first = hero/main photo)
 - `DELETE /api/inventory/{home_id}/photos/{filename}` — Admin: remove a staff-uploaded photo
 - Uploads are stored in GCS (`GCS_LISTING_PHOTOS_BUCKET`, local-disk fallback for dev) and overlaid onto homes by `id` in `/api/marketing/inventory-context`, so they appear on the public Inventory page regardless of the active inventory source. Staff guide: `docs/team/photo-upload-guide.md`.
 
