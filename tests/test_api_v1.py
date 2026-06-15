@@ -83,6 +83,13 @@ class FakeLead:
     created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
     updated_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
+    # Triage / routing fields
+    priority: str | None = None
+    assigned_to: str | None = None
+    triage_notes: str | None = None
+    triage_reason: str | None = None
+    last_triage_at: str | None = None
+
     def to_dict(self) -> dict:
         return {
             "lead_id": self.lead_id,
@@ -401,6 +408,38 @@ class FakeLeadManager:
             leads = [lead for lead in leads if lead.status == status]
         return leads[:limit]
 
+    async def list_leads_needing_triage(self, status="new", min_age_hours=None, limit=100):
+        leads = await self.list_leads(status=status, limit=limit)
+        if min_age_hours is None:
+            return leads
+        from datetime import UTC, datetime, timedelta
+
+        cutoff = datetime.now(UTC) - timedelta(hours=min_age_hours)
+        result = []
+        for lead in leads:
+            created = lead.created_at
+            if not created:
+                continue
+            try:
+                dt = datetime.fromisoformat(str(created).replace("Z", "+00:00"))
+                if dt >= cutoff:
+                    continue
+            except Exception:
+                continue
+            result.append(lead)
+        return result
+
+    async def triage_lead(self, lead_id: str, update: dict):
+        for lead in self.leads:
+            if lead.lead_id == lead_id:
+                allowed = {"status", "priority", "assigned_to", "triage_notes", "triage_reason"}
+                for key, value in update.items():
+                    if key in allowed:
+                        setattr(lead, key, value)
+                lead.last_triage_at = datetime.now(UTC).isoformat()
+                return lead
+        return None
+
 
 class FakeAppointmentManager:
     def __init__(self, project_id=None):
@@ -472,6 +511,9 @@ def load_app(monkeypatch, tho_api_key: str | None = "tho-secret", rate_limit_rpm
     monkeypatch.setenv("ADMIN_PIN_HASH", hashlib.sha256(b"4832").hexdigest())
     if tho_api_key is None:
         monkeypatch.delenv("THO_API_KEY", raising=False)
+        for name in list(os.environ):
+            if name.startswith("THO_API_KEY_"):
+                monkeypatch.delenv(name, raising=False)
     else:
         monkeypatch.setenv("THO_API_KEY", tho_api_key)
 
@@ -507,6 +549,10 @@ def load_app(monkeypatch, tho_api_key: str | None = "tho-secret", rate_limit_rpm
         "tools.asset_scraper",
         "tools.video_generator",
         "pm_routes",
+        "mira_notify",
+        "mira_routes",
+        "github_mira_trigger",
+        "obsidian_routes",
     ]
     for module_name in modules_to_clear:
         sys.modules.pop(module_name, None)
@@ -2066,3 +2112,159 @@ def test_v1_service_request_resolve_not_found(monkeypatch):
         headers={"Authorization": "Bearer tho-secret"},
     )
     assert response.status_code == 404
+
+
+
+# ─── Mira lead-triage bridge ────────────────────────────────────────────────
+
+
+def test_mira_leads_recent_returns_recent_leads(monkeypatch):
+    """The /leads/recent bridge endpoint must not 404 after the timedelta fix."""
+    client, _main, _db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
+    headers = {"Authorization": "Bearer tho-secret"}
+
+    response = client.get("/api/v1/mira/leads/recent?hours=24&limit=10", headers=headers)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "healthy"
+    assert "leads" in data
+    assert data["count"] == len(data["leads"])
+
+
+def test_mira_leads_triage_surfaces_new_leads(monkeypatch):
+    """Mira can fetch the cohort of leads awaiting triage."""
+    client, _main, _db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
+    headers = {"Authorization": "Bearer tho-secret"}
+
+    response = client.get("/api/v1/mira/leads/triage?status=new&limit=50", headers=headers)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "healthy"
+    assert data["filter"] == {"status": "new", "min_age_hours": None}
+    assert data["count"] >= 1
+    lead = data["leads"][0]
+    assert "lead_id" in lead
+    assert "name" not in lead
+    assert "email" not in lead
+    assert "phone" not in lead
+    assert "priority" in lead
+
+
+def test_mira_leads_triage_respects_min_age_hours(monkeypatch):
+    """Only leads older than min_age_hours are returned."""
+    client, _main, _db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
+    headers = {"Authorization": "Bearer tho-secret"}
+    mira_routes = sys.modules["mira_routes"]
+
+    class _AgeFilteredManager(FakeLeadManager):
+        def __init__(self, project_id=None):
+            super().__init__(project_id=project_id)
+            self.leads = [
+                FakeLead(
+                    lead_id="fresh-lead",
+                    user_id="u1",
+                    session_id="s1",
+                    status="new",
+                    created_at=datetime.now(UTC).isoformat(),
+                ),
+                FakeLead(
+                    lead_id="old-lead",
+                    user_id="u2",
+                    session_id="s2",
+                    status="new",
+                    created_at=(datetime.now(UTC) - timedelta(hours=72)).isoformat(),
+                ),
+            ]
+
+    monkeypatch.setattr(mira_routes, "LeadManager", _AgeFilteredManager)
+
+    response = client.get("/api/v1/mira/leads/triage?status=new&min_age_hours=48", headers=headers)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "healthy"
+    ids = {lead["lead_id"] for lead in data["leads"]}
+    assert "old-lead" in ids
+    assert "fresh-lead" not in ids
+
+
+def test_mira_update_lead_triage_updates_and_dispatches_webhook(monkeypatch):
+    """Triage update mutates the lead and emits a signed partner webhook."""
+    client, _main, _db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
+    headers = {"Authorization": "Bearer tho-secret"}
+    mira_routes = sys.modules["mira_routes"]
+
+    dispatched: list[dict] = []
+
+    def _fake_dispatch(event, payload, db=None, **kwargs):
+        dispatched.append({"event": event, "payload": payload, "db": db is not None})
+        return ["mira"]
+
+    monkeypatch.setattr(mira_routes, "dispatch_partner_event", _fake_dispatch)
+
+    response = client.post(
+        "/api/v1/mira/leads/lead-1/triage",
+        headers=headers,
+        json={
+            "status": "qualified",
+            "priority": "high",
+            "assigned_to": "sales-rep-jordan",
+            "triage_reason": "hot_lead",
+            "triage_notes": "Called within 5 minutes",
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "healthy"
+    lead = data["lead"]
+    assert lead["status"] == "qualified"
+    assert lead["priority"] == "high"
+    assert lead["assigned_to"] == "sales-rep-jordan"
+    assert lead["triage_reason"] == "hot_lead"
+    assert lead["last_triage_at"] is not None
+
+    assert len(dispatched) == 1
+    assert dispatched[0]["event"] == "lead.triage_updated"
+    assert dispatched[0]["payload"]["lead_id"] == "lead-1"
+    assert dispatched[0]["payload"]["old_status"] == "new"
+    assert dispatched[0]["payload"]["new_status"] == "qualified"
+    assert dispatched[0]["payload"]["assigned_to"] == "sales-rep-jordan"
+    assert "name" not in dispatched[0]["payload"]
+    assert "email" not in dispatched[0]["payload"]
+
+
+def test_mira_update_lead_triage_rejects_invalid_status(monkeypatch):
+    """Unknown lead statuses are rejected before touching Firestore."""
+    client, _main, _db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
+    headers = {"Authorization": "Bearer tho-secret"}
+
+    response = client.post(
+        "/api/v1/mira/leads/lead-1/triage",
+        headers=headers,
+        json={"status": "bogus_status"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "error"
+    assert "Invalid status" in data["error"]
+
+
+def test_mira_update_lead_triage_not_found(monkeypatch):
+    """Triage update for a missing lead returns a structured error."""
+    client, _main, _db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
+    headers = {"Authorization": "Bearer tho-secret"}
+
+    response = client.post(
+        "/api/v1/mira/leads/missing-lead/triage",
+        headers=headers,
+        json={"priority": "medium"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "error"
+    assert "not found" in data["error"].lower()

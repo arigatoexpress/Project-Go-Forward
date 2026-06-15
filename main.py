@@ -2581,6 +2581,7 @@ from database.firestore_client import get_database
 from database.models import Deal, DealStatus, Inventory
 
 _db = get_database()
+app.state.db = _db
 INVENTORY_PLACEHOLDER_IMAGE_URL = "/tex-icon.svg"
 _INVENTORY_MEDIA_INDEX_CACHE = {"loaded_at": 0.0, "index": {}}
 _INVENTORY_MEDIA_INDEX_TTL_SECONDS = 15 * 60
@@ -6412,6 +6413,44 @@ seo_routes.configure(
     get_canonical_base=lambda: CANONICAL_PUBLIC_URL,
 )
 app.include_router(seo_routes.router)
+
+
+# DNS/MX cutover monitoring routes (partner API key auth, HMAC-signed outbound
+# webhooks).  Kept separate from the Telegram/Mira workstream by design.
+import dns_mx_cutover_routes
+
+app.include_router(
+    dns_mx_cutover_routes.router,
+    dependencies=[Depends(require_partner_api_key)],
+)
+
+
+# Mira partner-monitoring routes and Telegram notification webhook
+from mira_notify import router as mira_notify_router
+from mira_routes import public_router as mira_public_router
+from mira_routes import router as mira_router
+from mira_routes import set_mira_refs
+
+set_mira_refs(APP_STARTED_AT, _metrics_store)
+app.include_router(mira_public_router)
+app.include_router(mira_router, dependencies=[Depends(require_partner_api_key)])
+
+# Obsidian Sovereign LLM partner-monitoring routes and inbound notification hook
+from obsidian_routes import public_router as obsidian_public_router
+from obsidian_routes import router as obsidian_router
+from obsidian_routes import set_obsidian_refs
+
+set_obsidian_refs(APP_STARTED_AT, _metrics_store)
+app.include_router(obsidian_public_router)
+app.include_router(obsidian_router, dependencies=[Depends(require_partner_api_key)])
+app.include_router(mira_notify_router, dependencies=[Depends(require_partner_api_key)])
+
+# GitHub → Mira trigger bridge (cutover alerts for PR #156 and related events)
+from github_mira_trigger import status_router as github_mira_status_router
+from github_mira_trigger import webhook_router as github_mira_webhook_router
+
+app.include_router(github_mira_webhook_router)
+app.include_router(github_mira_status_router, dependencies=[Depends(require_partner_api_key)])
 
 
 # Serve Frontend — Must be last to avoid catching API routes

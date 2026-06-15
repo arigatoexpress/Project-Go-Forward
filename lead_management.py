@@ -7,7 +7,7 @@ import asyncio
 import json
 import logging
 from dataclasses import asdict, dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from google.cloud import firestore
 
@@ -43,6 +43,13 @@ class Lead:
     status: str = "new"  # "new", "contacted", "qualified", "converted"
     created_at: str = None
     updated_at: str = None
+
+    # Triage / routing (populated by Mira or CRM operators)
+    priority: str | None = None  # "low", "medium", "high"
+    assigned_to: str | None = None  # e.g. sales rep identifier
+    triage_notes: str | None = None
+    triage_reason: str | None = None  # e.g. "hot_lead", "needs_follow_up"
+    last_triage_at: str | None = None
 
     def __post_init__(self):
         if self.homes_viewed is None:
@@ -168,6 +175,52 @@ class LeadManager:
             return leads
 
         return await asyncio.to_thread(_stream)
+
+    async def list_leads_needing_triage(
+        self,
+        status: str = "new",
+        min_age_hours: int | None = None,
+        limit: int = 100,
+    ) -> list[Lead]:
+        """List leads awaiting triage, optionally older than ``min_age_hours``."""
+        leads = await self.list_leads(status=status, limit=limit)
+
+        if min_age_hours is None:
+            return leads
+
+        cutoff = datetime.utcnow() - timedelta(hours=min_age_hours)
+        result: list[Lead] = []
+        for lead in leads:
+            created = lead.created_at
+            if not created:
+                continue
+            try:
+                dt = datetime.fromisoformat(str(created).replace("Z", "+00:00"))
+                if dt >= cutoff:
+                    continue
+            except Exception:
+                continue
+            result.append(lead)
+        return result
+
+    async def triage_lead(self, lead_id: str, update: dict) -> Lead | None:
+        """Apply a triage update to a lead and persist it.
+
+        Allowed update keys mirror the triage fields on ``Lead``:
+        status, priority, assigned_to, triage_notes, triage_reason.
+        Returns the updated lead or None if the lead was not found.
+        """
+        lead = await self.get_lead(lead_id)
+        if lead is None:
+            return None
+
+        allowed = {"status", "priority", "assigned_to", "triage_notes", "triage_reason"}
+        for key, value in update.items():
+            if key in allowed and hasattr(lead, key):
+                setattr(lead, key, value)
+
+        lead.last_triage_at = datetime.utcnow().isoformat()
+        return await self.update_lead(lead)
 
     def export_to_csv(self, leads: list[Lead], filename: str = "leads_export.csv") -> str:
         """Export leads to CSV file"""
