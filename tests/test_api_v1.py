@@ -520,8 +520,24 @@ def load_app(monkeypatch, tho_api_key: str | None = "tho-secret", rate_limit_rpm
     frontend_dist = REPO_ROOT / "frontend" / "dist"
     (frontend_dist / "assets").mkdir(parents=True, exist_ok=True)
     index_html = frontend_dist / "index.html"
-    if not index_html.exists():
-        index_html.write_text("<html><body>test</body></html>")
+    # Realistic Vite/React SPA shell so seo_routes._inject can replace
+    # <title>, <meta name="description">, and inject before </head>/root.
+    # Overwrite the old minimal stub so local test runs stay consistent.
+    spa_shell = (
+        "<!doctype html>"
+        '<html lang="en">'
+        "<head>"
+        '<meta charset="UTF-8" />'
+        '<meta name="viewport" content="width=device-width, initial-scale=1.0" />'
+        '<meta name="description" content="Texas Home Outlet" />'
+        "<title>Texas Home Outlet</title>"
+        '<script type="module" src="/assets/main.js"></script>'
+        "</head>"
+        '<body><div id="root"></div></body>'
+        "</html>"
+    )
+    if not index_html.exists() or index_html.read_text() == "<html><body>test</body></html>":
+        index_html.write_text(spa_shell)
 
     sys.modules.pop("database.models", None)
     from database.models import Inventory as RealInventory
