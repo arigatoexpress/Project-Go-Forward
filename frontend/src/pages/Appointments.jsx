@@ -166,7 +166,7 @@ const TimeSlotPicker = ({ date, onSelect, onBack }) => {
   if (error) {
     return (
       <div className="text-center py-12">
-        <p className="text-red-600 mb-4">{error}</p>
+        <p role="alert" className="text-red-600 mb-4">{error}</p>
         <button onClick={onBack} className="text-blue-600 hover:underline text-sm">Choose a different date</button>
       </div>
     );
@@ -220,6 +220,7 @@ const ContactForm = ({ formData, onChange, onSubmit, onBack, submitting }) => {
           <input
             id="appt-name"
             type="text"
+            autoComplete="name"
             required
             value={formData.name}
             onChange={(e) => onChange({ ...formData, name: e.target.value })}
@@ -232,6 +233,7 @@ const ContactForm = ({ formData, onChange, onSubmit, onBack, submitting }) => {
           <input
             id="appt-phone"
             type="tel"
+            autoComplete="tel"
             required
             value={formData.phone}
             onChange={(e) => onChange({ ...formData, phone: e.target.value })}
@@ -248,6 +250,7 @@ const ContactForm = ({ formData, onChange, onSubmit, onBack, submitting }) => {
           <input
             id="appt-email"
             type="email"
+            autoComplete="email"
             value={formData.email}
             onChange={(e) => onChange({ ...formData, email: e.target.value })}
             className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
@@ -513,7 +516,7 @@ const Appointments = ({ onBack }) => {
           </div>
 
           {error && (
-            <p className="text-sm text-red-600 bg-red-50 p-3 rounded-lg mb-4">{error}</p>
+            <p role="alert" className="text-sm text-red-600 bg-red-50 p-3 rounded-lg mb-4">{error}</p>
           )}
 
           <button
