@@ -6699,6 +6699,26 @@ app.include_router(github_mira_webhook_router)
 app.include_router(github_mira_status_router, dependencies=[Depends(require_partner_api_key)])
 
 
+# Ops Copilot — in-app, admin/employee-only assistant (GCP-native, Vertex/Gemini).
+# Read-only v1: answers questions about live business data and explains how to use
+# the platform. Replaces the external Telegram/Mira bot with an in-app surface.
+from schemas.copilot_schemas import CopilotRequest
+
+
+@app.post("/api/admin/copilot", dependencies=[Depends(require_admin)])
+async def admin_ops_copilot(body: CopilotRequest):
+    """Answer a staff question using live business data + platform how-to.
+
+    Admin-gated and read-only — it never writes. On any internal failure it
+    returns a friendly reply with ``error: true`` rather than a 500, so the
+    chat panel always has something to show.
+    """
+    from tools.ops_copilot import run_copilot
+
+    history = [turn.model_dump() for turn in body.history]
+    return await run_copilot(body.message, history)
+
+
 # Serve Frontend — Must be last to avoid catching API routes
 app.mount("/assets", ImmutableStaticFiles(directory="frontend/dist/assets"), name="assets")
 
