@@ -1724,6 +1724,50 @@ async def get_lead_analytics(range: str = "30d"):
         return {"error": "Failed to load lead analytics"}
 
 
+@app.get("/api/analytics/events", dependencies=[Depends(require_admin)])
+async def get_event_analytics(range: str = "30d"):
+    """Aggregate the client event stream (home views, quote/tour clicks, form
+    opens) that POST /api/analytics captures into the `analytics_events`
+    collection. This is the funnel signal that was previously written and never
+    surfaced — which homes drive intent, what visitors do, day over day."""
+    try:
+        from collections import Counter
+        from datetime import datetime, timedelta
+
+        days = {"7d": 7, "30d": 30, "90d": 90}.get(range, 30)
+        cutoff = (datetime.now(UTC) - timedelta(days=days)).isoformat()
+
+        events: list[dict] = []
+        try:
+            # ISO timestamps sort lexicographically = chronologically; read the
+            # collection and keep in-range docs. (Low launch volume; move to a
+            # created_at .where()+index if it grows.)
+            for doc in _db.db.collection("analytics_events").limit(10000).stream():
+                d = doc.to_dict() or {}
+                if str(d.get("created_at", "")) >= cutoff:
+                    events.append(d)
+        except Exception as e:
+            struct_logger.warning("analytics_events read failed", error=str(e))
+
+        by_type = Counter(e.get("event", "unknown") for e in events)
+        top_homes = Counter(
+            (e.get("props") or {}).get("home")
+            for e in events
+            if (e.get("props") or {}).get("home")
+        )
+        daily = Counter(str(e.get("created_at") or "")[:10] for e in events)
+        return {
+            "range": range,
+            "total_events": len(events),
+            "by_type": [{"event": k, "count": v} for k, v in by_type.most_common()],
+            "top_homes": [{"home": k, "count": v} for k, v in top_homes.most_common(10)],
+            "daily_trend": [{"date": d, "events": c} for d, c in sorted(daily.items()) if d],
+        }
+    except Exception as e:
+        struct_logger.error("Event analytics failed", error=str(e))
+        return {"error": "Failed to load event analytics"}
+
+
 @app.get("/api/analytics/documents", dependencies=[Depends(require_admin)])
 async def get_document_analytics(range: str = "30d"):
     """Get document generation analytics."""

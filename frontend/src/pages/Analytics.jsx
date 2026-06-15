@@ -49,6 +49,7 @@ export default function Analytics() {
     const [documentStats, setDocumentStats] = useState(null);
     const [inventoryStats, setInventoryStats] = useState(null);
     const [chatStats, setChatStats] = useState(null);
+    const [eventStats, setEventStats] = useState(null);
     const [timeSeriesData, setTimeSeriesData] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
@@ -60,11 +61,12 @@ export default function Analytics() {
         setError('');
         try {
             // Fetch all stats in parallel
-            const [leadsResp, docsResp, invResp, chatResp] = await Promise.all([
+            const [leadsResp, docsResp, invResp, chatResp, eventsResp] = await Promise.all([
                 adminFetch(`/api/analytics/leads?range=${timeRange}`).catch(() => null),
                 adminFetch(`/api/analytics/documents?range=${timeRange}`).catch(() => null),
                 adminFetch('/api/analytics/inventory').catch(() => null),
                 adminFetch(`/api/analytics/chat?range=${timeRange}`).catch(() => null),
+                adminFetch(`/api/analytics/events?range=${timeRange}`).catch(() => null),
             ]);
 
             if (leadsResp?.ok) {
@@ -83,6 +85,10 @@ export default function Analytics() {
             if (chatResp?.ok) {
                 const data = await chatResp.json();
                 setChatStats(data);
+            }
+            if (eventsResp?.ok) {
+                const data = await eventsResp.json();
+                setEventStats(data);
             }
         } catch (e) {
             console.error('Analytics fetch failed:', e);
@@ -429,6 +435,39 @@ export default function Analytics() {
                                     </tbody>
                                 </table>
                             </div>
+                        </div>
+
+                        {/* Engagement — the real client event stream (/api/analytics/events) */}
+                        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                            <h3 className="text-lg font-bold text-gray-900 mb-4">Engagement (Site Events)</h3>
+                            {eventStats?.total_events > 0 ? (
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    <div>
+                                        <p className="text-sm font-medium text-gray-700 mb-2">By type ({eventStats.total_events} total)</p>
+                                        <ul className="space-y-1.5">
+                                            {eventStats.by_type.map((t) => (
+                                                <li key={t.event} className="flex justify-between text-sm">
+                                                    <span className="text-gray-700">{t.event}</span>
+                                                    <span className="font-medium">{t.count}</span>
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    </div>
+                                    <div>
+                                        <p className="text-sm font-medium text-gray-700 mb-2">Top homes by interest</p>
+                                        <ul className="space-y-1.5">
+                                            {eventStats.top_homes.map((h) => (
+                                                <li key={h.home} className="flex justify-between text-sm">
+                                                    <span className="text-gray-700 truncate pr-2">{h.home}</span>
+                                                    <span className="font-medium">{h.count}</span>
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    </div>
+                                </div>
+                            ) : (
+                                <p className="text-sm text-gray-500">No site events captured yet for this period — they accrue as visitors browse homes and open forms.</p>
+                            )}
                         </div>
                     </>
                 )}
