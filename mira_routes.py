@@ -27,6 +27,7 @@ from appointment_manager import AppointmentManager
 from config_loader import get_deployment_config
 from database.firestore_client import get_database
 from lead_management import LeadManager
+from structured_logging import logger as struct_logger
 from tools.partner_webhooks import dispatch_partner_event
 
 router = APIRouter(prefix="/api/v1/mira", tags=["mira"])
@@ -45,6 +46,13 @@ def set_mira_refs(app_start_time: float, metrics_store: Any) -> None:
 
 def _now_iso() -> str:
     return datetime.now(UTC).isoformat()
+
+
+def _mira_error(e: Exception) -> dict:
+    """Log the real exception server-side and return a generic code to the
+    partner, so internal error strings never leak across the bridge API."""
+    struct_logger.error("mira endpoint error", error=str(e))
+    return {"status": "error", "timestamp": _now_iso(), "error": "internal_error"}
 
 
 def _get_app_version() -> str:
@@ -153,10 +161,11 @@ async def mira_metrics(request: Request) -> dict:
         metrics = _mira_metrics_store.get_metrics() if _mira_metrics_store else {}
         return {"status": "healthy", "timestamp": _now_iso(), "metrics": metrics}
     except Exception as e:
+        struct_logger.error("mira endpoint error", error=str(e))
         return {
             "status": "error",
             "timestamp": _now_iso(),
-            "error": str(e),
+            "error": "internal_error",
             "metrics": {},
         }
 
@@ -176,7 +185,7 @@ async def mira_leads_summary(request: Request) -> dict:
             "by_status": dict(by_status),
         }
     except Exception as e:
-        return {"status": "error", "timestamp": _now_iso(), "error": str(e)}
+        return _mira_error(e)
 
 
 @router.get("/leads/recent")
@@ -206,7 +215,7 @@ async def mira_leads_recent(request: Request, hours: int = 24, limit: int = 50) 
             "leads": recent[:limit],
         }
     except Exception as e:
-        return {"status": "error", "timestamp": _now_iso(), "error": str(e)}
+        return _mira_error(e)
 
 
 @router.get("/leads/triage")
@@ -242,7 +251,7 @@ async def mira_leads_triage(
             ],
         }
     except Exception as e:
-        return {"status": "error", "timestamp": _now_iso(), "error": str(e)}
+        return _mira_error(e)
 
 
 @router.post("/leads/{lead_id}/triage")
@@ -303,7 +312,7 @@ async def mira_update_lead_triage(request: Request, lead_id: str, update: dict) 
             },
         }
     except Exception as e:
-        return {"status": "error", "timestamp": _now_iso(), "error": str(e)}
+        return _mira_error(e)
 
 
 @router.get("/appointments/summary")
@@ -321,7 +330,7 @@ async def mira_appointments_summary(request: Request) -> dict:
             "by_status": dict(by_status),
         }
     except Exception as e:
-        return {"status": "error", "timestamp": _now_iso(), "error": str(e)}
+        return _mira_error(e)
 
 
 @router.get("/inventory/summary")
@@ -336,7 +345,7 @@ async def mira_inventory_summary(request: Request) -> dict:
             "by_status": by_status,
         }
     except Exception as e:
-        return {"status": "error", "timestamp": _now_iso(), "error": str(e)}
+        return _mira_error(e)
 
 
 @router.get("/installations/summary")
@@ -351,7 +360,7 @@ async def mira_installations_summary(request: Request) -> dict:
             "by_status": by_status,
         }
     except Exception as e:
-        return {"status": "error", "timestamp": _now_iso(), "error": str(e)}
+        return _mira_error(e)
 
 
 @router.get("/installations/recent")
@@ -392,7 +401,7 @@ async def mira_installations_recent(request: Request, hours: int = 24, limit: in
             "items": items,
         }
     except Exception as e:
-        return {"status": "error", "timestamp": _now_iso(), "error": str(e)}
+        return _mira_error(e)
 
 
 @router.get("/deals/summary")
@@ -407,7 +416,7 @@ async def mira_deals_summary(request: Request) -> dict:
             "by_status": by_status,
         }
     except Exception as e:
-        return {"status": "error", "timestamp": _now_iso(), "error": str(e)}
+        return _mira_error(e)
 
 
 @router.get("/customers/summary")
@@ -422,7 +431,7 @@ async def mira_customers_summary(request: Request) -> dict:
             "total": count,
         }
     except Exception as e:
-        return {"status": "error", "timestamp": _now_iso(), "error": str(e)}
+        return _mira_error(e)
 
 
 @router.get("/feedback/summary")
@@ -449,7 +458,7 @@ async def mira_feedback_summary(request: Request) -> dict:
             "sentiment_counts": dict(Counter(sentiments)) if sentiments else {},
         }
     except Exception as e:
-        return {"status": "error", "timestamp": _now_iso(), "error": str(e)}
+        return _mira_error(e)
 
 
 @router.get("/feedback/recent")
@@ -487,7 +496,7 @@ async def mira_feedback_recent(request: Request, hours: int = 24, limit: int = 5
             "items": items,
         }
     except Exception as e:
-        return {"status": "error", "timestamp": _now_iso(), "error": str(e)}
+        return _mira_error(e)
 
 
 @router.get("/errors")
@@ -525,7 +534,7 @@ async def mira_firestore_collections(request: Request, limit: int = 1000) -> dic
             "collections": sorted(result, key=lambda x: x["collection"]),
         }
     except Exception as e:
-        return {"status": "error", "timestamp": _now_iso(), "error": str(e)}
+        return _mira_error(e)
 
 
 @router.get("/chat/summary")

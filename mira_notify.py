@@ -9,6 +9,8 @@ from urllib import request
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
 
+from structured_logging import logger as struct_logger
+
 router = APIRouter(prefix="/api/v1/mira", tags=["mira"])
 
 _TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
@@ -45,7 +47,8 @@ def send_mira_notification(payload: NotifyPayload) -> dict:
         with request.urlopen(req) as resp:
             return json.loads(resp.read().decode("utf-8"))
     except Exception as e:
-        return {"ok": False, "error": f"{type(e).__name__}: {str(e)[:200]}"}
+        struct_logger.warning("mira telegram send failed", error=str(e))
+        return {"ok": False, "error": "send_failed"}
 
 
 @router.post("/notify")

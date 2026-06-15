@@ -326,7 +326,7 @@ async def github_mira_webhook(request: Request) -> dict:
         )
         telegram_result = mira_notify.send_mira_notification(notify_payload)
     except Exception as e:
-        telegram_result = {"ok": False, "error": f"{type(e).__name__}: {str(e)[:200]}"}
+        telegram_result = {"ok": False, "error": "send_failed"}
         struct_logger.warning("github_mira_trigger telegram send failed", error=str(e))
 
     partner_ids: list[str] = []
