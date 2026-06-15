@@ -34,6 +34,7 @@ project-go-forward/
 │   ├── form_extraction.py     # AI-powered chat-to-form data extraction
 │   ├── pii_guard.py           # PII protection for logging and LLM calls
 │   ├── asset_scraper.py       # Property photo/asset catalog
+│   ├── image_storage.py       # Staff-uploaded listing photos (GCS + local fallback)
 │   └── scraper.py             # Website inventory scraper
 ├── schemas/
 │   ├── document_schemas.py    # Pydantic models for document requests/responses
@@ -48,6 +49,7 @@ project-go-forward/
 │   ├── constants.js           # Shared business constants (name, phone, hours)
 │   ├── pages/
 │   │   ├── InventoryBrowse.jsx # Home browsing with photos + 3D tours
+│   │   ├── PhotoManager.jsx   # Staff photo uploader (admin) for home listings
 │   │   ├── DocumentCenter.jsx # Document template browser + generation UI
 │   │   ├── AdStudio.jsx       # AI marketing content creator
 │   │   ├── Analytics.jsx      # Usage analytics dashboard
@@ -136,6 +138,13 @@ python scripts/batch_inspect_pdfs.py
 - `PUT /api/deals/{id}/status` — Change deal status
 - `POST /api/deals/{id}/generate-document` — Generate document from deal data
 - `POST /api/deals/{id}/generate-packet` — Generate closing packet from deal data
+
+### Inventory Photos
+- `GET /api/inventory/photos/{home_id}/{filename}` — Public: serve a staff-uploaded listing photo
+- `GET /api/inventory/{home_id}/photos` — Admin: list staff-uploaded photos for a home
+- `POST /api/inventory/{home_id}/photos` — Admin: upload one or more photos (multipart) for a home
+- `DELETE /api/inventory/{home_id}/photos/{filename}` — Admin: remove a staff-uploaded photo
+- Uploads are stored in GCS (`GCS_LISTING_PHOTOS_BUCKET`, local-disk fallback for dev) and overlaid onto homes by `id` in `/api/marketing/inventory-context`, so they appear on the public Inventory page regardless of the active inventory source. Staff guide: `docs/team/photo-upload-guide.md`.
 
 ### Marketing
 - `POST /api/marketing/generate-script` — Ad Studio script generation
