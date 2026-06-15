@@ -1,9 +1,13 @@
-# Texas Home Outlet — FAQ content (draft for review)
+# Texas Home Outlet — FAQ content
 
 Industry-accurate answers for a manufactured/mobile-home dealership in Huffman, TX.
-Reviewed/approved answers become a visible `/faq` page + `FAQPage` JSON-LD (the
-schema requires the Q&A to be **visible on the page**, so this content ships first,
-then the schema). `[THO: confirm …]` marks a THO-specific detail to verify.
+This content is now shipped as the public `/faq` page with matching `FAQPage`
+JSON-LD in `seo_routes.py` (the schema requires the Q&A to be **visible on the
+page**). `[THO: confirm …]` marks a THO-specific detail to verify before locking
+in final wording.
+
+Public page: `frontend/src/pages/FAQ.jsx`  
+Server-side SEO + schema: `seo_routes.py` (`_faqpage_jsonld()`)
 
 ---
 

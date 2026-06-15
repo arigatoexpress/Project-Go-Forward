@@ -8,6 +8,12 @@ AD_STUDIO = ROOT / "frontend/src/pages/AdStudio.jsx"
 SYSTEM_HUB = ROOT / "frontend/src/pages/SystemHub.jsx"
 STATUS_BADGE = ROOT / "frontend/src/components/StatusBadge.jsx"
 PROPERTY_CARD = ROOT / "frontend/src/components/PropertyCard.jsx"
+ABOUT_PAGE = ROOT / "frontend/src/pages/About.jsx"
+FINANCING_PAGE = ROOT / "frontend/src/pages/Financing.jsx"
+FAQ_PAGE = ROOT / "frontend/src/pages/FAQ.jsx"
+WARRANTY_PAGE = ROOT / "frontend/src/pages/Warranty.jsx"
+DELIVERY_PAGE = ROOT / "frontend/src/pages/Delivery.jsx"
+CONTENT_PAGE = ROOT / "frontend/src/components/ContentPage.jsx"
 IMAGE_RESEARCH = ROOT / "docs/MANUFACTURER_IMAGE_SOURCES_RESEARCH.md"
 
 
@@ -127,3 +133,61 @@ def test_ad_studio_surfaces_readiness_and_image_fallbacks():
     assert "handleImgFallback" in source
     assert "selectedPhotoUrl" in source
     assert "video_url: generatedGenAIClip?.download_url || generatedVideo?.download_url" in source
+
+
+def test_app_wires_all_trust_content_routes():
+    source = APP.read_text()
+    for route in ("'/about'", "'/financing'", "'/faq'", "'/warranty'", "'/delivery'"):
+        assert route in source, f"missing route mapping for {route}"
+    for page in ("About", "Financing", "FAQ", "Warranty", "Delivery"):
+        assert f"const {page} = lazy(() => import('./pages/{page}'))" in source
+
+
+def test_content_pages_share_consistent_layout():
+    source = CONTENT_PAGE.read_text()
+    assert "ContentPage" in source
+    assert "onBack" in source
+    assert "max-w-4xl" in source
+    assert "bg-white" in source
+
+
+def test_about_page_carries_business_identity():
+    source = ABOUT_PAGE.read_text()
+    assert "BUSINESS_NAME" in source
+    assert "BUSINESS_LEGAL_NAME" in source
+    assert "BUSINESS_LICENSE" in source
+    assert "Who We Are" in source
+
+
+def test_faq_page_has_visible_qa_pairs():
+    source = FAQ_PAGE.read_text()
+    assert "FAQ_ITEMS" in source
+    assert "FAQPage" not in source  # schema lives server-side; page is visible Q&A
+    assert "How does financing work for a manufactured home?" in source
+    assert "Do I need land to buy a home from you?" in source
+
+
+def test_financing_page_avoids_specific_rate_claims():
+    source = FINANCING_PAGE.read_text()
+    assert "Chattel" in source
+    assert "FHA" in source
+    assert "VA" in source
+    assert "monthly payment" in source
+    # The page must not invent specific rates or guarantees.
+    assert "interest rate" not in source.lower()
+    assert "%" not in source
+
+
+def test_warranty_page_prioritizes_safety_escalation():
+    source = WARRANTY_PAGE.read_text()
+    assert "Safety First" in source
+    assert "911" in source
+    assert "carbon monoxide" in source
+
+
+def test_delivery_page_lists_service_area():
+    source = DELIVERY_PAGE.read_text()
+    assert "Huffman" in source
+    assert "Humble" in source
+    assert "Baytown" in source
+    assert "Site Prep" in source
