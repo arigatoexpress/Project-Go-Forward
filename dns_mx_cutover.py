@@ -47,6 +47,11 @@ EXPECTED_INBOUND_MX_HOSTS = frozenset(
 RESEND_SEND_SUBDOMAIN = (os.environ.get("RESEND_SEND_SUBDOMAIN") or "send").strip().lower()
 RESEND_MX_PATTERN = ".amazonses.com"
 
+# Email-authentication expectations. These are checked as TXT records.
+RESEND_DKIM_SELECTOR = (os.environ.get("RESEND_DKIM_SELECTOR") or "resend").strip().lower()
+EXPECTED_RESEND_SPF = "v=spf1 include:amazonses.com ~all"
+EXPECTED_DMARC_PREFIX = "v=dmarc1"
+
 # DNS resolver injection points.  Production uses dnspython when available and
 # falls back to socket/dig-free helpers.  Tests can monkeypatch these directly.
 _resolve_a: Callable[[str], list[str]] | None = None
@@ -228,6 +233,37 @@ def _has_resend_mx(send_domain: str) -> tuple[bool, list[tuple[int, str]]]:
     return ok, actual
 
 
+def _has_spf_record(domain: str, expected_value: str | None = None) -> tuple[bool, list[str]]:
+    """Check whether ``domain`` has a usable SPF TXT record.
+
+    If ``expected_value`` is supplied, the record must match it exactly.
+    Otherwise any record starting with ``v=spf1`` is accepted.
+    """
+    actual = resolve_txt_records(domain)
+    if expected_value:
+        ok = any(record == expected_value for record in actual)
+    else:
+        ok = any(record.lower().startswith("v=spf1") for record in actual)
+    return ok, actual
+
+
+def _has_dkim_record(selector: str, domain: str) -> tuple[bool, list[str]]:
+    """Check whether ``selector._domainkey.domain`` has a DKIM TXT record."""
+    dkim_name = f"{selector}._domainkey.{domain}"
+    actual = resolve_txt_records(dkim_name)
+    # A valid DKIM record contains a public-key payload starting with "p=".
+    ok = any("p=" in record for record in actual)
+    return ok, actual
+
+
+def _has_dmarc_record(domain: str) -> tuple[bool, list[str]]:
+    """Check whether ``_dmarc.domain`` has a DMARC TXT record."""
+    dmarc_name = f"_dmarc.{domain}"
+    actual = resolve_txt_records(dmarc_name)
+    ok = any(record.lower().startswith(EXPECTED_DMARC_PREFIX) for record in actual)
+    return ok, actual
+
+
 def get_dns_cutover_status() -> dict[str, Any]:
     """Return the current DNS cutover status for the production domain."""
     apex_ok, apex_ips = _has_expected_apex_a_records(CUTOVER_DOMAIN)
@@ -274,12 +310,54 @@ def get_mx_cutover_status() -> dict[str, Any]:
     }
 
 
+def get_email_auth_status() -> dict[str, Any]:
+    """Return SPF/DKIM/DMARC health for outbound email via Resend.
+
+    These records live on subdomains so they never conflict with the apex
+    Yahoo inbound MX or any existing apex SPF.
+    """
+    resend_domain = f"{RESEND_SEND_SUBDOMAIN}.{CUTOVER_DOMAIN}"
+
+    spf_ok, spf_records = _has_spf_record(resend_domain, EXPECTED_RESEND_SPF)
+    dkim_ok, dkim_records = _has_dkim_record(RESEND_DKIM_SELECTOR, CUTOVER_DOMAIN)
+    dmarc_ok, dmarc_records = _has_dmarc_record(CUTOVER_DOMAIN)
+
+    return {
+        "domain": CUTOVER_DOMAIN,
+        "resend_send_domain": resend_domain,
+        "spf": {
+            "expected": EXPECTED_RESEND_SPF,
+            "actual_records": spf_records,
+            "ready": spf_ok,
+        },
+        "dkim": {
+            "selector": RESEND_DKIM_SELECTOR,
+            "name": f"{RESEND_DKIM_SELECTOR}._domainkey.{CUTOVER_DOMAIN}",
+            "actual_records": dkim_records,
+            "ready": dkim_ok,
+        },
+        "dmarc": {
+            "expected_prefix": EXPECTED_DMARC_PREFIX,
+            "name": f"_dmarc.{CUTOVER_DOMAIN}",
+            "actual_records": dmarc_records,
+            "ready": dmarc_ok,
+        },
+        "overall_ready": spf_ok and dkim_ok and dmarc_ok,
+    }
+
+
 def get_full_cutover_status() -> dict[str, Any]:
-    """Combine DNS + MX status into a single partner-safe payload."""
+    """Combine DNS + MX + email-auth status into a single partner-safe payload."""
     dns_status = get_dns_cutover_status()
     mx_status = get_mx_cutover_status()
+    auth_status = get_email_auth_status()
     return {
         "dns": dns_status,
         "mx": mx_status,
-        "overall_ready": dns_status["overall_ready"] and mx_status["overall_ready"],
+        "email_auth": auth_status,
+        "overall_ready": (
+            dns_status["overall_ready"]
+            and mx_status["overall_ready"]
+            and auth_status["overall_ready"]
+        ),
     }

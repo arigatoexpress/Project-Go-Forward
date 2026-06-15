@@ -365,3 +365,115 @@ def test_default_config_uses_texashomeoutlet(monkeypatch):
     }
     assert dns_mx_cutover.EXPECTED_WWW_CNAME == "ghs.googlehosted.com"
     assert "mx-biz.mail.am0.yahoodns.net" in dns_mx_cutover.EXPECTED_INBOUND_MX_HOSTS
+
+
+# ── Email authentication checks ──────────────────────────────────────────────
+
+
+def test_email_auth_ready_when_all_records_present(monkeypatch):
+    monkeypatch.setenv("CUTOVER_DOMAIN", "test.example.com")
+    monkeypatch.setenv("RESEND_SEND_SUBDOMAIN", "send")
+    monkeypatch.setattr(dns_mx_cutover, "CUTOVER_DOMAIN", "test.example.com")
+    monkeypatch.setattr(dns_mx_cutover, "RESEND_SEND_SUBDOMAIN", "send")
+
+    def _txt(domain: str) -> list[str]:
+        if domain == "send.test.example.com":
+            return ["v=spf1 include:amazonses.com ~all"]
+        if domain == "resend._domainkey.test.example.com":
+            return ["p=MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQC..."]
+        if domain == "_dmarc.test.example.com":
+            return ["v=DMARC1; p=none; rua=mailto:dmarc@test.example.com"]
+        return []
+
+    dns_mx_cutover.set_resolvers(
+        a=lambda _domain: [],
+        cname=lambda _domain: None,
+        mx=lambda _domain: [],
+        txt=_txt,
+    )
+
+    status = dns_mx_cutover.get_email_auth_status()
+    assert status["spf"]["ready"] is True
+    assert status["dkim"]["ready"] is True
+    assert status["dmarc"]["ready"] is True
+    assert status["overall_ready"] is True
+
+
+def test_email_auth_not_ready_when_records_missing(monkeypatch):
+    monkeypatch.setenv("CUTOVER_DOMAIN", "test.example.com")
+    monkeypatch.setattr(dns_mx_cutover, "CUTOVER_DOMAIN", "test.example.com")
+
+    dns_mx_cutover.set_resolvers(
+        a=lambda _domain: [],
+        cname=lambda _domain: None,
+        mx=lambda _domain: [],
+        txt=lambda _domain: [],
+    )
+
+    status = dns_mx_cutover.get_email_auth_status()
+    assert status["spf"]["ready"] is False
+    assert status["dkim"]["ready"] is False
+    assert status["dmarc"]["ready"] is False
+    assert status["overall_ready"] is False
+
+
+def test_email_auth_endpoint_returns_expected_shape(client):
+    dns_mx_cutover.set_resolvers(
+        a=lambda _domain: [],
+        cname=lambda _domain: None,
+        mx=lambda _domain: [],
+        txt=lambda domain: (
+            ["v=spf1 include:amazonses.com ~all"]
+            if "send." in domain
+            else []
+        ),
+    )
+
+    response = client.get("/api/v1/cutover/email-auth-status")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["domain"] == "test.example.com"
+    assert "spf" in data
+    assert "dkim" in data
+    assert "dmarc" in data
+    assert "overall_ready" in data
+
+
+def test_full_cutover_includes_email_auth(monkeypatch):
+    monkeypatch.setenv("CUTOVER_DOMAIN", "test.example.com")
+    monkeypatch.setenv("CUTOVER_WWW_DOMAIN", "www.test.example.com")
+    monkeypatch.setenv("RESEND_SEND_SUBDOMAIN", "send")
+    monkeypatch.setattr(dns_mx_cutover, "CUTOVER_DOMAIN", "test.example.com")
+    monkeypatch.setattr(dns_mx_cutover, "CUTOVER_WWW_DOMAIN", "www.test.example.com")
+    monkeypatch.setattr(dns_mx_cutover, "RESEND_SEND_SUBDOMAIN", "send")
+
+    def _txt(domain: str) -> list[str]:
+        if domain == "send.test.example.com":
+            return ["v=spf1 include:amazonses.com ~all"]
+        if domain == "resend._domainkey.test.example.com":
+            return ["p=MIGfMA0..."]
+        if domain == "_dmarc.test.example.com":
+            return ["v=DMARC1; p=none;"]
+        return []
+
+    dns_mx_cutover.set_resolvers(
+        a=lambda _domain: [
+            "216.239.32.21",
+            "216.239.34.21",
+            "216.239.36.21",
+            "216.239.38.21",
+        ],
+        cname=lambda _domain: "ghs.googlehosted.com",
+        mx=lambda domain: (
+            [(10, "feedback-smtp.us-east-1.amazonses.com")]
+            if "send." in domain
+            else [(10, "mx-biz.mail.am0.yahoodns.net")]
+        ),
+        txt=_txt,
+    )
+
+    status = dns_mx_cutover.get_full_cutover_status()
+    assert status["dns"]["overall_ready"] is True
+    assert status["mx"]["overall_ready"] is True
+    assert status["email_auth"]["overall_ready"] is True
+    assert status["overall_ready"] is True
