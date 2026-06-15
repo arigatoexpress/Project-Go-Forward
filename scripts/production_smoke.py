@@ -373,7 +373,10 @@ def check_spa_routes(base_url: str, *, timeout: float) -> list[Probe]:
     probes: list[Probe] = []
     for path in PUBLIC_ROUTES:
         status, body, content_type, elapsed_ms = _read_url(base_url, path, timeout=timeout)
-        text = body[:4096].decode("utf-8", errors="replace").lower()
+        # Scan the whole shell, not just the first 4 KB: rich server-rendered
+        # JSON-LD (LocalBusiness + ItemList) now pushes <div id="root"> past byte
+        # ~8.5 KB on / and /inventory, so a 4 KB window false-failed the deploy.
+        text = body.decode("utf-8", errors="replace").lower()
         has_root = 'id="root"' in text
         ok = status == 200 and "text/html" in content_type and has_root
         probes.append(
