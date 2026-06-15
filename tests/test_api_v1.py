@@ -345,6 +345,20 @@ class FakeTHODatabase:
         item = self.collections["inventory"].get(inventory_id)
         return dict(item) if item else None
 
+    def create_inventory(self, data: dict) -> str:
+        new_id = data.get("id") or f"inv-{len(self.collections['inventory']) + 1}"
+        self.collections["inventory"][new_id] = {**data, "id": new_id}
+        return new_id
+
+    def update_inventory(self, inventory_id: str, data: dict) -> bool:
+        existing = self.collections["inventory"].get(inventory_id, {})
+        self.collections["inventory"][inventory_id] = {**existing, **data, "id": inventory_id}
+        return True
+
+    def delete_inventory(self, inventory_id: str) -> bool:
+        self.collections["inventory"].pop(inventory_id, None)
+        return True
+
     def count_customers(self):
         by_status: dict[str, int] = {}
         for customer in self.collections["customers"].values():
@@ -541,6 +555,7 @@ def load_app(monkeypatch, tho_api_key: str | None = "tho-secret", rate_limit_rpm
 
     sys.modules.pop("database.models", None)
     from database.models import Inventory as RealInventory
+    from database.models import InventoryWrite as RealInventoryWrite
 
     fake_logger = FakeStructuredLogger()
     fake_db = FakeTHODatabase()
@@ -614,6 +629,7 @@ def load_app(monkeypatch, tho_api_key: str | None = "tho-secret", rate_limit_rpm
     database_models_module.Deal = FakeDeal
     database_models_module.DealStatus = FakeDealStatus
     database_models_module.Inventory = RealInventory
+    database_models_module.InventoryWrite = RealInventoryWrite
     monkeypatch.setitem(sys.modules, "database.models", database_models_module)
 
     document_schemas_module = types.ModuleType("schemas.document_schemas")
@@ -913,6 +929,76 @@ def test_inventory_context_auto_prefers_firestore_when_populated(monkeypatch):
 
     data = client.get("/api/marketing/inventory-context").json()
     assert [h["id"] for h in data["homes"]] == ["fs-1"]
+
+
+def test_create_inventory_requires_admin(monkeypatch):
+    client, _main, _db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
+    resp = client.post("/api/inventory", json={"model_name": "The Nassau"})
+    assert resp.status_code == 401
+
+
+def test_create_inventory_item(monkeypatch):
+    client, main, fake_db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
+    token = main._create_admin_token()
+    resp = client.post(
+        "/api/inventory",
+        json={"model_name": "The Nassau", "manufacturer": "Jessup", "bedrooms": 3, "bathrooms": 2.0},
+        headers={"X-Admin-Token": token},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["success"] is True
+    stored = fake_db.collections["inventory"][body["id"]]
+    assert stored["model_name"] == "The Nassau"
+    assert stored["status"] == "AVAILABLE"  # defaulted
+    assert stored["source"] == "staff_created"
+
+
+def test_create_inventory_rejects_missing_model_name(monkeypatch):
+    client, main, _db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
+    token = main._create_admin_token()
+    resp = client.post(
+        "/api/inventory", json={"manufacturer": "Jessup"}, headers={"X-Admin-Token": token}
+    )
+    assert resp.status_code == 400
+    assert resp.json()["success"] is False
+
+
+def test_update_inventory_item_merges(monkeypatch):
+    client, main, fake_db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
+    fake_db.collections["inventory"]["inv-1"] = {"id": "inv-1", "model_name": "Old", "status": "AVAILABLE"}
+    token = main._create_admin_token()
+    resp = client.put(
+        "/api/inventory/inv-1",
+        json={"sale_price": 89900, "model_name": "New Name"},
+        headers={"X-Admin-Token": token},
+    )
+    assert resp.status_code == 200
+    stored = fake_db.collections["inventory"]["inv-1"]
+    assert stored["model_name"] == "New Name"
+    assert stored["sale_price"] == 89900
+    assert stored["status"] == "AVAILABLE"  # untouched field preserved
+
+
+def test_retire_inventory_item_soft(monkeypatch):
+    client, main, fake_db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
+    fake_db.collections["inventory"]["inv-1"] = {"id": "inv-1", "model_name": "X", "status": "AVAILABLE"}
+    token = main._create_admin_token()
+    resp = client.delete("/api/inventory/inv-1", headers={"X-Admin-Token": token})
+    assert resp.status_code == 200
+    assert resp.json()["retired"] is True
+    # Soft retire keeps the record but drops it off the AVAILABLE list.
+    assert fake_db.collections["inventory"]["inv-1"]["status"] == "RETIRED"
+
+
+def test_delete_inventory_item_hard(monkeypatch):
+    client, main, fake_db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
+    fake_db.collections["inventory"]["inv-1"] = {"id": "inv-1", "model_name": "X"}
+    token = main._create_admin_token()
+    resp = client.delete("/api/inventory/inv-1?hard=true", headers={"X-Admin-Token": token})
+    assert resp.status_code == 200
+    assert resp.json()["deleted"] is True
+    assert "inv-1" not in fake_db.collections["inventory"]
 
 
 def test_marketing_readiness_routes_are_admin_protected(monkeypatch):

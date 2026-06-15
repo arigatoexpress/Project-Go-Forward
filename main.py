@@ -2625,7 +2625,7 @@ async def download_document(filename: str):
 # ─── Inventory API ───
 from database.deal_validation import validate_for_documents
 from database.firestore_client import get_database
-from database.models import Deal, DealStatus, Inventory
+from database.models import Deal, DealStatus, Inventory, InventoryWrite
 
 _db = get_database()
 app.state.db = _db
@@ -2961,6 +2961,88 @@ async def list_inventory(status: str = "AVAILABLE", limit: int = 100, is_new: bo
     except Exception as e:
         struct_logger.error("Inventory listing failed", error=str(e))
         return {"success": False, "error": "Failed to load inventory. Please try again."}
+
+
+@app.post("/api/inventory", dependencies=[Depends(require_admin)])
+async def create_inventory_item(request: Request):
+    """Create a staff-managed inventory home (in-app inventory).
+
+    Part of moving inventory in-app: writes go to the Firestore `inventory`
+    collection the public read path serves when INVENTORY_SOURCE=firestore/auto.
+    """
+    try:
+        data = await request.json()
+        payload = InventoryWrite(**data).model_dump(exclude_none=True)
+        if not payload.get("model_name"):
+            return JSONResponse({"success": False, "error": "model_name is required."}, status_code=400)
+        payload.setdefault("status", "AVAILABLE")
+        payload.setdefault("source", "staff_created")
+        inventory_id = _db.create_inventory(payload)
+        log_admin_action(
+            actor=_audit_actor(request),
+            action="inventory.create",
+            target_type="inventory",
+            target_id=str(inventory_id),
+            details={"model_name": payload.get("model_name")},
+            request=request,
+        )
+        return {"success": True, "id": inventory_id, "inventory": {**payload, "id": inventory_id}}
+    except Exception as e:
+        struct_logger.error("Inventory create failed", error=str(e))
+        return JSONResponse(
+            {"success": False, "error": "Failed to create inventory item."}, status_code=400
+        )
+
+
+@app.put("/api/inventory/{inventory_id}", dependencies=[Depends(require_admin)])
+async def update_inventory_item(inventory_id: str, request: Request):
+    """Update a staff-managed inventory home (partial merge)."""
+    try:
+        data = await request.json()
+        payload = InventoryWrite(**data).model_dump(exclude_none=True)
+        if not payload:
+            return JSONResponse({"success": False, "error": "No fields to update."}, status_code=400)
+        _db.update_inventory(inventory_id, payload)
+        log_admin_action(
+            actor=_audit_actor(request),
+            action="inventory.update",
+            target_type="inventory",
+            target_id=str(inventory_id),
+            details={"fields": sorted(payload.keys())},
+            request=request,
+        )
+        return {"success": True, "id": inventory_id}
+    except Exception as e:
+        struct_logger.error("Inventory update failed", error=str(e))
+        return JSONResponse(
+            {"success": False, "error": "Failed to update inventory item."}, status_code=400
+        )
+
+
+@app.delete("/api/inventory/{inventory_id}", dependencies=[Depends(require_admin)])
+async def retire_inventory_item(inventory_id: str, request: Request, hard: bool = False):
+    """Retire an inventory home. Soft by default (status=RETIRED so it drops off
+    the public AVAILABLE list but the record is kept); ``?hard=true`` deletes it.
+    """
+    try:
+        if hard:
+            _db.delete_inventory(inventory_id)
+        else:
+            _db.update_inventory(inventory_id, {"status": "RETIRED"})
+        log_admin_action(
+            actor=_audit_actor(request),
+            action="inventory.delete" if hard else "inventory.retire",
+            target_type="inventory",
+            target_id=str(inventory_id),
+            details={"hard": hard},
+            request=request,
+        )
+        return {"success": True, "id": inventory_id, "retired": not hard, "deleted": hard}
+    except Exception as e:
+        struct_logger.error("Inventory retire failed", error=str(e))
+        return JSONResponse(
+            {"success": False, "error": "Failed to retire inventory item."}, status_code=400
+        )
 
 
 @app.get("/api/admin/inventory/photo-audit", dependencies=[Depends(require_admin)])
