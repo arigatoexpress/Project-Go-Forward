@@ -16,6 +16,7 @@ Setup:
 import html as html_mod
 import logging
 import os
+import re
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -31,7 +32,56 @@ RESEND_FROM = os.environ.get(
     "RESEND_FROM",
     "Texas Home Outlet <noreply@texashomeoutlet.com>",
 )
-RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
+
+# Hardening: maximum number of recipients allowed in a single send. This caps
+# blast radius if a caller accidentally passes a huge staff/customer list.
+MAX_RECIPIENTS = int(os.environ.get("EMAIL_MAX_RECIPIENTS", "50"))
+
+# Loose but practical RFC 5322-ish regex. It rejects obvious garbage (missing
+# @, no domain, invalid chars) while allowing the formats THO actually uses.
+_EMAIL_RE = re.compile(
+    r"^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$"
+)
+
+
+def _sanitize_header_value(value: str) -> str:
+    """Strip CR/LF to prevent SMTP header-injection via subject or addresses."""
+    if value is None:
+        return ""
+    return str(value).replace("\r", "").replace("\n", "")
+
+
+def _validate_email_address(addr: str) -> bool:
+    """Return True if ``addr`` looks like a safe, deliverable email address."""
+    if not addr:
+        return False
+    # Header-injection guard: reject addresses containing newlines outright.
+    if "\r" in addr or "\n" in addr:
+        return False
+    local, _, domain = addr.rpartition("@")
+    if not local or not domain:
+        return False
+    if "." not in domain:
+        return False
+    # Reject consecutive dots and trailing dot in domain.
+    if ".." in domain or domain.endswith("."):
+        return False
+    return bool(_EMAIL_RE.match(addr))
+
+
+def _extract_address(from_value: str) -> str:
+    """Extract the bare email from a 'Display Name <addr>' style From value."""
+    if not from_value:
+        return ""
+    from_value = from_value.strip()
+    if from_value.endswith(">") and "<" in from_value:
+        return from_value.split("<")[-1].rstrip(">").strip()
+    return from_value
+
+
+def _current_api_key() -> str:
+    """Read RESEND_API_KEY at call time so env-var patches in tests are respected."""
+    return os.environ.get("RESEND_API_KEY", "")
 
 
 def _parse_recipients(raw: str) -> list:
@@ -165,9 +215,61 @@ def send_email(
         dict with success status and Resend message ID or error
     """
     recipients = [to] if isinstance(to, str) else [r for r in to if r]
-    to_display = ", ".join(recipients)
 
-    if not RESEND_API_KEY:
+    # Validate and sanitize inputs before any network call or logging.
+    invalid = [r for r in recipients if not _validate_email_address(r)]
+    if invalid:
+        return {
+            "success": False,
+            "error": f"Invalid recipient address(es): {', '.join(invalid[:3])}",
+            "dry_run": True,
+            "to": to,
+            "subject": subject,
+        }
+
+    if len(recipients) > MAX_RECIPIENTS:
+        return {
+            "success": False,
+            "error": f"Too many recipients: {len(recipients)} (max {MAX_RECIPIENTS})",
+            "dry_run": True,
+            "to": to,
+            "subject": subject,
+        }
+
+    safe_subject = _sanitize_header_value(subject)
+    if not safe_subject or not safe_subject.strip():
+        return {
+            "success": False,
+            "error": "Subject is required",
+            "dry_run": True,
+            "to": to,
+            "subject": subject,
+        }
+
+    sender = _current_from()
+    sender_addr = _extract_address(sender)
+    if sender and not _validate_email_address(sender_addr):
+        return {
+            "success": False,
+            "error": f"Invalid sender address: {sender_addr}",
+            "dry_run": True,
+            "to": to,
+            "subject": subject,
+        }
+
+    if REPLY_TO and not _validate_email_address(REPLY_TO):
+        return {
+            "success": False,
+            "error": f"Invalid reply-to address: {REPLY_TO}",
+            "dry_run": True,
+            "to": to,
+            "subject": subject,
+        }
+
+    to_display = ", ".join(recipients)
+    api_key = _current_api_key()
+
+    if not api_key:
         logger.warning("RESEND_API_KEY not set — email not sent")
         return {
             "success": False,
@@ -180,31 +282,30 @@ def send_email(
     try:
         import resend
 
-        resend.api_key = RESEND_API_KEY
+        resend.api_key = api_key
 
-        sender = _current_from()
         payload = {
             "from": sender,
             "to": recipients,
             "reply_to": REPLY_TO,
-            "subject": subject,
+            "subject": safe_subject,
             "html": html,
             "text": text if text is not None else _html_to_text(html),
         }
         result = resend.Emails.send(payload)
 
-        _log_email_activity(to_display, subject, email_type, related_id)
+        _log_email_activity(to_display, safe_subject, email_type, related_id)
 
-        logger.info(f"Email sent: {email_type} to {to_display} (id: {result.get('id', 'unknown')})")
+        logger.info("Email sent: %s to %s (id: %s)", email_type, to_display, result.get("id", "unknown"))
         return {
             "success": True,
             "message_id": result.get("id"),
             "to": to,
-            "subject": subject,
+            "subject": safe_subject,
         }
 
     except Exception as e:
-        logger.error(f"Email send failed: {e}")
+        logger.error("Email send failed: %s", e)
         return {"success": False, "error": str(e)}
 
 

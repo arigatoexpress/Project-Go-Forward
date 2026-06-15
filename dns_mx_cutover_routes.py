@@ -49,6 +49,16 @@ async def cutover_mx_status(request: Request):
         raise HTTPException(status_code=500, detail="MX status check failed") from e
 
 
+@router.get("/email-auth-status")
+async def cutover_email_auth_status(request: Request):
+    """Return SPF/DKIM/DMARC health for outbound email authentication."""
+    try:
+        return dns_mx_cutover.get_email_auth_status()
+    except Exception as e:
+        logger.error("Email auth status failed: %s", e)
+        raise HTTPException(status_code=500, detail="Email auth status check failed") from e
+
+
 @router.post("/notify")
 async def cutover_notify(request: Request):
     """Dispatch an HMAC-signed partner webhook for a cutover event.

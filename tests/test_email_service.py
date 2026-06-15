@@ -413,3 +413,111 @@ class TestGenerateDocumentAutoEmail:
         assert response.status_code == 200, response.text
         body = response.json()
         assert body["success"] is True
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Email hardening tests
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestEmailHardening:
+    def test_rejects_invalid_recipient(self, monkeypatch):
+        monkeypatch.setenv("RESEND_API_KEY", "re_test")
+        email_service = _fresh_email_service(monkeypatch)
+
+        result = email_service.send_email(
+            to="not-an-email",
+            subject="hi",
+            html="<p>hi</p>",
+        )
+        assert result["success"] is False
+        assert result["dry_run"] is True
+        assert "Invalid recipient" in result["error"]
+
+    def test_rejects_header_injection_in_subject(self, monkeypatch):
+        monkeypatch.setenv("RESEND_API_KEY", "re_test")
+        email_service = _fresh_email_service(monkeypatch)
+
+        sent_payloads: list[dict] = []
+        fake_resend = types.SimpleNamespace(
+            api_key="",
+            Emails=types.SimpleNamespace(
+                send=lambda payload: (sent_payloads.append(payload) or {"id": "msg_clean"}),
+            ),
+        )
+        monkeypatch.setitem(sys.modules, "resend", fake_resend)
+        monkeypatch.setattr(email_service, "_log_email_activity", lambda *a, **k: None)
+
+        result = email_service.send_email(
+            to="alice@example.com",
+            subject="Subject\nBcc: evil@example.com",
+            html="<p>hi</p>",
+        )
+        assert result["success"] is True
+        # Newlines are stripped from the subject before it reaches Resend.
+        assert "\n" not in sent_payloads[0]["subject"]
+        assert sent_payloads[0]["subject"] == "SubjectBcc: evil@example.com"
+
+    def test_enforces_max_recipients(self, monkeypatch):
+        monkeypatch.setenv("RESEND_API_KEY", "re_test")
+        monkeypatch.setenv("EMAIL_MAX_RECIPIENTS", "2")
+        email_service = _fresh_email_service(monkeypatch)
+
+        result = email_service.send_email(
+            to=["a@example.com", "b@example.com", "c@example.com"],
+            subject="hi",
+            html="<p>hi</p>",
+        )
+        assert result["success"] is False
+        assert result["dry_run"] is True
+        assert "Too many recipients" in result["error"]
+
+    def test_rejects_invalid_sender(self, monkeypatch):
+        monkeypatch.setenv("RESEND_API_KEY", "re_test")
+        monkeypatch.setenv("RESEND_FROM", "Bad Sender <not-an-email>")
+        email_service = _fresh_email_service(monkeypatch)
+
+        result = email_service.send_email(
+            to="alice@example.com",
+            subject="hi",
+            html="<p>hi</p>",
+        )
+        assert result["success"] is False
+        assert result["dry_run"] is True
+        assert "Invalid sender" in result["error"]
+
+    def test_rejects_invalid_reply_to(self, monkeypatch):
+        monkeypatch.setenv("RESEND_API_KEY", "re_test")
+        monkeypatch.setenv("REPLY_TO", "not-an-email")
+        email_service = _fresh_email_service(monkeypatch)
+
+        result = email_service.send_email(
+            to="alice@example.com",
+            subject="hi",
+            html="<p>hi</p>",
+        )
+        assert result["success"] is False
+        assert result["dry_run"] is True
+        assert "Invalid reply-to" in result["error"]
+
+    def test_api_key_read_at_send_time(self, monkeypatch):
+        """Like RESEND_FROM, the API key is re-read on every send so env swaps
+        do not require a module reload."""
+        monkeypatch.setenv("RESEND_API_KEY", "re_first")
+        email_service = _fresh_email_service(monkeypatch)
+
+        keys_seen: list[str] = []
+        fake_resend = types.SimpleNamespace(
+            api_key="",
+            Emails=types.SimpleNamespace(
+                send=lambda payload: (keys_seen.append(fake_resend.api_key) or {"id": "msg_k"}),
+            ),
+        )
+        monkeypatch.setitem(sys.modules, "resend", fake_resend)
+        monkeypatch.setattr(email_service, "_log_email_activity", lambda *a, **k: None)
+
+        email_service.send_email(to="a@example.com", subject="1", html="<p>1</p>")
+        monkeypatch.setenv("RESEND_API_KEY", "re_second")
+        email_service.send_email(to="b@example.com", subject="2", html="<p>2</p>")
+
+        assert keys_seen == ["re_first", "re_second"]
