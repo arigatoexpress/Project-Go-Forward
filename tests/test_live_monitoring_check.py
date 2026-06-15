@@ -76,6 +76,18 @@ def test_check_endpoint_fails_when_required_keys_missing(monkeypatch):
     assert "missing keys: metrics" in probe.evidence
 
 
+def test_check_endpoint_fails_when_body_status_is_error(monkeypatch):
+    # Mira returns HTTP 200 + {"status": "error"} on a Firestore failure.
+    # Key-presence alone would read that as healthy; the value must be checked.
+    fake = _FakeGet({"/api/v1/mira/leads/summary": _json_response({"status": "error"})})
+    monkeypatch.setattr(lmc, "_get", fake)
+    probe = lmc._check_endpoint(
+        "https://example.test", "/api/v1/mira/leads/summary", "key", 5.0, ("status",)
+    )
+    assert probe.ok is False
+    assert "status='error'" in probe.evidence
+
+
 def test_run_checks_without_api_key_probes_public_endpoints_only(monkeypatch):
     fake = _FakeGet(
         {

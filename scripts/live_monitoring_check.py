@@ -130,6 +130,14 @@ def _check_endpoint(
     if missing:
         return Probe(display_name, False, status, f"missing keys: {', '.join(missing)}", elapsed_ms)
 
+    # The Mira endpoints return HTTP 200 with {"status": "error"} on a Firestore
+    # failure (graceful degradation, never 500). Key-presence alone would read
+    # that as healthy — blind to an outage exactly when it matters. Assert the
+    # value too.
+    body_status = payload.get("status")
+    if "status" in required_keys and body_status not in ("ok", "healthy"):
+        return Probe(display_name, False, status, f"body status={body_status!r}", elapsed_ms)
+
     return Probe(display_name, True, status, f"ok keys={','.join(required_keys)}", elapsed_ms)
 
 
