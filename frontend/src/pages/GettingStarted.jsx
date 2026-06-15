@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   BookOpen, FileText, Users, Home, Video, CheckCircle2,
-  ArrowRight, Search, ShieldCheck, ClipboardList, HelpCircle
+  ArrowRight, Search, ShieldCheck, ClipboardList, HelpCircle, Camera
 } from 'lucide-react';
 
 const WORKFLOW_STEPS = [
@@ -59,6 +59,19 @@ const WIKI_SECTIONS = {
       'Serial numbers, labels, weights, wind zone, date of manufacture, and manufacturer address should be verified when the inventory feed is blank.',
       'Customer SSNs are masked in browser draft storage and should not be pasted into notes.',
       'Fresh Drive or Notion content should enter a review queue before it changes production inventory.',
+    ],
+  },
+  photos: {
+    label: 'Adding Photos',
+    icon: Camera,
+    items: [
+      'Open the Photos tab in the top menu (you must be logged in with the PIN or a passkey).',
+      'Step 1 — pick the home: type part of its name, then click it in the list.',
+      'Step 2 — add pictures: click the dashed box to choose photos, or drag them in. You can add several at once.',
+      'Step 3 — review: the first photo (marked "Main") is what customers see first; click "Make main" on any photo to feature it.',
+      'Tick "Show only homes that still need photos" to see exactly which homes are missing pictures.',
+      'Photos are auto-rotated and shrunk for the web, and appear on the public Inventory page within about a minute.',
+      'Full step-by-step with pictures: docs/team/photo-upload-guide.md.',
     ],
   },
   support: {
