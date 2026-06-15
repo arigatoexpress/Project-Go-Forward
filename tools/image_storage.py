@@ -61,6 +61,15 @@ _MAGIC_SIGNATURES: tuple[tuple[bytes, str], ...] = (
 
 MAX_PHOTO_BYTES = int(os.getenv("THO_MAX_PHOTO_BYTES", str(15 * 1024 * 1024)))  # 15 MB
 
+# Server-side image processing: auto-rotate by EXIF, downscale very large
+# uploads, and strip metadata so the public site stays fast and photos display
+# the right way up. Tunable via env; set THO_DISABLE_IMAGE_PROCESSING to skip.
+MAX_IMAGE_DIM = int(os.getenv("THO_MAX_IMAGE_DIM", "2400"))
+JPEG_QUALITY = int(os.getenv("THO_JPEG_QUALITY", "85"))
+
+# content_type -> Pillow format string (gif is left untouched to preserve animation).
+_PIL_FORMATS = {"image/jpeg": "JPEG", "image/png": "PNG", "image/webp": "WEBP"}
+
 _EXT_TO_CONTENT_TYPE = {
     ".jpg": "image/jpeg",
     ".jpeg": "image/jpeg",
@@ -118,6 +127,45 @@ def detect_content_type(data: bytes, declared: str | None) -> str:
     raise PhotoValidationError(
         "File is not a recognized image (allowed: JPG, PNG, WebP, GIF)."
     )
+
+
+def process_image(data: bytes, content_type: str) -> bytes:
+    """Auto-orient, downscale, and strip metadata. Returns processed bytes.
+
+    Falls back to the original bytes if Pillow is unavailable, the format is
+    left untouched (GIF), or anything goes wrong — the upload must never fail
+    just because optimization did.
+    """
+    if os.getenv("THO_DISABLE_IMAGE_PROCESSING", "").lower() in {"1", "true", "yes"}:
+        return data
+    fmt = _PIL_FORMATS.get(content_type)
+    if fmt is None:  # gif / unknown — keep as-is
+        return data
+    try:
+        import io
+
+        from PIL import Image, ImageOps
+
+        with Image.open(io.BytesIO(data)) as img:
+            img = ImageOps.exif_transpose(img)  # honor camera rotation
+            if max(img.size) > MAX_IMAGE_DIM:
+                img.thumbnail((MAX_IMAGE_DIM, MAX_IMAGE_DIM), Image.LANCZOS)
+
+            out = io.BytesIO()
+            if fmt == "JPEG":
+                if img.mode not in ("RGB", "L"):
+                    img = img.convert("RGB")
+                img.save(out, format="JPEG", quality=JPEG_QUALITY, optimize=True, progressive=True)
+            elif fmt == "PNG":
+                img.save(out, format="PNG", optimize=True)
+            else:  # WEBP
+                img.save(out, format="WEBP", quality=JPEG_QUALITY, method=6)
+            processed = out.getvalue()
+        # Only keep the processed version if it actually parsed to something.
+        return processed or data
+    except Exception as exc:  # pragma: no cover - depends on Pillow/env
+        log.warning("Image processing skipped (%s); storing original", exc)
+        return data
 
 
 def safe_home_id(home_id: str) -> str:
@@ -207,6 +255,8 @@ def store_photo(
         )
     home = safe_home_id(home_id)
     content_type = detect_content_type(data, declared_content_type)
+    # Auto-orient / downscale / strip metadata (no-op fallback on failure).
+    data = process_image(data, content_type)
     filename = _build_filename(original_name, content_type)
 
     bucket = _get_bucket()
