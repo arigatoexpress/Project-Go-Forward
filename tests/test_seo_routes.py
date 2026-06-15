@@ -204,8 +204,8 @@ def test_legacy_vendor_pages_301_to_relevant_targets(monkeypatch):
         "/tru-homes/": "/inventory",                        # brand
         "/manufactured-homes-in-jasper-tx/": "/inventory",  # unserved city (still legacy 301)
         "/single-wide/": "/inventory",                       # category
-        "/financing/": "/contact",                           # info
-        "/about-us/": "/contact",
+        "/financing/": "/financing",                         # now a real public page
+        "/about-us/": "/about",                              # now a real public page
         "/accessibility-statement/": "/",                    # boilerplate
     }
     for path, target in cases.items():
@@ -215,7 +215,7 @@ def test_legacy_vendor_pages_301_to_relevant_targets(monkeypatch):
     # Case-insensitive + slashless variants resolve the same.
     response = client.get("/Financing", follow_redirects=False)
     assert response.status_code == 301
-    assert response.headers["location"] == "/contact"
+    assert response.headers["location"] == "/financing"
     # A genuinely unknown marketing path is NOT over-broadly caught — still 404.
     response = client.get("/totally-made-up-page/", follow_redirects=False)
     assert response.status_code == 404
@@ -258,13 +258,69 @@ def test_admin_routes_are_noindex_but_200(monkeypatch):
 def test_public_routes_have_unique_titles_and_canonicals(monkeypatch):
     client, _ = seo_client(monkeypatch)
     titles = {}
-    for path in ("/", "/inventory", "/contact", "/appointments"):
+    for path in (
+        "/", "/inventory", "/contact", "/appointments",
+        "/about", "/financing", "/faq", "/warranty", "/delivery",
+    ):
         body = client.get(path).text
         title = re.search(r"<title>(.*?)</title>", body, re.DOTALL).group(1)
         titles[path] = title
         canonical = re.search(r'rel="canonical" href="([^"]+)"', body).group(1)
         assert canonical.endswith(path if path != "/" else "/"), path
     assert len(set(titles.values())) == len(titles), "titles must be unique per route"
+
+
+def test_trust_content_pages_have_crawlable_blocks(monkeypatch):
+    client, _ = seo_client(monkeypatch)
+    cases = {
+        "/about": "About Texas Home Outlet",
+        "/financing": "Financing Options at Texas Home Outlet",
+        "/faq": "Frequently Asked Questions",
+        "/warranty": "Warranty &amp; Service",
+        "/delivery": "Delivery &amp; Setup",
+    }
+    for path, h1_snippet in cases.items():
+        body = client.get(path).text
+        assert f"<h1>{h1_snippet}" in body, path
+        assert '"@type": "LocalBusiness"' in body, path
+        assert "noindex" not in body, path
+
+
+def test_faq_page_emits_faqpage_jsonld(monkeypatch):
+    client, _ = seo_client(monkeypatch)
+    body = client.get("/faq").text
+    faq_pages = [
+        json.loads(b)
+        for b in re.findall(r'<script type="application/ld\+json">(.*?)</script>', body, re.DOTALL)
+        if '"FAQPage"' in b
+    ]
+    assert faq_pages, "FAQPage JSON-LD missing"
+    entities = faq_pages[0].get("mainEntity", [])
+    assert len(entities) >= 5, "expected at least 5 FAQ entries"
+    assert all(e.get("@type") == "Question" for e in entities)
+    assert all(e.get("acceptedAnswer", {}).get("@type") == "Answer" for e in entities)
+
+
+def test_legacy_about_us_redirects_to_new_about_page(monkeypatch):
+    client, _ = seo_client(monkeypatch)
+    response = client.get("/about-us", follow_redirects=False)
+    assert response.status_code == 301
+    assert response.headers["location"] == "/about"
+
+
+def test_legacy_financing_trailing_slash_redirects_to_public_page(monkeypatch):
+    client, _ = seo_client(monkeypatch)
+    # "/financing/" should canonicalize to the real "/financing" public page.
+    response = client.get("/financing/", follow_redirects=False)
+    assert response.status_code == 301
+    assert response.headers["location"] == "/financing"
+
+
+def test_trust_content_pages_listed_in_sitemap(monkeypatch):
+    client, _ = seo_client(monkeypatch)
+    body = client.get("/sitemap.xml").text
+    for path in ("/about", "/financing", "/faq", "/warranty", "/delivery"):
+        assert f"{path}</loc>" in body, path
 
 
 def test_llms_txt_has_noindex_header(monkeypatch):
