@@ -76,6 +76,8 @@ def _wire_fake_data(monkeypatch, *, leads=None, appts=None, collections=None):
         ops_copilot, "_appointment_manager", lambda pid: _FakeApptManager(appts or [])
     )
     monkeypatch.setattr(ops_copilot, "_get_db", lambda: _FakeDB(collections or {}))
+    # Keep the snapshot hermetic — don't read the real legacy snapshot file.
+    monkeypatch.setattr(ops_copilot, "_load_inventory_snapshot", lambda: None)
 
 
 # --------------------------------------------------------------------------- #
@@ -148,6 +150,65 @@ def test_snapshot_fault_isolation(monkeypatch):
     assert snap["leads"] == {"error": "unavailable"}
     assert snap["inventory"]["by_status"] == {"available": 1}
     assert snap["appointments"]["total"] == 0
+
+
+# --------------------------------------------------------------------------- #
+# Inventory freshness (surfaces the legacy-snapshot age to staff)
+# --------------------------------------------------------------------------- #
+def test_inventory_freshness_flags_stale_snapshot(monkeypatch):
+    from datetime import UTC, datetime, timedelta
+
+    old = (datetime.now(UTC) - timedelta(days=400)).isoformat()
+    monkeypatch.setattr(
+        ops_copilot,
+        "_load_inventory_snapshot",
+        lambda: {"source": "legacy_site_snapshot", "retrieved_at": old, "homes": [1, 2, 3]},
+    )
+    fresh = ops_copilot.get_inventory_freshness()
+    assert fresh["available"] is True
+    assert fresh["stale"] is True
+    assert fresh["age_days"] >= 14
+    assert fresh["total_homes"] == 3
+    assert fresh["source"] == "legacy_site_snapshot"
+
+
+def test_inventory_freshness_not_stale_when_recent(monkeypatch):
+    from datetime import UTC, datetime, timedelta
+
+    recent = (datetime.now(UTC) - timedelta(days=2)).isoformat()
+    monkeypatch.setattr(
+        ops_copilot,
+        "_load_inventory_snapshot",
+        lambda: {"source": "legacy_site_snapshot", "retrieved_at": recent, "homes": [1]},
+    )
+    fresh = ops_copilot.get_inventory_freshness()
+    assert fresh["stale"] is False and fresh["age_days"] == 2
+
+
+def test_inventory_freshness_unavailable_without_snapshot(monkeypatch):
+    monkeypatch.setattr(ops_copilot, "_load_inventory_snapshot", lambda: None)
+    assert ops_copilot.get_inventory_freshness() == {"available": False}
+
+
+def test_inventory_freshness_tolerates_bad_timestamp(monkeypatch):
+    monkeypatch.setattr(
+        ops_copilot,
+        "_load_inventory_snapshot",
+        lambda: {"source": "x", "retrieved_at": "not-a-date", "homes": []},
+    )
+    fresh = ops_copilot.get_inventory_freshness()
+    assert fresh["available"] is True
+    assert fresh["age_days"] is None and fresh["stale"] is None
+
+
+def test_snapshot_includes_inventory_freshness(monkeypatch):
+    import asyncio
+
+    _wire_fake_data(monkeypatch, leads=[_FakeLead("new")])
+    # _wire_fake_data sets _load_inventory_snapshot -> None, so freshness is unavailable.
+    snap = asyncio.run(ops_copilot.get_business_snapshot())
+    assert "inventory_freshness" in snap
+    assert snap["inventory_freshness"] == {"available": False}
 
 
 # --------------------------------------------------------------------------- #
