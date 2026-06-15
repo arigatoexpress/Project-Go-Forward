@@ -85,6 +85,9 @@ The **first** photo, marked with a blue **★ Main** badge, is the big picture
 customers see first on the website. To feature a different one, hover over (or
 tap) any other photo and click **"★ Make main."** It jumps to the front.
 
+To fine-tune the gallery order, use the **‹ ›** arrows in the bottom-right of
+each photo to nudge it earlier or later.
+
 ### 7. (Optional) Remove a photo
 
 Under **"Photos on this home,"** hover over (or tap) a picture and click the
