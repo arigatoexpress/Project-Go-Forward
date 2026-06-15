@@ -53,6 +53,10 @@ export default defineConfig({
           '**/AdStudio-*.{js,css}',
           '**/studio-*.js',
           '**/downloadAdminFile-*.js',
+          // recharts (~392 KB / 114 KB gz) is used only by the admin Analytics +
+          // CRM pages (both lazy-loaded), so public buyers never need it. Keep it
+          // out of the precache — admins still fetch it from network at runtime.
+          '**/vendor-recharts-*.js',
         ],
 
         // No navigation fallback: uncached navigations go to network, giving a
