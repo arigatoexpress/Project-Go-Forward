@@ -52,13 +52,27 @@ function useFocusTrap(ref) {
 }
 
 // ─── Analytics helper ───
-function trackEvent(event, data = {}) {
+// Fire-and-forget to the dedicated /api/analytics sink. Previously this POSTed
+// to /api/contact, which validates name/phone and silently rejected every
+// event (the whole client event stream was lost). sendBeacon survives page
+// unload and never blocks; fetch+keepalive is the fallback.
+export function trackEvent(event, data = {}) {
   try {
-    fetch('/api/contact', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ _event: event, ...data }),
-    }).catch(() => {}); // fire and forget
+    const payload = JSON.stringify({
+      event,
+      ...data,
+      path: typeof window !== 'undefined' ? window.location.pathname : undefined,
+    });
+    if (typeof navigator !== 'undefined' && navigator.sendBeacon) {
+      navigator.sendBeacon('/api/analytics', new Blob([payload], { type: 'application/json' }));
+    } else {
+      fetch('/api/analytics', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: payload,
+        keepalive: true,
+      }).catch(() => {});
+    }
   } catch {
     // Analytics should never interrupt the browsing flow.
   }

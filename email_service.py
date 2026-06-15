@@ -111,7 +111,9 @@ def _log_email_activity(to: str, subject: str, email_type: str, related_id: str 
             }
         )
     except Exception as e:
-        logger.warning(f"Failed to log email activity: {e}")
+        logger.warning(
+            "Failed to log email activity (to=%s type=%s): %s", to, email_type, e
+        )
 
 
 # ── Send Email (core) ──────────────────────────────────────────
