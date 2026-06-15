@@ -2,6 +2,7 @@
 
 Focus: notion-bridge workstream (Delivery Tracker & CS surveys).
 """
+
 from __future__ import annotations
 
 import sys
@@ -134,7 +135,9 @@ async def test_installations_recent_filters_by_hours_and_excludes_pii(patch_db):
                 "buyer_phone": "555-0000",
             },
         ),
-        FakeDocSnapshot("sr-old", {"status": "open", "issue_type": "electrical", "created_at": old.isoformat()}),
+        FakeDocSnapshot(
+            "sr-old", {"status": "open", "issue_type": "electrical", "created_at": old.isoformat()}
+        ),
     ]
     result = await mr.mira_installations_recent(None, hours=24, limit=10)
     assert result["status"] == "healthy"
@@ -186,7 +189,15 @@ async def test_feedback_recent_filters_by_hours_and_excludes_comments(patch_db):
                 "comment": "The installer called me at 555-0000",
             },
         ),
-        FakeDocSnapshot("fb-old", {"rating": 2, "sentiment": "negative", "source": "email", "created_at": old.isoformat()}),
+        FakeDocSnapshot(
+            "fb-old",
+            {
+                "rating": 2,
+                "sentiment": "negative",
+                "source": "email",
+                "created_at": old.isoformat(),
+            },
+        ),
     ]
     result = await mr.mira_feedback_recent(None, hours=24, limit=10)
     assert result["status"] == "healthy"
@@ -195,3 +206,165 @@ async def test_feedback_recent_filters_by_hours_and_excludes_comments(patch_db):
     assert item["id"] == "fb-new"
     assert item["deal_id"] == "deal-789"
     assert "comment" not in item
+
+
+# --------------------------------------------------------------------------- #
+# Source selection: Notion (when configured) vs Firestore (default)
+# --------------------------------------------------------------------------- #
+@pytest.fixture
+def force_firestore(monkeypatch):
+    """Pin both Notion sources OFF so the Firestore path is exercised."""
+    monkeypatch.setattr(mr.notion_client, "is_installations_configured", lambda: False)
+    monkeypatch.setattr(mr.notion_client, "is_feedback_configured", lambda: False)
+
+
+@pytest.mark.asyncio
+async def test_installations_summary_reports_firestore_source(patch_db, force_firestore):
+    patch_db["service_requests"] = [FakeDocSnapshot("sr-1", {"status": "open"})]
+    result = await mr.mira_installations_summary(None)
+    assert result["source"] == "firestore"
+    assert result["by_status"] == {"open": 1}
+
+
+@pytest.mark.asyncio
+async def test_installations_recent_reports_firestore_source(patch_db, force_firestore):
+    now = datetime.now(UTC)
+    patch_db["service_requests"] = [
+        FakeDocSnapshot(
+            "sr-1", {"status": "open", "issue_type": "hvac", "created_at": now.isoformat()}
+        ),
+    ]
+    result = await mr.mira_installations_recent(None, hours=24, limit=10)
+    assert result["source"] == "firestore"
+    assert result["count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_feedback_summary_reports_firestore_source(patch_db, force_firestore):
+    patch_db["feedback"] = [FakeDocSnapshot("fb-1", {"rating": 5, "sentiment": "positive"})]
+    result = await mr.mira_feedback_summary(None)
+    assert result["source"] == "firestore"
+    assert result["total"] == 1
+
+
+@pytest.mark.asyncio
+async def test_feedback_recent_reports_firestore_source(patch_db, force_firestore):
+    now = datetime.now(UTC)
+    patch_db["feedback"] = [
+        FakeDocSnapshot(
+            "fb-1",
+            {
+                "rating": 4,
+                "sentiment": "positive",
+                "source": "email",
+                "created_at": now.isoformat(),
+            },
+        ),
+    ]
+    result = await mr.mira_feedback_recent(None, hours=24, limit=10)
+    assert result["source"] == "firestore"
+    assert result["count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_installations_summary_uses_notion_when_configured(monkeypatch):
+    monkeypatch.setattr(mr.notion_client, "is_installations_configured", lambda: True)
+    monkeypatch.setattr(
+        mr.notion_client,
+        "fetch_installations",
+        lambda limit=50: [{"status": "open"}, {"status": "open"}, {"status": "resolved"}],
+    )
+    # If Firestore were touched it would error loudly; make sure it isn't.
+    monkeypatch.setattr(
+        mr, "get_database", lambda: (_ for _ in ()).throw(AssertionError("firestore touched"))
+    )
+    result = await mr.mira_installations_summary(None)
+    assert result["status"] == "healthy"
+    assert result["source"] == "notion"
+    assert result["total"] == 3
+    assert result["by_status"] == {"open": 2, "resolved": 1}
+
+
+@pytest.mark.asyncio
+async def test_installations_recent_uses_notion_when_configured(monkeypatch):
+    now = datetime.now(UTC)
+    old = now - timedelta(hours=48)
+    monkeypatch.setattr(mr.notion_client, "is_installations_configured", lambda: True)
+    monkeypatch.setattr(
+        mr.notion_client,
+        "fetch_installations",
+        lambda limit=50: [
+            {
+                "id": "n-1",
+                "status": "in_progress",
+                "issue_type": "plumbing",
+                "is_warranty_claim": True,
+                "warranty_status": "covered",
+                "assigned_contractor": "Acme",
+                "created_at": now.isoformat(),
+                "deal_id": "deal-1",
+            },
+            {"id": "n-old", "status": "open", "issue_type": "hvac", "created_at": old.isoformat()},
+        ],
+    )
+    monkeypatch.setattr(
+        mr, "get_database", lambda: (_ for _ in ()).throw(AssertionError("firestore touched"))
+    )
+    result = await mr.mira_installations_recent(None, hours=24, limit=10)
+    assert result["source"] == "notion"
+    assert result["count"] == 1
+    item = result["items"][0]
+    assert item["id"] == "n-1"
+    assert item["issue_type"] == "plumbing"
+    assert item["deal_id"] == "deal-1"
+
+
+@pytest.mark.asyncio
+async def test_feedback_summary_uses_notion_when_configured(monkeypatch):
+    monkeypatch.setattr(mr.notion_client, "is_feedback_configured", lambda: True)
+    monkeypatch.setattr(
+        mr.notion_client,
+        "fetch_feedback",
+        lambda limit=50: [
+            {"rating": 5, "sentiment": "positive"},
+            {"rating": 4, "sentiment": "positive"},
+            {"rating": None, "sentiment": "negative"},
+        ],
+    )
+    monkeypatch.setattr(
+        mr, "get_database", lambda: (_ for _ in ()).throw(AssertionError("firestore touched"))
+    )
+    result = await mr.mira_feedback_summary(None)
+    assert result["source"] == "notion"
+    assert result["total"] == 3
+    # rating=None row is not counted toward rating_counts
+    assert result["rating_counts"] == {5: 1, 4: 1}
+    assert result["sentiment_counts"] == {"positive": 2, "negative": 1}
+
+
+@pytest.mark.asyncio
+async def test_feedback_recent_uses_notion_when_configured(monkeypatch):
+    now = datetime.now(UTC)
+    monkeypatch.setattr(mr.notion_client, "is_feedback_configured", lambda: True)
+    monkeypatch.setattr(
+        mr.notion_client,
+        "fetch_feedback",
+        lambda limit=50: [
+            {
+                "id": "nf-1",
+                "rating": 5,
+                "sentiment": "positive",
+                "source": "post-install-survey",
+                "created_at": now.isoformat(),
+                "deal_id": "deal-9",
+            },
+        ],
+    )
+    monkeypatch.setattr(
+        mr, "get_database", lambda: (_ for _ in ()).throw(AssertionError("firestore touched"))
+    )
+    result = await mr.mira_feedback_recent(None, hours=24, limit=10)
+    assert result["source"] == "notion"
+    assert result["count"] == 1
+    assert result["items"][0]["id"] == "nf-1"
+    assert result["items"][0]["deal_id"] == "deal-9"

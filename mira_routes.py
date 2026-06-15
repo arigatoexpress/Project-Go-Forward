@@ -13,6 +13,7 @@ To integrate:
        set_mira_refs(_app_start_time, _metrics_store)
   3. Mira queries with: Authorization: Bearer <THO_API_KEY_MIRA>
 """
+
 from __future__ import annotations
 
 import os
@@ -28,6 +29,7 @@ from config_loader import get_deployment_config
 from database.firestore_client import get_database
 from lead_management import LeadManager
 from structured_logging import logger as struct_logger
+from tools import notion_client
 from tools.partner_webhooks import dispatch_partner_event
 
 router = APIRouter(prefix="/api/v1/mira", tags=["mira"])
@@ -148,7 +150,8 @@ async def mira_system(request: Request) -> dict:
         "environment": os.environ.get("K_SERVICE") or "local",
         "platform": "cloud_run" if os.environ.get("K_SERVICE") else "local",
         "rate_limit_rpm": int(os.environ.get("RATE_LIMIT_RPM", "60")),
-        "project_id": os.environ.get("GOOGLE_CLOUD_PROJECT") or deploy_cfg.get("project_id", "tho-ai-agent"),
+        "project_id": os.environ.get("GOOGLE_CLOUD_PROJECT")
+        or deploy_cfg.get("project_id", "tho-ai-agent"),
         "env_status": env_status,
         "timestamp": _now_iso(),
     }
@@ -204,7 +207,8 @@ async def mira_leads_recent(request: Request, hours: int = 24, limit: int = 50) 
                 "created_at": lead.created_at,
             }
             for lead in leads
-            if lead.created_at and datetime.fromisoformat(lead.created_at.replace("Z", "+00:00")) >= cutoff
+            if lead.created_at
+            and datetime.fromisoformat(lead.created_at.replace("Z", "+00:00")) >= cutoff
         ]
         recent.sort(key=lambda x: x["created_at"], reverse=True)
         return {
@@ -350,12 +354,25 @@ async def mira_inventory_summary(request: Request) -> dict:
 
 @router.get("/installations/summary")
 async def mira_installations_summary(request: Request) -> dict:
-    """Installation/service request summary — counts by status, no PII."""
+    """Installation/service request summary — counts by status, no PII.
+
+    Sources from the Notion Delivery Tracker when configured
+    (``NOTION_TOKEN`` + ``NOTION_DELIVERY_TRACKER_DB_ID``), otherwise from the
+    Firestore ``service_requests`` collection. The aggregation is identical
+    either way; ``source`` reports which backend served the response.
+    """
     try:
-        by_status = _count_collection_by_status("service_requests", "status")
+        if notion_client.is_installations_configured():
+            source = "notion"
+            rows = notion_client.fetch_installations(limit=1000)
+            by_status = dict(Counter(r.get("status", "UNKNOWN") for r in rows))
+        else:
+            source = "firestore"
+            by_status = _count_collection_by_status("service_requests", "status")
         return {
             "status": "healthy",
             "timestamp": _now_iso(),
+            "source": source,
             "total": sum(by_status.values()),
             "by_status": by_status,
         }
@@ -372,30 +389,56 @@ async def mira_installations_recent(request: Request, hours: int = 24, limit: in
     omits customer PII.
     """
     try:
-        db = get_database().db
         cutoff = datetime.now(UTC) - timedelta(hours=max(1, min(hours, 168)))
-        docs = db.collection("service_requests").order_by("created_at", direction="DESCENDING").limit(limit).stream()
         items = []
-        for doc in docs:
-            data = doc.to_dict()
-            created = _parse_timestamp(data.get("created_at"))
-            if created and created >= cutoff:
-                item: dict[str, Any] = {
-                    "id": doc.id,
-                    "status": data.get("status", "UNKNOWN"),
-                    "issue_type": data.get("issue_type", "UNKNOWN"),
-                    "is_warranty_claim": bool(data.get("is_warranty_claim", False)),
-                    "warranty_status": data.get("warranty_status"),
-                    "assigned_contractor": data.get("assigned_contractor"),
-                    "created_at": created.isoformat(),
-                    "updated_at": _parse_timestamp(data.get("updated_at")),
-                }
-                if data.get("deal_id"):
-                    item["deal_id"] = data["deal_id"]
-                items.append({k: v for k, v in item.items() if v is not None})
+        if notion_client.is_installations_configured():
+            source = "notion"
+            for data in notion_client.fetch_installations(limit=limit):
+                created = _parse_timestamp(data.get("created_at"))
+                if created and created >= cutoff:
+                    item: dict[str, Any] = {
+                        "id": data.get("id", ""),
+                        "status": data.get("status", "UNKNOWN"),
+                        "issue_type": data.get("issue_type", "UNKNOWN"),
+                        "is_warranty_claim": bool(data.get("is_warranty_claim", False)),
+                        "warranty_status": data.get("warranty_status"),
+                        "assigned_contractor": data.get("assigned_contractor"),
+                        "created_at": created.isoformat(),
+                        "updated_at": _parse_timestamp(data.get("updated_at")),
+                    }
+                    if data.get("deal_id"):
+                        item["deal_id"] = data["deal_id"]
+                    items.append({k: v for k, v in item.items() if v is not None})
+        else:
+            source = "firestore"
+            db = get_database().db
+            docs = (
+                db.collection("service_requests")
+                .order_by("created_at", direction="DESCENDING")
+                .limit(limit)
+                .stream()
+            )
+            for doc in docs:
+                data = doc.to_dict()
+                created = _parse_timestamp(data.get("created_at"))
+                if created and created >= cutoff:
+                    item = {
+                        "id": doc.id,
+                        "status": data.get("status", "UNKNOWN"),
+                        "issue_type": data.get("issue_type", "UNKNOWN"),
+                        "is_warranty_claim": bool(data.get("is_warranty_claim", False)),
+                        "warranty_status": data.get("warranty_status"),
+                        "assigned_contractor": data.get("assigned_contractor"),
+                        "created_at": created.isoformat(),
+                        "updated_at": _parse_timestamp(data.get("updated_at")),
+                    }
+                    if data.get("deal_id"):
+                        item["deal_id"] = data["deal_id"]
+                    items.append({k: v for k, v in item.items() if v is not None})
         return {
             "status": "healthy",
             "timestamp": _now_iso(),
+            "source": source,
             "hours": hours,
             "count": len(items),
             "items": items,
@@ -436,23 +479,40 @@ async def mira_customers_summary(request: Request) -> dict:
 
 @router.get("/feedback/summary")
 async def mira_feedback_summary(request: Request) -> dict:
-    """Customer feedback summary — counts by sentiment/rating if available, no PII."""
+    """Customer feedback summary — counts by sentiment/rating if available, no PII.
+
+    Sources from the Notion CS survey database when configured
+    (``NOTION_TOKEN`` + ``NOTION_CS_SURVEY_DB_ID``), otherwise from the
+    Firestore ``feedback`` collection. The aggregation is identical either way;
+    ``source`` reports which backend served the response.
+    """
     try:
-        db = get_database().db
-        docs = db.collection("feedback").stream()
         ratings = []
         sentiments = []
         total = 0
-        for doc in docs:
-            data = doc.to_dict()
-            total += 1
-            if "rating" in data:
-                ratings.append(data["rating"])
-            if "sentiment" in data:
-                sentiments.append(data["sentiment"])
+        if notion_client.is_feedback_configured():
+            source = "notion"
+            for data in notion_client.fetch_feedback(limit=1000):
+                total += 1
+                if data.get("rating") is not None:
+                    ratings.append(data["rating"])
+                if data.get("sentiment") is not None:
+                    sentiments.append(data["sentiment"])
+        else:
+            source = "firestore"
+            db = get_database().db
+            docs = db.collection("feedback").stream()
+            for doc in docs:
+                data = doc.to_dict()
+                total += 1
+                if "rating" in data:
+                    ratings.append(data["rating"])
+                if "sentiment" in data:
+                    sentiments.append(data["sentiment"])
         return {
             "status": "healthy",
             "timestamp": _now_iso(),
+            "source": source,
             "total": total,
             "rating_counts": dict(Counter(ratings)) if ratings else {},
             "sentiment_counts": dict(Counter(sentiments)) if sentiments else {},
@@ -470,27 +530,50 @@ async def mira_feedback_recent(request: Request, hours: int = 24, limit: int = 5
     may contain PII.
     """
     try:
-        db = get_database().db
         cutoff = datetime.now(UTC) - timedelta(hours=max(1, min(hours, 168)))
-        docs = db.collection("feedback").order_by("created_at", direction="DESCENDING").limit(limit).stream()
         items = []
-        for doc in docs:
-            data = doc.to_dict()
-            created = _parse_timestamp(data.get("created_at"))
-            if created and created >= cutoff:
-                item: dict[str, Any] = {
-                    "id": doc.id,
-                    "rating": data.get("rating"),
-                    "sentiment": data.get("sentiment"),
-                    "source": data.get("source", "UNKNOWN"),
-                    "created_at": created.isoformat(),
-                }
-                if data.get("deal_id"):
-                    item["deal_id"] = data["deal_id"]
-                items.append({k: v for k, v in item.items() if v is not None})
+        if notion_client.is_feedback_configured():
+            source = "notion"
+            for data in notion_client.fetch_feedback(limit=limit):
+                created = _parse_timestamp(data.get("created_at"))
+                if created and created >= cutoff:
+                    item: dict[str, Any] = {
+                        "id": data.get("id", ""),
+                        "rating": data.get("rating"),
+                        "sentiment": data.get("sentiment"),
+                        "source": data.get("source", "UNKNOWN"),
+                        "created_at": created.isoformat(),
+                    }
+                    if data.get("deal_id"):
+                        item["deal_id"] = data["deal_id"]
+                    items.append({k: v for k, v in item.items() if v is not None})
+        else:
+            source = "firestore"
+            db = get_database().db
+            docs = (
+                db.collection("feedback")
+                .order_by("created_at", direction="DESCENDING")
+                .limit(limit)
+                .stream()
+            )
+            for doc in docs:
+                data = doc.to_dict()
+                created = _parse_timestamp(data.get("created_at"))
+                if created and created >= cutoff:
+                    item = {
+                        "id": doc.id,
+                        "rating": data.get("rating"),
+                        "sentiment": data.get("sentiment"),
+                        "source": data.get("source", "UNKNOWN"),
+                        "created_at": created.isoformat(),
+                    }
+                    if data.get("deal_id"):
+                        item["deal_id"] = data["deal_id"]
+                    items.append({k: v for k, v in item.items() if v is not None})
         return {
             "status": "healthy",
             "timestamp": _now_iso(),
+            "source": source,
             "hours": hours,
             "count": len(items),
             "items": items,
