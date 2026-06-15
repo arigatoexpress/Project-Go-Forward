@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, lazy, Suspense, useCallback } from 'react';
-import { Send, Home, Menu, X, Phone, MapPin, Loader2, User, Bot, FileText, Video, Lock, ShieldCheck, CalendarDays, Users, MessageSquare, MessageCircle, RotateCcw, WifiOff, Moon, Sun, KeyRound, Fingerprint, BookOpen, Activity, Camera } from 'lucide-react';
+import { Send, Home, Menu, X, Phone, MapPin, Loader2, User, Bot, FileText, Video, Lock, ShieldCheck, CalendarDays, Users, MessageSquare, MessageCircle, RotateCcw, WifiOff, Moon, Sun, KeyRound, Fingerprint, BookOpen, Activity, Camera, Sparkles } from 'lucide-react';
 import { useDarkMode } from './hooks/useDarkMode';
 import SafeMarkdown from './components/SafeMarkdown';
 import SearchFilters from './components/SearchFilters';
@@ -26,6 +26,7 @@ const Contact = lazy(() => import('./pages/Contact'));
 const Appointments = lazy(() => import('./pages/Appointments'));
 const CRM = lazy(() => import('./pages/CRM'));
 const ChatHistory = lazy(() => import('./pages/ChatHistory'));
+const OpsCopilot = lazy(() => import('./pages/OpsCopilot'));
 const SystemHub = lazy(() => import('./pages/SystemHub'));
 const GettingStarted = lazy(() => import('./pages/GettingStarted'));
 const SecureHub = lazy(() => import('./pages/SecureHub'));
@@ -70,6 +71,7 @@ function NavBar({
   ];
 
   const adminItems = adminAuthed ? [
+    { key: 'copilot', label: 'Ops Copilot', icon: Sparkles },
     { key: 'documents', label: 'Documents', icon: FileText },
     { key: 'photos', label: 'Photos', icon: Camera },
     { key: 'crm', label: 'CRM', icon: Users },
@@ -414,6 +416,7 @@ function App() {
     if (p.startsWith('/warranty')) return 'warranty';
     if (p.startsWith('/delivery')) return 'delivery';
     if (p.startsWith('/chat-history')) return 'chat-history';
+    if (p.startsWith('/copilot') || p.startsWith('/ops-copilot')) return 'copilot';
     if (p.startsWith('/chat')) return 'chat';
     if (p.startsWith('/inventory')) return 'inventory';
     // City landing pages (/manufactured-homes-in-{city}-tx) render the inventory.
@@ -1223,6 +1226,20 @@ function App() {
         <ErrorBoundary scope="chat-history">
           <Suspense fallback={<PageLoader />}>
             <ChatHistory />
+          </Suspense>
+        </ErrorBoundary>
+      </div>
+    );
+  }
+
+  if (activePage === 'copilot' && adminAuthed) {
+    return (
+      <div className="bg-[var(--cp-bg)] min-h-screen">
+        {appModals}
+        <NavBar {...navProps} />
+        <ErrorBoundary scope="copilot">
+          <Suspense fallback={<PageLoader />}>
+            <OpsCopilot />
           </Suspense>
         </ErrorBoundary>
       </div>
