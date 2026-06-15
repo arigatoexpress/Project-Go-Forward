@@ -204,6 +204,7 @@ def test_legacy_vendor_pages_301_to_relevant_targets(monkeypatch):
         "/tru-homes/": "/inventory",                        # brand
         "/manufactured-homes-in-jasper-tx/": "/inventory",  # unserved city (still legacy 301)
         "/single-wide/": "/inventory",                       # category
+        "/homes/": "/inventory",                             # generic legacy 'homes' landing
         "/financing/": "/financing",                         # now a real public page
         "/about-us/": "/about",                              # now a real public page
         "/accessibility-statement/": "/",                    # boilerplate

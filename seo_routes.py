@@ -170,6 +170,7 @@ _LEGACY_VENDOR_REDIRECTS: dict[str, str] = {
     "/tiny-homes-cabin": "/inventory",
     "/red-tag-sales": "/inventory",
     "/floor-plans": "/inventory",
+    "/homes": "/inventory",
     # Info / contact pages -> contact or new trust pages.
     "/about-us": "/about",
     "/contact-us": "/contact",
