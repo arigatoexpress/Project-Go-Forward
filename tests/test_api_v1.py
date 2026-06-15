@@ -843,6 +843,78 @@ def test_marketing_inventory_context_appends_orderable_catalog_to_live_inventory
     assert data["homes"][1]["is_orderable"] is True
 
 
+def _isolate_inventory_merge(monkeypatch, main):
+    """Passthrough the floorplan merge / photo overlay so inventory-context
+    source-selection tests assert which SOURCE wins, not merge internals."""
+    monkeypatch.setattr(main, "merge_orderable_floorplan_catalog", lambda result, **k: result)
+    monkeypatch.setattr(main, "_overlay_staff_photos", lambda homes: None)
+    monkeypatch.setattr(
+        main, "load_legacy_floorplan_catalog_context", lambda **k: {"success": False, "homes": []}
+    )
+    monkeypatch.setattr(main, "PROPERTY_ASSETS", {})
+
+
+_LEGACY_CTX = {
+    "success": True,
+    "source": "legacy_site_live",
+    "homes": [{"id": "legacy-1", "model_name": "Legacy Home", "real_photos": ["https://x/a.jpg"]}],
+    "total_inventory": 1,
+}
+_FS_CTX = {
+    "success": True,
+    "homes": [{"id": "fs-1", "model_name": "FS Home", "real_photos": ["https://x/b.jpg"]}],
+    "total_inventory": 1,
+}
+
+
+def test_inventory_context_defaults_to_legacy_source(monkeypatch):
+    """No INVENTORY_SOURCE set -> legacy snapshot wins (behavior unchanged)."""
+    client, main, _db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
+    monkeypatch.delenv("INVENTORY_SOURCE", raising=False)
+    _isolate_inventory_merge(monkeypatch, main)
+    monkeypatch.setattr(main, "load_legacy_inventory_context", lambda **k: dict(_LEGACY_CTX))
+    monkeypatch.setattr(main, "get_inventory_for_ads", lambda **k: dict(_FS_CTX))
+
+    data = client.get("/api/marketing/inventory-context").json()
+    assert [h["id"] for h in data["homes"]] == ["legacy-1"]
+
+
+def test_inventory_context_firestore_source_serves_firestore(monkeypatch):
+    """INVENTORY_SOURCE=firestore -> staff-managed Firestore inventory wins."""
+    client, main, _db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
+    monkeypatch.setenv("INVENTORY_SOURCE", "firestore")
+    _isolate_inventory_merge(monkeypatch, main)
+    monkeypatch.setattr(main, "load_legacy_inventory_context", lambda **k: dict(_LEGACY_CTX))
+    monkeypatch.setattr(main, "get_inventory_for_ads", lambda **k: dict(_FS_CTX))
+
+    data = client.get("/api/marketing/inventory-context").json()
+    assert [h["id"] for h in data["homes"]] == ["fs-1"]
+
+
+def test_inventory_context_auto_falls_back_to_legacy_when_firestore_empty(monkeypatch):
+    """auto + empty Firestore -> legacy snapshot, NOT the website-asset catalog."""
+    client, main, _db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
+    monkeypatch.setenv("INVENTORY_SOURCE", "auto")
+    _isolate_inventory_merge(monkeypatch, main)
+    monkeypatch.setattr(main, "load_legacy_inventory_context", lambda **k: dict(_LEGACY_CTX))
+    monkeypatch.setattr(main, "get_inventory_for_ads", lambda **k: {"success": True, "homes": []})
+
+    data = client.get("/api/marketing/inventory-context").json()
+    assert [h["id"] for h in data["homes"]] == ["legacy-1"]
+
+
+def test_inventory_context_auto_prefers_firestore_when_populated(monkeypatch):
+    """auto + >= min Firestore homes -> Firestore wins (the unfreeze)."""
+    client, main, _db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
+    monkeypatch.setenv("INVENTORY_SOURCE", "auto")
+    _isolate_inventory_merge(monkeypatch, main)
+    monkeypatch.setattr(main, "load_legacy_inventory_context", lambda **k: dict(_LEGACY_CTX))
+    monkeypatch.setattr(main, "get_inventory_for_ads", lambda **k: dict(_FS_CTX))
+
+    data = client.get("/api/marketing/inventory-context").json()
+    assert [h["id"] for h in data["homes"]] == ["fs-1"]
+
+
 def test_marketing_readiness_routes_are_admin_protected(monkeypatch):
     client, main, _db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
     token = main._create_admin_token()

@@ -4200,115 +4200,177 @@ def _overlay_staff_photos(homes: list[dict]) -> None:
         home["has_staff_photos"] = True
 
 
-@app.get("/api/marketing/inventory-context")
-@limiter.limit("30/minute")
-async def api_inventory_context(request: Request):
-    """Get inventory highlights for ad creation and the public browse page."""
+def _inventory_source_pref() -> str:
+    """How the public inventory endpoint chooses its source.
+
+    - ``legacy`` (default): legacy snapshot first, Firestore as fallback — the
+      original behavior, safe to ship before the in-app store is seeded.
+    - ``firestore``: serve staff-managed Firestore inventory; snapshot is used
+      only when Firestore has no homes.
+    - ``auto``: serve Firestore when it has >= INVENTORY_FIRESTORE_MIN_HOMES
+      homes, else the snapshot.
+
+    Flip with the ``INVENTORY_SOURCE`` env var (no redeploy needed); revert
+    instantly with ``INVENTORY_SOURCE=legacy``. This is the rollout switch for
+    moving inventory in-app: ship legacy-default, seed Firestore, verify, flip.
+    """
+    value = (os.getenv("INVENTORY_SOURCE", "legacy") or "legacy").strip().lower()
+    return value if value in ("legacy", "firestore", "auto") else "legacy"
+
+
+def _inventory_firestore_min_homes() -> int:
+    """Minimum real Firestore homes before ``auto`` prefers Firestore."""
     try:
-        # Public browse/Ad Studio should mirror the customer's active legacy
-        # inventory, not stale Firestore/static seed rows. The crawler is
-        # cached and Firestore-free; if the public site is unavailable, the
-        # old Firestore/asset path below remains a graceful fallback.
-        legacy_result = load_legacy_inventory_context(limit=100)
-        if legacy_result.get("success") and legacy_result.get("homes"):
-            floorplan_result = load_legacy_floorplan_catalog_context(limit=500)
-            merged = merge_orderable_floorplan_catalog(
-                legacy_result,
-                assets=PROPERTY_ASSETS,
-                floorplan_context=floorplan_result
-                if floorplan_result.get("success") and floorplan_result.get("homes")
-                else None,
-            )
-            _overlay_staff_photos(merged.get("homes", []))
-            return merged
-        if legacy_result.get("error"):
-            struct_logger.warning(
-                "Legacy inventory context unavailable",
-                error=legacy_result.get("error"),
-            )
+        return max(1, int(os.getenv("INVENTORY_FIRESTORE_MIN_HOMES", "1")))
+    except ValueError:
+        return 1
 
-        from tools.asset_scraper import get_assets_for_home
 
-        # Fallback for local/offline operation and legacy admin data. This path
-        # should not win when the public legacy site can be read successfully.
-        result = get_inventory_for_ads(limit=100)
-        firestore_homes = result.get("homes", [])
+def _legacy_inventory_context() -> dict | None:
+    """Public inventory response from the legacy snapshot, or None if it's empty.
 
-        # Enrich Firestore homes with asset catalog images only when they lack
-        # non-floorplan photos. Floorplan-only listings used to pass this gate
-        # because `real_photos` was non-empty; the classifier now makes the
-        # distinction explicit before and after enrichment.
-        for home in firestore_homes:
-            apply_classifier_to_home(home)
-            if not has_real_photo(home):
-                asset = get_assets_for_home(home.get("model_name", ""))
-                if asset:
-                    asset_images = asset.get("images") or []
-                    if asset_images:
-                        existing = home.get("real_photos") or home.get("gallery_images") or []
-                        home["real_photos"] = [*existing, *asset_images]
-                        home["gallery_images"] = [*existing, *asset_images][:3]
-                    if asset.get("image_categories"):
-                        home["image_categories"] = asset.get("image_categories", {})
-                    home["floor_plan_url"] = home.get("floor_plan_url") or asset.get("floor_plan")
-                    if asset.get("matterport_id") and not home.get("matterport_id"):
-                        home["matterport_id"] = asset["matterport_id"]
-                        home["matterport_url"] = get_matterport_url(asset["matterport_id"])
-                    apply_classifier_to_home(home)
-        website_homes = []
-        if not firestore_homes:
-            for slug, asset in PROPERTY_ASSETS.items():
-                home_data = {
-                    "id": slug,
-                    "source_catalog_slug": slug,
-                    "model_name": asset["name"],
-                    "manufacturer": asset.get("manufacturer", "New Vision Manufacturing"),
-                    "classification": "Manufactured Home",
-                    "status": "Available" if asset.get("is_new") else "Pre-Owned",
-                    "inventory_kind": "orderable_floorplan" if asset.get("is_new") else "pre_owned",
-                    "display_price": "Call for Price",
-                    "price_value": 0,
-                    "specs": {
-                        "beds": asset.get("beds"),
-                        "baths": asset.get("baths"),
-                        "sq_ft": asset.get("sqft"),
-                        "dimensions": asset.get("dims"),
-                    },
-                    "features": [],
-                    "image_url": (asset.get("images") or [""])[0],
-                    "gallery_images": asset.get("images", [])[:3],
-                    "real_photos": asset.get("images", []),
-                    "image_categories": asset.get("image_categories", {}),
-                    "floor_plan_url": asset.get("floor_plan"),
-                    "matterport_id": asset.get("matterport_id"),
-                    "matterport_url": get_matterport_url(asset["matterport_id"])
-                    if asset.get("matterport_id")
-                    else None,
-                }
-                website_homes.append(home_data)
-            result["homes"] = website_homes
-            result["total_inventory"] = len(website_homes)
-        else:
-            result["homes"] = firestore_homes
-            result["total_inventory"] = result.get("total_inventory", len(firestore_homes))
-
-        # Apply URL-based floorplan classifier to every home before responding.
-        # This is intentionally repeated after enrichment/fallback construction
-        # so the public API never counts floorplans as usable listing photos.
-        for home in result.get("homes", []):
-            apply_classifier_to_home(home)
-
+    Returns the floorplan-merged, staff-photo-overlaid response when the
+    snapshot has homes; None when it has none (so the caller can fall back).
+    """
+    legacy_result = load_legacy_inventory_context(limit=100)
+    if legacy_result.get("success") and legacy_result.get("homes"):
         floorplan_result = load_legacy_floorplan_catalog_context(limit=500)
-        result = merge_orderable_floorplan_catalog(
-            result,
+        merged = merge_orderable_floorplan_catalog(
+            legacy_result,
             assets=PROPERTY_ASSETS,
             floorplan_context=floorplan_result
             if floorplan_result.get("success") and floorplan_result.get("homes")
             else None,
         )
-        result["website_homes"] = len(website_homes)
-        _overlay_staff_photos(result.get("homes", []))
-        return result
+        _overlay_staff_photos(merged.get("homes", []))
+        return merged
+    if legacy_result.get("error"):
+        struct_logger.warning(
+            "Legacy inventory context unavailable",
+            error=legacy_result.get("error"),
+        )
+    return None
+
+
+def _firestore_inventory_context(preloaded: dict | None = None) -> dict:
+    """Public inventory response from staff-managed (Firestore) inventory.
+
+    Reuses ``preloaded`` (a prior ``get_inventory_for_ads`` result) when given,
+    so the caller can health-check the raw Firestore homes without querying
+    twice. When Firestore has no homes it falls back to the website asset
+    catalog, exactly as the original endpoint did for local/offline operation.
+    """
+    from tools.asset_scraper import get_assets_for_home
+
+    result = preloaded if preloaded is not None else get_inventory_for_ads(limit=100)
+    firestore_homes = result.get("homes", [])
+
+    # Enrich Firestore homes with asset catalog images only when they lack
+    # non-floorplan photos. Floorplan-only listings used to pass this gate
+    # because `real_photos` was non-empty; the classifier now makes the
+    # distinction explicit before and after enrichment.
+    for home in firestore_homes:
+        apply_classifier_to_home(home)
+        if not has_real_photo(home):
+            asset = get_assets_for_home(home.get("model_name", ""))
+            if asset:
+                asset_images = asset.get("images") or []
+                if asset_images:
+                    existing = home.get("real_photos") or home.get("gallery_images") or []
+                    home["real_photos"] = [*existing, *asset_images]
+                    home["gallery_images"] = [*existing, *asset_images][:3]
+                if asset.get("image_categories"):
+                    home["image_categories"] = asset.get("image_categories", {})
+                home["floor_plan_url"] = home.get("floor_plan_url") or asset.get("floor_plan")
+                if asset.get("matterport_id") and not home.get("matterport_id"):
+                    home["matterport_id"] = asset["matterport_id"]
+                    home["matterport_url"] = get_matterport_url(asset["matterport_id"])
+                apply_classifier_to_home(home)
+    website_homes = []
+    if not firestore_homes:
+        for slug, asset in PROPERTY_ASSETS.items():
+            home_data = {
+                "id": slug,
+                "source_catalog_slug": slug,
+                "model_name": asset["name"],
+                "manufacturer": asset.get("manufacturer", "New Vision Manufacturing"),
+                "classification": "Manufactured Home",
+                "status": "Available" if asset.get("is_new") else "Pre-Owned",
+                "inventory_kind": "orderable_floorplan" if asset.get("is_new") else "pre_owned",
+                "display_price": "Call for Price",
+                "price_value": 0,
+                "specs": {
+                    "beds": asset.get("beds"),
+                    "baths": asset.get("baths"),
+                    "sq_ft": asset.get("sqft"),
+                    "dimensions": asset.get("dims"),
+                },
+                "features": [],
+                "image_url": (asset.get("images") or [""])[0],
+                "gallery_images": asset.get("images", [])[:3],
+                "real_photos": asset.get("images", []),
+                "image_categories": asset.get("image_categories", {}),
+                "floor_plan_url": asset.get("floor_plan"),
+                "matterport_id": asset.get("matterport_id"),
+                "matterport_url": get_matterport_url(asset["matterport_id"])
+                if asset.get("matterport_id")
+                else None,
+            }
+            website_homes.append(home_data)
+        result["homes"] = website_homes
+        result["total_inventory"] = len(website_homes)
+    else:
+        result["homes"] = firestore_homes
+        result["total_inventory"] = result.get("total_inventory", len(firestore_homes))
+
+    # Apply URL-based floorplan classifier to every home before responding.
+    # This is intentionally repeated after enrichment/fallback construction
+    # so the public API never counts floorplans as usable listing photos.
+    for home in result.get("homes", []):
+        apply_classifier_to_home(home)
+
+    floorplan_result = load_legacy_floorplan_catalog_context(limit=500)
+    result = merge_orderable_floorplan_catalog(
+        result,
+        assets=PROPERTY_ASSETS,
+        floorplan_context=floorplan_result
+        if floorplan_result.get("success") and floorplan_result.get("homes")
+        else None,
+    )
+    result["website_homes"] = len(website_homes)
+    _overlay_staff_photos(result.get("homes", []))
+    return result
+
+
+@app.get("/api/marketing/inventory-context")
+@limiter.limit("30/minute")
+async def api_inventory_context(request: Request):
+    """Get inventory highlights for ad creation and the public browse page.
+
+    Inventory is moving in-app: staff-managed homes live in the Firestore
+    ``inventory`` collection. ``INVENTORY_SOURCE`` selects the source (default
+    ``legacy`` = the snapshot, with Firestore as fallback). When set to
+    ``firestore``/``auto`` the staff-managed store wins, with the legacy
+    snapshot as the safety net so the page is never empty.
+    """
+    try:
+        prefer = _inventory_source_pref()
+        raw = None
+        if prefer != "legacy":
+            raw = get_inventory_for_ads(limit=100)
+            raw_homes = raw.get("homes") or []
+            if prefer == "firestore" or (
+                raw.get("success") and len(raw_homes) >= _inventory_firestore_min_homes()
+            ):
+                return _firestore_inventory_context(raw)
+
+        legacy = _legacy_inventory_context()
+        if legacy is not None:
+            return legacy
+
+        # Legacy snapshot unavailable — fall back to the Firestore/asset path
+        # (reusing the raw query if we already ran it above).
+        return _firestore_inventory_context(raw)
     except Exception as e:
         struct_logger.error("Inventory context failed", error=str(e))
         return {"success": False, "error": "Failed to load inventory context. Please try again."}
