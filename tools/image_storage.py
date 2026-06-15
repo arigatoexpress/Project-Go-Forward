@@ -70,7 +70,7 @@ _gcs_unavailable = False
 # Short-lived cache for the cross-home grouped listing so the public
 # inventory-context endpoint does not list the bucket on every request.
 _GROUPED_TTL = float(os.getenv("THO_LISTING_PHOTOS_CACHE_TTL", "60"))
-_grouped_cache: dict[str, list["StoredPhoto"]] | None = None
+_grouped_cache: dict[str, list[StoredPhoto]] | None = None
 _grouped_cache_at: float = 0.0
 
 
