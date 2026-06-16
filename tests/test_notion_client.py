@@ -242,3 +242,70 @@ def test_fetch_skips_non_dict_results(notion_env, monkeypatch):
     rows = nc.fetch_feedback()
     assert len(rows) == 1
     assert rows[0]["id"] == "page-fb-1"
+
+
+# --------------------------------------------------------------------------- #
+# Command Center reader (config-driven, GCP-native — increment 2)
+# --------------------------------------------------------------------------- #
+def _ops_page(status, *, prop_name="Status", with_pii=True):
+    props = {prop_name: _status(status)}
+    if with_pii:
+        # PII columns that must NEVER reach a count-by-status result:
+        props["Customer Name"] = _title("Jane Buyer")
+        props["Phone Number"] = {"type": "phone_number", "phone_number": "555-0000"}
+        props["Escrow Balance"] = _number(12345.67)
+    return {"id": f"pg-{status}", "created_time": "2026-06-14T10:00:00.000Z", "properties": props}
+
+
+def test_command_center_disabled_by_default(monkeypatch):
+    monkeypatch.delenv("NOTION_COMMAND_CENTER", raising=False)
+    assert nc.is_command_center_enabled() is False
+    for val in ("on", "true", "1", "YES"):
+        monkeypatch.setenv("NOTION_COMMAND_CENTER", val)
+        assert nc.is_command_center_enabled() is True
+    monkeypatch.setenv("NOTION_COMMAND_CENTER", "off")
+    assert nc.is_command_center_enabled() is False
+
+
+def test_db_id_resolves_env_for_command_center_keys(monkeypatch):
+    monkeypatch.setenv("NOTION_TITLE_DB_ID", "db-title")
+    monkeypatch.setenv("NOTION_COLLECTIONS_DB_ID", "db-coll")
+    assert nc._db_id("title") == "db-title"
+    assert nc._db_id("collections") == "db-coll"
+    assert nc._db_id("unknown_key") == ""
+
+
+def test_fetch_status_counts_counts_by_status_and_is_pii_free(monkeypatch):
+    monkeypatch.setenv("NOTION_TOKEN", "secret_test")
+    monkeypatch.setenv("NOTION_TITLE_DB_ID", "db-title")
+    _patch_post(monkeypatch, payload={"results": [
+        _ops_page("Title Issued"),
+        _ops_page("Title Issued"),
+        _ops_page("MCO Received from Factory"),
+    ]})
+    counts = nc.fetch_status_counts("title")
+    assert counts == {"Title Issued": 2, "MCO Received from Factory": 1}
+    # The PII columns on every page must not have leaked into the result.
+    blob = repr(counts).lower()
+    assert "jane" not in blob and "555-0000" not in blob and "12345" not in blob
+
+
+def test_fetch_status_counts_tolerates_dirty_and_aliased_status_columns(monkeypatch):
+    monkeypatch.setenv("NOTION_TOKEN", "secret_test")
+    monkeypatch.setenv("NOTION_DELIVERY_TRACKER_DB_ID", "db-delivery")
+    _patch_post(monkeypatch, payload={"results": [
+        _ops_page("Delivered to Site", prop_name="Current Phase"),     # alias, not "Status"
+        _ops_page("Delivered to Site", prop_name="Status "),            # trailing-space column
+        _ops_page("Unknown one", prop_name="No Status Column At All"),  # -> UNKNOWN
+    ]})
+    counts = nc.fetch_status_counts("delivery_tracker")
+    assert counts == {"Delivered to Site": 2, "UNKNOWN": 1}
+
+
+def test_fetch_status_counts_empty_when_unconfigured(monkeypatch):
+    monkeypatch.delenv("NOTION_TOKEN", raising=False)
+    monkeypatch.setenv("NOTION_TITLE_DB_ID", "db-title")
+    assert nc.fetch_status_counts("title") == {}
+    monkeypatch.setenv("NOTION_TOKEN", "secret_test")
+    monkeypatch.delenv("NOTION_TITLE_DB_ID", raising=False)
+    assert nc.fetch_status_counts("title") == {}

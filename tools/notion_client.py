@@ -64,6 +64,55 @@ def _cs_survey_db_id() -> str:
     return (os.environ.get("NOTION_CS_SURVEY_DB_ID") or "").strip()
 
 
+# --- Command Center reader (config-driven, GCP-native, Mira-free) -------------
+# Logical DB keys -> env-var fallback. DB ids are business config, NOT secrets,
+# so they may live in config.yaml `notion.databases.<key>`; only NOTION_TOKEN is
+# a credential. This is what lets the Ops Copilot read the staff's whole ops hub
+# (replacing the Mira bridge) instead of just the two hard-coded DBs.
+_DB_KEY_ENV = {
+    "delivery_tracker": "NOTION_DELIVERY_TRACKER_DB_ID",
+    "cs_survey": "NOTION_CS_SURVEY_DB_ID",
+    "service_warranty": "NOTION_SERVICE_WARRANTY_DB_ID",
+    "title": "NOTION_TITLE_DB_ID",
+    "collections": "NOTION_COLLECTIONS_DB_ID",
+    "insurance": "NOTION_INSURANCE_DB_ID",
+    "team_tasks": "NOTION_TEAM_TASKS_DB_ID",
+    "lead_pipeline": "NOTION_LEAD_PIPELINE_DB_ID",
+}
+
+
+def _config_db_id(db_key: str) -> str:
+    """Notion DB id from config.yaml `notion.databases.<key>`, or '' (never raises)."""
+    try:
+        from config_loader import get_config
+
+        dbs = ((get_config() or {}).get("notion") or {}).get("databases") or {}
+        return str(dbs.get(db_key) or "").strip()
+    except Exception:  # noqa: BLE001 — config block is optional; degrade to env
+        return ""
+
+
+def _db_id(db_key: str) -> str:
+    """Resolve a Command Center DB id: config.yaml first, then env fallback."""
+    cfg = _config_db_id(db_key)
+    if cfg:
+        return cfg
+    env_name = _DB_KEY_ENV.get(db_key)
+    return (os.environ.get(env_name) or "").strip() if env_name else ""
+
+
+def is_command_center_enabled() -> bool:
+    """Master flag for the Notion Command Center reader (default OFF).
+
+    The reader ships dark; the Ops Copilot (the consumer) checks this before
+    sourcing from Notion, so the whole feature flips on/off with one env var and
+    reverts with no redeploy — same pattern as INVENTORY_SOURCE.
+    """
+    return (os.getenv("NOTION_COMMAND_CENTER", "off") or "off").strip().lower() in {
+        "on", "true", "1", "yes",
+    }
+
+
 def is_installations_configured() -> bool:
     """True when both a token and the Delivery Tracker DB id are set."""
     return bool(_token() and _delivery_tracker_db_id())
@@ -129,10 +178,13 @@ def _find_prop(props: dict[str, Any], *names: str) -> Any:
     """
     if not isinstance(props, dict):
         return None
-    lowered = {k.lower(): v for k, v in props.items()}
+    # Strip + lowercase so dirty Notion column names (trailing spaces, casing,
+    # duplicates) still match. On a duplicate-after-normalization, the last wins.
+    lowered = {k.strip().lower(): v for k, v in props.items() if isinstance(k, str)}
     for name in names:
-        if name.lower() in lowered:
-            value = _prop_value(lowered[name.lower()])
+        key = name.strip().lower()
+        if key in lowered:
+            value = _prop_value(lowered[key])
             if value is not None:
                 return value
     return None
@@ -269,3 +321,45 @@ def fetch_feedback(limit: int = 50) -> list[dict[str, Any]]:
             item["deal_id"] = deal_id
         rows.append(item)
     return rows
+
+
+# Status/phase column names across the Command Center DBs (Title='Status',
+# Delivery='Current Phase', Collections/Insurance='Payment Status',
+# CS-survey='Outreach Status', Lead Pipeline='Pipeline Stage', ...). _find_prop
+# is case-insensitive and tolerates trailing-space/duplicate column names.
+_STATUS_ALIASES = (
+    "status",
+    "Current Phase",
+    "Phase",
+    "Pipeline Stage",
+    "Payment Status",
+    "Outreach Status",
+    "Outreach Stage",
+)
+
+
+def fetch_status_counts(
+    db_key: str, *, limit: int = 100, status_aliases: tuple[str, ...] = _STATUS_ALIASES
+) -> dict[str, int]:
+    """Count rows by their status/phase in a Command Center DB. PII-free by construction.
+
+    This is the generic, GCP-native reader the Ops Copilot uses to answer
+    "where is my delivery / title / service / collections" from the staff's real
+    system. It reads ONLY the status-like column (via case-insensitive alias
+    matching) and never any other property — so no customer identity, dollar
+    amount, or free-text comment can enter the result, regardless of how the
+    operator names or adds columns. Returns ``{status_value: count}``; ``{}`` when
+    unconfigured (no token / no db id) or on any error (the underlying query
+    never raises).
+    """
+    db_id = _db_id(db_key)
+    if not _token() or not db_id:
+        return {}
+    counts: dict[str, int] = {}
+    for page in _query_database(db_id, limit):
+        if not isinstance(page, dict):
+            continue
+        status = _find_prop(page.get("properties", {}), *status_aliases) or "UNKNOWN"
+        key = str(status)
+        counts[key] = counts.get(key, 0) + 1
+    return counts
