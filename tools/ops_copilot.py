@@ -140,6 +140,37 @@ def get_inventory_freshness() -> dict[str, Any]:
         return {"available": False}
 
 
+def _command_center_enabled() -> bool:
+    """True when the operator flipped on the Notion Command Center source."""
+    try:
+        from tools import notion_client
+
+        return notion_client.is_command_center_enabled()
+    except Exception:  # noqa: BLE001 — a config/import hiccup must not sink the snapshot
+        return False
+
+
+def _notion_status_counts(db_key: str) -> dict[str, int]:
+    """PII-free count-by-status from a Notion Command Center DB ({} on any error)."""
+    try:
+        from tools import notion_client
+
+        return notion_client.fetch_status_counts(db_key)
+    except Exception as exc:  # noqa: BLE001 — graceful-degrade like every other section
+        logger.error("ops_copilot notion read failed", db_key=db_key, error=str(exc))
+        return {}
+
+
+def _firestore_feedback() -> dict[str, Any]:
+    """The Firestore feedback count — the default/fallback feedback section."""
+    try:
+        feedback_docs = list(_get_db().collection("feedback").stream())
+        return {"total": len(feedback_docs)}
+    except Exception as exc:
+        logger.error("ops_copilot feedback snapshot failed", error=str(exc))
+        return {"error": "unavailable"}
+
+
 async def get_business_snapshot() -> dict[str, Any]:
     """Aggregate a compact, PII-free snapshot of the live business state.
 
@@ -171,14 +202,29 @@ async def get_business_snapshot() -> dict[str, Any]:
 
     snapshot["inventory"] = {"by_status": _count_by_status("inventory")}
     snapshot["deals"] = {"by_status": _count_by_status("deals")}
-    snapshot["installations"] = {"by_status": _count_by_status("service_requests")}
-
-    try:
-        feedback_docs = list(_get_db().collection("feedback").stream())
-        snapshot["feedback"] = {"total": len(feedback_docs)}
-    except Exception as exc:
-        logger.error("ops_copilot feedback snapshot failed", error=str(exc))
-        snapshot["feedback"] = {"error": "unavailable"}
+    # Installations / feedback / post-funding ops: the staff's system-of-record is
+    # the Notion Command Center. When NOTION_COMMAND_CENTER is on, source these
+    # PII-free counts from there (the functional Mira replacement — the Copilot can
+    # answer "where is my delivery / title / payment"); otherwise keep the exact
+    # Firestore behavior. One env var flips it; revert is instant.
+    if _command_center_enabled():
+        install_counts = _notion_status_counts("delivery_tracker")
+        snapshot["installations"] = {
+            "by_status": install_counts or _count_by_status("service_requests")
+        }
+        fb_counts = _notion_status_counts("cs_survey")
+        snapshot["feedback"] = (
+            {"total": sum(fb_counts.values()), "by_status": fb_counts}
+            if fb_counts
+            else _firestore_feedback()
+        )
+        snapshot["operations"] = {
+            db_key: {"by_status": _notion_status_counts(db_key)}
+            for db_key in ("service_warranty", "title", "collections", "insurance")
+        }
+    else:
+        snapshot["installations"] = {"by_status": _count_by_status("service_requests")}
+        snapshot["feedback"] = _firestore_feedback()
 
     snapshot["inventory_freshness"] = get_inventory_freshness()
 
@@ -266,6 +312,29 @@ HELP_TOPICS: list[dict[str, Any]] = [
         "body": (
             "Customer feedback and post-install surveys are collected automatically. "
             "Ask me for the feedback count, or check the admin tools for the details."
+        ),
+    },
+    {
+        "title": "Where is my delivery / installation status",
+        "keywords": ["delivery", "deliver", "install", "installation", "set", "tied down",
+                     "trim", "white glove", "where is", "status of", "phase"],
+        "body": (
+            "Installation progress lives in the Notion Delivery Tracker, and the Copilot "
+            "reads it directly — ask 'how many homes are in trim-out?' or 'what's pending "
+            "delivery?' for a live count by stage. For one specific customer's home, open "
+            "the Delivery Tracker in Notion."
+        ),
+    },
+    {
+        "title": "Title, collections, insurance, and service status",
+        "keywords": ["title", "tdhca", "collections", "payment", "past due", "insurance",
+                     "escrow", "renewal", "service", "warranty", "bill back"],
+        "body": (
+            "Title processing, collections, insurance/KIP, and service & warranty are "
+            "tracked in Notion. The Copilot can give a live count by status for any of them "
+            "— e.g. 'how many titles are pending?' or 'how many payments are past due?' — "
+            "without exposing customer details. Open the matching Notion database for the "
+            "per-customer specifics."
         ),
     },
     {
