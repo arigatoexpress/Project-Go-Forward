@@ -36,8 +36,9 @@ const FAQ = lazy(() => import('./pages/FAQ'));
 const Warranty = lazy(() => import('./pages/Warranty'));
 const Delivery = lazy(() => import('./pages/Delivery'));
 const PhotoManager = lazy(() => import('./pages/PhotoManager'));
+const InventoryManager = lazy(() => import('./pages/InventoryManager'));
 const ADMIN_PIN_LENGTH = 8;
-const ADMIN_PAGE_KEYS = new Set(['analytics', 'crm', 'chat-history', 'documents', 'adstudio', 'system', 'getting-started', 'photos']);
+const ADMIN_PAGE_KEYS = new Set(['analytics', 'crm', 'chat-history', 'documents', 'adstudio', 'system', 'getting-started', 'photos', 'manage-inventory']);
 
 // Page loading fallback with skeleton
 const PageLoader = () => (
@@ -73,6 +74,7 @@ function NavBar({
   const adminItems = adminAuthed ? [
     { key: 'copilot', label: 'Ops Copilot', icon: Sparkles },
     { key: 'documents', label: 'Documents', icon: FileText },
+    { key: 'manage-inventory', label: 'Inventory', icon: Home },
     { key: 'photos', label: 'Photos', icon: Camera },
     { key: 'crm', label: 'CRM', icon: Users },
     { key: 'system', label: 'System Hub', icon: Activity },
@@ -416,6 +418,7 @@ function App() {
     if (p.startsWith('/warranty')) return 'warranty';
     if (p.startsWith('/delivery')) return 'delivery';
     if (p.startsWith('/chat-history')) return 'chat-history';
+    if (p.startsWith('/manage-inventory')) return 'manage-inventory';
     if (p.startsWith('/copilot') || p.startsWith('/ops-copilot')) return 'copilot';
     if (p.startsWith('/chat')) return 'chat';
     if (p.startsWith('/inventory')) return 'inventory';
@@ -1212,6 +1215,20 @@ function App() {
         <ErrorBoundary scope="photos">
           <Suspense fallback={<PageLoader />}>
             <PhotoManager onBack={() => navigateTo('inventory')} />
+          </Suspense>
+        </ErrorBoundary>
+      </div>
+    );
+  }
+
+  if (activePage === 'manage-inventory' && adminAuthed) {
+    return (
+      <div className="bg-[var(--cp-bg)] min-h-screen">
+        {appModals}
+        <NavBar {...navProps} />
+        <ErrorBoundary scope="manage-inventory">
+          <Suspense fallback={<PageLoader />}>
+            <InventoryManager onBack={() => navigateTo('inventory')} onNavigate={navigateTo} />
           </Suspense>
         </ErrorBoundary>
       </div>
