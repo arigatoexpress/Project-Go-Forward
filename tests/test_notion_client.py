@@ -267,11 +267,13 @@ def test_command_center_disabled_by_default(monkeypatch):
     assert nc.is_command_center_enabled() is False
 
 
-def test_db_id_resolves_env_for_command_center_keys(monkeypatch):
-    monkeypatch.setenv("NOTION_TITLE_DB_ID", "db-title")
-    monkeypatch.setenv("NOTION_COLLECTIONS_DB_ID", "db-coll")
-    assert nc._db_id("title") == "db-title"
-    assert nc._db_id("collections") == "db-coll"
+def test_db_id_resolves_config_then_env(monkeypatch):
+    # Configured keys resolve from config.yaml notion.databases.* (real ids).
+    assert nc._db_id("title").startswith("34e6688d")
+    assert nc._db_id("delivery_tracker").startswith("34e6688d")
+    # An unconfigured key (not in config.yaml) falls back to env.
+    monkeypatch.setenv("NOTION_TEAM_TASKS_DB_ID", "db-team")
+    assert nc._db_id("team_tasks") == "db-team"
     assert nc._db_id("unknown_key") == ""
 
 
@@ -303,9 +305,10 @@ def test_fetch_status_counts_tolerates_dirty_and_aliased_status_columns(monkeypa
 
 
 def test_fetch_status_counts_empty_when_unconfigured(monkeypatch):
+    # Use a key NOT in config.yaml so resolution depends only on env/token.
     monkeypatch.delenv("NOTION_TOKEN", raising=False)
-    monkeypatch.setenv("NOTION_TITLE_DB_ID", "db-title")
-    assert nc.fetch_status_counts("title") == {}
+    monkeypatch.setenv("NOTION_TEAM_TASKS_DB_ID", "db-team")
+    assert nc.fetch_status_counts("team_tasks") == {}  # no token
     monkeypatch.setenv("NOTION_TOKEN", "secret_test")
-    monkeypatch.delenv("NOTION_TITLE_DB_ID", raising=False)
-    assert nc.fetch_status_counts("title") == {}
+    monkeypatch.delenv("NOTION_TEAM_TASKS_DB_ID", raising=False)
+    assert nc.fetch_status_counts("team_tasks") == {}  # no db id (not in config or env)
