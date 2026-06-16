@@ -151,7 +151,6 @@ def _sheet_rec(serial, customer=None):
 
 def test_load_house_orders_from_gcs_downloads_parses_and_cleans_up(monkeypatch, tmp_path):
     """The GCS loader downloads the xlsx, parses it, and removes the temp file."""
-    import types
     captured = {}
 
     class _FakeBlob:
@@ -170,8 +169,12 @@ def test_load_house_orders_from_gcs_downloads_parses_and_cleans_up(monkeypatch, 
             captured["bucket"] = name
             return _FakeBucket()
 
-    fake_storage = types.SimpleNamespace(Client=lambda: _FakeClient())
-    monkeypatch.setitem(sys.modules, "google.cloud.storage", fake_storage)
+    # Patch Client on the REAL module: the loader does `from google.cloud import
+    # storage`, and a sys.modules swap is bypassed once the real submodule is
+    # imported earlier in the full suite (import-order fragility). Patching the
+    # attribute is order-independent and needs no GCS credentials.
+    from google.cloud import storage as _gcs
+    monkeypatch.setattr(_gcs, "Client", lambda: _FakeClient())
     # parse the downloaded file via a stub (avoids needing a real xlsx)
     monkeypatch.setattr(
         hos, "parse_house_orders",
