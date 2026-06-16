@@ -8,7 +8,6 @@ website.
 """
 
 import os
-import sys
 
 from tools import house_orders_sync as hos
 
