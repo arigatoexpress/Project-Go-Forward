@@ -2973,6 +2973,10 @@ async def create_inventory_item(request: Request):
     try:
         data = await request.json()
         payload = InventoryWrite(**data).model_dump(exclude_none=True)
+        # Never persist dealer COST into the public-served inventory collection,
+        # even though InventoryWrite is permissive (extra="allow").
+        for _cost_field in ("invoice_amount", "invoice_date", "cost"):
+            payload.pop(_cost_field, None)
         if not payload.get("model_name"):
             return JSONResponse({"success": False, "error": "model_name is required."}, status_code=400)
         payload.setdefault("status", "AVAILABLE")
@@ -3000,6 +3004,10 @@ async def update_inventory_item(inventory_id: str, request: Request):
     try:
         data = await request.json()
         payload = InventoryWrite(**data).model_dump(exclude_none=True)
+        # Never persist dealer COST into the public-served inventory collection,
+        # even though InventoryWrite is permissive (extra="allow").
+        for _cost_field in ("invoice_amount", "invoice_date", "cost"):
+            payload.pop(_cost_field, None)
         if not payload:
             return JSONResponse({"success": False, "error": "No fields to update."}, status_code=400)
         _db.update_inventory(inventory_id, payload)

@@ -141,7 +141,10 @@ def _load_inventory_from_firestore():
                     if price_value > 0
                     else "Call for Price",
                     "price_tier": price_tier,
-                    "invoice_amount": item.get("invoice_amount"),
+                    # Dealer COST (invoice_amount) is deliberately NOT surfaced:
+                    # this dict feeds the public inventory read path and the
+                    # agent's search_inventory(); cost must never reach a
+                    # public/customer-facing surface.
                 },
                 "features": item.get("features", []),
                 "marketing_tags": item.get("marketing_tags", []),

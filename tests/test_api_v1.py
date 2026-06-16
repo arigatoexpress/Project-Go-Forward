@@ -2442,3 +2442,20 @@ def test_mira_update_lead_triage_not_found(monkeypatch):
     data = response.json()
     assert data["status"] == "error"
     assert "not found" in data["error"].lower()
+
+
+def test_create_inventory_strips_dealer_cost(monkeypatch):
+    """Dealer COST must never be persisted into the public-served inventory store."""
+    client, main, fake_db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
+    token = main._create_admin_token()
+    resp = client.post(
+        "/api/inventory",
+        json={"model_name": "The Nassau", "invoice_amount": 60187.0,
+              "invoice_date": "2026-01-01", "cost": 50000},
+        headers={"X-Admin-Token": token},
+    )
+    assert resp.status_code == 200
+    stored = fake_db.collections["inventory"][resp.json()["id"]]
+    for forbidden in ("invoice_amount", "invoice_date", "cost"):
+        assert forbidden not in stored
+    assert stored["model_name"] == "The Nassau"
