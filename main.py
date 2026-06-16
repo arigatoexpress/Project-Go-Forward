@@ -4701,17 +4701,21 @@ async def submit_contact_form(request: Request):
         try:
             from tools.notion_lead_writer import is_lead_sync_enabled, write_lead
 
-            if is_lead_sync_enabled() and not write_lead(
-                name,
-                email=email or None,
-                phone=phone,
-                message=data.get("message"),
-                source=data.get("source", "contact_form"),
-            ):
-                warnings.append("notion_lead_sync_failed")
+            if is_lead_sync_enabled():
+                # write_lead is fire-and-forget and logs notion_lead_sync_failed
+                # itself on failure. Do NOT surface that to the anonymous visitor
+                # in `warnings` — keep the integration invisible externally.
+                write_lead(
+                    name,
+                    email=email or None,
+                    phone=phone,
+                    message=data.get("message"),
+                    source=data.get("source", "contact_form"),
+                )
         except Exception as e:
-            warnings.append("notion_lead_sync_failed")
-            struct_logger.warning("Notion lead sync failed", error=str(e))
+            struct_logger.warning(
+                "Notion lead sync failed", event="notion_lead_sync_failed", error=str(e)
+            )
 
         # Send welcome email if email provided
         if email:
