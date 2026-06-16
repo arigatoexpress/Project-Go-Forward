@@ -4694,6 +4694,25 @@ async def submit_contact_form(request: Request):
                 lead_id=lead_id,
             )
 
+        # Mirror the lead into the Notion Lead Pipeline the salespeople work from
+        # (server-side, gated by NOTION_LEAD_SYNC, fire-and-forget). PII goes only
+        # to the staff's own CRM that already holds contact info; this is never
+        # reachable from a public/partner route and never blocks the visitor.
+        try:
+            from tools.notion_lead_writer import is_lead_sync_enabled, write_lead
+
+            if is_lead_sync_enabled() and not write_lead(
+                name,
+                email=email or None,
+                phone=phone,
+                message=data.get("message"),
+                source=data.get("source", "contact_form"),
+            ):
+                warnings.append("notion_lead_sync_failed")
+        except Exception as e:
+            warnings.append("notion_lead_sync_failed")
+            struct_logger.warning("Notion lead sync failed", error=str(e))
+
         # Send welcome email if email provided
         if email:
             try:
