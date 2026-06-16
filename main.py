@@ -6881,6 +6881,26 @@ app.include_router(github_mira_status_router, dependencies=[Depends(require_part
 from schemas.copilot_schemas import CopilotRequest
 
 
+@app.get("/api/admin/ops-snapshot", dependencies=[Depends(require_admin)])
+async def admin_ops_snapshot():
+    """Live, PII-free business snapshot for the admin Ops dashboard.
+
+    Read-only and admin-gated. Aggregates COUNTS only (leads/appointments/
+    inventory/deals/installations/feedback, plus the Notion Command Center ops
+    counts — delivery/title/collections/insurance — when NOTION_COMMAND_CENTER is
+    on). Never any customer identity or dollar figure. Each section is
+    fault-isolated; this never 500s. This is the read surface that replaces the
+    Telegram/Mira status pushes with an in-app, GCP-native view.
+    """
+    from tools.ops_copilot import get_business_snapshot
+
+    try:
+        return {"success": True, "snapshot": await get_business_snapshot()}
+    except Exception as e:
+        struct_logger.error("Ops snapshot failed", error=str(e))
+        return {"success": False, "error": "Snapshot unavailable."}
+
+
 @app.post("/api/admin/copilot", dependencies=[Depends(require_admin)])
 async def admin_ops_copilot(body: CopilotRequest):
     """Answer a staff question using live business data + platform how-to.

@@ -2459,3 +2459,24 @@ def test_create_inventory_strips_dealer_cost(monkeypatch):
     for forbidden in ("invoice_amount", "invoice_date", "cost"):
         assert forbidden not in stored
     assert stored["model_name"] == "The Nassau"
+
+
+def test_ops_snapshot_requires_admin(monkeypatch):
+    client, _main, _db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
+    assert client.get("/api/admin/ops-snapshot").status_code == 401
+
+
+def test_ops_snapshot_returns_counts(monkeypatch):
+    client, main, _db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
+    from tools import ops_copilot
+
+    async def _fake_snapshot():
+        return {"leads": {"total": 3}, "operations": {"title": {"by_status": {"Title Issued": 5}}}}
+
+    monkeypatch.setattr(ops_copilot, "get_business_snapshot", _fake_snapshot)
+    token = main._create_admin_token()
+    resp = client.get("/api/admin/ops-snapshot", headers={"X-Admin-Token": token})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["success"] is True
+    assert body["snapshot"]["operations"]["title"]["by_status"] == {"Title Issued": 5}
