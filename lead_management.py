@@ -6,12 +6,28 @@ Stores lead information in Firestore and provides export capabilities
 import asyncio
 import json
 import logging
+import re
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
 
 from google.cloud import firestore
 
 logger = logging.getLogger(__name__)
+
+
+def normalize_phone(phone: str | None) -> str | None:
+    """Best-effort E.164 normalization for US numbers. Never raises; returns the
+    original string when it can't confidently normalize, so a lead is never lost
+    or mangled. Keeps the CRM consistent and makes click-to-call / SMS / dedup
+    reliable (e.g. "(281) 324-3020" and "281-324-3020" both -> "+12813243020")."""
+    if not phone:
+        return phone
+    digits = re.sub(r"\D", "", phone)
+    if len(digits) == 10:
+        return f"+1{digits}"
+    if len(digits) == 11 and digits.startswith("1"):
+        return f"+{digits}"
+    return phone
 
 
 @dataclass
@@ -103,6 +119,7 @@ class LeadManager:
 
     async def create_lead(self, lead: Lead) -> Lead:
         """Create a new lead"""
+        lead.phone = normalize_phone(lead.phone)
         doc_ref = self.db.collection(self.collection_name).document(lead.lead_id)
 
         def _save():
@@ -113,6 +130,7 @@ class LeadManager:
 
     async def update_lead(self, lead: Lead) -> Lead:
         """Update existing lead"""
+        lead.phone = normalize_phone(lead.phone)
         lead.updated_at = datetime.utcnow().isoformat()
         doc_ref = self.db.collection(self.collection_name).document(lead.lead_id)
 
