@@ -220,6 +220,40 @@ class DealStatus(str, Enum):
     ARCHIVED = "archived"
 
 
+class InventoryWrite(BaseModel):
+    """Permissive validation for admin inventory create/update payloads.
+
+    Inventory is a flexible staff-managed home record, so this accepts and
+    passes through extra fields (``extra="allow"``) while normalizing the core
+    typed fields the public read path relies on. All fields are optional: the
+    create route requires ``model_name``; update is a partial merge.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    model_name: str | None = None
+    manufacturer: str | None = None
+    classification: str | None = None
+    status: str | None = None
+    is_new: bool | None = None
+    serial_number: str | None = None
+    bedrooms: int | None = Field(default=None, ge=0, le=10)
+    bathrooms: float | None = Field(default=None, ge=0, le=10)
+    sqft: int | None = Field(default=None, ge=0)
+    width: int | None = Field(default=None, ge=0)
+    length: int | None = Field(default=None, ge=0)
+    sale_price: float | None = Field(default=None, ge=0)
+    msrp: float | None = Field(default=None, ge=0)
+    features: list[str] | None = None
+    marketing_tags: list[str] | None = None
+    photos: list[str] | None = None
+    gallery_images: list[str] | None = None
+    image_url: str | None = None
+    floorplan_url: str | None = None
+    matterport_id: str | None = None
+    description: str | None = None
+
+
 class Deal(BaseModel):
     """
     Customer application/deal record — replaces fastcontractdocs.com.

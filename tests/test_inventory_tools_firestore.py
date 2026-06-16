@@ -52,7 +52,7 @@ def test_firestore_inventory_loader_maps_current_firestore_fields(monkeypatch):
                 "price_value": 0,
                 "display_price": "Call for Price",
                 "price_tier": "Under $50k",
-                "invoice_amount": None,
+                # invoice_amount (dealer cost) is intentionally NOT surfaced here.
             },
             "features": [],
             "marketing_tags": [],
