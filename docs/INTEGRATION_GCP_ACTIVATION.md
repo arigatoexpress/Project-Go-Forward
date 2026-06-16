@@ -54,18 +54,13 @@ this just makes the activation push-button.
 
 The 7 ops-DB ids are already in `config.yaml`; the only secret is the token.
 
-1. **Store the token** (you supply the value — never paste it in chat/AI):
-   ```bash
-   printf '%s' 'ntn_YOUR_TOKEN_HERE' | gcloud secrets create notion-token \
-     --data-file=- --project=tho-ai-agent
-   ```
+1. **Token secret — ✅ DONE.** Stored as Secret Manager secret **`notion-id`**
+   (version 1 enabled). To rotate later:
+   `printf '%s' 'ntn_NEW' | gcloud secrets versions add notion-id --data-file=- --project=tho-ai-agent`.
 
-2. **Let the app read it:**
-   ```bash
-   gcloud secrets add-iam-policy-binding notion-token \
-     --member='serviceAccount:691674245427-compute@developer.gserviceaccount.com' \
-     --role=roles/secretmanager.secretAccessor --project=tho-ai-agent
-   ```
+2. **SA read access — ✅ DONE.** The run-as SA
+   `691674245427-compute@developer.gserviceaccount.com` was granted
+   `roles/secretmanager.secretAccessor` on `notion-id` (so the deploy below can bind it).
 
 3. **Share the 7 databases with the integration** (Notion UI, once each): on the
    hub page (or each DB) → `•••` → **Connections** → add your integration. The
@@ -75,7 +70,7 @@ The 7 ops-DB ids are already in `config.yaml`; the only secret is the token.
 4. **Merge `feat/notion-ops-bridge`**, then wire + flip on (gated deploy):
    ```bash
    gcloud run services update project-go-forward --region=us-central1 --project=tho-ai-agent \
-     --update-secrets NOTION_TOKEN=notion-token:latest \
+     --update-secrets NOTION_TOKEN=notion-id:latest \
      --update-env-vars NOTION_COMMAND_CENTER=on
    ```
 
