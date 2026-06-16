@@ -212,10 +212,19 @@ def _normalize_created_at(raw: Any, fallback: str | None) -> str:
 # ---------------------------------------------------------------------------
 # HTTP
 # ---------------------------------------------------------------------------
-def _query_database(db_id: str, limit: int) -> list[dict[str, Any]]:
-    """POST /databases/{db_id}/query and return the raw ``results`` list.
+# A query that wants a full count is bounded by this many pages (x100 rows) so
+# it respects the per-request timeout and the never-raise contract even on a
+# huge database.
+_MAX_QUERY_PAGES = 20
 
-    Never raises: on any error logs and returns ``[]``.
+
+def _query_database(db_id: str, limit: int) -> list[dict[str, Any]]:
+    """POST /databases/{db_id}/query and return up to ``limit`` rows, paginating.
+
+    Follows Notion's ``has_more``/``next_cursor`` so callers that need a full
+    count (``fetch_status_counts``) are not silently capped at 100. Bounded by
+    ``limit`` and ``_MAX_QUERY_PAGES``. Never raises: on any error logs and
+    returns whatever was collected so far.
     """
     token = _token()
     if not token or not db_id:
@@ -226,18 +235,30 @@ def _query_database(db_id: str, limit: int) -> list[dict[str, Any]]:
         "Notion-Version": _NOTION_VERSION,
         "Content-Type": "application/json",
     }
-    # Notion caps page_size at 100; clamp the requested limit into [1, 100].
-    page_size = max(1, min(int(limit), 100))
-    payload = {"page_size": page_size}
-    try:
-        resp = httpx.post(url, headers=headers, json=payload, timeout=_TIMEOUT_SECONDS)
-        resp.raise_for_status()
-        body = resp.json()
+    want = max(1, int(limit))
+    out: list[dict[str, Any]] = []
+    cursor: str | None = None
+    for _ in range(_MAX_QUERY_PAGES):
+        # Notion caps page_size at 100; never ask for more than we still want.
+        payload: dict[str, Any] = {"page_size": max(1, min(want - len(out), 100))}
+        if cursor:
+            payload["start_cursor"] = cursor
+        try:
+            resp = httpx.post(url, headers=headers, json=payload, timeout=_TIMEOUT_SECONDS)
+            resp.raise_for_status()
+            body = resp.json()
+        except Exception as e:  # noqa: BLE001 — graceful degradation by contract
+            struct_logger.error("notion query failed", db_id=db_id, error=str(e))
+            return out
         results = body.get("results", [])
-        return results if isinstance(results, list) else []
-    except Exception as e:  # noqa: BLE001 — graceful degradation by contract
-        struct_logger.error("notion query failed", db_id=db_id, error=str(e))
-        return []
+        if isinstance(results, list):
+            out.extend(results)
+        if len(out) >= want or not body.get("has_more"):
+            break
+        cursor = body.get("next_cursor")
+        if not cursor:
+            break
+    return out[:want]
 
 
 # ---------------------------------------------------------------------------
@@ -339,7 +360,7 @@ _STATUS_ALIASES = (
 
 
 def fetch_status_counts(
-    db_key: str, *, limit: int = 100, status_aliases: tuple[str, ...] = _STATUS_ALIASES
+    db_key: str, *, limit: int = 2000, status_aliases: tuple[str, ...] = _STATUS_ALIASES
 ) -> dict[str, int]:
     """Count rows by their status/phase in a Command Center DB. PII-free by construction.
 

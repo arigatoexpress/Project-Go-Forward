@@ -312,3 +312,24 @@ def test_fetch_status_counts_empty_when_unconfigured(monkeypatch):
     monkeypatch.setenv("NOTION_TOKEN", "secret_test")
     monkeypatch.delenv("NOTION_TEAM_TASKS_DB_ID", raising=False)
     assert nc.fetch_status_counts("team_tasks") == {}  # no db id (not in config or env)
+
+
+def test_query_database_paginates_across_has_more(monkeypatch):
+    """fetch_status_counts must count across pages, not silently cap at 100."""
+    monkeypatch.setenv("NOTION_TOKEN", "secret_test")
+    pages = [
+        {"results": [_ops_page("A"), _ops_page("A")], "has_more": True, "next_cursor": "cur2"},
+        {"results": [_ops_page("B"), _ops_page("A")], "has_more": False, "next_cursor": None},
+    ]
+    state = {"i": 0, "cursors": []}
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        state["cursors"].append(json.get("start_cursor"))
+        page = pages[state["i"]]
+        state["i"] += 1
+        return FakeResponse(page)
+
+    monkeypatch.setattr(nc.httpx, "post", fake_post)
+    counts = nc.fetch_status_counts("title")  # db id from config.yaml
+    assert counts == {"A": 3, "B": 1}          # summed across both pages
+    assert state["cursors"] == [None, "cur2"]   # page 2 used next_cursor
