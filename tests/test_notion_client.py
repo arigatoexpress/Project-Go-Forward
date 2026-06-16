@@ -242,3 +242,101 @@ def test_fetch_skips_non_dict_results(notion_env, monkeypatch):
     rows = nc.fetch_feedback()
     assert len(rows) == 1
     assert rows[0]["id"] == "page-fb-1"
+
+
+# --------------------------------------------------------------------------- #
+# Command Center reader (config-driven, GCP-native — increment 2)
+# --------------------------------------------------------------------------- #
+def _ops_page(status, *, prop_name="Status", with_pii=True):
+    props = {prop_name: _status(status)}
+    if with_pii:
+        # PII columns that must NEVER reach a count-by-status result:
+        props["Customer Name"] = _title("Jane Buyer")
+        props["Phone Number"] = {"type": "phone_number", "phone_number": "555-0000"}
+        props["Escrow Balance"] = _number(12345.67)
+    return {"id": f"pg-{status}", "created_time": "2026-06-14T10:00:00.000Z", "properties": props}
+
+
+def test_command_center_disabled_by_default(monkeypatch):
+    monkeypatch.delenv("NOTION_COMMAND_CENTER", raising=False)
+    assert nc.is_command_center_enabled() is False
+    for val in ("on", "true", "1", "YES"):
+        monkeypatch.setenv("NOTION_COMMAND_CENTER", val)
+        assert nc.is_command_center_enabled() is True
+    monkeypatch.setenv("NOTION_COMMAND_CENTER", "off")
+    assert nc.is_command_center_enabled() is False
+
+
+def test_db_id_resolves_config_then_env(monkeypatch):
+    # Configured keys resolve from config.yaml notion.databases.* (real ids).
+    assert nc._db_id("title").startswith("34e6688d")
+    assert nc._db_id("delivery_tracker").startswith("34e6688d")
+    # An unconfigured key (not in config.yaml) falls back to env.
+    monkeypatch.setenv("NOTION_TEAM_TASKS_DB_ID", "db-team")
+    assert nc._db_id("team_tasks") == "db-team"
+    assert nc._db_id("unknown_key") == ""
+
+
+def test_fetch_status_counts_counts_by_status_and_is_pii_free(monkeypatch):
+    monkeypatch.setenv("NOTION_TOKEN", "secret_test")
+    monkeypatch.setenv("NOTION_TITLE_DB_ID", "db-title")
+    _patch_post(monkeypatch, payload={"results": [
+        _ops_page("Title Issued"),
+        _ops_page("Title Issued"),
+        _ops_page("MCO Received from Factory"),
+    ]})
+    counts = nc.fetch_status_counts("title")
+    assert counts == {"Title Issued": 2, "MCO Received from Factory": 1}
+    # The PII columns on every page must not have leaked into the result.
+    blob = repr(counts).lower()
+    assert "jane" not in blob and "555-0000" not in blob and "12345" not in blob
+
+
+def test_fetch_status_counts_tolerates_dirty_and_aliased_status_columns(monkeypatch):
+    monkeypatch.setenv("NOTION_TOKEN", "secret_test")
+    monkeypatch.setenv("NOTION_DELIVERY_TRACKER_DB_ID", "db-delivery")
+    _patch_post(monkeypatch, payload={"results": [
+        _ops_page("Delivered to Site", prop_name="Current Phase"),     # alias, not "Status"
+        _ops_page("Delivered to Site", prop_name="Status "),            # trailing-space column
+        _ops_page("Unknown one", prop_name="No Status Column At All"),  # -> UNKNOWN
+    ]})
+    counts = nc.fetch_status_counts("delivery_tracker")
+    assert counts == {"Delivered to Site": 2, "UNKNOWN": 1}
+
+
+def test_fetch_status_counts_empty_when_unconfigured(monkeypatch):
+    # Use a key NOT in config.yaml so resolution depends only on env/token.
+    monkeypatch.delenv("NOTION_TOKEN", raising=False)
+    monkeypatch.setenv("NOTION_TEAM_TASKS_DB_ID", "db-team")
+    assert nc.fetch_status_counts("team_tasks") == {}  # no token
+    monkeypatch.setenv("NOTION_TOKEN", "secret_test")
+    monkeypatch.delenv("NOTION_TEAM_TASKS_DB_ID", raising=False)
+    assert nc.fetch_status_counts("team_tasks") == {}  # no db id (not in config or env)
+
+
+def test_query_database_paginates_across_has_more(monkeypatch):
+    """fetch_status_counts must count across pages, not silently cap at 100."""
+    monkeypatch.setenv("NOTION_TOKEN", "secret_test")
+    pages = [
+        {"results": [_ops_page("A"), _ops_page("A")], "has_more": True, "next_cursor": "cur2"},
+        {"results": [_ops_page("B"), _ops_page("A")], "has_more": False, "next_cursor": None},
+    ]
+    state = {"i": 0, "cursors": []}
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        state["cursors"].append(json.get("start_cursor"))
+        page = pages[state["i"]]
+        state["i"] += 1
+        return FakeResponse(page)
+
+    monkeypatch.setattr(nc.httpx, "post", fake_post)
+    counts = nc.fetch_status_counts("title")  # db id from config.yaml
+    assert counts == {"A": 3, "B": 1}          # summed across both pages
+    assert state["cursors"] == [None, "cur2"]   # page 2 used next_cursor
+
+
+def test_status_label_guard_collapses_pii_like_values():
+    assert nc._safe_status_label("Title Issued") == "Title Issued"          # enum-like: kept
+    assert nc._safe_status_label("Call John Smith 555-123-4567") == "OTHER"  # phone -> OTHER
+    assert nc._safe_status_label("email me at j@x.com") == "OTHER"           # email -> OTHER
+    assert nc._safe_status_label("x" * 80) == "OTHER"                        # overlong -> OTHER

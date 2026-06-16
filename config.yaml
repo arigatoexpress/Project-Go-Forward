@@ -176,3 +176,17 @@ scraper:
     price: ".product-price"
     image: "img"
     link: "a"
+
+# Notion "Command Center" integration. DB ids are identifiers, NOT secrets — the
+# only secret is NOTION_TOKEN (Secret Manager). The Ops Copilot reads these
+# PII-free (count-by-status) when NOTION_COMMAND_CENTER=on. Each id can also be
+# overridden by env NOTION_<KEY>_DB_ID if you'd rather not commit them.
+notion:
+  databases:
+    delivery_tracker: "34e6688d-bec6-81b7-966b-c7bfebeb7a27"   # 🔧 Delivery Tracker (installations)
+    cs_survey: "34e6688d-bec6-818b-abd5-f6a095be6cb9"          # 🤝 Customer satisfaction surveys
+    service_warranty: "34e6688d-bec6-8190-9a2c-dc0f5db19de6"   # 🛠️ Service & Warranty
+    title: "34e6688d-bec6-81db-b2a6-ddf06dabe151"              # 📋 Title processing
+    collections: "34e6688d-bec6-81c8-8430-ec5b1d2efd6d"        # 💰 Collections
+    insurance: "34e6688d-bec6-8196-84a6-fc3c64ac2768"          # Insurance / KIP
+    lead_pipeline: "34e6688d-bec6-81b3-b3a3-d176c0f7ce44"      # 👤 Lead Pipeline ("up log")

@@ -4694,6 +4694,30 @@ async def submit_contact_form(request: Request):
                 lead_id=lead_id,
             )
 
+        # Mirror the lead into the Notion Lead Pipeline the salespeople work from
+        # (server-side, gated by NOTION_LEAD_SYNC, fire-and-forget). PII goes only
+        # to the staff's own CRM that already holds contact info; this is never
+        # reachable from a public/partner route and never blocks the visitor.
+        try:
+            from tools.notion_lead_writer import is_lead_sync_enabled, write_lead
+
+            if is_lead_sync_enabled():
+                # write_lead is fire-and-forget and logs notion_lead_sync_failed
+                # itself on failure. Do NOT surface that to the anonymous visitor
+                # in `warnings` — keep the integration invisible externally.
+                write_lead(
+                    name,
+                    email=email or None,
+                    phone=phone,
+                    message=data.get("message"),
+                    source=data.get("source", "contact_form"),
+                    lead_id=lead_id,
+                )
+        except Exception as e:
+            struct_logger.warning(
+                "Notion lead sync failed", event="notion_lead_sync_failed", error=str(e)
+            )
+
         # Send welcome email if email provided
         if email:
             try:
@@ -6855,6 +6879,26 @@ app.include_router(github_mira_status_router, dependencies=[Depends(require_part
 # Read-only v1: answers questions about live business data and explains how to use
 # the platform. Replaces the external Telegram/Mira bot with an in-app surface.
 from schemas.copilot_schemas import CopilotRequest
+
+
+@app.get("/api/admin/ops-snapshot", dependencies=[Depends(require_admin)])
+async def admin_ops_snapshot():
+    """Live, PII-free business snapshot for the admin Ops dashboard.
+
+    Read-only and admin-gated. Aggregates COUNTS only (leads/appointments/
+    inventory/deals/installations/feedback, plus the Notion Command Center ops
+    counts — delivery/title/collections/insurance — when NOTION_COMMAND_CENTER is
+    on). Never any customer identity or dollar figure. Each section is
+    fault-isolated; this never 500s. This is the read surface that replaces the
+    Telegram/Mira status pushes with an in-app, GCP-native view.
+    """
+    from tools.ops_copilot import get_business_snapshot
+
+    try:
+        return {"success": True, "snapshot": await get_business_snapshot()}
+    except Exception as e:
+        struct_logger.error("Ops snapshot failed", error=str(e))
+        return {"success": False, "error": "Snapshot unavailable."}
 
 
 @app.post("/api/admin/copilot", dependencies=[Depends(require_admin)])

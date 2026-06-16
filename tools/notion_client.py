@@ -37,6 +37,7 @@ and across a few common aliases so the operator's column naming has some slack.
 from __future__ import annotations
 
 import os
+import re
 from datetime import UTC, datetime
 from typing import Any
 
@@ -62,6 +63,55 @@ def _delivery_tracker_db_id() -> str:
 
 def _cs_survey_db_id() -> str:
     return (os.environ.get("NOTION_CS_SURVEY_DB_ID") or "").strip()
+
+
+# --- Command Center reader (config-driven, GCP-native, Mira-free) -------------
+# Logical DB keys -> env-var fallback. DB ids are business config, NOT secrets,
+# so they may live in config.yaml `notion.databases.<key>`; only NOTION_TOKEN is
+# a credential. This is what lets the Ops Copilot read the staff's whole ops hub
+# (replacing the Mira bridge) instead of just the two hard-coded DBs.
+_DB_KEY_ENV = {
+    "delivery_tracker": "NOTION_DELIVERY_TRACKER_DB_ID",
+    "cs_survey": "NOTION_CS_SURVEY_DB_ID",
+    "service_warranty": "NOTION_SERVICE_WARRANTY_DB_ID",
+    "title": "NOTION_TITLE_DB_ID",
+    "collections": "NOTION_COLLECTIONS_DB_ID",
+    "insurance": "NOTION_INSURANCE_DB_ID",
+    "team_tasks": "NOTION_TEAM_TASKS_DB_ID",
+    "lead_pipeline": "NOTION_LEAD_PIPELINE_DB_ID",
+}
+
+
+def _config_db_id(db_key: str) -> str:
+    """Notion DB id from config.yaml `notion.databases.<key>`, or '' (never raises)."""
+    try:
+        from config_loader import get_config
+
+        dbs = ((get_config() or {}).get("notion") or {}).get("databases") or {}
+        return str(dbs.get(db_key) or "").strip()
+    except Exception:  # noqa: BLE001 — config block is optional; degrade to env
+        return ""
+
+
+def _db_id(db_key: str) -> str:
+    """Resolve a Command Center DB id: config.yaml first, then env fallback."""
+    cfg = _config_db_id(db_key)
+    if cfg:
+        return cfg
+    env_name = _DB_KEY_ENV.get(db_key)
+    return (os.environ.get(env_name) or "").strip() if env_name else ""
+
+
+def is_command_center_enabled() -> bool:
+    """Master flag for the Notion Command Center reader (default OFF).
+
+    The reader ships dark; the Ops Copilot (the consumer) checks this before
+    sourcing from Notion, so the whole feature flips on/off with one env var and
+    reverts with no redeploy — same pattern as INVENTORY_SOURCE.
+    """
+    return (os.getenv("NOTION_COMMAND_CENTER", "off") or "off").strip().lower() in {
+        "on", "true", "1", "yes",
+    }
 
 
 def is_installations_configured() -> bool:
@@ -129,10 +179,13 @@ def _find_prop(props: dict[str, Any], *names: str) -> Any:
     """
     if not isinstance(props, dict):
         return None
-    lowered = {k.lower(): v for k, v in props.items()}
+    # Strip + lowercase so dirty Notion column names (trailing spaces, casing,
+    # duplicates) still match. On a duplicate-after-normalization, the last wins.
+    lowered = {k.strip().lower(): v for k, v in props.items() if isinstance(k, str)}
     for name in names:
-        if name.lower() in lowered:
-            value = _prop_value(lowered[name.lower()])
+        key = name.strip().lower()
+        if key in lowered:
+            value = _prop_value(lowered[key])
             if value is not None:
                 return value
     return None
@@ -160,10 +213,19 @@ def _normalize_created_at(raw: Any, fallback: str | None) -> str:
 # ---------------------------------------------------------------------------
 # HTTP
 # ---------------------------------------------------------------------------
-def _query_database(db_id: str, limit: int) -> list[dict[str, Any]]:
-    """POST /databases/{db_id}/query and return the raw ``results`` list.
+# A query that wants a full count is bounded by this many pages (x100 rows) so
+# it respects the per-request timeout and the never-raise contract even on a
+# huge database.
+_MAX_QUERY_PAGES = 20
 
-    Never raises: on any error logs and returns ``[]``.
+
+def _query_database(db_id: str, limit: int) -> list[dict[str, Any]]:
+    """POST /databases/{db_id}/query and return up to ``limit`` rows, paginating.
+
+    Follows Notion's ``has_more``/``next_cursor`` so callers that need a full
+    count (``fetch_status_counts``) are not silently capped at 100. Bounded by
+    ``limit`` and ``_MAX_QUERY_PAGES``. Never raises: on any error logs and
+    returns whatever was collected so far.
     """
     token = _token()
     if not token or not db_id:
@@ -174,18 +236,30 @@ def _query_database(db_id: str, limit: int) -> list[dict[str, Any]]:
         "Notion-Version": _NOTION_VERSION,
         "Content-Type": "application/json",
     }
-    # Notion caps page_size at 100; clamp the requested limit into [1, 100].
-    page_size = max(1, min(int(limit), 100))
-    payload = {"page_size": page_size}
-    try:
-        resp = httpx.post(url, headers=headers, json=payload, timeout=_TIMEOUT_SECONDS)
-        resp.raise_for_status()
-        body = resp.json()
+    want = max(1, int(limit))
+    out: list[dict[str, Any]] = []
+    cursor: str | None = None
+    for _ in range(_MAX_QUERY_PAGES):
+        # Notion caps page_size at 100; never ask for more than we still want.
+        payload: dict[str, Any] = {"page_size": max(1, min(want - len(out), 100))}
+        if cursor:
+            payload["start_cursor"] = cursor
+        try:
+            resp = httpx.post(url, headers=headers, json=payload, timeout=_TIMEOUT_SECONDS)
+            resp.raise_for_status()
+            body = resp.json()
+        except Exception as e:  # noqa: BLE001 — graceful degradation by contract
+            struct_logger.error("notion query failed", db_id=db_id, error=str(e))
+            return out
         results = body.get("results", [])
-        return results if isinstance(results, list) else []
-    except Exception as e:  # noqa: BLE001 — graceful degradation by contract
-        struct_logger.error("notion query failed", db_id=db_id, error=str(e))
-        return []
+        if isinstance(results, list):
+            out.extend(results)
+        if len(out) >= want or not body.get("has_more"):
+            break
+        cursor = body.get("next_cursor")
+        if not cursor:
+            break
+    return out[:want]
 
 
 # ---------------------------------------------------------------------------
@@ -269,3 +343,61 @@ def fetch_feedback(limit: int = 50) -> list[dict[str, Any]]:
             item["deal_id"] = deal_id
         rows.append(item)
     return rows
+
+
+# Status/phase column names across the Command Center DBs (Title='Status',
+# Delivery='Current Phase', Collections/Insurance='Payment Status',
+# CS-survey='Outreach Status', Lead Pipeline='Pipeline Stage', ...). _find_prop
+# is case-insensitive and tolerates trailing-space/duplicate column names.
+_STATUS_ALIASES = (
+    "status",
+    "Current Phase",
+    "Phase",
+    "Pipeline Stage",
+    "Payment Status",
+    "Outreach Status",
+    "Outreach Stage",
+)
+
+# Status VALUES should be enum-like labels. If an operator types free text with
+# embedded PII (e.g. a phase literally named "Call John Smith 555-1234"), that
+# string would otherwise become a count key and ride the "counts-only" channel
+# into the Gemini prompt. Defense-in-depth: collapse such values to "OTHER".
+_PII_IN_LABEL = re.compile(
+    r"\d{3}-\d{2}-\d{4}"                      # SSN
+    r"|[\w.+-]+@[\w-]+\.\w{2,}"               # email
+    r"|(?:\+?\d[\s.\-()]?){9,}\d"             # long digit run (phone)
+)
+
+
+def _safe_status_label(value: object) -> str:
+    """Enum-like status label, or 'OTHER' if it's overlong or looks like PII."""
+    s = str(value)
+    return "OTHER" if len(s) > 60 or _PII_IN_LABEL.search(s) else s
+
+
+def fetch_status_counts(
+    db_key: str, *, limit: int = 2000, status_aliases: tuple[str, ...] = _STATUS_ALIASES
+) -> dict[str, int]:
+    """Count rows by their status/phase in a Command Center DB. PII-free by construction.
+
+    This is the generic, GCP-native reader the Ops Copilot uses to answer
+    "where is my delivery / title / service / collections" from the staff's real
+    system. It reads ONLY the status-like column (via case-insensitive alias
+    matching) and never any other property — so no customer identity, dollar
+    amount, or free-text comment can enter the result, regardless of how the
+    operator names or adds columns. Returns ``{status_value: count}``; ``{}`` when
+    unconfigured (no token / no db id) or on any error (the underlying query
+    never raises).
+    """
+    db_id = _db_id(db_key)
+    if not _token() or not db_id:
+        return {}
+    counts: dict[str, int] = {}
+    for page in _query_database(db_id, limit):
+        if not isinstance(page, dict):
+            continue
+        status = _find_prop(page.get("properties", {}), *status_aliases) or "UNKNOWN"
+        key = _safe_status_label(status)
+        counts[key] = counts.get(key, 0) + 1
+    return counts

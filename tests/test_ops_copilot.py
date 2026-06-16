@@ -314,3 +314,82 @@ def test_copilot_endpoint_returns_reply_for_admin(monkeypatch):
     body = res.json()
     assert body["reply"] == "Hello from the copilot."
     assert body["error"] is False
+
+
+# --------------------------------------------------------------------------- #
+# Notion Command Center source switch (increment 3) — the Mira replacement
+# --------------------------------------------------------------------------- #
+def _fake_notion_counts(monkeypatch, mapping):
+    from tools import notion_client
+
+    monkeypatch.setattr(
+        notion_client, "fetch_status_counts", lambda db_key, **kw: mapping.get(db_key, {})
+    )
+
+
+def test_snapshot_sources_from_notion_when_command_center_on(monkeypatch):
+    monkeypatch.setenv("NOTION_COMMAND_CENTER", "on")
+    _fake_notion_counts(monkeypatch, {
+        "delivery_tracker": {"Delivered to Site": 3, "Trim-Out": 2},
+        "cs_survey": {"Contacted-Positive": 4, "Do Not Contact": 1},
+        "service_warranty": {"Repair In Progress": 2},
+        "title": {"Title Issued": 5, "MCO Received from Factory": 1},
+        "collections": {"Current": 10, "Default": 1},
+        "insurance": {"Policy Active": 7},
+    })
+    _wire_fake_data(monkeypatch, collections={
+        "service_requests": [_FakeDoc({"status": "pending"})],   # Firestore — should be IGNORED
+        "feedback": [_FakeDoc({"rating": 5})],
+    })
+
+    snap = asyncio.run(ops_copilot.get_business_snapshot())
+
+    # Installations now come from the Notion Delivery Tracker, not Firestore.
+    assert snap["installations"]["by_status"] == {"Delivered to Site": 3, "Trim-Out": 2}
+    # Feedback total derived from the CS-survey counts.
+    assert snap["feedback"] == {"total": 5, "by_status": {"Contacted-Positive": 4, "Do Not Contact": 1}}
+    # Post-funding ops surface as count-by-status only.
+    ops = snap["operations"]
+    assert ops["title"]["by_status"] == {"Title Issued": 5, "MCO Received from Factory": 1}
+    assert ops["collections"]["by_status"] == {"Current": 10, "Default": 1}
+    assert ops["insurance"]["by_status"] == {"Policy Active": 7}
+    # PII-free: the whole snapshot is statuses + counts, no identities/emails/phones.
+    blob = repr(snap).lower()
+    assert "@" not in blob and "555-" not in blob
+
+
+def test_snapshot_firestore_only_when_command_center_off(monkeypatch):
+    """Regression lock: flag off => Firestore feedback count, no 'operations' key."""
+    monkeypatch.delenv("NOTION_COMMAND_CENTER", raising=False)
+    _wire_fake_data(monkeypatch, collections={
+        "service_requests": [_FakeDoc({"status": "pending"})],
+        "feedback": [_FakeDoc({"rating": 5}), _FakeDoc({"rating": 4})],
+    })
+    snap = asyncio.run(ops_copilot.get_business_snapshot())
+    assert snap["installations"]["by_status"] == {"pending": 1}
+    assert snap["feedback"] == {"total": 2}
+    assert "operations" not in snap
+
+
+def test_snapshot_degrades_when_notion_reader_raises(monkeypatch):
+    monkeypatch.setenv("NOTION_COMMAND_CENTER", "on")
+    from tools import notion_client
+
+    def _boom(db_key, **kw):
+        raise RuntimeError("notion down")
+
+    monkeypatch.setattr(notion_client, "fetch_status_counts", _boom)
+    _wire_fake_data(monkeypatch, collections={
+        "service_requests": [_FakeDoc({"status": "pending"})],
+        "feedback": [_FakeDoc({"rating": 5})],
+    })
+    snap = asyncio.run(ops_copilot.get_business_snapshot())
+    # Notion raised -> falls back to Firestore for installations + feedback, ops degrade to {}.
+    assert snap["installations"]["by_status"] == {"pending": 1}
+    assert snap["feedback"] == {"total": 1}
+    assert snap["operations"]["title"]["by_status"] == {}
+
+
+def test_help_search_matches_delivery_status():
+    hits = ops_copilot.search_platform_help("where is my home in the delivery process")
+    assert any("delivery" in h["title"].lower() for h in hits)
