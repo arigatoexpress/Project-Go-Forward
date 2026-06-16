@@ -1,7 +1,8 @@
 # Notion → Mira Bridge
 
 **Workstream:** `notion-bridge`
-**Status:** Implemented / ready for env wiring
+**Status:** Implemented / ready for env wiring  
+**⚠️ Future:** This Notion-sourced path is planned for deprecation in favor of a GCP-native operational data layer. See [`gcp-mira-pivot-spec.md`](./gcp-mira-pivot-spec.md).
 
 ## What it does
 
