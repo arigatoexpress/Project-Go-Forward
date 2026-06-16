@@ -184,3 +184,13 @@ def test_load_house_orders_from_gcs_downloads_parses_and_cleans_up(monkeypatch, 
     assert captured["blob"] == "house-orders/House Orders.xlsx"
     assert docs == [{"serial_number": "X", "model_name": "M", "status": "AVAILABLE"}]
     assert not os.path.exists(captured["downloaded_to"])  # temp file cleaned up
+
+
+def test_parse_model_specs_ignores_dates_and_bad_dims():
+    # A date in the model must NOT be read as beds/baths, and the real dims still parse.
+    w, length, beds, baths = hos._parse_model_specs("Model 6/12/2024 28x56")
+    assert (w, length) == (28, 56)
+    assert beds is None and baths is None
+    assert hos._parse_model_specs("Oak 28x56 3/2")[2:] == (3, 2)   # clean beds/baths
+    assert hos._parse_model_specs("Bigfoot 100x200")[:2] == (None, None)  # 3-digit width rejected
+    assert hos._parse_model_specs("Sunshine 76x14")[:2] == (14, 76)  # transposed LxW de-transposed

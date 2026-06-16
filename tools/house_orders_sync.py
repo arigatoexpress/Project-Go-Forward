@@ -87,12 +87,22 @@ def _status_from_customer(customer: Any) -> str:
 
 
 def _parse_model_specs(model: str) -> tuple[int | None, int | None, int | None, int | None]:
-    """Pull (width, length, beds, baths) out of a model string like 'Oak 28x56 3/2'."""
+    """Pull (width, length, beds, baths) out of a model string like 'Oak 28x56 3/2'.
+
+    Hardened against junk: the dims regex is anchored to non-digits so a 3-digit
+    run ('100x200') or a date doesn't slip in; width is sanity-bounded (8-40, a
+    real section width) and de-transposed ('76x14' -> 14x76); beds/baths require
+    single digits NOT inside a longer run so a date ('6/12/2024') is ignored.
+    """
     width = length = beds = baths = None
-    dim = re.search(r"(\d{1,2})\s*[xX]\s*(\d{2,3})", model)
+    dim = re.search(r"(?<!\d)(\d{1,2})\s*[xX]\s*(\d{2,3})(?!\d)", model)
     if dim:
-        width, length = int(dim.group(1)), int(dim.group(2))
-    bb = re.search(r"(\d)\s*/\s*(\d)", model)
+        w, length_val = int(dim.group(1)), int(dim.group(2))
+        if w > 40 and 8 <= length_val <= 40:  # written 'LxW' -> swap to WxL
+            w, length_val = length_val, w
+        if 8 <= w <= 40:
+            width, length = w, length_val
+    bb = re.search(r"(?<!\d)([1-9])\s*/\s*([1-9])(?!\d)", model)
     if bb:
         beds, baths = int(bb.group(1)), int(bb.group(2))
     return width, length, beds, baths
