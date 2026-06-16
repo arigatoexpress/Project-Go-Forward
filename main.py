@@ -4711,6 +4711,7 @@ async def submit_contact_form(request: Request):
                     phone=phone,
                     message=data.get("message"),
                     source=data.get("source", "contact_form"),
+                    lead_id=lead_id,
                 )
         except Exception as e:
             struct_logger.warning(

@@ -333,3 +333,10 @@ def test_query_database_paginates_across_has_more(monkeypatch):
     counts = nc.fetch_status_counts("title")  # db id from config.yaml
     assert counts == {"A": 3, "B": 1}          # summed across both pages
     assert state["cursors"] == [None, "cur2"]   # page 2 used next_cursor
+
+
+def test_status_label_guard_collapses_pii_like_values():
+    assert nc._safe_status_label("Title Issued") == "Title Issued"          # enum-like: kept
+    assert nc._safe_status_label("Call John Smith 555-123-4567") == "OTHER"  # phone -> OTHER
+    assert nc._safe_status_label("email me at j@x.com") == "OTHER"           # email -> OTHER
+    assert nc._safe_status_label("x" * 80) == "OTHER"                        # overlong -> OTHER

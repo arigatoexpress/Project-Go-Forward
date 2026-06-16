@@ -37,6 +37,7 @@ and across a few common aliases so the operator's column naming has some slack.
 from __future__ import annotations
 
 import os
+import re
 from datetime import UTC, datetime
 from typing import Any
 
@@ -358,6 +359,22 @@ _STATUS_ALIASES = (
     "Outreach Stage",
 )
 
+# Status VALUES should be enum-like labels. If an operator types free text with
+# embedded PII (e.g. a phase literally named "Call John Smith 555-1234"), that
+# string would otherwise become a count key and ride the "counts-only" channel
+# into the Gemini prompt. Defense-in-depth: collapse such values to "OTHER".
+_PII_IN_LABEL = re.compile(
+    r"\d{3}-\d{2}-\d{4}"                      # SSN
+    r"|[\w.+-]+@[\w-]+\.\w{2,}"               # email
+    r"|(?:\+?\d[\s.\-()]?){9,}\d"             # long digit run (phone)
+)
+
+
+def _safe_status_label(value: object) -> str:
+    """Enum-like status label, or 'OTHER' if it's overlong or looks like PII."""
+    s = str(value)
+    return "OTHER" if len(s) > 60 or _PII_IN_LABEL.search(s) else s
+
 
 def fetch_status_counts(
     db_key: str, *, limit: int = 2000, status_aliases: tuple[str, ...] = _STATUS_ALIASES
@@ -381,6 +398,6 @@ def fetch_status_counts(
         if not isinstance(page, dict):
             continue
         status = _find_prop(page.get("properties", {}), *status_aliases) or "UNKNOWN"
-        key = str(status)
+        key = _safe_status_label(status)
         counts[key] = counts.get(key, 0) + 1
     return counts

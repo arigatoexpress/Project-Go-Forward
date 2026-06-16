@@ -122,3 +122,9 @@ def test_write_lead_posts_to_pages_and_returns_true(enabled, monkeypatch):
 def test_write_lead_swallows_errors_and_returns_false(enabled, monkeypatch):
     _capture_post(monkeypatch, raises=httpx.ConnectError("boom"))
     assert nlw.write_lead("Jane", phone="5551112222") is False  # never raises
+
+
+def test_lead_id_is_stamped_into_notes_as_join_ref():
+    props = nlw.build_lead_properties("Jane", source="contact_form", lead_id="contact_123_ab")
+    notes = props["Notes"]["rich_text"][0]["text"]["content"]
+    assert "ref=contact_123_ab" in notes  # Firestore lead_id = the cross-system join key

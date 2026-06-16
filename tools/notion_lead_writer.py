@@ -50,9 +50,15 @@ def is_lead_sync_enabled() -> bool:
     return flag and bool(_token() and _db_id("lead_pipeline"))
 
 
-def build_lead_properties(name, *, email=None, phone=None, message=None, source="website") -> dict:
+def build_lead_properties(
+    name, *, email=None, phone=None, message=None, source="website", lead_id=None
+) -> dict:
     """Build the Notion ``properties`` payload (pure; unit-tested for PII-safety)."""
     stamp = f"Website lead · {datetime.now(UTC).date().isoformat()} · source={source}"
+    if lead_id:
+        # The Firestore lead_id is the cross-system join key (app stays SoR for
+        # the raw lead); stamping it makes the Notion row traceable back.
+        stamp += f" · ref={lead_id}"
     note = stamp if not message else f"{stamp}\n\n{str(message)[:1500]}"
     props: dict = {
         _P_NAME: {"title": [{"text": {"content": (name or "Website Lead")[:200]}}]},
@@ -66,7 +72,7 @@ def build_lead_properties(name, *, email=None, phone=None, message=None, source=
     return props
 
 
-def write_lead(name, *, email=None, phone=None, message=None, source="website") -> bool:
+def write_lead(name, *, email=None, phone=None, message=None, source="website", lead_id=None) -> bool:
     """Create a Lead Pipeline row for a website lead. Never raises.
 
     Returns True on a 2xx create, False if disabled or on any error (logged as
@@ -77,7 +83,7 @@ def write_lead(name, *, email=None, phone=None, message=None, source="website") 
     payload = {
         "parent": {"database_id": _db_id("lead_pipeline")},
         "properties": build_lead_properties(
-            name, email=email, phone=phone, message=message, source=source
+            name, email=email, phone=phone, message=message, source=source, lead_id=lead_id
         ),
     }
     headers = {
