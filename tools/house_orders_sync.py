@@ -170,6 +170,32 @@ def parse_house_orders(path: str) -> list[dict]:
     return house_orders_to_inventory_docs(records)
 
 
+def load_house_orders_from_gcs(bucket_name: str, blob_name: str) -> list[dict]:
+    """Download House Orders.xlsx from GCS to a temp file and parse it.
+
+    Lets a daily Cloud Scheduler job (or a staff "refresh" action) keep the
+    in-app inventory current from the operator's sheet without a manual local
+    run. The run-as SA reads the bucket; nothing is persisted to disk beyond a
+    short-lived temp file.
+    """
+    import os
+    import tempfile
+
+    from google.cloud import storage
+
+    blob = storage.Client().bucket(bucket_name).blob(blob_name)
+    fd, path = tempfile.mkstemp(suffix=".xlsx")
+    os.close(fd)
+    try:
+        blob.download_to_filename(path)
+        return parse_house_orders(path)
+    finally:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+
+
 def sync_house_orders_to_inventory(
     db: Any, docs: list[dict], *, dry_run: bool = True, limit: int | None = None
 ) -> dict:

@@ -7,6 +7,9 @@ persists a customer name or invoice cost would push private data onto the public
 website.
 """
 
+import os
+import sys
+
 from tools import house_orders_sync as hos
 
 
@@ -144,3 +147,40 @@ def _sheet_rec(serial, customer=None):
         "Manufacturing Plant": "Tru Belton",
         "Customer": customer,
     }
+
+
+def test_load_house_orders_from_gcs_downloads_parses_and_cleans_up(monkeypatch, tmp_path):
+    """The GCS loader downloads the xlsx, parses it, and removes the temp file."""
+    import types
+    captured = {}
+
+    class _FakeBlob:
+        def download_to_filename(self, path):
+            captured["downloaded_to"] = path
+            with open(path, "wb") as fh:
+                fh.write(b"fake-xlsx-bytes")
+
+    class _FakeBucket:
+        def blob(self, name):
+            captured["blob"] = name
+            return _FakeBlob()
+
+    class _FakeClient:
+        def bucket(self, name):
+            captured["bucket"] = name
+            return _FakeBucket()
+
+    fake_storage = types.SimpleNamespace(Client=lambda: _FakeClient())
+    monkeypatch.setitem(sys.modules, "google.cloud.storage", fake_storage)
+    # parse the downloaded file via a stub (avoids needing a real xlsx)
+    monkeypatch.setattr(
+        hos, "parse_house_orders",
+        lambda path: [{"serial_number": "X", "model_name": "M", "status": "AVAILABLE"}],
+    )
+
+    docs = hos.load_house_orders_from_gcs("tho-inventory-assets", "house-orders/House Orders.xlsx")
+
+    assert captured["bucket"] == "tho-inventory-assets"
+    assert captured["blob"] == "house-orders/House Orders.xlsx"
+    assert docs == [{"serial_number": "X", "model_name": "M", "status": "AVAILABLE"}]
+    assert not os.path.exists(captured["downloaded_to"])  # temp file cleaned up
