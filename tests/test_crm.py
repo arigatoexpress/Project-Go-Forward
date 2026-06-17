@@ -1,48 +1,66 @@
-import json
-import os
-import sys
+"""Tests for tools.crm_tools.save_lead — lead capture validation + contract.
 
-# Add project root to path
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+Replaces a legacy smoke *script* that called ``save_lead`` at module top level,
+which (a) provided zero pytest coverage and (b) appended a fake lead to
+``data/leads.json`` every time the suite was merely collected. These tests pin
+the validation rules and success contract without writing to disk.
+"""
+
+import pytest
+
 from tools import crm_tools
 
-# Test 1: Valid Lead
-print("Testing valid lead...")
-result = crm_tools.save_lead(
-    user_name="John Doe",
-    phone_number="555-123-4567",
-    interest_notes="Looking for a 3 bedroom double wide.",
-)
-print(f"Result: {result}")
 
-if result["success"]:
-    print("SUCCESS: Valid lead accepted.")
-else:
-    print("FAILURE: Valid lead rejected.")
+@pytest.fixture(autouse=True)
+def _no_disk_writes(monkeypatch):
+    """Keep save_lead's success path from appending to the repo's data/leads.json.
 
-# Test 2: Invalid Phone
-print("\nTesting invalid phone...")
-result = crm_tools.save_lead(user_name="Invalid Phone", phone_number="123", interest_notes="test")
-print(f"Result: {result}")
+    save_lead guards its file write behind ``os.access(..., os.W_OK)``; forcing
+    that False exercises the full structure-and-return logic while skipping the
+    side effect, so collecting/running tests never pollutes local lead data.
+    """
+    monkeypatch.setattr(crm_tools.os, "access", lambda *a, **k: False)
 
-if not result["success"]:
-    print("SUCCESS: Invalid phone rejected.")
-else:
-    print("FAILURE: Invalid phone accepted.")
 
-# Test 3: Check local file (if writable)
-try:
-    data_dir = os.path.join(os.path.dirname(__file__), "..", "data")
-    leads_file = os.path.join(data_dir, "leads.json")
-    if os.path.exists(leads_file):
-        with open(leads_file) as f:
-            leads = json.load(f)
-            last_lead = leads[-1]
-            if last_lead["name"] == "John Doe":
-                print("\nSUCCESS: Lead found in local JSON file.")
-            else:
-                print(f"\nFAILURE: Last lead was {last_lead['name']}, expected John Doe.")
-    else:
-        print("\nNOTE: leads.json not found (expected if data dir not writable/created).")
-except Exception as e:
-    print(f"\nError checking file: {e}")
+def test_save_lead_valid_returns_success():
+    result = crm_tools.save_lead(
+        user_name="John Doe",
+        phone_number="555-123-4567",
+        interest_notes="Looking for a 3 bedroom double wide.",
+    )
+    assert result["success"] is True
+    # Confirmation echoes the customer's name and number back to the agent.
+    assert "John Doe" in result["message"]
+    assert "555-123-4567" in result["message"]
+
+
+def test_save_lead_accepts_formatted_phone():
+    result = crm_tools.save_lead(
+        user_name="Jane Smith",
+        phone_number="(281) 555-0100",
+        interest_notes="Financing question",
+    )
+    assert result["success"] is True
+
+
+def test_save_lead_rejects_missing_name():
+    result = crm_tools.save_lead(
+        user_name="", phone_number="555-123-4567", interest_notes="test"
+    )
+    assert result["success"] is False
+    assert "name" in result["message"].lower()
+
+
+def test_save_lead_rejects_missing_phone():
+    result = crm_tools.save_lead(
+        user_name="No Phone", phone_number="", interest_notes="test"
+    )
+    assert result["success"] is False
+
+
+def test_save_lead_rejects_short_phone():
+    result = crm_tools.save_lead(
+        user_name="Short Phone", phone_number="123", interest_notes="test"
+    )
+    assert result["success"] is False
+    assert "invalid" in result["message"].lower() or "10" in result["message"]

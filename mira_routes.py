@@ -97,7 +97,10 @@ def _parse_timestamp(value: Any) -> datetime | None:
             if dt.tzinfo is None:
                 dt = dt.replace(tzinfo=UTC)
             return dt.astimezone(UTC)
-        except Exception:
+        except Exception as e:
+            struct_logger.warning(
+                "mira timestamp parse failed", value=value, error=str(e)
+            )
             return None
     return None
 
@@ -109,7 +112,12 @@ def _count_collection_by_status(collection_name: str, status_field: str = "statu
         docs = db.collection(collection_name).stream()
         statuses = [doc.to_dict().get(status_field, "UNKNOWN") for doc in docs]
         return dict(Counter(statuses))
-    except Exception:
+    except Exception as e:
+        struct_logger.warning(
+            "mira collection status count failed",
+            collection=collection_name,
+            error=str(e),
+        )
         return {"UNKNOWN": 0}
 
 
@@ -609,7 +617,10 @@ async def mira_firestore_collections(request: Request, limit: int = 1000) -> dic
             try:
                 count = len(list(col.limit(limit).stream()))
                 result.append({"collection": col.id, "count": count})
-            except Exception:
+            except Exception as e:
+                struct_logger.warning(
+                    "mira collection count failed", collection=col.id, error=str(e)
+                )
                 result.append({"collection": col.id, "count": None})
         return {
             "status": "healthy",

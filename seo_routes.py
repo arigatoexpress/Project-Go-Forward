@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import html
 import json
+import logging
 import os
 import re
 import threading
@@ -43,6 +44,8 @@ from config_loader import (
 )
 
 router = APIRouter()
+
+logger = logging.getLogger(__name__)
 
 # ── Wiring (set by main.py at startup) ─────────────────────────────────────
 
@@ -197,8 +200,9 @@ def _safe_homes() -> list[dict]:
         return []
     try:
         return _get_homes() or []
-    except Exception:
+    except Exception as e:
         # SEO surface must never take the page down with it.
+        logger.warning(f"SEO _safe_homes: inventory fetch failed, serving empty: {e}")
         return []
 
 
@@ -353,7 +357,8 @@ def _product_jsonld(home: dict, canonical_url: str) -> dict | None:
     price = home.get("price_value")
     try:
         price = float(price) if price is not None else None
-    except (TypeError, ValueError):
+    except (TypeError, ValueError) as e:
+        logger.warning(f"SEO _product_jsonld: unparseable price_value {price!r}, omitting Product JSON-LD: {e}")
         price = None
     if not (price and price > 0):
         return None
@@ -416,7 +421,8 @@ def _shell() -> str:
             content = f.read()
         _shell_cache = (mtime, content)
         return content
-    except OSError:
+    except OSError as e:
+        logger.warning(f"SEO _shell: cannot read index shell {_index_html_path!r}, using minimal fallback: {e}")
         return '<!doctype html><html><head><title></title></head><body><div id="root"></div></body></html>'
 
 
@@ -1047,7 +1053,8 @@ def render_spa_response(full_path: str) -> Response | None:
     to its default file handling. Never raises."""
     try:
         return _render_spa_response(full_path)
-    except Exception:
+    except Exception as e:
+        logger.warning(f"SEO render_spa_response: rendering failed for {full_path!r}, falling through: {e}")
         return None
 
 
