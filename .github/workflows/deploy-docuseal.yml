@@ -124,7 +124,7 @@ jobs:
           AUTH_FLAG="--allow-unauthenticated"
           [ "${{ github.event.inputs.allow_unauthenticated }}" = "true" ] || AUTH_FLAG="--no-allow-unauthenticated"
           gcloud run deploy "$SERVICE" \
-            --image=docuseal/docuseal:latest \
+            --image=docuseal/docuseal:2.5.3 \
             --project="$PROJECT_ID" --region="$REGION" \
             --port=3000 --min-instances=1 --memory=1Gi --cpu=1 \
             --add-cloudsql-instances="$CONN_NAME" \
