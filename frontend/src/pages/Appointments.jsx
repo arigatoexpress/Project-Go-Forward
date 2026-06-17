@@ -125,6 +125,9 @@ const CalendarGrid = ({ selectedDate, onSelect }) => {
       <div className="grid grid-cols-7 gap-1">
         {cells}
       </div>
+      <p className="text-xs text-gray-400 mt-4 text-center">
+        Dimmed dates are unavailable — past days and dates more than 30 days out can&apos;t be booked online. Call {BUSINESS_PHONE} for dates further ahead.
+      </p>
     </div>
   );
 };
@@ -253,9 +256,13 @@ const ContactForm = ({ formData, onChange, onSubmit, onBack, submitting }) => {
             autoComplete="email"
             value={formData.email}
             onChange={(e) => onChange({ ...formData, email: e.target.value })}
-            className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+            className={`w-full px-4 py-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none ${formData.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email) ? 'border-amber-300' : 'border-gray-300'}`}
             placeholder="john@example.com"
+            aria-describedby={formData.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email) ? 'appt-email-hint' : undefined}
           />
+          {formData.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email) && (
+            <p id="appt-email-hint" className="text-xs text-amber-700 mt-1">This doesn&apos;t look like a complete email — double-check it so we can send your confirmation. (Optional — you can still book without it.)</p>
+          )}
         </div>
         <div>
           <label htmlFor="appt-notes" className="block text-sm font-medium text-gray-700 mb-1">What homes are you interested in?</label>
