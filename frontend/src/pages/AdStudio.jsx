@@ -996,25 +996,31 @@ export default function AdStudio({ onBack }) {
                         <p className="text-xs text-gray-400 mb-2">Create AI voiceover audio from your script (Google Cloud TTS)</p>
                         
                         {/* Voice selector - grouped by tier */}
-                        <div className="tho-voice-selector">
-                            <span className="text-xs text-gray-500">Voice:</span>
-                            <select 
-                                className="tho-input tho-select"
-                                value={selectedVoice}
-                                onChange={e => setSelectedVoice(e.target.value)}
-                            >
-                                {['Studio', 'Neural2', 'News', 'Wavenet'].map(tier => (
-                                    <optgroup key={tier} label={tier === 'Neural2' ? 'Neural2 (Recommended)' : tier}>
-                                        {voices.filter(v => v.tier === tier).map(v => (
-                                            <option key={v.id} value={v.id}>
-                                                {v.name} — {v.description} ({v.style})
-                                            </option>
-                                        ))}
-                                    </optgroup>
-                                ))}
-                            </select>
-                        </div>
-                        
+                        {voices.length === 0 ? (
+                            <div className="tho-readiness-note">
+                                No voiceover voices are available right now. Check your Google Cloud TTS configuration and retry.
+                            </div>
+                        ) : (
+                            <div className="tho-voice-selector">
+                                <span className="text-xs text-gray-500">Voice:</span>
+                                <select
+                                    className="tho-input tho-select"
+                                    value={selectedVoice}
+                                    onChange={e => setSelectedVoice(e.target.value)}
+                                >
+                                    {['Studio', 'Neural2', 'News', 'Wavenet'].map(tier => (
+                                        <optgroup key={tier} label={tier === 'Neural2' ? 'Neural2 (Recommended)' : tier}>
+                                            {voices.filter(v => v.tier === tier).map(v => (
+                                                <option key={v.id} value={v.id}>
+                                                    {v.name} — {v.description} ({v.style})
+                                                </option>
+                                            ))}
+                                        </optgroup>
+                                    ))}
+                                </select>
+                            </div>
+                        )}
+
                         {/* Generate button */}
                         <button
                             className="tho-btn tho-btn-secondary w-full mt-2 flex items-center justify-center gap-2"
@@ -1124,7 +1130,7 @@ export default function AdStudio({ onBack }) {
                         </button>
                         {aiReadiness && !aiReadiness.ready && (
                             <div className="tho-readiness-note">
-                                GCP AI needs attention: {(aiReadiness.requirements || []).join(', ') || 'check project and SDK configuration'}
+                                GenAI Clip is disabled until GCP AI is ready: {(aiReadiness.requirements || []).join(', ') || 'check project and SDK configuration'}
                             </div>
                         )}
                         

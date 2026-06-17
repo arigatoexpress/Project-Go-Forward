@@ -10,6 +10,9 @@ const Contact = ({ onBack }) => {
 
     const phoneDigits = formData.phone.replace(/\D/g, '');
     const isPhoneValid = phoneDigits.length >= 10;
+    // Soft hint only — email is optional and NEVER gates submission.
+    const emailLooksValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email.trim());
+    const showEmailHint = formData.email.trim() !== '' && !emailLooksValid;
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -44,7 +47,8 @@ const Contact = ({ onBack }) => {
                 <div className="bg-white p-8 rounded-2xl shadow-xl inline-block">
                     <CheckCircle className="h-16 w-16 text-green-500 mx-auto mb-4" />
                     <h2 className="text-2xl font-bold text-gray-900 mb-2">Message Received!</h2>
-                    <p className="text-gray-600 mb-6">Thank you for reaching out. A member of the {BUSINESS_NAME} family will contact you shortly.</p>
+                    <p className="text-gray-600 mb-2">Thank you for reaching out. A member of the {BUSINESS_NAME} family will contact you shortly.</p>
+                    <p className="text-sm text-gray-500 mb-6">We'll reach out at the phone number you provided.</p>
                     <button
                         onClick={onBack}
                         className="bg-blue-600 text-white px-6 py-2 rounded-full hover:bg-blue-700 transition"
@@ -166,9 +170,13 @@ const Contact = ({ onBack }) => {
                                 autoComplete="email"
                                 value={formData.email}
                                 onChange={(e) => setFormData(prev => ({ ...prev, email: e.target.value }))}
-                                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                                className={`w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none ${showEmailHint ? 'border-amber-300' : 'border-gray-300'}`}
                                 placeholder="john@example.com"
+                                aria-describedby={showEmailHint ? 'contact-email-hint' : undefined}
                             />
+                            {showEmailHint && (
+                                <p id="contact-email-hint" className="text-xs text-amber-700 mt-1">This email looks incomplete. You can still send without it.</p>
+                            )}
                         </div>
                         <div>
                             <label htmlFor="contact-message" className="block text-sm font-medium text-gray-700 mb-1">What can we help with?</label>

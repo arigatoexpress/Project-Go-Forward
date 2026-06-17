@@ -26,6 +26,22 @@ const MetricCard = ({ title, value, icon, trend, trendUp, accent, subtitle }) =>
     </div>
 );
 
+// Distinct from an empty/"no data yet" state: this section's fetch failed, so we
+// genuinely don't know whether there's data. Offer a retry.
+const SectionError = ({ onRetry, compact }) => (
+    <div className={`flex flex-col items-center justify-center text-center ${compact ? 'py-6' : 'h-80'}`}>
+        <AlertCircle size={compact ? 20 : 32} className="text-amber-500 mb-2" />
+        <p className="text-sm text-gray-700 mb-3">Couldn&apos;t load this section</p>
+        <button
+            onClick={onRetry}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-blue-600 border border-blue-200 rounded-md hover:bg-blue-50 transition"
+        >
+            <RefreshCw size={14} />
+            Retry
+        </button>
+    </div>
+);
+
 const TimeRangeSelector = ({ value, onChange }) => (
     <div className="flex bg-gray-50 rounded-lg p-1">
         {['7d', '30d', '90d', 'all'].map((range) => (
@@ -53,6 +69,9 @@ export default function Analytics() {
     const [timeSeriesData, setTimeSeriesData] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
+    // Per-section load failures, so a failed section reads "couldn't load"
+    // rather than silently looking like "no data yet".
+    const [sectionErrors, setSectionErrors] = useState({});
     const [timeRange, setTimeRange] = useState('30d');
     const [activeTab, setActiveTab] = useState('overview');
 
@@ -68,6 +87,17 @@ export default function Analytics() {
                 adminFetch(`/api/analytics/chat?range=${timeRange}`).catch(() => null),
                 adminFetch(`/api/analytics/events?range=${timeRange}`).catch(() => null),
             ]);
+
+            // A null response = the fetch threw; a non-ok response = the server
+            // rejected it. Either way the section failed to load (distinct from
+            // a successful response that simply has no data yet).
+            const failed = {
+                leads: !leadsResp?.ok,
+                documents: !docsResp?.ok,
+                inventory: !invResp?.ok,
+                chat: !chatResp?.ok,
+                events: !eventsResp?.ok,
+            };
 
             if (leadsResp?.ok) {
                 const data = await leadsResp.json();
@@ -89,6 +119,14 @@ export default function Analytics() {
             if (eventsResp?.ok) {
                 const data = await eventsResp.json();
                 setEventStats(data);
+            }
+
+            setSectionErrors(failed);
+
+            // Only hard-fail the whole page if every section failed; otherwise
+            // surface the failures inline so the loaded sections still render.
+            if (Object.values(failed).every(Boolean)) {
+                setError('Unable to load analytics data. Please try again.');
             }
         } catch (e) {
             console.error('Analytics fetch failed:', e);
@@ -217,6 +255,31 @@ export default function Analytics() {
                 {/* OVERVIEW TAB */}
                 {activeTab === 'overview' && (
                     <>
+                        {/* Section-load failures — distinct from zero/empty data */}
+                        {(sectionErrors.leads || sectionErrors.documents || sectionErrors.chat || sectionErrors.inventory) && (
+                            <div className="flex items-center justify-between gap-4 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+                                <div className="flex items-center gap-2 text-sm text-amber-800">
+                                    <AlertCircle size={18} className="shrink-0" />
+                                    <span>
+                                        Some sections couldn&apos;t load{' '}
+                                        ({[
+                                            sectionErrors.leads && 'leads',
+                                            sectionErrors.documents && 'documents',
+                                            sectionErrors.chat && 'chat',
+                                            sectionErrors.inventory && 'inventory',
+                                        ].filter(Boolean).join(', ')}). The values below may be incomplete.
+                                    </span>
+                                </div>
+                                <button
+                                    onClick={fetchData}
+                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-amber-800 border border-amber-300 rounded-md hover:bg-amber-100 transition shrink-0"
+                                >
+                                    <RefreshCw size={14} />
+                                    Retry
+                                </button>
+                            </div>
+                        )}
+
                         {/* Key Metrics */}
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                             <MetricCard
@@ -346,6 +409,8 @@ export default function Analytics() {
                                             </PieChart>
                                         </ResponsiveContainer>
                                     </div>
+                                ) : sectionErrors.leads ? (
+                                    <SectionError onRetry={fetchData} />
                                 ) : (
                                     <div className="h-80 flex items-center justify-center text-gray-600">
                                         <p>No status data available</p>
@@ -356,6 +421,9 @@ export default function Analytics() {
                             {/* Engagement Breakdown */}
                             <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
                                 <h3 className="text-lg font-bold text-gray-900 mb-6">Lead Engagement</h3>
+                                {sectionErrors.leads && engagementData.length === 0 ? (
+                                    <SectionError onRetry={fetchData} />
+                                ) : (
                                 <div className="h-80 w-full">
                                     <ResponsiveContainer width="100%" height="100%">
                                         <BarChart data={engagementData} layout="vertical">
@@ -380,6 +448,7 @@ export default function Analytics() {
                                         </BarChart>
                                     </ResponsiveContainer>
                                 </div>
+                                )}
                             </div>
                         </div>
 
@@ -432,6 +501,13 @@ export default function Analytics() {
                                                 </td>
                                             </tr>
                                         ))}
+                                        {sectionErrors.leads && Object.keys(leadStats?.by_status || {}).length === 0 && (
+                                            <tr>
+                                                <td colSpan="4" className="py-8">
+                                                    <SectionError onRetry={fetchData} compact />
+                                                </td>
+                                            </tr>
+                                        )}
                                     </tbody>
                                 </table>
                             </div>
@@ -465,6 +541,8 @@ export default function Analytics() {
                                         </ul>
                                     </div>
                                 </div>
+                            ) : sectionErrors.events ? (
+                                <SectionError onRetry={fetchData} compact />
                             ) : (
                                 <p className="text-sm text-gray-500">No site events captured yet for this period — they accrue as visitors browse homes and open forms.</p>
                             )}
@@ -475,6 +553,21 @@ export default function Analytics() {
                 {/* DOCUMENTS TAB */}
                 {activeTab === 'documents' && (
                     <>
+                        {sectionErrors.documents && (
+                            <div className="flex items-center justify-between gap-4 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+                                <div className="flex items-center gap-2 text-sm text-amber-800">
+                                    <AlertCircle size={18} className="shrink-0" />
+                                    <span>Couldn&apos;t load document analytics. The values below may be incomplete.</span>
+                                </div>
+                                <button
+                                    onClick={fetchData}
+                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-amber-800 border border-amber-300 rounded-md hover:bg-amber-100 transition shrink-0"
+                                >
+                                    <RefreshCw size={14} />
+                                    Retry
+                                </button>
+                            </div>
+                        )}
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                             <MetricCard
                                 title="Total Documents"
@@ -512,6 +605,8 @@ export default function Analytics() {
                                             </BarChart>
                                         </ResponsiveContainer>
                                     </div>
+                                ) : sectionErrors.documents ? (
+                                    <SectionError onRetry={fetchData} />
                                 ) : (
                                     <div className="h-80 flex items-center justify-center text-gray-600">
                                         <p>No document data available</p>
@@ -538,7 +633,11 @@ export default function Analytics() {
                                         </div>
                                     ))}
                                     {(!documentStats?.recent || documentStats.recent.length === 0) && (
-                                        <p className="text-center text-gray-600 py-8">No recent activity</p>
+                                        sectionErrors.documents ? (
+                                            <SectionError onRetry={fetchData} compact />
+                                        ) : (
+                                            <p className="text-center text-gray-600 py-8">No recent activity</p>
+                                        )
                                     )}
                                 </div>
                             </div>
@@ -549,6 +648,21 @@ export default function Analytics() {
                 {/* INVENTORY TAB */}
                 {activeTab === 'inventory' && (
                     <>
+                        {sectionErrors.inventory && (
+                            <div className="flex items-center justify-between gap-4 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+                                <div className="flex items-center gap-2 text-sm text-amber-800">
+                                    <AlertCircle size={18} className="shrink-0" />
+                                    <span>Couldn&apos;t load inventory analytics. The values below may be incomplete.</span>
+                                </div>
+                                <button
+                                    onClick={fetchData}
+                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-amber-800 border border-amber-300 rounded-md hover:bg-amber-100 transition shrink-0"
+                                >
+                                    <RefreshCw size={14} />
+                                    Retry
+                                </button>
+                            </div>
+                        )}
                         <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                             <MetricCard
                                 title="Total Homes"
@@ -618,8 +732,12 @@ export default function Analytics() {
                                         ))}
                                         {topHomesData.length === 0 && (
                                             <tr>
-                                                <td colSpan="4" className="py-8 text-center text-gray-600">
-                                                    No view data available
+                                                <td colSpan="4" className="py-8">
+                                                    {sectionErrors.inventory ? (
+                                                        <SectionError onRetry={fetchData} compact />
+                                                    ) : (
+                                                        <p className="text-center text-gray-600">No view data available</p>
+                                                    )}
                                                 </td>
                                             </tr>
                                         )}

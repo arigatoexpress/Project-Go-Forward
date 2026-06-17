@@ -27,6 +27,35 @@ function makeErrorId() {
   return `ERR-${ts}-${rand}`;
 }
 
+// Best-effort, fire-and-forget crash report to the dedicated /api/analytics
+// sink. Self-contained (no page-chunk imports) so the root backstop never
+// depends on a module that may itself have failed to load. Wrapped so a
+// reporting failure can NEVER take the app down — this is observability only.
+function reportCrash({ errorId, error, errorInfo, scope }) {
+  try {
+    const payload = JSON.stringify({
+      event: 'react_error_boundary',
+      errorId,
+      scope: scope || undefined,
+      message: error?.toString?.() ?? 'unknown',
+      componentStack: errorInfo?.componentStack ?? undefined,
+      path: typeof window !== 'undefined' ? window.location.pathname : undefined,
+    });
+    if (typeof navigator !== 'undefined' && navigator.sendBeacon) {
+      navigator.sendBeacon('/api/analytics', new Blob([payload], { type: 'application/json' }));
+    } else if (typeof window !== 'undefined' && typeof window.fetch === 'function') {
+      window.fetch('/api/analytics', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: payload,
+        keepalive: true,
+      }).catch(() => {});
+    }
+  } catch {
+    // Crash reporting must never interrupt the fallback UI.
+  }
+}
+
 class ErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
@@ -50,6 +79,9 @@ class ErrorBoundary extends React.Component {
 
     // Always log to console so it's visible in DevTools / Cloud Run logs.
     console.error(`[ErrorBoundary ${errorId}]`, error, errorInfo);
+
+    // Best-effort crash report to /api/analytics. Self-wrapped; never throws.
+    reportCrash({ errorId, error, errorInfo, scope: this.props.scope });
 
     // Call the global Sentry hook if observability layer is attached.
     if (typeof window !== 'undefined' && typeof window.__SENTRY_HOOK__ === 'function') {
