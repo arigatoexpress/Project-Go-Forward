@@ -114,8 +114,8 @@ def cache_delete(key: str):
     if client:
         try:
             client.delete(key)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Redis delete error for {key}: {e}")
 
     if key in _local_cache:
         del _local_cache[key]

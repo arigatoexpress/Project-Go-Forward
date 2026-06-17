@@ -56,3 +56,51 @@ def test_contact_flags_lead_storage_failure_as_warning(monkeypatch):
     assert body["success"] is True
     # ... but the dropped lead is now loud + alertable.
     assert "lead_storage_failed" in body.get("warnings", [])
+
+
+def test_contact_creates_lead_with_name_phone_and_source(monkeypatch):
+    """A valid name+phone POST persists a Lead carrying those fields + source."""
+    client, main, *_ = create_client(monkeypatch)
+    before = len(main.lead_manager.leads)
+
+    body = _post(
+        client, name="Carol", phone="(281) 324-3020", email="carol@example.com"
+    ).json()
+    assert body["success"] is True
+
+    # FakeLeadManager.create_lead appends the persisted Lead to .leads.
+    assert len(main.lead_manager.leads) == before + 1
+    created = main.lead_manager.leads[-1]
+    assert created.name == "Carol"
+    assert created.phone == "(281) 324-3020"
+    assert created.email == "carol@example.com"
+    assert created.source == "contact_form"  # default source for the contact form
+
+
+def test_contact_lead_carries_explicit_source(monkeypatch):
+    """A caller-supplied `source` flows through to the persisted Lead."""
+    client, main, *_ = create_client(monkeypatch)
+    before = len(main.lead_manager.leads)
+
+    body = _post(
+        client, name="Dave", phone="2813243020", source="facebook_ad"
+    ).json()
+    assert body["success"] is True
+
+    assert len(main.lead_manager.leads) == before + 1
+    created = main.lead_manager.leads[-1]
+    assert created.name == "Dave"
+    assert created.phone == "2813243020"
+    assert created.source == "facebook_ad"
+
+
+def test_contact_invalid_phone_rejected_and_creates_no_lead(monkeypatch):
+    """An invalid/short phone is rejected (success=false) and no Lead is stored."""
+    client, main, *_ = create_client(monkeypatch)
+    before = len(main.lead_manager.leads)
+
+    body = _post(client, name="Eve", phone="55512").json()
+    assert body["success"] is False
+    assert "error" in body
+    # Rejection happens before lead creation, so nothing is persisted.
+    assert len(main.lead_manager.leads) == before
