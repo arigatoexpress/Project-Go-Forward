@@ -51,6 +51,9 @@ FULL_CUSTOMER: dict[str, object] = {
     "co_buyer_first_name": "Taylor",
     "co_buyer_last_name": "Brooks",
     "co_buyer_phone": "512-555-0144",
+    # Identity dates for the USA Patriot Act customer-identification form (B6).
+    "buyer_dob": "04/12/1985",
+    "co_buyer_dob": "09/30/1987",
     # Mailing supplied as PARTS only (no precomposed composites):
     "mailing_address": "456 Meadow Lane",
     "mailing_city": "Austin",
@@ -67,6 +70,9 @@ FULL_CUSTOMER: dict[str, object] = {
     "no_of_sections": "Double Section",
     "sq_ft": "2128",
     "wind_zone": "2",
+    # Roof-load / thermal zone for the Construction Standards Notice (A10).
+    "roof_zone": "30 North",
+    "thermal_zone": "3",
     "date_of_manufacture": "2026-01-15",
     "manufacturer_address": "500 Factory Road",
     "manufacturer_city": "Fort Worth",
@@ -268,3 +274,49 @@ def test_property_location_renders_home_description(tmp_path, monkeypatch):
     assert result["success"], result.get("message")
     # manufacturer_model is composed by enrichment as "<manufacturer> <model>".
     _assert_renders(result["file_path"], ["TRU Homes The Marvel"])
+
+
+# ─── Overlays for lines with NO AcroForm widget (Mark Willcott review) ───────
+
+
+def test_patriot_act_renders_buyer_and_cobuyer_identity(tmp_path, monkeypatch):
+    """B3/B6: the USA Patriot Act customer-identification form has NO widget for
+    the buyer/co-buyer "Name Exactly as on Driver's License" and "Date of Birth"
+    lines (only Seller_Name + FCD_Footer exist). They must fill via baked text
+    overlays so the identity form is not left entirely blank.
+    """
+    import tools.document_tools as dt
+
+    monkeypatch.setattr(dt, "OUTPUT_DIR", str(tmp_path))
+    monkeypatch.setattr(dt, "upload_to_gcs", lambda *a, **k: None)
+
+    result = generate_document("State_PatriotAct.pdf", dict(FULL_CUSTOMER))
+    assert result["success"], result.get("message")
+    _assert_renders(
+        result["file_path"],
+        [
+            "Jordan Brooks",  # buyer name (Name Exactly as on Driver's License)
+            "04/12/1985",  # buyer_dob (Date of Birth)
+            "Taylor Brooks",  # co-buyer name
+            "09/30/1987",  # co_buyer_dob
+        ],
+    )
+
+
+def test_construction_standards_renders_roof_and_thermal_zone(tmp_path, monkeypatch):
+    """A10: the Construction Standards Notice Roof[0] and Thermal[0] widgets exist
+    on the form but were unmapped, so the roof-load-zone and thermal-zone lines
+    came out blank. Map them so a collected zone value renders.
+    """
+    import tools.document_tools as dt
+
+    monkeypatch.setattr(dt, "OUTPUT_DIR", str(tmp_path))
+    monkeypatch.setattr(dt, "upload_to_gcs", lambda *a, **k: None)
+
+    cfg = get_field_map()["templates"]["TMHA-ConstructionStandardsNotice.pdf"]
+    mapped = set(cfg.get("field_map", {}).values())
+    assert {"roof_zone", "thermal_zone"} <= mapped
+
+    result = generate_document("TMHA-ConstructionStandardsNotice.pdf", dict(FULL_CUSTOMER))
+    assert result["success"], result.get("message")
+    _assert_renders(result["file_path"], ["30 North"])  # roof_zone (distinctive)

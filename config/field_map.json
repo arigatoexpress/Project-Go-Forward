@@ -976,7 +976,11 @@
         "seller_name"
       ],
       "field_map": {
-        "topmostSubform[0].Page1[0].Seller_Name[0]": "seller_name"
+        "topmostSubform[0].Page1[0].Seller_Name[0]": "seller_name",
+        "THO_PatriotAct_Buyer_Name": "buyer_name",
+        "THO_PatriotAct_Buyer_DOB": "buyer_dob",
+        "THO_PatriotAct_CoBuyer_Name": "co_buyer_name",
+        "THO_PatriotAct_CoBuyer_DOB": "co_buyer_dob"
       },
       "checkbox_fields": {},
       "static_values": {
@@ -1365,6 +1369,8 @@
         "topmostSubform[0].Page1[0].Serial_Sec_1[0]": "serial_number_1",
         "topmostSubform[0].Page1[0].Serial_Sec_2[0]": "serial_number_2",
         "topmostSubform[0].Page1[0].Wind[0]": "wind_zone",
+        "topmostSubform[0].Page1[0].Thermal[0]": "thermal_zone",
+        "topmostSubform[0].Page1[0].Roof[0]": "roof_zone",
         "topmostSubform[0].Page1[0].Date_Const[0]": "date_of_manufacture"
       },
       "checkbox_fields": {},
