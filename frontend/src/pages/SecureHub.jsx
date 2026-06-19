@@ -13,39 +13,63 @@ import {
 import { BUSINESS_NAME } from '../constants';
 
 export default function SecureHub({ dealId }) {
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [verified, setVerified] = useState(false);
+  const [phone, setPhone] = useState('');
   const [deal, setDeal] = useState(null);
   const [documents, setDocuments] = useState([]);
   const [error, setError] = useState(null);
 
   useEffect(() => {
     if (!dealId) {
-      setError("No deal ID provided. Please check your link.");
-      setLoading(false);
+      setError("No application link found. Please use the secure link we sent you.");
+    }
+  }, [dealId]);
+
+  // Phone-last-4 verification: a deal link alone must not reveal PII or
+  // documents (which carry SSN/DOB). The customer proves ownership with the
+  // phone number on their application before anything is fetched.
+  const verify = async (e) => {
+    if (e) e.preventDefault();
+    if (!dealId) return;
+    const digits = phone.replace(/\D/g, '');
+    if (digits.length < 4) {
+      setError("Enter the last 4 digits of the phone number on your application.");
       return;
     }
-
-    fetch(`/api/v1/customer/deal/${dealId}`)
-      .then(r => r.json())
-      .then(data => {
+    setError(null);
+    setLoading(true);
+    try {
+      const res = await fetch(
+        `/api/v1/customer/deal/${encodeURIComponent(dealId)}?phone=${encodeURIComponent(digits)}`
+      );
+      if (res.ok) {
+        const data = await res.json();
         if (data.success) {
           setDeal(data.deal);
           setDocuments(data.documents);
+          setVerified(true);
         } else {
           setError(data.detail || "Unable to find your application details.");
         }
-      })
-      .catch(err => {
-        console.error("Secure Hub fetch error:", err);
+      } else if (res.status === 403) {
+        setError("That doesn't match the phone number on file. Please try again or call us.");
+      } else {
         setError("Connection error. Please try again later.");
-      })
-      .finally(() => setLoading(false));
-  }, [dealId]);
+      }
+    } catch (err) {
+      console.error("Secure Hub verify error:", err);
+      setError("Connection error. Please try again later.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleDownload = async (noteId) => {
     try {
+      const digits = phone.replace(/\D/g, '');
       const res = await fetch(
-        `/api/v1/customer/deal/${encodeURIComponent(dealId)}/download/${encodeURIComponent(noteId)}`
+        `/api/v1/customer/deal/${encodeURIComponent(dealId)}/download/${encodeURIComponent(noteId)}?phone=${encodeURIComponent(digits)}`
       );
       const data = await res.json();
       if (data.success && data.url) {
@@ -63,6 +87,48 @@ export default function SecureHub({ dealId }) {
       <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
         <Loader2 className="h-10 w-10 animate-spin text-[var(--cp-accent)]" />
         <p className="text-[var(--cp-muted)] font-medium">Securing your connection...</p>
+      </div>
+    );
+  }
+
+  // Verification gate — shown until the customer proves ownership.
+  if (!verified) {
+    const validLen = phone.replace(/\D/g, '').length >= 4;
+    return (
+      <div className="max-w-md mx-auto mt-12 p-8 bg-[var(--cp-panel)] border border-[var(--cp-border)] rounded-2xl">
+        <div className="flex items-center justify-center gap-2 text-[var(--cp-accent)] font-bold mb-2">
+          <Shield size={20} />
+          <span className="tracking-widest uppercase text-xs">Secure Hub</span>
+        </div>
+        <h2 className="text-xl font-bold text-[var(--cp-text)] mb-2 text-center">Verify it's you</h2>
+        <p className="text-[var(--cp-muted)] text-sm mb-6 text-center">
+          For your security, enter the last 4 digits of the phone number on your application.
+        </p>
+        <form onSubmit={verify} className="space-y-4">
+          <input
+            type="tel"
+            inputMode="numeric"
+            autoComplete="off"
+            aria-label="Last 4 digits of your phone number"
+            maxLength={4}
+            value={phone}
+            onChange={(e) => setPhone(e.target.value.replace(/\D/g, ''))}
+            placeholder="••••"
+            className="w-full text-center tracking-[0.5em] text-2xl py-3 bg-[var(--cp-surface)] border border-[var(--cp-border)] rounded-lg text-[var(--cp-text)] focus:outline-none focus:ring-2 focus:ring-[var(--cp-accent)]"
+          />
+          {error && (
+            <p className="text-red-500 text-sm flex items-center justify-center gap-2">
+              <AlertCircle size={16} /> {error}
+            </p>
+          )}
+          <button
+            type="submit"
+            disabled={!dealId || !validLen}
+            className="w-full px-6 py-3 bg-[var(--cp-accent)] text-white rounded-lg font-semibold hover:opacity-90 transition disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            View My Application
+          </button>
+        </form>
       </div>
     );
   }

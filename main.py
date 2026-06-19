@@ -1377,8 +1377,14 @@ async def run_agent(request: Request):
 
 
 @app.get("/api/chat/session/{session_id}")
-async def get_public_chat_session(session_id: str):
-    """Retrieve chat history for a given session ID to persist memory on the frontend."""
+@limiter.limit("30/minute")
+async def get_public_chat_session(session_id: str, request: Request):
+    """Retrieve chat history for a given session ID to persist memory on the frontend.
+
+    Rate-limited to blunt enumeration of the 48-bit anon session ids (customers
+    sometimes paste PII into chat). Full per-browser session binding is tracked
+    as a follow-up hardening item.
+    """
     try:
         session = await chat_history.get_session(session_id)
         if not session:
@@ -4914,12 +4920,22 @@ async def create_appointment(request: Request):
 
 
 @app.get("/api/appointments/{appointment_id}")
-async def get_appointment(appointment_id: str):
-    """Get appointment details by ID."""
+@limiter.limit("20/minute")
+async def get_appointment(appointment_id: str, request: Request, phone: str = ""):
+    """Get appointment details by ID.
+
+    Requires phone-last-4 verification (matching the cancel endpoint): an
+    appointment_id alone must not expose the customer's name/phone/email. A
+    missing appointment and a wrong phone return the SAME 403 (no enumeration
+    oracle).
+    """
     try:
         appt = await appointment_manager.get_appointment(appointment_id)
-        if not appt:
-            return {"error": "Appointment not found."}
+        if not appt or not _verify_phone_last4(getattr(appt, "phone", None), phone):
+            return JSONResponse(
+                {"error": "Verification required: enter the phone number on the appointment."},
+                status_code=403,
+            )
         return appt.to_dict()
     except Exception as e:
         struct_logger.error("Appointment lookup failed", error=str(e))
@@ -6720,16 +6736,46 @@ async def run_lead_nurture_endpoint(request: Request):
 # ============ SECURE HUB (CUSTOMER PORTAL) ============
 
 
+def _verify_phone_last4(stored_phone, provided) -> bool:
+    """True iff the last 4 digits of ``provided`` match the last 4 of ``stored_phone``.
+
+    Customer-portal verification factor: a deal_id / appointment_id is an opaque
+    capability, not a credential. The buyer proves ownership with the phone
+    number on file (last 4 digits suffice). Requires >= 4 digits on both sides.
+    """
+    stored = re.sub(r"\D", "", str(stored_phone or ""))
+    given = re.sub(r"\D", "", str(provided or ""))
+    if len(stored) < 4 or len(given) < 4:
+        return False
+    return stored[-4:] == given[-4:]
+
+
+def _deal_phone_ok(deal_data: dict, provided) -> bool:
+    """Verify against the deal's buyer OR co-buyer phone."""
+    return _verify_phone_last4(deal_data.get("buyer_phone"), provided) or _verify_phone_last4(
+        deal_data.get("co_buyer_phone"), provided
+    )
+
+
+_PORTAL_VERIFY_MSG = "Verification failed. Enter the phone number on your application (last 4 digits)."
+
+
 @app.get("/api/v1/customer/deal/{deal_id}")
-async def get_secure_hub_deal(deal_id: str):
-    """Fetch deal status and documents for the customer portal."""
+@limiter.limit("20/minute")
+async def get_secure_hub_deal(deal_id: str, request: Request, phone: str = ""):
+    """Fetch deal status and documents for the customer portal.
+
+    Requires phone-last-4 verification against the deal's buyer/co-buyer phone:
+    a deal_id alone must never expose buyer PII or the closing documents (which
+    carry SSN/DOB). A non-existent deal and a wrong phone return the SAME 403, so
+    this is not a deal-existence oracle.
+    """
     try:
         db = get_database()
         deal = db.collection("deals").document(deal_id).get()
-        if not deal.exists:
-            raise HTTPException(status_code=404, detail="Deal not found")
-
-        deal_data = deal.to_dict()
+        deal_data = deal.to_dict() if deal.exists else None
+        if not deal_data or not _deal_phone_ok(deal_data, phone):
+            raise HTTPException(status_code=403, detail=_PORTAL_VERIFY_MSG)
 
         # Fetch documents (deal_notes of type esign_completed or document_generated)
         docs_query = db.collection("deal_notes").where("deal_id", "==", deal_id).stream()
@@ -6757,16 +6803,29 @@ async def get_secure_hub_deal(deal_id: str):
             },
             "documents": sorted(documents, key=lambda x: x["created_at"], reverse=True),
         }
+    except HTTPException:
+        raise
     except Exception as e:
         struct_logger.error("Secure Hub deal fetch failed", error=str(e), deal_id=deal_id)
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/api/v1/customer/deal/{deal_id}/download/{note_id}")
-async def download_secure_document(deal_id: str, note_id: str):
-    """Generate a signed URL for a secure document."""
+@limiter.limit("20/minute")
+async def download_secure_document(deal_id: str, note_id: str, request: Request, phone: str = ""):
+    """Generate a signed URL for a secure closing document (carries SSN/DOB).
+
+    Phone-last-4 verification against the parent deal is required BEFORE any
+    signed URL is minted, so a leaked (deal_id, note_id) pair cannot be replayed
+    anonymously.
+    """
     try:
         db = get_database()
+        deal = db.collection("deals").document(deal_id).get()
+        deal_data = deal.to_dict() if deal.exists else None
+        if not deal_data or not _deal_phone_ok(deal_data, phone):
+            raise HTTPException(status_code=403, detail=_PORTAL_VERIFY_MSG)
+
         note = db.collection("deal_notes").document(note_id).get()
         if not note.exists or note.to_dict().get("deal_id") != deal_id:
             raise HTTPException(status_code=404, detail="Document not found")
@@ -6796,6 +6855,8 @@ async def download_secure_document(deal_id: str, note_id: str):
         )
 
         return {"success": True, "url": url}
+    except HTTPException:
+        raise
     except Exception as e:
         struct_logger.error("Signed URL generation failed", error=str(e), note_id=note_id)
         raise HTTPException(status_code=500, detail=str(e))
