@@ -472,6 +472,52 @@ def _prepare_acroform_appearance_data(
     return {key: value for key, value in data_dict.items() if key not in suppressed}
 
 
+_CHECKBOX_TRUTHY = {"on", "1", "yes", "y", "true", "x", "checked"}
+_CHECKBOX_FALSY = {"off", "0", "no", "n", "false", "", "none"}
+
+
+def _checkbox_field_states(reader: PdfReader) -> dict[str, list[str]]:
+    """Map each /Btn (checkbox/radio) field name -> its ``/_States_`` list."""
+    states: dict[str, list[str]] = {}
+    try:
+        for name, fld in (reader.get_fields() or {}).items():
+            if fld.get("/FT") == "/Btn":
+                st = fld.get("/_States_")
+                if st:
+                    states[name] = [str(s) for s in st]
+    except Exception as exc:  # never let introspection break the fill
+        _logger.warning(f"checkbox state introspection failed: {exc}")
+    return states
+
+
+def _resolve_checkbox_values(data: dict, field_states: dict[str, list[str]]) -> dict:
+    """Translate checkbox/radio values to the widget's EXACT on-state name.
+
+    pypdf checks a box only when handed the literal state name WITH its leading
+    slash (e.g. ``/1`` or ``/Yes``); a bare ``"On"`` / ``"1"`` silently renders
+    ``/Off`` (unchecked) — the Mark Willcott "New/Used box is blank" regression.
+    For radio groups (more than one on-state) the value selects the matching
+    option by name; ambiguous truthy values on a radio are left untouched.
+    """
+    out = dict(data)
+    for field, states in field_states.items():
+        if field not in out:
+            continue
+        on_states = [s for s in states if s.lstrip("/").lower() != "off"]
+        if not on_states:
+            continue
+        raw = str(out[field]).strip()
+        rawl = raw.lstrip("/").lower()
+        match = next((s for s in states if s.lstrip("/").lower() == rawl), None)
+        if match is not None:
+            out[field] = match  # exact state / radio option
+        elif rawl in _CHECKBOX_TRUTHY and len(on_states) == 1:
+            out[field] = on_states[0]  # simple checkbox -> its single on-state
+        elif rawl in _CHECKBOX_FALSY:
+            out[field] = "/Off"
+    return out
+
+
 def _draw_fit_text(
     pdf_canvas: canvas.Canvas,
     value: Any,
@@ -612,6 +658,11 @@ def fill_pdf_form(template_path: str, data_dict: dict[str, Any], output_filename
         # Baking the /AP makes every value render identically in every viewer.
         try:
             appearance_data = _prepare_acroform_appearance_data(template_name, fill_data)
+            # Map checkbox/radio values to each widget's real on-state ("/1",
+            # "/Yes", ...) — pypdf renders the box unchecked otherwise.
+            appearance_data = _resolve_checkbox_values(
+                appearance_data, _checkbox_field_states(reader)
+            )
             for page in writer.pages:
                 writer.update_page_form_field_values(page, appearance_data, auto_regenerate=False)
             _apply_pdf_text_overlays(template_name, writer, fill_data)
