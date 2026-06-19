@@ -160,6 +160,98 @@ def test_quality_enrichment_adds_manufacturer_address_aliases():
     assert enriched["manufacturer_full_address"] == "500 Factory Road, Fort Worth, TX 76101"
 
 
+def test_quality_enrichment_backfills_portfolio_from_loan_number():
+    """Loan # doubles as the Portfolio[0] reference on the Compliance Agreement
+    and two-party contract (Mark Willcott review items A2/A8). The deal-based
+    path must fill the Portfolio widget from loan_number when portfolio is blank.
+    """
+    enriched = enrich_document_data({**BASE_DATA, "loan_number": "LN-99887"})
+    assert enriched["portfolio"] == "LN-99887"
+
+
+def test_quality_enrichment_does_not_override_explicit_portfolio():
+    enriched = enrich_document_data(
+        {**BASE_DATA, "loan_number": "LN-99887", "portfolio": "21st-Portfolio-A"}
+    )
+    assert enriched["portfolio"] == "21st-Portfolio-A"
+
+
+def test_quality_enrichment_composes_compliance_borrowers_from_names():
+    """The Compliance Agreement borrower line defaults to buyer (+ co-buyer)
+    when the agreement-specific field is blank (item A8)."""
+    enriched = enrich_document_data(
+        {
+            **BASE_DATA,
+            "buyer_name": "Test Customer061526",
+            "co_buyer_name": "Wife Customer061526",
+        }
+    )
+    assert (
+        enriched["compliance_borrowers"]
+        == "Test Customer061526 & Wife Customer061526"
+    )
+
+
+def test_quality_enrichment_preserves_explicit_compliance_borrowers():
+    enriched = enrich_document_data(
+        {**BASE_DATA, "compliance_borrowers": "Custom Borrower Line"}
+    )
+    assert enriched["compliance_borrowers"] == "Custom Borrower Line"
+
+
+def test_credit_application_fills_new_history_and_reference_fields():
+    """The 24 previously-omitted credit-app fields now collected by the wizard
+    render onto creditapp.pdf widgets (Mark Willcott review). Guards the wiring
+    from frontend collection through field_map.json to the filled PDF. Uses the
+    v1 document_engine (the path main.py's engine_generate_document calls)."""
+    from pypdf import PdfReader
+
+    from tools.document_engine import generate_document as generate_document_v1
+
+    data = enrich_document_data(
+        {
+            **BASE_DATA,
+            "reference1_name": "Jane Ref",
+            "reference1_phone": "281-555-1212",
+            "reference2_name": "Bob Ref",
+            "buyer_previous_address": "9 Old Rd, Houston TX 77001",
+            "buyer_previous_length": "3 Years",
+            "buyer_current_payment": "1200.00",
+            "co_buyer_current_payment": "900.00",
+            "previous_employer": "Old Job Inc",
+            "previous_occupation": "Clerk",
+        }
+    )
+    def filled_values(template_name):
+        result = generate_document_v1(template_name, data)
+        assert result["success"], result.get("message")
+        fields = PdfReader(result["file_path"]).get_fields() or {}
+
+        def value(leaf):
+            # Match the final dotted path segment exactly so "Buyer_Current_Pmt[0]"
+            # does not also match "CoBuyer_Current_Pmt[0]".
+            for key, field in fields.items():
+                if key.rsplit(".", 1)[-1] == leaf:
+                    return field.get("/V")
+            return None
+
+        return value
+
+    # creditapp.pdf carries the employment / residence-history / payment widgets.
+    credit = filled_values("creditapp.pdf")
+    assert credit("Buyer_Previous_Complete_Address[0]") == "9 Old Rd, Houston TX 77001"
+    assert credit("Buyer_Current_Pmt[0]") == "1,200.00"
+    assert credit("CoBuyer_Current_Pmt[0]") == "900.00"
+    assert credit("Buyer_Previous_Employer[0]") == "Old Job Inc"
+
+    # References live on the Deal Master Sheet (blank.pdf), not the credit app —
+    # both are part of the standard packet, so the wizard's reference fields must
+    # reach the master sheet's Reference widgets.
+    master = filled_values("blank.pdf")
+    assert master("Reference1_Name[0]") == "Jane Ref"
+    assert master("Reference2_Name[0]") == "Bob Ref"
+
+
 def test_required_field_gate_reports_missing_template_data_before_generation():
     issues = validate_required_document_data(
         {

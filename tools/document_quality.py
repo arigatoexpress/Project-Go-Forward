@@ -480,6 +480,24 @@ def enrich_document_data(data: dict[str, Any]) -> dict[str, Any]:
         if co_buyer_name:
             enriched["co_buyer_name"] = co_buyer_name
 
+    # Loan number doubles as the Portfolio/Lender reference that the
+    # Compliance Agreement and two-party contract map via their Portfolio[0]
+    # widget. Backfill portfolio from loan_number so the deal-based path renders
+    # it consistently with the frontend toDocumentData derivation (item A2/A8).
+    if _is_blank(enriched.get("portfolio")) and _has_value(enriched.get("loan_number")):
+        enriched["portfolio"] = _clean(enriched.get("loan_number"))
+
+    # Compliance Agreement borrower line. The agreement names the borrower(s)
+    # separately from the buyer; default to the composed buyer (+ co-buyer)
+    # names so the agreement is not blank on the deal-based path (item A8).
+    if _is_blank(enriched.get("compliance_borrowers")):
+        compliance_borrowers = _join_non_empty(
+            [enriched.get("buyer_name"), enriched.get("co_buyer_name")],
+            " & ",
+        )
+        if compliance_borrowers:
+            enriched["compliance_borrowers"] = compliance_borrowers
+
     # Mailing address composites (used by the credit application and several
     # state disclosures). Mirror the buyer_city_state_zip / buyer_full_address
     # composition so the mailing block is not blank when only the parts are sent.

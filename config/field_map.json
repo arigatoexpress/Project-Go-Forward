@@ -354,11 +354,12 @@
         "buyer_city_state_zip"
       ],
       "field_map": {
-        "topmostSubform[0].Page1[0].Contract_Name[0]": "buyer_name",
+        "topmostSubform[0].Page1[0].Contract_Name[0]": "compliance_borrowers",
         "topmostSubform[0].Page1[0].Install_Address[0]": "buyer_address",
         "topmostSubform[0].Page1[0].Install_City_State_Zip[0]": "buyer_city_state_zip",
         "topmostSubform[0].Page1[0].Seller_Name[0]": "seller_name",
-        "topmostSubform[0].Page1[0].Creditor_Name[0]": "creditor_name"
+        "topmostSubform[0].Page1[0].Creditor_Name[0]": "creditor_name",
+        "topmostSubform[0].Page1[0].Portfolio[0]": "portfolio"
       },
       "checkbox_fields": {},
       "static_values": {
@@ -2399,6 +2400,62 @@
       "type": "string",
       "section": "buyer",
       "required": false
+    },
+    "buyer_previous_address": {
+      "label": "Buyer Previous Address",
+      "type": "string",
+      "section": "buyer",
+      "required": false
+    },
+    "buyer_previous_length": {
+      "label": "Buyer Years at Previous Address",
+      "type": "string",
+      "section": "buyer",
+      "required": false
+    },
+    "buyer_current_payment": {
+      "label": "Buyer Current Housing Payment",
+      "type": "currency",
+      "section": "buyer",
+      "required": false
+    },
+    "co_buyer_current_payment": {
+      "label": "Co-Buyer Current Housing Payment",
+      "type": "currency",
+      "section": "buyer",
+      "required": false
+    },
+    "co_buyer_previous_length": {
+      "label": "Co-Buyer Years at Previous Address",
+      "type": "string",
+      "section": "buyer",
+      "required": false
+    },
+    "loan_number": {
+      "label": "Loan Number",
+      "type": "string",
+      "section": "financing",
+      "required": false
+    },
+    "compliance_lender": {
+      "label": "Compliance Agreement Lender",
+      "type": "string",
+      "section": "financing",
+      "required": false
+    },
+    "compliance_borrowers": {
+      "label": "Compliance Agreement Borrower(s)",
+      "type": "string",
+      "section": "financing",
+      "required": false,
+      "computed": true
+    },
+    "compliance_property_address": {
+      "label": "Compliance Agreement Property Address",
+      "type": "string",
+      "section": "financing",
+      "required": false,
+      "computed": true
     }
   }
 }
