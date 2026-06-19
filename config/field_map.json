@@ -149,13 +149,19 @@
         "topmostSubform[0].Page1[0].Seller_Name[0]": "seller_name",
         "topmostSubform[0].Page1[0].Seller_Address[0]": "seller_address",
         "topmostSubform[0].Page1[0].Seller_City_State_Zip[0]": "seller_city_state_zip",
+        "topmostSubform[0].Page1[0].Seller_Phone[0]": "seller_phone",
+        "topmostSubform[0].Page1[0].Installer_Name_Address[0]": "installer_name_address",
+        "topmostSubform[0].Page1[0].Installer_Phone[0]": "installer_phone",
+        "topmostSubform[0].Page1[0].Installer_License[0]": "installer_license",
         "topmostSubform[0].Page1[0].Contract_Name[0]": "buyer_name",
         "topmostSubform[0].Page1[0].Install_City_State_Zip[0]": "buyer_city_state_zip",
+        "topmostSubform[0].Page1[0].Phone1[0]": "buyer_phone",
         "topmostSubform[0].Page2[0].Creditor_Name[0]": "creditor_name",
         "topmostSubform[0].Page2[0].HUD[0]": "label_number_1",
         "topmostSubform[0].Page2[0].Serial[0]": "serial_number_1",
         "topmostSubform[0].Page2[0].Creditor_Address[0]": "creditor_address",
-        "topmostSubform[0].Page2[0].Creditor_City_State_Zip[0]": "creditor_city_state_zip"
+        "topmostSubform[0].Page2[0].Creditor_City_State_Zip[0]": "creditor_city_state_zip",
+        "topmostSubform[0].Page2[0].Creditor_Phone[0]": "creditor_phone"
       },
       "checkbox_fields": {
         "topmostSubform[0].Page1[0].New_Yes[0]": "is_new",
@@ -573,6 +579,7 @@
         "topmostSubform[0].Page1[0].Phone1[0]": "buyer_phone",
         "topmostSubform[0].Page1[0].Install_Address_City_State_Zip[0]": "buyer_full_address",
         "topmostSubform[0].Page1[0].Mailing_Address_City_State_Zip[0]": "mailing_full_address",
+        "topmostSubform[0].Page1[0].Description[0]": "manufacturer_model",
         "topmostSubform[0].Page1[0].Serial[0]": "serial_number_1",
         "topmostSubform[0].Page1[0].HUD[0]": "label_number_1",
         "topmostSubform[0].Page1[0].Portfolio[0]": "portfolio",

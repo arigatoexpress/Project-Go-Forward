@@ -120,6 +120,32 @@ def test_enrich_composes_mailing_block_from_parts():
     assert enriched.get("mailing_full_address") == "500 Main St, Houston, TX 77002"
 
 
+def test_enrich_derives_used_flag_from_is_new_false():
+    """Deal/API callers send only is_new; the Used checkbox must still fill."""
+    enriched = enrich_document_data({"is_new": False})
+    assert enriched.get("is_used") is True
+    assert enriched.get("is_new") is False
+    assert enriched.get("new_used_text") == "Used"
+
+
+def test_enrich_derives_new_used_from_condition_string():
+    enriched = enrich_document_data({"condition": "Used"})
+    assert enriched.get("is_used") is True
+    assert enriched.get("is_new") is False
+    assert enriched.get("new_used_text") == "Used"
+
+    enriched_new = enrich_document_data({"condition": "New"})
+    assert enriched_new.get("is_new") is True
+    assert enriched_new.get("is_used") is False
+
+
+def test_enrich_leaves_new_used_untouched_without_signal():
+    """No condition/is_new/is_used at all → don't fabricate a flag."""
+    enriched = enrich_document_data({"buyer_name": "Jordan Brooks"})
+    assert "is_new" not in enriched
+    assert "is_used" not in enriched
+
+
 # ─── End-to-end render (the client-visible blanks) ──────────────────────────
 
 
@@ -198,3 +224,47 @@ def test_consumer_disclosure_renders_composed_co_buyer_name(tmp_path, monkeypatc
     result = generate_document("TDHCA_1038_Consumer_Disclosure.pdf", dict(FULL_CUSTOMER))
     assert result["success"], result.get("message")
     _assert_renders(result["file_path"], ["Taylor Brooks", "Jordan Brooks"])
+
+
+def test_statement_of_ownership_renders_phones(tmp_path, monkeypatch):
+    """B2/B6: buyer, creditor, and seller phone must render on the SOO.
+
+    These widgets exist on MHD Form 1023 but were previously unmapped, so the
+    purchaser/creditor phone lines and the retailer (seller) phone came out
+    blank on every Statement of Ownership (Mark Willcott review).
+    """
+    import tools.document_tools as dt
+
+    monkeypatch.setattr(dt, "OUTPUT_DIR", str(tmp_path))
+    monkeypatch.setattr(dt, "upload_to_gcs", lambda *a, **k: None)
+
+    cfg = get_field_map()["templates"]["TDHCA_1023-Statement-Ownership.pdf"]
+    mapped = set(cfg.get("field_map", {}).values())
+    assert {"buyer_phone", "creditor_phone", "seller_phone"} <= mapped
+
+    result = generate_document("TDHCA_1023-Statement-Ownership.pdf", dict(FULL_CUSTOMER))
+    assert result["success"], result.get("message")
+    _assert_renders(
+        result["file_path"],
+        [
+            "512-555-0123",  # buyer_phone
+            "865-555-0100",  # creditor_phone
+            "(281) 324-3020",  # seller_phone (THO default from enrichment)
+        ],
+    )
+
+
+def test_property_location_renders_home_description(tmp_path, monkeypatch):
+    """B7: the Property Location "Home Description" line must carry the home."""
+    import tools.document_tools as dt
+
+    monkeypatch.setattr(dt, "OUTPUT_DIR", str(tmp_path))
+    monkeypatch.setattr(dt, "upload_to_gcs", lambda *a, **k: None)
+
+    cfg = get_field_map()["templates"]["Internal_PropertyLocation.pdf"]
+    assert "manufacturer_model" in set(cfg.get("field_map", {}).values())
+
+    result = generate_document("Internal_PropertyLocation.pdf", dict(FULL_CUSTOMER))
+    assert result["success"], result.get("message")
+    # manufacturer_model is composed by enrichment as "<manufacturer> <model>".
+    _assert_renders(result["file_path"], ["TRU Homes The Marvel"])
