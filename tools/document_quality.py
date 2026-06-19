@@ -498,6 +498,20 @@ def enrich_document_data(data: dict[str, Any]) -> dict[str, Any]:
         if compliance_borrowers:
             enriched["compliance_borrowers"] = compliance_borrowers
 
+    # Combined purchaser names for forms whose single purchaser-name widget sits
+    # on a plural "(purchaser(s) name(s))" / "Buyer(s)" line and has NO separate
+    # co-buyer widget (arbitration agreements, A/C acknowledgement, TMHA limited
+    # warranty PURCHASER line). Without this the co-buyer line renders blank on
+    # those forms (Mark Willcott review, B3/B4). Mirrors compliance_borrowers and
+    # degrades to the buyer name alone when there is no co-buyer.
+    if _is_blank(enriched.get("buyers_combined")):
+        buyers_combined = _join_non_empty(
+            [enriched.get("buyer_name"), enriched.get("co_buyer_name")],
+            " & ",
+        )
+        if buyers_combined:
+            enriched["buyers_combined"] = buyers_combined
+
     # Mailing address composites (used by the credit application and several
     # state disclosures). Mirror the buyer_city_state_zip / buyer_full_address
     # composition so the mailing block is not blank when only the parts are sent.

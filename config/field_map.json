@@ -288,9 +288,9 @@
         "model"
       ],
       "field_map": {
-        "topmostSubform[0].Page3[0].Contract_Name[0]": "buyer_name",
+        "topmostSubform[0].Page3[0].Contract_Name[0]": "buyers_combined",
         "topmostSubform[0].Page3[0].Model[0]": "model",
-        "topmostSubform[0].Page3[0].HUD[0]": "label_number_1",
+        "topmostSubform[0].Page3[0].HUD[0]": "serial_label_combined",
         "topmostSubform[0].Page3[0].Seller_Name[0]": "seller_name",
         "topmostSubform[0].Page3[0].Seller_Address[0]": "seller_address",
         "topmostSubform[0].Page3[0].Seller_City_State_Zip[0]": "seller_city_state_zip",
@@ -376,7 +376,7 @@
         "buyer_address"
       ],
       "field_map": {
-        "topmostSubform[0].Page1[0].Contract_Name[0]": "buyer_name",
+        "topmostSubform[0].Page1[0].Contract_Name[0]": "buyers_combined",
         "topmostSubform[0].Page1[0].Install_Address[0]": "buyer_address",
         "topmostSubform[0].Page1[0].Install_City_State_Zip[0]": "buyer_city_state_zip"
       },
@@ -738,7 +738,7 @@
         "buyer_name"
       ],
       "field_map": {
-        "topmostSubform[0].Page1[0].Contract_Name[0]": "buyer_name"
+        "topmostSubform[0].Page1[0].Contract_Name[0]": "buyers_combined"
       },
       "checkbox_fields": {},
       "static_values": {
@@ -1226,7 +1226,7 @@
         "buyer_address"
       ],
       "field_map": {
-        "topmostSubform[0].Page1[0].Contract_Name[0]": "buyer_name",
+        "topmostSubform[0].Page1[0].Contract_Name[0]": "buyers_combined",
         "topmostSubform[0].Page1[0].Install_Address[0]": "buyer_address",
         "topmostSubform[0].Page1[0].Install_City_State_Zip[0]": "buyer_city_state_zip",
         "topmostSubform[0].Page1[0].Install_County[0]": "buyer_county",
@@ -2487,6 +2487,13 @@
       "label": "Compliance Agreement Borrower(s)",
       "type": "string",
       "section": "financing",
+      "required": false,
+      "computed": true
+    },
+    "buyers_combined": {
+      "label": "Purchaser(s) — combined buyer & co-buyer",
+      "type": "string",
+      "section": "buyer",
       "required": false,
       "computed": true
     },

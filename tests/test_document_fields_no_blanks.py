@@ -320,3 +320,89 @@ def test_construction_standards_renders_roof_and_thermal_zone(tmp_path, monkeypa
     result = generate_document("TMHA-ConstructionStandardsNotice.pdf", dict(FULL_CUSTOMER))
     assert result["success"], result.get("message")
     _assert_renders(result["file_path"], ["30 North"])  # roof_zone (distinctive)
+
+
+# ─── Combined purchaser name on plural "(purchaser(s))" lines (B3/B4) ─────────
+# These forms have a single AcroForm purchaser-name widget (Contract_Name) on a
+# plural "(purchaser(s) name(s))" / "Buyer(s)" line and NO separate co-buyer
+# widget. The co-buyer was therefore dropped. The fix is to map that existing
+# widget to the composed ``buyers_combined`` ("<buyer> & <co-buyer>"), mirroring
+# the shipped State_ComplianceAgreement compliance_borrowers pattern — NOT an
+# overlay, because the real widget already sits on the line. Singular-voice
+# forms (Internal_No_oral_promises "I, ___ ... myself") are intentionally left
+# buyer-only and are not covered here.
+
+
+def test_enrich_composes_buyers_combined_from_parts():
+    """buyers_combined = '<buyer> & <co-buyer>', degrading to buyer-only."""
+    enriched = enrich_document_data(
+        {"buyer_name": "Jordan Brooks", "co_buyer_name": "Taylor Brooks"}
+    )
+    assert enriched.get("buyers_combined") == "Jordan Brooks & Taylor Brooks"
+
+    solo = enrich_document_data({"buyer_name": "Jordan Brooks"})
+    assert solo.get("buyers_combined") == "Jordan Brooks"
+
+
+def test_arbitration_agreements_render_both_purchasers(tmp_path, monkeypatch):
+    """B3: the arbitration "(purchaser(s) name(s))" line must carry both names."""
+    import tools.document_tools as dt
+
+    monkeypatch.setattr(dt, "OUTPUT_DIR", str(tmp_path))
+    monkeypatch.setattr(dt, "upload_to_gcs", lambda *a, **k: None)
+
+    for template in (
+        "TDHCA_ArbitrationAgreement.pdf",
+        "Internal_Arbitration_Agreement11.pdf",
+    ):
+        cfg = get_field_map()["templates"][template]
+        assert "buyers_combined" in set(cfg.get("field_map", {}).values()), template
+
+        result = generate_document(template, dict(FULL_CUSTOMER))
+        assert result["success"], result.get("message")
+        _assert_renders(result["file_path"], ["Jordan Brooks", "Taylor Brooks"])
+
+
+def test_ac_acknowledgement_renders_both_purchasers(tmp_path, monkeypatch):
+    """B3: the A/C acknowledgement "Buyer(s) Name" line must carry both names."""
+    import tools.document_tools as dt
+
+    monkeypatch.setattr(dt, "OUTPUT_DIR", str(tmp_path))
+    monkeypatch.setattr(dt, "upload_to_gcs", lambda *a, **k: None)
+
+    cfg = get_field_map()["templates"]["Internal_Air_Conditioning_Acknowledgement_Form.pdf"]
+    assert "buyers_combined" in set(cfg.get("field_map", {}).values())
+
+    result = generate_document(
+        "Internal_Air_Conditioning_Acknowledgement_Form.pdf", dict(FULL_CUSTOMER)
+    )
+    assert result["success"], result.get("message")
+    _assert_renders(result["file_path"], ["Jordan Brooks", "Taylor Brooks"])
+
+
+def test_limited_warranty_renders_both_purchasers_and_serial(tmp_path, monkeypatch):
+    """B3/B4: the TMHA Limited Warranty PURCHASER line must carry both names, and
+    the "I.D. NOS." line must carry the home serial number(s) alongside the HUD
+    label(s) (per TDHCA identity convention), not the HUD label alone.
+    """
+    import tools.document_tools as dt
+
+    monkeypatch.setattr(dt, "OUTPUT_DIR", str(tmp_path))
+    monkeypatch.setattr(dt, "upload_to_gcs", lambda *a, **k: None)
+
+    cfg = get_field_map()["templates"]["TMHA_LimitedWarranty.pdf"]
+    mapped = set(cfg.get("field_map", {}).values())
+    assert "buyers_combined" in mapped
+    assert "serial_label_combined" in mapped
+
+    result = generate_document("TMHA_LimitedWarranty.pdf", dict(FULL_CUSTOMER))
+    assert result["success"], result.get("message")
+    _assert_renders(
+        result["file_path"],
+        [
+            "Jordan Brooks",  # buyer (PURCHASER line)
+            "Taylor Brooks",  # co-buyer (PURCHASER line)
+            "TRU0987654A",  # serial_number_1 on the I.D. NOS. line
+            "TEX0482913",  # label_number_1 still present on I.D. NOS.
+        ],
+    )
