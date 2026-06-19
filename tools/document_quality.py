@@ -415,6 +415,50 @@ def enrich_document_data(data: dict[str, Any]) -> dict[str, Any]:
         if buyer_name:
             enriched["buyer_name"] = buyer_name
 
+    # Co-buyer name mirrors the buyer composition. Without this the co-buyer line
+    # renders blank on every co-buyer document (Statement of Ownership co-owner,
+    # Consumer Disclosure, Credit App) whenever the data arrives as first/last
+    # parts — e.g. the deal-based path and any caller that did not pre-compose
+    # the name on the client. See the highlighted-blanks report (Mark Willcott).
+    if _is_blank(enriched.get("co_buyer_name")) and _all_have_values(
+        enriched, "co_buyer_first_name", "co_buyer_last_name"
+    ):
+        co_buyer_name = _join_non_empty(
+            [enriched.get("co_buyer_first_name"), enriched.get("co_buyer_last_name")]
+        )
+        if co_buyer_name:
+            enriched["co_buyer_name"] = co_buyer_name
+
+    # Mailing address composites (used by the credit application and several
+    # state disclosures). Mirror the buyer_city_state_zip / buyer_full_address
+    # composition so the mailing block is not blank when only the parts are sent.
+    if _is_blank(enriched.get("mailing_city_state_zip")) and _all_have_values(
+        enriched, "mailing_city", "mailing_state", "mailing_zip"
+    ):
+        mailing_city_state_zip = _join_non_empty(
+            [
+                enriched.get("mailing_city"),
+                _join_non_empty([enriched.get("mailing_state"), enriched.get("mailing_zip")]),
+            ],
+            ", ",
+        )
+        if mailing_city_state_zip:
+            enriched["mailing_city_state_zip"] = mailing_city_state_zip
+
+    if (
+        _is_blank(enriched.get("mailing_full_address"))
+        and _has_value(enriched.get("mailing_address"))
+        and _city_state_zip_has_value(
+            enriched, "mailing_city_state_zip", "mailing_city", "mailing_state", "mailing_zip"
+        )
+    ):
+        mailing_full_address = _join_non_empty(
+            [enriched.get("mailing_address"), enriched.get("mailing_city_state_zip")],
+            ", ",
+        )
+        if mailing_full_address:
+            enriched["mailing_full_address"] = mailing_full_address
+
     if _is_blank(enriched.get("buyer_city_state_zip")) and _all_have_values(
         enriched, "buyer_city", "buyer_state", "buyer_zip"
     ):
