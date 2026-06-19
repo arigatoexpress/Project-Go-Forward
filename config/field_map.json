@@ -1723,6 +1723,40 @@
       "cover_page_template": null
     }
   },
+  "form_set_rules": {
+    "_description": "Phase 3 form-set logic (Mark Willcott acceptance review). Applied by tools/document_engine_v2.py resolve_form_set() at packet-generation time (generate_packet). Keeps the static packet lists above as the superset; these rules de-duplicate same-document templates, suppress used-home-only forms on NEW packages, and gate optional contracts behind flags. Editing here changes behavior without touching the template registry or the regulatory PDFs.",
+    "duplicate_groups": [
+      {
+        "_comment": "C2 (Mark review): the Internal and TDHCA arbitration templates render the SAME 'ARBITRATION AGREEMENT' the buyer signs once. Keep the Internal copy (pre-filled with THO/Harris-County address and used by standard_closing); drop the TDHCA duplicate. REVERT: if a separate TDHCA-branded arbitration copy is ever required in a packet, remove 'TDHCA_ArbitrationAgreement.pdf' from this group (or delete the group) and it will flow through again.",
+        "document": "Arbitration Agreement",
+        "keep_first_present": [
+          "Internal_Arbitration_Agreement11.pdf",
+          "TDHCA_ArbitrationAgreement.pdf"
+        ]
+      },
+      {
+        "_comment": "C1 (Mark review): guard against the 'Disclosure to Consumer - Need to Vacate Home' emitting twice. Today only TDHCA_1074 is mapped, so this is a single-member safety group + the global drop-exact-duplicate pass below. REVERT: remove this group to allow a second vacate template to flow through.",
+        "document": "Need to Vacate Home",
+        "keep_first_present": [
+          "TDHCA_1074_Vacate_If_No_Financing.pdf"
+        ]
+      }
+    ],
+    "used_home_only_templates": {
+      "_comment": "C3 (Mark review): these TDHCA forms are explicitly USED-home-only (PDF titles read 'USED MANUFACTURED HOME' / 'SITE PREPARATION NOTICE FOR USED HOMES'). Suppressed when the home condition resolves to NEW (is_new). They remain in full_closing_used / used_home_closing because that path is is_new=False.",
+      "templates": [
+        "TDHCA-ImproperSite.pdf",
+        "TDHCA_SitePreparation.pdf"
+      ]
+    },
+    "flag_gated_templates": {
+      "TMHA-SalesContractDepositAgreement.pdf": {
+        "_comment": "C5 (Mark review): TMHA R020 'MH Sales Contract & Deposit Agreement' — Mark didn't know where it came from. Gated OFF by default so it is excluded from the standard NEW closing packet. Template is NOT deleted; flip include_by_default to true (or pass data['include_r020']=true / data['form_set_flags']['include_r020']=true) to bring it back. FLAG FOR ARI: confirm whether THO ever uses the R020 deposit contract.",
+        "flag": "include_r020",
+        "include_by_default": false
+      }
+    }
+  },
   "data_field_definitions": {
     "buyer_name": {
       "label": "Buyer Name(s)",
