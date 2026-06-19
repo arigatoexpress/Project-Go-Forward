@@ -6771,7 +6771,7 @@ async def get_secure_hub_deal(deal_id: str, request: Request, phone: str = ""):
     this is not a deal-existence oracle.
     """
     try:
-        db = get_database()
+        db = get_database().db  # THODatabase wrapper -> raw Firestore client
         deal = db.collection("deals").document(deal_id).get()
         deal_data = deal.to_dict() if deal.exists else None
         if not deal_data or not _deal_phone_ok(deal_data, phone):
@@ -6820,7 +6820,7 @@ async def download_secure_document(deal_id: str, note_id: str, request: Request,
     anonymously.
     """
     try:
-        db = get_database()
+        db = get_database().db  # THODatabase wrapper -> raw Firestore client
         deal = db.collection("deals").document(deal_id).get()
         deal_data = deal.to_dict() if deal.exists else None
         if not deal_data or not _deal_phone_ok(deal_data, phone):

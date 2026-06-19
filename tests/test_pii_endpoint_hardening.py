@@ -79,6 +79,10 @@ class _FakeDB:
             "deals": _Coll(deal_doc, notes=notes),
             "deal_notes": _Coll(note_doc, notes=notes),
         }
+        # The endpoints use get_database().db (THODatabase wrapper -> raw client).
+        # Mirror that here so the test exercises the real accessor — its absence
+        # is why the original wrong-accessor 500 shipped undetected.
+        self.db = self
 
     def collection(self, name):
         return self._c[name]

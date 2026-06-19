@@ -136,7 +136,11 @@ class AppointmentManager:
                 .where("time_slot", "==", appt.time_slot)
                 .where("status", "==", "confirmed")
             )
-            existing = list(query.stream())
+            # Read INSIDE the transaction (transaction=transaction) so the slot
+            # count joins the transaction's read-set / optimistic lock. Without
+            # it the read is non-transactional and two concurrent bookings can
+            # both see < MAX_PER_SLOT and both commit -> the slot is oversold.
+            existing = list(query.stream(transaction=transaction))
             if len(existing) >= MAX_PER_SLOT:
                 raise ValueError(f"Time slot {appt.time_slot} on {appt.date} is fully booked.")
             transaction.set(doc_ref, appt.to_dict())

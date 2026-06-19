@@ -9,6 +9,7 @@ import json
 import logging
 import os
 import re
+import uuid
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -19,6 +20,20 @@ logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger("crm_tools")
 
 TIMEZONE = ZoneInfo("America/Chicago")
+
+# Lazily-created so importing this module (and unit tests) never spins up a real
+# Firestore client. Tests monkeypatch _get_lead_manager / _lead_manager.
+_lead_manager = None
+
+
+def _get_lead_manager():
+    """Return a cached LeadManager (durable Firestore-backed lead store)."""
+    global _lead_manager
+    if _lead_manager is None:
+        from lead_management import LeadManager
+
+        _lead_manager = LeadManager()
+    return _lead_manager
 
 
 def save_lead(
@@ -66,6 +81,30 @@ def save_lead(
     # 3. Log to stdout (Cloud Logging)
     logger.info(json.dumps(lead_data))
 
+    # 3.5 Persist DURABLY to Firestore — the ONLY storage that survives on Cloud
+    # Run (the container filesystem is ephemeral, so the local-file write below
+    # is a dev convenience only). Without this the chat agent told customers
+    # "saved" while their name+phone existed only in Cloud Logging — invisible to
+    # the CRM (high-intent leads silently lost). A lead is reported saved ONLY if
+    # this write succeeds.
+    persisted = False
+    try:
+        from lead_management import Lead, normalize_phone
+
+        lead = Lead(
+            lead_id=f"chat_{uuid.uuid4().hex[:12]}",
+            user_id="chat",
+            session_id="",
+            name=user_name,
+            phone=normalize_phone(phone_number),
+            source="chat",
+            triage_notes=interest_notes,
+        )
+        _get_lead_manager().db.collection("leads").document(lead.lead_id).set(lead.to_dict())
+        persisted = True
+    except Exception as e:
+        logger.error(f"Lead Firestore persist FAILED — lead at risk: {e}")
+
     # 4. Dev/Fallback: Append to local JSON file if possible
     try:
         data_dir = os.path.join(os.path.dirname(__file__), "..", "data")
@@ -91,9 +130,19 @@ def save_lead(
     except Exception as e:
         logger.warning(f"Could not write to local file: {e}")
 
+    if persisted:
+        return {
+            "success": True,
+            "message": f"Thanks {user_name}! I've saved your info. A sales representative will call you at {phone_number} shortly.",
+        }
+    # Firestore write failed — be truthful so the agent routes the customer to a
+    # human instead of falsely confirming a lead that wasn't durably saved.
     return {
-        "success": True,
-        "message": f"Thanks {user_name}! I've saved your info. A sales representative will call you at {phone_number} shortly.",
+        "success": False,
+        "message": (
+            f"Thanks {user_name} — I had trouble saving your details just now. "
+            "Please call our showroom directly and we'll make sure a representative reaches you."
+        ),
     }
 
 
