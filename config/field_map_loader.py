@@ -80,6 +80,11 @@ def get_packet_config(packet_name: str) -> dict | None:
     return get_field_map().get("packets", {}).get(packet_name)
 
 
+def get_form_set_rules() -> dict[str, Any]:
+    """Get Phase 3 form-set rules (dedupe / used-home suppression / flag gating)."""
+    return get_field_map().get("form_set_rules", {})
+
+
 def list_templates() -> list[dict[str, Any]]:
     """List all mapped templates with metadata (for API responses)."""
     templates = get_field_map().get("templates", {})

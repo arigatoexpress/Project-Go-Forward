@@ -330,6 +330,50 @@ def is_placeholder_text(value: Any) -> bool:
     return any(marker in lowered for marker in PLACEHOLDER_TEXT_MARKERS)
 
 
+def _coerce_bool(value: Any) -> bool | None:
+    """Interpret a stored New/Used flag. Returns None when unset/ambiguous."""
+    if isinstance(value, bool):
+        return value
+    text = _clean(value).lower()
+    if not text:
+        return None
+    if text in {"true", "yes", "y", "on", "1", "new"}:
+        return True
+    if text in {"false", "no", "n", "off", "0", "used", "pre-owned", "preowned"}:
+        return False
+    return None
+
+
+def _normalize_new_used(data: dict[str, Any]) -> None:
+    """Resolve is_new / is_used / new_used_text from whatever signal is present.
+
+    Priority: an explicit ``condition`` string ("New"/"Used"), then is_new, then
+    is_used. Exactly one of is_new/is_used is set so the mutually-exclusive
+    checkbox pair never renders both-blank. Mirrors the frontend toDocumentData
+    derivation so non-frontend callers behave identically.
+    """
+    condition = _clean(data.get("condition")).lower()
+    is_new = _coerce_bool(data.get("is_new"))
+    is_used = _coerce_bool(data.get("is_used"))
+
+    resolved_new: bool
+    if condition in {"new", "used", "pre-owned", "preowned"}:
+        resolved_new = condition == "new"
+    elif is_new is not None:
+        resolved_new = is_new
+    elif is_used is not None:
+        resolved_new = not is_used
+    else:
+        # No signal at all: leave the flags untouched so the engine's own
+        # default (is_new=True) applies without us masking missing data.
+        return
+
+    data["is_new"] = resolved_new
+    data["is_used"] = not resolved_new
+    if _is_blank(data.get("new_used_text")):
+        data["new_used_text"] = "New" if resolved_new else "Used"
+
+
 def enrich_document_data(data: dict[str, Any]) -> dict[str, Any]:
     """Return data with safe seller and computed aliases filled.
 
@@ -344,6 +388,13 @@ def enrich_document_data(data: dict[str, Any]) -> dict[str, Any]:
     )
     if section_count:
         enriched["no_of_sections"] = section_count
+
+    # New/Used condition is the single source of truth for the New/Used checkbox
+    # (contract + Statement of Ownership + R020) and the "New/Used" text field.
+    # The frontend derives is_used from the is_new toggle; mirror it here so the
+    # deal-based path and direct API callers fill the checkbox consistently
+    # instead of leaving both New and Used boxes blank (Mark Willcott review).
+    _normalize_new_used(enriched)
 
     _set_if_blank(enriched, "seller_name", BUSINESS_NAME)
     _set_if_blank(enriched, "seller_rbi", BUSINESS_RBI)
@@ -414,6 +465,82 @@ def enrich_document_data(data: dict[str, Any]) -> dict[str, Any]:
         )
         if buyer_name:
             enriched["buyer_name"] = buyer_name
+
+    # Co-buyer name mirrors the buyer composition. Without this the co-buyer line
+    # renders blank on every co-buyer document (Statement of Ownership co-owner,
+    # Consumer Disclosure, Credit App) whenever the data arrives as first/last
+    # parts — e.g. the deal-based path and any caller that did not pre-compose
+    # the name on the client. See the highlighted-blanks report (Mark Willcott).
+    if _is_blank(enriched.get("co_buyer_name")) and _all_have_values(
+        enriched, "co_buyer_first_name", "co_buyer_last_name"
+    ):
+        co_buyer_name = _join_non_empty(
+            [enriched.get("co_buyer_first_name"), enriched.get("co_buyer_last_name")]
+        )
+        if co_buyer_name:
+            enriched["co_buyer_name"] = co_buyer_name
+
+    # Loan number doubles as the Portfolio/Lender reference that the
+    # Compliance Agreement and two-party contract map via their Portfolio[0]
+    # widget. Backfill portfolio from loan_number so the deal-based path renders
+    # it consistently with the frontend toDocumentData derivation (item A2/A8).
+    if _is_blank(enriched.get("portfolio")) and _has_value(enriched.get("loan_number")):
+        enriched["portfolio"] = _clean(enriched.get("loan_number"))
+
+    # Compliance Agreement borrower line. The agreement names the borrower(s)
+    # separately from the buyer; default to the composed buyer (+ co-buyer)
+    # names so the agreement is not blank on the deal-based path (item A8).
+    if _is_blank(enriched.get("compliance_borrowers")):
+        compliance_borrowers = _join_non_empty(
+            [enriched.get("buyer_name"), enriched.get("co_buyer_name")],
+            " & ",
+        )
+        if compliance_borrowers:
+            enriched["compliance_borrowers"] = compliance_borrowers
+
+    # Combined purchaser names for forms whose single purchaser-name widget sits
+    # on a plural "(purchaser(s) name(s))" / "Buyer(s)" line and has NO separate
+    # co-buyer widget (arbitration agreements, A/C acknowledgement, TMHA limited
+    # warranty PURCHASER line). Without this the co-buyer line renders blank on
+    # those forms (Mark Willcott review, B3/B4). Mirrors compliance_borrowers and
+    # degrades to the buyer name alone when there is no co-buyer.
+    if _is_blank(enriched.get("buyers_combined")):
+        buyers_combined = _join_non_empty(
+            [enriched.get("buyer_name"), enriched.get("co_buyer_name")],
+            " & ",
+        )
+        if buyers_combined:
+            enriched["buyers_combined"] = buyers_combined
+
+    # Mailing address composites (used by the credit application and several
+    # state disclosures). Mirror the buyer_city_state_zip / buyer_full_address
+    # composition so the mailing block is not blank when only the parts are sent.
+    if _is_blank(enriched.get("mailing_city_state_zip")) and _all_have_values(
+        enriched, "mailing_city", "mailing_state", "mailing_zip"
+    ):
+        mailing_city_state_zip = _join_non_empty(
+            [
+                enriched.get("mailing_city"),
+                _join_non_empty([enriched.get("mailing_state"), enriched.get("mailing_zip")]),
+            ],
+            ", ",
+        )
+        if mailing_city_state_zip:
+            enriched["mailing_city_state_zip"] = mailing_city_state_zip
+
+    if (
+        _is_blank(enriched.get("mailing_full_address"))
+        and _has_value(enriched.get("mailing_address"))
+        and _city_state_zip_has_value(
+            enriched, "mailing_city_state_zip", "mailing_city", "mailing_state", "mailing_zip"
+        )
+    ):
+        mailing_full_address = _join_non_empty(
+            [enriched.get("mailing_address"), enriched.get("mailing_city_state_zip")],
+            ", ",
+        )
+        if mailing_full_address:
+            enriched["mailing_full_address"] = mailing_full_address
 
     if _is_blank(enriched.get("buyer_city_state_zip")) and _all_have_values(
         enriched, "buyer_city", "buyer_state", "buyer_zip"

@@ -375,6 +375,44 @@ PDF_TEXT_OVERLAYS = {
             },
         ),
     },
+    # USA Patriot Act customer-identification form: the buyer/co-buyer
+    # "Name Exactly as on Driver's License" and "Date of Birth" lines have NO
+    # AcroForm widget (only Seller_Name + FCD_Footer exist), so they are baked
+    # as flattened overlays. Coordinates measured from the label baselines
+    # (origin bottom-left). The "field" keys are synthetic carriers mapped to
+    # the data keys in config/field_map.json (THO_PatriotAct_*).
+    "State_PatriotAct.pdf": {
+        1: (
+            {
+                "field": "THO_PatriotAct_Buyer_Name",
+                "x": 272,
+                "y": 481,
+                "max_width": 265,
+                "font_size": 10,
+            },
+            {
+                "field": "THO_PatriotAct_Buyer_DOB",
+                "x": 410,
+                "y": 452,
+                "max_width": 120,
+                "font_size": 10,
+            },
+            {
+                "field": "THO_PatriotAct_CoBuyer_Name",
+                "x": 272,
+                "y": 366,
+                "max_width": 265,
+                "font_size": 10,
+            },
+            {
+                "field": "THO_PatriotAct_CoBuyer_DOB",
+                "x": 410,
+                "y": 338,
+                "max_width": 120,
+                "font_size": 10,
+            },
+        ),
+    },
 }
 
 

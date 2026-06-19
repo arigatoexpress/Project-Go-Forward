@@ -20,6 +20,8 @@ import {
   BUSINESS_STATE,
   BUSINESS_ZIP,
   BUSINESS_LICENSE,
+  FACTORY_OPTIONS,
+  INSTALLER_OPTIONS,
 } from '../constants';
 
 /* ─── Constants ──────────────────────────────────────────── */
@@ -41,8 +43,22 @@ const INITIAL_FORM = {
   co_buyer_first_name: '', co_buyer_last_name: '', co_buyer_phone: '',
   co_buyer_ssn: '', co_buyer_dob: '', co_buyer_marital_status: '',
   mailing_address: '', mailing_city: '', mailing_state: 'TX', mailing_zip: '',
-  mailing_own_rent: '', customer_status: 'LEAD', customer_notes: '',
-  employer_name: '', occupation: '', occupation_length: '', work_phone: '',
+  mailing_own_rent: '', mailing_length: '', customer_status: 'LEAD', customer_notes: '',
+  employer_name: '', occupation: '', occupation_length: '', occupation_length_unit: 'Years', work_phone: '',
+  // Credit Application — Buyer employment & residence history (24 omitted fields)
+  previous_employer: '', previous_occupation: '',
+  buyer_previous_address: '', buyer_previous_length: '', buyer_current_payment: '',
+  // Credit Application — Co-buyer employment & residence history
+  co_buyer_employer: '', co_buyer_occupation: '', co_buyer_occupation_length: '', co_buyer_occupation_length_unit: 'Years',
+  co_buyer_work_phone: '', co_buyer_previous_employer: '', co_buyer_previous_occupation: '',
+  co_buyer_previous_address: '', co_buyer_previous_length: '', co_buyer_current_payment: '',
+  co_buyer_mailing_full_address: '', co_buyer_mailing_length: '',
+  // Credit Application — references + transaction metadata
+  reference1_name: '', reference1_phone: '', reference2_name: '', reference2_phone: '',
+  date_of_sale: '', seller_email: '', portfolio: '',
+  // Loan / Compliance Agreement
+  loan_number: '',
+  compliance_lender: '', compliance_borrowers: '', compliance_property_address: '',
   // Home Info
   is_new: true, manufacturer: '', model: '', year: '',
   serial_number_1: '', serial_number_2: '',
@@ -102,6 +118,49 @@ export function applyDisclosureLanguage(templates, language) {
     if (!out.includes(mapped)) out.push(mapped);
   }
   return out;
+}
+
+/**
+ * Format a phone number progressively as the user types, to the
+ * 111-222-3333 mask Mark Willcott flagged four times across the review.
+ * Keeps only digits, caps at 10, and inserts dashes after the 3rd and 6th
+ * digit. Returns the raw input unchanged once it is clearly an extension or
+ * already-formatted international value (contains a leading '+'), so we never
+ * corrupt a value we don't recognize.
+ */
+export function formatPhoneMask(value) {
+  if (value === undefined || value === null) return '';
+  const str = String(value);
+  if (str.includes('+')) return str; // leave +1… / intl alone
+  const digits = str.replace(/\D/g, '').slice(0, 10);
+  if (digits.length <= 3) return digits;
+  if (digits.length <= 6) return `${digits.slice(0, 3)}-${digits.slice(3)}`;
+  return `${digits.slice(0, 3)}-${digits.slice(3, 6)}-${digits.slice(6)}`;
+}
+
+/**
+ * Format an SSN progressively to the 111-22-3333 mask (Mark Willcott review
+ * item A3). Digits only, capped at 9, dashes after the 3rd and 5th digit.
+ */
+export function formatSsnMask(value) {
+  if (value === undefined || value === null) return '';
+  const digits = String(value).replace(/\D/g, '').slice(0, 9);
+  if (digits.length <= 3) return digits;
+  if (digits.length <= 5) return `${digits.slice(0, 3)}-${digits.slice(3)}`;
+  return `${digits.slice(0, 3)}-${digits.slice(3, 5)}-${digits.slice(5)}`;
+}
+
+/**
+ * Combine a numeric length with a unit ("Years"/"Months") into a single
+ * human-readable employment-length string for the credit application
+ * (Mark Willcott review item A5). Returns '' when no number is present so we
+ * never emit a bare unit like "Years".
+ */
+export function joinLengthUnit(amount, unit) {
+  const n = String(amount ?? '').trim();
+  if (!n) return '';
+  const u = String(unit ?? '').trim() || 'Years';
+  return `${n} ${u}`;
 }
 
 function getRestorableDraftStep(draft) {
@@ -297,6 +356,41 @@ const FIELD_STEP = {
   mailing_state: 1,
   mailing_zip: 1,
 };
+
+// Marital status is a constrained dropdown (Mark Willcott review item A4).
+// Values match the backend _set_status_flags resolver (married / unmarried),
+// which drives the Married/Unmarried checkbox pair on the credit application.
+// DECISION FLAGGED (A4): confirm with Mark whether marital status should be
+// collected at all; kept here as the safe default since the credit-app form
+// has the checkbox.
+const MARITAL_STATUS_OPTIONS = [
+  { value: '', label: 'Not set' },
+  { value: 'Married', label: 'Married' },
+  { value: 'Unmarried', label: 'Unmarried' },
+];
+
+// Length-of-employment / length-at-address unit dropdown (item A5).
+const LENGTH_UNIT_OPTIONS = [
+  { value: 'Years', label: 'Years' },
+  { value: 'Months', label: 'Months' },
+];
+
+// Factory + Installer dropdowns are config-driven (item A6). The option list is
+// seeded in constants.js and ends with a clear placeholder; "Other" reveals a
+// free-text input so staff are never blocked by an incomplete list.
+const FACTORY_SELECT_OPTIONS = [
+  { value: '', label: 'Select factory…' },
+  ...FACTORY_OPTIONS.map(name => ({ value: name, label: name })),
+  { value: '__THO_TODO__', label: 'THO to supply full list', disabled: true },
+  { value: '__other__', label: 'Other / type manually' },
+];
+
+const INSTALLER_SELECT_OPTIONS = [
+  { value: '', label: 'Select installer…' },
+  ...INSTALLER_OPTIONS.map(name => ({ value: name, label: name })),
+  { value: '__THO_TODO__', label: 'THO to supply full list', disabled: true },
+  { value: '__other__', label: 'Other / type manually' },
+];
 
 const SIMPLE_CREDIT_TEMPLATES = new Set([
   'creditapp.pdf',
@@ -518,8 +612,32 @@ function toDocumentData(f) {
   const salesPrice = numericMoney(f.sales_price);
   const downPayment = numericMoney(f.down_payment) || 0;
   const financedAmount = Number.isFinite(salesPrice) ? salesPrice - downPayment : undefined;
+  // Length-of-employment renders as "<n> <unit>" on the credit app (item A5).
+  // The wizard collects the number and unit separately; combine them here onto
+  // the keys the field_map maps (occupation_length / co_buyer_occupation_length).
+  const occupationLength = hasValue(f.occupation_length)
+    ? `${String(f.occupation_length).trim()} ${String(f.occupation_length_unit || 'Years').trim()}`
+    : f.occupation_length;
+  const coOccupationLength = hasValue(f.co_buyer_occupation_length)
+    ? `${String(f.co_buyer_occupation_length).trim()} ${String(f.co_buyer_occupation_length_unit || 'Years').trim()}`
+    : f.co_buyer_occupation_length;
   return {
     ...f,
+    occupation_length: occupationLength,
+    co_buyer_occupation_length: coOccupationLength,
+    // Loan number doubles as the Portfolio/Lender reference the field_map maps
+    // (Portfolio[0] widget on Compliance Agreement + two-party contract). Only
+    // backfill portfolio when the user didn't supply one explicitly.
+    portfolio: hasValue(f.portfolio) ? f.portfolio : f.loan_number,
+    // Compliance Agreement explicit fields. The agreement maps Creditor_Name →
+    // creditor_name; prefer an explicit creditor, else the compliance-specific
+    // lender the staff typed (item A8). Property address falls back to the
+    // installation address when the agreement-specific field is blank.
+    creditor_name: f.creditor_name || f.compliance_lender,
+    compliance_borrowers: f.compliance_borrowers
+      || joinNonEmpty([buyer, coBuyer], ' & '),
+    compliance_property_address: f.compliance_property_address
+      || fullAddress(f.buyer_address, buyerCityStateZip),
     seller_name: f.seller_name || BUSINESS_LEGAL_NAME,
     seller_rbi: f.seller_rbi || BUSINESS_LICENSE,
     seller_phone: f.seller_phone || BUSINESS_PHONE,
@@ -711,8 +829,20 @@ function Section({ title, icon: Icon, children, open: initOpen = true, badge, he
  * The input DOM element owns its own value. React never touches it during typing.
  * We use a key={name + '-' + resetKey} to force re-mount only when loading a customer.
  */
-const Field = React.memo(function Field({ label, name, value, onChange, type = 'text', placeholder, half, third, required, readOnly, icon: Icon, resetKey, error, autoFilled, helperText }) {
+const Field = React.memo(function Field({ label, name, value, onChange, type = 'text', placeholder, half, third, required, readOnly, icon: Icon, resetKey, error, autoFilled, helperText, format, maxLength }) {
   const inputRef = React.useRef(null);
+  // Live input masking (phone / SSN). Because Field is uncontrolled
+  // (defaultValue + onChange → parent state, never value={state}), we apply the
+  // mask by rewriting the DOM input's own value in place. This preserves the
+  // focus-loss-free design while still showing the formatted value as the user
+  // types. The formatted value is what flows to parent state and toDocumentData.
+  const handleChange = format
+    ? (e) => {
+        const formatted = format(e.target.value);
+        if (e.target.value !== formatted) e.target.value = formatted;
+        onChange(name, formatted);
+      }
+    : (e) => onChange(name, e.target.value);
   const borderClass = readOnly
     ? 'bg-gray-100 text-gray-500 border-gray-200'
     : error
@@ -754,9 +884,10 @@ const Field = React.memo(function Field({ label, name, value, onChange, type = '
           inputMode={type === 'currency' ? 'decimal' : type === 'phone' ? 'tel' : undefined}
           name={name}
           defaultValue={value || ''}
-          onChange={e => onChange(name, e.target.value)}
+          onChange={handleChange}
           placeholder={placeholder}
           readOnly={readOnly}
+          maxLength={maxLength}
           aria-invalid={error ? 'true' : undefined}
           className={`${inputClasses} ${Icon ? 'pl-10' : ''}`}
         />
@@ -795,10 +926,89 @@ function SelectField({ label, name, value, onChange, options, half, third, icon:
           className={`w-full px-4 py-3 border-2 border-gray-300 rounded-xl text-base bg-white focus:ring-4 focus:ring-blue-200 focus:border-blue-500 outline-none ${Icon ? 'pl-10' : ''}`}
         >
           {options.map(option => (
-            <option key={option.value} value={option.value}>{option.label}</option>
+            <option key={option.value} value={option.value} disabled={option.disabled}>{option.label}</option>
           ))}
         </select>
       </div>
+    </div>
+  );
+}
+
+/**
+ * ComboField — a constrained dropdown seeded from a config list, with an
+ * "Other / type manually" escape hatch that reveals a free-text input
+ * (Mark Willcott review item A6: Factory + Installer constrained dropdowns
+ * that must not block staff when the dealership's full list is incomplete).
+ *
+ * Stores a single string value in parent state. If the current value matches a
+ * list option, the dropdown shows it selected; otherwise (e.g. an inventory
+ * auto-fill or a manually-typed factory) it shows "Other" with the value in the
+ * free-text box. Uncontrolled-friendly: the select/input own their own values
+ * and we re-mount via resetKey when a deal/customer loads.
+ */
+function ComboField({ label, name, value, onChange, options, half, third, required, icon: Icon, resetKey, error, autoFilled, helperText }) {
+  const known = new Set(options.map(o => o.value).filter(Boolean));
+  const startsOther = hasValue(value) && !known.has(value);
+  const [mode, setMode] = useState(startsOther ? '__other__' : (value || ''));
+  // Re-sync mode when the field re-mounts (deal load / inventory autofill).
+  React.useEffect(() => {
+    setMode(hasValue(value) && !known.has(value) ? '__other__' : (value || ''));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resetKey]);
+  const widthClass = third ? 'w-full sm:w-1/3' : half ? 'w-full sm:w-1/2' : 'w-full';
+  const selectOptions = [
+    { value: '', label: `Select ${String(label).toLowerCase()}…` },
+    ...options.filter(o => o.value !== ''),
+    { value: '__other__', label: 'Other / type manually' },
+  ];
+  const handleSelect = (selected) => {
+    setMode(selected);
+    if (selected === '__other__') {
+      onChange(name, '');
+    } else if (selected) {
+      onChange(name, selected);
+    } else {
+      onChange(name, '');
+    }
+  };
+  return (
+    <div className={`${widthClass} px-2 mb-4`}>
+      <label className="block text-sm font-bold text-gray-700 mb-2">
+        {label}
+        {required && <span className="text-red-500 ml-1">*</span>}
+        {autoFilled && (
+          <span data-testid={`autofilled-${name}`} className="ml-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-green-100 text-green-700 text-xs font-semibold">
+            <Check size={12} /> from inventory
+          </span>
+        )}
+      </label>
+      <div className="relative">
+        {Icon && <Icon size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />}
+        <select
+          key={`${name}-mode-${resetKey || 0}`}
+          name={`${name}__select`}
+          value={mode}
+          onChange={e => handleSelect(e.target.value)}
+          className={`w-full px-4 py-3 border-2 rounded-xl text-base bg-white focus:ring-4 focus:ring-blue-200 focus:border-blue-500 outline-none ${error ? 'border-red-400' : 'border-gray-300'} ${Icon ? 'pl-10' : ''}`}
+        >
+          {selectOptions.map(option => (
+            <option key={option.value} value={option.value} disabled={option.disabled}>{option.label}</option>
+          ))}
+        </select>
+      </div>
+      {mode === '__other__' && (
+        <input
+          key={`${name}-other-${resetKey || 0}`}
+          type="text"
+          name={name}
+          defaultValue={startsOther ? value : ''}
+          onChange={e => onChange(name, e.target.value)}
+          placeholder={`Type ${String(label).toLowerCase()}…`}
+          className={`mt-2 w-full px-4 py-3 border-2 rounded-xl text-base bg-white focus:ring-4 focus:ring-blue-200 focus:border-blue-500 outline-none ${error ? 'border-red-400' : 'border-gray-300'}`}
+        />
+      )}
+      {error && typeof error === 'string' && <p className="mt-1 text-xs text-red-600 font-medium">{error}</p>}
+      {!error && helperText && <p className="mt-1 text-xs text-gray-500 italic">{helperText}</p>}
     </div>
   );
 }
@@ -1399,13 +1609,21 @@ function Step1({ data, onChange, onLoadCustomer, resetKey, deals, dealsLoading, 
           <Field label="Last Name" name="buyer_last_name" value={data.buyer_last_name} onChange={c} resetKey={resetKey} half required icon={User} error={errOf('buyer_last_name')} />
         </Row>
         <Row>
-          <Field label="Phone Number" name="buyer_phone" value={data.buyer_phone} onChange={c} resetKey={resetKey} half type="phone" icon={Phone} error={errOf('buyer_phone')} />
+          <Field label="Phone Number" name="buyer_phone" value={data.buyer_phone} onChange={c} resetKey={resetKey} half type="phone" icon={Phone} error={errOf('buyer_phone')} format={formatPhoneMask} maxLength={12} placeholder="111-222-3333" />
           <Field label="Email Address" name="buyer_email" value={data.buyer_email} onChange={c} resetKey={resetKey} half type="email" icon={Mail} error={errOf('buyer_email')} />
         </Row>
         <Row>
-          <Field label="Social Security #" name="buyer_ssn" value={data.buyer_ssn} onChange={c} resetKey={resetKey} third type="ssn" icon={Hash} />
+          <Field label="Social Security #" name="buyer_ssn" value={data.buyer_ssn} onChange={c} resetKey={resetKey} third type="ssn" icon={Hash} format={formatSsnMask} maxLength={11} placeholder="111-22-3333" />
           <Field label="Date of Birth" name="buyer_dob" value={data.buyer_dob} onChange={c} resetKey={resetKey} third type="date" icon={Calendar} />
-          <Field label="Marital Status" name="buyer_marital_status" value={data.buyer_marital_status} onChange={c} resetKey={resetKey} third />
+          <SelectField
+            label="Marital Status"
+            name="buyer_marital_status"
+            value={data.buyer_marital_status}
+            onChange={c}
+            resetKey={resetKey}
+            third
+            options={MARITAL_STATUS_OPTIONS}
+          />
         </Row>
       </Section>
 
@@ -1464,9 +1682,20 @@ function Step1({ data, onChange, onLoadCustomer, resetKey, deals, dealsLoading, 
           <Field label="Last Name" name="co_buyer_last_name" value={data.co_buyer_last_name} onChange={c} resetKey={resetKey} half icon={User} />
         </Row>
         <Row>
-          <Field label="Phone" name="co_buyer_phone" value={data.co_buyer_phone} onChange={c} resetKey={resetKey} third type="phone" icon={Phone} />
-          <Field label="SSN" name="co_buyer_ssn" value={data.co_buyer_ssn} onChange={c} resetKey={resetKey} third type="ssn" icon={Hash} />
-          <Field label="Marital Status" name="co_buyer_marital_status" value={data.co_buyer_marital_status} onChange={c} resetKey={resetKey} third />
+          <Field label="Phone" name="co_buyer_phone" value={data.co_buyer_phone} onChange={c} resetKey={resetKey} third type="phone" icon={Phone} format={formatPhoneMask} maxLength={12} placeholder="111-222-3333" />
+          <Field label="SSN" name="co_buyer_ssn" value={data.co_buyer_ssn} onChange={c} resetKey={resetKey} third type="ssn" icon={Hash} format={formatSsnMask} maxLength={11} placeholder="111-22-3333" />
+          <Field label="Date of Birth" name="co_buyer_dob" value={data.co_buyer_dob} onChange={c} resetKey={resetKey} third type="date" icon={Calendar} />
+        </Row>
+        <Row>
+          <SelectField
+            label="Marital Status"
+            name="co_buyer_marital_status"
+            value={data.co_buyer_marital_status}
+            onChange={c}
+            resetKey={resetKey}
+            third
+            options={MARITAL_STATUS_OPTIONS}
+          />
         </Row>
       </Section>
 
@@ -1480,6 +1709,9 @@ function Step1({ data, onChange, onLoadCustomer, resetKey, deals, dealsLoading, 
           <Field label="State" name="mailing_state" value={data.mailing_state} onChange={c} resetKey={resetKey} third />
           <Field label="ZIP Code" name="mailing_zip" value={data.mailing_zip} onChange={c} resetKey={resetKey} third />
         </Row>
+        <Row>
+          <Field label="Years at Mailing Address" name="mailing_length" value={data.mailing_length} onChange={c} resetKey={resetKey} third icon={Clock} />
+        </Row>
       </Section>
 
       {/* Employment */}
@@ -1489,8 +1721,67 @@ function Step1({ data, onChange, onLoadCustomer, resetKey, deals, dealsLoading, 
           <Field label="Occupation" name="occupation" value={data.occupation} onChange={c} resetKey={resetKey} half />
         </Row>
         <Row>
-          <Field label="Length of Employment" name="occupation_length" value={data.occupation_length} onChange={c} resetKey={resetKey} half />
-          <Field label="Work Phone" name="work_phone" value={data.work_phone} onChange={c} resetKey={resetKey} half type="phone" icon={Phone} />
+          <Field label="Length of Employment" name="occupation_length" value={data.occupation_length} onChange={c} resetKey={resetKey} third type="number" placeholder="e.g. 5" />
+          <SelectField label="Unit" name="occupation_length_unit" value={data.occupation_length_unit} onChange={c} resetKey={resetKey} third options={LENGTH_UNIT_OPTIONS} />
+          <Field label="Work Phone" name="work_phone" value={data.work_phone} onChange={c} resetKey={resetKey} third type="phone" icon={Phone} format={formatPhoneMask} maxLength={12} placeholder="111-222-3333" />
+        </Row>
+        <Row>
+          <Field label="Previous Employer" name="previous_employer" value={data.previous_employer} onChange={c} resetKey={resetKey} half icon={Building2} />
+          <Field label="Previous Occupation" name="previous_occupation" value={data.previous_occupation} onChange={c} resetKey={resetKey} half />
+        </Row>
+      </Section>
+
+      {/* Credit Application — buyer/co-buyer history + references (items A7, A8,
+          and the 24 credit-app fields the wizard previously omitted). These feed
+          creditapp.pdf, which already maps every key below in field_map.json. */}
+      <Section title="Credit Application Details" icon={CreditCard} open={false}
+        helpText="Employment history, residence history, and references for the full credit application. Optional — fill what the lender requires.">
+        <div className="mb-2 text-sm font-bold text-gray-600 uppercase tracking-wide">Buyer residence history</div>
+        <Row>
+          <Field label="Previous Address" name="buyer_previous_address" value={data.buyer_previous_address} onChange={c} resetKey={resetKey} half icon={MapPinned} />
+          <Field label="Years at Previous Address" name="buyer_previous_length" value={data.buyer_previous_length} onChange={c} resetKey={resetKey} third icon={Clock} />
+          <Field label="Current Housing Payment" name="buyer_current_payment" value={data.buyer_current_payment} onChange={c} resetKey={resetKey} third type="currency" icon={DollarSign} />
+        </Row>
+
+        <div className="mt-4 mb-2 text-sm font-bold text-gray-600 uppercase tracking-wide">Co-buyer employment & residence</div>
+        <Row>
+          <Field label="Co-Buyer Employer" name="co_buyer_employer" value={data.co_buyer_employer} onChange={c} resetKey={resetKey} half icon={Building2} />
+          <Field label="Co-Buyer Occupation" name="co_buyer_occupation" value={data.co_buyer_occupation} onChange={c} resetKey={resetKey} half />
+        </Row>
+        <Row>
+          <Field label="Co-Buyer Length of Employment" name="co_buyer_occupation_length" value={data.co_buyer_occupation_length} onChange={c} resetKey={resetKey} third type="number" placeholder="e.g. 3" />
+          <SelectField label="Unit" name="co_buyer_occupation_length_unit" value={data.co_buyer_occupation_length_unit} onChange={c} resetKey={resetKey} third options={LENGTH_UNIT_OPTIONS} />
+          <Field label="Co-Buyer Work Phone" name="co_buyer_work_phone" value={data.co_buyer_work_phone} onChange={c} resetKey={resetKey} third type="phone" icon={Phone} format={formatPhoneMask} maxLength={12} placeholder="111-222-3333" />
+        </Row>
+        <Row>
+          <Field label="Co-Buyer Previous Employer" name="co_buyer_previous_employer" value={data.co_buyer_previous_employer} onChange={c} resetKey={resetKey} half icon={Building2} />
+          <Field label="Co-Buyer Previous Occupation" name="co_buyer_previous_occupation" value={data.co_buyer_previous_occupation} onChange={c} resetKey={resetKey} half />
+        </Row>
+        <Row>
+          <Field label="Co-Buyer Mailing Address" name="co_buyer_mailing_full_address" value={data.co_buyer_mailing_full_address} onChange={c} resetKey={resetKey} half icon={MapPinned} />
+          <Field label="Co-Buyer Years at Address" name="co_buyer_mailing_length" value={data.co_buyer_mailing_length} onChange={c} resetKey={resetKey} third icon={Clock} />
+          <Field label="Co-Buyer Current Payment" name="co_buyer_current_payment" value={data.co_buyer_current_payment} onChange={c} resetKey={resetKey} third type="currency" icon={DollarSign} />
+        </Row>
+        <Row>
+          <Field label="Co-Buyer Previous Address" name="co_buyer_previous_address" value={data.co_buyer_previous_address} onChange={c} resetKey={resetKey} half icon={MapPinned} />
+          <Field label="Co-Buyer Years at Previous Address" name="co_buyer_previous_length" value={data.co_buyer_previous_length} onChange={c} resetKey={resetKey} third icon={Clock} />
+        </Row>
+
+        <div className="mt-4 mb-2 text-sm font-bold text-gray-600 uppercase tracking-wide">References</div>
+        <Row>
+          <Field label="Reference 1 Name" name="reference1_name" value={data.reference1_name} onChange={c} resetKey={resetKey} half icon={User} />
+          <Field label="Reference 1 Phone" name="reference1_phone" value={data.reference1_phone} onChange={c} resetKey={resetKey} half type="phone" icon={Phone} format={formatPhoneMask} maxLength={12} placeholder="111-222-3333" />
+        </Row>
+        <Row>
+          <Field label="Reference 2 Name" name="reference2_name" value={data.reference2_name} onChange={c} resetKey={resetKey} half icon={User} />
+          <Field label="Reference 2 Phone" name="reference2_phone" value={data.reference2_phone} onChange={c} resetKey={resetKey} half type="phone" icon={Phone} format={formatPhoneMask} maxLength={12} placeholder="111-222-3333" />
+        </Row>
+
+        <div className="mt-4 mb-2 text-sm font-bold text-gray-600 uppercase tracking-wide">Transaction & lender</div>
+        <Row>
+          <Field label="Date of Sale" name="date_of_sale" value={data.date_of_sale} onChange={c} resetKey={resetKey} third type="date" icon={Calendar} />
+          <Field label="Seller Email" name="seller_email" value={data.seller_email} onChange={c} resetKey={resetKey} third type="email" icon={Mail} />
+          <Field label="Portfolio / Lender" name="portfolio" value={data.portfolio} onChange={c} resetKey={resetKey} third icon={Building2} helperText="Leave blank to use the Loan # entered in Financing." />
         </Row>
       </Section>
 
@@ -1931,7 +2222,7 @@ function Step2({ data, onChange, resetKey, inventory, inventoryLoading, onNext, 
         )}
 
         <Row>
-          <Field label="Manufacturer" name="manufacturer" value={data.manufacturer} onChange={c} resetKey={resetKey} half required icon={Building2} error={errOf('manufacturer')} autoFilled={isAutoFilled('manufacturer')} />
+          <ComboField label="Manufacturer (Factory)" name="manufacturer" value={data.manufacturer} onChange={c} resetKey={resetKey} half required icon={Building2} error={errOf('manufacturer')} autoFilled={isAutoFilled('manufacturer')} options={FACTORY_SELECT_OPTIONS} helperText="Pick a factory or choose Other to type one in." />
           <Field label="Model Name" name="model" value={data.model} onChange={c} resetKey={resetKey} half required icon={Home} error={errOf('model')} autoFilled={isAutoFilled('model')} />
         </Row>
         <Row>
@@ -2064,8 +2355,12 @@ function Step2({ data, onChange, resetKey, inventory, inventoryLoading, onNext, 
           />
         </Row>
         <Row>
-          <Field label="Installer Name" name="installer_name" value={data.installer_name} onChange={c} resetKey={resetKey} half readOnly={data.installer_type !== 'other'} autoFilled={isAutoFilled('installer_name')} />
-          <Field label="Installer Phone" name="installer_phone" value={data.installer_phone} onChange={c} resetKey={resetKey} half type="phone" icon={Phone} readOnly={data.installer_type !== 'other'} autoFilled={isAutoFilled('installer_phone')} />
+          {data.installer_type === 'other' ? (
+            <ComboField label="Installer Name" name="installer_name" value={data.installer_name} onChange={c} resetKey={resetKey} half icon={Building2} options={INSTALLER_SELECT_OPTIONS} helperText="Pick an installer or choose Other to type one in." />
+          ) : (
+            <Field label="Installer Name" name="installer_name" value={data.installer_name} onChange={c} resetKey={resetKey} half readOnly autoFilled={isAutoFilled('installer_name')} />
+          )}
+          <Field label="Installer Phone" name="installer_phone" value={data.installer_phone} onChange={c} resetKey={resetKey} half type="phone" icon={Phone} readOnly={data.installer_type !== 'other'} autoFilled={isAutoFilled('installer_phone')} format={data.installer_type === 'other' ? formatPhoneMask : undefined} maxLength={12} />
         </Row>
         <Row>
           <Field label="Installer Address" name="installer_address" value={data.installer_address} onChange={c} resetKey={resetKey} readOnly={data.installer_type !== 'other'} autoFilled={isAutoFilled('installer_address')} />
@@ -2125,17 +2420,34 @@ function Step2({ data, onChange, resetKey, inventory, inventoryLoading, onNext, 
       {/* Financing */}
       <Section title="Financing Details (Optional)" icon={CreditCard} open={false}>
         <Row>
-          <Field label="Creditor Name" name="creditor_name" value={data.creditor_name} onChange={c} resetKey={resetKey} half />
-          <Field label="Creditor Phone" name="creditor_phone" value={data.creditor_phone} onChange={c} resetKey={resetKey} half type="phone" icon={Phone} />
+          <Field label="Creditor Name" name="creditor_name" value={data.creditor_name} onChange={c} resetKey={resetKey} half icon={Building2} />
+          <Field label="Creditor Phone" name="creditor_phone" value={data.creditor_phone} onChange={c} resetKey={resetKey} half type="phone" icon={Phone} format={formatPhoneMask} maxLength={12} placeholder="111-222-3333" />
         </Row>
         <Row>
+          <Field label="Loan #" name="loan_number" value={data.loan_number} onChange={c} resetKey={resetKey} third icon={Hash} helperText="Maps to the Retail Installment Contract, Compliance Agreement & Vacate-Home portfolio line." />
           <Field label="Loan Term (months)" name="loan_term" value={data.loan_term} onChange={c} resetKey={resetKey} third />
           <Field label="APR (%)" name="apr" value={data.apr} onChange={c} resetKey={resetKey} third />
-          <Field label="Monthly Payment" name="monthly_payment" value={data.monthly_payment} onChange={c} resetKey={resetKey} third type="currency" icon={DollarSign} />
         </Row>
         <Row>
-          <Field label="Sales Representative" name="salesrep" value={data.salesrep} onChange={c} resetKey={resetKey} half />
-          <Field label="Payment Start Date" name="payment_start_date" value={data.payment_start_date} onChange={c} resetKey={resetKey} half type="date" icon={Calendar} />
+          <Field label="Monthly Payment" name="monthly_payment" value={data.monthly_payment} onChange={c} resetKey={resetKey} third type="currency" icon={DollarSign} />
+          <Field label="Sales Representative" name="salesrep" value={data.salesrep} onChange={c} resetKey={resetKey} third />
+          <Field label="Payment Start Date" name="payment_start_date" value={data.payment_start_date} onChange={c} resetKey={resetKey} third type="date" icon={Calendar} />
+        </Row>
+      </Section>
+
+      {/* Compliance Agreement (lender errors-and-omissions) entry fields (A8).
+          The agreement names a Lender, Borrower(s), Property Address, and Loan #
+          separately from the deal's primary creditor; collect them here so the
+          Compliance Agreement renders without hand-editing. Blank fields fall
+          back to the deal's creditor / buyer values in toDocumentData. */}
+      <Section title="Compliance Agreement (Optional)" icon={ShieldCheck} open={false}
+        helpText="Lender errors-and-omissions agreement. Leave blank to reuse the creditor and installation address above.">
+        <Row>
+          <Field label="Lender" name="compliance_lender" value={data.compliance_lender} onChange={c} resetKey={resetKey} half icon={Building2} helperText="Defaults to the Creditor Name above when blank." />
+          <Field label="Borrower(s)" name="compliance_borrowers" value={data.compliance_borrowers} onChange={c} resetKey={resetKey} half icon={User} helperText="Defaults to the buyer / co-buyer names when blank." />
+        </Row>
+        <Row>
+          <Field label="Property Address" name="compliance_property_address" value={data.compliance_property_address} onChange={c} resetKey={resetKey} icon={MapPinned} helperText="Defaults to the installation site address when blank." />
         </Row>
       </Section>
 

@@ -15,7 +15,7 @@ from uuid import uuid4
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from pypdf import PdfReader, PdfWriter
 
-from config.field_map_loader import get_field_map
+from config.field_map_loader import get_field_map, get_form_set_rules
 from tools.document_quality import (
     PRODUCTION_BLOCKED_TEMPLATES,
     enrich_document_data,
@@ -100,6 +100,109 @@ def _apply_pdf_field_polish(template_name: str, pdf_data: dict[str, Any]) -> Non
         value = pdf_data.get(pdf_field)
         if isinstance(value, str) and value and not value.startswith(" "):
             pdf_data[pdf_field] = f" {value}"
+
+
+# ─── Phase 3: Form-Set Logic ────────────────────────────────────────────────
+# Config-driven dedupe / used-home suppression / flag gating. Rules live in
+# config/field_map.json -> "form_set_rules" so behavior changes without code
+# edits and stay co-located with the template registry. See that block's
+# _description for the C1/C2/C3/C5 mapping from Mark Willcott's review.
+
+
+def _coerce_flag(value: Any) -> bool | None:
+    """Interpret a truthy/falsey form-set flag. None when unset/ambiguous."""
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return None
+    text = str(value).strip().lower()
+    if text in {"true", "yes", "y", "on", "1"}:
+        return True
+    if text in {"false", "no", "n", "off", "0"}:
+        return False
+    return None
+
+
+def _resolve_is_new(data: dict[str, Any]) -> bool:
+    """Resolve whether the home is NEW from condition / is_new / is_used.
+
+    Mirrors document_quality._normalize_new_used precedence so packet filtering
+    agrees with how the New/Used checkbox is filled. Defaults to NEW when no
+    signal is present (the engine's own default), matching ProductModel.
+    """
+    condition = str(data.get("condition") or "").strip().lower()
+    if condition in {"new", "used", "pre-owned", "preowned"}:
+        return condition == "new"
+    is_new = _coerce_flag(data.get("is_new"))
+    if is_new is not None:
+        return is_new
+    is_used = _coerce_flag(data.get("is_used"))
+    if is_used is not None:
+        return not is_used
+    return True
+
+
+def _flag_enabled(data: dict[str, Any], flag: str, default: bool) -> bool:
+    """Read a form-set flag from data['form_set_flags'][flag] or data[flag]."""
+    flags = data.get("form_set_flags")
+    if isinstance(flags, dict):
+        resolved = _coerce_flag(flags.get(flag))
+        if resolved is not None:
+            return resolved
+    resolved = _coerce_flag(data.get(flag))
+    if resolved is not None:
+        return resolved
+    return default
+
+
+def resolve_form_set(template_names: list[str], data: dict[str, Any]) -> list[str]:
+    """Apply Phase 3 form-set rules to a template list, preserving order.
+
+    Order of operations:
+      1. C5 — drop flag-gated templates that are not enabled (R020 default-off).
+      2. C3 — drop used-home-only templates when the home resolves to NEW.
+      3. C1/C2 — for each duplicate group, keep only the first present member;
+         then drop any remaining exact-duplicate template names.
+    Templates not named in any rule pass through untouched.
+    """
+    rules = get_form_set_rules()
+    if not rules:
+        # No config: still guarantee no exact duplicates (cheap C1 safety net).
+        return list(dict.fromkeys(template_names))
+
+    result = list(template_names)
+
+    # 1. C5 — flag-gated templates (e.g. R020 deposit agreement).
+    gated = rules.get("flag_gated_templates", {}) or {}
+    if gated:
+        kept: list[str] = []
+        for tpl in result:
+            rule = gated.get(tpl)
+            if rule is not None:
+                flag = rule.get("flag", "")
+                default = bool(rule.get("include_by_default", False))
+                if flag and not _flag_enabled(data, flag, default):
+                    continue
+            kept.append(tpl)
+        result = kept
+
+    # 2. C3 — suppress used-home-only forms on NEW homes.
+    used_only = set((rules.get("used_home_only_templates", {}) or {}).get("templates", []) or [])
+    if used_only and _resolve_is_new(data):
+        result = [tpl for tpl in result if tpl not in used_only]
+
+    # 3. C1/C2 — collapse duplicate groups to the first present member.
+    for group in rules.get("duplicate_groups", []) or []:
+        members = group.get("keep_first_present", []) or []
+        present = [tpl for tpl in members if tpl in result]
+        if len(present) <= 1:
+            continue
+        keeper = present[0]
+        drop = set(present[1:])
+        result = [tpl for tpl in result if tpl == keeper or tpl not in drop]
+
+    # Final safety net: drop any remaining exact-duplicate names (C1).
+    return list(dict.fromkeys(result))
 
 
 # ─── Pydantic Models ────────────────────────────────────────────────────────
@@ -723,7 +826,10 @@ class DocumentEngineV2:
         if not packet_config:
             return {"success": False, "message": f"Packet {packet_name} not found"}
 
-        templates = packet_config.get("templates", [])
+        # Phase 3 form-set logic: dedupe same-document templates, suppress
+        # used-home-only forms on NEW packages, and drop flag-gated optionals
+        # (R020) before generating. The static packet list stays the superset.
+        templates = resolve_form_set(packet_config.get("templates", []), data)
         return self.generate_batch(templates, data, merge=True, deal_id=deal_id)
 
     def list_available_templates(self) -> list[dict[str, Any]]:
@@ -844,6 +950,18 @@ def generate_batch(template_names, data, merge=True, deal_id=None):
 
 def generate_packet(packet_name, data, deal_id=None):
     return _engine.generate_packet(packet_name, data, deal_id)
+
+
+def preview_packet_templates(packet_name, data=None):
+    """Return the effective template list for a packet after Phase 3 form-set
+    rules (dedupe / used-home suppression / flag gating) are applied. Useful for
+    tests and UI previews without generating any PDFs. Returns [] if unknown."""
+    packet_config = _engine.schema.get("packets", {}).get(
+        packet_name
+    ) or _engine.legacy_schema.get("packets", {}).get(packet_name)
+    if not packet_config:
+        return []
+    return resolve_form_set(packet_config.get("templates", []), data or {})
 
 
 def list_available_templates():

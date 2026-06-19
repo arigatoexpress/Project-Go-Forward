@@ -149,13 +149,19 @@
         "topmostSubform[0].Page1[0].Seller_Name[0]": "seller_name",
         "topmostSubform[0].Page1[0].Seller_Address[0]": "seller_address",
         "topmostSubform[0].Page1[0].Seller_City_State_Zip[0]": "seller_city_state_zip",
+        "topmostSubform[0].Page1[0].Seller_Phone[0]": "seller_phone",
+        "topmostSubform[0].Page1[0].Installer_Name_Address[0]": "installer_name_address",
+        "topmostSubform[0].Page1[0].Installer_Phone[0]": "installer_phone",
+        "topmostSubform[0].Page1[0].Installer_License[0]": "installer_license",
         "topmostSubform[0].Page1[0].Contract_Name[0]": "buyer_name",
         "topmostSubform[0].Page1[0].Install_City_State_Zip[0]": "buyer_city_state_zip",
+        "topmostSubform[0].Page1[0].Phone1[0]": "buyer_phone",
         "topmostSubform[0].Page2[0].Creditor_Name[0]": "creditor_name",
         "topmostSubform[0].Page2[0].HUD[0]": "label_number_1",
         "topmostSubform[0].Page2[0].Serial[0]": "serial_number_1",
         "topmostSubform[0].Page2[0].Creditor_Address[0]": "creditor_address",
-        "topmostSubform[0].Page2[0].Creditor_City_State_Zip[0]": "creditor_city_state_zip"
+        "topmostSubform[0].Page2[0].Creditor_City_State_Zip[0]": "creditor_city_state_zip",
+        "topmostSubform[0].Page2[0].Creditor_Phone[0]": "creditor_phone"
       },
       "checkbox_fields": {
         "topmostSubform[0].Page1[0].New_Yes[0]": "is_new",
@@ -282,9 +288,9 @@
         "model"
       ],
       "field_map": {
-        "topmostSubform[0].Page3[0].Contract_Name[0]": "buyer_name",
+        "topmostSubform[0].Page3[0].Contract_Name[0]": "buyers_combined",
         "topmostSubform[0].Page3[0].Model[0]": "model",
-        "topmostSubform[0].Page3[0].HUD[0]": "label_number_1",
+        "topmostSubform[0].Page3[0].HUD[0]": "serial_label_combined",
         "topmostSubform[0].Page3[0].Seller_Name[0]": "seller_name",
         "topmostSubform[0].Page3[0].Seller_Address[0]": "seller_address",
         "topmostSubform[0].Page3[0].Seller_City_State_Zip[0]": "seller_city_state_zip",
@@ -348,11 +354,12 @@
         "buyer_city_state_zip"
       ],
       "field_map": {
-        "topmostSubform[0].Page1[0].Contract_Name[0]": "buyer_name",
+        "topmostSubform[0].Page1[0].Contract_Name[0]": "compliance_borrowers",
         "topmostSubform[0].Page1[0].Install_Address[0]": "buyer_address",
         "topmostSubform[0].Page1[0].Install_City_State_Zip[0]": "buyer_city_state_zip",
         "topmostSubform[0].Page1[0].Seller_Name[0]": "seller_name",
-        "topmostSubform[0].Page1[0].Creditor_Name[0]": "creditor_name"
+        "topmostSubform[0].Page1[0].Creditor_Name[0]": "creditor_name",
+        "topmostSubform[0].Page1[0].Portfolio[0]": "portfolio"
       },
       "checkbox_fields": {},
       "static_values": {
@@ -369,7 +376,7 @@
         "buyer_address"
       ],
       "field_map": {
-        "topmostSubform[0].Page1[0].Contract_Name[0]": "buyer_name",
+        "topmostSubform[0].Page1[0].Contract_Name[0]": "buyers_combined",
         "topmostSubform[0].Page1[0].Install_Address[0]": "buyer_address",
         "topmostSubform[0].Page1[0].Install_City_State_Zip[0]": "buyer_city_state_zip"
       },
@@ -573,6 +580,7 @@
         "topmostSubform[0].Page1[0].Phone1[0]": "buyer_phone",
         "topmostSubform[0].Page1[0].Install_Address_City_State_Zip[0]": "buyer_full_address",
         "topmostSubform[0].Page1[0].Mailing_Address_City_State_Zip[0]": "mailing_full_address",
+        "topmostSubform[0].Page1[0].Description[0]": "manufacturer_model",
         "topmostSubform[0].Page1[0].Serial[0]": "serial_number_1",
         "topmostSubform[0].Page1[0].HUD[0]": "label_number_1",
         "topmostSubform[0].Page1[0].Portfolio[0]": "portfolio",
@@ -730,7 +738,7 @@
         "buyer_name"
       ],
       "field_map": {
-        "topmostSubform[0].Page1[0].Contract_Name[0]": "buyer_name"
+        "topmostSubform[0].Page1[0].Contract_Name[0]": "buyers_combined"
       },
       "checkbox_fields": {},
       "static_values": {
@@ -968,7 +976,11 @@
         "seller_name"
       ],
       "field_map": {
-        "topmostSubform[0].Page1[0].Seller_Name[0]": "seller_name"
+        "topmostSubform[0].Page1[0].Seller_Name[0]": "seller_name",
+        "THO_PatriotAct_Buyer_Name": "buyer_name",
+        "THO_PatriotAct_Buyer_DOB": "buyer_dob",
+        "THO_PatriotAct_CoBuyer_Name": "co_buyer_name",
+        "THO_PatriotAct_CoBuyer_DOB": "co_buyer_dob"
       },
       "checkbox_fields": {},
       "static_values": {
@@ -1214,7 +1226,7 @@
         "buyer_address"
       ],
       "field_map": {
-        "topmostSubform[0].Page1[0].Contract_Name[0]": "buyer_name",
+        "topmostSubform[0].Page1[0].Contract_Name[0]": "buyers_combined",
         "topmostSubform[0].Page1[0].Install_Address[0]": "buyer_address",
         "topmostSubform[0].Page1[0].Install_City_State_Zip[0]": "buyer_city_state_zip",
         "topmostSubform[0].Page1[0].Install_County[0]": "buyer_county",
@@ -1357,6 +1369,8 @@
         "topmostSubform[0].Page1[0].Serial_Sec_1[0]": "serial_number_1",
         "topmostSubform[0].Page1[0].Serial_Sec_2[0]": "serial_number_2",
         "topmostSubform[0].Page1[0].Wind[0]": "wind_zone",
+        "topmostSubform[0].Page1[0].Thermal[0]": "thermal_zone",
+        "topmostSubform[0].Page1[0].Roof[0]": "roof_zone",
         "topmostSubform[0].Page1[0].Date_Const[0]": "date_of_manufacture"
       },
       "checkbox_fields": {},
@@ -1707,6 +1721,40 @@
       ],
       "include_cover_page": false,
       "cover_page_template": null
+    }
+  },
+  "form_set_rules": {
+    "_description": "Phase 3 form-set logic (Mark Willcott acceptance review). Applied by tools/document_engine_v2.py resolve_form_set() at packet-generation time (generate_packet). Keeps the static packet lists above as the superset; these rules de-duplicate same-document templates, suppress used-home-only forms on NEW packages, and gate optional contracts behind flags. Editing here changes behavior without touching the template registry or the regulatory PDFs.",
+    "duplicate_groups": [
+      {
+        "_comment": "C2 (Mark review): the Internal and TDHCA arbitration templates render the SAME 'ARBITRATION AGREEMENT' the buyer signs once. Keep the Internal copy (pre-filled with THO/Harris-County address and used by standard_closing); drop the TDHCA duplicate. REVERT: if a separate TDHCA-branded arbitration copy is ever required in a packet, remove 'TDHCA_ArbitrationAgreement.pdf' from this group (or delete the group) and it will flow through again.",
+        "document": "Arbitration Agreement",
+        "keep_first_present": [
+          "Internal_Arbitration_Agreement11.pdf",
+          "TDHCA_ArbitrationAgreement.pdf"
+        ]
+      },
+      {
+        "_comment": "C1 (Mark review): guard against the 'Disclosure to Consumer - Need to Vacate Home' emitting twice. Today only TDHCA_1074 is mapped, so this is a single-member safety group + the global drop-exact-duplicate pass below. REVERT: remove this group to allow a second vacate template to flow through.",
+        "document": "Need to Vacate Home",
+        "keep_first_present": [
+          "TDHCA_1074_Vacate_If_No_Financing.pdf"
+        ]
+      }
+    ],
+    "used_home_only_templates": {
+      "_comment": "C3 (Mark review): these TDHCA forms are explicitly USED-home-only (PDF titles read 'USED MANUFACTURED HOME' / 'SITE PREPARATION NOTICE FOR USED HOMES'). Suppressed when the home condition resolves to NEW (is_new). They remain in full_closing_used / used_home_closing because that path is is_new=False.",
+      "templates": [
+        "TDHCA-ImproperSite.pdf",
+        "TDHCA_SitePreparation.pdf"
+      ]
+    },
+    "flag_gated_templates": {
+      "TMHA-SalesContractDepositAgreement.pdf": {
+        "_comment": "C5 (Mark review): TMHA R020 'MH Sales Contract & Deposit Agreement' — Mark didn't know where it came from. Gated OFF by default so it is excluded from the standard NEW closing packet. Template is NOT deleted; flip include_by_default to true (or pass data['include_r020']=true / data['form_set_flags']['include_r020']=true) to bring it back. FLAG FOR ARI: confirm whether THO ever uses the R020 deposit contract.",
+        "flag": "include_r020",
+        "include_by_default": false
+      }
     }
   },
   "data_field_definitions": {
@@ -2392,6 +2440,69 @@
       "type": "string",
       "section": "buyer",
       "required": false
+    },
+    "buyer_previous_address": {
+      "label": "Buyer Previous Address",
+      "type": "string",
+      "section": "buyer",
+      "required": false
+    },
+    "buyer_previous_length": {
+      "label": "Buyer Years at Previous Address",
+      "type": "string",
+      "section": "buyer",
+      "required": false
+    },
+    "buyer_current_payment": {
+      "label": "Buyer Current Housing Payment",
+      "type": "currency",
+      "section": "buyer",
+      "required": false
+    },
+    "co_buyer_current_payment": {
+      "label": "Co-Buyer Current Housing Payment",
+      "type": "currency",
+      "section": "buyer",
+      "required": false
+    },
+    "co_buyer_previous_length": {
+      "label": "Co-Buyer Years at Previous Address",
+      "type": "string",
+      "section": "buyer",
+      "required": false
+    },
+    "loan_number": {
+      "label": "Loan Number",
+      "type": "string",
+      "section": "financing",
+      "required": false
+    },
+    "compliance_lender": {
+      "label": "Compliance Agreement Lender",
+      "type": "string",
+      "section": "financing",
+      "required": false
+    },
+    "compliance_borrowers": {
+      "label": "Compliance Agreement Borrower(s)",
+      "type": "string",
+      "section": "financing",
+      "required": false,
+      "computed": true
+    },
+    "buyers_combined": {
+      "label": "Purchaser(s) — combined buyer & co-buyer",
+      "type": "string",
+      "section": "buyer",
+      "required": false,
+      "computed": true
+    },
+    "compliance_property_address": {
+      "label": "Compliance Agreement Property Address",
+      "type": "string",
+      "section": "financing",
+      "required": false,
+      "computed": true
     }
   }
 }
