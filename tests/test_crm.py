@@ -12,14 +12,32 @@ from tools import crm_tools
 
 
 @pytest.fixture(autouse=True)
-def _no_disk_writes(monkeypatch):
-    """Keep save_lead's success path from appending to the repo's data/leads.json.
+def _no_external_writes(monkeypatch):
+    """Keep save_lead hermetic — no local file write AND no real Firestore.
 
     save_lead guards its file write behind ``os.access(..., os.W_OK)``; forcing
-    that False exercises the full structure-and-return logic while skipping the
-    side effect, so collecting/running tests never pollutes local lead data.
+    that False skips the data/leads.json side effect. We also stub the lead
+    manager with an in-memory fake so the durable-persist path succeeds without a
+    real Firestore client (which needs ADC and could write to a live project —
+    that exact gap let test data leak into prod before this fixture existed).
     """
     monkeypatch.setattr(crm_tools.os, "access", lambda *a, **k: False)
+
+    class _FakeDocRef:
+        def set(self, data):
+            pass
+
+    class _FakeColl:
+        def document(self, _id):
+            return _FakeDocRef()
+
+    class _FakeDB:
+        def collection(self, name):
+            return _FakeColl()
+
+    monkeypatch.setattr(
+        crm_tools, "_get_lead_manager", lambda: type("M", (), {"db": _FakeDB()})()
+    )
 
 
 def test_save_lead_valid_returns_success():
