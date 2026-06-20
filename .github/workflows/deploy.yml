@@ -107,6 +107,7 @@ jobs:
             --update-env-vars=APP_VERSION=${{ github.sha }} \
             --update-secrets=ADMIN_PIN_HASH=admin-pin-hash:latest,ADMIN_SESSION_SECRET=admin-session-secret:latest \
             --liveness-probe=httpGet.path=/healthz,httpGet.port=8080,periodSeconds=30,timeoutSeconds=5,failureThreshold=3 \
+            --no-traffic --tag=candidate \
             --quiet
 
       - name: Verify deployment
@@ -119,12 +120,21 @@ jobs:
         run: |
           set -euo pipefail
 
-          # 1. Resolve the live Cloud Run URL
+          # 1. Resolve the CANDIDATE revision URL (the one just deployed at 0%
+          #    traffic). Production pins traffic to a fixed revision, so the live
+          #    status.url still serves the OLD revision — smoking it would verify
+          #    the wrong code (and always warn on a SHA mismatch). The candidate
+          #    tag URL hits the new revision we are about to promote, so the smoke
+          #    actually gates the code being shipped. Promotion to 100% stays a
+          #    separate, deliberate canary cutover.
           URL=$(gcloud run services describe ${{ env.SERVICE }} \
             --region ${{ env.REGION }} \
             --project ${{ env.PROJECT_ID }} \
-            --format='value(status.url)')
-          echo "Deployed URL: $URL"
+            --format='value(status.traffic.filter(tag:candidate).extract(url).flatten())')
+          if [ -z "$URL" ]; then
+            echo "ERROR: could not resolve candidate-tagged URL after deploy"; exit 1
+          fi
+          echo "Candidate URL: $URL"
 
           # 2. Full production smoke: health, current inventory floor, SPA deep-links, admin protection
           echo "=== Production smoke script ==="

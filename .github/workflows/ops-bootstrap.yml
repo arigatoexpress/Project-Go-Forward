@@ -30,7 +30,7 @@ env:
   PROJECT_ID: tho-ai-agent
   REGION: us-central1
   SERVICE: project-go-forward
-  PROBE_HOST: tho.sapphirealpha.xyz
+  PROBE_HOST: www.texashomeoutlet.com
   ALERT_EMAIL: aristotlespec@gmail.com
 
 jobs:
