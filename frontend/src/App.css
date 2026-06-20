@@ -272,3 +272,15 @@ button:focus:not(:focus-visible), a:focus:not(:focus-visible) { outline: none; }
   );
   z-index: 1;
 }
+
+/* ─── Respect prefers-reduced-motion ─── */
+/* Users who opt out of motion get near-instant animations/transitions and
+   non-smooth scrolling, app-wide. Additive accessibility default. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
