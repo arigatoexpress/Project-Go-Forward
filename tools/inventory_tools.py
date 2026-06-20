@@ -292,8 +292,10 @@ def _load_inventory():
         inventory = _load_inventory_from_json()
 
     # Strategy 3: Use sample data (ultimate fallback)
+    degraded = False
     if not inventory:
         inventory = _get_sample_inventory()
+        degraded = True  # both real sources failed — this is a transient outage
 
     # Merge website homes — avoid duplicates by checking model names
     existing_names = {h["model_name"].lower() for h in inventory}
@@ -303,8 +305,11 @@ def _load_inventory():
             inventory.append(wh)
             existing_names.add(wh["model_name"].lower())
 
-    # Save to cache if found
-    if inventory:
+    # Cache only a HEALTHY result. Caching the sample fallback would freeze a
+    # transient Firestore/JSON outage (a near-empty/fake catalog) into the cache
+    # for 5 minutes; instead, leave it uncached so the next request re-tries the
+    # real sources and recovers immediately.
+    if inventory and not degraded:
         cache_set(INVENTORY_CACHE_KEY, inventory, ttl_seconds=300)
 
     return inventory
