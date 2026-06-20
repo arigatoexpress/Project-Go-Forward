@@ -845,6 +845,7 @@ export default function InventoryBrowse({ adminAuthed = false, onAskTex, onCreat
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value)}
               className={CHIP_INPUT}
+              aria-label="Sort homes"
             >
               {SORT_OPTIONS.map(opt => (
                 <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -882,7 +883,7 @@ export default function InventoryBrowse({ adminAuthed = false, onAskTex, onCreat
                 <label className="text-xs font-semibold text-[var(--cp-muted)] uppercase tracking-wide flex items-center gap-1">
                   <Bed size={14} /> Bedrooms
                 </label>
-                <select className={CHIP_INPUT} value={filters.beds} onChange={e => setFilters(f => ({ ...f, beds: e.target.value }))}>
+                <select aria-label="Bedrooms" className={CHIP_INPUT} value={filters.beds} onChange={e => setFilters(f => ({ ...f, beds: e.target.value }))}>
                   <option value="">Any</option>
                   <option value="1">1+</option>
                   <option value="2">2+</option>
@@ -894,7 +895,7 @@ export default function InventoryBrowse({ adminAuthed = false, onAskTex, onCreat
                 <label className="text-xs font-semibold text-[var(--cp-muted)] uppercase tracking-wide flex items-center gap-1">
                   <Bath size={14} /> Bathrooms
                 </label>
-                <select className={CHIP_INPUT} value={filters.baths} onChange={e => setFilters(f => ({ ...f, baths: e.target.value }))}>
+                <select aria-label="Bathrooms" className={CHIP_INPUT} value={filters.baths} onChange={e => setFilters(f => ({ ...f, baths: e.target.value }))}>
                   <option value="">Any</option>
                   <option value="1">1+</option>
                   <option value="2">2+</option>
@@ -905,7 +906,7 @@ export default function InventoryBrowse({ adminAuthed = false, onAskTex, onCreat
                 <label className="text-xs font-semibold text-[var(--cp-muted)] uppercase tracking-wide flex items-center gap-1">
                   <Home size={14} /> Type
                 </label>
-                <select className={CHIP_INPUT} value={filters.classification} onChange={e => setFilters(f => ({ ...f, classification: e.target.value }))}>
+                <select aria-label="Home type" className={CHIP_INPUT} value={filters.classification} onChange={e => setFilters(f => ({ ...f, classification: e.target.value }))}>
                   <option value="">Any</option>
                   <option value="Single Wide">Single Wide</option>
                   <option value="Double Wide">Double Wide</option>

@@ -110,7 +110,7 @@ function NavBar({
             className="flex items-center space-x-2.5 cursor-pointer group"
             onClick={() => navigateTo('inventory')}
             role="button"
-            aria-label="Go to home page"
+            aria-label={`${BUSINESS_NAME} — home`}
           >
             <Home className="h-6 w-6 text-[var(--cp-accent)] group-hover:drop-shadow-[0_2px_8px_rgba(80,29,29,0.35)] transition" />
             <h1 className="text-base font-bold tracking-tight text-[var(--cp-text)]">
