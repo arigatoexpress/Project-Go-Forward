@@ -219,7 +219,7 @@ export default function PhotoManager({ onBack }) {
           )}
 
           <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 mb-3">
-            <Search size={18} className="text-gray-400" />
+            <Search size={18} className="text-gray-500" />
             <input
               type="text"
               value={query}
@@ -304,7 +304,7 @@ export default function PhotoManager({ onBack }) {
                   Tap here to choose photos
                 </span>
                 <span className="text-sm text-gray-500">or drag pictures into this box</span>
-                <span className="text-xs text-gray-400 mt-1">JPG, PNG, WebP or GIF · up to 15 MB each</span>
+                <span className="text-xs text-gray-500 mt-1">JPG, PNG, WebP or GIF · up to 15 MB each</span>
               </div>
             )}
           </div>
@@ -341,7 +341,7 @@ export default function PhotoManager({ onBack }) {
                 <Loader2 className="animate-spin" size={18} /> Loading…
               </div>
             ) : photos.length === 0 ? (
-              <div className="flex flex-col items-center gap-2 text-gray-400 py-6">
+              <div className="flex flex-col items-center gap-2 text-gray-500 py-6">
                 <ImageOff size={32} />
                 <span className="text-sm">No photos added yet. Add some above.</span>
               </div>

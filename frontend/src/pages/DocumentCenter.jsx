@@ -805,7 +805,7 @@ function Section({ title, icon: Icon, children, open: initOpen = true, badge, he
           {badge}
           {helpText && (
             <div className="relative group">
-              <HelpCircle size={16} className="text-gray-400 cursor-help" />
+              <HelpCircle size={16} className="text-gray-500 cursor-help" />
               <div className="absolute left-full ml-2 top-1/2 -translate-y-1/2 w-64 p-2 bg-gray-800 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity z-10 pointer-events-none">
                 {helpText}
               </div>
@@ -876,7 +876,7 @@ const Field = React.memo(function Field({ label, name, value, onChange, type = '
         )}
       </label>
       <div className="relative">
-        {Icon && <Icon size={18} className={`absolute left-3 top-1/2 -translate-y-1/2 ${error ? 'text-red-400' : 'text-gray-400'}`} />}
+        {Icon && <Icon size={18} className={`absolute left-3 top-1/2 -translate-y-1/2 ${error ? 'text-red-400' : 'text-gray-500'}`} />}
         <input
           key={`${name}-${resetKey || 0}`}
           ref={inputRef}
@@ -917,7 +917,7 @@ function SelectField({ label, name, value, onChange, options, half, third, icon:
     <div className={`${widthClass} px-2 mb-4`}>
       <label className="block text-sm font-bold text-gray-700 mb-2">{label}</label>
       <div className="relative">
-        {Icon && <Icon size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />}
+        {Icon && <Icon size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />}
         <select
           key={`${name}-${resetKey || 0}`}
           name={name}
@@ -983,7 +983,7 @@ function ComboField({ label, name, value, onChange, options, half, third, requir
         )}
       </label>
       <div className="relative">
-        {Icon && <Icon size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />}
+        {Icon && <Icon size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />}
         <select
           key={`${name}-mode-${resetKey || 0}`}
           name={`${name}__select`}
@@ -1267,7 +1267,7 @@ function DuplicateWarning({ warning, onViewDeal }) {
                   {deal.buyer_first_name} {deal.buyer_last_name}
                 </div>
                 {deal.model && <div className="text-sm text-gray-500">{deal.model}</div>}
-                <div className="text-xs text-gray-400 mt-1">
+                <div className="text-xs text-gray-500 mt-1">
                   Created: {new Date(deal.created_at).toLocaleDateString()}
                 </div>
               </button>
@@ -1489,7 +1489,7 @@ function Step1({ data, onChange, onLoadCustomer, resetKey, deals, dealsLoading, 
         {showPicker && (
           <div className="mt-4 pt-4 border-t border-blue-200">
             <div className="relative mb-4">
-              <Search size={20} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
+              <Search size={20} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500" />
               <input
                 type="text"
                 value={q}
@@ -1521,7 +1521,7 @@ function Step1({ data, onChange, onLoadCustomer, resetKey, deals, dealsLoading, 
                       <Badge color={d.is_new ? 'green' : 'amber'}>
                         {d.is_new ? 'New Home' : 'Pre-Owned'}
                       </Badge>
-                      <span className="text-sm text-gray-400">#{d.id?.slice(-6)}</span>
+                      <span className="text-sm text-gray-500">#{d.id?.slice(-6)}</span>
                     </div>
                   </button>
                 ))}
@@ -1560,7 +1560,7 @@ function Step1({ data, onChange, onLoadCustomer, resetKey, deals, dealsLoading, 
         {showCustPicker && (
           <div className="mt-4 pt-4 border-t border-green-200">
             <div className="relative mb-4">
-              <Search size={20} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
+              <Search size={20} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500" />
               <input
                 type="text"
                 value={custSearch}
@@ -2040,7 +2040,7 @@ function Step2({ data, onChange, resetKey, inventory, inventoryLoading, onNext, 
         </div>
 
         <div className="relative flex-1 max-w-md">
-          <Search size={20} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
+          <Search size={20} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500" />
           <input
             type="text"
             value={searchTerm}
@@ -2111,7 +2111,7 @@ function Step2({ data, onChange, resetKey, inventory, inventoryLoading, onNext, 
                 )}
 
                 {home.serial_number && (
-                  <div className="mt-2 text-xs text-gray-400">
+                  <div className="mt-2 text-xs text-gray-500">
                     Serial: {home.serial_number.slice(-8)}
                   </div>
                 )}
@@ -3051,7 +3051,7 @@ function Step4({ results, form, generating, error, onBack, onReset, onDownload, 
       {/* Individual Documents */}
       <div className="space-y-3">
         <h3 className="text-lg font-bold text-gray-700 flex items-center gap-2">
-          <FileText size={20} className="text-gray-400" />
+          <FileText size={20} className="text-gray-500" />
           Individual Documents
         </h3>
 
@@ -3196,7 +3196,7 @@ function TradeInCalculator({ onClose, onApply, initialValue = 0 }) {
             </div>
           </div>
           <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-lg">
-            <X size={24} className="text-gray-400" />
+            <X size={24} className="text-gray-500" />
           </button>
         </div>
 
@@ -3994,7 +3994,7 @@ export default function DocumentCenter() {
           {/* Auto-save indicator and start-over control */}
           <div className="flex flex-wrap items-center gap-3 sm:justify-end">
             {lastSaved && (
-              <span className="text-sm text-gray-400">
+              <span className="text-sm text-gray-500">
                 Auto-saved {lastSaved.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
               </span>
             )}

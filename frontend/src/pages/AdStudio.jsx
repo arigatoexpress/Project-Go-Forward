@@ -842,7 +842,7 @@ export default function AdStudio({ onBack }) {
                     {/* Finished Flyer Section */}
                     <div className="tho-ai-feedback-box">
                         <h4><Download size={16} /> Create Finished Flyer</h4>
-                        <p className="text-xs text-gray-400 mb-2">
+                        <p className="text-xs text-gray-500 mb-2">
                             Build a downloadable social ad with THO branding, readable copy, and the selected home photo.
                         </p>
                         <div className="tho-video-info text-xs text-gray-500 mb-2">
@@ -903,7 +903,7 @@ export default function AdStudio({ onBack }) {
                     {/* Image Generation Section */}
                     <div className="tho-ai-feedback-box mt-4" style={{borderTop: '1px solid #374151', paddingTop: '1rem'}}>
                         <h4><Image size={16} /> Generate Ad Image</h4>
-                        <p className="text-xs text-gray-400 mb-2">Create a visual for your ad with AI (Imagen)</p>
+                        <p className="text-xs text-gray-500 mb-2">Create a visual for your ad with AI (Imagen)</p>
 
                         {/* Image style selector */}
                         <div className="tho-image-styles">
@@ -993,7 +993,7 @@ export default function AdStudio({ onBack }) {
                     {/* Voiceover Generation Section */}
                     <div className="tho-ai-feedback-box mt-4" style={{borderTop: '1px solid #374151', paddingTop: '1rem'}}>
                         <h4><Volume2 size={16} /> Generate Voiceover</h4>
-                        <p className="text-xs text-gray-400 mb-2">Create AI voiceover audio from your script (Google Cloud TTS)</p>
+                        <p className="text-xs text-gray-500 mb-2">Create AI voiceover audio from your script (Google Cloud TTS)</p>
                         
                         {/* Voice selector - grouped by tier */}
                         {voices.length === 0 ? (
@@ -1079,7 +1079,7 @@ export default function AdStudio({ onBack }) {
                     {/* Video Generation Section */}
                     <div className="tho-ai-feedback-box mt-4" style={{borderTop: '1px solid #374151', paddingTop: '1rem'}}>
                         <h4><Film size={16} /> Generate Video</h4>
-                        <p className="text-xs text-gray-400 mb-2">
+                        <p className="text-xs text-gray-500 mb-2">
                             Create MP4 slideshow from photos + voiceover, or generate a true Google Veo clip.
                         </p>
                         
@@ -1148,7 +1148,7 @@ export default function AdStudio({ onBack }) {
                                 <div className="flex items-center justify-between">
                                     <div>
                                         <div className="text-sm font-medium text-green-400">✓ Video Created!</div>
-                                        <div className="text-xs text-gray-400">
+                                        <div className="text-xs text-gray-500">
                                             {generatedVideo.resolution} • {generatedVideo.duration_seconds}s • {generatedVideo.file_size_mb}MB
                                         </div>
                                     </div>
@@ -1167,7 +1167,7 @@ export default function AdStudio({ onBack }) {
                                 <div className="flex items-center justify-between">
                                     <div>
                                         <div className="text-sm font-medium text-green-400">GenAI Clip Created</div>
-                                        <div className="text-xs text-gray-400">
+                                        <div className="text-xs text-gray-500">
                                             {generatedGenAIClip.provider} • {generatedGenAIClip.duration_seconds}s • {generatedGenAIClip.file_size_mb}MB
                                         </div>
                                     </div>
@@ -1222,7 +1222,7 @@ export default function AdStudio({ onBack }) {
                     {matterportUrl && (
                         <div className="tho-ai-feedback-box mt-4">
                             <h4><Box size={16} /> 3D Tour Available</h4>
-                            <p className="text-xs text-gray-400 mb-2">This home has a Matterport 3D tour. Include the link in your CTA!</p>
+                            <p className="text-xs text-gray-500 mb-2">This home has a Matterport 3D tour. Include the link in your CTA!</p>
                             <div className="tho-matterport-link-row">
                                 <input
                                     type="text"
@@ -1249,7 +1249,7 @@ export default function AdStudio({ onBack }) {
                     {/* Prompt Improvement */}
                     <div className="tho-ai-feedback-box mt-4">
                         <h4>💡 Tweak Script</h4>
-                        <p className="text-xs text-gray-400 mb-2">Want to refine? Adjust your settings and regenerate.</p>
+                        <p className="text-xs text-gray-500 mb-2">Want to refine? Adjust your settings and regenerate.</p>
                         <button className="tho-btn tho-btn-secondary w-full" onClick={() => { setShowPreview(false); }}>
                             Back to Editor
                         </button>

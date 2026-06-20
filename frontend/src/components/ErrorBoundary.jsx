@@ -123,6 +123,7 @@ class ErrorBoundary extends React.Component {
       const scopeLabel = this.props.scope ? ` in ${this.props.scope}` : '';
 
       return (
+        <main id="main-content">
         <div
           role="alert"
           aria-live="assertive"
@@ -277,10 +278,11 @@ class ErrorBoundary extends React.Component {
             </div>
           </div>
         </div>
+        </main>
       );
     }
 
-    return this.props.children;
+    return <main id="main-content">{this.props.children}</main>;
   }
 }
 
