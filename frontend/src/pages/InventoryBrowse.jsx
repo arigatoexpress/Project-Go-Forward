@@ -456,6 +456,7 @@ export default function InventoryBrowse({ adminAuthed = false, onAskTex, onCreat
   const fetchInventory = useCallback(async () => {
     try {
       setLoading(true);
+      setError(null);  // clear any stale error so "Try Again" can recover
       const resp = await fetch('/api/marketing/inventory-context');
       if (!resp.ok) throw new Error('Failed to load inventory');
       const data = await resp.json();
