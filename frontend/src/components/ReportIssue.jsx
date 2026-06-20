@@ -97,7 +97,7 @@ export default function ReportIssue() {
             autoFocus
           />
           <div className="flex items-center justify-between mt-3">
-            <span className="text-xs text-gray-400">
+            <span className="text-xs text-gray-500">
               Page: {window.location.pathname}
             </span>
             <button

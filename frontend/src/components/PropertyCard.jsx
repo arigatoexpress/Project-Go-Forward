@@ -307,7 +307,7 @@ const PropertyCard = ({ property, onToggleCompare, isSelected }) => {
                                         <Bed size={14} className="mr-1 text-gray-400" />
                                         <span className="font-semibold text-sm">{specs.beds}</span>
                                     </div>
-                                    <span className="text-xs text-gray-400">Beds</span>
+                                    <span className="text-xs text-gray-500">Beds</span>
                                 </div>
                             );
                         }
@@ -318,7 +318,7 @@ const PropertyCard = ({ property, onToggleCompare, isSelected }) => {
                                         <Bath size={14} className="mr-1 text-gray-400" />
                                         <span className="font-semibold text-sm">{specs.baths}</span>
                                     </div>
-                                    <span className="text-xs text-gray-400">Baths</span>
+                                    <span className="text-xs text-gray-500">Baths</span>
                                 </div>
                             );
                         }
@@ -329,7 +329,7 @@ const PropertyCard = ({ property, onToggleCompare, isSelected }) => {
                                         <Maximize size={14} className="mr-1 text-gray-400" />
                                         <span className="font-semibold text-sm">{specs.sq_ft.toLocaleString()}</span>
                                     </div>
-                                    <span className="text-xs text-gray-400">Sq Ft</span>
+                                    <span className="text-xs text-gray-500">Sq Ft</span>
                                 </div>
                             );
                         }
