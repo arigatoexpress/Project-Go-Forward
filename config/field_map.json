@@ -133,6 +133,8 @@
         "topmostSubform[0].Page1[0].Model[0]": "model",
         "topmostSubform[0].Page1[0].Date_Const[0]": "date_of_manufacture",
         "topmostSubform[0].Page1[0].Total_Sqft[0]": "sq_ft",
+        "topmostSubform[0].Page1[0].Total_Size_Sec1_W[0]": "section_1_width",
+        "topmostSubform[0].Page1[0].Total_Size_Sec1_L[0]": "section_1_length",
         "topmostSubform[0].Page1[0].Wind[0]": "wind_zone",
         "topmostSubform[0].Page1[0].HUD_Sec_1[0]": "label_number_1",
         "topmostSubform[0].Page1[0].Serial_Sec_1[0]": "serial_number_1",
@@ -1923,6 +1925,18 @@
     },
     "length": {
       "label": "Length (ft)",
+      "type": "string",
+      "section": "home",
+      "required": false
+    },
+    "section_1_width": {
+      "label": "Section 1 Width (ft)",
+      "type": "string",
+      "section": "home",
+      "required": false
+    },
+    "section_1_length": {
+      "label": "Section 1 Length (ft)",
       "type": "string",
       "section": "home",
       "required": false
