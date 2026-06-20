@@ -4766,6 +4766,116 @@ async def submit_contact_form(request: Request):
         }
 
 
+# ─── Inbound email webhook (AI agent inbox) ─────────────────────────────────
+# Receives Resend `email.received` webhooks. Inbound email is UNTRUSTED input,
+# so this endpoint is: (1) feature-flagged off unless RESEND_WEBHOOK_SECRET is
+# set, (2) svix-signature verified, (3) strict sender allowlist
+# (INBOUND_EMAIL_ALLOWLIST), then triaged to a CRM lead + a staff notification.
+# Auto-reply is intentionally NOT implemented — outward sends are gated
+# (CRITICAL rule 1); a reply must be drafted and human-approved.
+
+_INBOUND_ALLOWLIST = {
+    e.strip().lower() for e in os.environ.get("INBOUND_EMAIL_ALLOWLIST", "").split(",") if e.strip()
+}
+
+
+def _verify_svix_signature(secret: str, headers: dict, body: bytes) -> bool:
+    """Verify a Resend/svix webhook signature (HMAC-SHA256) with replay guard."""
+    import base64
+    import hmac as _hmac
+
+    svix_id = headers.get("svix-id")
+    svix_ts = headers.get("svix-timestamp")
+    svix_sig = headers.get("svix-signature")
+    if not (secret and svix_id and svix_ts and svix_sig):
+        return False
+    try:
+        if abs(int(time.time()) - int(svix_ts)) > 300:  # 5-min replay window
+            return False
+    except (TypeError, ValueError):
+        return False
+    try:
+        key = base64.b64decode(secret.split("_", 1)[1] if secret.startswith("whsec_") else secret)
+    except Exception:
+        return False
+    signed = f"{svix_id}.{svix_ts}.".encode() + body
+    expected = base64.b64encode(_hmac.new(key, signed, hashlib.sha256).digest()).decode()
+    for token in svix_sig.split():
+        _, _, sig = token.partition(",")
+        if sig and _hmac.compare_digest(sig, expected):
+            return True
+    return False
+
+
+def _inbound_bare_email(sender: str) -> str:
+    s = (sender or "").strip()
+    if "<" in s and ">" in s:
+        s = s[s.index("<") + 1 : s.index(">")]
+    return s.lower()
+
+
+def _inbound_sender_allowed(sender: str) -> bool:
+    """Strict allowlist: process only known addresses (or @domain entries)."""
+    if not _INBOUND_ALLOWLIST:
+        return False  # no allowlist configured -> process nothing (fail closed)
+    bare = _inbound_bare_email(sender)
+    if bare in _INBOUND_ALLOWLIST:
+        return True
+    domain = "@" + bare.split("@")[-1] if "@" in bare else ""
+    return domain in _INBOUND_ALLOWLIST
+
+
+@app.post("/api/email/inbound")
+@limiter.limit("60/minute")
+async def email_inbound_webhook(request: Request):
+    """Resend inbound-email webhook -> verify, allowlist, triage to CRM lead."""
+    secret = os.environ.get("RESEND_WEBHOOK_SECRET", "")
+    if not secret:
+        return JSONResponse({"status": "disabled"}, status_code=200)
+
+    body = await request.body()
+    headers = {k.lower(): v for k, v in request.headers.items()}
+    if not _verify_svix_signature(secret, headers, body):
+        struct_logger.warning("Inbound email: signature verification failed")
+        return JSONResponse({"status": "invalid_signature"}, status_code=401)
+
+    try:
+        event = json.loads(body)
+    except Exception:
+        return JSONResponse({"status": "bad_payload"}, status_code=200)
+    if event.get("type") != "email.received":
+        return JSONResponse({"status": "ignored"}, status_code=200)
+
+    data = event.get("data", {}) or {}
+    sender = data.get("from", "")
+    subject = (data.get("subject") or "(no subject)").strip()
+    if not _inbound_sender_allowed(sender):
+        struct_logger.info("Inbound email dropped (not allowlisted)", sender=sender)
+        return JSONResponse({"status": "dropped"}, status_code=200)
+
+    bare = _inbound_bare_email(sender)
+    name = (sender.split("<")[0].strip() or bare.split("@")[0]) if sender else bare
+    try:
+        lead = Lead(
+            lead_id=f"email_{uuid.uuid4().hex[:12]}",
+            user_id="email_inbound",
+            session_id=f"email_{int(time.time())}",
+            source="email",
+            name=name,
+            email=bare,
+            triage_notes=f"Inbound email — subject: {subject}",
+        )
+        await lead_manager.create_lead(lead)
+    except Exception as e:
+        struct_logger.error("Inbound email lead persist failed", error=str(e))
+    try:
+        notify_new_lead(customer_name=name, phone="(email lead)", email=bare, source="inbound email")
+    except Exception as e:
+        struct_logger.warning("Inbound email staff notify failed", error=str(e))
+
+    return JSONResponse({"status": "processed"}, status_code=200)
+
+
 @app.post("/api/analytics")
 @limiter.limit("120/minute")
 async def track_analytics_event(request: Request):
