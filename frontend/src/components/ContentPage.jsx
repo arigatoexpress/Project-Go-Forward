@@ -28,7 +28,7 @@ const ContentPage = ({ title, subtitle, children, onBack }) => (
       {children}
     </article>
 
-    <p className="text-center text-xs text-gray-400 mt-8">
+    <p className="text-center text-xs text-gray-500 mt-8">
       © {new Date().getFullYear()} {BUSINESS_NAME}. All rights reserved.
     </p>
   </div>

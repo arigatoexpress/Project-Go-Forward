@@ -125,7 +125,7 @@ const CalendarGrid = ({ selectedDate, onSelect }) => {
       <div className="grid grid-cols-7 gap-1">
         {cells}
       </div>
-      <p className="text-xs text-gray-400 mt-4 text-center">
+      <p className="text-xs text-gray-500 mt-4 text-center">
         Dimmed dates are unavailable — past days and dates more than 30 days out can&apos;t be booked online. Call {BUSINESS_PHONE} for dates further ahead.
       </p>
     </div>

@@ -106,7 +106,7 @@ const Contact = ({ onBack }) => {
                             <div>
                                 <h3 className="text-lg font-bold text-gray-900">Call Us Directly</h3>
                                 <a href={`tel:${BUSINESS_PHONE_RAW}`} className="text-gray-600 mt-1 block hover:text-blue-600 transition-colors">{BUSINESS_PHONE}</a>
-                                <p className="text-xs text-gray-400 mt-1">{BUSINESS_HOURS}</p>
+                                <p className="text-xs text-gray-500 mt-1">{BUSINESS_HOURS}</p>
                             </div>
                         </div>
                     </div>
@@ -190,7 +190,7 @@ const Contact = ({ onBack }) => {
                                 placeholder="Tell us about the home you are looking for..."
                                 maxLength={2000}
                             ></textarea>
-                            <p className="text-xs text-gray-400 text-right mt-1">{formData.message.length}/2000</p>
+                            <p className="text-xs text-gray-500 text-right mt-1">{formData.message.length}/2000</p>
                         </div>
                         {submitError && (
                             <p role="alert" className="text-sm text-red-600 bg-red-50 p-3 rounded-lg">{submitError}</p>
