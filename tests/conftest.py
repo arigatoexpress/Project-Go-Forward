@@ -6,6 +6,17 @@ import os
 # Ensure ADMIN_PIN_HASH is set before any test imports main.py
 os.environ.setdefault("ADMIN_PIN_HASH", hashlib.sha256(b"4832").hexdigest())
 
+# These are captured at MODULE-IMPORT time by github_mira_trigger.py (e.g.
+# _GITHUB_WEBHOOK_SECRET), and main.py imports that module. Any test that does a
+# top-level `import main` therefore freezes these values before an individual
+# test file's own setdefaults can run — so they must be set HERE, in conftest,
+# which executes before any test module is imported. (Previously only
+# test_github_mira_trigger.py set them, which broke once another test imported
+# main earlier in the collection order.)
+os.environ.setdefault("GITHUB_WEBHOOK_SECRET", "test-github-secret")
+os.environ.setdefault("MIRA_GROUP_ID", "-123456789")
+os.environ.setdefault("TELEGRAM_BOT_TOKEN", "test-token")
+
 # Local document tests generate synthetic PDFs. If developer credentials are
 # present, the production upload helper can otherwise push those fixtures to
 # the live document bucket. Live GCS checks must opt in explicitly.
