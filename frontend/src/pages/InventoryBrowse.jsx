@@ -3,7 +3,7 @@ import {
   Search, SlidersHorizontal, X, Home, Bed, Bath, Maximize2,
   Camera, Box, ChevronLeft, ChevronRight, MapPin, Phone,
   MessageCircle, Grid3X3, Loader2, Eye, ArrowUpDown, Calendar,
-  DollarSign, Video, CheckCircle2, AlertCircle, Tag
+  DollarSign, Video, CheckCircle2, AlertCircle, Tag, Heart, Share2
 } from 'lucide-react';
 import { BUSINESS_PHONE, BUSINESS_PHONE_RAW, BUSINESS_FULL_ADDRESS, BUSINESS_HOURS } from '../constants';
 import Card from '../components/Card';
@@ -167,6 +167,16 @@ function displayPrice(home) {
   return home?.display_price && home.display_price !== 'Call for Price'
     ? home.display_price
     : 'Call for Price';
+}
+
+// Price per square foot, formatted as "$NN/sqft" (rounded to nearest dollar).
+// Returns '' when either input is missing/non-positive so callers can render
+// nothing — this is intentionally a pure helper so it can be unit-tested.
+export function pricePerSqft(priceValue, sqft) {
+  const price = Number(priceValue);
+  const area = Number(sqft);
+  if (!price || price <= 0 || !area || area <= 0) return '';
+  return `$${Math.round(price / area).toLocaleString()}/sqft`;
 }
 
 function getAvailabilityKind(home) {
@@ -452,6 +462,40 @@ export default function InventoryBrowse({ adminAuthed = false, onAskTex, onCreat
   const [leadFormHome, setLeadFormHome] = useState(null);
   const [leadFormType, setLeadFormType] = useState('tour'); // 'tour' | 'price'
   const legacyRouteHandledRef = useRef(false);
+  const deepLinkHandledRef = useRef(false);
+
+  // ─── Favorites ───
+  // Customers can save homes; persisted to localStorage so the list survives
+  // reloads. `showFavoritesOnly` filters the grid to saved homes only.
+  const [favorites, setFavorites] = useState(() => {
+    if (typeof window === 'undefined') return new Set();
+    try {
+      const raw = window.localStorage.getItem('tho_favorites');
+      return new Set(Array.isArray(JSON.parse(raw)) ? JSON.parse(raw) : []);
+    } catch {
+      return new Set();
+    }
+  });
+  const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      window.localStorage.setItem('tho_favorites', JSON.stringify([...favorites]));
+    } catch {
+      // localStorage may be unavailable (private mode); favorites are best-effort.
+    }
+  }, [favorites]);
+
+  const toggleFavorite = useCallback((id) => {
+    if (id == null) return;
+    setFavorites((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
 
   const fetchInventory = useCallback(async () => {
     try {
@@ -502,6 +546,7 @@ export default function InventoryBrowse({ adminAuthed = false, onAskTex, onCreat
 
   // Filter and search logic
   const filteredHomes = homes.filter(home => {
+    if (showFavoritesOnly && !favorites.has(home.id)) return false;
     if (searchQuery && !matchesSearch(home, searchQuery)) return false;
     if (filters.status && getAvailabilityKind(home) !== filters.status) return false;
     if (filters.beds) {
@@ -659,6 +704,21 @@ export default function InventoryBrowse({ adminAuthed = false, onAskTex, onCreat
       openLeadForm(home, 'price');
     }
   }, [homes, loading, openDetail, openLeadForm]);
+
+  // ?home=<id> deep link — open the matching home's detail modal once homes
+  // have loaded. Mirrors the legacy-route handler above (guarded by a ref so
+  // it fires exactly once per page load).
+  useEffect(() => {
+    if (deepLinkHandledRef.current || loading || homes.length === 0) return;
+    const params = new URLSearchParams(window.location.search);
+    const wantedId = params.get('home');
+    if (!wantedId) return;
+    const home = homes.find(h => String(h.id) === wantedId);
+    if (!home) return;
+
+    deepLinkHandledRef.current = true;
+    openDetail(home);
+  }, [homes, loading, openDetail]);
 
   // --- RENDER ---
 
@@ -834,6 +894,15 @@ export default function InventoryBrowse({ adminAuthed = false, onAskTex, onCreat
               onClick={() => setFilters(f => ({ ...f, status: 'pre_owned' }))}
               className={`${PILL_BTN} ${filters.status === 'pre_owned' ? 'bg-[var(--cp-accent)] text-[var(--cp-bg)]' : 'bg-[var(--cp-panel)] text-[var(--cp-muted)] hover:text-[var(--cp-text)] hover:border-[var(--cp-border-light)]'}`}
             >Pre-Owned ({preOwnedCount})</button>
+            {favorites.size > 0 && (
+              <button
+                onClick={() => setShowFavoritesOnly(v => !v)}
+                aria-pressed={showFavoritesOnly}
+                className={`inline-flex items-center gap-1.5 ${PILL_BTN} ${showFavoritesOnly ? 'bg-[var(--cp-accent)] text-[var(--cp-bg)]' : 'bg-[var(--cp-panel)] text-[var(--cp-muted)] hover:text-[var(--cp-text)] hover:border-[var(--cp-border-light)]'}`}
+              >
+                <Heart size={14} fill="currentColor" /> Saved ({favorites.size})
+              </button>
+            )}
           </div>
         </div>
 
@@ -946,6 +1015,8 @@ export default function InventoryBrowse({ adminAuthed = false, onAskTex, onCreat
             home={home}
             onClick={() => openDetail(home)}
             onScheduleTour={() => openLeadForm(home, 'tour')}
+            isFavorite={favorites.has(home.id)}
+            onToggleFavorite={() => toggleFavorite(home.id)}
           />
         ))}
       </div>
@@ -1006,7 +1077,7 @@ export default function InventoryBrowse({ adminAuthed = false, onAskTex, onCreat
 
 
 // ─── Home Card Component ───
-function HomeCard({ home, onClick, onScheduleTour }) {
+function HomeCard({ home, onClick, onScheduleTour, isFavorite = false, onToggleFavorite }) {
   // image_url is guaranteed non-floorplan after PR #43's classifier;
   // real_photos[0] is also non-floorplan (exteriors are listed first).
   // We deliberately do NOT fall back to floor_plan_url here — floorplans
@@ -1074,6 +1145,19 @@ function HomeCard({ home, onClick, onScheduleTour }) {
           <StatusBadge status={home.status} kind="home" size="md" />
         </div>
 
+        {/* Favorite toggle — top-right (does not open the detail modal) */}
+        {onToggleFavorite && (
+          <button
+            type="button"
+            aria-label={isFavorite ? 'Saved' : 'Save home'}
+            aria-pressed={isFavorite}
+            onClick={(e) => { e.stopPropagation(); onToggleFavorite(); }}
+            className={`absolute top-3 right-3 z-[1] inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/55 backdrop-blur-sm transition hover:bg-black/70 ${isFavorite ? 'text-[var(--cp-accent)]' : 'text-white'}`}
+          >
+            <Heart size={18} fill={isFavorite ? 'currentColor' : 'none'} />
+          </button>
+        )}
+
         {/* Bottom-right badges */}
         <div className="absolute bottom-3 right-3 flex gap-2">
           {photoCount > 1 && (
@@ -1137,6 +1221,11 @@ function HomeCard({ home, onClick, onScheduleTour }) {
             ? home.display_price
             : <span className="text-[var(--cp-muted)] text-base font-medium">Call for Price</span>
           }
+          {home.display_price && home.display_price !== 'Call for Price' && pricePerSqft(home.price_value, specs.sq_ft) && (
+            <span className="block text-xs font-medium text-[var(--cp-muted)]">
+              {pricePerSqft(home.price_value, specs.sq_ft)}
+            </span>
+          )}
         </div>
 
         {/* Dual action buttons */}
@@ -1191,6 +1280,27 @@ function HomeDetailModal({
   const modalRef = useRef(null);
   useFocusTrap(modalRef);
 
+  // Share / deep-link. Uses the native share sheet when available, otherwise
+  // copies the link and shows a transient confirmation (no toast context here).
+  const [shareCopied, setShareCopied] = useState(false);
+  const handleShare = useCallback(async () => {
+    const origin = typeof window !== 'undefined' ? window.location.origin : '';
+    const url = `${origin}/inventory?home=${encodeURIComponent(home.id)}`;
+    try {
+      if (typeof navigator !== 'undefined' && navigator.share) {
+        await navigator.share({ title: home.model_name, url });
+        return;
+      }
+      if (typeof navigator !== 'undefined' && navigator.clipboard) {
+        await navigator.clipboard.writeText(url);
+        setShareCopied(true);
+        window.setTimeout(() => setShareCopied(false), 2000);
+      }
+    } catch {
+      // User dismissed the share sheet or clipboard was blocked — no-op.
+    }
+  }, [home.id, home.model_name]);
+
   // Floorplan view is a peer of the Photos / 3D Tour view inside the
   // gallery area. State is local to the modal because the parent already
   // owns Photos<->Tour switching via showTour, and floorplan is purely a
@@ -1228,14 +1338,28 @@ function HomeDetailModal({
         className="relative bg-white rounded-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden"
         onClick={e => e.stopPropagation()}
       >
-        {/* Close button */}
-        <button
-          onClick={onClose}
-          aria-label="Close"
-          className="absolute top-4 right-4 z-10 w-10 h-10 rounded-full bg-black/50 hover:bg-black/70 text-white flex items-center justify-center transition"
-        >
-          <X size={24} />
-        </button>
+        {/* Header actions — share + close */}
+        <div className="absolute top-4 right-4 z-10 flex items-center gap-2">
+          {shareCopied && (
+            <span className="rounded-full bg-black/70 px-3 py-1.5 text-xs font-medium text-white">
+              Link copied!
+            </span>
+          )}
+          <button
+            onClick={handleShare}
+            aria-label="Share home"
+            className="w-10 h-10 rounded-full bg-black/50 hover:bg-black/70 text-white flex items-center justify-center transition"
+          >
+            <Share2 size={20} />
+          </button>
+          <button
+            onClick={onClose}
+            aria-label="Close"
+            className="w-10 h-10 rounded-full bg-black/50 hover:bg-black/70 text-white flex items-center justify-center transition"
+          >
+            <X size={24} />
+          </button>
+        </div>
 
         {/* Photo Gallery Section */}
         <div className="bg-slate-800 relative">
@@ -1437,9 +1561,16 @@ function HomeDetailModal({
 
           {/* Price */}
           <div className="flex items-center gap-4 mb-5 flex-wrap">
-            <span className="text-3xl font-bold text-green-600">
-              {!isCallForPrice ? home.display_price : 'Call for Price'}
-            </span>
+            <div className="flex flex-col">
+              <span className="text-3xl font-bold text-green-600">
+                {!isCallForPrice ? home.display_price : 'Call for Price'}
+              </span>
+              {!isCallForPrice && pricePerSqft(home.price_value, specs.sq_ft) && (
+                <span className="text-sm font-medium text-gray-500">
+                  {pricePerSqft(home.price_value, specs.sq_ft)}
+                </span>
+              )}
+            </div>
             {isCallForPrice && quoteUrl ? (
               <a
                 href={quoteUrl}
@@ -1525,9 +1656,17 @@ function HomeDetailModal({
           </div>
 
           {/* Location */}
-          <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg bg-slate-50 text-sm text-gray-500">
+          <div className="flex flex-wrap items-center gap-2 px-3 py-2.5 rounded-lg bg-slate-50 text-sm text-gray-500">
             <MapPin size={14} />
             <span>{BUSINESS_FULL_ADDRESS} — {BUSINESS_HOURS}</span>
+            <a
+              href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(BUSINESS_FULL_ADDRESS)}`}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1 font-medium text-blue-600 hover:text-blue-800 hover:underline no-underline"
+            >
+              <MapPin size={14} /> Get directions
+            </a>
           </div>
 
           {/* Similar Homes */}

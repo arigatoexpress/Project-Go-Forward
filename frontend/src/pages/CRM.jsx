@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   Users, Phone, Mail, Calendar, ChevronRight, ChevronDown,
   Search, RefreshCw, Send, X, Clock, Home, DollarSign,
-  CheckCircle, AlertCircle, Filter, ArrowLeft, FileText, Package, Download, Loader,
+  CheckCircle, AlertCircle, Filter, ArrowLeft, FileText, Package, Download, Loader, Copy,
 } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
 import adminFetch from '../adminFetch';
@@ -40,6 +40,32 @@ function timeAgo(iso) {
   } catch {
     return '';
   }
+}
+
+// ─── Copy-to-clipboard button ───
+// Copies `value` and flashes a brief "Copied" state. stopPropagation keeps the
+// click from triggering an enclosing row's open-detail handler.
+function CopyButton({ value, label = 'Copy' }) {
+  const [copied, setCopied] = useState(false);
+  const handleCopy = (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    if (typeof navigator === 'undefined' || !navigator.clipboard) return;
+    navigator.clipboard.writeText(value).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    }).catch(() => {});
+  };
+  return (
+    <button
+      type="button"
+      onClick={handleCopy}
+      aria-label={copied ? 'Copied' : label}
+      className="inline-flex items-center text-gray-400 hover:text-gray-600 transition"
+    >
+      {copied ? <span className="text-[10px] font-semibold text-emerald-600">Copied</span> : <Copy size={12} />}
+    </button>
+  );
 }
 
 // ─── Tabs ────────────────────────────────────────────
@@ -508,7 +534,7 @@ export default function CRM({ onBack }) {
         {/* LEADS TAB */}
         {activeTab === 'leads' && !loading && (
           <>
-            <div className="flex flex-wrap gap-2 py-3">
+            <div className="flex flex-wrap items-center gap-2 py-3">
               {['', 'new', 'contacted', 'qualified', 'converted'].map(s => (
                 <button
                   key={s}
@@ -524,6 +550,16 @@ export default function CRM({ onBack }) {
                   {s || 'All'} {s ? `(${leads.filter(l => l.status === s).length})` : `(${leads.length})`}
                 </button>
               ))}
+              <button
+                type="button"
+                onClick={() => downloadAdminFile(
+                  statusFilter ? `/leads/export?status=${encodeURIComponent(statusFilter)}` : '/leads/export',
+                  'leads.csv',
+                )}
+                className="ml-auto inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs rounded-full border border-gray-300 text-gray-700 bg-white hover:border-gray-400 transition-colors"
+              >
+                <Download size={12} /> Export CSV
+              </button>
             </div>
 
             {selectedLead ? (
@@ -557,8 +593,28 @@ export default function CRM({ onBack }) {
                     <div className="flex-1 min-w-0">
                       <div className="font-semibold text-sm text-slate-800">{lead.name || 'Unknown'}</div>
                       <div className="flex flex-wrap gap-3 mt-1 text-xs text-gray-700">
-                        {lead.phone && <span className="flex items-center gap-1"><Phone size={12} /> {lead.phone}</span>}
-                        {lead.email && <span className="flex items-center gap-1"><Mail size={12} /> {lead.email}</span>}
+                        {lead.phone && (
+                          <span className="flex items-center gap-1">
+                            <Phone size={12} />
+                            <a
+                              href={`tel:${lead.phone}`}
+                              onClick={(e) => e.stopPropagation()}
+                              className="hover:text-blue-600 hover:underline"
+                            >{lead.phone}</a>
+                            <CopyButton value={lead.phone} label="Copy phone" />
+                          </span>
+                        )}
+                        {lead.email && (
+                          <span className="flex items-center gap-1">
+                            <Mail size={12} />
+                            <a
+                              href={`mailto:${lead.email}`}
+                              onClick={(e) => e.stopPropagation()}
+                              className="hover:text-blue-600 hover:underline"
+                            >{lead.email}</a>
+                            <CopyButton value={lead.email} label="Copy email" />
+                          </span>
+                        )}
                         {lead.source && (
                           <span className="bg-gray-50 px-2 py-0.5 rounded text-[11px]">{lead.source}</span>
                         )}
