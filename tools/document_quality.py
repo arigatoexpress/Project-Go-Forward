@@ -389,6 +389,21 @@ def enrich_document_data(data: dict[str, Any]) -> dict[str, Any]:
     if section_count:
         enriched["no_of_sections"] = section_count
 
+    # TDHCA Statement of Ownership (1023) Section-1 dimensions: only fill from the
+    # home's overall width/length when it is a SINGLE-section home, where Section
+    # 1 IS the whole home. For multi-section homes the overall size is split
+    # across sections, so we leave those cells blank for manual entry rather than
+    # risk a wrong per-section value on a state ownership form. Insulation R-values
+    # are likewise NOT synthesized — they are manufacturer-specific regulatory
+    # disclosures that must be supplied per model, not guessed.
+    if section_count == "1":
+        width = _clean(enriched.get("width") or enriched.get("home_width"))
+        length = _clean(enriched.get("length") or enriched.get("home_length"))
+        if width:
+            _set_if_blank(enriched, "section_1_width", width)
+        if length:
+            _set_if_blank(enriched, "section_1_length", length)
+
     # New/Used condition is the single source of truth for the New/Used checkbox
     # (contract + Statement of Ownership + R020) and the "New/Used" text field.
     # The frontend derives is_used from the is_new toggle; mirror it here so the
