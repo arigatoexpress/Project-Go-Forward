@@ -10,6 +10,7 @@ export default function ReportIssue() {
   const [description, setDescription] = useState('');
   const [sent, setSent] = useState(false);
   const [sending, setSending] = useState(false);
+  const [failed, setFailed] = useState(false);
 
   const submit = async () => {
     if (!description.trim()) return;
@@ -24,21 +25,27 @@ export default function ReportIssue() {
       timestamp: new Date().toISOString(),
     };
 
+    let ok = false;
     try {
-      // Try to send to backend (which will log + optionally notify)
-      await fetch('/api/feedback', {
+      const resp = await fetch('/api/feedback', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(report),
       });
+      ok = resp.ok;  // a 4xx/5xx is NOT a successful submission
     } catch {
-      // Even if backend fails, log locally
-      console.log('Issue report:', report);
+      ok = false;
     }
 
     setSending(false);
-    setSent(true);
-    setTimeout(() => { setSent(false); setOpen(false); setDescription(''); }, 2000);
+    if (ok) {
+      setSent(true);
+      setTimeout(() => { setSent(false); setOpen(false); setDescription(''); }, 2000);
+    } else {
+      // Don't falsely confirm — let the customer retry or call instead.
+      console.warn('Issue report failed to send:', report);
+      setFailed(true);
+    }
   };
 
   if (!open) {
@@ -68,6 +75,17 @@ export default function ReportIssue() {
         <div className="flex items-center gap-2 text-green-600 py-4">
           <CheckCircle size={20} />
           <span className="font-medium">Thank you! We'll look into it.</span>
+        </div>
+      ) : failed ? (
+        <div className="py-4 text-sm">
+          <p role="alert" className="text-red-600 font-medium mb-1">Couldn't send your report.</p>
+          <p className="text-gray-500 mb-3">Please try again, or call our showroom and we'll help right away.</p>
+          <button
+            onClick={() => setFailed(false)}
+            className="px-4 py-2 bg-red-500 text-white text-sm font-medium rounded-lg hover:bg-red-600 transition-colors"
+          >
+            Try again
+          </button>
         </div>
       ) : (
         <>

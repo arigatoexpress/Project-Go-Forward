@@ -147,7 +147,12 @@ const TimeSlotPicker = ({ date, onSelect, onBack }) => {
         if (data.error) {
           setError(data.error);
         } else {
-          setSlots(data);
+          // Normalize so a malformed 200 (missing/!array available_slots) can't
+          // crash the render at .length / .map.
+          setSlots({
+            ...data,
+            available_slots: Array.isArray(data.available_slots) ? data.available_slots : [],
+          });
         }
       })
       .catch(() => setError('Unable to load available times. Please try again.'))
