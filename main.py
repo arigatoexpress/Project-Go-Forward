@@ -5417,6 +5417,41 @@ async def search_chat_conversations(request: Request):
         return {"success": False, "error": "Search failed"}
 
 
+def _verify_admin_pin_value(pin: str) -> bool:
+    """Verify a submitted PIN against ADMIN_PIN_HASH (constant-time).
+
+    Backward-compatible with the legacy unsalted SHA-256 hex hash (64 hex
+    chars), so existing deployments keep working unchanged. New deployments
+    should set a salted scrypt hash of the form
+    ``scrypt$<n>$<r>$<p>$<salt_b64>$<dk_b64>`` — a slow, salted KDF that resists
+    brute-forcing a short numeric PIN far better than fast SHA-256 if the hash
+    ever leaks. Generate one with ``scripts/generate_admin_pin_hash.py``.
+    """
+    stored = ADMIN_PIN_HASH
+    if not stored or not pin:
+        return False
+    if stored.startswith("scrypt$"):
+        try:
+            _tag, n_s, r_s, p_s, salt_b64, dk_b64 = stored.split("$")
+            salt = base64.b64decode(salt_b64)
+            expected = base64.b64decode(dk_b64)
+            derived = hashlib.scrypt(
+                pin.encode(),
+                salt=salt,
+                n=int(n_s),
+                r=int(r_s),
+                p=int(p_s),
+                dklen=len(expected),
+                maxmem=128 * int(n_s) * int(r_s) + (1 << 20),
+            )
+        except (ValueError, TypeError):
+            return False
+        return hmac.compare_digest(derived, expected)
+    # Legacy: unsalted SHA-256 hex.
+    pin_hash = hashlib.sha256(pin.encode()).hexdigest()
+    return secrets.compare_digest(pin_hash, stored)
+
+
 @app.post("/api/admin/verify")
 @limiter.limit("5/minute")
 async def verify_admin_pin(request: Request):
@@ -5466,8 +5501,7 @@ async def verify_admin_pin(request: Request):
         return JSONResponse(
             {"success": False, "error": "Admin auth not configured."}, status_code=503
         )
-    pin_hash = hashlib.sha256(pin.encode()).hexdigest()
-    if not secrets.compare_digest(pin_hash, ADMIN_PIN_HASH):
+    if not _verify_admin_pin_value(pin):
         _add_pin_attempt(client_ip, now)
         remaining = PIN_MAX_ATTEMPTS - len(_get_pin_attempts(client_ip))
         struct_logger.warning("Admin login failed", client_ip=client_ip, remaining=remaining)

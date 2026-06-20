@@ -4,6 +4,7 @@ itsdangerous==2.2.0
 google-genai==1.64.0
 google-cloud-aiplatform==1.134.0
 google-cloud-firestore==2.22.0
+google-cloud-kms==3.13.0  # SSN envelope encryption at rest (inert until SSN_KMS_KEY set)
 google-cloud-storage==2.18.0
 google-cloud-texttospeech==2.24.0
 pandas==2.2.3

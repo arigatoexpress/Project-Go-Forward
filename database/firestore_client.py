@@ -10,6 +10,8 @@ from typing import Any
 
 from google.cloud import firestore
 
+from tools.field_crypto import decrypt_ssn_fields, encrypt_ssn_fields
+
 
 class THODatabase:
     """Firestore database client for Texas Home Outlet"""
@@ -417,6 +419,7 @@ class THODatabase:
         data["created_at"] = datetime.utcnow()
         data["updated_at"] = datetime.utcnow()
         data.setdefault("status", "pending")
+        encrypt_ssn_fields(data)  # SSN envelope encryption (inert until SSN_KMS_KEY set)
         deal_id = data.pop("id", None)
         if deal_id:
             doc_ref = self.db.collection("deals").document(deal_id)
@@ -433,12 +436,14 @@ class THODatabase:
         if doc.exists:
             data = doc.to_dict()
             data["id"] = doc.id
+            decrypt_ssn_fields(data)  # transparent decrypt; legacy plaintext passes through
             return data
         return None
 
     def update_deal(self, deal_id: str, data: dict) -> bool:
         """Update deal record"""
         data["updated_at"] = datetime.utcnow()
+        encrypt_ssn_fields(data)  # SSN envelope encryption (inert until SSN_KMS_KEY set)
         self.db.collection("deals").document(deal_id).update(data)
         return True
 
