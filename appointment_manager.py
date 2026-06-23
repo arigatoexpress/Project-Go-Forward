@@ -119,6 +119,21 @@ class AppointmentManager:
         if appt_date < now.date():
             raise ValueError("Cannot book appointments in the past.")
 
+        # Enforce the booking window, closed days, and on-grid time slots — mirroring
+        # get_available_slots so direct-API bookings can't bypass the UI rules (book
+        # beyond the window, on a closed day, or in an off-grid/oversized slot).
+        if appt_date > now.date() + timedelta(days=BOOKING_WINDOW_DAYS):
+            raise ValueError(
+                f"Appointments can only be booked up to {BOOKING_WINDOW_DAYS} days in advance."
+            )
+        hours = _get_hours_for_date(appt_date)
+        if hours is None:
+            raise ValueError(f"We are closed on {appt_date.strftime('%A')}.")
+        if appt.time_slot and appt.time_slot not in _generate_slots(*hours):
+            raise ValueError(
+                f"{appt.time_slot} is not a valid time slot for {appt_date.strftime('%A')}."
+            )
+
         # If booking today, ensure the time slot hasn't passed
         if appt_date == now.date() and appt.time_slot:
             slot_hour = datetime.strptime(appt.time_slot, "%I:%M %p").hour
