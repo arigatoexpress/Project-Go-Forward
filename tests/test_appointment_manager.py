@@ -7,7 +7,7 @@ import asyncio
 import sys
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -301,3 +301,34 @@ class TestCreateAppointmentValidation:
         mgr = self._manager()
         with pytest.raises(ValueError, match="Invalid date"):
             run(mgr.create_appointment(self._appt("04/20/2026")))
+
+    def test_out_of_window_raises(self):
+        mgr = self._manager()
+        far = (datetime.now(TIMEZONE).date() + timedelta(days=BOOKING_WINDOW_DAYS + 10)).isoformat()
+        with pytest.raises(ValueError, match="in advance"):
+            run(mgr.create_appointment(self._appt(far)))
+
+    def test_off_grid_time_slot_raises(self):
+        mgr = self._manager()
+        soon = (datetime.now(TIMEZONE).date() + timedelta(days=3)).isoformat()
+        with pytest.raises(ValueError, match="not a valid time slot"):
+            run(mgr.create_appointment(self._appt(soon, time_slot="3:30 PM")))
+
+    def test_closed_day_raises(self):
+        mgr = self._manager()
+        soon = (datetime.now(TIMEZONE).date() + timedelta(days=3)).isoformat()
+        with patch("appointment_manager._get_hours_for_date", return_value=None):
+            with pytest.raises(ValueError, match="closed"):
+                run(mgr.create_appointment(self._appt(soon, time_slot="10:00 AM")))
+
+    def test_valid_slot_passes_validation(self):
+        # A real grid slot on an open day must NOT be rejected by the new validation
+        # (regression guard). The Firestore transaction is neutralized so only the
+        # pre-transaction validation runs.
+        mgr = self._manager()
+        soon = (datetime.now(TIMEZONE).date() + timedelta(days=3)).isoformat()
+        appt = self._appt(soon, time_slot="10:00 AM")
+        mgr.db.transaction = MagicMock()
+        with patch("appointment_manager.firestore.transactional", lambda fn: (lambda txn: None)):
+            result = mgr.create_appointment_sync(appt)
+        assert result is appt
