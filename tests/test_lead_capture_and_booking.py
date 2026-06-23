@@ -116,11 +116,20 @@ def test_create_appointment_reads_inside_transaction():
     sentinel_txn = FakeTxn()
     mgr.db = type("DB", (), {"transaction": lambda self: sentinel_txn})()
 
+    # Next Monday (open 9–6, so "10:00 AM" is a valid on-grid slot) within the
+    # 30-day booking window. PR #221 added a window check that rejects far-future
+    # dates BEFORE the transaction logic this test exercises, so a hardcoded
+    # 2031 date now raises early and never reaches the slot read. Keep it relative.
+    from datetime import datetime, timedelta
+
+    today = datetime.now(am.TIMEZONE).date()
+    next_monday = today + timedelta(days=((0 - today.weekday()) % 7) or 7)
+
     appt = Appointment(
         appointment_id="a1",
         name="X",
         phone="5125550000",
-        date="2031-07-01",  # future weekday-agnostic; passes the past/today checks
+        date=next_monday.isoformat(),
         time_slot="10:00 AM",
         status="confirmed",
     )

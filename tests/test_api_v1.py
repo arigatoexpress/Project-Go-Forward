@@ -585,8 +585,14 @@ def load_app(monkeypatch, tho_api_key: str | None = "tho-secret", rate_limit_rpm
         "github_mira_trigger",
         "obsidian_routes",
     ]
+    # Use monkeypatch.delitem (NOT sys.modules.pop) so the REAL modules are
+    # restored on teardown. A raw pop leaks: it leaves these names absent from
+    # sys.modules after the test, so a later test's patch("appointment_manager.
+    # _get_hours_for_date", ...) re-imports a FRESH module the other test's class
+    # isn't bound to — the patch silently misses and the assertion fails. (This
+    # caused test_closed_day_raises to fail only in the full-suite run.)
     for module_name in modules_to_clear:
-        sys.modules.pop(module_name, None)
+        monkeypatch.delitem(sys.modules, module_name, raising=False)
 
     structured_logging_module = types.ModuleType("structured_logging")
     structured_logging_module.logger = fake_logger
@@ -1649,20 +1655,22 @@ def test_cloud_run_admin_auth_fails_closed_without_pin_hash(monkeypatch):
     monkeypatch.setenv("K_SERVICE", "project-go-forward")
     monkeypatch.delenv("ADMIN_PIN_HASH", raising=False)
 
-    # Clear cached main module so re-import sees the new env
-    for mod in list(sys.modules.keys()):
-        if mod in (
-            "main",
-            "structured_logging",
-            "conversation_memory",
-            "chat_history",
-            "lead_management",
-            "appointment_manager",
-            "email_service",
-            "database.firestore_client",
-            "database.models",
-        ):
-            sys.modules.pop(mod, None)
+    # Clear cached main module so re-import sees the new env. Use
+    # monkeypatch.delitem (NOT sys.modules.pop) so the real modules are RESTORED
+    # on teardown — a raw pop leaves them absent and silently breaks later tests'
+    # patch("appointment_manager...") targets (see the create_client note above).
+    for module_name in (
+        "main",
+        "structured_logging",
+        "conversation_memory",
+        "chat_history",
+        "lead_management",
+        "appointment_manager",
+        "email_service",
+        "database.firestore_client",
+        "database.models",
+    ):
+        monkeypatch.delitem(sys.modules, module_name, raising=False)
 
     # Inject lightweight stubs so import doesn't need live Firestore / GCS
     fake_logger = FakeStructuredLogger()
