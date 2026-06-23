@@ -17,6 +17,10 @@ tests
 *.log
 *.md
 !CLAUDE.md
+# Agent prompt templates are RUNTIME assets — render_prompt() reads prompts/*.md
+# at startup. The *.md rule above must NOT strip them, or the ADK runner fails to
+# init and every chat returns "AI service temporarily unavailable".
+!prompts/*.md
 data/generated_docs/*
 data/generated_ads/*
 
