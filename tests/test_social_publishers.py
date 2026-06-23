@@ -56,6 +56,96 @@ def _isolate_env_and_block_http(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# (0) Instagram Reel async-ingestion poll: a media container is processed
+#     asynchronously, so publishing before it reaches FINISHED fails. The
+#     adapter must poll status_code and fail-closed (never publish) on ERROR
+#     or timeout.
+# ---------------------------------------------------------------------------
+
+
+class _FakeResp:
+    def __init__(self, payload, status=200):
+        self._payload = payload
+        self.status_code = status
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise AssertionError(f"HTTP {self.status_code}")
+
+    def json(self):
+        return self._payload
+
+
+class _FakeRequests:
+    """Scripted stand-in for requests: media POST -> container id, GET -> next
+    status from the sequence, media_publish POST -> post id. Records all calls."""
+
+    def __init__(self, status_sequence):
+        self._status = list(status_sequence)
+        self.calls = []
+
+    def post(self, url, data=None, timeout=None, **kw):
+        self.calls.append(("POST", url))
+        if url.endswith("/media"):
+            return _FakeResp({"id": "C1"})
+        if url.endswith("/media_publish"):
+            return _FakeResp({"id": "P1"})
+        return _FakeResp({})
+
+    def get(self, url, params=None, timeout=None, **kw):
+        self.calls.append(("GET", url))
+        code = self._status.pop(0) if self._status else "FINISHED"
+        return _FakeResp({"status_code": code})
+
+
+def _ig_env(monkeypatch):
+    monkeypatch.setenv("META_ACCESS_TOKEN", "meta-tok")
+    monkeypatch.setenv("INSTAGRAM_BUSINESS_ACCOUNT_ID", "ig-123")
+
+
+def test_reel_polls_until_finished_then_publishes(monkeypatch):
+    _ig_env(monkeypatch)
+    fake = _FakeRequests(["IN_PROGRESS", "IN_PROGRESS", "FINISHED"])
+    monkeypatch.setattr(social_publishers, "requests", fake)
+    monkeypatch.setattr(social_publishers.time, "sleep", lambda s: None)
+
+    result = social_publishers._publish_instagram_reel("https://cdn.example.com/r.mp4", "cap")
+
+    assert result["success"] is True
+    assert result["creation_id"] == "C1"
+    gets = [i for i, (m, u) in enumerate(fake.calls) if m == "GET"]
+    assert len(gets) == 3  # polled until FINISHED
+    pub = next(i for i, (m, u) in enumerate(fake.calls) if u.endswith("/media_publish"))
+    assert pub > gets[-1]  # published only AFTER the FINISHED status
+
+
+def test_reel_fails_closed_on_error_status(monkeypatch):
+    _ig_env(monkeypatch)
+    fake = _FakeRequests(["IN_PROGRESS", "ERROR"])
+    monkeypatch.setattr(social_publishers, "requests", fake)
+    monkeypatch.setattr(social_publishers.time, "sleep", lambda s: None)
+
+    result = social_publishers._publish_instagram_reel("https://cdn.example.com/r.mp4", "cap")
+
+    assert result["success"] is False
+    assert not any(u.endswith("/media_publish") for m, u in fake.calls)  # never published
+
+
+def test_reel_fails_closed_on_timeout(monkeypatch):
+    _ig_env(monkeypatch)
+    monkeypatch.setenv("META_REEL_POLL_ATTEMPTS", "3")
+    fake = _FakeRequests(["IN_PROGRESS"] * 10)  # never finishes
+    monkeypatch.setattr(social_publishers, "requests", fake)
+    monkeypatch.setattr(social_publishers.time, "sleep", lambda s: None)
+
+    result = social_publishers._publish_instagram_reel("https://cdn.example.com/r.mp4", "cap")
+
+    assert result["success"] is False
+    assert not any(u.endswith("/media_publish") for m, u in fake.calls)
+    assert sum(1 for m, u in fake.calls if m == "GET") == 3  # respected the bound
+
+
+# ---------------------------------------------------------------------------
 # (1) prepare_or_publish_social_post returns a draft (no publish) when the
 #     THO_SOCIAL_PUBLISH_ENABLED gate is unset.
 # ---------------------------------------------------------------------------
