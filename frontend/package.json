@@ -49,6 +49,7 @@
     "@rollup/rollup-linux-x64-gnu": "^4.60.2"
   },
   "overrides": {
-    "esbuild": "^0.28.1"
+    "esbuild": "^0.28.1",
+    "undici": "^7.28.0"
   }
 }
