@@ -36,3 +36,19 @@ export const FACTORY_OPTIONS = [
 export const INSTALLER_OPTIONS = [
   BUSINESS_LEGAL_NAME,
 ];
+
+// ─── Site-wide store-closure banner ───
+// Staff-editable holiday / closure notice shown across the public site.
+// Dates are ISO `YYYY-MM-DD` (local). The banner shows through the END date
+// (inclusive) and auto-hides once today is past `end` — no developer needed.
+// Set STORE_CLOSURE to null to disable the banner entirely.
+//   start  — first closed day (informational)
+//   end    — last closed day; banner hides once today is past this date
+//   reopen — first day open again (used in copy)
+//   message — the exact line shown to visitors
+export const STORE_CLOSURE = {
+  start: '2026-07-02',
+  end: '2026-07-07',
+  reopen: '2026-07-08',
+  message: 'Closed July 2–7 for the Independence Day holiday. We reopen July 8.',
+};
