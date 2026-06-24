@@ -173,9 +173,8 @@ def test_escrow_values_render_on_important_notice_tax_form(tmp_path, monkeypatch
     were blank because the derivation used keys no widget maps to.
     """
     import tools.document_tools as dt
-    from tools.document_engine_v2 import generate_document
-
     from scripts.validate_document_fills import FULL_DEAL
+    from tools.document_engine_v2 import generate_document
 
     monkeypatch.setattr(dt, "OUTPUT_DIR", str(tmp_path))
     monkeypatch.setattr(dt, "upload_to_gcs", lambda *a, **k: None)
