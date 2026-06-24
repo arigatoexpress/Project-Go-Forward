@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Mail, Phone, MapPin, Send, CheckCircle, Loader2 } from 'lucide-react';
 import { BUSINESS_NAME, BUSINESS_URL, BUSINESS_PHONE, BUSINESS_PHONE_RAW, BUSINESS_FULL_ADDRESS, BUSINESS_HOURS } from '../constants';
+import { getUtmParams } from '../utils/utm';
 
 const Contact = ({ onBack }) => {
     const [submitted, setSubmitted] = useState(false);
@@ -26,7 +27,7 @@ const Contact = ({ onBack }) => {
             const resp = await fetch('/api/contact', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(formData),
+                body: JSON.stringify({ ...formData, ...getUtmParams() }),
             });
             const data = await resp.json();
             if (data.success) {

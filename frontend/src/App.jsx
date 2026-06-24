@@ -10,6 +10,7 @@ import { useNetworkStatus } from './components/NetworkStatus';
 import ReportIssue from './components/ReportIssue';
 import ErrorBoundary from './components/ErrorBoundary';
 import { v4 as uuidv4 } from 'uuid';
+import { captureUtmFromUrl } from './utils/utm';
 import {
   BUSINESS_NAME, BUSINESS_PHONE, BUSINESS_PHONE_RAW, BUSINESS_FULL_ADDRESS,
   BUSINESS_HOURS, BUSINESS_LICENSE, BUSINESS_CITY, BUSINESS_STATE
@@ -357,6 +358,11 @@ function App() {
     }
     return null;
   });
+
+  // Capture UTM params on first mount
+  useEffect(() => {
+    captureUtmFromUrl();
+  }, []);
 
   // Load chat history
   useEffect(() => {

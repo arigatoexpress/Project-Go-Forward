@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Calendar, Clock, User, CheckCircle, ArrowLeft, ArrowRight, MapPin, Phone, Loader2, Download } from 'lucide-react';
 import { BUSINESS_NAME, BUSINESS_PHONE, BUSINESS_FULL_ADDRESS } from '../constants';
+import { getUtmParams } from '../utils/utm';
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
@@ -365,6 +366,7 @@ const Appointments = ({ onBack }) => {
           time_slot: selectedTime,
           notes: formData.notes.trim() || undefined,
           source: 'website',
+          ...getUtmParams(),
         }),
       });
       const data = await resp.json();
