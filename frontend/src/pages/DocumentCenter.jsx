@@ -971,7 +971,7 @@ function Row({ children }) {
   return <div className="flex flex-wrap -mx-2">{children}</div>;
 }
 
-function SelectField({ label, name, value, onChange, options, half, third, icon: Icon, resetKey }) {
+function SelectField({ label, name, value, onChange, options, half, third, icon: Icon, resetKey, helperText }) {
   const widthClass = third ? 'w-full sm:w-1/3' : half ? 'w-full sm:w-1/2' : 'w-full';
   return (
     <div className={`${widthClass} px-2 mb-4`}>
@@ -990,6 +990,11 @@ function SelectField({ label, name, value, onChange, options, half, third, icon:
           ))}
         </select>
       </div>
+      {helperText && (
+        <p data-testid={`helper-${name}`} className="mt-1 text-xs text-gray-500 italic">
+          {helperText}
+        </p>
+      )}
     </div>
   );
 }
@@ -1683,6 +1688,7 @@ function Step1({ data, onChange, onLoadCustomer, resetKey, deals, dealsLoading, 
             resetKey={resetKey}
             third
             options={MARITAL_STATUS_OPTIONS}
+            helperText="Mark review (2026-06-24): do we still need this field? Now a Married/Unmarried dropdown."
           />
         </Row>
       </Section>
