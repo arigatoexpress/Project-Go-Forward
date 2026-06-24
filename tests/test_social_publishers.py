@@ -145,6 +145,48 @@ def test_reel_fails_closed_on_timeout(monkeypatch):
     assert sum(1 for m, u in fake.calls if m == "GET") == 3  # respected the bound
 
 
+def test_instagram_poll_waits_for_finished_before_publish(monkeypatch):
+    _ig_env(monkeypatch)
+    fake = _FakeRequests(["IN_PROGRESS", "IN_PROGRESS", "FINISHED"])
+    monkeypatch.setattr(social_publishers, "requests", fake)
+    monkeypatch.setattr(social_publishers.time, "sleep", lambda *_: None)
+
+    result = social_publishers._publish_instagram_reel("https://cdn.example.com/r.mp4", "cap")
+
+    assert result["success"] is True
+    assert result.get("post_id") is not None
+    gets = [i for i, (m, u) in enumerate(fake.calls) if m == "GET"]
+    assert len(gets) == 3  # polled until FINISHED
+    pub = next(i for i, (m, u) in enumerate(fake.calls) if u.endswith("/media_publish"))
+    assert pub > gets[-1]  # published only AFTER the FINISHED status
+
+
+def test_instagram_poll_times_out_returns_failure(monkeypatch):
+    _ig_env(monkeypatch)
+    monkeypatch.setenv("META_REEL_POLL_ATTEMPTS", "3")
+    fake = _FakeRequests(["IN_PROGRESS"] * 10)  # never finishes
+    monkeypatch.setattr(social_publishers, "requests", fake)
+    monkeypatch.setattr(social_publishers.time, "sleep", lambda *_: None)
+
+    result = social_publishers._publish_instagram_reel("https://cdn.example.com/r.mp4", "cap")
+
+    assert result["success"] is False
+    assert not any(u.endswith("/media_publish") for m, u in fake.calls)
+    assert sum(1 for m, u in fake.calls if m == "GET") == 3  # respected the bound
+
+
+def test_instagram_poll_errored_status_returns_failure(monkeypatch):
+    _ig_env(monkeypatch)
+    fake = _FakeRequests(["IN_PROGRESS", "ERROR"])
+    monkeypatch.setattr(social_publishers, "requests", fake)
+    monkeypatch.setattr(social_publishers.time, "sleep", lambda *_: None)
+
+    result = social_publishers._publish_instagram_reel("https://cdn.example.com/r.mp4", "cap")
+
+    assert result["success"] is False
+    assert not any(u.endswith("/media_publish") for m, u in fake.calls)  # never published
+
+
 # ---------------------------------------------------------------------------
 # (1) prepare_or_publish_social_post returns a draft (no publish) when the
 #     THO_SOCIAL_PUBLISH_ENABLED gate is unset.
