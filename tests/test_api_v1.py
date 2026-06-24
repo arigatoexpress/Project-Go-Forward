@@ -90,6 +90,14 @@ class FakeLead:
     triage_reason: str | None = None
     last_triage_at: str | None = None
 
+    # Marketing attribution (first-party UTM carried on a reached-out lead; NOT visitor tracking)
+    utm_source: str | None = None
+    utm_medium: str | None = None
+    utm_campaign: str | None = None
+    utm_content: str | None = None
+    utm_term: str | None = None
+    referrer: str | None = None
+
     def to_dict(self) -> dict:
         return {
             "lead_id": self.lead_id,
@@ -109,6 +117,17 @@ class FakeLead:
             "status": self.status,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
+            "priority": self.priority,
+            "assigned_to": self.assigned_to,
+            "triage_notes": self.triage_notes,
+            "triage_reason": self.triage_reason,
+            "last_triage_at": self.last_triage_at,
+            "utm_source": self.utm_source,
+            "utm_medium": self.utm_medium,
+            "utm_campaign": self.utm_campaign,
+            "utm_content": self.utm_content,
+            "utm_term": self.utm_term,
+            "referrer": self.referrer,
         }
 
 
