@@ -8,7 +8,12 @@ from pathlib import Path
 
 import pytest
 
-from tools.input_sanitizer import sanitize_body, sanitize_string, sanitize_value
+from tools.input_sanitizer import (
+    sanitize_body,
+    sanitize_query_params,
+    sanitize_string,
+    sanitize_value,
+)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
@@ -118,3 +123,192 @@ class TestInputSanitizationMiddleware:
         )
         # Should not be rejected because of middleware
         assert res.status_code in (200, 201, 400, 401, 422)
+
+
+class TestSanitizeQueryParams:
+    """Test query parameter sanitization."""
+
+    def test_sanitize_simple_params(self):
+        params = {"search": "<script>alert(1)</script>homes", "page": "1"}
+        result = sanitize_query_params(params)
+        assert result["search"] == "alert(1)homes"
+        assert result["page"] == "1"
+
+    def test_sanitize_list_values(self):
+        params = {"tags": ["<b>new</b>", "used"], "status": "active"}
+        result = sanitize_query_params(params)
+        assert result["tags"] == ["new", "used"]
+        assert result["status"] == "active"
+
+    def test_sanitize_non_dict_passthrough(self):
+        assert sanitize_query_params(None) is None
+        assert sanitize_query_params("string") == "string"
+
+    def test_max_len_applied(self):
+        long_value = "A" * 1000
+        params = {"q": long_value}
+        result = sanitize_query_params(params, max_len=100)
+        assert len(result["q"]) == 100
+
+
+class TestSanitizeEdgeCases:
+    """Edge cases for sanitization functions."""
+
+    def test_deeply_nested_html(self):
+        data = {
+            "level1": {
+                "level2": {
+                    "level3": {
+                        "html": "<div><span><script>alert(1)</script></span></div>"
+                    }
+                }
+            }
+        }
+        result = sanitize_value(data)
+        assert result["level1"]["level2"]["level3"]["html"] == "alert(1)"
+
+    def test_unicode_preserved(self):
+        assert sanitize_string("Hello \u2014 World") == "Hello \u2014 World"
+        assert sanitize_string("Caf\u00e9") == "Caf\u00e9"
+
+    def test_empty_and_whitespace_only(self):
+        assert sanitize_string("  ") == ""
+        assert sanitize_string("") == ""
+        assert sanitize_string("\n\t\r") == ""
+
+    def test_numeric_and_boolean_passthrough(self):
+        data = {"count": 42, "active": True, "ratio": 3.14}
+        result = sanitize_value(data)
+        assert result["count"] == 42
+        assert result["active"] is True
+        assert result["ratio"] == 3.14
+
+    def test_empty_collections(self):
+        assert sanitize_value([]) == []
+        assert sanitize_value({}) == {}
+        assert sanitize_value(()) == ()
+
+
+class TestInputSanitizationMiddlewareDirect:
+    """Directly test the middleware's request body rewriting."""
+
+    @pytest.mark.asyncio
+    async def test_middleware_rewrites_json_body(self):
+        """The middleware should set request._body to the sanitized JSON."""
+        import json
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock, MagicMock
+
+        from main import InputSanitizationMiddleware
+
+        middleware = InputSanitizationMiddleware(app=None)
+
+        raw_body = json.dumps({"name": "<script>alert(1)</script>Alice", "email": "alice@example.com"}).encode("utf-8")
+        request = SimpleNamespace(
+            method="POST",
+            url=SimpleNamespace(path="/api/contact"),
+            headers={"content-type": "application/json"},
+            body=AsyncMock(return_value=raw_body),
+        )
+
+        call_next = AsyncMock(return_value=MagicMock())
+        await middleware.dispatch(request, call_next)
+
+        # Verify body was rewritten to sanitized JSON
+        expected = json.dumps({"name": "alert(1)Alice", "email": "alice@example.com"}).encode("utf-8")
+        assert request._body == expected
+        call_next.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_middleware_leaves_non_json_untouched(self):
+        """Non-JSON bodies should not be modified."""
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock, MagicMock
+
+        from main import InputSanitizationMiddleware
+
+        middleware = InputSanitizationMiddleware(app=None)
+
+        request = SimpleNamespace(
+            method="POST",
+            url=SimpleNamespace(path="/api/contact"),
+            headers={"content-type": "text/plain"},
+            body=AsyncMock(return_value=b"plain text body"),
+        )
+
+        call_next = AsyncMock(return_value=MagicMock())
+        await middleware.dispatch(request, call_next)
+
+        # _body should not be set for non-JSON content
+        assert not hasattr(request, "_body")
+        call_next.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_middleware_leaves_malformed_json_untouched(self):
+        """Malformed JSON should not crash the middleware; body is left as-is."""
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock, MagicMock
+
+        from main import InputSanitizationMiddleware
+
+        middleware = InputSanitizationMiddleware(app=None)
+
+        request = SimpleNamespace(
+            method="POST",
+            url=SimpleNamespace(path="/api/contact"),
+            headers={"content-type": "application/json"},
+            body=AsyncMock(return_value=b"{not valid json"),
+        )
+
+        call_next = AsyncMock(return_value=MagicMock())
+        await middleware.dispatch(request, call_next)
+
+        # _body should not be set when JSON parsing fails
+        assert not hasattr(request, "_body")
+        call_next.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_middleware_skips_get_requests_direct(self):
+        """GET requests should bypass body sanitization entirely."""
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock, MagicMock
+
+        from main import InputSanitizationMiddleware
+
+        middleware = InputSanitizationMiddleware(app=None)
+
+        request = SimpleNamespace(
+            method="GET",
+            url=SimpleNamespace(path="/api/marketing/inventory-context"),
+            headers={"content-type": "application/json"},
+            body=AsyncMock(return_value=b""),
+        )
+
+        call_next = AsyncMock(return_value=MagicMock())
+        await middleware.dispatch(request, call_next)
+
+        request.body.assert_not_called()
+        call_next.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_middleware_skips_partner_api_direct(self):
+        """Partner API requests should bypass body sanitization."""
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock, MagicMock
+
+        from main import InputSanitizationMiddleware
+
+        middleware = InputSanitizationMiddleware(app=None)
+
+        request = SimpleNamespace(
+            method="POST",
+            url=SimpleNamespace(path="/api/v1/customers"),
+            headers={"content-type": "application/json"},
+            body=AsyncMock(return_value=b"{}"),
+        )
+
+        call_next = AsyncMock(return_value=MagicMock())
+        await middleware.dispatch(request, call_next)
+
+        request.body.assert_not_called()
+        call_next.assert_awaited_once()

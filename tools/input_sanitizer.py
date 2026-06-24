@@ -32,3 +32,14 @@ def sanitize_value(val: Any, max_len: int = 500) -> Any:
 def sanitize_body(data: Any, max_len: int = 500) -> Any:
     """Top-level entry point for request-body sanitization."""
     return sanitize_value(data, max_len)
+
+
+def sanitize_query_params(params: dict[str, Any], max_len: int = 500) -> dict[str, Any]:
+    """Sanitize query string parameters.
+
+    Query params are typically flat (string -> string or string -> list of strings),
+    but we sanitize recursively for safety.
+    """
+    if not isinstance(params, dict):
+        return params
+    return {k: sanitize_value(v, max_len) for k, v in params.items()}

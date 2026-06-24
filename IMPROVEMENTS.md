@@ -13,8 +13,8 @@
 - Health check occasionally times out (10s+)
 - May need cold start optimization
 
-### 2. Missing Features (Status as of 2025-06-13)
-- [x] Chat memory/persistence — **IMPLEMENTED** (`chat_history.py`, `conversation_memory.py`, Firestore-backed, admin API endpoints, tests in progress)
+### 2. Missing Features (Status as of 2025-06-13, verified 2025-06-24)
+- [x] Chat memory/persistence — **IMPLEMENTED** (`chat_history.py`, `conversation_memory.py`, Firestore-backed, admin API endpoints, full test coverage: `tests/test_chat_history.py` 22 tests, `tests/test_conversation_memory.py` 28 tests)
 - [x] Error boundaries in React — **IMPLEMENTED** (`frontend/src/components/ErrorBoundary.jsx`, root + per-route wrapping, Sentry hook, retry/reload UI)
 - [x] API rate limiting — **IMPLEMENTED** (slowapi per-IP 100/min default, custom `RateLimitMiddleware`, per-route caps on admin endpoints, chat-specific limits)
 - [x] Request validation middleware — **IMPLEMENTED** (`resilient_validation_handler` in `main.py`, unified error envelope for SPA)
@@ -24,41 +24,43 @@
 
 #### A. Error Handling
 - [x] Add global error boundary component — **DONE**
+- [x] Sentry integration for error tracking — **DONE** (`@sentry/react` ^10.51.0 installed, `browserTracingIntegration` wired, `ErrorBoundary` hooks into `window.__SENTRY_HOOK__`)
 - [ ] Better error messages for users (ongoing polish)
-- [ ] Sentry integration for error tracking (SDK hook ready; `@sentry/react` not yet installed)
 
 #### B. Performance
 - [x] Redis caching for inventory queries — **DONE** (`caching.py` with Redis + in-memory fallback)
-- [ ] Lazy load heavy components
-- [ ] Image optimization
+- [x] Lazy load heavy components — **DONE** (`React.lazy` + `Suspense` for all major pages in `App.jsx`, `PageLoader` fallback)
+- [x] Image optimization — **DONE** (`frontend/src/utils/imageOptimization.js` with `generateSrcSet`/`getImageSizes`, `loading="lazy"` throughout, `__tests__/imageOptimization.test.js`)
 
 #### C. Security
 - [x] Rate limiting per IP — **DONE**
-- [ ] Input sanitization (partial — PII redaction in audit log, broader sanitization needed)
-- [ ] CSRF protection
+- [~] Input sanitization — **PARTIAL** (HTML/control-char stripping middleware in `main.py`, `tools/input_sanitizer.py`, `tests/test_input_sanitizer.py` with 13 tests; broader query-param/file-name sanitization still open)
+- [x] CSRF protection — **DONE** (double-submit cookie pattern, `_verify_csrf` in `main.py`, 6 tests in `tests/test_csrf_protection.py`)
 
 #### D. Monitoring
+- [x] Performance metrics — **DONE** (`PerformanceMetricsMiddleware` in `main.py`, `/api/metrics` admin endpoint, p50/p95/p99 tracking, `tests/test_performance_metrics.py` with 5 tests)
 - [ ] Health check dashboard
-- [ ] Performance metrics
 - [ ] User activity logging
 
 ## 📋 Recommended Next Steps
 
 ### High Priority (Code)
-1. **Chat History Tests** — Write `tests/test_chat_history.py` and `tests/test_conversation_memory.py` (modules are in production but have zero test coverage)
-2. **Input Sanitization** — Broader request-body sanitization beyond audit-log PII stripping
-3. **CSRF Protection** — Add CSRF tokens for state-changing admin endpoints
+1. ~~Chat History Tests~~ — **DONE** (`tests/test_chat_history.py` 22 tests, `tests/test_conversation_memory.py` 28 tests)
+2. ~~CSRF Protection~~ — **DONE** (`tests/test_csrf_protection.py` 6 tests)
+3. **Input Sanitization** — Strengthen middleware tests to verify actual body rewriting; add query-param/file-name sanitization
 
 ### Medium Priority
-4. **Lazy Loading** — Code-split heavy React components (Document Center, CRM, Chat History)
-5. **Image Optimization** — Responsive images, WebP/AVIF, lazy loading
-6. **Performance Metrics** — Structured latency logging + p95/p99 tracking
+4. ~~Lazy Loading~~ — **DONE**
+5. ~~Image Optimization~~ — **DONE**
+6. ~~Performance Metrics~~ — **DONE**
+7. **Health Check Dashboard** — Visualize `/api/metrics` and `/healthz` data
+8. **User Activity Logging** — Structured admin/user action logging beyond `audit_log.py`
 
 ### Low Priority
-7. **Sentry SDK** — Install `@sentry/react` and wire up `window.__SENTRY_HOOK__`
-8. **A/B Testing Framework** — Test UI changes
-9. **Feature Flags** — Roll out features gradually
-10. **Documentation** — API docs (OpenAPI already available), user guides
+9. ~~Sentry SDK~~ — **DONE**
+10. **A/B Testing Framework** — Test UI changes
+11. **Feature Flags** — Roll out features gradually
+12. **Documentation** — API docs (OpenAPI already available), user guides
 
 ### Operator / Launch Blockers (see LAUNCH_READINESS.md)
 - Ops bootstrap (partner API key, monitoring, backups, budget alarm)
