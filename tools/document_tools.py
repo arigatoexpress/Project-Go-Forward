@@ -19,7 +19,13 @@ from datetime import datetime
 from typing import Any
 
 from pypdf import PdfReader, PdfWriter
-from pypdf.generic import ArrayObject, DecodedStreamObject, NameObject, RectangleObject
+from pypdf.generic import (
+    ArrayObject,
+    DecodedStreamObject,
+    NameObject,
+    RectangleObject,
+    TextStringObject,
+)
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 
@@ -448,6 +454,43 @@ def _prepare_pdf_fill_data(template_name: str, data_dict: dict[str, Any]) -> dic
     return prepared
 
 
+# Matches the font operator in a widget /DA string, e.g. "/ArialMT 8 Tf 0 g",
+# capturing the size+Tf so we can swap ONLY the font name and keep size/color.
+_DA_FONT_RE = re.compile(r"/[^\s/]+(\s+\d+(?:\.\d+)?\s+Tf)")
+
+
+def _force_helvetica_field_appearance(writer: PdfWriter) -> None:
+    """Point every form-field widget's default appearance (/DA) at ``/Helv``.
+
+    pypdf >= 6.13 rewrote appearance-stream generation to glyph-render field
+    text. Its TrueType code path (``Font._get_typographic_maps`` else-branch,
+    self-labelled "not covered nor tested") does ``bytes((glyph_id,))`` on a
+    *string* glyph id and raises ``TypeError: 'str' object cannot be
+    interpreted as an integer`` — blanking 19 of our 64 AcroForm templates,
+    including ``TMHA_SalesContract.pdf`` (whose fields use the embedded
+    ``/ArialMT``). The bug persists through pypdf 6.14.x.
+
+    ``/Helv`` (Helvetica, a Type1 standard-14 font) takes pypdf's working
+    str-encoding branch and is already declared in every THO template's
+    AcroForm ``/DR`` and is its document-level default ``/DA`` (``/Helv 0 Tf
+    0 g``). We swap only the font *name* in each widget ``/DA``, preserving the
+    original size and colour, so rendered values are metrically equivalent to
+    the pypdf 6.12 output (Helvetica ~= Arial for form text).
+    """
+    for page in writer.pages:
+        annotations = page.get("/Annots")
+        if not annotations:
+            continue
+        for annotation in annotations.get_object():
+            widget = annotation.get_object()
+            default_appearance = widget.get("/DA")
+            if default_appearance is None or "/Helv" in str(default_appearance):
+                continue
+            widget[NameObject("/DA")] = TextStringObject(
+                _DA_FONT_RE.sub(r"/Helv\1", str(default_appearance), count=1)
+            )
+
+
 def _apply_pdf_widget_rect_overrides(template_name: str, writer: PdfWriter) -> None:
     page_overrides = PDF_WIDGET_RECT_OVERRIDES.get(template_name, {})
     for page_number, page in enumerate(writer.pages, start=1):
@@ -663,6 +706,10 @@ def fill_pdf_form(template_path: str, data_dict: dict[str, Any], output_filename
             appearance_data = _resolve_checkbox_values(
                 appearance_data, _checkbox_field_states(reader)
             )
+            # pypdf >= 6.13 glyph-renders field text and crashes on the embedded
+            # TrueType fonts these regulatory templates use; route field
+            # appearances through the standard-14 /Helv font it can render.
+            _force_helvetica_field_appearance(writer)
             for page in writer.pages:
                 writer.update_page_form_field_values(page, appearance_data, auto_regenerate=False)
             _apply_pdf_text_overlays(template_name, writer, fill_data)
