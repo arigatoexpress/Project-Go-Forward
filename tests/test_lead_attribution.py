@@ -5,11 +5,10 @@ buckets the CRM attribution chart consumes. Its precedence is:
 
     utm_source  >  referrer  >  raw source bucket
 
-The real ``Lead`` dataclass has no ``utm_source`` / ``referrer`` fields yet —
-the function reads them defensively with ``getattr(..., None)`` so it stays
-crash-free if they ever land. We exercise those branches with a lightweight
-``SimpleNamespace`` fake (no Firestore), and cover the raw-source fallbacks
-with the actual ``Lead`` dataclass.
+The real ``Lead`` dataclass now has ``utm_source`` / ``referrer`` fields
+(PR 1), so the function reads them directly when present. We exercise those
+branches with a lightweight ``SimpleNamespace`` fake (no Firestore), and
+cover the raw-source fallbacks with the actual ``Lead`` dataclass.
 
 ``main`` instantiates a Firestore client at import (``lead_manager =
 LeadManager(...)``), which needs GCP credentials the CI "no Firestore/GCS"
@@ -94,7 +93,21 @@ def test_unknown_raw_source_passes_through_lowercased(categorize):
 
 
 def test_real_lead_dataclass_uses_source_bucket(categorize):
-    # A genuine Lead has no utm_source/referrer attrs; getattr defaults keep
+    # A genuine Lead without utm_source/referrer set; getattr defaults keep
     # the function on the raw-source branch without raising AttributeError.
     lead = Lead(lead_id="L1", user_id="U1", session_id="S1", source="instagram")
     assert categorize(lead) == "instagram"
+
+
+def test_lead_sources_buckets_utm_instagram(categorize):
+    # A real Lead with utm_source="instagram" (PR 1 field) flows through to
+    # the utm:instagram bucket, closing the loop between the real field and
+    # the existing categorization reader.
+    lead = Lead(
+        lead_id="L2",
+        user_id="U2",
+        session_id="S2",
+        source="website",
+        utm_source="instagram",
+    )
+    assert categorize(lead) == "utm:instagram"
