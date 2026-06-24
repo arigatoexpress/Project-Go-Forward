@@ -2565,6 +2565,18 @@ async def generate_batch_endpoint(request: Request):
             return _document_quality_json_response(result)
         if isinstance(result, dict) and result.get("success") is False:
             return _document_batch_failure_json_response(result)
+        log_admin_action(
+            actor=_audit_actor(request),
+            action="document.generate",
+            target_type="document",
+            target_id=str(result.get("filename", "")) if isinstance(result, dict) else "",
+            details={
+                "mode": "batch",
+                "template_count": len(templates),
+                "merge": bool(merge),
+            },
+            request=request,
+        )
         return result
     except Exception as e:
         struct_logger.error("Batch generation failed", error=str(e))
@@ -2575,11 +2587,19 @@ async def generate_batch_endpoint(request: Request):
 
 
 @app.post("/api/documents/sales-contract", dependencies=[Depends(require_admin)])
-async def create_sales_contract(form_data: SalesContractForm):
+async def create_sales_contract(form_data: SalesContractForm, request: Request):
     """Generate a Sales Contract PDF (legacy endpoint — use /api/documents/generate instead)."""
     try:
         result = generate_sales_contract_pdf(form_data)
         if result["success"]:
+            log_admin_action(
+                actor=_audit_actor(request),
+                action="document.generate",
+                target_type="document",
+                target_id=str(result.get("filename", "")),
+                details={"template_name": "sales-contract", "legacy_endpoint": True},
+                request=request,
+            )
             return {
                 "success": True,
                 "download_url": f"/api/documents/download/{result['filename']}",
@@ -3309,6 +3329,20 @@ async def bulk_import_inventory(request: Request):
             errors=len(errors),
         )
 
+        log_admin_action(
+            actor=_audit_actor(request),
+            action="inventory.bulk_import",
+            target_type="inventory",
+            target_id="",
+            details={
+                "item_count": len(items),
+                "imported": imported,
+                "updated": updated,
+                "error_count": len(errors),
+            },
+            request=request,
+        )
+
         return {
             "success": True,
             "imported": imported,
@@ -3856,6 +3890,18 @@ async def docuseal_send(request: Request):
             )
         if not result.get("success"):
             raise HTTPException(status_code=502, detail=result.get("error"))
+
+        log_admin_action(
+            actor=_audit_actor(request),
+            action="document.esign_send",
+            target_type="document",
+            target_id=str(data.get("deal_id") or ""),
+            details={
+                "template_name": str(data.get("template_name") or "")[:100],
+                "submission_id": str(result.get("submission_id") or "")[:80],
+            },
+            request=request,
+        )
 
         return result
     except HTTPException:
@@ -4584,6 +4630,14 @@ async def upload_listing_photos(
             count=len(stored),
             actor=_audit_actor(request),
         )
+        log_admin_action(
+            actor=_audit_actor(request),
+            action="inventory.photos_upload",
+            target_type="inventory",
+            target_id=image_storage.safe_home_id(home_id),
+            details={"uploaded_count": len(stored), "error_count": len(errors)},
+            request=request,
+        )
     # 207-style summary: report both successes and per-file failures.
     return {
         "success": bool(stored),
@@ -4613,6 +4667,14 @@ async def delete_listing_photo(request: Request, home_id: str, filename: str):
         filename=os.path.basename(filename),
         actor=_audit_actor(request),
     )
+    log_admin_action(
+        actor=_audit_actor(request),
+        action="inventory.photo_delete",
+        target_type="inventory",
+        target_id=image_storage.safe_home_id(home_id),
+        details={"filename": os.path.basename(filename)},
+        request=request,
+    )
     return {"success": True}
 
 
@@ -4632,6 +4694,14 @@ async def reorder_listing_photos(request: Request, home_id: str):
         photos = image_storage.set_photo_order(home_id, order)
     except image_storage.PhotoValidationError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    log_admin_action(
+        actor=_audit_actor(request),
+        action="inventory.photos_reorder",
+        target_type="inventory",
+        target_id=image_storage.safe_home_id(home_id),
+        details={"photo_count": len(order)},
+        request=request,
+    )
     return {
         "success": True,
         "home_id": image_storage.safe_home_id(home_id),
@@ -5118,10 +5188,20 @@ async def update_lead_api(lead_id: str, request: Request):
         lead = await lead_manager.get_lead(lead_id)
         if not lead:
             return {"success": False, "error": "Lead not found"}
+        changed_fields = []
         for key, value in data.items():
             if hasattr(lead, key) and key not in ("lead_id", "created_at"):
                 setattr(lead, key, value)
+                changed_fields.append(key)
         await lead_manager.update_lead(lead)
+        log_admin_action(
+            actor=_audit_actor(request),
+            action="lead.update",
+            target_type="lead",
+            target_id=str(lead_id),
+            details={"fields": sorted(changed_fields)},
+            request=request,
+        )
         return {"success": True, "message": "Lead updated"}
     except Exception as e:
         struct_logger.error("Lead update failed", error=str(e))
@@ -5259,6 +5339,18 @@ async def create_crm_task(request: Request):
         "updated_at": now,
     }
     _save_crm_task(task)
+    log_admin_action(
+        actor=_audit_actor(request),
+        action="crm_task.create",
+        target_type="crm_task",
+        target_id=task_id,
+        details={
+            "priority": priority,
+            "related_lead": task["related_lead"] or None,
+            "related_deal": task["related_deal"] or None,
+        },
+        request=request,
+    )
     return {"success": True, "task": _serialize_crm_task(task)}
 
 
@@ -5303,6 +5395,14 @@ async def update_crm_task(task_id: str, request: Request):
             task["priority"] = priority
     task["updated_at"] = datetime.now(UTC).isoformat()
     _save_crm_task(task)
+    log_admin_action(
+        actor=_audit_actor(request),
+        action="crm_task.update",
+        target_type="crm_task",
+        target_id=task_id,
+        details={"fields": sorted(k for k in data if isinstance(k, str))},
+        request=request,
+    )
     return {"success": True, "task": _serialize_crm_task(task)}
 
 
@@ -5321,6 +5421,24 @@ async def send_email_api(request: Request):
 
         result = send_custom_email(
             to=to, customer_name=customer_name, subject=subject, message=message
+        )
+        # Audit the send WITHOUT recording the recipient address, subject, or
+        # body (all potential PII). A salted-free SHA256 prefix of the lowercased
+        # recipient lets us correlate repeated sends to the same address for
+        # abuse review without ever persisting the address itself.
+        recipient_fp = hashlib.sha256(to.lower().encode("utf-8")).hexdigest()[:12]
+        log_admin_action(
+            actor=_audit_actor(request),
+            action="email.send",
+            target_type="email",
+            target_id=recipient_fp,
+            details={
+                "recipient_fingerprint": recipient_fp,
+                "subject_len": len(subject),
+                "message_len": len(message),
+                "delivered": bool(result.get("success")) if isinstance(result, dict) else None,
+            },
+            request=request,
         )
         return result
     except Exception as e:
@@ -6523,6 +6641,15 @@ async def v1_create_customer(request: Request):
 
     try:
         created_id = _db.create_customer(customer, doc_id=customer_id)
+        partner_fp = _partner_api_key_fingerprint(_extract_partner_api_key(request))
+        log_admin_action(
+            actor=f"partner:{partner_fp}",
+            action="customer.create",
+            target_type="customer",
+            target_id=str(created_id),
+            details={"status": status, "via": "partner_api", "legacy_source": customer["legacy_source"]},
+            request=request,
+        )
         return {"id": created_id}
     except Exception as e:
         struct_logger.error("Partner API customer create failed", error=str(e))
