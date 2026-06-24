@@ -267,22 +267,38 @@ const moneyString = value => (
 );
 
 // ── Escrow derivations (Mark Willcott spec, 2026-06-24) ──
-// Mirror the backend math in tools/document_engine.py::_compute_fields so the
-// staff sees the same monthly escrow values the generated documents will carry.
-// Monthly INS escrow = annual_insurance / 12.
+// Mirror the backend math in tools/document_quality.py::enrich_document_data so
+// the staff sees the same escrow values the generated "Important Notice -
+// Property Tax" form (Internal_ImportantNoticeTax.pdf) will carry. These feed
+// the EXISTING field_map keys: insurance_premium_monthly, escrow_value,
+// tax_escrow_pct, tax_escrow_yearly, tax_escrow_payment.
+// Monthly INS escrow (insurance_premium_monthly) = annual_insurance / 12.
 export const insuranceEscrowMonthly = f => {
   const annual = numericMoney(f.annual_insurance);
   return Number.isFinite(annual) ? (annual / 12).toFixed(2) : '';
 };
-// Monthly tax escrow = ((tax_rate / 100) * taxable_value) / 12, where
-// taxable_value defaults to sales_price when not supplied.
+// The taxable value the tax escrow is computed against: explicit taxable_value,
+// else the sales price (escrow_value on the form).
+const escrowTaxableValue = f => {
+  const explicit = numericMoney(f.taxable_value);
+  if (Number.isFinite(explicit)) return explicit;
+  const sales = numericMoney(f.sales_price);
+  return Number.isFinite(sales) ? sales : undefined;
+};
+// Annual tax (tax_escrow_yearly) = (tax_rate / 100) * taxable_value.
+export const taxEscrowYearly = f => {
+  const rate = numericMoney(f.tax_rate);
+  if (!Number.isFinite(rate)) return '';
+  const taxable = escrowTaxableValue(f);
+  if (taxable === undefined) return '';
+  return ((rate / 100) * taxable).toFixed(2);
+};
+// Monthly tax escrow (tax_escrow_payment) = annual tax / 12.
 export const taxEscrowMonthly = f => {
   const rate = numericMoney(f.tax_rate);
   if (!Number.isFinite(rate)) return '';
-  const taxable = Number.isFinite(numericMoney(f.taxable_value))
-    ? numericMoney(f.taxable_value)
-    : numericMoney(f.sales_price);
-  if (!Number.isFinite(taxable)) return '';
+  const taxable = escrowTaxableValue(f);
+  if (taxable === undefined) return '';
   return (((rate / 100) * taxable) / 12).toFixed(2);
 };
 
@@ -694,14 +710,26 @@ function toDocumentData(f) {
     serial_label_combined: serialLabelCombined,
     unpaid_balance: hasValue(f.unpaid_balance) ? f.unpaid_balance : moneyString(financedAmount),
     total_unpaid_balance: hasValue(f.total_unpaid_balance) ? f.total_unpaid_balance : moneyString(financedAmount),
-    // Monthly escrow amounts (Mark Willcott spec, 2026-06-24). Sent so the
+    // Escrow amounts (Mark Willcott spec, 2026-06-24) mapped to the EXISTING
+    // field_map keys for the "Important Notice - Property Tax" form. Sent so the
     // generated documents carry what staff saw; the backend recomputes via
-    // setdefault if absent, so these stay consistent either way.
-    insurance_escrow_monthly: hasValue(f.insurance_escrow_monthly)
-      ? f.insurance_escrow_monthly
+    // setdefault if absent, so these stay consistent either way. Raw inputs
+    // (annual_insurance / tax_rate / taxable_value) are forwarded by the spread
+    // above so the backend can re-derive if these are stripped.
+    insurance_premium_monthly: hasValue(f.insurance_premium_monthly)
+      ? f.insurance_premium_monthly
       : (insuranceEscrowMonthly(f) || undefined),
-    tax_escrow_monthly: hasValue(f.tax_escrow_monthly)
-      ? f.tax_escrow_monthly
+    escrow_value: hasValue(f.escrow_value)
+      ? f.escrow_value
+      : (hasValue(f.taxable_value) ? f.taxable_value : (hasValue(f.tax_rate) ? f.sales_price : undefined)),
+    tax_escrow_pct: hasValue(f.tax_escrow_pct)
+      ? f.tax_escrow_pct
+      : (hasValue(f.tax_rate) ? f.tax_rate : undefined),
+    tax_escrow_yearly: hasValue(f.tax_escrow_yearly)
+      ? f.tax_escrow_yearly
+      : (taxEscrowYearly(f) || undefined),
+    tax_escrow_payment: hasValue(f.tax_escrow_payment)
+      ? f.tax_escrow_payment
       : (taxEscrowMonthly(f) || undefined),
     max_financed: hasValue(f.max_financed) ? f.max_financed : moneyString(financedAmount),
     interest_rate: hasValue(f.interest_rate) ? f.interest_rate : f.apr,

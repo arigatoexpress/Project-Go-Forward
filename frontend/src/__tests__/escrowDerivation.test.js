@@ -2,12 +2,17 @@ import { describe, it, expect } from 'vitest';
 import {
   insuranceEscrowMonthly,
   taxEscrowMonthly,
+  taxEscrowYearly,
 } from '../pages/DocumentCenter';
 
-// Mirrors the backend math in tools/document_engine.py::_compute_fields.
+// Mirrors the backend math in tools/document_quality.py::enrich_document_data.
+// These feed the EXISTING field_map keys on the "Important Notice - Property
+// Tax" form (Internal_ImportantNoticeTax.pdf): insurance_premium_monthly,
+// escrow_value, tax_escrow_pct, tax_escrow_yearly, tax_escrow_payment.
 // Spec (Mark Willcott, 2026-06-24):
-//   monthly INS escrow = annual_insurance / 12
-//   monthly tax escrow = ((tax_rate/100) * taxable_value) / 12
+//   insurance_premium_monthly = annual_insurance / 12
+//   tax_escrow_yearly         = (tax_rate/100) * taxable_value   (annual tax)
+//   tax_escrow_payment        = tax_escrow_yearly / 12           (monthly)
 //   taxable_value defaults to sales_price when blank.
 
 describe('insuranceEscrowMonthly', () => {
@@ -62,5 +67,33 @@ describe('taxEscrowMonthly', () => {
 
   it('returns empty string when a rate is set but no value is available', () => {
     expect(taxEscrowMonthly({ tax_rate: '2.0' })).toBe('');
+  });
+});
+
+describe('taxEscrowYearly (annual tax -> tax_escrow_yearly)', () => {
+  it('computes (rate/100) * explicit taxable value', () => {
+    expect(taxEscrowYearly({ tax_rate: '2.5', taxable_value: '100000' })).toBe('2500.00');
+  });
+
+  it('defaults the taxable value to the sales price', () => {
+    expect(taxEscrowYearly({ tax_rate: '1.8', sales_price: '120000' })).toBe('2160.00');
+  });
+
+  it('is exactly 12x the monthly tax escrow payment', () => {
+    const f = { tax_rate: '2.5', taxable_value: '100000' };
+    expect(taxEscrowYearly(f)).toBe('2500.00');
+    expect(taxEscrowMonthly(f)).toBe('208.33'); // 2500 / 12 rounded
+  });
+
+  it('treats a zero rate as 0.00', () => {
+    expect(taxEscrowYearly({ tax_rate: '0', sales_price: '100000' })).toBe('0.00');
+  });
+
+  it('returns empty string when no rate is entered', () => {
+    expect(taxEscrowYearly({ sales_price: '100000' })).toBe('');
+  });
+
+  it('returns empty string when a rate is set but no value is available', () => {
+    expect(taxEscrowYearly({ tax_rate: '2.0' })).toBe('');
   });
 });

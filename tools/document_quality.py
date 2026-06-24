@@ -700,6 +700,43 @@ def enrich_document_data(data: dict[str, Any]) -> dict[str, Any]:
                 f"{loan_term} monthly payments of ${_money(monthly_payment)}"
             )
 
+    # ─── Tax + insurance escrow (Mark Willcott spec, 2026-06-24) ───
+    # Renders on the "Important Notice - Property Tax" notice
+    # (Internal_ImportantNoticeTax.pdf — the SB 521 personal-property-tax escrow
+    # notice, punch-list page 22) via its EXISTING field_map keys. Staff enter
+    # the annual insurance premium, a tax rate (%), and an optional taxable value
+    # (defaults to the sales price). All amounts are written with setdefault so a
+    # caller-supplied / manual override is never clobbered.
+    #   insurance_premium_monthly = annual_insurance / 12
+    #   escrow_value              = taxable_value (or sales_price)
+    #   tax_escrow_pct            = the entered tax rate (percent)
+    #   tax_escrow_yearly         = (tax_rate / 100) * escrow_value   (annual tax)
+    #   tax_escrow_payment        = tax_escrow_yearly / 12            (monthly)
+    annual_insurance = _decimal(enriched.get("annual_insurance"))
+    if annual_insurance is not None and _is_blank(enriched.get("insurance_premium_monthly")):
+        enriched["insurance_premium_monthly"] = _money(
+            _round_money(annual_insurance / Decimal("12"))
+        )
+
+    tax_rate = _decimal(enriched.get("tax_rate"))
+    if tax_rate is not None:
+        escrow_value = _decimal(enriched.get("taxable_value"))
+        if escrow_value is None:
+            escrow_value = sales_price  # may be None if neither was provided
+        if escrow_value is not None:
+            if _is_blank(enriched.get("escrow_value")):
+                enriched["escrow_value"] = _money(escrow_value)
+            if _is_blank(enriched.get("tax_escrow_pct")):
+                # Render the percent as the staff typed it (trim trailing zeros).
+                enriched["tax_escrow_pct"] = str(tax_rate.normalize())
+            annual_tax = _round_money((tax_rate / Decimal("100")) * escrow_value)
+            if _is_blank(enriched.get("tax_escrow_yearly")):
+                enriched["tax_escrow_yearly"] = _money(annual_tax)
+            if _is_blank(enriched.get("tax_escrow_payment")):
+                enriched["tax_escrow_payment"] = _money(
+                    _round_money(annual_tax / Decimal("12"))
+                )
+
     return enriched
 
 

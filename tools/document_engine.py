@@ -721,27 +721,33 @@ def _compute_fields(data: dict[str, Any]):
         data.setdefault("unpaid_balance", str(sales_price - down_payment))
         data.setdefault("total_unpaid_balance", str(sales_price - down_payment))
 
-    # ─── Escrow derivations (Mark Willcott spec, 2026-06-24) ───
-    # Insurance: staff enters the ANNUAL premium; monthly INS escrow = annual / 12.
+    # ─── Tax + insurance escrow (Mark Willcott spec, 2026-06-24) ───
+    # Populates the EXISTING field_map keys that wire to the real "Important
+    # Notice - Property Tax" form (Internal_ImportantNoticeTax.pdf, the SB 521
+    # personal-property-tax escrow notice). The canonical derivation lives in
+    # tools.document_quality.enrich_document_data (the live v2 + deal path); this
+    # mirrors it for the legacy v1 engine path so both agree.
+    #   insurance_premium_monthly = annual_insurance / 12
+    #   escrow_value              = taxable_value (or sales_price)
+    #   tax_escrow_pct            = the entered tax rate (percent)
+    #   tax_escrow_yearly         = (tax_rate / 100) * escrow_value  (annual tax)
+    #   tax_escrow_payment        = tax_escrow_yearly / 12           (monthly)
     annual_insurance = _to_float(data.get("annual_insurance"))
     if annual_insurance is not None:
-        data.setdefault("insurance_escrow_monthly", f"{annual_insurance / 12:.2f}")
+        data.setdefault("insurance_premium_monthly", f"{annual_insurance / 12:,.2f}")
 
-    # Tax: staff enters a TAX RATE (percent) and a taxable value
-    # (default = sales_price when not supplied). annual_tax = (rate/100) * value;
-    # monthly tax escrow = annual_tax / 12.
     tax_rate = _to_float(data.get("tax_rate"))
     if tax_rate is not None:
-        taxable_value = _to_float(data.get("taxable_value"))
-        if taxable_value is None:
-            taxable_value = sales_price  # may be None if neither was provided
-        if taxable_value is not None:
-            annual_tax = (tax_rate / 100.0) * taxable_value
-            data.setdefault("tax_escrow_monthly", f"{annual_tax / 12:.2f}")
-    # TODO(escrow-pdf-mapping): Once Mark provides the actual escrow form
-    # ("Adobe Scan Jun 24, 2026.pdf"), map insurance_escrow_monthly /
-    # tax_escrow_monthly to the correct PDF field names in
-    # config/field_map.json. Do NOT guess field names against an unseen form.
+        escrow_value = _to_float(data.get("taxable_value"))
+        if escrow_value is None:
+            escrow_value = sales_price  # may be None if neither was provided
+        if escrow_value is not None:
+            data.setdefault("escrow_value", f"{escrow_value:,.2f}")
+            # Render the percent as the staff typed it (drop a trailing ".0").
+            data.setdefault("tax_escrow_pct", _format_percent(tax_rate))
+            annual_tax = (tax_rate / 100.0) * escrow_value
+            data.setdefault("tax_escrow_yearly", f"{annual_tax:,.2f}")
+            data.setdefault("tax_escrow_payment", f"{annual_tax / 12:,.2f}")
 
     # buyer_city_state_zip
     city = data.get("buyer_city", "")
@@ -780,3 +786,10 @@ def _to_float(value: Any) -> float | None:
         return float(str(value).replace(",", "").replace("$", ""))
     except (ValueError, TypeError):
         return None
+
+
+def _format_percent(value: float) -> str:
+    """Render a tax rate percent without a trailing ``.0`` (2.5 -> "2.5", 2.0 -> "2")."""
+    if value == int(value):
+        return str(int(value))
+    return f"{value:g}"
