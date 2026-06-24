@@ -37,7 +37,12 @@ const Warranty = lazy(() => import('./pages/Warranty'));
 const Delivery = lazy(() => import('./pages/Delivery'));
 const PhotoManager = lazy(() => import('./pages/PhotoManager'));
 const InventoryManager = lazy(() => import('./pages/InventoryManager'));
-const ADMIN_PIN_LENGTH = 8;
+// Max characters the admin PIN box accepts. The configured backend PIN may be a
+// long alphanumeric secret, so the input must NOT strip non-digits or cap short —
+// doing so (an old 8-digit-only cap) locked everyone out of the admin UI. Cap only
+// at a generous upper bound so an over-long secret is still flagged
+// (see scripts/generate_admin_pin_hash.py).
+const ADMIN_PIN_MAXLEN = 64;
 const ADMIN_PAGE_KEYS = new Set(['analytics', 'crm', 'chat-history', 'documents', 'adstudio', 'system', 'getting-started', 'photos', 'manage-inventory']);
 
 // Page loading fallback with skeleton
@@ -835,7 +840,7 @@ function App() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
-        body: JSON.stringify({ pin: pinInput }),
+        body: JSON.stringify({ pin: pinInput.trim() }),
       });
       const data = await res.json();
       if (data.success) {
@@ -972,13 +977,13 @@ function App() {
         <form onSubmit={handlePinSubmit}>
           <input
             type="password"
-            inputMode="numeric"
-            maxLength={ADMIN_PIN_LENGTH}
+            inputMode="text"
+            maxLength={ADMIN_PIN_MAXLEN}
             autoComplete="current-password"
             value={pinInput}
-            onChange={(e) => { setPinInput(e.target.value.replace(/\D/g, '').slice(0, ADMIN_PIN_LENGTH)); setPinError(''); setPasskeyError(''); }}
-            placeholder="• • • • • • • •"
-            className="cp-input w-full px-4 py-3 text-center text-xl tracking-[0.3em]"
+            onChange={(e) => { setPinInput(e.target.value.slice(0, ADMIN_PIN_MAXLEN)); setPinError(''); setPasskeyError(''); }}
+            placeholder="Enter admin PIN"
+            className="cp-input w-full px-4 py-3 text-center text-lg tracking-[0.15em]"
             autoFocus
             aria-label="Admin PIN"
           />

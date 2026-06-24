@@ -25,6 +25,10 @@ import sys
 # Interactive-tier scrypt parameters (~16 MB, tens of ms server-side).
 N, R, P, DKLEN = 16384, 8, 1, 32
 
+# Must match ADMIN_PIN_MAXLEN in frontend/src/App.jsx: the admin login box caps
+# input at this many characters, so a longer PIN cannot be typed/pasted to log in.
+ADMIN_PIN_MAXLEN = 64
+
 
 def make_hash(pin: str) -> str:
     """Return a ``scrypt$n$r$p$salt_b64$dk_b64`` hash string for ``pin``."""
@@ -42,6 +46,15 @@ def main() -> int:
     if not pin:
         print("PIN must not be empty", file=sys.stderr)
         return 1
+    if len(pin) > ADMIN_PIN_MAXLEN:
+        # Don't echo the PIN — just warn about the length so the operator knows
+        # this secret won't fit the admin login box (which caps at ADMIN_PIN_MAXLEN).
+        print(
+            f"WARNING: PIN is {len(pin)} characters; the admin login box only accepts "
+            f"up to {ADMIN_PIN_MAXLEN} and will not let anyone type/paste it to log in. "
+            "Choose a shorter PIN.",
+            file=sys.stderr,
+        )
     print(make_hash(pin))
     return 0
 
