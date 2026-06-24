@@ -79,6 +79,9 @@ const INITIAL_FORM = {
   seller_rbi: BUSINESS_LICENSE,
   // Financial
   sales_price: '', down_payment: '',
+  // Escrow inputs (Mark Willcott spec, 2026-06-24): annual insurance premium,
+  // tax rate (%), and optional taxable value (defaults to sales price).
+  annual_insurance: '', tax_rate: '', taxable_value: '',
   creditor_name: '', creditor_phone: '', creditor_address: '', creditor_city_state_zip: '',
   loan_term: '', apr: '', finance_charge: '', max_financed: '',
   monthly_payment: '', total_payments: '', payment_start_date: '', insurance_premium: '',
@@ -262,6 +265,42 @@ const numericMoney = value => {
 const moneyString = value => (
   Number.isFinite(value) ? value.toFixed(2) : undefined
 );
+
+// ── Escrow derivations (Mark Willcott spec, 2026-06-24) ──
+// Mirror the backend math in tools/document_quality.py::enrich_document_data so
+// the staff sees the same escrow values the generated "Important Notice -
+// Property Tax" form (Internal_ImportantNoticeTax.pdf) will carry. These feed
+// the EXISTING field_map keys: insurance_premium_monthly, escrow_value,
+// tax_escrow_pct, tax_escrow_yearly, tax_escrow_payment.
+// Monthly INS escrow (insurance_premium_monthly) = annual_insurance / 12.
+export const insuranceEscrowMonthly = f => {
+  const annual = numericMoney(f.annual_insurance);
+  return Number.isFinite(annual) ? (annual / 12).toFixed(2) : '';
+};
+// The taxable value the tax escrow is computed against: explicit taxable_value,
+// else the sales price (escrow_value on the form).
+const escrowTaxableValue = f => {
+  const explicit = numericMoney(f.taxable_value);
+  if (Number.isFinite(explicit)) return explicit;
+  const sales = numericMoney(f.sales_price);
+  return Number.isFinite(sales) ? sales : undefined;
+};
+// Annual tax (tax_escrow_yearly) = (tax_rate / 100) * taxable_value.
+export const taxEscrowYearly = f => {
+  const rate = numericMoney(f.tax_rate);
+  if (!Number.isFinite(rate)) return '';
+  const taxable = escrowTaxableValue(f);
+  if (taxable === undefined) return '';
+  return ((rate / 100) * taxable).toFixed(2);
+};
+// Monthly tax escrow (tax_escrow_payment) = annual tax / 12.
+export const taxEscrowMonthly = f => {
+  const rate = numericMoney(f.tax_rate);
+  if (!Number.isFinite(rate)) return '';
+  const taxable = escrowTaxableValue(f);
+  if (taxable === undefined) return '';
+  return (((rate / 100) * taxable) / 12).toFixed(2);
+};
 
 const normalizeSections = value => {
   if (!hasValue(value)) return '';
@@ -671,6 +710,27 @@ function toDocumentData(f) {
     serial_label_combined: serialLabelCombined,
     unpaid_balance: hasValue(f.unpaid_balance) ? f.unpaid_balance : moneyString(financedAmount),
     total_unpaid_balance: hasValue(f.total_unpaid_balance) ? f.total_unpaid_balance : moneyString(financedAmount),
+    // Escrow amounts (Mark Willcott spec, 2026-06-24) mapped to the EXISTING
+    // field_map keys for the "Important Notice - Property Tax" form. Sent so the
+    // generated documents carry what staff saw; the backend recomputes via
+    // setdefault if absent, so these stay consistent either way. Raw inputs
+    // (annual_insurance / tax_rate / taxable_value) are forwarded by the spread
+    // above so the backend can re-derive if these are stripped.
+    insurance_premium_monthly: hasValue(f.insurance_premium_monthly)
+      ? f.insurance_premium_monthly
+      : (insuranceEscrowMonthly(f) || undefined),
+    escrow_value: hasValue(f.escrow_value)
+      ? f.escrow_value
+      : (hasValue(f.taxable_value) ? f.taxable_value : (hasValue(f.tax_rate) ? f.sales_price : undefined)),
+    tax_escrow_pct: hasValue(f.tax_escrow_pct)
+      ? f.tax_escrow_pct
+      : (hasValue(f.tax_rate) ? f.tax_rate : undefined),
+    tax_escrow_yearly: hasValue(f.tax_escrow_yearly)
+      ? f.tax_escrow_yearly
+      : (taxEscrowYearly(f) || undefined),
+    tax_escrow_payment: hasValue(f.tax_escrow_payment)
+      ? f.tax_escrow_payment
+      : (taxEscrowMonthly(f) || undefined),
     max_financed: hasValue(f.max_financed) ? f.max_financed : moneyString(financedAmount),
     interest_rate: hasValue(f.interest_rate) ? f.interest_rate : f.apr,
     total_monthly_payment: hasValue(f.total_monthly_payment) ? f.total_monthly_payment : f.monthly_payment,
@@ -911,7 +971,7 @@ function Row({ children }) {
   return <div className="flex flex-wrap -mx-2">{children}</div>;
 }
 
-function SelectField({ label, name, value, onChange, options, half, third, icon: Icon, resetKey }) {
+function SelectField({ label, name, value, onChange, options, half, third, icon: Icon, resetKey, helperText }) {
   const widthClass = third ? 'w-full sm:w-1/3' : half ? 'w-full sm:w-1/2' : 'w-full';
   return (
     <div className={`${widthClass} px-2 mb-4`}>
@@ -930,6 +990,11 @@ function SelectField({ label, name, value, onChange, options, half, third, icon:
           ))}
         </select>
       </div>
+      {helperText && (
+        <p data-testid={`helper-${name}`} className="mt-1 text-xs text-gray-500 italic">
+          {helperText}
+        </p>
+      )}
     </div>
   );
 }
@@ -1623,6 +1688,7 @@ function Step1({ data, onChange, onLoadCustomer, resetKey, deals, dealsLoading, 
             resetKey={resetKey}
             third
             options={MARITAL_STATUS_OPTIONS}
+            helperText="Mark review (2026-06-24): do we still need this field? Now a Married/Unmarried dropdown."
           />
         </Row>
       </Section>
@@ -2409,6 +2475,65 @@ function Step2({ data, onChange, resetKey, inventory, inventoryLoading, onNext, 
             label="Unpaid Balance"
             name="_ub"
             value={data.sales_price ? (parseFloat(data.sales_price) - parseFloat(data.down_payment || 0)).toFixed(2) : ''}
+            onChange={() => { }}
+            third
+            readOnly
+            icon={DollarSign}
+          />
+        </Row>
+        {/* Escrow (Mark Willcott spec, 2026-06-24). Staff enters the annual
+            insurance premium, a tax rate (%), and an optional taxable value
+            (defaults to the sales price). The monthly escrow amounts below are
+            derived read-only values, mirroring the backend computation in
+            tools/document_engine.py::_compute_fields. */}
+        <Row>
+          <Field
+            label="Annual Insurance Premium"
+            name="annual_insurance"
+            value={data.annual_insurance}
+            onChange={c}
+            resetKey={resetKey}
+            third
+            type="currency"
+            icon={DollarSign}
+            helperText="Annual premium. Divided by 12 for the monthly INS escrow."
+          />
+          <Field
+            label="Tax Rate (%)"
+            name="tax_rate"
+            value={data.tax_rate}
+            onChange={c}
+            resetKey={resetKey}
+            third
+            icon={Hash}
+            helperText="Applied to taxable value, then divided by 12 for monthly tax escrow."
+          />
+          <Field
+            label="Taxable Value"
+            name="taxable_value"
+            value={data.taxable_value}
+            onChange={c}
+            resetKey={resetKey}
+            third
+            type="currency"
+            icon={DollarSign}
+            helperText="Optional — defaults to sales price if left blank."
+          />
+        </Row>
+        <Row>
+          <Field
+            label="Monthly INS Escrow"
+            name="_ins_escrow"
+            value={insuranceEscrowMonthly(data)}
+            onChange={() => { }}
+            third
+            readOnly
+            icon={DollarSign}
+          />
+          <Field
+            label="Monthly Tax Escrow"
+            name="_tax_escrow"
+            value={taxEscrowMonthly(data)}
             onChange={() => { }}
             third
             readOnly

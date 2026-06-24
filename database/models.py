@@ -284,13 +284,15 @@ class Deal(BaseModel):
     buyer_phone: str | None = None
     buyer_email: str | None = None
     buyer_ssn: str | None = None
-    buyer_marital_status: str | None = None  # "Married", "Single", "Divorced", "Widowed"
+    buyer_dob: str | None = None  # ISO date; maps to Buyer_DOB on creditapp / homestead / patriot-act (PII)
+    buyer_marital_status: str | None = None  # "Married" / "Unmarried" (Mark Willcott: idiot-proof dropdown)
 
     # ─── Co-Buyer ───
     co_buyer_first_name: str | None = None
     co_buyer_last_name: str | None = None
     co_buyer_phone: str | None = None
     co_buyer_ssn: str | None = None
+    co_buyer_dob: str | None = None  # "Co-buyer has no birthday" (Mark Willcott markup) — mirror buyer_dob (PII)
     co_buyer_marital_status: str | None = None
 
     # ─── Employment (Buyer) ───
@@ -351,11 +353,26 @@ class Deal(BaseModel):
     sales_price: float | None = Field(default=None, ge=0)
     down_payment: float | None = Field(default=None, ge=0)
 
+    # ─── Escrow inputs (Mark Willcott spec, 2026-06-24) ───
+    # Staff enters the ANNUAL insurance premium; monthly INS escrow = annual / 12.
+    annual_insurance: float | None = Field(default=None, ge=0)
+    # Tax rate as a percent (e.g. 2.5 for 2.5%); taxable_value defaults to
+    # sales_price when omitted. annual tax = (tax_rate/100) * taxable_value;
+    # monthly tax escrow = annual tax / 12. Escrow amounts are derived onto the
+    # real field_map keys in tools.document_quality.enrich_document_data
+    # (mirrored in tools.document_engine._compute_fields for the legacy path).
+    tax_rate: float | None = Field(default=None, ge=0)
+    taxable_value: float | None = Field(default=None, ge=0)
+
     # ─── Financing / Loan ───
     creditor_name: str | None = None
     creditor_address: str | None = None
     creditor_city_state_zip: str | None = None
     creditor_phone: str | None = None
+    # Loan number (Mark Willcott markup, punch-list #8/#9). Feeds the Compliance
+    # Agreement + two-party contract via the Portfolio[0] widget; enrich backfills
+    # portfolio from loan_number.
+    loan_number: str | None = None
     loan_term: str | None = None
     apr: str | None = None
     finance_charge: float | None = Field(default=None, ge=0)
@@ -474,6 +491,7 @@ class Deal(BaseModel):
             "buyer_phone": self.buyer_phone,
             "buyer_email": self.buyer_email,
             "buyer_ssn": self.buyer_ssn,
+            "buyer_dob": self.buyer_dob,
             "buyer_marital_status": self.buyer_marital_status,
             # ─── Co-Buyer ───
             "co_buyer_name": co_buyer_name,
@@ -481,6 +499,7 @@ class Deal(BaseModel):
             "co_buyer_last_name": self.co_buyer_last_name,
             "co_buyer_phone": self.co_buyer_phone,
             "co_buyer_ssn": self.co_buyer_ssn,
+            "co_buyer_dob": self.co_buyer_dob,
             "co_buyer_marital_status": self.co_buyer_marital_status,
             # ─── Employment (Buyer) ───
             "employer_name": self.employer_name,
@@ -547,11 +566,16 @@ class Deal(BaseModel):
             "down_payment": self.down_payment,
             "unpaid_balance": unpaid_balance,
             "total_unpaid_balance": unpaid_balance,
+            # ─── Escrow inputs (monthly escrow derived in document_engine) ───
+            "annual_insurance": self.annual_insurance,
+            "tax_rate": self.tax_rate,
+            "taxable_value": self.taxable_value,
             # ─── Financing ───
             "creditor_name": self.creditor_name,
             "creditor_address": self.creditor_address,
             "creditor_city_state_zip": self.creditor_city_state_zip,
             "creditor_phone": self.creditor_phone,
+            "loan_number": self.loan_number,
             "loan_term": self.loan_term,
             "apr": self.apr,
             "interest_rate": self.apr,  # alias
