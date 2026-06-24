@@ -79,6 +79,9 @@ const INITIAL_FORM = {
   seller_rbi: BUSINESS_LICENSE,
   // Financial
   sales_price: '', down_payment: '',
+  // Escrow inputs (Mark Willcott spec, 2026-06-24): annual insurance premium,
+  // tax rate (%), and optional taxable value (defaults to sales price).
+  annual_insurance: '', tax_rate: '', taxable_value: '',
   creditor_name: '', creditor_phone: '', creditor_address: '', creditor_city_state_zip: '',
   loan_term: '', apr: '', finance_charge: '', max_financed: '',
   monthly_payment: '', total_payments: '', payment_start_date: '', insurance_premium: '',
@@ -262,6 +265,26 @@ const numericMoney = value => {
 const moneyString = value => (
   Number.isFinite(value) ? value.toFixed(2) : undefined
 );
+
+// ── Escrow derivations (Mark Willcott spec, 2026-06-24) ──
+// Mirror the backend math in tools/document_engine.py::_compute_fields so the
+// staff sees the same monthly escrow values the generated documents will carry.
+// Monthly INS escrow = annual_insurance / 12.
+export const insuranceEscrowMonthly = f => {
+  const annual = numericMoney(f.annual_insurance);
+  return Number.isFinite(annual) ? (annual / 12).toFixed(2) : '';
+};
+// Monthly tax escrow = ((tax_rate / 100) * taxable_value) / 12, where
+// taxable_value defaults to sales_price when not supplied.
+export const taxEscrowMonthly = f => {
+  const rate = numericMoney(f.tax_rate);
+  if (!Number.isFinite(rate)) return '';
+  const taxable = Number.isFinite(numericMoney(f.taxable_value))
+    ? numericMoney(f.taxable_value)
+    : numericMoney(f.sales_price);
+  if (!Number.isFinite(taxable)) return '';
+  return (((rate / 100) * taxable) / 12).toFixed(2);
+};
 
 const normalizeSections = value => {
   if (!hasValue(value)) return '';
@@ -671,6 +694,15 @@ function toDocumentData(f) {
     serial_label_combined: serialLabelCombined,
     unpaid_balance: hasValue(f.unpaid_balance) ? f.unpaid_balance : moneyString(financedAmount),
     total_unpaid_balance: hasValue(f.total_unpaid_balance) ? f.total_unpaid_balance : moneyString(financedAmount),
+    // Monthly escrow amounts (Mark Willcott spec, 2026-06-24). Sent so the
+    // generated documents carry what staff saw; the backend recomputes via
+    // setdefault if absent, so these stay consistent either way.
+    insurance_escrow_monthly: hasValue(f.insurance_escrow_monthly)
+      ? f.insurance_escrow_monthly
+      : (insuranceEscrowMonthly(f) || undefined),
+    tax_escrow_monthly: hasValue(f.tax_escrow_monthly)
+      ? f.tax_escrow_monthly
+      : (taxEscrowMonthly(f) || undefined),
     max_financed: hasValue(f.max_financed) ? f.max_financed : moneyString(financedAmount),
     interest_rate: hasValue(f.interest_rate) ? f.interest_rate : f.apr,
     total_monthly_payment: hasValue(f.total_monthly_payment) ? f.total_monthly_payment : f.monthly_payment,
@@ -2409,6 +2441,65 @@ function Step2({ data, onChange, resetKey, inventory, inventoryLoading, onNext, 
             label="Unpaid Balance"
             name="_ub"
             value={data.sales_price ? (parseFloat(data.sales_price) - parseFloat(data.down_payment || 0)).toFixed(2) : ''}
+            onChange={() => { }}
+            third
+            readOnly
+            icon={DollarSign}
+          />
+        </Row>
+        {/* Escrow (Mark Willcott spec, 2026-06-24). Staff enters the annual
+            insurance premium, a tax rate (%), and an optional taxable value
+            (defaults to the sales price). The monthly escrow amounts below are
+            derived read-only values, mirroring the backend computation in
+            tools/document_engine.py::_compute_fields. */}
+        <Row>
+          <Field
+            label="Annual Insurance Premium"
+            name="annual_insurance"
+            value={data.annual_insurance}
+            onChange={c}
+            resetKey={resetKey}
+            third
+            type="currency"
+            icon={DollarSign}
+            helperText="Annual premium. Divided by 12 for the monthly INS escrow."
+          />
+          <Field
+            label="Tax Rate (%)"
+            name="tax_rate"
+            value={data.tax_rate}
+            onChange={c}
+            resetKey={resetKey}
+            third
+            icon={Hash}
+            helperText="Applied to taxable value, then divided by 12 for monthly tax escrow."
+          />
+          <Field
+            label="Taxable Value"
+            name="taxable_value"
+            value={data.taxable_value}
+            onChange={c}
+            resetKey={resetKey}
+            third
+            type="currency"
+            icon={DollarSign}
+            helperText="Optional — defaults to sales price if left blank."
+          />
+        </Row>
+        <Row>
+          <Field
+            label="Monthly INS Escrow"
+            name="_ins_escrow"
+            value={insuranceEscrowMonthly(data)}
+            onChange={() => { }}
+            third
+            readOnly
+            icon={DollarSign}
+          />
+          <Field
+            label="Monthly Tax Escrow"
+            name="_tax_escrow"
+            value={taxEscrowMonthly(data)}
             onChange={() => { }}
             third
             readOnly

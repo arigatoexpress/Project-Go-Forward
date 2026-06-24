@@ -721,6 +721,28 @@ def _compute_fields(data: dict[str, Any]):
         data.setdefault("unpaid_balance", str(sales_price - down_payment))
         data.setdefault("total_unpaid_balance", str(sales_price - down_payment))
 
+    # ─── Escrow derivations (Mark Willcott spec, 2026-06-24) ───
+    # Insurance: staff enters the ANNUAL premium; monthly INS escrow = annual / 12.
+    annual_insurance = _to_float(data.get("annual_insurance"))
+    if annual_insurance is not None:
+        data.setdefault("insurance_escrow_monthly", f"{annual_insurance / 12:.2f}")
+
+    # Tax: staff enters a TAX RATE (percent) and a taxable value
+    # (default = sales_price when not supplied). annual_tax = (rate/100) * value;
+    # monthly tax escrow = annual_tax / 12.
+    tax_rate = _to_float(data.get("tax_rate"))
+    if tax_rate is not None:
+        taxable_value = _to_float(data.get("taxable_value"))
+        if taxable_value is None:
+            taxable_value = sales_price  # may be None if neither was provided
+        if taxable_value is not None:
+            annual_tax = (tax_rate / 100.0) * taxable_value
+            data.setdefault("tax_escrow_monthly", f"{annual_tax / 12:.2f}")
+    # TODO(escrow-pdf-mapping): Once Mark provides the actual escrow form
+    # ("Adobe Scan Jun 24, 2026.pdf"), map insurance_escrow_monthly /
+    # tax_escrow_monthly to the correct PDF field names in
+    # config/field_map.json. Do NOT guess field names against an unseen form.
+
     # buyer_city_state_zip
     city = data.get("buyer_city", "")
     state = data.get("buyer_state", "TX")

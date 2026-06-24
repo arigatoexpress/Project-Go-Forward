@@ -351,6 +351,16 @@ class Deal(BaseModel):
     sales_price: float | None = Field(default=None, ge=0)
     down_payment: float | None = Field(default=None, ge=0)
 
+    # ─── Escrow inputs (Mark Willcott spec, 2026-06-24) ───
+    # Staff enters the ANNUAL insurance premium; monthly INS escrow = annual / 12.
+    annual_insurance: float | None = Field(default=None, ge=0)
+    # Tax rate as a percent (e.g. 2.5 for 2.5%); taxable_value defaults to
+    # sales_price when omitted. annual tax = (tax_rate/100) * taxable_value;
+    # monthly tax escrow = annual tax / 12. Monthly escrow amounts are derived
+    # in tools.document_engine._compute_fields.
+    tax_rate: float | None = Field(default=None, ge=0)
+    taxable_value: float | None = Field(default=None, ge=0)
+
     # ─── Financing / Loan ───
     creditor_name: str | None = None
     creditor_address: str | None = None
@@ -547,6 +557,10 @@ class Deal(BaseModel):
             "down_payment": self.down_payment,
             "unpaid_balance": unpaid_balance,
             "total_unpaid_balance": unpaid_balance,
+            # ─── Escrow inputs (monthly escrow derived in document_engine) ───
+            "annual_insurance": self.annual_insurance,
+            "tax_rate": self.tax_rate,
+            "taxable_value": self.taxable_value,
             # ─── Financing ───
             "creditor_name": self.creditor_name,
             "creditor_address": self.creditor_address,
