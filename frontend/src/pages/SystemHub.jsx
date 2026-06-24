@@ -237,6 +237,173 @@ function TelemetryFeed() {
   );
 }
 
+
+function LatencyBar({ label, value, max, color }) {
+  const pct = max > 0 ? Math.min((value / max) * 100, 100) : 0;
+  const colorMap = {
+    green: 'bg-emerald-400',
+    blue: 'bg-sky-400',
+    amber: 'bg-amber-400',
+    red: 'bg-rose-400',
+  };
+  return (
+    <div className="space-y-1">
+      <div className="flex justify-between text-xs font-mono">
+        <span className="text-[var(--cp-muted)]">{label}</span>
+        <span className="text-[var(--cp-text)]">{value.toFixed(2)} ms</span>
+      </div>
+      <div className="h-2 w-full rounded-full bg-[var(--cp-bg-2)] overflow-hidden">
+        <div
+          className={`h-full rounded-full ${colorMap[color] || colorMap.blue} transition-all duration-500`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function MetricsPanel() {
+  const [metrics, setMetrics] = useState(null);
+  const [metricsError, setMetricsError] = useState('');
+  const [loading, setLoading] = useState(true);
+
+  const loadMetrics = React.useCallback(async () => {
+    setMetricsError('');
+    try {
+      const response = await adminFetch('/api/metrics');
+      if (response.ok) {
+        const data = await response.json();
+        setMetrics(data);
+      } else if (response.status === 401) {
+        setMetricsError('Session expired — re-authenticate to view metrics');
+      } else {
+        setMetricsError(`Metrics unavailable (${response.status})`);
+      }
+    } catch (_err) {
+      setMetricsError('Could not load metrics');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadMetrics();
+    const iv = setInterval(loadMetrics, 30000); // Refresh every 30s
+    return () => clearInterval(iv);
+  }, [loadMetrics]);
+
+  const overall = metrics?.overall || {};
+  const endpoints = metrics?.endpoints || {};
+  const endpointEntries = Object.entries(endpoints)
+    .sort((a, b) => (b[1].count || 0) - (a[1].count || 0))
+    .slice(0, 10);
+
+  const maxLatency = Math.max(
+    overall.p50 || 0,
+    overall.p95 || 0,
+    overall.p99 || 0,
+    ...endpointEntries.map(([, e]) => Math.max(e.p50 || 0, e.p95 || 0, e.p99 || 0)),
+    1
+  );
+
+  return (
+    <div className="cp-panel p-5">
+      <div className="flex items-center justify-between gap-3 mb-4">
+        <h3 className="font-mono font-semibold text-[var(--cp-text)] flex items-center gap-2">
+          <Activity size={16} className="text-[var(--cp-accent)]" />
+          Performance Metrics
+        </h3>
+        <button
+          className="cp-btn-outline px-2.5 py-1.5 text-xs flex items-center gap-1.5"
+          onClick={loadMetrics}
+          title="Refresh metrics"
+          disabled={loading}
+        >
+          <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
+          Refresh
+        </button>
+      </div>
+
+      {metricsError && (
+        <div className="text-xs text-[var(--cp-danger)] border border-[var(--cp-danger)]/25 bg-[var(--cp-danger-dim)] rounded-md px-3 py-2 mb-3">
+          {metricsError}
+        </div>
+      )}
+
+      {!metrics && !metricsError ? (
+        <div className="flex items-center justify-center py-8">
+          <Loader2 size={20} className="animate-spin text-[var(--cp-accent)]" />
+          <span className="ml-2 text-xs text-[var(--cp-muted)]">Loading metrics…</span>
+        </div>
+      ) : (
+        <div className="space-y-5">
+          {/* Overall stats */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="bg-[var(--cp-bg-2)] rounded-lg p-3 text-center">
+              <div className="text-lg font-mono font-bold text-[var(--cp-text)]">{overall.count ?? '—'}</div>
+              <div className="text-[10px] text-[var(--cp-muted)] uppercase tracking-wider">Requests</div>
+            </div>
+            <div className="bg-[var(--cp-bg-2)] rounded-lg p-3 text-center">
+              <div className="text-lg font-mono font-bold text-emerald-400">{overall.p50 ? `${overall.p50.toFixed(1)} ms` : '—'}</div>
+              <div className="text-[10px] text-[var(--cp-muted)] uppercase tracking-wider">p50 Latency</div>
+            </div>
+            <div className="bg-[var(--cp-bg-2)] rounded-lg p-3 text-center">
+              <div className="text-lg font-mono font-bold text-sky-400">{overall.p95 ? `${overall.p95.toFixed(1)} ms` : '—'}</div>
+              <div className="text-[10px] text-[var(--cp-muted)] uppercase tracking-wider">p95 Latency</div>
+            </div>
+            <div className="bg-[var(--cp-bg-2)] rounded-lg p-3 text-center">
+              <div className={`text-lg font-mono font-bold ${(overall.error_rate || 0) > 0.05 ? 'text-rose-400' : 'text-emerald-400'}`}>
+                {overall.error_rate !== undefined ? `${(overall.error_rate * 100).toFixed(1)}%` : '—'}
+              </div>
+              <div className="text-[10px] text-[var(--cp-muted)] uppercase tracking-wider">Error Rate</div>
+            </div>
+          </div>
+
+          {/* Latency distribution bars */}
+          {overall.p50 !== null && (
+            <div className="space-y-2">
+              <h4 className="text-xs font-mono font-semibold text-[var(--cp-muted)] uppercase tracking-wider">Overall Latency Distribution</h4>
+              <LatencyBar label="p50 (median)" value={overall.p50} max={maxLatency} color="green" />
+              <LatencyBar label="p95" value={overall.p95} max={maxLatency} color="blue" />
+              <LatencyBar label="p99" value={overall.p99} max={maxLatency} color="amber" />
+            </div>
+          )}
+
+          {/* Endpoint breakdown */}
+          {endpointEntries.length > 0 && (
+            <div>
+              <h4 className="text-xs font-mono font-semibold text-[var(--cp-muted)] uppercase tracking-wider mb-2">
+                Top Endpoints by Volume
+              </h4>
+              <div className="font-mono text-xs space-y-1 max-h-64 overflow-y-auto scrollbar-thin pr-1">
+                {endpointEntries.map(([key, ep]) => (
+                  <div key={key} className="flex items-center gap-3 py-1.5 px-2 rounded bg-[var(--cp-bg-2)]">
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[var(--cp-text)] truncate" title={key}>{key}</div>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <span className="text-[10px] text-[var(--cp-faint)]">{ep.count} req</span>
+                        {ep.error_rate > 0 && (
+                          <span className={`text-[10px] ${ep.error_rate > 0.05 ? 'text-rose-400' : 'text-amber-400'}`}>
+                            {(ep.error_rate * 100).toFixed(1)}% err
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="text-emerald-400 text-[10px]">{ep.p50 ? `${ep.p50.toFixed(1)}ms` : '—'}</span>
+                      <span className="text-sky-400 text-[10px]">{ep.p95 ? `${ep.p95.toFixed(1)}ms` : '—'}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function QuickStat({ label, value, sub, icon, accent = 'accent' }) {
   const accentMap = {
     accent:   'text-[var(--cp-accent)] bg-[var(--cp-accent-dim)]',
@@ -378,6 +545,7 @@ export default function SystemHub({ onBack }) {
               </div>
             </div>
             <ArchitectureViz />
+            <MetricsPanel />
           </div>
 
           {/* Sidebar */}
