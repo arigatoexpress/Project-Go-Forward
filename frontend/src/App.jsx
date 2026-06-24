@@ -9,6 +9,7 @@ import { useToast } from './components/Toast';
 import { useNetworkStatus } from './components/NetworkStatus';
 import ReportIssue from './components/ReportIssue';
 import ErrorBoundary from './components/ErrorBoundary';
+import ClosureBanner from './components/ClosureBanner';
 import { v4 as uuidv4 } from 'uuid';
 import {
   BUSINESS_NAME, BUSINESS_PHONE, BUSINESS_PHONE_RAW, BUSINESS_FULL_ADDRESS,
@@ -87,6 +88,9 @@ function NavBar({
 
   return (
     <>
+      {/* Site-wide store-closure / holiday banner (auto-hides after end date) */}
+      <ClosureBanner />
+
       {/* Legacy THO contact strip */}
       <div className="bg-[var(--cp-accent)] text-[var(--cp-bg)] border-b border-[var(--cp-accent-hot)] z-40 sticky top-0">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 min-h-9 flex items-center justify-between gap-3 py-1.5 text-[11px] sm:text-xs font-semibold">
