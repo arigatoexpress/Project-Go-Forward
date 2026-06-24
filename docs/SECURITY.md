@@ -168,20 +168,43 @@ What he **does not get**:
 
 ## 8. Audit
 
-### What we log
+### Structured audit trail (`audit_log.py`)
 
-- Request ID, session ID, endpoint, status code, duration (`structured_logging.py`).
-- Admin endpoint hits.
-- Document generation events (who generated which template for which deal).
-- Failed auth attempts (rate-limited to prevent log spam).
+Sensitive admin and partner actions write a structured record to the Firestore
+`audit_log` collection via `log_admin_action(...)` (mutations only — reads are
+not logged so the signal isn't drowned out). Each entry carries:
+
+| Field | Source | Notes |
+|-----|-----|-----|
+| `timestamp` | server UTC ISO8601 | — |
+| `actor` | `_audit_actor(request)` | SHA256-prefixed admin-token id (`admin:<12hex>`) or `partner:<8hex>` key fingerprint — never the raw token/key |
+| `action` | call site | from `ALLOWED_ACTIONS`; unknown values warn (drift detector) |
+| `target_type` / `target_id` | call site | entity kind + id (deal/customer/inventory/lead/crm_task/document/email/session) |
+| `ip` | `X-Forwarded-For` first hop | Cloud Run aware |
+| `user_agent` | request header | capped to 300 chars |
+| `details` | call site | IDs / field-name deltas / counts only — `_sanitize_details` strips any PII-shaped key |
+
+Read the trail at `GET /api/admin/audit-log` (admin-gated, filterable by
+actor/action/target/since).
+
+### Instrumented actions
+
+- **Auth**: admin PIN verify (`admin.login`).
+- **Deals**: create / update / status transition (`status_from`→`status_to`) / generate-document / generate-packet.
+- **Customers**: create / update (admin) and create via partner API (`partner:<fp>` actor).
+- **Inventory**: create / update / delete-or-retire / bulk-import / photo upload / reorder / delete.
+- **Documents**: generate / generate-batch / sales-contract (legacy) / e-sign send (`document.esign_send`) / e-sign complete / share.
+- **Leads & CRM**: lead update (field names only) / CRM task create + update.
+- **Email**: custom send — recipient is recorded as a non-reversible SHA256 fingerprint, never the address; subject/body recorded only as lengths.
+- **Integration-key usage**: every `/api/v1/*` request is logged (`_log_partner_api_request`) with the key fingerprint (not the key), endpoint, method, caller IP, and auth result.
 
 ### What we don't log
 
-- Any PII field (see §3).
+- Any PII field value (see §3) — `details` carries field *names*, IDs, counts, and fingerprints only.
 - Full request/response bodies.
-- Secrets.
+- Secrets, raw tokens, raw API keys, raw PINs, raw SSNs, or email/phone addresses.
 
-### What should be added
+### Future enhancements
 
-- **Integration-key usage** — log every `/api/v1/*` request with the key fingerprint (not the key itself), endpoint, and caller IP. Per-key dashboards make rotation decisions easy.
-- **Activity log for state changes** — already partially in the `activities/` Firestore collection for PM entities; extend to Deal status transitions.
+- Per-key partner dashboards over the `/api/v1/*` request logs to drive rotation decisions.
+- Mirror state-change audit entries into the `activities/` Firestore collection used by PM entities for a unified activity feed.
