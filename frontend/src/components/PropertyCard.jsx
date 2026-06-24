@@ -153,6 +153,7 @@ const PropertyCard = ({ property, onToggleCompare, isSelected }) => {
         floor_plan_url,
         floorplan_urls = [],
         media_quality = {},
+        is_orderable = false,
     } = property;
 
     const [imageError, setImageError] = useState(false);
@@ -182,6 +183,13 @@ const PropertyCard = ({ property, onToggleCompare, isSelected }) => {
     const hasFloorplanOnly = !allImages.length && (
         media_quality?.status === 'floorplan_only' || floorplanUrls.length > 0
     );
+
+    // Order-only / build-to-order homes never carry stock photography — these
+    // models are built to order, so the absence of a photo is by design, not a
+    // broken listing. When such a home has no real photo we render a BRANDED
+    // placeholder + badge so it reads as intentional (optics fix), instead of a
+    // bare "no image" state or a broken <img>.
+    const isOrderOnlyNoPhotos = !allImages.length && is_orderable === true;
 
     const hasMultipleImages = allImages.length > 1;
 
@@ -264,12 +272,35 @@ const PropertyCard = ({ property, onToggleCompare, isSelected }) => {
                                 </div>
                             )}
                         </>
+                    ) : isOrderOnlyNoPhotos ? (
+                        /* Branded build-to-order placeholder. role="img" + alt-style
+                           label keeps it accessible without rendering a broken <img>. */
+                        <div
+                            role="img"
+                            aria-label={`${model_name} — Build-to-Order model. Photos available on request; this home is built to order.`}
+                            className="tho-order-only-placeholder w-full h-full flex flex-col items-center justify-center gap-2 bg-gradient-to-br from-blue-50 to-gray-100 text-center px-4"
+                        >
+                            <Home size={44} className="text-blue-300" aria-hidden="true" />
+                            <span className="text-sm font-semibold text-blue-700">Build-to-Order</span>
+                            <span className="text-xs text-gray-500 max-w-[14rem]">
+                                Photos available on request — this model is built to order
+                            </span>
+                        </div>
                     ) : (
                         <div className="flex flex-col items-center gap-2 text-gray-400">
-                            <Home size={48} className="text-gray-300" />
+                            <Home size={48} className="text-gray-300" aria-hidden="true" />
                             {hasFloorplanOnly && (
                                 <span className="text-xs font-medium">Floorplan available</span>
                             )}
+                        </div>
+                    )}
+
+                    {/* Order-only badge — top-left so it never collides with the
+                        classification badge on the right. */}
+                    {isOrderOnlyNoPhotos && (
+                        <div className="tho-order-only-badge absolute top-2 left-2 bg-blue-600 text-white px-2.5 py-1 rounded-full text-xs font-semibold shadow">
+                            <span aria-hidden="true">Order-Only Model</span>
+                            <span className="sr-only">Order-only model — built to order</span>
                         </div>
                     )}
 

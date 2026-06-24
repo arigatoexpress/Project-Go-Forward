@@ -1077,7 +1077,7 @@ export default function InventoryBrowse({ adminAuthed = false, onAskTex, onCreat
 
 
 // ─── Home Card Component ───
-function HomeCard({ home, onClick, onScheduleTour, isFavorite = false, onToggleFavorite }) {
+export function HomeCard({ home, onClick, onScheduleTour, isFavorite = false, onToggleFavorite }) {
   // image_url is guaranteed non-floorplan after PR #43's classifier;
   // real_photos[0] is also non-floorplan (exteriors are listed first).
   // We deliberately do NOT fall back to floor_plan_url here — floorplans
@@ -1089,6 +1089,13 @@ function HomeCard({ home, onClick, onScheduleTour, isFavorite = false, onToggleF
   const [heroLoadState, setHeroLoadState] = useState(heroImage ? 'loading' : 'empty');
   const hasFloorplanOnly = !heroImage && (
     home.media_quality?.status === 'floorplan_only' || floorplanUrls.length > 0
+  );
+  // Build-to-order homes carry no stock photography by design (verified: every
+  // photo-less home in the live inventory is is_orderable, zero in-stock homes
+  // lack photos). Treat a missing photo on these as intentional and brand it,
+  // rather than rendering a generic "coming soon" empty state.
+  const isOrderOnlyNoPhotos = !heroImage && (
+    home.is_orderable === true || getAvailabilityKind(home) === 'orderable_floorplan'
   );
   const hasTour = !!home.matterport_id;
   const specs = home.specs || {};
@@ -1123,6 +1130,20 @@ function HomeCard({ home, onClick, onScheduleTour, isFavorite = false, onToggleF
             onLoad={() => setHeroLoadState('loaded')}
             onError={() => setHeroLoadState('failed')}
           />
+        ) : isOrderOnlyNoPhotos && heroLoadState !== 'failed' ? (
+          /* Branded build-to-order placeholder (NOT a broken <img>).
+             role="img" + aria-label keeps it accessible to screen readers. */
+          <div
+            role="img"
+            aria-label={`${home.model_name} — Build-to-Order model. Photos available on request; this home is built to order.`}
+            className="tho-order-only-placeholder w-full h-full flex flex-col items-center justify-center gap-2 text-center px-4 bg-gradient-to-br from-[var(--cp-accent-dim)] to-[var(--cp-bg-2)]"
+          >
+            <Home size={32} className="text-[var(--cp-accent)]" aria-hidden="true" />
+            <span className="text-sm font-semibold text-[var(--cp-text-secondary)]">Build-to-Order</span>
+            <span className="text-xs text-[var(--cp-muted)] max-w-[16rem]">
+              Photos available on request — this model is built to order
+            </span>
+          </div>
         ) : (
           <div className="w-full h-full flex flex-col items-center justify-center gap-2 bg-[var(--cp-bg-2)] border-2 border-dashed border-[var(--cp-border-light)] m-0">
             <Camera size={32} className="text-[var(--cp-muted)]" />
@@ -1140,9 +1161,16 @@ function HomeCard({ home, onClick, onScheduleTour, isFavorite = false, onToggleF
           </div>
         )}
 
-        {/* Status badge — top-left */}
+        {/* Status badge — top-left. Build-to-order homes get an explicit
+            "Order-Only Model" pill so the missing photo reads as intentional. */}
         <div className="absolute top-3 left-3 flex flex-col gap-2">
           <StatusBadge status={home.status} kind="home" size="md" />
+          {isOrderOnlyNoPhotos && (
+            <span className="tho-order-only-badge inline-flex items-center self-start px-2.5 py-1 rounded-full text-xs font-semibold bg-[var(--cp-accent)] text-[var(--cp-bg)] shadow">
+              <span aria-hidden="true">Order-Only Model</span>
+              <span className="sr-only">Order-only model — built to order</span>
+            </span>
+          )}
         </div>
 
         {/* Favorite toggle — top-right (does not open the detail modal) */}
