@@ -34,7 +34,7 @@
 
 #### C. Security
 - [x] Rate limiting per IP — **DONE**
-- [~] Input sanitization — **PARTIAL** (HTML/control-char stripping middleware in `main.py`, `tools/input_sanitizer.py`, `tests/test_input_sanitizer.py` with 13 tests; broader query-param/file-name sanitization still open)
+- [x] Input sanitization — **DONE** (HTML/control-char stripping middleware in `main.py`, `tools/input_sanitizer.py`, `tests/test_input_sanitizer.py` with 39 tests; query-param sanitization wired into `InputSanitizationMiddleware`, `sanitize_filename` utility for path-traversal-safe filenames)
 - [x] CSRF protection — **DONE** (double-submit cookie pattern, `_verify_csrf` in `main.py`, 6 tests in `tests/test_csrf_protection.py`)
 
 #### D. Monitoring
