@@ -143,7 +143,7 @@ from email_service import (
 )
 from lead_management import Lead, LeadManager
 from structured_logging import logger as struct_logger
-from tools.input_sanitizer import sanitize_body
+from tools.input_sanitizer import sanitize_body, sanitize_query_params
 from tools.pii_guard import redact_pii_from_text, validate_no_pii_in_text
 
 
@@ -533,6 +533,10 @@ class InputSanitizationMiddleware(BaseHTTPMiddleware):
                         request._body = json.dumps(sanitized).encode("utf-8")
                 except Exception:
                     pass  # Not valid JSON or sanitization failed — leave body untouched
+        # Sanitize query params for all API routes so endpoints can trust request.state.sanitized_query
+        if request.url.path.startswith("/api/") and not request.url.path.startswith("/api/v1/"):
+            raw = dict(request.query_params)
+            request.state.sanitized_query = sanitize_query_params(raw)
         return await call_next(request)
 
 

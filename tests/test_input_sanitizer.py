@@ -10,6 +10,7 @@ import pytest
 
 from tools.input_sanitizer import (
     sanitize_body,
+    sanitize_filename,
     sanitize_query_params,
     sanitize_string,
     sanitize_value,
@@ -209,6 +210,8 @@ class TestInputSanitizationMiddlewareDirect:
             url=SimpleNamespace(path="/api/contact"),
             headers={"content-type": "application/json"},
             body=AsyncMock(return_value=raw_body),
+            query_params={},
+            state=SimpleNamespace(),
         )
 
         call_next = AsyncMock(return_value=MagicMock())
@@ -234,6 +237,8 @@ class TestInputSanitizationMiddlewareDirect:
             url=SimpleNamespace(path="/api/contact"),
             headers={"content-type": "text/plain"},
             body=AsyncMock(return_value=b"plain text body"),
+            query_params={},
+            state=SimpleNamespace(),
         )
 
         call_next = AsyncMock(return_value=MagicMock())
@@ -258,6 +263,8 @@ class TestInputSanitizationMiddlewareDirect:
             url=SimpleNamespace(path="/api/contact"),
             headers={"content-type": "application/json"},
             body=AsyncMock(return_value=b"{not valid json"),
+            query_params={},
+            state=SimpleNamespace(),
         )
 
         call_next = AsyncMock(return_value=MagicMock())
@@ -282,6 +289,8 @@ class TestInputSanitizationMiddlewareDirect:
             url=SimpleNamespace(path="/api/marketing/inventory-context"),
             headers={"content-type": "application/json"},
             body=AsyncMock(return_value=b""),
+            query_params={},
+            state=SimpleNamespace(),
         )
 
         call_next = AsyncMock(return_value=MagicMock())
@@ -311,4 +320,120 @@ class TestInputSanitizationMiddlewareDirect:
         await middleware.dispatch(request, call_next)
 
         request.body.assert_not_called()
+        call_next.assert_awaited_once()
+
+
+class TestSanitizeFilename:
+    """Test the sanitize_filename function."""
+
+    def test_strips_path_traversal(self):
+        assert sanitize_filename("../../../etc/passwd") == "etc_passwd"
+        assert sanitize_filename("foo/bar\\baz") == "foo_bar_baz"
+
+    def test_strips_html_and_control_chars(self):
+        assert sanitize_filename("<script>bad.pdf") == "bad.pdf"
+        assert sanitize_filename("file\x00name") == "filename"
+
+    def test_strips_filesystem_special_chars(self):
+        assert sanitize_filename("a|b?c*d<e>f:g.pdf") == "abcdfg.pdf"
+
+    def test_collapses_whitespace_and_underscores(self):
+        assert sanitize_filename("my  file__name.pdf") == "my_file_name.pdf"
+        assert sanitize_filename("my-file name.pdf") == "my-file_name.pdf"
+
+    def test_strips_leading_trailing_dots_and_underscores(self):
+        assert sanitize_filename("...file...") == "file"
+        assert sanitize_filename("_file_") == "file"
+
+    def test_length_limit(self):
+        long_name = "A" * 200 + ".pdf"
+        assert len(sanitize_filename(long_name, max_len=50)) == 50
+
+    def test_none_and_empty(self):
+        assert sanitize_filename(None) is None
+        assert sanitize_filename("") is None
+        assert sanitize_filename("   ") is None
+
+    def test_non_string_passthrough(self):
+        assert sanitize_filename(123) is None
+
+    def test_preserved_unicode(self):
+        assert sanitize_filename("Café_ドキュメント.pdf") == "Café_ドキュメント.pdf"
+
+
+class TestQueryParamSanitizationMiddleware:
+    """Test that the middleware sanitizes query params on API routes."""
+
+    @pytest.mark.asyncio
+    async def test_middleware_sanitizes_query_params(self):
+        """GET requests with HTML in query params should have sanitized state."""
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock, MagicMock
+
+        from main import InputSanitizationMiddleware
+
+        middleware = InputSanitizationMiddleware(app=None)
+
+        request = SimpleNamespace(
+            method="GET",
+            url=SimpleNamespace(path="/api/inventory"),
+            query_params={"search": "<script>alert(1)</script>homes", "limit": "10"},
+            state=SimpleNamespace(),
+        )
+
+        call_next = AsyncMock(return_value=MagicMock())
+        await middleware.dispatch(request, call_next)
+
+        assert hasattr(request.state, "sanitized_query")
+        assert request.state.sanitized_query["search"] == "alert(1)homes"
+        assert request.state.sanitized_query["limit"] == "10"
+        call_next.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_middleware_skips_query_sanitization_for_partner_api(self):
+        """Partner API requests should not get query param sanitization."""
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock, MagicMock
+
+        from main import InputSanitizationMiddleware
+
+        middleware = InputSanitizationMiddleware(app=None)
+
+        request = SimpleNamespace(
+            method="GET",
+            url=SimpleNamespace(path="/api/v1/customers"),
+            query_params={"search": "<b>test</b>"},
+            state=SimpleNamespace(),
+        )
+
+        call_next = AsyncMock(return_value=MagicMock())
+        await middleware.dispatch(request, call_next)
+
+        assert not hasattr(request.state, "sanitized_query")
+        call_next.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_middleware_sanitizes_query_params_on_post(self):
+        """POST requests should also get sanitized query params."""
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock, MagicMock
+
+        from main import InputSanitizationMiddleware
+
+        middleware = InputSanitizationMiddleware(app=None)
+
+        request = SimpleNamespace(
+            method="POST",
+            url=SimpleNamespace(path="/api/contact"),
+            query_params={"utm_source": "<script>bad</script>ig"},
+            headers={"content-type": "application/json"},
+            body=AsyncMock(return_value=b'{}'),
+            state=SimpleNamespace(),
+        )
+
+        call_next = AsyncMock(return_value=MagicMock())
+        await middleware.dispatch(request, call_next)
+
+        assert hasattr(request.state, "sanitized_query")
+        assert request.state.sanitized_query["utm_source"] == "badig"
         call_next.assert_awaited_once()
