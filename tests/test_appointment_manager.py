@@ -326,7 +326,12 @@ class TestCreateAppointmentValidation:
         # (regression guard). The Firestore transaction is neutralized so only the
         # pre-transaction validation runs.
         mgr = self._manager()
-        soon = (datetime.now(TIMEZONE).date() + timedelta(days=3)).isoformat()
+        # Pick the NEXT MONDAY so the day is always open with a 10:00 AM slot.
+        # A fixed "+3 days" made this flaky: it lands on Sunday some days (today),
+        # and Sunday hours are 12-3pm, so 10:00 AM is not a valid slot.
+        today = datetime.now(TIMEZONE).date()
+        days_ahead = (7 - today.weekday()) % 7 or 7  # next Monday
+        soon = (today + timedelta(days=days_ahead)).isoformat()
         appt = self._appt(soon, time_slot="10:00 AM")
         mgr.db.transaction = MagicMock()
         with patch("appointment_manager.firestore.transactional", lambda fn: (lambda txn: None)):
