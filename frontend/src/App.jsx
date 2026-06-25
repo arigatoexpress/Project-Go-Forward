@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, lazy, Suspense, useCallback } from 'react';
-import { Send, Home, Menu, X, Phone, MapPin, Loader2, User, Bot, FileText, Video, Lock, ShieldCheck, CalendarDays, Users, MessageSquare, MessageCircle, RotateCcw, WifiOff, Moon, Sun, KeyRound, Fingerprint, BookOpen, Activity, Camera, Sparkles } from 'lucide-react';
+import { Send, Home, Menu, X, Phone, MapPin, Loader2, User, Bot, FileText, Video, Lock, ShieldCheck, CalendarDays, Users, MessageSquare, MessageCircle, RotateCcw, WifiOff, Moon, Sun, KeyRound, Fingerprint, Mail, BookOpen, Activity, Camera, Sparkles } from 'lucide-react';
 import { useDarkMode } from './hooks/useDarkMode';
 import SafeMarkdown from './components/SafeMarkdown';
 import SearchFilters from './components/SearchFilters';
@@ -479,6 +479,18 @@ function App() {
   });
   const [passkeyEmailError, setPasskeyEmailError] = useState('');
 
+  // Email one-time-code login (fallback alongside PIN + passkey)
+  const [showEmailCode, setShowEmailCode] = useState(false);
+  const [emailCodeAddress, setEmailCodeAddress] = useState(() => {
+    if (typeof window === 'undefined') return '';
+    return window.localStorage.getItem('tho_passkey_email') || '';
+  });
+  const [emailCodeSent, setEmailCodeSent] = useState(false);
+  const [emailCodeInput, setEmailCodeInput] = useState('');
+  const [emailCodeError, setEmailCodeError] = useState('');
+  const [emailCodeNotice, setEmailCodeNotice] = useState('');
+  const [emailCodeLoading, setEmailCodeLoading] = useState(false);
+
   const refreshPasskeyStatus = useCallback(async () => {
     try {
       const response = await fetch('/api/admin/passkey/status', {
@@ -864,6 +876,84 @@ function App() {
     }
   };
 
+  // --- Email one-time-code login (fallback) ---
+  const GENERIC_EMAIL_CODE_NOTICE =
+    "If that's an authorized address, a code is on its way. Check your inbox.";
+
+  const resetEmailCodeFlow = () => {
+    setShowEmailCode(false);
+    setEmailCodeSent(false);
+    setEmailCodeInput('');
+    setEmailCodeError('');
+    setEmailCodeNotice('');
+  };
+
+  const handleEmailCodeRequest = async (e) => {
+    if (e) e.preventDefault();
+    const email = emailCodeAddress.trim();
+    if (!email) {
+      setEmailCodeError('Enter your authorized email address.');
+      return;
+    }
+    setEmailCodeLoading(true);
+    setEmailCodeError('');
+    try {
+      // The backend ALWAYS returns 200 with a generic body (no account
+      // enumeration), so we show the same notice regardless of the response.
+      await fetch('/api/admin/email-code/request', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ email }),
+      });
+      window.localStorage.setItem('tho_passkey_email', email);
+      setEmailCodeSent(true);
+      setEmailCodeNotice(GENERIC_EMAIL_CODE_NOTICE);
+    } catch {
+      // Even on a network error, keep the message generic and let them enter
+      // a code if they already have one.
+      setEmailCodeSent(true);
+      setEmailCodeNotice(GENERIC_EMAIL_CODE_NOTICE);
+    } finally {
+      setEmailCodeLoading(false);
+    }
+  };
+
+  const handleEmailCodeVerify = async (e) => {
+    if (e) e.preventDefault();
+    const email = emailCodeAddress.trim();
+    const code = emailCodeInput.trim();
+    if (!code) {
+      setEmailCodeError('Enter the 6-digit code from your email.');
+      return;
+    }
+    setEmailCodeLoading(true);
+    setEmailCodeError('');
+    try {
+      const res = await fetch('/api/admin/email-code/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ email, code }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.success) {
+        lastLoginTime.current = Date.now();
+        setAdminAuthed(true);
+        setShowPinModal(false);
+        resetEmailCodeFlow();
+        navigateTo(ADMIN_PAGE_KEYS.has(activePage) ? activePage : 'analytics');
+      } else {
+        setEmailCodeError(data.error || 'Invalid or expired code.');
+        setEmailCodeInput('');
+      }
+    } catch {
+      setEmailCodeError('Unable to verify. Please try again.');
+    } finally {
+      setEmailCodeLoading(false);
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!input.trim() || isLoading) return;
@@ -1056,9 +1146,107 @@ function App() {
           </div>
         )}
 
+        {/* Email one-time-code fallback */}
+        <div className="mt-3">
+          {!showEmailCode ? (
+            <button
+              type="button"
+              onClick={() => { setShowEmailCode(true); setEmailCodeError(''); setPinError(''); setPasskeyError(''); }}
+              className="cp-btn-outline w-full py-2.5 text-sm flex items-center justify-center gap-2"
+            >
+              <Mail size={16} />
+              Email me a sign-in code
+            </button>
+          ) : (
+            <div className="border border-[var(--cp-border)] rounded-lg p-3 bg-[var(--cp-bg-2)] space-y-3">
+              <div className="flex items-center gap-2 text-[var(--cp-muted)]">
+                <Mail size={15} className="text-[var(--cp-accent)]" />
+                <span className="text-xs font-mono uppercase tracking-wide">Email sign-in code</span>
+              </div>
+
+              {!emailCodeSent ? (
+                <form onSubmit={handleEmailCodeRequest} className="space-y-2">
+                  <label className="block">
+                    <span className="sr-only">Authorized email</span>
+                    <input
+                      type="email"
+                      autoComplete="email"
+                      value={emailCodeAddress}
+                      onChange={(e) => { setEmailCodeAddress(e.target.value); setEmailCodeError(''); }}
+                      placeholder="name@texashomeoutlet.com"
+                      className="cp-input w-full px-3 py-2.5 text-sm"
+                      aria-label="Authorized email"
+                      autoFocus
+                    />
+                  </label>
+                  <button
+                    type="submit"
+                    disabled={emailCodeLoading || !emailCodeAddress.trim()}
+                    className="cp-btn-accent w-full py-2.5 text-sm flex items-center justify-center gap-2"
+                  >
+                    {emailCodeLoading ? <Loader2 size={15} className="animate-spin" /> : <Mail size={15} />}
+                    {emailCodeLoading ? 'Sending...' : 'Send code'}
+                  </button>
+                </form>
+              ) : (
+                <form onSubmit={handleEmailCodeVerify} className="space-y-2">
+                  {emailCodeNotice && (
+                    <p className="text-[11px] text-[var(--cp-faint)] leading-relaxed font-mono">
+                      {emailCodeNotice}
+                    </p>
+                  )}
+                  <label className="block">
+                    <span className="sr-only">Sign-in code</span>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      maxLength={6}
+                      value={emailCodeInput}
+                      onChange={(e) => { setEmailCodeInput(e.target.value.replace(/\D/g, '').slice(0, 6)); setEmailCodeError(''); }}
+                      placeholder="6-digit code"
+                      className="cp-input w-full px-3 py-2.5 text-center text-lg tracking-[0.3em]"
+                      aria-label="Sign-in code"
+                      autoFocus
+                    />
+                  </label>
+                  <button
+                    type="submit"
+                    disabled={emailCodeLoading || !emailCodeInput.trim()}
+                    className="cp-btn-accent w-full py-2.5 text-sm flex items-center justify-center gap-2"
+                  >
+                    {emailCodeLoading ? <Loader2 size={15} className="animate-spin" /> : <ShieldCheck size={15} />}
+                    {emailCodeLoading ? 'Verifying...' : 'Verify'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleEmailCodeRequest}
+                    disabled={emailCodeLoading}
+                    className="w-full py-1.5 text-[11px] text-[var(--cp-faint)] hover:text-[var(--cp-text)] transition font-mono"
+                  >
+                    Resend code
+                  </button>
+                </form>
+              )}
+
+              {emailCodeError && (
+                <p className="text-[var(--cp-danger)] text-xs text-center font-mono">{emailCodeError}</p>
+              )}
+
+              <button
+                type="button"
+                onClick={resetEmailCodeFlow}
+                className="w-full py-1 text-[10px] text-[var(--cp-faint)] hover:text-[var(--cp-text)] transition font-mono"
+              >
+                Back to other options
+              </button>
+            </div>
+          )}
+        </div>
+
         <button
           type="button"
-          onClick={() => setShowPinModal(false)}
+          onClick={() => { setShowPinModal(false); resetEmailCodeFlow(); }}
           className="w-full mt-4 py-2 text-[var(--cp-faint)] text-xs hover:text-[var(--cp-text)] transition font-mono"
         >
           Cancel

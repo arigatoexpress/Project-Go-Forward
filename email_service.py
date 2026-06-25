@@ -333,6 +333,37 @@ def _base_wrapper(content: str) -> str:
     """
 
 
+def send_admin_login_code(to: str, code: str, *, ttl_minutes: int = 10) -> dict:
+    """Send a one-time admin sign-in code to an authorized staff/owner email.
+
+    The code is rendered prominently in a branded email. The CALLER is
+    responsible for the allowlist check + storing the hashed code; this helper
+    only delivers. The plaintext ``code`` is NEVER logged here (send_email logs
+    only the subject + recipient).
+    """
+    safe_code = html_mod.escape(str(code))
+    content = f"""
+    <h2 style="color: #1e3a5f; margin-top: 0;">Admin sign-in code</h2>
+    <p>Use this one-time code to finish signing in to the Texas Home Outlet admin console:</p>
+
+    <div style="text-align: center; margin: 28px 0;">
+      <div style="display: inline-block; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 12px; padding: 18px 32px;">
+        <span style="font-family: 'SFMono-Regular', Menlo, Consolas, monospace; font-size: 34px; font-weight: 700; letter-spacing: 0.35em; color: #1e3a5f;">{safe_code}</span>
+      </div>
+    </div>
+
+    <p style="color: #6b7280; font-size: 13px; text-align: center; margin-top: 0;">
+      Expires in {ttl_minutes} minutes &bull; single use &bull; ignore if you didn't request this.
+    </p>
+    """
+    return send_email(
+        to=to,
+        subject="Your Texas Home Outlet admin sign-in code",
+        html=_base_wrapper(content),
+        email_type="admin_login_code",
+    )
+
+
 def send_appointment_confirmation(
     to: str,
     customer_name: str,

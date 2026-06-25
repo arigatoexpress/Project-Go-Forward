@@ -65,6 +65,7 @@ ALLOWED_ACTIONS: tuple[str, ...] = (
     "crm_task.update",
     "email.send",
     "admin.login",
+    "admin.login_code.request",
     "admin.logout",
 )
 
