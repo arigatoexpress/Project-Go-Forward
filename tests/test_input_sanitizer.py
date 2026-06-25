@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from fastapi import Request
 
 from tools.input_sanitizer import (
     sanitize_body,
@@ -437,3 +438,141 @@ class TestQueryParamSanitizationMiddleware:
         assert hasattr(request.state, "sanitized_query")
         assert request.state.sanitized_query["utm_source"] == "badig"
         call_next.assert_awaited_once()
+
+
+class TestInputSanitizationEndToEnd:
+    """End-to-end tests that verify the middleware sanitizes data flowing through the real FastAPI app."""
+
+    @pytest.fixture
+    def client(self, monkeypatch):
+        from tests.test_api_v1 import create_client
+        client, _main, _db, _logger = create_client(monkeypatch)
+        return client
+
+    def test_sanitized_body_reaches_endpoint(self, client, monkeypatch):
+        """POST body with HTML should be rewritten so the endpoint receives sanitized JSON."""
+        import json as _json
+
+        from main import app
+
+        received_body = {}
+
+        @app.post("/api/test-sanitizer-echo")
+        async def _echo_sanitized(request: Request):
+            body = await request.body()
+            received_body["data"] = _json.loads(body)
+            return {"ok": True}
+
+        original_routes = list(app.router.routes)
+        try:
+            res = client.post(
+                "/api/test-sanitizer-echo",
+                json={
+                    "name": "<script>alert(1)</script>Alice",
+                    "email": "alice@example.com",
+                    "message": "<b>Hello</b> world",
+                },
+            )
+            assert res.status_code == 200
+            assert received_body["data"]["name"] == "alert(1)Alice"
+            assert received_body["data"]["email"] == "alice@example.com"
+            assert received_body["data"]["message"] == "Hello world"
+        finally:
+            app.router.routes = list(original_routes)
+
+    def test_sanitized_query_params_reach_endpoint(self, client, monkeypatch):
+        """Query params with HTML should be sanitized and available on request.state.sanitized_query."""
+        from main import app
+
+        received_query = {}
+
+        @app.post("/api/test-sanitizer-query")
+        async def _echo_query(request: Request):
+            received_query["data"] = dict(request.state.sanitized_query)
+            return {"ok": True}
+
+        original_routes = list(app.router.routes)
+        try:
+            res = client.post(
+                "/api/test-sanitizer-query",
+                params={"search": "<script>alert(1)</script>homes", "limit": "10"},
+            )
+            assert res.status_code == 200
+            assert received_query["data"]["search"] == "alert(1)homes"
+            assert received_query["data"]["limit"] == "10"
+        finally:
+            app.router.routes = list(original_routes)
+
+    def test_partner_api_bypasses_sanitization(self, client, monkeypatch):
+        """Partner API endpoints should receive raw body, not sanitized."""
+        import json as _json
+
+        from main import app
+
+        received_body = {}
+
+        @app.post("/api/v1/test-sanitizer-echo")
+        async def _echo_partner(request: Request):
+            body = await request.body()
+            received_body["data"] = _json.loads(body)
+            return {"ok": True}
+
+        original_routes = list(app.router.routes)
+        try:
+            res = client.post(
+                "/api/v1/test-sanitizer-echo",
+                json={"name": "<script>alert(1)</script>Alice"},
+                headers={"X-API-Key": "tho-secret"},
+            )
+            assert res.status_code == 200
+            # Partner API should NOT be sanitized
+            assert received_body["data"]["name"] == "<script>alert(1)</script>Alice"
+        finally:
+            app.router.routes = list(original_routes)
+
+    def test_sanitized_query_params_bypassed_for_partner_api(self, client, monkeypatch):
+        """Partner API requests should not have sanitized_query set."""
+        from main import app
+
+        has_sanitized_query = {}
+
+        @app.post("/api/v1/test-sanitizer-query")
+        async def _echo_partner_query(request: Request):
+            has_sanitized_query["value"] = hasattr(request.state, "sanitized_query")
+            return {"ok": True}
+
+        original_routes = list(app.router.routes)
+        try:
+            res = client.post(
+                "/api/v1/test-sanitizer-query",
+                params={"search": "<b>test</b>"},
+                headers={"X-API-Key": "tho-secret"},
+            )
+            assert res.status_code == 200
+            assert has_sanitized_query["value"] is False
+        finally:
+            app.router.routes = list(original_routes)
+
+    def test_non_json_body_not_modified(self, client, monkeypatch):
+        """Non-JSON POST bodies should not be modified by the middleware."""
+        from main import app
+
+        received_body = {}
+
+        @app.post("/api/test-sanitizer-text")
+        async def _echo_text(request: Request):
+            body = await request.body()
+            received_body["data"] = body.decode("utf-8")
+            return {"ok": True}
+
+        original_routes = list(app.router.routes)
+        try:
+            res = client.post(
+                "/api/test-sanitizer-text",
+                data="plain text body",
+                headers={"content-type": "text/plain"},
+            )
+            assert res.status_code == 200
+            assert received_body["data"] == "plain text body"
+        finally:
+            app.router.routes = list(original_routes)

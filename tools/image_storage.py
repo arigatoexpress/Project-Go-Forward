@@ -25,6 +25,8 @@ import time
 import uuid
 from dataclasses import dataclass
 
+from tools.input_sanitizer import sanitize_filename
+
 log = logging.getLogger(__name__)
 
 # Listing photos get their own bucket so we never widen access on the
@@ -180,7 +182,8 @@ def _build_filename(original_name: str | None, content_type: str) -> str:
     """Generate a unique, safe filename, preserving a friendly stem."""
     stem = ""
     if original_name:
-        stem = os.path.splitext(os.path.basename(original_name))[0]
+        safe_name = sanitize_filename(original_name, max_len=200) or ""
+        stem = os.path.splitext(os.path.basename(safe_name))[0]
         stem = re.sub(r"[^A-Za-z0-9_-]+", "-", stem).strip("-").lower()[:40]
     ext = ALLOWED_CONTENT_TYPES.get(content_type, ".jpg")
     unique = f"{int(time.time())}-{uuid.uuid4().hex[:8]}"
