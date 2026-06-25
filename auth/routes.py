@@ -182,6 +182,13 @@ def _passkey_email_allowed(email: str | None) -> bool:
     return domain in _passkey_allowed_domains()
 
 
+# Public alias so the email one-time-code login shares ONE allowlist with
+# passkeys (owner emails + @texashomeoutlet.com staff, env-overridable via
+# THO_PASSKEY_ALLOWED_DOMAINS / THO_PASSKEY_OWNER_EMAILS). Importers should use
+# this name; the underscore-prefixed original stays for internal callers.
+is_allowed_admin_email = _passkey_email_allowed
+
+
 def _require_allowed_passkey_email(email: Any) -> str:
     normalized = _normalize_email(email)
     if not normalized:

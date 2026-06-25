@@ -40,6 +40,15 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.gzip import GZipMiddleware
 
 import caching
+from auth.email_code import (
+    EMAIL_CODE_TTL_SECONDS,
+    MAX_CODE_ATTEMPTS,
+    EmailLoginCodeStoreUnavailable,
+    default_code_store,
+    generate_code,
+    hash_code,
+)
+from auth.routes import is_allowed_admin_email
 from auth.routes import router as passkey_router
 from auth.session import SESSION_COOKIE_NAME as PASSKEY_COOKIE_NAME
 from auth.session import SessionManager
@@ -120,6 +129,7 @@ from email_service import (
     get_email_log,
     notify_new_appointment,
     notify_new_lead,
+    send_admin_login_code,
     send_appointment_confirmation,
     send_custom_email,
     send_deal_status_update,
@@ -7245,6 +7255,203 @@ async def admin_ops_copilot(body: CopilotRequest):
 
     history = [turn.model_dump() for turn in body.history]
     return await run_copilot(body.message, history)
+
+
+# ---------------------------------------------------------------------------
+# Email one-time-code admin login (FALLBACK alongside PIN + passkey)
+# ---------------------------------------------------------------------------
+#
+# Shares ONE allowlist with passkeys (auth.routes.is_allowed_admin_email) and
+# the SAME brute-force lockout + session minting as /api/admin/verify, so a
+# successful code login is honored by /api/admin/check and require_admin.
+#
+# Defenses, mirroring verify_admin_pin:
+#   * slowapi caps /request at 3/min and /verify at 5/min per IP;
+#   * the request endpoint NEVER reveals whether an email is authorized
+#     (always 200) — no account enumeration;
+#   * codes are single-use, hashed at rest, TTL-bound, and per-code
+#     attempt-capped; the shared IP pin-attempts lockout still applies.
+
+EMAIL_CODE_RESEND_COOLDOWN_SECONDS = 30
+
+
+def _email_login_invalid_response() -> JSONResponse:
+    """Uniform 401 so callers can't distinguish wrong-code from no-code."""
+    return JSONResponse(
+        {"success": False, "error": "Invalid or expired code."}, status_code=401
+    )
+
+
+@app.post("/api/admin/email-code/request")
+@limiter.limit("3/minute")
+async def request_admin_email_code(request: Request):
+    """Email a one-time admin sign-in code to an authorized address.
+
+    Always returns ``{"success": True}`` with status 200 regardless of whether
+    the email is authorized — this prevents account enumeration. The code is
+    only generated, stored (hashed), and sent for allowlisted emails.
+    """
+    try:
+        data = await request.json()
+    except (JSONDecodeError, ValueError):
+        return JSONResponse(
+            {"success": False, "error": "Malformed JSON body."}, status_code=400
+        )
+    if not isinstance(data, dict):
+        return JSONResponse(
+            {"success": False, "error": "Request body must be a JSON object."},
+            status_code=400,
+        )
+    email = str(data.get("email", "")).strip().lower()
+    client_ip = _get_client_ip(request)
+
+    # Generic success envelope — computed once, returned on every path so the
+    # response is identical for authorized and unauthorized emails.
+    generic_ok = JSONResponse({"success": True})
+
+    if not is_allowed_admin_email(email):
+        # No store write, no send, no log of the address — silent for unknowns.
+        return generic_ok
+
+    try:
+        store = default_code_store()
+    except EmailLoginCodeStoreUnavailable as exc:
+        struct_logger.warning("Email login-code store unavailable", error=str(exc))
+        # Still return the generic envelope so the store backend isn't probeable.
+        return generic_ok
+
+    now = time.time()
+
+    # Email-bomb guard: if an unexpired code was issued < cooldown ago, don't
+    # re-send (the existing code is still valid). Response stays generic.
+    existing = store.get(email)
+    if existing is not None and (now - existing.created_at) < EMAIL_CODE_RESEND_COOLDOWN_SECONDS:
+        struct_logger.info(
+            "Admin email-code resend suppressed (cooldown)", client_ip=client_ip
+        )
+        return generic_ok
+
+    code = generate_code()
+    store.put(email, hash_code(code), now + EMAIL_CODE_TTL_SECONDS)
+    # NEVER log the code. send_admin_login_code logs only subject + recipient.
+    send_admin_login_code(email, code, ttl_minutes=EMAIL_CODE_TTL_SECONDS // 60)
+    # Actor/target are a salted hash of the email so the audit trail correlates
+    # request→login without ever persisting the address in cleartext.
+    email_actor = f"email:{hashlib.sha256(email.encode('utf-8')).hexdigest()[:12]}"
+    log_admin_action(
+        actor=email_actor,
+        action="admin.login_code.request",
+        target_type="session",
+        target_id=email_actor,
+        details={"method": "email_code", "client_ip": client_ip},
+        request=request,
+    )
+    return generic_ok
+
+
+@app.post("/api/admin/email-code/verify")
+@limiter.limit("5/minute")
+async def verify_admin_email_code(request: Request):
+    """Verify an emailed one-time code and mint the standard admin session.
+
+    On success this mints the EXACT same session as ``/api/admin/verify`` (the
+    ``tho_admin_token`` + ``tho_csrf_token`` cookies and the ``admin.login``
+    audit entry) so ``/api/admin/check`` and ``require_admin`` honor it.
+    """
+    client_ip = _get_client_ip(request)
+
+    # Shared IP lockout — identical to verify_admin_pin.
+    now = time.time()
+    attempts = _get_pin_attempts(client_ip)
+    if len(attempts) >= PIN_MAX_ATTEMPTS:
+        struct_logger.warning(
+            "Admin email-code login locked out", client_ip=client_ip, attempts=len(attempts)
+        )
+        return JSONResponse(
+            {"success": False, "error": "Too many failed attempts. Please wait 5 minutes."},
+            status_code=429,
+            headers={"Retry-After": str(PIN_LOCKOUT_SECONDS)},
+        )
+
+    try:
+        data = await request.json()
+    except (JSONDecodeError, ValueError):
+        return JSONResponse(
+            {"success": False, "error": "Malformed JSON body."}, status_code=400
+        )
+    if not isinstance(data, dict):
+        return JSONResponse(
+            {"success": False, "error": "Request body must be a JSON object."},
+            status_code=400,
+        )
+    email = str(data.get("email", "")).strip().lower()
+    code = data.get("code", "")
+    if not isinstance(code, str):
+        return JSONResponse(
+            {"success": False, "error": "Code must be a string."}, status_code=400
+        )
+    code = code.strip()
+
+    try:
+        store = default_code_store()
+    except EmailLoginCodeStoreUnavailable as exc:
+        struct_logger.warning("Email login-code store unavailable", error=str(exc))
+        return JSONResponse(
+            {"success": False, "error": "Admin auth not configured."}, status_code=503
+        )
+
+    # No record (never requested / expired / already consumed) → generic 401.
+    rec = store.get(email)
+    if rec is None:
+        _add_pin_attempt(client_ip, now)
+        return _email_login_invalid_response()
+
+    # Per-code attempt cap. Count this attempt; once it exceeds the cap, burn
+    # the code so an attacker can't keep guessing against the same code.
+    code_attempts = store.increment_attempts(email)
+    if code_attempts > MAX_CODE_ATTEMPTS:
+        store.delete(email)
+        _add_pin_attempt(client_ip, now)
+        return _email_login_invalid_response()
+
+    if not hmac.compare_digest(hash_code(code), rec.code_hash):
+        _add_pin_attempt(client_ip, now)
+        return _email_login_invalid_response()
+
+    # Success → single-use: consume the code immediately.
+    store.delete(email)
+    _clear_pin_attempts(client_ip)
+
+    token = _create_admin_token()
+    csrf_token = _create_csrf_token()
+    struct_logger.info("Admin email-code login succeeded", client_ip=client_ip)
+    token_actor = f"admin:{hashlib.sha256(token.encode('utf-8')).hexdigest()[:12]}"
+    log_admin_action(
+        actor=token_actor,
+        action="admin.login",
+        target_type="session",
+        target_id=token_actor,
+        details={"method": "email_code", "client_ip": client_ip},
+        request=request,
+    )
+    response = JSONResponse({"success": True, "csrf_token": csrf_token})
+    response.set_cookie(
+        key="tho_admin_token",
+        value=token,
+        httponly=True,
+        secure=not IS_LOCAL,
+        samesite="strict",
+        max_age=ADMIN_TOKEN_TTL,
+    )
+    response.set_cookie(
+        key="tho_csrf_token",
+        value=csrf_token,
+        httponly=False,
+        secure=not IS_LOCAL,
+        samesite="strict",
+        max_age=ADMIN_TOKEN_TTL,
+    )
+    return response
 
 
 # Serve Frontend — Must be last to avoid catching API routes
