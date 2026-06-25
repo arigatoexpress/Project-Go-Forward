@@ -79,3 +79,91 @@ def test_runtime_prompt_files_exist_in_repo():
     """The prompts must actually be present and committed, not just un-ignored."""
     missing = [p for p in _runtime_prompt_paths() if not (REPO_ROOT / p).is_file()]
     assert not missing, f"runtime prompt files absent from repo: {missing}"
+
+
+# ─────────────────────────── Runtime-asset manifest ───────────────────────────
+#
+# The single, explicit list of glob patterns that MUST ship inside the deployed
+# image for the live app to function. Generalizes the prompt-only guard above to
+# every "lives-in-git-but-must-also-be-in-the-image" class. Each pattern is
+# checked against BOTH .dockerignore (build context) and .gcloudignore (upload
+# filter) via `git check-ignore`; re-adding a blanket `*.md` (or any rule that
+# re-excludes one of these) makes the test FAIL — that blanket rule was the
+# #223 chat-outage root cause.
+#
+# To add a runtime asset class: add its glob here. The test expands the glob to
+# the real files on disk and asserts none of them are excluded.
+RUNTIME_ASSET_MANIFEST = [
+    "prompts/*.md",  # ADK agent instruction templates (render_prompt at startup)
+    "tho_documents/*.pdf",  # regulatory PDF templates (document generation)
+    "config/field_map.json",  # central PDF field-mapping registry (NEVER hardcoded)
+]
+
+# frontend/dist/* (the Vite build output served as the SPA) is ALSO a required
+# runtime asset, but it is a BUILD ARTIFACT produced during deploy, not a
+# committed file — so it is intentionally NOT in the git-tracked manifest above.
+# `.dockerignore`/`.gcloudignore` must not exclude it either; that is asserted
+# separately so a missing local build never false-fails CI.
+FRONTEND_BUILD_OUTPUT_DIR = "frontend/dist"
+
+
+def _manifest_files(pattern: str) -> list[str]:
+    """Expand a manifest glob to repo-relative POSIX paths that exist on disk."""
+    if any(ch in pattern for ch in "*?["):
+        matches = sorted(
+            p.relative_to(REPO_ROOT).as_posix() for p in REPO_ROOT.glob(pattern)
+        )
+        assert matches, f"manifest pattern {pattern!r} matched no files on disk"
+        return matches
+    target = REPO_ROOT / pattern
+    assert target.exists(), f"manifest path {pattern!r} does not exist on disk"
+    return [pattern]
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git required to evaluate ignore patterns")
+@pytest.mark.parametrize("ignore_file", IGNORE_FILES)
+@pytest.mark.parametrize("pattern", RUNTIME_ASSET_MANIFEST)
+def test_runtime_asset_manifest_not_stripped_by_deploy_ignore(ignore_file, pattern, tmp_path):
+    """No manifest asset may be excluded by either deploy ignore-file.
+
+    This is the generalized #223 guard: a blanket `*.md` (or any future rule)
+    that re-excludes a runtime asset must FAIL here. `gcloud run deploy
+    --source .` applies BOTH ignore files, so both are checked.
+    """
+    ignore_path = REPO_ROOT / ignore_file
+    assert ignore_path.is_file(), f"{ignore_file} missing"
+    ignore_text = ignore_path.read_text(encoding="utf-8")
+
+    excluded = [
+        rel
+        for rel in _manifest_files(pattern)
+        if _is_ignored(ignore_text, rel, tmp_path)
+    ]
+    assert not excluded, (
+        f"{ignore_file} would strip runtime asset(s) from the deploy image: {excluded} "
+        f"(manifest pattern {pattern!r}). A blanket exclude must be followed by a `!` "
+        f"negation for this asset class (see the #223 chat-outage regression)."
+    )
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git required to evaluate ignore patterns")
+@pytest.mark.parametrize("ignore_file", IGNORE_FILES)
+def test_frontend_build_output_dir_not_stripped_by_deploy_ignore(ignore_file, tmp_path):
+    """The SPA build output dir must not be excluded by either ignore file.
+
+    Checked at the directory level (a representative built file path) so a
+    missing local Vite build does not false-fail — we assert the *ignore rules*
+    would not strip it, independent of whether it is built right now.
+    """
+    ignore_path = REPO_ROOT / ignore_file
+    ignore_text = ignore_path.read_text(encoding="utf-8")
+    # Representative path that the build produces; if the ignore rules would
+    # strip this, they would strip the SPA shell on deploy.
+    rep_paths = [
+        f"{FRONTEND_BUILD_OUTPUT_DIR}/index.html",
+        f"{FRONTEND_BUILD_OUTPUT_DIR}/assets/index.js",
+    ]
+    excluded = [p for p in rep_paths if _is_ignored(ignore_text, p, tmp_path)]
+    assert not excluded, (
+        f"{ignore_file} would strip the SPA build output {excluded} from the deploy image."
+    )

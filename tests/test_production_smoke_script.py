@@ -205,6 +205,164 @@ def test_safe_public_validation_uses_invalid_non_writing_payloads(monkeypatch):
     assert all(payload == {} and admin_token is None for _, payload, admin_token in calls)
 
 
+# ───────────────── /run agent-reply correctness probe (gate #4a) ─────────────
+
+
+def test_run_reply_probe_passes_on_non_error_agent_reply(monkeypatch):
+    """A real, non-error /run reply makes the probe PASS.
+
+    The whole point: a re-introduced prompt-strip makes /run return an error
+    envelope, which must FAIL this probe (the inverse case below). A liveness
+    probe alone never catches that, because the process stays up.
+    """
+
+    def fake_post_json(base_url, path, payload, *, timeout, admin_token):
+        assert path == "/run"
+        assert admin_token is None  # public endpoint, no secret needed
+        return 200, b'{"text": "Hi! We have several homes available."}', "application/json", 30
+
+    monkeypatch.setattr(production_smoke, "_post_json", fake_post_json)
+
+    probe = production_smoke.check_run_reply("https://example.test", timeout=5.0)
+    assert probe.ok
+    assert probe.status == 200
+
+
+def test_run_reply_probe_fails_on_error_envelope(monkeypatch):
+    """If /run returns the {"error": ...} envelope (the #223 prompt-strip
+    symptom), the probe must FAIL — not silently pass."""
+
+    def fake_post_json(base_url, path, payload, *, timeout, admin_token):
+        return (
+            200,
+            b'{"error": "AI service temporarily unavailable. Please try again later."}',
+            "application/json",
+            20,
+        )
+
+    monkeypatch.setattr(production_smoke, "_post_json", fake_post_json)
+
+    probe = production_smoke.check_run_reply("https://example.test", timeout=5.0)
+    assert not probe.ok
+    assert "error" in probe.evidence.lower()
+
+
+def test_run_reply_probe_fails_on_empty_text(monkeypatch):
+    """A 200 with an empty/missing text field is not a real reply -> FAIL."""
+
+    def fake_post_json(base_url, path, payload, *, timeout, admin_token):
+        return 200, b'{"text": ""}', "application/json", 10
+
+    monkeypatch.setattr(production_smoke, "_post_json", fake_post_json)
+
+    probe = production_smoke.check_run_reply("https://example.test", timeout=5.0)
+    assert not probe.ok
+
+
+# ────────────── admin-auth liveness probe (wrong PIN -> 401) (gate #4b) ───────
+
+
+def test_admin_verify_probe_passes_on_wellformed_401(monkeypatch):
+    """POSTing an obviously-wrong PIN must return a structured 401.
+
+    Verifies the auth endpoint + its rate-limit/lockout path are alive WITHOUT
+    needing the real secret. A correct, well-formed rejection is the success
+    condition.
+    """
+    calls = []
+
+    def fake_post_json(base_url, path, payload, *, timeout, admin_token):
+        calls.append((path, payload))
+        return 401, b'{"success": false, "error": "Incorrect PIN."}', "application/json", 12
+
+    monkeypatch.setattr(production_smoke, "_post_json", fake_post_json)
+
+    probe = production_smoke.check_admin_auth_liveness("https://example.test", timeout=5.0)
+    assert probe.ok
+    assert probe.status == 401
+    # The PIN we send must be obviously-wrong, never a real secret.
+    path, payload = calls[0]
+    assert path == "/api/admin/verify"
+    assert payload.get("pin") and payload["pin"] != ""
+
+
+def test_admin_verify_probe_accepts_429_lockout(monkeypatch):
+    """A 429 lockout is also a healthy auth path (rate-limit alive)."""
+
+    def fake_post_json(base_url, path, payload, *, timeout, admin_token):
+        return (
+            429,
+            b'{"success": false, "error": "Too many failed attempts. Please wait 5 minutes."}',
+            "application/json",
+            12,
+        )
+
+    monkeypatch.setattr(production_smoke, "_post_json", fake_post_json)
+
+    probe = production_smoke.check_admin_auth_liveness("https://example.test", timeout=5.0)
+    assert probe.ok
+    assert probe.status == 429
+
+
+def test_admin_verify_probe_fails_on_unexpected_200(monkeypatch):
+    """A 200 to a wrong PIN means auth is broken/open -> FAIL."""
+
+    def fake_post_json(base_url, path, payload, *, timeout, admin_token):
+        return 200, b'{"success": true, "csrf_token": "x"}', "application/json", 12
+
+    monkeypatch.setattr(production_smoke, "_post_json", fake_post_json)
+
+    probe = production_smoke.check_admin_auth_liveness("https://example.test", timeout=5.0)
+    assert not probe.ok
+
+
+def test_run_and_admin_probes_are_opt_in_in_run_smoke(monkeypatch):
+    """The new live-write/agent probes must be opt-in so the default run stays
+    read-only and cheap. They only fire when explicitly enabled."""
+    seen_paths = []
+
+    def fake_post_json(base_url, path, payload, *, timeout, admin_token):
+        seen_paths.append(path)
+        return 200, b'{"text": "ok"}', "application/json", 10
+
+    def fake_read_url(base_url, path, *, timeout):
+        return 200, b'<html><body><div id="root"></div></body></html>', "text/html", 5
+
+    def fake_json_probe(base_url, path, *, timeout):
+        if path.startswith("/healthz") or path == "/health":
+            return 200, {"status": "ok", "version": "x", "uptime_s": 1}, 5
+        if "inventory-context" in path:
+            return 200, {"success": True, "homes": []}, 5
+        if "slots" in path:
+            return 200, {"date": "x", "available_slots": ["9:00"]}, 5
+        if "passkey/status" in path:
+            return (
+                200,
+                {"enabled": True, "persistent": True, "rp_ids": ["sapphirealpha.xyz"]},
+                5,
+            )
+        return 200, {}, 5
+
+    monkeypatch.setattr(production_smoke, "_post_json", fake_post_json)
+    monkeypatch.setattr(production_smoke, "_read_url", fake_read_url)
+    monkeypatch.setattr(production_smoke, "_json_probe", fake_json_probe)
+
+    production_smoke.run_smoke("https://example.test", timeout=1.0, min_homes=0)
+    assert "/run" not in seen_paths
+    assert "/api/admin/verify" not in seen_paths
+
+    seen_paths.clear()
+    production_smoke.run_smoke(
+        "https://example.test",
+        timeout=1.0,
+        min_homes=0,
+        check_run_reply=True,
+        check_admin_auth=True,
+    )
+    assert "/run" in seen_paths
+    assert "/api/admin/verify" in seen_paths
+
+
 def test_health_probe_surfaces_dependency_warnings(monkeypatch):
     def fake_json_probe(base_url, path, *, timeout):
         if path == "/healthz/":

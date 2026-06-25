@@ -2,6 +2,7 @@
 
 import hashlib
 import os
+from pathlib import Path
 
 # Ensure ADMIN_PIN_HASH is set before any test imports main.py
 os.environ.setdefault("ADMIN_PIN_HASH", hashlib.sha256(b"4832").hexdigest())
@@ -33,3 +34,16 @@ os.environ.setdefault("THO_DISABLE_GCS_UPLOADS", "1")
 os.environ.setdefault("FIRESTORE_EMULATOR_HOST", "localhost:8085")
 os.environ.setdefault("GOOGLE_CLOUD_PROJECT", "tho-test-local")
 os.environ.setdefault("GCP_PROJECT_ID", "tho-test-local")
+
+# main.py mounts StaticFiles("frontend/dist/assets") at import time, which raises
+# if the dir is absent — true in a fresh checkout / worktree that never ran the
+# Vite build. Any test that does `import main` (e.g. the /readyz probe tests)
+# needs this present. Several test files already create it ad-hoc inside their
+# own client builders (see test_smoke_empty_deal.py::_build_test_client); hoist
+# it here so importing main is safe regardless of collection order. Runtime/prod
+# is unaffected — conftest is pytest-only.
+_FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+(_FRONTEND_DIST / "assets").mkdir(parents=True, exist_ok=True)
+_INDEX_HTML = _FRONTEND_DIST / "index.html"
+if not _INDEX_HTML.exists():
+    _INDEX_HTML.write_text('<html><body id="root">test</body></html>', encoding="utf-8")

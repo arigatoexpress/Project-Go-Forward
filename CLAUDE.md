@@ -82,7 +82,7 @@ project-go-forward/
 - **Agent responses via markdown**: Backend controls UI by returning markdown with embedded JSON for property cards
 
 ## Guardrails
-- **Never modify PDF templates** in `tho_data/documents/` — they are regulatory originals
+- **Never modify PDF templates** in `tho_documents/` — they are regulatory originals
 - **Never log PII** (SSN, financial account numbers) — use `pii_guard.py` for sanitization
 - **Never send PII to LLM** — strip PII fields before Gemini API calls
 - **Keep backward compatibility** with existing `/api/documents/sales-contract` endpoint
