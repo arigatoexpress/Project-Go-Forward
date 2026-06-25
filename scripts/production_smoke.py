@@ -90,6 +90,16 @@ ADMIN_PROTECTED_POST_ROUTES = (
 SMOKE_DEAL_ID_PREFIX = "smoke-"
 SMOKE_EMPTY_DEAL_ID = "smoke-empty-test"
 
+# A harmless prompt for the opt-in /run correctness probe. It exercises the live
+# ADK agent reply path; a re-introduced prompt-strip (#223) makes /run return an
+# error envelope, which the probe asserts against. The session id is anonymous
+# so the reply never binds to a real customer record.
+SMOKE_RUN_MESSAGE = "Hello, are any homes available?"
+# An obviously-wrong PIN for the admin-auth liveness probe. We never send a real
+# secret: a well-formed 401 (or 429 lockout) proves the endpoint + rate-limit
+# path are alive without authenticating.
+SMOKE_WRONG_PIN = "0000-smoke-not-a-real-pin"
+
 
 @dataclass(frozen=True)
 class Probe:
@@ -520,12 +530,114 @@ def check_empty_doc_rejection(
     )
 
 
+def check_run_reply(base_url: str, *, timeout: float) -> Probe:
+    """Opt-in /run correctness probe — asserts a NON-ERROR agent reply.
+
+    This is the gate that catches a re-introduced prompt-strip (#223). When the
+    prompts/*.md templates are missing from the image the ADK runner cannot init
+    and /run returns ``{"error": ...}`` with a 200. A liveness probe stays green
+    through that outage; this probe goes RED.
+
+    Success = HTTP 200 + a non-empty ``text`` field + NO ``error`` field. Posts
+    an anonymous session so the reply never binds to a real customer record.
+    """
+    payload = {
+        "userId": "smoke-probe",
+        "sessionId": "smoke-probe-session",
+        "newMessage": {"role": "user", "parts": [{"text": SMOKE_RUN_MESSAGE}]},
+    }
+    status, body, content_type, elapsed_ms = _post_json(
+        base_url,
+        "/run",
+        payload,
+        timeout=timeout,
+        admin_token=None,
+    )
+    body_text = body[:4096].decode("utf-8", errors="replace")
+    parsed: dict[str, Any] = {}
+    try:
+        parsed = json.loads(body_text)
+    except json.JSONDecodeError:
+        parsed = {}
+
+    has_error = "error" in parsed
+    reply_text = parsed.get("text")
+    has_reply = isinstance(reply_text, str) and bool(reply_text.strip())
+    ok = status == 200 and not has_error and has_reply
+
+    reply_preview = (
+        (reply_text or "")[:60].replace("\n", " ") if isinstance(reply_text, str) else ""
+    )
+    evidence = (
+        f"status={status}; content_type={content_type}; "
+        f"has_error={has_error}; error={parsed.get('error')!r}; "
+        f"reply_len={len(reply_text) if isinstance(reply_text, str) else 0}; "
+        f"reply={reply_preview!r}"
+    )
+    return Probe(
+        name="/run (agent reply)",
+        ok=ok,
+        status=status,
+        evidence=evidence,
+        elapsed_ms=elapsed_ms,
+    )
+
+
+def check_admin_auth_liveness(base_url: str, *, timeout: float) -> Probe:
+    """Opt-in admin-auth liveness probe — wrong PIN must yield a clean 401.
+
+    Verifies ``/api/admin/verify`` and its rate-limit/lockout path are ALIVE
+    without needing the real secret: we POST an obviously-wrong PIN and assert a
+    well-formed ``{"success": false, ...}`` 401 (a 429 lockout is also healthy).
+    An unexpected 200 would mean auth is broken/open. Safe + idempotent: a wrong
+    PIN writes nothing but a failed-attempt counter that ages out.
+    """
+    payload = {"pin": SMOKE_WRONG_PIN}
+    status, body, content_type, elapsed_ms = _post_json(
+        base_url,
+        "/api/admin/verify",
+        payload,
+        timeout=timeout,
+        admin_token=None,
+    )
+    body_text = body[:2048].decode("utf-8", errors="replace")
+    parsed: dict[str, Any] = {}
+    try:
+        parsed = json.loads(body_text)
+    except json.JSONDecodeError:
+        parsed = {}
+
+    # 401 = correct rejection of a wrong PIN; 429 = lockout (rate-limit alive).
+    well_formed = parsed.get("success") is False and "html" not in content_type.lower()
+    ok = status in {401, 429} and well_formed
+    evidence = (
+        f"status={status}; content_type={content_type}; "
+        f"success={parsed.get('success')!r}; error={parsed.get('error')!r}"
+    )
+    return Probe(
+        name="/api/admin/verify (wrong PIN -> 401)",
+        ok=ok,
+        status=status,
+        evidence=evidence,
+        elapsed_ms=elapsed_ms,
+    )
+
+
+# Stable aliases so run_smoke can invoke the probes even though its boolean
+# parameters (check_run_reply / check_admin_auth) intentionally share the names
+# for a clean CLI surface and would otherwise shadow the functions in scope.
+_run_reply_probe = check_run_reply
+_admin_auth_probe = check_admin_auth_liveness
+
+
 def run_smoke(
     base_url: str,
     *,
     timeout: float,
     min_homes: int,
     check_empty_doc: bool = False,
+    check_run_reply: bool = False,
+    check_admin_auth: bool = False,
     admin_token: str | None = None,
 ) -> dict[str, Any]:
     probes: list[Probe] = []
@@ -538,6 +650,10 @@ def run_smoke(
     probes.extend(check_admin_protection(base_url, timeout=timeout))
     if check_empty_doc:
         probes.append(check_empty_doc_rejection(base_url, timeout=timeout, admin_token=admin_token))
+    if check_run_reply:
+        probes.append(_run_reply_probe(base_url, timeout=timeout))
+    if check_admin_auth:
+        probes.append(_admin_auth_probe(base_url, timeout=timeout))
     return {
         "ok": all(probe.ok for probe in probes),
         "base_url": base_url.rstrip("/"),
@@ -562,6 +678,24 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--check-run-reply",
+        action="store_true",
+        help=(
+            "Opt-in: POST a harmless prompt to /run and assert a non-error agent "
+            "reply (200 with a non-empty text field, no error envelope). Catches a "
+            "re-introduced prompt-strip (#223) that a liveness probe would miss."
+        ),
+    )
+    parser.add_argument(
+        "--check-admin-auth",
+        action="store_true",
+        help=(
+            "Opt-in: POST an obviously-wrong PIN to /api/admin/verify and assert a "
+            "well-formed 401 (or 429 lockout). Verifies the auth + rate-limit path "
+            "are alive WITHOUT needing the real secret."
+        ),
+    )
+    parser.add_argument(
         "--admin-token",
         default=None,
         help="Admin token used by --check-empty-doc-rejection. Optional.",
@@ -576,6 +710,8 @@ def main(argv: list[str] | None = None) -> int:
         timeout=args.timeout,
         min_homes=args.min_homes,
         check_empty_doc=args.check_empty_doc_rejection,
+        check_run_reply=args.check_run_reply,
+        check_admin_auth=args.check_admin_auth,
         admin_token=args.admin_token,
     )
     print(json.dumps(result, indent=2, sort_keys=True))

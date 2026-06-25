@@ -54,6 +54,11 @@ from auth.session import SESSION_COOKIE_NAME as PASSKEY_COOKIE_NAME
 from auth.session import SessionManager
 from config_loader import business_name, get_deployment_config
 
+# render_prompt is the SAME loader root_agent.py feeds the ADK runner — the
+# /readyz probe renders the runner's prompts through it so a stripped-prompt
+# image (the #223 chat outage) fails readiness instead of booting green.
+from prompt_loader import render_prompt
+
 # Lazy initialization placeholders - will be loaded on first use
 _adk_app = None
 _runner = None
@@ -2000,6 +2005,117 @@ def healthz_detailed(request: Request) -> JSONResponse:
         body,
         headers={"Cache-Control": "no-store, no-cache, must-revalidate", "Pragma": "no-cache"},
     )
+
+
+# ─────────────────────────── Readiness probe (/readyz) ───────────────────────
+#
+# Distinct from /healthz (liveness). /healthz answers "is the process up?" and
+# stays 200 even on a broken image — which is exactly how the 2026-06-23 chat
+# outage (#223) hid: the container booted, /healthz was green, but a blanket
+# `*.md` ignore rule had stripped prompts/*.md from the image, so the ADK runner
+# could not init and every /run errored. /readyz exercises the RUNTIME deps a
+# working request needs, so a broken image fails the probe.
+
+# The ADK runner (root_agent.py) renders exactly these three prompts at init.
+# Rendering them here through the SAME loader proves the prompt templates
+# shipped in the image; a stripped-prompt image raises -> readiness fails.
+_READYZ_RUNNER_PROMPTS = ("root_agent", "sales_agent", "service_agent")
+
+# Regulatory PDF templates that MUST be present for document generation to work
+# on Cloud Run (a deploy that strips tho_documents/ must fail readiness). Kept
+# small + representative; the full manifest is enforced by
+# tests/test_deploy_assets.py.
+_READYZ_REQUIRED_DOCUMENTS = (
+    "TMHA-TwoPartyContract.pdf",
+    "Internal_ImportantNoticeTax.pdf",
+)
+
+
+def _readyz_documents_dir() -> str:
+    """Directory holding the regulatory PDF templates (seam for tests)."""
+    from tools.document_tools import DOCUMENTS_DIR
+
+    return DOCUMENTS_DIR
+
+
+def _readyz_check_prompts() -> dict:
+    """Render the runner's prompt templates so a stripped-prompt image fails."""
+    rendered = []
+    for name in _READYZ_RUNNER_PROMPTS:
+        text = render_prompt(name)
+        if not text or not text.strip():
+            raise RuntimeError(f"prompt '{name}' rendered empty")
+        rendered.append(name)
+    return {"ok": True, "rendered": rendered}
+
+
+def _readyz_check_documents() -> dict:
+    """Confirm the expected regulatory templates exist in the image."""
+    docs_dir = _readyz_documents_dir()
+    missing = [
+        name
+        for name in _READYZ_REQUIRED_DOCUMENTS
+        if not os.path.isfile(os.path.join(docs_dir, name))
+    ]
+    if missing:
+        raise RuntimeError(f"missing regulatory templates: {missing}")
+    return {"ok": True, "present": list(_READYZ_REQUIRED_DOCUMENTS)}
+
+
+def _readyz_check_firestore() -> dict:
+    """Best-effort Firestore reachability. Raises on failure (soft-handled)."""
+    from database.firestore_client import get_database
+
+    # Touch the client; .db lazily constructs the Firestore handle. We do NOT
+    # issue a query (would write/read prod) — constructing the client is enough
+    # to surface a misconfigured/unreachable backend.
+    client = get_database().db
+    if client is None:
+        raise RuntimeError("firestore client unavailable")
+    return {"ok": True}
+
+
+@app.api_route("/readyz", methods=["GET", "HEAD"], response_class=JSONResponse)
+@app.api_route("/readyz/", methods=["GET", "HEAD"], response_class=JSONResponse)
+@limiter.exempt
+def readyz() -> JSONResponse:
+    """Real readiness probe — exercises runtime deps a working request needs.
+
+    Hard checks (failure -> 503): prompt templates render, regulatory documents
+    present. Soft check (reported, never fails the probe locally): Firestore
+    reachability. Returns 200 {"ready": true, "checks": {...}} or 503
+    {"ready": false, "failed": "<check>", "checks": {...}}.
+
+    This is the probe that would have caught the #223 chat outage: strip the
+    prompts and /readyz goes 503 while /healthz stays 200.
+    """
+    checks: dict[str, dict] = {}
+    failed: str | None = None
+
+    # Hard checks — a failure means the deployed image cannot serve requests.
+    for name, fn in (("prompts", _readyz_check_prompts), ("documents", _readyz_check_documents)):
+        try:
+            checks[name] = fn()
+        except Exception as exc:  # noqa: BLE001 - probe must not raise into the handler
+            # Message is operational (asset names / counts), never PII or secrets.
+            checks[name] = {"ok": False, "error": str(exc)[:300]}
+            if failed is None:
+                failed = name
+
+    # Soft check — DB blips should not flap Cloud Run readiness.
+    try:
+        checks["firestore"] = _readyz_check_firestore()
+    except Exception as exc:  # noqa: BLE001
+        checks["firestore"] = {"ok": False, "error": str(exc)[:300]}
+
+    headers = {"Cache-Control": "no-store, no-cache, must-revalidate", "Pragma": "no-cache"}
+    if failed is not None:
+        return JSONResponse(
+            {"ready": False, "failed": failed, "checks": checks},
+            status_code=503,
+            headers=headers,
+        )
+    return JSONResponse({"ready": True, "checks": checks}, headers=headers)
 
 
 @app.post("/apps/{app_name}/users/{user_id}/sessions/{session_id}")
