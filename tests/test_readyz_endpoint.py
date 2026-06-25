@@ -107,3 +107,33 @@ def test_readyz_firestore_failure_is_soft(monkeypatch):
     body = resp.json()
     assert body["ready"] is True
     assert body["checks"]["firestore"]["ok"] is False
+
+
+def _req(path: str, host: str = "candidate---x.a.run.app", method: str = "GET"):
+    from starlette.requests import Request
+
+    scope = {
+        "type": "http",
+        "method": method,
+        "path": path,
+        "headers": [(b"host", host.encode())],
+        "query_string": b"",
+        "scheme": "https",
+        "server": (host, 443),
+    }
+    return Request(scope)
+
+
+def test_readyz_exempt_from_canonical_host_redirect():
+    """A probe must be hittable directly on the *.run.app URL (like /healthz),
+    not 308-redirected to the canonical vanity host — otherwise CI cannot probe
+    the candidate revision pre-cutover."""
+    assert main._should_redirect_to_canonical_host(_req("/readyz")) is False
+    assert main._should_redirect_to_canonical_host(_req("/readyz/")) is False
+    # Control: a normal customer page on the run.app host IS still redirected.
+    assert main._should_redirect_to_canonical_host(_req("/inventory")) is True
+
+
+def test_readyz_is_rate_limit_exempt():
+    assert main._is_rate_limit_exempt_path("/readyz") is True
+    assert main._is_rate_limit_exempt_path("/readyz/") is True

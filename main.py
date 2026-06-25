@@ -474,7 +474,7 @@ _STATIC_RATE_LIMIT_PATHS = {
 
 def _is_rate_limit_exempt_path(path: str, method: str = "GET") -> bool:
     """Skip the legacy global limiter for health checks and SPA delivery."""
-    if path in {"/health", "/healthz", "/healthz/"}:
+    if path in {"/health", "/healthz", "/healthz/", "/readyz", "/readyz/"}:
         return True
     if method.upper() in {"GET", "HEAD"} and not (path == "/api" or path.startswith("/api/")):
         return True
@@ -598,7 +598,7 @@ class PerformanceMetricsMiddleware(BaseHTTPMiddleware):
     """Track request latency and record structured metrics per endpoint."""
 
     async def dispatch(self, request: Request, call_next):
-        if request.url.path in {"/health", "/healthz", "/healthz/"}:
+        if request.url.path in {"/health", "/healthz", "/healthz/", "/readyz", "/readyz/"}:
             return await call_next(request)
 
         start = time.perf_counter()
@@ -859,7 +859,7 @@ def _should_redirect_to_canonical_host(request: Request) -> bool:
     path = request.url.path
     if path == "/llms.txt":
         return False
-    if path.startswith("/health") or path == "/api" or path.startswith("/api/"):
+    if path.startswith("/health") or path.startswith("/readyz") or path == "/api" or path.startswith("/api/"):
         return False
     if path.startswith("/assets/") or path.startswith("/workbox-"):
         return False
