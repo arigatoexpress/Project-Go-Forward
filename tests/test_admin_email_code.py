@@ -363,3 +363,28 @@ class TestVerifyEndpoint:
         )
         assert res.status_code == 429
         assert "Retry-After" in res.headers
+
+    def test_pin_hash_unset_returns_503_and_does_not_burn_code(self, email_client, monkeypatch):
+        """Misconfig (ADMIN_PIN_HASH unset) must fail closed BEFORE consuming the code."""
+        client, main, email_code = email_client
+        code = self._request_code(client, main, email_code, monkeypatch)
+        monkeypatch.setattr(main, "ADMIN_PIN_HASH", "", raising=False)
+        res = client.post(
+            "/api/admin/email-code/verify", json={"email": ALLOWED_EMAIL, "code": code}
+        )
+        assert res.status_code == 503
+        # The user's valid code must NOT be consumed by a server misconfiguration.
+        assert email_code.default_code_store().get(ALLOWED_EMAIL) is not None
+        assert "tho_admin_token" not in res.cookies
+
+    def test_disallowed_email_with_seeded_record_is_rejected(self, email_client):
+        """Defense in depth: /verify re-asserts the allowlist even if a record exists."""
+        client, main, email_code = email_client
+        store = email_code.default_code_store()
+        store.put(DISALLOWED_EMAIL, email_code.hash_code("123456"), time.time() + 600)
+        res = client.post(
+            "/api/admin/email-code/verify",
+            json={"email": DISALLOWED_EMAIL, "code": "123456"},
+        )
+        assert res.status_code == 401
+        assert "tho_admin_token" not in res.cookies

@@ -7392,6 +7392,19 @@ async def verify_admin_email_code(request: Request):
         )
     code = code.strip()
 
+    # Fail closed BEFORE consuming a code: if admin auth isn't configured, mirror
+    # verify_admin_pin's 503 instead of burning the user's valid code on a misconfig.
+    if not ADMIN_PIN_HASH:
+        struct_logger.warning("Admin email-code login rejected: ADMIN_PIN_HASH not configured")
+        return JSONResponse(
+            {"success": False, "error": "Admin auth not configured."}, status_code=503
+        )
+    # Defense in depth: re-assert the shared allowlist on verify so no future
+    # store-seeding path could ever mint a session for a non-authorized email.
+    if not is_allowed_admin_email(email):
+        _add_pin_attempt(client_ip, now)
+        return _email_login_invalid_response()
+
     try:
         store = default_code_store()
     except EmailLoginCodeStoreUnavailable as exc:
