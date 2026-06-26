@@ -53,13 +53,13 @@
 4. ~~Lazy Loading~~ — **DONE**
 5. ~~Image Optimization~~ — **DONE**
 6. ~~Performance Metrics~~ — **DONE**
-7. **Health Check Dashboard** — Visualize `/api/metrics` and `/healthz` data
-8. **User Activity Logging** — Structured admin/user action logging beyond `audit_log.py`
+7. ~~Health Check Dashboard~~ — **DONE**
+8. ~~User Activity Logging~~ — **DONE**
 
 ### Low Priority
 9. ~~Sentry SDK~~ — **DONE**
 10. **A/B Testing Framework** — Test UI changes
-11. **Feature Flags** — Roll out features gradually
+11. **Feature Flags** — **DONE** (`tools/feature_flags.py` with env/config/percentage rollouts, 50+ tests in `tests/test_feature_flags.py`)
 12. **Documentation** — API docs (OpenAPI already available), user guides
 
 ### Operator / Launch Blockers (see LAUNCH_READINESS.md)
