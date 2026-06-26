@@ -108,6 +108,7 @@ def _get_runner():
     return _runner
 
 
+import tools.feature_flags as feature_flags
 from appointment_manager import Appointment, AppointmentManager
 from audit_log import (
     ALLOWED_ACTIONS as AUDIT_ALLOWED_ACTIONS,
@@ -5847,6 +5848,19 @@ async def get_admin_audit_log(
     except Exception as e:
         struct_logger.error("Audit log query failed", error=str(e))
         return {"success": False, "error": "Failed to load audit log."}
+
+
+@app.get("/api/admin/feature-flags", dependencies=[Depends(require_admin)])
+async def get_feature_flags():
+    """Return all feature flags and their current resolved values.
+
+    Safe for admin dashboards; no secrets are exposed.
+    """
+    try:
+        return {"success": True, "flags": feature_flags.all_flags()}
+    except Exception as e:
+        struct_logger.error("Feature flags query failed", error=str(e))
+        return {"success": False, "error": "Failed to load feature flags."}
 
 
 # ─── Customer API (migrated FastContract records) ────────────────────────────
