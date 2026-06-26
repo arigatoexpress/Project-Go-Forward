@@ -1963,10 +1963,11 @@ def healthz() -> JSONResponse:
 @app.get("/healthz/detailed", response_class=JSONResponse)
 @limiter.exempt
 def healthz_detailed(request: Request) -> JSONResponse:
-    """Detailed diagnostics — requires admin auth."""
-    token = request.headers.get("X-Admin-Token", "")
-    if not token or not _verify_admin_token(token):
-        raise HTTPException(status_code=403, detail="Admin access required")
+    """Detailed diagnostics — requires admin auth (cookie, passkey, or token)."""
+    if not _verify_passkey_cookie(request):
+        token = _admin_token_from_request(request)
+        if not token or not _verify_admin_token(token):
+            raise HTTPException(status_code=403, detail="Admin access required")
     email_configured = bool(os.environ.get("RESEND_API_KEY"))
     warnings = []
     if not email_configured:
