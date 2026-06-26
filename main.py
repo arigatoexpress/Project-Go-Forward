@@ -1923,13 +1923,15 @@ async def get_chat_analytics(range: str = "30d"):
         return {"error": "Failed to load chat analytics"}
 
 
-@app.api_route("/health", methods=["GET", "HEAD"])
+@app.get("/health")
+@app.head("/health")
 @limiter.exempt
 def health():
     return {"status": "ok"}
 
 
-@app.api_route("/llms.txt", methods=["GET", "HEAD"])
+@app.get("/llms.txt")
+@app.head("/llms.txt")
 @limiter.exempt
 def llms_txt() -> FileResponse:
     return FileResponse(
@@ -1940,8 +1942,10 @@ def llms_txt() -> FileResponse:
     )
 
 
-@app.api_route("/healthz", methods=["GET", "HEAD"], response_class=JSONResponse)
-@app.api_route("/healthz/", methods=["GET", "HEAD"], response_class=JSONResponse)
+@app.get("/healthz", response_class=JSONResponse)
+@app.head("/healthz", response_class=JSONResponse)
+@app.get("/healthz/", response_class=JSONResponse)
+@app.head("/healthz/", response_class=JSONResponse)
 @limiter.exempt
 def healthz() -> JSONResponse:
     """Public health probe — returns minimal data to avoid info leakage.
@@ -7589,7 +7593,8 @@ app.mount("/assets", ImmutableStaticFiles(directory="frontend/dist/assets"), nam
 
 # HEAD is included because uptime monitors default to HEAD on "/" and the
 # Cloud Run service should not answer the probe with 405.
-@app.api_route("/{full_path:path}", methods=["GET", "HEAD"])
+@app.get("/{full_path:path}")
+@app.head("/{full_path:path}")
 async def serve_spa(full_path: str):
     if full_path == "api" or full_path.startswith("api/"):
         # Funnel unknown /api/* paths through the resilient HTTPException
