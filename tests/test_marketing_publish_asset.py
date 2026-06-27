@@ -23,6 +23,20 @@ def _reset_module_cache(monkeypatch):
     monkeypatch.setattr(marketing_assets, "_gcs_unavailable", False, raising=False)
 
 
+@pytest.fixture(autouse=True)
+def _generated_dir(tmp_path, monkeypatch):
+    """Point GENERATED_VIDEOS_DIR at a temp dir for every test.
+
+    ``publish_video_asset`` only ever serves files contained inside
+    GENERATED_VIDEOS_DIR (the prod security boundary), so the upload tests
+    create their creatives here and pass them by name/path; the resolver
+    matches them by basename within this dir.
+    """
+    from tools import video_generator
+
+    monkeypatch.setattr(video_generator, "GENERATED_VIDEOS_DIR", str(tmp_path))
+
+
 def _fake_bucket(signed_url: str = "https://signed.example/v4/test") -> MagicMock:
     """Return a mock bucket whose blob generates a signed URL."""
     bucket = MagicMock()
@@ -140,3 +154,23 @@ class TestPublishVideoAsset:
         result = marketing_assets.publish_video_asset(basename)
         assert result["success"] is True
         assert result["public_url"] == "https://signed.example/v4/test"
+
+    def test_absolute_path_outside_generated_dir_rejected(self, tmp_path_factory, monkeypatch):
+        """A real file referenced by ABSOLUTE path from OUTSIDE the generated dir
+        must never be uploaded to the public bucket.
+
+        Regression for the containment gap: the prior resolver accepted any
+        ``os.path.isfile(input)`` path, and the basename-equality guard let it
+        through (``basename('/etc/passwd') == 'passwd'``). The file here exists
+        and is real — only its location (outside GENERATED_VIDEOS_DIR) makes it
+        unsafe — so this exercises exactly that escape.
+        """
+        outside = tmp_path_factory.mktemp("outside") / "secret.txt"
+        outside.write_text("SSN-like sensitive data that must not leak to a public bucket")
+        bucket = _fake_bucket()
+        monkeypatch.setattr(marketing_assets, "_get_bucket", lambda: bucket)
+        result = marketing_assets.publish_video_asset(str(outside))
+        assert result["success"] is False
+        assert "not_found" in result["reason"].lower() or "invalid" in result["reason"].lower()
+        # Critically: nothing was uploaded.
+        bucket.blob.return_value.upload_from_filename.assert_not_called()

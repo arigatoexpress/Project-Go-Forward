@@ -53,18 +53,24 @@ def _get_bucket():
 
 
 def _resolve_local_path(local_path_or_filename: str) -> str | None:
-    """Return an absolute path to the generated video file.
+    """Return an absolute path to a generated video file, **constrained to
+    ``GENERATED_VIDEOS_DIR``**.
 
-    Accepts either a full path or a bare filename (looked up in
-    ``GENERATED_VIDEOS_DIR``).
+    Only ever serves files from inside the generated-creatives directory: any
+    directory components in the input are stripped to a basename and resolved
+    against that dir, with a realpath containment check. This is a hard security
+    boundary — without it, an admin-supplied absolute path (e.g. ``/etc/passwd``)
+    or ``..`` traversal to an arbitrary server file would be uploaded to the
+    PUBLIC publish bucket. A basename-equality check alone does not catch this
+    (``basename('/etc/passwd') == 'passwd'``), so we resolve+contain instead.
     """
-    if os.path.isfile(local_path_or_filename):
-        return os.path.abspath(local_path_or_filename)
-
     from tools.video_generator import GENERATED_VIDEOS_DIR
 
-    candidate = os.path.abspath(os.path.join(GENERATED_VIDEOS_DIR, os.path.basename(local_path_or_filename)))
-    if os.path.isfile(candidate):
+    base = os.path.realpath(GENERATED_VIDEOS_DIR)
+    candidate = os.path.realpath(os.path.join(base, os.path.basename(local_path_or_filename)))
+    # candidate must live inside base AND be a real file (rejects the dir itself,
+    # empty input, and anything that escapes the generated-creatives directory).
+    if os.path.commonpath((base, candidate)) == base and os.path.isfile(candidate):
         return candidate
     return None
 
