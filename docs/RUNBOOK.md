@@ -96,7 +96,7 @@ flow (admin login, partner API call, email send) before closing the incident.
 
 - Operator: Ari (`arigatoexpress`) — repo admin, GCP owner.
 - Client-facing: treat any customer-visible outage during business hours
-  (Mon–Fri 9–6, Sat 9–5, Sun 12–3 CT) as P1; the storefront is the business.
+  (Mon–Fri 9–6, Sat 9–5 CT; closed Sunday) as P1; the storefront is the business.
 - Post-incident: file an issue with timeline + root cause; if the incident
   required a rollback, the bad commit must be reverted on `main` via PR before
   `--to-latest` is restored.

@@ -51,18 +51,19 @@ class TestGetHoursForDate:
         assert d.weekday() == 5
         assert _get_hours_for_date(d) == (9, 17)
 
-    def test_sunday_returns_noon_to_three(self):
+    def test_sunday_returns_closed(self):
         # 2026-04-19 is a Sunday
         d = date(2026, 4, 19)
         assert d.weekday() == 6
-        assert _get_hours_for_date(d) == (12, 15)
+        assert _get_hours_for_date(d) is None
 
     def test_all_weekdays_covered(self):
-        """Every weekday 0-6 returns a tuple, not None."""
+        """Every weekday 0-6 has an explicit schedule or closed marker."""
         for weekday in range(7):
             assert weekday in HOURS_BY_DAY
-            open_h, close_h = HOURS_BY_DAY[weekday]
-            assert open_h < close_h
+            if HOURS_BY_DAY[weekday] is not None:
+                open_h, close_h = HOURS_BY_DAY[weekday]
+                assert open_h < close_h
 
 
 # ---------------------------------------------------------------------------
@@ -77,12 +78,6 @@ class TestGenerateSlots:
         assert slots[0] == "9:00 AM"
         assert "12:00 PM" in slots
         assert slots[-1] == "5:00 PM"
-
-    def test_sunday_slots(self):
-        slots = _generate_slots(12, 15)
-        assert len(slots) == 3
-        assert slots[0] == "12:00 PM"
-        assert slots[-1] == "2:00 PM"
 
     def test_saturday_slots(self):
         slots = _generate_slots(9, 17)
@@ -327,8 +322,8 @@ class TestCreateAppointmentValidation:
         # pre-transaction validation runs.
         mgr = self._manager()
         # Pick the NEXT MONDAY so the day is always open with a 10:00 AM slot.
-        # A fixed "+3 days" made this flaky: it lands on Sunday some days (today),
-        # and Sunday hours are 12-3pm, so 10:00 AM is not a valid slot.
+        # A fixed "+3 days" made this flaky: it lands on Sunday some days,
+        # and Sunday is closed.
         today = datetime.now(TIMEZONE).date()
         days_ahead = (7 - today.weekday()) % 7 or 7  # next Monday
         soon = (today + timedelta(days=days_ahead)).isoformat()
