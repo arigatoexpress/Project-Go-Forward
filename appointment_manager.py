@@ -28,7 +28,7 @@ HOURS_BY_DAY = {
     3: (9, 18),  # Thursday
     4: (9, 18),  # Friday
     5: (9, 17),  # Saturday
-    6: (12, 15),  # Sunday
+    6: None,  # Sunday closed
 }
 
 
@@ -166,6 +166,7 @@ class AppointmentManager:
 
     async def cancel_appointment(self, appointment_id: str) -> Optional["Appointment"]:
         """Cancel an appointment, freeing the slot."""
+
         def _cancel():
             doc_ref = self._collection().document(appointment_id)
             doc = doc_ref.get()
@@ -182,6 +183,7 @@ class AppointmentManager:
 
     async def get_appointment(self, appointment_id: str) -> Appointment | None:
         """Retrieve appointment by ID."""
+
         def _get():
             doc = self._collection().document(appointment_id).get()
             if doc.exists:
@@ -192,6 +194,7 @@ class AppointmentManager:
 
     async def get_appointments_by_date(self, date_str: str) -> list[Appointment]:
         """Get all confirmed appointments for a date."""
+
         def _query():
             q = self._collection().where("date", "==", date_str).where("status", "==", "confirmed")
             return [Appointment.from_dict(doc.to_dict()) for doc in q.stream()]
@@ -200,6 +203,7 @@ class AppointmentManager:
 
     async def get_appointments_by_phone(self, phone: str) -> list[Appointment]:
         """Get appointments for a customer by phone number."""
+
         def _query():
             q = (
                 self._collection()
@@ -273,6 +277,7 @@ class AppointmentManager:
         self, status: str | None = None, limit: int = 100
     ) -> list[Appointment]:
         """List appointments with optional status filter."""
+
         def _query():
             q = self._collection()
             if status:

@@ -68,15 +68,17 @@ const CalendarGrid = ({ selectedDate, onSelect }) => {
     d.setHours(0, 0, 0, 0);
     const isPast = d < today;
     const isBeyond = d > maxDate;
+    const isSunday = d.getDay() === 0;
     const isToday = d.getTime() === today.getTime();
     const isSelected = selectedDate && d.toISOString().slice(0, 10) === selectedDate;
-    const disabled = isPast || isBeyond;
+    const disabled = isPast || isBeyond || isSunday;
 
     cells.push(
       <button
         key={day}
         disabled={disabled}
         onClick={() => onSelect(d.toISOString().slice(0, 10))}
+        title={isSunday ? 'Closed Sunday' : undefined}
         className={`
           aspect-square rounded-lg text-sm font-medium transition-all
           ${disabled ? 'text-gray-300 cursor-not-allowed' : 'hover:bg-blue-100 cursor-pointer'}
@@ -126,7 +128,7 @@ const CalendarGrid = ({ selectedDate, onSelect }) => {
         {cells}
       </div>
       <p className="text-xs text-gray-500 mt-4 text-center">
-        Dimmed dates are unavailable — past days and dates more than 30 days out can&apos;t be booked online. Call {BUSINESS_PHONE} for dates further ahead.
+        Dimmed dates are unavailable — Sundays, past days, and dates more than 30 days out can&apos;t be booked online. Call {BUSINESS_PHONE} for dates further ahead.
       </p>
     </div>
   );

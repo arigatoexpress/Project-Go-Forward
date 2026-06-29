@@ -70,7 +70,7 @@ typical lead times for on-lot vs. ordered homes.]*
 
 ### Can I tour homes in person?
 Yes — visit our Huffman showroom/lot during business hours
-(*[THO: confirm: Mon–Fri 9–6, Sat 9–5, Sun 12–3]*), or **book a showroom visit** online
+(Mon–Fri 9–6, Sat 9–5, Sun Closed), or **book a showroom visit** online
 and we'll have a home finder ready for you. Many listings also include **photos and 3D
 virtual tours** you can explore from home.
 

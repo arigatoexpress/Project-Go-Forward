@@ -53,7 +53,7 @@ Once answered, Claude/Kimi can build the actual pages.
 
 ## 6. Hours & Contact
 
-- [ ] **Business hours:** Exact days and times (e.g., Mon–Sat 9am–6pm, Sun 12pm–5pm)
+- [x] **Business hours:** Mon–Fri 9am–6pm, Sat 9am–5pm, Sun Closed
 - [ ] **Walk-ins vs appointments:** Do you accept walk-ins, or appointment only?
 - [ ] **Phone number:** Primary contact number
 - [ ] **Physical address:** Full street address for the lot

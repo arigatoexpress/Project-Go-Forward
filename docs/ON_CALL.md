@@ -24,7 +24,7 @@ This guide assumes the **Ops bootstrap workflow** (`.github/workflows/ops-bootst
 **Business hours** (from `config.yaml`):
 - Mon–Fri 9:00 AM – 6:00 PM CT
 - Sat 9:00 AM – 5:00 PM CT
-- Sun 12:00 PM – 3:00 PM CT
+- Sun Closed
 
 A P1 outside business hours still pages because the storefront is 24/7 online revenue.
 
