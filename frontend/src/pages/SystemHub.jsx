@@ -3,7 +3,7 @@ import {
   Activity, Shield, Server, Cpu, Globe, Zap, Lock,
   ExternalLink, ChevronRight, AlertTriangle,
   CheckCircle2, XCircle, Loader2, Layers,
-  KeyRound, FileText, Trash2, RefreshCw, Fingerprint, Terminal
+  KeyRound, FileText, Trash2, RefreshCw, Fingerprint
 } from 'lucide-react';
 import adminFetch from '../adminFetch';
 
@@ -184,59 +184,6 @@ function ArchitectureViz() {
   );
 }
 
-function TelemetryFeed() {
-  const [lines, setLines] = useState([
-    { ts: '14:28:01', level: 'info', msg: 'healthz OK — Cloud Run warm' },
-    { ts: '14:27:45', level: 'info', msg: 'Document storage check passed' },
-    { ts: '14:27:30', level: 'warn', msg: 'Inventory media queue has unreviewed Drive candidates' },
-    { ts: '14:26:12', level: 'info', msg: 'Passkey status — 0 keys registered' },
-    { ts: '14:25:55', level: 'info', msg: 'Admin check — session valid' },
-    { ts: '14:25:00', level: 'info', msg: 'Inventory index available for document autofill' },
-  ]);
-
-  useEffect(() => {
-    const iv = setInterval(() => {
-      const now = new Date();
-      const ts = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')}`;
-      const msgs = [
-        { level: 'info', msg: 'Heartbeat — THO app healthy' },
-        { level: 'info', msg: `Cloud Run CPU: ${(Math.random()*30+10).toFixed(1)}%` },
-        { level: 'info', msg: `Recent document jobs: ${Math.floor(Math.random()*5)}` },
-        { level: 'warn', msg: 'Review queue still contains media candidates' },
-      ];
-      const pick = msgs[Math.floor(Math.random()*msgs.length)];
-      setLines(prev => [ { ts, ...pick }, ...prev ].slice(0, 8));
-    }, 4500);
-    return () => clearInterval(iv);
-  }, []);
-
-  const levelColor = {
-    info: 'text-[var(--cp-accent)]',
-    warn: 'text-[var(--cp-warn)]',
-    error: 'text-[var(--cp-danger)]',
-  };
-
-  return (
-    <div className="cp-panel p-5">
-      <h3 className="font-mono font-semibold text-[var(--cp-text)] mb-4 flex items-center gap-2">
-        <Terminal size={16} className="text-[var(--cp-accent)]" />
-        Telemetry Feed <PulseDot color="green" size={6} />
-      </h3>
-      <div className="font-mono text-xs space-y-1.5 max-h-64 overflow-y-auto scrollbar-thin pr-1">
-        {lines.map((l, i) => (
-          <div key={i} className="flex gap-3">
-            <span className="text-[var(--cp-faint)] shrink-0">{l.ts}</span>
-            <span className={`uppercase tracking-wider text-[10px] font-bold shrink-0 w-10 ${levelColor[l.level]}`}>
-              {l.level}
-            </span>
-            <span className="text-[var(--cp-text-secondary)]">{l.msg}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 function QuickStat({ label, value, sub, icon, accent = 'accent' }) {
   const accentMap = {
     accent:   'text-[var(--cp-accent)] bg-[var(--cp-accent-dim)]',
@@ -257,12 +204,164 @@ function QuickStat({ label, value, sub, icon, accent = 'accent' }) {
   );
 }
 
+function MetricsPanel({ metrics, detailedHealth, error }) {
+  const overall = metrics?.overall || {};
+  const endpoints = metrics?.endpoints || {};
+
+  const topEndpoints = Object.entries(endpoints)
+    .sort((a, b) => (b[1].p95 || 0) - (a[1].p95 || 0))
+    .slice(0, 5);
+
+  const formatUptime = (seconds) => {
+    if (!seconds && seconds !== 0) return '—';
+    const m = Math.floor(seconds / 60);
+    const h = Math.floor(m / 60);
+    const d = Math.floor(h / 24);
+    if (d > 0) return `${d}d ${h % 24}h`;
+    if (h > 0) return `${h}h ${m % 60}m`;
+    return `${m}m`;
+  };
+
+  return (
+    <div className="cp-panel p-5">
+      <h3 className="font-mono font-semibold text-[var(--cp-text)] mb-4 flex items-center gap-2">
+        <Activity size={16} className="text-[var(--cp-accent)]" />
+        Performance Metrics <PulseDot color="green" size={6} />
+      </h3>
+
+      {error ? (
+        <div className="text-xs text-[var(--cp-danger)]">{error}</div>
+      ) : (
+        <div className="space-y-4">
+          {/* Overall latency */}
+          <div className="grid grid-cols-3 gap-2 text-center">
+            <div>
+              <div className="text-lg font-mono font-bold text-[var(--cp-accent)]">
+                {overall.p50 != null ? `${overall.p50}ms` : '—'}
+              </div>
+              <div className="text-[10px] text-[var(--cp-muted)]">p50</div>
+            </div>
+            <div>
+              <div className="text-lg font-mono font-bold text-[var(--cp-warn)]">
+                {overall.p95 != null ? `${overall.p95}ms` : '—'}
+              </div>
+              <div className="text-[10px] text-[var(--cp-muted)]">p95</div>
+            </div>
+            <div>
+              <div className="text-lg font-mono font-bold text-[var(--cp-danger)]">
+                {overall.p99 != null ? `${overall.p99}ms` : '—'}
+              </div>
+              <div className="text-[10px] text-[var(--cp-muted)]">p99</div>
+            </div>
+          </div>
+
+          {/* Total requests */}
+          {overall.count != null && (
+            <div className="text-center text-xs text-[var(--cp-muted)]">
+              {overall.count.toLocaleString()} requests in rolling window
+            </div>
+          )}
+
+          {/* Top endpoints by latency */}
+          {topEndpoints.length > 0 && (
+            <div className="space-y-1.5">
+              <div className="text-[10px] text-[var(--cp-muted)] uppercase tracking-wider">
+                Slowest Endpoints
+              </div>
+              {topEndpoints.map(([key, data]) => (
+                <div key={key} className="flex justify-between items-center text-xs font-mono">
+                  <span className="text-[var(--cp-text-secondary)] truncate max-w-[140px]" title={key}>
+                    {key}
+                  </span>
+                  <span
+                    className={
+                      data.p95 > 500
+                        ? 'text-[var(--cp-danger)]'
+                        : data.p95 > 200
+                        ? 'text-[var(--cp-warn)]'
+                        : 'text-[var(--cp-accent)]'
+                    }
+                  >
+                    {data.p95}ms
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Detailed health */}
+          {detailedHealth && (
+            <div className="border-t border-[var(--cp-border)] pt-3 space-y-1.5">
+              <div className="text-[10px] text-[var(--cp-muted)] uppercase tracking-wider">
+                System Health
+              </div>
+              <div className="flex justify-between text-xs font-mono">
+                <span className="text-[var(--cp-text-secondary)]">Uptime</span>
+                <span className="text-[var(--cp-accent)]">{formatUptime(detailedHealth.uptime_s)}</span>
+              </div>
+              <div className="flex justify-between text-xs font-mono">
+                <span className="text-[var(--cp-text-secondary)]">Version</span>
+                <span className="text-[var(--cp-faint)]">{detailedHealth.version?.slice(0, 7) || '—'}</span>
+              </div>
+              {detailedHealth.warnings?.length > 0 && (
+                <div className="text-[10px] text-[var(--cp-warn)] flex items-center gap-1">
+                  <AlertTriangle size={10} />
+                  {detailedHealth.warnings.length} warning
+                  {detailedHealth.warnings.length > 1 ? 's' : ''}
+                </div>
+              )}
+              {detailedHealth.dependencies && (
+                <div className="flex flex-wrap gap-1 mt-1">
+                  {Object.entries(detailedHealth.dependencies).map(([name, status]) => (
+                    <span
+                      key={name}
+                      className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+                        status === 'configured' || status === 'ok'
+                          ? 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/20'
+                          : 'bg-amber-500/10 text-amber-300 border border-amber-500/20'
+                      }`}
+                    >
+                      {status === 'configured' || status === 'ok' ? (
+                        <CheckCircle2 size={10} />
+                      ) : (
+                        <AlertTriangle size={10} />
+                      )}
+                      {name}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function SystemHub({ onBack }) {
   const [passkeyStatus, setPasskeyStatus] = useState(null);
   const [passkeyCredentials, setPasskeyCredentials] = useState([]);
   const [passkeyError, setPasskeyError] = useState('');
   const [passkeyAction, setPasskeyAction] = useState('');
   const [health, setHealth] = useState(null);
+  const [metrics, setMetrics] = useState(null);
+  const [detailedHealth, setDetailedHealth] = useState(null);
+  const [metricsError, setMetricsError] = useState('');
+
+  const loadMetrics = React.useCallback(async () => {
+    try {
+      const [metricsRes, healthRes] = await Promise.all([
+        adminFetch('/api/metrics'),
+        adminFetch('/healthz/detailed'),
+      ]);
+      if (metricsRes?.ok) setMetrics(await metricsRes.json());
+      if (healthRes?.ok) setDetailedHealth(await healthRes.json());
+      setMetricsError('');
+    } catch (err) {
+      setMetricsError(err.message || 'Metrics unavailable');
+    }
+  }, []);
 
   const loadPasskeys = React.useCallback(async () => {
     setPasskeyError('');
@@ -282,7 +381,10 @@ export default function SystemHub({ onBack }) {
   useEffect(() => {
     loadPasskeys();
     fetch('/healthz/').then(r => r.json()).then(setHealth).catch(() => {});
-  }, [loadPasskeys]);
+    loadMetrics();
+    const metricsIv = setInterval(loadMetrics, 10000);
+    return () => clearInterval(metricsIv);
+  }, [loadPasskeys, loadMetrics]);
 
   const revokePasskey = React.useCallback(async (credentialId) => {
     const shortId = credentialId.slice(0, 8);
@@ -382,7 +484,7 @@ export default function SystemHub({ onBack }) {
 
           {/* Sidebar */}
           <div className="space-y-6">
-            <TelemetryFeed />
+            <MetricsPanel metrics={metrics} detailedHealth={detailedHealth} error={metricsError} />
 
             <div className="cp-panel p-5">
               <h3 className="font-mono font-semibold text-[var(--cp-text)] mb-3 flex items-center gap-2">

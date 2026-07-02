@@ -38,13 +38,14 @@ const Warranty = lazy(() => import('./pages/Warranty'));
 const Delivery = lazy(() => import('./pages/Delivery'));
 const PhotoManager = lazy(() => import('./pages/PhotoManager'));
 const InventoryManager = lazy(() => import('./pages/InventoryManager'));
+const HealthDashboard = lazy(() => import('./pages/HealthDashboard'));
 // Max characters the admin PIN box accepts. The configured backend PIN may be a
 // long alphanumeric secret, so the input must NOT strip non-digits or cap short —
 // doing so (an old 8-digit-only cap) locked everyone out of the admin UI. Cap only
 // at a generous upper bound so an over-long secret is still flagged
 // (see scripts/generate_admin_pin_hash.py).
 const ADMIN_PIN_MAXLEN = 64;
-const ADMIN_PAGE_KEYS = new Set(['analytics', 'crm', 'chat-history', 'documents', 'adstudio', 'system', 'getting-started', 'photos', 'manage-inventory']);
+const ADMIN_PAGE_KEYS = new Set(['analytics', 'crm', 'chat-history', 'documents', 'adstudio', 'system', 'getting-started', 'photos', 'manage-inventory', 'health']);
 
 // Page loading fallback with skeleton
 const PageLoader = () => (
@@ -84,6 +85,7 @@ function NavBar({
     { key: 'photos', label: 'Photos', icon: Camera },
     { key: 'crm', label: 'CRM', icon: Users },
     { key: 'system', label: 'System Hub', icon: Activity },
+    { key: 'health', label: 'Health', icon: Activity },
     { key: 'getting-started', label: 'Guide', icon: BookOpen },
     { key: 'chat-history', label: 'Chat History', icon: MessageCircle },
     { key: 'adstudio', label: 'Ad Studio', icon: Video },
@@ -429,6 +431,7 @@ function App() {
     if (p.startsWith('/chat-history')) return 'chat-history';
     if (p.startsWith('/manage-inventory')) return 'manage-inventory';
     if (p.startsWith('/copilot') || p.startsWith('/ops-copilot')) return 'copilot';
+    if (p.startsWith('/health')) return 'health';
     if (p.startsWith('/chat')) return 'chat';
     if (p.startsWith('/inventory')) return 'inventory';
     // City landing pages (/manufactured-homes-in-{city}-tx) render the inventory.
@@ -791,6 +794,7 @@ function App() {
       analytics: 'Analytics',
       crm: 'CRM Dashboard',
       system: 'THO System Hub',
+      health: 'Health Dashboard',
       'getting-started': 'Getting Started',
       'chat-history': 'Chat History',
     };
@@ -829,6 +833,7 @@ function App() {
       'getting-started': '/getting-started',
       'chat-history': '/chat-history',
       system: '/system',
+      health: '/health',
     };
     const targetUrl = urlMap[page] || '/';
     if (window.location.pathname !== targetUrl) {
@@ -1357,6 +1362,20 @@ function App() {
         <ErrorBoundary scope="system">
           <Suspense fallback={<PageLoader />}>
             <SystemHub onBack={() => navigateTo('inventory')} adminAuthed={adminAuthed} />
+          </Suspense>
+        </ErrorBoundary>
+      </div>
+    );
+  }
+
+  if (activePage === 'health' && adminAuthed) {
+    return (
+      <div className="bg-[var(--cp-bg)] min-h-screen">
+        {appModals}
+        <NavBar {...navProps} />
+        <ErrorBoundary scope="health">
+          <Suspense fallback={<PageLoader />}>
+            <HealthDashboard onBack={() => navigateTo('system')} />
           </Suspense>
         </ErrorBoundary>
       </div>

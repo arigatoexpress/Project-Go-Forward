@@ -84,6 +84,33 @@ def test_healthz_is_not_rate_limited(monkeypatch):
     assert trailing_slash.status_code == 200
 
 
+def test_healthz_detailed_accepts_cookie_auth(monkeypatch):
+    """Detailed healthz should work with cookie-based admin auth (not just X-Admin-Token)."""
+    monkeypatch.setenv("APP_VERSION", "test-sha")
+    client, _main, _db, _logger = create_client(monkeypatch)
+
+    # Login via PIN to get cookie auth
+    login = client.post("/api/admin/verify", json={"pin": "4832"})
+    assert login.status_code == 200
+
+    # Access /healthz/detailed with cookie auth (no X-Admin-Token header)
+    response = client.get("/healthz/detailed")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "ok"
+    assert "uptime_s" in body
+    assert "dependencies" in body
+
+
+def test_healthz_detailed_rejects_unauthenticated(monkeypatch):
+    """Detailed healthz must reject unauthenticated requests."""
+    monkeypatch.setenv("APP_VERSION", "test-sha")
+    client, _main, _db, _logger = create_client(monkeypatch)
+
+    response = client.get("/healthz/detailed")
+    assert response.status_code == 403
+
+
 def test_llms_txt_serves_plain_text_agent_context(monkeypatch):
     client, _main, _db, _logger = create_client(monkeypatch)
 

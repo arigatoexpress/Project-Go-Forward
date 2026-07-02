@@ -146,6 +146,7 @@ from lead_management import Lead, LeadManager
 from structured_logging import logger as struct_logger
 from tools.input_sanitizer import sanitize_body, sanitize_query_params
 from tools.pii_guard import redact_pii_from_text, validate_no_pii_in_text
+from tools.user_activity_log import log_user_action, query_user_activity
 
 
 def _safe_audit(action: str, details: dict) -> None:
@@ -1373,6 +1374,13 @@ async def run_agent(request: Request):
         duration_ms = (time.time() - start_time) * 1000
         struct_logger.response(request_id, len(final_text), duration_ms)
 
+        log_user_action(
+            action="chat.message",
+            session_id=session_id,
+            details={"request_id": request_id, "duration_ms": round(duration_ms, 1)},
+            request=request,
+        )
+
         return {"text": final_text}
 
     except Exception as e:
@@ -1972,10 +1980,11 @@ def healthz() -> JSONResponse:
 @app.get("/healthz/detailed", response_class=JSONResponse)
 @limiter.exempt
 def healthz_detailed(request: Request) -> JSONResponse:
-    """Detailed diagnostics — requires admin auth."""
-    token = request.headers.get("X-Admin-Token", "")
-    if not token or not _verify_admin_token(token):
-        raise HTTPException(status_code=403, detail="Admin access required")
+    """Detailed diagnostics — requires admin auth (cookie, passkey, or token)."""
+    if not _verify_passkey_cookie(request):
+        token = _admin_token_from_request(request)
+        if not token or not _verify_admin_token(token):
+            raise HTTPException(status_code=403, detail="Admin access required")
     email_configured = bool(os.environ.get("RESEND_API_KEY"))
     warnings = []
     if not email_configured:
@@ -4880,6 +4889,13 @@ async def submit_contact_form(request: Request):
         lead_id = f"contact_{int(time.time())}_{uuid.uuid4().hex[:4]}"
         warnings: list[str] = []
 
+        log_user_action(
+            action="contact.submit",
+            session_id=lead_id,
+            details={"has_email": bool(email), "has_message": has_message},
+            request=request,
+        )
+
         # Create a lead from the contact form. A storage failure = a lost lead =
         # lost revenue, so make it LOUD: log at error level + flag it in the
         # response `warnings` so a Cloud Run log-based alert can fire on
@@ -5166,6 +5182,13 @@ async def create_appointment(request: Request):
 
         created = await appointment_manager.create_appointment(appt)
 
+        log_user_action(
+            action="appointment.book",
+            session_id=appt.appointment_id,
+            details={"date": appt_date, "time_slot": time_slot},
+            request=request,
+        )
+
         # Send confirmation email if email provided
         if appt.email:
             try:
@@ -5279,6 +5302,14 @@ async def cancel_appointment(appointment_id: str, request: Request):
             return {"success": False, "error": "Phone number does not match this appointment."}
 
         cancelled = await appointment_manager.cancel_appointment(appointment_id)
+
+        log_user_action(
+            action="appointment.cancel",
+            session_id=appointment_id,
+            details={"date": cancelled.date, "time_slot": cancelled.time_slot},
+            request=request,
+        )
+
         return {
             "success": True,
             "message": f"Appointment on {cancelled.date} at {cancelled.time_slot} has been cancelled.",
@@ -5858,6 +5889,42 @@ async def get_admin_audit_log(
         return {"success": False, "error": "Failed to load audit log."}
 
 
+@app.get("/api/admin/user-activity", dependencies=[Depends(require_admin)])
+async def get_user_activity(
+    action: str | None = None,
+    session_id: str | None = None,
+    since: str | None = None,
+    limit: int = 100,
+):
+    """Return user-activity entries in reverse-chronological order.
+
+    Filterable by action, session_id, and a `since` ISO8601 timestamp lower
+    bound. `limit` is clamped to [1, 500].
+    """
+    from tools.user_activity_log import ALLOWED_ACTIONS as USER_ALLOWED_ACTIONS
+
+    try:
+        if action and action not in USER_ALLOWED_ACTIONS:
+            return JSONResponse(
+                {
+                    "success": False,
+                    "error": f"Invalid action. Must be one of: {list(USER_ALLOWED_ACTIONS)}",
+                },
+                status_code=400,
+            )
+
+        entries = query_user_activity(
+            action=action,
+            session_id=session_id,
+            since=since,
+            limit=limit,
+        )
+        return {"success": True, "entries": entries, "count": len(entries)}
+    except Exception as e:
+        struct_logger.error("User activity query failed", error=str(e))
+        return {"success": False, "error": "Failed to load user activity."}
+
+
 @app.get("/api/admin/feature-flags", dependencies=[Depends(require_admin)])
 async def get_feature_flags():
     """Return all feature flags and their current resolved values.
@@ -6355,6 +6422,12 @@ async def submit_feedback(request: Request):
     os.makedirs(os.path.dirname(feedback_path), exist_ok=True)
     with open(feedback_path, "a") as f:
         f.write(_json.dumps(feedback) + "\n")
+
+    log_user_action(
+        action="feedback.submit",
+        details={"page": feedback["page"]},
+        request=request,
+    )
 
     logger.info(f"Feedback received: {feedback['description'][:100]}")
     return {"success": True, "message": "Thank you for your feedback!"}

@@ -107,14 +107,6 @@ def test_admin_cookie_verification_closes_pin_overlay_on_admin_routes():
     assert "setPinError('')" in source
 
 
-def test_system_hub_imports_terminal_icon_it_renders():
-    source = SYSTEM_HUB.read_text()
-    import_block = source[source.index("import {") : source.index("} from 'lucide-react';")]
-
-    assert "Terminal" in import_block
-    assert "<Terminal" in source
-
-
 def test_web_media_source_policy_blocks_unapproved_free_image_imports():
     source = IMAGE_RESEARCH.read_text()
 
