@@ -67,6 +67,14 @@ class Lead:
     triage_reason: str | None = None  # e.g. "hot_lead", "needs_follow_up"
     last_triage_at: str | None = None
 
+    # Marketing attribution (first-party UTM carried on a reached-out lead; NOT visitor tracking)
+    utm_source: str | None = None
+    utm_medium: str | None = None
+    utm_campaign: str | None = None
+    utm_content: str | None = None
+    utm_term: str | None = None
+    referrer: str | None = None
+
     def __post_init__(self):
         if self.homes_viewed is None:
             self.homes_viewed = []

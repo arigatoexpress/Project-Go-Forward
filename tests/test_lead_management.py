@@ -98,3 +98,56 @@ def test_list_leads_returns_all_well_formed_docs():
     ]
     leads = asyncio.run(_manager_with(docs).list_leads())
     assert len(leads) == 3
+
+
+def test_lead_accepts_and_roundtrips_utm_fields():
+    lead = Lead(
+        lead_id="l1",
+        user_id="u1",
+        session_id="s1",
+        utm_source="instagram",
+        utm_medium="social",
+        utm_campaign="spring-sale",
+        utm_content="reel-a",
+        utm_term=None,
+        referrer="https://t.co/x",
+    )
+    d = lead.to_dict()
+    assert d["utm_source"] == "instagram"
+    assert d["utm_medium"] == "social"
+    assert d["utm_campaign"] == "spring-sale"
+    assert d["utm_content"] == "reel-a"
+    assert d["utm_term"] is None
+    assert d["referrer"] == "https://t.co/x"
+
+    roundtripped = Lead.from_dict(d)
+    assert roundtripped.utm_source == "instagram"
+    assert roundtripped.utm_medium == "social"
+    assert roundtripped.utm_campaign == "spring-sale"
+    assert roundtripped.utm_content == "reel-a"
+    assert roundtripped.utm_term is None
+    assert roundtripped.referrer == "https://t.co/x"
+
+
+def test_lead_from_dict_defaults_utm_to_none():
+    lead = Lead.from_dict({"lead_id": "l1", "user_id": "u1", "session_id": "s1"})
+    assert lead.utm_source is None
+    assert lead.utm_medium is None
+    assert lead.utm_campaign is None
+    assert lead.utm_content is None
+    assert lead.utm_term is None
+    assert lead.referrer is None
+
+
+def test_lead_from_dict_still_drops_unknown_keys():
+    lead = Lead.from_dict(
+        {
+            "lead_id": "l1",
+            "user_id": "u1",
+            "session_id": "s1",
+            "utm_source": "instagram",
+            "junk_field": "should_be_dropped",
+        }
+    )
+    assert lead.utm_source == "instagram"
+    assert not hasattr(lead, "junk_field")

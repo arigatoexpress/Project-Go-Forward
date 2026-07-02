@@ -1017,6 +1017,24 @@ def _create_csrf_token() -> str:
     return secrets.token_hex(32)
 
 
+def _extract_utm(data: dict) -> dict:
+    """Pull first-party UTM/referrer from a lead-submit payload. Length-capped,
+    never PII. Honest attribution: only set when the visitor reached out."""
+
+    def clip(v):
+        return (str(v).strip()[:200] or None) if v else None
+
+    return {
+        "utm_source": clip(data.get("utm_source")),
+        "utm_medium": clip(data.get("utm_medium")),
+        "utm_campaign": clip(data.get("utm_campaign")),
+        "utm_content": clip(data.get("utm_content")),
+        "utm_term": clip(data.get("utm_term")),
+        "referrer": clip(data.get("referrer")),
+    }
+
+
+
 def _verify_csrf(request: Request) -> bool:
     """Verify CSRF token for state-changing admin requests.
 
@@ -4910,6 +4928,7 @@ async def submit_contact_form(request: Request):
                 name=name,
                 phone=phone,
                 email=email or None,
+                **_extract_utm(data),
             )
             await lead_manager.create_lead(new_lead)
         except Exception as e:
@@ -5229,6 +5248,7 @@ async def create_appointment(request: Request):
                 phone=phone,
                 email=appt.email,
                 appointment_requested=True,
+                **_extract_utm(data),
             )
             await lead_manager.create_lead(lead)
         except Exception as e:
