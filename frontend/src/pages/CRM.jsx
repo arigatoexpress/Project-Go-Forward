@@ -2,12 +2,13 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   Users, Phone, Mail, Calendar, ChevronRight, ChevronDown,
   Search, RefreshCw, Send, X, Clock, Home, DollarSign,
-  CheckCircle, AlertCircle, Filter, ArrowLeft, FileText, Package, Download, Loader, Copy,
+  CheckCircle, AlertCircle, Filter, ArrowLeft, FileText, Package, Download, Loader, Copy, Star,
 } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
 import adminFetch from '../adminFetch';
 import downloadAdminFile from '../downloadAdminFile';
 import StatusBadge, { STATUS_COLORS, DEAL_STATUS_COLORS } from '../components/StatusBadge';
+import ReviewRequestCard from '../components/ReviewRequestCard';
 
 const DEAL_STATUS_ORDER = ['pending', 'approved', 'contract', 'funded', 'complete'];
 
@@ -77,6 +78,7 @@ const TABS = [
   { id: 'appointments', label: 'Appointments', icon: Calendar },
   { id: 'emails', label: 'Email Log', icon: Mail },
   { id: 'customers', label: 'Customers', icon: Users },
+  { id: 'reviews', label: 'Reviews', icon: Star, requiresReviewLink: true },
 ];
 
 // Email Templates
@@ -185,6 +187,10 @@ export default function CRM({ onBack }) {
 
   // Lead detail
   const [selectedLead, setSelectedLead] = useState(null);
+
+  // Review-request helper (hidden until GOOGLE_REVIEW_LINK is configured)
+  const [reviewLink, setReviewLink] = useState('');
+  const [reviewLead, setReviewLead] = useState(null);
   
   // Task management
   const [showTaskModal, setShowTaskModal] = useState(false);
@@ -222,6 +228,14 @@ export default function CRM({ onBack }) {
   }, []);
 
   useEffect(() => { fetchData(); }, [fetchData]);
+
+  // One-time reviews config fetch: no link configured → feature stays hidden.
+  useEffect(() => {
+    adminFetch('/api/admin/reviews/config')
+      .then(r => r.json())
+      .then(data => { if (data.success && data.enabled) setReviewLink(data.review_link); })
+      .catch(() => {});
+  }, []);
 
   const handleUpdateLeadStatus = async (leadId, newStatus) => {
     setActionError('');
@@ -480,7 +494,7 @@ export default function CRM({ onBack }) {
 
       {/* Tab Navigation */}
       <div className="flex gap-0.5 px-6 pt-3 bg-white border-b border-gray-200 overflow-x-auto">
-        {TABS.map(tab => (
+        {TABS.filter(tab => !tab.requiresReviewLink || reviewLink).map(tab => (
           <button
             key={tab.id}
             className={
@@ -620,6 +634,18 @@ export default function CRM({ onBack }) {
                         )}
                       </div>
                     </div>
+                    {reviewLink && (
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); setReviewLead(lead); }}
+                        aria-label={`Request review from ${lead.name || 'lead'}`}
+                        title="Request a Google review"
+                        className="inline-flex items-center gap-1 px-2.5 py-1.5 text-[11px] font-semibold rounded-full border border-amber-300 text-amber-700 bg-amber-50 hover:bg-amber-100 transition shrink-0"
+                      >
+                        <Star size={12} />
+                        <span className="hidden sm:inline">Request review</span>
+                      </button>
+                    )}
                     <div className="flex flex-col items-end gap-1.5 shrink-0">
                       <StatusBadge status={lead.status} kind="lead" size="sm" />
                       <span className="text-[11px] text-gray-600">{timeAgo(lead.created_at)}</span>
@@ -827,7 +853,30 @@ export default function CRM({ onBack }) {
         )}
 
         {activeTab === 'customers' && <CustomerAnalytics />}
+
+        {/* REVIEWS TAB — standalone review-request card (only when link configured) */}
+        {activeTab === 'reviews' && reviewLink && (
+          <div className="py-4">
+            <ReviewRequestCard reviewLink={reviewLink} />
+          </div>
+        )}
       </div>
+
+      {/* Review Request Modal (per-lead) */}
+      {reviewLead && reviewLink && (
+        <div
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-6"
+          onClick={() => setReviewLead(null)}
+        >
+          <div className="w-full max-w-xl" onClick={e => e.stopPropagation()}>
+            <ReviewRequestCard
+              reviewLink={reviewLink}
+              lead={reviewLead}
+              onClose={() => setReviewLead(null)}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Email Compose Modal */}
       {showEmailCompose && (
