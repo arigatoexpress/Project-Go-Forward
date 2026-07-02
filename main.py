@@ -5991,6 +5991,26 @@ async def get_feature_flags():
         return {"success": False, "error": "Failed to load feature flags."}
 
 
+@app.get("/api/admin/reviews/config", dependencies=[Depends(require_admin)])
+async def get_reviews_config():
+    """Config for the staff review-request helper (prefilled sms:/mailto: links).
+
+    Inert until an operator sets ``GOOGLE_REVIEW_LINK`` (the Google Business
+    Profile "Ask for reviews" short URL). Reads at call time — env var first,
+    then the centralized feature-flag system (``FF_GOOGLE_REVIEW_LINK_VALUE``
+    or ``config.yaml``) — so a config flip takes effect without a redeploy.
+    When unset the frontend hides the feature entirely.
+    """
+    try:
+        link = (os.environ.get("GOOGLE_REVIEW_LINK") or "").strip()
+        if not link:
+            link = (feature_flags.get_value("GOOGLE_REVIEW_LINK") or "").strip()
+        return {"success": True, "enabled": bool(link), "review_link": link or None}
+    except Exception as e:
+        struct_logger.error("Reviews config query failed", error=str(e))
+        return {"success": False, "error": "Failed to load reviews config."}
+
+
 # ─── Customer API (migrated FastContract records) ────────────────────────────
 
 
