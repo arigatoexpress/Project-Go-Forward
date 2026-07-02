@@ -198,8 +198,8 @@ def test_document_generation_batch(client, admin_token):
 
 
 @needs_staging
-def test_cache_headers(client, admin_token):
-    """Smoke: static assets are immutable; public API is cacheable; admin is no-cache."""
+def test_public_cache_headers(client):
+    """Smoke: static assets and public API have correct cache headers."""
     # 1. Static asset — find a fingerprinted asset from the SPA index
     index = client.get("/")
     if index.status_code == 200:
@@ -222,7 +222,11 @@ def test_cache_headers(client, admin_token):
     assert "public" in cc
     assert "max-age=" in cc
 
-    # 3. Admin dynamic endpoint
+
+@needs_staging
+@needs_admin_pin
+def test_admin_cache_headers(client, admin_token):
+    """Smoke: admin dynamic endpoints return no-cache."""
     r = client.get(
         "/api/admin/check",
         headers={"X-Admin-Token": admin_token},
@@ -282,3 +286,137 @@ def test_feedback(client):
     assert r.status_code in (200, 202)
     # Response may be plain text or JSON depending on implementation
     assert r.text or r.json()
+
+
+@needs_staging
+def test_lead_submission(client):
+    """Smoke: public contact form accepts synthetic leads."""
+    ts = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+    r = client.post(
+        "/api/contact",
+        json={
+            "name": f"PGF Smoke Lead {ts}",
+            "phone": "555-0100",
+            "email": "pgf-smoke@example.invalid",
+            "message": "Synthetic E2E lead submission. No live customer data.",
+        },
+    )
+    assert r.status_code in (200, 202)
+    body = r.json()
+    assert body.get("success") is True, f"lead submission failed: {body}"
+
+
+@needs_staging
+@needs_admin_pin
+def test_customer_create_and_search(client, admin_token):
+    """Smoke: create a synthetic customer and search for it."""
+    ts = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+    smoke_name = f"PGF Smoke Customer {ts}"
+    create_resp = client.post(
+        "/api/customers",
+        headers={"X-Admin-Token": admin_token},
+        json={
+            "full_name": smoke_name,
+            "email": "pgf-smoke@example.invalid",
+            "phone": "555-0100",
+            "status": "LEAD",
+            "address": "100 Smoke Test Dr",
+            "city": "Austin",
+            "state": "TX",
+            "zip_code": "78701",
+            "salesrep": "Smoke Test",
+            "notes": "Synthetic E2E smoke record. No live customer data.",
+        },
+    )
+    assert create_resp.status_code in (200, 201), (
+        f"customer create failed: {create_resp.text}"
+    )
+    body = create_resp.json()
+    assert body.get("success") is True or "id" in body, (
+        f"customer create unexpected: {body}"
+    )
+
+    search_resp = client.get(
+        "/api/customers/search",
+        headers={"X-Admin-Token": admin_token},
+        params={"q": smoke_name, "limit": 5},
+    )
+    assert search_resp.status_code == 200
+    search_body = search_resp.json()
+    results = (
+        search_body.get("results", [])
+        or search_body.get("customers", [])
+        or []
+    )
+    assert any(smoke_name in str(r) for r in results), (
+        f"expected to find synthetic customer in search results: {search_body}"
+    )
+
+
+@needs_staging
+@needs_admin_pin
+def test_document_download(client, admin_token):
+    """Smoke: generate a single document and download it."""
+    ts = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+    payload = {
+        "templates": ["Internal_Homestead.pdf"],
+        "merge": False,
+        "data": {
+            "buyer_name": f"PGF Smoke Download {ts}",
+            "buyer_first_name": "PGF",
+            "buyer_last_name": f"Smoke {ts}",
+            "buyer_address": "100 Smoke Test Dr",
+            "buyer_city": "Austin",
+            "buyer_state": "TX",
+            "buyer_zip": "78701",
+            "buyer_phone": "555-0100",
+            "buyer_email": "pgf-smoke@example.invalid",
+            "date": "2026-04-29",
+        },
+    }
+    r = client.post(
+        "/api/documents/generate-batch",
+        headers={"X-Admin-Token": admin_token},
+        json=payload,
+    )
+    assert r.status_code == 200, f"document generation failed: {r.text}"
+    body = r.json()
+    assert body.get("success") is True
+
+    files = body.get("documents", [])
+    assert len(files) >= 1
+
+    first = files[0]
+    download_url = first.get("download_url")
+    assert download_url, f"no download_url in generated file: {first}"
+
+    dl = client.get(
+        download_url,
+        headers={"X-Admin-Token": admin_token},
+    )
+    assert dl.status_code == 200, f"download failed: {dl.status_code}"
+    content_type = dl.headers.get("content-type", "").lower()
+    assert (
+        content_type in ("application/pdf", "application/octet-stream")
+        or dl.content.startswith(b"%PDF")
+    ), f"expected PDF content, got {content_type}"
+    assert len(dl.content) > 1000, "expected non-trivial PDF content"
+
+
+@needs_staging
+def test_passkey_status(client):
+    """Smoke: passkey status endpoint is reachable and returns config."""
+    r = client.get("/api/admin/passkey/status")
+    assert r.status_code == 200
+    body = r.json()
+    assert "enabled" in body
+    assert "has_keys" in body
+
+
+@needs_staging
+def test_partner_api_unauthorized(client):
+    """Smoke: partner API requires auth (401 or 503 when unconfigured)."""
+    r = client.get("/api/v1/inventory")
+    assert r.status_code in (401, 503), (
+        f"expected 401 or 503 for unauthenticated partner API, got {r.status_code}"
+    )

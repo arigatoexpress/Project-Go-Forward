@@ -130,4 +130,14 @@ describe('Admin PIN field', () => {
 
     expect(screen.getByRole('button', { name: /Unlock/i })).toBeDisabled();
   });
+
+  it('points staff to email-code recovery when the shared PIN fails', async () => {
+    renderApp();
+    const input = openPinModal();
+
+    fireEvent.change(input, { target: { value: ALPHANUMERIC_PIN } });
+    fireEvent.click(screen.getByRole('button', { name: /Unlock/i }));
+
+    expect(await screen.findByText(/If the shared PIN expired, use Email me a sign-in code below/i)).toBeInTheDocument();
+  });
 });

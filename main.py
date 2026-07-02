@@ -108,6 +108,7 @@ def _get_runner():
     return _runner
 
 
+import tools.feature_flags as feature_flags
 from appointment_manager import Appointment, AppointmentManager
 from audit_log import (
     ALLOWED_ACTIONS as AUDIT_ALLOWED_ACTIONS,
@@ -143,7 +144,7 @@ from email_service import (
 )
 from lead_management import Lead, LeadManager
 from structured_logging import logger as struct_logger
-from tools.input_sanitizer import sanitize_body
+from tools.input_sanitizer import sanitize_body, sanitize_query_params
 from tools.pii_guard import redact_pii_from_text, validate_no_pii_in_text
 from tools.user_activity_log import log_user_action, query_user_activity
 
@@ -534,6 +535,10 @@ class InputSanitizationMiddleware(BaseHTTPMiddleware):
                         request._body = json.dumps(sanitized).encode("utf-8")
                 except Exception:
                     pass  # Not valid JSON or sanitization failed — leave body untouched
+        # Sanitize query params for all API routes so endpoints can trust request.state.sanitized_query
+        if request.url.path.startswith("/api/") and not request.url.path.startswith("/api/v1/"):
+            raw = dict(request.query_params)
+            request.state.sanitized_query = sanitize_query_params(raw)
         return await call_next(request)
 
 
@@ -1931,13 +1936,15 @@ async def get_chat_analytics(range: str = "30d"):
         return {"error": "Failed to load chat analytics"}
 
 
-@app.api_route("/health", methods=["GET", "HEAD"])
+@app.get("/health")
+@app.head("/health")
 @limiter.exempt
 def health():
     return {"status": "ok"}
 
 
-@app.api_route("/llms.txt", methods=["GET", "HEAD"])
+@app.get("/llms.txt")
+@app.head("/llms.txt")
 @limiter.exempt
 def llms_txt() -> FileResponse:
     return FileResponse(
@@ -1948,8 +1955,10 @@ def llms_txt() -> FileResponse:
     )
 
 
-@app.api_route("/healthz", methods=["GET", "HEAD"], response_class=JSONResponse)
-@app.api_route("/healthz/", methods=["GET", "HEAD"], response_class=JSONResponse)
+@app.get("/healthz", response_class=JSONResponse)
+@app.head("/healthz", response_class=JSONResponse)
+@app.get("/healthz/", response_class=JSONResponse)
+@app.head("/healthz/", response_class=JSONResponse)
 @limiter.exempt
 def healthz() -> JSONResponse:
     """Public health probe — returns minimal data to avoid info leakage.
@@ -5916,6 +5925,19 @@ async def get_user_activity(
         return {"success": False, "error": "Failed to load user activity."}
 
 
+@app.get("/api/admin/feature-flags", dependencies=[Depends(require_admin)])
+async def get_feature_flags():
+    """Return all feature flags and their current resolved values.
+
+    Safe for admin dashboards; no secrets are exposed.
+    """
+    try:
+        return {"success": True, "flags": feature_flags.all_flags()}
+    except Exception as e:
+        struct_logger.error("Feature flags query failed", error=str(e))
+        return {"success": False, "error": "Failed to load feature flags."}
+
+
 # ─── Customer API (migrated FastContract records) ────────────────────────────
 
 
@@ -7662,7 +7684,8 @@ app.mount("/assets", ImmutableStaticFiles(directory="frontend/dist/assets"), nam
 
 # HEAD is included because uptime monitors default to HEAD on "/" and the
 # Cloud Run service should not answer the probe with 405.
-@app.api_route("/{full_path:path}", methods=["GET", "HEAD"])
+@app.get("/{full_path:path}")
+@app.head("/{full_path:path}")
 async def serve_spa(full_path: str):
     if full_path == "api" or full_path.startswith("api/"):
         # Funnel unknown /api/* paths through the resilient HTTPException

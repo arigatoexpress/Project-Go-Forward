@@ -181,3 +181,63 @@ def test_store_photo_downscales_on_upload():
     assert fetched is not None
     with Image.open(io.BytesIO(fetched[0])) as im:
         assert max(im.size) <= image_storage.MAX_IMAGE_DIM
+
+
+def test_store_photo_sanitizes_malicious_filename():
+    """Malicious filenames (path traversal, HTML, control chars) are sanitized before storage."""
+    photo = image_storage.store_photo(
+        "99006",
+        PNG_BYTES,
+        original_name="../../../etc/passwd<script>alert(1)</script>\x00.png",
+        declared_content_type="image/png",
+    )
+    assert photo.backend == "local"
+    # Filename should not contain path traversal, HTML, or control chars
+    assert ".." not in photo.filename
+    assert "<" not in photo.filename
+    assert ">" not in photo.filename
+    assert photo.filename.endswith(".png")
+    # The stem should be a sanitized version with no path traversal or slashes
+    assert "/" not in photo.filename
+    assert photo.filename.startswith("etc_passwdalert-1-")
+    # Verify it can be retrieved and deleted normally
+    fetched = image_storage.get_photo("99006", photo.filename)
+    assert fetched is not None
+    assert image_storage.delete_photo("99006", photo.filename) is True
+    assert image_storage.get_photo("99006", photo.filename) is None
+
+
+def test_store_photo_sanitizes_filename_with_html_and_unicode():
+    """HTML is stripped and Unicode is preserved in the safe filename stem."""
+    photo = image_storage.store_photo(
+        "99007",
+        PNG_BYTES,
+        original_name="<b>Café</b>_ドキュメント.png",
+        declared_content_type="image/png",
+    )
+    assert photo.filename.endswith(".png")
+    # HTML stripped, unicode preserved in the regex-sanitized stem
+    assert "<b>" not in photo.filename
+    assert "</b>" not in photo.filename
+    # The stem should contain the cleaned-up version (Café and ドキュメント survive regex)
+    assert "caf" in photo.filename.lower() or "ドキュメント" in photo.filename
+    assert image_storage.delete_photo("99007", photo.filename) is True
+
+
+def test_store_photo_with_none_and_empty_filename():
+    """None or empty original_name should still produce a valid unique filename."""
+    photo_none = image_storage.store_photo(
+        "99008", PNG_BYTES, original_name=None, declared_content_type="image/png"
+    )
+    assert photo_none.filename.endswith(".png")
+    assert len(photo_none.filename) > 10  # should have uuid/time component
+
+    photo_empty = image_storage.store_photo(
+        "99008", PNG_BYTES, original_name="", declared_content_type="image/png"
+    )
+    assert photo_empty.filename.endswith(".png")
+    assert len(photo_empty.filename) > 10
+
+    # Cleanup
+    image_storage.delete_photo("99008", photo_none.filename)
+    image_storage.delete_photo("99008", photo_empty.filename)

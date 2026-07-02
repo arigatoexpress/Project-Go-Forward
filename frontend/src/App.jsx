@@ -871,11 +871,12 @@ function App() {
         setPinInput('');
         navigateTo(ADMIN_PAGE_KEYS.has(activePage) ? activePage : 'analytics');
       } else {
-        setPinError(data.error || 'Incorrect PIN. Please try again.');
+        const fallbackHint = 'If the shared PIN expired, use Email me a sign-in code below.';
+        setPinError(data.error ? `${data.error} ${fallbackHint}` : `Incorrect PIN. ${fallbackHint}`);
         setPinInput('');
       }
     } catch {
-      setPinError('Unable to verify. Please try again.');
+      setPinError('Unable to verify. Try Email me a sign-in code below.');
     } finally {
       setPinLoading(false);
     }

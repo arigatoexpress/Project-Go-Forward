@@ -213,7 +213,7 @@ def check_available_slots(date_str: str, tool_context: ToolContext = None) -> di
         3: (9, 18),
         4: (9, 18),  # Mon-Fri
         5: (9, 17),  # Saturday
-        6: (12, 15),  # Sunday
+        6: None,  # Sunday closed
     }
 
     hours = hours_by_day.get(d.weekday())
@@ -385,7 +385,7 @@ def get_business_hours(tool_context: ToolContext = None) -> dict:
     """
     return {
         "location": "Texas Home Outlet, 10685 FM 1960 East, Huffman, TX 77336",
-        "hours": "Mon-Fri: 9am-6pm, Sat: 9am-5pm, Sun: 12pm-3pm",
+        "hours": "Mon-Fri: 9am-6pm, Sat: 9am-5pm, Sun: Closed",
         "phone": "(281) 324-3020",
         "appointments": "Appointments can be booked up to 30 days in advance. Each visit is approximately 1 hour.",
     }

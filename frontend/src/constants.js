@@ -15,7 +15,7 @@ export const BUSINESS_STATE = "TX";
 export const BUSINESS_ZIP = "77336";
 export const BUSINESS_FULL_ADDRESS = `${BUSINESS_ADDRESS}, ${BUSINESS_CITY}, ${BUSINESS_STATE} ${BUSINESS_ZIP}`;
 export const BUSINESS_LICENSE = "35248";
-export const BUSINESS_HOURS = "Mon-Fri 9-6, Sat 9-5, Sun 12-3";
+export const BUSINESS_HOURS = "Mon-Fri 9-6, Sat 9-5, Sun Closed";
 export const NOTION_WORKSPACE_URL = "https://www.notion.so/Texas-Home-Outlet-34d6688dbec680f19371f6af10d1da15";
 
 // ─── Document Center: constrained dropdown source lists ───
