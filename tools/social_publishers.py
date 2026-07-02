@@ -212,35 +212,20 @@ def _publish_instagram_reel(asset_url: str, caption: str) -> dict[str, Any]:
     # Reel containers are processed asynchronously by Meta; calling media_publish
     # before the container is FINISHED fails. Poll status_code, and FAIL-CLOSED
     # (never publish) on ERROR or timeout. Bounds are env-tunable.
-    attempts = max(1, int(os.environ.get("META_REEL_POLL_ATTEMPTS", "20")))
-    interval = float(os.environ.get("META_REEL_POLL_INTERVAL_SECONDS", "3"))
     status_url = f"{META_GRAPH_BASE}/{version}/{creation_id}"
-    finished = False
-    for attempt in range(attempts):
-        status_resp = requests.get(
-            status_url,
-            params={"fields": "status_code", "access_token": token},
-            timeout=30,
-        )
-        status_resp.raise_for_status()
-        status_code = (status_resp.json() or {}).get("status_code")
-        if status_code == "FINISHED":
-            finished = True
+    max_attempts = int(os.environ.get("META_REEL_POLL_ATTEMPTS", "20"))
+    interval = float(os.environ.get("META_REEL_POLL_INTERVAL_SECONDS", "3"))
+    for _ in range(max_attempts):
+        poll = requests.get(status_url, params={"fields": "status_code", "access_token": token}, timeout=30)
+        poll.raise_for_status()
+        code = (poll.json() or {}).get("status_code")
+        if code == "FINISHED":
             break
-        if status_code == "ERROR":
-            return {
-                "success": False,
-                "error": f"Instagram container {creation_id} failed processing (status ERROR).",
-                "creation_id": creation_id,
-            }
-        if attempt < attempts - 1:
-            time.sleep(interval)
-    if not finished:
-        return {
-            "success": False,
-            "error": f"Instagram container {creation_id} did not reach FINISHED after {attempts} polls.",
-            "creation_id": creation_id,
-        }
+        if code == "ERROR":
+            return {"success": False, "error": "Instagram media container ingestion failed (ERROR)."}
+        time.sleep(interval)
+    else:
+        return {"success": False, "error": "Instagram media container did not finish ingesting in time."}
 
     publish_resp = requests.post(
         f"{base}/media_publish",
