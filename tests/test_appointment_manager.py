@@ -305,13 +305,19 @@ class TestCreateAppointmentValidation:
 
     def test_off_grid_time_slot_raises(self):
         mgr = self._manager()
-        soon = (datetime.now(TIMEZONE).date() + timedelta(days=3)).isoformat()
+        # NEXT MONDAY, not "+3 days": a fixed offset lands on Sunday some days,
+        # and the Sunday-closed check fires before slot validation.
+        today = datetime.now(TIMEZONE).date()
+        days_ahead = (7 - today.weekday()) % 7 or 7  # next Monday
+        soon = (today + timedelta(days=days_ahead)).isoformat()
         with pytest.raises(ValueError, match="not a valid time slot"):
             run(mgr.create_appointment(self._appt(soon, time_slot="3:30 PM")))
 
     def test_closed_day_raises(self):
         mgr = self._manager()
-        soon = (datetime.now(TIMEZONE).date() + timedelta(days=3)).isoformat()
+        today = datetime.now(TIMEZONE).date()
+        days_ahead = (7 - today.weekday()) % 7 or 7  # next Monday
+        soon = (today + timedelta(days=days_ahead)).isoformat()
         with patch("appointment_manager._get_hours_for_date", return_value=None):
             with pytest.raises(ValueError, match="closed"):
                 run(mgr.create_appointment(self._appt(soon, time_slot="10:00 AM")))
