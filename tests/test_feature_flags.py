@@ -225,7 +225,10 @@ class TestAllFlags:
         for key in list(os.environ):
             if key.startswith("FF_") or key.startswith("FEATURE_FLAG_"):
                 monkeypatch.delenv(key, raising=False)
-        with patch("tools.feature_flags._read_config", return_value=None):
+        # all_flags() reads config_loader.get_config directly (not _read_config),
+        # and config.yaml now ships real flags (GOOGLE_REVIEW_LINK) — silence both.
+        with patch("tools.feature_flags._read_config", return_value=None), \
+                patch("config_loader.get_config", return_value={}):
             assert ff.all_flags() == {}
 
     def test_picks_up_env_vars(self, monkeypatch):
@@ -243,7 +246,8 @@ class TestAllFlags:
     def test_deduplicates_value_and_percent_suffixes(self, monkeypatch):
         monkeypatch.setenv("FF_ROLLOUT", "on")
         monkeypatch.setenv("FF_ROLLOUT_PERCENT", "25")
-        flags = ff.all_flags()
+        with patch("config_loader.get_config", return_value={}):
+            flags = ff.all_flags()
         assert list(flags.keys()) == ["ROLLOUT"]
         assert flags["ROLLOUT"]["percentage"] == 25
 
