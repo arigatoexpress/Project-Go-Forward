@@ -174,6 +174,16 @@ scraper:
     image: "img"
     link: "a"
 
+# Feature flags (fallback source — env vars FF_<NAME>/<NAME> take precedence;
+# see tools/feature_flags.py). Values here are read at call time, so a config
+# flip ships via the normal PR flow with no separate env change.
+feature_flags:
+  # Staff review-request helper (Celeste approved rollout 2026-07-03). Public
+  # write-review deep link for the verified THO Google Business place
+  # (ChIJkaBdugirQIYROqKB6XUKQk8 = Texas Home Outlet, 10685 FM 1960 E, Huffman).
+  # Not a secret. Override with env GOOGLE_REVIEW_LINK (e.g. a g.page short URL).
+  GOOGLE_REVIEW_LINK: "https://search.google.com/local/writereview?placeid=ChIJkaBdugirQIYROqKB6XUKQk8"
+
 # Notion "Command Center" integration. DB ids are identifiers, NOT secrets — the
 # only secret is NOTION_TOKEN (Secret Manager). The Ops Copilot reads these
 # PII-free (count-by-status) when NOTION_COMMAND_CENTER=on. Each id can also be
