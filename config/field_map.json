@@ -1747,6 +1747,14 @@
         "keep_first_present": [
           "TDHCA_1074_Vacate_If_No_Financing.pdf"
         ]
+      },
+      {
+        "_comment": "C4 (Celeste 2026-07-03): the Retail Monitoring Checklist and Compliance Review Checklist cover the same TDHCA retailer-compliance review; keep only the most recent revision. 1058 Compliance Review is Rev. 10/16/2024; retmonlist is the 2013 edition (last touched 2016). REVERT: remove this group to let both flow through again.",
+        "document": "Retailer Compliance Checklist",
+        "keep_first_present": [
+          "TDHCA_1058_Compliance_Review.pdf",
+          "TDHCA-retmonlist.pdf"
+        ]
       }
     ],
     "used_home_only_templates": {

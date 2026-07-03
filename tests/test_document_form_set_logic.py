@@ -6,6 +6,8 @@ Covers C1/C2/C3/C5 from the hand-marked 65-page closing-packet review:
   C3 — suppress USED-home-only forms on NEW-home packages (gate on condition).
   C5 — gate the TMHA R020 "MH Sales Contract & Deposit Agreement" behind a
        config flag, DEFAULT-EXCLUDED from the standard NEW closing packet.
+  C4 — de-dupe the retailer compliance checklist (Celeste 2026-07-03): keep
+       the 1058 Compliance Review (Rev. 10/2024), drop the 2013 retmonlist.
 
 The static packet lists in field_map.json remain the superset; these rules are
 applied by tools.document_engine_v2.resolve_form_set() at packet/batch time.
@@ -26,6 +28,8 @@ from tools.document_engine_v2 import (
 ARBITRATION_INTERNAL = "Internal_Arbitration_Agreement11.pdf"
 ARBITRATION_TDHCA = "TDHCA_ArbitrationAgreement.pdf"
 VACATE = "TDHCA_1074_Vacate_If_No_Financing.pdf"
+COMPLIANCE_1058 = "TDHCA_1058_Compliance_Review.pdf"
+RETMONLIST_2013 = "TDHCA-retmonlist.pdf"
 
 # USED-home-only forms (C3).
 USED_ONLY_FORMS = ("TDHCA-ImproperSite.pdf", "TDHCA_SitePreparation.pdf")
@@ -95,6 +99,34 @@ def test_c1_exact_duplicate_template_collapsed():
     assert out.count(VACATE) == 1
 
 
+# ── C4: Retailer compliance checklist de-dupe (Celeste 2026-07-03) ───────────
+
+
+def test_c4_compliance_checklist_deduped_to_most_recent():
+    out = resolve_form_set([RETMONLIST_2013, COMPLIANCE_1058], NEW_HOME_DATA)
+    assert COMPLIANCE_1058 in out, "1058 Compliance Review (Rev. 10/2024) must be kept"
+    assert RETMONLIST_2013 not in out, "2013 retmonlist duplicate must be dropped"
+    assert out.count(COMPLIANCE_1058) == 1
+
+
+def test_c4_compliance_checklist_deduped_in_new_packet():
+    new_pkt = preview_packet_templates(NEW_PACKET, NEW_HOME_DATA)
+    assert COMPLIANCE_1058 in new_pkt
+    assert RETMONLIST_2013 not in new_pkt
+
+
+def test_c4_compliance_checklist_deduped_in_used_packet():
+    used_pkt = preview_packet_templates(USED_PACKET, USED_HOME_DATA)
+    assert COMPLIANCE_1058 in used_pkt
+    assert RETMONLIST_2013 not in used_pkt
+
+
+def test_c4_retmonlist_flows_through_when_alone():
+    # If a packet only carries the older checklist, it must not be lost.
+    out = resolve_form_set(["TMHA_SalesContract.pdf", RETMONLIST_2013], NEW_HOME_DATA)
+    assert RETMONLIST_2013 in out
+
+
 # ── C3: USED-home-only suppression on NEW packages ───────────────────────────
 
 
@@ -155,10 +187,10 @@ def test_new_packet_is_clean_overall():
     # No exact duplicates.
     assert len(new_pkt) == len(set(new_pkt))
     # None of the suppressed / gated forms present.
-    for form in (ARBITRATION_TDHCA, *USED_ONLY_FORMS, R020_DEPOSIT):
+    for form in (ARBITRATION_TDHCA, *USED_ONLY_FORMS, R020_DEPOSIT, RETMONLIST_2013):
         assert form not in new_pkt
     # Core closing documents still present.
-    for form in ("TMHA_SalesContract.pdf", ARBITRATION_INTERNAL, VACATE):
+    for form in ("TMHA_SalesContract.pdf", ARBITRATION_INTERNAL, VACATE, COMPLIANCE_1058):
         assert form in new_pkt
 
 
