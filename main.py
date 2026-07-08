@@ -144,6 +144,7 @@ from email_service import (
 )
 from lead_management import Lead, LeadManager
 from structured_logging import logger as struct_logger
+from tools.contact_capture import capture_contact_from_message
 from tools.input_sanitizer import sanitize_body, sanitize_query_params
 from tools.pii_guard import redact_pii_from_text, validate_no_pii_in_text
 from tools.user_activity_log import log_user_action, query_user_activity
@@ -1388,6 +1389,24 @@ async def run_agent(request: Request):
 
         except Exception as e:
             struct_logger.warning("Context update failed", request_id=request_id, error=str(e))
+
+        # Passive contact-capture backstop: if the visitor typed a phone/email in
+        # THIS message, make sure it becomes an actionable, staff-alerted lead —
+        # independent of whether the model remembered to call the save_lead tool.
+        # (Chat leads were previously anonymous preference records that never
+        # paged the sales team.)
+        try:
+            await capture_contact_from_message(
+                text_content,
+                session_id,
+                user_id,
+                lead_manager=lead_manager,
+                notify=notify_new_lead,
+            )
+        except Exception as e:
+            struct_logger.warning(
+                "Contact-capture backstop failed", request_id=request_id, error=str(e)
+            )
 
         duration_ms = (time.time() - start_time) * 1000
         struct_logger.response(request_id, len(final_text), duration_ms)
