@@ -1,19 +1,34 @@
-"""Chat-sourced leads must reach the sales team — not sit invisibly in Firestore.
+"""Chat-sourced leads must reach the sales team — safely — not sit invisibly in
+Firestore and not degrade the chat path.
 
-Two gaps this pins (both = high-intent chat leads Lee never hears about):
+Gaps pinned here:
 1. `save_lead` (the AI chat's capture tool) persisted the lead but never fired
-   the staff "New Lead Alert" that /api/contact sends — so captured chat leads
-   were second-class: no email, no follow-up.
-2. Tool-calls are unreliable; a visitor who simply *types* their phone/email in
-   chat was never captured at all. A passive backstop attaches that contact to
-   the session's lead and alerts staff exactly once.
+   the staff "New Lead Alert" that /api/contact sends.
+2. A visitor who simply *types* their phone/email in chat was never captured; a
+   passive backstop attaches that contact and alerts staff exactly once.
+
+Hardening (post adversarial review), all covered below:
+3. The contact regex is length-capped so a huge /run message can't drive O(n^2)
+   backtracking (ReDoS) on the event loop.
+4. A bare digit-run (MLS/serial/price) is not mistaken for a phone unless it is
+   phone-formatted or the message shows contact intent.
+5. The staff-alert send is offloaded + time-bounded so a slow Resend never
+   stalls the chat worker.
+6. `event_tool_names` lets /run skip the backstop when the model already called
+   save_lead, so one customer never gets two alerts / two CRM records.
 """
 
 import asyncio
 import re
+import time
+import types as _types
 
 from tools import crm_tools
-from tools.contact_capture import capture_contact_from_message, extract_contact
+from tools.contact_capture import (
+    capture_contact_from_message,
+    event_tool_names,
+    extract_contact,
+)
 
 
 def _digits(s):
@@ -35,7 +50,53 @@ def test_extract_contact_ignores_ordinary_browsing_text():
     assert extract_contact("do you have any 3 bedroom homes under 80k?") == (None, None)
 
 
-# ── Passive backstop in the chat flow ───────────────────────────────
+# ── ReDoS cap + phone false-positive guard (post-review) ────────────
+
+
+def test_extract_contact_caps_scanned_length():
+    # A phone/email past the scan cap is ignored — this bounds the input the
+    # regexes ever see, so a giant /run message cannot drive O(n^2) backtracking.
+    buried = "x" * 3000 + " call me at 281-324-3020 or a@b.com"
+    assert extract_contact(buried) == (None, None)
+
+
+def test_extract_contact_rejects_bare_number_without_contact_cue():
+    # Real-estate chat is full of numbers (MLS, serial, price). A bare 10-digit
+    # run with no phone formatting and no contact intent must NOT become a lead.
+    assert extract_contact("I'm looking at MLS 2813243020, is it available?") == (None, None)
+
+
+def test_extract_contact_accepts_bare_number_with_cue():
+    phone, _ = extract_contact("sure, call me at 2813243020")
+    assert phone is not None and _digits(phone) == "2813243020"
+
+
+def test_extract_contact_accepts_formatted_number_without_cue():
+    phone, _ = extract_contact("here it is 281-324-3020")
+    assert phone is not None and _digits(phone) == "2813243020"
+
+
+# ── Agent tool-call detection (post-review dedup) ───────────────────
+
+
+def _fake_event(tool_name=None, text=None):
+    part = _types.SimpleNamespace(function_call=None, text=None)
+    if tool_name:
+        part.function_call = _types.SimpleNamespace(name=tool_name)
+    if text:
+        part.text = text
+    return _types.SimpleNamespace(content=_types.SimpleNamespace(parts=[part]))
+
+
+def test_event_tool_names_detects_save_lead():
+    assert "save_lead" in event_tool_names(_fake_event(tool_name="save_lead"))
+
+
+def test_event_tool_names_empty_for_text_only_event():
+    assert event_tool_names(_fake_event(text="hello there")) == set()
+
+
+# ── Passive backstop behaviour ──────────────────────────────────────
 
 
 class _FakeLeadManager:
@@ -115,6 +176,29 @@ def test_backstop_noop_when_no_contact_present():
     assert result is None
     assert lm.leads == []
     assert calls == []
+
+
+def test_backstop_notify_is_offloaded_and_bounded_when_send_is_slow():
+    # A slow/hung staff-alert send must not block the caller (the chat event
+    # loop). capture must return before the slow notify finishes.
+    lm = _FakeLeadManager()
+    notify_done = {"v": False}
+
+    def slow_notify(**kwargs):
+        time.sleep(0.6)  # simulate a hung Resend send
+        notify_done["v"] = True
+
+    async def _run():
+        await capture_contact_from_message(
+            "call me at 281-324-3020", "s1", "u1",
+            lead_manager=lm, notify=slow_notify, notify_timeout=0.1,
+        )
+        # Right after capture returns, the slow notify should still be running.
+        return notify_done["v"]
+
+    finished_before_notify_done = asyncio.run(_run())
+    assert finished_before_notify_done is False  # did not wait on the slow send
+    assert len(lm.leads) == 1  # lead still captured
 
 
 # ── save_lead now alerts staff (mirrors /api/contact) ───────────────
