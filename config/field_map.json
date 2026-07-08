@@ -1766,9 +1766,9 @@
     },
     "flag_gated_templates": {
       "TMHA-SalesContractDepositAgreement.pdf": {
-        "_comment": "C5 (Mark review): TMHA R020 'MH Sales Contract & Deposit Agreement' — Mark didn't know where it came from. Gated OFF by default so it is excluded from the standard NEW closing packet. Template is NOT deleted; flip include_by_default to true (or pass data['include_r020']=true / data['form_set_flags']['include_r020']=true) to bring it back. FLAG FOR ARI: confirm whether THO ever uses the R020 deposit contract.",
+        "_comment": "C5 (Mark Willcott confirmed 2026-07-08): TMHA R020 'MH Sales Contract & Deposit Agreement' stays in the standard closing packet. It remains flag-addressable so an exceptional packet can pass include_r020=false / form_set_flags.include_r020=false to omit it without deleting the template.",
         "flag": "include_r020",
-        "include_by_default": false
+        "include_by_default": true
       }
     }
   },

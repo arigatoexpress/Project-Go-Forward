@@ -4,8 +4,9 @@ Covers C1/C2/C3/C5 from the hand-marked 65-page closing-packet review:
   C1 — de-dupe "Need to Vacate Home" -> one copy.
   C2 — de-dupe "Arbitration Agreement" -> one copy (keep the Internal copy).
   C3 — suppress USED-home-only forms on NEW-home packages (gate on condition).
-  C5 — gate the TMHA R020 "MH Sales Contract & Deposit Agreement" behind a
-       config flag, DEFAULT-EXCLUDED from the standard NEW closing packet.
+  C5 — keep the TMHA R020 "MH Sales Contract & Deposit Agreement" in the
+       standard packet by default (Mark confirmed 2026-07-08), while retaining
+       an explicit opt-out flag for exceptional packets.
   C4 — de-dupe the retailer compliance checklist (Celeste 2026-07-03): keep
        the 1058 Compliance Review (Rev. 10/2024), drop the 2013 retmonlist.
 
@@ -34,7 +35,7 @@ RETMONLIST_2013 = "TDHCA-retmonlist.pdf"
 # USED-home-only forms (C3).
 USED_ONLY_FORMS = ("TDHCA-ImproperSite.pdf", "TDHCA_SitePreparation.pdf")
 
-# Flag-gated optional (C5).
+# Flag-addressable standard form (C5).
 R020_DEPOSIT = "TMHA-SalesContractDepositAgreement.pdf"
 
 # The standard NEW closing packet Mark reviewed.
@@ -155,15 +156,15 @@ def test_c3_condition_resolution_variants_used():
         assert set(out) == set(USED_ONLY_FORMS), f"used-only forms kept for USED signal {data}"
 
 
-# ── C5: R020 deposit agreement gated OFF by default ──────────────────────────
+# ── C5: R020 deposit agreement included by default ───────────────────────────
 
 
-def test_c5_r020_excluded_from_new_packet_by_default():
+def test_c5_r020_included_in_new_packet_by_default():
     new_pkt = preview_packet_templates(NEW_PACKET, NEW_HOME_DATA)
-    assert R020_DEPOSIT not in new_pkt, "R020 must be excluded from the standard NEW packet"
+    assert R020_DEPOSIT in new_pkt, "R020 must stay in the standard NEW packet"
 
 
-def test_c5_r020_included_when_flag_set():
+def test_c5_r020_still_included_when_flag_set():
     out = resolve_form_set([R020_DEPOSIT, "TMHA_SalesContract.pdf"], {"include_r020": True})
     assert R020_DEPOSIT in out
 
@@ -173,8 +174,23 @@ def test_c5_r020_included_via_form_set_flags_dict():
     assert R020_DEPOSIT in out
 
 
-def test_c5_r020_excluded_by_default():
+def test_c5_r020_included_by_default():
     out = resolve_form_set([R020_DEPOSIT, "TMHA_SalesContract.pdf"], {})
+    assert R020_DEPOSIT in out
+    assert "TMHA_SalesContract.pdf" in out
+
+
+def test_c5_r020_can_be_excluded_by_explicit_flag():
+    out = resolve_form_set([R020_DEPOSIT, "TMHA_SalesContract.pdf"], {"include_r020": False})
+    assert R020_DEPOSIT not in out
+    assert "TMHA_SalesContract.pdf" in out
+
+
+def test_c5_r020_can_be_excluded_via_form_set_flags_dict():
+    out = resolve_form_set(
+        [R020_DEPOSIT, "TMHA_SalesContract.pdf"],
+        {"form_set_flags": {"include_r020": False}},
+    )
     assert R020_DEPOSIT not in out
     assert "TMHA_SalesContract.pdf" in out
 
@@ -186,11 +202,17 @@ def test_new_packet_is_clean_overall():
     new_pkt = preview_packet_templates(NEW_PACKET, NEW_HOME_DATA)
     # No exact duplicates.
     assert len(new_pkt) == len(set(new_pkt))
-    # None of the suppressed / gated forms present.
-    for form in (ARBITRATION_TDHCA, *USED_ONLY_FORMS, R020_DEPOSIT, RETMONLIST_2013):
+    # None of the suppressed forms present.
+    for form in (ARBITRATION_TDHCA, *USED_ONLY_FORMS, RETMONLIST_2013):
         assert form not in new_pkt
     # Core closing documents still present.
-    for form in ("TMHA_SalesContract.pdf", ARBITRATION_INTERNAL, VACATE, COMPLIANCE_1058):
+    for form in (
+        "TMHA_SalesContract.pdf",
+        ARBITRATION_INTERNAL,
+        VACATE,
+        COMPLIANCE_1058,
+        R020_DEPOSIT,
+    ):
         assert form in new_pkt
 
 
