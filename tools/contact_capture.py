@@ -111,6 +111,13 @@ async def capture_contact_from_message(
     if phone:
         dup = await lead_manager.get_lead_by_phone(normalize_phone(phone))
         if dup is not None:
+            # Already captured + alerted (e.g. by save_lead this same turn, or on
+            # a prior turn/session). Don't create a duplicate or re-alert — but DO
+            # merge any newly-volunteered detail (e.g. an email given alongside a
+            # known number) so a contact detail is never silently dropped.
+            if email and not dup.email:
+                dup.email = email
+                await lead_manager.update_lead(dup)
             return dup
 
     existing = await lead_manager.get_lead_by_session(session_id)

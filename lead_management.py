@@ -175,7 +175,7 @@ class LeadManager:
         return await asyncio.to_thread(_stream)
 
     async def get_lead_by_phone(self, phone: str | None) -> "Lead | None":
-        """Retrieve the most recent lead carrying this (normalized) phone.
+        """Retrieve a lead carrying this (normalized) phone, if any.
 
         Used to dedupe the chat contact-capture backstop against a lead the
         agent's ``save_lead`` tool already persisted, so one customer is never

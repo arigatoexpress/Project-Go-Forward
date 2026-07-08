@@ -176,6 +176,33 @@ def test_backstop_dedups_against_an_existing_phone_lead():
     assert result is not None  # returned the already-captured lead
 
 
+def test_backstop_dedup_still_merges_a_newly_volunteered_email():
+    # A known-phone customer volunteers a NEW email in the same message. The
+    # backstop must not create a duplicate or re-alert, but must NOT drop the
+    # email either (that would be silent data loss).
+    lm = _FakeLeadManager()
+    lm.leads.append(
+        Lead(
+            lead_id="chat_existing",
+            user_id="chat",
+            session_id="",
+            name="Jane",
+            phone=normalize_phone("281-324-3020"),
+            source="chat",
+        )
+    )
+    calls = []
+    asyncio.run(
+        capture_contact_from_message(
+            "call me at 281-324-3020, my email is jane@example.com", "sess_new", "u",
+            lead_manager=lm, notify=lambda **k: calls.append(k),
+        )
+    )
+    assert len(lm.leads) == 1  # no duplicate
+    assert calls == []  # no re-alert
+    assert lm.leads[0].email == "jane@example.com"  # email merged, not dropped
+
+
 def test_backstop_still_fires_when_no_matching_phone_lead_exists():
     # save_lead was called but FAILED to persist -> no lead with this phone ->
     # the backstop is the safety net: it captures + alerts exactly once so the
