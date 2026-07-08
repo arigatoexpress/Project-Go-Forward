@@ -18,6 +18,11 @@ Safety properties (hardened after adversarial review):
   number-heavy real-estate chat.
 - The staff alert is offloaded to a worker thread and time-bounded, so a slow or
   hung Resend send never stalls the chat worker.
+- Dedup is BY PHONE against any already-captured lead (e.g. one the agent's
+  save_lead tool persisted this same turn), so one customer is never
+  double-captured / double-alerted — while the backstop STILL fires when
+  save_lead was called but failed to persist (no such lead exists to match), so
+  a high-intent lead is never silently lost.
 """
 
 import asyncio
@@ -25,7 +30,7 @@ import logging
 import re
 import uuid
 
-from lead_management import Lead
+from lead_management import Lead, normalize_phone
 
 logger = logging.getLogger(__name__)
 
@@ -77,24 +82,6 @@ def extract_contact(text: str | None) -> tuple[str | None, str | None]:
     return phone, email
 
 
-def event_tool_names(event) -> set[str]:
-    """Names of the tools the agent invoked in an ADK event (function_call parts).
-
-    Used by /run to skip the passive backstop when the model already called
-    ``save_lead`` this turn — otherwise one customer gets two alerts + two leads.
-    Defensive against ADK shape changes: any missing attribute yields no name.
-    """
-    names: set[str] = set()
-    content = getattr(event, "content", None)
-    parts = getattr(content, "parts", None) or []
-    for part in parts:
-        fc = getattr(part, "function_call", None)
-        name = getattr(fc, "name", None)
-        if name:
-            names.add(name)
-    return names
-
-
 async def capture_contact_from_message(
     text: str,
     session_id: str,
@@ -107,15 +94,24 @@ async def capture_contact_from_message(
     """Attach any phone/email the visitor typed to the session's lead and alert
     staff exactly once.
 
-    Returns the lead (created or updated) or None when no contact info was
-    present. The phone is stored as typed — ``LeadManager`` normalizes it to
-    E.164 on persist, exactly as the contact form does. Never raises into the
-    chat path; the staff alert is offloaded to a thread and time-bounded so a
-    slow send cannot stall the event loop.
+    Returns the lead (created, updated, or the pre-existing deduped one) or None
+    when no contact info was present. Never raises into the chat path; the staff
+    alert is offloaded to a thread and time-bounded so a slow send cannot stall
+    the event loop.
     """
     phone, email = extract_contact(text)
     if not phone and not email:
         return None
+
+    # Dedup by phone: if a lead already carries this number (e.g. the agent's
+    # save_lead tool captured + alerted it earlier this same turn, or on a prior
+    # turn), do not create a duplicate or re-alert. This keeps the backstop a
+    # true safety net — exactly once per contact — while STILL firing when
+    # save_lead was called but FAILED to persist (no matching lead exists).
+    if phone:
+        dup = await lead_manager.get_lead_by_phone(normalize_phone(phone))
+        if dup is not None:
+            return dup
 
     existing = await lead_manager.get_lead_by_session(session_id)
     # Only alert on the FIRST appearance of contact info for this session, so a

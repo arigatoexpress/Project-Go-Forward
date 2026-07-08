@@ -174,6 +174,24 @@ class LeadManager:
 
         return await asyncio.to_thread(_stream)
 
+    async def get_lead_by_phone(self, phone: str | None) -> "Lead | None":
+        """Retrieve the most recent lead carrying this (normalized) phone.
+
+        Used to dedupe the chat contact-capture backstop against a lead the
+        agent's ``save_lead`` tool already persisted, so one customer is never
+        double-captured / double-alerted. A single-field equality query is
+        auto-indexed by Firestore (no composite index needed)."""
+        if not phone:
+            return None
+        query = self.db.collection(self.collection_name).where("phone", "==", phone).limit(1)
+
+        def _stream():
+            for doc in query.stream():
+                return Lead.from_dict(doc.to_dict())
+            return None
+
+        return await asyncio.to_thread(_stream)
+
     async def list_leads(self, status: str | None = None, limit: int = 100) -> list[Lead]:
         """List leads with optional status filter"""
         query = self.db.collection(self.collection_name)

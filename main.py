@@ -144,7 +144,7 @@ from email_service import (
 )
 from lead_management import Lead, LeadManager
 from structured_logging import logger as struct_logger
-from tools.contact_capture import capture_contact_from_message, event_tool_names
+from tools.contact_capture import capture_contact_from_message
 from tools.input_sanitizer import sanitize_body, sanitize_query_params
 from tools.pii_guard import redact_pii_from_text, validate_no_pii_in_text
 from tools.user_activity_log import log_user_action, query_user_activity
@@ -1169,11 +1169,9 @@ async def _execute_agent_run(runner, user_id, session_id, new_message, request_i
 
     final_text = ""
     event_count = 0
-    called_tools: set[str] = set()
 
     async for event in result_generator:
         event_count += 1
-        called_tools |= event_tool_names(event)
         event_type = type(event).__name__
         has_content = hasattr(event, "content") and event.content is not None
         content_role = None
@@ -1213,7 +1211,7 @@ async def _execute_agent_run(runner, user_id, session_id, new_message, request_i
         struct_logger.warning("No text generated", request_id=request_id, event_count=event_count)
         final_text = "I apologize, but I couldn't generate a response. Please try again."
 
-    return final_text, event_count, called_tools
+    return final_text, event_count
 
 
 # --- Rate Limiting for Chat API ---
@@ -1324,13 +1322,12 @@ async def run_agent(request: Request):
 
         # Run agent with timeout
         try:
-            final_text, _event_count, called_tools = await asyncio.wait_for(
+            final_text, _event_count = await asyncio.wait_for(
                 _execute_agent_run(runner, user_id, session_id, new_message, request_id),
                 timeout=AI_RUN_TIMEOUT,
             )
         except TimeoutError:
             struct_logger.warning("Agent run timed out", request_id=request_id)
-            called_tools = set()
             final_text = (
                 "I apologize, but the request timed out. "
                 "Please try again with a shorter message."
@@ -1396,24 +1393,22 @@ async def run_agent(request: Request):
         # Passive contact-capture backstop: if the visitor typed a phone/email in
         # THIS message, make sure it becomes an actionable, staff-alerted lead —
         # independent of whether the model remembered to call the save_lead tool.
-        # (Chat leads were previously anonymous preference records that never
-        # paged the sales team.) Skip it when the model DID call save_lead this
-        # turn — that path already persisted the lead and alerted staff, so
-        # running the backstop too would double-alert and create a duplicate CRM
-        # record for the same customer.
-        if "save_lead" not in called_tools:
-            try:
-                await capture_contact_from_message(
-                    text_content,
-                    session_id,
-                    user_id,
-                    lead_manager=lead_manager,
-                    notify=notify_new_lead,
-                )
-            except Exception as e:
-                struct_logger.warning(
-                    "Contact-capture backstop failed", request_id=request_id, error=str(e)
-                )
+        # It dedupes BY PHONE against any already-captured lead (e.g. one save_lead
+        # persisted this same turn), so it fires exactly once per contact — but
+        # still fires when save_lead was called yet FAILED to persist, so a
+        # high-intent lead is never silently lost.
+        try:
+            await capture_contact_from_message(
+                text_content,
+                session_id,
+                user_id,
+                lead_manager=lead_manager,
+                notify=notify_new_lead,
+            )
+        except Exception as e:
+            struct_logger.warning(
+                "Contact-capture backstop failed", request_id=request_id, error=str(e)
+            )
 
         duration_ms = (time.time() - start_time) * 1000
         struct_logger.response(request_id, len(final_text), duration_ms)

@@ -14,21 +14,19 @@ Hardening (post adversarial review), all covered below:
    phone-formatted or the message shows contact intent.
 5. The staff-alert send is offloaded + time-bounded so a slow Resend never
    stalls the chat worker.
-6. `event_tool_names` lets /run skip the backstop when the model already called
-   save_lead, so one customer never gets two alerts / two CRM records.
+6. The backstop dedupes BY PHONE against any already-captured lead (e.g. one the
+   model's save_lead tool persisted this turn), so one customer never gets two
+   alerts / two records — yet it STILL fires when save_lead was called but failed
+   to persist (no silent lead loss).
 """
 
 import asyncio
 import re
 import time
-import types as _types
 
+from lead_management import Lead, normalize_phone
 from tools import crm_tools
-from tools.contact_capture import (
-    capture_contact_from_message,
-    event_tool_names,
-    extract_contact,
-)
+from tools.contact_capture import capture_contact_from_message, extract_contact
 
 
 def _digits(s):
@@ -76,26 +74,6 @@ def test_extract_contact_accepts_formatted_number_without_cue():
     assert phone is not None and _digits(phone) == "2813243020"
 
 
-# ── Agent tool-call detection (post-review dedup) ───────────────────
-
-
-def _fake_event(tool_name=None, text=None):
-    part = _types.SimpleNamespace(function_call=None, text=None)
-    if tool_name:
-        part.function_call = _types.SimpleNamespace(name=tool_name)
-    if text:
-        part.text = text
-    return _types.SimpleNamespace(content=_types.SimpleNamespace(parts=[part]))
-
-
-def test_event_tool_names_detects_save_lead():
-    assert "save_lead" in event_tool_names(_fake_event(tool_name="save_lead"))
-
-
-def test_event_tool_names_empty_for_text_only_event():
-    assert event_tool_names(_fake_event(text="hello there")) == set()
-
-
 # ── Passive backstop behaviour ──────────────────────────────────────
 
 
@@ -106,6 +84,12 @@ class _FakeLeadManager:
     async def get_lead_by_session(self, session_id):
         for lead in self.leads:
             if lead.session_id == session_id:
+                return lead
+        return None
+
+    async def get_lead_by_phone(self, phone):
+        for lead in self.leads:
+            if lead.phone and lead.phone == phone:
                 return lead
         return None
 
@@ -163,6 +147,49 @@ def test_backstop_does_not_double_alert_same_session():
     )
     assert len(calls) == 1  # still only one alert
     assert lm.leads[0].email == "jane@example.com"  # but the email was still captured
+
+
+def test_backstop_dedups_against_an_existing_phone_lead():
+    # Simulate the agent's save_lead tool having already captured + alerted this
+    # phone (it stores a NORMALIZED number, session_id=""). The backstop must NOT
+    # create a duplicate lead or fire a second alert.
+    lm = _FakeLeadManager()
+    lm.leads.append(
+        Lead(
+            lead_id="chat_existing",
+            user_id="chat",
+            session_id="",
+            name="Jane",
+            phone=normalize_phone("281-324-3020"),
+            source="chat",
+        )
+    )
+    calls = []
+    result = asyncio.run(
+        capture_contact_from_message(
+            "yes, call me at 281-324-3020", "sess_new", "u",
+            lead_manager=lm, notify=lambda **k: calls.append(k),
+        )
+    )
+    assert len(lm.leads) == 1  # no duplicate
+    assert calls == []  # no second staff alert
+    assert result is not None  # returned the already-captured lead
+
+
+def test_backstop_still_fires_when_no_matching_phone_lead_exists():
+    # save_lead was called but FAILED to persist -> no lead with this phone ->
+    # the backstop is the safety net: it captures + alerts exactly once so the
+    # high-intent lead is never silently lost.
+    lm = _FakeLeadManager()
+    calls = []
+    asyncio.run(
+        capture_contact_from_message(
+            "call me at 281-324-3020", "s1", "u",
+            lead_manager=lm, notify=lambda **k: calls.append(k) or {"success": True},
+        )
+    )
+    assert len(lm.leads) == 1
+    assert len(calls) == 1
 
 
 def test_backstop_noop_when_no_contact_present():
