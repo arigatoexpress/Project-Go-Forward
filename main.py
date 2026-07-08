@@ -1393,8 +1393,10 @@ async def run_agent(request: Request):
         # Passive contact-capture backstop: if the visitor typed a phone/email in
         # THIS message, make sure it becomes an actionable, staff-alerted lead —
         # independent of whether the model remembered to call the save_lead tool.
-        # (Chat leads were previously anonymous preference records that never
-        # paged the sales team.)
+        # It dedupes BY PHONE against any already-captured lead (e.g. one save_lead
+        # persisted this same turn), so it fires exactly once per contact — but
+        # still fires when save_lead was called yet FAILED to persist, so a
+        # high-intent lead is never silently lost.
         try:
             await capture_contact_from_message(
                 text_content,
