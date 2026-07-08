@@ -396,12 +396,9 @@ const FIELD_STEP = {
   mailing_zip: 1,
 };
 
-// Marital status is a constrained dropdown (Mark Willcott review item A4).
+// Marital status is a constrained dropdown (Mark Willcott confirmed 2026-07-08).
 // Values match the backend _set_status_flags resolver (married / unmarried),
 // which drives the Married/Unmarried checkbox pair on the credit application.
-// DECISION FLAGGED (A4): confirm with Mark whether marital status should be
-// collected at all; kept here as the safe default since the credit-app form
-// has the checkbox.
 const MARITAL_STATUS_OPTIONS = [
   { value: '', label: 'Not set' },
   { value: 'Married', label: 'Married' },
@@ -1688,7 +1685,6 @@ function Step1({ data, onChange, onLoadCustomer, resetKey, deals, dealsLoading, 
             resetKey={resetKey}
             third
             options={MARITAL_STATUS_OPTIONS}
-            helperText="Mark review (2026-06-24): do we still need this field? Now a Married/Unmarried dropdown."
           />
         </Row>
       </Section>

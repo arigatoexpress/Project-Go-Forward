@@ -159,7 +159,7 @@ def resolve_form_set(template_names: list[str], data: dict[str, Any]) -> list[st
     """Apply Phase 3 form-set rules to a template list, preserving order.
 
     Order of operations:
-      1. C5 — drop flag-gated templates that are not enabled (R020 default-off).
+      1. C5 — drop flag-gated templates only when disabled (R020 default-on).
       2. C3 — drop used-home-only templates when the home resolves to NEW.
       3. C1/C2 — for each duplicate group, keep only the first present member;
          then drop any remaining exact-duplicate template names.
@@ -827,8 +827,8 @@ class DocumentEngineV2:
             return {"success": False, "message": f"Packet {packet_name} not found"}
 
         # Phase 3 form-set logic: dedupe same-document templates, suppress
-        # used-home-only forms on NEW packages, and drop flag-gated optionals
-        # (R020) before generating. The static packet list stays the superset.
+        # used-home-only forms on NEW packages, and apply flag-gated packet
+        # overrides (R020 now defaults on). The static packet list stays the superset.
         templates = resolve_form_set(packet_config.get("templates", []), data)
         return self.generate_batch(templates, data, merge=True, deal_id=deal_id)
 
@@ -956,9 +956,9 @@ def preview_packet_templates(packet_name, data=None):
     """Return the effective template list for a packet after Phase 3 form-set
     rules (dedupe / used-home suppression / flag gating) are applied. Useful for
     tests and UI previews without generating any PDFs. Returns [] if unknown."""
-    packet_config = _engine.schema.get("packets", {}).get(
-        packet_name
-    ) or _engine.legacy_schema.get("packets", {}).get(packet_name)
+    packet_config = _engine.schema.get("packets", {}).get(packet_name) or _engine.legacy_schema.get(
+        "packets", {}
+    ).get(packet_name)
     if not packet_config:
         return []
     return resolve_form_set(packet_config.get("templates", []), data or {})
