@@ -15,6 +15,8 @@ from zoneinfo import ZoneInfo
 
 from google.adk.tools import ToolContext
 
+from email_service import notify_new_lead
+
 # Configure structured logging for production
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger("crm_tools")
@@ -131,6 +133,15 @@ def save_lead(
         logger.warning(f"Could not write to local file: {e}")
 
     if persisted:
+        # Alert the sales team the same way /api/contact does. A high-intent chat
+        # lead that never pages a human is a lead lost — captured chat leads were
+        # previously landing in Firestore silently (no email), invisible to sales
+        # unless someone happened to open the CRM. Never let a notify failure turn
+        # a successful save into a failure the customer sees.
+        try:
+            notify_new_lead(customer_name=user_name, phone=phone_number, source="chat")
+        except Exception as e:
+            logger.warning(f"Chat lead staff alert failed (lead was saved): {e}")
         return {
             "success": True,
             "message": f"Thanks {user_name}! I've saved your info. A sales representative will call you at {phone_number} shortly.",
