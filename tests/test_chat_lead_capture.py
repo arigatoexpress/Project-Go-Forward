@@ -26,7 +26,7 @@ import time
 
 from lead_management import Lead, normalize_phone
 from tools import crm_tools
-from tools.contact_capture import capture_contact_from_message, extract_contact
+from tools.contact_capture import apply_utm, capture_contact_from_message, extract_contact
 
 
 def _digits(s):
@@ -266,6 +266,18 @@ _UTM = {
     "utm_term": None,
     "referrer": None,
 }
+
+
+def test_apply_utm_backfills_missing_fields_and_preserves_existing():
+    # Shared helper used by both the backstop and the /run existing-lead branch
+    # (returning-visitor attribution). First-touch wins: never overwrite a value
+    # already set; only fill blanks.
+    lead = Lead(lead_id="x", user_id="u", session_id="s", utm_source="existing")
+    changed = apply_utm(lead, {"utm_source": "new", "utm_medium": "cpc", "utm_term": None})
+    assert changed is True
+    assert lead.utm_source == "existing"  # not overwritten
+    assert lead.utm_medium == "cpc"  # backfilled
+    assert apply_utm(lead, None) is False  # no-op on None
 
 
 def test_backstop_tags_a_new_lead_with_utm():

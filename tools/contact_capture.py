@@ -53,7 +53,7 @@ _CONTACT_CUE_RE = re.compile(
 )
 
 
-def _apply_utm(lead, utm) -> bool:
+def apply_utm(lead, utm) -> bool:
     """Backfill first-party UTM/referrer onto ``lead`` where the field is empty.
 
     Returns True if anything changed. This is what makes a chat-sourced lead
@@ -135,7 +135,7 @@ async def capture_contact_from_message(
             if email and not dup.email:
                 dup.email = email
                 changed = True
-            if _apply_utm(dup, utm):
+            if apply_utm(dup, utm):
                 changed = True
             if changed:
                 await lead_manager.update_lead(dup)
@@ -152,7 +152,7 @@ async def capture_contact_from_message(
             lead.phone = phone
         if email and not lead.email:
             lead.email = email
-        _apply_utm(lead, utm)
+        apply_utm(lead, utm)
         await lead_manager.update_lead(lead)
     else:
         lead = Lead(
