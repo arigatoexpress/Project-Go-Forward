@@ -144,7 +144,7 @@ from email_service import (
 )
 from lead_management import Lead, LeadManager
 from structured_logging import logger as struct_logger
-from tools.contact_capture import capture_contact_from_message
+from tools.contact_capture import apply_utm, capture_contact_from_message
 from tools.input_sanitizer import sanitize_body, sanitize_query_params
 from tools.pii_guard import redact_pii_from_text, validate_no_pii_in_text
 from tools.user_activity_log import log_user_action, query_user_activity
@@ -1369,6 +1369,11 @@ async def run_agent(request: Request):
                     existing_lead.homes_viewed = context.homes_discussed
                     existing_lead.appointment_requested = context.appointment_intent
                     existing_lead.financing_discussed = context.financing_questions > 0
+                    # Backfill first-touch UTM onto a RETURNING visitor's existing
+                    # lead: localStorage reuses their session_id, so this branch (not
+                    # the create branch) runs — without it a returning paid click on
+                    # an already-known chat lead is under-attributed (Codex #254 P2).
+                    apply_utm(existing_lead, utm)
                     await lead_manager.update_lead(existing_lead)
                 elif context and (
                     context.preferences.bedrooms
