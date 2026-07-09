@@ -255,6 +255,68 @@ def test_backstop_notify_is_offloaded_and_bounded_when_send_is_slow():
     assert len(lm.leads) == 1  # lead still captured
 
 
+# ── UTM attribution on chat leads (paid-acquisition measurement) ────
+
+
+_UTM = {
+    "utm_source": "google",
+    "utm_medium": "cpc",
+    "utm_campaign": "mobile-homes-huffman",
+    "utm_content": None,
+    "utm_term": None,
+    "referrer": None,
+}
+
+
+def test_backstop_tags_a_new_lead_with_utm():
+    lm = _FakeLeadManager()
+    lead = asyncio.run(
+        capture_contact_from_message(
+            "call me at 281-324-3020", "s1", "u",
+            lead_manager=lm, notify=lambda **k: None, utm=_UTM,
+        )
+    )
+    assert lead.utm_source == "google"
+    assert lead.utm_medium == "cpc"
+    assert lead.utm_campaign == "mobile-homes-huffman"
+
+
+def test_backstop_backfills_utm_onto_a_deduped_save_lead_lead():
+    # save_lead persists a lead with a phone but NO utm (the tool can't see the
+    # request). The backstop dedupes by phone and backfills the UTM so a paid
+    # chat lead that the model captured is still attributable to its campaign.
+    lm = _FakeLeadManager()
+    lm.leads.append(
+        Lead(
+            lead_id="chat_x", user_id="chat", session_id="",
+            name="Jane", phone=normalize_phone("281-324-3020"), source="chat",
+        )
+    )
+    utm = {**_UTM, "utm_source": "facebook", "utm_medium": "paid_social"}
+    dup = asyncio.run(
+        capture_contact_from_message(
+            "yes, call me at 281-324-3020", "s2", "u",
+            lead_manager=lm, notify=lambda **k: None, utm=utm,
+        )
+    )
+    assert len(lm.leads) == 1  # still no duplicate
+    assert dup.utm_source == "facebook"
+    assert dup.utm_medium == "paid_social"
+
+
+def test_backstop_without_utm_leaves_utm_unset_and_still_alerts():
+    lm = _FakeLeadManager()
+    calls = []
+    lead = asyncio.run(
+        capture_contact_from_message(
+            "call me at 281-324-3020", "s1", "u",
+            lead_manager=lm, notify=lambda **k: calls.append(k),
+        )
+    )
+    assert lead.utm_source is None
+    assert len(calls) == 1
+
+
 # ── save_lead now alerts staff (mirrors /api/contact) ───────────────
 
 

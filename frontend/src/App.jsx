@@ -11,7 +11,7 @@ import ReportIssue from './components/ReportIssue';
 import ErrorBoundary from './components/ErrorBoundary';
 import ClosureBanner from './components/ClosureBanner';
 import { v4 as uuidv4 } from 'uuid';
-import { captureUtmFromUrl } from './utils/utm';
+import { captureUtmFromUrl, getUtmParams } from './utils/utm';
 import {
   BUSINESS_NAME, BUSINESS_PHONE, BUSINESS_PHONE_RAW, BUSINESS_FULL_ADDRESS,
   BUSINESS_HOURS, BUSINESS_LICENSE, BUSINESS_CITY, BUSINESS_STATE
@@ -307,7 +307,10 @@ async function sendToAgent(sessionId, text, maxRetries = 2) {
           newMessage: {
             role: 'user',
             parts: [{ text }]
-          }
+          },
+          // First-touch UTM/referrer so a chat-sourced lead is attributable to
+          // the paid campaign that drove the visit (mirrors the contact form).
+          ...getUtmParams()
         })
       });
 

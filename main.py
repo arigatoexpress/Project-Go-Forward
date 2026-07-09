@@ -1267,6 +1267,10 @@ async def run_agent(request: Request):
         user_id = data.get("userId", "default_user")
         session_id = data.get("sessionId") or f"anon_{uuid.uuid4().hex[:12]}"
         new_message_dict = data.get("newMessage")
+        # First-party UTM/referrer the frontend carries on the chat POST, so a
+        # chat-sourced lead is attributable to the paid campaign that drove it
+        # (mirrors /api/contact). Non-PII, length-capped.
+        utm = _extract_utm(data)
 
         # Extract text content
         text_content = ""
@@ -1382,6 +1386,7 @@ async def run_agent(request: Request):
                         appointment_requested=context.appointment_intent,
                         financing_discussed=context.financing_questions > 0,
                         source="chat",
+                        **utm,
                     )
                     await lead_manager.create_lead(new_lead)
             except Exception as e:
@@ -1404,6 +1409,7 @@ async def run_agent(request: Request):
                 user_id,
                 lead_manager=lead_manager,
                 notify=notify_new_lead,
+                utm=utm,
             )
         except Exception as e:
             struct_logger.warning(
