@@ -216,6 +216,18 @@ def test_new_packet_is_clean_overall():
         assert form in new_pkt
 
 
+def test_no_closing_packet_emits_a_duplicate_template():
+    """Hardening for Mark's core concern (a form printing twice): NO template may
+    appear more than once in ANY generated closing packet, new or used, after
+    resolve_form_set. This is the invariant that de-dupes the Vacate notice, the
+    Arbitration agreement, and the compliance checklist — guarding against a
+    future field_map edit silently reintroducing a duplicate."""
+    for pkt, data in ((NEW_PACKET, NEW_HOME_DATA), (USED_PACKET, USED_HOME_DATA)):
+        resolved = preview_packet_templates(pkt, data)
+        dupes = sorted({t for t in resolved if resolved.count(t) > 1})
+        assert not dupes, f"{pkt} emits duplicate template(s): {dupes}"
+
+
 def test_resolve_preserves_order_of_untouched_templates():
     templates = ["TMHA_SalesContract.pdf", "TDHCA_1038_Consumer_Disclosure.pdf", VACATE]
     out = resolve_form_set(templates, NEW_HOME_DATA)
