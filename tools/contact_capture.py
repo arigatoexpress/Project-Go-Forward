@@ -53,6 +53,21 @@ _CONTACT_CUE_RE = re.compile(
 )
 
 
+def _apply_utm(lead, utm) -> bool:
+    """Backfill first-party UTM/referrer onto ``lead`` where the field is empty.
+
+    Returns True if anything changed. This is what makes a chat-sourced lead
+    attributable to the paid campaign that drove the visit — the chat tool
+    (save_lead) can't see the request, so the /run handler passes the UTM here.
+    """
+    changed = False
+    for key, value in (utm or {}).items():
+        if value and not getattr(lead, key, None):
+            setattr(lead, key, value)
+            changed = True
+    return changed
+
+
 def extract_contact(text: str | None) -> tuple[str | None, str | None]:
     """Return (phone, email) volunteered in ``text`` — each None if absent.
 
@@ -89,6 +104,7 @@ async def capture_contact_from_message(
     *,
     lead_manager,
     notify,
+    utm: dict | None = None,
     notify_timeout: float = NOTIFY_TIMEOUT,
 ):
     """Attach any phone/email the visitor typed to the session's lead and alert
@@ -115,8 +131,13 @@ async def capture_contact_from_message(
             # a prior turn/session). Don't create a duplicate or re-alert — but DO
             # merge any newly-volunteered detail (e.g. an email given alongside a
             # known number) so a contact detail is never silently dropped.
+            changed = False
             if email and not dup.email:
                 dup.email = email
+                changed = True
+            if _apply_utm(dup, utm):
+                changed = True
+            if changed:
                 await lead_manager.update_lead(dup)
             return dup
 
@@ -131,6 +152,7 @@ async def capture_contact_from_message(
             lead.phone = phone
         if email and not lead.email:
             lead.email = email
+        _apply_utm(lead, utm)
         await lead_manager.update_lead(lead)
     else:
         lead = Lead(
@@ -140,6 +162,7 @@ async def capture_contact_from_message(
             phone=phone,
             email=email,
             source="chat",
+            **{k: v for k, v in (utm or {}).items() if v},
         )
         await lead_manager.create_lead(lead)
 
