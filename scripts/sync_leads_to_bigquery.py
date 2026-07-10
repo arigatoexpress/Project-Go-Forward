@@ -20,8 +20,11 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
+import os
 import sys
 from collections import defaultdict
+from datetime import datetime, timedelta, timezone
 
 from google.cloud import bigquery, firestore
 
@@ -112,6 +115,74 @@ def build_daily_metrics(fs, lead_rows):
     return [{"day": day, **vals} for day, vals in sorted(days.items())]
 
 
+def _as_utc(value):
+    """Parse an ISO-8601 lead timestamp into an aware UTC datetime, or None."""
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+def check_lead_freshness(rows, window_days=3):
+    """PII-free 'are leads still coming in?' check computed from the already-loaded
+    rows (no extra Firestore read). ``alert`` is True when zero leads landed in the
+    window — the early warning for a demand or plumbing problem."""
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(days=window_days)
+    cutoff7 = now - timedelta(days=7)
+    times = [t for t in (_as_utc(r.get("created_at")) for r in rows) if t]
+    last = max(times) if times else None
+    return {
+        "window_days": window_days,
+        "leads_recent": sum(1 for t in times if t >= cutoff),
+        "leads_7d": sum(1 for t in times if t >= cutoff7),
+        "last_lead_at": last.isoformat() if last else None,
+        "days_since_last_lead": (now - last).days if last else None,
+        "alert": sum(1 for t in times if t >= cutoff) == 0,
+    }
+
+
+def _post_alert(webhook, payload):
+    """Best-effort POST of the freshness alert to an opt-in webhook. Never raises;
+    only ever called when the operator has set THO_LEAD_ALERT_WEBHOOK themselves."""
+    import urllib.request
+
+    try:
+        req = urllib.request.Request(
+            webhook,
+            data=json.dumps(payload).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        urllib.request.urlopen(req, timeout=8).read()
+        print(f"lead alert posted to webhook ({webhook.split('//')[-1][:24]}…)")
+    except Exception as exc:  # noqa: BLE001 — alerting must never break the sync
+        print(f"warn: lead-alert webhook failed ({exc}); banner still emitted.", file=sys.stderr)
+
+
+def report_freshness(fresh, allow_webhook=True):
+    """Emit the freshness result: a loud stderr banner when zero recent leads (so a
+    launchd/Cloud Run log makes it obvious), plus an opt-in webhook notify."""
+    if fresh["alert"]:
+        banner = (
+            f"⚠️  THO LEAD ALERT: 0 leads in the last {fresh['window_days']} days "
+            f"(last lead {fresh['days_since_last_lead']}d ago; {fresh['leads_7d']} in the last 7d). "
+            f"Check demand/plumbing."
+        )
+        print(banner, file=sys.stderr)
+        webhook = os.environ.get("THO_LEAD_ALERT_WEBHOOK")
+        if webhook and allow_webhook:
+            _post_alert(webhook, {"text": banner, **fresh})
+    else:
+        print(
+            f"lead freshness OK: {fresh['leads_recent']} lead(s) in last {fresh['window_days']}d, "
+            f"{fresh['leads_7d']} in 7d (last {fresh['days_since_last_lead']}d ago)."
+        )
+
+
 SCHEMA = [
     bigquery.SchemaField("lead_id", "STRING"),
     bigquery.SchemaField("source", "STRING"),
@@ -171,6 +242,13 @@ VIEWS = {
         "COUNT(*) leads, COUNTIF(has_phone OR has_email) contact_leads "
         "FROM `{d}.leads` WHERE created_at IS NOT NULL GROUP BY 1,2 ORDER BY day DESC"
     ),
+    "v_lead_freshness": (
+        "SELECT MAX(created_at) last_lead_at, "
+        "DATE_DIFF(CURRENT_DATE(), DATE(MAX(created_at)), DAY) days_since_last_lead, "
+        "COUNTIF(created_at>=TIMESTAMP_SUB(CURRENT_TIMESTAMP(),INTERVAL 3 DAY)) leads_3d, "
+        "COUNTIF(created_at>=TIMESTAMP_SUB(CURRENT_TIMESTAMP(),INTERVAL 7 DAY)) leads_7d "
+        "FROM `{d}.leads`"
+    ),
 }
 
 
@@ -194,8 +272,8 @@ def main() -> int:
             return 2
 
     print(f"extracted {len(rows)} PII-free lead rows from firestore://{args.project}/leads")
+    report_freshness(check_lead_freshness(rows), allow_webhook=not args.dry_run)
     if args.dry_run:
-        import json
         for r in rows[:3]:
             print("  sample:", json.dumps(r))
         print("dry-run: no BigQuery writes.")
