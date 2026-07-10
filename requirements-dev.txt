@@ -5,3 +5,4 @@ requests-mock==1.12.1
 detect-secrets==1.5.0
 pre-commit==3.8.0
 httpx>=0.28.0
+google-cloud-bigquery>=3.25.0  # scripts/sync_leads_to_bigquery.py (PII-free lead analytics warehouse)
