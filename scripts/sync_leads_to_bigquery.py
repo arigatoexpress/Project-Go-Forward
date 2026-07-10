@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from collections import defaultdict
 
 from google.cloud import bigquery, firestore
 
@@ -67,6 +68,50 @@ def project_lead(doc: dict) -> dict:
     }
 
 
+_APPT_DATE_FIELDS = ("created_at", "scheduled_date", "appointment_date", "date", "start_time", "slot")
+
+
+def _day(value):
+    """Return an ISO date (YYYY-MM-DD) for a Firestore timestamp (datetime or str)."""
+    if not value:
+        return None
+    if isinstance(value, str):
+        return value[:10] or None
+    try:
+        return value.date().isoformat()
+    except Exception:
+        try:
+            return value.isoformat()[:10]
+        except Exception:
+            return None
+
+
+def build_daily_metrics(fs, lead_rows):
+    """PII-free daily funnel counts: chat traffic -> leads -> reachable -> appointments.
+    Reads only creation timestamps; never a name/phone/email value."""
+    days = defaultdict(lambda: {"chat_sessions": 0, "leads": 0, "contact_leads": 0, "appointments": 0})
+    for doc in fs.collection("chat_sessions").stream():
+        d = _day(doc.to_dict().get("created_at"))
+        if d:
+            days[d]["chat_sessions"] += 1
+    for r in lead_rows:  # reuse the already-extracted PII-free lead rows
+        d = _day(r.get("created_at"))
+        if d:
+            days[d]["leads"] += 1
+            if r.get("has_phone") or r.get("has_email"):
+                days[d]["contact_leads"] += 1
+    for doc in fs.collection("appointments").stream():
+        data = doc.to_dict()
+        d = None
+        for field in _APPT_DATE_FIELDS:
+            d = _day(data.get(field))
+            if d:
+                break
+        if d:
+            days[d]["appointments"] += 1
+    return [{"day": day, **vals} for day, vals in sorted(days.items())]
+
+
 SCHEMA = [
     bigquery.SchemaField("lead_id", "STRING"),
     bigquery.SchemaField("source", "STRING"),
@@ -88,6 +133,14 @@ SCHEMA = [
     bigquery.SchemaField("financing_discussed", "BOOL"),
     bigquery.SchemaField("created_at", "TIMESTAMP"),
     bigquery.SchemaField("updated_at", "TIMESTAMP"),
+]
+
+DAILY_SCHEMA = [
+    bigquery.SchemaField("day", "DATE"),
+    bigquery.SchemaField("chat_sessions", "INTEGER"),
+    bigquery.SchemaField("leads", "INTEGER"),
+    bigquery.SchemaField("contact_leads", "INTEGER"),
+    bigquery.SchemaField("appointments", "INTEGER"),
 ]
 
 # Reporting views. `{d}` = fully-qualified dataset (project.dataset).
@@ -172,6 +225,31 @@ def main() -> int:
         view.view_query = sql.format(d=dsref)
         bq.create_table(view)
         print(f"created view -> {vid}")
+
+    # Daily funnel metrics (PII-free counts): traffic -> lead -> reachable -> appointment.
+    daily = build_daily_metrics(fs, rows)
+    dt_id = f"{dsref}.daily_metrics"
+    bq.load_table_from_json(
+        daily,
+        dt_id,
+        job_config=bigquery.LoadJobConfig(schema=DAILY_SCHEMA, write_disposition="WRITE_TRUNCATE"),
+    ).result()
+    print(f"loaded {len(daily)} daily-metric rows -> {dt_id}")
+
+    funnel_sql = (
+        "SELECT SUM(chat_sessions) chat_sessions, SUM(leads) leads, "
+        "SUM(contact_leads) contact_leads, SUM(appointments) appointments, "
+        "ROUND(100*SAFE_DIVIDE(SUM(leads),NULLIF(SUM(chat_sessions),0)),1) session_to_lead_pct, "
+        "ROUND(100*SAFE_DIVIDE(SUM(contact_leads),NULLIF(SUM(leads),0)),1) lead_to_contact_pct, "
+        "ROUND(100*SAFE_DIVIDE(SUM(appointments),NULLIF(SUM(contact_leads),0)),1) contact_to_appt_pct "
+        f"FROM `{dsref}.daily_metrics` WHERE day >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)"
+    )
+    fvid = f"{dsref}.v_funnel_30d"
+    bq.delete_table(fvid, not_found_ok=True)
+    fview = bigquery.Table(fvid)
+    fview.view_query = funnel_sql
+    bq.create_table(fview)
+    print(f"created view -> {fvid}")
 
     print("done. Point Looker Studio at the views above.")
     return 0
