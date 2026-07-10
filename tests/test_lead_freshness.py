@@ -2,7 +2,7 @@
 scripts/sync_leads_to_bigquery.py (the 'no leads in N days' early warning)."""
 
 import importlib.util
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 _spec = importlib.util.spec_from_file_location(
@@ -14,7 +14,7 @@ _spec.loader.exec_module(sync)
 
 
 def _iso(days_ago):
-    return (datetime.now(timezone.utc) - timedelta(days=days_ago)).isoformat()
+    return (datetime.now(UTC) - timedelta(days=days_ago)).isoformat()
 
 
 def test_recent_lead_does_not_alert():
@@ -42,7 +42,7 @@ def test_empty_rows_alert_without_crashing():
 
 
 def test_naive_timestamp_parsed_as_utc():
-    naive = (datetime.now(timezone.utc) - timedelta(days=1)).replace(tzinfo=None).isoformat()
+    naive = (datetime.now(UTC) - timedelta(days=1)).replace(tzinfo=None).isoformat()
     f = sync.check_lead_freshness([{"created_at": naive}], window_days=3)
     assert f["leads_recent"] == 1
 
