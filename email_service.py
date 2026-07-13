@@ -106,7 +106,7 @@ def _parse_recipients(raw: str) -> list:
 NOTIFICATION_EMAILS = _parse_recipients(
     os.environ.get(
         "NOTIFICATION_EMAIL",
-        "ben@texashomeoutlet.com,lee@texashomeoutlet.com,"
+        "ben@texashomeoutlet.com,leeaswell@texashomeoutlet.com,"
         "celeste@texashomeoutlet.com,mark@texashomeoutlet.com",
     )
 )
@@ -161,9 +161,7 @@ def _log_email_activity(to: str, subject: str, email_type: str, related_id: str 
             }
         )
     except Exception as e:
-        logger.warning(
-            "Failed to log email activity (to=%s type=%s): %s", to, email_type, e
-        )
+        logger.warning("Failed to log email activity (to=%s type=%s): %s", to, email_type, e)
 
 
 # ── Send Email (core) ──────────────────────────────────────────
@@ -296,7 +294,9 @@ def send_email(
 
         _log_email_activity(to_display, safe_subject, email_type, related_id)
 
-        logger.info("Email sent: %s to %s (id: %s)", email_type, to_display, result.get("id", "unknown"))
+        logger.info(
+            "Email sent: %s to %s (id: %s)", email_type, to_display, result.get("id", "unknown")
+        )
         return {
             "success": True,
             "message_id": result.get("id"),
