@@ -40,6 +40,30 @@ def _fresh_email_service(monkeypatch):
 
 
 class TestSendDocumentEmail:
+    def test_default_staff_alerts_use_lee_aswells_active_email(self, monkeypatch):
+        """Appointment/lead alerts must reach Lee's active THO mailbox."""
+        monkeypatch.delenv("NOTIFICATION_EMAIL", raising=False)
+        email_service = _fresh_email_service(monkeypatch)
+
+        assert email_service.NOTIFICATION_EMAILS == [
+            "ben@texashomeoutlet.com",
+            "leeaswell@texashomeoutlet.com",
+            "celeste@texashomeoutlet.com",
+            "mark@texashomeoutlet.com",
+        ]
+
+    def test_business_config_documents_lee_aswells_active_email(self):
+        config_text = (REPO_ROOT / "config.yaml").read_text()
+
+        notification_line = next(
+            line for line in config_text.splitlines() if "notification_email:" in line
+        )
+        assert notification_line.strip() == (
+            'notification_email: "ben@texashomeoutlet.com,'
+            "leeaswell@texashomeoutlet.com,celeste@texashomeoutlet.com,"
+            'mark@texashomeoutlet.com"'
+        )
+
     def test_builds_subject_and_body_shape(self, monkeypatch):
         monkeypatch.setenv("RESEND_API_KEY", "re_test")
         monkeypatch.setenv(
@@ -179,14 +203,14 @@ class TestSendDocumentEmail:
         monkeypatch.setenv("RESEND_API_KEY", "re_test")
         monkeypatch.setenv(
             "NOTIFICATION_EMAIL",
-            "ben@texashomeoutlet.com, lee@texashomeoutlet.com ;celeste@texashomeoutlet.com",
+            "ben@texashomeoutlet.com, leeaswell@texashomeoutlet.com ;celeste@texashomeoutlet.com",
         )
         email_service = _fresh_email_service(monkeypatch)
 
         # The comma/semicolon list is parsed and de-duplicated into a clean list.
         assert email_service.NOTIFICATION_EMAILS == [
             "ben@texashomeoutlet.com",
-            "lee@texashomeoutlet.com",
+            "leeaswell@texashomeoutlet.com",
             "celeste@texashomeoutlet.com",
         ]
 
@@ -214,14 +238,14 @@ class TestSendDocumentEmail:
         # ONE email, delivered to ALL staff recipients.
         assert sent_payloads[0]["to"] == [
             "ben@texashomeoutlet.com",
-            "lee@texashomeoutlet.com",
+            "leeaswell@texashomeoutlet.com",
             "celeste@texashomeoutlet.com",
         ]
         # Customer replies still route to the shared mailbox, not the staff list.
         assert sent_payloads[0]["reply_to"] == "sales@texashomeoutlet.com"
         # The activity log captures the joined recipient string.
         assert logged[0][0] == (
-            "ben@texashomeoutlet.com, lee@texashomeoutlet.com, celeste@texashomeoutlet.com"
+            "ben@texashomeoutlet.com, leeaswell@texashomeoutlet.com, celeste@texashomeoutlet.com"
         )
 
     def test_skips_send_when_api_key_missing(self, monkeypatch):
