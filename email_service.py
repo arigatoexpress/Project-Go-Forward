@@ -84,15 +84,26 @@ def _current_api_key() -> str:
     return os.environ.get("RESEND_API_KEY", "")
 
 
+# Retired staff mailboxes that may still linger in a deployed NOTIFICATION_EMAIL
+# env var (Cloud Run env vars override the code default, so a stale value keeps
+# routing alerts to dead inboxes long after the code is fixed). Remap them to
+# the active address at parse time so no lead alert lands in an old mailbox.
+_LEGACY_RECIPIENT_REMAP = {
+    "lee@texashomeoutlet.com": "leeaswell@texashomeoutlet.com",
+}
+
+
 def _parse_recipients(raw: str) -> list:
     """Split a comma/semicolon-separated recipient string into a clean,
-    de-duplicated list (order preserved, case-insensitive dedupe)."""
+    de-duplicated list (order preserved, case-insensitive dedupe). Retired
+    addresses are remapped to their active replacements."""
     if not raw:
         return []
     seen: set = set()
     out: list = []
     for part in raw.replace(";", ",").split(","):
         addr = part.strip()
+        addr = _LEGACY_RECIPIENT_REMAP.get(addr.lower(), addr)
         if addr and addr.lower() not in seen:
             seen.add(addr.lower())
             out.append(addr)

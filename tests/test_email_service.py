@@ -64,6 +64,35 @@ class TestSendDocumentEmail:
             'mark@texashomeoutlet.com"'
         )
 
+    def test_stale_env_var_with_lees_old_email_is_remapped(self, monkeypatch):
+        """A deployed NOTIFICATION_EMAIL env var may still contain Lee's retired
+        lee@ mailbox (Cloud Run env overrides the code default). Parsing must
+        remap it to the active leeaswell@ address so no lead alert is lost."""
+        monkeypatch.setenv(
+            "NOTIFICATION_EMAIL",
+            "ben@texashomeoutlet.com,lee@texashomeoutlet.com,"
+            "celeste@texashomeoutlet.com,mark@texashomeoutlet.com",
+        )
+        email_service = _fresh_email_service(monkeypatch)
+
+        assert email_service.NOTIFICATION_EMAILS == [
+            "ben@texashomeoutlet.com",
+            "leeaswell@texashomeoutlet.com",
+            "celeste@texashomeoutlet.com",
+            "mark@texashomeoutlet.com",
+        ]
+
+    def test_remap_dedupes_when_old_and_new_lee_both_present(self, monkeypatch):
+        """If a stale env var lists both the old and new addresses, the remap
+        must not produce a duplicate recipient."""
+        monkeypatch.setenv(
+            "NOTIFICATION_EMAIL",
+            "lee@texashomeoutlet.com,leeaswell@texashomeoutlet.com",
+        )
+        email_service = _fresh_email_service(monkeypatch)
+
+        assert email_service.NOTIFICATION_EMAILS == ["leeaswell@texashomeoutlet.com"]
+
     def test_builds_subject_and_body_shape(self, monkeypatch):
         monkeypatch.setenv("RESEND_API_KEY", "re_test")
         monkeypatch.setenv(
