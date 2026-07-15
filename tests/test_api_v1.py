@@ -628,6 +628,7 @@ def load_app(monkeypatch, tho_api_key: str | None = "tho-secret", rate_limit_rpm
     lead_management_module = types.ModuleType("lead_management")
     lead_management_module.LeadManager = FakeLeadManager
     lead_management_module.Lead = FakeLead
+    lead_management_module.normalize_phone = lambda phone: phone
     monkeypatch.setitem(sys.modules, "lead_management", lead_management_module)
 
     appointment_manager_module = types.ModuleType("appointment_manager")
@@ -968,7 +969,12 @@ def test_create_inventory_item(monkeypatch):
     token = main._create_admin_token()
     resp = client.post(
         "/api/inventory",
-        json={"model_name": "The Nassau", "manufacturer": "Jessup", "bedrooms": 3, "bathrooms": 2.0},
+        json={
+            "model_name": "The Nassau",
+            "manufacturer": "Jessup",
+            "bedrooms": 3,
+            "bathrooms": 2.0,
+        },
         headers={"X-Admin-Token": token},
     )
     assert resp.status_code == 200
@@ -992,7 +998,11 @@ def test_create_inventory_rejects_missing_model_name(monkeypatch):
 
 def test_update_inventory_item_merges(monkeypatch):
     client, main, fake_db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
-    fake_db.collections["inventory"]["inv-1"] = {"id": "inv-1", "model_name": "Old", "status": "AVAILABLE"}
+    fake_db.collections["inventory"]["inv-1"] = {
+        "id": "inv-1",
+        "model_name": "Old",
+        "status": "AVAILABLE",
+    }
     token = main._create_admin_token()
     resp = client.put(
         "/api/inventory/inv-1",
@@ -1008,7 +1018,11 @@ def test_update_inventory_item_merges(monkeypatch):
 
 def test_retire_inventory_item_soft(monkeypatch):
     client, main, fake_db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
-    fake_db.collections["inventory"]["inv-1"] = {"id": "inv-1", "model_name": "X", "status": "AVAILABLE"}
+    fake_db.collections["inventory"]["inv-1"] = {
+        "id": "inv-1",
+        "model_name": "X",
+        "status": "AVAILABLE",
+    }
     token = main._create_admin_token()
     resp = client.delete("/api/inventory/inv-1", headers={"X-Admin-Token": token})
     assert resp.status_code == 200
@@ -1709,6 +1723,7 @@ def test_cloud_run_admin_auth_fails_closed_without_pin_hash(monkeypatch):
     lead_management_module = types.ModuleType("lead_management")
     lead_management_module.LeadManager = FakeLeadManager
     lead_management_module.Lead = FakeLead
+    lead_management_module.normalize_phone = lambda phone: phone
     monkeypatch.setitem(sys.modules, "lead_management", lead_management_module)
 
     appointment_manager_module = types.ModuleType("appointment_manager")
@@ -2317,7 +2332,6 @@ def test_v1_service_request_resolve_not_found(monkeypatch):
     assert response.status_code == 404
 
 
-
 # ─── Mira lead-triage bridge ────────────────────────────────────────────────
 
 
@@ -2479,8 +2493,12 @@ def test_create_inventory_strips_dealer_cost(monkeypatch):
     token = main._create_admin_token()
     resp = client.post(
         "/api/inventory",
-        json={"model_name": "The Nassau", "invoice_amount": 60187.0,
-              "invoice_date": "2026-01-01", "cost": 50000},
+        json={
+            "model_name": "The Nassau",
+            "invoice_amount": 60187.0,
+            "invoice_date": "2026-01-01",
+            "cost": 50000,
+        },
         headers={"X-Admin-Token": token},
     )
     assert resp.status_code == 200
