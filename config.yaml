@@ -184,6 +184,15 @@ feature_flags:
   # Not a secret. Override with env GOOGLE_REVIEW_LINK (e.g. a g.page short URL).
   GOOGLE_REVIEW_LINK: "https://search.google.com/local/writereview?placeid=ChIJkaBdugirQIYROqKB6XUKQk8"
 
+  # ── Inbound-email reply automation (lanes 1-6, ships INERT) ──────────────
+  # Activation order + runbook: docs/runbooks/email-automation-activation.md
+  # (lane 6). ALL default OFF; flipping any of these in prod is an Ari-gated
+  # decision. Env overrides: FF_EMAIL_REPLY_SEND etc.
+  EMAIL_REPLY_SEND: false     # MASTER kill-switch for any outbound reply (chokepoint email_reply_sender.py)
+  EMAIL_AUTO_ACK: false       # fixed ack template, the ONLY unsupervised send (also needs EMAIL_REPLY_SEND)
+  EMAIL_DRAFT_PIPELINE: false # create review drafts for substantive inbound email (no sends)
+  EMAIL_TG_GATE: false        # Telegram approve/reject cards for pending drafts (no sends by itself)
+
 # Notion "Command Center" integration. DB ids are identifiers, NOT secrets — the
 # only secret is NOTION_TOKEN (Secret Manager). The Ops Copilot reads these
 # PII-free (count-by-status) when NOTION_COMMAND_CENTER=on. Each id can also be
