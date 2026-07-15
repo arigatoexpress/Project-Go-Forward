@@ -6043,6 +6043,53 @@ async def get_reviews_config():
         return {"success": False, "error": "Failed to load reviews config."}
 
 
+# QR-code source tags: alphanumeric + dash only, bounded length. Anything else
+# is ignored (tracking is best-effort; the redirect must never depend on it).
+_REVIEW_SRC_RE = re.compile(r"^[A-Za-z0-9-]{1,32}$")
+
+
+@app.get("/review")
+@limiter.limit("120/minute")
+async def review_redirect(request: Request, src: str | None = None):
+    """Public QR-code redirect to the Google review link (Celeste's rollout).
+
+    Printed QR codes point at ``/review?src=qr-lot`` etc. on OUR domain so the
+    destination stays trackable and re-pointable without reprinting. The
+    target comes ONLY from config — env ``GOOGLE_REVIEW_LINK`` first, then the
+    feature-flag/config.yaml value (same resolution as
+    ``/api/admin/reviews/config``) — request params can never change it (no
+    open redirect). Fails closed with 404 when no link is configured.
+
+    ``src`` is tracking-only: validated (alnum + dash, max 32 chars, else
+    treated as absent) and recorded as a best-effort ``analytics_events``
+    record, same fire-and-forget sink as ``POST /api/analytics``.
+    """
+    link = (os.environ.get("GOOGLE_REVIEW_LINK") or "").strip()
+    if not link:
+        link = (feature_flags.get_value("GOOGLE_REVIEW_LINK") or "").strip()
+    if not link:
+        raise HTTPException(status_code=404, detail="Not found")
+
+    src_clean = src if src and _REVIEW_SRC_RE.match(src) else None
+    try:
+        struct_logger.info("Review redirect", src=src_clean or "direct")
+        if _db and getattr(_db, "db", None):
+            _db.db.collection("analytics_events").add(
+                {
+                    "event": "review_redirect",
+                    "props": {"src": src_clean or "direct"},
+                    "client_ip": _get_client_ip(request),
+                    "created_at": datetime.now(UTC).isoformat(),
+                }
+            )
+    except Exception as e:  # tracking must never break the redirect
+        try:
+            struct_logger.warning("Review redirect tracking failed", error=str(e))
+        except Exception:
+            pass
+    return RedirectResponse(link, status_code=302)
+
+
 # ─── Customer API (migrated FastContract records) ────────────────────────────
 
 
