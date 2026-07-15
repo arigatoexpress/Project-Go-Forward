@@ -5181,6 +5181,33 @@ async def email_inbound_webhook(request: Request):
     return JSONResponse({"status": "processed"}, status_code=200)
 
 
+@app.post("/api/telegram/webhook")
+@limiter.limit("120/minute")
+async def telegram_gate_webhook(request: Request):
+    """Telegram callback rail for email reply drafts (telegram_gate.py).
+
+    Fail-closed: without THO_TG_WEBHOOK_SECRET the route is disabled; with it,
+    every request must carry the matching X-Telegram-Bot-Api-Secret-Token
+    header. Approve/reject only drives the draft state machine — any actual
+    send still has to pass the email_reply_sender flag stack (default OFF).
+    """
+    import telegram_gate
+
+    if not os.environ.get("THO_TG_WEBHOOK_SECRET", "").strip():
+        return JSONResponse({"status": "disabled"}, status_code=200)
+    header = request.headers.get("x-telegram-bot-api-secret-token", "")
+    if not telegram_gate.verify_webhook_secret(header):
+        struct_logger.warning("Telegram webhook: secret-token verification failed")
+        return JSONResponse({"status": "unauthorized"}, status_code=401)
+    try:
+        update = json.loads(await request.body())
+    except Exception:
+        return JSONResponse({"status": "ignored"}, status_code=200)
+    result = telegram_gate.handle_update(update)
+    # Always 200 so Telegram does not retry-storm; the verdict is in the body.
+    return JSONResponse(result, status_code=200)
+
+
 @app.post("/api/analytics")
 @limiter.limit("120/minute")
 async def track_analytics_event(request: Request):
