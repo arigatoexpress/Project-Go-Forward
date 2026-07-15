@@ -5171,14 +5171,65 @@ async def email_inbound_webhook(request: Request):
             triage_notes=f"Inbound email — subject: {subject}",
         )
         await lead_manager.create_lead(lead)
+        inbound_lead_id = lead.lead_id
     except Exception as e:
         struct_logger.error("Inbound email lead persist failed", error=str(e))
+        inbound_lead_id = ""
     try:
         notify_new_lead(customer_name=name, phone="(email lead)", email=bare, source="inbound email")
     except Exception as e:
         struct_logger.warning("Inbound email staff notify failed", error=str(e))
 
-    return JSONResponse({"status": "processed"}, status_code=200)
+    # ── Reply pipeline (email automation lanes 1-4) ──────────────────────
+    # Every stage below is default-OFF and independently gated: triage is a
+    # pure function; auto-ack requires FF_EMAIL_REPLY_SEND + FF_EMAIL_AUTO_ACK
+    # (checked inside the single chokepoint); draft creation requires
+    # FF_EMAIL_DRAFT_PIPELINE; the Telegram card requires FF_EMAIL_TG_GATE +
+    # bot creds. With nothing configured this block only classifies and logs.
+    pipeline: dict = {}
+    try:
+        import tools.feature_flags as ff
+        from email_triage import LABEL_SAFE_ACK, classify
+
+        message_id = str(
+            data.get("email_id") or data.get("message_id") or headers.get("svix-id") or ""
+        )
+        body_text = str(data.get("text") or data.get("html") or "")
+        triage = classify(subject=subject, body=body_text, sender=bare)
+        pipeline["triage"] = triage.label
+
+        acked = False
+        if triage.label == LABEL_SAFE_ACK:
+            from email_reply_sender import send_auto_ack
+
+            ack = send_auto_ack(message_id=message_id, to=bare, subject=subject)
+            acked = bool(ack.get("success"))
+            pipeline["auto_ack"] = "sent" if acked else "off"
+
+        if not acked and ff.is_enabled("EMAIL_DRAFT_PIPELINE", default=False):
+            from email_reply_drafts import create_draft
+            from email_reply_generator import draft_substantive_body
+            from telegram_gate import notify_pending_draft
+
+            draft, created = create_draft(
+                message_id=message_id,
+                sender=bare,
+                subject=subject,
+                triage_label=triage.label,
+                rule_hits=triage.rule_hits,
+                inbound_excerpt=body_text[:2000],
+                lead_id=inbound_lead_id,
+                draft_body=draft_substantive_body(rule_hits=triage.rule_hits),
+            )
+            if draft is not None:
+                pipeline["draft"] = "created" if created else "duplicate"
+                if created:
+                    notify_pending_draft(draft)  # flag/cred gated, no-op by default
+    except Exception as e:
+        # The pipeline must never break lead capture — warn and move on.
+        struct_logger.warning("Inbound email reply pipeline failed", error=str(e))
+
+    return JSONResponse({"status": "processed", **pipeline}, status_code=200)
 
 
 @app.post("/api/telegram/webhook")
