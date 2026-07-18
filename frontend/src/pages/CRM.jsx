@@ -2,13 +2,14 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   Users, Phone, Mail, Calendar, ChevronRight, ChevronDown,
   Search, RefreshCw, Send, X, Clock, Home, DollarSign,
-  CheckCircle, AlertCircle, Filter, ArrowLeft, FileText, Package, Download, Loader, Copy, Star,
+  CheckCircle, AlertCircle, Filter, ArrowLeft, FileText, Package, Download, Loader, Copy, Star, Inbox,
 } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
 import adminFetch from '../adminFetch';
 import downloadAdminFile from '../downloadAdminFile';
 import StatusBadge, { STATUS_COLORS, DEAL_STATUS_COLORS } from '../components/StatusBadge';
 import ReviewRequestCard from '../components/ReviewRequestCard';
+import EmailDraftsPanel from '../components/EmailDraftsPanel';
 
 const DEAL_STATUS_ORDER = ['pending', 'approved', 'contract', 'funded', 'complete'];
 
@@ -77,6 +78,7 @@ const TABS = [
   { id: 'tasks', label: 'Tasks', icon: CheckCircle },
   { id: 'appointments', label: 'Appointments', icon: Calendar },
   { id: 'emails', label: 'Email Log', icon: Mail },
+  { id: 'drafts', label: 'Reply Drafts', icon: Inbox },
   { id: 'customers', label: 'Customers', icon: Users },
   { id: 'reviews', label: 'Reviews', icon: Star, requiresReviewLink: true },
 ];
@@ -853,6 +855,9 @@ export default function CRM({ onBack }) {
         )}
 
         {activeTab === 'customers' && <CustomerAnalytics />}
+
+        {/* REPLY DRAFTS TAB — read-only; panel fetches lazily on mount (i.e. when tab activates) */}
+        {activeTab === 'drafts' && <EmailDraftsPanel timeAgo={timeAgo} />}
 
         {/* REVIEWS TAB — standalone review-request card (only when link configured) */}
         {activeTab === 'reviews' && reviewLink && (
