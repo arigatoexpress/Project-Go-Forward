@@ -6052,6 +6052,51 @@ async def get_admin_audit_log(
         return {"success": False, "error": "Failed to load audit log."}
 
 
+@app.get("/api/admin/email-reply-drafts", dependencies=[Depends(require_admin)])
+async def get_admin_email_reply_drafts(
+    status: str | None = None,
+    limit: int = 50,
+):
+    """Read-only listing of human-review email reply drafts.
+
+    Filterable by draft ``status``; ``limit`` defaults to 50 (the store
+    clamps it to [1, 200]). READ-ONLY: this endpoint never transitions a
+    draft, never sends, and never writes an audit entry.
+    """
+    # Lazy import mirrors the other email-pipeline call sites in this module
+    # and keeps the Firestore-backed store off the startup path.
+    import email_reply_drafts
+
+    valid_statuses = [
+        email_reply_drafts.STATUS_PENDING,
+        email_reply_drafts.STATUS_APPROVED,
+        email_reply_drafts.STATUS_REJECTED,
+        email_reply_drafts.STATUS_SENT,
+        email_reply_drafts.STATUS_EXPIRED,
+    ]
+    try:
+        # Validate enum-shaped params so a typo at the call site comes back
+        # as a clear 400 instead of a silently empty result set.
+        if status and status not in valid_statuses:
+            return JSONResponse(
+                {
+                    "success": False,
+                    "error": f"Invalid status. Must be one of: {valid_statuses}",
+                },
+                status_code=400,
+            )
+
+        drafts = email_reply_drafts.list_drafts(status=status, limit=limit)
+        return {
+            "success": True,
+            "drafts": [email_reply_drafts.to_dict(d) for d in drafts],
+            "count": len(drafts),
+        }
+    except Exception as e:
+        struct_logger.error("Email reply drafts query failed", error=str(e))
+        return {"success": False, "error": "Failed to load email reply drafts."}
+
+
 @app.get("/api/admin/user-activity", dependencies=[Depends(require_admin)])
 async def get_user_activity(
     action: str | None = None,
