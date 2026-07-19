@@ -64,13 +64,13 @@ class FakeDocRef:
         self._store = store
         self.id = doc_id
 
-    def get(self):
+    def get(self, timeout=None):
         return _Snap(self.id, self._store.get(self.id))
 
-    def set(self, data: dict):
+    def set(self, data: dict, timeout=None):
         self._store[self.id] = dict(data)
 
-    def update(self, data: dict):
+    def update(self, data: dict, timeout=None):
         if self.id not in self._store:
             raise KeyError(self.id)
         self._store[self.id].update(dict(data))
@@ -89,7 +89,7 @@ class FakeQuery:
     def limit(self, n):
         return FakeQuery(self._store, self._filters, n)
 
-    def stream(self):
+    def stream(self, timeout=None):
         emitted = 0
         for doc_id, data in list(self._store.items()):
             if all(data.get(f) == v for f, v in self._filters):
@@ -112,7 +112,7 @@ class FakeCollection:
     def limit(self, n):
         return FakeQuery(self.docs).limit(n)
 
-    def stream(self):
+    def stream(self, timeout=None):
         return FakeQuery(self.docs).stream()
 
 

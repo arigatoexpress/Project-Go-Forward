@@ -233,9 +233,10 @@ def to_jsonl(report: dict[str, Any]) -> str:
 def _fetch_inventory_from_firestore(limit: int = 5000) -> list[dict[str, Any]]:
     """Pull inventory documents from Firestore. Lazy import for testability."""
     from database.firestore_client import get_database  # noqa: WPS433
+    from database.firestore_timeouts import firestore_long_timeout
 
     db = get_database()
-    docs = db.db.collection("inventory").limit(limit).stream()
+    docs = db.db.collection("inventory").limit(limit).stream(timeout=firestore_long_timeout())
     items: list[dict[str, Any]] = []
     for doc in docs:
         data = doc.to_dict()

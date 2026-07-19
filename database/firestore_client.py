@@ -10,6 +10,7 @@ from typing import Any
 
 from google.cloud import firestore
 
+from database.firestore_timeouts import firestore_long_timeout, firestore_timeout
 from tools.field_crypto import decrypt_ssn_fields, encrypt_ssn_fields
 
 
@@ -36,14 +37,17 @@ class THODatabase:
     def get_customer(self, customer_id: str) -> dict | None:
         """Get customer by document ID or legacy_id."""
         # Try direct document lookup first
-        doc = self.db.collection("customers").document(customer_id).get()
+        doc = self.db.collection("customers").document(customer_id).get(timeout=firestore_timeout())
         if doc.exists:
             data = doc.to_dict()
             data["id"] = doc.id
             return data
         # Fall back to legacy_id search
         docs = (
-            self.db.collection("customers").where("legacy_id", "==", customer_id).limit(1).stream()
+            self.db.collection("customers")
+            .where("legacy_id", "==", customer_id)
+            .limit(1)
+            .stream(timeout=firestore_timeout())
         )
         for doc in docs:
             data = doc.to_dict()
@@ -80,7 +84,7 @@ class THODatabase:
                 .limit(limit)
             )
             results = []
-            for doc in name_query.stream():
+            for doc in name_query.stream(timeout=firestore_timeout()):
                 data = doc.to_dict()
                 data["id"] = doc.id
                 results.append(data)
@@ -93,7 +97,7 @@ class THODatabase:
         scan_limit = 6000 if q_lower else limit
         results = []
 
-        for doc in query.limit(scan_limit).stream():
+        for doc in query.limit(scan_limit).stream(timeout=firestore_timeout()):
             data = doc.to_dict()
             data["id"] = doc.id
 
@@ -129,25 +133,25 @@ class THODatabase:
             doc_ref = self.db.collection("customers").document(doc_id)
         else:
             doc_ref = self.db.collection("customers").document()
-        doc_ref.set(data)
+        doc_ref.set(data, timeout=firestore_timeout())
         return doc_ref.id
 
     def update_customer(self, customer_id: str, data: dict) -> bool:
         """Update customer record."""
         data["updated_at"] = datetime.utcnow()
-        self.db.collection("customers").document(customer_id).update(data)
+        self.db.collection("customers").document(customer_id).update(data, timeout=firestore_timeout())
         return True
 
     def delete_customer(self, customer_id: str) -> bool:
         """Delete a customer document."""
-        self.db.collection("customers").document(customer_id).delete()
+        self.db.collection("customers").document(customer_id).delete(timeout=firestore_timeout())
         return True
 
     def count_customers(self) -> dict[str, Any]:
         """Get total customer count and breakdown by status."""
         totals: dict[str, int] = {}
         count = 0
-        for doc in self.db.collection("customers").stream():
+        for doc in self.db.collection("customers").stream(timeout=firestore_long_timeout()):
             count += 1
             data = doc.to_dict()
             s = data.get("status", "UNKNOWN")
@@ -171,13 +175,13 @@ class THODatabase:
             pending += 1
 
             if pending >= batch_size:
-                batch.commit()
+                batch.commit(timeout=firestore_long_timeout())
                 written += pending
                 batch = self.db.batch()
                 pending = 0
 
         if pending:
-            batch.commit()
+            batch.commit(timeout=firestore_long_timeout())
             written += pending
 
         return written
@@ -186,7 +190,7 @@ class THODatabase:
 
     def get_inventory(self, inventory_id: str) -> dict | None:
         """Get inventory item by ID"""
-        doc = self.db.collection("inventory").document(inventory_id).get()
+        doc = self.db.collection("inventory").document(inventory_id).get(timeout=firestore_timeout())
         return doc.to_dict() if doc.exists else None
 
     def get_inventory_by_id(self, inventory_id: str) -> dict | None:
@@ -199,7 +203,7 @@ class THODatabase:
             self.db.collection("inventory")
             .where("serial_number", "==", serial_number)
             .limit(1)
-            .stream()
+            .stream(timeout=firestore_timeout())
         )
 
         for doc in docs:
@@ -226,7 +230,7 @@ class THODatabase:
         chunk_size = 30
         for i in range(0, len(unique), chunk_size):
             chunk = unique[i : i + chunk_size]
-            docs = self.db.collection("inventory").where("serial_number", "in", chunk).stream()
+            docs = self.db.collection("inventory").where("serial_number", "in", chunk).stream(timeout=firestore_timeout())
             for doc in docs:
                 data = doc.to_dict()
                 data["id"] = doc.id
@@ -257,7 +261,7 @@ class THODatabase:
             query = query.where("manufacturer", "==", manufacturer)
 
         results = []
-        for doc in query.limit(limit * 3).stream():
+        for doc in query.limit(limit * 3).stream(timeout=firestore_timeout()):
             data = doc.to_dict()
             data["id"] = doc.id
 
@@ -288,12 +292,12 @@ class THODatabase:
     def create_inventory(self, data: dict) -> str:
         """Add new inventory item"""
         doc_ref = self.db.collection("inventory").document()
-        doc_ref.set(data)
+        doc_ref.set(data, timeout=firestore_timeout())
         return doc_ref.id
 
     def update_inventory(self, inventory_id: str, data: dict) -> bool:
         """Update inventory record"""
-        self.db.collection("inventory").document(inventory_id).update(data)
+        self.db.collection("inventory").document(inventory_id).update(data, timeout=firestore_timeout())
         return True
 
     def upsert_inventory(self, inventory_id: str, data: dict) -> str:
@@ -304,25 +308,25 @@ class THODatabase:
         ``data``. Mirrors ``create_customer``'s explicit-doc-id pattern.
         """
         doc_ref = self.db.collection("inventory").document(inventory_id)
-        doc_ref.set(data, merge=True)
+        doc_ref.set(data, merge=True, timeout=firestore_timeout())
         return inventory_id
 
     def delete_inventory(self, inventory_id: str) -> bool:
         """Delete an inventory item (hard delete). Prefer status changes for retire."""
-        self.db.collection("inventory").document(inventory_id).delete()
+        self.db.collection("inventory").document(inventory_id).delete(timeout=firestore_timeout())
         return True
 
     # ============ PROPERTIES ============
 
     def get_property(self, property_id: str) -> dict | None:
         """Get property by ID"""
-        doc = self.db.collection("properties").document(property_id).get()
+        doc = self.db.collection("properties").document(property_id).get(timeout=firestore_timeout())
         return doc.to_dict() if doc.exists else None
 
     def search_properties_by_address(self, address: str) -> list[dict]:
         """Search properties by address (partial match)"""
         results = []
-        for doc in self.db.collection("properties").limit(100).stream():
+        for doc in self.db.collection("properties").limit(100).stream(timeout=firestore_timeout()):
             data = doc.to_dict()
             data["id"] = doc.id
             if address.lower() in data.get("address", "").lower():
@@ -332,7 +336,7 @@ class THODatabase:
     def get_properties_by_customer(self, customer_id: str) -> list[dict]:
         """Get all properties owned by a customer"""
         results = []
-        docs = self.db.collection("properties").where("customer_id", "==", customer_id).stream()
+        docs = self.db.collection("properties").where("customer_id", "==", customer_id).stream(timeout=firestore_timeout())
 
         for doc in docs:
             data = doc.to_dict()
@@ -351,7 +355,7 @@ class THODatabase:
             query = query.where("customer_id", "==", customer_id)
 
         results = []
-        for doc in query.stream():
+        for doc in query.stream(timeout=firestore_timeout()):
             data = doc.to_dict()
             data["id"] = doc.id
             results.append(data)
@@ -365,7 +369,7 @@ class THODatabase:
             .where("property_id", "==", property_id)
             .where("status", "==", "active")
             .limit(1)
-            .stream()
+            .stream(timeout=firestore_timeout())
         )
 
         for doc in docs:
@@ -382,7 +386,7 @@ class THODatabase:
         data["updated_at"] = datetime.utcnow()
         data["status"] = data.get("status", "open")
         doc_ref = self.db.collection("service_requests").document()
-        doc_ref.set(data)
+        doc_ref.set(data, timeout=firestore_timeout())
         return doc_ref.id
 
     def get_service_requests(
@@ -398,7 +402,9 @@ class THODatabase:
 
         results = []
         for doc in (
-            query.order_by("created_at", direction=firestore.Query.DESCENDING).limit(limit).stream()
+            query.order_by("created_at", direction=firestore.Query.DESCENDING)
+            .limit(limit)
+            .stream(timeout=firestore_timeout())
         ):
             data = doc.to_dict()
             data["id"] = doc.id
@@ -409,7 +415,7 @@ class THODatabase:
     def update_service_request(self, request_id: str, data: dict) -> bool:
         """Update service request"""
         data["updated_at"] = datetime.utcnow()
-        self.db.collection("service_requests").document(request_id).update(data)
+        self.db.collection("service_requests").document(request_id).update(data, timeout=firestore_timeout())
         return True
 
     # ============ DEALS (replaces fastcontractdocs.com) ============
@@ -423,16 +429,16 @@ class THODatabase:
         deal_id = data.pop("id", None)
         if deal_id:
             doc_ref = self.db.collection("deals").document(deal_id)
-            doc_ref.set(data)
+            doc_ref.set(data, timeout=firestore_timeout())
             return deal_id
         else:
             doc_ref = self.db.collection("deals").document()
-            doc_ref.set(data)
+            doc_ref.set(data, timeout=firestore_timeout())
             return doc_ref.id
 
     def get_deal(self, deal_id: str) -> dict | None:
         """Get deal by ID"""
-        doc = self.db.collection("deals").document(deal_id).get()
+        doc = self.db.collection("deals").document(deal_id).get(timeout=firestore_timeout())
         if doc.exists:
             data = doc.to_dict()
             data["id"] = doc.id
@@ -444,7 +450,7 @@ class THODatabase:
         """Update deal record"""
         data["updated_at"] = datetime.utcnow()
         encrypt_ssn_fields(data)  # SSN envelope encryption (inert until SSN_KMS_KEY set)
-        self.db.collection("deals").document(deal_id).update(data)
+        self.db.collection("deals").document(deal_id).update(data, timeout=firestore_timeout())
         return True
 
     def search_deals(
@@ -469,7 +475,7 @@ class THODatabase:
         for doc in (
             query.order_by("updated_at", direction=firestore.Query.DESCENDING)
             .limit(scan_limit)
-            .stream()
+            .stream(timeout=firestore_timeout())
         ):
             data = doc.to_dict()
             data["id"] = doc.id
@@ -492,7 +498,7 @@ class THODatabase:
     def archive_deal(self, deal_id: str) -> bool:
         """Archive a deal (soft delete — sets status to archived)"""
         self.db.collection("deals").document(deal_id).update(
-            {"status": "archived", "updated_at": datetime.utcnow()}
+            {"status": "archived", "updated_at": datetime.utcnow()}, timeout=firestore_timeout()
         )
         return True
 
@@ -505,7 +511,7 @@ class THODatabase:
             self.db.collection("tax_payments")
             .where("property_id", "==", property_id)
             .order_by("tax_year", direction=firestore.Query.DESCENDING)
-            .stream()
+            .stream(timeout=firestore_timeout())
         )
 
         for doc in docs:

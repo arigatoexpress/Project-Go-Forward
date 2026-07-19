@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field
 from appointment_manager import AppointmentManager
 from config_loader import get_deployment_config
 from database.firestore_client import get_database
+from database.firestore_timeouts import firestore_long_timeout, firestore_timeout
 from lead_management import LeadManager
 
 router = APIRouter(prefix="/api/v1/obsidian", tags=["obsidian"])
@@ -60,7 +61,7 @@ def _format_duration(seconds: float) -> str:
 def _count_collection_by_status(collection_name: str, status_field: str = "status") -> dict:
     try:
         db = get_database().db
-        docs = db.collection(collection_name).stream()
+        docs = db.collection(collection_name).stream(timeout=firestore_long_timeout())
         statuses = [doc.to_dict().get(status_field, "UNKNOWN") for doc in docs]
         return dict(Counter(statuses))
     except Exception:
@@ -190,7 +191,7 @@ async def obsidian_customers_summary(request: Request) -> dict:
 async def obsidian_feedback_summary(request: Request) -> dict:
     try:
         db = get_database().db
-        docs = db.collection("feedback").stream()
+        docs = db.collection("feedback").stream(timeout=firestore_long_timeout())
         ratings = []
         sentiments = []
         for doc in docs:
@@ -214,11 +215,11 @@ async def obsidian_feedback_summary(request: Request) -> dict:
 async def obsidian_firestore_collections(request: Request, limit: int = 1000) -> dict:
     try:
         db = get_database().db
-        cols = db.collections()
+        cols = db.collections(timeout=firestore_timeout())
         result = []
         for col in cols:
             try:
-                count = len(list(col.limit(limit).stream()))
+                count = len(list(col.limit(limit).stream(timeout=firestore_long_timeout())))
                 result.append({"collection": col.id, "count": count})
             except Exception:
                 result.append({"collection": col.id, "count": None})

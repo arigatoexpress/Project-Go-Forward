@@ -14,6 +14,8 @@ from datetime import UTC, datetime
 from functools import lru_cache
 from typing import Protocol
 
+from database.firestore_timeouts import firestore_timeout
+
 log = logging.getLogger(__name__)
 
 
@@ -146,37 +148,47 @@ class FirestoreCredentialStore:
                 "aaguid": record.aaguid,
                 "created_at": record.created_at,
                 "last_used_at": record.last_used_at,
-            }
+            },
+            timeout=firestore_timeout(),
         )
 
     def get(self, credential_id: bytes) -> CredentialRecord | None:
-        snap = self._collection.document(self._doc_id(credential_id)).get()
+        snap = self._collection.document(self._doc_id(credential_id)).get(
+            timeout=firestore_timeout()
+        )
         if not snap.exists:
             return None
         return self._to_record(snap.id, snap.to_dict() or {})
 
     def list_all(self) -> list[CredentialRecord]:
-        return [self._to_record(s.id, s.to_dict() or {}) for s in self._collection.stream()]
+        return [
+            self._to_record(s.id, s.to_dict() or {})
+            for s in self._collection.stream(timeout=firestore_timeout())
+        ]
 
     def list_for_user(self, user_id: str) -> list[CredentialRecord]:
         query = self._collection.where("user_id", "==", user_id)
-        return [self._to_record(s.id, s.to_dict() or {}) for s in query.stream()]
+        return [
+            self._to_record(s.id, s.to_dict() or {})
+            for s in query.stream(timeout=firestore_timeout())
+        ]
 
     def update_usage(self, credential_id: bytes, *, sign_count: int) -> None:
         self._collection.document(self._doc_id(credential_id)).update(
-            {"sign_count": sign_count, "last_used_at": datetime.now(UTC)}
+            {"sign_count": sign_count, "last_used_at": datetime.now(UTC)},
+            timeout=firestore_timeout(),
         )
 
     def delete(self, credential_id: bytes) -> bool:
         doc_ref = self._collection.document(self._doc_id(credential_id))
-        snap = doc_ref.get()
+        snap = doc_ref.get(timeout=firestore_timeout())
         if not snap.exists:
             return False
-        doc_ref.delete()
+        doc_ref.delete(timeout=firestore_timeout())
         return True
 
     def count(self) -> int:
-        return sum(1 for _ in self._collection.stream())
+        return sum(1 for _ in self._collection.stream(timeout=firestore_timeout()))
 
 
 class CredentialStoreUnavailable(RuntimeError):

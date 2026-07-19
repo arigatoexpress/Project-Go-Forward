@@ -56,7 +56,7 @@ class _FakeCollection:
     def __init__(self, docs):
         self._docs = docs
 
-    def stream(self):
+    def stream(self, timeout=None):
         return iter(self._docs)
 
 

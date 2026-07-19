@@ -71,7 +71,7 @@ class FakeFirestoreDB:
     def collection(self, name: str):
         return FakeCollection(self._collections.get(name, {}))
 
-    def collections(self):
+    def collections(self, timeout=None):
         return [FakeCollection(v, id=k) for k, v in self._collections.items()]
 
 
@@ -80,7 +80,7 @@ class FakeCollection:
         self.id = id
         self._store = store
 
-    def stream(self):
+    def stream(self, timeout=None):
         for doc_id, data in self._store.items():
             yield FakeDocSnapshot(doc_id, data)
 

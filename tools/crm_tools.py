@@ -15,6 +15,7 @@ from zoneinfo import ZoneInfo
 
 from google.adk.tools import ToolContext
 
+from database.firestore_timeouts import firestore_timeout
 from email_service import notify_new_lead
 
 # Configure structured logging for production
@@ -102,7 +103,9 @@ def save_lead(
             source="chat",
             triage_notes=interest_notes,
         )
-        _get_lead_manager().db.collection("leads").document(lead.lead_id).set(lead.to_dict())
+        _get_lead_manager().db.collection("leads").document(lead.lead_id).set(
+            lead.to_dict(), timeout=firestore_timeout()
+        )
         persisted = True
     except Exception as e:
         logger.error(f"Lead Firestore persist FAILED — lead at risk: {e}")

@@ -51,6 +51,8 @@ try:
 except ImportError as exc:  # pragma: no cover
     raise SystemExit("google-cloud-firestore is required for production reads/writes") from exc
 
+from database.firestore_timeouts import firestore_long_timeout  # noqa: E402
+
 LOG = logging.getLogger("inventory_media_enrichment")
 
 CDN_RE = re.compile(r"https://d132mt2yijm03y\.cloudfront\.net/[^\s\"'<>),]+")
@@ -511,7 +513,9 @@ def run(
     detail_by_model = _detail_media_by_model(raw_homes, detail_media)
 
     client = firestore.Client(project=project)
-    docs = list(client.collection("inventory").limit(1000).stream())
+    docs = list(
+        client.collection("inventory").limit(1000).stream(timeout=firestore_long_timeout())
+    )
     backup = []
     plan: list[dict[str, Any]] = []
     updates: list[tuple[str, dict[str, Any], list[str]]] = []
@@ -574,7 +578,9 @@ def run(
     applied = 0
     if apply:
         for doc_id, update, _changed in updates:
-            client.collection("inventory").document(doc_id).update(update)
+            client.collection("inventory").document(doc_id).update(
+                update, timeout=firestore_long_timeout()
+            )
             applied += 1
 
     summary = {

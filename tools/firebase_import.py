@@ -25,6 +25,8 @@ except ImportError:
     print("Run: pip install google-cloud-firestore")
     sys.exit(1)
 
+from database.firestore_timeouts import firestore_long_timeout
+
 
 def import_inventory():
     """Import inventory to Firestore."""
@@ -51,14 +53,14 @@ def import_inventory():
             doc_ref = db.collection(collection).document(doc_id)
 
             # Check if document exists
-            existing = doc_ref.get()
+            existing = doc_ref.get(timeout=firestore_long_timeout())
 
             if existing.exists:
-                doc_ref.update(data)
+                doc_ref.update(data, timeout=firestore_long_timeout())
                 print(f"✓ Updated: {data['model_name']}")
                 updated += 1
             else:
-                doc_ref.set(data)
+                doc_ref.set(data, timeout=firestore_long_timeout())
                 print(f"✓ Created: {data['model_name']}")
                 imported += 1
 

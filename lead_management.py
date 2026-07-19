@@ -12,6 +12,8 @@ from datetime import datetime, timedelta
 
 from google.cloud import firestore
 
+from database.firestore_timeouts import firestore_timeout
+
 logger = logging.getLogger(__name__)
 
 
@@ -131,7 +133,7 @@ class LeadManager:
         doc_ref = self.db.collection(self.collection_name).document(lead.lead_id)
 
         def _save():
-            doc_ref.set(lead.to_dict())
+            doc_ref.set(lead.to_dict(), timeout=firestore_timeout())
 
         await asyncio.to_thread(_save)
         return lead
@@ -143,7 +145,7 @@ class LeadManager:
         doc_ref = self.db.collection(self.collection_name).document(lead.lead_id)
 
         def _update():
-            doc_ref.set(lead.to_dict(), merge=True)
+            doc_ref.set(lead.to_dict(), merge=True, timeout=firestore_timeout())
 
         await asyncio.to_thread(_update)
         return lead
@@ -153,7 +155,7 @@ class LeadManager:
         doc_ref = self.db.collection(self.collection_name).document(lead_id)
 
         def _get():
-            return doc_ref.get()
+            return doc_ref.get(timeout=firestore_timeout())
 
         doc = await asyncio.to_thread(_get)
 
@@ -168,7 +170,7 @@ class LeadManager:
         )
 
         def _stream():
-            for doc in query.stream():
+            for doc in query.stream(timeout=firestore_timeout()):
                 return Lead.from_dict(doc.to_dict())
             return None
 
@@ -186,7 +188,7 @@ class LeadManager:
         query = self.db.collection(self.collection_name).where("phone", "==", phone).limit(1)
 
         def _stream():
-            for doc in query.stream():
+            for doc in query.stream(timeout=firestore_timeout()):
                 return Lead.from_dict(doc.to_dict())
             return None
 
@@ -203,7 +205,7 @@ class LeadManager:
 
         def _stream():
             leads: list[Lead] = []
-            for doc in query.stream():
+            for doc in query.stream(timeout=firestore_timeout()):
                 try:
                     leads.append(Lead.from_dict(doc.to_dict()))
                 except Exception as exc:

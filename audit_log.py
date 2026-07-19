@@ -34,6 +34,8 @@ import os
 from datetime import UTC, datetime
 from typing import Any
 
+from database.firestore_timeouts import firestore_timeout
+
 logger = logging.getLogger(__name__)
 
 # ── Constants ──────────────────────────────────────────────────────────────
@@ -284,7 +286,7 @@ def log_admin_action(
             logger.warning("Audit log skipped (no Firestore client) action=%s", action)
             return
 
-        db.collection(AUDIT_COLLECTION).add(entry)
+        db.collection(AUDIT_COLLECTION).add(entry, timeout=firestore_timeout())
     except Exception as exc:
         # NEVER raise — admin actions must complete even if the audit write
         # blows up. Surface the failure in structured logs so operators see
@@ -338,9 +340,9 @@ def query_audit_log(
         # Firestore can't honor an order_by alongside the inequality filters
         # we may have added. Then sort + cap locally.
         try:
-            stream = query.limit(limit * 4).stream()
+            stream = query.limit(limit * 4).stream(timeout=firestore_timeout())
         except Exception:
-            stream = query.stream()
+            stream = query.stream(timeout=firestore_timeout())
 
         rows: list[dict[str, Any]] = []
         for snap in stream:

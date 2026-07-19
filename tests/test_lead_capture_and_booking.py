@@ -25,7 +25,7 @@ class _FakeDocRef:
     def __init__(self, sink):
         self._sink = sink
 
-    def set(self, data):
+    def set(self, data, timeout=None):
         self._sink["data"] = data
 
 
@@ -96,7 +96,7 @@ def test_create_appointment_reads_inside_transaction():
         def where(self, *a, **k):
             return self
 
-        def stream(self, transaction=None):
+        def stream(self, transaction=None, timeout=None):
             captured["transaction"] = transaction
             return iter([])  # no existing bookings
 

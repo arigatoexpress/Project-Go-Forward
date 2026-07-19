@@ -33,6 +33,7 @@ from typing import Any
 
 from fastapi.concurrency import run_in_threadpool
 
+from database.firestore_timeouts import firestore_long_timeout
 from structured_logging import logger
 
 DEFAULT_PROJECT_ID = "tho-ai-agent"
@@ -86,7 +87,7 @@ def _count_by_status(collection_name: str, status_field: str = "status") -> dict
     partner-key router so the copilot owns its read path.
     """
     try:
-        docs = _get_db().collection(collection_name).stream()
+        docs = _get_db().collection(collection_name).stream(timeout=firestore_long_timeout())
         return dict(Counter(doc.to_dict().get(status_field, "unknown") for doc in docs))
     except Exception as exc:  # pragma: no cover - defensive; surfaced as section error
         logger.error("ops_copilot count failed", collection=collection_name, error=str(exc))
@@ -164,7 +165,9 @@ def _notion_status_counts(db_key: str) -> dict[str, int]:
 def _firestore_feedback() -> dict[str, Any]:
     """The Firestore feedback count — the default/fallback feedback section."""
     try:
-        feedback_docs = list(_get_db().collection("feedback").stream())
+        feedback_docs = list(
+            _get_db().collection("feedback").stream(timeout=firestore_long_timeout())
+        )
         return {"total": len(feedback_docs)}
     except Exception as exc:
         logger.error("ops_copilot feedback snapshot failed", error=str(exc))

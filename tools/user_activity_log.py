@@ -30,6 +30,8 @@ import sys
 from datetime import UTC, datetime
 from typing import Any
 
+from database.firestore_timeouts import firestore_timeout
+
 logger = logging.getLogger(__name__)
 
 # ── Constants ──────────────────────────────────────────────────────────────
@@ -229,7 +231,7 @@ def log_user_action(
             )
             return
 
-        db.collection(COLLECTION).add(entry)
+        db.collection(COLLECTION).add(entry, timeout=firestore_timeout())
     except Exception as exc:
         logger.warning(
             "User activity log write failed action=%s error=%s",
@@ -269,9 +271,9 @@ def query_user_activity(
             query = query.where("timestamp", ">=", since)
 
         try:
-            stream = query.limit(limit * 4).stream()
+            stream = query.limit(limit * 4).stream(timeout=firestore_timeout())
         except Exception:
-            stream = query.stream()
+            stream = query.stream(timeout=firestore_timeout())
 
         rows: list[dict[str, Any]] = []
         for snap in stream:

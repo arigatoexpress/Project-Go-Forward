@@ -54,7 +54,7 @@ class _DocRef:
     def __init__(self, doc):
         self._doc = doc
 
-    def get(self):
+    def get(self, timeout=None):
         return self._doc
 
 
@@ -69,7 +69,7 @@ class _Coll:
     def where(self, *a, **k):
         return self
 
-    def stream(self):
+    def stream(self, timeout=None):
         return iter(self._notes)
 
 

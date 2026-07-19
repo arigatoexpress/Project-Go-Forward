@@ -172,6 +172,7 @@ def load_inventory_missing_image() -> list:
     """
     try:
         from database.firestore_client import get_database
+        from database.firestore_timeouts import firestore_long_timeout
 
         db = get_database()
     except Exception as exc:
@@ -180,7 +181,7 @@ def load_inventory_missing_image() -> list:
 
     rows = []
     try:
-        for doc in db.db.collection("inventory").stream():
+        for doc in db.db.collection("inventory").stream(timeout=firestore_long_timeout()):
             data = doc.to_dict()
             data["id"] = doc.id
             if not data.get("image_url"):

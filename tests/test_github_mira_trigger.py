@@ -39,7 +39,7 @@ class FakeDocRef:
         self._store = store
         self._doc_id = doc_id
 
-    def set(self, data):
+    def set(self, data, timeout=None):
         self._store[self._doc_id] = dict(data)
 
 

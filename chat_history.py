@@ -16,6 +16,8 @@ from typing import Any
 
 from google.cloud import firestore
 
+from database.firestore_timeouts import firestore_timeout
+
 logger = logging.getLogger(__name__)
 
 
@@ -113,7 +115,7 @@ class ChatHistory:
         doc_ref = self.db.collection(self.collection_name).document(session_id)
 
         def _get():
-            return doc_ref.get()
+            return doc_ref.get(timeout=firestore_timeout())
 
         doc = await asyncio.to_thread(_get)
 
@@ -139,7 +141,7 @@ class ChatHistory:
             doc_ref = self.db.collection(self.collection_name).document(session.session_id)
 
             def _save():
-                doc_ref.set(session.to_dict())
+                doc_ref.set(session.to_dict(), timeout=firestore_timeout())
 
             await asyncio.to_thread(_save)
             logger.info(
@@ -163,7 +165,7 @@ class ChatHistory:
         doc_ref = self.db.collection(self.collection_name).document(session_id)
 
         def _get():
-            return doc_ref.get()
+            return doc_ref.get(timeout=firestore_timeout())
 
         doc = await asyncio.to_thread(_get)
         if doc.exists:
@@ -182,7 +184,10 @@ class ChatHistory:
         query = query.order_by("updated_at", direction=firestore.Query.DESCENDING).limit(limit)
 
         def _stream():
-            return [ChatSession.from_dict(d.to_dict()) for d in query.stream()]
+            return [
+                ChatSession.from_dict(d.to_dict())
+                for d in query.stream(timeout=firestore_timeout())
+            ]
 
         return await asyncio.to_thread(_stream)
 
@@ -198,7 +203,10 @@ class ChatHistory:
         )
 
         def _stream():
-            return [ChatSession.from_dict(d.to_dict()) for d in query.stream()]
+            return [
+                ChatSession.from_dict(d.to_dict())
+                for d in query.stream(timeout=firestore_timeout())
+            ]
 
         return await asyncio.to_thread(_stream)
 
@@ -210,7 +218,7 @@ class ChatHistory:
             updates["lead_id"] = lead_id
 
         def _update():
-            doc_ref.update(updates)
+            doc_ref.update(updates, timeout=firestore_timeout())
 
         await asyncio.to_thread(_update)
 
@@ -241,7 +249,9 @@ class ChatHistory:
 
         def _search():
             sessions = []
-            docs = self.db.collection(self.collection_name).limit(100).stream()
+            docs = self.db.collection(self.collection_name).limit(100).stream(
+                timeout=firestore_timeout()
+            )
 
             for doc in docs:
                 data = doc.to_dict()

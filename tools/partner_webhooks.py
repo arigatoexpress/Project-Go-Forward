@@ -37,6 +37,8 @@ from typing import Any
 
 import requests
 
+from database.firestore_timeouts import firestore_timeout
+
 logger = logging.getLogger(__name__)
 
 _DELIVERY_POOL = ThreadPoolExecutor(max_workers=4, thread_name_prefix="partner-webhook")
@@ -100,7 +102,9 @@ def _log_delivery(
         "created_at": datetime.now(UTC).isoformat(),
     }
     try:
-        db.collection("activities").document(delivery_id).set(activity)
+        db.collection("activities").document(delivery_id).set(
+            activity, timeout=firestore_timeout()
+        )
     except Exception as e:
         logger.warning("activities/ log failed for webhook delivery: %s", e)
 

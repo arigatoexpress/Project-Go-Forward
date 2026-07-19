@@ -75,12 +75,14 @@ def run_health_check():
     try:
         from google.cloud import firestore
 
+        from database.firestore_timeouts import firestore_timeout
+
         db = firestore.Client(project="sapphire-479610")
-        count = len(list(db.collection("inventory").stream()))
+        count = len(list(db.collection("inventory").stream(timeout=firestore_timeout())))
         print(f"✅ Inventory documents: {count}")
 
         # Check for common issues
-        docs = list(db.collection("inventory").limit(5).stream())
+        docs = list(db.collection("inventory").limit(5).stream(timeout=firestore_timeout()))
         issues = []
         for doc in docs:
             data = doc.to_dict()

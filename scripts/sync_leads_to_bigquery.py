@@ -24,9 +24,11 @@ import json
 import os
 import sys
 from collections import defaultdict
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from google.cloud import bigquery, firestore
+
+from database.firestore_timeouts import firestore_long_timeout
 
 # Fields that must NEVER reach BigQuery. Enforced by the projection (which only
 # emits has_* booleans) AND an explicit guard before load.
@@ -93,7 +95,7 @@ def build_daily_metrics(fs, lead_rows):
     """PII-free daily funnel counts: chat traffic -> leads -> reachable -> appointments.
     Reads only creation timestamps; never a name/phone/email value."""
     days = defaultdict(lambda: {"chat_sessions": 0, "leads": 0, "contact_leads": 0, "appointments": 0})
-    for doc in fs.collection("chat_sessions").stream():
+    for doc in fs.collection("chat_sessions").stream(timeout=firestore_long_timeout()):
         d = _day(doc.to_dict().get("created_at"))
         if d:
             days[d]["chat_sessions"] += 1
@@ -103,7 +105,7 @@ def build_daily_metrics(fs, lead_rows):
             days[d]["leads"] += 1
             if r.get("has_phone") or r.get("has_email"):
                 days[d]["contact_leads"] += 1
-    for doc in fs.collection("appointments").stream():
+    for doc in fs.collection("appointments").stream(timeout=firestore_long_timeout()):
         data = doc.to_dict()
         d = None
         for field in _APPT_DATE_FIELDS:
@@ -123,14 +125,14 @@ def _as_utc(value):
         dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
     except ValueError:
         return None
-    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+    return dt if dt.tzinfo else dt.replace(tzinfo=UTC)
 
 
 def check_lead_freshness(rows, window_days=3):
     """PII-free 'are leads still coming in?' check computed from the already-loaded
     rows (no extra Firestore read). ``alert`` is True when zero leads landed in the
     window — the early warning for a demand or plumbing problem."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     cutoff = now - timedelta(days=window_days)
     cutoff7 = now - timedelta(days=7)
     times = [t for t in (_as_utc(r.get("created_at")) for r in rows) if t]
@@ -261,7 +263,10 @@ def main() -> int:
     args = ap.parse_args()
 
     fs = firestore.Client(project=args.project)
-    rows = [project_lead(d.to_dict()) for d in fs.collection("leads").stream()]
+    rows = [
+        project_lead(d.to_dict())
+        for d in fs.collection("leads").stream(timeout=firestore_long_timeout())
+    ]
 
     # Hard PII guard: fail loudly if any projected row somehow carries a raw
     # name/phone/email value (it shouldn't — the projection only emits has_*).

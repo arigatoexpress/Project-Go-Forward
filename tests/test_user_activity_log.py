@@ -32,7 +32,7 @@ class FakeCollection:
         self._docs: list[dict] = []
         self._counter = 0
 
-    def add(self, entry: dict):
+    def add(self, entry: dict, timeout=None):
         self._counter += 1
         doc_id = f"ua-{self._counter}"
         self._docs.append({"_id": doc_id, **dict(entry)})
@@ -44,7 +44,7 @@ class FakeCollection:
     def limit(self, n: int):
         return FakeQuery(self._docs).limit(n)
 
-    def stream(self):
+    def stream(self, timeout=None):
         for doc in list(self._docs):
             yield _Snap(doc["_id"], {k: v for k, v in doc.items() if k != "_id"})
 
@@ -61,7 +61,7 @@ class FakeQuery:
     def limit(self, n: int):
         return FakeQuery(self._docs, self._filters, n)
 
-    def stream(self):
+    def stream(self, timeout=None):
         emitted = 0
         for doc in self._docs:
             ok = True
@@ -170,7 +170,7 @@ def test_log_user_action_swallows_db_failure(monkeypatch):
     import tools.user_activity_log as ua
 
     class ExplodingCollection:
-        def add(self, _entry):
+        def add(self, _entry, timeout=None):
             raise RuntimeError("Firestore is down")
 
     class ExplodingDB:

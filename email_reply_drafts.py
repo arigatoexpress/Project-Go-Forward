@@ -31,6 +31,8 @@ import os
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 
+from database.firestore_timeouts import firestore_timeout
+
 logger = logging.getLogger(__name__)
 
 DRAFTS_COLLECTION = "email_reply_drafts"
@@ -165,7 +167,7 @@ def create_draft(
     try:
         doc_id = _doc_id_for_message(message_id)
         ref = db.collection(DRAFTS_COLLECTION).document(doc_id)
-        snap = ref.get()
+        snap = ref.get(timeout=firestore_timeout())
         if snap.exists:
             return _from_doc(doc_id, snap.to_dict() or {}), False
         now = _now()
@@ -183,7 +185,7 @@ def create_draft(
             "updated_at": now,
             "decided_by": "",
         }
-        ref.set(data)
+        ref.set(data, timeout=firestore_timeout())
         return _from_doc(doc_id, data), True
     except Exception as exc:
         logger.warning("Reply draft create failed: %s", exc)
@@ -196,7 +198,9 @@ def get_draft(draft_id: str) -> ReplyDraft | None:
     if db is None or not draft_id:
         return None
     try:
-        snap = db.collection(DRAFTS_COLLECTION).document(draft_id).get()
+        snap = db.collection(DRAFTS_COLLECTION).document(draft_id).get(
+            timeout=firestore_timeout()
+        )
         if not snap.exists:
             return None
         return _from_doc(draft_id, snap.to_dict() or {})
@@ -215,7 +219,10 @@ def list_drafts(status: str | None = None, limit: int = 50) -> list[ReplyDraft]:
         if status:
             query = query.where("status", "==", status)
         query = query.limit(max(1, min(int(limit), 200)))
-        return [_from_doc(snap.id, snap.to_dict() or {}) for snap in query.stream()]
+        return [
+            _from_doc(snap.id, snap.to_dict() or {})
+            for snap in query.stream(timeout=firestore_timeout())
+        ]
     except Exception as exc:
         logger.warning("Reply draft list failed: %s", exc)
         return []
@@ -235,7 +242,7 @@ def transition(draft_id: str, new_status: str, actor: str) -> ReplyDraft | None:
         logger.warning("Reply draft transition skipped (no Firestore client)")
         return None
     ref = db.collection(DRAFTS_COLLECTION).document(draft_id)
-    snap = ref.get()
+    snap = ref.get(timeout=firestore_timeout())
     if not snap.exists:
         logger.warning("Reply draft transition on missing draft id=%s", draft_id)
         return None
@@ -250,7 +257,7 @@ def transition(draft_id: str, new_status: str, actor: str) -> ReplyDraft | None:
         "updated_at": _now(),
         "decided_by": str(actor or "")[:120],
     }
-    ref.update(updates)
+    ref.update(updates, timeout=firestore_timeout())
     data.update(updates)
     return _from_doc(draft_id, data)
 
@@ -265,7 +272,7 @@ def set_draft_body(draft_id: str, body: str) -> ReplyDraft | None:
     if db is None:
         return None
     ref = db.collection(DRAFTS_COLLECTION).document(draft_id)
-    snap = ref.get()
+    snap = ref.get(timeout=firestore_timeout())
     if not snap.exists:
         return None
     data = snap.to_dict() or {}
@@ -275,7 +282,7 @@ def set_draft_body(draft_id: str, body: str) -> ReplyDraft | None:
             f"draft body is immutable after decision (status={current!r}, id={draft_id})"
         )
     updates = {"draft_body": str(body or ""), "updated_at": _now()}
-    ref.update(updates)
+    ref.update(updates, timeout=firestore_timeout())
     data.update(updates)
     return _from_doc(draft_id, data)
 

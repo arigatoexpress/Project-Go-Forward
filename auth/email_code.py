@@ -28,6 +28,8 @@ from functools import lru_cache
 from time import time
 from typing import Protocol
 
+from database.firestore_timeouts import firestore_timeout
+
 log = logging.getLogger(__name__)
 
 # Tunables. Kept here so the endpoint imports one source of truth.
@@ -144,11 +146,12 @@ class FirestoreEmailLoginCodeStore:
                 "expires_at": float(expires_at),
                 "attempts": 0,
                 "created_at": datetime.now(UTC).timestamp(),
-            }
+            },
+            timeout=firestore_timeout(),
         )
 
     def get(self, email: str) -> EmailLoginCodeRecord | None:
-        snap = self._collection.document(_email_doc_id(email)).get()
+        snap = self._collection.document(_email_doc_id(email)).get(timeout=firestore_timeout())
         if not snap.exists:
             return None
         data = snap.to_dict() or {}
@@ -169,15 +172,15 @@ class FirestoreEmailLoginCodeStore:
 
     def increment_attempts(self, email: str) -> int:
         doc_ref = self._collection.document(_email_doc_id(email))
-        snap = doc_ref.get()
+        snap = doc_ref.get(timeout=firestore_timeout())
         if not snap.exists:
             return 0
         attempts = int((snap.to_dict() or {}).get("attempts", 0)) + 1
-        doc_ref.update({"attempts": attempts})
+        doc_ref.update({"attempts": attempts}, timeout=firestore_timeout())
         return attempts
 
     def delete(self, email: str) -> None:
-        self._collection.document(_email_doc_id(email)).delete()
+        self._collection.document(_email_doc_id(email)).delete(timeout=firestore_timeout())
 
 
 class EmailLoginCodeStoreUnavailable(RuntimeError):

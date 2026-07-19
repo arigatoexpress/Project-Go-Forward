@@ -24,6 +24,7 @@ import sys
 
 from google.cloud import firestore
 
+from database.firestore_timeouts import firestore_long_timeout
 from tools import field_crypto
 
 
@@ -36,7 +37,7 @@ def main() -> int:
     db = firestore.Client(project=os.getenv("GCP_PROJECT_ID") or os.getenv("GOOGLE_CLOUD_PROJECT"))
     scanned = to_encrypt = encrypted = 0
 
-    for doc in db.collection("deals").stream():
+    for doc in db.collection("deals").stream(timeout=firestore_long_timeout()):
         scanned += 1
         data = doc.to_dict() or {}
         updates = {}
@@ -49,7 +50,7 @@ def main() -> int:
         to_encrypt += 1
         print(f"deal {doc.id}: {'ENCRYPT' if apply else 'would encrypt'} {sorted(updates)}")
         if apply:
-            db.collection("deals").document(doc.id).update(updates)
+            db.collection("deals").document(doc.id).update(updates, timeout=firestore_long_timeout())
             encrypted += 1
 
     print(

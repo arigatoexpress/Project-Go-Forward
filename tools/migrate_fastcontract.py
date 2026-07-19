@@ -297,6 +297,7 @@ def migrate(load_to_firestore: bool = False, save_json: bool = False) -> dict:
         try:
             sys.path.insert(0, str(Path(__file__).parent.parent))
             from database.firestore_client import THODatabase
+            from database.firestore_timeouts import firestore_long_timeout
 
             db = THODatabase()
 
@@ -304,7 +305,7 @@ def migrate(load_to_firestore: bool = False, save_json: bool = False) -> dict:
             for i, customer in enumerate(customers):
                 try:
                     doc_ref = db.db.collection("customers").document(customer["id"])
-                    doc_ref.set(customer)
+                    doc_ref.set(customer, timeout=firestore_long_timeout())
                     loaded += 1
                     if (i + 1) % 100 == 0:
                         print(f"    Loaded {i + 1}/{len(customers)}...")

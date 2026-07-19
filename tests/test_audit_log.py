@@ -34,7 +34,7 @@ class FakeAuditCollection:
         self._counter = 0
 
     # log_admin_action calls .add(entry); query_audit_log uses where + stream
-    def add(self, entry: dict):
+    def add(self, entry: dict, timeout=None):
         self._counter += 1
         doc_id = f"audit-{self._counter}"
         # Snapshot to avoid leaking caller mutations into the store.
@@ -47,7 +47,7 @@ class FakeAuditCollection:
     def limit(self, n: int):
         return FakeAuditQuery(self._docs).limit(n)
 
-    def stream(self):
+    def stream(self, timeout=None):
         for doc in list(self._docs):
             yield _Snap(doc["_id"], {k: v for k, v in doc.items() if k != "_id"})
 
@@ -64,7 +64,7 @@ class FakeAuditQuery:
     def limit(self, n: int):
         return FakeAuditQuery(self._docs, self._filters, n)
 
-    def stream(self):
+    def stream(self, timeout=None):
         emitted = 0
         for doc in self._docs:
             ok = True
@@ -216,7 +216,7 @@ def test_log_admin_action_swallows_db_failure(monkeypatch):
     import audit_log
 
     class ExplodingCollection:
-        def add(self, _entry):
+        def add(self, _entry, timeout=None):
             raise RuntimeError("Firestore is down")
 
     class ExplodingDB:

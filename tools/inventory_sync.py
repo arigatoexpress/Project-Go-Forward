@@ -31,6 +31,7 @@ from pydantic import ValidationError
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from database.firestore_timeouts import firestore_long_timeout  # noqa: E402
 from database.models import Inventory  # noqa: E402
 
 try:
@@ -599,7 +600,7 @@ class InventorySync:
 
         try:
             doc_ref = self.db.collection("inventory").document(inventory_id)
-            doc = doc_ref.get()
+            doc = doc_ref.get(timeout=firestore_long_timeout())
             if doc.exists:
                 data = doc.to_dict()
                 data["id"] = doc.id
@@ -619,7 +620,9 @@ class InventorySync:
             return None
 
         try:
-            docs = self.db.collection("inventory").limit(500).stream()
+            docs = self.db.collection("inventory").limit(500).stream(
+                timeout=firestore_long_timeout()
+            )
             for doc in docs:
                 data = doc.to_dict() or {}
                 if self._normalize_model_key(data.get("model_name", "")) == target_key:
@@ -660,12 +663,12 @@ class InventorySync:
 
                 if existing:
                     # Update existing
-                    doc_ref.update(data)
+                    doc_ref.update(data, timeout=firestore_long_timeout())
                     logger.info(f"Updated: {item.model_name}")
                     self.stats["updated"] += 1
                 else:
                     # Create new
-                    doc_ref.set(data)
+                    doc_ref.set(data, timeout=firestore_long_timeout())
                     logger.info(f"Added: {item.model_name}")
                     self.stats["added"] += 1
 

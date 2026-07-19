@@ -21,6 +21,8 @@ from datetime import UTC, datetime
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from database.firestore_timeouts import firestore_long_timeout  # noqa: E402
+
 # ─── FCD Status → Deal Status mapping ───
 STATUS_MAP = {
     "Contract": "complete",  # Old contracts → completed
@@ -287,7 +289,7 @@ def main():
             batch.set(doc_ref, deal)
 
         try:
-            batch.commit()
+            batch.commit(timeout=firestore_long_timeout())
             written += len(chunk)
             print(f"  Batch {i // batch_size + 1}: wrote {len(chunk)} deals (total: {written})")
         except Exception as e:
