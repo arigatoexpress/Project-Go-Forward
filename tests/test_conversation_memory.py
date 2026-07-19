@@ -51,11 +51,11 @@ class FakeDocumentRef:
         self._store = store
         self.id = doc_id
 
-    def get(self):
+    def get(self, timeout: float | None = None):
         data = self._store.get(self.id)
         return _Snap(self.id, data)
 
-    def set(self, data: dict):
+    def set(self, data: dict, timeout: float | None = None):
         self._store[self.id] = dict(data)
 
 

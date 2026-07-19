@@ -31,6 +31,8 @@ import sys
 from datetime import UTC, datetime
 from typing import Any
 
+from database.rpc_timeout import FIRESTORE_RPC_TIMEOUT
+
 logger = logging.getLogger(__name__)
 
 # ── Constants ──────────────────────────────────────────────────────────────
@@ -227,7 +229,7 @@ def log_user_action(
             logger.warning("User activity log skipped (no Firestore client) action=%s", action)
             return
 
-        db.collection(COLLECTION).add(entry)
+        db.collection(COLLECTION).add(entry, timeout=FIRESTORE_RPC_TIMEOUT)
     except Exception as exc:
         logger.warning(
             "User activity log write failed action=%s error=%s",
@@ -267,9 +269,9 @@ def query_user_activity(
             query = query.where("timestamp", ">=", since)
 
         try:
-            stream = query.limit(limit * 4).stream()
+            stream = query.limit(limit * 4).stream(timeout=FIRESTORE_RPC_TIMEOUT)
         except Exception:
-            stream = query.stream()
+            stream = query.stream(timeout=FIRESTORE_RPC_TIMEOUT)
 
         rows: list[dict[str, Any]] = []
         for snap in stream:
