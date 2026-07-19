@@ -20,6 +20,8 @@ import re
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+from database.rpc_timeout import FIRESTORE_RPC_TIMEOUT
+
 logger = logging.getLogger(__name__)
 
 TIMEZONE = ZoneInfo("America/Chicago")
@@ -169,7 +171,8 @@ def _log_email_activity(to: str, subject: str, email_type: str, related_id: str 
                 "related_id": related_id,
                 "sent_at": datetime.now(TIMEZONE).isoformat(),
                 "from": _current_from(),
-            }
+            },
+            timeout=FIRESTORE_RPC_TIMEOUT,
         )
     except Exception as e:
         logger.warning("Failed to log email activity (to=%s type=%s): %s", to, email_type, e)
@@ -748,7 +751,7 @@ def get_email_log(limit: int = 50, email_type: str = None) -> list:
         if email_type:
             query = query.where("email_type", "==", email_type)
         query = query.order_by("sent_at", direction="DESCENDING").limit(limit)
-        return [doc.to_dict() for doc in query.stream()]
+        return [doc.to_dict() for doc in query.stream(timeout=FIRESTORE_RPC_TIMEOUT)]
     except Exception as e:
         logger.warning(f"Failed to retrieve email log: {e}")
         return []

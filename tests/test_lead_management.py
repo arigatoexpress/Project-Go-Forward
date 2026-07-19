@@ -231,7 +231,7 @@ class _FakeQuery:
     def limit(self, *a, **k):
         return self
 
-    def stream(self):
+    def stream(self, timeout: float | None = None):
         return iter(self._docs)
 
 

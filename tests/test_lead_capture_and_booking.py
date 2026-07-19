@@ -96,7 +96,7 @@ def test_create_appointment_reads_inside_transaction():
         def where(self, *a, **k):
             return self
 
-        def stream(self, transaction=None):
+        def stream(self, transaction=None, timeout: float | None = None):
             captured["transaction"] = transaction
             return iter([])  # no existing bookings
 
