@@ -27,6 +27,7 @@ from fastapi import APIRouter, Request
 from appointment_manager import AppointmentManager
 from config_loader import get_deployment_config
 from database.firestore_client import get_database
+from database.rpc_timeout import FIRESTORE_RPC_TIMEOUT
 from lead_management import LeadManager
 from structured_logging import logger as struct_logger
 from tools import notion_client
@@ -109,7 +110,7 @@ def _count_collection_by_status(collection_name: str, status_field: str = "statu
     """Count documents in a Firestore collection by status field."""
     try:
         db = get_database().db
-        docs = db.collection(collection_name).stream()
+        docs = db.collection(collection_name).stream(timeout=FIRESTORE_RPC_TIMEOUT)
         statuses = [doc.to_dict().get(status_field, "UNKNOWN") for doc in docs]
         return dict(Counter(statuses))
     except Exception as e:
@@ -424,7 +425,7 @@ async def mira_installations_recent(request: Request, hours: int = 24, limit: in
                 db.collection("service_requests")
                 .order_by("created_at", direction="DESCENDING")
                 .limit(limit)
-                .stream()
+                .stream(timeout=FIRESTORE_RPC_TIMEOUT)
             )
             for doc in docs:
                 data = doc.to_dict()
@@ -509,7 +510,7 @@ async def mira_feedback_summary(request: Request) -> dict:
         else:
             source = "firestore"
             db = get_database().db
-            docs = db.collection("feedback").stream()
+            docs = db.collection("feedback").stream(timeout=FIRESTORE_RPC_TIMEOUT)
             for doc in docs:
                 data = doc.to_dict()
                 total += 1
@@ -562,7 +563,7 @@ async def mira_feedback_recent(request: Request, hours: int = 24, limit: int = 5
                 db.collection("feedback")
                 .order_by("created_at", direction="DESCENDING")
                 .limit(limit)
-                .stream()
+                .stream(timeout=FIRESTORE_RPC_TIMEOUT)
             )
             for doc in docs:
                 data = doc.to_dict()
@@ -611,11 +612,11 @@ async def mira_firestore_collections(request: Request, limit: int = 1000) -> dic
     """Firestore collection names and document counts — metadata only, no PII."""
     try:
         db = get_database().db
-        cols = db.collections()
+        cols = db.collections(timeout=FIRESTORE_RPC_TIMEOUT)
         result = []
         for col in cols:
             try:
-                count = len(list(col.limit(limit).stream()))
+                count = len(list(col.limit(limit).stream(timeout=FIRESTORE_RPC_TIMEOUT)))
                 result.append({"collection": col.id, "count": count})
             except Exception as e:
                 struct_logger.warning(

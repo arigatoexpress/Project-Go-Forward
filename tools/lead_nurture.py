@@ -34,6 +34,8 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import quote
 
+from database.rpc_timeout import FIRESTORE_RPC_TIMEOUT
+
 logger = logging.getLogger(__name__)
 
 # ── Constants ──────────────────────────────────────────────────────────────
@@ -180,10 +182,10 @@ def find_stale_leads(
         # Pull a generous window so we can sort + cap locally.
         scan_limit = max(max_results * 4, 200)
         try:
-            stream = query.limit(scan_limit).stream()
+            stream = query.limit(scan_limit).stream(timeout=FIRESTORE_RPC_TIMEOUT)
         except TypeError:
             # Some fakes don't support ``limit`` chaining — fall back.
-            stream = query.stream()
+            stream = query.stream(timeout=FIRESTORE_RPC_TIMEOUT)
 
         candidates: list[tuple[datetime, dict]] = []
         for doc in stream:
@@ -307,7 +309,8 @@ def _log_nurture_send(
                 "sent_at": _now_utc().isoformat(),
                 "send_success": bool((send_result or {}).get("success")),
                 "send_message_id": (send_result or {}).get("message_id") or "",
-            }
+            },
+            timeout=FIRESTORE_RPC_TIMEOUT,
         )
     except Exception as exc:
         logger.warning("nurture_log write failed customer_id=%s error=%s", customer_id, exc)

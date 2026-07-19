@@ -13,6 +13,8 @@ from datetime import datetime
 
 import requests
 
+from database.rpc_timeout import FIRESTORE_RPC_TIMEOUT
+
 BASE_URL = "https://tho-agent-s77j6bxyra-uc.a.run.app"
 
 
@@ -76,11 +78,11 @@ def run_health_check():
         from google.cloud import firestore
 
         db = firestore.Client(project="sapphire-479610")
-        count = len(list(db.collection("inventory").stream()))
+        count = len(list(db.collection("inventory").stream(timeout=FIRESTORE_RPC_TIMEOUT)))
         print(f"✅ Inventory documents: {count}")
 
         # Check for common issues
-        docs = list(db.collection("inventory").limit(5).stream())
+        docs = list(db.collection("inventory").limit(5).stream(timeout=FIRESTORE_RPC_TIMEOUT))
         issues = []
         for doc in docs:
             data = doc.to_dict()

@@ -32,6 +32,7 @@ from pydantic import ValidationError
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from database.models import Inventory  # noqa: E402
+from database.rpc_timeout import FIRESTORE_RPC_TIMEOUT  # noqa: E402
 
 try:
     from google.cloud import firestore
@@ -599,7 +600,7 @@ class InventorySync:
 
         try:
             doc_ref = self.db.collection("inventory").document(inventory_id)
-            doc = doc_ref.get()
+            doc = doc_ref.get(timeout=FIRESTORE_RPC_TIMEOUT)
             if doc.exists:
                 data = doc.to_dict()
                 data["id"] = doc.id
@@ -619,7 +620,7 @@ class InventorySync:
             return None
 
         try:
-            docs = self.db.collection("inventory").limit(500).stream()
+            docs = self.db.collection("inventory").limit(500).stream(timeout=FIRESTORE_RPC_TIMEOUT)
             for doc in docs:
                 data = doc.to_dict() or {}
                 if self._normalize_model_key(data.get("model_name", "")) == target_key:
@@ -660,12 +661,12 @@ class InventorySync:
 
                 if existing:
                     # Update existing
-                    doc_ref.update(data)
+                    doc_ref.update(data, timeout=FIRESTORE_RPC_TIMEOUT)
                     logger.info(f"Updated: {item.model_name}")
                     self.stats["updated"] += 1
                 else:
                     # Create new
-                    doc_ref.set(data)
+                    doc_ref.set(data, timeout=FIRESTORE_RPC_TIMEOUT)
                     logger.info(f"Added: {item.model_name}")
                     self.stats["added"] += 1
 
