@@ -7,6 +7,7 @@ import {
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
 import adminFetch from '../adminFetch';
 import downloadAdminFile from '../downloadAdminFile';
+import { describeFetchError, extractErrorMessage, responseErrorMessage, safeUserMessage } from '../utils/apiError';
 import StatusBadge, { STATUS_COLORS, DEAL_STATUS_COLORS } from '../components/StatusBadge';
 import ReviewRequestCard from '../components/ReviewRequestCard';
 import EmailDraftsPanel from '../components/EmailDraftsPanel';
@@ -259,7 +260,7 @@ export default function CRM({ onBack }) {
       }
     } catch (err) {
       console.error('Lead status update failed:', err);
-      setActionError(err.message || 'Lead status update failed. Check connection and try again.');
+      setActionError(safeUserMessage(err.message, 'Lead status update failed. Check connection and try again.'));
     }
   };
 
@@ -272,13 +273,13 @@ export default function CRM({ onBack }) {
         body: JSON.stringify({ status: newStatus }),
       });
       if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.detail || data.error || `${res.status} ${res.statusText}`);
+        setActionError(await responseErrorMessage(res, { context: 'update the deal status' }));
+        return;
       }
       setDeals(prev => prev.map(d => d.id === dealId ? { ...d, status: newStatus } : d));
     } catch (err) {
       console.error('Deal status update failed:', err);
-      setActionError(`Deal status update failed: ${err.message || 'unknown error'}. Try again or refresh.`);
+      setActionError(describeFetchError(err, 'update the deal status'));
     }
   };
 
@@ -301,7 +302,7 @@ export default function CRM({ onBack }) {
         if (emailsRes.success) setEmails(emailsRes.emails || []);
       }
     } catch (err) {
-      setEmailResult({ success: false, error: err.message });
+      setEmailResult({ success: false, error: describeFetchError(err, 'send the email') });
     } finally {
       setEmailSending(false);
     }
@@ -974,7 +975,7 @@ export default function CRM({ onBack }) {
                   {emailResult.success ? (
                     <><CheckCircle size={16} /> Email sent successfully</>
                   ) : (
-                    <><AlertCircle size={16} /> {emailResult.error || 'Send failed'}</>
+                    <><AlertCircle size={16} /> {safeUserMessage(extractErrorMessage(emailResult), 'Send failed')}</>
                   )}
                 </div>
               )}
@@ -1295,7 +1296,7 @@ function NewDealForm({ onCreated }) {
         onCreated();
         setTimeout(() => { setOpen(false); setResult(null); }, 2000);
       } else {
-        setResult({ ok: false, msg: d.error || 'Failed to create deal' });
+        setResult({ ok: false, msg: safeUserMessage(extractErrorMessage(d), 'Failed to create deal') });
       }
     } catch {
       setResult({ ok: false, msg: 'Network error' });
@@ -1711,7 +1712,7 @@ function DealCard({ deal, onUpdateStatus, statusOrder }) {
     try {
       await downloadAdminFile(url, url.split('/').pop());
     } catch (err) {
-      setGenResult({ success: false, error: err.message || 'Download failed' });
+      setGenResult({ success: false, error: safeUserMessage(err && err.message, 'Download failed. Please try again.') });
     }
   };
 
@@ -1849,7 +1850,7 @@ function DealCard({ deal, onUpdateStatus, statusOrder }) {
               ) : (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#ef4444' }}>
                   <AlertCircle size={13} />
-                  <span>{signResult.error || 'Send failed'}</span>
+                  <span>{safeUserMessage(extractErrorMessage(signResult), 'Send failed')}</span>
                 </div>
               )}
             </div>
@@ -1878,7 +1879,7 @@ function DealCard({ deal, onUpdateStatus, statusOrder }) {
                 </div>
               ) : (
                 <div className="flex items-center gap-1.5 text-red-500">
-                  <AlertCircle size={14} /> {genResult.error || 'Generation failed'}
+                  <AlertCircle size={14} /> {safeUserMessage(extractErrorMessage(genResult), 'Generation failed')}
                 </div>
               )}
               {genResult.documents_included && (

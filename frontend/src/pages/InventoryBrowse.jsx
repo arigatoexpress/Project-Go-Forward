@@ -21,6 +21,7 @@ import {
   normalizeInventoryClassification,
 } from '../utils/inventoryCategoryRoutes';
 import AppointmentHandoffCard from '../components/AppointmentHandoffCard';
+import { describeFetchError, extractErrorMessage, responseErrorMessage, safeUserMessage } from '../utils/apiError';
 
 const MATTERPORT_BASE = "https://my.matterport.com/show/?m=";
 export const INVENTORY_PAGE_SIZE = 18;
@@ -338,7 +339,7 @@ function AdminInventoryPanel({ enabled }) {
     fetch('/api/admin/inventory/analytics', { credentials: 'same-origin' })
       .then(r => r.json())
       .then(d => { if (alive && d?.success) setData(d); })
-      .catch(e => { if (alive) setError(String(e)); })
+      .catch(e => { if (alive) setError(describeFetchError(e, 'load inventory analytics')); })
       .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
   }, [enabled]);
@@ -486,7 +487,10 @@ export default function InventoryBrowse({
       setLoading(true);
       setError(null);  // clear any stale error so "Try Again" can recover
       const resp = await fetch('/api/marketing/inventory-context');
-      if (!resp.ok) throw new Error('Failed to load inventory');
+      if (!resp.ok) {
+        setError(await responseErrorMessage(resp, { context: 'load inventory' }));
+        return;
+      }
       const data = await resp.json();
       if (data.success === false) {
         throw new Error(data.error || 'Failed to load inventory');
@@ -496,7 +500,7 @@ export default function InventoryBrowse({
         classification: normalizeInventoryClassification(home.classification),
       })));
     } catch (err) {
-      setError(err.message);
+      setError(describeFetchError(err, 'load inventory'));
     } finally {
       setLoading(false);
     }
@@ -1941,7 +1945,7 @@ export function LeadCaptureForm({ home, type, onClose, onBookAppointment }) {
       // screen and silently dropped the lead. Check the parsed body too.
       const result = await resp.json().catch(() => ({}));
       if (!resp.ok || !result.success) {
-        setError(result.error || `Something went wrong. Please call us at ${BUSINESS_PHONE}.`);
+        setError(safeUserMessage(extractErrorMessage(result), `Something went wrong. Please call us at ${BUSINESS_PHONE}.`));
         return;
       }
       setPersistedLeadId(result.lead_id || '');
