@@ -42,6 +42,9 @@ export default async function adminFetch(url, options = {}) {
       // Server errors (5xx) might be transient, retry
       if (response.status >= 500 && attempt < MAX_RETRIES - 1) {
         lastError = new Error(`Server error: ${response.status}`);
+        // Carry the status so consumers can map it via describeFetchError
+        // instead of ever showing this raw message to users.
+        lastError.status = response.status;
         await sleep(RETRY_DELAY * (attempt + 1)); // Exponential backoff
         continue;
       }
