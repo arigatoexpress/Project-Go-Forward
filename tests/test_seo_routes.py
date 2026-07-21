@@ -430,13 +430,14 @@ def test_analytics_never_emitted_on_noindex_routes(monkeypatch):
         assert "googletagmanager.com" not in body, path
 
 
-def test_og_image_default_is_opt_in(monkeypatch):
-    """F4: public pages get a brand og:image/twitter:image only when
-    OG_IMAGE_URL is set; unset = no og:image (no broken link)."""
-    monkeypatch.delenv("OG_IMAGE_URL", raising=False)
+def test_og_image_defaults_to_bundled_card(monkeypatch):
+    """F4: public pages emit the bundled brand og:image/twitter:image by
+    default (the 1200x630 raster ships with the frontend build, so the URL
+    cannot dangle); OG_IMAGE_URL="" explicitly opts out."""
+    monkeypatch.setenv("OG_IMAGE_URL", "")
     client, _ = seo_client(monkeypatch)
     assert 'property="og:image"' not in client.get("/").text
-    monkeypatch.setenv("OG_IMAGE_URL", "/og-card.png")
+    monkeypatch.delenv("OG_IMAGE_URL", raising=False)
     body = client.get("/").text
     assert re.search(
         r'<meta property="og:image" content="https?://[^"]+/og-card\.png"', body

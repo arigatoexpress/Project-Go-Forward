@@ -68,8 +68,12 @@ def test_listing_description_uses_config_or_default():
 
 
 def test_social_urls_labels_profiles():
-    # With an empty same_as list, social_urls is empty.
-    assert lsc.social_urls() == {}
+    # same_as now carries the verified live profiles; social_urls labels the
+    # recognized platforms by name and falls back to custom_N for the rest.
+    urls = lsc.social_urls()
+    assert urls["facebook"] == "https://www.facebook.com/texashomeoutlet/"
+    assert urls["yelp"] == "https://www.yelp.com/biz/texas-home-outlet-east-huffman-2"
+    assert any("bbb.org" in u for u in urls.values())
 
 
 def test_audit_nap_consistency_passes_for_canonical_payload():
