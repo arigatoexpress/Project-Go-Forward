@@ -19,8 +19,9 @@ message-id, so webhook retries can never create a second draft (and therefore
 can never cause a second send downstream).
 
 Storage: collection ``email_reply_drafts`` (lazy client, mirrors
-``audit_log.py``). Store failures degrade to ``None``/warn — except state-
-machine violations, which are always loud.
+``audit_log.py``). Mutation-path store failures degrade to ``None``/warn;
+the admin read surface uses a strict variant so an outage can never look like
+a legitimately empty review queue. State-machine violations are always loud.
 """
 
 from __future__ import annotations
@@ -58,6 +59,10 @@ _MAX_FIELD_CHARS = 300
 
 class IllegalTransitionError(ValueError):
     """Raised on any draft status change the state machine does not allow."""
+
+
+class ReplyDraftStoreError(RuntimeError):
+    """Raised when the strict admin read path cannot verify the draft store."""
 
 
 @dataclass(frozen=True)
@@ -205,20 +210,51 @@ def get_draft(draft_id: str) -> ReplyDraft | None:
         return None
 
 
-def list_drafts(status: str | None = None, limit: int = 50) -> list[ReplyDraft]:
-    """List drafts, optionally filtered by status. Empty list on any failure."""
+def _list_drafts(
+    status: str | None = None,
+    limit: int = 50,
+    *,
+    strict: bool,
+) -> list[ReplyDraft]:
+    """Return newest drafts first, optionally filtered by status.
+
+    Ordering happens in Firestore before the result limit is applied. Status
+    filtering is performed while consuming that ordered stream so this query
+    needs no composite Firestore index and still returns the newest matching
+    records. The stream stops as soon as the requested number is collected.
+    """
     db = _get_db()
     if db is None:
+        if strict:
+            raise ReplyDraftStoreError("reply-draft store unavailable")
         return []
     try:
-        query = db.collection(DRAFTS_COLLECTION)
-        if status:
-            query = query.where("status", "==", status)
-        query = query.limit(max(1, min(int(limit), 200)))
-        return [_from_doc(snap.id, snap.to_dict() or {}) for snap in query.stream()]
+        bounded_limit = max(1, min(int(limit), 200))
+        query = db.collection(DRAFTS_COLLECTION).order_by("created_at", direction="DESCENDING")
+        results: list[ReplyDraft] = []
+        for snap in query.stream():
+            data = snap.to_dict() or {}
+            if status and data.get("status") != status:
+                continue
+            results.append(_from_doc(snap.id, data))
+            if len(results) >= bounded_limit:
+                break
+        return results
     except Exception as exc:
         logger.warning("Reply draft list failed: %s", exc)
+        if strict:
+            raise ReplyDraftStoreError("reply-draft store query failed") from exc
         return []
+
+
+def list_drafts(status: str | None = None, limit: int = 50) -> list[ReplyDraft]:
+    """List newest drafts; mutation callers get an empty list on store failure."""
+    return _list_drafts(status=status, limit=limit, strict=False)
+
+
+def list_drafts_strict(status: str | None = None, limit: int = 50) -> list[ReplyDraft]:
+    """List newest drafts, raising if the admin queue cannot be verified."""
+    return _list_drafts(status=status, limit=limit, strict=True)
 
 
 def transition(draft_id: str, new_status: str, actor: str) -> ReplyDraft | None:

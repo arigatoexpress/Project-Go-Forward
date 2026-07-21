@@ -79,7 +79,7 @@ def fake_list_drafts(monkeypatch):
         calls.append({"status": status, "limit": limit})
         return _seed_drafts()
 
-    monkeypatch.setattr(email_reply_drafts, "list_drafts", fake)
+    monkeypatch.setattr(email_reply_drafts, "list_drafts_strict", fake)
     return calls
 
 
@@ -175,7 +175,7 @@ def test_email_reply_drafts_endpoint_store_failure_soft_fails(monkeypatch):
     def explode(status: str | None = None, limit: int = 50):
         raise RuntimeError("Firestore is down")
 
-    monkeypatch.setattr(email_reply_drafts, "list_drafts", explode)
+    monkeypatch.setattr(email_reply_drafts, "list_drafts_strict", explode)
     response = client.get("/api/admin/email-reply-drafts", headers=_admin_headers(main))
     assert response.status_code == 200
     body = response.json()
