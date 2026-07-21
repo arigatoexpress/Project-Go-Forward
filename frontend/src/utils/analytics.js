@@ -11,6 +11,20 @@ const PII_KEYS = new Set([
   'lead_id', 'user_id', 'session_id',
 ]);
 
+const PUBLIC_EXACT_PATHS = new Set([
+  '/', '/inventory', '/chat', '/contact', '/appointments', '/about',
+  '/financing', '/faq', '/warranty', '/delivery',
+]);
+
+export function isPublicAnalyticsPath(pathname) {
+  const raw = String(pathname || '/').toLowerCase();
+  const path = raw.length > 1 ? raw.replace(/\/+$/, '') : raw;
+  return PUBLIC_EXACT_PATHS.has(path)
+    || path.startsWith('/inventory-detail/')
+    || path.startsWith('/plan/')
+    || path.startsWith('/manufactured-homes-in-');
+}
+
 function googleEventParams(event, data) {
   const params = {};
   for (const [key, value] of Object.entries(data || {})) {

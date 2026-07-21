@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { trackEvent } from '../pages/InventoryBrowse';
+import { isPublicAnalyticsPath } from '../utils/analytics';
 
 // Regression guard: analytics events must go to the dedicated /api/analytics
 // sink (via sendBeacon), NOT /api/contact — which validated name/phone and
@@ -98,5 +99,21 @@ describe('trackEvent', () => {
       page_path: '/inventory',
       tho_event: 'page_viewed',
     });
+  });
+});
+
+describe('isPublicAnalyticsPath', () => {
+  it('allows public and canonical inventory paths', () => {
+    expect(isPublicAnalyticsPath('/')).toBe(true);
+    expect(isPublicAnalyticsPath('/appointments')).toBe(true);
+    expect(isPublicAnalyticsPath('/inventory-detail/123/model/')).toBe(true);
+    expect(isPublicAnalyticsPath('/manufactured-homes-in-humble-tx')).toBe(true);
+  });
+
+  it('fails closed for admin, API, and unknown paths', () => {
+    expect(isPublicAnalyticsPath('/crm')).toBe(false);
+    expect(isPublicAnalyticsPath('/analytics')).toBe(false);
+    expect(isPublicAnalyticsPath('/api/admin/leads')).toBe(false);
+    expect(isPublicAnalyticsPath('/unknown')).toBe(false);
   });
 });

@@ -5,6 +5,7 @@ import AnalyticsConsent from '../components/AnalyticsConsent';
 describe('AnalyticsConsent', () => {
   beforeEach(() => {
     localStorage.clear();
+    window.history.replaceState({}, '', '/inventory');
     window.__THO_ANALYTICS_CONFIGURED__ = true;
     window.__THO_ENABLE_ANALYTICS__ = vi.fn();
     window.__THO_DISABLE_ANALYTICS__ = vi.fn();
@@ -16,6 +17,8 @@ describe('AnalyticsConsent', () => {
     delete window.__THO_ANALYTICS_CONFIGURED__;
     delete window.__THO_ENABLE_ANALYTICS__;
     delete window.__THO_DISABLE_ANALYTICS__;
+    delete window.gtag;
+    window.history.replaceState({}, '', '/');
   });
 
   it('stays hidden when no analytics provider is configured', () => {
@@ -44,5 +47,17 @@ describe('AnalyticsConsent', () => {
     localStorage.setItem('tho_analytics_consent_v1', 'denied');
     render(<AnalyticsConsent />);
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('never emits a grant-time page view from an admin/noindex route', () => {
+    const gtag = vi.fn();
+    window.gtag = gtag;
+    window.history.replaceState({}, '', '/crm');
+
+    render(<AnalyticsConsent />);
+    fireEvent.click(screen.getByRole('button', { name: 'Allow analytics' }));
+
+    expect(window.__THO_ENABLE_ANALYTICS__).toHaveBeenCalledTimes(1);
+    expect(gtag).not.toHaveBeenCalledWith('event', 'page_view', expect.anything());
   });
 });

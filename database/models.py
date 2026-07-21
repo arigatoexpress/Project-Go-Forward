@@ -25,6 +25,56 @@ class InventoryStatus(str, Enum):
     RESERVED = "RESERVED"
 
 
+class LeadRecord(BaseModel):
+    """Canonical Firestore shape for documents in the ``leads`` collection."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    lead_id: str
+    user_id: str
+    session_id: str
+
+    name: str | None = None
+    email: str | None = None
+    phone: str | None = None
+    bedrooms: int | None = None
+    bathrooms: int | None = None
+    budget_max: float | None = None
+    home_type: str | None = None
+
+    homes_viewed: list[str] = Field(default_factory=list)
+    appointment_requested: bool = False
+    financing_discussed: bool = False
+
+    source: str = "chat"
+    status: str = "new"
+    created_at: str | None = None
+    updated_at: str | None = None
+
+    priority: str | None = None
+    assigned_to: str | None = None
+    triage_notes: str | None = None
+    triage_reason: str | None = None
+    last_triage_at: str | None = None
+
+    utm_source: str | None = Field(default=None, max_length=200)
+    utm_medium: str | None = Field(default=None, max_length=200)
+    utm_campaign: str | None = Field(default=None, max_length=200)
+    utm_content: str | None = Field(default=None, max_length=200)
+    utm_term: str | None = Field(default=None, max_length=200)
+    referrer: str | None = Field(default=None, max_length=200)
+
+    gclid: str | None = Field(
+        default=None, min_length=6, max_length=200, pattern=r"^[A-Za-z0-9._~-]+$"
+    )
+    gbraid: str | None = Field(
+        default=None, min_length=6, max_length=200, pattern=r"^[A-Za-z0-9._~-]+$"
+    )
+    wbraid: str | None = Field(
+        default=None, min_length=6, max_length=200, pattern=r"^[A-Za-z0-9._~-]+$"
+    )
+
+
 class Customer(BaseModel):
     """Customer/Tenant record"""
 
@@ -284,15 +334,21 @@ class Deal(BaseModel):
     buyer_phone: str | None = None
     buyer_email: str | None = None
     buyer_ssn: str | None = None
-    buyer_dob: str | None = None  # ISO date; maps to Buyer_DOB on creditapp / homestead / patriot-act (PII)
-    buyer_marital_status: str | None = None  # "Married" / "Unmarried" (Mark Willcott: idiot-proof dropdown)
+    buyer_dob: str | None = (
+        None  # ISO date; maps to Buyer_DOB on creditapp / homestead / patriot-act (PII)
+    )
+    buyer_marital_status: str | None = (
+        None  # "Married" / "Unmarried" (Mark Willcott: idiot-proof dropdown)
+    )
 
     # ─── Co-Buyer ───
     co_buyer_first_name: str | None = None
     co_buyer_last_name: str | None = None
     co_buyer_phone: str | None = None
     co_buyer_ssn: str | None = None
-    co_buyer_dob: str | None = None  # "Co-buyer has no birthday" (Mark Willcott markup) — mirror buyer_dob (PII)
+    co_buyer_dob: str | None = (
+        None  # "Co-buyer has no birthday" (Mark Willcott markup) — mirror buyer_dob (PII)
+    )
     co_buyer_marital_status: str | None = None
 
     # ─── Employment (Buyer) ───

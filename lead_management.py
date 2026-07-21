@@ -12,6 +12,8 @@ from datetime import datetime, timedelta
 
 from google.cloud import firestore
 
+from database.models import LeadRecord
+
 logger = logging.getLogger(__name__)
 
 
@@ -89,8 +91,8 @@ class Lead:
         self.updated_at = datetime.utcnow().isoformat()
 
     def to_dict(self) -> dict:
-        """Convert to dictionary for storage"""
-        return asdict(self)
+        """Validate against the canonical Firestore schema before storage."""
+        return LeadRecord.model_validate(asdict(self)).model_dump()
 
     @classmethod
     def from_dict(cls, data: dict) -> "Lead":

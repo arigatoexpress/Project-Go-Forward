@@ -5,6 +5,7 @@ from .models import (
     CustomerStatus,
     Inventory,
     InventoryStatus,
+    LeadRecord,
     Lease,
     Property,
     Sale,
@@ -21,6 +22,7 @@ __all__ = [
     "InventoryStatus",
     "Sale",
     "Lease",
+    "LeadRecord",
     "TaxPayment",
     "ServiceRequest",
     # Client
