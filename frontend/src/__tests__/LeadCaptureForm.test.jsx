@@ -48,6 +48,37 @@ describe('LeadCaptureForm', () => {
     expect(await screen.findByText('Thank You!')).toBeInTheDocument();
   });
 
+  it('hands the persisted lead and home context to appointment booking', async () => {
+    const onBookAppointment = vi.fn();
+    global.fetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ success: true, lead_id: 'contact_123_abcd' }),
+    });
+
+    render(
+      <LeadCaptureForm
+        home={{ ...home, home_id: 'home-42' }}
+        type="quote"
+        onClose={() => {}}
+        onBookAppointment={onBookAppointment}
+      />,
+    );
+    fillValidAndSubmit();
+    fireEvent.click(await screen.findByRole('button', { name: /Choose a visit time/i }));
+
+    expect(onBookAppointment).toHaveBeenCalledWith({
+      name: 'Alice Buyer',
+      phone: '2813243020',
+      email: '',
+      notes: 'Interested in Sapphire 3-Bed.',
+      leadId: 'contact_123_abcd',
+      source: 'inventory_quote_handoff',
+      home: 'Sapphire 3-Bed',
+      homeId: 'home-42',
+      intent: 'quote',
+    });
+  });
+
   it('blocks submission of a sub-10-digit phone before calling the API', () => {
     render(<LeadCaptureForm home={home} type="quote" onClose={() => {}} />);
     fireEvent.change(screen.getByPlaceholderText('Your full name'), {

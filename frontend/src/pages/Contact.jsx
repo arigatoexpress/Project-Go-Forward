@@ -1,13 +1,16 @@
 import React, { useState } from 'react';
-import { Mail, Phone, MapPin, Send, CheckCircle, Loader2 } from 'lucide-react';
+import { Mail, Phone, MapPin, Send, Loader2 } from 'lucide-react';
 import { BUSINESS_NAME, BUSINESS_URL, BUSINESS_PHONE, BUSINESS_PHONE_RAW, BUSINESS_FULL_ADDRESS, BUSINESS_HOURS } from '../constants';
 import { getUtmParams } from '../utils/utm';
+import { trackEvent } from '../utils/analytics';
+import AppointmentHandoffCard from '../components/AppointmentHandoffCard';
 
-const Contact = ({ onBack }) => {
+const Contact = ({ onBack, onBookAppointment }) => {
     const [submitted, setSubmitted] = useState(false);
     const [submitting, setSubmitting] = useState(false);
     const [formData, setFormData] = useState({ name: '', phone: '', email: '', message: '' });
     const [submitError, setSubmitError] = useState('');
+    const [persistedLeadId, setPersistedLeadId] = useState('');
 
     const phoneDigits = formData.phone.replace(/\D/g, '');
     const isPhoneValid = phoneDigits.length >= 10;
@@ -31,6 +34,7 @@ const Contact = ({ onBack }) => {
             });
             const data = await resp.json();
             if (data.success) {
+                setPersistedLeadId(data.lead_id || '');
                 setSubmitted(true);
             } else {
                 setSubmitError(data.error || 'Something went wrong. Please try again.');
@@ -42,20 +46,30 @@ const Contact = ({ onBack }) => {
         }
     };
 
+    const handleBookAppointment = () => {
+        trackEvent('appointment_handoff_started', { source: 'contact_handoff', intent: 'contact' });
+        onBookAppointment?.({
+            name: formData.name,
+            phone: formData.phone,
+            email: formData.email,
+            notes: formData.message,
+            leadId: persistedLeadId,
+            source: 'contact_handoff',
+            intent: 'contact',
+        });
+    };
+
     if (submitted) {
         return (
-            <div className="max-w-4xl mx-auto p-6 text-center py-20">
-                <div className="bg-white p-8 rounded-2xl shadow-xl inline-block">
-                    <CheckCircle className="h-16 w-16 text-green-500 mx-auto mb-4" />
-                    <h2 className="text-2xl font-bold text-gray-900 mb-2">Message Received!</h2>
-                    <p className="text-gray-600 mb-2">Thank you for reaching out. A member of the {BUSINESS_NAME} family will contact you shortly.</p>
-                    <p className="text-sm text-gray-500 mb-6">We'll reach out at the phone number you provided.</p>
-                    <button
-                        onClick={onBack}
-                        className="bg-blue-600 text-white px-6 py-2 rounded-full hover:bg-blue-700 transition"
-                    >
-                        Return Home
-                    </button>
+            <div className="mx-auto max-w-4xl p-6 py-14 sm:py-20">
+                <div className="flex justify-center rounded-2xl border border-[var(--cp-border)] bg-[var(--cp-panel)] p-6 shadow-xl sm:p-8">
+                    <AppointmentHandoffCard
+                        title="Message received"
+                        description={`A member of the ${BUSINESS_NAME} family will contact you shortly. You can also reserve a showroom time now while your plans are fresh.`}
+                        onStart={handleBookAppointment}
+                        onContinue={onBack}
+                        continueLabel="Return home"
+                    />
                 </div>
             </div>
         );

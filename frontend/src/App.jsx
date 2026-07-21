@@ -456,12 +456,14 @@ function App() {
   };
 
   const [activePage, setActivePage] = useState(() => pageFromPath(window.location.pathname));
+  const [appointmentHandoff, setAppointmentHandoff] = useState(null);
   const isStandaloneMode = window.location.pathname.startsWith('/app/') || window.location.search.includes('standalone=1');
 
   // Keep activePage in sync with browser back/forward navigation
   useEffect(() => {
     const handlePopState = () => {
       setActivePage(pageFromPath(window.location.pathname));
+      setAppointmentHandoff(null);
       setIsMobileMenuOpen(false);
       window.scrollTo({ top: 0 });
     };
@@ -820,7 +822,8 @@ function App() {
     scrollToBottom();
   }, [messages]);
 
-  const navigateTo = (page) => {
+  const navigateTo = (page, { preserveAppointmentHandoff = false } = {}) => {
+    if (!preserveAppointmentHandoff) setAppointmentHandoff(null);
     setActivePage(page);
     setIsMobileMenuOpen(false);
     window.scrollTo({ top: 0 });
@@ -848,6 +851,11 @@ function App() {
     if (window.location.pathname !== targetUrl) {
       window.history.pushState({}, '', targetUrl);
     }
+  };
+
+  const startAppointmentHandoff = (handoff) => {
+    setAppointmentHandoff(handoff);
+    navigateTo('appointments', { preserveAppointmentHandoff: true });
   };
 
   // Admin PIN handlers
@@ -1560,7 +1568,10 @@ function App() {
         <NavBar {...navProps} />
         <ErrorBoundary scope="contact">
           <Suspense fallback={<PageLoader />}>
-            <Contact onBack={() => navigateTo('inventory')} />
+            <Contact
+              onBack={() => navigateTo('inventory')}
+              onBookAppointment={startAppointmentHandoff}
+            />
           </Suspense>
         </ErrorBoundary>
       </div>
@@ -1574,7 +1585,11 @@ function App() {
         <NavBar {...navProps} />
         <ErrorBoundary scope="appointments">
           <Suspense fallback={<PageLoader />}>
-            <Appointments onBack={() => navigateTo('inventory')} />
+            <Appointments
+              onBack={() => navigateTo('inventory')}
+              prefill={appointmentHandoff}
+              onHandoffComplete={() => setAppointmentHandoff(null)}
+            />
           </Suspense>
         </ErrorBoundary>
       </div>
@@ -1716,6 +1731,7 @@ function App() {
               onCreateAd={adminAuthed ? () => {
                 navigateTo('adstudio');
               } : undefined}
+              onBookAppointment={startAppointmentHandoff}
             />
           </Suspense>
         </ErrorBoundary>

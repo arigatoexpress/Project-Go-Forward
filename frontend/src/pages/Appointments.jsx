@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Calendar, Clock, User, CheckCircle, ArrowLeft, ArrowRight, MapPin, Phone, Loader2, Download } from 'lucide-react';
 import { BUSINESS_NAME, BUSINESS_PHONE, BUSINESS_FULL_ADDRESS } from '../constants';
 import { getUtmParams } from '../utils/utm';
+import { trackEvent } from '../utils/analytics';
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
@@ -329,11 +330,16 @@ function generateICS(date, timeSlot, name) {
   ].join('\r\n');
 }
 
-const Appointments = ({ onBack }) => {
+const Appointments = ({ onBack, prefill, onHandoffComplete }) => {
   const [step, setStep] = useState(1);
   const [selectedDate, setSelectedDate] = useState(null);
   const [selectedTime, setSelectedTime] = useState(null);
-  const [formData, setFormData] = useState({ name: '', phone: '', email: '', notes: '' });
+  const [formData, setFormData] = useState(() => ({
+    name: prefill?.name || '',
+    phone: prefill?.phone || '',
+    email: prefill?.email || '',
+    notes: prefill?.notes || '',
+  }));
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
@@ -367,7 +373,8 @@ const Appointments = ({ onBack }) => {
           date: selectedDate,
           time_slot: selectedTime,
           notes: formData.notes.trim() || undefined,
-          source: 'website',
+          source: prefill?.source || 'website',
+          ...(prefill?.leadId ? { lead_id: prefill.leadId } : {}),
           ...getUtmParams(),
         }),
       });
@@ -375,6 +382,14 @@ const Appointments = ({ onBack }) => {
       if (data.success) {
         setResult(data);
         setStep(5); // success
+        if (prefill) {
+          trackEvent('appointment_handoff_completed', {
+            source: prefill.source,
+            home: prefill.home,
+            intent: prefill.intent,
+          });
+          onHandoffComplete?.();
+        }
       } else {
         setError(data.error || 'Unable to book appointment. Please try again.');
       }
@@ -462,6 +477,13 @@ const Appointments = ({ onBack }) => {
       </div>
 
       <StepIndicator currentStep={step} />
+
+      {prefill && step < 5 && (
+        <div className="mb-5 rounded-lg border border-[var(--cp-copper)] bg-[var(--cp-bg-2)] px-4 py-3 text-sm text-[var(--cp-secondary)]">
+          <span className="font-bold text-[var(--cp-accent)]">Your details are ready.</span>{' '}
+          Choose a date and time; you can review everything before booking.
+        </div>
+      )}
 
       {/* Step 1: Date */}
       {step === 1 && (

@@ -4971,6 +4971,7 @@ async def submit_contact_form(request: Request):
 
         lead_id = f"contact_{int(time.time())}_{uuid.uuid4().hex[:4]}"
         warnings: list[str] = []
+        lead_persisted = False
 
         log_user_action(
             action="contact.submit",
@@ -4996,6 +4997,7 @@ async def submit_contact_form(request: Request):
                 **_extract_utm(data),
             )
             await lead_manager.create_lead(new_lead)
+            lead_persisted = True
         except Exception as e:
             warnings.append("lead_storage_failed")
             struct_logger.error(
@@ -5060,6 +5062,10 @@ async def submit_contact_form(request: Request):
             struct_logger.warning("Lead admin notification failed", error=str(e))
 
         result = {"success": True, "message": "Thank you! We'll be in touch shortly."}
+        if lead_persisted:
+            # This opaque ID binds the immediate appointment handoff to the
+            # lead we actually stored. Never return it for a failed write.
+            result["lead_id"] = lead_id
         if warnings:
             result["warnings"] = warnings
         return result
@@ -5382,27 +5388,69 @@ async def create_appointment(request: Request):
             warnings.append("owner_notify_failed")
             struct_logger.warning("Appointment admin notification failed", error=str(e))
 
-        # Also create a lead for the CRM funnel
-        try:
-            lead = Lead(
-                lead_id=f"appt_lead_{int(time.time())}_{uuid.uuid4().hex[:4]}",
-                user_id="appointment",
-                session_id=f"appt_{int(time.time())}",
-                source="appointment",
-                name=name,
-                phone=phone,
-                email=appt.email,
-                appointment_requested=True,
-                **_extract_utm(data),
-            )
-            await lead_manager.create_lead(lead)
-        except Exception as e:
-            warnings.append("lead_storage_failed")
-            struct_logger.error(
-                "Appointment lead creation failed",
-                event="lead_storage_failed",
-                error=str(e),
-            )
+        # Promote the contact/quote lead that initiated this booking instead of
+        # creating a duplicate. The public ID is accepted only in the exact
+        # contact-ID format and is additionally bound to the submitted phone,
+        # so it cannot be used to mutate another shopper's lead.
+        raw_handoff_id = str(data.get("lead_id") or "").strip()
+        handoff_lead_id = (
+            raw_handoff_id if re.fullmatch(r"contact_\d+_[0-9a-f]{4}", raw_handoff_id) else ""
+        )
+        lead_accounted_for = False
+        if handoff_lead_id:
+            try:
+                existing_lead = await lead_manager.get_lead(handoff_lead_id)
+                existing_digits = (
+                    re.sub(r"\D", "", existing_lead.phone or "") if existing_lead else ""
+                )
+                if len(existing_digits) == 11 and existing_digits.startswith("1"):
+                    existing_digits = existing_digits[1:]
+                submitted_digits = phone_digits[-10:]
+                if existing_lead and existing_digits[-10:] == submitted_digits:
+                    existing_lead.appointment_requested = True
+                    existing_lead.status = "qualified"
+                    await lead_manager.update_lead(existing_lead)
+                    lead_accounted_for = True
+                elif existing_lead:
+                    struct_logger.warning(
+                        "Appointment handoff phone did not match lead",
+                        event="lead_handoff_phone_mismatch",
+                        lead_id=handoff_lead_id,
+                    )
+            except Exception as e:
+                # The appointment itself is already durable. Do not create a
+                # likely duplicate when the CRM read/update is merely down.
+                lead_accounted_for = True
+                warnings.append("lead_promotion_failed")
+                struct_logger.error(
+                    "Appointment lead promotion failed",
+                    event="lead_promotion_failed",
+                    error=str(e),
+                    lead_id=handoff_lead_id,
+                )
+
+        if not lead_accounted_for:
+            try:
+                lead_source = str(data.get("source") or "appointment").strip()[:100]
+                lead = Lead(
+                    lead_id=f"appt_lead_{int(time.time())}_{uuid.uuid4().hex[:4]}",
+                    user_id="appointment",
+                    session_id=f"appt_{int(time.time())}",
+                    source=lead_source or "appointment",
+                    name=name,
+                    phone=phone,
+                    email=appt.email,
+                    appointment_requested=True,
+                    **_extract_utm(data),
+                )
+                await lead_manager.create_lead(lead)
+            except Exception as e:
+                warnings.append("lead_storage_failed")
+                struct_logger.error(
+                    "Appointment lead creation failed",
+                    event="lead_storage_failed",
+                    error=str(e),
+                )
 
         result = {
             "success": True,

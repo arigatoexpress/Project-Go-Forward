@@ -37,10 +37,11 @@ def test_contact_rejects_sub_10_digit_phone(monkeypatch):
 
 
 def test_contact_accepts_formatted_10_digit_phone_clean_happy_path(monkeypatch):
-    client, *_ = create_client(monkeypatch)
+    client, main, *_ = create_client(monkeypatch)
     body = _post(client, name="Alice", phone="(281) 324-3020", email="a@example.com").json()
     assert body["success"] is True
     assert "warnings" not in body  # nothing failed -> no noise
+    assert body["lead_id"] == main.lead_manager.leads[-1].lead_id
 
 
 def test_contact_flags_lead_storage_failure_as_warning(monkeypatch):
@@ -56,6 +57,8 @@ def test_contact_flags_lead_storage_failure_as_warning(monkeypatch):
     assert body["success"] is True
     # ... but the dropped lead is now loud + alertable.
     assert "lead_storage_failed" in body.get("warnings", [])
+    # Never hand the browser a capability for a lead that was not persisted.
+    assert "lead_id" not in body
 
 
 def test_contact_creates_lead_with_name_phone_and_source(monkeypatch):
@@ -63,9 +66,7 @@ def test_contact_creates_lead_with_name_phone_and_source(monkeypatch):
     client, main, *_ = create_client(monkeypatch)
     before = len(main.lead_manager.leads)
 
-    body = _post(
-        client, name="Carol", phone="(281) 324-3020", email="carol@example.com"
-    ).json()
+    body = _post(client, name="Carol", phone="(281) 324-3020", email="carol@example.com").json()
     assert body["success"] is True
 
     # FakeLeadManager.create_lead appends the persisted Lead to .leads.
@@ -82,9 +83,7 @@ def test_contact_lead_carries_explicit_source(monkeypatch):
     client, main, *_ = create_client(monkeypatch)
     before = len(main.lead_manager.leads)
 
-    body = _post(
-        client, name="Dave", phone="2813243020", source="facebook_ad"
-    ).json()
+    body = _post(client, name="Dave", phone="2813243020", source="facebook_ad").json()
     assert body["success"] is True
 
     assert len(main.lead_manager.leads) == before + 1
