@@ -11,6 +11,9 @@ import EmptyState from '../components/EmptyState';
 import StatusBadge from '../components/StatusBadge';
 import { Skeleton, SkeletonCard } from '../components/Skeleton';
 import { generateSrcSet, getImageSizes } from '../utils/imageOptimization';
+import { getUtmParams } from '../utils/utm';
+import { trackEvent } from '../utils/analytics';
+import AppointmentHandoffCard from '../components/AppointmentHandoffCard';
 
 const MATTERPORT_BASE = "https://my.matterport.com/show/?m=";
 
@@ -51,32 +54,7 @@ function useFocusTrap(ref) {
   }, [ref]);
 }
 
-// ─── Analytics helper ───
-// Fire-and-forget to the dedicated /api/analytics sink. Previously this POSTed
-// to /api/contact, which validates name/phone and silently rejected every
-// event (the whole client event stream was lost). sendBeacon survives page
-// unload and never blocks; fetch+keepalive is the fallback.
-export function trackEvent(event, data = {}) {
-  try {
-    const payload = JSON.stringify({
-      event,
-      ...data,
-      path: typeof window !== 'undefined' ? window.location.pathname : undefined,
-    });
-    if (typeof navigator !== 'undefined' && navigator.sendBeacon) {
-      navigator.sendBeacon('/api/analytics', new Blob([payload], { type: 'application/json' }));
-    } else {
-      fetch('/api/analytics', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: payload,
-        keepalive: true,
-      }).catch(() => {});
-    }
-  } catch {
-    // Analytics should never interrupt the browsing flow.
-  }
-}
+export { trackEvent };
 
 // ─── Sort options ───
 const SORT_OPTIONS = [
@@ -435,7 +413,7 @@ function AdminInventoryPanel({ enabled }) {
 }
 
 
-export default function InventoryBrowse({ adminAuthed = false, onAskTex, onCreateAd }) {
+export default function InventoryBrowse({ adminAuthed = false, onAskTex, onCreateAd, onBookAppointment }) {
   const [homes, setHomes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -1069,6 +1047,7 @@ export default function InventoryBrowse({ adminAuthed = false, onAskTex, onCreat
           home={leadFormHome}
           type={leadFormType}
           onClose={() => { setShowLeadForm(false); setLeadFormHome(null); }}
+          onBookAppointment={onBookAppointment}
         />
       )}
     </div>
@@ -1812,11 +1791,12 @@ function SimilarHomes({ currentHome, allHomes, onSelectHome }) {
 
 
 // ─── Lead Capture Form Modal ───
-export function LeadCaptureForm({ home, type, onClose }) {
+export function LeadCaptureForm({ home, type, onClose, onBookAppointment }) {
   const [formData, setFormData] = useState({ name: '', phone: '', email: '', message: '' });
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState('');
+  const [persistedLeadId, setPersistedLeadId] = useState('');
   const modalRef = useRef(null);
   useFocusTrap(modalRef);
 
@@ -1832,6 +1812,7 @@ export function LeadCaptureForm({ home, type, onClose }) {
     }
     setSubmitting(true);
     setError('');
+    const intent = type === 'tour' ? 'tour' : 'quote';
     try {
       const resp = await fetch('/api/contact', {
         method: 'POST',
@@ -1841,6 +1822,8 @@ export function LeadCaptureForm({ home, type, onClose }) {
           phone: formData.phone,
           email: formData.email,
           message: `${type === 'tour' ? 'Tour Request' : 'Price Quote Request'} — ${home.model_name}. ${formData.message}`.trim(),
+          source: `inventory_${intent}`,
+          ...getUtmParams(),
         }),
       });
       // The backend returns HTTP 200 with {success:false} on validation or
@@ -1851,13 +1834,35 @@ export function LeadCaptureForm({ home, type, onClose }) {
         setError(result.error || `Something went wrong. Please call us at ${BUSINESS_PHONE}.`);
         return;
       }
+      setPersistedLeadId(result.lead_id || '');
       setSubmitted(true);
-      trackEvent('lead_captured', { home: home.model_name, type });
+      trackEvent('lead_captured', { home: home.model_name, type: intent });
     } catch {
       setError(`Something went wrong. Please call us at ${BUSINESS_PHONE}.`);
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const handleBookAppointment = () => {
+    const intent = type === 'tour' ? 'tour' : 'quote';
+    const details = formData.message.trim();
+    trackEvent('appointment_handoff_started', {
+      source: `inventory_${intent}_handoff`,
+      home: home.model_name,
+      intent,
+    });
+    onBookAppointment?.({
+      name: formData.name,
+      phone: formData.phone,
+      email: formData.email,
+      notes: `Interested in ${home.model_name}.${details ? ` ${details}` : ''}`,
+      leadId: persistedLeadId,
+      source: `inventory_${intent}_handoff`,
+      home: home.model_name,
+      homeId: home.home_id,
+      intent,
+    });
   };
 
   return (
@@ -1879,16 +1884,12 @@ export function LeadCaptureForm({ home, type, onClose }) {
         </button>
 
         {submitted ? (
-          <div className="flex flex-col items-center text-center gap-3 py-2">
-            <CheckCircle2 size={48} className="text-green-500" />
-            <h3 className="text-xl font-bold text-slate-800">Thank You!</h3>
-            <p className="text-sm text-gray-600">
-              We received your {type === 'tour' ? 'tour request' : 'price quote request'} for the <strong>{home.model_name}</strong>. Our team will contact you shortly.
-            </p>
-            <button onClick={onClose} className="btn-primary mt-2">
-              Done
-            </button>
-          </div>
+          <AppointmentHandoffCard
+            title="Thank You!"
+            description={`We received your ${type === 'tour' ? 'tour request' : 'price quote request'} for the ${home.model_name}. Reserve a showroom time now or keep browsing.`}
+            onStart={handleBookAppointment}
+            onContinue={onClose}
+          />
         ) : (
           <>
             <div className="text-center mb-6">
