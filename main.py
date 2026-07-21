@@ -576,9 +576,7 @@ class _MetricsStore:
     def get_metrics(self) -> dict:
         with self._lock:
             global_data = list(self._global_buffer)
-            endpoint_data = {
-                key: list(buf) for key, buf in self._endpoint_buffers.items()
-            }
+            endpoint_data = {key: list(buf) for key, buf in self._endpoint_buffers.items()}
 
         global_durations = [d for d, _ in global_data]
         overall = self._calculate_percentiles(global_durations)
@@ -866,7 +864,12 @@ def _should_redirect_to_canonical_host(request: Request) -> bool:
     path = request.url.path
     if path == "/llms.txt":
         return False
-    if path.startswith("/health") or path.startswith("/readyz") or path == "/api" or path.startswith("/api/"):
+    if (
+        path.startswith("/health")
+        or path.startswith("/readyz")
+        or path == "/api"
+        or path.startswith("/api/")
+    ):
         return False
     if path.startswith("/assets/") or path.startswith("/workbox-"):
         return False
@@ -1033,7 +1036,6 @@ def _extract_utm(data: dict) -> dict:
         "utm_term": clip(data.get("utm_term")),
         "referrer": clip(data.get("referrer")),
     }
-
 
 
 def _verify_csrf(request: Request) -> bool:
@@ -1838,9 +1840,7 @@ async def get_event_analytics(range: str = "30d"):
 
         by_type = Counter(e.get("event", "unknown") for e in events)
         top_homes = Counter(
-            (e.get("props") or {}).get("home")
-            for e in events
-            if (e.get("props") or {}).get("home")
+            (e.get("props") or {}).get("home") for e in events if (e.get("props") or {}).get("home")
         )
         daily = Counter(str(e.get("created_at") or "")[:10] for e in events)
         return {
@@ -3198,7 +3198,9 @@ async def create_inventory_item(request: Request):
         for _cost_field in ("invoice_amount", "invoice_date", "cost"):
             payload.pop(_cost_field, None)
         if not payload.get("model_name"):
-            return JSONResponse({"success": False, "error": "model_name is required."}, status_code=400)
+            return JSONResponse(
+                {"success": False, "error": "model_name is required."}, status_code=400
+            )
         payload.setdefault("status", "AVAILABLE")
         payload.setdefault("source", "staff_created")
         inventory_id = _db.create_inventory(payload)
@@ -3229,7 +3231,9 @@ async def update_inventory_item(inventory_id: str, request: Request):
         for _cost_field in ("invoice_amount", "invoice_date", "cost"):
             payload.pop(_cost_field, None)
         if not payload:
-            return JSONResponse({"success": False, "error": "No fields to update."}, status_code=400)
+            return JSONResponse(
+                {"success": False, "error": "No fields to update."}, status_code=400
+            )
         _db.update_inventory(inventory_id, payload)
         log_admin_action(
             actor=_audit_actor(request),
@@ -4801,8 +4805,7 @@ async def list_listing_photos(home_id: str):
         "success": True,
         "home_id": image_storage.safe_home_id(home_id),
         "photos": [
-            {"filename": p.filename, "url": p.url, "size_bytes": p.size_bytes}
-            for p in photos
+            {"filename": p.filename, "url": p.url, "size_bytes": p.size_bytes} for p in photos
         ],
     }
 
@@ -4843,9 +4846,7 @@ async def upload_listing_photos(
         except image_storage.PhotoValidationError as exc:
             errors.append({"name": upload.filename, "error": str(exc)})
         except Exception as exc:  # pragma: no cover - unexpected storage failure
-            struct_logger.error(
-                "Listing photo upload failed", home_id=home_id, error=str(exc)
-            )
+            struct_logger.error("Listing photo upload failed", home_id=home_id, error=str(exc))
             errors.append({"name": upload.filename, "error": "Could not save this photo."})
         finally:
             await upload.close()
@@ -4916,7 +4917,7 @@ async def reorder_listing_photos(request: Request, home_id: str):
         body = {}
     order = body.get("order") if isinstance(body, dict) else None
     if not isinstance(order, list) or not all(isinstance(x, str) for x in order):
-        raise HTTPException(status_code=400, detail="Body must be {\"order\": [filenames]}.")
+        raise HTTPException(status_code=400, detail='Body must be {"order": [filenames]}.')
     try:
         photos = image_storage.set_photo_order(home_id, order)
     except image_storage.PhotoValidationError as exc:
@@ -4933,8 +4934,7 @@ async def reorder_listing_photos(request: Request, home_id: str):
         "success": True,
         "home_id": image_storage.safe_home_id(home_id),
         "photos": [
-            {"filename": p.filename, "url": p.url, "size_bytes": p.size_bytes}
-            for p in photos
+            {"filename": p.filename, "url": p.url, "size_bytes": p.size_bytes} for p in photos
         ],
     }
 
@@ -5176,7 +5176,9 @@ async def email_inbound_webhook(request: Request):
         struct_logger.error("Inbound email lead persist failed", error=str(e))
         inbound_lead_id = ""
     try:
-        notify_new_lead(customer_name=name, phone="(email lead)", email=bare, source="inbound email")
+        notify_new_lead(
+            customer_name=name, phone="(email lead)", email=bare, source="inbound email"
+        )
     except Exception as e:
         struct_logger.warning("Inbound email staff notify failed", error=str(e))
 
@@ -6050,6 +6052,53 @@ async def get_admin_audit_log(
     except Exception as e:
         struct_logger.error("Audit log query failed", error=str(e))
         return {"success": False, "error": "Failed to load audit log."}
+
+
+@app.get("/api/admin/email-reply-drafts", dependencies=[Depends(require_admin)])
+async def get_admin_email_reply_drafts(
+    status: str | None = None,
+    limit: int = 50,
+):
+    """Read-only listing of human-review email reply drafts.
+
+    Filterable by draft ``status``; ``limit`` defaults to 50 (the store
+    clamps it to [1, 200]). READ-ONLY: this endpoint never transitions a
+    draft, never sends, and never writes an audit entry.
+    """
+    # Lazy import mirrors the other email-pipeline call sites in this module
+    # and keeps the Firestore-backed store off the startup path.
+    import email_reply_drafts
+
+    valid_statuses = [
+        email_reply_drafts.STATUS_PENDING,
+        email_reply_drafts.STATUS_APPROVED,
+        email_reply_drafts.STATUS_REJECTED,
+        email_reply_drafts.STATUS_SENT,
+        email_reply_drafts.STATUS_EXPIRED,
+    ]
+    try:
+        # Validate enum-shaped params so a typo at the call site comes back
+        # as a clear 400 instead of a silently empty result set.
+        if status and status not in valid_statuses:
+            return JSONResponse(
+                {
+                    "success": False,
+                    "error": f"Invalid status. Must be one of: {valid_statuses}",
+                },
+                status_code=400,
+            )
+
+        # The strict read must distinguish a real empty queue from a Firestore
+        # outage or query failure; staff cannot review drafts they cannot see.
+        drafts = email_reply_drafts.list_drafts_strict(status=status, limit=limit)
+        return {
+            "success": True,
+            "drafts": [email_reply_drafts.to_dict(d) for d in drafts],
+            "count": len(drafts),
+        }
+    except Exception as e:
+        struct_logger.error("Email reply drafts query failed", error=str(e))
+        return {"success": False, "error": "Failed to load email reply drafts."}
 
 
 @app.get("/api/admin/user-activity", dependencies=[Depends(require_admin)])
@@ -7098,7 +7147,11 @@ async def v1_create_customer(request: Request):
             action="customer.create",
             target_type="customer",
             target_id=str(created_id),
-            details={"status": status, "via": "partner_api", "legacy_source": customer["legacy_source"]},
+            details={
+                "status": status,
+                "via": "partner_api",
+                "legacy_source": customer["legacy_source"],
+            },
             request=request,
         )
         return {"id": created_id}
@@ -7479,7 +7532,9 @@ def _deal_phone_ok(deal_data: dict, provided) -> bool:
     )
 
 
-_PORTAL_VERIFY_MSG = "Verification failed. Enter the phone number on your application (last 4 digits)."
+_PORTAL_VERIFY_MSG = (
+    "Verification failed. Enter the phone number on your application (last 4 digits)."
+)
 
 
 @app.get("/api/v1/customer/deal/{deal_id}")
@@ -7718,9 +7773,7 @@ EMAIL_CODE_RESEND_COOLDOWN_SECONDS = 30
 
 def _email_login_invalid_response() -> JSONResponse:
     """Uniform 401 so callers can't distinguish wrong-code from no-code."""
-    return JSONResponse(
-        {"success": False, "error": "Invalid or expired code."}, status_code=401
-    )
+    return JSONResponse({"success": False, "error": "Invalid or expired code."}, status_code=401)
 
 
 @app.post("/api/admin/email-code/request")
@@ -7735,9 +7788,7 @@ async def request_admin_email_code(request: Request):
     try:
         data = await request.json()
     except (JSONDecodeError, ValueError):
-        return JSONResponse(
-            {"success": False, "error": "Malformed JSON body."}, status_code=400
-        )
+        return JSONResponse({"success": False, "error": "Malformed JSON body."}, status_code=400)
     if not isinstance(data, dict):
         return JSONResponse(
             {"success": False, "error": "Request body must be a JSON object."},
@@ -7767,9 +7818,7 @@ async def request_admin_email_code(request: Request):
     # re-send (the existing code is still valid). Response stays generic.
     existing = store.get(email)
     if existing is not None and (now - existing.created_at) < EMAIL_CODE_RESEND_COOLDOWN_SECONDS:
-        struct_logger.info(
-            "Admin email-code resend suppressed (cooldown)", client_ip=client_ip
-        )
+        struct_logger.info("Admin email-code resend suppressed (cooldown)", client_ip=client_ip)
         return generic_ok
 
     code = generate_code()
@@ -7817,9 +7866,7 @@ async def verify_admin_email_code(request: Request):
     try:
         data = await request.json()
     except (JSONDecodeError, ValueError):
-        return JSONResponse(
-            {"success": False, "error": "Malformed JSON body."}, status_code=400
-        )
+        return JSONResponse({"success": False, "error": "Malformed JSON body."}, status_code=400)
     if not isinstance(data, dict):
         return JSONResponse(
             {"success": False, "error": "Request body must be a JSON object."},
@@ -7828,9 +7875,7 @@ async def verify_admin_email_code(request: Request):
     email = str(data.get("email", "")).strip().lower()
     code = data.get("code", "")
     if not isinstance(code, str):
-        return JSONResponse(
-            {"success": False, "error": "Code must be a string."}, status_code=400
-        )
+        return JSONResponse({"success": False, "error": "Code must be a string."}, status_code=400)
     code = code.strip()
 
     # Fail closed BEFORE consuming a code: if admin auth isn't configured, mirror

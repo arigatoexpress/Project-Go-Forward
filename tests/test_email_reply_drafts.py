@@ -77,21 +77,42 @@ class FakeDocRef:
 
 
 class FakeQuery:
-    def __init__(self, store: dict, filters=None, limit_value=None):
+    def __init__(self, store: dict, filters=None, limit_value=None, order=None):
         self._store = store
         self._filters = list(filters or [])
         self._limit = limit_value
+        self._order = order
 
     def where(self, field, op, value):
         assert op == "=="
-        return FakeQuery(self._store, self._filters + [(field, value)], self._limit)
+        return FakeQuery(
+            self._store,
+            self._filters + [(field, value)],
+            self._limit,
+            self._order,
+        )
+
+    def order_by(self, field, direction="ASCENDING"):
+        return FakeQuery(
+            self._store,
+            self._filters,
+            self._limit,
+            (field, direction),
+        )
 
     def limit(self, n):
-        return FakeQuery(self._store, self._filters, n)
+        return FakeQuery(self._store, self._filters, n, self._order)
 
     def stream(self):
         emitted = 0
-        for doc_id, data in list(self._store.items()):
+        items = list(self._store.items())
+        if self._order:
+            field, direction = self._order
+            items.sort(
+                key=lambda item: item[1].get(field, ""),
+                reverse=str(direction).upper().endswith("DESCENDING"),
+            )
+        for doc_id, data in items:
             if all(data.get(f) == v for f, v in self._filters):
                 if self._limit is not None and emitted >= self._limit:
                     return
@@ -111,6 +132,9 @@ class FakeCollection:
 
     def limit(self, n):
         return FakeQuery(self.docs).limit(n)
+
+    def order_by(self, field, direction="ASCENDING"):
+        return FakeQuery(self.docs).order_by(field, direction)
 
     def stream(self):
         return FakeQuery(self.docs).stream()
@@ -246,18 +270,40 @@ class TestReadPaths:
         _make(fake_db, message_id="m2")
         assert len(list_drafts()) == 2
 
+    def test_list_drafts_orders_newest_before_applying_limit(self, fake_db):
+        oldest = _make(fake_db, message_id="oldest")
+        middle = _make(fake_db, message_id="middle")
+        newest = _make(fake_db, message_id="newest")
+        col = fake_db.collections[drafts.DRAFTS_COLLECTION]
+        col.docs[oldest.draft_id]["created_at"] = "2026-01-01T00:00:00+00:00"
+        col.docs[middle.draft_id]["created_at"] = "2026-02-01T00:00:00+00:00"
+        col.docs[newest.draft_id]["created_at"] = "2026-03-01T00:00:00+00:00"
+
+        assert [d.message_id for d in list_drafts(limit=2)] == ["newest", "middle"]
+
     def test_list_drafts_no_db_returns_empty(self, monkeypatch):
         monkeypatch.setattr(drafts, "_get_db", lambda: None)
         assert list_drafts() == []
+
+    def test_list_drafts_strict_raises_when_store_unavailable(self, monkeypatch):
+        monkeypatch.setattr(drafts, "_get_db", lambda: None)
+        with pytest.raises(drafts.ReplyDraftStoreError):
+            drafts.list_drafts_strict()
+
+    def test_list_drafts_strict_raises_when_query_fails(self, fake_db, monkeypatch):
+        def fail_collection(_name):
+            raise RuntimeError("Firestore unavailable")
+
+        monkeypatch.setattr(fake_db, "collection", fail_collection)
+        with pytest.raises(drafts.ReplyDraftStoreError):
+            drafts.list_drafts_strict()
 
 
 # ─── State machine ─────────────────────────────────────────────────────────
 
 
 class TestTransitions:
-    @pytest.mark.parametrize(
-        "target", [STATUS_APPROVED, STATUS_REJECTED, STATUS_EXPIRED]
-    )
+    @pytest.mark.parametrize("target", [STATUS_APPROVED, STATUS_REJECTED, STATUS_EXPIRED])
     def test_pending_legal_transitions(self, fake_db, target):
         draft = _make(fake_db)
         updated = transition(draft.draft_id, target, actor="ari")
@@ -324,9 +370,7 @@ class TestSafetyInvariants:
 
         source = Path(module.__file__).read_text()
         import_lines = [
-            line
-            for line in source.splitlines()
-            if line.strip().startswith(("import ", "from "))
+            line for line in source.splitlines() if line.strip().startswith(("import ", "from "))
         ]
         assert not any("email_service" in line for line in import_lines)
         assert not any("resend" in line.lower() for line in import_lines)
