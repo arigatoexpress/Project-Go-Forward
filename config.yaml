@@ -56,12 +56,17 @@ business:
     - "Livingston"
   # Social / Google Business Profile URLs — FILL IN to strengthen local SEO + map
   # placement (schema.org sameAs): Facebook, Instagram, Google Business Profile, etc.
-  same_as: []
-  # Exact showroom coordinates for schema.org geo — get lat/lng from your Google
-  # Business Profile and fill in (improves Google Maps / local-pack placement).
+  same_as:
+    - "https://www.facebook.com/texashomeoutlet/"
+    - "https://www.yelp.com/biz/texas-home-outlet-east-huffman-2"
+    - "https://www.bbb.org/us/tx/huffman/profile/manufactured-homes-sales/texas-home-outlet-0915-22000840"
+  # Exact showroom coordinates for schema.org geo (improves Google Maps /
+  # local-pack placement). Current values: US Census geocoder match for
+  # "10685 FM 1960, Huffman, TX 77336" — refine from the Google Business
+  # Profile pin once the GBP is verified.
   geo:
-    latitude: null
-    longitude: null
+    latitude: 30.018056
+    longitude: -95.115729
 
   # Operating hours
   hours:

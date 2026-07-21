@@ -576,13 +576,14 @@ def _analytics_head() -> str:
 def _default_og_image() -> str | None:
     """Brand social-share image (og:image / twitter:image) from OG_IMAGE_URL.
 
-    No-op when unset: pages emit no og:image (today's behavior). A relative
-    value (starts with "/") is resolved against the canonical base so the
-    emitted URL is absolute, as social scrapers require. Set this ONLY once a
-    real 1200x630 raster exists at that URL — scrapers reject SVG, and a
-    missing asset would make og:image a broken link (worse than none).
+    Defaults to the bundled /og-card.png (a real 1200x630 raster shipped in
+    the frontend build, so code + asset deploy atomically and the URL cannot
+    dangle). OG_IMAGE_URL overrides it; setting it to an empty string opts
+    out entirely. A relative value (starts with "/") is resolved against the
+    canonical base so the emitted URL is absolute, as social scrapers
+    require — scrapers reject SVG, keep this a raster.
     """
-    raw = (os.environ.get("OG_IMAGE_URL") or "").strip()
+    raw = os.environ.get("OG_IMAGE_URL", "/og-card.png").strip()
     if not raw:
         return None
     return _base() + raw if raw.startswith("/") else raw
