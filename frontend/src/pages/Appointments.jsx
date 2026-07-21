@@ -382,6 +382,11 @@ const Appointments = ({ onBack, prefill, onHandoffComplete }) => {
       if (data.success) {
         setResult(data);
         setStep(5); // success
+        trackEvent('appointment_booked', {
+          source: prefill?.source || 'website',
+          intent: prefill?.intent || 'showroom_visit',
+          home: prefill?.home,
+        });
         if (prefill) {
           trackEvent('appointment_handoff_completed', {
             source: prefill.source,

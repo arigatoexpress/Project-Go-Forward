@@ -36,6 +36,7 @@ const Contact = ({ onBack, onBookAppointment }) => {
             if (data.success) {
                 setPersistedLeadId(data.lead_id || '');
                 setSubmitted(true);
+                trackEvent('lead_captured', { source: 'contact', type: 'contact' });
             } else {
                 setSubmitError(data.error || 'Something went wrong. Please try again.');
             }

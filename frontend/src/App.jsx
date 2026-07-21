@@ -12,6 +12,7 @@ import ErrorBoundary from './components/ErrorBoundary';
 import ClosureBanner from './components/ClosureBanner';
 import { v4 as uuidv4 } from 'uuid';
 import { captureUtmFromUrl, getUtmParams } from './utils/utm';
+import { trackEvent } from './utils/analytics';
 import {
   BUSINESS_NAME, BUSINESS_PHONE, BUSINESS_PHONE_RAW, BUSINESS_FULL_ADDRESS,
   BUSINESS_HOURS, BUSINESS_LICENSE, BUSINESS_CITY, BUSINESS_STATE
@@ -47,6 +48,7 @@ const HealthDashboard = lazy(() => import('./pages/HealthDashboard'));
 // (see scripts/generate_admin_pin_hash.py).
 const ADMIN_PIN_MAXLEN = 64;
 const ADMIN_PAGE_KEYS = new Set(['analytics', 'crm', 'chat-history', 'documents', 'adstudio', 'system', 'getting-started', 'photos', 'manage-inventory', 'health']);
+const PUBLIC_ANALYTICS_PAGE_KEYS = new Set(['inventory', 'chat', 'contact', 'appointments', 'about', 'financing', 'faq', 'warranty', 'delivery']);
 
 // Page loading fallback with skeleton
 const PageLoader = () => (
@@ -458,6 +460,14 @@ function App() {
   const [activePage, setActivePage] = useState(() => pageFromPath(window.location.pathname));
   const [appointmentHandoff, setAppointmentHandoff] = useState(null);
   const isStandaloneMode = window.location.pathname.startsWith('/app/') || window.location.search.includes('standalone=1');
+
+  // GA4 does not automatically see client-side route changes. Keep public SPA
+  // page views measurable while excluding every admin/noindex surface.
+  useEffect(() => {
+    if (PUBLIC_ANALYTICS_PAGE_KEYS.has(activePage)) {
+      trackEvent('page_viewed', { page: activePage, page_path: window.location.pathname });
+    }
+  }, [activePage]);
 
   // Keep activePage in sync with browser back/forward navigation
   useEffect(() => {

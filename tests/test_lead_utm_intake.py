@@ -30,6 +30,7 @@ def test_contact_persists_utm_from_body(monkeypatch):
         utm_campaign="spring-sale",
         utm_content="reel-a",
         referrer="https://t.co/x",
+        gclid="EAIaIQobChMI_test-123",
     ).json()
     assert body["success"] is True
 
@@ -41,6 +42,7 @@ def test_contact_persists_utm_from_body(monkeypatch):
     assert created.utm_content == "reel-a"
     assert created.utm_term is None
     assert created.referrer == "https://t.co/x"
+    assert created.gclid == "EAIaIQobChMI_test-123"
 
 
 def test_contact_without_utm_leaves_fields_none(monkeypatch):
@@ -65,7 +67,9 @@ def test_appointment_persists_utm_from_body(monkeypatch):
 
     # The harness's FakeAppointment/FakeAppointmentManager can't model a booking,
     # so stub Appointment + create_appointment to reach the CRM-lead path.
-    monkeypatch.setattr(main, "Appointment", lambda **kw: types.SimpleNamespace(**kw), raising=False)
+    monkeypatch.setattr(
+        main, "Appointment", lambda **kw: types.SimpleNamespace(**kw), raising=False
+    )
 
     async def ok_create(_appt):
         return types.SimpleNamespace(to_dict=lambda: {"appointment_id": "appt_test"})
@@ -112,3 +116,23 @@ def test_utm_values_are_length_capped(monkeypatch):
     created = main.lead_manager.leads[-1]
     assert len(created.utm_campaign) == 200
     assert created.utm_campaign == "x" * 200
+
+
+def test_google_click_ids_are_allowlisted_and_malformed_values_are_dropped(monkeypatch):
+    client, main, *_ = create_client(monkeypatch)
+    before = len(main.lead_manager.leads)
+
+    body = _post_contact(
+        client,
+        name="Ella",
+        phone="2813243020",
+        gclid="EAIaIQobChMI_valid-123",
+        gbraid="<script>alert(1)</script>",
+        wbraid="WBRAID_valid_456",
+    ).json()
+    assert body["success"] is True
+
+    created = main.lead_manager.leads[before]
+    assert created.gclid == "EAIaIQobChMI_valid-123"
+    assert created.gbraid is None
+    assert created.wbraid == "WBRAID_valid_456"

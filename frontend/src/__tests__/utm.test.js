@@ -8,12 +8,13 @@ describe('captureUtmFromUrl', () => {
   });
 
   it('writes allowed fields to sessionStorage', () => {
-    captureUtmFromUrl('?utm_source=instagram&utm_campaign=spring-sale');
+    captureUtmFromUrl('?utm_source=google&utm_campaign=spring-sale&gclid=EAIaIQobChMI_test-123');
     const raw = sessionStorage.getItem('tho_utm');
     expect(raw).not.toBeNull();
     const parsed = JSON.parse(raw);
-    expect(parsed.utm_source).toBe('instagram');
+    expect(parsed.utm_source).toBe('google');
     expect(parsed.utm_campaign).toBe('spring-sale');
+    expect(parsed.gclid).toBe('EAIaIQobChMI_test-123');
   });
 
   it('first capture wins', () => {
@@ -29,6 +30,13 @@ describe('captureUtmFromUrl', () => {
     const parsed = JSON.parse(sessionStorage.getItem('tho_utm'));
     expect(parsed.utm_source).toBe('ig');
     expect(parsed.foo).toBeUndefined();
+  });
+
+  it('captures allowlisted Google click IDs but rejects malformed values', () => {
+    captureUtmFromUrl('?gbraid=GBRAID_abc-123&wbraid=%3Cscript%3E');
+    const parsed = JSON.parse(sessionStorage.getItem('tho_utm'));
+    expect(parsed.gbraid).toBe('GBRAID_abc-123');
+    expect(parsed.wbraid).toBeUndefined();
   });
 
   it('captures referrer when present', () => {
