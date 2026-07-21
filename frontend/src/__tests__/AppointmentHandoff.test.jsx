@@ -5,11 +5,16 @@ import Appointments from '../pages/Appointments';
 
 afterEach(() => {
   vi.restoreAllMocks();
+  delete window.gtag;
+  delete window.__THO_ANALYTICS_CONSENT__;
 });
 
 describe('contact appointment handoff', () => {
   it('passes the persisted contact and message into appointment booking', async () => {
     const onBookAppointment = vi.fn();
+    const gtag = vi.fn();
+    window.gtag = gtag;
+    window.__THO_ANALYTICS_CONSENT__ = 'granted';
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({ success: true, lead_id: 'contact_456_ef01' }),
@@ -21,6 +26,11 @@ describe('contact appointment handoff', () => {
     fireEvent.change(screen.getByLabelText('Email (optional)'), { target: { value: 'ari@example.com' } });
     fireEvent.change(screen.getByLabelText('What can we help with?'), { target: { value: 'Looking for a 3 bedroom.' } });
     fireEvent.click(screen.getByRole('button', { name: 'Send Message' }));
+    await waitFor(() => expect(gtag).toHaveBeenCalledWith('event', 'generate_lead', {
+      source: 'contact',
+      type: 'contact',
+      tho_event: 'lead_captured',
+    }));
     fireEvent.click(await screen.findByRole('button', { name: /Choose a visit time/i }));
 
     expect(onBookAppointment).toHaveBeenCalledWith({
@@ -37,6 +47,9 @@ describe('contact appointment handoff', () => {
 
 describe('appointment prefill', () => {
   it('keeps PII in component state and submits the bound lead id', async () => {
+    const gtag = vi.fn();
+    window.gtag = gtag;
+    window.__THO_ANALYTICS_CONSENT__ = 'granted';
     const prefill = {
       name: 'Ari Buyer',
       phone: '2813243020',
@@ -78,6 +91,12 @@ describe('appointment prefill', () => {
       phone: '2813243020',
       lead_id: 'contact_123_abcd',
       source: 'inventory_quote_handoff',
+    });
+    expect(gtag).toHaveBeenCalledWith('event', 'schedule_appointment', {
+      source: 'inventory_quote_handoff',
+      intent: 'quote',
+      home: 'Sapphire 3-Bed',
+      tho_event: 'appointment_booked',
     });
   });
 });

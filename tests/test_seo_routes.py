@@ -182,16 +182,12 @@ def test_accented_detail_url_does_not_redirect_loop(monkeypatch):
     monkeypatch.setattr(seo_routes, "_registry_built_at", 0.0)
 
     # The canonical (percent-encoded) URL must serve 200, not loop on 301.
-    resp = client.get(
-        "/plan/222026/compass/cort%C3%A9s-230/", follow_redirects=False
-    )
+    resp = client.get("/plan/222026/compass/cort%C3%A9s-230/", follow_redirects=False)
     assert resp.status_code == 200, f"expected 200, got {resp.status_code} (loop?)"
     assert "Cort" in resp.text  # rendered the home page, not a redirect
 
     # A genuinely different slug for the same id still 301s once to canonical.
-    resp2 = client.get(
-        "/plan/222026/compass/wrong-slug-230/", follow_redirects=False
-    )
+    resp2 = client.get("/plan/222026/compass/wrong-slug-230/", follow_redirects=False)
     assert resp2.status_code == 301
     assert resp2.headers["location"] == "/plan/222026/compass/cort%C3%A9s-230/"
 
@@ -201,13 +197,13 @@ def test_legacy_vendor_pages_301_to_relevant_targets(monkeypatch):
     # to preserve search equity on cutover. Source: old site page-sitemap.xml.
     client, _ = seo_client(monkeypatch)
     cases = {
-        "/tru-homes/": "/inventory",                        # brand
+        "/tru-homes/": "/inventory",  # brand
         "/manufactured-homes-in-jasper-tx/": "/inventory",  # unserved city (still legacy 301)
-        "/single-wide/": "/inventory",                       # category
-        "/homes/": "/inventory",                             # generic legacy 'homes' landing
-        "/financing/": "/financing",                         # now a real public page
-        "/about-us/": "/about",                              # now a real public page
-        "/accessibility-statement/": "/",                    # boilerplate
+        "/single-wide/": "/inventory",  # category
+        "/homes/": "/inventory",  # generic legacy 'homes' landing
+        "/financing/": "/financing",  # now a real public page
+        "/about-us/": "/about",  # now a real public page
+        "/accessibility-statement/": "/",  # boilerplate
     }
     for path, target in cases.items():
         response = client.get(path, follow_redirects=False)
@@ -260,8 +256,15 @@ def test_public_routes_have_unique_titles_and_canonicals(monkeypatch):
     client, _ = seo_client(monkeypatch)
     titles = {}
     for path in (
-        "/", "/inventory", "/contact", "/appointments",
-        "/about", "/financing", "/faq", "/warranty", "/delivery",
+        "/",
+        "/inventory",
+        "/contact",
+        "/appointments",
+        "/about",
+        "/financing",
+        "/faq",
+        "/warranty",
+        "/delivery",
     ):
         body = client.get(path).text
         title = re.search(r"<title>(.*?)</title>", body, re.DOTALL).group(1)
@@ -387,18 +390,26 @@ def test_analytics_no_op_when_unconfigured(monkeypatch):
     assert "TiktokAnalyticsObject" not in body
 
 
-def test_ga4_snippet_emitted_only_with_valid_id(monkeypatch):
+def test_ga4_loader_emitted_only_with_valid_id_and_defaults_to_denied(monkeypatch):
     for var in _ANALYTICS_ENV:
         monkeypatch.delenv(var, raising=False)
     client, _ = seo_client(monkeypatch)
     # malformed id -> treated as unset, no snippet
     monkeypatch.setenv("GA4_MEASUREMENT_ID", "not-a-valid-id")
     assert "googletagmanager.com/gtag/js" not in client.get("/").text
-    # valid id -> exactly that id appears in a gtag snippet on the public page
+    # Valid ID -> consent bootloader is present, but the third-party script is
+    # created only after an explicit stored grant (no eager <script src>).
     monkeypatch.setenv("GA4_MEASUREMENT_ID", "G-ABC1234XYZ")
     body = client.get("/").text
-    assert "https://www.googletagmanager.com/gtag/js?id=G-ABC1234XYZ" in body
-    assert "gtag('config','G-ABC1234XYZ')" in body
+    assert "https://www.googletagmanager.com/gtag/js?id=" in body
+    assert '"GA4_MEASUREMENT_ID":"G-ABC1234XYZ"' in body
+    assert "analytics_storage:'denied'" in body
+    assert "ad_storage:'denied'" in body
+    assert "ad_user_data:'granted',ad_personalization:'denied'" in body
+    assert "__THO_ENABLE_ANALYTICS__" in body
+    assert "__THO_ANALYTICS_CONFIGURED__=true" in body
+    assert "send_page_view:false" in body
+    assert '<script async src="https://www.googletagmanager.com/gtag/js' not in body
 
 
 def test_meta_and_tiktok_pixels_emitted_with_valid_ids(monkeypatch):
@@ -408,8 +419,21 @@ def test_meta_and_tiktok_pixels_emitted_with_valid_ids(monkeypatch):
     monkeypatch.setenv("META_PIXEL_ID", "1234567890123456")
     monkeypatch.setenv("TIKTOK_PIXEL_ID", "CABCDEF1234567890GHIJK")
     body = client.get("/").text
-    assert "fbq('init','1234567890123456')" in body
-    assert "ttq.load('CABCDEF1234567890GHIJK')" in body
+    assert '"META_PIXEL_ID":"1234567890123456"' in body
+    assert '"TIKTOK_PIXEL_ID":"CABCDEF1234567890GHIJK"' in body
+    assert "w.fbq('init',id)" in body
+    assert "ttq.load(id)" in body
+
+
+def test_analytics_bootloader_uses_one_first_party_consent_key(monkeypatch):
+    for var in _ANALYTICS_ENV:
+        monkeypatch.delenv(var, raising=False)
+    client, _ = seo_client(monkeypatch)
+    monkeypatch.setenv("GTM_CONTAINER_ID", "GTM-ABC1234")
+    body = client.get("/").text
+    assert "tho_analytics_consent_v1" in body
+    assert "localStorage.getItem" in body
+    assert "pref==='granted'" in body
 
 
 def test_analytics_never_emitted_on_noindex_routes(monkeypatch):
@@ -439,9 +463,7 @@ def test_og_image_defaults_to_bundled_card(monkeypatch):
     assert 'property="og:image"' not in client.get("/").text
     monkeypatch.delenv("OG_IMAGE_URL", raising=False)
     body = client.get("/").text
-    assert re.search(
-        r'<meta property="og:image" content="https?://[^"]+/og-card\.png"', body
-    )
+    assert re.search(r'<meta property="og:image" content="https?://[^"]+/og-card\.png"', body)
     assert 'name="twitter:image"' in body
 
 
@@ -450,9 +472,7 @@ def test_detail_page_prefers_home_photo_for_og_image(monkeypatch):
     specific home shows that home), not the brand default."""
     monkeypatch.setenv("OG_IMAGE_URL", "/og-card.png")
     client, _ = seo_client(monkeypatch)
-    body = client.get(
-        "/inventory-detail/43372/texas-home-outlet/huffman/premier/"
-    ).text
+    body = client.get("/inventory-detail/43372/texas-home-outlet/huffman/premier/").text
     m = re.search(r'<meta property="og:image" content="([^"]+)"', body)
     assert m, "detail page should have an og:image"
     assert "og-card.png" not in m.group(1)  # used the home photo, not the default
@@ -461,9 +481,7 @@ def test_detail_page_prefers_home_photo_for_og_image(monkeypatch):
 def _jsonld_blocks(body):
     return [
         json.loads(b)
-        for b in re.findall(
-            r'<script type="application/ld\+json">(.*?)</script>', body, re.DOTALL
-        )
+        for b in re.findall(r'<script type="application/ld\+json">(.*?)</script>', body, re.DOTALL)
     ]
 
 
@@ -473,10 +491,7 @@ def test_local_business_jsonld_has_local_seo_fields(monkeypatch):
     # These are config-driven (config.yaml business.*), so they ride along on
     # every public page without code changes.
     client, _ = seo_client(monkeypatch)
-    biz = next(
-        b for b in _jsonld_blocks(client.get("/").text)
-        if b.get("@type") == "LocalBusiness"
-    )
+    biz = next(b for b in _jsonld_blocks(client.get("/").text) if b.get("@type") == "LocalBusiness")
     assert biz["priceRange"]  # non-empty (config: "$$")
     served = {c["name"] for c in biz["areaServed"]}
     assert {"Huffman", "Humble", "Baytown"} <= served
@@ -488,10 +503,7 @@ def test_local_business_jsonld_has_organization_entity_fields(monkeypatch):
     # logo (config-driven), a sales contactPoint, and knowsAbout topics. All
     # accurate + additive — no price/review/FAQ data, so no policy risk.
     client, _ = seo_client(monkeypatch)
-    biz = next(
-        b for b in _jsonld_blocks(client.get("/").text)
-        if b.get("@type") == "LocalBusiness"
-    )
+    biz = next(b for b in _jsonld_blocks(client.get("/").text) if b.get("@type") == "LocalBusiness")
     assert biz["logo"].startswith("http") and biz["logo"].endswith(".svg")
     cp = biz["contactPoint"]
     assert cp["@type"] == "ContactPoint"
@@ -598,7 +610,9 @@ def test_inventory_page_emits_itemlist_jsonld(monkeypatch):
     # /inventory (and /) emit an ItemList of homes -> a list/carousel rich-result
     # candidate. Items carry only position/url/name (no fabricated price/rating).
     client, _ = seo_client(monkeypatch)
-    lists = [b for b in _jsonld_blocks(client.get("/inventory").text) if b.get("@type") == "ItemList"]
+    lists = [
+        b for b in _jsonld_blocks(client.get("/inventory").text) if b.get("@type") == "ItemList"
+    ]
     assert lists, "/inventory should emit an ItemList"
     items = lists[0]["itemListElement"]
     assert items and all(i["@type"] == "ListItem" for i in items)

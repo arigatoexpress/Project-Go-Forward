@@ -93,8 +93,7 @@ def test_list_leads_skips_malformed_doc_without_failing(caplog):
 
 def test_list_leads_returns_all_well_formed_docs():
     docs = [
-        _FakeDoc(str(i), {"lead_id": f"L{i}", "user_id": "U", "session_id": "S"})
-        for i in range(3)
+        _FakeDoc(str(i), {"lead_id": f"L{i}", "user_id": "U", "session_id": "S"}) for i in range(3)
     ]
     leads = asyncio.run(_manager_with(docs).list_leads())
     assert len(leads) == 3
@@ -111,6 +110,9 @@ def test_lead_accepts_and_roundtrips_utm_fields():
         utm_content="reel-a",
         utm_term=None,
         referrer="https://t.co/x",
+        gclid="EAIaIQobChMI_test-123",
+        gbraid="GBRAID_test-123",
+        wbraid="WBRAID_test-123",
     )
     d = lead.to_dict()
     assert d["utm_source"] == "instagram"
@@ -119,6 +121,9 @@ def test_lead_accepts_and_roundtrips_utm_fields():
     assert d["utm_content"] == "reel-a"
     assert d["utm_term"] is None
     assert d["referrer"] == "https://t.co/x"
+    assert d["gclid"] == "EAIaIQobChMI_test-123"
+    assert d["gbraid"] == "GBRAID_test-123"
+    assert d["wbraid"] == "WBRAID_test-123"
 
     roundtripped = Lead.from_dict(d)
     assert roundtripped.utm_source == "instagram"
@@ -127,6 +132,9 @@ def test_lead_accepts_and_roundtrips_utm_fields():
     assert roundtripped.utm_content == "reel-a"
     assert roundtripped.utm_term is None
     assert roundtripped.referrer == "https://t.co/x"
+    assert roundtripped.gclid == "EAIaIQobChMI_test-123"
+    assert roundtripped.gbraid == "GBRAID_test-123"
+    assert roundtripped.wbraid == "WBRAID_test-123"
 
 
 def test_lead_from_dict_defaults_utm_to_none():
@@ -137,6 +145,9 @@ def test_lead_from_dict_defaults_utm_to_none():
     assert lead.utm_content is None
     assert lead.utm_term is None
     assert lead.referrer is None
+    assert lead.gclid is None
+    assert lead.gbraid is None
+    assert lead.wbraid is None
 
 
 def test_lead_from_dict_still_drops_unknown_keys():

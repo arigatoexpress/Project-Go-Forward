@@ -12,6 +12,8 @@ from datetime import datetime, timedelta
 
 from google.cloud import firestore
 
+from database.models import LeadRecord
+
 logger = logging.getLogger(__name__)
 
 
@@ -74,6 +76,12 @@ class Lead:
     utm_content: str | None = None
     utm_term: str | None = None
     referrer: str | None = None
+    # Google Ads click IDs retained only when a visitor actively submits a
+    # lead. They enable deterministic offline conversion attribution without
+    # placing contact PII in analytics events.
+    gclid: str | None = None
+    gbraid: str | None = None
+    wbraid: str | None = None
 
     def __post_init__(self):
         if self.homes_viewed is None:
@@ -83,8 +91,8 @@ class Lead:
         self.updated_at = datetime.utcnow().isoformat()
 
     def to_dict(self) -> dict:
-        """Convert to dictionary for storage"""
-        return asdict(self)
+        """Validate against the canonical Firestore schema before storage."""
+        return LeadRecord.model_validate(asdict(self)).model_dump()
 
     @classmethod
     def from_dict(cls, data: dict) -> "Lead":
@@ -114,6 +122,7 @@ class Lead:
             "Status": self.status,
             "Created": self.created_at,
             "Source": self.source,
+            "Google Click ID": self.gclid or self.gbraid or self.wbraid or "",
         }
 
 

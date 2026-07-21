@@ -1028,6 +1028,12 @@ def _extract_utm(data: dict) -> dict:
     def clip(v):
         return (str(v).strip()[:200] or None) if v else None
 
+    def click_id(v):
+        value = clip(v)
+        if value and re.fullmatch(r"[A-Za-z0-9._~-]{6,200}", value):
+            return value
+        return None
+
     return {
         "utm_source": clip(data.get("utm_source")),
         "utm_medium": clip(data.get("utm_medium")),
@@ -1035,6 +1041,9 @@ def _extract_utm(data: dict) -> dict:
         "utm_content": clip(data.get("utm_content")),
         "utm_term": clip(data.get("utm_term")),
         "referrer": clip(data.get("referrer")),
+        "gclid": click_id(data.get("gclid")),
+        "gbraid": click_id(data.get("gbraid")),
+        "wbraid": click_id(data.get("wbraid")),
     }
 
 

@@ -358,7 +358,9 @@ def _product_jsonld(home: dict, canonical_url: str) -> dict | None:
     try:
         price = float(price) if price is not None else None
     except (TypeError, ValueError) as e:
-        logger.warning(f"SEO _product_jsonld: unparseable price_value {price!r}, omitting Product JSON-LD: {e}")
+        logger.warning(
+            f"SEO _product_jsonld: unparseable price_value {price!r}, omitting Product JSON-LD: {e}"
+        )
         price = None
     if not (price and price > 0):
         return None
@@ -422,7 +424,9 @@ def _shell() -> str:
         _shell_cache = (mtime, content)
         return content
     except OSError as e:
-        logger.warning(f"SEO _shell: cannot read index shell {_index_html_path!r}, using minimal fallback: {e}")
+        logger.warning(
+            f"SEO _shell: cannot read index shell {_index_html_path!r}, using minimal fallback: {e}"
+        )
         return '<!doctype html><html><head><title></title></head><body><div id="root"></div></body></html>'
 
 
@@ -437,10 +441,11 @@ def _shell() -> str:
 # snippet is appended only when noindex is False), so they never fire on
 # operator/admin/CRM/404 surfaces.
 #
-# OPERATOR/LEGAL GATE: activating analytics or ad pixels sets third-party
-# cookies / sends visitor data to Google/Meta/TikTok. No consent-management
-# platform exists yet — make a privacy-policy / cookie-consent decision before
-# setting any *_PIXEL_ID. The code ships inert; turning it on is your call.
+# OPERATOR/LEGAL GATE: IDs remain runtime configuration, but the browser now
+# defaults every storage category to denied and does not fetch a third-party
+# tag until the visitor explicitly grants the shared first-party consent key.
+# Activation still requires operator review of the public privacy copy and the
+# vendor account settings; code alone must never turn on a paid campaign.
 
 _GA4_RE = re.compile(r"^G-[A-Z0-9]{4,15}$")
 _GTM_RE = re.compile(r"^GTM-[A-Z0-9]{4,10}$")
@@ -512,65 +517,57 @@ def analytics_csp_sources() -> dict:
 
 
 def _analytics_head() -> str:
-    """Inline analytics/pixel <script> snippets for whichever IDs are validly
-    set. Returns '' when none are configured (head unchanged from today)."""
+    """Consent-gated loader for whichever analytics IDs are validly set.
+
+    The inline first-party bootstrap is the only code emitted initially. It
+    defaults Google's consent signals to denied and does not fetch Google,
+    Meta, or TikTok JavaScript until ``tho_analytics_consent_v1`` is explicitly
+    ``granted``. This is intentionally stricter than cookieless/advanced mode.
+    """
     ids = _analytics_ids()
     if not ids:
         return ""
-    e = html.escape
-    out = []
-    ga4 = ids.get("GA4_MEASUREMENT_ID")
-    if ga4:
-        out.append(
-            '<script async src="https://www.googletagmanager.com/gtag/js?id='
-            + e(ga4) + '"></script>'
-            "<script>window.dataLayer=window.dataLayer||[];"
-            "function gtag(){dataLayer.push(arguments);}"
-            "gtag('js',new Date());gtag('config','" + e(ga4) + "');</script>"
-        )
-    gtm = ids.get("GTM_CONTAINER_ID")
-    if gtm:
-        out.append(
-            "<script>(function(w,d,s,l,i){w[l]=w[l]||[];"
-            "w[l].push({'gtm.start':new Date().getTime(),event:'gtm.js'});"
-            "var f=d.getElementsByTagName(s)[0],j=d.createElement(s),"
-            "dl=l!='dataLayer'?'&l='+l:'';j.async=true;"
-            "j.src='https://www.googletagmanager.com/gtm.js?id='+i+dl;"
-            "f.parentNode.insertBefore(j,f);})"
-            "(window,document,'script','dataLayer','" + e(gtm) + "');</script>"
-        )
-    meta = ids.get("META_PIXEL_ID")
-    if meta:
-        out.append(
-            "<script>!function(f,b,e,v,n,t,s){if(f.fbq)return;"
-            "n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):"
-            "n.queue.push(arguments)};if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;"
-            "n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;"
-            "t.src=v;s=b.getElementsByTagName(e)[0];"
-            "s.parentNode.insertBefore(t,s)}(window,document,'script',"
-            "'https://connect.facebook.net/en_US/fbevents.js');"
-            "fbq('init','" + e(meta) + "');fbq('track','PageView');</script>"
-        )
-    tiktok = ids.get("TIKTOK_PIXEL_ID")
-    if tiktok:
-        out.append(
-            "<script>!function(w,d,t){w.TiktokAnalyticsObject=t;"
-            "var ttq=w[t]=w[t]||[];ttq.methods=['page','track','identify',"
-            "'instances','debug','on','off','once','ready','alias','group',"
-            "'enableCookie','disableCookie'];ttq.setAndDefer=function(t,e){"
-            "t[e]=function(){t.push([e].concat(Array.prototype.slice.call("
-            "arguments,0)))}};for(var i=0;i<ttq.methods.length;i++)"
-            "ttq.setAndDefer(ttq,ttq.methods[i]);ttq.load=function(e,n){"
-            "var i='https://analytics.tiktok.com/i18n/pixel/events.js';"
-            "ttq._i=ttq._i||{},ttq._i[e]=[],ttq._i[e]._u=i,ttq._t=ttq._t||{},"
-            "ttq._t[e]=+new Date,ttq._o=ttq._o||{},ttq._o[e]=n||{};"
-            "var o=d.createElement('script');o.type='text/javascript',"
-            "o.async=!0,o.src=i+'?sdkid='+e+'&lib='+t;"
-            "var a=d.getElementsByTagName('script')[0];"
-            "a.parentNode.insertBefore(o,a)};ttq.load('" + e(tiktok) + "');"
-            "ttq.page();}(window,document,'ttq');</script>"
-        )
-    return "\n    ".join(out)
+    # Values have already passed strict alphanumeric ID regexes. JSON encoding
+    # is still used so this object can never become an inline-script breakout.
+    config = json.dumps(ids, separators=(",", ":")).replace("<", "\\u003c")
+    return (
+        """<script>(function(w,d,c){
+var KEY='tho_analytics_consent_v1',loaded=false;
+w.__THO_ANALYTICS_CONFIGURED__=true;
+w.dataLayer=w.dataLayer||[];
+w.gtag=w.gtag||function(){w.dataLayer.push(arguments);};
+var denied={analytics_storage:'denied',ad_storage:'denied',ad_user_data:'denied',ad_personalization:'denied'};
+// Measurement consent never implies permission for personalized advertising.
+var granted={analytics_storage:'granted',ad_storage:'granted',ad_user_data:'granted',ad_personalization:'denied'};
+w.gtag('consent','default',denied);
+function add(src){var s=d.createElement('script');s.async=true;s.src=src;(d.head||d.documentElement).appendChild(s);}
+function loadGoogle(){
+ var ga=c.GA4_MEASUREMENT_ID,gtm=c.GTM_CONTAINER_ID;
+ if(ga){add('https://www.googletagmanager.com/gtag/js?id='+ga);w.gtag('js',new Date());w.gtag('config',ga,{send_page_view:false});}
+ if(gtm){w.dataLayer.push({'gtm.start':new Date().getTime(),event:'gtm.js'});add('https://www.googletagmanager.com/gtm.js?id='+gtm);}
+}
+function loadMeta(){var id=c.META_PIXEL_ID;if(!id)return;
+ !function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};
+ if(!f._fbq)f._fbq=n;n.push=n;n.loaded=true;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=true;t.src=v;
+ s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(w,d,'script','https://connect.facebook.net/en_US/fbevents.js');
+ w.fbq('consent','grant');w.fbq('init',id);w.fbq('track','PageView');
+}
+function loadTikTok(){var id=c.TIKTOK_PIXEL_ID;if(!id)return;
+ !function(w,d,t){w.TiktokAnalyticsObject=t;var ttq=w[t]=w[t]||[];ttq.methods=['page','track','identify','instances','debug','on','off','once','ready','alias','group','enableCookie','disableCookie'];
+ ttq.setAndDefer=function(t,e){t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}};
+ for(var i=0;i<ttq.methods.length;i++)ttq.setAndDefer(ttq,ttq.methods[i]);ttq.load=function(e){var i='https://analytics.tiktok.com/i18n/pixel/events.js';
+ var o=d.createElement('script');o.type='text/javascript';o.async=true;o.src=i+'?sdkid='+e+'&lib='+t;(d.head||d.documentElement).appendChild(o)};
+ ttq.load(id);ttq.enableCookie();ttq.page()}(w,d,'ttq');
+}
+w.__THO_ENABLE_ANALYTICS__=function(){w.__THO_ANALYTICS_CONSENT__='granted';w.gtag('consent','update',granted);if(loaded)return;loaded=true;loadGoogle();loadMeta();loadTikTok();};
+w.__THO_DISABLE_ANALYTICS__=function(){w.__THO_ANALYTICS_CONSENT__='denied';w.gtag('consent','update',denied);if(w.fbq)w.fbq('consent','revoke');if(w.ttq&&w.ttq.disableCookie)w.ttq.disableCookie();};
+var pref=null;try{pref=w.localStorage.getItem(KEY)}catch(e){}
+w.__THO_ANALYTICS_CONSENT__=pref==='granted'?'granted':pref==='denied'?'denied':null;
+if(pref==='granted')w.__THO_ENABLE_ANALYTICS__();
+})(window,document,"""
+        + config
+        + ");</script>"
+    )
 
 
 def _default_og_image() -> str | None:
@@ -888,37 +885,55 @@ def _faqpage_jsonld() -> dict:
 def _crawlable_faq_block() -> str:
     e = html.escape
     questions = [
-        ("What's the difference between a manufactured home, a mobile home, and a modular home?",
-         '"Mobile home" is the older term for factory-built homes made before June 15, 1976. '
-         'Homes built after that date to the federal HUD Code are called manufactured homes. '
-         'Modular homes are also factory-built but assembled to local/state building codes.'),
-        ('Why do the listings say "Call for Price"?',
-         'Manufactured-home pricing depends on options, delivery distance, site prep, and current '
-         'factory promotions, so we provide itemized quotes rather than misleading sticker numbers.'),
-        ('How does financing work for a manufactured home?',
-         'Options include chattel loans, land-and-home loans, FHA/VA/USDA programs, and '
-         'lender-partner programs depending on your situation.'),
-        ('Do I need land to buy a home from you?',
-         'No. You can place a home on land you own, family land, or in a manufactured-home community.'),
-        ('What does delivery and setup include?',
-         'Transport, placement and leveling, joining multi-section homes, and utility connections '
-         'per local code. Site prep is usually arranged separately.'),
-        ('What areas do you serve / deliver to?',
-         f'{business_name()} serves the greater Houston area from {business_address()}.'),
-        ('What warranty comes with a new manufactured home?',
-         'A manufacturer\'s warranty on the home and major systems, plus component warranties. '
-         'Texas manufactured housing is regulated by TDHCA.'),
-        ('How long does the whole process take?',
-         'On-lot homes can be delivered within weeks once financing and site prep are in place. '
-         'Factory-ordered floor plans vary by manufacturer and season.'),
-        ('Can I tour homes in person?',
-         f'Yes — visit our showroom during business hours ({business_hours()}) or book a visit online.'),
-        ('How do I get started?',
-         f'Call {business_phone()}, request a quote, or book a showroom visit.'),
+        (
+            "What's the difference between a manufactured home, a mobile home, and a modular home?",
+            '"Mobile home" is the older term for factory-built homes made before June 15, 1976. '
+            "Homes built after that date to the federal HUD Code are called manufactured homes. "
+            "Modular homes are also factory-built but assembled to local/state building codes.",
+        ),
+        (
+            'Why do the listings say "Call for Price"?',
+            "Manufactured-home pricing depends on options, delivery distance, site prep, and current "
+            "factory promotions, so we provide itemized quotes rather than misleading sticker numbers.",
+        ),
+        (
+            "How does financing work for a manufactured home?",
+            "Options include chattel loans, land-and-home loans, FHA/VA/USDA programs, and "
+            "lender-partner programs depending on your situation.",
+        ),
+        (
+            "Do I need land to buy a home from you?",
+            "No. You can place a home on land you own, family land, or in a manufactured-home community.",
+        ),
+        (
+            "What does delivery and setup include?",
+            "Transport, placement and leveling, joining multi-section homes, and utility connections "
+            "per local code. Site prep is usually arranged separately.",
+        ),
+        (
+            "What areas do you serve / deliver to?",
+            f"{business_name()} serves the greater Houston area from {business_address()}.",
+        ),
+        (
+            "What warranty comes with a new manufactured home?",
+            "A manufacturer's warranty on the home and major systems, plus component warranties. "
+            "Texas manufactured housing is regulated by TDHCA.",
+        ),
+        (
+            "How long does the whole process take?",
+            "On-lot homes can be delivered within weeks once financing and site prep are in place. "
+            "Factory-ordered floor plans vary by manufacturer and season.",
+        ),
+        (
+            "Can I tour homes in person?",
+            f"Yes — visit our showroom during business hours ({business_hours()}) or book a visit online.",
+        ),
+        (
+            "How do I get started?",
+            f"Call {business_phone()}, request a quote, or book a showroom visit.",
+        ),
     ]
-    items = "".join(
-        f"<li><h3>{e(q)}</h3><p>{e(a)}</p></li>" for q, a in questions
-    )
+    items = "".join(f"<li><h3>{e(q)}</h3><p>{e(a)}</p></li>" for q, a in questions)
     return (
         f"<h1>Frequently Asked Questions — {e(business_name())}</h1>"
         f"<p>Answers about manufactured homes, financing, delivery, warranty, and buying from "
@@ -961,7 +976,7 @@ def _crawlable_delivery_block() -> str:
         f"<p>Service area includes Huffman, Humble, Atascocita, Crosby, Kingwood, New Caney, "
         f"Baytown, Beaumont, Cleveland, Conroe, and Livingston.</p>"
         f'<p>Call <a href="tel:{e(business_phone())}">{e(business_phone())}</a> to confirm delivery '
-        'to your address.</p>'
+        "to your address.</p>"
     )
 
 
@@ -1055,7 +1070,9 @@ def render_spa_response(full_path: str) -> Response | None:
     try:
         return _render_spa_response(full_path)
     except Exception as e:
-        logger.warning(f"SEO render_spa_response: rendering failed for {full_path!r}, falling through: {e}")
+        logger.warning(
+            f"SEO render_spa_response: rendering failed for {full_path!r}, falling through: {e}"
+        )
         return None
 
 
@@ -1106,9 +1123,7 @@ def _render_spa_response(full_path: str) -> Response | None:
             f"on-lot homes ready now plus orderable floorplans. Call {business_phone()}."
         )
         head = _head_block(title, desc, base + path, jsonld=[_local_business_jsonld()])
-        return HTMLResponse(
-            _inject(_shell(), head, _crawlable_city_block(city)), headers=no_cache
-        )
+        return HTMLResponse(_inject(_shell(), head, _crawlable_city_block(city)), headers=no_cache)
 
     # 4. Live legacy detail/plan URLs: 200 + per-home head + crawlable body.
     m = _DETAIL_RE.match(path)
@@ -1168,7 +1183,21 @@ def _render_spa_response(full_path: str) -> Response | None:
     # 5. Known public static routes: 200 + route meta (+ crawlable body block).
     if path in PUBLIC_ROUTES:
         title, description = PUBLIC_ROUTES[path]
-        jsonld = [_local_business_jsonld()] if path in ("/", "/inventory", "/contact", "/about", "/financing", "/faq", "/warranty", "/delivery") else []
+        jsonld = (
+            [_local_business_jsonld()]
+            if path
+            in (
+                "/",
+                "/inventory",
+                "/contact",
+                "/about",
+                "/financing",
+                "/faq",
+                "/warranty",
+                "/delivery",
+            )
+            else []
+        )
         if path in ("/", "/inventory"):
             itemlist = _inventory_itemlist_jsonld()
             if itemlist:
@@ -1255,10 +1284,20 @@ def robots_txt() -> PlainTextResponse:
 @router.get("/sitemap.xml")
 def sitemap_xml() -> Response:
     base = _base()
-    urls = [base + p for p in (
-        "/", "/inventory", "/contact", "/appointments", "/about", "/financing",
-        "/faq", "/warranty", "/delivery",
-    )]
+    urls = [
+        base + p
+        for p in (
+            "/",
+            "/inventory",
+            "/contact",
+            "/appointments",
+            "/about",
+            "/financing",
+            "/faq",
+            "/warranty",
+            "/delivery",
+        )
+    ]
     urls += [base + p for p in sorted(_city_pages())]
     urls += [base + p for p in sorted(_registry()["detail_path_by_id"].values())]
     # lastmod intentionally omitted: Google only trusts it when verifiably

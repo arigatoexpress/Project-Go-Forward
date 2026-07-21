@@ -6,6 +6,7 @@ import App from './App.jsx'
 import ErrorBoundary from './components/ErrorBoundary.jsx'
 import { ToastProvider } from './components/Toast.jsx'
 import { NetworkStatus } from './components/NetworkStatus.jsx'
+import AnalyticsConsent from './components/AnalyticsConsent.jsx'
 import * as Sentry from '@sentry/react'
 
 if (import.meta.env.VITE_SENTRY_DSN) {
@@ -41,6 +42,7 @@ const rootTree = (
   <ErrorBoundary>
     <ToastProvider>
       <NetworkStatus />
+      <AnalyticsConsent />
       <App />
     </ToastProvider>
   </ErrorBoundary>

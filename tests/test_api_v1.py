@@ -97,6 +97,9 @@ class FakeLead:
     utm_content: str | None = None
     utm_term: str | None = None
     referrer: str | None = None
+    gclid: str | None = None
+    gbraid: str | None = None
+    wbraid: str | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -128,6 +131,9 @@ class FakeLead:
             "utm_content": self.utm_content,
             "utm_term": self.utm_term,
             "referrer": self.referrer,
+            "gclid": self.gclid,
+            "gbraid": self.gbraid,
+            "wbraid": self.wbraid,
         }
 
 
