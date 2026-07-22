@@ -168,7 +168,12 @@ def test_merge_prefers_legacy_floorplan_context_and_dedupes_current_home():
                 "model_name": "Premier / Creole 3256H32447",
                 "manufacturer": "Champion Homes",
                 "status": "Available",
-                "floorplan_url": "https://example.com/creole-floorplan.jpg",
+                "floorplan_url": "https://example.com/creole-catalog-floorplan.jpg",
+                "detail_url": (
+                    "https://www.texashomeoutlet.com/inventory-detail/43372/"
+                    "texas-home-outlet/huffman/premier/"
+                ),
+                "quote_url": ("https://www.texashomeoutlet.com/quote/inventory/43372/dealer/3522/"),
             }
         ],
     }
@@ -184,6 +189,10 @@ def test_merge_prefers_legacy_floorplan_context_and_dedupes_current_home():
                 "manufacturer": "Champion Homes",
                 "status": "Orderable",
                 "floorplan_url": "https://example.com/creole-floorplan.jpg",
+                "detail_url": (
+                    "https://www.texashomeoutlet.com/plan/235424/premier/" "creole-3256h32447/"
+                ),
+                "quote_url": ("https://www.texashomeoutlet.com/quote/floorplan/235424/dealer/3522"),
             },
             {
                 "id": "floorplan-223034",
@@ -191,6 +200,8 @@ def test_merge_prefers_legacy_floorplan_context_and_dedupes_current_home():
                 "model_name": "Skyliner / 4732B",
                 "manufacturer": "Skyline Homes",
                 "status": "Orderable",
+                "detail_url": "https://www.texashomeoutlet.com/plan/223034/skyliner/4732b/",
+                "quote_url": "https://www.texashomeoutlet.com/quote/floorplan/223034/dealer/3522",
             },
         ],
     }
@@ -214,6 +225,73 @@ def test_merge_prefers_legacy_floorplan_context_and_dedupes_current_home():
     assert merged["orderable_floorplans_added"] == 1
     assert merged["catalog_source"] == "legacy_floorplan_catalog_snapshot"
     assert merged["catalog_floorplan_source_count"] == 2
+    survivor, unrelated = merged["homes"]
+    assert survivor["legacy_detail_aliases"] == [
+        "https://www.texashomeoutlet.com/plan/235424/premier/creole-3256h32447/"
+    ]
+    assert survivor["legacy_quote_aliases"] == [
+        "https://www.texashomeoutlet.com/quote/floorplan/235424/dealer/3522"
+    ]
+    assert "legacy_detail_aliases" not in unrelated
+    assert "legacy_quote_aliases" not in unrelated
+
+
+def test_fuzzy_model_variants_do_not_create_legacy_url_aliases():
+    current = {
+        "homes": [
+            {
+                "id": "current-fiesta",
+                "model_name": "Fiesta 2.0",
+                "manufacturer": "Cavco Homes",
+                "status": "Available",
+                "detail_url": "https://www.texashomeoutlet.com/inventory-detail/81001/current/fiesta-2-0/",
+            },
+            {
+                "id": "current-8831p",
+                "model_name": "Classic / 8831P",
+                "manufacturer": "Champion Homes",
+                "status": "Available",
+                "detail_url": "https://www.texashomeoutlet.com/inventory-detail/81002/current/8831p/",
+            },
+        ]
+    }
+    floorplans = {
+        "source": "legacy_floorplan_catalog_snapshot",
+        "homes": [
+            {
+                "id": "floorplan-91001",
+                "legacy_plan_id": "91001",
+                "model_name": "Fiesta",
+                "manufacturer": "Cavco Homes",
+                "detail_url": "https://www.texashomeoutlet.com/plan/91001/cavco/fiesta/",
+                "quote_url": "https://www.texashomeoutlet.com/quote/floorplan/91001/dealer/3522",
+            },
+            {
+                "id": "floorplan-91002",
+                "legacy_plan_id": "91002",
+                "model_name": "Classic / 8831",
+                "manufacturer": "Champion Homes",
+                "detail_url": "https://www.texashomeoutlet.com/plan/91002/champion/8831/",
+                "quote_url": "https://www.texashomeoutlet.com/quote/floorplan/91002/dealer/3522",
+            },
+        ],
+    }
+
+    merged = merge_orderable_floorplan_catalog(
+        current,
+        assets={},
+        floorplan_context=floorplans,
+    )
+
+    # The broad catalog de-dupe still suppresses these substring matches, but
+    # their distinct model identities are not safe evidence for URL redirects.
+    assert [home["id"] for home in merged["homes"]] == [
+        "current-fiesta",
+        "current-8831p",
+    ]
+    for survivor in merged["homes"]:
+        assert "legacy_detail_aliases" not in survivor
+        assert "legacy_quote_aliases" not in survivor
 
 
 def test_merge_preserves_explicit_home_id_and_fills_only_missing_values():

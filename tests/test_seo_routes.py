@@ -23,6 +23,12 @@ FAKE_HOMES = [
         "status": "Available",
         "detail_url": "https://www.texashomeoutlet.com/inventory-detail/43372/texas-home-outlet/huffman/premier/",
         "quote_url": "https://www.texashomeoutlet.com/quote/inventory/123/43372",
+        "legacy_detail_aliases": [
+            "https://www.texashomeoutlet.com/plan/235424/premier/creole-3256h32447/"
+        ],
+        "legacy_quote_aliases": [
+            "https://www.texashomeoutlet.com/quote/floorplan/235424/dealer/3522"
+        ],
         "hero_image": "https://img.example.com/creole.jpg",
         "price_value": 129900,
         "display_price": "$129,900",
@@ -80,6 +86,8 @@ def test_sitemap_lists_static_and_detail_urls(monkeypatch):
     assert "/inventory</loc>" in body
     assert "/inventory-detail/43372/texas-home-outlet/huffman/premier/</loc>" in body
     assert "/plan/223034/skyliner/4732b/</loc>" in body
+    assert "/plan/235424/" not in body
+    assert "/quote/floorplan/235424" not in body
     # Google ignores priority/changefreq; lastmod only when truthful — omitted
     assert "<priority>" not in body and "<changefreq>" not in body and "<lastmod>" not in body
 
@@ -281,6 +289,65 @@ def test_quote_urls_301_to_detail_pages(monkeypatch):
     fallback = client.get("/quote/unknown/thing", follow_redirects=False)
     assert fallback.status_code == 301
     assert fallback.headers["location"] == "/inventory"
+
+
+def test_deduped_legacy_product_aliases_temporarily_redirect_to_survivor(monkeypatch):
+    client, _ = seo_client(monkeypatch)
+    canonical = "/inventory-detail/43372/texas-home-outlet/huffman/premier/"
+
+    for alias in (
+        "/plan/235424/premier/creole-3256h32447/",
+        "/plan/235424/premier/an-old-slug-for-the-same-home/",
+        "/quote/floorplan/235424/dealer/3522",
+    ):
+        response = client.get(alias, follow_redirects=False)
+        assert response.status_code == 302, alias
+        assert response.headers["location"] == canonical, alias
+        assert "no-store" in response.headers["cache-control"], alias
+
+    survivor = client.get(canonical, follow_redirects=False)
+    assert survivor.status_code == 200
+
+
+def test_detail_alias_route_family_does_not_capture_same_id_on_other_prefix(monkeypatch):
+    client, _ = seo_client(monkeypatch)
+
+    response = client.get(
+        "/inventory-detail/235424/unrelated/same-numeric-id/",
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 404
+    assert "location" not in response.headers
+
+
+def test_legacy_plan_becomes_canonical_when_inventory_survivor_disappears(monkeypatch):
+    client, _ = seo_client(monkeypatch)
+    alias = "/plan/235424/premier/creole-3256h32447/"
+
+    redirected = client.get(alias, follow_redirects=False)
+    assert redirected.status_code == 302
+    assert "no-store" in redirected.headers["cache-control"]
+
+    import seo_routes
+
+    canonical_plan = {
+        "id": "floorplan-235424",
+        "legacy_plan_id": "235424",
+        "model_name": "Premier / Creole 3256H32447",
+        "manufacturer": "Champion Homes",
+        "status": "Orderable",
+        "detail_url": "https://www.texashomeoutlet.com" + alias,
+        "quote_url": "https://www.texashomeoutlet.com/quote/floorplan/235424/dealer/3522",
+        "specs": {"beds": 4, "baths": 2},
+    }
+    monkeypatch.setattr(seo_routes, "_get_homes", lambda: [FAKE_HOMES[1], canonical_plan])
+    monkeypatch.setattr(seo_routes, "_registry_cache", None)
+    monkeypatch.setattr(seo_routes, "_registry_built_at", 0.0)
+
+    canonical = client.get(alias, follow_redirects=False)
+    assert canonical.status_code == 200
+    assert 'rel="canonical" href="https://www.texashomeoutlet.com' + alias + '"' in canonical.text
 
 
 def test_unknown_route_returns_real_404_not_soft_404(monkeypatch):

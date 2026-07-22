@@ -144,6 +144,18 @@ def _manufacturer_key(home: Mapping[str, Any]) -> str:
     return " ".join(words)
 
 
+def _has_strong_identity(left: Mapping[str, Any], right: Mapping[str, Any]) -> bool:
+    """Return whether two rows have evidence strong enough to share URLs."""
+    if _identity_keys(left) & _identity_keys(right):
+        return True
+
+    left_model = _normalize_text(left.get("model_name"))
+    right_model = _normalize_text(right.get("model_name"))
+    left_mfr = _normalize_text(left.get("manufacturer"))
+    right_mfr = _normalize_text(right.get("manufacturer"))
+    return bool(left_model and left_model == right_model and left_mfr and left_mfr == right_mfr)
+
+
 def _looks_like_duplicate(left: Mapping[str, Any], right: Mapping[str, Any]) -> bool:
     if _identity_keys(left) & _identity_keys(right):
         return True
@@ -160,6 +172,41 @@ def _looks_like_duplicate(left: Mapping[str, Any], right: Mapping[str, Any]) -> 
     )
     model_matches = left_model in right_model or right_model in left_model
     return manufacturer_matches and model_matches
+
+
+def _preserve_legacy_url_aliases(survivor: dict[str, Any], duplicate: Mapping[str, Any]) -> None:
+    """Keep public URLs from a catalog row suppressed as a duplicate.
+
+    The current-inventory row remains the one public home, but legacy plan and
+    quote URLs may already carry search equity. Store those URLs on the
+    survivor so the SEO registry can redirect them to its canonical detail
+    page instead of turning an exact-model de-duplication into a 404.
+    """
+    if not _has_strong_identity(survivor, duplicate):
+        return
+
+    for url_field, aliases_field in (
+        ("detail_url", "legacy_detail_aliases"),
+        ("quote_url", "legacy_quote_aliases"),
+    ):
+        canonical = str(survivor.get(url_field) or "").strip()
+        candidates: list[str] = []
+        for owner in (survivor, duplicate):
+            existing = owner.get(aliases_field)
+            if isinstance(existing, list):
+                candidates.extend(value for value in existing if isinstance(value, str))
+        duplicate_url = duplicate.get(url_field)
+        if isinstance(duplicate_url, str):
+            candidates.append(duplicate_url)
+
+        aliases: list[str] = []
+        for value in candidates:
+            cleaned = value.strip()
+            if not cleaned or cleaned == canonical or cleaned in aliases:
+                continue
+            aliases.append(cleaned)
+        if aliases:
+            survivor[aliases_field] = aliases
 
 
 def classify_inventory_kind(home: Mapping[str, Any]) -> str:
@@ -324,7 +371,12 @@ def merge_orderable_floorplan_catalog(
     for home in homes:
         apply_inventory_kind(home)
         apply_classifier_to_home(home)
-        if any(_looks_like_duplicate(home, existing) for existing in classified_homes):
+        duplicate = next(
+            (existing for existing in classified_homes if _looks_like_duplicate(home, existing)),
+            None,
+        )
+        if duplicate is not None:
+            _preserve_legacy_url_aliases(duplicate, home)
             continue
         classified_homes.append(home)
 
@@ -335,7 +387,12 @@ def merge_orderable_floorplan_catalog(
         orderable_candidates = build_orderable_catalog(assets)
 
     for home in orderable_candidates:
-        if any(_looks_like_duplicate(home, existing) for existing in classified_homes):
+        duplicate = next(
+            (existing for existing in classified_homes if _looks_like_duplicate(home, existing)),
+            None,
+        )
+        if duplicate is not None:
+            _preserve_legacy_url_aliases(duplicate, home)
             continue
         classified_homes.append(home)
         orderable_added += 1
