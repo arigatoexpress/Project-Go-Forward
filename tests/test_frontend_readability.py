@@ -35,11 +35,14 @@ def test_inventory_hero_uses_readable_text_on_dark_photo_overlay():
     )
 
 
-def test_inventory_cards_keep_legacy_quote_routes_visible():
+def test_inventory_quote_ctas_open_the_first_party_lead_funnel():
     source = INVENTORY_BROWSE.read_text()
 
-    assert "function getLegacyQuoteUrl(home)" in source
+    assert "function getLegacyQuoteUrl(home)" not in source
+    assert source.count("openLeadForm(home, 'price')") >= 2
     assert "Price Quote" in source
+    # Old inbound quote URLs still deep-link to the matching home, but public CTAs
+    # must no longer navigate visitors back through those compatibility routes.
     assert "quoteDetailMatch" in source
 
 
