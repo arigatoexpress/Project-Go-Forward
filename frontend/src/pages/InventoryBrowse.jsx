@@ -1320,6 +1320,7 @@ function HomeDetailModal({
   // legacy `floor_plan_url` spelling for older Firestore docs.
   const floorplan = home.floorplan_url || home.floor_plan_url || '';
   const isCallForPrice = !home.display_price || home.display_price === 'Call for Price';
+  const isOrderableFloorplan = getAvailabilityKind(home) === 'orderable_floorplan';
 
   const modalRef = useRef(null);
   useFocusTrap(modalRef);
@@ -1655,9 +1656,13 @@ function HomeDetailModal({
             </button>
             <button
               className="flex-1 inline-flex items-center justify-center gap-2 py-3.5 rounded-lg font-semibold text-sm bg-emerald-500 text-white hover:bg-emerald-600 transition"
-              onClick={onScheduleTour}
+              onClick={isOrderableFloorplan ? onGetPrice : onScheduleTour}
             >
-              <Calendar size={18} /> Schedule a Tour
+              {isOrderableFloorplan ? (
+                <><Home size={18} /> Discuss Build Options</>
+              ) : (
+                <><Calendar size={18} /> Schedule a Tour</>
+              )}
             </button>
             <button
               type="button"
