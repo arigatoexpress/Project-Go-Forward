@@ -16,6 +16,8 @@ import { v4 as uuidv4 } from 'uuid';
 import { captureUtmFromUrl, getUtmParams } from './utils/utm';
 import { getJourneyAttribution } from './utils/attribution';
 import { attachPhoneClickTracking, isPublicAnalyticsPath, trackEvent } from './utils/analytics';
+import { navigateDocument } from './utils/documentNavigation';
+import { getInventoryCategoryRoute, isInventoryCategoryPath } from './utils/inventoryCategoryRoutes';
 import {
   BUSINESS_NAME, BUSINESS_PHONE, BUSINESS_PHONE_RAW, BUSINESS_FULL_ADDRESS,
   BUSINESS_HOURS, BUSINESS_LICENSE, BUSINESS_CITY, BUSINESS_STATE
@@ -361,6 +363,39 @@ async function sendToAgent(sessionId, text, maxRetries = 2) {
 }
 
 
+function pageFromPath(path) {
+  const p = (path || '').toLowerCase();
+  if (p.startsWith('/documents') || p.startsWith('/document-center') || p.startsWith('/app/documents')) return 'documents';
+  if (p.startsWith('/studio') || p.startsWith('/app/studio')) return 'adstudio';
+  if (p.startsWith('/crm')) return 'crm';
+  if (p.startsWith('/analytics')) return 'analytics';
+  if (p.startsWith('/getting-started') || p.startsWith('/guide')) return 'getting-started';
+  if (p.startsWith('/contact')) return 'contact';
+  if (p.startsWith('/appointments')) return 'appointments';
+  if (p.startsWith('/about')) return 'about';
+  if (p.startsWith('/financing')) return 'financing';
+  if (p.startsWith('/faq')) return 'faq';
+  if (p.startsWith('/warranty')) return 'warranty';
+  if (p.startsWith('/delivery')) return 'delivery';
+  if (p.startsWith('/chat-history')) return 'chat-history';
+  if (p.startsWith('/manage-inventory')) return 'manage-inventory';
+  if (p.startsWith('/copilot') || p.startsWith('/ops-copilot')) return 'copilot';
+  if (p.startsWith('/health')) return 'health';
+  if (p.startsWith('/chat')) return 'chat';
+  if (p.startsWith('/inventory')) return 'inventory';
+  if (isInventoryCategoryPath(p)) return 'inventory';
+  // City landing pages (/manufactured-homes-in-{city}-tx) render the inventory.
+  if (p.startsWith('/manufactured-homes-in-')) return 'inventory';
+  // Legacy texashomeoutlet.com deep links resolve inside the inventory page.
+  if (p.startsWith('/plan/') || p.startsWith('/quote/')) return 'inventory';
+  if (p.startsWith('/hub/')) return 'hub';
+  if (p.startsWith('/system')) return 'system';
+  if (p === '/' || p === '') return 'inventory';
+  // Unknown path: the server already responded 404 — render a friendly view.
+  return 'not-found';
+}
+
+
 function App() {
   const { addToast } = useToast();
   const isOnline = useNetworkStatus();
@@ -385,13 +420,26 @@ function App() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [comparisonList, setComparisonList] = useState([]);
   const [darkMode, setDarkMode] = useDarkMode();
-  const [activeDealId] = useState(() => {
-    const p = window.location.pathname;
-    if (p.startsWith('/hub/')) {
-      return p.split('/hub/')[1].split('/')[0];
+  const [pathname, setPathname] = useState(() => window.location.pathname);
+  const activePage = pageFromPath(pathname);
+  const activeDealId = (() => {
+    if (pathname.startsWith('/hub/')) {
+      return pathname.split('/hub/')[1].split('/')[0];
     }
     return null;
-  });
+  })();
+
+  const navigatePath = useCallback((targetPath, { replace = false } = {}) => {
+    const nextPath = String(targetPath || '/');
+    if (isInventoryCategoryPath(pathname) && nextPath !== pathname) {
+      navigateDocument(nextPath);
+      return;
+    }
+    if (window.location.pathname !== nextPath) {
+      window.history[replace ? 'replaceState' : 'pushState']({}, '', nextPath);
+    }
+    setPathname(nextPath);
+  }, [pathname]);
 
   // Capture UTM params on first mount
   useEffect(() => {
@@ -441,43 +489,8 @@ function App() {
     return () => window.removeEventListener('keydown', handler);
   }, [setDarkMode]);
 
-  // URL-based routing — support standalone access via /documents, /studio
-  // and direct deep-links to /contact, /chat, /appointments, /crm, /analytics, etc.
-  const pageFromPath = (path) => {
-    const p = (path || '').toLowerCase();
-    if (p.startsWith('/documents') || p.startsWith('/document-center') || p.startsWith('/app/documents')) return 'documents';
-    if (p.startsWith('/studio') || p.startsWith('/app/studio')) return 'adstudio';
-    if (p.startsWith('/crm')) return 'crm';
-    if (p.startsWith('/analytics')) return 'analytics';
-    if (p.startsWith('/getting-started') || p.startsWith('/guide')) return 'getting-started';
-    if (p.startsWith('/contact')) return 'contact';
-    if (p.startsWith('/appointments')) return 'appointments';
-    if (p.startsWith('/about')) return 'about';
-    if (p.startsWith('/financing')) return 'financing';
-    if (p.startsWith('/faq')) return 'faq';
-    if (p.startsWith('/warranty')) return 'warranty';
-    if (p.startsWith('/delivery')) return 'delivery';
-    if (p.startsWith('/chat-history')) return 'chat-history';
-    if (p.startsWith('/manage-inventory')) return 'manage-inventory';
-    if (p.startsWith('/copilot') || p.startsWith('/ops-copilot')) return 'copilot';
-    if (p.startsWith('/health')) return 'health';
-    if (p.startsWith('/chat')) return 'chat';
-    if (p.startsWith('/inventory')) return 'inventory';
-    // City landing pages (/manufactured-homes-in-{city}-tx) render the inventory.
-    if (p.startsWith('/manufactured-homes-in-')) return 'inventory';
-    // Legacy texashomeoutlet.com deep links resolve inside the inventory page
-    if (p.startsWith('/plan/') || p.startsWith('/quote/')) return 'inventory';
-    if (p.startsWith('/hub/')) return 'hub';
-    if (p.startsWith('/system')) return 'system';
-    if (p === '/' || p === '') return 'inventory';
-    // Unknown path: the server already responded 404 — render a friendly
-    // not-found view instead of silently showing inventory.
-    return 'not-found';
-  };
-
-  const [activePage, setActivePage] = useState(() => pageFromPath(window.location.pathname));
   const [appointmentHandoff, setAppointmentHandoff] = useState(null);
-  const isStandaloneMode = window.location.pathname.startsWith('/app/') || window.location.search.includes('standalone=1');
+  const isStandaloneMode = pathname.startsWith('/app/') || window.location.search.includes('standalone=1');
 
   // A delegated listener covers every public click-to-call CTA, including
   // links rendered by lazy pages and future inventory components.
@@ -486,15 +499,15 @@ function App() {
   // GA4 does not automatically see client-side route changes. Keep public SPA
   // page views measurable while excluding every admin/noindex surface.
   useEffect(() => {
-    if (isPublicAnalyticsPath(window.location.pathname)) {
-      trackEvent('page_viewed', { page: activePage, page_path: window.location.pathname });
+    if (isPublicAnalyticsPath(pathname)) {
+      trackEvent('page_viewed', { page: activePage, page_path: pathname });
     }
-  }, [activePage]);
+  }, [activePage, pathname]);
 
   // Keep activePage in sync with browser back/forward navigation
   useEffect(() => {
     const handlePopState = () => {
-      setActivePage(pageFromPath(window.location.pathname));
+      setPathname(window.location.pathname);
       setAppointmentHandoff(null);
       setIsMobileMenuOpen(false);
       window.scrollTo({ top: 0 });
@@ -780,13 +793,13 @@ function App() {
     const params = new URLSearchParams(window.location.search);
     if (params.get('admin') === 'true') {
       if (adminAuthed) {
-        setActivePage('analytics');
+        navigatePath('/analytics', { replace: true });
       } else {
         setShowPinModal(true);
       }
     }
     localStorage.setItem('tho_session_id', sessionId);
-  }, [sessionId, adminAuthed]);
+  }, [sessionId, adminAuthed, navigatePath]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -841,10 +854,14 @@ function App() {
       'getting-started': 'Getting Started',
       'chat-history': 'Chat History',
     };
-    document.title =
-      fullTitles[activePage] ||
-      (shortTitles[activePage] ? `${shortTitles[activePage]} | ${BUSINESS_NAME}` : BUSINESS_NAME);
-  }, [activePage]);
+    const inventoryCategory = activePage === 'inventory'
+      ? getInventoryCategoryRoute(pathname)
+      : null;
+    document.title = inventoryCategory
+      ? `${inventoryCategory.classification} Mobile & Manufactured Homes in ${BUSINESS_CITY}, ${BUSINESS_STATE} | ${BUSINESS_NAME}`
+      : fullTitles[activePage] ||
+        (shortTitles[activePage] ? `${shortTitles[activePage]} | ${BUSINESS_NAME}` : BUSINESS_NAME);
+  }, [activePage, pathname]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -856,7 +873,6 @@ function App() {
 
   const navigateTo = (page, { preserveAppointmentHandoff = false } = {}) => {
     if (!preserveAppointmentHandoff) setAppointmentHandoff(null);
-    setActivePage(page);
     setIsMobileMenuOpen(false);
     window.scrollTo({ top: 0 });
     // Update URL for bookmarkable routes
@@ -880,9 +896,7 @@ function App() {
       health: '/health',
     };
     const targetUrl = urlMap[page] || '/';
-    if (window.location.pathname !== targetUrl) {
-      window.history.pushState({}, '', targetUrl);
-    }
+    navigatePath(targetUrl);
   };
 
   const startAppointmentHandoff = (handoff) => {
@@ -1753,6 +1767,8 @@ function App() {
         <ErrorBoundary scope="inventory">
           <Suspense fallback={<PageLoader />}>
             <InventoryBrowse
+              key={pathname}
+              pathname={pathname}
               adminAuthed={adminAuthed}
               onAskTex={(message) => {
                 navigateTo('chat');
