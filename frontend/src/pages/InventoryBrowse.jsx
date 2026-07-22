@@ -165,10 +165,6 @@ function getAvailabilityKind(home) {
   return 'available_now';
 }
 
-function getLegacyQuoteUrl(home) {
-  return home?.quote_url || home?.legacy_actions?.quote_url || '';
-}
-
 const LEGACY_INVENTORY_ALIASES = {
   // The legacy WordPress site exposes The Nassau as inventory id 42155, while
   // the current production seed uses a local id for the same public home.
@@ -228,11 +224,10 @@ function InventoryMetric({ icon, label, value, tone = 'accent' }) {
   );
 }
 
-function FeaturedHomeSpotlight({ home, onClick, onScheduleTour }) {
+function FeaturedHomeSpotlight({ home, onClick, onGetPrice }) {
   if (!home) return null;
   const specs = home.specs || {};
   const image = getHomeImage(home);
-  const quoteUrl = getLegacyQuoteUrl(home);
   return (
     <div className="overflow-hidden rounded-lg border border-[var(--cp-border-light)] bg-[var(--cp-panel)] shadow-[0_20px_60px_rgba(0,0,0,0.35)]">
       <button
@@ -297,26 +292,14 @@ function FeaturedHomeSpotlight({ home, onClick, onScheduleTour }) {
             <Eye size={15} />
             Details
           </button>
-          {quoteUrl ? (
-            <a
-              href={quoteUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center justify-center gap-2 rounded-md bg-[var(--cp-accent)] px-3 py-2 text-sm font-semibold text-[var(--cp-bg)] no-underline transition hover:bg-[var(--cp-accent-hot)]"
-            >
-              <DollarSign size={15} />
-              Quote
-            </a>
-          ) : (
-            <button
-              type="button"
-              onClick={onScheduleTour}
-              className="inline-flex items-center justify-center gap-2 rounded-md bg-[var(--cp-accent)] px-3 py-2 text-sm font-semibold text-[var(--cp-bg)] transition hover:bg-[var(--cp-accent-hot)]"
-            >
-              <Calendar size={15} />
-              Tour
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={onGetPrice}
+            className="inline-flex items-center justify-center gap-2 rounded-md bg-[var(--cp-accent)] px-3 py-2 text-sm font-semibold text-[var(--cp-bg)] transition hover:bg-[var(--cp-accent-hot)]"
+          >
+            <DollarSign size={15} />
+            Quote
+          </button>
         </div>
       </div>
     </div>
@@ -874,7 +857,7 @@ export default function InventoryBrowse({ adminAuthed = false, onAskTex, onCreat
             <FeaturedHomeSpotlight
               home={heroHome}
               onClick={() => heroHome && openDetail(heroHome)}
-              onScheduleTour={() => heroHome && openLeadForm(heroHome, 'tour')}
+              onGetPrice={() => heroHome && openLeadForm(heroHome, 'price')}
             />
           </div>
         </div>
@@ -1027,7 +1010,7 @@ export default function InventoryBrowse({ adminAuthed = false, onAskTex, onCreat
             key={home.id || idx}
             home={home}
             onClick={() => openDetail(home)}
-            onScheduleTour={() => openLeadForm(home, 'tour')}
+            onGetPrice={() => openLeadForm(home, 'price')}
             isFavorite={favorites.has(home.id)}
             onToggleFavorite={() => toggleFavorite(home.id)}
           />
@@ -1112,7 +1095,7 @@ export default function InventoryBrowse({ adminAuthed = false, onAskTex, onCreat
 
 
 // ─── Home Card Component ───
-export function HomeCard({ home, onClick, onScheduleTour, isFavorite = false, onToggleFavorite }) {
+export function HomeCard({ home, onClick, onGetPrice, isFavorite = false, onToggleFavorite }) {
   // image_url is guaranteed non-floorplan after PR #43's classifier;
   // real_photos[0] is also non-floorplan (exteriors are listed first).
   // We deliberately do NOT fall back to floor_plan_url here — floorplans
@@ -1135,7 +1118,6 @@ export function HomeCard({ home, onClick, onScheduleTour, isFavorite = false, on
   const hasTour = !!home.matterport_id;
   const specs = home.specs || {};
   const categories = home.image_categories || {};
-  const quoteUrl = getLegacyQuoteUrl(home);
 
   useEffect(() => {
     setHeroLoadState(heroImage ? 'loading' : 'empty');
@@ -1299,23 +1281,13 @@ export function HomeCard({ home, onClick, onScheduleTour, isFavorite = false, on
           >
             <Eye size={16} /> View Details
           </button>
-          {quoteUrl ? (
-            <a
-              href={quoteUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-md bg-[var(--cp-accent)] py-2.5 text-sm font-medium text-[var(--cp-bg)] no-underline transition hover:bg-[var(--cp-accent-hot)]"
-            >
-              <DollarSign size={16} /> Price Quote
-            </a>
-          ) : (
-            <button
-              className="flex-1 inline-flex items-center justify-center gap-1.5 py-2.5 rounded-md text-sm font-medium bg-[var(--cp-accent)] text-[var(--cp-bg)] hover:bg-[var(--cp-accent-hot)] transition"
-              onClick={(e) => { e.stopPropagation(); onScheduleTour(); }}
-            >
-              <Calendar size={16} /> Schedule Tour
-            </button>
-          )}
+          <button
+            type="button"
+            className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-md bg-[var(--cp-accent)] py-2.5 text-sm font-medium text-[var(--cp-bg)] transition hover:bg-[var(--cp-accent-hot)]"
+            onClick={(e) => { e.stopPropagation(); onGetPrice?.(); }}
+          >
+            <DollarSign size={16} /> Price Quote
+          </button>
         </div>
       </div>
     </Card>
@@ -1338,7 +1310,6 @@ function HomeDetailModal({
   // legacy `floor_plan_url` spelling for older Firestore docs.
   const floorplan = home.floorplan_url || home.floor_plan_url || '';
   const isCallForPrice = !home.display_price || home.display_price === 'Call for Price';
-  const quoteUrl = getLegacyQuoteUrl(home);
 
   const modalRef = useRef(null);
   useFocusTrap(modalRef);
@@ -1634,17 +1605,9 @@ function HomeDetailModal({
                 </span>
               )}
             </div>
-            {isCallForPrice && quoteUrl ? (
-              <a
-                href={quoteUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 rounded-lg bg-amber-500 px-4 py-2.5 font-medium text-white no-underline transition hover:bg-amber-600"
-              >
-                <DollarSign size={16} /> Get Price Quote
-              </a>
-            ) : isCallForPrice && (
+            {isCallForPrice && (
               <button
+                type="button"
                 className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg font-medium text-white bg-amber-500 hover:bg-amber-600 transition"
                 onClick={onGetPrice}
               >
@@ -1686,16 +1649,13 @@ function HomeDetailModal({
             >
               <Calendar size={18} /> Schedule a Tour
             </button>
-            {quoteUrl && (
-              <a
-                href={quoteUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex-1 inline-flex items-center justify-center gap-2 rounded-lg bg-[var(--cp-accent)] py-3.5 text-sm font-semibold text-[var(--cp-bg)] no-underline transition hover:bg-[var(--cp-accent-hot)]"
-              >
-                <DollarSign size={18} /> Price Quote
-              </a>
-            )}
+            <button
+              type="button"
+              onClick={onGetPrice}
+              className="flex-1 inline-flex items-center justify-center gap-2 rounded-lg bg-[var(--cp-accent)] py-3.5 text-sm font-semibold text-[var(--cp-bg)] transition hover:bg-[var(--cp-accent-hot)]"
+            >
+              <DollarSign size={18} /> Price Quote
+            </button>
           </div>
 
           <div className="flex gap-3 mb-4 flex-col sm:flex-row">

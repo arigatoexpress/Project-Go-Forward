@@ -46,6 +46,11 @@ describe('LeadCaptureForm', () => {
     fillValidAndSubmit();
 
     expect(await screen.findByText('Thank You!')).toBeInTheDocument();
+    const [, request] = global.fetch.mock.calls[0];
+    expect(JSON.parse(request.body)).toMatchObject({
+      source: 'inventory_quote',
+      message: expect.stringContaining('Price Quote Request — Sapphire 3-Bed'),
+    });
   });
 
   it('hands the persisted lead and home context to appointment booking', async () => {

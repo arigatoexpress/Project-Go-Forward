@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, it, expect, vi } from 'vitest';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { HomeCard } from '../pages/InventoryBrowse';
 
 // Minimal home fixtures mirroring /api/marketing/inventory-context shape.
@@ -14,14 +14,15 @@ const baseHome = {
 
 const noop = () => {};
 
-function renderCard(home) {
+function renderCard(home, overrides = {}) {
   return render(
     <HomeCard
       home={home}
       onClick={noop}
-      onScheduleTour={noop}
+      onGetPrice={noop}
       isFavorite={false}
       onToggleFavorite={noop}
+      {...overrides}
     />,
   );
 }
@@ -76,5 +77,19 @@ describe('InventoryBrowse HomeCard — order-only / build-to-order homes', () =>
     expect(screen.queryByText(/build-to-order|order-only model/i)).toBeNull();
     // Falls back to the generic "Photos Coming Soon" empty state.
     expect(screen.getByText(/photos coming soon/i)).toBeInTheDocument();
+  });
+
+  it('opens the first-party quote form instead of navigating to a legacy quote URL', () => {
+    const onGetPrice = vi.fn();
+    const { container } = renderCard({
+      ...baseHome,
+      quote_url: '/quote/floorplan/123/dealer/3522',
+    }, { onGetPrice });
+
+    const quoteButton = screen.getByRole('button', { name: /Price Quote/i });
+    expect(container.querySelector('a[href^="/quote/"]')).toBeNull();
+    fireEvent.click(quoteButton);
+
+    expect(onGetPrice).toHaveBeenCalledTimes(1);
   });
 });
