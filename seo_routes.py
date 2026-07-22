@@ -215,35 +215,64 @@ def _legacy_path(url: str | None) -> str | None:
     return path if path and path != "/" else None
 
 
-def _home_key(home: dict) -> str | None:
-    m = _DETAIL_RE.match(_legacy_path(home.get("detail_url")) or "")
-    return m.group(2) if m else None
+def _detail_route_key(path: str | None) -> tuple[str, str] | None:
+    match = _DETAIL_RE.match(path or "")
+    return (match.group(1).lower(), match.group(2)) if match else None
 
 
 def _build_registry() -> dict:
-    """Map legacy ids -> homes, detail paths, and quote->detail redirects."""
-    detail_by_id: dict[str, dict] = {}
-    detail_path_by_id: dict[str, str] = {}
+    """Map legacy routes to homes, canonical paths, and safe redirects."""
+    detail_by_route: dict[tuple[str, str], dict] = {}
+    detail_path_by_route: dict[tuple[str, str], str] = {}
+    detail_alias_redirects: dict[tuple[str, str], str] = {}
     quote_redirects: dict[str, str] = {}
+    quote_alias_redirects: dict[str, str] = {}
 
-    for home in _safe_homes():
+    homes = _safe_homes()
+    for home in homes:
         dpath = _legacy_path(home.get("detail_url"))
         if not dpath:
             continue
-        m = _DETAIL_RE.match(dpath)
-        if not m:
+        route_key = _detail_route_key(dpath)
+        if not route_key:
             continue
-        legacy_id = m.group(2)
-        detail_by_id[legacy_id] = home
-        detail_path_by_id[legacy_id] = dpath
+        detail_by_route[route_key] = home
+        detail_path_by_route[route_key] = dpath
         qpath = _legacy_path(home.get("quote_url"))
         if qpath:
             quote_redirects[qpath.rstrip("/")] = dpath
 
+    # Catalog de-duplication keeps one canonical home but preserves legacy URLs
+    # from the suppressed exact-model rows. Canonical route keys always win on a
+    # collision; aliases exist only to recover otherwise-dead product URLs.
+    for home in homes:
+        dpath = _legacy_path(home.get("detail_url"))
+        canonical_key = _detail_route_key(dpath)
+        if not canonical_key or detail_by_route.get(canonical_key) is not home:
+            continue
+        canonical_path = detail_path_by_route[canonical_key]
+        detail_aliases = home.get("legacy_detail_aliases")
+        if isinstance(detail_aliases, list):
+            for value in detail_aliases:
+                alias_path = _legacy_path(value) if isinstance(value, str) else None
+                alias_key = _detail_route_key(alias_path)
+                if alias_key and alias_key not in detail_by_route:
+                    detail_alias_redirects.setdefault(alias_key, canonical_path)
+        quote_aliases = home.get("legacy_quote_aliases")
+        if isinstance(quote_aliases, list):
+            for value in quote_aliases:
+                alias_path = _legacy_path(value) if isinstance(value, str) else None
+                if alias_path and _QUOTE_RE.match(alias_path):
+                    alias_key = alias_path.rstrip("/")
+                    if alias_key not in quote_redirects:
+                        quote_alias_redirects.setdefault(alias_key, canonical_path)
+
     return {
-        "detail_by_id": detail_by_id,
-        "detail_path_by_id": detail_path_by_id,
+        "detail_by_route": detail_by_route,
+        "detail_path_by_route": detail_path_by_route,
+        "detail_alias_redirects": detail_alias_redirects,
         "quote_redirects": quote_redirects,
+        "quote_alias_redirects": quote_alias_redirects,
     }
 
 
@@ -670,8 +699,8 @@ def _crawlable_inventory_block() -> str:
     e = html.escape
     reg = _registry()
     items = []
-    for legacy_id, home in list(reg["detail_by_id"].items()):
-        path = reg["detail_path_by_id"][legacy_id]
+    for route_key, home in list(reg["detail_by_route"].items()):
+        path = reg["detail_path_by_route"][route_key]
         specs = home.get("specs") or {}
         label = home.get("model_name") or "Manufactured home"
         extra = " · ".join(
@@ -1043,8 +1072,8 @@ def _inventory_itemlist_jsonld(limit: int = 25) -> dict | None:
     reg = _registry()
     base = _base()
     elements = []
-    for legacy_id, home in list(reg["detail_by_id"].items()):
-        path = reg["detail_path_by_id"].get(legacy_id)
+    for route_key, home in list(reg["detail_by_route"].items()):
+        path = reg["detail_path_by_route"].get(route_key)
         if not path:
             continue
         elements.append(
@@ -1123,10 +1152,23 @@ def _render_spa_response(full_path: str) -> Response | None:
     path = "/" + full_path.strip("/") if full_path else "/"
     base = _base()
 
-    # 1. Legacy quote URLs -> 301 to the matching detail page.
+    # 1. Legacy quote URLs -> matching detail page. Canonical quote routes are
+    # permanent; de-duplication aliases are temporary because their survivor
+    # can disappear and let the original plan become canonical again.
     if _QUOTE_RE.match(path):
-        target = _registry()["quote_redirects"].get(path.rstrip("/"))
-        return RedirectResponse(target or "/inventory", status_code=301)
+        reg = _registry()
+        quote_key = path.rstrip("/")
+        target = reg["quote_redirects"].get(quote_key)
+        if target:
+            return RedirectResponse(target, status_code=301)
+        alias_target = reg["quote_alias_redirects"].get(quote_key)
+        if alias_target:
+            return RedirectResponse(
+                alias_target,
+                status_code=302,
+                headers={"Cache-Control": "no-store"},
+            )
+        return RedirectResponse("/inventory", status_code=301)
 
     # 2. Legacy aliases for the listing hub -> new /inventory.
     if path.lower() in ("/home", "/index.html"):
@@ -1172,8 +1214,16 @@ def _render_spa_response(full_path: str) -> Response | None:
     m = _DETAIL_RE.match(path)
     if m:
         reg = _registry()
-        home = reg["detail_by_id"].get(m.group(2))
+        route_key = (m.group(1).lower(), m.group(2))
+        home = reg["detail_by_route"].get(route_key)
         if home is None:
+            alias_target = reg["detail_alias_redirects"].get(route_key)
+            if alias_target:
+                return RedirectResponse(
+                    alias_target,
+                    status_code=302,
+                    headers={"Cache-Control": "no-store"},
+                )
             head = _head_block(
                 "Home not found | " + business_name(),
                 "This home is no longer listed.",
@@ -1181,7 +1231,7 @@ def _render_spa_response(full_path: str) -> Response | None:
                 noindex=True,
             )
             return HTMLResponse(_inject(_shell(), head, None), status_code=404, headers=no_cache)
-        canonical_path = reg["detail_path_by_id"][m.group(2)]
+        canonical_path = reg["detail_path_by_route"][route_key]
         # One URL per home: slash/no-slash and slug variants 301 to the
         # exact legacy path that carries the indexed equity. Compare on the
         # percent-DECODED form: the registry stores the ENCODED legacy path
@@ -1348,7 +1398,7 @@ def sitemap_xml() -> Response:
         )
     ]
     urls += [base + p for p in sorted(_city_pages())]
-    urls += [base + p for p in sorted(_registry()["detail_path_by_id"].values())]
+    urls += [base + p for p in sorted(_registry()["detail_path_by_route"].values())]
     # lastmod intentionally omitted: Google only trusts it when verifiably
     # accurate, and inventory records carry no reliable update timestamps.
     entries = "\n".join(f"  <url><loc>{html.escape(u)}</loc></url>" for u in urls)
