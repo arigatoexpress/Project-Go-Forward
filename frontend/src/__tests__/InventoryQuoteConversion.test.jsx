@@ -2,6 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import InventoryBrowse from '../pages/InventoryBrowse';
 
+const { analyticsTrackEvent } = vi.hoisted(() => ({ analyticsTrackEvent: vi.fn() }));
+vi.mock('../utils/analytics', () => ({ trackEvent: analyticsTrackEvent }));
+
 const home = {
   id: '43372',
   model_name: 'Premier / Creole 3256H32447',
@@ -17,6 +20,7 @@ const home = {
 
 describe('InventoryBrowse quote conversion path', () => {
   beforeEach(() => {
+    analyticsTrackEvent.mockClear();
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({ homes: [home] }),
@@ -52,5 +56,13 @@ describe('InventoryBrowse quote conversion path', () => {
       expect(container.querySelector('form')).toBeInTheDocument();
     });
     expect(container.querySelector('a[href^="/quote/"]')).toBeNull();
+    expect(analyticsTrackEvent).toHaveBeenCalledWith(
+      'home_viewed',
+      expect.objectContaining({ home_id: '43372' }),
+    );
+    expect(analyticsTrackEvent).toHaveBeenCalledWith(
+      'lead_form_opened',
+      expect.objectContaining({ home_id: '43372' }),
+    );
   });
 });

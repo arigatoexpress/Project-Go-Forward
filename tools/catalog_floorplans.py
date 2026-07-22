@@ -152,6 +152,12 @@ def classify_inventory_kind(home: Mapping[str, Any]) -> str:
 
 def apply_inventory_kind(home: dict[str, Any]) -> dict[str, Any]:
     """Attach availability flags while preserving the existing status field."""
+    home_id = str(home.get("home_id") or "").strip()
+    if not home_id:
+        home_id = str(home.get("id") or "").strip()
+    if home_id:
+        home["home_id"] = home_id
+
     kind = classify_inventory_kind(home)
     home["inventory_kind"] = kind
 

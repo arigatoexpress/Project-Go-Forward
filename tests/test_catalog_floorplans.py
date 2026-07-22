@@ -30,6 +30,7 @@ def test_build_orderable_catalog_keeps_only_new_manufacturer_floorplans():
 
     assert len(homes) == 1
     assert homes[0]["id"] == "catalog-the-good-plan"
+    assert homes[0]["home_id"] == "catalog-the-good-plan"
     assert homes[0]["status"] == "Orderable"
     assert homes[0]["inventory_kind"] == ORDERABLE_KIND
     assert homes[0]["availability_label"] == "Orderable floorplan"
@@ -73,6 +74,11 @@ def test_merge_orderable_catalog_preserves_live_inventory_first_and_labels_count
     merged = merge_orderable_floorplan_catalog(result, assets=assets)
 
     assert [home["id"] for home in merged["homes"]] == ["28102", "44490", "catalog-the-good-plan"]
+    assert [home["home_id"] for home in merged["homes"]] == [
+        "28102",
+        "44490",
+        "catalog-the-good-plan",
+    ]
     assert [home["inventory_kind"] for home in merged["homes"]] == [
         "available_now",
         "pre_owned",
@@ -175,3 +181,29 @@ def test_merge_prefers_legacy_floorplan_context_and_dedupes_current_home():
     assert merged["orderable_floorplans_added"] == 1
     assert merged["catalog_source"] == "legacy_floorplan_catalog_snapshot"
     assert merged["catalog_floorplan_source_count"] == 2
+
+
+def test_merge_preserves_explicit_home_id_and_fills_only_missing_values():
+    merged = merge_orderable_floorplan_catalog(
+        {
+            "homes": [
+                {
+                    "id": "source-id",
+                    "home_id": "stable-explicit-id",
+                    "model_name": "Explicit Identity",
+                    "status": "Available",
+                },
+                {
+                    "id": 12345,
+                    "model_name": "Numeric Identity",
+                    "status": "Available",
+                },
+            ]
+        },
+        assets={},
+    )
+
+    assert [home["home_id"] for home in merged["homes"]] == [
+        "stable-explicit-id",
+        "12345",
+    ]

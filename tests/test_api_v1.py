@@ -938,6 +938,11 @@ def test_marketing_inventory_context_appends_orderable_catalog_to_live_inventory
     assert data["available_now"] == 1
     assert data["orderable_floorplans"] == 1
     assert [home["id"] for home in data["homes"]] == ["43372", "catalog-the-orderable"]
+    assert [home["home_id"] for home in data["homes"]] == [
+        "43372",
+        "catalog-the-orderable",
+    ]
+    assert len({home["home_id"] for home in data["homes"]}) == len(data["homes"])
     assert data["homes"][0]["inventory_kind"] == "available_now"
     assert data["homes"][1]["status"] == "Orderable"
     assert data["homes"][1]["availability_label"] == "Orderable floorplan"
