@@ -35,11 +35,54 @@ and budgets.
 Run from an authenticated operator machine:
 
 ```bash
-python scripts/google_growth_readiness.py --project tho-ai-agent
+python3 scripts/google_growth_readiness.py --project tho-ai-agent
 ```
 
 The report exposes presence booleans only. It never reads secret payloads or
 prints measurement IDs.
+
+## Checked-in zero-spend launch contract
+
+The initial Search package lives at
+`config/google_ads_launch_draft.json`. Validate it offline with:
+
+```bash
+python3 scripts/google_ads_launch_draft.py
+```
+
+The validator has no Google client dependency and makes no network request. It
+fails if the campaign, ad groups, or ads stop being `PAUSED`; if the mode stops
+being `VALIDATE_ONLY`; if the approval fields become non-null; or if the package
+violates the initial housing, attribution, budget, landing-page, or responsive
+search ad constraints.
+
+The proposed test is one Search campaign with two high-intent ad groups:
+
+| Ad group | Landing page | Positive match types |
+|---|---|---|
+| Local Inventory | `/inventory` | Exact + phrase only |
+| Showroom Tours | `/appointments` | Exact + phrase only |
+
+The proposal is **not approved**. Its average daily budget is $20, its explicit
+single-day charging limit is $40, and its full-month charging limit is $608.
+Those larger limits are recorded because Google says most campaigns may spend
+up to 2× the average daily budget on a day and charge up to 30.4× it over a
+month. The package also proposes a $5 maximum CPC ceiling and a stop-loss that
+pauses the campaign on any configured failure threshold.
+
+Mobile homes fall under Google's US housing-ad rules. The launch contract uses
+a 50-mile radius, keeps every age/gender/parental-status group enabled, and
+forbids ZIP-code, marital-status, and initial audience targeting. Search
+Partners and Display expansion are also disabled for the first test.
+
+Current primary references:
+
+- [Google Ads API: create campaigns paused](https://developers.google.com/google-ads/api/docs/campaigns/create-campaigns)
+- [Google Ads API: responsive search ad requirements](https://developers.google.com/google-ads/api/docs/responsive-search-ads/create-responsive-search-ads)
+- [Google Ads: daily and monthly spending limits](https://support.google.com/google-ads/answer/10486637)
+- [Google Ads: housing targeting restrictions](https://support.google.com/adspolicy/answer/16701755)
+- [Google Ads: location-presence targeting](https://support.google.com/google-ads/answer/9376662)
+- [Google Ads: negative keyword behavior](https://support.google.com/google-ads/answer/2453972)
 
 ## Phase A — account prerequisites
 
@@ -104,7 +147,10 @@ approved by Google; API enablement does not grant profile access by itself.
 ## Phase E — paused campaigns
 
 Create the initial Search campaigns through the Google Ads API with status
-`PAUSED`. Each ad group must map to a high-intent landing surface and conversion:
+`PAUSED`. Use the validated checked-in launch contract as the source artifact;
+the first API request must use the Ads API's validation-only mode before any
+paused resource is created. Each ad group must map to a high-intent landing
+surface and conversion:
 
 | Intent | Landing surface | Primary conversion |
 |---|---|---|
@@ -114,7 +160,8 @@ Create the initial Search campaigns through the Google Ads API with status
 
 Before requesting spend approval, attach a review artifact containing keyword
 list, negatives, geo radius, ad copy, landing URL, conversion action, daily cap,
-monthly maximum, and stop-loss rule. Activation is a separate explicit gate.
+monthly maximum, and stop-loss rule. The checked-in launch contract contains
+that artifact. Activation is a separate explicit gate.
 
 ## Definition of ready-to-spend
 
