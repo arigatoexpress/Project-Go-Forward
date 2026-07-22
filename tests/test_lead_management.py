@@ -162,3 +162,18 @@ def test_lead_from_dict_still_drops_unknown_keys():
     )
     assert lead.utm_source == "instagram"
     assert not hasattr(lead, "junk_field")
+
+
+def test_lead_roundtrips_explicit_contact_consent():
+    lead = Lead(
+        lead_id="callback-1",
+        user_id="u1",
+        session_id="s1",
+        contact_consent_at="2026-07-22T01:00:00+00:00",
+        contact_consent_source="chat_callback",
+    )
+
+    restored = Lead.from_dict(lead.to_dict())
+
+    assert restored.contact_consent_at == "2026-07-22T01:00:00+00:00"
+    assert restored.contact_consent_source == "chat_callback"

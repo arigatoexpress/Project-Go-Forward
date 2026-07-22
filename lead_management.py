@@ -68,6 +68,9 @@ class Lead:
     triage_notes: str | None = None
     triage_reason: str | None = None  # e.g. "hot_lead", "needs_follow_up"
     last_triage_at: str | None = None
+    # Durable proof that the visitor explicitly asked the team to contact them.
+    contact_consent_at: str | None = None
+    contact_consent_source: str | None = None
 
     # Marketing attribution (first-party UTM carried on a reached-out lead; NOT visitor tracking)
     utm_source: str | None = None

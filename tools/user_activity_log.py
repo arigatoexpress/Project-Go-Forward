@@ -9,6 +9,7 @@ Schema (one Firestore document per call):
         "timestamp":   ISO8601 UTC,
         "action":      str,    # contact.submit | appointment.book |
                                # appointment.cancel | chat.message |
+                               # chat.callback_requested |
                                # feedback.submit | page.view
         "session_id":  str,    # user session or "anonymous"
         "ip":          str,    # extracted from Request
@@ -41,6 +42,7 @@ ALLOWED_ACTIONS: tuple[str, ...] = (
     "appointment.book",
     "appointment.cancel",
     "chat.message",
+    "chat.callback_requested",
     "feedback.submit",
     "inventory.search",
     "page.view",
@@ -209,9 +211,7 @@ def log_user_action(
     """
     try:
         if action not in ALLOWED_ACTIONS:
-            logger.warning(
-                "User activity log received unknown action=%s", action
-            )
+            logger.warning("User activity log received unknown action=%s", action)
 
         entry = {
             "timestamp": datetime.now(UTC).isoformat(),
@@ -224,9 +224,7 @@ def log_user_action(
 
         db = _get_db()
         if db is None:
-            logger.warning(
-                "User activity log skipped (no Firestore client) action=%s", action
-            )
+            logger.warning("User activity log skipped (no Firestore client) action=%s", action)
             return
 
         db.collection(COLLECTION).add(entry)

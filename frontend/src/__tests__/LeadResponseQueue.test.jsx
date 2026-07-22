@@ -47,6 +47,17 @@ describe('speed-to-lead queue selection', () => {
       .toEqual(['appointment', 'overdue', 'waiting', 'fresh']);
   });
 
+  it('puts explicit callback requests immediately behind appointments', () => {
+    const selected = selectResponseQueue([
+      lead({ lead_id: 'overdue', created_at: '2026-07-20T15:00:00Z' }),
+      lead({ lead_id: 'callback', triage_reason: 'callback_requested', created_at: '2026-07-21T17:58:00Z' }),
+      lead({ lead_id: 'appointment', appointment_requested: true, created_at: '2026-07-21T17:59:00Z' }),
+    ], NOW);
+
+    expect(selected.map((item) => item.lead_id))
+      .toEqual(['appointment', 'callback', 'overdue']);
+  });
+
   it('treats timezone-naive backend timestamps as UTC', () => {
     expect(parseLeadCreatedAt('2026-07-21T17:55:00').toISOString())
       .toBe('2026-07-21T17:55:00.000Z');

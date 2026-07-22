@@ -56,6 +56,8 @@ class LeadRecord(BaseModel):
     triage_notes: str | None = None
     triage_reason: str | None = None
     last_triage_at: str | None = None
+    contact_consent_at: str | None = None
+    contact_consent_source: str | None = None
 
     utm_source: str | None = Field(default=None, max_length=200)
     utm_medium: str | None = Field(default=None, max_length=200)

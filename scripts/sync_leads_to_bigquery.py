@@ -24,7 +24,7 @@ import json
 import os
 import sys
 from collections import defaultdict
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from google.cloud import bigquery, firestore
 
@@ -54,6 +54,9 @@ def project_lead(doc: dict) -> dict:
         "priority": doc.get("priority"),
         "assigned_to": doc.get("assigned_to"),
         "triage_reason": doc.get("triage_reason"),
+        "contact_consent_at": _iso(doc.get("contact_consent_at")),
+        "contact_consent_source": doc.get("contact_consent_source"),
+        "callback_requested": doc.get("triage_reason") == "callback_requested",
         "utm_source": doc.get("utm_source"),
         "utm_medium": doc.get("utm_medium"),
         "utm_campaign": doc.get("utm_campaign"),
@@ -71,7 +74,14 @@ def project_lead(doc: dict) -> dict:
     }
 
 
-_APPT_DATE_FIELDS = ("created_at", "scheduled_date", "appointment_date", "date", "start_time", "slot")
+_APPT_DATE_FIELDS = (
+    "created_at",
+    "scheduled_date",
+    "appointment_date",
+    "date",
+    "start_time",
+    "slot",
+)
 
 
 def _day(value):
@@ -92,7 +102,9 @@ def _day(value):
 def build_daily_metrics(fs, lead_rows):
     """PII-free daily funnel counts: chat traffic -> leads -> reachable -> appointments.
     Reads only creation timestamps; never a name/phone/email value."""
-    days = defaultdict(lambda: {"chat_sessions": 0, "leads": 0, "contact_leads": 0, "appointments": 0})
+    days = defaultdict(
+        lambda: {"chat_sessions": 0, "leads": 0, "contact_leads": 0, "appointments": 0}
+    )
     for doc in fs.collection("chat_sessions").stream():
         d = _day(doc.to_dict().get("created_at"))
         if d:
@@ -123,14 +135,14 @@ def _as_utc(value):
         dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
     except ValueError:
         return None
-    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+    return dt if dt.tzinfo else dt.replace(tzinfo=UTC)
 
 
 def check_lead_freshness(rows, window_days=3):
     """PII-free 'are leads still coming in?' check computed from the already-loaded
     rows (no extra Firestore read). ``alert`` is True when zero leads landed in the
     window — the early warning for a demand or plumbing problem."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     cutoff = now - timedelta(days=window_days)
     cutoff7 = now - timedelta(days=7)
     times = [t for t in (_as_utc(r.get("created_at")) for r in rows) if t]
@@ -190,6 +202,9 @@ SCHEMA = [
     bigquery.SchemaField("priority", "STRING"),
     bigquery.SchemaField("assigned_to", "STRING"),
     bigquery.SchemaField("triage_reason", "STRING"),
+    bigquery.SchemaField("contact_consent_at", "TIMESTAMP"),
+    bigquery.SchemaField("contact_consent_source", "STRING"),
+    bigquery.SchemaField("callback_requested", "BOOL"),
     bigquery.SchemaField("utm_source", "STRING"),
     bigquery.SchemaField("utm_medium", "STRING"),
     bigquery.SchemaField("utm_campaign", "STRING"),
@@ -268,7 +283,10 @@ def main() -> int:
     for r in rows:
         leaked = _PII_FIELDS & set(r)
         if leaked:
-            print(f"ABORT: PII field(s) {leaked} in projected row — refusing to load.", file=sys.stderr)
+            print(
+                f"ABORT: PII field(s) {leaked} in projected row — refusing to load.",
+                file=sys.stderr,
+            )
             return 2
 
     print(f"extracted {len(rows)} PII-free lead rows from firestore://{args.project}/leads")
