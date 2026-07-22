@@ -13,8 +13,15 @@ and budgets.
   monthly caps.
 - No production traffic, DNS, or direct Cloud Run deployment change is part of
   this runbook.
-- Never paste OAuth secrets, refresh tokens, or the developer token into chat,
-  source control, logs, or ordinary environment variables.
+- Never paste OAuth secrets, refresh tokens, customer IDs, or the developer
+  token into chat, source control, logs, shell history, or unmanaged runtime
+  configuration.
+- The public storefront service is not the Ads operator. Do not grant Google
+  Ads access to its broad default Compute service account. Ads automation must
+  run as a dedicated identity in a dedicated Cloud Run Job.
+- Do not create or download a persistent service-account JSON key. The preferred
+  GCP runtime uses an attached user-managed service account and scoped
+  Application Default Credentials (ADC).
 
 ## What the application provides
 
@@ -39,7 +46,31 @@ python3 scripts/google_growth_readiness.py --project tho-ai-agent
 ```
 
 The report exposes presence booleans only. It never reads secret payloads or
-prints measurement IDs.
+prints measurement IDs, customer IDs, service-account emails, or token values.
+It recognizes two authentication paths:
+
+1. Preferred: the dedicated `google-growth-control` service account has no
+   user-managed keys, and a same-named Cloud Run Job is attached to it with
+   managed secret references and the live probe command.
+2. Compatibility-only: all three legacy user-OAuth secrets exist. The audit
+   reports this path, but it does not satisfy GCP-native strict readiness.
+
+The preferred path needs only the developer-token and customer-ID Secret
+Manager entries. The optional login-customer-ID entry is needed when the target
+account is accessed through a Google Ads manager account. A green presence
+audit does **not** prove the identity has Google Ads account access.
+
+The account-access probe is offline by default:
+
+```bash
+python3 scripts/google_ads_access_probe.py
+```
+
+After a dedicated job identity and managed secret bindings exist, run the job
+with `--live`. The live path uses scoped ADC and performs only
+`SELECT customer.id FROM customer LIMIT 1`. Its output contains status booleans
+and an HTTP status, never credentials, IDs, response bodies, or request IDs.
+It cannot create Ads resources or enable spend.
 
 ## Checked-in zero-spend launch contract
 
@@ -53,8 +84,8 @@ python3 scripts/google_ads_launch_draft.py
 The validator has no Google client dependency and makes no network request. It
 fails if the campaign, ad groups, or ads stop being `PAUSED`; if the mode stops
 being `VALIDATE_ONLY`; if the approval fields become non-null; or if the package
-violates the initial housing, attribution, budget, landing-page, or responsive
-search ad constraints.
+violates the dedicated-job/keyless-ADC identity contract or the initial
+housing, attribution, budget, landing-page, or responsive search ad constraints.
 
 The proposed test is one Search campaign with two high-intent ad groups:
 
@@ -93,8 +124,15 @@ Record these in the password manager/operator checklist, not the repository:
 3. GA4 property ID and web-stream measurement ID.
 4. Search Console Domain-property ownership for the production domain.
 5. Google Business Profile administrator access for the Huffman location.
-6. OAuth consent-screen ownership and an OAuth web/desktop client suitable for
-   the Ads API refresh-token flow.
+6. An administrator who can add the dedicated service-account email as a Google
+   Ads account user. Start with the least Ads access level that supports the
+   read-only probe; only grant campaign-management access when paused campaign
+   creation is approved.
+
+User OAuth client ownership remains necessary only if the legacy Ads fallback
+is chosen or a different Google product requires user consent. Do not assume
+that Google Ads service-account access also grants Search Console or Business
+Profile access; each product has its own property/account approval.
 
 ## Phase B — GCP APIs and secrets
 
@@ -111,12 +149,36 @@ Store credentials under these names so the readiness audit can verify presence
 without reading values:
 
 - `google-ads-developer-token`
+- `google-ads-customer-id`
+- `google-ads-login-customer-id` (manager-account access only)
+
+Create a user-managed service account named `google-growth-control`. Do not
+grant it project-wide Editor, do not attach it to the public storefront, and do
+not create a key. The intended execution surface is a dedicated Cloud Run Job
+with:
+
+- `google-growth-control` as its attached service identity;
+- the `adwords` OAuth scope requested through ADC by the probe/client;
+- Secret Manager access scoped only to the Ads developer-token and account-ID
+  secrets;
+- an explicit container command equivalent to
+  `python scripts/google_ads_access_probe.py --live` (job executions do not add
+  `--live` automatically);
+- no public endpoint, campaign activation command, or spend authority.
+
+The Google Ads administrator must separately add the service-account email as
+an account user. This is the step that grants Ads access; GCP IAM roles and API
+enablement do not grant it.
+
+The legacy user-OAuth fallback additionally needs:
+
 - `google-ads-client-id`
 - `google-ads-client-secret`
 - `google-ads-refresh-token`
 
-Use least-privilege service accounts. Business Profile access must first be
-approved by Google; API enablement does not grant profile access by itself.
+Business Profile API access must first be approved by Google, and its OAuth
+user must have profile access. API enablement does not grant profile access by
+itself.
 
 ## Phase C — measurement activation
 
@@ -166,8 +228,17 @@ that artifact. Activation is a separate explicit gate.
 ## Definition of ready-to-spend
 
 - Readiness audit is green.
+- The sanitized live Ads access probe returns
+  `account_access_validated: true` from the dedicated job identity.
 - Consent allow/deny browser checks are green.
 - Test lead and test appointment appear once in GA4 and once in the imported Ads
   conversion actions.
 - Search Console sitemap is accepted; Business Profile link is verified.
 - Campaigns remain `PAUSED` and the exact budget/stop-loss proposal is approved.
+
+## Authentication references
+
+- [Google Ads API service-account workflow](https://developers.google.com/google-ads/api/docs/oauth/service-accounts)
+- [Google Ads API authorization and required headers](https://developers.google.com/google-ads/api/rest/auth)
+- [Cloud Run service identity and keyless ADC](https://cloud.google.com/run/docs/securing/service-identity)
+- [Application Default Credentials search order](https://cloud.google.com/docs/authentication/application-default-credentials)
