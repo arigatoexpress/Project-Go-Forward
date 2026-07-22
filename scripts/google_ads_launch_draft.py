@@ -65,10 +65,27 @@ def validate_draft(payload: dict[str, Any]) -> list[str]:
     campaign = _mapping(payload.get("campaign"))
     activation = _mapping(payload.get("activation_gate"))
 
-    if payload.get("schema_version") != 1:
-        errors.append("schema_version must equal 1")
+    if payload.get("schema_version") != 2:
+        errors.append("schema_version must equal 2")
     if payload.get("mode") != "VALIDATE_ONLY":
         errors.append("mode must remain VALIDATE_ONLY")
+
+    control_plane = _mapping(payload.get("control_plane"))
+    expected_control_plane = {
+        "runtime": "DEDICATED_CLOUD_RUN_JOB",
+        "service_account_id": "google-growth-control",
+        "authentication": "APPLICATION_DEFAULT_CREDENTIALS",
+        "persistent_service_account_key": False,
+        "developer_token_source": "SECRET_MANAGER",
+        "customer_id_source": "SECRET_MANAGER",
+        "live_probe_required": True,
+    }
+    for field, expected in expected_control_plane.items():
+        if control_plane.get(field) != expected:
+            if isinstance(expected, str):
+                errors.append(f"control_plane.{field} must equal {expected}")
+            else:
+                errors.append(f"control_plane.{field} must remain {str(expected).lower()}")
     if campaign.get("status") != "PAUSED":
         errors.append("campaign.status must remain PAUSED")
     if campaign.get("channel") != "SEARCH":

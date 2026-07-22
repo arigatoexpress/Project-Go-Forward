@@ -34,6 +34,20 @@ def test_rejects_any_serving_or_approval_state():
     assert "activation_gate.approved must remain false" in errors
 
 
+def test_rejects_key_files_user_oauth_and_unmanaged_account_ids():
+    draft = _draft()
+    control_plane = draft["control_plane"]
+    control_plane["authentication"] = "SERVICE_ACCOUNT_JSON_KEY"
+    control_plane["persistent_service_account_key"] = True
+    control_plane["customer_id_source"] = "OPERATOR_INPUT"
+
+    errors = validate_draft(draft)
+
+    assert "control_plane.authentication must equal APPLICATION_DEFAULT_CREDENTIALS" in errors
+    assert "control_plane.persistent_service_account_key must remain false" in errors
+    assert "control_plane.customer_id_source must equal SECRET_MANAGER" in errors
+
+
 def test_rejects_budget_math_that_understates_google_charge_limits():
     draft = _draft()
     draft["campaign"]["budget"]["max_single_day_charge_usd"] = 20
