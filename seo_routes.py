@@ -343,6 +343,27 @@ def _first_image(home: dict) -> str | None:
     return None
 
 
+def _inventory_hero_image() -> str | None:
+    """Return the image React will prioritize on the public inventory hero."""
+    homes = _safe_homes()
+    for home in homes:
+        availability = home.get("inventory_kind")
+        is_orderable = availability == "orderable_floorplan" or home.get("status") == "Orderable"
+        image = _first_image(home)
+        if image and not is_orderable:
+            return image
+    for home in homes:
+        image = _first_image(home)
+        if image:
+            return image
+    return None
+
+
+def _responsive_image_srcset(url: str) -> str:
+    separator = "&" if "?" in url else "?"
+    return ", ".join(f"{url}{separator}w={width} {width}w" for width in (400, 800, 1200))
+
+
 def _product_jsonld(home: dict, canonical_url: str) -> dict | None:
     # Google's Product snippet requires one of offers/review/aggregateRating, and
     # a valid Offer REQUIRES a real price. THO lists every home "call for price"
@@ -586,7 +607,15 @@ def _default_og_image() -> str | None:
     return _base() + raw if raw.startswith("/") else raw
 
 
-def _head_block(title, description, canonical_url, og_image=None, jsonld=None, noindex=False):
+def _head_block(
+    title,
+    description,
+    canonical_url,
+    og_image=None,
+    jsonld=None,
+    noindex=False,
+    preload_image=None,
+):
     e = html.escape
     parts = [
         f"<title>{e(title)}</title>",
@@ -596,6 +625,13 @@ def _head_block(title, description, canonical_url, og_image=None, jsonld=None, n
         parts.append('<meta name="robots" content="noindex" />')
     else:
         parts.append(f'<link rel="canonical" href="{e(canonical_url)}" />')
+        if preload_image:
+            parts.append(
+                '<link rel="preload" as="image" '
+                f'href="{e(preload_image)}" '
+                f'imagesrcset="{e(_responsive_image_srcset(preload_image))}" '
+                'imagesizes="100vw" fetchpriority="high" />'
+            )
         parts.extend(
             [
                 f'<meta property="og:title" content="{e(title)}" />',
@@ -1204,7 +1240,13 @@ def _render_spa_response(full_path: str) -> Response | None:
                 jsonld.append(itemlist)
         if path == "/faq":
             jsonld.append(_faqpage_jsonld())
-        head = _head_block(title, description, base + (path if path != "/" else "/"), jsonld=jsonld)
+        head = _head_block(
+            title,
+            description,
+            base + (path if path != "/" else "/"),
+            jsonld=jsonld,
+            preload_image=_inventory_hero_image() if path in ("/", "/inventory") else None,
+        )
         if path in ("/", "/inventory"):
             body = _crawlable_inventory_block()
         elif path == "/contact":
