@@ -843,19 +843,19 @@ app.add_middleware(
 
 
 CANONICAL_PUBLIC_URL = os.environ.get(
-    "CANONICAL_PUBLIC_URL", "https://tho.sapphirealpha.xyz"
+    "CANONICAL_PUBLIC_URL", "https://www.texashomeoutlet.com"
 ).rstrip("/")
 _CANONICAL_PUBLIC_PARTS = urlsplit(CANONICAL_PUBLIC_URL)
 _CANONICAL_PUBLIC_SCHEME = _CANONICAL_PUBLIC_PARTS.scheme or "https"
-_CANONICAL_PUBLIC_HOST = _CANONICAL_PUBLIC_PARTS.netloc or "tho.sapphirealpha.xyz"
+_CANONICAL_PUBLIC_HOST = _CANONICAL_PUBLIC_PARTS.netloc or "www.texashomeoutlet.com"
 
 
 def _should_redirect_to_canonical_host(request: Request) -> bool:
     """Keep operator/client navigation on the production vanity domain.
 
     Cloud Run's default *.run.app URL remains useful for probes and low-level
-    diagnostics, but customer-facing pages must settle on tho.sapphirealpha.xyz
-    so admin cookies, passkeys, and support instructions all share one origin.
+    diagnostics, but customer-facing pages must settle on the dealership's
+    public domain so search authority and support links share one origin.
     """
     if request.method.upper() not in {"GET", "HEAD"}:
         return False

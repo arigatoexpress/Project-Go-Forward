@@ -23,7 +23,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urljoin
 from urllib.request import HTTPCookieProcessor, Request, build_opener
 
-DEFAULT_BASE_URL = "https://tho.sapphirealpha.xyz"
+DEFAULT_BASE_URL = "https://www.texashomeoutlet.com"
 DEFAULT_TEMPLATE = "TMHA_SalesContract.pdf"
 DEFAULT_PACKET = "standard_closing"
 USER_AGENT = "tho-doccenter-smoke/1.0"

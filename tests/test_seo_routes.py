@@ -61,7 +61,7 @@ def test_robots_txt_allows_public_blocks_admin(monkeypatch):
     body = response.text
     assert "Disallow: /crm" in body
     assert "Disallow: /api/admin/" in body
-    assert "Sitemap: " in body and "/sitemap.xml" in body
+    assert "Sitemap: https://www.texashomeoutlet.com/sitemap.xml" in body
     # Never block assets or the public inventory API the renderer depends on
     assert "Disallow: /assets" not in body
     assert "Disallow: /api/marketing" not in body
@@ -75,6 +75,8 @@ def test_sitemap_lists_static_and_detail_urls(monkeypatch):
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("application/xml")
     body = response.text
+    assert "https://www.texashomeoutlet.com/" in body
+    assert "sapphirealpha.xyz" not in body
     assert "/inventory</loc>" in body
     assert "/inventory-detail/43372/texas-home-outlet/huffman/premier/</loc>" in body
     assert "/plan/223034/skyliner/4732b/</loc>" in body
@@ -89,6 +91,8 @@ def test_homepage_head_is_injected(monkeypatch):
     body = response.text
     assert "Mobile &amp; Manufactured Homes for Sale in Huffman, TX" in body
     assert 'rel="canonical"' in body
+    assert '<link rel="canonical" href="https://www.texashomeoutlet.com/"' in body
+    assert "sapphirealpha.xyz" not in body
     assert body.count("<title>") == 1  # static template title replaced, not duplicated
     assert '"@type": "LocalBusiness"' in body
     assert '"postalCode": "77336"' in body

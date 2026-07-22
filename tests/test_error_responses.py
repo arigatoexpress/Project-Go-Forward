@@ -136,7 +136,7 @@ def test_run_app_document_center_redirects_to_canonical_domain(monkeypatch):
     )
 
     assert response.status_code == 308
-    assert response.headers["location"] == "https://tho.sapphirealpha.xyz/documents?from=email"
+    assert response.headers["location"] == "https://www.texashomeoutlet.com/documents?from=email"
 
 
 def test_run_app_api_and_health_paths_do_not_redirect(monkeypatch):
