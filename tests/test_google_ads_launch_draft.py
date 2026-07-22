@@ -45,6 +45,20 @@ def test_rejects_budget_math_that_understates_google_charge_limits():
     assert "monthly_charge_limit_usd must equal 30.4x average_daily_usd" in errors
 
 
+def test_rejects_proportional_but_unreviewed_budget_and_bid_increases():
+    draft = _draft()
+    budget = draft["campaign"]["budget"]
+    budget["average_daily_usd"] = 1000
+    budget["max_single_day_charge_usd"] = 2000
+    budget["monthly_charge_limit_usd"] = 30400
+    draft["campaign"]["bidding"]["max_cpc_usd"] = 500
+
+    errors = validate_draft(draft)
+
+    assert "budget.average_daily_usd must equal reviewed value 20" in errors
+    assert "bidding.max_cpc_usd must equal reviewed value 5" in errors
+
+
 def test_rejects_housing_targeting_that_uses_zip_or_demographic_exclusions():
     draft = _draft()
     draft["campaign"]["geo"]["postal_codes"] = ["77336"]
@@ -96,6 +110,19 @@ def test_rejects_unreviewed_paths_and_unbounded_tracking_values():
 
     assert any("final_url must use a reviewed public landing path" in error for error in errors)
     assert "tracking.utm_term must equal {keyword}" in errors
+
+
+def test_rejects_inflated_stop_loss_or_removed_activation_checks():
+    draft = _draft()
+    draft["activation_gate"]["stop_loss"]["zero_reachable_leads_spend_usd"] = 50000
+    draft["activation_gate"]["required_checks"] = []
+    draft["campaign"]["geo"]["radius_miles"] = 500
+
+    errors = validate_draft(draft)
+
+    assert "stop_loss.zero_reachable_leads_spend_usd must equal reviewed value 200" in errors
+    assert "activation_gate.required_checks must match the reviewed checklist" in errors
+    assert "geo.radius_miles must equal reviewed value 50" in errors
 
 
 def test_validation_does_not_mutate_the_launch_draft():

@@ -19,6 +19,30 @@ DEFAULT_DRAFT = Path(__file__).resolve().parents[1] / "config" / "google_ads_lau
 CANONICAL_HOST = "www.texashomeoutlet.com"
 ALLOWED_LANDING_PATHS = {"/appointments", "/inventory"}
 ALLOWED_POSITIVE_MATCH_TYPES = {"EXACT", "PHRASE"}
+REVIEWED_BUDGET = {
+    "average_daily_usd": 20.0,
+    "max_single_day_charge_usd": 40.0,
+    "monthly_charge_limit_usd": 608.0,
+}
+REVIEWED_MAX_CPC_USD = 5.0
+REVIEWED_RADIUS_MILES = 50.0
+REVIEWED_STOP_LOSS = {
+    "evaluation_window_days": 7.0,
+    "zero_reachable_leads_spend_usd": 200.0,
+    "zero_reachable_leads_clicks": 100.0,
+    "max_reachable_lead_cpa_usd": 150.0,
+    "minimum_reachable_leads_for_cpa_rule": 3.0,
+}
+REQUIRED_ACTIVATION_CHECKS = {
+    "readiness_audit_green",
+    "google_ads_customer_and_manager_ids_confirmed",
+    "housing_policy_acknowledged_in_google_ads",
+    "ga4_or_gtm_configured_without_duplicate_pageviews",
+    "generate_lead_and_schedule_appointment_single_fire_verified",
+    "google_ads_conversion_import_verified",
+    "search_console_sitemap_accepted",
+    "budget_and_stop_loss_explicitly_approved",
+}
 
 
 def _mapping(value: Any) -> dict[str, Any]:
@@ -71,6 +95,10 @@ def validate_draft(payload: dict[str, Any]) -> list[str]:
             errors.append("max_single_day_charge_usd must equal 2x average_daily_usd")
         if monthly is None or not math.isclose(monthly, daily * 30.4, abs_tol=0.01):
             errors.append("monthly_charge_limit_usd must equal 30.4x average_daily_usd")
+    for field, reviewed_value in REVIEWED_BUDGET.items():
+        value = _number(budget.get(field))
+        if value is None or not math.isclose(value, reviewed_value, abs_tol=0.01):
+            errors.append(f"budget.{field} must equal reviewed value {reviewed_value:g}")
 
     bidding = _mapping(campaign.get("bidding"))
     if bidding.get("strategy") != "MAXIMIZE_CLICKS":
@@ -78,6 +106,8 @@ def validate_draft(payload: dict[str, Any]) -> list[str]:
     max_cpc = _number(bidding.get("max_cpc_usd"))
     if max_cpc is None or max_cpc <= 0:
         errors.append("bidding.max_cpc_usd must be a positive number")
+    elif not math.isclose(max_cpc, REVIEWED_MAX_CPC_USD, abs_tol=0.01):
+        errors.append(f"bidding.max_cpc_usd must equal reviewed value {REVIEWED_MAX_CPC_USD:g}")
 
     networks = _mapping(campaign.get("networks"))
     if networks.get("google_search") is not True:
@@ -93,6 +123,8 @@ def validate_draft(payload: dict[str, Any]) -> list[str]:
     radius_miles = _number(geo.get("radius_miles"))
     if radius_miles is None or radius_miles < 1:
         errors.append("housing radius must be at least 1 mile")
+    elif not math.isclose(radius_miles, REVIEWED_RADIUS_MILES, abs_tol=0.01):
+        errors.append(f"geo.radius_miles must equal reviewed value {REVIEWED_RADIUS_MILES:g}")
     if geo.get("presence_only") is not True:
         errors.append("geo.presence_only must remain true")
     if _list(geo.get("postal_codes")):
@@ -194,16 +226,18 @@ def validate_draft(payload: dict[str, Any]) -> list[str]:
         errors.append("stop_loss.action must equal PAUSE_CAMPAIGN")
     if stop_loss.get("decision_logic") != "ANY":
         errors.append("stop_loss.decision_logic must equal ANY")
-    for field in (
-        "evaluation_window_days",
-        "zero_reachable_leads_spend_usd",
-        "zero_reachable_leads_clicks",
-        "max_reachable_lead_cpa_usd",
-        "minimum_reachable_leads_for_cpa_rule",
-    ):
+    for field, reviewed_value in REVIEWED_STOP_LOSS.items():
         value = _number(stop_loss.get(field))
         if value is None or value <= 0:
             errors.append(f"stop_loss.{field} must be a positive number")
+        elif not math.isclose(value, reviewed_value, abs_tol=0.01):
+            errors.append(f"stop_loss.{field} must equal reviewed value {reviewed_value:g}")
+
+    required_checks = {
+        value for value in _list(activation.get("required_checks")) if isinstance(value, str)
+    }
+    if required_checks != REQUIRED_ACTIVATION_CHECKS:
+        errors.append("activation_gate.required_checks must match the reviewed checklist")
 
     return errors
 
