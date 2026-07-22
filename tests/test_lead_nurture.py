@@ -259,7 +259,8 @@ class TestRenderNurtureEmail:
             {"name": "Alice Stale", "email": "alice@example.com", "days_inactive": 21}
         )
         assert "utm_source=lead_nurture" in body
-        assert "tho.sapphirealpha.xyz" in body
+        assert "www.texashomeoutlet.com" in body
+        assert "sapphirealpha.xyz" not in body
 
     def test_handles_missing_name_gracefully(self):
         subject, body = lead_nurture.render_nurture_email(

@@ -4,7 +4,7 @@ from scripts import doccenter_smoke
 
 
 def test_default_doccenter_smoke_targets_canonical_tho_domain():
-    assert doccenter_smoke.DEFAULT_BASE_URL == "https://tho.sapphirealpha.xyz"
+    assert doccenter_smoke.DEFAULT_BASE_URL == "https://www.texashomeoutlet.com"
 
 
 def test_document_smoke_data_uses_hidden_synthetic_buyer_marker():

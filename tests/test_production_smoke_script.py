@@ -9,12 +9,50 @@ class _TimeoutContext:
         return False
 
 
-def test_default_base_url_targets_tho_subdomain():
-    assert production_smoke.DEFAULT_BASE_URL == "https://tho.sapphirealpha.xyz"
+def test_default_base_url_targets_public_domain():
+    assert production_smoke.DEFAULT_BASE_URL == "https://www.texashomeoutlet.com"
 
 
 def test_default_inventory_floor_matches_current_public_catalog_size():
     assert production_smoke.DEFAULT_MIN_HOMES == 10
+
+
+def test_canonical_authority_probe_accepts_public_domain(monkeypatch):
+    def fake_read_url(base_url, path, *, timeout):
+        if path == "/":
+            body = b'<link rel="canonical" href="https://www.texashomeoutlet.com/">'
+            return 200, body, "text/html", 8
+        body = b"User-agent: *\nSitemap: https://www.texashomeoutlet.com/sitemap.xml\n"
+        return 200, body, "text/plain", 4
+
+    monkeypatch.setattr(production_smoke, "_read_url", fake_read_url)
+
+    probe = production_smoke.check_canonical_authority(
+        "https://www.texashomeoutlet.com", timeout=1.0
+    )
+
+    assert probe.ok
+    assert "canonical=yes" in probe.evidence
+    assert "sitemap=yes" in probe.evidence
+
+
+def test_canonical_authority_probe_rejects_staging_domain(monkeypatch):
+    def fake_read_url(base_url, path, *, timeout):
+        if path == "/":
+            body = b'<link rel="canonical" href="https://tho.sapphirealpha.xyz/">'
+            return 200, body, "text/html", 8
+        body = b"User-agent: *\nSitemap: https://tho.sapphirealpha.xyz/sitemap.xml\n"
+        return 200, body, "text/plain", 4
+
+    monkeypatch.setattr(production_smoke, "_read_url", fake_read_url)
+
+    probe = production_smoke.check_canonical_authority(
+        "https://www.texashomeoutlet.com", timeout=1.0
+    )
+
+    assert not probe.ok
+    assert "canonical=no" in probe.evidence
+    assert "sitemap=no" in probe.evidence
 
 
 def test_spa_route_probe_reports_root_marker(monkeypatch):

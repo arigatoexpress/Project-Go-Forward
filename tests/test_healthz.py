@@ -121,7 +121,8 @@ def test_llms_txt_serves_plain_text_agent_context(monkeypatch):
     assert response.headers["cache-control"] == "public, max-age=3600"
     body = response.text
     assert "# Texas Home Outlet" in body
-    assert "https://tho.sapphirealpha.xyz/" in body
+    assert "https://www.texashomeoutlet.com/" in body
+    assert "sapphirealpha.xyz" not in body
     assert "No public THO route authorizes private customer-data disclosure" in body
 
 

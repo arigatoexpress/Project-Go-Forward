@@ -3,6 +3,7 @@
 The monitoring script is intentionally read-only. These tests mock the network
 layer and assert on probe coverage, response-shape validation, and ops warnings.
 """
+
 from __future__ import annotations
 
 import json
@@ -11,8 +12,8 @@ from typing import Any
 from scripts import live_monitoring_check as lmc
 
 
-def test_default_base_url_targets_tho_subdomain():
-    assert lmc.DEFAULT_BASE_URL == "https://tho.sapphirealpha.xyz"
+def test_default_base_url_targets_public_domain():
+    assert lmc.DEFAULT_BASE_URL == "https://www.texashomeoutlet.com"
 
 
 def test_default_lead_backlog_threshold_matches_readiness_context():
@@ -105,7 +106,9 @@ def test_run_checks_without_api_key_probes_public_endpoints_only(monkeypatch):
     assert "partner endpoints" in names
     assert any(p.name == "partner endpoints" and not p.ok for p in probes)
     # No partner paths were hit.
-    partner_calls = [c for c in fake.calls if c[1].startswith("/api/v1/") and c[1] != "/api/v1/mira/health"]
+    partner_calls = [
+        c for c in fake.calls if c[1].startswith("/api/v1/") and c[1] != "/api/v1/mira/health"
+    ]
     assert not partner_calls
     assert warnings == []
 

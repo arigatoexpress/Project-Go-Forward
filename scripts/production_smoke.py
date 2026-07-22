@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 import time
 from dataclasses import dataclass
@@ -56,7 +57,7 @@ except Exception:  # pragma: no cover - smoke fallback for minimal runtimes
         )
 
 
-DEFAULT_BASE_URL = "https://tho.sapphirealpha.xyz"
+DEFAULT_BASE_URL = "https://www.texashomeoutlet.com"
 DEFAULT_MIN_HOMES = 10
 PUBLIC_ROUTES = (
     "/",
@@ -325,6 +326,43 @@ def check_inventory_media_depth(base_url: str, *, timeout: float) -> Probe:
         status=status,
         evidence=evidence,
         elapsed_ms=elapsed_ms,
+    )
+
+
+def check_canonical_authority(base_url: str, *, timeout: float) -> Probe:
+    """Fail when public pages advertise a different domain to search engines."""
+    origin = base_url.rstrip("/")
+    home_status, home_body, home_type, home_ms = _read_url(base_url, "/", timeout=timeout)
+    robots_status, robots_body, robots_type, robots_ms = _read_url(
+        base_url, "/robots.txt", timeout=timeout
+    )
+    home_text = home_body.decode("utf-8", errors="replace")
+    robots_text = robots_body.decode("utf-8", errors="replace")
+    canonical_match = re.search(
+        r'<link\s+rel=["\']canonical["\']\s+href=["\']([^"\']+)',
+        home_text,
+        flags=re.IGNORECASE,
+    )
+    canonical = canonical_match.group(1).rstrip("/") if canonical_match else ""
+    canonical_ok = canonical == origin
+    sitemap_ok = f"Sitemap: {origin}/sitemap.xml" in robots_text
+    ok = (
+        home_status == 200
+        and robots_status == 200
+        and "html" in home_type.lower()
+        and "text/plain" in robots_type.lower()
+        and canonical_ok
+        and sitemap_ok
+    )
+    return Probe(
+        name="canonical search authority",
+        ok=ok,
+        status=home_status if home_status != 200 else robots_status,
+        evidence=(
+            f"canonical={'yes' if canonical_ok else 'no'}; "
+            f"sitemap={'yes' if sitemap_ok else 'no'}; advertised={canonical or 'missing'}"
+        ),
+        elapsed_ms=home_ms + robots_ms,
     )
 
 
@@ -644,6 +682,7 @@ def run_smoke(
     probes.extend(check_health(base_url, timeout=timeout))
     probes.append(check_inventory(base_url, timeout=timeout, min_homes=min_homes))
     probes.append(check_inventory_media_depth(base_url, timeout=timeout))
+    probes.append(check_canonical_authority(base_url, timeout=timeout))
     probes.extend(check_public_helpers(base_url, timeout=timeout))
     probes.extend(check_spa_routes(base_url, timeout=timeout))
     probes.extend(check_safe_public_validation(base_url, timeout=timeout))

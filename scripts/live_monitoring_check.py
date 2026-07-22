@@ -8,6 +8,7 @@ Usage:
     python scripts/live_monitoring_check.py
     python scripts/live_monitoring_check.py --base-url https://www.texashomeoutlet.com --api-key "$THO_API_KEY"
 """
+
 from __future__ import annotations
 
 import argparse
@@ -19,7 +20,7 @@ from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-DEFAULT_BASE_URL = "https://tho.sapphirealpha.xyz"
+DEFAULT_BASE_URL = "https://www.texashomeoutlet.com"
 DEFAULT_TIMEOUT = 20.0
 DEFAULT_LEAD_BACKLOG_THRESHOLD = 50
 
@@ -120,7 +121,9 @@ def _check_endpoint(
     if status is None:
         return Probe(display_name, False, None, "network error", elapsed_ms)
     if status != 200:
-        return Probe(display_name, False, status, f"HTTP {status} (content-type={content_type})", elapsed_ms)
+        return Probe(
+            display_name, False, status, f"HTTP {status} (content-type={content_type})", elapsed_ms
+        )
 
     payload = _json_body(body)
     if payload is None:
@@ -161,15 +164,15 @@ def _check_lead_backlog(
         return probe, warnings
 
     # Re-fetch body to parse counts; cheap compared to a real Firestore query.
-    status, body, _, _ = _get(base_url, "/api/v1/mira/leads/summary", api_key=api_key, timeout=timeout)
+    status, body, _, _ = _get(
+        base_url, "/api/v1/mira/leads/summary", api_key=api_key, timeout=timeout
+    )
     payload = _json_body(body) if status == 200 else None
     if payload:
         by_status = payload.get("by_status") or {}
         new_count = by_status.get("new", 0)
         if new_count > threshold:
-            warnings.append(
-                f"{new_count} leads in 'new' status exceed threshold ({threshold})"
-            )
+            warnings.append(f"{new_count} leads in 'new' status exceed threshold ({threshold})")
     return probe, warnings
 
 
