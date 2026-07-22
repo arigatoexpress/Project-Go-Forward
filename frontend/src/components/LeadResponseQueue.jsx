@@ -66,8 +66,10 @@ export function selectResponseQueue(leads, now = new Date()) {
     .filter((lead) => lead?.status === 'new' && (lead.phone || lead.email))
     .map((lead) => ({ ...lead, responseState: getLeadResponseState(lead, now) }))
     .sort((a, b) => {
-      if (Boolean(a.appointment_requested) !== Boolean(b.appointment_requested)) {
-        return a.appointment_requested ? -1 : 1;
+      const aIntent = a.appointment_requested ? 2 : a.triage_reason === 'callback_requested' ? 1 : 0;
+      const bIntent = b.appointment_requested ? 2 : b.triage_reason === 'callback_requested' ? 1 : 0;
+      if (aIntent !== bIntent) {
+        return bIntent - aIntent;
       }
       if (a.responseState.rank !== b.responseState.rank) {
         return b.responseState.rank - a.responseState.rank;
@@ -80,6 +82,7 @@ export function selectResponseQueue(leads, now = new Date()) {
 
 function intentLabel(lead) {
   if (lead.appointment_requested) return 'Appointment requested';
+  if (lead.triage_reason === 'callback_requested') return 'Requested a callback';
   if (lead.financing_discussed) return 'Asked about financing';
   if ((lead.homes_viewed || []).length > 0) {
     const count = lead.homes_viewed.length;
@@ -162,6 +165,11 @@ export default function LeadResponseQueue({ leads, onOpen, onMarkContacted }) {
                     {lead.appointment_requested && (
                       <span className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2 py-0.5 text-[10px] font-semibold text-violet-800">
                         <CalendarClock size={11} aria-hidden="true" /> Appointment
+                      </span>
+                    )}
+                    {!lead.appointment_requested && lead.triage_reason === 'callback_requested' && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-800">
+                        <Phone size={11} aria-hidden="true" /> Callback
                       </span>
                     )}
                   </div>

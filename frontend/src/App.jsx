@@ -10,6 +10,7 @@ import { useNetworkStatus } from './components/NetworkStatus';
 import ReportIssue from './components/ReportIssue';
 import ErrorBoundary from './components/ErrorBoundary';
 import ClosureBanner from './components/ClosureBanner';
+import ChatCallbackCard from './components/ChatCallbackCard';
 import { v4 as uuidv4 } from 'uuid';
 import { captureUtmFromUrl, getUtmParams } from './utils/utm';
 import { isPublicAnalyticsPath, trackEvent } from './utils/analytics';
@@ -19,6 +20,15 @@ import {
 } from './constants';
 
 const API_URL = '/run'; // Relative path for single-container deployment
+
+function chatMessageIncludesContact(text) {
+  const value = String(text || '');
+  if (/[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]{1,190}\.[A-Za-z]{2,24}/.test(value)) return true;
+  const phone = value.match(/(?:\+?1[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}/)?.[0];
+  if (!phone) return false;
+  return /[\s.()+-]/.test(phone)
+    || /\b(call|text|phone|cell|reach|contact|number)\b/i.test(value);
+}
 
 // Lazy-load heavy page components for code-splitting
 const InventoryBrowse = lazy(() => import('./pages/InventoryBrowse'));
@@ -363,6 +373,13 @@ function App() {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [sessionId] = useState(() => localStorage.getItem('tho_session_id') || uuidv4());
+  const callbackStorageKey = `tho_chat_callback_${sessionId}`;
+  const [chatCallbackCaptured, setChatCallbackCaptured] = useState(
+    () => localStorage.getItem(callbackStorageKey) === 'captured',
+  );
+  const [chatCallbackDismissed, setChatCallbackDismissed] = useState(
+    () => sessionStorage.getItem(callbackStorageKey) === 'dismissed',
+  );
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [comparisonList, setComparisonList] = useState([]);
   const [darkMode, setDarkMode] = useDarkMode();
@@ -1764,6 +1781,17 @@ function App() {
   }
 
   // ─── Chat Page (default) ───
+  const userMessages = messages.filter((message) => message.role === 'user');
+  const hasSalesIntent = userMessages.some((message) => (
+    /\b(home|inventory|price|pricing|bedroom|bathroom|budget|buy|financ\w*|appointment|visit|tour|available)\b/i
+      .test(message.text || '')
+  ));
+  const volunteeredContact = userMessages.some((message) => chatMessageIncludesContact(message.text));
+  const showChatCallback = hasSalesIntent
+    && !chatCallbackDismissed
+    && (!volunteeredContact || chatCallbackCaptured)
+    && !isLoading;
+
   return (
     <div className="flex flex-col h-screen bg-[var(--cp-bg)] font-sans text-[var(--cp-text)]">
       {/* WCAG 2.4.1 bypass-blocks: lets keyboard users jump past the nav. */}
@@ -1837,6 +1865,21 @@ function App() {
               </div>
             </div>
           ))}
+
+          {showChatCallback && (
+            <ChatCallbackCard
+              sessionId={sessionId}
+              captured={chatCallbackCaptured}
+              onDismiss={() => {
+                sessionStorage.setItem(callbackStorageKey, 'dismissed');
+                setChatCallbackDismissed(true);
+              }}
+              onCaptured={() => {
+                localStorage.setItem(callbackStorageKey, 'captured');
+                setChatCallbackCaptured(true);
+              }}
+            />
+          )}
 
           {isLoading && (
             <div className="flex justify-start">

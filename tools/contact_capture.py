@@ -29,6 +29,7 @@ import asyncio
 import logging
 import re
 import uuid
+from datetime import UTC, datetime
 
 from lead_management import Lead, normalize_phone
 
@@ -66,6 +67,78 @@ def apply_utm(lead, utm) -> bool:
             setattr(lead, key, value)
             changed = True
     return changed
+
+
+async def capture_explicit_contact(
+    *,
+    name: str,
+    phone: str,
+    email: str | None,
+    session_id: str,
+    user_id: str,
+    lead_manager,
+    utm: dict | None = None,
+):
+    """Persist an explicitly consented chat callback request without sending.
+
+    Prefer the session's anonymous lead so its home-search context survives the
+    handoff. If no session lead exists, dedupe by normalized phone before
+    creating a new record. Staff action happens through the CRM response queue;
+    this helper intentionally sends no email, SMS, or other outward message.
+    """
+    normalized_phone = normalize_phone(phone)
+    session_lead = await lead_manager.get_lead_by_session(session_id)
+    context_lead = session_lead
+    matched_by_session = bool(session_lead and session_lead.status == "new")
+    lead = session_lead if matched_by_session else None
+    if lead is None and session_lead is None:
+        phone_lead = await lead_manager.get_lead_by_phone(normalized_phone)
+        if phone_lead and phone_lead.status == "new":
+            lead = phone_lead
+
+    consent_at = datetime.now(UTC).isoformat()
+    if lead is None:
+        lead = Lead(
+            lead_id=f"chat_callback_{uuid.uuid4().hex[:12]}",
+            user_id=user_id,
+            session_id=session_id,
+            source="chat",
+            name=name,
+            phone=normalized_phone,
+            email=email or None,
+            priority="high",
+            triage_reason="callback_requested",
+            triage_notes="Visitor explicitly requested a callback from website chat.",
+            contact_consent_at=consent_at,
+            contact_consent_source="chat_callback",
+            bedrooms=getattr(context_lead, "bedrooms", None),
+            bathrooms=getattr(context_lead, "bathrooms", None),
+            budget_max=getattr(context_lead, "budget_max", None),
+            home_type=getattr(context_lead, "home_type", None),
+            homes_viewed=list(getattr(context_lead, "homes_viewed", None) or []),
+            appointment_requested=bool(getattr(context_lead, "appointment_requested", False)),
+            financing_discussed=bool(getattr(context_lead, "financing_discussed", False)),
+            **{k: v for k, v in (utm or {}).items() if v},
+        )
+        return await lead_manager.create_lead(lead)
+
+    # The browser owns its session, so correcting that session's contact fields
+    # is safe. A phone-only dedupe is weaker: fill blanks but never overwrite an
+    # existing person's name/email based only on knowledge of their number.
+    if matched_by_session or not lead.name:
+        lead.name = name or lead.name
+    if matched_by_session or not lead.phone:
+        lead.phone = normalized_phone or lead.phone
+    if email and (matched_by_session or not lead.email):
+        lead.email = email
+    lead.priority = "high"
+    lead.triage_reason = "callback_requested"
+    if not lead.triage_notes:
+        lead.triage_notes = "Visitor explicitly requested a callback from website chat."
+    lead.contact_consent_at = consent_at
+    lead.contact_consent_source = "chat_callback"
+    apply_utm(lead, utm)
+    return await lead_manager.update_lead(lead)
 
 
 def extract_contact(text: str | None) -> tuple[str | None, str | None]:

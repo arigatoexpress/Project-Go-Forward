@@ -89,6 +89,8 @@ class FakeLead:
     triage_notes: str | None = None
     triage_reason: str | None = None
     last_triage_at: str | None = None
+    contact_consent_at: str | None = None
+    contact_consent_source: str | None = None
 
     # Marketing attribution (first-party UTM carried on a reached-out lead; NOT visitor tracking)
     utm_source: str | None = None
@@ -125,6 +127,8 @@ class FakeLead:
             "triage_notes": self.triage_notes,
             "triage_reason": self.triage_reason,
             "last_triage_at": self.last_triage_at,
+            "contact_consent_at": self.contact_consent_at,
+            "contact_consent_source": self.contact_consent_source,
             "utm_source": self.utm_source,
             "utm_medium": self.utm_medium,
             "utm_campaign": self.utm_campaign,
@@ -438,6 +442,16 @@ class FakeLeadManager:
     async def get_lead_by_session(self, session_id: str):
         for lead in self.leads:
             if lead.session_id == session_id:
+                return lead
+        return None
+
+    async def get_lead_by_phone(self, phone: str | None):
+        wanted = "".join(character for character in str(phone or "") if character.isdigit())[-10:]
+        for lead in self.leads:
+            current = "".join(
+                character for character in str(lead.phone or "") if character.isdigit()
+            )[-10:]
+            if wanted and current == wanted:
                 return lead
         return None
 

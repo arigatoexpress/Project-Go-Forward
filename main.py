@@ -144,7 +144,11 @@ from email_service import (
 )
 from lead_management import Lead, LeadManager
 from structured_logging import logger as struct_logger
-from tools.contact_capture import apply_utm, capture_contact_from_message
+from tools.contact_capture import (
+    apply_utm,
+    capture_contact_from_message,
+    capture_explicit_contact,
+)
 from tools.input_sanitizer import sanitize_body, sanitize_query_params
 from tools.pii_guard import redact_pii_from_text, validate_no_pii_in_text
 from tools.user_activity_log import log_user_action, query_user_activity
@@ -4949,6 +4953,87 @@ async def reorder_listing_photos(request: Request, home_id: str):
 
 
 # ─── Contact Form API ───
+
+
+_PUBLIC_CHAT_SESSION_RE = re.compile(r"^[A-Za-z0-9_-]{8,128}$")
+_PUBLIC_EMAIL_RE = re.compile(r"^[^\s@]{1,64}@[^\s@]{1,190}\.[^\s@]{2,24}$")
+
+
+@app.post("/api/chat/contact")
+@limiter.limit(CONTACT_RATE_LIMIT)
+async def submit_chat_callback(request: Request):
+    """Turn an anonymous chat session into a reachable, consented CRM lead.
+
+    This is intentionally storage-only. It does not send email, SMS, or a staff
+    notification; the existing CRM response queue is the human handoff surface.
+    """
+    try:
+        data = await request.json()
+    except Exception:
+        return JSONResponse({"success": False, "error": "Invalid request."}, status_code=400)
+    if not isinstance(data, dict):
+        return JSONResponse({"success": False, "error": "Invalid request."}, status_code=400)
+
+    session_id = data.get("sessionId")
+    name = data.get("name")
+    phone = data.get("phone")
+    email = data.get("email") or None
+
+    if data.get("consent") is not True:
+        return JSONResponse(
+            {"success": False, "error": "Callback consent is required."}, status_code=400
+        )
+    if not isinstance(session_id, str) or not _PUBLIC_CHAT_SESSION_RE.fullmatch(session_id):
+        return JSONResponse({"success": False, "error": "Invalid chat session."}, status_code=400)
+    if not isinstance(name, str) or not name.strip() or len(name.strip()) > 120:
+        return JSONResponse({"success": False, "error": "Your name is required."}, status_code=400)
+    if not isinstance(phone, str) or len(phone) > 40:
+        return JSONResponse(
+            {"success": False, "error": "Enter a valid 10-digit phone number."},
+            status_code=400,
+        )
+    phone_digits = re.sub(r"\D", "", phone)
+    if not (len(phone_digits) == 10 or (len(phone_digits) == 11 and phone_digits.startswith("1"))):
+        return JSONResponse(
+            {"success": False, "error": "Enter a valid 10-digit phone number."},
+            status_code=400,
+        )
+    if not isinstance(email, str | type(None)) or (
+        email and (len(email.strip()) > 254 or not _PUBLIC_EMAIL_RE.fullmatch(email.strip()))
+    ):
+        return JSONResponse(
+            {"success": False, "error": "Enter a valid email address."}, status_code=400
+        )
+
+    try:
+        lead = await capture_explicit_contact(
+            name=name.strip(),
+            phone=phone.strip(),
+            email=email.strip() if email else None,
+            session_id=session_id,
+            user_id=f"web_user_{session_id}",
+            lead_manager=lead_manager,
+            utm=_extract_utm(data),
+        )
+    except Exception as exc:
+        struct_logger.error(
+            "Chat callback lead storage failed",
+            event="chat_callback_storage_failed",
+            session_id=session_id,
+            error=str(exc),
+        )
+        return JSONResponse(
+            {"success": False, "error": "Could not save your callback request."},
+            status_code=503,
+        )
+
+    log_user_action(
+        action="chat.callback_requested",
+        session_id=session_id,
+        details={"has_email": bool(email), "lead_id": lead.lead_id},
+        request=request,
+    )
+    return {"success": True, "lead_id": lead.lead_id}
 
 
 @app.post("/api/contact")
