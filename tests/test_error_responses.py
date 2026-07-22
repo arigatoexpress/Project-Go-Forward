@@ -152,6 +152,19 @@ def test_run_app_api_and_health_paths_do_not_redirect(monkeypatch):
     assert "location" not in api.headers
 
 
+def test_run_app_seo_machine_paths_do_not_redirect(monkeypatch):
+    client, _main, _db, _logger = create_client(monkeypatch)
+    host = {"host": "candidate---project-go-forward-trgi34bxuq-uc.a.run.app"}
+
+    robots = client.get("/robots.txt", headers=host, follow_redirects=False)
+    sitemap = client.get("/sitemap.xml", headers=host, follow_redirects=False)
+
+    assert robots.status_code == 200
+    assert sitemap.status_code == 200
+    assert "Sitemap: https://www.texashomeoutlet.com/sitemap.xml" in robots.text
+    assert "https://www.texashomeoutlet.com/" in sitemap.text
+
+
 def test_direct_html_files_use_no_store(monkeypatch):
     client, _main, _db, _logger = create_client(monkeypatch)
     studio = REPO_ROOT / "frontend" / "dist" / "studio.html"

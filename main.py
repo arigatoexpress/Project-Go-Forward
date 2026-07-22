@@ -866,7 +866,7 @@ def _should_redirect_to_canonical_host(request: Request) -> bool:
         return False
 
     path = request.url.path
-    if path == "/llms.txt":
+    if path in {"/llms.txt", "/robots.txt", "/sitemap.xml"}:
         return False
     if (
         path.startswith("/health")

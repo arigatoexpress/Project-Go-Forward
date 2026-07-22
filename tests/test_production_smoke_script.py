@@ -22,8 +22,11 @@ def test_canonical_authority_probe_accepts_public_domain(monkeypatch):
         if path == "/":
             body = b'<link rel="canonical" href="https://www.texashomeoutlet.com/">'
             return 200, body, "text/html", 8
-        body = b"User-agent: *\nSitemap: https://www.texashomeoutlet.com/sitemap.xml\n"
-        return 200, body, "text/plain", 4
+        if path == "/robots.txt":
+            body = b"User-agent: *\nSitemap: https://www.texashomeoutlet.com/sitemap.xml\n"
+            return 200, body, "text/plain", 4
+        body = b"<urlset><url><loc>https://www.texashomeoutlet.com/</loc></url></urlset>"
+        return 200, body, "application/xml", 5
 
     monkeypatch.setattr(production_smoke, "_read_url", fake_read_url)
 
@@ -32,7 +35,8 @@ def test_canonical_authority_probe_accepts_public_domain(monkeypatch):
     )
 
     assert probe.ok
-    assert "canonical=yes" in probe.evidence
+    assert "homepage=yes" in probe.evidence
+    assert "robots=yes" in probe.evidence
     assert "sitemap=yes" in probe.evidence
 
 
@@ -41,8 +45,11 @@ def test_canonical_authority_probe_rejects_staging_domain(monkeypatch):
         if path == "/":
             body = b'<link rel="canonical" href="https://tho.sapphirealpha.xyz/">'
             return 200, body, "text/html", 8
-        body = b"User-agent: *\nSitemap: https://tho.sapphirealpha.xyz/sitemap.xml\n"
-        return 200, body, "text/plain", 4
+        if path == "/robots.txt":
+            body = b"User-agent: *\nSitemap: https://tho.sapphirealpha.xyz/sitemap.xml\n"
+            return 200, body, "text/plain", 4
+        body = b"<urlset><url><loc>https://tho.sapphirealpha.xyz/</loc></url></urlset>"
+        return 200, body, "application/xml", 5
 
     monkeypatch.setattr(production_smoke, "_read_url", fake_read_url)
 
@@ -51,8 +58,33 @@ def test_canonical_authority_probe_rejects_staging_domain(monkeypatch):
     )
 
     assert not probe.ok
-    assert "canonical=no" in probe.evidence
+    assert "homepage=no" in probe.evidence
+    assert "robots=no" in probe.evidence
     assert "sitemap=no" in probe.evidence
+
+
+def test_candidate_canonical_probe_uses_machine_paths_and_expected_origin(monkeypatch):
+    seen_paths = []
+
+    def fake_read_url(base_url, path, *, timeout):
+        seen_paths.append(path)
+        if path == "/robots.txt":
+            body = b"User-agent: *\nSitemap: https://www.texashomeoutlet.com/sitemap.xml\n"
+            return 200, body, "text/plain", 4
+        body = b"<urlset><url><loc>https://www.texashomeoutlet.com/</loc></url></urlset>"
+        return 200, body, "application/xml", 5
+
+    monkeypatch.setattr(production_smoke, "_read_url", fake_read_url)
+
+    probe = production_smoke.check_canonical_authority(
+        "https://candidate---service.example.run.app",
+        timeout=1.0,
+        canonical_origin="https://www.texashomeoutlet.com",
+    )
+
+    assert probe.ok
+    assert seen_paths == ["/robots.txt", "/sitemap.xml"]
+    assert "homepage=machine-path-proxy" in probe.evidence
 
 
 def test_spa_route_probe_reports_root_marker(monkeypatch):

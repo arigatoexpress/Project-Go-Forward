@@ -140,6 +140,7 @@ jobs:
           echo "=== Production smoke script ==="
           python scripts/production_smoke.py \
             --base-url "$URL" \
+            --canonical-origin "https://www.texashomeoutlet.com" \
             --timeout 60
           echo "Smoke script: PASS"
 
