@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { CalendarClock, Check, Mail, Phone, TimerReset } from 'lucide-react';
+import { ArchiveRestore, CalendarClock, Check, Mail, Phone, TimerReset } from 'lucide-react';
 
 const RESPONSE_TARGET_MINUTES = 15;
 const OVERDUE_MINUTES = 60;
+const ACTIVE_WINDOW_MINUTES = 24 * 60;
 
 const RESPONSE_STATES = {
   fresh: {
@@ -61,23 +62,49 @@ export function getLeadResponseState(lead, now = new Date()) {
   };
 }
 
-export function selectResponseQueue(leads, now = new Date()) {
-  return (leads || [])
+function intentRank(lead) {
+  if (lead.appointment_requested) return 2;
+  if (lead.triage_reason === 'callback_requested') return 1;
+  return 0;
+}
+
+function sortActiveLeads(a, b) {
+  const intentDifference = intentRank(b) - intentRank(a);
+  if (intentDifference !== 0) return intentDifference;
+  if (a.responseState.rank !== b.responseState.rank) {
+    return b.responseState.rank - a.responseState.rank;
+  }
+  const aAge = a.responseState.minutes ?? Number.MAX_SAFE_INTEGER;
+  const bAge = b.responseState.minutes ?? Number.MAX_SAFE_INTEGER;
+  return bAge - aAge;
+}
+
+function sortRecoveryLeads(a, b) {
+  const aAge = a.responseState.minutes ?? Number.MAX_SAFE_INTEGER;
+  const bAge = b.responseState.minutes ?? Number.MAX_SAFE_INTEGER;
+  return aAge - bAge;
+}
+
+export function selectResponseQueues(leads, now = new Date()) {
+  const reachable = (leads || [])
     .filter((lead) => lead?.status === 'new' && (lead.phone || lead.email))
-    .map((lead) => ({ ...lead, responseState: getLeadResponseState(lead, now) }))
-    .sort((a, b) => {
-      const aIntent = a.appointment_requested ? 2 : a.triage_reason === 'callback_requested' ? 1 : 0;
-      const bIntent = b.appointment_requested ? 2 : b.triage_reason === 'callback_requested' ? 1 : 0;
-      if (aIntent !== bIntent) {
-        return bIntent - aIntent;
-      }
-      if (a.responseState.rank !== b.responseState.rank) {
-        return b.responseState.rank - a.responseState.rank;
-      }
-      const aAge = a.responseState.minutes ?? Number.MAX_SAFE_INTEGER;
-      const bAge = b.responseState.minutes ?? Number.MAX_SAFE_INTEGER;
-      return bAge - aAge;
-    });
+    .map((lead) => ({ ...lead, responseState: getLeadResponseState(lead, now) }));
+
+  return {
+    active: reachable
+      .filter((lead) => lead.responseState.minutes !== null
+        && lead.responseState.minutes <= ACTIVE_WINDOW_MINUTES)
+      .sort(sortActiveLeads),
+    recovery: reachable
+      .filter((lead) => lead.responseState.minutes === null
+        || lead.responseState.minutes > ACTIVE_WINDOW_MINUTES)
+      .sort(sortRecoveryLeads),
+  };
+}
+
+export function selectResponseQueue(leads, now = new Date()) {
+  const { active, recovery } = selectResponseQueues(leads, now);
+  return [...active, ...recovery];
 }
 
 function intentLabel(lead) {
@@ -91,6 +118,75 @@ function intentLabel(lead) {
   return String(lead.source || 'website').replaceAll('_', ' ');
 }
 
+function LeadRow({ lead, busy, onOpen, onMarkContacted }) {
+  const state = lead.responseState;
+  return (
+    <article className="relative px-4 py-4 sm:px-5">
+      <span
+        aria-hidden="true"
+        className={`absolute inset-y-0 left-0 w-1 ${state.railClass}`}
+      />
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => onOpen?.(lead)}
+              className="truncate border-0 bg-transparent p-0 text-left text-sm font-bold text-slate-900 hover:text-blue-700 hover:underline"
+            >
+              {lead.name || 'Unknown lead'}
+            </button>
+            <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${state.badgeClass}`}>
+              {state.label} · {state.waitingLabel}
+            </span>
+            {lead.appointment_requested && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2 py-0.5 text-[10px] font-semibold text-violet-800">
+                <CalendarClock size={11} aria-hidden="true" /> Appointment
+              </span>
+            )}
+            {!lead.appointment_requested && lead.triage_reason === 'callback_requested' && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-800">
+                <Phone size={11} aria-hidden="true" /> Callback
+              </span>
+            )}
+          </div>
+          <p className="mt-1.5 mb-0 text-xs capitalize text-slate-600">{intentLabel(lead)}</p>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          {lead.phone && (
+            <a
+              href={`tel:${lead.phone}`}
+              aria-label={`Call ${lead.name || 'lead'}`}
+              className="inline-flex min-h-10 items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-2 text-xs font-bold text-white no-underline shadow-sm hover:bg-blue-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+            >
+              <Phone size={14} aria-hidden="true" /> Call
+            </a>
+          )}
+          {lead.email && (
+            <a
+              href={`mailto:${lead.email}`}
+              aria-label={`Email ${lead.name || 'lead'}`}
+              className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-bold text-slate-700 no-underline hover:border-slate-400 hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+            >
+              <Mail size={14} aria-hidden="true" /> Email
+            </a>
+          )}
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => onMarkContacted(lead)}
+            aria-label={`Mark ${lead.name || 'lead'} contacted`}
+            className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-800 hover:bg-emerald-100 disabled:cursor-wait disabled:opacity-60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600"
+          >
+            <Check size={14} aria-hidden="true" /> {busy ? 'Saving…' : 'Contacted'}
+          </button>
+        </div>
+      </div>
+    </article>
+  );
+}
+
 export default function LeadResponseQueue({ leads, onOpen, onMarkContacted }) {
   const [updatingId, setUpdatingId] = useState('');
   const [now, setNow] = useState(() => new Date());
@@ -98,9 +194,9 @@ export default function LeadResponseQueue({ leads, onOpen, onMarkContacted }) {
     const timer = setInterval(() => setNow(new Date()), 60_000);
     return () => clearInterval(timer);
   }, []);
-  const queue = useMemo(() => selectResponseQueue(leads, now), [leads, now]);
+  const { active, recovery } = useMemo(() => selectResponseQueues(leads, now), [leads, now]);
 
-  if (queue.length === 0) return null;
+  if (active.length === 0 && recovery.length === 0) return null;
 
   const markContacted = async (lead) => {
     setUpdatingId(lead.lead_id);
@@ -127,7 +223,7 @@ export default function LeadResponseQueue({ leads, onOpen, onMarkContacted }) {
                 Respond now
               </h2>
               <p className="mt-1 mb-0 text-xs leading-5 text-slate-300">
-                {queue.length} reachable new lead{queue.length === 1 ? '' : 's'} · 15-minute target
+                {active.length} lead{active.length === 1 ? '' : 's'} needs a response now · 15-minute target
               </p>
             </div>
           </div>
@@ -139,80 +235,54 @@ export default function LeadResponseQueue({ leads, onOpen, onMarkContacted }) {
         </div>
       </div>
 
-      <div className="divide-y divide-slate-100">
-        {queue.slice(0, 6).map((lead) => {
-          const state = lead.responseState;
-          const busy = updatingId === lead.lead_id;
-          return (
-            <article key={lead.lead_id} className="relative px-4 py-4 sm:px-5">
-              <span
-                aria-hidden="true"
-                className={`absolute inset-y-0 left-0 w-1 ${state.railClass}`}
-              />
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => onOpen?.(lead)}
-                      className="truncate border-0 bg-transparent p-0 text-left text-sm font-bold text-slate-900 hover:text-blue-700 hover:underline"
-                    >
-                      {lead.name || 'Unknown lead'}
-                    </button>
-                    <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${state.badgeClass}`}>
-                      {state.label} · {state.waitingLabel}
-                    </span>
-                    {lead.appointment_requested && (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2 py-0.5 text-[10px] font-semibold text-violet-800">
-                        <CalendarClock size={11} aria-hidden="true" /> Appointment
-                      </span>
-                    )}
-                    {!lead.appointment_requested && lead.triage_reason === 'callback_requested' && (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-800">
-                        <Phone size={11} aria-hidden="true" /> Callback
-                      </span>
-                    )}
-                  </div>
-                  <p className="mt-1.5 mb-0 text-xs capitalize text-slate-600">{intentLabel(lead)}</p>
-                </div>
-
-                <div className="flex flex-wrap items-center gap-2">
-                  {lead.phone && (
-                    <a
-                      href={`tel:${lead.phone}`}
-                      aria-label={`Call ${lead.name || 'lead'}`}
-                      className="inline-flex min-h-10 items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-2 text-xs font-bold text-white no-underline shadow-sm hover:bg-blue-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
-                    >
-                      <Phone size={14} aria-hidden="true" /> Call
-                    </a>
-                  )}
-                  {lead.email && (
-                    <a
-                      href={`mailto:${lead.email}`}
-                      aria-label={`Email ${lead.name || 'lead'}`}
-                      className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-bold text-slate-700 no-underline hover:border-slate-400 hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
-                    >
-                      <Mail size={14} aria-hidden="true" /> Email
-                    </a>
-                  )}
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => markContacted(lead)}
-                    aria-label={`Mark ${lead.name || 'lead'} contacted`}
-                    className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-800 hover:bg-emerald-100 disabled:cursor-wait disabled:opacity-60 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600"
-                  >
-                    <Check size={14} aria-hidden="true" /> {busy ? 'Saving…' : 'Contacted'}
-                  </button>
-                </div>
-              </div>
-            </article>
-          );
-        })}
+      <div data-testid="active-response-queue" className="divide-y divide-slate-100">
+        {active.length > 0 ? active.slice(0, 6).map((lead) => (
+          <LeadRow
+            key={lead.lead_id}
+            lead={lead}
+            busy={updatingId === lead.lead_id}
+            onOpen={onOpen}
+            onMarkContacted={markContacted}
+          />
+        )) : (
+          <p className="m-0 px-5 py-5 text-sm font-medium text-slate-600">
+            No reachable leads arrived in the last 24 hours.
+          </p>
+        )}
       </div>
-      {queue.length > 6 && (
+      {active.length > 6 && (
         <div className="border-t border-slate-100 bg-slate-50 px-5 py-2.5 text-xs font-medium text-slate-600">
-          +{queue.length - 6} more reachable new lead{queue.length - 6 === 1 ? '' : 's'} in the list below
+          +{active.length - 6} more recent lead{active.length - 6 === 1 ? '' : 's'} in the list below
+        </div>
+      )}
+
+      {recovery.length > 0 && (
+        <div className="border-t-4 border-slate-200 bg-slate-50">
+          <div className="flex flex-col gap-2 border-b border-slate-200 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+            <div className="flex items-center gap-2">
+              <ArchiveRestore size={17} className="text-slate-500" aria-hidden="true" />
+              <h3 className="m-0 text-sm font-bold text-slate-800">Recovery backlog</h3>
+            </div>
+            <p className="m-0 text-xs font-medium text-slate-500">
+              {recovery.length} older reachable lead{recovery.length === 1 ? '' : 's'} · over 24 hours · newest first
+            </p>
+          </div>
+          <div data-testid="recovery-lead-queue" className="divide-y divide-slate-200 bg-white/70">
+            {recovery.slice(0, 6).map((lead) => (
+              <LeadRow
+                key={lead.lead_id}
+                lead={lead}
+                busy={updatingId === lead.lead_id}
+                onOpen={onOpen}
+                onMarkContacted={markContacted}
+              />
+            ))}
+          </div>
+          {recovery.length > 6 && (
+            <div className="border-t border-slate-200 px-5 py-2.5 text-xs font-medium text-slate-600">
+              +{recovery.length - 6} more recovery lead{recovery.length - 6 === 1 ? '' : 's'} in the list below
+            </div>
+          )}
         </div>
       )}
     </section>
