@@ -68,6 +68,7 @@ def test_new_actions_in_allowlist():
         "inventory.photos_reorder",
         "inventory.photo_delete",
         "lead.update",
+        "lead.lifecycle_transition",
         "crm_task.create",
         "crm_task.update",
         "email.send",
@@ -137,10 +138,10 @@ def test_email_send_emits_audit_without_recipient_or_body(monkeypatch):
 # ─── Lead update: emitted, logs changed field NAMES only (not values) ───────
 
 
-def test_lead_update_emits_audit_with_field_names_only(monkeypatch):
+def test_lead_update_rejects_contact_and_lifecycle_fields_without_writing(monkeypatch):
     client, _main, headers, store = _make_admin_client(monkeypatch)
 
-    # lead-1 is seeded by FakeLeadManager. Update PII-bearing fields.
+    before = _main.lead_manager.leads[0].to_dict()
     resp = client.put(
         "/api/leads/lead-1",
         headers=headers,
@@ -149,6 +150,19 @@ def test_lead_update_emits_audit_with_field_names_only(monkeypatch):
             "email": "new.secret@example.com",
             "phone": "555-111-2222",
         },
+    )
+    assert resp.status_code == 400, resp.text
+    assert _main.lead_manager.leads[0].to_dict() == before
+    assert _audit_entries(store) == []
+
+
+def test_safe_lead_triage_update_emits_field_names_only(monkeypatch):
+    client, _main, headers, store = _make_admin_client(monkeypatch)
+
+    resp = client.put(
+        "/api/leads/lead-1",
+        headers=headers,
+        json={"priority": "high", "assigned_to": "sales-desk"},
     )
     assert resp.status_code == 200, resp.text
 
@@ -159,12 +173,61 @@ def test_lead_update_emits_audit_with_field_names_only(monkeypatch):
     assert entry["target_type"] == "lead"
     assert entry["target_id"] == "lead-1"
     # Field NAMES are recorded (audit contract = field-name deltas)...
-    assert set(entry["details"]["fields"]) == {"status", "email", "phone"}
+    assert set(entry["details"]["fields"]) == {"priority", "assigned_to"}
 
-    # ...but the field VALUES are never persisted.
+    # The assigned rep value is operational identity and still does not belong
+    # in this field-name-only audit record.
     flat = repr(entry)
-    assert "new.secret@example.com" not in flat
-    assert "555-111-2222" not in flat
+    assert "sales-desk" not in flat
+
+
+def test_lead_lifecycle_transition_is_explicit_and_pii_safe(monkeypatch):
+    client, _main, headers, store = _make_admin_client(monkeypatch)
+
+    resp = client.patch(
+        "/api/leads/lead-1/lifecycle",
+        headers=headers,
+        json={"status": "contacted"},
+    )
+    assert resp.status_code == 200, resp.text
+    payload = resp.json()
+    assert payload["success"] is True
+    assert payload["changed"] is True
+    assert payload["lead"]["status"] == "contacted"
+    assert payload["lead"]["first_contacted_at"]
+
+    entries = _audit_entries(store)
+    transitions = [e for e in entries if e.get("action") == "lead.lifecycle_transition"]
+    assert len(transitions) == 1
+    assert transitions[0]["details"] == {
+        "from_status": "new",
+        "to_status": "contacted",
+        "changed": True,
+    }
+    flat = repr(transitions[0])
+    assert "lead@example.com" not in flat
+    assert "555-999-8888" not in flat
+
+
+def test_lead_lifecycle_rejects_mixed_or_invalid_payload_without_writing(monkeypatch):
+    client, _main, headers, store = _make_admin_client(monkeypatch)
+    before = _main.lead_manager.leads[0].to_dict()
+
+    mixed = client.patch(
+        "/api/leads/lead-1/lifecycle",
+        headers=headers,
+        json={"status": "contacted", "email": "attacker@example.com"},
+    )
+    invalid = client.patch(
+        "/api/leads/lead-1/lifecycle",
+        headers=headers,
+        json={"status": "won-ish"},
+    )
+
+    assert mixed.status_code == 400, mixed.text
+    assert invalid.status_code == 400, invalid.text
+    assert _main.lead_manager.leads[0].to_dict() == before
+    assert _audit_entries(store) == []
 
 
 # ─── CRM task create: emitted, no free-text content persisted ───────────────

@@ -16,6 +16,9 @@ from database.models import LeadRecord
 
 logger = logging.getLogger(__name__)
 
+VALID_LEAD_STATUSES = frozenset({"new", "contacted", "qualified", "converted", "archived"})
+CONTACTED_LEAD_STATUSES = frozenset({"contacted", "qualified", "converted"})
+
 
 def normalize_phone(phone: str | None) -> str | None:
     """Best-effort E.164 normalization for US numbers. Never raises; returns the
@@ -61,6 +64,10 @@ class Lead:
     status: str = "new"  # "new", "contacted", "qualified", "converted"
     created_at: str = None
     updated_at: str = None
+    first_contacted_at: str | None = None
+    first_contacted_by: str | None = None
+    status_changed_at: str | None = None
+    status_changed_by: str | None = None
 
     # Triage / routing (populated by Mira or CRM operators)
     priority: str | None = None  # "low", "medium", "high"
@@ -97,7 +104,8 @@ class Lead:
             self.homes_viewed = []
         if self.created_at is None:
             self.created_at = datetime.utcnow().isoformat()
-        self.updated_at = datetime.utcnow().isoformat()
+        if self.updated_at is None:
+            self.updated_at = datetime.utcnow().isoformat()
 
     def to_dict(self) -> dict:
         """Validate against the canonical Firestore schema before storage."""
@@ -135,6 +143,34 @@ class Lead:
         }
 
 
+def apply_lead_status_transition(
+    lead: Lead,
+    new_status: str,
+    *,
+    actor: str,
+    now: str | None = None,
+) -> bool:
+    """Apply one validated, idempotent lifecycle transition in memory.
+
+    The first transition into a contacted stage records an immutable response
+    clock. Replays and later/backward transitions never rewrite that first
+    response, which makes speed-to-lead reporting trustworthy.
+    """
+    if new_status not in VALID_LEAD_STATUSES:
+        raise ValueError(f"Invalid lead status: {new_status!r}")
+    if lead.status == new_status:
+        return False
+
+    timestamp = now or datetime.utcnow().isoformat()
+    lead.status = new_status
+    lead.status_changed_at = timestamp
+    lead.status_changed_by = actor
+    if new_status in CONTACTED_LEAD_STATUSES and not lead.first_contacted_at:
+        lead.first_contacted_at = timestamp
+        lead.first_contacted_by = actor
+    return True
+
+
 class LeadManager:
     """Manages lead storage and retrieval"""
 
@@ -165,6 +201,37 @@ class LeadManager:
 
         await asyncio.to_thread(_update)
         return lead
+
+    async def transition_lead_status(
+        self,
+        lead_id: str,
+        new_status: str,
+        *,
+        actor: str,
+    ) -> tuple[Lead | None, str | None, bool]:
+        """Persist one explicit lifecycle transition.
+
+        Returns ``(lead, previous_status, changed)``. An idempotent replay does
+        not write or move ``updated_at``. Firestore's transaction prevents two
+        operators racing on a new lead from overwriting the first responder.
+        """
+        doc_ref = self.db.collection(self.collection_name).document(lead_id)
+        transaction = self.db.transaction()
+
+        @firestore.transactional
+        def _transition(txn):
+            snapshot = doc_ref.get(transaction=txn)
+            if not snapshot.exists:
+                return None, None, False
+            lead = Lead.from_dict(snapshot.to_dict())
+            previous_status = lead.status
+            changed = apply_lead_status_transition(lead, new_status, actor=actor)
+            if changed:
+                lead.updated_at = datetime.utcnow().isoformat()
+                txn.set(doc_ref, lead.to_dict(), merge=True)
+            return lead, previous_status, changed
+
+        return await asyncio.to_thread(_transition, transaction)
 
     async def get_lead(self, lead_id: str) -> Lead | None:
         """Retrieve lead by ID"""
@@ -265,7 +332,13 @@ class LeadManager:
             result.append(lead)
         return result
 
-    async def triage_lead(self, lead_id: str, update: dict) -> Lead | None:
+    async def triage_lead(
+        self,
+        lead_id: str,
+        update: dict,
+        *,
+        actor: str = "system:mira",
+    ) -> Lead | None:
         """Apply a triage update to a lead and persist it.
 
         Allowed update keys mirror the triage fields on ``Lead``:
@@ -276,12 +349,18 @@ class LeadManager:
         if lead is None:
             return None
 
-        allowed = {"status", "priority", "assigned_to", "triage_notes", "triage_reason"}
+        now = datetime.utcnow().isoformat()
+        if "status" in update:
+            # Validate before applying any other field so a malformed status
+            # cannot produce a partial triage write.
+            apply_lead_status_transition(lead, update["status"], actor=actor, now=now)
+
+        allowed = {"priority", "assigned_to", "triage_notes", "triage_reason"}
         for key, value in update.items():
             if key in allowed and hasattr(lead, key):
                 setattr(lead, key, value)
 
-        lead.last_triage_at = datetime.utcnow().isoformat()
+        lead.last_triage_at = now
         return await self.update_lead(lead)
 
     def export_to_csv(self, leads: list[Lead], filename: str = "leads_export.csv") -> str:

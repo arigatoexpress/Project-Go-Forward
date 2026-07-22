@@ -45,6 +45,31 @@ function timeAgo(iso) {
   }
 }
 
+export function formatLeadResponseTime(createdAt, firstContactedAt) {
+  if (!createdAt || !firstContactedAt) return '';
+  const elapsedMs = new Date(firstContactedAt).getTime() - new Date(createdAt).getTime();
+  if (!Number.isFinite(elapsedMs) || elapsedMs < 0) return '';
+  const minutes = Math.floor(elapsedMs / 60000);
+  if (minutes < 1) return '<1m';
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  return remainingMinutes ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
+}
+
+export async function submitLeadLifecycleTransition(fetcher, leadId, status) {
+  const res = await fetcher(`/api/leads/${leadId}/lifecycle`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.success || !data.lead) {
+    throw new Error(data.detail || data.message || data.error || `Status update failed (${res.status})`);
+  }
+  return data.lead;
+}
+
 // ─── Copy-to-clipboard button ───
 // Copies `value` and flashes a brief "Copied" state. stopPropagation keeps the
 // click from triggering an enclosing row's open-detail handler.
@@ -243,23 +268,14 @@ export default function CRM({ onBack }) {
   const handleUpdateLeadStatus = async (leadId, newStatus) => {
     setActionError('');
     try {
-      const res = await adminFetch(`/api/leads/${leadId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: newStatus }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        setLeads(prev => prev.map(l => l.lead_id === leadId ? { ...l, status: newStatus } : l));
-        if (selectedLead?.lead_id === leadId) {
-          setSelectedLead(prev => ({ ...prev, status: newStatus }));
-        }
-      } else {
-        setActionError(data.error || `Failed to update lead status — please try again.`);
+      const updatedLead = await submitLeadLifecycleTransition(adminFetch, leadId, newStatus);
+      setLeads(prev => prev.map(l => l.lead_id === leadId ? updatedLead : l));
+      if (selectedLead?.lead_id === leadId) {
+        setSelectedLead(updatedLead);
       }
     } catch (err) {
       console.error('Lead status update failed:', err);
-      setActionError('Lead status update failed. Check connection and try again.');
+      setActionError(err.message || 'Lead status update failed. Check connection and try again.');
     }
   };
 
@@ -1140,6 +1156,12 @@ function LeadDetail({ lead, onClose, onUpdateStatus, onEmail, appointments, emai
             </button>
           ))}
         </div>
+        {lead.first_contacted_at && (
+          <div className="mt-3 text-xs text-emerald-700 font-medium">
+            First response recorded in {formatLeadResponseTime(lead.created_at, lead.first_contacted_at) || 'the CRM'}
+            {' · '}{formatDate(lead.first_contacted_at)}
+          </div>
+        )}
       </div>
 
       {/* Preferences */}

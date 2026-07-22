@@ -50,6 +50,10 @@ class LeadRecord(BaseModel):
     status: str = "new"
     created_at: str | None = None
     updated_at: str | None = None
+    first_contacted_at: str | None = None
+    first_contacted_by: str | None = None
+    status_changed_at: str | None = None
+    status_changed_by: str | None = None
 
     priority: str | None = None
     assigned_to: str | None = None

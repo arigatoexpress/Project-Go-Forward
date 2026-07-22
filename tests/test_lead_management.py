@@ -9,7 +9,9 @@ path additionally skips-and-logs any doc that still fails to construct.
 import asyncio
 import logging
 
-from lead_management import Lead, LeadManager
+import pytest
+
+from lead_management import Lead, LeadManager, apply_lead_status_transition
 
 
 def test_from_dict_tolerates_unknown_keys():
@@ -31,6 +33,180 @@ def test_from_dict_tolerates_missing_optionals():
     lead = Lead.from_dict({"lead_id": "L1", "user_id": "U1", "session_id": "S1"})
     assert lead.email is None
     assert lead.homes_viewed == []
+
+
+def test_from_dict_preserves_stored_updated_at():
+    stored = "2026-07-20T12:34:56+00:00"
+    lead = Lead.from_dict(
+        {
+            "lead_id": "L1",
+            "user_id": "U1",
+            "session_id": "S1",
+            "updated_at": stored,
+        }
+    )
+    assert lead.updated_at == stored
+
+
+def test_first_explicit_contact_sets_immutable_response_clock():
+    lead = Lead(
+        lead_id="L1",
+        user_id="U1",
+        session_id="S1",
+        created_at="2026-07-22T12:00:00+00:00",
+    )
+
+    changed = apply_lead_status_transition(
+        lead,
+        "contacted",
+        actor="admin:ari",
+        now="2026-07-22T12:07:00+00:00",
+    )
+
+    assert changed is True
+    assert lead.status == "contacted"
+    assert lead.status_changed_at == "2026-07-22T12:07:00+00:00"
+    assert lead.status_changed_by == "admin:ari"
+    assert lead.first_contacted_at == "2026-07-22T12:07:00+00:00"
+    assert lead.first_contacted_by == "admin:ari"
+
+    # Retrying the same request must not move either lifecycle clock.
+    changed = apply_lead_status_transition(
+        lead,
+        "contacted",
+        actor="admin:other",
+        now="2026-07-22T12:12:00+00:00",
+    )
+    assert changed is False
+    assert lead.status_changed_at == "2026-07-22T12:07:00+00:00"
+    assert lead.first_contacted_at == "2026-07-22T12:07:00+00:00"
+    assert lead.first_contacted_by == "admin:ari"
+
+
+def test_qualified_counts_as_contact_but_archive_does_not():
+    qualified = Lead(lead_id="L1", user_id="U1", session_id="S1")
+    apply_lead_status_transition(
+        qualified,
+        "qualified",
+        actor="system:mira",
+        now="2026-07-22T13:00:00+00:00",
+    )
+    assert qualified.first_contacted_at == "2026-07-22T13:00:00+00:00"
+
+    archived = Lead(lead_id="L2", user_id="U2", session_id="S2")
+    apply_lead_status_transition(
+        archived,
+        "archived",
+        actor="admin:ari",
+        now="2026-07-22T13:00:00+00:00",
+    )
+    assert archived.first_contacted_at is None
+    assert archived.first_contacted_by is None
+
+
+def test_backward_transition_never_erases_first_contact():
+    lead = Lead(lead_id="L1", user_id="U1", session_id="S1")
+    apply_lead_status_transition(
+        lead,
+        "converted",
+        actor="admin:ari",
+        now="2026-07-22T13:00:00+00:00",
+    )
+    apply_lead_status_transition(
+        lead,
+        "new",
+        actor="admin:ari",
+        now="2026-07-22T14:00:00+00:00",
+    )
+    assert lead.status == "new"
+    assert lead.status_changed_at == "2026-07-22T14:00:00+00:00"
+    assert lead.first_contacted_at == "2026-07-22T13:00:00+00:00"
+
+
+def test_invalid_status_has_no_side_effects():
+    lead = Lead(lead_id="L1", user_id="U1", session_id="S1")
+    original = lead.to_dict()
+
+    with pytest.raises(ValueError, match="Invalid lead status"):
+        apply_lead_status_transition(
+            lead,
+            "won-ish",
+            actor="admin:ari",
+            now="2026-07-22T13:00:00+00:00",
+        )
+
+    assert lead.to_dict() == original
+
+
+class _FakeTransaction:
+    def __init__(self, store):
+        self.store = store
+        self.writes = 0
+
+    def set(self, doc_ref, data, merge=False):
+        assert merge is True
+        self.store.update(data)
+        self.writes += 1
+
+
+class _FakeTransactionalDoc:
+    def __init__(self, store):
+        self.store = store
+
+    def get(self, transaction=None):
+        assert transaction is not None
+        return type(
+            "Snapshot",
+            (),
+            {"exists": bool(self.store), "to_dict": lambda _self: dict(self.store)},
+        )()
+
+
+class _FakeTransactionalCollection:
+    def __init__(self, store):
+        self.store = store
+
+    def document(self, _lead_id):
+        return _FakeTransactionalDoc(self.store)
+
+
+class _FakeTransactionalDB:
+    def __init__(self, store):
+        self.store = store
+        self.txn = _FakeTransaction(store)
+
+    def collection(self, _name):
+        return _FakeTransactionalCollection(self.store)
+
+    def transaction(self):
+        return self.txn
+
+
+def test_manager_persists_lifecycle_in_a_firestore_transaction(monkeypatch):
+    import lead_management
+
+    monkeypatch.setattr(lead_management.firestore, "transactional", lambda fn: fn)
+    store = Lead(lead_id="L1", user_id="U1", session_id="S1").to_dict()
+    lm = LeadManager.__new__(LeadManager)
+    lm.db = _FakeTransactionalDB(store)
+    lm.collection_name = "leads"
+
+    transitioned, previous, changed = asyncio.run(
+        lm.transition_lead_status("L1", "contacted", actor="admin:ari")
+    )
+
+    assert changed is True
+    assert previous == "new"
+    assert transitioned.status == "contacted"
+    assert store["first_contacted_by"] == "admin:ari"
+    assert lm.db.txn.writes == 1
+
+    _, _, replay_changed = asyncio.run(
+        lm.transition_lead_status("L1", "contacted", actor="admin:other")
+    )
+    assert replay_changed is False
+    assert store["first_contacted_by"] == "admin:ari"
+    assert lm.db.txn.writes == 1
 
 
 class _FakeDoc:

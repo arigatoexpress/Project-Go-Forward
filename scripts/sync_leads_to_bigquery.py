@@ -55,6 +55,8 @@ _PII_FIELDS = {
     "journey_id",
     "session_id",
     "user_id",
+    "first_contacted_by",
+    "status_changed_by",
 }
 _JOURNEY_ID_RE = re.compile(r"^j_[0-9a-f]{32}$")
 _EVENT_ALIASES = {"tour_click": "tour_opened"}
@@ -95,8 +97,20 @@ def _journey_key(value) -> str | None:
     return hashlib.sha256(candidate.encode()).hexdigest()
 
 
+def _response_seconds(created_at, first_contacted_at) -> int | None:
+    """Return a non-negative speed-to-lead duration for valid timestamps."""
+    try:
+        created = datetime.fromisoformat(str(created_at).replace("Z", "+00:00"))
+        contacted = datetime.fromisoformat(str(first_contacted_at).replace("Z", "+00:00"))
+        seconds = int((contacted - created).total_seconds())
+        return seconds if seconds >= 0 else None
+    except (TypeError, ValueError):
+        return None
+
+
 def project_lead(doc: dict) -> dict:
     """PII-free projection of one lead document (no name/phone/email values)."""
+    response_seconds = _response_seconds(doc.get("created_at"), doc.get("first_contacted_at"))
     return {
         "lead_id": doc.get("lead_id"),
         "journey_key": _journey_key(doc.get("journey_id")),
@@ -124,6 +138,11 @@ def project_lead(doc: dict) -> dict:
         "financing_discussed": bool(doc.get("financing_discussed")),
         "created_at": _iso(doc.get("created_at")),
         "updated_at": _iso(doc.get("updated_at")),
+        "first_contacted_at": _iso(doc.get("first_contacted_at")),
+        "status_changed_at": _iso(doc.get("status_changed_at")),
+        "has_first_contact": bool(doc.get("first_contacted_at")),
+        "response_seconds": response_seconds,
+        "response_within_15m": response_seconds is not None and response_seconds <= 900,
     }
 
 
@@ -295,6 +314,11 @@ SCHEMA = [
     bigquery.SchemaField("financing_discussed", "BOOL"),
     bigquery.SchemaField("created_at", "TIMESTAMP"),
     bigquery.SchemaField("updated_at", "TIMESTAMP"),
+    bigquery.SchemaField("first_contacted_at", "TIMESTAMP"),
+    bigquery.SchemaField("status_changed_at", "TIMESTAMP"),
+    bigquery.SchemaField("has_first_contact", "BOOL"),
+    bigquery.SchemaField("response_seconds", "INTEGER"),
+    bigquery.SchemaField("response_within_15m", "BOOL"),
 ]
 
 EVENT_SCHEMA = [
@@ -351,6 +375,17 @@ VIEWS = {
         "DATE_DIFF(CURRENT_DATE(), DATE(MAX(created_at)), DAY) days_since_last_lead, "
         "COUNTIF(created_at>=TIMESTAMP_SUB(CURRENT_TIMESTAMP(),INTERVAL 3 DAY)) leads_3d, "
         "COUNTIF(created_at>=TIMESTAMP_SUB(CURRENT_TIMESTAMP(),INTERVAL 7 DAY)) leads_7d "
+        "FROM `{d}.leads`"
+    ),
+    "v_lead_response_sla": (
+        "SELECT COUNTIF(has_phone OR has_email) reachable_leads, "
+        "COUNTIF(has_first_contact) responded_leads, "
+        "ROUND(100*SAFE_DIVIDE(COUNTIF(has_first_contact),"
+        "NULLIF(COUNTIF(has_phone OR has_email),0)),1) response_rate_pct, "
+        "ROUND(AVG(response_seconds),1) avg_response_seconds, "
+        "APPROX_QUANTILES(response_seconds,100 IGNORE NULLS)[OFFSET(50)] median_response_seconds, "
+        "ROUND(100*SAFE_DIVIDE(COUNTIF(response_within_15m),"
+        "NULLIF(COUNTIF(has_first_contact),0)),1) response_within_15m_pct "
         "FROM `{d}.leads`"
     ),
     "v_journey_funnel": (
