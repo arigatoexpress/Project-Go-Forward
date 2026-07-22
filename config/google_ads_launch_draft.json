@@ -1,0 +1,189 @@
+{
+  "schema_version": 1,
+  "mode": "VALIDATE_ONLY",
+  "credential_source": "gcp_secret_manager",
+  "customer_id_source": "operator_input",
+  "campaign": {
+    "name": "THO | Search | High Intent | Huffman | Draft",
+    "status": "PAUSED",
+    "channel": "SEARCH",
+    "currency_code": "USD",
+    "budget": {
+      "average_daily_usd": 20.0,
+      "max_single_day_charge_usd": 40.0,
+      "monthly_charge_limit_usd": 608.0
+    },
+    "bidding": {
+      "strategy": "MAXIMIZE_CLICKS",
+      "max_cpc_usd": 5.0
+    },
+    "networks": {
+      "google_search": true,
+      "search_partners": false,
+      "display": false
+    },
+    "geo": {
+      "type": "RADIUS",
+      "center": {
+        "address": "10685 FM 1960 East",
+        "city": "Huffman",
+        "state": "TX",
+        "country_code": "US"
+      },
+      "radius_miles": 50,
+      "presence_only": true,
+      "postal_codes": []
+    },
+    "housing_policy": {
+      "acknowledgement_required": true,
+      "acknowledged": false,
+      "age_enabled_all": true,
+      "gender_enabled_all": true,
+      "parental_status_enabled_all": true,
+      "marital_status_targeting": false,
+      "postal_code_targeting": false,
+      "audience_targeting": []
+    },
+    "tracking": {
+      "utm_source": "google",
+      "utm_medium": "cpc",
+      "utm_campaign": "tho_search_high_intent_huffman",
+      "utm_content": "{creative}",
+      "utm_term": "{keyword}"
+    },
+    "conversions": [
+      {
+        "name": "schedule_appointment",
+        "primary": true,
+        "required_before_enable": true
+      },
+      {
+        "name": "generate_lead",
+        "primary": false,
+        "required_before_enable": true
+      }
+    ],
+    "negative_keywords": [
+      {"text": "rent", "match_type": "BROAD"},
+      {"text": "rental", "match_type": "BROAD"},
+      {"text": "apartments", "match_type": "BROAD"},
+      {"text": "section 8", "match_type": "PHRASE"},
+      {"text": "mobile home park", "match_type": "PHRASE"},
+      {"text": "trailer park", "match_type": "PHRASE"},
+      {"text": "lot rent", "match_type": "PHRASE"},
+      {"text": "jobs", "match_type": "BROAD"},
+      {"text": "careers", "match_type": "BROAD"},
+      {"text": "salary", "match_type": "BROAD"},
+      {"text": "repair", "match_type": "BROAD"},
+      {"text": "parts", "match_type": "BROAD"},
+      {"text": "skirting", "match_type": "BROAD"},
+      {"text": "moving service", "match_type": "PHRASE"},
+      {"text": "transport service", "match_type": "PHRASE"},
+      {"text": "rv", "match_type": "EXACT"}
+    ],
+    "ad_groups": [
+      {
+        "name": "Local Inventory",
+        "status": "PAUSED",
+        "keywords": [
+          {"text": "manufactured homes huffman tx", "match_type": "EXACT"},
+          {"text": "manufactured homes huffman tx", "match_type": "PHRASE"},
+          {"text": "mobile homes for sale huffman tx", "match_type": "EXACT"},
+          {"text": "mobile homes for sale huffman tx", "match_type": "PHRASE"},
+          {"text": "manufactured homes near me", "match_type": "PHRASE"},
+          {"text": "mobile homes for sale near me", "match_type": "PHRASE"},
+          {"text": "manufactured homes humble tx", "match_type": "EXACT"},
+          {"text": "manufactured homes conroe tx", "match_type": "EXACT"},
+          {"text": "manufactured homes baytown tx", "match_type": "EXACT"},
+          {"text": "single wide homes for sale", "match_type": "PHRASE"},
+          {"text": "double wide homes for sale", "match_type": "PHRASE"}
+        ],
+        "responsive_search_ad": {
+          "status": "PAUSED",
+          "final_url": "https://www.texashomeoutlet.com/inventory",
+          "path1": "homes",
+          "path2": "huffman",
+          "headlines": [
+            "Texas Home Outlet",
+            "Manufactured Homes Huffman",
+            "Browse Homes With Prices",
+            "Single & Double Wide Homes",
+            "Floor Plans, Photos & Prices",
+            "Visit Our Huffman Showroom",
+            "Homes Near Humble & Conroe",
+            "Explore Available Homes",
+            "Shop Manufactured Homes",
+            "Book a Showroom Visit"
+          ],
+          "descriptions": [
+            "Browse current manufactured homes with prices, photos and floor plans near Huffman.",
+            "Compare single- and double-wide homes, then schedule a visit to see your favorites.",
+            "Visit Texas Home Outlet in Huffman, serving Humble, Conroe, Baytown and nearby areas.",
+            "New inventory is available online. Review details, save favorites and request a tour."
+          ]
+        }
+      },
+      {
+        "name": "Showroom Tours",
+        "status": "PAUSED",
+        "keywords": [
+          {"text": "manufactured home dealer near me", "match_type": "EXACT"},
+          {"text": "manufactured home dealer near me", "match_type": "PHRASE"},
+          {"text": "manufactured home showroom", "match_type": "EXACT"},
+          {"text": "manufactured home showroom", "match_type": "PHRASE"},
+          {"text": "tour manufactured homes", "match_type": "PHRASE"},
+          {"text": "mobile home dealer huffman", "match_type": "EXACT"},
+          {"text": "manufactured home lot near me", "match_type": "PHRASE"}
+        ],
+        "responsive_search_ad": {
+          "status": "PAUSED",
+          "final_url": "https://www.texashomeoutlet.com/appointments",
+          "path1": "showroom",
+          "path2": "tour",
+          "headlines": [
+            "Tour Manufactured Homes",
+            "Book a Showroom Visit",
+            "Visit Texas Home Outlet",
+            "See Homes Near Huffman",
+            "Choose Your Tour Time",
+            "Open Monday Through Saturday",
+            "View Floor Plans First",
+            "Schedule Online Today"
+          ],
+          "descriptions": [
+            "Pick an available time online and tour manufactured homes at our Huffman showroom.",
+            "Browse prices, photos and floor plans first, then schedule a visit that works for you.",
+            "Compare homes in person with help from the Texas Home Outlet team. Request a tour today.",
+            "Serving Huffman, Humble, Conroe, Baytown and nearby communities from our showroom."
+          ]
+        }
+      }
+    ]
+  },
+  "activation_gate": {
+    "approved": false,
+    "approved_by": null,
+    "approved_at": null,
+    "approved_average_daily_usd": null,
+    "approved_monthly_charge_limit_usd": null,
+    "required_checks": [
+      "readiness_audit_green",
+      "google_ads_customer_and_manager_ids_confirmed",
+      "housing_policy_acknowledged_in_google_ads",
+      "ga4_or_gtm_configured_without_duplicate_pageviews",
+      "generate_lead_and_schedule_appointment_single_fire_verified",
+      "google_ads_conversion_import_verified",
+      "search_console_sitemap_accepted",
+      "budget_and_stop_loss_explicitly_approved"
+    ],
+    "stop_loss": {
+      "action": "PAUSE_CAMPAIGN",
+      "decision_logic": "ANY",
+      "evaluation_window_days": 7,
+      "zero_reachable_leads_spend_usd": 200.0,
+      "zero_reachable_leads_clicks": 100,
+      "max_reachable_lead_cpa_usd": 150.0,
+      "minimum_reachable_leads_for_cpa_rule": 3
+    }
+  }
+}
