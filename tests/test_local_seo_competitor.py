@@ -171,6 +171,19 @@ def test_tho_signals_detects_gbp_and_social(monkeypatch):
     assert signals["has_facebook"] is False
 
 
+def test_tho_signals_detects_google_maps_place_profile(monkeypatch):
+    biz = _fake_business(
+        {
+            "same_as": [
+                "https://www.google.com/maps/search/?api=1&query=Texas%20Home%20Outlet&query_place_id=ChIJexample"
+            ]
+        }
+    )
+    _patch_config(monkeypatch, biz)
+
+    assert _tho_signals()["has_gbp"] is True
+
+
 def test_recommendations_include_gbp_and_geo_when_missing(sample_competitors):
     tho = {"has_gbp": False, "has_geo": False, "city_page_count": 0, "has_facebook": False}
     recs = _recommendations(tho, sample_competitors)
