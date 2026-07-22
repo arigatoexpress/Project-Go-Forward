@@ -72,6 +72,12 @@ class Lead:
     contact_consent_at: str | None = None
     contact_consent_source: str | None = None
 
+    # Session-scoped, anonymous first-party attribution. This is never sent to
+    # Google and cannot identify a person outside the submitted lead record.
+    journey_id: str | None = None
+    home_id: str | None = None
+    home_model: str | None = None
+
     # Marketing attribution (first-party UTM carried on a reached-out lead; NOT visitor tracking)
     utm_source: str | None = None
     utm_medium: str | None = None

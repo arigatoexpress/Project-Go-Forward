@@ -4,6 +4,7 @@ import { BUSINESS_NAME, BUSINESS_URL, BUSINESS_PHONE, BUSINESS_PHONE_RAW, BUSINE
 import { getUtmParams } from '../utils/utm';
 import { trackEvent } from '../utils/analytics';
 import { normalizeOptionalEmail } from '../utils/contactValidation';
+import { getJourneyAttribution } from '../utils/attribution';
 import AppointmentHandoffCard from '../components/AppointmentHandoffCard';
 
 const Contact = ({ onBack, onBookAppointment }) => {
@@ -38,6 +39,7 @@ const Contact = ({ onBack, onBookAppointment }) => {
                     message: formData.message,
                     ...(normalizedEmail ? { email: normalizedEmail } : {}),
                     ...getUtmParams(),
+                    ...getJourneyAttribution(),
                 }),
             });
             const data = await resp.json();

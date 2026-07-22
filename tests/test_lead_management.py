@@ -137,6 +137,23 @@ def test_lead_accepts_and_roundtrips_utm_fields():
     assert roundtripped.wbraid == "WBRAID_test-123"
 
 
+def test_lead_roundtrips_anonymous_journey_and_structured_home():
+    lead = Lead(
+        lead_id="l1",
+        user_id="u1",
+        session_id="s1",
+        journey_id="j_0123456789abcdef0123456789abcdef",
+        home_id="home-42",
+        home_model="Sapphire 3-Bed",
+    )
+
+    restored = Lead.from_dict(lead.to_dict())
+
+    assert restored.journey_id == "j_0123456789abcdef0123456789abcdef"
+    assert restored.home_id == "home-42"
+    assert restored.home_model == "Sapphire 3-Bed"
+
+
 def test_lead_from_dict_defaults_utm_to_none():
     lead = Lead.from_dict({"lead_id": "l1", "user_id": "u1", "session_id": "s1"})
     assert lead.utm_source is None

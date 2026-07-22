@@ -45,15 +45,66 @@ def test_analytics_event_is_stored(monkeypatch):
 
     monkeypatch.setattr(main._db.db, "collection", lambda name: RecColl(name))
 
-    r = client.post("/api/analytics", json={"event": "tour_click", "home": "Nassau", "path": "/inventory"})
+    journey_id = "j_0123456789abcdef0123456789abcdef"
+    r = client.post(
+        "/api/analytics",
+        json={
+            "event": "tour_click",
+            "home": "Nassau",
+            "path": "/inventory",
+            "journey_id": journey_id,
+            "email": "must-not-be-stored@example.com",
+            "untrusted": "drop me",
+        },
+    )
     assert r.json() == {"ok": True}
     events = captured.get("analytics_events", [])
     assert events, "event should be written to analytics_events"
     rec = events[0]
-    assert rec["event"] == "tour_click"
-    assert rec["props"]["home"] == "Nassau"
-    assert rec["props"]["path"] == "/inventory"
+    assert rec["event"] == "tour_opened"
+    assert rec["journey_id"] == journey_id
+    assert rec["schema_version"] == 2
+    assert rec["props"] == {"home": "Nassau", "path": "/inventory"}
+    assert "client_ip" not in rec
     assert "created_at" in rec and "event" not in rec["props"]
+
+
+def test_analytics_unknown_event_is_acknowledged_but_not_stored(monkeypatch):
+    client, main, *_ = create_client(monkeypatch)
+    captured = []
+
+    class RecColl:
+        def add(self, doc):
+            captured.append(doc)
+
+    monkeypatch.setattr(main._db.db, "collection", lambda _name: RecColl())
+
+    response = client.post(
+        "/api/analytics",
+        json={"event": "scanner_noise", "email": "buyer@example.com"},
+    )
+
+    assert response.status_code == 200 and response.json() == {"ok": True}
+    assert captured == []
+
+
+def test_public_client_cannot_forge_a_conversion_event(monkeypatch):
+    client, main, *_ = create_client(monkeypatch)
+    captured = []
+
+    class RecColl:
+        def add(self, doc):
+            captured.append(doc)
+
+    monkeypatch.setattr(main._db.db, "collection", lambda _name: RecColl())
+
+    response = client.post(
+        "/api/analytics",
+        json={"event": "lead_captured", "source": "contact", "journey_id": "customer-email"},
+    )
+
+    assert response.status_code == 200 and response.json() == {"ok": True}
+    assert captured == []
 
 
 def test_analytics_storage_failure_is_swallowed(monkeypatch):

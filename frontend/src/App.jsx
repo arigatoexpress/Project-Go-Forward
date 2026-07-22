@@ -14,6 +14,7 @@ import ChatCallbackCard from './components/ChatCallbackCard';
 import InventoryBrowse from './pages/InventoryBrowse';
 import { v4 as uuidv4 } from 'uuid';
 import { captureUtmFromUrl, getUtmParams } from './utils/utm';
+import { getJourneyAttribution } from './utils/attribution';
 import { attachPhoneClickTracking, isPublicAnalyticsPath, trackEvent } from './utils/analytics';
 import {
   BUSINESS_NAME, BUSINESS_PHONE, BUSINESS_PHONE_RAW, BUSINESS_FULL_ADDRESS,
@@ -321,7 +322,8 @@ async function sendToAgent(sessionId, text, maxRetries = 2) {
           },
           // First-touch UTM/referrer so a chat-sourced lead is attributable to
           // the paid campaign that drove the visit (mirrors the contact form).
-          ...getUtmParams()
+          ...getUtmParams(),
+          ...getJourneyAttribution()
         })
       });
 

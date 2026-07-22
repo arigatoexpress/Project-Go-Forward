@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { CalendarDays, CheckCircle2, Loader2, PhoneCall, X } from 'lucide-react';
 import { getUtmParams } from '../utils/utm';
+import { getJourneyAttribution } from '../utils/attribution';
 import { trackEvent } from '../utils/analytics';
 
 export default function ChatCallbackCard({ sessionId, captured = false, onCaptured, onDismiss }) {
@@ -46,6 +47,7 @@ export default function ChatCallbackCard({ sessionId, captured = false, onCaptur
           email: form.email.trim() || undefined,
           consent: true,
           ...getUtmParams(),
+          ...getJourneyAttribution(),
         }),
       });
       const body = await response.json().catch(() => ({}));

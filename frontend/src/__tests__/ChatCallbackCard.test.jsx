@@ -4,6 +4,7 @@ import ChatCallbackCard from '../components/ChatCallbackCard';
 
 describe('ChatCallbackCard', () => {
   beforeEach(() => {
+    sessionStorage.clear();
     global.fetch = vi.fn();
     Element.prototype.scrollIntoView = vi.fn();
     Object.defineProperty(navigator, 'sendBeacon', {
@@ -52,12 +53,14 @@ describe('ChatCallbackCard', () => {
     await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(1));
     const [url, options] = global.fetch.mock.calls[0];
     expect(url).toBe('/api/chat/contact');
-    expect(JSON.parse(options.body)).toMatchObject({
+    const payload = JSON.parse(options.body);
+    expect(payload).toMatchObject({
       sessionId: 'session-1',
       name: 'Maria Buyer',
       phone: '281-324-3020',
       consent: true,
     });
+    expect(payload.journey_id).toMatch(/^j_[0-9a-f]{32}$/);
     expect(await screen.findByText(/callback request is saved/i)).toBeInTheDocument();
     expect(onCaptured).toHaveBeenCalledWith('lead-1');
   });

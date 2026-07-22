@@ -4,6 +4,7 @@ import { BUSINESS_NAME, BUSINESS_PHONE, BUSINESS_FULL_ADDRESS } from '../constan
 import { getUtmParams } from '../utils/utm';
 import { trackEvent } from '../utils/analytics';
 import { normalizeOptionalEmail } from '../utils/contactValidation';
+import { getJourneyAttribution } from '../utils/attribution';
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
@@ -379,8 +380,12 @@ const Appointments = ({ onBack, prefill, onHandoffComplete }) => {
           time_slot: selectedTime,
           notes: formData.notes.trim() || undefined,
           source: prefill?.source || 'website',
+          home_id: prefill?.homeId,
+          home_model: prefill?.home,
+          intent: prefill?.intent || 'showroom_visit',
           ...(prefill?.leadId ? { lead_id: prefill.leadId } : {}),
           ...getUtmParams(),
+          ...getJourneyAttribution(),
         }),
       });
       const data = await resp.json();
@@ -391,11 +396,13 @@ const Appointments = ({ onBack, prefill, onHandoffComplete }) => {
           source: prefill?.source || 'website',
           intent: prefill?.intent || 'showroom_visit',
           home: prefill?.home,
+          home_id: prefill?.homeId,
         });
         if (prefill) {
           trackEvent('appointment_handoff_completed', {
             source: prefill.source,
             home: prefill.home,
+            home_id: prefill.homeId,
             intent: prefill.intent,
           });
           onHandoffComplete?.();

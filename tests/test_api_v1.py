@@ -91,6 +91,9 @@ class FakeLead:
     last_triage_at: str | None = None
     contact_consent_at: str | None = None
     contact_consent_source: str | None = None
+    journey_id: str | None = None
+    home_id: str | None = None
+    home_model: str | None = None
 
     # Marketing attribution (first-party UTM carried on a reached-out lead; NOT visitor tracking)
     utm_source: str | None = None
@@ -129,6 +132,9 @@ class FakeLead:
             "last_triage_at": self.last_triage_at,
             "contact_consent_at": self.contact_consent_at,
             "contact_consent_source": self.contact_consent_source,
+            "journey_id": self.journey_id,
+            "home_id": self.home_id,
+            "home_model": self.home_model,
             "utm_source": self.utm_source,
             "utm_medium": self.utm_medium,
             "utm_campaign": self.utm_campaign,
@@ -236,6 +242,11 @@ class FakeCollection:
 
     def document(self, doc_id: str | None = None):
         doc_id = doc_id or f"{self._name}-{len(self._store) + 1}"
+        return FakeDocumentRef(self._store, doc_id)
+
+    def add(self, data: dict):
+        doc_id = f"{self._name}-{len(self._store) + 1}"
+        self._store[doc_id] = dict(data)
         return FakeDocumentRef(self._store, doc_id)
 
     def where(self, field: str, op: str, value: object) -> FakeQuery:

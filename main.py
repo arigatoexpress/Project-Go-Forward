@@ -1051,6 +1051,106 @@ def _extract_utm(data: dict) -> dict:
     }
 
 
+_JOURNEY_ID_RE = re.compile(r"^j_[0-9a-f]{32}$")
+_ANALYTICS_EVENT_ALIASES = {
+    "tour_click": "tour_opened",
+}
+_ANALYTICS_ALLOWED_PROPS = {
+    "page_viewed": {"page", "page_path", "path"},
+    "home_view": {"home", "home_id", "status", "page_path", "path"},
+    "home_viewed": {"home", "home_id", "status", "page_path", "path"},
+    "lead_form_opened": {"home", "home_id", "type", "source", "page_path", "path"},
+    "tour_opened": {"home", "home_id", "page_path", "path"},
+    "photo_clicked": {"home", "home_id", "index", "page_path", "path"},
+    "inventory_show_more": {"shown", "visible", "total", "remaining", "page_path", "path"},
+    "appointment_handoff_started": {
+        "source",
+        "home",
+        "home_id",
+        "intent",
+        "page_path",
+        "path",
+    },
+    "appointment_handoff_completed": {
+        "source",
+        "home",
+        "home_id",
+        "intent",
+        "page_path",
+        "path",
+    },
+    "phone_clicked": {"page_path", "placement", "path"},
+    "lead_captured": {"source", "type", "home", "home_id", "intent", "path"},
+    "appointment_booked": {"source", "home", "home_id", "intent", "path"},
+    "review_redirect": {"src"},
+}
+_SERVER_ONLY_ANALYTICS_EVENTS = {"lead_captured", "appointment_booked"}
+
+
+def _normalize_journey_id(value) -> str | None:
+    candidate = str(value or "").strip().lower()
+    return candidate if _JOURNEY_ID_RE.fullmatch(candidate) else None
+
+
+def _extract_attribution(data: dict) -> dict:
+    return {
+        **_extract_utm(data),
+        "journey_id": _normalize_journey_id(data.get("journey_id")),
+    }
+
+
+def _canonical_analytics_event(value, *, public: bool = False) -> str | None:
+    event = str(value or "").strip()[:64]
+    event = _ANALYTICS_EVENT_ALIASES.get(event, event)
+    if event not in _ANALYTICS_ALLOWED_PROPS:
+        return None
+    if public and event in _SERVER_ONLY_ANALYTICS_EVENTS:
+        return None
+    return event
+
+
+def _store_analytics_event(
+    event,
+    props: dict | None = None,
+    *,
+    journey_id=None,
+    public: bool = False,
+) -> bool:
+    """Write one privacy-bounded analytics record.
+
+    Public callers may emit engagement only; conversion events are accepted
+    from server-side durable-write paths. Unknown properties, PII-shaped fields,
+    raw IPs, and malformed journey identifiers never enter Firestore.
+    """
+    canonical = _canonical_analytics_event(event, public=public)
+    if not canonical:
+        return False
+    allowed = _ANALYTICS_ALLOWED_PROPS[canonical]
+    clean_props = {
+        str(key): str(value)[:200]
+        for key, value in (props or {}).items()
+        if key in allowed and value is not None and str(value).strip()
+    }
+    record = {
+        "event": canonical,
+        "schema_version": 2,
+        "props": clean_props,
+        "created_at": datetime.now(UTC).isoformat(),
+    }
+    normalized_journey = _normalize_journey_id(journey_id)
+    if normalized_journey:
+        record["journey_id"] = normalized_journey
+    try:
+        if _db and getattr(_db, "db", None):
+            _db.db.collection("analytics_events").add(record)
+        return True
+    except Exception as exc:
+        struct_logger.warning(
+            "Analytics event store failed", event=canonical, error=str(exc)
+        )
+        return False
+
+
 def _verify_csrf(request: Request) -> bool:
     """Verify CSRF token for state-changing admin requests.
 
@@ -1285,7 +1385,7 @@ async def run_agent(request: Request):
         # First-party UTM/referrer the frontend carries on the chat POST, so a
         # chat-sourced lead is attributable to the paid campaign that drove it
         # (mirrors /api/contact). Non-PII, length-capped.
-        utm = _extract_utm(data)
+        utm = _extract_attribution(data)
 
         # Extract text content
         text_content = ""
@@ -1851,17 +1951,69 @@ async def get_event_analytics(range: str = "30d"):
         except Exception as e:
             struct_logger.warning("analytics_events read failed", error=str(e))
 
-        by_type = Counter(e.get("event", "unknown") for e in events)
+        discarded_events = 0
+        canonical_events: list[dict] = []
+        for event_record in events:
+            canonical = _canonical_analytics_event(event_record.get("event"))
+            if not canonical:
+                discarded_events += 1
+                continue
+            canonical_events.append({**event_record, "event": canonical})
+
+        by_type = Counter(e["event"] for e in canonical_events)
         top_homes = Counter(
-            (e.get("props") or {}).get("home") for e in events if (e.get("props") or {}).get("home")
+            (e.get("props") or {}).get("home")
+            for e in canonical_events
+            if (e.get("props") or {}).get("home")
         )
-        daily = Counter(str(e.get("created_at") or "")[:10] for e in events)
+        daily = Counter(str(e.get("created_at") or "")[:10] for e in canonical_events)
+        attributed = [e for e in canonical_events if _normalize_journey_id(e.get("journey_id"))]
+        journeys = {_normalize_journey_id(e.get("journey_id")) for e in attributed}
+        lead_form_journeys = {
+            _normalize_journey_id(e.get("journey_id"))
+            for e in attributed
+            if e["event"] == "lead_form_opened"
+        }
+        lead_journeys = {
+            _normalize_journey_id(e.get("journey_id"))
+            for e in attributed
+            if e["event"] == "lead_captured"
+        }
+        appointment_journeys = {
+            _normalize_journey_id(e.get("journey_id"))
+            for e in attributed
+            if e["event"] == "appointment_booked"
+        }
+        phone_journeys = {
+            _normalize_journey_id(e.get("journey_id"))
+            for e in attributed
+            if e["event"] == "phone_clicked"
+        }
+
+        def percentage(numerator: int, denominator: int) -> float:
+            return round(100 * numerator / denominator, 1) if denominator else 0.0
+
         return {
             "range": range,
-            "total_events": len(events),
+            "total_events": len(canonical_events),
+            "discarded_events": discarded_events,
             "by_type": [{"event": k, "count": v} for k, v in by_type.most_common()],
             "top_homes": [{"home": k, "count": v} for k, v in top_homes.most_common(10)],
             "daily_trend": [{"date": d, "events": c} for d, c in sorted(daily.items()) if d],
+            "journey_funnel": {
+                "eligible_journeys": len(journeys),
+                "lead_form_journeys": len(lead_form_journeys),
+                "lead_journeys": len(lead_journeys),
+                "appointment_journeys": len(appointment_journeys),
+                "phone_journeys": len(phone_journeys),
+                "lead_conversion_rate": percentage(len(lead_journeys), len(journeys)),
+                "appointment_conversion_rate": percentage(
+                    len(appointment_journeys), len(journeys)
+                ),
+                "attribution_coverage_pct": percentage(
+                    len(attributed), len(canonical_events)
+                ),
+            },
         }
     except Exception as e:
         struct_logger.error("Event analytics failed", error=str(e))
@@ -5013,7 +5165,7 @@ async def submit_chat_callback(request: Request):
             session_id=session_id,
             user_id=f"web_user_{session_id}",
             lead_manager=lead_manager,
-            utm=_extract_utm(data),
+            utm=_extract_attribution(data),
         )
     except Exception as exc:
         struct_logger.error(
@@ -5032,6 +5184,11 @@ async def submit_chat_callback(request: Request):
         session_id=session_id,
         details={"has_email": bool(email), "lead_id": lead.lead_id},
         request=request,
+    )
+    _store_analytics_event(
+        "lead_captured",
+        {"source": "chat_callback", "type": "callback"},
+        journey_id=data.get("journey_id"),
     )
     return {"success": True, "lead_id": lead.lead_id}
 
@@ -5080,18 +5237,40 @@ async def submit_contact_form(request: Request):
         # "lead_storage_failed". The owner notification below is the fallback
         # delivery path, so the visitor still gets a success response.
         try:
+            lead_source = str(data.get("source") or "contact_form").strip()[:100]
+            home_id = str(data.get("home_id") or "").strip()[:200] or None
+            home_model = str(data.get("home_model") or "").strip()[:200] or None
             new_lead = Lead(
                 lead_id=lead_id,
                 user_id="contact_form",
                 session_id=f"contact_{int(time.time())}",
-                source=data.get("source", "contact_form"),
+                source=lead_source,
                 name=name,
                 phone=phone,
                 email=email or None,
-                **_extract_utm(data),
+                home_id=home_id,
+                home_model=home_model,
+                **_extract_attribution(data),
             )
             await lead_manager.create_lead(new_lead)
             lead_persisted = True
+            lead_type = (
+                "tour"
+                if lead_source.endswith("_tour")
+                else "quote"
+                if lead_source.endswith("_quote")
+                else "contact"
+            )
+            _store_analytics_event(
+                "lead_captured",
+                {
+                    "source": lead_source,
+                    "type": lead_type,
+                    "home": home_model,
+                    "home_id": home_id,
+                },
+                journey_id=data.get("journey_id"),
+            )
         except Exception as e:
             warnings.append("lead_storage_failed")
             struct_logger.error(
@@ -5375,26 +5554,14 @@ async def track_analytics_event(request: Request):
         return {"ok": True}  # never reject a beacon
     if not isinstance(data, dict):
         return {"ok": True}
-    event = str(data.get("event") or data.get("_event") or "").strip()[:64]
-    if not event:
-        return {"ok": True}
-    # Keep only small string-ish props; cap count + length to bound abuse/cost.
-    props = {
-        str(k)[:40]: (str(v)[:200] if v is not None else None)
-        for k, v in list(data.items())[:25]
-        if k not in ("event", "_event")
-    }
-    record = {
-        "event": event,
-        "props": props,
-        "client_ip": _get_client_ip(request),
-        "created_at": datetime.now(UTC).isoformat(),
-    }
-    try:
-        if _db and getattr(_db, "db", None):
-            _db.db.collection("analytics_events").add(record)
-    except Exception as e:
-        struct_logger.warning("Analytics event store failed", event=event, error=str(e))
+    event = data.get("event") or data.get("_event")
+    props = {key: value for key, value in list(data.items())[:25]}
+    _store_analytics_event(
+        event,
+        props,
+        journey_id=data.get("journey_id"),
+        public=True,
+    )
     return {"ok": True}
 
 
@@ -5445,6 +5612,19 @@ async def create_appointment(request: Request):
         )
 
         created = await appointment_manager.create_appointment(appt)
+        appointment_source = str(data.get("source") or "website").strip()[:100]
+        home_id = str(data.get("home_id") or "").strip()[:200] or None
+        home_model = str(data.get("home_model") or "").strip()[:200] or None
+        _store_analytics_event(
+            "appointment_booked",
+            {
+                "source": appointment_source,
+                "intent": str(data.get("intent") or "showroom_visit")[:100],
+                "home": home_model,
+                "home_id": home_id,
+            },
+            journey_id=data.get("journey_id"),
+        )
 
         log_user_action(
             action="appointment.book",
@@ -5503,6 +5683,12 @@ async def create_appointment(request: Request):
                 if existing_lead and existing_digits[-10:] == submitted_digits:
                     existing_lead.appointment_requested = True
                     existing_lead.status = "qualified"
+                    existing_lead.journey_id = (
+                        existing_lead.journey_id
+                        or _normalize_journey_id(data.get("journey_id"))
+                    )
+                    existing_lead.home_id = existing_lead.home_id or home_id
+                    existing_lead.home_model = existing_lead.home_model or home_model
                     await lead_manager.update_lead(existing_lead)
                     lead_accounted_for = True
                 elif existing_lead:
@@ -5535,7 +5721,9 @@ async def create_appointment(request: Request):
                     phone=phone,
                     email=appt.email,
                     appointment_requested=True,
-                    **_extract_utm(data),
+                    home_id=home_id,
+                    home_model=home_model,
+                    **_extract_attribution(data),
                 )
                 await lead_manager.create_lead(lead)
             except Exception as e:
@@ -6343,13 +6531,8 @@ async def review_redirect(request: Request, src: str | None = None):
     try:
         struct_logger.info("Review redirect", src=src_clean or "direct")
         if _db and getattr(_db, "db", None):
-            _db.db.collection("analytics_events").add(
-                {
-                    "event": "review_redirect",
-                    "props": {"src": src_clean or "direct"},
-                    "client_ip": _get_client_ip(request),
-                    "created_at": datetime.now(UTC).isoformat(),
-                }
+            _store_analytics_event(
+                "review_redirect", {"src": src_clean or "direct"}
             )
     except Exception as e:  # tracking must never break the redirect
         try:

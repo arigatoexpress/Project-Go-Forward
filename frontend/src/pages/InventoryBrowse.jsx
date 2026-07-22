@@ -14,6 +14,7 @@ import { generateSrcSet, getImageSizes } from '../utils/imageOptimization';
 import { getUtmParams } from '../utils/utm';
 import { trackEvent } from '../utils/analytics';
 import { normalizeOptionalEmail } from '../utils/contactValidation';
+import { getJourneyAttribution } from '../utils/attribution';
 import AppointmentHandoffCard from '../components/AppointmentHandoffCard';
 
 const MATTERPORT_BASE = "https://my.matterport.com/show/?m=";
@@ -627,7 +628,7 @@ export default function InventoryBrowse({ adminAuthed = false, onAskTex, onCreat
     setActivePhotoIndex(0);
     setActiveCategory('all');
     setShowTour(false);
-    trackEvent('home_viewed', { home: home.model_name, status: home.status });
+    trackEvent('home_viewed', { home: home.model_name, home_id: home.home_id, status: home.status });
   }, []);
 
   const closeDetail = useCallback(() => {
@@ -672,7 +673,7 @@ export default function InventoryBrowse({ adminAuthed = false, onAskTex, onCreat
     setLeadFormHome(home);
     setLeadFormType(type);
     setShowLeadForm(true);
-    trackEvent('lead_form_opened', { home: home.model_name, type });
+    trackEvent('lead_form_opened', { home: home.model_name, home_id: home.home_id, type });
   }, []);
 
   useEffect(() => {
@@ -1065,12 +1066,12 @@ export default function InventoryBrowse({ adminAuthed = false, onAskTex, onCreat
           onNextPhoto={nextPhoto}
           onSetPhotoIndex={(idx) => {
             setActivePhotoIndex(idx);
-            trackEvent('photo_clicked', { home: selectedHome.model_name, index: idx });
+            trackEvent('photo_clicked', { home: selectedHome.model_name, home_id: selectedHome.home_id, index: idx });
           }}
           onSetCategory={(cat) => setActiveCategory(cat)}
           onToggleTour={() => {
             setShowTour(!showTour);
-            if (!showTour) trackEvent('tour_opened', { home: selectedHome.model_name });
+            if (!showTour) trackEvent('tour_opened', { home: selectedHome.model_name, home_id: selectedHome.home_id });
           }}
           onAskTex={onAskTex}
           onScheduleTour={() => openLeadForm(selectedHome, 'tour')}
@@ -1839,9 +1840,12 @@ export function LeadCaptureForm({ home, type, onClose, onBookAppointment }) {
           name: formData.name,
           phone: formData.phone,
           ...(normalizedEmail ? { email: normalizedEmail } : {}),
+          home_id: home.home_id,
+          home_model: home.model_name,
           message: `${type === 'tour' ? 'Tour Request' : 'Price Quote Request'} — ${home.model_name}. ${formData.message}`.trim(),
           source: `inventory_${intent}`,
           ...getUtmParams(),
+          ...getJourneyAttribution(),
         }),
       });
       // The backend returns HTTP 200 with {success:false} on validation or
@@ -1854,7 +1858,7 @@ export function LeadCaptureForm({ home, type, onClose, onBookAppointment }) {
       }
       setPersistedLeadId(result.lead_id || '');
       setSubmitted(true);
-      trackEvent('lead_captured', { home: home.model_name, type: intent });
+      trackEvent('lead_captured', { home: home.model_name, home_id: home.home_id, type: intent });
     } catch {
       setError(`Something went wrong. Please call us at ${BUSINESS_PHONE}.`);
     } finally {
@@ -1868,6 +1872,7 @@ export function LeadCaptureForm({ home, type, onClose, onBookAppointment }) {
     trackEvent('appointment_handoff_started', {
       source: `inventory_${intent}_handoff`,
       home: home.model_name,
+      home_id: home.home_id,
       intent,
     });
     onBookAppointment?.({

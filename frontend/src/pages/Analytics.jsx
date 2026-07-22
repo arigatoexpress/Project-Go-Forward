@@ -518,6 +518,30 @@ export default function Analytics() {
                             <h3 className="text-lg font-bold text-gray-900 mb-4">Engagement (Site Events)</h3>
                             {eventStats?.total_events > 0 ? (
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    <div className="md:col-span-2 rounded-xl border border-blue-100 bg-blue-50/60 p-4">
+                                        <div className="flex flex-col gap-1 mb-4 sm:flex-row sm:items-end sm:justify-between">
+                                            <div>
+                                                <p className="m-0 text-sm font-bold text-blue-950">Anonymous journey funnel</p>
+                                                <p className="mt-1 mb-0 text-xs text-blue-800">Session-scoped, PII-free paths from engagement to durable conversion.</p>
+                                            </div>
+                                            <p className="m-0 text-xs font-medium text-blue-800">
+                                                {eventStats.journey_funnel?.attribution_coverage_pct || 0}% event coverage
+                                            </p>
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+                                            {[
+                                                ['Journeys', eventStats.journey_funnel?.eligible_journeys || 0],
+                                                ['Opened a form', eventStats.journey_funnel?.lead_form_journeys || 0],
+                                                ['Became a lead', `${eventStats.journey_funnel?.lead_conversion_rate || 0}%`],
+                                                ['Booked a visit', `${eventStats.journey_funnel?.appointment_conversion_rate || 0}%`],
+                                            ].map(([label, value]) => (
+                                                <div key={label} className="rounded-lg border border-blue-100 bg-white px-3 py-3">
+                                                    <p className="m-0 text-lg font-bold text-slate-900">{value}</p>
+                                                    <p className="mt-1 mb-0 text-[11px] font-semibold uppercase tracking-wide text-slate-500">{label}</p>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
                                     <div>
                                         <p className="text-sm font-medium text-gray-700 mb-2">By type ({eventStats.total_events} total)</p>
                                         <ul className="space-y-1.5">

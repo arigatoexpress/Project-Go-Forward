@@ -6,7 +6,7 @@ import { LeadCaptureForm } from '../pages/InventoryBrowse';
 // check only resp.ok, but the backend returns HTTP 200 {success:false} on a
 // validation or storage failure — so a dropped lead showed a success screen.
 
-const home = { model_name: 'Sapphire 3-Bed', specs: { beds: 3, baths: 2 } };
+const home = { home_id: 'home-42', model_name: 'Sapphire 3-Bed', specs: { beds: 3, baths: 2 } };
 
 function fillValidAndSubmit() {
   fireEvent.change(screen.getByPlaceholderText('Your full name'), {
@@ -47,10 +47,14 @@ describe('LeadCaptureForm', () => {
 
     expect(await screen.findByText('Thank You!')).toBeInTheDocument();
     const [, request] = global.fetch.mock.calls[0];
-    expect(JSON.parse(request.body)).toMatchObject({
+    const payload = JSON.parse(request.body);
+    expect(payload).toMatchObject({
       source: 'inventory_quote',
+      home_id: 'home-42',
+      home_model: 'Sapphire 3-Bed',
       message: expect.stringContaining('Price Quote Request — Sapphire 3-Bed'),
     });
+    expect(payload.journey_id).toMatch(/^j_[0-9a-f]{32}$/);
   });
 
   it('hands the persisted lead and home context to appointment booking', async () => {
