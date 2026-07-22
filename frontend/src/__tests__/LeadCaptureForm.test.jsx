@@ -2,6 +2,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { LeadCaptureForm } from '../pages/InventoryBrowse';
 
+const { analyticsTrackEvent } = vi.hoisted(() => ({ analyticsTrackEvent: vi.fn() }));
+vi.mock('../utils/analytics', () => ({ trackEvent: analyticsTrackEvent }));
+
 // Regression guard for the silent-lead-loss bug: the quote/tour form used to
 // check only resp.ok, but the backend returns HTTP 200 {success:false} on a
 // validation or storage failure — so a dropped lead showed a success screen.
@@ -21,6 +24,7 @@ function fillValidAndSubmit() {
 describe('LeadCaptureForm', () => {
   beforeEach(() => {
     global.fetch = vi.fn();
+    analyticsTrackEvent.mockClear();
   });
   afterEach(() => {
     vi.restoreAllMocks();
@@ -85,6 +89,40 @@ describe('LeadCaptureForm', () => {
       homeId: 'home-42',
       intent: 'quote',
     });
+  });
+
+  it('uses an API-realistic id when home_id is absent in the lead, events, and handoff', async () => {
+    const onBookAppointment = vi.fn();
+    global.fetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ success: true, lead_id: 'contact_id_fallback' }),
+    });
+
+    render(
+      <LeadCaptureForm
+        home={{ id: 'floorplan-223034', model_name: 'Skyliner 4732B' }}
+        type="quote"
+        onClose={() => {}}
+        onBookAppointment={onBookAppointment}
+      />,
+    );
+    fillValidAndSubmit();
+
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(1));
+    const [, request] = global.fetch.mock.calls[0];
+    expect(JSON.parse(request.body).home_id).toBe('floorplan-223034');
+    expect(analyticsTrackEvent).toHaveBeenCalledWith('lead_captured', expect.objectContaining({
+      home_id: 'floorplan-223034',
+    }));
+
+    fireEvent.click(await screen.findByRole('button', { name: /Choose a visit time/i }));
+    expect(analyticsTrackEvent).toHaveBeenCalledWith(
+      'appointment_handoff_started',
+      expect.objectContaining({ home_id: 'floorplan-223034' }),
+    );
+    expect(onBookAppointment).toHaveBeenCalledWith(expect.objectContaining({
+      homeId: 'floorplan-223034',
+    }));
   });
 
   it('submits a quote with an incomplete optional email and omits it from the lead and handoff', async () => {
