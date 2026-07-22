@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import LeadResponseQueue, {
   getLeadResponseState,
+  parseLeadCreatedAt,
   selectResponseQueue,
 } from '../components/LeadResponseQueue';
 
@@ -32,6 +33,23 @@ describe('speed-to-lead queue selection', () => {
     ], NOW);
 
     expect(selected.map((item) => item.lead_id)).toEqual(['appointment', 'regular']);
+  });
+
+  it('puts overdue leads ahead of waiting and fresh leads within the same intent tier', () => {
+    const selected = selectResponseQueue([
+      lead({ lead_id: 'fresh', created_at: '2026-07-21T17:55:00Z' }),
+      lead({ lead_id: 'waiting', created_at: '2026-07-21T17:30:00Z' }),
+      lead({ lead_id: 'overdue', created_at: '2026-07-21T15:00:00Z' }),
+      lead({ lead_id: 'appointment', appointment_requested: true, created_at: '2026-07-21T17:58:00Z' }),
+    ], NOW);
+
+    expect(selected.map((item) => item.lead_id))
+      .toEqual(['appointment', 'overdue', 'waiting', 'fresh']);
+  });
+
+  it('treats timezone-naive backend timestamps as UTC', () => {
+    expect(parseLeadCreatedAt('2026-07-21T17:55:00').toISOString())
+      .toBe('2026-07-21T17:55:00.000Z');
   });
 
   it('labels fresh, waiting, and overdue leads against the response clock', () => {

@@ -25,8 +25,15 @@ const RESPONSE_STATES = {
   },
 };
 
+export function parseLeadCreatedAt(value) {
+  const timestamp = String(value || '').trim();
+  if (!timestamp) return new Date(Number.NaN);
+  const hasTimezone = /(?:z|[+-]\d{2}:?\d{2})$/i.test(timestamp);
+  return new Date(hasTimezone ? timestamp : `${timestamp}Z`);
+}
+
 function ageMinutes(lead, now = new Date()) {
-  const created = new Date(lead?.created_at || '');
+  const created = parseLeadCreatedAt(lead?.created_at);
   if (Number.isNaN(created.getTime())) return null;
   return Math.max(0, Math.floor((now.getTime() - created.getTime()) / 60000));
 }
@@ -63,7 +70,7 @@ export function selectResponseQueue(leads, now = new Date()) {
         return a.appointment_requested ? -1 : 1;
       }
       if (a.responseState.rank !== b.responseState.rank) {
-        return a.responseState.rank - b.responseState.rank;
+        return b.responseState.rank - a.responseState.rank;
       }
       const aAge = a.responseState.minutes ?? Number.MAX_SAFE_INTEGER;
       const bAge = b.responseState.minutes ?? Number.MAX_SAFE_INTEGER;
