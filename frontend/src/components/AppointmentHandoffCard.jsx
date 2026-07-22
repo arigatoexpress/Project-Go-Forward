@@ -30,12 +30,12 @@ export default function AppointmentHandoffCard({
       <div className="relative mb-5 rounded-xl border border-[var(--cp-border)] bg-[var(--cp-bg-2)] px-2 py-4">
         <div className="absolute left-[17%] right-[17%] top-8 h-px bg-[var(--cp-copper)]" aria-hidden="true" />
         <ol className="grid grid-cols-3" aria-label="Showroom appointment progress">
-          {ROUTE_STEPS.map(({ label, icon: Icon, complete }, index) => (
-            <li key={label} className="relative z-10 flex flex-col items-center px-1 text-center">
-              <span className={`flex h-8 w-8 items-center justify-center rounded-full border text-xs font-bold ${complete ? 'border-[var(--cp-cta-green)] bg-[var(--cp-cta-green)] text-white' : index === 1 ? 'border-[var(--cp-accent)] bg-[var(--cp-panel)] text-[var(--cp-accent)]' : 'border-[var(--cp-copper)] bg-[var(--cp-panel)] text-[var(--cp-secondary)]'}`}>
-                <Icon size={15} aria-hidden="true" />
+          {ROUTE_STEPS.map((step, index) => (
+            <li key={step.label} className="relative z-10 flex flex-col items-center px-1 text-center">
+              <span className={`flex h-8 w-8 items-center justify-center rounded-full border text-xs font-bold ${step.complete ? 'border-[var(--cp-cta-green)] bg-[var(--cp-cta-green)] text-white' : index === 1 ? 'border-[var(--cp-accent)] bg-[var(--cp-panel)] text-[var(--cp-accent)]' : 'border-[var(--cp-copper)] bg-[var(--cp-panel)] text-[var(--cp-secondary)]'}`}>
+                {React.createElement(step.icon, { size: 15, 'aria-hidden': true })}
               </span>
-              <span className="mt-2 text-[10px] font-semibold leading-tight text-[var(--cp-text)] sm:text-xs">{label}</span>
+              <span className="mt-2 text-[10px] font-semibold leading-tight text-[var(--cp-text)] sm:text-xs">{step.label}</span>
             </li>
           ))}
         </ol>

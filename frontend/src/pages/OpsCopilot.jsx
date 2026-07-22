@@ -93,7 +93,7 @@ export default function OpsCopilot() {
           ...prev,
           { role: 'assistant', content: data.reply || 'Sorry, I had no answer for that.' },
         ]);
-      } catch (err) {
+      } catch {
         setMessages((prev) => [
           ...prev,
           {
