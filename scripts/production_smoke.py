@@ -33,7 +33,7 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any
 from urllib.error import HTTPError, URLError
-from urllib.parse import unquote, urljoin
+from urllib.parse import unquote, urljoin, urlsplit
 from urllib.request import Request, urlopen
 
 try:
@@ -329,40 +329,68 @@ def check_inventory_media_depth(base_url: str, *, timeout: float) -> Probe:
     )
 
 
-def check_canonical_authority(base_url: str, *, timeout: float) -> Probe:
-    """Fail when public pages advertise a different domain to search engines."""
-    origin = base_url.rstrip("/")
-    home_status, home_body, home_type, home_ms = _read_url(base_url, "/", timeout=timeout)
+def check_canonical_authority(
+    base_url: str, *, timeout: float, canonical_origin: str | None = None
+) -> Probe:
+    """Fail when machine-readable SEO surfaces advertise another domain.
+
+    Candidate ``*.run.app`` storefront pages deliberately redirect to the
+    production domain, so their canonical tags cannot be inspected without
+    accidentally testing the old live revision. For those hosts, robots.txt
+    and sitemap.xml are the direct candidate contract; unit tests cover the
+    homepage tag generated from the same canonical-base function.
+    """
+    origin = (canonical_origin or base_url).rstrip("/")
+    candidate_host = (urlsplit(base_url).hostname or "").endswith(".run.app")
     robots_status, robots_body, robots_type, robots_ms = _read_url(
         base_url, "/robots.txt", timeout=timeout
     )
-    home_text = home_body.decode("utf-8", errors="replace")
-    robots_text = robots_body.decode("utf-8", errors="replace")
-    canonical_match = re.search(
-        r'<link\s+rel=["\']canonical["\']\s+href=["\']([^"\']+)',
-        home_text,
-        flags=re.IGNORECASE,
+    sitemap_status, sitemap_body, sitemap_type, sitemap_ms = _read_url(
+        base_url, "/sitemap.xml", timeout=timeout
     )
-    canonical = canonical_match.group(1).rstrip("/") if canonical_match else ""
-    canonical_ok = canonical == origin
-    sitemap_ok = f"Sitemap: {origin}/sitemap.xml" in robots_text
+    robots_text = robots_body.decode("utf-8", errors="replace")
+    sitemap_text = sitemap_body.decode("utf-8", errors="replace")
+    robots_ok = f"Sitemap: {origin}/sitemap.xml" in robots_text
+    sitemap_ok = f"<loc>{origin}/" in sitemap_text
+
+    homepage_ok = True
+    homepage_evidence = "machine-path-proxy"
+    home_status = 200
+    home_ms = 0
+    if not candidate_host:
+        home_status, home_body, home_type, home_ms = _read_url(base_url, "/", timeout=timeout)
+        home_text = home_body.decode("utf-8", errors="replace")
+        canonical_match = re.search(
+            r'<link\s+rel=["\']canonical["\']\s+href=["\']([^"\']+)',
+            home_text,
+            flags=re.IGNORECASE,
+        )
+        advertised = canonical_match.group(1).rstrip("/") if canonical_match else ""
+        homepage_ok = home_status == 200 and "html" in home_type.lower() and advertised == origin
+        homepage_evidence = "yes" if homepage_ok else "no"
+
     ok = (
-        home_status == 200
+        homepage_ok
         and robots_status == 200
-        and "html" in home_type.lower()
+        and sitemap_status == 200
         and "text/plain" in robots_type.lower()
-        and canonical_ok
+        and "xml" in sitemap_type.lower()
+        and robots_ok
         and sitemap_ok
+    )
+    status = next(
+        (code for code in (home_status, robots_status, sitemap_status) if code != 200),
+        200,
     )
     return Probe(
         name="canonical search authority",
         ok=ok,
-        status=home_status if home_status != 200 else robots_status,
+        status=status,
         evidence=(
-            f"canonical={'yes' if canonical_ok else 'no'}; "
-            f"sitemap={'yes' if sitemap_ok else 'no'}; advertised={canonical or 'missing'}"
+            f"homepage={homepage_evidence}; robots={'yes' if robots_ok else 'no'}; "
+            f"sitemap={'yes' if sitemap_ok else 'no'}; expected={origin}"
         ),
-        elapsed_ms=home_ms + robots_ms,
+        elapsed_ms=home_ms + robots_ms + sitemap_ms,
     )
 
 
@@ -677,12 +705,15 @@ def run_smoke(
     check_run_reply: bool = False,
     check_admin_auth: bool = False,
     admin_token: str | None = None,
+    canonical_origin: str | None = None,
 ) -> dict[str, Any]:
     probes: list[Probe] = []
     probes.extend(check_health(base_url, timeout=timeout))
     probes.append(check_inventory(base_url, timeout=timeout, min_homes=min_homes))
     probes.append(check_inventory_media_depth(base_url, timeout=timeout))
-    probes.append(check_canonical_authority(base_url, timeout=timeout))
+    probes.append(
+        check_canonical_authority(base_url, timeout=timeout, canonical_origin=canonical_origin)
+    )
     probes.extend(check_public_helpers(base_url, timeout=timeout))
     probes.extend(check_spa_routes(base_url, timeout=timeout))
     probes.extend(check_safe_public_validation(base_url, timeout=timeout))
@@ -706,6 +737,14 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--base-url", default=DEFAULT_BASE_URL)
     parser.add_argument("--timeout", type=float, default=10.0)
     parser.add_argument("--min-homes", type=int, default=DEFAULT_MIN_HOMES)
+    parser.add_argument(
+        "--canonical-origin",
+        default=None,
+        help=(
+            "Expected public search origin when --base-url is an isolated "
+            "candidate or staging hostname."
+        ),
+    )
     parser.add_argument(
         "--check-empty-doc-rejection",
         action="store_true",
@@ -752,6 +791,7 @@ def main(argv: list[str] | None = None) -> int:
         check_run_reply=args.check_run_reply,
         check_admin_auth=args.check_admin_auth,
         admin_token=args.admin_token,
+        canonical_origin=args.canonical_origin,
     )
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0 if result["ok"] else 1
