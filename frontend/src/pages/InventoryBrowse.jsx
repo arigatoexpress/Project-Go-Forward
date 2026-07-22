@@ -13,6 +13,7 @@ import { Skeleton, SkeletonCard } from '../components/Skeleton';
 import { generateSrcSet, getImageSizes } from '../utils/imageOptimization';
 import { getUtmParams } from '../utils/utm';
 import { trackEvent } from '../utils/analytics';
+import { normalizeOptionalEmail } from '../utils/contactValidation';
 import AppointmentHandoffCard from '../components/AppointmentHandoffCard';
 
 const MATTERPORT_BASE = "https://my.matterport.com/show/?m=";
@@ -1815,6 +1816,7 @@ export function LeadCaptureForm({ home, type, onClose, onBookAppointment }) {
   const [persistedLeadId, setPersistedLeadId] = useState('');
   const modalRef = useRef(null);
   useFocusTrap(modalRef);
+  const normalizedEmail = normalizeOptionalEmail(formData.email);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -1836,7 +1838,7 @@ export function LeadCaptureForm({ home, type, onClose, onBookAppointment }) {
         body: JSON.stringify({
           name: formData.name,
           phone: formData.phone,
-          email: formData.email,
+          ...(normalizedEmail ? { email: normalizedEmail } : {}),
           message: `${type === 'tour' ? 'Tour Request' : 'Price Quote Request'} — ${home.model_name}. ${formData.message}`.trim(),
           source: `inventory_${intent}`,
           ...getUtmParams(),
@@ -1871,7 +1873,7 @@ export function LeadCaptureForm({ home, type, onClose, onBookAppointment }) {
     onBookAppointment?.({
       name: formData.name,
       phone: formData.phone,
-      email: formData.email,
+      ...(normalizedEmail ? { email: normalizedEmail } : {}),
       notes: `Interested in ${home.model_name}.${details ? ` ${details}` : ''}`,
       leadId: persistedLeadId,
       source: `inventory_${intent}_handoff`,
@@ -1946,7 +1948,9 @@ export function LeadCaptureForm({ home, type, onClose, onBookAppointment }) {
                 <label className="text-sm font-medium text-gray-700">Email</label>
                 <input
                   className="px-3 py-2.5 rounded-lg border-2 border-gray-200 text-sm focus:outline-none focus:border-blue-500 transition"
-                  type="email"
+                  type="text"
+                  inputMode="email"
+                  autoComplete="email"
                   value={formData.email}
                   onChange={e => setFormData(f => ({ ...f, email: e.target.value }))}
                   placeholder="you@email.com"

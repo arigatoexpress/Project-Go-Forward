@@ -3,6 +3,7 @@ import { Mail, Phone, MapPin, Send, Loader2 } from 'lucide-react';
 import { BUSINESS_NAME, BUSINESS_URL, BUSINESS_PHONE, BUSINESS_PHONE_RAW, BUSINESS_FULL_ADDRESS, BUSINESS_HOURS } from '../constants';
 import { getUtmParams } from '../utils/utm';
 import { trackEvent } from '../utils/analytics';
+import { normalizeOptionalEmail } from '../utils/contactValidation';
 import AppointmentHandoffCard from '../components/AppointmentHandoffCard';
 
 const Contact = ({ onBack, onBookAppointment }) => {
@@ -15,7 +16,8 @@ const Contact = ({ onBack, onBookAppointment }) => {
     const phoneDigits = formData.phone.replace(/\D/g, '');
     const isPhoneValid = phoneDigits.length >= 10;
     // Soft hint only — email is optional and NEVER gates submission.
-    const emailLooksValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email.trim());
+    const normalizedEmail = normalizeOptionalEmail(formData.email);
+    const emailLooksValid = Boolean(normalizedEmail);
     const showEmailHint = formData.email.trim() !== '' && !emailLooksValid;
 
     const handleSubmit = async (e) => {
@@ -30,7 +32,13 @@ const Contact = ({ onBack, onBookAppointment }) => {
             const resp = await fetch('/api/contact', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ ...formData, ...getUtmParams() }),
+                body: JSON.stringify({
+                    name: formData.name,
+                    phone: formData.phone,
+                    message: formData.message,
+                    ...(normalizedEmail ? { email: normalizedEmail } : {}),
+                    ...getUtmParams(),
+                }),
             });
             const data = await resp.json();
             if (data.success) {
@@ -52,7 +60,7 @@ const Contact = ({ onBack, onBookAppointment }) => {
         onBookAppointment?.({
             name: formData.name,
             phone: formData.phone,
-            email: formData.email,
+            ...(normalizedEmail ? { email: normalizedEmail } : {}),
             notes: formData.message,
             leadId: persistedLeadId,
             source: 'contact_handoff',
@@ -182,7 +190,8 @@ const Contact = ({ onBack, onBookAppointment }) => {
                             <label htmlFor="contact-email" className="block text-sm font-medium text-gray-700 mb-1">Email (optional)</label>
                             <input
                                 id="contact-email"
-                                type="email"
+                                type="text"
+                                inputMode="email"
                                 autoComplete="email"
                                 value={formData.email}
                                 onChange={(e) => setFormData(prev => ({ ...prev, email: e.target.value }))}

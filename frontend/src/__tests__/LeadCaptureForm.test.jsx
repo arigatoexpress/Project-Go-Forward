@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { LeadCaptureForm } from '../pages/InventoryBrowse';
 
 // Regression guard for the silent-lead-loss bug: the quote/tour form used to
@@ -74,7 +74,6 @@ describe('LeadCaptureForm', () => {
     expect(onBookAppointment).toHaveBeenCalledWith({
       name: 'Alice Buyer',
       phone: '2813243020',
-      email: '',
       notes: 'Interested in Sapphire 3-Bed.',
       leadId: 'contact_123_abcd',
       source: 'inventory_quote_handoff',
@@ -82,6 +81,41 @@ describe('LeadCaptureForm', () => {
       homeId: 'home-42',
       intent: 'quote',
     });
+  });
+
+  it('submits a quote with an incomplete optional email and omits it from the lead and handoff', async () => {
+    const onBookAppointment = vi.fn();
+    global.fetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ success: true, lead_id: 'contact_phone_only' }),
+    });
+
+    render(
+      <LeadCaptureForm
+        home={{ ...home, home_id: 'home-42' }}
+        type="quote"
+        onClose={() => {}}
+        onBookAppointment={onBookAppointment}
+      />,
+    );
+    fireEvent.change(screen.getByPlaceholderText('Your full name'), {
+      target: { value: 'Phone Buyer' },
+    });
+    fireEvent.change(screen.getByPlaceholderText('(281) 000-0000'), {
+      target: { value: '2813243020' },
+    });
+    fireEvent.change(screen.getByPlaceholderText('you@email.com'), {
+      target: { value: 'ari@' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Get Quote/i }));
+
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(1));
+    const [, request] = global.fetch.mock.calls[0];
+    expect(JSON.parse(request.body)).not.toHaveProperty('email');
+
+    fireEvent.click(await screen.findByRole('button', { name: /Choose a visit time/i }));
+    expect(onBookAppointment).toHaveBeenCalledTimes(1);
+    expect(onBookAppointment.mock.calls[0][0]).not.toHaveProperty('email');
   });
 
   it('blocks submission of a sub-10-digit phone before calling the API', () => {

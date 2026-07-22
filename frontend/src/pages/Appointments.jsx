@@ -3,6 +3,7 @@ import { Calendar, Clock, User, CheckCircle, ArrowLeft, ArrowRight, MapPin, Phon
 import { BUSINESS_NAME, BUSINESS_PHONE, BUSINESS_FULL_ADDRESS } from '../constants';
 import { getUtmParams } from '../utils/utm';
 import { trackEvent } from '../utils/analytics';
+import { normalizeOptionalEmail } from '../utils/contactValidation';
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
@@ -220,6 +221,8 @@ const TimeSlotPicker = ({ date, onSelect, onBack }) => {
 
 // Contact info form
 const ContactForm = ({ formData, onChange, onSubmit, onBack, submitting }) => {
+  const normalizedEmail = normalizeOptionalEmail(formData.email);
+  const showEmailHint = formData.email.trim() !== '' && !normalizedEmail;
   return (
     <div className="bg-white rounded-xl shadow-md border border-gray-100 p-6">
       <button onClick={onBack} className="text-sm text-blue-600 hover:underline flex items-center mb-4">
@@ -261,15 +264,16 @@ const ContactForm = ({ formData, onChange, onSubmit, onBack, submitting }) => {
           <label htmlFor="appt-email" className="block text-sm font-medium text-gray-700 mb-1">Email (optional)</label>
           <input
             id="appt-email"
-            type="email"
+            type="text"
+            inputMode="email"
             autoComplete="email"
             value={formData.email}
             onChange={(e) => onChange({ ...formData, email: e.target.value })}
-            className={`w-full px-4 py-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none ${formData.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email) ? 'border-amber-300' : 'border-gray-300'}`}
+            className={`w-full px-4 py-2.5 border rounded-lg focus:ring-2 focus:ring-blue-500 outline-none ${showEmailHint ? 'border-amber-300' : 'border-gray-300'}`}
             placeholder="john@example.com"
-            aria-describedby={formData.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email) ? 'appt-email-hint' : undefined}
+            aria-describedby={showEmailHint ? 'appt-email-hint' : undefined}
           />
-          {formData.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email) && (
+          {showEmailHint && (
             <p id="appt-email-hint" className="text-xs text-amber-700 mt-1">This doesn&apos;t look like a complete email — double-check it so we can send your confirmation. (Optional — you can still book without it.)</p>
           )}
         </div>
@@ -343,6 +347,7 @@ const Appointments = ({ onBack, prefill, onHandoffComplete }) => {
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
+  const normalizedEmail = normalizeOptionalEmail(formData.email);
 
   const handleDateSelect = (date) => {
     setSelectedDate(date);
@@ -369,7 +374,7 @@ const Appointments = ({ onBack, prefill, onHandoffComplete }) => {
         body: JSON.stringify({
           name: formData.name.trim(),
           phone: formData.phone.trim(),
-          email: formData.email.trim() || undefined,
+          ...(normalizedEmail ? { email: normalizedEmail } : {}),
           date: selectedDate,
           time_slot: selectedTime,
           notes: formData.notes.trim() || undefined,
@@ -540,10 +545,10 @@ const Appointments = ({ onBack, prefill, onHandoffComplete }) => {
               <span className="text-gray-500 text-sm">Phone</span>
               <span className="font-medium text-sm">{formData.phone}</span>
             </div>
-            {formData.email && (
+            {normalizedEmail && (
               <div className="flex justify-between py-2 border-b border-gray-100">
                 <span className="text-gray-500 text-sm">Email</span>
-                <span className="font-medium text-sm">{formData.email}</span>
+                <span className="font-medium text-sm">{normalizedEmail}</span>
               </div>
             )}
             {formData.notes && (
