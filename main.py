@@ -5843,18 +5843,30 @@ async def get_lead_api(lead_id: str):
 
 @app.put("/api/leads/{lead_id}", dependencies=[Depends(require_admin)])
 async def update_lead_api(lead_id: str, request: Request):
-    """Update lead status or data."""
+    """Update non-lifecycle CRM triage fields only.
+
+    Contact data, lifecycle state, attribution, and system timestamps are not
+    editable through this broad endpoint. Status uses the dedicated lifecycle
+    transition so first-response timing cannot be forged or overwritten.
+    """
     try:
         data = await request.json()
+        allowed_fields = {"priority", "assigned_to", "triage_notes", "triage_reason"}
+        if not isinstance(data, dict) or not data or not set(data).issubset(allowed_fields):
+            raise HTTPException(
+                status_code=400,
+                detail="Only priority, assigned_to, triage_notes, and triage_reason are editable here.",
+            )
         lead = await lead_manager.get_lead(lead_id)
         if not lead:
-            return {"success": False, "error": "Lead not found"}
-        changed_fields = []
+            raise HTTPException(status_code=404, detail="Lead not found")
+        changed_fields: list[str] = []
         for key, value in data.items():
-            if hasattr(lead, key) and key not in ("lead_id", "created_at"):
+            if getattr(lead, key) != value:
                 setattr(lead, key, value)
                 changed_fields.append(key)
-        await lead_manager.update_lead(lead)
+        if changed_fields:
+            await lead_manager.update_lead(lead)
         log_admin_action(
             actor=_audit_actor(request),
             action="lead.update",
@@ -5863,10 +5875,54 @@ async def update_lead_api(lead_id: str, request: Request):
             details={"fields": sorted(changed_fields)},
             request=request,
         )
-        return {"success": True, "message": "Lead updated"}
+        return {"success": True, "message": "Lead updated", "lead": lead.to_dict()}
+    except HTTPException:
+        raise
     except Exception as e:
         struct_logger.error("Lead update failed", error=str(e))
         return {"success": False, "error": "Failed to update lead. Please try again."}
+
+
+@app.patch("/api/leads/{lead_id}/lifecycle", dependencies=[Depends(require_admin)])
+async def transition_lead_lifecycle_api(lead_id: str, request: Request):
+    """Apply one explicit, validated, idempotent lead status transition."""
+    try:
+        data = await request.json()
+        if not isinstance(data, dict) or set(data) != {"status"}:
+            raise HTTPException(status_code=400, detail="Payload must contain only status.")
+        new_status = data.get("status")
+        if not isinstance(new_status, str):
+            raise HTTPException(status_code=400, detail="Status must be a string.")
+
+        try:
+            lead, previous_status, changed = await lead_manager.transition_lead_status(
+                lead_id,
+                new_status,
+                actor=_audit_actor(request),
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if lead is None:
+            raise HTTPException(status_code=404, detail="Lead not found")
+
+        log_admin_action(
+            actor=_audit_actor(request),
+            action="lead.lifecycle_transition",
+            target_type="lead",
+            target_id=str(lead_id),
+            details={
+                "from_status": previous_status,
+                "to_status": new_status,
+                "changed": changed,
+            },
+            request=request,
+        )
+        return {"success": True, "changed": changed, "lead": lead.to_dict()}
+    except HTTPException:
+        raise
+    except Exception as e:
+        struct_logger.error("Lead lifecycle transition failed", error=str(e))
+        return {"success": False, "error": "Failed to update lead status. Please try again."}
 
 
 @app.get("/api/crm/appointments", dependencies=[Depends(require_admin)])

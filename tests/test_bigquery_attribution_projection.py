@@ -64,3 +64,31 @@ def test_conversion_views_use_distinct_journeys_and_safe_rates():
     assert "SAFE_DIVIDE" in home_sql
     assert "lead_captured" in home_sql and "appointment_booked" in home_sql
     assert "GROUP BY journey_key" in funnel_sql
+
+
+def test_lead_response_projection_is_measurable_and_pii_free():
+    projected = project_lead(
+        {
+            "lead_id": "lead-1",
+            "created_at": "2026-07-22T12:00:00+00:00",
+            "first_contacted_at": "2026-07-22T12:12:30+00:00",
+            "first_contacted_by": "admin:private@example.com",
+            "status_changed_at": "2026-07-22T12:12:30+00:00",
+            "status_changed_by": "admin:private@example.com",
+        }
+    )
+
+    assert projected["first_contacted_at"] == "2026-07-22T12:12:30+00:00"
+    assert projected["status_changed_at"] == "2026-07-22T12:12:30+00:00"
+    assert projected["has_first_contact"] is True
+    assert projected["response_seconds"] == 750
+    assert projected["response_within_15m"] is True
+    assert "first_contacted_by" not in projected
+    assert "status_changed_by" not in projected
+    assert "private@example.com" not in json.dumps(projected)
+
+    sla_sql = VIEWS["v_lead_response_sla"]
+    assert "response_seconds" in sla_sql
+    assert "APPROX_QUANTILES" in sla_sql
+    assert "response_within_15m" in sla_sql
+    assert "SAFE_DIVIDE" in sla_sql

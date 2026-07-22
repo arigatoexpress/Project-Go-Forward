@@ -82,6 +82,10 @@ class FakeLead:
     status: str = "new"
     created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
     updated_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
+    first_contacted_at: str | None = None
+    first_contacted_by: str | None = None
+    status_changed_at: str | None = None
+    status_changed_by: str | None = None
 
     # Triage / routing fields
     priority: str | None = None
@@ -125,6 +129,10 @@ class FakeLead:
             "status": self.status,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
+            "first_contacted_at": self.first_contacted_at,
+            "first_contacted_by": self.first_contacted_by,
+            "status_changed_at": self.status_changed_at,
+            "status_changed_by": self.status_changed_by,
             "priority": self.priority,
             "assigned_to": self.assigned_to,
             "triage_notes": self.triage_notes,
@@ -443,6 +451,25 @@ class FakeLeadManager:
                 return lead
         self.leads.append(lead)
         return lead
+
+    async def transition_lead_status(self, lead_id: str, new_status: str, *, actor: str):
+        allowed = {"new", "contacted", "qualified", "converted", "archived"}
+        if new_status not in allowed:
+            raise ValueError(f"Invalid lead status: {new_status!r}")
+        lead = await self.get_lead(lead_id)
+        if lead is None:
+            return None, None, False
+        previous = lead.status
+        if previous == new_status:
+            return lead, previous, False
+        now = datetime.now(UTC).isoformat()
+        lead.status = new_status
+        lead.status_changed_at = now
+        lead.status_changed_by = actor
+        if new_status in {"contacted", "qualified", "converted"} and not lead.first_contacted_at:
+            lead.first_contacted_at = now
+            lead.first_contacted_by = actor
+        return lead, previous, True
 
     async def get_lead(self, lead_id: str):
         for lead in self.leads:
