@@ -10,6 +10,7 @@ import downloadAdminFile from '../downloadAdminFile';
 import StatusBadge, { STATUS_COLORS, DEAL_STATUS_COLORS } from '../components/StatusBadge';
 import ReviewRequestCard from '../components/ReviewRequestCard';
 import EmailDraftsPanel from '../components/EmailDraftsPanel';
+import LeadResponseQueue from '../components/LeadResponseQueue';
 
 const DEAL_STATUS_ORDER = ['pending', 'approved', 'contract', 'funded', 'complete'];
 
@@ -550,6 +551,13 @@ export default function CRM({ onBack }) {
         {/* LEADS TAB */}
         {activeTab === 'leads' && !loading && (
           <>
+            {!selectedLead && (
+              <LeadResponseQueue
+                leads={leads}
+                onOpen={setSelectedLead}
+                onMarkContacted={(leadId) => handleUpdateLeadStatus(leadId, 'contacted')}
+              />
+            )}
             <div className="flex flex-wrap items-center gap-2 py-3">
               {['', 'new', 'contacted', 'qualified', 'converted'].map(s => (
                 <button
