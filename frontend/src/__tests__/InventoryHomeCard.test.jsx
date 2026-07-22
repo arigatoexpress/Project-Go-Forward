@@ -62,6 +62,21 @@ describe('InventoryBrowse HomeCard — order-only / build-to-order homes', () =>
     expect(screen.queryByText(/build-to-order|order-only model/i)).toBeNull();
   });
 
+  it('falls back to the branded Build-to-Order placeholder when an orderable hero fails', () => {
+    const { container } = renderCard({
+      ...baseHome,
+      is_orderable: true,
+      image_url: 'https://cdn.example.com/broken-orderable-hero.jpg',
+      real_photos: ['https://cdn.example.com/broken-orderable-hero.jpg'],
+      gallery_images: [],
+    });
+
+    fireEvent.error(container.querySelector('img'));
+
+    expect(container.querySelector('img')).toBeNull();
+    expect(screen.getByRole('img', { name: /build-to-order|built to order/i })).toBeInTheDocument();
+  });
+
   it('does NOT brand an in-stock home that merely lacks photos as order-only', () => {
     renderCard({
       ...baseHome,
@@ -86,10 +101,24 @@ describe('InventoryBrowse HomeCard — order-only / build-to-order homes', () =>
       quote_url: '/quote/floorplan/123/dealer/3522',
     }, { onGetPrice });
 
-    const quoteButton = screen.getByRole('button', { name: /Price Quote/i });
+    const quoteButton = screen.getByRole('button', { name: /Check Price & Availability/i });
     expect(container.querySelector('a[href^="/quote/"]')).toBeNull();
     fireEvent.click(quoteButton);
 
     expect(onGetPrice).toHaveBeenCalledTimes(1);
+  });
+
+  it('labels listed stock as requiring an availability check', () => {
+    renderCard({
+      ...baseHome,
+      status: 'Available',
+      inventory_kind: 'available_now',
+      is_orderable: false,
+      image_url: '',
+      real_photos: [],
+      gallery_images: [],
+    });
+
+    expect(screen.getByText('Check availability')).toBeInTheDocument();
   });
 });

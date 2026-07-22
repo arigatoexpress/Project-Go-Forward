@@ -106,9 +106,9 @@ const FAQ_ITEMS = [
     question: 'How long does the whole process take?',
     answer: (
       <>
-        For an <strong>on-lot home that's ready now</strong>, it can be weeks once financing and site prep are
-        in place. For an <strong>ordered (factory) floor plan</strong>, build + delivery lead times vary by
-        manufacturer and season. We'll give you a realistic timeline up front.
+        For a <strong>confirmed on-lot home</strong>, it can be weeks once availability, financing, and site
+        prep are in place. For an <strong>ordered (factory) floor plan</strong>, build + delivery lead times
+        vary by manufacturer and season. We'll give you a realistic timeline up front.
       </>
     ),
   },

@@ -262,7 +262,7 @@ function FeaturedHomeSpotlight({ home, onClick, onGetPrice }) {
           <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent p-4">
             <div className="mb-2 inline-flex items-center gap-1.5 rounded-md bg-[var(--cp-accent)] px-2.5 py-1 text-[11px] font-bold uppercase text-[var(--cp-bg)]">
               <CheckCircle2 size={12} />
-              Featured Live Listing
+              Featured home
             </div>
             <h2 className="text-xl font-bold text-white">{home.model_name}</h2>
             <p className="text-sm text-white/75">{home.manufacturer || 'Texas Home Outlet'}</p>
@@ -305,7 +305,7 @@ function FeaturedHomeSpotlight({ home, onClick, onGetPrice }) {
             className="inline-flex items-center justify-center gap-2 rounded-md bg-[var(--cp-accent)] px-3 py-2 text-sm font-semibold text-[var(--cp-bg)] transition hover:bg-[var(--cp-accent-hot)]"
           >
             <DollarSign size={15} />
-            Quote
+            Check Price & Availability
           </button>
         </div>
       </div>
@@ -800,13 +800,13 @@ export default function InventoryBrowse({ adminAuthed = false, onAskTex, onCreat
           <div className="flex min-h-[520px] flex-col justify-center">
             <div className="mb-4 inline-flex w-fit items-center gap-2 rounded-md border border-white/30 bg-black/45 px-3 py-1.5 font-mono text-xs font-semibold uppercase text-white shadow-sm">
               <span className="cp-blink h-2 w-2 rounded-full bg-white" />
-              Live Inventory + Orderable Floorplans
+              Inventory changes daily
             </div>
             <h1 className="max-w-3xl text-4xl font-extrabold leading-tight tracking-normal text-white sm:text-5xl">
               Mobile Homes For Sale in Huffman, TX
             </h1>
             <p className="mt-4 max-w-2xl text-base leading-relaxed text-white/90">
-              Browse homes available now plus manufacturer floorplans Texas Home Outlet can custom order, with photos, floorplans, 3D tours, and quote requests in one place.
+              Browse current listed homes plus manufacturer floorplans Texas Home Outlet can custom order. Confirm price and availability with our team before planning a visit.
             </p>
 
             <div className="mt-6 grid gap-3 sm:grid-cols-3">
@@ -1116,11 +1116,14 @@ export function HomeCard({ home, onClick, onGetPrice, isFavorite = false, onTogg
     home.media_quality?.status === 'floorplan_only' || floorplanUrls.length > 0
   );
   // Build-to-order homes carry no stock photography by design (verified: every
-  // photo-less home in the live inventory is is_orderable, zero in-stock homes
+  // photo-less home in the catalog is is_orderable; zero listed homes
   // lack photos). Treat a missing photo on these as intentional and brand it,
   // rather than rendering a generic "coming soon" empty state.
-  const isOrderOnlyNoPhotos = !heroImage && (
+  const isOrderOnly = (
     home.is_orderable === true || getAvailabilityKind(home) === 'orderable_floorplan'
+  );
+  const showOrderOnlyPlaceholder = isOrderOnly && (
+    !heroImage || heroLoadState === 'failed'
   );
   const hasTour = !!home.matterport_id;
   const specs = home.specs || {};
@@ -1154,7 +1157,7 @@ export function HomeCard({ home, onClick, onGetPrice, isFavorite = false, onTogg
             onLoad={() => setHeroLoadState('loaded')}
             onError={() => setHeroLoadState('failed')}
           />
-        ) : isOrderOnlyNoPhotos && heroLoadState !== 'failed' ? (
+        ) : showOrderOnlyPlaceholder ? (
           /* Branded build-to-order placeholder (NOT a broken <img>).
              role="img" + aria-label keeps it accessible to screen readers. */
           <div
@@ -1189,7 +1192,7 @@ export function HomeCard({ home, onClick, onGetPrice, isFavorite = false, onTogg
             "Order-Only Model" pill so the missing photo reads as intentional. */}
         <div className="absolute top-3 left-3 flex flex-col gap-2">
           <StatusBadge status={home.status} kind="home" size="md" />
-          {isOrderOnlyNoPhotos && (
+          {showOrderOnlyPlaceholder && (
             <span className="tho-order-only-badge inline-flex items-center self-start px-2.5 py-1 rounded-full text-xs font-semibold bg-[var(--cp-accent)] text-[var(--cp-bg)] shadow">
               <span aria-hidden="true">Order-Only Model</span>
               <span className="sr-only">Order-only model — built to order</span>
@@ -1293,7 +1296,7 @@ export function HomeCard({ home, onClick, onGetPrice, isFavorite = false, onTogg
             className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-md bg-[var(--cp-accent)] py-2.5 text-sm font-medium text-[var(--cp-bg)] transition hover:bg-[var(--cp-accent-hot)]"
             onClick={(e) => { e.stopPropagation(); onGetPrice?.(); }}
           >
-            <DollarSign size={16} /> Price Quote
+            <DollarSign size={16} /> Check Price & Availability
           </button>
         </div>
       </div>
@@ -1618,7 +1621,7 @@ function HomeDetailModal({
                 className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg font-medium text-white bg-amber-500 hover:bg-amber-600 transition"
                 onClick={onGetPrice}
               >
-                <DollarSign size={16} /> Get Price Quote
+                <DollarSign size={16} /> Check Price
               </button>
             )}
           </div>
@@ -1661,7 +1664,7 @@ function HomeDetailModal({
               onClick={onGetPrice}
               className="flex-1 inline-flex items-center justify-center gap-2 rounded-lg bg-[var(--cp-accent)] py-3.5 text-sm font-semibold text-[var(--cp-bg)] transition hover:bg-[var(--cp-accent-hot)]"
             >
-              <DollarSign size={18} /> Price Quote
+              <DollarSign size={18} /> Check Price & Availability
             </button>
           </div>
 

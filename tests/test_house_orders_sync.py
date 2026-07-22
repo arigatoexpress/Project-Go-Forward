@@ -9,6 +9,8 @@ website.
 
 import os
 
+import pytest
+
 from tools import house_orders_sync as hos
 
 
@@ -35,13 +37,24 @@ class FakeDatabase:
 
 # --- PII / cost leak guards (the critical ones) --------------------------------
 
-def test_customer_name_sets_status_but_is_never_persisted():
-    doc = hos.house_order_row_to_inventory_doc(_row(customer="Antonio Martinez"))
+
+def test_customer_with_sales_metadata_sets_status_but_is_never_persisted():
+    doc = hos.house_order_row_to_inventory_doc(
+        _row(customer="Antonio Martinez", customer_number="customer-123")
+    )
     assert doc["status"] == "SOLD"
     # The buyer's name must appear NOWHERE in the persisted record.
     blob = repr(doc).lower()
     assert "antonio" not in blob and "martinez" not in blob
     assert "customer" not in doc
+
+
+def test_free_form_customer_note_cannot_mark_a_home_sold():
+    doc = hos.house_order_row_to_inventory_doc(
+        _row(customer="Display model note", customer_number="")
+    )
+    assert doc["status"] == "REVIEW_REQUIRED"
+    assert "display model note" not in repr(doc).lower()
 
 
 def test_blank_customer_is_available():
@@ -65,6 +78,7 @@ def test_emitted_keys_are_within_the_allow_list():
 
 # --- mapping correctness -------------------------------------------------------
 
+
 def test_maps_specs_and_classification_from_model():
     doc = hos.house_order_row_to_inventory_doc(_row(model="Oak 28x56 3/2"))
     assert doc["serial_number"] == "15677"
@@ -83,13 +97,14 @@ def test_single_wide_classification():
     assert doc["classification"] == "Single Wide"  # width < 28
 
 
-def test_iter_home_rows_skips_headers_sections_and_totals():
+def test_iter_home_rows_stops_at_on_approval_section():
     records = [
-        {"Serial #": "Serial #", "Model": "Model"},          # header echo
-        {"Serial #": "On Approval", "Model": ""},            # section label
+        {"Serial #": "Serial #", "Model": "Model"},  # header echo
         {"Serial #": "total", "Model": "", "MSRP": 851620},  # totals row
         {"Serial #": "15677", "Model": "Oak 28x56", "Manufacturing Plant": "Tru Belton"},  # real
-        {"Serial #": "nan", "Model": "nan"},                 # empty
+        {"Serial #": None, "Model": "", "Unnamed: 12": "On Approval"},
+        {"Serial #": "99999", "Model": "Later Section 16x76"},
+        {"Serial #": "nan", "Model": "nan"},  # empty
     ]
     rows = list(hos._iter_home_rows(records))
     assert [r["serial"] for r in rows] == ["15677"]
@@ -97,8 +112,19 @@ def test_iter_home_rows_skips_headers_sections_and_totals():
 
 def test_full_transform_from_sheet_records():
     records = [
-        {"Serial #": "15677", "Model": "Oak 28x56 3/2", "Manufacturing Plant": "Tru Belton", "Customer": None},
-        {"Serial #": "10543", "Model": "Jackson 16x76", "Manufacturing Plant": "Jessup", "Customer": "Gabriel Mercado"},
+        {
+            "Serial #": "15677",
+            "Model": "Oak 28x56 3/2",
+            "Manufacturing Plant": "Tru Belton",
+            "Customer": None,
+        },
+        {
+            "Serial #": "10543",
+            "Model": "Jackson 16x76",
+            "Manufacturing Plant": "Jessup",
+            "Customer": "Gabriel Mercado",
+            "Customer #": "customer-456",
+        },
         {"Serial #": "Serial #", "Model": "Model"},  # dropped
     ]
     docs = hos.house_orders_to_inventory_docs(records)
@@ -111,6 +137,7 @@ def test_full_transform_from_sheet_records():
 
 # --- sync / idempotency --------------------------------------------------------
 
+
 def test_sync_dry_run_writes_nothing():
     db = FakeDatabase()
     docs = hos.house_orders_to_inventory_docs([_sheet_rec("15677"), _sheet_rec("10543")])
@@ -122,30 +149,64 @@ def test_sync_dry_run_writes_nothing():
 def test_sync_apply_upserts_by_serial_idempotently():
     db = FakeDatabase()
     docs = hos.house_orders_to_inventory_docs([_sheet_rec("15677")])
-    first = hos.sync_house_orders_to_inventory(db, docs, dry_run=False)
+    first = hos.sync_house_orders_to_inventory(db, docs, dry_run=False, approved_serials={"15677"})
     assert first["written"] == 1 and set(db.docs) == {"15677"}
     # Re-run: same serial doc id, no duplicate.
-    second = hos.sync_house_orders_to_inventory(db, docs, dry_run=False)
+    second = hos.sync_house_orders_to_inventory(db, docs, dry_run=False, approved_serials={"15677"})
     assert second["written"] == 1 and set(db.docs) == {"15677"}
 
 
 def test_sync_counts_available_vs_sold():
     db = FakeDatabase()
-    docs = hos.house_orders_to_inventory_docs([
-        _sheet_rec("15677", customer=None),
-        _sheet_rec("10543", customer="Some Buyer"),
-    ])
-    stats = hos.sync_house_orders_to_inventory(db, docs, dry_run=False)
+    docs = hos.house_orders_to_inventory_docs(
+        [
+            _sheet_rec("15677", customer=None),
+            _sheet_rec("10543", customer="Some Buyer"),
+        ]
+    )
+    stats = hos.sync_house_orders_to_inventory(
+        db, docs, dry_run=False, approved_serials={"15677", "10543"}
+    )
     assert stats["available"] == 1 and stats["sold"] == 1
 
 
+def test_apply_skips_unapproved_and_review_required_rows():
+    db = FakeDatabase()
+    docs = [
+        hos.house_order_row_to_inventory_doc(_row(serial="15677")),
+        hos.house_order_row_to_inventory_doc(_row(serial="10543")),
+        hos.house_order_row_to_inventory_doc(
+            _row(serial="99999", customer="merchandising note", customer_number="")
+        ),
+    ]
+
+    stats = hos.sync_house_orders_to_inventory(
+        db,
+        docs,
+        dry_run=False,
+        approved_serials={"15677", "99999"},
+    )
+
+    assert set(db.docs) == {"15677"}
+    assert stats["skipped_unapproved"] == 1
+    assert stats["review_required"] == 1
+
+
+def test_cli_apply_requires_an_explicit_serial_allow_list():
+    with pytest.raises(SystemExit):
+        hos.main(["--apply", "--path", "unused.xlsx"])
+
+
 def _sheet_rec(serial, customer=None):
-    return {
+    record = {
         "Serial #": serial,
         "Model": "Oak 28x56 3/2",
         "Manufacturing Plant": "Tru Belton",
         "Customer": customer,
     }
+    if customer:
+        record["Customer #"] = f"customer-{serial}"
+    return record
 
 
 def test_load_house_orders_from_gcs_downloads_parses_and_cleans_up(monkeypatch, tmp_path):
@@ -173,10 +234,12 @@ def test_load_house_orders_from_gcs_downloads_parses_and_cleans_up(monkeypatch, 
     # imported earlier in the full suite (import-order fragility). Patching the
     # attribute is order-independent and needs no GCS credentials.
     from google.cloud import storage as _gcs
+
     monkeypatch.setattr(_gcs, "Client", lambda: _FakeClient())
     # parse the downloaded file via a stub (avoids needing a real xlsx)
     monkeypatch.setattr(
-        hos, "parse_house_orders",
+        hos,
+        "parse_house_orders",
         lambda path: [{"serial_number": "X", "model_name": "M", "status": "AVAILABLE"}],
     )
 
@@ -193,6 +256,6 @@ def test_parse_model_specs_ignores_dates_and_bad_dims():
     w, length, beds, baths = hos._parse_model_specs("Model 6/12/2024 28x56")
     assert (w, length) == (28, 56)
     assert beds is None and baths is None
-    assert hos._parse_model_specs("Oak 28x56 3/2")[2:] == (3, 2)   # clean beds/baths
+    assert hos._parse_model_specs("Oak 28x56 3/2")[2:] == (3, 2)  # clean beds/baths
     assert hos._parse_model_specs("Bigfoot 100x200")[:2] == (None, None)  # 3-digit width rejected
     assert hos._parse_model_specs("Sunshine 76x14")[:2] == (14, 76)  # transposed LxW de-transposed

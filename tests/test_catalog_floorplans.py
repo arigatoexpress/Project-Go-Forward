@@ -1,9 +1,42 @@
 from tools.catalog_floorplans import (
     ORDERABLE_KIND,
+    apply_inventory_kind,
     build_orderable_catalog,
     build_orderable_catalog_from_context,
     merge_orderable_floorplan_catalog,
 )
+
+
+def test_public_inventory_neutralizes_legacy_availability_claims():
+    home = {
+        "id": "43372",
+        "model_name": "The Creole",
+        "status": "Available",
+        "description": (
+            "The Creole is a manufactured home available for sale now. "
+            "This home is sold by Texas Home Outlet. Take a 3D Home Tour, check out photos, "
+            "and get a price quote on this floor plan today!"
+        ),
+    }
+
+    apply_inventory_kind(home)
+
+    description = home["description"].lower()
+    assert "available for sale now" not in description
+    assert "available now" not in description
+    assert "is sold by" not in description
+    assert "current price and availability" in description
+    assert home["is_in_stock"] is False
+
+
+def test_public_inventory_marks_stock_only_when_explicitly_verified():
+    unverified = apply_inventory_kind({"id": "one", "status": "Available"})
+    verified = apply_inventory_kind(
+        {"id": "two", "status": "Available", "availability_verified": True}
+    )
+
+    assert unverified["is_in_stock"] is False
+    assert verified["is_in_stock"] is True
 
 
 def test_build_orderable_catalog_keeps_only_new_manufacturer_floorplans():

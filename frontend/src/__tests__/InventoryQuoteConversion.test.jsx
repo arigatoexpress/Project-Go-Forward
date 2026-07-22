@@ -34,7 +34,10 @@ describe('InventoryBrowse quote conversion path', () => {
 
   it('opens the quote form from the featured CTA without leaving the storefront', async () => {
     const { container } = render(<InventoryBrowse />);
-    const featuredQuote = await screen.findByRole('button', { name: 'Quote' });
+    const [featuredQuote] = await screen.findAllByRole(
+      'button',
+      { name: 'Check Price & Availability' },
+    );
 
     expect(container.querySelector('a[href^="/quote/"]')).toBeNull();
     fireEvent.click(featuredQuote);
@@ -50,7 +53,11 @@ describe('InventoryBrowse quote conversion path', () => {
     const details = await screen.findByRole('button', { name: 'View Details' });
     fireEvent.click(details);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Get Price Quote' }));
+    const availabilityButtons = screen.getAllByRole(
+      'button',
+      { name: 'Check Price & Availability' },
+    );
+    fireEvent.click(availabilityButtons.at(-1));
 
     await waitFor(() => {
       expect(container.querySelector('form')).toBeInTheDocument();
@@ -64,5 +71,14 @@ describe('InventoryBrowse quote conversion path', () => {
       'lead_form_opened',
       expect.objectContaining({ home_id: '43372' }),
     );
+  });
+
+  it('never describes the inventory snapshot as live or available now', async () => {
+    render(<InventoryBrowse />);
+
+    expect(await screen.findByText('Inventory changes daily')).toBeInTheDocument();
+    expect(screen.queryByText(/Live Inventory/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Featured Live Listing/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Available now/i)).not.toBeInTheDocument();
   });
 });

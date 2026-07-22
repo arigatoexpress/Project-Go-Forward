@@ -97,7 +97,7 @@ export default function StatusBadge({ status, kind = 'lead', size = 'sm', classN
 
   if (kind === 'home') {
     const cls = HOME_STATUS_CLASSES[status] || 'bg-gray-500 text-white';
-    const label = status === 'Available' ? 'New' : status;
+    const label = status === 'Available' ? 'Check availability' : status;
     return <span className={`${base} ${cls} ${className}`}>{label}</span>;
   }
 

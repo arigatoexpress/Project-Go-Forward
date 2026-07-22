@@ -12,9 +12,9 @@ Relationship to the existing tools:
   This module is the PII/cost-safe path for the *public* store.
 
 PII / sensitivity contract (the reason this is a separate module):
-- The sheet's ``Customer`` column (a buyer NAME) is read ONLY to derive
-  availability (blank = available stock, filled = sold/committed) — the name is
-  **never** carried into a record or persisted.
+- The sheet's ``Customer`` and ``Customer #`` columns are read ONLY to derive a
+  review state. A nonblank Customer without an account number is held for
+  review rather than guessed sold. Neither value is persisted.
 - ``Invoice Amount`` (dealer cost) and ``MSRP`` (retail price) are **not**
   written: THO sells "Call for Price", and cost must never reach a public surface.
 - Records are built by an explicit ALLOW-LIST (emit only known-safe keys), so a
@@ -22,7 +22,7 @@ PII / sensitivity contract (the reason this is a separate module):
 
 Idempotent: upserts via ``firestore_client.upsert_inventory`` keyed on
 ``serial_number`` = Firestore doc id, like ``tools/inventory_seed.py``. Dry-run
-by default; ``--apply`` (or ``dry_run=False``) writes.
+by default; applying changes requires an explicit allow-list of reviewed serials.
 """
 
 from __future__ import annotations
@@ -37,21 +37,43 @@ log = logging.getLogger(__name__)
 
 SYNC_SOURCE = "house_orders_sync"
 
-# The "Customer" column is read only to set availability. Anything here means
-# the home is committed to a buyer and must NOT appear on the public site.
+# Customer fields are read only to classify rows. A free-form Customer cell is
+# not sufficient proof of a sale; an account number is also required.
 _SOLD_STATUS = "SOLD"
 _AVAILABLE_STATUS = "AVAILABLE"
+_REVIEW_STATUS = "REVIEW_REQUIRED"
 
 # Keys we will ever persist. An allow-list (not a deny-list) so an unexpected
 # sheet column can never leak. Note the absence of customer/invoice/salesman/price.
-_ALLOWED_KEYS = frozenset({
-    "serial_number", "serial_number_2", "model_name", "manufacturer",
-    "classification", "status", "is_new",
-    "bedrooms", "bathrooms", "sqft", "width", "length", "source",
-})
+_ALLOWED_KEYS = frozenset(
+    {
+        "serial_number",
+        "serial_number_2",
+        "model_name",
+        "manufacturer",
+        "classification",
+        "status",
+        "is_new",
+        "bedrooms",
+        "bathrooms",
+        "sqft",
+        "width",
+        "length",
+        "source",
+    }
+)
 
 # Sheet header / section labels that are not real inventory rows.
-_NON_HOME_SERIAL_TOKENS = ("serial", "section", "approval", "days out", "wks", "nan", "total", "stock")
+_NON_HOME_SERIAL_TOKENS = (
+    "serial",
+    "section",
+    "approval",
+    "days out",
+    "wks",
+    "nan",
+    "total",
+    "stock",
+)
 
 
 def _clean(value: Any) -> str:
@@ -81,9 +103,13 @@ def _is_home_serial(serial: str) -> bool:
     return any(ch.isdigit() for ch in serial)
 
 
-def _status_from_customer(customer: Any) -> str:
-    """Blank customer => available stock; any name => sold/committed (name dropped)."""
-    return _AVAILABLE_STATUS if not _clean(customer) else _SOLD_STATUS
+def _status_from_customer(customer: Any, customer_number: Any = None) -> str:
+    """Classify without treating a free-form merchandising note as a sale."""
+    if not _clean(customer):
+        return _AVAILABLE_STATUS
+    if not _clean(customer_number):
+        return _REVIEW_STATUS
+    return _SOLD_STATUS
 
 
 def _parse_model_specs(model: str) -> tuple[int | None, int | None, int | None, int | None]:
@@ -109,13 +135,17 @@ def _parse_model_specs(model: str) -> tuple[int | None, int | None, int | None, 
 
 
 def _iter_home_rows(records: Iterable[dict]) -> Iterator[dict]:
-    """Normalize raw sheet records to ``{serial, serial_2, model, manufacturer, customer}``.
+    """Normalize rows from Current Inventory and stop at the next section.
 
-    Filters out header/section/total rows and anything without a real serial or
-    model. ``customer`` is kept ONLY so the caller can derive status; it is never
-    emitted downstream.
+    Filters out header/total rows and anything without a real serial or model.
+    Customer fields are kept ONLY so the caller can derive status; they are
+    never emitted downstream.
     """
     for rec in records:
+        # The live workbook contains unrelated sections after Current Inventory.
+        # Stop at the first boundary instead of scanning them as public stock.
+        if any(_clean(value).lower() == "on approval" for value in rec.values()):
+            break
         serial = _clean(_pick(rec, "Serial #", "Serial #1", "Serial", "Serial Number"))
         if not _is_home_serial(serial):
             continue
@@ -128,6 +158,7 @@ def _iter_home_rows(records: Iterable[dict]) -> Iterator[dict]:
             "model": model,
             "manufacturer": _clean(_pick(rec, "Manufacturing Plant", "Manufacturer", "Plant")),
             "customer": _pick(rec, "Customer"),  # status only — never persisted
+            "customer_number": _pick(rec, "Customer #", "Customer Number"),
         }
 
 
@@ -148,7 +179,7 @@ def house_order_row_to_inventory_doc(row: dict) -> dict | None:
         "model_name": model,
         "manufacturer": _clean(row.get("manufacturer")) or "Unknown",
         "classification": "Double Wide" if (width or 0) >= 28 else "Single Wide",
-        "status": _status_from_customer(row.get("customer")),
+        "status": _status_from_customer(row.get("customer"), row.get("customer_number")),
         "is_new": True,  # House Orders = new factory stock; repos live in the 21st Repo DB
         "bedrooms": beds,
         "bathrooms": baths,
@@ -207,22 +238,46 @@ def load_house_orders_from_gcs(bucket_name: str, blob_name: str) -> list[dict]:
 
 
 def sync_house_orders_to_inventory(
-    db: Any, docs: list[dict], *, dry_run: bool = True, limit: int | None = None
+    db: Any,
+    docs: list[dict],
+    *,
+    dry_run: bool = True,
+    limit: int | None = None,
+    approved_serials: set[str] | None = None,
 ) -> dict:
     """Upsert inventory docs into Firestore, keyed on serial_number = doc id.
 
     Idempotent. ``db`` must provide ``upsert_inventory(doc_id, data)``. Returns a
-    stats dict; on ``dry_run`` nothing is written.
+    stats dict. Dry runs never write; apply mode writes only exact serials in
+    ``approved_serials``, and REVIEW_REQUIRED rows are always held back.
     """
-    stats: dict[str, Any] = {"total": 0, "written": 0, "available": 0, "sold": 0, "planned": []}
+    approved = {
+        str(serial).strip() for serial in (approved_serials or set()) if str(serial).strip()
+    }
+    stats: dict[str, Any] = {
+        "total": 0,
+        "written": 0,
+        "available": 0,
+        "sold": 0,
+        "review_required": 0,
+        "skipped_unapproved": 0,
+        "planned": [],
+    }
     for doc in docs[: limit if limit else None]:
         stats["total"] += 1
         if doc["status"] == _AVAILABLE_STATUS:
             stats["available"] += 1
-        else:
+        elif doc["status"] == _SOLD_STATUS:
             stats["sold"] += 1
+        else:
+            stats["review_required"] += 1
         stats["planned"].append((doc["serial_number"], doc["model_name"], doc["status"]))
         if dry_run:
+            continue
+        if doc["status"] == _REVIEW_STATUS:
+            continue
+        if doc["serial_number"] not in approved:
+            stats["skipped_unapproved"] += 1
             continue
         db.upsert_inventory(doc["serial_number"], doc)
         stats["written"] += 1
@@ -231,11 +286,24 @@ def sync_house_orders_to_inventory(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Sync House Orders.xlsx -> Firestore inventory.")
-    parser.add_argument("--path", default="data/House Orders.xlsx", help="Path to House Orders.xlsx")
-    parser.add_argument("--apply", action="store_true", help="Write to Firestore (default: dry run).")
+    parser.add_argument(
+        "--path", default="data/House Orders.xlsx", help="Path to House Orders.xlsx"
+    )
+    parser.add_argument(
+        "--apply", action="store_true", help="Write to Firestore (default: dry run)."
+    )
+    parser.add_argument(
+        "--approved-serial",
+        action="append",
+        default=[],
+        help="Explicitly reviewed serial allowed to write; repeat for each home.",
+    )
     parser.add_argument("--limit", type=int, default=None)
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO)
+
+    if args.apply and not args.approved_serial:
+        parser.error("--apply requires at least one explicitly reviewed --approved-serial")
 
     docs = parse_house_orders(args.path)
     db = None
@@ -243,16 +311,27 @@ def main(argv: list[str] | None = None) -> int:
         from database.firestore_client import get_database
 
         db = get_database()
-    stats = sync_house_orders_to_inventory(db, docs, dry_run=not args.apply, limit=args.limit)
+    stats = sync_house_orders_to_inventory(
+        db,
+        docs,
+        dry_run=not args.apply,
+        limit=args.limit,
+        approved_serials=set(args.approved_serial),
+    )
     mode = "APPLIED" if args.apply else "DRY-RUN"
-    print(f"[{mode}] homes: {stats['total']} | available: {stats['available']} | sold: {stats['sold']} "
-          f"| written: {stats['written']}")
+    print(
+        f"[{mode}] homes: {stats['total']} | available: {stats['available']} "
+        f"| sold: {stats['sold']} | review: {stats['review_required']} "
+        f"| skipped unapproved: {stats['skipped_unapproved']} | written: {stats['written']}"
+    )
     if not args.apply:
         for serial, model, status in stats["planned"][:25]:
             print(f"  {status:9} {serial}: {model}")
         if len(stats["planned"]) > 25:
             print(f"  ... and {len(stats['planned']) - 25} more")
-        print("\nRe-run with --apply to write. Then flip INVENTORY_SOURCE=firestore to serve.")
+        print(
+            "\nReview exact serials, then re-run with --apply and one --approved-serial per home."
+        )
     return 0
 
 

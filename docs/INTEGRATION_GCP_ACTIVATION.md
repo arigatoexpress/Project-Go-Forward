@@ -30,9 +30,13 @@ this just makes the activation push-button.
    preview, then write (uses Application Default Credentials with Firestore access
    to `tho-ai-agent`):
    ```bash
-   python -m tools.house_orders_sync                 # dry-run: eyeball the homes + AVAILABLE/SOLD split
-   python -m tools.house_orders_sync --apply         # upsert into Firestore `inventory` (idempotent)
+   python -m tools.house_orders_sync                 # dry-run: Current Inventory only; review all statuses
+   python -m tools.house_orders_sync --apply --approved-serial SERIAL_1 --approved-serial SERIAL_2
    ```
+   Only explicitly reviewed serials can be written. Parsing stops before the
+   `On Approval` section, ambiguous Customer notes become `REVIEW_REQUIRED`,
+   and buyer/customer fields, invoice cost, MSRP, and salesman data are never
+   persisted.
    (Fallback if you don't have the sheet handy: `python -m tools.inventory_seed --apply`
    seeds the 279-home May-11 snapshot instead.)
 

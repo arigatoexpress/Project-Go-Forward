@@ -94,8 +94,8 @@ const Delivery = ({ onBack }) => (
         <h2 className="text-xl font-bold text-gray-900 mb-3">Typical Timeline</h2>
         <ul className="list-disc pl-6 space-y-2">
           <li>
-            <strong>On-lot home (ready now):</strong> delivery can often be scheduled within weeks
-            once financing and site prep are complete.
+            <strong>Confirmed on-lot home:</strong> delivery can often be scheduled within weeks once
+            availability, financing, and site prep are complete.
           </li>
           <li>
             <strong>Factory-ordered floor plan:</strong> manufacturing + transport lead times vary by

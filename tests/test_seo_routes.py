@@ -152,6 +152,16 @@ def test_legacy_detail_url_serves_200_with_product_jsonld(monkeypatch):
     product = products[0]
     assert product["offers"]["price"] == "129900"
     assert product["brand"]["name"] == "Champion Homes"
+    assert "availability" not in product["offers"]
+
+
+def test_public_seo_never_claims_unverified_live_or_ready_now_inventory(monkeypatch):
+    client, _ = seo_client(monkeypatch)
+
+    for path in ("/", "/inventory", "/faq", "/manufactured-homes-in-humble-tx"):
+        body = client.get(path).text.lower()
+        assert "live inventory" not in body, path
+        assert "ready now" not in body, path
 
 
 def test_call_for_price_home_emits_no_product_snippet(monkeypatch):
