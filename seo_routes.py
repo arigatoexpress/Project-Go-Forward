@@ -42,6 +42,7 @@ from config_loader import (
     business_zip,
     get_business,
 )
+from inventory_classification import normalize_inventory_classification
 
 router = APIRouter()
 
@@ -125,6 +126,31 @@ PUBLIC_ROUTES = {
     ),
 }
 
+# High-intent legacy category URLs that now resolve to real, inventory-backed
+# landing pages instead of collapsing into the generic /inventory hub.
+HOME_CATEGORY_PAGES = {
+    "/single-wide": {
+        "classification": "Single Wide",
+        "heading": "Single Wide Manufactured Homes",
+        "title": f"Single Wide Mobile & Manufactured Homes in {_CITY_STATE} | {business_name()}",
+        "description": (
+            f"Browse single wide manufactured and mobile homes at {business_name()} in "
+            f"{_CITY_STATE} — listed homes plus orderable floorplans. Confirm current "
+            "price and availability."
+        ),
+    },
+    "/double-wide": {
+        "classification": "Double Wide",
+        "heading": "Double Wide Manufactured Homes",
+        "title": f"Double Wide Mobile & Manufactured Homes in {_CITY_STATE} | {business_name()}",
+        "description": (
+            f"Browse double wide manufactured and mobile homes at {business_name()} in "
+            f"{_CITY_STATE} — listed homes plus orderable floorplans. Confirm current "
+            "price and availability."
+        ),
+    },
+}
+
 # Operator/admin SPA routes: served 200 but with a noindex robots meta.
 NOINDEX_PREFIXES = (
     "/crm",
@@ -168,8 +194,6 @@ _LEGACY_VENDOR_REDIRECTS: dict[str, str] = {
     "/manufactured-homes-in-jasper-tx": "/inventory",
     "/manufactured-homes-in-lumberton-tx": "/inventory",
     # Category pages -> inventory.
-    "/single-wide": "/inventory",
-    "/double-wide": "/inventory",
     "/used-homes": "/inventory",
     "/pre-owned-homes": "/inventory",
     "/tiny-homes-cabin": "/inventory",
@@ -197,15 +221,26 @@ _registry_built_at = 0.0
 _REGISTRY_TTL_S = 300
 
 
-def _safe_homes() -> list[dict]:
+def _load_homes() -> tuple[list[dict], bool]:
     if not _get_homes:
-        return []
+        return [], True
     try:
-        return _get_homes() or []
+        result = _get_homes()
+        if isinstance(result, dict):
+            homes = result.get("homes")
+            inventory_ok = result.get("inventory_ok")
+            if inventory_ok is None:
+                inventory_ok = result.get("success", True)
+            return homes if isinstance(homes, list) else [], inventory_ok is not False
+        return result or [], True
     except Exception as e:
-        # SEO surface must never take the page down with it.
-        logger.warning(f"SEO _safe_homes: inventory fetch failed, serving empty: {e}")
-        return []
+        logger.warning(f"SEO inventory fetch failed: {e}")
+        return [], False
+
+
+def _safe_homes() -> list[dict]:
+    """Best-effort inventory for non-status-sensitive SEO helpers."""
+    return _load_homes()[0]
 
 
 def _legacy_path(url: str | None) -> str | None:
@@ -227,8 +262,7 @@ def _build_registry() -> dict:
     detail_alias_redirects: dict[tuple[str, str], str] = {}
     quote_redirects: dict[str, str] = {}
     quote_alias_redirects: dict[str, str] = {}
-
-    homes = _safe_homes()
+    homes, inventory_ok = _load_homes()
     for home in homes:
         dpath = _legacy_path(home.get("detail_url"))
         if not dpath:
@@ -268,6 +302,8 @@ def _build_registry() -> dict:
                         quote_alias_redirects.setdefault(alias_key, canonical_path)
 
     return {
+        "homes": homes,
+        "inventory_ok": inventory_ok,
         "detail_by_route": detail_by_route,
         "detail_path_by_route": detail_path_by_route,
         "detail_alias_redirects": detail_alias_redirects,
@@ -719,7 +755,80 @@ def _crawlable_inventory_block() -> str:
         f"<h1>Mobile &amp; Manufactured Homes for Sale in {html.escape(_CITY_STATE)}</h1>"
         f"<p>{html.escape(business_name())} — {html.escape(business_address())} · "
         f"{html.escape(business_phone())} · {html.escape(business_hours())}</p>"
+        '<p>Browse by home type: <a href="/single-wide">Single Wide Homes</a> · '
+        '<a href="/double-wide">Double Wide Homes</a></p>'
         f"<ul>{''.join(items)}</ul>"
+    )
+
+
+def _home_matches_classification(home: dict, classification: str | None) -> bool:
+    if not classification:
+        return True
+    return normalize_inventory_classification(
+        home.get("classification")
+    ) == normalize_inventory_classification(classification)
+
+
+def _category_homes(category: dict, registry: dict | None = None) -> list[dict]:
+    reg = registry or _registry()
+    return [
+        home
+        for home in reg["homes"]
+        if _home_matches_classification(home, category["classification"])
+    ]
+
+
+def _crawlable_category_recovery_block(category: dict, *, outage: bool) -> str:
+    e = html.escape
+    if outage:
+        heading = "Inventory is temporarily unavailable"
+        message = "Please browse all homes again shortly or contact our team for current options."
+    else:
+        heading = f"No {category['classification'].lower()} homes are listed right now"
+        message = "Browse all homes or contact our team about upcoming and orderable options."
+    return (
+        f"<h1>{e(heading)}</h1><p>{e(message)}</p>"
+        '<p><a href="/inventory">Browse all homes</a> · '
+        '<a href="/contact">Contact us</a></p>'
+    )
+
+
+def _crawlable_category_block(category: dict) -> str:
+    """Server-render a category-specific link graph for non-JS crawlers."""
+    e = html.escape
+    reg = _registry()
+    classification = category["classification"]
+    items = []
+    for home in _category_homes(category, reg):
+        route_key = _detail_route_key(_legacy_path(home.get("detail_url")))
+        path = (
+            reg["detail_path_by_route"].get(route_key)
+            if route_key and reg["detail_by_route"].get(route_key) is home
+            else None
+        )
+        specs = home.get("specs") or {}
+        label = home.get("model_name") or f"{classification} manufactured home"
+        extra = " · ".join(
+            str(x)
+            for x in (
+                f"{specs.get('beds')} bed" if specs.get("beds") else None,
+                f"{specs.get('baths')} bath" if specs.get("baths") else None,
+                home.get("manufacturer"),
+            )
+            if x
+        )
+        item_label = f'<a href="{e(path)}">{e(label)}</a>' if path else e(label)
+        items.append(f'<li>{item_label}{" — " + e(extra) if extra else ""}</li>')
+
+    return (
+        f"<h1>{e(category['heading'])} in {e(_CITY_STATE)}</h1>"
+        f"<p>Browse {e(classification.lower())} listed homes plus orderable floorplans from "
+        f"{e(business_name())}. Confirm current price and availability before planning a visit.</p>"
+        f"<ul>{''.join(items)}</ul>"
+        f'<p><a href="/inventory">Browse all manufactured homes</a> · '
+        f'<a href="/appointments">Book a showroom visit</a> · '
+        f'<a href="tel:{e(business_phone())}">Call {e(business_phone())}</a></p>'
+        f"<p>{e(business_name())} · {e(business_address())} · {e(business_hours())}</p>"
     )
 
 
@@ -1064,7 +1173,7 @@ def _breadcrumb_jsonld(name: str, canonical_url: str) -> dict:
     }
 
 
-def _inventory_itemlist_jsonld(limit: int = 25) -> dict | None:
+def _inventory_itemlist_jsonld(limit: int = 25, classification: str | None = None) -> dict | None:
     """ItemList of homes for the listing pages — a carousel/list rich-result
     candidate for "manufactured homes in <city>" queries. Each item is only
     position + url + name; no price/rating (homes are "Call for Price", so a
@@ -1073,6 +1182,8 @@ def _inventory_itemlist_jsonld(limit: int = 25) -> dict | None:
     base = _base()
     elements = []
     for route_key, home in list(reg["detail_by_route"].items()):
+        if not _home_matches_classification(home, classification):
+            continue
         path = reg["detail_path_by_route"].get(route_key)
         if not path:
             continue
@@ -1209,6 +1320,52 @@ def _render_spa_response(full_path: str) -> Response | None:
         )
         head = _head_block(title, desc, base + path, jsonld=[_local_business_jsonld()])
         return HTMLResponse(_inject(_shell(), head, _crawlable_city_block(city)), headers=no_cache)
+
+    # 3c. High-intent home-type pages: preserve the legacy category URLs while
+    #     serving a truthful, filtered link graph instead of generic inventory.
+    category_path = path.lower()
+    category = HOME_CATEGORY_PAGES.get(category_path)
+    if category:
+        if raw_path != category_path:
+            return RedirectResponse(category_path, status_code=301)
+        reg = _registry()
+        inventory_ok = reg["inventory_ok"]
+        category_homes = _category_homes(category, reg)
+        if not inventory_ok or not category_homes:
+            outage = not inventory_ok
+            title = (
+                "Inventory temporarily unavailable"
+                if outage
+                else f"No {category['classification']} homes listed"
+            )
+            head = _head_block(
+                f"{title} | {business_name()}",
+                "Browse all manufactured homes or contact our team for current options.",
+                base + "/inventory",
+                noindex=True,
+            )
+            return HTMLResponse(
+                _inject(
+                    _shell(),
+                    head,
+                    _crawlable_category_recovery_block(category, outage=outage),
+                ),
+                status_code=503 if outage else 404,
+                headers=no_cache,
+            )
+        itemlist = _inventory_itemlist_jsonld(classification=category["classification"])
+        jsonld = [_local_business_jsonld()]
+        if itemlist:
+            jsonld.append(itemlist)
+        head = _head_block(
+            category["title"],
+            category["description"],
+            base + category_path,
+            jsonld=jsonld,
+        )
+        return HTMLResponse(
+            _inject(_shell(), head, _crawlable_category_block(category)), headers=no_cache
+        )
 
     # 4. Live legacy detail/plan URLs: 200 + per-home head + crawlable body.
     m = _DETAIL_RE.match(path)
@@ -1398,7 +1555,14 @@ def sitemap_xml() -> Response:
         )
     ]
     urls += [base + p for p in sorted(_city_pages())]
-    urls += [base + p for p in sorted(_registry()["detail_path_by_route"].values())]
+    reg = _registry()
+    if reg["inventory_ok"]:
+        urls += [
+            base + path
+            for path, category in sorted(HOME_CATEGORY_PAGES.items())
+            if _category_homes(category, reg)
+        ]
+    urls += [base + p for p in sorted(reg["detail_path_by_route"].values())]
     # lastmod intentionally omitted: Google only trusts it when verifiably
     # accurate, and inventory records carry no reliable update timestamps.
     entries = "\n".join(f"  <url><loc>{html.escape(u)}</loc></url>" for u in urls)

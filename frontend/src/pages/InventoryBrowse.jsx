@@ -15,6 +15,11 @@ import { getUtmParams } from '../utils/utm';
 import { trackEvent } from '../utils/analytics';
 import { normalizeOptionalEmail } from '../utils/contactValidation';
 import { getJourneyAttribution } from '../utils/attribution';
+import {
+  getInventoryCategoryRoute,
+  INVENTORY_CATEGORY_ROUTES,
+  normalizeInventoryClassification,
+} from '../utils/inventoryCategoryRoutes';
 import AppointmentHandoffCard from '../components/AppointmentHandoffCard';
 
 const MATTERPORT_BASE = "https://my.matterport.com/show/?m=";
@@ -404,7 +409,16 @@ function AdminInventoryPanel({ enabled }) {
 }
 
 
-export default function InventoryBrowse({ adminAuthed = false, onAskTex, onCreateAd, onBookAppointment }) {
+export default function InventoryBrowse({
+  adminAuthed = false,
+  onAskTex,
+  onCreateAd,
+  onBookAppointment,
+  pathname,
+}) {
+  const routeCategory = getInventoryCategoryRoute(
+    pathname ?? (typeof window !== 'undefined' ? window.location.pathname : '/'),
+  );
   const [homes, setHomes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -423,7 +437,7 @@ export default function InventoryBrowse({ adminAuthed = false, onAskTex, onCreat
     baths: '',
     minPrice: '',
     maxPrice: '',
-    classification: '',
+    classification: routeCategory?.classification || '',
   });
   const [showFilters, setShowFilters] = useState(false);
 
@@ -474,7 +488,13 @@ export default function InventoryBrowse({ adminAuthed = false, onAskTex, onCreat
       const resp = await fetch('/api/marketing/inventory-context');
       if (!resp.ok) throw new Error('Failed to load inventory');
       const data = await resp.json();
-      setHomes(data.homes || []);
+      if (data.success === false) {
+        throw new Error(data.error || 'Failed to load inventory');
+      }
+      setHomes((data.homes || []).map(home => ({
+        ...home,
+        classification: normalizeInventoryClassification(home.classification),
+      })));
     } catch (err) {
       setError(err.message);
     } finally {
@@ -491,7 +511,7 @@ export default function InventoryBrowse({ adminAuthed = false, onAskTex, onCreat
     const query = q.toLowerCase();
     const name = (home.model_name || '').toLowerCase();
     const mfr = (home.manufacturer || '').toLowerCase();
-    const classification = (home.classification || '').toLowerCase();
+    const classification = normalizeInventoryClassification(home.classification).toLowerCase();
     const availability = `${home.status || ''} ${home.availability_label || ''} ${getAvailabilityKind(home)}`.toLowerCase();
     const features = (home.features || []).join(' ').toLowerCase();
     const dims = (home.specs?.dimensions || '').toLowerCase();
@@ -514,8 +534,16 @@ export default function InventoryBrowse({ adminAuthed = false, onAskTex, onCreat
     );
   };
 
+  // A category landing page must stay category-consistent across the hero,
+  // metrics, grid, and Clear All behavior — not only its initial filter state.
+  const routeHomes = routeCategory
+    ? homes.filter(home => (
+      normalizeInventoryClassification(home.classification) === routeCategory.classification
+    ))
+    : homes;
+
   // Filter and search logic
-  const filteredHomes = homes.filter(home => {
+  const filteredHomes = routeHomes.filter(home => {
     if (showFavoritesOnly && !favorites.has(home.id)) return false;
     if (searchQuery && !matchesSearch(home, searchQuery)) return false;
     if (filters.status && getAvailabilityKind(home) !== filters.status) return false;
@@ -536,7 +564,10 @@ export default function InventoryBrowse({ adminAuthed = false, onAskTex, onCreat
       if (price > 0 && price > parseFloat(filters.maxPrice)) return false;
     }
     if (filters.classification) {
-      if ((home.classification || '').toLowerCase() !== filters.classification.toLowerCase()) return false;
+      if (
+        normalizeInventoryClassification(home.classification)
+        !== normalizeInventoryClassification(filters.classification)
+      ) return false;
     }
     return true;
   });
@@ -593,12 +624,23 @@ export default function InventoryBrowse({ adminAuthed = false, onAskTex, onCreat
   ]);
 
   const clearFilters = () => {
-    setFilters({ status: '', beds: '', baths: '', minPrice: '', maxPrice: '', classification: '' });
+    setFilters({
+      status: '',
+      beds: '',
+      baths: '',
+      minPrice: '',
+      maxPrice: '',
+      classification: routeCategory?.classification || '',
+    });
     setSearchQuery('');
     setSortBy('default');
   };
 
-  const hasActiveFilters = Object.values(filters).some(v => v !== '') || searchQuery;
+  const activeFilterCount = Object.entries(filters).filter(([key, value]) => (
+    value !== ''
+      && !(key === 'classification' && routeCategory && value === routeCategory.classification)
+  )).length + (searchQuery ? 1 : 0);
+  const hasActiveFilters = activeFilterCount > 0;
 
   // Photo helpers for detail modal.
   //
@@ -767,15 +809,36 @@ export default function InventoryBrowse({ adminAuthed = false, onAskTex, onCreat
     );
   }
 
+  if (routeCategory && routeHomes.length === 0) {
+    return (
+      <EmptyState
+        className="min-h-[60vh]"
+        icon={<Home size={40} />}
+        title={`No ${routeCategory.classification} homes are listed right now`}
+        message="Browse all homes or contact our team about upcoming and orderable options."
+        action={
+          <a href="/inventory" className="btn-primary text-sm active:scale-95">
+            Browse All Homes
+          </a>
+        }
+        secondary={
+          <a href="/contact" className="text-sm text-blue-600 hover:underline">
+            Contact Us
+          </a>
+        }
+      />
+    );
+  }
+
   // Stats for hero
-  const newCount = homes.filter(h => getAvailabilityKind(h) === 'available_now').length;
-  const preOwnedCount = homes.filter(h => getAvailabilityKind(h) === 'pre_owned').length;
-  const orderableCount = homes.filter(h => getAvailabilityKind(h) === 'orderable_floorplan').length;
-  const tourCount = homes.filter(h => h.matterport_id).length;
+  const newCount = routeHomes.filter(h => getAvailabilityKind(h) === 'available_now').length;
+  const preOwnedCount = routeHomes.filter(h => getAvailabilityKind(h) === 'pre_owned').length;
+  const orderableCount = routeHomes.filter(h => getAvailabilityKind(h) === 'orderable_floorplan').length;
+  const tourCount = routeHomes.filter(h => h.matterport_id).length;
   // Total houses the customer can get = on-lot homes + orderable floorplans.
   // The on-lot homes (lot models) are surfaced as "Special Deals".
   const housesCount = newCount + orderableCount;
-  const heroHome = homes.find(home => getHomeImage(home) && getAvailabilityKind(home) !== 'orderable_floorplan') || homes.find(home => getHomeImage(home)) || homes[0];
+  const heroHome = routeHomes.find(home => getHomeImage(home) && getAvailabilityKind(home) !== 'orderable_floorplan') || routeHomes.find(home => getHomeImage(home)) || routeHomes[0];
   const heroImage = getHomeImage(heroHome);
 
   return (
@@ -803,11 +866,23 @@ export default function InventoryBrowse({ adminAuthed = false, onAskTex, onCreat
               Inventory changes daily
             </div>
             <h1 className="max-w-3xl text-4xl font-extrabold leading-tight tracking-normal text-white sm:text-5xl">
-              Mobile Homes For Sale in Huffman, TX
+              {routeCategory?.heading || 'Mobile Homes For Sale in Huffman, TX'}
             </h1>
             <p className="mt-4 max-w-2xl text-base leading-relaxed text-white/90">
-              Browse current listed homes plus manufacturer floorplans Texas Home Outlet can custom order. Confirm price and availability with our team before planning a visit.
+              {routeCategory?.description || 'Browse current listed homes plus manufacturer floorplans Texas Home Outlet can custom order. Confirm price and availability with our team before planning a visit.'}
             </p>
+            <nav className="mt-4 flex flex-wrap gap-2" aria-label="Browse by home type">
+              {Object.values(INVENTORY_CATEGORY_ROUTES).map(category => (
+                <a
+                  key={category.path}
+                  href={category.path}
+                  aria-current={routeCategory?.path === category.path ? 'page' : undefined}
+                  className="rounded-md border border-white/35 bg-black/35 px-3 py-2 text-sm font-semibold text-white transition hover:border-white/70 hover:bg-black/55"
+                >
+                  {category.classification} Homes
+                </a>
+              ))}
+            </nav>
 
             <div className="mt-6 grid gap-3 sm:grid-cols-3">
               <InventoryMetric icon={Home} label="Houses" value={housesCount} tone="blue" />
@@ -933,7 +1008,7 @@ export default function InventoryBrowse({ adminAuthed = false, onAskTex, onCreat
             Filters
             {hasActiveFilters && (
               <span className="bg-white text-blue-600 text-xs font-semibold rounded-full px-2 py-0.5 ml-1">
-                {Object.values(filters).filter(v => v !== '').length + (searchQuery ? 1 : 0)}
+                {activeFilterCount}
               </span>
             )}
           </button>
@@ -978,7 +1053,7 @@ export default function InventoryBrowse({ adminAuthed = false, onAskTex, onCreat
                 <label className="text-xs font-semibold text-[var(--cp-muted)] uppercase tracking-wide flex items-center gap-1">
                   <Home size={14} /> Type
                 </label>
-                <select aria-label="Home type" className={CHIP_INPUT} value={filters.classification} onChange={e => setFilters(f => ({ ...f, classification: e.target.value }))}>
+                <select aria-label="Home type" className={CHIP_INPUT} value={filters.classification} disabled={Boolean(routeCategory)} onChange={e => setFilters(f => ({ ...f, classification: e.target.value }))}>
                   <option value="">Any</option>
                   <option value="Single Wide">Single Wide</option>
                   <option value="Double Wide">Double Wide</option>

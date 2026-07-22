@@ -20,6 +20,7 @@ FAKE_HOMES = [
         "legacy_inventory_id": "43372",
         "model_name": "Premier / Creole 3256H32447",
         "manufacturer": "Champion Homes",
+        "classification": "Double Wide",
         "status": "Available",
         "detail_url": "https://www.texashomeoutlet.com/inventory-detail/43372/texas-home-outlet/huffman/premier/",
         "quote_url": "https://www.texashomeoutlet.com/quote/inventory/123/43372",
@@ -40,6 +41,7 @@ FAKE_HOMES = [
         "legacy_plan_id": "223034",
         "model_name": "Skyliner 4732B",
         "manufacturer": "Skyline",
+        "classification": "Single Wide",
         "status": "Orderable",
         "detail_url": "https://www.texashomeoutlet.com/plan/223034/skyliner/4732b/",
         "quote_url": "https://www.texashomeoutlet.com/quote/plan/223034",
@@ -254,7 +256,6 @@ def test_legacy_vendor_pages_301_to_relevant_targets(monkeypatch):
     cases = {
         "/tru-homes/": "/inventory",  # brand
         "/manufactured-homes-in-jasper-tx/": "/inventory",  # unserved city (still legacy 301)
-        "/single-wide/": "/inventory",  # category
         "/homes/": "/inventory",  # generic legacy 'homes' landing
         "/financing/": "/financing",  # now a real public page
         "/about-us/": "/about",  # now a real public page
@@ -675,6 +676,157 @@ def test_city_pages_listed_in_sitemap(monkeypatch):
     body = client.get("/sitemap.xml").text
     assert "/manufactured-homes-in-humble-tx</loc>" in body
     assert "/manufactured-homes-in-baytown-tx</loc>" in body
+
+
+def test_home_category_pages_are_indexable_and_filter_inventory(monkeypatch):
+    client, _ = seo_client(monkeypatch)
+    cases = {
+        "/single-wide": (
+            "Single Wide Manufactured Homes",
+            "/plan/223034/skyliner/4732b/",
+            "/inventory-detail/43372/texas-home-outlet/huffman/premier/",
+        ),
+        "/double-wide": (
+            "Double Wide Manufactured Homes",
+            "/inventory-detail/43372/texas-home-outlet/huffman/premier/",
+            "/plan/223034/skyliner/4732b/",
+        ),
+    }
+
+    for path, (heading, matching_path, excluded_path) in cases.items():
+        response = client.get(path, follow_redirects=False)
+        assert response.status_code == 200, path
+        body = response.text
+        assert f"<h1>{heading}" in body
+        assert f'<link rel="canonical" href="https://www.texashomeoutlet.com{path}"' in body
+        assert matching_path in body
+        assert excluded_path not in body
+        assert "listed homes plus orderable floorplans" in body
+        assert "live inventory" not in body.lower()
+        assert "ready now" not in body.lower()
+
+        item_lists = [block for block in _jsonld_blocks(body) if block.get("@type") == "ItemList"]
+        assert item_lists, path
+        item_urls = [item["url"] for item in item_lists[0]["itemListElement"]]
+        assert any(matching_path in url for url in item_urls)
+        assert not any(excluded_path in url for url in item_urls)
+
+
+def test_home_category_pages_canonicalize_case_and_trailing_slashes(monkeypatch):
+    client, _ = seo_client(monkeypatch)
+    cases = {
+        "/single-wide/": "/single-wide",
+        "/Single-Wide": "/single-wide",
+        "/double-wide/": "/double-wide",
+        "/Double-Wide": "/double-wide",
+    }
+    for path, canonical_path in cases.items():
+        response = client.get(path, follow_redirects=False)
+        assert response.status_code == 301, path
+        assert response.headers["location"] == canonical_path, path
+
+
+def test_home_category_pages_are_listed_once_in_sitemap(monkeypatch):
+    client, _ = seo_client(monkeypatch)
+    body = client.get("/sitemap.xml").text
+    for path in ("/single-wide", "/double-wide"):
+        assert body.count(f"https://www.texashomeoutlet.com{path}</loc>") == 1
+
+
+def test_inventory_hub_links_to_home_category_pages(monkeypatch):
+    client, _ = seo_client(monkeypatch)
+    body = client.get("/inventory").text
+    assert '<a href="/single-wide">Single Wide Homes</a>' in body
+    assert '<a href="/double-wide">Double Wide Homes</a>' in body
+
+
+def test_empty_home_category_is_not_indexable_or_listed(monkeypatch):
+    import seo_routes
+
+    client, _ = seo_client(monkeypatch)
+    only_double = {**FAKE_HOMES[0], "classification": "  DOUBLE-wide  "}
+    monkeypatch.setattr(seo_routes, "_get_homes", lambda: [only_double])
+    monkeypatch.setattr(seo_routes, "_registry_cache", None)
+
+    response = client.get("/single-wide", follow_redirects=False)
+    assert response.status_code == 404
+    assert '<meta name="robots" content="noindex"' in response.text
+    assert "No single wide homes are listed right now" in response.text
+    assert 'href="/inventory"' in response.text
+    assert 'href="/contact"' in response.text
+    assert "Clear All" not in response.text
+
+    sitemap = client.get("/sitemap.xml").text
+    assert "/single-wide</loc>" not in sitemap
+    assert "/double-wide</loc>" in sitemap
+
+
+def test_inventory_outage_makes_categories_temporarily_unavailable(monkeypatch):
+    import seo_routes
+
+    client, _ = seo_client(monkeypatch)
+
+    def unavailable():
+        raise RuntimeError("catalog unavailable")
+
+    monkeypatch.setattr(seo_routes, "_get_homes", unavailable)
+    monkeypatch.setattr(seo_routes, "_registry_cache", None)
+
+    response = client.get("/single-wide", follow_redirects=False)
+    assert response.status_code == 503
+    assert '<meta name="robots" content="noindex"' in response.text
+    assert "Inventory is temporarily unavailable" in response.text
+    assert 'href="/inventory"' in response.text
+    assert 'href="/contact"' in response.text
+
+    sitemap = client.get("/sitemap.xml").text
+    assert "/single-wide</loc>" not in sitemap
+    assert "/double-wide</loc>" not in sitemap
+
+
+def test_returned_inventory_failure_makes_categories_temporarily_unavailable(monkeypatch):
+    import seo_routes
+
+    client, _ = seo_client(monkeypatch)
+    monkeypatch.setattr(
+        seo_routes,
+        "_get_homes",
+        lambda: {"success": False, "error": "catalog unavailable", "homes": []},
+    )
+    monkeypatch.setattr(seo_routes, "_registry_cache", None)
+
+    response = client.get("/single-wide", follow_redirects=False)
+    assert response.status_code == 503
+    assert '<meta name="robots" content="noindex"' in response.text
+    assert "Inventory is temporarily unavailable" in response.text
+
+
+def test_firestore_only_category_home_renders_without_false_link_or_schema(monkeypatch):
+    import seo_routes
+
+    client, _ = seo_client(monkeypatch)
+    firestore_home = {
+        "id": "firestore-only",
+        "model_name": "Firestore Only Home",
+        "manufacturer": "Current Homes",
+        "classification": " single-section ",
+        "specs": {"beds": 3, "baths": 2},
+    }
+    monkeypatch.setattr(
+        seo_routes,
+        "_get_homes",
+        lambda: {"success": True, "homes": [firestore_home]},
+    )
+    monkeypatch.setattr(seo_routes, "_registry_cache", None)
+
+    response = client.get("/single-wide", follow_redirects=False)
+    assert response.status_code == 200
+    assert "<ul><li>Firestore Only Home" in response.text
+    assert ">Firestore Only Home</a>" not in response.text
+    item_lists = [
+        block for block in _jsonld_blocks(response.text) if block.get("@type") == "ItemList"
+    ]
+    assert item_lists == []
 
 
 def test_contact_page_has_crawlable_nap_block(monkeypatch):

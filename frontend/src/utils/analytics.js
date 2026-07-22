@@ -1,4 +1,5 @@
 import { getJourneyId } from './attribution';
+import { isInventoryCategoryPath } from './inventoryCategoryRoutes';
 
 // Fire-and-forget first-party funnel events. The same events are forwarded to
 // Google only after explicit consent, with PII-shaped fields stripped.
@@ -22,6 +23,7 @@ export function isPublicAnalyticsPath(pathname) {
   const raw = String(pathname || '/').toLowerCase();
   const path = raw.length > 1 ? raw.replace(/\/+$/, '') : raw;
   return PUBLIC_EXACT_PATHS.has(path)
+    || isInventoryCategoryPath(path)
     || path.startsWith('/inventory-detail/')
     || path.startsWith('/plan/')
     || path.startsWith('/manufactured-homes-in-');

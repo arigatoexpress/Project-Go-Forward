@@ -963,12 +963,26 @@ def _isolate_inventory_merge(monkeypatch, main):
 _LEGACY_CTX = {
     "success": True,
     "source": "legacy_site_live",
-    "homes": [{"id": "legacy-1", "model_name": "Legacy Home", "real_photos": ["https://x/a.jpg"]}],
+    "homes": [
+        {
+            "id": "legacy-1",
+            "model_name": "Legacy Home",
+            "classification": "  double-wide ",
+            "real_photos": ["https://x/a.jpg"],
+        }
+    ],
     "total_inventory": 1,
 }
 _FS_CTX = {
     "success": True,
-    "homes": [{"id": "fs-1", "model_name": "FS Home", "real_photos": ["https://x/b.jpg"]}],
+    "homes": [
+        {
+            "id": "fs-1",
+            "model_name": "FS Home",
+            "classification": " SINGLE_section ",
+            "real_photos": ["https://x/b.jpg"],
+        }
+    ],
     "total_inventory": 1,
 }
 
@@ -983,6 +997,8 @@ def test_inventory_context_defaults_to_legacy_source(monkeypatch):
 
     data = client.get("/api/marketing/inventory-context").json()
     assert [h["id"] for h in data["homes"]] == ["legacy-1"]
+    assert data["homes"][0]["classification"] == "Double Wide"
+    assert main._seo_public_homes()["homes"] == data["homes"]
 
 
 def test_inventory_context_firestore_source_serves_firestore(monkeypatch):
@@ -995,6 +1011,8 @@ def test_inventory_context_firestore_source_serves_firestore(monkeypatch):
 
     data = client.get("/api/marketing/inventory-context").json()
     assert [h["id"] for h in data["homes"]] == ["fs-1"]
+    assert data["homes"][0]["classification"] == "Single Wide"
+    assert main._seo_public_homes()["homes"] == data["homes"]
 
 
 def test_inventory_context_auto_falls_back_to_legacy_when_firestore_empty(monkeypatch):
@@ -1007,6 +1025,7 @@ def test_inventory_context_auto_falls_back_to_legacy_when_firestore_empty(monkey
 
     data = client.get("/api/marketing/inventory-context").json()
     assert [h["id"] for h in data["homes"]] == ["legacy-1"]
+    assert main._seo_public_homes()["homes"] == data["homes"]
 
 
 def test_inventory_context_auto_prefers_firestore_when_populated(monkeypatch):
@@ -1019,6 +1038,152 @@ def test_inventory_context_auto_prefers_firestore_when_populated(monkeypatch):
 
     data = client.get("/api/marketing/inventory-context").json()
     assert [h["id"] for h in data["homes"]] == ["fs-1"]
+    assert main._seo_public_homes()["homes"] == data["homes"]
+
+
+def test_inventory_context_legacy_unavailable_falls_back_to_firestore(monkeypatch):
+    client, main, _db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
+    monkeypatch.setenv("INVENTORY_SOURCE", "legacy")
+    _isolate_inventory_merge(monkeypatch, main)
+    monkeypatch.setattr(
+        main,
+        "load_legacy_inventory_context",
+        lambda **_kwargs: {"success": False, "error": "snapshot unavailable", "homes": []},
+    )
+    monkeypatch.setattr(main, "get_inventory_for_ads", lambda **_kwargs: dict(_FS_CTX))
+
+    data = client.get("/api/marketing/inventory-context").json()
+    assert [home["id"] for home in data["homes"]] == ["fs-1"]
+    assert data["homes"][0]["classification"] == "Single Wide"
+    assert main._seo_public_homes()["homes"] == data["homes"]
+
+
+def test_inventory_context_returned_firestore_failure_is_preserved_for_seo(monkeypatch):
+    client, main, _db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
+    monkeypatch.setenv("INVENTORY_SOURCE", "firestore")
+    _isolate_inventory_merge(monkeypatch, main)
+    monkeypatch.setattr(
+        main,
+        "get_inventory_for_ads",
+        lambda **_kwargs: {"success": False, "error": "firestore unavailable", "homes": []},
+    )
+
+    data = client.get("/api/marketing/inventory-context").json()
+    assert data["success"] is False
+    assert data["homes"] == []
+    assert main._seo_public_homes()["success"] is False
+    assert main._seo_public_homes()["homes"] == []
+
+
+def test_inventory_context_property_assets_fallback_is_successful_for_seo(monkeypatch):
+    client, main, _db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
+    monkeypatch.setenv("INVENTORY_SOURCE", "firestore")
+    _isolate_inventory_merge(monkeypatch, main)
+    monkeypatch.setattr(
+        main,
+        "PROPERTY_ASSETS",
+        {
+            "fallback-home": {
+                "name": "Fallback Asset Home",
+                "manufacturer": "Fallback Homes",
+                "is_new": True,
+                "beds": 3,
+                "baths": 2,
+                "sqft": 1200,
+                "dims": "16x76",
+                "images": [],
+            }
+        },
+    )
+    monkeypatch.setattr(
+        main,
+        "get_inventory_for_ads",
+        lambda **_kwargs: {"success": False, "error": "firestore unavailable", "homes": []},
+    )
+
+    data = client.get("/api/marketing/inventory-context").json()
+    assert data["success"] is True
+    assert [home["model_name"] for home in data["homes"]] == ["Fallback Asset Home"]
+    seo_context = main._seo_public_homes()
+    assert seo_context["success"] is True
+    assert seo_context["homes"] == data["homes"]
+
+
+def test_inventory_context_legacy_floorplan_fallback_is_successful_for_api_and_seo(monkeypatch):
+    client, main, _db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
+    monkeypatch.setenv("INVENTORY_SOURCE", "firestore")
+    monkeypatch.setattr(main, "PROPERTY_ASSETS", {})
+    monkeypatch.setattr(main, "_overlay_staff_photos", lambda homes: None)
+    monkeypatch.setattr(
+        main,
+        "get_inventory_for_ads",
+        lambda **_kwargs: {"success": False, "error": "firestore unavailable", "homes": []},
+    )
+    monkeypatch.setattr(
+        main,
+        "load_legacy_floorplan_catalog_context",
+        lambda **_kwargs: {
+            "success": True,
+            "source": "legacy_floorplan_catalog_snapshot",
+            "homes": [
+                {
+                    "id": "floorplan-fallback-single",
+                    "model_name": "Legacy Fallback Single",
+                    "manufacturer": "Fallback Homes",
+                    "classification": "Single Wide",
+                    "specs": {"beds": 3, "baths": 2},
+                }
+            ],
+        },
+    )
+
+    data = client.get("/api/marketing/inventory-context").json()
+    assert data["success"] is True
+    assert [home["model_name"] for home in data["homes"]] == ["Legacy Fallback Single"]
+
+    seo_response = client.get("/single-wide", follow_redirects=False)
+    assert seo_response.status_code == 200
+    assert "Legacy Fallback Single" in seo_response.text
+    assert ">Legacy Fallback Single</a>" not in seo_response.text
+    assert '"@type": "ItemList"' not in seo_response.text
+
+
+def test_inventory_context_failure_matches_seo_failure(monkeypatch):
+    client, main, _db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
+    monkeypatch.setenv("INVENTORY_SOURCE", "legacy")
+    _isolate_inventory_merge(monkeypatch, main)
+
+    def unavailable(**_kwargs):
+        raise RuntimeError("catalog unavailable")
+
+    monkeypatch.setattr(main, "load_legacy_inventory_context", unavailable)
+
+    data = client.get("/api/marketing/inventory-context").json()
+    assert data["success"] is False
+    with pytest.raises(RuntimeError, match="catalog unavailable"):
+        main._seo_public_homes()
+
+
+def test_inventory_context_genuine_empty_matches_seo_empty(monkeypatch):
+    client, main, _db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
+    monkeypatch.setenv("INVENTORY_SOURCE", "legacy")
+    _isolate_inventory_merge(monkeypatch, main)
+    monkeypatch.setattr(
+        main,
+        "load_legacy_inventory_context",
+        lambda **_kwargs: {"success": True, "homes": []},
+    )
+    monkeypatch.setattr(
+        main,
+        "get_inventory_for_ads",
+        lambda **_kwargs: {"success": True, "homes": []},
+    )
+
+    data = client.get("/api/marketing/inventory-context").json()
+    assert data["success"] is True
+    assert data["homes"] == []
+    assert main._seo_public_homes()["success"] is True
+    assert main._seo_public_homes()["homes"] == []
 
 
 def test_create_inventory_requires_admin(monkeypatch):

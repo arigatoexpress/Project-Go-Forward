@@ -53,6 +53,7 @@ from auth.routes import router as passkey_router
 from auth.session import SESSION_COOKIE_NAME as PASSKEY_COOKIE_NAME
 from auth.session import SessionManager
 from config_loader import business_name, get_deployment_config
+from inventory_classification import normalize_inventory_classification
 
 # render_prompt is the SAME loader root_agent.py feeds the ADK runner — the
 # /readyz probe renders the runner's prompts through it so a stripped-prompt
@@ -4875,9 +4876,50 @@ def _firestore_inventory_context(preloaded: dict | None = None) -> dict:
         if floorplan_result.get("success") and floorplan_result.get("homes")
         else None,
     )
+    # A usable merged catalog is a successful public fallback even when the
+    # upstream Firestore query failed. Preserve catalog/source metadata from
+    # the merge, but never carry its stale failure flag into API or SEO.
+    if result.get("homes"):
+        result["success"] = True
+        result.pop("error", None)
     result["website_homes"] = len(website_homes)
     _overlay_staff_photos(result.get("homes", []))
     return result
+
+
+def _canonicalize_inventory_context(result: dict) -> dict:
+    """Return a public response with canonical classification values."""
+    canonical = {**result}
+    canonical["homes"] = [
+        {
+            **home,
+            "classification": normalize_inventory_classification(home.get("classification")),
+        }
+        for home in result.get("homes", [])
+        if isinstance(home, dict)
+    ]
+    return canonical
+
+
+def _resolve_public_inventory_context() -> dict:
+    """Resolve the one public inventory context used by the API and SEO."""
+    prefer = _inventory_source_pref()
+    raw = None
+    if prefer != "legacy":
+        raw = get_inventory_for_ads(limit=100)
+        raw_homes = raw.get("homes") or []
+        if prefer == "firestore" or (
+            raw.get("success") and len(raw_homes) >= _inventory_firestore_min_homes()
+        ):
+            return _canonicalize_inventory_context(_firestore_inventory_context(raw))
+
+    legacy = _legacy_inventory_context()
+    if legacy is not None:
+        return _canonicalize_inventory_context(legacy)
+
+    # Legacy snapshot unavailable — fall back to the Firestore/asset path
+    # (reusing the raw query if we already ran it above).
+    return _canonicalize_inventory_context(_firestore_inventory_context(raw))
 
 
 @app.get("/api/marketing/inventory-context")
@@ -4892,23 +4934,7 @@ async def api_inventory_context(request: Request):
     snapshot as the safety net so the page is never empty.
     """
     try:
-        prefer = _inventory_source_pref()
-        raw = None
-        if prefer != "legacy":
-            raw = get_inventory_for_ads(limit=100)
-            raw_homes = raw.get("homes") or []
-            if prefer == "firestore" or (
-                raw.get("success") and len(raw_homes) >= _inventory_firestore_min_homes()
-            ):
-                return _firestore_inventory_context(raw)
-
-        legacy = _legacy_inventory_context()
-        if legacy is not None:
-            return legacy
-
-        # Legacy snapshot unavailable — fall back to the Firestore/asset path
-        # (reusing the raw query if we already ran it above).
-        return _firestore_inventory_context(raw)
+        return _resolve_public_inventory_context()
     except Exception as e:
         struct_logger.error("Inventory context failed", error=str(e))
         return {"success": False, "error": "Failed to load inventory context. Please try again."}
@@ -8032,21 +8058,10 @@ app.include_router(passkey_router)
 import seo_routes
 
 
-def _seo_public_homes() -> list:
+def _seo_public_homes() -> dict:
     """Same merged public inventory the browse page renders, for sitemap,
     legacy detail URLs, and crawlable HTML. Loaders are cached upstream."""
-    legacy_result = load_legacy_inventory_context(limit=100)
-    if not (legacy_result.get("success") and legacy_result.get("homes")):
-        return []
-    floorplan_result = load_legacy_floorplan_catalog_context(limit=500)
-    merged = merge_orderable_floorplan_catalog(
-        legacy_result,
-        assets=PROPERTY_ASSETS,
-        floorplan_context=floorplan_result
-        if floorplan_result.get("success") and floorplan_result.get("homes")
-        else None,
-    )
-    return merged.get("homes", [])
+    return _resolve_public_inventory_context()
 
 
 seo_routes.configure(

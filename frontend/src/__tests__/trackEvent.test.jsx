@@ -165,6 +165,8 @@ describe('isPublicAnalyticsPath', () => {
     expect(isPublicAnalyticsPath('/appointments')).toBe(true);
     expect(isPublicAnalyticsPath('/inventory-detail/123/model/')).toBe(true);
     expect(isPublicAnalyticsPath('/manufactured-homes-in-humble-tx')).toBe(true);
+    expect(isPublicAnalyticsPath('/single-wide')).toBe(true);
+    expect(isPublicAnalyticsPath('/double-wide/')).toBe(true);
   });
 
   it('fails closed for admin, API, and unknown paths', () => {
