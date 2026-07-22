@@ -74,12 +74,14 @@ PUBLIC_ROUTES = {
     "/": (
         f"Mobile & Manufactured Homes for Sale in {_CITY_STATE} | {business_name()}",
         f"Browse manufactured & mobile homes for sale at {business_name()} in "
-        f"{_CITY_STATE} — on-lot homes ready now plus orderable factory floorplans.",
+        f"{_CITY_STATE} — listed homes and orderable factory floorplans. "
+        f"Confirm current price and availability directly with our team.",
     ),
     "/inventory": (
         f"Home Inventory — Mobile & Manufactured Homes in {_CITY_STATE} | {business_name()}",
-        f"Live inventory of manufactured homes at {business_name()} in {_CITY_STATE}: "
-        f"single and double section homes, 3D tours, photos, and orderable floorplans.",
+        f"Browse manufactured homes at {business_name()} in {_CITY_STATE}: single and "
+        f"double section homes, 3D tours, photos, and orderable floorplans. "
+        f"Request current price and availability.",
     ),
     "/contact": (
         f"Contact {business_name()} — {_CITY_STATE}",
@@ -410,18 +412,20 @@ def _product_jsonld(home: dict, canonical_url: str) -> dict | None:
     image = _first_image(home)
     if image:
         data["image"] = image
-    availability = (
-        "https://schema.org/PreOrder"
-        if "order" in str(home.get("status", "")).lower()
-        else "https://schema.org/InStock"
-    )
-    data["offers"] = {
+    offer = {
         "@type": "Offer",
         "price": f"{price:.0f}",
         "priceCurrency": "USD",
-        "availability": availability,
         "url": canonical_url,
     }
+    status = str(home.get("status", "")).lower()
+    if "order" in status:
+        offer["availability"] = "https://schema.org/PreOrder"
+    elif any(token in status for token in ("sold", "unavailable")):
+        offer["availability"] = "https://schema.org/OutOfStock"
+    elif home.get("availability_verified") is True:
+        offer["availability"] = "https://schema.org/InStock"
+    data["offers"] = offer
     return data
 
 
@@ -887,8 +891,9 @@ def _faqpage_jsonld() -> dict:
                 "acceptedAnswer": {
                     "@type": "Answer",
                     "text": (
-                        "On-lot homes ready now can often be delivered within weeks once financing and site "
-                        "prep are in place. Factory-ordered floor plans vary by manufacturer and season."
+                        "After on-lot availability is confirmed, delivery can often happen within weeks once "
+                        "financing and site prep are in place. Factory-ordered floor plans vary by "
+                        "manufacturer and season."
                     ),
                 },
             },
@@ -957,8 +962,9 @@ def _crawlable_faq_block() -> str:
         ),
         (
             "How long does the whole process take?",
-            "On-lot homes can be delivered within weeks once financing and site prep are in place. "
-            "Factory-ordered floor plans vary by manufacturer and season.",
+            "After on-lot availability is confirmed, delivery can often happen within weeks once "
+            "financing and site prep are in place. Factory-ordered floor plans vary by manufacturer "
+            "and season.",
         ),
         (
             "Can I tour homes in person?",
@@ -1156,7 +1162,8 @@ def _render_spa_response(full_path: str) -> Response | None:
         title = f"Manufactured & Mobile Homes in {city}, TX | {business_name()}"
         desc = (
             f"{business_name()} delivers manufactured & mobile homes to {city}, TX — "
-            f"on-lot homes ready now plus orderable floorplans. Call {business_phone()}."
+            f"listed homes plus orderable floorplans. Confirm current price and availability at "
+            f"{business_phone()}."
         )
         head = _head_block(title, desc, base + path, jsonld=[_local_business_jsonld()])
         return HTMLResponse(_inject(_shell(), head, _crawlable_city_block(city)), headers=no_cache)

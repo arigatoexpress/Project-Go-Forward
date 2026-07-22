@@ -20,7 +20,7 @@ IMAGE_RESEARCH = ROOT / "docs/MANUFACTURER_IMAGE_SOURCES_RESEARCH.md"
 def test_inventory_hero_uses_readable_text_on_dark_photo_overlay():
     source = INVENTORY_BROWSE.read_text()
 
-    assert "Live Inventory + Orderable Floorplans" in source
+    assert "Inventory changes daily" in source
     assert "Mobile Homes For Sale in Huffman, TX" in source
     assert "bg-black/45" in source
     assert "text-white/90" in source
@@ -28,9 +28,7 @@ def test_inventory_hero_uses_readable_text_on_dark_photo_overlay():
     assert (
         "text-[var(--cp-text-secondary)]"
         not in source[
-            source.index("Live Inventory + Orderable Floorplans") : source.index(
-                "FeaturedHomeSpotlight"
-            )
+            source.index("Inventory changes daily") : source.index("FeaturedHomeSpotlight")
         ]
     )
 
@@ -40,7 +38,9 @@ def test_inventory_quote_ctas_open_the_first_party_lead_funnel():
 
     assert "function getLegacyQuoteUrl(home)" not in source
     assert source.count("openLeadForm(home, 'price')") >= 2
-    assert "Price Quote" in source
+    assert "Check Price & Availability" in source
+    assert "Live Inventory" not in source
+    assert "Featured Live Listing" not in source
     # Old inbound quote URLs still deep-link to the matching home, but public CTAs
     # must no longer navigate visitors back through those compatibility routes.
     assert "quoteDetailMatch" in source

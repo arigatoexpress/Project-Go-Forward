@@ -1906,7 +1906,7 @@ export default function AdStudio({ onBack }) {
                 <div>
                     <h2 className="tho-page-title">🔥 Trending Content Ideas</h2>
                     <p className="tho-page-subtitle">
-                        AI-generated ideas based on your {ideas?.inventory_count > 0 ? `${ideas.inventory_count} homes in stock` : 'inventory and trends'}
+                        AI-generated ideas based on your {ideas?.inventory_count > 0 ? `${ideas.inventory_count} catalog homes` : 'inventory and trends'}
                     </p>
                 </div>
                 <button className="tho-refresh-btn" onClick={handleLoadIdeas} disabled={loadingIdeas}>

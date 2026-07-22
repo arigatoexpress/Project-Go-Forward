@@ -171,7 +171,7 @@ def apply_inventory_kind(home: dict[str, Any]) -> dict[str, Any]:
         home["is_orderable"] = False
         home["is_in_stock"] = True
     else:
-        home["availability_label"] = "Available now"
+        home["availability_label"] = "Check availability"
         home["is_orderable"] = False
         home["is_in_stock"] = True
 

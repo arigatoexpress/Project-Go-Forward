@@ -8,7 +8,7 @@
 [![Frontend](https://img.shields.io/badge/frontend-React%2019%20%2B%20Vite-111827)](frontend/)
 [![AI](https://img.shields.io/badge/AI-Gemini%20on%20Vertex%20AI-4285F4)](root_agent.py)
 
-![The Texas Home Outlet storefront — live inventory with photos, specs, and 3D tours](docs/assets/storefront-inventory.jpg)
+![The Texas Home Outlet storefront — home catalog with photos, specs, and 3D tours](docs/assets/storefront-inventory.jpg)
 
 ## What is this?
 
@@ -20,7 +20,7 @@ One system that replaces several vendor subscriptions and manual processes:
 | FastContractDocs for contract paperwork | Built-in Document Center generating the full TX regulatory packet |
 | Leads scattered across calls, walk-ins, and sticky notes | Every lead captured, tracked, and followed up in one CRM |
 | No after-hours coverage | **Tex**, an AI consultant who answers questions, searches inventory, and books showroom visits 24/7 |
-| Marketing made one ad at a time | Ad Studio drafts campaigns straight from live inventory |
+| Marketing made one ad at a time | Ad Studio drafts campaigns from the home catalog |
 
 It runs as a single service on Google Cloud and deploys automatically every time a
 change is approved and merged in this repository.
@@ -39,7 +39,7 @@ Every home on the lot plus 260 orderable floorplans — photos, floor plans,
 Tex is the AI consultant — trained on our inventory, our hours, and our way of
 talking to neighbors. Tex searches homes, answers questions in English or
 Spanish, takes lead info, and books appointments. Tex is also honest: it only
-quotes homes and prices that come from our live inventory, never guesses
+quotes homes and prices from configured catalog data, never invents them
 financing, and hands anything sensitive to a human.
 
 ![Chat with Tex, the AI housing consultant](docs/assets/tex-chat.jpg)
