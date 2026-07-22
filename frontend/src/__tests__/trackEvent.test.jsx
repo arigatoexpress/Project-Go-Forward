@@ -11,6 +11,7 @@ describe('trackEvent', () => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
     document.body.innerHTML = '';
+    sessionStorage.clear();
     window.history.replaceState({}, '', '/');
     delete window.gtag;
     delete window.__THO_ANALYTICS_CONSENT__;
@@ -26,6 +27,26 @@ describe('trackEvent', () => {
     const [url, blob] = beacon.mock.calls[0];
     expect(url).toBe('/api/analytics');
     expect(blob.type).toBe('application/json');
+  });
+
+  it('uses one anonymous journey id per tab and never forwards it to Google', () => {
+    sessionStorage.clear();
+    vi.stubGlobal('navigator', {});
+    const fetchMock = vi.fn(() => Promise.resolve({ ok: true }));
+    const gtag = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    window.gtag = gtag;
+    window.__THO_ANALYTICS_CONSENT__ = 'granted';
+
+    trackEvent('page_viewed', { page: 'inventory' });
+    trackEvent('phone_clicked', { placement: 'hero' });
+
+    const payloads = fetchMock.mock.calls.map(([, options]) => JSON.parse(options.body));
+    expect(payloads[0].journey_id).toMatch(/^j_[0-9a-f]{32}$/);
+    expect(payloads[1].journey_id).toBe(payloads[0].journey_id);
+    for (const [, , params] of gtag.mock.calls) {
+      expect(params).not.toHaveProperty('journey_id');
+    }
   });
 
   it('captures every delegated public click-to-call conversion', () => {

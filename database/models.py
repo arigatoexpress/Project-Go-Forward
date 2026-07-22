@@ -59,6 +59,12 @@ class LeadRecord(BaseModel):
     contact_consent_at: str | None = None
     contact_consent_source: str | None = None
 
+    journey_id: str | None = Field(
+        default=None, min_length=34, max_length=34, pattern=r"^j_[0-9a-f]{32}$"
+    )
+    home_id: str | None = Field(default=None, max_length=200)
+    home_model: str | None = Field(default=None, max_length=200)
+
     utm_source: str | None = Field(default=None, max_length=200)
     utm_medium: str | None = Field(default=None, max_length=200)
     utm_campaign: str | None = Field(default=None, max_length=200)

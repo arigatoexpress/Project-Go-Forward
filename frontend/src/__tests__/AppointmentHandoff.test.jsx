@@ -81,6 +81,7 @@ describe('appointment prefill', () => {
       leadId: 'contact_123_abcd',
       source: 'inventory_quote_handoff',
       home: 'Sapphire 3-Bed',
+      homeId: 'home-42',
       intent: 'quote',
     };
     global.fetch = vi.fn()
@@ -109,16 +110,22 @@ describe('appointment prefill', () => {
 
     await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(2));
     const [, request] = global.fetch.mock.calls[1];
-    expect(JSON.parse(request.body)).toMatchObject({
+    const payload = JSON.parse(request.body);
+    expect(payload).toMatchObject({
       name: 'Ari Buyer',
       phone: '2813243020',
       lead_id: 'contact_123_abcd',
       source: 'inventory_quote_handoff',
+      home_id: 'home-42',
+      home_model: 'Sapphire 3-Bed',
+      intent: 'quote',
     });
+    expect(payload.journey_id).toMatch(/^j_[0-9a-f]{32}$/);
     expect(gtag).toHaveBeenCalledWith('event', 'schedule_appointment', {
       source: 'inventory_quote_handoff',
       intent: 'quote',
       home: 'Sapphire 3-Bed',
+      home_id: 'home-42',
       tho_event: 'appointment_booked',
     });
   });

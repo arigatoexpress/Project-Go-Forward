@@ -91,3 +91,40 @@ def test_event_analytics_never_500s_on_empty(monkeypatch):
         "/api/analytics/events", headers={"X-Admin-Token": token}
     ).json()
     assert body["total_events"] == 0 and body["by_type"] == []
+
+
+def test_event_analytics_reports_anonymous_journey_funnel(monkeypatch):
+    client, main, *_ = create_client(monkeypatch)
+    token = main._create_admin_token()
+    now = datetime.now(UTC).isoformat()
+    first = "j_0123456789abcdef0123456789abcdef"
+    second = "j_fedcba9876543210fedcba9876543210"
+    _seed_events(
+        main,
+        [
+            {"event": "page_viewed", "journey_id": first, "props": {}, "created_at": now},
+            {"event": "lead_form_opened", "journey_id": first, "props": {}, "created_at": now},
+            {"event": "lead_captured", "journey_id": first, "props": {}, "created_at": now},
+            {"event": "appointment_booked", "journey_id": first, "props": {}, "created_at": now},
+            {"event": "page_viewed", "journey_id": second, "props": {}, "created_at": now},
+            {"event": "phone_clicked", "journey_id": second, "props": {}, "created_at": now},
+            {"event": "scanner_noise", "journey_id": second, "props": {}, "created_at": now},
+        ],
+    )
+
+    body = client.get(
+        "/api/analytics/events?range=30d", headers={"X-Admin-Token": token}
+    ).json()
+
+    assert body["total_events"] == 6
+    assert body["discarded_events"] == 1
+    assert body["journey_funnel"] == {
+        "eligible_journeys": 2,
+        "lead_form_journeys": 1,
+        "lead_journeys": 1,
+        "appointment_journeys": 1,
+        "phone_journeys": 1,
+        "lead_conversion_rate": 50.0,
+        "appointment_conversion_rate": 50.0,
+        "attribution_coverage_pct": 100.0,
+    }

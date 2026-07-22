@@ -1,3 +1,5 @@
+import { getJourneyId } from './attribution';
+
 // Fire-and-forget first-party funnel events. The same events are forwarded to
 // Google only after explicit consent, with PII-shaped fields stripped.
 const GOOGLE_EVENT_NAMES = {
@@ -8,7 +10,7 @@ const GOOGLE_EVENT_NAMES = {
 
 const PII_KEYS = new Set([
   'name', 'email', 'phone', 'address', 'message', 'notes',
-  'lead_id', 'user_id', 'session_id',
+  'lead_id', 'user_id', 'session_id', 'journey_id',
 ]);
 
 const PUBLIC_EXACT_PATHS = new Set([
@@ -42,6 +44,7 @@ export function trackEvent(event, data = {}) {
     const payload = JSON.stringify({
       event,
       ...data,
+      journey_id: getJourneyId(),
       path: typeof window !== 'undefined' ? window.location.pathname : undefined,
     });
     if (typeof navigator !== 'undefined' && navigator.sendBeacon) {
