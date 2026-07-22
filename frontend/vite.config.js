@@ -10,7 +10,8 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      injectRegister: 'auto',
+      // Registration is non-critical; keep it out of the render path.
+      injectRegister: 'script-defer',
 
       manifest: {
         name: 'Texas Home Outlet',

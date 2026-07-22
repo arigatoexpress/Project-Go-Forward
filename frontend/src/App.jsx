@@ -11,6 +11,7 @@ import ReportIssue from './components/ReportIssue';
 import ErrorBoundary from './components/ErrorBoundary';
 import ClosureBanner from './components/ClosureBanner';
 import ChatCallbackCard from './components/ChatCallbackCard';
+import InventoryBrowse from './pages/InventoryBrowse';
 import { v4 as uuidv4 } from 'uuid';
 import { captureUtmFromUrl, getUtmParams } from './utils/utm';
 import { isPublicAnalyticsPath, trackEvent } from './utils/analytics';
@@ -31,7 +32,6 @@ function chatMessageIncludesContact(text) {
 }
 
 // Lazy-load heavy page components for code-splitting
-const InventoryBrowse = lazy(() => import('./pages/InventoryBrowse'));
 const Analytics = lazy(() => import('./pages/Analytics'));
 const DocumentCenter = lazy(() => import('./pages/DocumentCenter'));
 const AdStudio = lazy(() => import('./pages/AdStudio'));
@@ -1765,7 +1765,7 @@ function App() {
         {/* Floating Chat Bubble */}
         <button
           onClick={() => navigateTo('chat')}
-          className="fixed bottom-6 right-6 z-50 bg-[var(--cp-accent)] text-[var(--cp-bg)] p-4 rounded-full hover:bg-[var(--cp-accent-hot)] hover:scale-105 active:scale-95 transition-all duration-200 group cp-glow-accent"
+          className="fixed bottom-6 right-6 z-50 hidden rounded-full bg-[var(--cp-accent)] p-4 text-[var(--cp-bg)] transition-all duration-200 hover:scale-105 hover:bg-[var(--cp-accent-hot)] active:scale-95 sm:inline-flex cp-glow-accent"
           aria-label="Chat with Tex"
           title="Chat with Tex"
         >

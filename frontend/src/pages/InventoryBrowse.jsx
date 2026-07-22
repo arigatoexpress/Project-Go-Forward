@@ -16,6 +16,7 @@ import { trackEvent } from '../utils/analytics';
 import AppointmentHandoffCard from '../components/AppointmentHandoffCard';
 
 const MATTERPORT_BASE = "https://my.matterport.com/show/?m=";
+export const INVENTORY_PAGE_SIZE = 18;
 
 // ─── Focus Trap Hook ───
 // Traps keyboard focus inside `ref` while the modal is mounted.
@@ -423,6 +424,7 @@ export default function InventoryBrowse({ adminAuthed = false, onAskTex, onCreat
   const [activeCategory, setActiveCategory] = useState('all');
   const [showTour, setShowTour] = useState(false);
   const [sortBy, setSortBy] = useState('default');
+  const [visibleHomeCount, setVisibleHomeCount] = useState(INVENTORY_PAGE_SIZE);
 
   // Filters
   const [filters, setFilters] = useState({
@@ -579,6 +581,27 @@ export default function InventoryBrowse({ adminAuthed = false, onAskTex, onCreat
     }
   });
 
+  // Rendering the entire orderable catalog creates a ~15k-node DOM and makes
+  // every shopper pay the layout/image-observer cost for hundreds of cards.
+  // Search and filtering still operate on the complete catalog; only the
+  // presentation is progressively disclosed in useful, accessible batches.
+  const visibleHomes = sortedHomes.slice(0, visibleHomeCount);
+  const hiddenHomeCount = Math.max(0, sortedHomes.length - visibleHomes.length);
+
+  useEffect(() => {
+    setVisibleHomeCount(INVENTORY_PAGE_SIZE);
+  }, [
+    searchQuery,
+    sortBy,
+    filters.status,
+    filters.beds,
+    filters.baths,
+    filters.minPrice,
+    filters.maxPrice,
+    filters.classification,
+    showFavoritesOnly,
+  ]);
+
   const clearFilters = () => {
     setFilters({ status: '', beds: '', baths: '', minPrice: '', maxPrice: '', classification: '' });
     setSearchQuery('');
@@ -703,14 +726,24 @@ export default function InventoryBrowse({ adminAuthed = false, onAskTex, onCreat
   if (loading) {
     return (
       <div className="min-h-screen bg-[var(--cp-bg)]">
-        {/* Skeleton hero */}
-        <div className="relative overflow-hidden border-b border-[var(--cp-border)] bg-[var(--cp-bg-2)] px-6 pb-10 pt-12 text-[var(--cp-text)]">
-          <div className="max-w-3xl mx-auto text-center relative z-[1]">
-            <Skeleton className="mx-auto mb-3" width="60%" height={32} />
-            <Skeleton className="mx-auto mb-6" width="80%" height={16} />
-            <Skeleton className="mx-auto rounded-xl" width="100%" height={48} />
+        {/* Match the loaded hero's mobile/desktop footprint so the inventory
+            response does not push the page down and create a large CLS. */}
+        <section className="border-b border-[var(--cp-border)] bg-[var(--cp-bg-2)]">
+          <div className="mx-auto grid max-w-7xl gap-8 px-4 py-8 sm:px-6 lg:grid-cols-[1.1fr_0.9fr] lg:px-8 lg:py-10">
+            <div className="flex min-h-[520px] flex-col justify-center">
+              <Skeleton className="mb-4" width="45%" height={28} />
+              <Skeleton className="mb-4" width="88%" height={52} />
+              <Skeleton className="mb-6" width="75%" height={44} />
+              <div className="mb-6 grid grid-cols-3 gap-3">
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <Skeleton key={i} className="rounded-lg" width="100%" height={72} />
+                ))}
+              </div>
+              <Skeleton className="rounded-xl" width="100%" height={56} />
+            </div>
+            <Skeleton className="min-h-[380px] rounded-xl lg:min-h-0" width="100%" height="100%" />
           </div>
-        </div>
+        </section>
         {/* Skeleton cards */}
         <div className="grid gap-6 p-6 max-w-7xl mx-auto"
              style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))' }}>
@@ -769,6 +802,7 @@ export default function InventoryBrowse({ adminAuthed = false, onAskTex, onCreat
             className="absolute inset-0 -z-10 h-full w-full object-cover opacity-35"
             loading="eager"
             decoding="async"
+            fetchPriority="high"
           />
         )}
         <div className="absolute inset-0 -z-10 bg-[linear-gradient(90deg,rgba(5,6,8,0.96),rgba(5,6,8,0.74),rgba(5,6,8,0.9))]" />
@@ -797,6 +831,7 @@ export default function InventoryBrowse({ adminAuthed = false, onAskTex, onCreat
                 <Search size={20} className="flex-shrink-0 text-[var(--cp-accent)]" />
                 <input
                   type="text"
+                  aria-label="Search homes"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder="Search by model, manufacturer, beds, baths, type..."
@@ -987,7 +1022,7 @@ export default function InventoryBrowse({ adminAuthed = false, onAskTex, onCreat
       {/* Home Cards Grid */}
       <div className="grid gap-6 px-4 pb-12 pt-6 sm:px-6 max-w-7xl mx-auto"
            style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))' }}>
-        {sortedHomes.map((home, idx) => (
+        {visibleHomes.map((home, idx) => (
           <HomeCard
             key={home.id || idx}
             home={home}
@@ -998,6 +1033,27 @@ export default function InventoryBrowse({ adminAuthed = false, onAskTex, onCreat
           />
         ))}
       </div>
+
+      {hiddenHomeCount > 0 && (
+        <div className="mx-auto flex max-w-7xl flex-col items-center gap-3 px-4 pb-12 sm:px-6">
+          <p className="font-mono text-xs text-[var(--cp-muted)]" aria-live="polite">
+            Showing {visibleHomes.length} of {sortedHomes.length} homes
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              setVisibleHomeCount(count => Math.min(count + INVENTORY_PAGE_SIZE, sortedHomes.length));
+              trackEvent('inventory_show_more', {
+                shown: Math.min(visibleHomes.length + INVENTORY_PAGE_SIZE, sortedHomes.length),
+                total: sortedHomes.length,
+              });
+            }}
+            className="inline-flex min-h-12 items-center justify-center rounded-md bg-[var(--cp-accent)] px-8 py-3 text-sm font-bold text-[var(--cp-bg)] transition hover:bg-[var(--cp-accent-hot)]"
+          >
+            Show {Math.min(INVENTORY_PAGE_SIZE, hiddenHomeCount)} more homes
+          </button>
+        </div>
+      )}
 
       {sortedHomes.length === 0 && !loading && (
         <EmptyState
