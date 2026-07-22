@@ -26,6 +26,32 @@ AVAILABLE_KIND = "available_now"
 PREOWNED_KIND = "pre_owned"
 
 
+def _sanitize_public_description(value: Any) -> str:
+    """Remove time-sensitive stock claims inherited from catalog snapshots."""
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    text = re.sub(
+        r"take a 3d home tour, check out photos, and get a price quote on this floor plan today!?",
+        "Explore photos and any 3D tour, then request current price and availability.",
+        text,
+        flags=re.IGNORECASE,
+    )
+    for pattern, replacement in (
+        (r"\bavailable for sale now\b", "listed in our catalog"),
+        (r"\bavailable now\b", "listed in our catalog"),
+        (r"\bin stock\b", "listed in our catalog"),
+        (r"\bready now\b", "listed in our catalog"),
+        (r"\bis sold by\b", "is offered by"),
+        (
+            r"\bget a price quote on this floor plan today\b",
+            "request current price and availability",
+        ),
+    ):
+        text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
+    return text
+
+
 def _to_int(value: Any) -> int | None:
     if value in (None, ""):
         return None
@@ -157,9 +183,12 @@ def apply_inventory_kind(home: dict[str, Any]) -> dict[str, Any]:
         home_id = str(home.get("id") or "").strip()
     if home_id:
         home["home_id"] = home_id
+    if home.get("description"):
+        home["description"] = _sanitize_public_description(home["description"])
 
     kind = classify_inventory_kind(home)
     home["inventory_kind"] = kind
+    availability_verified = home.get("availability_verified") is True
 
     if kind == ORDERABLE_KIND:
         home["status"] = ORDERABLE_STATUS
@@ -169,11 +198,11 @@ def apply_inventory_kind(home: dict[str, Any]) -> dict[str, Any]:
     elif kind == PREOWNED_KIND:
         home["availability_label"] = "Pre-owned"
         home["is_orderable"] = False
-        home["is_in_stock"] = True
+        home["is_in_stock"] = availability_verified
     else:
         home["availability_label"] = "Check availability"
         home["is_orderable"] = False
-        home["is_in_stock"] = True
+        home["is_in_stock"] = availability_verified
 
     return home
 
@@ -336,5 +365,5 @@ def merge_orderable_floorplan_catalog(
         "total_public_homes": len(classified_homes),
     }
     if orderable:
-        merged["message"] = "Includes current inventory plus orderable manufacturer floorplans."
+        merged["message"] = "Includes listed homes plus orderable manufacturer floorplans."
     return merged
