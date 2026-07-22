@@ -98,6 +98,39 @@ def test_homepage_head_is_injected(monkeypatch):
     assert '"postalCode": "77336"' in body
 
 
+def test_inventory_routes_preload_the_responsive_hero_image(monkeypatch):
+    client, _ = seo_client(monkeypatch)
+
+    for path in ("/", "/inventory"):
+        body = client.get(path).text
+        assert '<link rel="preload" as="image"' in body
+        assert 'href="https://img.example.com/creole.jpg"' in body
+        assert (
+            'imagesrcset="https://img.example.com/creole.jpg?w=400 400w, '
+            "https://img.example.com/creole.jpg?w=800 800w, "
+            'https://img.example.com/creole.jpg?w=1200 1200w"' in body
+        )
+        assert 'imagesizes="100vw"' in body
+        assert 'fetchpriority="high"' in body
+
+    assert '<link rel="preload" as="image"' not in client.get("/contact").text
+
+
+def test_inventory_hero_preload_prefers_an_available_home(monkeypatch):
+    import seo_routes
+
+    floorplan = {
+        **FAKE_HOMES[1],
+        "hero_image": "https://img.example.com/orderable.jpg",
+    }
+    client, _ = seo_client(monkeypatch)
+    monkeypatch.setattr(seo_routes, "_get_homes", lambda: [floorplan, FAKE_HOMES[0]])
+
+    body = client.get("/").text
+    assert 'href="https://img.example.com/creole.jpg"' in body
+    assert 'href="https://img.example.com/orderable.jpg"' not in body
+
+
 def test_homepage_contains_crawlable_links_to_details(monkeypatch):
     client, _ = seo_client(monkeypatch)
     body = client.get("/").text
