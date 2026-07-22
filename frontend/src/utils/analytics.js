@@ -75,3 +75,34 @@ export function trackEvent(event, data = {}) {
     // Third-party attribution is strictly best-effort.
   }
 }
+
+/**
+ * Track click-to-call intent from every current and future public `tel:` link.
+ * Event delegation keeps the conversion contract centralized instead of
+ * requiring each CTA to remember analytics wiring. The phone number is never
+ * included in the event payload.
+ */
+export function attachPhoneClickTracking(targetRoot = document) {
+  if (!targetRoot?.addEventListener) return () => {};
+
+  const handleClick = (clickEvent) => {
+    try {
+      const anchor = clickEvent.target?.closest?.('a[href]');
+      if (!anchor || !String(anchor.getAttribute('href') || '').toLowerCase().startsWith('tel:')) {
+        return;
+      }
+      const pagePath = typeof window !== 'undefined' ? window.location.pathname : '/';
+      if (!isPublicAnalyticsPath(pagePath)) return;
+
+      trackEvent('phone_clicked', {
+        page_path: pagePath,
+        placement: anchor.dataset.analyticsPlacement || 'public_phone_link',
+      });
+    } catch {
+      // Conversion analytics must never interfere with the native dialer.
+    }
+  };
+
+  targetRoot.addEventListener('click', handleClick);
+  return () => targetRoot.removeEventListener('click', handleClick);
+}
