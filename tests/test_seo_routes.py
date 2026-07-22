@@ -515,6 +515,16 @@ def test_local_business_jsonld_has_organization_entity_fields(monkeypatch):
     assert "Manufactured homes" in biz["knowsAbout"]
 
 
+def test_local_business_jsonld_links_verified_google_place(monkeypatch):
+    client, _ = seo_client(monkeypatch)
+    biz = next(b for b in _jsonld_blocks(client.get("/").text) if b.get("@type") == "LocalBusiness")
+    google_profiles = [url for url in biz["sameAs"] if "google.com/maps" in url]
+
+    assert google_profiles == [
+        "https://www.google.com/maps/search/?api=1&query=Texas%20Home%20Outlet&query_place_id=ChIJkaBdugirQIYROqKB6XUKQk8"
+    ]
+
+
 def test_city_landing_page_serves_200_with_local_content(monkeypatch):
     # A served city (config area_served) gets a real local-SEO landing page.
     client, _ = seo_client(monkeypatch)

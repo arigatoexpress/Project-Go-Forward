@@ -134,7 +134,12 @@ def _tho_signals() -> dict[str, Any]:
         "state": business_state(),
         "website": biz.get("website"),
         "has_geo": bool(geo.get("latitude") and geo.get("longitude")),
-        "has_gbp": any("business.google.com" in str(u) for u in same_as),
+        "has_gbp": any(
+            "business.google.com" in str(u).lower()
+            or "google.com/maps" in str(u).lower()
+            or "g.page/" in str(u).lower()
+            for u in same_as
+        ),
         "has_facebook": any("facebook.com" in str(u) for u in same_as),
         "has_instagram": any("instagram.com" in str(u) for u in same_as),
         "area_served": area_served,
@@ -184,9 +189,7 @@ def _score_tho(signals: dict[str, Any]) -> int:
     return min(score, 100)
 
 
-def _recommendations(
-    tho: dict[str, Any], competitors: list[Competitor]
-) -> list[dict[str, Any]]:
+def _recommendations(tho: dict[str, Any], competitors: list[Competitor]) -> list[dict[str, Any]]:
     """Generate prioritized recommendations from signal gaps."""
     recs: list[dict[str, Any]] = []
 
@@ -197,8 +200,7 @@ def _recommendations(
                 "category": "Google Business Profile",
                 "title": "Create and verify a Google Business Profile",
                 "impact": (
-                    "Single biggest local-pack ranking factor for "
-                    "manufactured-home queries"
+                    "Single biggest local-pack ranking factor for " "manufactured-home queries"
                 ),
                 "action": (
                     "Visit business.google.com, claim/verify the Huffman location, "
@@ -229,8 +231,7 @@ def _recommendations(
                 "title": f"Expand city pages ({tho.get('city_page_count', 0)} served cities)",
                 "impact": "Each page captures 'manufactured homes in {city}' intent",
                 "action": (
-                    "Add /manufactured-homes-in-{city}-tx pages for "
-                    "remaining served cities."
+                    "Add /manufactured-homes-in-{city}-tx pages for " "remaining served cities."
                 ),
             }
         )
@@ -243,16 +244,13 @@ def _recommendations(
                 "title": "Add Facebook and Instagram sameAs URLs",
                 "impact": "Strengthens Google's knowledge graph and citation consistency",
                 "action": (
-                    "Set business.same_as[] in config.yaml with active "
-                    "social profile URLs."
+                    "Set business.same_as[] in config.yaml with active " "social profile URLs."
                 ),
             }
         )
 
     strong_reviews = [
-        c
-        for c in competitors
-        if (c.review_score or 0) >= 4.0 and c.review_count >= 50
+        c for c in competitors if (c.review_score or 0) >= 4.0 and c.review_count >= 50
     ]
     if strong_reviews:
         top = max(strong_reviews, key=lambda c: c.review_count)
@@ -262,8 +260,7 @@ def _recommendations(
                 "category": "Reviews",
                 "title": f"Build review velocity to match {top.name}",
                 "impact": (
-                    f"{top.name} shows {top.review_count} reviews at "
-                    f"{top.review_score} stars"
+                    f"{top.name} shows {top.review_count} reviews at " f"{top.review_score} stars"
                 ),
                 "action": (
                     "Add a post-sale review request workflow (email/SMS) "

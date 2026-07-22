@@ -57,6 +57,7 @@ business:
   # Social / Google Business Profile URLs — FILL IN to strengthen local SEO + map
   # placement (schema.org sameAs): Facebook, Instagram, Google Business Profile, etc.
   same_as:
+    - "https://www.google.com/maps/search/?api=1&query=Texas%20Home%20Outlet&query_place_id=ChIJkaBdugirQIYROqKB6XUKQk8"
     - "https://www.facebook.com/texashomeoutlet/"
     - "https://www.yelp.com/biz/texas-home-outlet-east-huffman-2"
     - "https://www.bbb.org/us/tx/huffman/profile/manufactured-homes-sales/texas-home-outlet-0915-22000840"
