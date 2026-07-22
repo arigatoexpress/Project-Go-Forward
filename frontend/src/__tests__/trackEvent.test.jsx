@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { trackEvent } from '../pages/InventoryBrowse';
-import { isPublicAnalyticsPath } from '../utils/analytics';
+import { attachPhoneClickTracking, isPublicAnalyticsPath } from '../utils/analytics';
 
 // Regression guard: analytics events must go to the dedicated /api/analytics
 // sink (via sendBeacon), NOT /api/contact — which validated name/phone and
@@ -10,6 +10,8 @@ describe('trackEvent', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
+    document.body.innerHTML = '';
+    window.history.replaceState({}, '', '/');
     delete window.gtag;
     delete window.__THO_ANALYTICS_CONSENT__;
   });
@@ -24,6 +26,40 @@ describe('trackEvent', () => {
     const [url, blob] = beacon.mock.calls[0];
     expect(url).toBe('/api/analytics');
     expect(blob.type).toBe('application/json');
+  });
+
+  it('captures every delegated public click-to-call conversion', () => {
+    const beacon = vi.fn(() => true);
+    const gtag = vi.fn();
+    vi.stubGlobal('navigator', { sendBeacon: beacon });
+    window.gtag = gtag;
+    window.__THO_ANALYTICS_CONSENT__ = 'granted';
+    window.history.replaceState({}, '', '/inventory');
+    document.body.innerHTML = '<a href="tel:+12813243020"><span>Call now</span></a>';
+
+    const detach = attachPhoneClickTracking(document);
+    document.querySelector('span').click();
+    detach();
+
+    expect(beacon).toHaveBeenCalledTimes(1);
+    expect(gtag).toHaveBeenCalledWith('event', 'phone_clicked', {
+      page_path: '/inventory',
+      placement: 'public_phone_link',
+      tho_event: 'phone_clicked',
+    });
+  });
+
+  it('does not record operator phone links as storefront conversions', () => {
+    const beacon = vi.fn(() => true);
+    vi.stubGlobal('navigator', { sendBeacon: beacon });
+    window.history.replaceState({}, '', '/crm');
+    document.body.innerHTML = '<a href="tel:+12813243020">Call lead</a>';
+
+    const detach = attachPhoneClickTracking(document);
+    document.querySelector('a').click();
+    detach();
+
+    expect(beacon).not.toHaveBeenCalled();
   });
 
   it('falls back to fetch keepalive when sendBeacon is unavailable', () => {

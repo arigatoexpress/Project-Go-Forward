@@ -14,7 +14,7 @@ import ChatCallbackCard from './components/ChatCallbackCard';
 import InventoryBrowse from './pages/InventoryBrowse';
 import { v4 as uuidv4 } from 'uuid';
 import { captureUtmFromUrl, getUtmParams } from './utils/utm';
-import { isPublicAnalyticsPath, trackEvent } from './utils/analytics';
+import { attachPhoneClickTracking, isPublicAnalyticsPath, trackEvent } from './utils/analytics';
 import {
   BUSINESS_NAME, BUSINESS_PHONE, BUSINESS_PHONE_RAW, BUSINESS_FULL_ADDRESS,
   BUSINESS_HOURS, BUSINESS_LICENSE, BUSINESS_CITY, BUSINESS_STATE
@@ -476,6 +476,10 @@ function App() {
   const [activePage, setActivePage] = useState(() => pageFromPath(window.location.pathname));
   const [appointmentHandoff, setAppointmentHandoff] = useState(null);
   const isStandaloneMode = window.location.pathname.startsWith('/app/') || window.location.search.includes('standalone=1');
+
+  // A delegated listener covers every public click-to-call CTA, including
+  // links rendered by lazy pages and future inventory components.
+  useEffect(() => attachPhoneClickTracking(document), []);
 
   // GA4 does not automatically see client-side route changes. Keep public SPA
   // page views measurable while excluding every admin/noindex surface.
