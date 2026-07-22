@@ -11,6 +11,7 @@ import StatusBadge, { STATUS_COLORS, DEAL_STATUS_COLORS } from '../components/St
 import ReviewRequestCard from '../components/ReviewRequestCard';
 import EmailDraftsPanel from '../components/EmailDraftsPanel';
 import LeadResponseQueue from '../components/LeadResponseQueue';
+import { BUSINESS_FULL_ADDRESS } from '../constants';
 
 const DEAL_STATUS_ORDER = ['pending', 'approved', 'contract', 'funded', 'complete'];
 
@@ -110,14 +111,12 @@ const TABS = [
 ];
 
 // Email Templates
-const EMAIL_TEMPLATES = [
+export const EMAIL_TEMPLATES = [
   {
     id: 'welcome',
     name: 'Welcome Email',
     subject: 'Welcome to Texas Home Outlet!',
-    body: `Hi {{name}},
-
-Thank you for your interest in Texas Home Outlet! We're excited to help you find your perfect home.
+    body: `Thank you for your interest in Texas Home Outlet! We're excited to help you find your perfect home.
 
 A few things we can help with:
 • Browse our current inventory
@@ -125,72 +124,57 @@ A few things we can help with:
 • Answer questions about financing
 • Compare different home models
 
-Feel free to reply to this email or call us at (210) 555-0123.
-
-Best regards,
-Texas Home Outlet Team`
+Reply to this email and let us know how we can help.`
   },
   {
     id: 'followup',
     name: 'Follow-up',
     subject: 'Following up on your home search',
-    body: `Hi {{name}},
-
-I wanted to follow up on your recent inquiry about manufactured homes. 
+    body: `I wanted to follow up on your recent inquiry about manufactured homes.
 
 Have you had a chance to think about:
 • Your preferred number of bedrooms/bathrooms?
 • Your budget range?
 • When you'd like to schedule a visit?
 
-We're here to help make the process easy. Let me know if you have any questions!
-
-Best,
-Texas Home Outlet`
+We're here to help make the process easy. Reply and let us know what questions you have.`
   },
   {
     id: 'appointment_confirmation',
-    name: 'Appointment Confirmed',
-    subject: 'Your appointment is confirmed - {{date}}',
-    body: `Hi {{name}},
+    name: 'Appointment Follow-up',
+    subject: 'Following up on your showroom appointment',
+    body: `Thanks for scheduling time with our team. We look forward to helping with your home search.
 
-Your appointment is confirmed!
-
-📅 Date: {{date}}
-🕐 Time: {{time}}
-📍 Location: 123 Main Street, San Antonio, TX 78201
+📍 Showroom: ${BUSINESS_FULL_ADDRESS}
 
 What to bring:
 • Valid ID
 • Proof of income (if interested in financing)
 • Any questions you have!
 
-If you need to reschedule, please call us at (210) 555-0123.
-
-Looking forward to meeting you!
-
-Texas Home Outlet Team`
+Reply to this email if you have questions or need to confirm or change your appointment time.`
   },
   {
     id: 'price_quote',
-    name: 'Price Quote',
-    subject: 'Your price quote for {{model}}',
-    body: `Hi {{name}},
+    name: 'Price & Availability Follow-up',
+    subject: 'Pricing and availability for your home search',
+    body: `Thank you for your interest in our manufactured homes. Pricing and availability can vary by home, options, delivery location, and site requirements.
 
-Thank you for your interest in the {{model}}. Here's your personalized quote:
+Reply with the home or floor plan you are considering and your delivery ZIP code, and our team can help you review current options.
 
-Home: {{model}}
-Manufacturer: {{manufacturer}}
-Base Price: {{price}}
-
-Additional options and delivery costs can be discussed during your showroom visit.
-
-Would you like to schedule a time to see this home in person?
-
-Best regards,
-Texas Home Outlet Team`
+Let us know if you would like to discuss the next step or schedule a showroom visit.`
   },
 ];
+
+export function renderEmailTemplate(templateId) {
+  const template = EMAIL_TEMPLATES.find((candidate) => candidate.id === templateId);
+  if (!template) return null;
+
+  return {
+    subject: template.subject,
+    message: template.body,
+  };
+}
 
 // ─── Main CRM Component ─────────────────────────────
 
@@ -335,20 +319,13 @@ export default function CRM({ onBack }) {
   };
   
   const applyEmailTemplate = (templateId) => {
-    const template = EMAIL_TEMPLATES.find(t => t.id === templateId);
-    if (!template) return;
-    
-    let body = template.body;
-    let subject = template.subject;
-    
-    // Replace variables
-    body = body.replace(/{{name}}/g, emailForm.customer_name || 'Customer');
-    subject = subject.replace(/{{name}}/g, emailForm.customer_name || 'Customer');
+    const rendered = renderEmailTemplate(templateId);
+    if (!rendered) return;
     
     setEmailForm(prev => ({
       ...prev,
-      subject,
-      message: body
+      subject: rendered.subject,
+      message: rendered.message,
     }));
     setSelectedTemplate(templateId);
   };

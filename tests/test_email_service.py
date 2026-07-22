@@ -93,6 +93,31 @@ class TestSendDocumentEmail:
 
         assert email_service.NOTIFICATION_EMAILS == ["leeaswell@texashomeoutlet.com"]
 
+    def test_custom_email_owns_one_greeting_and_one_signoff(self, monkeypatch):
+        """CRM templates are body-only; this helper owns the delivery wrapper."""
+        email_service = _fresh_email_service(monkeypatch)
+        captured: dict = {}
+
+        def _capture_send(**kwargs):
+            captured.update(kwargs)
+            return {"success": True}
+
+        monkeypatch.setattr(email_service, "send_email", _capture_send)
+
+        result = email_service.send_custom_email(
+            to="maria@example.com",
+            customer_name="Maria Buyer",
+            subject="Following up",
+            message="Thanks for your interest.\nReply with any questions.",
+        )
+
+        assert result["success"] is True
+        html = captured["html"]
+        assert html.count("Hi Maria") == 1
+        assert html.count("Warm regards") == 1
+        assert html.count(email_service.BUSINESS_PHONE) == 2
+        assert "Thanks for your interest.<br>Reply with any questions." in html
+
     def test_builds_subject_and_body_shape(self, monkeypatch):
         monkeypatch.setenv("RESEND_API_KEY", "re_test")
         monkeypatch.setenv(
