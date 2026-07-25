@@ -1,8 +1,8 @@
-google-adk==1.28.1
+google-adk==2.5.0
 webauthn==2.7.1
 itsdangerous==2.2.0
-google-genai==1.64.0
-google-cloud-aiplatform==1.134.0
+google-genai==2.12.1
+google-cloud-aiplatform==1.161.0
 google-cloud-firestore==2.22.0
 google-cloud-kms==3.13.0  # SSN envelope encryption at rest (inert until SSN_KMS_KEY set)
 google-cloud-storage==2.18.0
@@ -17,7 +17,7 @@ python-multipart==0.0.31
 uvicorn==0.34.0
 redis==5.2.1
 dnspython==2.7.0
-pypdf==6.13.3
+pypdf==6.14.2
 resend==2.5.1
 slowapi>=0.1.9
 PyYAML>=6.0
