@@ -627,7 +627,14 @@ def load_app(monkeypatch, tho_api_key: str | None = "tho-secret", rate_limit_rpm
         '<body><div id="root"></div></body>'
         "</html>"
     )
-    if not index_html.exists() or index_html.read_text() == "<html><body>test</body></html>":
+    # Upgrade any minimal stub that lacks the anchors seo_routes._inject needs
+    # (</head> and <div id="root">) — conftest.py seeds a fresh checkout with
+    # '<html><body id="root">test</body></html>' and several suites write the
+    # older '<html><body>test</body></html>'; neither is injectable, which makes
+    # every SEO-route test see the bare stub. A real Vite build always has both
+    # anchors, so it is preserved.
+    existing_shell = index_html.read_text() if index_html.exists() else ""
+    if "</head>" not in existing_shell or '<div id="root">' not in existing_shell:
         index_html.write_text(spa_shell)
 
     sys.modules.pop("database.models", None)
