@@ -5,7 +5,7 @@ forward.
 **Live site:** https://tho.sapphirealpha.xyz
 **Status as of 2026-07-25:** Deployed and healthy on Cloud Run, running the
 latest `main`. Production smoke checks pass; the full automated test suite is
-green (1,775 passed, 45 skipped).
+green (1,796 passed, 24 environment-dependent skips).
 
 This guide has two parts:
 
