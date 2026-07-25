@@ -3,9 +3,9 @@
 **Audience:** THO staff (day-to-day users) and any developer taking the project
 forward.
 **Live site:** https://tho.sapphirealpha.xyz
-**Status as of 2026-06-04:** Deployed and healthy on Cloud Run, running the
-latest `main`. Production smoke checks pass; the contract/Document Center test
-suite passes (41 focused tests green).
+**Status as of 2026-07-25:** Deployed and healthy on Cloud Run, running the
+latest `main`. Production smoke checks pass; the full automated test suite is
+green (1,775 passed, 45 skipped).
 
 This guide has two parts:
 
@@ -16,86 +16,201 @@ This guide has two parts:
 
 ## Part A — Using the Site
 
-### 1. Logging in
+### 1. Logging in (staff)
 
-Public visitors see the customer site (AI chat + home browsing) with no login.
-**Staff tools** (Document Center, CRM, Analytics, Marketing) are behind an
-**admin PIN**.
+Public visitors see the customer site (home browsing, AI chat, contact, visit
+booking) with no login. **Staff tools** — Documents, CRM, Inventory, Photos,
+Ad Studio, Analytics, System Hub, Health, Chat History, Ops Copilot, and the
+in-app Guide — are behind staff sign-in.
 
-1. Go to https://tho.sapphirealpha.xyz.
-2. Open any staff page (e.g. **Documents** or **CRM**). You'll be prompted for
-   the admin PIN.
-3. Enter the PIN. You get a session token that keeps you logged in on that
-   browser. (The PIN is shared by phone / password manager, never by email —
-   see the PIN Rotation Runbook for how to change it.)
+There are three ways in, all from the lock icon in the top nav (or the
+**Admin** link in the footer):
+
+1. **Admin PIN** — the shared staff PIN. Enter it and you're signed in on
+   that browser. (The PIN is shared by phone / password manager, never by
+   email — see the PIN Rotation Runbook for how to change it.)
+2. **Passkey** — the fastest option once set up. Sign in with the PIN once,
+   click the key icon in the top nav, and register the device using an
+   approved owner email or a `@texashomeoutlet.com` staff email. After that,
+   "Sign in with Passkey" (fingerprint / face / device PIN) unlocks the staff
+   tools with no PIN. Lost or replaced devices can be revoked from
+   **System Hub → Passkey Recovery**.
+3. **Email sign-in code** — the fallback if the PIN expired or you're on a
+   new device. Click **Email me a sign-in code**, enter your authorized staff
+   email, and type the 6-digit code we send.
+
+Sessions expire after a while; if you see "Session expired," just sign in
+again — your work in the Document Center is saved in the browser.
 
 ### 2. The AI Assistant (customer-facing)
 
-The chat box on the home page is a 24/7 assistant that answers customer
-questions about homes, pricing, hours, and can capture leads and help book
-appointments. It pulls live inventory and routes between a Sales agent and a
-Service agent. No staff action needed — it runs itself and emails the team when
-a new lead or appointment comes in.
+The chat box ("Tex") is a 24/7 assistant that answers customer questions about
+homes, pricing, hours, financing, and warranty, can capture leads, and helps
+book appointments. It pulls live inventory and routes between a Sales agent
+and a Service agent. No staff action needed — it runs itself and emails the
+team when a new lead or appointment comes in. You can review what customers
+asked in **Chat History** (see §6).
 
 ### 3. Browsing Inventory
 
-The **Inventory** page lists every home with photos and specs (beds, baths,
-sq ft). This is the same data the AI assistant and the Document Center pull
-from, so a home you pick for a contract is the real listing.
+The **Inventory** page lists every home with photos, specs (beds, baths,
+sq ft), pricing, and 3D tours where available. This is the same data the AI
+assistant and the Document Center pull from, so a home you pick for a contract
+is the real listing.
+
+Staff also get two inventory tools (top nav once signed in):
+
+- **Inventory Manager** — add, edit, or retire homes (statuses: Available,
+  Pending, Reserved, Sold, Retired). Dealer cost fields are never shown or
+  exposed on the public site.
+- **Photos** — pick a home and drop in photos; they appear on the public
+  Inventory page. Homes that still need pictures are flagged.
 
 ### 4. Document Center — the FastContracts replacement
 
-This is the part that replaces FastContracts. It generates **filled, ready-to-
-sign Texas manufactured-home documents** — 63 templates total (TMHA, TDHCA,
-State, and internal disclosures) and 5 prebuilt packets.
+This replaces FastContracts. It generates **filled, ready-to-sign Texas
+manufactured-home documents** — 63 templates total (TMHA, TDHCA, State, and
+internal disclosures) and 5 prebuilt packets. The top of the page is a
+"Production Document Desk" showing template/packet counts, recently generated
+PDFs (re-download any of them), and a readiness badge.
 
 It's a 4-step wizard:
 
-1. **Customer Info** — buyer (and co-buyer) name, contact, SSN/DOB, address,
-   employment, marital status. Drafts auto-save in your browser, so you won't
-   lose work if you step away.
-2. **Choose Home** — pick from live inventory, or enter home details manually
-   (manufacturer, model, year, serial/label numbers, sections, dimensions,
-   wind zone, weights). New vs. used is a toggle and changes which packet
-   applies.
-3. **Pick Documents** — choose individual forms or a whole packet:
-   - **Standard Closing (New)** — 9 docs
-   - **Used Home Closing** — 11 docs
-   - **Full New Home Closing** — 54 docs
-   - **Full Used Home Closing** — 56 docs
-   - **Credit Application Package** — 4 docs
-4. **Review & Generate** — generates the PDFs (or one merged packet) and lets
-   you download them. The seller is filled as the registered legal entity
-   **Prosperity Acquisitions, Inc. dba Texas Home Outlet** with RBI license
-   35248, so documents are accepted as filed.
+1. **Customer Info** — start a new deal by typing the customer's name, **load
+   an existing deal**, or **load from customer records** (FastContract
+   migration). Buyer (and co-buyer) name, contact, SSN/DOB, address,
+   employment, references, marital status. Drafts auto-save in your browser,
+   and the wizard warns you if a duplicate deal already exists.
+2. **Choose Home** — pick from live inventory (auto-fills manufacturer, model,
+   serial/label numbers, sections, dimensions, wind zone, weights), or enter
+   home details manually. New vs. used is a toggle and changes which packet
+   applies. Texas Home Outlet is the default installer; switch when a deal
+   uses a different licensed installer. For pre-owned deals, the **trade-in
+   calculator** values the trade by condition and applies it to the deal.
+3. **Pick Documents** — choose individual forms (grouped by TMHA / TDHCA /
+   State / Internal) or a whole packet:
+   - **Standard Closing Packet (New Homes)** — 8 docs
+   - **Used Home Closing Packet** — 10 docs
+   - **Full New Home Closing** — 45 docs
+   - **Full Used Home Closing** — 47 docs
+   - **Credit Application Package** — 3 docs
 
-There's also a **trade-in calculator** for pre-owned deals that values the
-trade by condition and applies it to the down payment.
+   The Consumer Disclosure is available in English (MHD 1038) or Spanish
+   (MHD 1040) — pick the language per deal. Two legacy Manufactured Home
+   Note/Security Agreement templates are deliberately blocked as "not
+   production-ready yet" and can't be generated.
+4. **Review & Generate** — the wizard flags any missing fields before you
+   generate, then produces the PDFs (or one merged packet) to download. The
+   seller is filled as the registered legal entity **Prosperity Acquisitions,
+   Inc. dba Texas Home Outlet** with RBI license 35248, so documents are
+   accepted as filed.
 
-### 5. CRM — Leads, Deals, Appointments
+**E-signatures (coming soon):** the DocuSeal e-sign integration is built into
+the app (you'll see **Send for Signature** on deals in the CRM), but the
+e-sign server isn't deployed yet — until an operator turns it on, that button
+shows a friendly "coming soon" message. Keep downloading and wet-signing for
+now.
 
-- **Leads** come in from the website/chat and the contact form; the whole team
-  is emailed automatically. You can view, update, and export leads to CSV.
-- **Deals** track a sale end to end. A deal stores all the buyer/home/financial
-  data once, then you can **generate any document or full packet straight from
-  the deal** — no re-typing.
-- **Appointments** can be booked and confirmed; confirmation emails go out when
-  email is configured (see Part B).
+### 5. CRM — Leads, Pipeline, Tasks, Email
 
-### 6. Marketing / Ad Studio
+The CRM is the team's home base, organized into tabs:
 
-AI-assisted marketing content: ad scripts, trending ideas, scheduling, and
-performance analytics, with inventory context baked in so ads reference real
-homes.
+- **Leads** — everything that comes in from the website/chat and the contact
+  form; the whole team is emailed automatically. View, update status (with
+  first-response-time tracking), email a lead directly, and export to CSV.
+- **Pipeline (Deals)** — track a sale end to end (pending → approved →
+  contract → funded → complete). A deal stores all the buyer/home/financial
+  data once, and you can **generate the Sales Contract, Consumer Disclosure,
+  Warranty, Homestead, or a full closing packet straight from the deal** — no
+  re-typing. **Send for Signature** lives here too (e-sign coming soon, see
+  §4). Customers get a secure document link for their deal that verifies them
+  with the phone number on their application before showing any paperwork.
+- **Tasks** — to-dos for follow-ups, with pending/done tracking.
+- **Appointments** — everything booked through the site, in one list.
+- **Email Log** — every email the system has sent.
+- **Reply Drafts** — AI-drafted replies to inbound customer emails, ready for
+  a human to review and send.
+- **Customers** — the customer records behind deals and documents.
+- **Reviews** — review-request workflow (visible when the review link is
+  configured).
 
-### 7. Analytics
+**Email templates:** when emailing a lead you can start from a ready-made
+template (Welcome, Follow-up, Appointment Follow-up, Price & Availability) and
+edit before sending. Charts for the lead funnel, lead sources, and customer
+analytics are built into the dashboard.
 
-Lead stats, conversion tracking, document activity, and inventory analytics for
-the team.
+### 6. Chat History
+
+**Chat History** lets staff browse and search every customer conversation with
+Tex — useful for seeing what customers ask about, picking up a lead's context
+before calling them back, and checking what the AI told someone.
+
+### 7. Appointments (booking page)
+
+Customers book showroom visits from the public **Book Visit** page (date →
+time → their info → confirm). Confirmation emails go out when email is
+configured (see Part B). Staff see and manage the bookings in the CRM's
+Appointments tab — there's no separate staff scheduling tool to learn.
+
+### 8. Ad Studio (marketing)
+
+AI-assisted marketing content built around real inventory:
+
+- **Create Ad** — generate video ad scripts for TikTok, Instagram Reels, and
+  Facebook, with content types (Home Tour, Myth Busting,
+  Financing Tips, Clearance Alert, Behind the Scenes, Customer Story,
+  Comparison, FAQ), Tex avatar styles, English or Spanish, and image styles.
+- **Content Ideas** — trending ideas to keep the posting calendar full.
+- **Scheduled** — plan and track upcoming posts.
+- **Analytics** — performance tracking for published ads.
+
+Because it reads live inventory, ads reference homes actually on the lot. You
+can also jump here straight from a home on the Inventory page to create an ad
+for that home.
+
+### 9. Ops Copilot (staff AI helper)
+
+**Ops Copilot** is an in-app assistant for staff only. Ask it questions about
+live business data — "How many new leads do we have?", "What's on the
+appointment schedule?" — or how to use the platform ("How do I upload photos
+for a home?"). It's read-only by design: it looks things up, it never changes
+anything.
+
+### 10. Analytics, System Hub, and Health Dashboard
+
+- **Analytics** — lead stats over time, lead status and engagement, site
+  events, document generation activity (totals, by type, recent), and
+  inventory analytics (including most-viewed homes).
+- **System Hub** — the operator's map of the whole platform: quick links to
+  every admin surface, an architecture diagram, security posture checklist,
+  keyboard shortcuts, and **Passkey Recovery** (revoke lost/deprecated
+  passkeys).
+- **Health Dashboard** — live service metrics from `/api/metrics`: total
+  requests, p95 latency, error rate, uptime, plus recent staff user activity.
+
+### 11. Getting Started (in-app Guide)
+
+The **Guide** page walks a new staff member through the standard workflow:
+start with the customer, choose the exact home, confirm installer and site,
+generate the packet. If you only read one page on your first day, read that
+one.
+
+### 12. A note on error messages
+
+If something goes wrong, the site now shows plain-English messages ("We
+couldn't reach the server…", "Your session has expired…") instead of raw
+technical errors. If you ever *do* see something that looks like programmer
+gibberish, that's a bug — report it.
 
 ---
 
 ## Part B — Technical Handoff (for a developer)
+
+The authoritative technical docs live in `docs/` — this section is a map, not
+a duplicate. Read `docs/ARCHITECTURE.md` for system design,
+`docs/API_REFERENCE.md` for every endpoint (auto-generated from the app's own
+OpenAPI schema by `scripts/generate_api_reference.py`), and `docs/RUNBOOK.md`
+for incident response and rollback.
 
 ### Stack at a glance
 
@@ -105,7 +220,7 @@ the team.
 | Frontend | React 19 + Vite + Tailwind, built to `frontend/dist/` |
 | Data | Google Firestore (primary), JSON fallback, sample data last resort |
 | PDFs | `pypdf` form-fill driven by `config/field_map.json` |
-| E-sign | DocuSeal (optional, env-gated) |
+| E-sign | DocuSeal (integration built; returns 501 until env-configured — see `docs/DOCUSEAL_DEPLOY_RUNBOOK.md`) |
 | Email | Resend (optional, env-gated) |
 | Deploy | Single Docker container on Cloud Run (project `tho-ai-agent`, region `us-central1`) |
 | Hosting | Canonical URL `tho.sapphirealpha.xyz`; auto-deploys from `main` |
@@ -115,15 +230,20 @@ the team.
 See `CLAUDE.md` (root) for the authoritative directory layout and conventions.
 The most important pieces:
 
-- `main.py` — FastAPI app, **all** API endpoints, auth, middleware.
+- `main.py` — FastAPI app and the bulk of the API endpoints, auth, and
+  middleware. Additional routers are mounted near the bottom (passkeys, SEO
+  routes, partner integrations such as `mira_routes.py` /
+  `obsidian_routes.py`).
 - `config.yaml` — single source of truth for business config.
 - `config/field_map.json` — **the** registry mapping every PDF template and
   packet to its fields. Never hardcode PDF field names in Python.
 - `tools/document_engine.py` / `tools/document_tools.py` — the PDF fill engine.
 - `frontend/src/pages/DocumentCenter.jsx` — the contract wizard UI.
-- `database/firestore_client.py` — Firestore CRUD.
-- `docuseal_service.py` — e-signature orchestration.
-- `email_service.py` — transactional email via Resend.
+- `database/firestore_client.py` — Firestore CRUD (all request-path RPCs run
+  under shared timeouts, `database/rpc_timeout.py`).
+- `docuseal_service.py` — e-signature orchestration (env-gated).
+- `email_service.py` — transactional email via Resend;
+  `email_reply_drafts.py` — AI-drafted replies for the CRM.
 
 ### Run it locally
 
@@ -139,6 +259,8 @@ python main.py            # serves on :8080
 # Tests (contract engine etc.)
 python -m pytest tests/
 ```
+
+See `docs/DEV_SETUP.md` for the fuller local setup.
 
 ### Deploy
 
@@ -164,12 +286,17 @@ python3 scripts/production_smoke.py --base-url https://tho.sapphirealpha.xyz
 | `ADMIN_PIN_HASH` | SHA-256 of the staff admin PIN | **Yes** |
 | `ADMIN_SESSION_SECRET` | Session token signing (derived from PIN hash if unset) | Recommended |
 | `GOOGLE_GENAI_USE_VERTEXAI=TRUE` | Use Vertex AI for Gemini | Yes |
-| `RESEND_API_KEY` | Transactional email (lead/appointment/deal emails) | For email |
+| `RESEND_API_KEY` | Transactional email (lead/appointment/deal emails, staff sign-in codes) | For email |
 | `NOTIFICATION_EMAIL` | Comma-separated staff alert recipients | For email |
-| `DOCUSEAL_API_URL` / `DOCUSEAL_API_TOKEN` / `DOCUSEAL_WEBHOOK_SECRET` | E-signature | For e-sign |
+| `DOCUSEAL_API_URL` / `DOCUSEAL_API_TOKEN` / `DOCUSEAL_WEBHOOK_SECRET` | E-signature | For e-sign (not yet set — see deploy runbook) |
 
-Runbooks live in `docs/PRODUCTION_READINESS.md` (deploy/email/PIN) and
-`docs/PIN_ROTATION_RUNBOOK.md`.
+Passkeys are stored in Firestore and gated to the approved owner email and
+`@texashomeoutlet.com` staff accounts; no extra env vars are needed beyond the
+admin session secret.
+
+Runbooks live in `docs/PRODUCTION_READINESS.md` (deploy/email/PIN),
+`docs/PIN_ROTATION_RUNBOOK.md`, and `docs/DOCUSEAL_DEPLOY_RUNBOOK.md`
+(e-sign rollout).
 
 ### Guardrails (do not violate)
 
@@ -178,14 +305,18 @@ Runbooks live in `docs/PRODUCTION_READINESS.md` (deploy/email/PIN) and
 - **Never log or send PII** (SSN, financial account numbers) to the LLM — use
   `tools/pii_guard.py`.
 - Keep the legacy `/api/documents/sales-contract` endpoint working.
-- Add new endpoints in `main.py` **above** the SPA catch-all route at the bottom.
+- Add new endpoints in `main.py` **above** the SPA catch-all route at the
+  bottom.
+- Route every user-visible error through `frontend/src/utils/apiError.js` —
+  raw technical strings must never reach the UI.
 
 ### Known limitations (from `SYSTEM_STATUS.md`)
 
 - Cold-start latency of ~5–10s on first hit (Cloud Run scale-to-zero).
-- Chat history is session-only (no cross-refresh persistence).
+- Chat history persists per browser session; a visitor on a new browser or
+  cleared storage starts a fresh session.
 - Inventory sync is run periodically via the scraper tool, not real-time.
 
 ---
 
-*Maintained alongside `docs/PRODUCTION_READINESS.md`. Last updated 2026-06-04.*
+*Maintained alongside `docs/PRODUCTION_READINESS.md`. Last updated 2026-07-25.*
