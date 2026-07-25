@@ -177,7 +177,7 @@ class FakeDocumentRef:
         self._store = store
         self.id = doc_id
 
-    def set(self, data: dict, merge: bool = False):
+    def set(self, data: dict, merge: bool = False, timeout: float | None = None):
         if merge and self.id in self._store:
             merged = dict(self._store[self.id])
             merged.update(data)
@@ -185,12 +185,12 @@ class FakeDocumentRef:
         else:
             self._store[self.id] = dict(data)
 
-    def update(self, data: dict):
+    def update(self, data: dict, timeout: float | None = None):
         merged = dict(self._store.get(self.id, {}))
         merged.update(data)
         self._store[self.id] = merged
 
-    def get(self):
+    def get(self, timeout: float | None = None):
         data = self._store.get(self.id)
         if data is None:
             return types.SimpleNamespace(exists=False, id=self.id, to_dict=lambda: None)
@@ -225,7 +225,7 @@ class FakeQuery:
             cur = cur.get(part)
         return cur
 
-    def get(self):
+    def get(self, timeout: float | None = None):
         results = []
         for doc_id, data in self._store.items():
             matched = all(
@@ -244,7 +244,7 @@ class FakeCollection:
         self._name = name
         self._store = self._collections.setdefault(name, {})
 
-    def stream(self):
+    def stream(self, timeout: float | None = None):
         for doc_id, data in self._store.items():
             yield FakeDocSnapshot(doc_id, data)
 
@@ -271,7 +271,7 @@ class FakeLimitedCollection:
         self._store = store
         self._limit = limit
 
-    def stream(self):
+    def stream(self, timeout: float | None = None):
         for i, (doc_id, data) in enumerate(self._store.items()):
             if i >= self._limit:
                 break

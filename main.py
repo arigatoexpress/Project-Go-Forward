@@ -1143,7 +1143,7 @@ def _store_analytics_event(
         record["journey_id"] = normalized_journey
     try:
         if _db and getattr(_db, "db", None):
-            _db.db.collection("analytics_events").add(record)
+            _db.db.collection("analytics_events").add(record, timeout=FIRESTORE_RPC_TIMEOUT)
         return True
     except Exception as exc:
         struct_logger.warning(
@@ -1736,7 +1736,7 @@ async def admin_lead_sources(days: int = 30):
         # Collect deals once, index by email/phone for attribution lookup
         deals_by_email: dict[str, list[dict]] = {}
         deals_by_phone: dict[str, list[dict]] = {}
-        for doc in _db.db.collection("deals").stream():
+        for doc in _db.db.collection("deals").stream(timeout=FIRESTORE_RPC_TIMEOUT):
             data = doc.to_dict() or {}
             status = (data.get("status") or "").lower()
             if status not in ("funded", "complete", "approved", "contract"):
@@ -1945,7 +1945,7 @@ async def get_event_analytics(range: str = "30d"):
             # ISO timestamps sort lexicographically = chronologically; read the
             # collection and keep in-range docs. (Low launch volume; move to a
             # created_at .where()+index if it grows.)
-            for doc in _db.db.collection("analytics_events").limit(10000).stream():
+            for doc in _db.db.collection("analytics_events").limit(10000).stream(timeout=FIRESTORE_RPC_TIMEOUT):
                 d = doc.to_dict() or {}
                 if str(d.get("created_at", "")) >= cutoff:
                     events.append(d)
@@ -3012,6 +3012,7 @@ async def download_document(filename: str):
 from database.deal_validation import validate_for_documents
 from database.firestore_client import get_database
 from database.models import Deal, DealStatus, Inventory, InventoryWrite
+from database.rpc_timeout import FIRESTORE_RPC_TIMEOUT
 
 _db = get_database()
 app.state.db = _db
@@ -3459,7 +3460,7 @@ async def admin_inventory_photo_audit(limit: int = 5000):
 
         # Pull the raw inventory docs directly so list/single image fields
         # are preserved (search_inventory's transform drops some).
-        docs = _db.db.collection("inventory").limit(limit).stream()
+        docs = _db.db.collection("inventory").limit(limit).stream(timeout=FIRESTORE_RPC_TIMEOUT)
         inventory = []
         for doc in docs:
             data = doc.to_dict()
@@ -3511,7 +3512,7 @@ async def admin_inventory_analytics():
         time_on_lot_days: list[float] = []
         by_manufacturer: dict[str, dict] = {}
 
-        for doc in _db.db.collection("inventory").stream():
+        for doc in _db.db.collection("inventory").stream(timeout=FIRESTORE_RPC_TIMEOUT):
             data = doc.to_dict() or {}
             total += 1
 
@@ -3676,10 +3677,10 @@ async def bulk_import_inventory(request: Request):
                 doc_ref = _db.db.collection("inventory").document(inventory_id)
 
                 if existing:
-                    doc_ref.update(firestore_data)
+                    doc_ref.update(firestore_data, timeout=FIRESTORE_RPC_TIMEOUT)
                     updated += 1
                 else:
-                    doc_ref.set(firestore_data)
+                    doc_ref.set(firestore_data, timeout=FIRESTORE_RPC_TIMEOUT)
                     imported += 1
 
             except Exception as e:
@@ -4345,7 +4346,8 @@ async def docuseal_webhook(request: Request):
                     "template_name": template_name,
                     "gcs_path": gcs_uri or gcs_path,
                     "created_at": datetime.now(UTC).isoformat(),
-                }
+                },
+                timeout=FIRESTORE_RPC_TIMEOUT,
             )
 
             # Audit log
@@ -5990,7 +5992,7 @@ def _load_crm_tasks_from_store() -> list[dict]:
         return list(_crm_tasks.values())
     try:
         tasks = []
-        for doc in collection.limit(500).stream():
+        for doc in collection.limit(500).stream(timeout=FIRESTORE_RPC_TIMEOUT):
             data = doc.to_dict() or {}
             data.setdefault("task_id", doc.id)
             tasks.append(data)
@@ -6007,7 +6009,7 @@ def _save_crm_task(task: dict) -> None:
     if collection is None:
         return
     try:
-        collection.document(task["task_id"]).set(task)
+        collection.document(task["task_id"]).set(task, timeout=FIRESTORE_RPC_TIMEOUT)
     except Exception as exc:  # noqa: BLE001
         struct_logger.warning("CRM task Firestore save failed", error=str(exc))
 
@@ -6018,7 +6020,7 @@ def _load_crm_task(task_id: str) -> dict | None:
     if collection is None:
         return task
     try:
-        doc = collection.document(task_id).get()
+        doc = collection.document(task_id).get(timeout=FIRESTORE_RPC_TIMEOUT)
         if doc.exists:
             data = doc.to_dict() or {}
             data.setdefault("task_id", doc.id)
@@ -6837,7 +6839,7 @@ async def admin_crm_funnel():
         denied_count = 0
         deal_close_days: list[float] = []
         # Stream deals collection directly to avoid the 50-record cap of search_deals
-        for doc in _db.db.collection("deals").stream():
+        for doc in _db.db.collection("deals").stream(timeout=FIRESTORE_RPC_TIMEOUT):
             data = doc.to_dict() or {}
             status = (data.get("status") or "").lower()
             if status in ("pending", "approved", "contract"):
@@ -7446,7 +7448,7 @@ def _count_collection_by_status(collection_name: str, status_field: str = "statu
     total = 0
     by_status: dict[str, int] = {}
 
-    for doc in _db.db.collection(collection_name).stream():
+    for doc in _db.db.collection(collection_name).stream(timeout=FIRESTORE_RPC_TIMEOUT):
         total += 1
         data = doc.to_dict() or {}
         status = data.get(status_field) or "UNKNOWN"
@@ -7650,7 +7652,7 @@ async def v1_webhook_notify(request: Request):
                 _db.db.collection("activities")
                 .where("metadata.idempotency_scope", "==", scoped_key)
                 .limit(1)
-                .get()
+                .get(timeout=FIRESTORE_RPC_TIMEOUT)
             )
             existing_list = list(existing)
             if existing_list:
@@ -7693,7 +7695,7 @@ async def v1_webhook_notify(request: Request):
     }
 
     try:
-        _db.db.collection("activities").document(activity_id).set(activity)
+        _db.db.collection("activities").document(activity_id).set(activity, timeout=FIRESTORE_RPC_TIMEOUT)
         struct_logger.info(
             "Partner webhook activity logged", activity_id=activity_id, deal_id=deal_id
         )
@@ -7710,7 +7712,7 @@ async def v1_webhook_notify(request: Request):
 async def v1_service_request_resolve(request: Request, request_id: str):
     """Mark a service request as resolved. Called by Notion when warranty claims close."""
     try:
-        doc = _db.db.collection("service_requests").document(request_id).get()
+        doc = _db.db.collection("service_requests").document(request_id).get(timeout=FIRESTORE_RPC_TIMEOUT)
         if not doc.exists:
             raise HTTPException(status_code=404, detail="Service request not found")
 
@@ -7956,13 +7958,13 @@ async def get_secure_hub_deal(deal_id: str, request: Request, phone: str = ""):
     """
     try:
         db = get_database().db  # THODatabase wrapper -> raw Firestore client
-        deal = db.collection("deals").document(deal_id).get()
+        deal = db.collection("deals").document(deal_id).get(timeout=FIRESTORE_RPC_TIMEOUT)
         deal_data = deal.to_dict() if deal.exists else None
         if not deal_data or not _deal_phone_ok(deal_data, phone):
             raise HTTPException(status_code=403, detail=_PORTAL_VERIFY_MSG)
 
         # Fetch documents (deal_notes of type esign_completed or document_generated)
-        docs_query = db.collection("deal_notes").where("deal_id", "==", deal_id).stream()
+        docs_query = db.collection("deal_notes").where("deal_id", "==", deal_id).stream(timeout=FIRESTORE_RPC_TIMEOUT)
         documents = []
         for doc in docs_query:
             d = doc.to_dict()
@@ -8005,12 +8007,12 @@ async def download_secure_document(deal_id: str, note_id: str, request: Request,
     """
     try:
         db = get_database().db  # THODatabase wrapper -> raw Firestore client
-        deal = db.collection("deals").document(deal_id).get()
+        deal = db.collection("deals").document(deal_id).get(timeout=FIRESTORE_RPC_TIMEOUT)
         deal_data = deal.to_dict() if deal.exists else None
         if not deal_data or not _deal_phone_ok(deal_data, phone):
             raise HTTPException(status_code=403, detail=_PORTAL_VERIFY_MSG)
 
-        note = db.collection("deal_notes").document(note_id).get()
+        note = db.collection("deal_notes").document(note_id).get(timeout=FIRESTORE_RPC_TIMEOUT)
         if not note.exists or note.to_dict().get("deal_id") != deal_id:
             raise HTTPException(status_code=404, detail="Document not found")
 
