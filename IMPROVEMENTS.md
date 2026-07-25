@@ -39,28 +39,31 @@
 
 #### D. Monitoring
 - [x] Performance metrics — **DONE** (`PerformanceMetricsMiddleware` in `main.py`, `/api/metrics` admin endpoint, p50/p95/p99 tracking, `tests/test_performance_metrics.py` with 5 tests)
-- [ ] Health check dashboard
-- [ ] User activity logging
+- [x] Health check dashboard — **DONE** (`frontend/src/pages/HealthDashboard.jsx`, lazy-loaded + routed in `App.jsx`; verified 2026-07-24)
+- [x] User activity logging — **DONE** (`tools/user_activity_log.py`, `log_user_action`/`query_user_activity` wired into `main.py`, 11 tests in `tests/test_user_activity_log.py`; verified 2026-07-24)
 
 ## 📋 Recommended Next Steps
 
 ### High Priority (Code)
 1. ~~Chat History Tests~~ — **DONE** (`tests/test_chat_history.py` 22 tests, `tests/test_conversation_memory.py` 28 tests)
 2. ~~CSRF Protection~~ — **DONE** (`tests/test_csrf_protection.py` 6 tests)
-3. **Input Sanitization** — Strengthen middleware tests to verify actual body rewriting; add query-param/file-name sanitization
+3. ~~Input Sanitization~~ — **DONE** (body rewriting verified end-to-end via `TestInputSanitizationMiddlewareDirect` + `TestInputSanitizationEndToEnd`; query-param sanitization wired into middleware; `sanitize_filename` utility; 50+ tests in `tests/test_input_sanitizer.py`; verified 2026-07-24)
 
 ### Medium Priority
 4. ~~Lazy Loading~~ — **DONE**
 5. ~~Image Optimization~~ — **DONE**
 6. ~~Performance Metrics~~ — **DONE**
-7. **Health Check Dashboard** — Visualize `/api/metrics` and `/healthz` data
-8. **User Activity Logging** — Structured admin/user action logging beyond `audit_log.py`
+7. ~~Health Check Dashboard~~ — **DONE** (see D. Monitoring)
+8. ~~User Activity Logging~~ — **DONE** (see D. Monitoring)
 
 ### Low Priority
 9. ~~Sentry SDK~~ — **DONE**
-10. **A/B Testing Framework** — Test UI changes
-11. **Feature Flags** — Roll out features gradually
+10. ~~A/B Testing Framework~~ — **DONE** (`tools/ab_testing.py`, 84 tests in `tests/test_ab_testing.py`; verified 2026-07-24)
+11. ~~Feature Flags~~ — **DONE** (`tools/feature_flags.py`, 40 tests in `tests/test_feature_flags.py`; verified 2026-07-24)
 12. **Documentation** — API docs (OpenAPI already available), user guides
+
+### Hardening (2026-07-24 cycle)
+- ~~Firestore RPC timeouts (event-loop wedge, LAUNCH_READINESS risk #2)~~ — **CODE DONE** on branch `agent/firestore-timeouts`: shared `database/rpc_timeout.py` (`FIRESTORE_RPC_TIMEOUT`, env `FIRESTORE_RPC_TIMEOUT_SECONDS`, default 10s) applied to every request-path Firestore RPC across `database/firestore_client.py`, `main.py`, `mira_routes.py`, `obsidian_routes.py`, `github_mira_trigger.py`, `chat_history.py`, `conversation_memory.py`, `audit_log.py`, `appointment_manager.py`, `lead_management.py`, `email_service.py`, `email_reply_drafts.py`, `auth/`, and request-path tools. Full suite green (1682 passed). Pending PR merge + deploy.
 
 ### Operator / Launch Blockers (see LAUNCH_READINESS.md)
 - Ops bootstrap (partner API key, monitoring, backups, budget alarm)
