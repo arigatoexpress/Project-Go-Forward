@@ -12,6 +12,7 @@ This folder holds the canonical documentation for the Project-Go-Forward / THO A
 6. [WORKFLOWS.md](WORKFLOWS.md) — Business workflows with Mermaid diagrams (lead to funded, document generation, auth, CI/CD).
 7. [SECURITY.md](SECURITY.md) — Auth model, secret hygiene, PII handling, least-privilege access matrix, delete-protection posture.
 8. [INTEGRATION_NOTION.md](INTEGRATION_NOTION.md) — Integration plan for Etai's Notion workspace: division of responsibility, naming conventions, API contract, webhook flows, open decisions.
+9. [API_REFERENCE.md](API_REFERENCE.md) — Generated endpoint reference from the app's OpenAPI schema (regenerate: `python scripts/generate_api_reference.py`).
 
 ## Older docs
 
