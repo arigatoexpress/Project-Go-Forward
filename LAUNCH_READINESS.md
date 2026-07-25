@@ -3,7 +3,7 @@
 Status ledger for the pre-launch punch list. GO requires every row ✅ and
 operator sign-off on this file's PR trail.
 
-Last updated: 2026-07-25 (merge-train cycle: **PR #298** staging-gauntlet e2e tests codified for partner-API auth + DocuSeal e-sign, **PR #299** API reference docs, **PR #300** user-safe error messages — all merged; code side of IMPROVEMENTS.md fully closed except user guides). Previously: 2026-07-25 (Firestore RPC-timeout hardening **merged via PR #296** — risk #2 code is on `main`; clears fully on the next production traffic promotion, which remains an operator canary cutover). Previously: 2026-07-24 (code-complete on branch `agent/firestore-timeouts`); 2026-06-10 (Phase 0 + Phase 1 code-side complete).
+Last updated: 2026-07-25 (**PR #302** staff user guide refreshed — `docs/CLIENT_WALKTHROUGH.md` rewritten to the current feature set; **code side of IMPROVEMENTS.md now fully closed** — every remaining launch item is an operator action). Previously: 2026-07-25 (merge-train cycle: **PR #298** staging-gauntlet e2e tests codified for partner-API auth + DocuSeal e-sign, **PR #299** API reference docs, **PR #300** user-safe error messages — all merged). Previously: 2026-07-25 (Firestore RPC-timeout hardening **merged via PR #296** — risk #2 code is on `main`; clears fully on the next production traffic promotion, which remains an operator canary cutover). Previously: 2026-07-24 (code-complete on branch `agent/firestore-timeouts`); 2026-06-10 (Phase 0 + Phase 1 code-side complete).
 
 ## Punch list
 
