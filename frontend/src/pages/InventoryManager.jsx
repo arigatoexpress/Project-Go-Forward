@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Home, Plus, Pencil, Archive, Loader2, X, Camera } from 'lucide-react';
 import adminFetch from '../adminFetch';
+import { extractErrorMessage, safeUserMessage } from '../utils/apiError';
 
 // Staff Inventory Manager — create / edit / retire homes in the in-app
 // (Firestore) inventory store the public site serves when INVENTORY_SOURCE=
@@ -48,7 +49,7 @@ export default function InventoryManager({ onBack, onNavigate }) {
       const res = await adminFetch('/api/inventory?status=&limit=500');
       const data = await res.json();
       if (data.success) setHomes(data.inventory || []);
-      else setError(data.error || 'Failed to load inventory.');
+      else setError(safeUserMessage(extractErrorMessage(data), 'Failed to load inventory.'));
     } catch {
       setError('Failed to load inventory.');
     } finally {
@@ -86,7 +87,7 @@ export default function InventoryManager({ onBack, onNavigate }) {
         setEditing(null);
         await load();
       } else {
-        setMessage({ type: 'error', text: data.error || 'Save failed.' });
+        setMessage({ type: 'error', text: safeUserMessage(extractErrorMessage(data), 'Save failed.') });
       }
     } catch {
       setMessage({ type: 'error', text: 'Save failed.' });
@@ -101,7 +102,7 @@ export default function InventoryManager({ onBack, onNavigate }) {
       const res = await adminFetch(`/api/inventory/${encodeURIComponent(home.id)}`, { method: 'DELETE' });
       const data = await res.json();
       if (data.success) { setMessage({ type: 'ok', text: 'Home retired.' }); await load(); }
-      else setMessage({ type: 'error', text: data.error || 'Retire failed.' });
+      else setMessage({ type: 'error', text: safeUserMessage(extractErrorMessage(data), 'Retire failed.') });
     } catch {
       setMessage({ type: 'error', text: 'Retire failed.' });
     }

@@ -5,6 +5,7 @@ import { getUtmParams } from '../utils/utm';
 import { trackEvent } from '../utils/analytics';
 import { normalizeOptionalEmail } from '../utils/contactValidation';
 import { getJourneyAttribution } from '../utils/attribution';
+import { extractErrorMessage, safeUserMessage } from '../utils/apiError';
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
@@ -151,7 +152,7 @@ const TimeSlotPicker = ({ date, onSelect, onBack }) => {
       .then(res => res.json())
       .then(data => {
         if (data.error) {
-          setError(data.error);
+          setError(safeUserMessage(extractErrorMessage(data), 'Unable to load available times. Please try again.'));
         } else {
           // Normalize so a malformed 200 (missing/!array available_slots) can't
           // crash the render at .length / .map.
@@ -408,7 +409,7 @@ const Appointments = ({ onBack, prefill, onHandoffComplete }) => {
           onHandoffComplete?.();
         }
       } else {
-        setError(data.error || 'Unable to book appointment. Please try again.');
+        setError(safeUserMessage(extractErrorMessage(data), 'Unable to book appointment. Please try again.'));
       }
     } catch {
       setError('Connection error. Please try again or call us.');

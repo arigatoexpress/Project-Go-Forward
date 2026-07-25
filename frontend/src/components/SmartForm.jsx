@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Loader2, Lock } from 'lucide-react';
+import { safeUserMessage, extractErrorMessage, describeFetchError } from '../utils/apiError';
 
 const SECTION_LABELS = {
   buyer: 'Buyer Information',
@@ -53,7 +54,7 @@ const SmartForm = ({ templateName, title, sessionId, onSubmit, onCancel, initial
       const data = await response.json();
 
       if (data.error) {
-        setError(data.error);
+        setError(safeUserMessage(extractErrorMessage(data), 'Failed to load form fields.'));
         return;
       }
 
@@ -81,7 +82,7 @@ const SmartForm = ({ templateName, title, sessionId, onSubmit, onCancel, initial
         tryPreFill();
       }
     } catch (e) {
-      setError('Failed to load form fields: ' + e.message);
+      setError(describeFetchError(e, 'load the form fields'));
     } finally {
       setLoading(false);
     }

@@ -6,6 +6,7 @@ import { trackEvent } from '../utils/analytics';
 import { normalizeOptionalEmail } from '../utils/contactValidation';
 import { getJourneyAttribution } from '../utils/attribution';
 import AppointmentHandoffCard from '../components/AppointmentHandoffCard';
+import { safeUserMessage, extractErrorMessage } from '../utils/apiError';
 
 const Contact = ({ onBack, onBookAppointment }) => {
     const [submitted, setSubmitted] = useState(false);
@@ -48,7 +49,7 @@ const Contact = ({ onBack, onBookAppointment }) => {
                 setSubmitted(true);
                 trackEvent('lead_captured', { source: 'contact', type: 'contact' });
             } else {
-                setSubmitError(data.error || 'Something went wrong. Please try again.');
+                setSubmitError(safeUserMessage(extractErrorMessage(data), 'Something went wrong. Please try again.'));
             }
         } catch {
             setSubmitError('Unable to send your message. Please call us instead.');

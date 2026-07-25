@@ -11,6 +11,7 @@ import {
   AlertCircle, CheckCircle, X
 } from 'lucide-react';
 import adminFetch from '../adminFetch';
+import { extractErrorMessage, safeUserMessage } from '../utils/apiError';
 import StatusBadge from '../components/StatusBadge';
 
 function ChatSessionCard({ session, onSelect, isSelected }) {
@@ -107,7 +108,7 @@ export default function ChatHistory() {
       if (data.success) {
         setSessions(data.sessions || []);
       } else {
-        setError(data.error || 'Failed to load sessions');
+        setError(safeUserMessage(extractErrorMessage(data), 'Failed to load sessions'));
       }
     } catch {
       setError('Network error. Please try again.');

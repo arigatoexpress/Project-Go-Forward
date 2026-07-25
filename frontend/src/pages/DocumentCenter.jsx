@@ -23,6 +23,7 @@ import {
   FACTORY_OPTIONS,
   INSTALLER_OPTIONS,
 } from '../constants';
+import { safeUserMessage } from '../utils/apiError';
 
 /* ─── Constants ──────────────────────────────────────────── */
 
@@ -3699,7 +3700,7 @@ export default function DocumentCenter() {
       setReadiness(readinessData);
       setDocHistory(historyData.documents || []);
     } catch (e) {
-      setDeskError(e.message || 'Document status unavailable');
+      setDeskError(safeUserMessage(e.message, 'Document status unavailable'));
     } finally {
       setDeskLoading(false);
     }
@@ -3713,7 +3714,7 @@ export default function DocumentCenter() {
       const savedName = await downloadAdminFile(url, filename);
       setDownloadSuccess(savedName || filename || 'your document');
     } catch (e) {
-      setDownloadError(e.message || 'Download failed');
+      setDownloadError(safeUserMessage(e.message, 'Download failed'));
     } finally {
       setDownloadingDoc('');
     }
@@ -3737,7 +3738,7 @@ export default function DocumentCenter() {
       .catch((e) => {
         setTemplates([]);
         setPackets([]);
-        setTemplatesError(e.message || 'Document templates failed to load');
+        setTemplatesError(safeUserMessage(e.message, 'Document templates failed to load'));
       })
       .finally(() => setTemplatesLoading(false));
 
@@ -4080,7 +4081,7 @@ export default function DocumentCenter() {
       setResults(d);
       loadDocumentDesk();
     } catch (e) {
-      setGenErr(e.message || 'Generation failed');
+      setGenErr(safeUserMessage(e.message, 'Generation failed'));
     } finally {
       setGenerating(false);
     }

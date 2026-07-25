@@ -10,6 +10,7 @@ import {
     Pause
 } from 'lucide-react';
 import adminFetch from '../adminFetch';
+import { describeFetchError, extractErrorMessage, safeUserMessage } from '../utils/apiError';
 import './AdStudio.css';
 
 /* ─────────────────── constants ─────────────────── */
@@ -87,7 +88,7 @@ const INVENTORY_PICKER_LIMIT = 40;
 async function readJsonOrThrow(resp, fallbackMessage) {
     const data = await resp.json().catch(() => ({}));
     if (!resp.ok) {
-        throw new Error(data.error || data.detail || fallbackMessage);
+        throw new Error(safeUserMessage(extractErrorMessage(data), fallbackMessage));
     }
     return data;
 }
@@ -366,7 +367,7 @@ export default function AdStudio({ onBack }) {
                 variations
             });
             if (result.error || result.success === false) {
-                setScript({ error: result.error || 'Script generation failed. Please try again.' });
+                setScript({ error: safeUserMessage(extractErrorMessage(result), 'Script generation failed. Please try again.') });
             } else {
                 setScript(result);
                 setShowPreview(true);
@@ -390,7 +391,7 @@ export default function AdStudio({ onBack }) {
                 }
             }
         } catch (err) {
-            setScript({ error: err.message });
+            setScript({ error: safeUserMessage(err?.message, describeFetchError(err, 'generate the script')) });
         } finally {
             setGenerating(false);
         }
@@ -411,7 +412,7 @@ export default function AdStudio({ onBack }) {
             const result = await apiGetIdeas();
             setIdeas(result);
         } catch (err) {
-            setIdeas({ error: err.message });
+            setIdeas({ error: safeUserMessage(err?.message, describeFetchError(err, 'load content ideas')) });
         } finally {
             setLoadingIdeas(false);
         }
@@ -465,7 +466,7 @@ export default function AdStudio({ onBack }) {
             const result = await apiGetAnalytics();
             setAnalytics(result);
         } catch (err) {
-            setAnalytics({ error: err.message });
+            setAnalytics({ error: safeUserMessage(err?.message, describeFetchError(err, 'load analytics')) });
         } finally {
             setLoadingAnalytics(false);
         }
@@ -476,7 +477,7 @@ export default function AdStudio({ onBack }) {
             const result = await apiGetSocialReadiness();
             setSocialReadiness(result);
         } catch (err) {
-            setReadinessError(err.message);
+            setReadinessError(safeUserMessage(err?.message, describeFetchError(err, 'check social readiness')));
         }
     }, []);
 
@@ -490,7 +491,7 @@ export default function AdStudio({ onBack }) {
             setAiReadiness(gcp);
             setSocialReadiness(social);
         } catch (err) {
-            setReadinessError(err.message);
+            setReadinessError(safeUserMessage(err?.message, describeFetchError(err, 'load readiness checks')));
         }
     }, []);
 
@@ -504,10 +505,10 @@ export default function AdStudio({ onBack }) {
                 setInventoryQuery('');
                 setShowInventoryPicker(true);
             } else {
-                setInventoryError(result.message || result.error || 'Inventory did not return any homes.');
+                setInventoryError(safeUserMessage(extractErrorMessage(result), 'Inventory did not return any homes.'));
             }
         } catch (err) {
-            setInventoryError(`Inventory load failed: ${err.message}`);
+            setInventoryError(safeUserMessage(err?.message, describeFetchError(err, 'load inventory')));
         } finally {
             setLoadingInventory(false);
         }
@@ -543,10 +544,10 @@ export default function AdStudio({ onBack }) {
             if (result.success) {
                 setGeneratedImages(prev => [result, ...prev]);
             } else {
-                setImageError(result.error || 'Image generation failed. Try a different prompt.');
+                setImageError(safeUserMessage(extractErrorMessage(result), 'Image generation failed. Try a different prompt.'));
             }
         } catch (err) {
-            setImageError('Image generation failed: ' + err.message);
+            setImageError(safeUserMessage(err?.message, describeFetchError(err, 'generate the image')));
         } finally {
             setGeneratingImage(false);
         }
@@ -588,10 +589,10 @@ export default function AdStudio({ onBack }) {
             if (result.success) {
                 setGeneratedFlyers(prev => [result, ...prev]);
             } else {
-                setFlyerError(result.error || 'Flyer generation failed');
+                setFlyerError(safeUserMessage(extractErrorMessage(result), 'Flyer generation failed'));
             }
         } catch (err) {
-            setFlyerError('Flyer generation failed: ' + err.message);
+            setFlyerError(safeUserMessage(err?.message, describeFetchError(err, 'generate the flyer')));
         } finally {
             setGeneratingFlyer(false);
         }
@@ -634,10 +635,10 @@ export default function AdStudio({ onBack }) {
                     }
                 }, 100);
             } else {
-                setVoiceoverError(result.error || 'Voiceover generation failed');
+                setVoiceoverError(safeUserMessage(extractErrorMessage(result), 'Voiceover generation failed'));
             }
         } catch (err) {
-            setVoiceoverError('Voiceover generation failed: ' + err.message);
+            setVoiceoverError(safeUserMessage(err?.message, describeFetchError(err, 'generate the voiceover')));
         } finally {
             setGeneratingVoiceover(false);
         }
@@ -687,10 +688,10 @@ export default function AdStudio({ onBack }) {
             if (result.success) {
                 setGeneratedVideo(result);
             } else {
-                setVideoError(result.error || 'Video generation failed');
+                setVideoError(safeUserMessage(extractErrorMessage(result), 'Video generation failed'));
             }
         } catch (err) {
-            setVideoError('Video generation failed: ' + err.message);
+            setVideoError(safeUserMessage(err?.message, describeFetchError(err, 'generate the video')));
         } finally {
             setGeneratingVideo(false);
         }
@@ -722,10 +723,10 @@ export default function AdStudio({ onBack }) {
             if (result.success) {
                 setGeneratedGenAIClip(result);
             } else {
-                setVideoError(result.error || 'GenAI clip generation failed');
+                setVideoError(safeUserMessage(extractErrorMessage(result), 'GenAI clip generation failed'));
             }
         } catch (err) {
-            setVideoError('GenAI clip generation failed: ' + err.message);
+            setVideoError(safeUserMessage(err?.message, describeFetchError(err, 'generate the AI clip')));
         } finally {
             setGeneratingGenAIClip(false);
         }
