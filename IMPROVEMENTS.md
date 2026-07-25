@@ -60,7 +60,7 @@
 9. ~~Sentry SDK~~ — **DONE**
 10. ~~A/B Testing Framework~~ — **DONE** (`tools/ab_testing.py`, 84 tests in `tests/test_ab_testing.py`; verified 2026-07-24)
 11. ~~Feature Flags~~ — **DONE** (`tools/feature_flags.py`, 40 tests in `tests/test_feature_flags.py`; verified 2026-07-24)
-12. **Documentation** — API docs (OpenAPI already available), user guides
+12. **Documentation** — API docs **CODE DONE** on branch `agent/api-docs` (pending PR): `scripts/generate_api_reference.py` renders `docs/API_REFERENCE.md` from the app's own OpenAPI schema (172 paths / 194 operations, grouped + auth hints), with a drift-coverage test (`tests/test_api_reference.py`, 5 tests). User guides remain (partially covered by `docs/CLIENT_WALKTHROUGH.md` / `docs/WALKTHROUGH.md`).
 
 ### Hardening (2026-07-24 cycle)
 - ~~Firestore RPC timeouts (event-loop wedge, LAUNCH_READINESS risk #2)~~ — **CODE DONE** on branch `agent/firestore-timeouts`: shared `database/rpc_timeout.py` (`FIRESTORE_RPC_TIMEOUT`, env `FIRESTORE_RPC_TIMEOUT_SECONDS`, default 10s) applied to every request-path Firestore RPC across `database/firestore_client.py`, `main.py`, `mira_routes.py`, `obsidian_routes.py`, `github_mira_trigger.py`, `chat_history.py`, `conversation_memory.py`, `audit_log.py`, `appointment_manager.py`, `lead_management.py`, `email_service.py`, `email_reply_drafts.py`, `auth/`, and request-path tools. Full suite green (1682 passed). Pending PR merge + deploy.
