@@ -11,6 +11,7 @@ import {
   Calendar
 } from 'lucide-react';
 import { BUSINESS_NAME } from '../constants';
+import { safeUserMessage, extractErrorMessage, responseErrorMessage } from '../utils/apiError';
 
 export default function SecureHub({ dealId }) {
   const [loading, setLoading] = useState(false);
@@ -50,12 +51,12 @@ export default function SecureHub({ dealId }) {
           setDocuments(data.documents);
           setVerified(true);
         } else {
-          setError(data.detail || "Unable to find your application details.");
+          setError(safeUserMessage(extractErrorMessage(data), "Unable to find your application details."));
         }
       } else if (res.status === 403) {
         setError("That doesn't match the phone number on file. Please try again or call us.");
       } else {
-        setError("Connection error. Please try again later.");
+        setError(await responseErrorMessage(res, { context: 'load your application details' }));
       }
     } catch (err) {
       console.error("Secure Hub verify error:", err);

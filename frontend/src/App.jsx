@@ -18,6 +18,7 @@ import { getJourneyAttribution } from './utils/attribution';
 import { attachPhoneClickTracking, isPublicAnalyticsPath, trackEvent } from './utils/analytics';
 import { navigateDocument } from './utils/documentNavigation';
 import { getInventoryCategoryRoute, isInventoryCategoryPath } from './utils/inventoryCategoryRoutes';
+import { safeUserMessage, extractErrorMessage, describeFetchError } from './utils/apiError';
 import {
   BUSINESS_NAME, BUSINESS_PHONE, BUSINESS_PHONE_RAW, BUSINESS_FULL_ADDRESS,
   BUSINESS_HOURS, BUSINESS_LICENSE, BUSINESS_CITY, BUSINESS_STATE
@@ -330,12 +331,16 @@ async function sendToAgent(sessionId, text, maxRetries = 2) {
       });
 
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        const httpError = new Error(`HTTP ${response.status}: ${response.statusText}`);
+        // Carry the status so describeFetchError can map it; the message keeps
+        // the legacy "HTTP 4xx" shape the retry check below matches on.
+        httpError.status = response.status;
+        throw httpError;
       }
 
       const data = await response.json();
 
-      if (data.error) return `System Error: ${data.error}`;
+      if (data.error) return `System Error: ${safeUserMessage(extractErrorMessage(data))}`;
       if (data.text) return data.text;
       if (data.content) return typeof data.content === 'string' ? data.content : JSON.stringify(data.content);
       if (data.candidates?.[0]?.content?.parts) {
@@ -581,7 +586,7 @@ function App() {
       const beginRes = await fetch('/api/admin/passkey/login/begin', { method: 'POST', credentials: 'same-origin' });
       if (!beginRes.ok) {
         const data = await beginRes.json().catch(() => ({}));
-        throw new Error(data.message || data.detail || 'Server error starting passkey login');
+        throw new Error(safeUserMessage(extractErrorMessage(data), 'Server error starting passkey login'));
       }
       const options = await beginRes.json();
       // Convert base64url challenge / ids back to ArrayBuffer
@@ -615,11 +620,13 @@ function App() {
         setAdminAuthed(true); setShowPinModal(false); setPasskeyError('');
         navigateTo('analytics');
       } else {
-        setPasskeyError(data.message || data.detail || data.error || 'Passkey login failed');
+        setPasskeyError(safeUserMessage(extractErrorMessage(data), 'Passkey login failed'));
       }
     } catch (err) {
       console.warn('Passkey login error:', err);
-      setPasskeyError(err.message || 'Passkey login failed');
+      // Keep intentional copy thrown above (e.g. "Passkey login cancelled");
+      // translate anything raw (network failures, browser DOMExceptions).
+      setPasskeyError(safeUserMessage(err?.message, describeFetchError(err, 'complete passkey sign-in')));
     } finally {
       setPasskeyLoading(false);
     }
@@ -659,7 +666,7 @@ function App() {
       });
       if (!beginRes.ok) {
         const data = await beginRes.json().catch(() => ({}));
-        throw new Error(data.message || data.detail || 'Unlock with PIN before registering a passkey');
+        throw new Error(safeUserMessage(extractErrorMessage(data), 'Unlock with PIN before registering a passkey'));
       }
       const options = await beginRes.json();
       options.user.id = base64urlToBuffer(options.user.id);
@@ -697,13 +704,13 @@ function App() {
         addToast('Passkey registered for this staff email.', 'success');
         navigateTo('system');
       } else {
-        setPasskeyEmailError(data.message || data.detail || data.error || 'Passkey registration failed');
+        setPasskeyEmailError(safeUserMessage(extractErrorMessage(data), 'Passkey registration failed'));
       }
     } catch (err) {
       console.warn('Passkey register error:', err);
       const message = err.name === 'InvalidStateError'
         ? 'That passkey provider already has a THO key. Revoke the deprecated key in System Hub, then register again.'
-        : err.message || 'Passkey registration failed';
+        : safeUserMessage(err?.message, describeFetchError(err, 'register your passkey'));
       setPasskeyEmailError(message);
     } finally {
       setPasskeyLoading(false);
@@ -935,7 +942,7 @@ function App() {
         navigateTo(ADMIN_PAGE_KEYS.has(activePage) ? activePage : 'analytics');
       } else {
         const fallbackHint = 'If the shared PIN expired, use Email me a sign-in code below.';
-        setPinError(data.error ? `${data.error} ${fallbackHint}` : `Incorrect PIN. ${fallbackHint}`);
+        setPinError(`${safeUserMessage(extractErrorMessage(data), 'Incorrect PIN.')} ${fallbackHint}`);
         setPinInput('');
       }
     } catch {
@@ -1013,7 +1020,7 @@ function App() {
         resetEmailCodeFlow();
         navigateTo(ADMIN_PAGE_KEYS.has(activePage) ? activePage : 'analytics');
       } else {
-        setEmailCodeError(data.error || 'Invalid or expired code.');
+        setEmailCodeError(safeUserMessage(extractErrorMessage(data), 'Invalid or expired code.'));
         setEmailCodeInput('');
       }
     } catch {

@@ -6,6 +6,7 @@ import {
   KeyRound, FileText, Trash2, RefreshCw, Fingerprint
 } from 'lucide-react';
 import adminFetch from '../adminFetch';
+import { describeFetchError, extractErrorMessage, responseErrorMessage, safeUserMessage } from '../utils/apiError';
 
 const PROJECTS = [
   {
@@ -359,7 +360,7 @@ export default function SystemHub({ onBack }) {
       if (healthRes?.ok) setDetailedHealth(await healthRes.json());
       setMetricsError('');
     } catch (err) {
-      setMetricsError(err.message || 'Metrics unavailable');
+      setMetricsError(describeFetchError(err, 'load metrics'));
     }
   }, []);
 
@@ -374,7 +375,7 @@ export default function SystemHub({ onBack }) {
         setPasskeyCredentials(data.credentials || []);
       }
     } catch (err) {
-      setPasskeyError(err.message || 'Passkey status unavailable');
+      setPasskeyError(describeFetchError(err, 'load passkey status'));
     }
   }, []);
 
@@ -397,12 +398,15 @@ export default function SystemHub({ onBack }) {
         credentials: 'same-origin',
       });
       const data = await response.json().catch(() => ({}));
-      if (!response.ok || data.success === false) {
-        throw new Error(data.message || data.detail || data.error || 'Could not revoke passkey');
+      if (!response.ok) {
+        throw new Error(await responseErrorMessage(response, { context: 'revoke the passkey', body: data }));
+      }
+      if (data.success === false) {
+        throw new Error(safeUserMessage(extractErrorMessage(data), 'Could not revoke passkey'));
       }
       await loadPasskeys();
     } catch (err) {
-      setPasskeyError(err.message || 'Could not revoke passkey');
+      setPasskeyError(safeUserMessage(err?.message, describeFetchError(err, 'revoke the passkey')));
     } finally {
       setPasskeyAction('');
     }

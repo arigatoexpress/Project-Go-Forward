@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Inbox, ChevronRight, ChevronDown, Lock, RefreshCw } from 'lucide-react';
 import adminFetch from '../adminFetch';
+import { safeUserMessage, extractErrorMessage } from '../utils/apiError';
 
 // Draft lifecycle statuses from GET /api/admin/email-reply-drafts.
 // Approve/reject decisions happen exclusively in the Telegram gate — this
@@ -58,7 +59,7 @@ export default function EmailDraftsPanel({ timeAgo }) {
         setDrafts(data.drafts || []);
       } else {
         setDrafts([]);
-        setError(data.error || 'Failed to load reply drafts.');
+        setError(safeUserMessage(extractErrorMessage(data), 'Failed to load reply drafts.'));
       }
     } catch (err) {
       console.error('Reply drafts fetch failed:', err);

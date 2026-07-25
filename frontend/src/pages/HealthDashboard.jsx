@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell } from 'recharts';
 import adminFetch from '../adminFetch';
+import { describeFetchError } from '../utils/apiError';
 
 const LATENCY_COLORS = {
   good: '#34d399',   // emerald-400
@@ -85,7 +86,7 @@ export default function HealthDashboard({ onBack }) {
 
       setLastUpdated(new Date());
     } catch (err) {
-      setError(err.message || 'Failed to load health data');
+      setError(describeFetchError(err, 'load health data'));
     } finally {
       setLoading(false);
     }
