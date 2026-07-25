@@ -13,6 +13,8 @@ from zoneinfo import ZoneInfo
 
 from google.cloud import firestore
 
+from database.rpc_timeout import FIRESTORE_RPC_TIMEOUT, FIRESTORE_TRANSACTION_TIMEOUT
+
 logger = logging.getLogger(__name__)
 
 TIMEZONE = ZoneInfo("America/Chicago")
@@ -105,7 +107,15 @@ class AppointmentManager:
 
     async def create_appointment(self, appt: Appointment) -> Appointment:
         """Create appointment with double-booking protection via transaction."""
-        return await asyncio.to_thread(self.create_appointment_sync, appt)
+        # wait_for bounds the whole transaction's wall-clock: the transactional
+        # helper's internal Begin/Commit RPCs take no timeout= hook, so a hung
+        # Commit would otherwise pin worker threads (and pile them up under
+        # load) until Cloud Run recycles the instance. On timeout the request
+        # fails fast; the orphaned thread still finishes or dies with the RPC.
+        return await asyncio.wait_for(
+            asyncio.to_thread(self.create_appointment_sync, appt),
+            timeout=FIRESTORE_TRANSACTION_TIMEOUT,
+        )
 
     def create_appointment_sync(self, appt: Appointment) -> Appointment:
         """Synchronous version of create_appointment for non-async callers."""
@@ -155,7 +165,7 @@ class AppointmentManager:
             # count joins the transaction's read-set / optimistic lock. Without
             # it the read is non-transactional and two concurrent bookings can
             # both see < MAX_PER_SLOT and both commit -> the slot is oversold.
-            existing = list(query.stream(transaction=transaction))
+            existing = list(query.stream(transaction=transaction, timeout=FIRESTORE_RPC_TIMEOUT))
             if len(existing) >= MAX_PER_SLOT:
                 raise ValueError(f"Time slot {appt.time_slot} on {appt.date} is fully booked.")
             transaction.set(doc_ref, appt.to_dict())
@@ -169,14 +179,14 @@ class AppointmentManager:
 
         def _cancel():
             doc_ref = self._collection().document(appointment_id)
-            doc = doc_ref.get()
+            doc = doc_ref.get(timeout=FIRESTORE_RPC_TIMEOUT)
             if not doc.exists:
                 return None
 
             appt = Appointment.from_dict(doc.to_dict())
             appt.status = "cancelled"
             appt.updated_at = datetime.now(TIMEZONE).isoformat()
-            doc_ref.update({"status": "cancelled", "updated_at": appt.updated_at})
+            doc_ref.update({"status": "cancelled", "updated_at": appt.updated_at}, timeout=FIRESTORE_RPC_TIMEOUT)
             return appt
 
         return await asyncio.to_thread(_cancel)
@@ -185,7 +195,7 @@ class AppointmentManager:
         """Retrieve appointment by ID."""
 
         def _get():
-            doc = self._collection().document(appointment_id).get()
+            doc = self._collection().document(appointment_id).get(timeout=FIRESTORE_RPC_TIMEOUT)
             if doc.exists:
                 return Appointment.from_dict(doc.to_dict())
             return None
@@ -197,7 +207,7 @@ class AppointmentManager:
 
         def _query():
             q = self._collection().where("date", "==", date_str).where("status", "==", "confirmed")
-            return [Appointment.from_dict(doc.to_dict()) for doc in q.stream()]
+            return [Appointment.from_dict(doc.to_dict()) for doc in q.stream(timeout=FIRESTORE_RPC_TIMEOUT)]
 
         return await asyncio.to_thread(_query)
 
@@ -211,7 +221,7 @@ class AppointmentManager:
                 .where("status", "==", "confirmed")
                 .order_by("date")
             )
-            return [Appointment.from_dict(doc.to_dict()) for doc in q.stream()]
+            return [Appointment.from_dict(doc.to_dict()) for doc in q.stream(timeout=FIRESTORE_RPC_TIMEOUT)]
 
         return await asyncio.to_thread(_query)
 
@@ -283,6 +293,6 @@ class AppointmentManager:
             if status:
                 q = q.where("status", "==", status)
             q = q.order_by("date", direction=firestore.Query.DESCENDING).limit(limit)
-            return [Appointment.from_dict(doc.to_dict()) for doc in q.stream()]
+            return [Appointment.from_dict(doc.to_dict()) for doc in q.stream(timeout=FIRESTORE_RPC_TIMEOUT)]
 
         return await asyncio.to_thread(_query)

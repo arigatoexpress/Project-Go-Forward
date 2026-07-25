@@ -13,6 +13,7 @@ from datetime import datetime, timedelta
 from google.cloud import firestore
 
 from database.models import LeadRecord
+from database.rpc_timeout import FIRESTORE_RPC_TIMEOUT, FIRESTORE_TRANSACTION_TIMEOUT
 
 logger = logging.getLogger(__name__)
 
@@ -185,7 +186,7 @@ class LeadManager:
         doc_ref = self.db.collection(self.collection_name).document(lead.lead_id)
 
         def _save():
-            doc_ref.set(lead.to_dict())
+            doc_ref.set(lead.to_dict(), timeout=FIRESTORE_RPC_TIMEOUT)
 
         await asyncio.to_thread(_save)
         return lead
@@ -197,7 +198,7 @@ class LeadManager:
         doc_ref = self.db.collection(self.collection_name).document(lead.lead_id)
 
         def _update():
-            doc_ref.set(lead.to_dict(), merge=True)
+            doc_ref.set(lead.to_dict(), merge=True, timeout=FIRESTORE_RPC_TIMEOUT)
 
         await asyncio.to_thread(_update)
         return lead
@@ -220,7 +221,7 @@ class LeadManager:
 
         @firestore.transactional
         def _transition(txn):
-            snapshot = doc_ref.get(transaction=txn)
+            snapshot = doc_ref.get(transaction=txn, timeout=FIRESTORE_RPC_TIMEOUT)
             if not snapshot.exists:
                 return None, None, False
             lead = Lead.from_dict(snapshot.to_dict())
@@ -231,14 +232,21 @@ class LeadManager:
                 txn.set(doc_ref, lead.to_dict(), merge=True)
             return lead, previous_status, changed
 
-        return await asyncio.to_thread(_transition, transaction)
+        # wait_for bounds the whole transaction's wall-clock: the transactional
+        # helper's internal Begin/Commit/Rollback RPCs take no timeout= hook, so
+        # a hung Commit would otherwise pin a worker thread until Cloud Run
+        # recycles the instance (see database/rpc_timeout.py).
+        return await asyncio.wait_for(
+            asyncio.to_thread(_transition, transaction),
+            timeout=FIRESTORE_TRANSACTION_TIMEOUT,
+        )
 
     async def get_lead(self, lead_id: str) -> Lead | None:
         """Retrieve lead by ID"""
         doc_ref = self.db.collection(self.collection_name).document(lead_id)
 
         def _get():
-            return doc_ref.get()
+            return doc_ref.get(timeout=FIRESTORE_RPC_TIMEOUT)
 
         doc = await asyncio.to_thread(_get)
 
@@ -253,7 +261,7 @@ class LeadManager:
         )
 
         def _stream():
-            for doc in query.stream():
+            for doc in query.stream(timeout=FIRESTORE_RPC_TIMEOUT):
                 return Lead.from_dict(doc.to_dict())
             return None
 
@@ -271,7 +279,7 @@ class LeadManager:
         query = self.db.collection(self.collection_name).where("phone", "==", phone).limit(1)
 
         def _stream():
-            for doc in query.stream():
+            for doc in query.stream(timeout=FIRESTORE_RPC_TIMEOUT):
                 return Lead.from_dict(doc.to_dict())
             return None
 
@@ -288,7 +296,7 @@ class LeadManager:
 
         def _stream():
             leads: list[Lead] = []
-            for doc in query.stream():
+            for doc in query.stream(timeout=FIRESTORE_RPC_TIMEOUT):
                 try:
                     leads.append(Lead.from_dict(doc.to_dict()))
                 except Exception as exc:

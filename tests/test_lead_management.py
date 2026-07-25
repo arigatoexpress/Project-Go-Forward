@@ -150,11 +150,13 @@ class _FakeTransaction:
 
 
 class _FakeTransactionalDoc:
-    def __init__(self, store):
+    def __init__(self, store, db):
         self.store = store
+        self._db = db
 
-    def get(self, transaction=None):
+    def get(self, transaction=None, timeout=None):
         assert transaction is not None
+        self._db.last_get_kwargs = {"transaction": transaction, "timeout": timeout}
         return type(
             "Snapshot",
             (),
@@ -163,20 +165,22 @@ class _FakeTransactionalDoc:
 
 
 class _FakeTransactionalCollection:
-    def __init__(self, store):
+    def __init__(self, store, db):
         self.store = store
+        self._db = db
 
     def document(self, _lead_id):
-        return _FakeTransactionalDoc(self.store)
+        return _FakeTransactionalDoc(self.store, self._db)
 
 
 class _FakeTransactionalDB:
     def __init__(self, store):
         self.store = store
         self.txn = _FakeTransaction(store)
+        self.last_get_kwargs = None
 
     def collection(self, _name):
-        return _FakeTransactionalCollection(self.store)
+        return _FakeTransactionalCollection(self.store, self)
 
     def transaction(self):
         return self.txn
@@ -200,6 +204,10 @@ def test_manager_persists_lifecycle_in_a_firestore_transaction(monkeypatch):
     assert transitioned.status == "contacted"
     assert store["first_contacted_by"] == "admin:ari"
     assert lm.db.txn.writes == 1
+    # Transactional read must be bounded against a Firestore hang (risk #2).
+    from database.rpc_timeout import FIRESTORE_RPC_TIMEOUT
+
+    assert lm.db.last_get_kwargs["timeout"] == FIRESTORE_RPC_TIMEOUT
 
     _, _, replay_changed = asyncio.run(
         lm.transition_lead_status("L1", "contacted", actor="admin:other")
@@ -231,7 +239,7 @@ class _FakeQuery:
     def limit(self, *a, **k):
         return self
 
-    def stream(self):
+    def stream(self, timeout: float | None = None):
         return iter(self._docs)
 
 

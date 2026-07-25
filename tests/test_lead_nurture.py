@@ -45,7 +45,7 @@ class _FakeAddable:
     def __init__(self):
         self.added: list[dict] = []
 
-    def add(self, data: dict) -> None:
+    def add(self, data: dict, timeout: float | None = None) -> None:
         self.added.append(deepcopy(data))
 
 
@@ -65,7 +65,7 @@ class _FakeQuery:
         q._limit = n
         return q
 
-    def stream(self):
+    def stream(self, timeout: float | None = None):
         emitted = 0
         for doc_id, data in self._docs.items():
             if not self._matches(data):

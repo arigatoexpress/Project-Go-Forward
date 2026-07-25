@@ -91,6 +91,10 @@ def save_lead(
     # this write succeeds.
     persisted = False
     try:
+        # Lazy like the lead_management import below: keeps module import light
+        # for tests and bounds this durable write against a Firestore hang
+        # (database/rpc_timeout.py).
+        from database.rpc_timeout import FIRESTORE_RPC_TIMEOUT
         from lead_management import Lead, normalize_phone
 
         lead = Lead(
@@ -102,7 +106,9 @@ def save_lead(
             source="chat",
             triage_notes=interest_notes,
         )
-        _get_lead_manager().db.collection("leads").document(lead.lead_id).set(lead.to_dict())
+        _get_lead_manager().db.collection("leads").document(lead.lead_id).set(
+            lead.to_dict(), timeout=FIRESTORE_RPC_TIMEOUT
+        )
         persisted = True
     except Exception as e:
         logger.error(f"Lead Firestore persist FAILED — lead at risk: {e}")

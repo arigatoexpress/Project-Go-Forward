@@ -58,7 +58,7 @@ def _capture_analytics(monkeypatch, main):
         def __init__(self, name):
             self.name = name
 
-        def add(self, doc):
+        def add(self, doc, **kwargs):
             captured.setdefault(self.name, []).append(doc)
 
     monkeypatch.setattr(main._db.db, "collection", lambda name: RecColl(name))

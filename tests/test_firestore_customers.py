@@ -35,18 +35,18 @@ class FakeDocumentReference:
         self._collection = collection
         self.id = doc_id
 
-    def get(self) -> FakeDocumentSnapshot:
+    def get(self, timeout: float | None = None) -> FakeDocumentSnapshot:
         return FakeDocumentSnapshot(self, self._collection._docs.get(self.id))
 
-    def set(self, data: dict) -> None:
+    def set(self, data: dict, timeout: float | None = None) -> None:
         self._collection._docs[self.id] = deepcopy(data)
 
-    def update(self, data: dict) -> None:
+    def update(self, data: dict, timeout: float | None = None) -> None:
         if self.id not in self._collection._docs:
             raise KeyError(self.id)
         self._collection._docs[self.id].update(deepcopy(data))
 
-    def delete(self) -> None:
+    def delete(self, timeout: float | None = None) -> None:
         self._collection._docs.pop(self.id, None)
 
 
@@ -67,7 +67,7 @@ class FakeQuery:
     def limit(self, limit_value: int) -> "FakeQuery":
         return FakeQuery(self._collection, list(self._filters), limit_value)
 
-    def stream(self):
+    def stream(self, timeout: float | None = None):
         emitted = 0
         for doc_id, data in self._collection._docs.items():
             if not self._matches(data):
@@ -105,7 +105,7 @@ class FakeBatch:
     def set(self, doc_ref: FakeDocumentReference, data: dict) -> None:
         self._writes.append((doc_ref, deepcopy(data)))
 
-    def commit(self) -> None:
+    def commit(self, timeout: float | None = None) -> None:
         for doc_ref, data in self._writes:
             doc_ref.set(data)
         self._writes.clear()

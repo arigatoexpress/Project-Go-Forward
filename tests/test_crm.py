@@ -24,7 +24,7 @@ def _no_external_writes(monkeypatch):
     monkeypatch.setattr(crm_tools.os, "access", lambda *a, **k: False)
 
     class _FakeDocRef:
-        def set(self, data):
+        def set(self, data, timeout=None):
             pass
 
     class _FakeColl:
