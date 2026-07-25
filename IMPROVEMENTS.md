@@ -25,7 +25,7 @@
 #### A. Error Handling
 - [x] Add global error boundary component — **DONE**
 - [x] Sentry integration for error tracking — **DONE** (`@sentry/react` ^10.51.0 installed, `browserTracingIntegration` wired, `ErrorBoundary` hooks into `window.__SENTRY_HOOK__`)
-- [x] Better error messages for users — **CODE DONE** on branch `agent/user-safe-errors` (2026-07-25): shared `frontend/src/utils/apiError.js` (`extractErrorMessage`/`safeUserMessage`/`friendlyStatusMessage`/`describeFetchError`, 31 vitest cases) wired into every frontend error-surfacing path — App, adminFetch, SmartForm, Contact, SecureHub, AdStudio, HealthDashboard, SystemHub, Appointments, CRM, ChatHistory, InventoryBrowse, InventoryManager, DocumentCenter. Raw technical strings (`TypeError`, `HTTP 500`, str(exception) leaks) can no longer reach the UI. Pending PR merge.
+- [x] Better error messages for users — **CODE DONE** on branch `agent/user-safe-errors` (2026-07-25): shared `frontend/src/utils/apiError.js` (`extractErrorMessage`/`safeUserMessage`/`friendlyStatusMessage`/`describeFetchError`, 31 vitest cases) wired into every frontend error-surfacing path — App, adminFetch, SmartForm, Contact, SecureHub, AdStudio, HealthDashboard, SystemHub, Appointments, CRM, ChatHistory, InventoryBrowse, InventoryManager, DocumentCenter. Raw technical strings (`TypeError`, `HTTP 500`, str(exception) leaks) can no longer reach the UI. **MERGED via PR #300 (2026-07-25).**
 
 #### B. Performance
 - [x] Redis caching for inventory queries — **DONE** (`caching.py` with Redis + in-memory fallback)
