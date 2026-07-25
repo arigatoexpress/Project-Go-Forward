@@ -25,8 +25,9 @@ class _FakeDocRef:
     def __init__(self, sink):
         self._sink = sink
 
-    def set(self, data):
+    def set(self, data, timeout=None):
         self._sink["data"] = data
+        self._sink["timeout"] = timeout
 
 
 class _FakeColl:
@@ -61,6 +62,10 @@ def test_save_lead_persists_to_firestore(monkeypatch):
     assert "5125550123" in sink["data"]["phone"].replace("+1", "")  # normalized + stored
     assert sink["data"]["source"] == "chat"
     assert sink["data"]["triage_notes"] == "wants a 3/2 doublewide under 100k"
+    # Durable write must be bounded against a Firestore hang (event-loop wedge).
+    from database.rpc_timeout import FIRESTORE_RPC_TIMEOUT
+
+    assert sink["timeout"] == FIRESTORE_RPC_TIMEOUT
 
 
 def test_save_lead_reports_failure_when_firestore_down(monkeypatch):

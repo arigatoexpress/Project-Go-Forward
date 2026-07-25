@@ -28,3 +28,12 @@ def _load_timeout() -> float:
 
 
 FIRESTORE_RPC_TIMEOUT: float = _load_timeout()
+
+# Wall-clock budget for a whole Firestore transaction. The
+# ``@firestore.transactional`` helper performs its Begin/Commit/Rollback RPCs
+# internally with no public per-RPC timeout hook, and it may retry the entire
+# transaction — so a hung Commit cannot be bounded with ``timeout=`` above.
+# Bound it at the call site instead: wrap the ``asyncio.to_thread(...)``
+# running the transaction in ``asyncio.wait_for(..., FIRESTORE_TRANSACTION_TIMEOUT)``.
+# Sized as a few RPC-timeout multiples to allow transactional retries.
+FIRESTORE_TRANSACTION_TIMEOUT: float = FIRESTORE_RPC_TIMEOUT * 3

@@ -13,7 +13,7 @@ from zoneinfo import ZoneInfo
 
 from google.cloud import firestore
 
-from database.rpc_timeout import FIRESTORE_RPC_TIMEOUT
+from database.rpc_timeout import FIRESTORE_RPC_TIMEOUT, FIRESTORE_TRANSACTION_TIMEOUT
 
 logger = logging.getLogger(__name__)
 
@@ -107,7 +107,15 @@ class AppointmentManager:
 
     async def create_appointment(self, appt: Appointment) -> Appointment:
         """Create appointment with double-booking protection via transaction."""
-        return await asyncio.to_thread(self.create_appointment_sync, appt)
+        # wait_for bounds the whole transaction's wall-clock: the transactional
+        # helper's internal Begin/Commit RPCs take no timeout= hook, so a hung
+        # Commit would otherwise pin worker threads (and pile them up under
+        # load) until Cloud Run recycles the instance. On timeout the request
+        # fails fast; the orphaned thread still finishes or dies with the RPC.
+        return await asyncio.wait_for(
+            asyncio.to_thread(self.create_appointment_sync, appt),
+            timeout=FIRESTORE_TRANSACTION_TIMEOUT,
+        )
 
     def create_appointment_sync(self, appt: Appointment) -> Appointment:
         """Synchronous version of create_appointment for non-async callers."""

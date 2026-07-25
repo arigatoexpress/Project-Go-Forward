@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 from google.cloud import firestore
 
 from database.models import LeadRecord
-from database.rpc_timeout import FIRESTORE_RPC_TIMEOUT
+from database.rpc_timeout import FIRESTORE_RPC_TIMEOUT, FIRESTORE_TRANSACTION_TIMEOUT
 
 logger = logging.getLogger(__name__)
 
@@ -221,7 +221,7 @@ class LeadManager:
 
         @firestore.transactional
         def _transition(txn):
-            snapshot = doc_ref.get(transaction=txn)
+            snapshot = doc_ref.get(transaction=txn, timeout=FIRESTORE_RPC_TIMEOUT)
             if not snapshot.exists:
                 return None, None, False
             lead = Lead.from_dict(snapshot.to_dict())
@@ -232,7 +232,14 @@ class LeadManager:
                 txn.set(doc_ref, lead.to_dict(), merge=True)
             return lead, previous_status, changed
 
-        return await asyncio.to_thread(_transition, transaction)
+        # wait_for bounds the whole transaction's wall-clock: the transactional
+        # helper's internal Begin/Commit/Rollback RPCs take no timeout= hook, so
+        # a hung Commit would otherwise pin a worker thread until Cloud Run
+        # recycles the instance (see database/rpc_timeout.py).
+        return await asyncio.wait_for(
+            asyncio.to_thread(_transition, transaction),
+            timeout=FIRESTORE_TRANSACTION_TIMEOUT,
+        )
 
     async def get_lead(self, lead_id: str) -> Lead | None:
         """Retrieve lead by ID"""
