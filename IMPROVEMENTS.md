@@ -60,7 +60,7 @@
 9. ~~Sentry SDK~~ — **DONE**
 10. **A/B Testing Framework** — Test UI changes
 11. **Feature Flags** — Roll out features gradually
-12. **Documentation** — API docs (OpenAPI already available), user guides
+12. **Documentation** — API docs **CODE DONE** on branch `agent/api-docs` (pending PR): `scripts/generate_api_reference.py` renders `docs/API_REFERENCE.md` from the app's own OpenAPI schema (172 paths / 194 operations, grouped + auth hints), with a drift-coverage test (`tests/test_api_reference.py`, 5 tests). User guides remain (partially covered by `docs/CLIENT_WALKTHROUGH.md` / `docs/WALKTHROUGH.md`).
 
 ### Operator / Launch Blockers (see LAUNCH_READINESS.md)
 - Ops bootstrap (partner API key, monitoring, backups, budget alarm)
