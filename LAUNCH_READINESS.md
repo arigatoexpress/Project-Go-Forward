@@ -3,7 +3,7 @@
 Status ledger for the pre-launch punch list. GO requires every row ✅ and
 operator sign-off on this file's PR trail.
 
-Last updated: 2026-06-10 (Phase 0 + Phase 1 code-side complete; remaining items are one-click workflows + operator steps).
+Last updated: 2026-07-24 (Firestore RPC-timeout hardening code-complete on branch `agent/firestore-timeouts`, pending PR; remaining items are one-click workflows + operator steps). Previously: 2026-06-10 (Phase 0 + Phase 1 code-side complete).
 
 ## Punch list
 
@@ -37,7 +37,7 @@ Last updated: 2026-06-10 (Phase 0 + Phase 1 code-side complete; remaining items 
 ## Known accepted risks (pre-launch)
 
 1. **starlette PYSEC-2026-161** — unfixable until google-adk 2.x; revisit on the adk-2 branch.
-2. **Event-loop wedge under Firestore hang** — a hanging Firestore call can stall an instance (see `docs/RUNBOOK.md` §3.2). Cloud Run probes recycle wedged instances; full fix (timeouts on Firestore calls) is post-launch hardening.
+2. **Event-loop wedge under Firestore hang** — a hanging Firestore call can stall an instance (see `docs/RUNBOOK.md` §3.2). Cloud Run probes recycle wedged instances. **CODE FIX on branch `agent/firestore-timeouts` (2026-07-24):** all request-path Firestore RPCs now pass a bounded `timeout` (shared `database/rpc_timeout.py`, default 10s, env `FIRESTORE_RPC_TIMEOUT_SECONDS`); suite green. Risk clears once that branch merges and deploys; until then it stands.
 3. **Two empty `protection test` commits** in `main` history — no-op artifacts of the 2026-06-09 branch-protection verification.
 
 ## GO decision
