@@ -493,7 +493,8 @@ export default function InventoryBrowse({
       }
       const data = await resp.json();
       if (data.success === false) {
-        throw new Error(data.error || 'Failed to load inventory');
+        setError(safeUserMessage(extractErrorMessage(data), 'Failed to load inventory. Please try again.'));
+        return;
       }
       setHomes((data.homes || []).map(home => ({
         ...home,
