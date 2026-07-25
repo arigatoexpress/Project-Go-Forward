@@ -252,7 +252,7 @@ class FakeCollection:
         doc_id = doc_id or f"{self._name}-{len(self._store) + 1}"
         return FakeDocumentRef(self._store, doc_id)
 
-    def add(self, data: dict):
+    def add(self, data: dict, timeout: float | None = None):
         doc_id = f"{self._name}-{len(self._store) + 1}"
         self._store[doc_id] = dict(data)
         return FakeDocumentRef(self._store, doc_id)
