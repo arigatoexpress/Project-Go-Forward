@@ -28,6 +28,7 @@ EXCLUDED_PARTS = {
     "tests",
     "scripts",
     "scratch",  # local-only scratch files (untracked, never shipped)
+    ".worktrees",  # local git worktrees (untracked scratch space, never shipped)
 }
 
 # Hardware/OS/local-host assumptions that must never appear in source.
