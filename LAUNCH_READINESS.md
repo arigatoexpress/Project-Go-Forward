@@ -3,7 +3,7 @@
 Status ledger for the pre-launch punch list. GO requires every row ✅ and
 operator sign-off on this file's PR trail.
 
-Last updated: 2026-07-25 (Firestore RPC-timeout hardening **merged via PR #296** — risk #2 code is on `main`; clears fully on the next production traffic promotion, which remains an operator canary cutover). Previously: 2026-07-25 (firestore-timeouts branch hardened by independent coverage audit — 3 remaining gaps closed); 2026-07-24 (code-complete on branch `agent/firestore-timeouts`); 2026-06-10 (Phase 0 + Phase 1 code-side complete).
+Last updated: 2026-07-25 (merge-train cycle: **PR #298** staging-gauntlet e2e tests codified for partner-API auth + DocuSeal e-sign, **PR #299** API reference docs, **PR #300** user-safe error messages — all merged; code side of IMPROVEMENTS.md fully closed except user guides). Previously: 2026-07-25 (Firestore RPC-timeout hardening **merged via PR #296** — risk #2 code is on `main`; clears fully on the next production traffic promotion, which remains an operator canary cutover). Previously: 2026-07-24 (code-complete on branch `agent/firestore-timeouts`); 2026-06-10 (Phase 0 + Phase 1 code-side complete).
 
 ## Punch list
 
@@ -31,7 +31,7 @@ Last updated: 2026-07-25 (Firestore RPC-timeout hardening **merged via PR #296**
 | Live frontend smoke | ✅ | Headless Chromium against prod: home + inventory render live data (273 houses hero, property cards, images), Document Center correctly gated by admin modal, Contact renders. Only console error = sandbox TLS-proxy artifact. |
 | Backend dependency audit | ✅ | pip-audit clean of runtime findings after google-adk 2.5.0 + starlette 1.3.1 + pypdf 6.14.2 (PR #297). Only remainder: setuptools 80.9.0 PYSEC-2026-3447 (build tool, not a runtime pin). |
 | Frontend dependency audit | ✅ | `npm audit`: 1 moderate (dev-chain `brace-expansion`), no prod-impacting findings |
-| E2E vs staging revision | ❌ TODO | Needs a staging revision + operator-run pass: inventory browse, lead submission, admin login (PIN + passkey), packet generation + download, e-sign flow, partner API auth |
+| E2E vs staging revision | ❌ TODO | Needs a staging revision + operator-run pass: inventory browse, lead submission, admin login (PIN + passkey), packet generation + download, e-sign flow, partner API auth. **PR #298 (merged 2026-07-25):** `tests/e2e/test_staging_gauntlet.py` codifies the two previously untestable flows (partner-API authorized access, DocuSeal e-sign) — 7 tests, skip gracefully until the operator provisions the `tho-api-key` secret and the e-sign server |
 | Load sanity (20 rps × 5 min, p95 < 1s, zero 5xx) | ❌ TODO | Run against a staging revision, not prod |
 
 ## Known accepted risks (pre-launch)
