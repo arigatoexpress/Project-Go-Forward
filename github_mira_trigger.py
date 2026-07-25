@@ -27,6 +27,7 @@ from pydantic import BaseModel
 
 import mira_notify
 from database.firestore_client import get_database
+from database.rpc_timeout import FIRESTORE_RPC_TIMEOUT
 from structured_logging import logger as struct_logger
 from tools.partner_webhooks import dispatch_partner_event
 
@@ -289,7 +290,7 @@ def _log_activity(
             },
             "created_at": datetime.now(UTC).isoformat(),
         }
-        db.db.collection("activities").document(activity["id"]).set(activity)
+        db.db.collection("activities").document(activity["id"]).set(activity, timeout=FIRESTORE_RPC_TIMEOUT)
     except Exception as e:
         struct_logger.warning("github_mira_trigger activity log failed", error=str(e))
 

@@ -41,7 +41,7 @@ class FakeQuery:
     def limit(self, n):
         return FakeQuery(self._docs, self._order_by, self._direction, n)
 
-    def stream(self):
+    def stream(self, timeout: float | None = None):
         docs = list(self._docs)
         if self._order_by:
             reverse = self._direction == "DESCENDING"
@@ -55,7 +55,7 @@ class FakeCollection:
     def __init__(self, docs):
         self._docs = docs
 
-    def stream(self):
+    def stream(self, timeout: float | None = None):
         return iter(self._docs)
 
     def order_by(self, field, direction="ASCENDING"):

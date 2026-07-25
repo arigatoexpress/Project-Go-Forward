@@ -10,6 +10,8 @@ from datetime import datetime
 
 from google.cloud import firestore
 
+from database.rpc_timeout import FIRESTORE_RPC_TIMEOUT
+
 logger = logging.getLogger(__name__)
 
 
@@ -201,7 +203,7 @@ class ConversationMemory:
         doc_ref = self.db.collection(self.collection_name).document(session_id)
 
         def _get():
-            return doc_ref.get()
+            return doc_ref.get(timeout=FIRESTORE_RPC_TIMEOUT)
 
         doc = await asyncio.to_thread(_get)
 
@@ -219,7 +221,7 @@ class ConversationMemory:
         doc_ref = self.db.collection(self.collection_name).document(context.session_id)
 
         def _save():
-            doc_ref.set(context.to_dict())
+            doc_ref.set(context.to_dict(), timeout=FIRESTORE_RPC_TIMEOUT)
 
         await asyncio.to_thread(_save)
 

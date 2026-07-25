@@ -40,7 +40,7 @@ def test_analytics_event_is_stored(monkeypatch):
         def __init__(self, name):
             self.name = name
 
-        def add(self, doc):
+        def add(self, doc, timeout: float | None = None):
             captured.setdefault(self.name, []).append(doc)
 
     monkeypatch.setattr(main._db.db, "collection", lambda name: RecColl(name))
