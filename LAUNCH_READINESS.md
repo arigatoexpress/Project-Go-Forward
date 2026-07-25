@@ -29,14 +29,14 @@ Last updated: 2026-06-10 (Phase 0 + Phase 1 code-side complete; remaining items 
 | Frontend lint | ✅ | `eslint .` clean |
 | ruff | ✅ | PR #138: repo-wide `ruff check .` clean (379 findings fixed); CI lint step widened to the full repo. |
 | Live frontend smoke | ✅ | Headless Chromium against prod: home + inventory render live data (273 houses hero, property cards, images), Document Center correctly gated by admin modal, Contact renders. Only console error = sandbox TLS-proxy artifact. |
-| Backend dependency audit | ✅* | pip-audit: 33 findings → 1 after upgrades (pypdf 6.10.2, Pillow 12.2.0, google-adk 1.28.1, fastapi 0.136.3, pytest 9.0.3). *Remaining: starlette PYSEC-2026-161 — fix (1.0.1) blocked by `google-adk<2.0`; tracked for the google-adk 2.x upgrade branch. |
+| Backend dependency audit | ✅ | pip-audit clean of runtime findings after google-adk 2.5.0 + starlette 1.3.1 + pypdf 6.14.2 (PR #297). Only remainder: setuptools 80.9.0 PYSEC-2026-3447 (build tool, not a runtime pin). |
 | Frontend dependency audit | ✅ | `npm audit`: 1 moderate (dev-chain `brace-expansion`), no prod-impacting findings |
 | E2E vs staging revision | ❌ TODO | Needs a staging revision + operator-run pass: inventory browse, lead submission, admin login (PIN + passkey), packet generation + download, e-sign flow, partner API auth |
 | Load sanity (20 rps × 5 min, p95 < 1s, zero 5xx) | ❌ TODO | Run against a staging revision, not prod |
 
 ## Known accepted risks (pre-launch)
 
-1. **starlette PYSEC-2026-161** — unfixable until google-adk 2.x; revisit on the adk-2 branch.
+1. ~~starlette PYSEC-2026-161~~ — **CLEARED by this PR**: google-adk 2.5.0 permits starlette 1.3.1 (also clears PYSEC-2026-248/249/2280/2281); pypdf 6.14.2 clears CVE-2026-59935/36/37/38. pip-audit remainder: setuptools 80.9.0 PYSEC-2026-3447 (build tool, not a runtime pin).
 2. **Event-loop wedge under Firestore hang** — a hanging Firestore call can stall an instance (see `docs/RUNBOOK.md` §3.2). Cloud Run probes recycle wedged instances; full fix (timeouts on Firestore calls) is post-launch hardening.
 3. **Two empty `protection test` commits** in `main` history — no-op artifacts of the 2026-06-09 branch-protection verification.
 
