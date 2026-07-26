@@ -2241,7 +2241,7 @@ def healthz_detailed(request: Request) -> JSONResponse:
     )
 
 
-# ─────────────────────────── Readiness probe (/readyz) ───────────────────────
+# ─────────────────────── Readiness probe (/readyz) ──────────────────────────
 #
 # Distinct from /healthz (liveness). /healthz answers "is the process up?" and
 # stays 200 even on a broken image — which is exactly how the 2026-06-23 chat
