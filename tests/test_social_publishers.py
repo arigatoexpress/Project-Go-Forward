@@ -239,7 +239,7 @@ def test_prepare_draft_does_not_call_requests(monkeypatch):
     assert result["publish_attempted"] is False
 
 
-def test_prepare_publishes_only_with_explicit_allow_publish(monkeypatch):
+def test_prepare_never_publishes_when_legacy_gate_and_credentials_are_present(monkeypatch):
     monkeypatch.setenv("TIKTOK_ACCESS_TOKEN", "tok-abc")
     monkeypatch.setenv("PUBLIC_SITE_URL", "https://example.com")
     monkeypatch.setenv("THO_SOCIAL_PUBLISH_ENABLED", "true")
@@ -256,12 +256,11 @@ def test_prepare_publishes_only_with_explicit_allow_publish(monkeypatch):
         scheduled_time="2026-07-01T12:00:00",
         caption="New listing tour",
         video_url="https://cdn.example.com/clip.mp4",
-        allow_publish=True,
     )
 
-    assert result["status"] == "published"
-    assert result["publish_attempted"] is True
-    assert len(calls) == 1
+    assert result["status"] == "draft_ready"
+    assert result["publish_attempted"] is False
+    assert calls == []
 
 
 # ---------------------------------------------------------------------------

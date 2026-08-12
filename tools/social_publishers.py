@@ -13,7 +13,6 @@ import os
 import re
 import time
 import uuid
-from datetime import datetime
 from typing import Any
 from urllib.parse import urlencode, urljoin
 
@@ -259,9 +258,8 @@ def prepare_or_publish_social_post(
     hashtags: list[str] | None = None,
     video_url: str | None = None,
     campaign: str | None = None,
-    allow_publish: bool = False,
 ) -> dict[str, Any]:
-    """Create a safe draft, or publish only when the caller explicitly opts in."""
+    """Create a safe draft. Live provider invocation has no runtime entry point."""
     hashtags = hashtags or []
     asset_url = _absolute_asset_url(video_url)
     full_caption = (caption or "").strip()
@@ -274,95 +272,12 @@ def prepare_or_publish_social_post(
     if cta_link:
         full_caption = f"{full_caption}\n{cta_link}".strip()
 
-    if not allow_publish:
-        return _draft_response(
-            platform=platform,
-            content_type=content_type,
-            caption=full_caption,
-            hashtags=hashtags,
-            asset_url=asset_url,
-            scheduled_time=scheduled_time,
-            reason="A separate, explicit publish action is required before any platform API can be called.",
-        )
-
-    if platform not in {"tiktok", "instagram_reels"}:
-        return _draft_response(
-            platform=platform,
-            content_type=content_type,
-            caption=full_caption,
-            hashtags=hashtags,
-            asset_url=asset_url,
-            scheduled_time=scheduled_time,
-            reason="Platform is queued locally; live adapter is not implemented yet.",
-        )
-
-    if content_type == "video" and not asset_url:
-        return _draft_response(
-            platform=platform,
-            content_type=content_type,
-            caption=full_caption,
-            hashtags=hashtags,
-            asset_url=asset_url,
-            scheduled_time=scheduled_time,
-            reason="A public video URL is required before this can be published.",
-        )
-
-    readiness = social_readiness()
-    platform_ready = readiness["platforms"].get(platform, {})
-    if not platform_ready.get("configured"):
-        missing = ", ".join(platform_ready.get("required_env") or [])
-        return _draft_response(
-            platform=platform,
-            content_type=content_type,
-            caption=full_caption,
-            hashtags=hashtags,
-            asset_url=asset_url,
-            scheduled_time=scheduled_time,
-            reason=f"Missing social publishing configuration: {missing or 'unknown'}",
-        )
-
-    if not readiness["publish_enabled"]:
-        return _draft_response(
-            platform=platform,
-            content_type=content_type,
-            caption=full_caption,
-            hashtags=hashtags,
-            asset_url=asset_url,
-            scheduled_time=scheduled_time,
-            reason="THO_SOCIAL_PUBLISH_ENABLED is not enabled, so this remains a reviewed draft.",
-        )
-
-    if platform == "tiktok":
-        publish_result = _publish_tiktok_video(asset_url or "", full_caption)
-    else:
-        publish_result = _publish_instagram_reel(asset_url or "", full_caption)
-
-    if not publish_result.get("success"):
-        return {
-            **_draft_response(
-                platform=platform,
-                content_type=content_type,
-                caption=full_caption,
-                hashtags=hashtags,
-                asset_url=asset_url,
-                scheduled_time=scheduled_time,
-                reason=publish_result.get("error", "Live publish failed."),
-            ),
-            "success": False,
-        }
-
-    return {
-        "success": True,
-        "post_id": publish_result["post_id"],
-        "platform": platform,
-        "content_type": content_type,
-        "scheduled_time": scheduled_time,
-        "caption": full_caption,
-        "hashtags": hashtags,
-        "video_url": asset_url,
-        "status": "published",
-        "live_integration": True,
-        "publish_attempted": True,
-        "api_debug": publish_result.get("api_response"),
-        "published_at": datetime.now().isoformat(),
-    }
+    return _draft_response(
+        platform=platform,
+        content_type=content_type,
+        caption=full_caption,
+        hashtags=hashtags,
+        asset_url=asset_url,
+        scheduled_time=scheduled_time,
+        reason="A live publish action is locked until purpose-bound owner approval and replay protection exist.",
+    )
