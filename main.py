@@ -2280,6 +2280,27 @@ def _readyz_check_firestore() -> dict:
     return {"ok": True}
 
 
+def _readyz_check_inventory_source() -> dict:
+    """Report selected-source truth without making stale data a process outage."""
+    requested = _inventory_source_pref()
+    if requested == "legacy":
+        context = load_legacy_inventory_snapshot_metadata()
+        status = source_status(
+            context,
+            requested=requested,
+            selected_path="legacy",
+        )
+        status["ok"] = status.get("freshness") == "fresh"
+        status["current_inventory_count"] = context.get("total_inventory")
+        return status
+
+    context = _resolve_public_inventory_context()
+    status = dict(context.get("source_status") or {})
+    status["ok"] = status.get("freshness") == "fresh"
+    status["current_inventory_count"] = context.get("current_inventory_count")
+    return status
+
+
 @app.api_route("/readyz", methods=["GET", "HEAD"], response_class=JSONResponse)
 @app.api_route("/readyz/", methods=["GET", "HEAD"], response_class=JSONResponse)
 @limiter.exempt
@@ -2287,8 +2308,9 @@ def readyz() -> JSONResponse:
     """Real readiness probe — exercises runtime deps a working request needs.
 
     Hard checks (failure -> 503): prompt templates render, regulatory documents
-    present. Soft check (reported, never fails the probe locally): Firestore
-    reachability. Returns 200 {"ready": true, "checks": {...}} or 503
+    present. Soft checks (reported, never fail the serving process): Firestore
+    reachability and selected inventory-source freshness. Returns 200
+    {"ready": true, "checks": {...}} or 503
     {"ready": false, "failed": "<check>", "checks": {...}}.
 
     This is the probe that would have caught the #223 chat outage: strip the
@@ -2312,6 +2334,13 @@ def readyz() -> JSONResponse:
         checks["firestore"] = _readyz_check_firestore()
     except Exception as exc:  # noqa: BLE001
         checks["firestore"] = {"ok": False, "error": str(exc)[:300]}
+
+    # Inventory freshness is a data-quality signal, not process liveness. Keep
+    # serving the known catalog while making stale/unknown evidence explicit.
+    try:
+        checks["inventory"] = _readyz_check_inventory_source()
+    except Exception as exc:  # noqa: BLE001
+        checks["inventory"] = {"ok": False, "error": str(exc)[:300]}
 
     headers = {"Cache-Control": "no-store, no-cache, must-revalidate", "Pragma": "no-cache"}
     if failed is not None:
@@ -4365,6 +4394,12 @@ async def docuseal_webhook(request: Request):
 # ─── Marketing API (Tex's Ad Studio) ───
 from tools.asset_scraper import PROPERTY_ASSETS, get_matterport_url
 from tools.catalog_floorplans import merge_orderable_floorplan_catalog
+from tools.inventory_source_status import (
+    automatic_firestore_eligible,
+    load_legacy_inventory_snapshot_metadata,
+    source_status,
+    warning_code,
+)
 from tools.legacy_site_crawler import (
     load_legacy_floorplan_catalog_context,
     load_legacy_inventory_context,
@@ -4863,25 +4898,63 @@ def _canonicalize_inventory_context(result: dict) -> dict:
     return canonical
 
 
+def _annotate_inventory_context(
+    result: dict,
+    *,
+    requested: str,
+    selected_path: str,
+) -> dict:
+    """Attach PII-free provenance/freshness without changing serving behavior."""
+    annotated = _canonicalize_inventory_context(result)
+    status = source_status(
+        annotated,
+        requested=requested,
+        selected_path=selected_path,
+    )
+    annotated["source_status"] = status
+    warning = warning_code(status)
+    if warning:
+        existing_warnings = annotated.get("warnings") or []
+        if not isinstance(existing_warnings, list):
+            existing_warnings = [existing_warnings]
+        warnings = [str(item) for item in existing_warnings]
+        if warning not in warnings:
+            warnings.append(warning)
+        annotated["warnings"] = warnings
+    return annotated
+
+
 def _resolve_public_inventory_context() -> dict:
     """Resolve the one public inventory context used by the API and SEO."""
     prefer = _inventory_source_pref()
     raw = None
     if prefer != "legacy":
         raw = get_inventory_for_ads(limit=100)
-        raw_homes = raw.get("homes") or []
-        if prefer == "firestore" or (
-            raw.get("success") and len(raw_homes) >= _inventory_firestore_min_homes()
+        if prefer == "firestore" or automatic_firestore_eligible(
+            raw,
+            min_homes=_inventory_firestore_min_homes(),
         ):
-            return _canonicalize_inventory_context(_firestore_inventory_context(raw))
+            return _annotate_inventory_context(
+                _firestore_inventory_context(raw),
+                requested=prefer,
+                selected_path="firestore",
+            )
 
     legacy = _legacy_inventory_context()
     if legacy is not None:
-        return _canonicalize_inventory_context(legacy)
+        return _annotate_inventory_context(
+            legacy,
+            requested=prefer,
+            selected_path="legacy",
+        )
 
     # Legacy snapshot unavailable — fall back to the Firestore/asset path
     # (reusing the raw query if we already ran it above).
-    return _canonicalize_inventory_context(_firestore_inventory_context(raw))
+    return _annotate_inventory_context(
+        _firestore_inventory_context(raw),
+        requested=prefer,
+        selected_path="firestore_fallback",
+    )
 
 
 @app.get("/api/marketing/inventory-context")

@@ -38,6 +38,56 @@ summary says it contains 44 production inventory rows, 42 rows with floorplan
 URLs, 24 Matterport tours, and a redacted House Orders sheet. Do not import raw
 House Orders data directly into the public site.
 
+## Freshness And Source Truth
+
+`GET /api/marketing/inventory-context` reports a PII-free `source_status`:
+
+- `requested`: configured `INVENTORY_SOURCE` (`legacy`, `firestore`, or `auto`)
+- `selected_path`: the path that actually served the response
+- `reported_source`: the provenance supplied by that path
+- `freshness`: `fresh`, `stale`, or `unknown`
+- `retrieved_at`, `age_days`, and `stale_after_days`
+
+A usable payload can still be stale. The endpoint keeps serving the known
+catalog to avoid a blank storefront, adds `inventory_source_stale` or
+`inventory_source_freshness_unknown` to `warnings`, and exposes the same signal
+as the soft `inventory` check in `/readyz`.
+
+`INVENTORY_SOURCE=auto` is intentionally fail-closed. It switches only when a
+result has all three pieces of evidence: `source=firestore_inventory`, a fresh
+source timestamp, and at least `INVENTORY_FIRESTORE_MIN_HOMES` homes. The
+current marketing loader can fall back from Firestore to local JSON or sample
+data, so it reports `inventory_fallback_chain` and is not eligible for an
+automatic switch merely because it returned homes.
+
+### Dated production evidence — 2026-08-12
+
+The deployed legacy snapshot reports `retrieved_at=2026-05-11T23:49:10Z`, 19
+current homes, and 260 de-duplicated orderable floorplans (279 total). A
+read-only Firestore projection found 19 `AVAILABLE` documents, all with
+`source=texashomeoutlet.com`, no freshness timestamps, and exactly the same 19
+identifiers and model names as the May 11 snapshot. Therefore changing to
+Firestore would change storage paths, not establish fresher inventory.
+
+Do not set `INVENTORY_SOURCE=firestore` or promote `auto` on this evidence. A
+future activation must first provide:
+
+1. an operator-approved current inventory export;
+2. a dry-run reconciliation with explicit serial allow-list and no PII/cost;
+3. a strict Firestore-only public loader with no JSON/sample fallback;
+4. an approved-sync timestamp exposed as source provenance; and
+5. candidate evidence showing `reported_source=firestore_inventory`,
+   `freshness=fresh`, expected current-home counts, and media parity.
+
+Read the live signal without dumping individual listings:
+
+```bash
+curl -fsS https://www.texashomeoutlet.com/api/marketing/inventory-context \
+  | jq '{source, source_status, warnings, current_inventory_count, orderable_floorplans, total_inventory}'
+curl -fsS https://www.texashomeoutlet.com/readyz \
+  | jq '{ready, inventory: .checks.inventory}'
+```
+
 ## Adding Or Editing Inventory
 
 Use this path for current homes:
