@@ -1791,7 +1791,7 @@ def schedule_social_post(
     tool_context: ToolContext = None,
 ) -> dict:
     """
-    Schedule a post for publishing to social media.
+    Prepare a social post draft. This tool never publishes.
     """
     scheduled_time = post_time or datetime.now().isoformat()
     try:

@@ -116,15 +116,6 @@ async function apiSchedulePost(params) {
     return readJsonOrThrow(resp, 'Scheduling failed');
 }
 
-async function apiPublishPost(params) {
-    const resp = await adminFetch('/api/marketing/publish', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(params)
-    });
-    return readJsonOrThrow(resp, 'Publish failed');
-}
-
 async function apiGetAnalytics() {
     const resp = await adminFetch('/api/marketing/analytics');
     return readJsonOrThrow(resp, 'Analytics load failed');
@@ -270,7 +261,6 @@ export default function AdStudio({ onBack }) {
     // Scheduled tab
     const [scheduledPosts, setScheduledPosts] = useState([]);
     const [scheduling, setScheduling] = useState(false);
-    const [publishing, setPublishing] = useState(false);
     const [matterportCopied, setMatterportCopied] = useState(false);
 
     // Analytics tab
@@ -436,27 +426,6 @@ export default function AdStudio({ onBack }) {
             console.error('Schedule failed:', err);
         } finally {
             setScheduling(false);
-        }
-    };
-
-    const handlePublish = async () => {
-        if (!script) return;
-        if (!window.confirm('This will post to Instagram Reels now. Continue?')) return;
-        setPublishing(true);
-        try {
-            const result = await apiPublishPost({
-                filename: generatedGenAIClip?.filename || generatedVideo?.filename,
-                caption: getCurrentScript()?.cta,
-                hashtags: script.hashtags,
-                home_name: homeName,
-                campaign: script.campaign
-            });
-            setScheduledPosts(prev => [result, ...prev]);
-            handleLoadSocialReadiness();
-        } catch (err) {
-            console.error('Publish failed:', err);
-        } finally {
-            setPublishing(false);
         }
     };
 
@@ -760,8 +729,7 @@ export default function AdStudio({ onBack }) {
     /* ─── render helpers ─── */
     const selectedPlatform = PLATFORMS.find(p => p.id === platform);
     const currentScript = getCurrentScript();
-    const selectedSocialStatus = socialReadiness?.platforms?.[platform];
-    const socialPublishReady = Boolean(selectedSocialStatus?.configured && socialReadiness?.publish_enabled);
+    const socialPublishReady = false;
 
     const renderPreview = () => (
         <div className="tho-preview-layer animate-in fade-in zoom-in duration-300">
@@ -1289,9 +1257,7 @@ export default function AdStudio({ onBack }) {
 
                     <div className="tho-post-actions mt-4">
                         <div className="tho-readiness-note">
-                            {socialPublishReady
-                                ? `${selectedPlatform?.name} publishing is configured.`
-                                : `${selectedPlatform?.name} will stay as a reviewed draft until credentials and THO_SOCIAL_PUBLISH_ENABLED are set.`}
+                            {`${selectedPlatform?.name} stays as a reviewed draft. Live publishing requires a purpose-bound owner approval control.`}
                         </div>
                         <button
                             className="tho-btn tho-btn-primary w-full flex items-center justify-center gap-2"
@@ -1300,29 +1266,20 @@ export default function AdStudio({ onBack }) {
                                 setShowPreview(false);
                                 setActiveTab('scheduled');
                             }}
-                            disabled={scheduling || publishing}
+                            disabled={scheduling}
                         >
                             {scheduling ? (
-                                <><Loader2 size={18} className="spin" /> Scheduling...</>
+                                <><Loader2 size={18} className="spin" /> Preparing...</>
                             ) : (
-                                <><Send size={18} /> Schedule Post</>
+                                <><Send size={18} /> Prepare Draft</>
                             )}
                         </button>
                         <button
                             className="tho-btn tho-btn-secondary w-full flex items-center justify-center gap-2 mt-2"
-                            onClick={async () => {
-                                await handlePublish();
-                                setShowPreview(false);
-                                setActiveTab('scheduled');
-                            }}
-                            disabled={scheduling || publishing || !socialPublishReady}
-                            title={socialPublishReady ? 'Publish to Instagram Reels now' : 'Configure publishing credentials first'}
+                            disabled
+                            title="Live publishing is locked until purpose-bound owner approval and replay protection are implemented"
                         >
-                            {publishing ? (
-                                <><Loader2 size={18} className="spin" /> Publishing...</>
-                            ) : (
-                                <><Flame size={18} /> Approve & Publish</>
-                            )}
+                            <Flame size={18} /> Live Publishing Locked
                         </button>
                     </div>
                 </div>
@@ -1982,8 +1939,8 @@ export default function AdStudio({ onBack }) {
 
     const renderScheduled = () => (
         <div className="tho-scheduled-page">
-            <h2 className="tho-page-title">📅 Scheduled Posts</h2>
-            <p className="tho-page-subtitle">Posts queued for publishing</p>
+            <h2 className="tho-page-title">📋 Prepared Drafts</h2>
+            <p className="tho-page-subtitle">Drafts prepared during this browser session</p>
             {socialReadiness && (
                 <div className="tho-social-readiness-panel">
                     {Object.entries(socialReadiness.platforms || {}).map(([id, status]) => (
@@ -2001,8 +1958,8 @@ export default function AdStudio({ onBack }) {
             {scheduledPosts.length === 0 ? (
                 <div className="tho-empty-state">
                     <Calendar size={48} />
-                    <p>No posts scheduled yet</p>
-                    <p className="tho-preview-hint">Generate a script and hit "Schedule Post"</p>
+                    <p>No drafts prepared yet</p>
+                    <p className="tho-preview-hint">Generate a script and choose "Prepare Draft"</p>
                 </div>
             ) : (
                 <div className="tho-scheduled-list">
