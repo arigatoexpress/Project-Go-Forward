@@ -1788,11 +1788,10 @@ def schedule_social_post(
     video_url: str | None = None,
     home_name: str | None = None,
     campaign: str | None = None,
-    allow_publish: bool = False,
     tool_context: ToolContext = None,
 ) -> dict:
     """
-    Prepare a social post draft, or publish only for an explicit publish caller.
+    Prepare a social post draft. This tool never publishes.
     """
     scheduled_time = post_time or datetime.now().isoformat()
     try:
@@ -1809,7 +1808,6 @@ def schedule_social_post(
         video_url=video_url,
         # utm_campaign source: explicit campaign wins, else the featured home/plan.
         campaign=campaign or home_name,
-        allow_publish=allow_publish,
     )
 
     optimal_times = {

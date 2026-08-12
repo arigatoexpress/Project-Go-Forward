@@ -4396,7 +4396,6 @@ from tools.legacy_site_crawler import (
     load_legacy_floorplan_catalog_context,
     load_legacy_inventory_context,
 )
-from tools.marketing_assets import publish_video_asset
 from tools.marketing_tools import (
     GENERATED_ADS_DIR,
     analyze_content_performance,
@@ -4482,11 +4481,7 @@ async def api_content_analytics():
 
 @app.post("/api/marketing/publish", dependencies=[Depends(require_admin)])
 async def api_marketing_publish(request: Request):
-    """Human one-tap 'Approve & Publish' for a single approved creative.
-
-    Outward action → admin-gated + THO_SOCIAL_PUBLISH_ENABLED + explicit click.
-    Claude never calls this endpoint.
-    """
+    """Keep live social publishing locked until purpose-bound approval exists."""
     try:
         data = await request.json()
         platform = data.get("platform", "instagram_reels")
@@ -4496,25 +4491,11 @@ async def api_marketing_publish(request: Request):
                 "status": "blocked",
                 "reason": "unsupported_platform",
             }
-        # 1) resolve the approved local creative → public/signed URL (PR 5)
-        asset = publish_video_asset(data.get("filename") or data.get("video_url"))
-        if not asset.get("success"):
-            return {
-                "success": False,
-                "status": "blocked",
-                "reason": asset.get("reason", "asset_not_public"),
-            }
-        # 2) hand the PUBLIC url to the gated, polling adapter (PR 4)
-        return schedule_social_post(
-            platform=platform,
-            content_type="video",
-            caption=data.get("caption"),
-            hashtags=data.get("hashtags"),
-            video_url=asset["public_url"],
-            home_name=data.get("home_name"),
-            campaign=data.get("campaign"),
-            allow_publish=True,
-        )
+        return {
+            "success": False,
+            "status": "blocked",
+            "reason": "purpose_bound_owner_approval_required",
+        }
     except Exception as e:
         struct_logger.error("Marketing publish failed", error=str(e))
         return {"error": "Failed to publish. Please try again."}

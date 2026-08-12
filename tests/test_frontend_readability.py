@@ -124,7 +124,7 @@ def test_ad_studio_surfaces_readiness_and_image_fallbacks():
 
     assert "apiGetGcpReadiness" in source
     assert "apiGetSocialReadiness" in source
-    assert "THO_SOCIAL_PUBLISH_ENABLED" in source
+    assert "Live Publishing Locked" in source
     assert "handleImgFallback" in source
     assert "selectedPhotoUrl" in source
     assert "video_url: generatedGenAIClip?.download_url || generatedVideo?.download_url" in source
@@ -136,6 +136,8 @@ def test_ad_studio_schedule_action_is_labeled_as_draft_only():
     assert "Prepare Draft" in source
     assert "Schedule Post" not in source
     assert "Posts queued for publishing" not in source
+    assert "Live Publishing Locked" in source
+    assert "Approve & Publish" not in source
 
 
 def test_app_wires_all_trust_content_routes():
