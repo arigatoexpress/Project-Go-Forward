@@ -59,7 +59,7 @@ const THEMES = [
 const TABS = [
     { id: 'create', label: 'Create Ad', icon: <Film size={18} /> },
     { id: 'ideas', label: 'Content Ideas', icon: <TrendingUp size={18} /> },
-    { id: 'scheduled', label: 'Scheduled', icon: <Calendar size={18} /> },
+    { id: 'scheduled', label: 'Drafts', icon: <Calendar size={18} /> },
     { id: 'analytics', label: 'Analytics', icon: <BarChart3 size={18} /> },
     { id: 'paid-search', label: 'Paid Search', icon: <Search size={18} /> }
 ];
@@ -109,13 +109,13 @@ async function apiGetIdeas() {
     return readJsonOrThrow(resp, 'Failed to load ideas');
 }
 
-async function apiSchedulePost(params) {
+async function apiPrepareDraft(params) {
     const resp = await adminFetch('/api/marketing/schedule', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(params)
     });
-    return readJsonOrThrow(resp, 'Scheduling failed');
+    return readJsonOrThrow(resp, 'Draft preparation failed');
 }
 
 async function apiGetAnalytics() {
@@ -126,11 +126,6 @@ async function apiGetAnalytics() {
 async function apiGetGcpReadiness() {
     const resp = await adminFetch('/api/marketing/gcp-readiness');
     return readJsonOrThrow(resp, 'GCP readiness load failed');
-}
-
-async function apiGetSocialReadiness() {
-    const resp = await adminFetch('/api/marketing/social-readiness');
-    return readJsonOrThrow(resp, 'Social readiness load failed');
 }
 
 async function apiGetInventory() {
@@ -260,16 +255,15 @@ export default function AdStudio({ onBack }) {
     const [ideas, setIdeas] = useState(null);
     const [loadingIdeas, setLoadingIdeas] = useState(false);
 
-    // Scheduled tab
-    const [scheduledPosts, setScheduledPosts] = useState([]);
-    const [scheduling, setScheduling] = useState(false);
+    // Drafts tab
+    const [preparedDrafts, setPreparedDrafts] = useState([]);
+    const [preparingDraft, setPreparingDraft] = useState(false);
     const [matterportCopied, setMatterportCopied] = useState(false);
 
     // Analytics tab
     const [analytics, setAnalytics] = useState(null);
     const [loadingAnalytics, setLoadingAnalytics] = useState(false);
     const [aiReadiness, setAiReadiness] = useState(null);
-    const [socialReadiness, setSocialReadiness] = useState(null);
     const [readinessError, setReadinessError] = useState(null);
     const [failedPhotoUrls, setFailedPhotoUrls] = useState(() => new Set());
 
@@ -410,11 +404,11 @@ export default function AdStudio({ onBack }) {
         }
     }, []);
 
-    const handleSchedule = async () => {
+    const handlePrepareDraft = async () => {
         if (!script) return;
-        setScheduling(true);
+        setPreparingDraft(true);
         try {
-            const result = await apiSchedulePost({
+            const result = await apiPrepareDraft({
                 platform: script.platform,
                 content_type: 'video',
                 script_id: script.script_id,
@@ -422,12 +416,11 @@ export default function AdStudio({ onBack }) {
                 hashtags: script.hashtags,
                 video_url: generatedGenAIClip?.download_url || generatedVideo?.download_url
             });
-            setScheduledPosts(prev => [result, ...prev]);
-            handleLoadSocialReadiness();
+            setPreparedDrafts(prev => [result, ...prev]);
         } catch (err) {
-            console.error('Schedule failed:', err);
+            console.error('Draft preparation failed:', err);
         } finally {
-            setScheduling(false);
+            setPreparingDraft(false);
         }
     };
 
@@ -443,26 +436,13 @@ export default function AdStudio({ onBack }) {
         }
     }, []);
 
-    const handleLoadSocialReadiness = useCallback(async () => {
-        try {
-            const result = await apiGetSocialReadiness();
-            setSocialReadiness(result);
-        } catch (err) {
-            setReadinessError(safeUserMessage(err?.message, describeFetchError(err, 'check social readiness')));
-        }
-    }, []);
-
     const handleLoadReadiness = useCallback(async () => {
         setReadinessError(null);
         try {
-            const [gcp, social] = await Promise.all([
-                apiGetGcpReadiness(),
-                apiGetSocialReadiness(),
-            ]);
+            const gcp = await apiGetGcpReadiness();
             setAiReadiness(gcp);
-            setSocialReadiness(social);
         } catch (err) {
-            setReadinessError(safeUserMessage(err?.message, describeFetchError(err, 'load readiness checks')));
+            setReadinessError(safeUserMessage(err?.message, describeFetchError(err, 'load GCP AI readiness')));
         }
     }, []);
 
@@ -731,7 +711,6 @@ export default function AdStudio({ onBack }) {
     /* ─── render helpers ─── */
     const selectedPlatform = PLATFORMS.find(p => p.id === platform);
     const currentScript = getCurrentScript();
-    const socialPublishReady = false;
 
     const renderPreview = () => (
         <div className="tho-preview-layer animate-in fade-in zoom-in duration-300">
@@ -1259,29 +1238,22 @@ export default function AdStudio({ onBack }) {
 
                     <div className="tho-post-actions mt-4">
                         <div className="tho-readiness-note">
-                            {`${selectedPlatform?.name} stays as a reviewed draft. Live publishing requires a purpose-bound owner approval control.`}
+                            {`This adds a reviewed ${selectedPlatform?.name || 'social'} draft to the list on this screen. Nothing is sent to a social platform.`}
                         </div>
                         <button
                             className="tho-btn tho-btn-primary w-full flex items-center justify-center gap-2"
                             onClick={async () => {
-                                await handleSchedule();
+                                await handlePrepareDraft();
                                 setShowPreview(false);
                                 setActiveTab('scheduled');
                             }}
-                            disabled={scheduling}
+                            disabled={preparingDraft}
                         >
-                            {scheduling ? (
+                            {preparingDraft ? (
                                 <><Loader2 size={18} className="spin" /> Preparing...</>
                             ) : (
                                 <><Send size={18} /> Prepare Draft</>
                             )}
-                        </button>
-                        <button
-                            className="tho-btn tho-btn-secondary w-full flex items-center justify-center gap-2 mt-2"
-                            disabled
-                            title="Live publishing is locked until purpose-bound owner approval and replay protection are implemented"
-                        >
-                            <Flame size={18} /> Live Publishing Locked
                         </button>
                     </div>
                 </div>
@@ -1421,12 +1393,12 @@ export default function AdStudio({ onBack }) {
                         <span>GCP AI</span>
                         <strong>{aiReadiness?.ready ? 'Ready' : 'Needs setup'}</strong>
                     </div>
-                    <div className={`tho-readiness-chip ${socialPublishReady ? 'ready' : 'draft'}`}>
+                    <div className="tho-readiness-chip draft">
                         <Send size={14} />
                         <span>{selectedPlatform?.name || 'Social'}</span>
-                        <strong>{socialPublishReady ? 'Live enabled' : 'Draft mode'}</strong>
+                        <strong>Draft only</strong>
                     </div>
-                    <button className="tho-readiness-refresh" onClick={handleLoadReadiness} title="Refresh integration readiness">
+                    <button className="tho-readiness-refresh" onClick={handleLoadReadiness} title="Refresh GCP AI readiness">
                         <RefreshCw size={13} />
                     </button>
                 </div>
@@ -1942,22 +1914,9 @@ export default function AdStudio({ onBack }) {
     const renderScheduled = () => (
         <div className="tho-scheduled-page">
             <h2 className="tho-page-title">📋 Prepared Drafts</h2>
-            <p className="tho-page-subtitle">Drafts prepared during this browser session</p>
-            {socialReadiness && (
-                <div className="tho-social-readiness-panel">
-                    {Object.entries(socialReadiness.platforms || {}).map(([id, status]) => (
-                        <div key={id} className={`tho-social-readiness-item ${status.configured && socialReadiness.publish_enabled ? 'ready' : 'draft'}`}>
-                            <span>{id === 'instagram_reels' ? 'Instagram Reels' : 'TikTok'}</span>
-                            <strong>{status.configured && socialReadiness.publish_enabled ? 'Live enabled' : 'Draft mode'}</strong>
-                            {status.required_env?.length > 0 && (
-                                <small>Needs {status.required_env.join(', ')}</small>
-                            )}
-                        </div>
-                    ))}
-                </div>
-            )}
+            <p className="tho-page-subtitle">Drafts prepared while this Ad Studio screen is open</p>
 
-            {scheduledPosts.length === 0 ? (
+            {preparedDrafts.length === 0 ? (
                 <div className="tho-empty-state">
                     <Calendar size={48} />
                     <p>No drafts prepared yet</p>
@@ -1965,18 +1924,21 @@ export default function AdStudio({ onBack }) {
                 </div>
             ) : (
                 <div className="tho-scheduled-list">
-                    {scheduledPosts.map((post, i) => (
+                    {preparedDrafts.map((post, i) => (
                         <div key={i} className="tho-scheduled-card">
                             <div className="tho-scheduled-left">
                                 <span className="tho-scheduled-platform">{post.platform}</span>
                                 <span className="tho-scheduled-type">{post.content_type}</span>
                             </div>
                             <div className="tho-scheduled-center">
-                                <span className="tho-scheduled-id">{post.post_id}</span>
+                                <span className="tho-scheduled-id">Response ID: {post.post_id}</span>
                                 <span className="tho-scheduled-ref">Script: {post.script_reference}</span>
                             </div>
                             <div className="tho-scheduled-right">
                                 <span className={`tho-scheduled-status status-${post.status}`}>{post.status}</span>
+                                {post.persisted === false && (
+                                    <span className="tho-scheduled-tip">Response-only · not saved</span>
+                                )}
                                 <span className="tho-scheduled-tip">{post.publish_blocked_reason || post.tip}</span>
                             </div>
                         </div>
@@ -2008,43 +1970,78 @@ export default function AdStudio({ onBack }) {
 
             {analytics && !analytics.error && analytics.summary && (
                 <>
-                    {analytics.disclaimer && (
+                    {analytics.social_analytics_connected !== true && (
                         <div className="tho-analytics-notice">
                             <AlertTriangle size={16} />
-                            <span>{analytics.disclaimer}</span>
+                            <span>
+                                <strong>Platform analytics unavailable</strong>
+                                {analytics.disclaimer ? ` — ${analytics.disclaimer}` : ''}
+                            </span>
                         </div>
                     )}
 
-                    <div className="tho-kpi-grid">
-                        <div className="tho-kpi-card">
-                            <Eye size={20} />
-                            <span className="tho-kpi-value">{analytics.summary.total_views}</span>
-                            <span className="tho-kpi-label">Total Views</span>
+                    {analytics.social_analytics_connected === true ? (
+                        <div className="tho-kpi-grid">
+                            <div className="tho-kpi-card">
+                                <Eye size={20} />
+                                <span className="tho-kpi-value">{analytics.summary.total_views}</span>
+                                <span className="tho-kpi-label">Total Views</span>
+                            </div>
+                            <div className="tho-kpi-card">
+                                <Flame size={20} />
+                                <span className="tho-kpi-value">{analytics.summary.total_engagement}</span>
+                                <span className="tho-kpi-label">Engagements</span>
+                            </div>
+                            <div className="tho-kpi-card">
+                                <Users size={20} />
+                                <span className="tho-kpi-value">{analytics.summary.new_followers}</span>
+                                <span className="tho-kpi-label">New Followers</span>
+                            </div>
+                            <div className="tho-kpi-card">
+                                <MessageCircle size={20} />
+                                <span className="tho-kpi-value">{analytics.summary.dms_received}</span>
+                                <span className="tho-kpi-label">DMs Received</span>
+                            </div>
+                            <div className="tho-kpi-card accent">
+                                <Zap size={20} />
+                                <span className="tho-kpi-value">{analytics.summary.leads_generated}</span>
+                                <span className="tho-kpi-label">Leads Generated</span>
+                            </div>
                         </div>
-                        <div className="tho-kpi-card">
-                            <Flame size={20} />
-                            <span className="tho-kpi-value">{analytics.summary.total_engagement}</span>
-                            <span className="tho-kpi-label">Engagements</span>
-                        </div>
-                        <div className="tho-kpi-card">
-                            <Users size={20} />
-                            <span className="tho-kpi-value">{analytics.summary.new_followers}</span>
-                            <span className="tho-kpi-label">New Followers</span>
-                        </div>
-                        <div className="tho-kpi-card">
-                            <MessageCircle size={20} />
-                            <span className="tho-kpi-value">{analytics.summary.dms_received}</span>
-                            <span className="tho-kpi-label">DMs Received</span>
-                        </div>
-                        <div className="tho-kpi-card accent">
-                            <Zap size={20} />
-                            <span className="tho-kpi-value">{analytics.summary.leads_generated}</span>
-                            <span className="tho-kpi-label">Leads Generated</span>
-                        </div>
-                    </div>
+                    ) : (
+                        <>
+                            <h3 className="tho-card-title">Local Creative Readiness</h3>
+                            <div className="tho-kpi-grid">
+                                <div className="tho-kpi-card">
+                                    <Image size={20} />
+                                    <span className="tho-kpi-value">{analytics.summary.generated_images}</span>
+                                    <span className="tho-kpi-label">Generated Images</span>
+                                </div>
+                                <div className="tho-kpi-card">
+                                    <Film size={20} />
+                                    <span className="tho-kpi-value">{analytics.summary.generated_videos}</span>
+                                    <span className="tho-kpi-label">Generated Videos</span>
+                                </div>
+                                <div className="tho-kpi-card">
+                                    <Home size={20} />
+                                    <span className="tho-kpi-value">{analytics.summary.inventory_count}</span>
+                                    <span className="tho-kpi-label">Inventory Homes</span>
+                                </div>
+                                <div className="tho-kpi-card accent">
+                                    <Camera size={20} />
+                                    <span className="tho-kpi-value">{analytics.summary.photo_ready_homes}</span>
+                                    <span className="tho-kpi-label">Photo-ready Homes</span>
+                                </div>
+                            </div>
+                        </>
+                    )}
 
                     <div className="tho-card" style={{ marginTop: '1.5rem' }}>
-                        <h3 className="tho-card-title">Top Performing Content</h3>
+                        <h3 className="tho-card-title">
+                            {analytics.social_analytics_connected === true
+                                ? 'Top Performing Content'
+                                : 'Local Content Readiness'}
+                        </h3>
                         <div className="tho-top-content-list">
                             {(analytics.top_performing_content || []).map((item, i) => (
                                 <div key={i} className="tho-top-content-row">

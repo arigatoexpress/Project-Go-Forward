@@ -137,8 +137,6 @@ def test_ad_studio_surfaces_readiness_and_image_fallbacks():
     source = AD_STUDIO.read_text()
 
     assert "apiGetGcpReadiness" in source
-    assert "apiGetSocialReadiness" in source
-    assert "Live Publishing Locked" in source
     assert "handleImgFallback" in source
     assert "selectedPhotoUrl" in source
     assert "video_url: generatedGenAIClip?.download_url || generatedVideo?.download_url" in source
@@ -147,11 +145,19 @@ def test_ad_studio_surfaces_readiness_and_image_fallbacks():
 def test_ad_studio_schedule_action_is_labeled_as_draft_only():
     source = AD_STUDIO.read_text()
 
+    assert "{ id: 'scheduled', label: 'Drafts'" in source
     assert "Prepare Draft" in source
+    assert "Prepared Drafts" in source
+    assert "Drafts prepared while this Ad Studio screen is open" in source
+    assert "Response-only · not saved" in source
+    assert "Nothing is sent to a social platform" in source
     assert "Schedule Post" not in source
     assert "Posts queued for publishing" not in source
-    assert "Live Publishing Locked" in source
+    assert "Live Publishing Locked" not in source
+    assert "Live enabled" not in source
     assert "Approve & Publish" not in source
+    assert "/api/marketing/publish" not in source
+    assert "/api/marketing/social-readiness" not in source
 
 
 def test_app_wires_all_trust_content_routes():
