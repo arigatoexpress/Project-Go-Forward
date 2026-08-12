@@ -4711,7 +4711,7 @@ def _overlay_staff_photos(homes: list[dict]) -> None:
 
         grouped = image_storage.list_all_grouped()
     except Exception as exc:  # pragma: no cover - storage backend optional
-        struct_logger.warning("Staff photo overlay unavailable", error=str(exc))
+        struct_logger.warning("Staff photo overlay unavailable", error_type=type(exc).__name__)
         return
     if not grouped:
         return
@@ -5008,6 +5008,10 @@ async def serve_listing_photo(home_id: str, filename: str):
         result = image_storage.get_photo(home_id, filename)
     except image_storage.PhotoValidationError:
         return JSONResponse({"error": "Invalid request"}, status_code=400)
+    except image_storage.PhotoStorageError:
+        return JSONResponse(
+            {"error": "Photo storage is temporarily unavailable."}, status_code=503
+        )
     if result is None:
         return JSONResponse({"error": "Photo not found"}, status_code=404)
     data, content_type = result
@@ -5027,6 +5031,11 @@ async def list_listing_photos(home_id: str):
         photos = image_storage.list_photos(home_id)
     except image_storage.PhotoValidationError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except image_storage.PhotoStorageError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Durable photo storage is temporarily unavailable.",
+        ) from exc
     return {
         "success": True,
         "home_id": image_storage.safe_home_id(home_id),
@@ -5057,7 +5066,10 @@ async def upload_listing_photos(
 
     stored: list[dict] = []
     errors: list[dict] = []
-    for upload in files:
+    storage_unavailable = False
+    unattempted: list[str] = []
+    retryable: list[str] = []
+    for position, upload in enumerate(files):
         try:
             data = await upload.read()
             photo = image_storage.store_photo(
@@ -5071,8 +5083,35 @@ async def upload_listing_photos(
             )
         except image_storage.PhotoValidationError as exc:
             errors.append({"name": upload.filename, "error": str(exc)})
+        except image_storage.PhotoStorageError as exc:
+            storage_unavailable = True
+            retryable.append(upload.filename or "unnamed upload")
+            struct_logger.error(
+                "Durable listing photo storage unavailable",
+                home_id=image_storage.safe_home_id(home_id),
+                error_type=type(exc).__name__,
+            )
+            errors.append(
+                {
+                    "name": upload.filename,
+                    "error": "Durable photo storage is temporarily unavailable.",
+                }
+            )
+            # A provider outage is request-wide. Continuing can create a
+            # surprising success-after-failure sequence and makes retries
+            # duplicate any earlier durable writes.
+            for remaining in files[position + 1 :]:
+                name = remaining.filename or "unnamed upload"
+                unattempted.append(name)
+                retryable.append(name)
+                await remaining.close()
+            break
         except Exception as exc:  # pragma: no cover - unexpected storage failure
-            struct_logger.error("Listing photo upload failed", home_id=home_id, error=str(exc))
+            struct_logger.error(
+                "Listing photo upload failed",
+                home_id=image_storage.safe_home_id(home_id),
+                error_type=type(exc).__name__,
+            )
             errors.append({"name": upload.filename, "error": "Could not save this photo."})
         finally:
             await upload.close()
@@ -5089,16 +5128,30 @@ async def upload_listing_photos(
             action="inventory.photos_upload",
             target_type="inventory",
             target_id=image_storage.safe_home_id(home_id),
-            details={"uploaded_count": len(stored), "error_count": len(errors)},
+            details={
+                "uploaded_count": len(stored),
+                "error_count": len(errors),
+                "unattempted_count": len(unattempted),
+            },
             request=request,
         )
-    # 207-style summary: report both successes and per-file failures.
-    return {
+    # A partial durable write is reported as non-retryable multi-status. A
+    # complete storage outage remains a retryable service failure.
+    result = {
         "success": bool(stored),
         "home_id": image_storage.safe_home_id(home_id),
         "uploaded": stored,
         "errors": errors,
     }
+    if storage_unavailable:
+        result["storage_unavailable"] = True
+        result["unattempted"] = unattempted
+        result["unattempted_count"] = len(unattempted)
+        result["retryable"] = retryable
+        if stored:
+            return JSONResponse(result, status_code=207)
+        return JSONResponse(result, status_code=503)
+    return result
 
 
 @app.delete(
@@ -5113,6 +5166,11 @@ async def delete_listing_photo(request: Request, home_id: str, filename: str):
         deleted = image_storage.delete_photo(home_id, filename)
     except image_storage.PhotoValidationError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except image_storage.PhotoStorageError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Durable photo storage is temporarily unavailable.",
+        ) from exc
     if not deleted:
         raise HTTPException(status_code=404, detail="Photo not found.")
     struct_logger.info(
@@ -5148,6 +5206,11 @@ async def reorder_listing_photos(request: Request, home_id: str):
         photos = image_storage.set_photo_order(home_id, order)
     except image_storage.PhotoValidationError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except image_storage.PhotoStorageError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Durable photo storage is temporarily unavailable.",
+        ) from exc
     log_admin_action(
         actor=_audit_actor(request),
         action="inventory.photos_reorder",
