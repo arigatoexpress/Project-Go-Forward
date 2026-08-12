@@ -4415,7 +4415,6 @@ from tools.marketing_tools import (
     schedule_social_post,
 )
 from tools.photo_classifier import apply_classifier_to_home, has_real_photo
-from tools.social_publishers import social_readiness
 from tools.video_generator import GENERATED_VIDEOS_DIR
 
 
@@ -4454,9 +4453,13 @@ async def api_trending_ideas():
         return {"error": "Failed to load trending ideas. Please try again."}
 
 
-@app.post("/api/marketing/schedule", dependencies=[Depends(require_admin)])
-async def api_schedule_post(request: Request):
-    """Prepare a reviewed draft without calling a social platform API."""
+@app.post(
+    "/api/marketing/schedule",
+    dependencies=[Depends(require_admin)],
+    summary="Prepare response-only social draft",
+)
+async def api_prepare_social_draft(request: Request):
+    """Prepare a non-persisted reviewed draft without calling a social platform API."""
     try:
         data = await request.json()
         result = schedule_social_post(
@@ -4472,8 +4475,8 @@ async def api_schedule_post(request: Request):
         )
         return result
     except Exception as e:
-        struct_logger.error("Post scheduling failed", error=str(e))
-        return {"error": "Failed to schedule post. Please try again."}
+        struct_logger.error("Draft preparation failed", error=str(e))
+        return {"error": "Failed to prepare draft. Please try again."}
 
 
 @app.get("/api/marketing/analytics", dependencies=[Depends(require_admin)])
@@ -4487,28 +4490,6 @@ async def api_content_analytics():
         return {"error": "Failed to load analytics. Please try again."}
 
 
-@app.post("/api/marketing/publish", dependencies=[Depends(require_admin)])
-async def api_marketing_publish(request: Request):
-    """Keep live social publishing locked until purpose-bound approval exists."""
-    try:
-        data = await request.json()
-        platform = data.get("platform", "instagram_reels")
-        if platform not in {"tiktok", "instagram_reels"}:
-            return {
-                "success": False,
-                "status": "blocked",
-                "reason": "unsupported_platform",
-            }
-        return {
-            "success": False,
-            "status": "blocked",
-            "reason": "purpose_bound_owner_approval_required",
-        }
-    except Exception as e:
-        struct_logger.error("Marketing publish failed", error=str(e))
-        return {"error": "Failed to publish. Please try again."}
-
-
 @app.get("/api/marketing/gcp-readiness", dependencies=[Depends(require_admin)])
 async def api_marketing_gcp_readiness():
     """Expose AI provider readiness for Ad Studio without making generation calls."""
@@ -4517,16 +4498,6 @@ async def api_marketing_gcp_readiness():
     except Exception as e:
         struct_logger.error("GCP AI readiness failed", error=str(e))
         return {"success": False, "ready": False, "error": "Failed to inspect GCP AI readiness"}
-
-
-@app.get("/api/marketing/social-readiness", dependencies=[Depends(require_admin)])
-async def api_marketing_social_readiness():
-    """Expose TikTok/Instagram connection readiness without exposing secrets."""
-    try:
-        return social_readiness()
-    except Exception as e:
-        struct_logger.error("Social readiness failed", error=str(e))
-        return {"success": False, "error": "Failed to inspect social readiness"}
 
 
 @app.post("/api/marketing/generate-voiceover", dependencies=[Depends(require_admin)])
@@ -5009,9 +4980,7 @@ async def serve_listing_photo(home_id: str, filename: str):
     except image_storage.PhotoValidationError:
         return JSONResponse({"error": "Invalid request"}, status_code=400)
     except image_storage.PhotoStorageError:
-        return JSONResponse(
-            {"error": "Photo storage is temporarily unavailable."}, status_code=503
-        )
+        return JSONResponse({"error": "Photo storage is temporarily unavailable."}, status_code=503)
     if result is None:
         return JSONResponse({"error": "Photo not found"}, status_code=404)
     data, content_type = result

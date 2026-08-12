@@ -1351,7 +1351,7 @@ def test_delete_inventory_item_hard(monkeypatch):
     assert "inv-1" not in fake_db.collections["inventory"]
 
 
-def test_marketing_readiness_routes_are_admin_protected(monkeypatch):
+def test_marketing_gcp_readiness_route_is_admin_protected(monkeypatch):
     client, main, _db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
     token = main._create_admin_token()
 
@@ -1359,13 +1359,38 @@ def test_marketing_readiness_routes_are_admin_protected(monkeypatch):
     assert denied.status_code == 401
 
     gcp = client.get("/api/marketing/gcp-readiness", headers={"X-Admin-Token": token})
-    social = client.get("/api/marketing/social-readiness", headers={"X-Admin-Token": token})
 
     assert gcp.status_code == 200
     assert gcp.json()["ready"] is True
-    assert social.status_code == 200
-    assert "tiktok" in social.json()["platforms"]
-    assert "instagram_reels" in social.json()["platforms"]
+
+
+def test_marketing_schedule_declares_response_only_retention(monkeypatch):
+    client, main, _db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
+    token = main._create_admin_token()
+    from tools.social_publishers import prepare_social_post_draft
+
+    def prepare_draft(**kwargs):
+        return prepare_social_post_draft(
+            platform=kwargs["platform"],
+            content_type=kwargs["content_type"],
+            scheduled_time=kwargs.get("post_time") or "2026-08-12T12:00:00",
+            caption=kwargs.get("caption") or "",
+            hashtags=kwargs.get("hashtags"),
+            video_url=kwargs.get("video_url"),
+            campaign=kwargs.get("campaign"),
+        )
+
+    monkeypatch.setattr(main, "schedule_social_post", prepare_draft)
+
+    response = client.post(
+        "/api/marketing/schedule",
+        json={"platform": "instagram_reels", "content_type": "video"},
+        headers={"X-Admin-Token": token},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["persisted"] is False
+    assert response.json()["retention"] == "response_only"
 
 
 def test_admin_inventory_recovers_photo_ready_media_for_document_workflows(monkeypatch):

@@ -1750,36 +1750,7 @@ def get_trending_content_ideas(
     }
 
 
-# ─── Social Media Posting ───
-
-
-class TikTokHandler:
-    """Handles interactions with TikTok for Business API."""
-
-    def __init__(self):
-        self.access_token = os.environ.get("TIKTOK_ACCESS_TOKEN")
-        self.advertiser_id = os.environ.get("TIKTOK_ADVERTISER_ID")
-        self.base_url = "https://business-api.tiktok.com/open_api/v1.3"
-
-    def is_configured(self):
-        return bool(self.access_token and self.advertiser_id)
-
-    def post_video(self, video_url: str, caption: str, privacy_level: str = "PUBLIC_TO_EVERYONE"):
-        if not self.is_configured():
-            return {"success": False, "error": "TikTok credentials not configured"}
-
-        try:
-            # Mocked for safety until keys are configured
-            return {
-                "success": True,
-                "message": "Request sent to TikTok API (Simulated)",
-                "post_id": f"TT-{uuid.uuid4().hex[:8]}",
-            }
-        except Exception as e:
-            return {"success": False, "error": str(e)}
-
-
-tiktok_handler = TikTokHandler()
+# ─── Social Draft Preparation ───
 
 
 def schedule_social_post(
@@ -1799,11 +1770,11 @@ def schedule_social_post(
     """
     scheduled_time = post_time or datetime.now().isoformat()
     try:
-        from tools.social_publishers import prepare_or_publish_social_post
+        from tools.social_publishers import prepare_social_post_draft
     except ImportError:
-        from .social_publishers import prepare_or_publish_social_post
+        from .social_publishers import prepare_social_post_draft
 
-    result = prepare_or_publish_social_post(
+    result = prepare_social_post_draft(
         platform=platform,
         content_type=content_type,
         scheduled_time=scheduled_time,
@@ -1858,16 +1829,6 @@ def analyze_content_performance(
     generated_images = count_generated(GENERATED_ADS_DIR, (".png", ".jpg", ".jpeg", ".webp"))
     generated_videos = count_generated(video_dir, (".mp4", ".mov", ".webm"))
 
-    try:
-        from tools.social_publishers import social_readiness
-    except ImportError:
-        from .social_publishers import social_readiness
-
-    readiness = social_readiness()
-    connected = any(
-        platform.get("configured") and readiness.get("publish_enabled")
-        for platform in readiness.get("platforms", {}).values()
-    )
     top_content = []
     if generated_videos:
         top_content.append(
@@ -1915,20 +1876,19 @@ def analyze_content_performance(
     return {
         "success": True,
         "date_range": date_range,
-        "source": "api_connected" if connected else "local_readiness",
-        "social_analytics_connected": connected,
-        "social_readiness": readiness,
-        "disclaimer": None
-        if connected
-        else (
+        "source": "local_readiness",
+        "social_analytics_connected": False,
+        "disclaimer": (
             "Live social-platform analytics are not connected; showing local creative readiness instead."
         ),
         "summary": {
-            "total_views": 0,
-            "total_engagement": 0,
-            "new_followers": 0,
-            "dms_received": 0,
-            "leads_generated": 0,
+            # Preserve the legacy keys for API compatibility, but use null instead
+            # of a fabricated zero while no platform analytics source is connected.
+            "total_views": None,
+            "total_engagement": None,
+            "new_followers": None,
+            "dms_received": None,
+            "leads_generated": None,
             "generated_images": generated_images,
             "generated_videos": generated_videos,
             "inventory_count": len(inventory),

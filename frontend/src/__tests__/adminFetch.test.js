@@ -13,12 +13,12 @@ describe('adminFetch retry safety', () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 503 });
     vi.stubGlobal('fetch', fetchMock);
 
-    const response = await adminFetch('/api/marketing/publish', { method: 'POST' });
+    const response = await adminFetch('/api/marketing/schedule', { method: 'POST' });
 
     expect(response.status).toBe(503);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock).toHaveBeenCalledWith(
-      '/api/marketing/publish',
+      '/api/marketing/schedule',
       expect.objectContaining({
         method: 'POST',
         headers: { 'X-CSRF-Token': 'conflict-resolution-token' },
@@ -31,7 +31,7 @@ describe('adminFetch retry safety', () => {
     const fetchMock = vi.fn().mockRejectedValue(networkError);
     vi.stubGlobal('fetch', fetchMock);
 
-    await expect(adminFetch('/api/marketing/publish', { method: 'POST' })).rejects.toBe(networkError);
+    await expect(adminFetch('/api/marketing/schedule', { method: 'POST' })).rejects.toBe(networkError);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 

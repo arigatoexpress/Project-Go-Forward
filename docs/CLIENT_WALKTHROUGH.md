@@ -161,8 +161,8 @@ AI-assisted marketing content built around real inventory:
   Financing Tips, Clearance Alert, Behind the Scenes, Customer Story,
   Comparison, FAQ), Tex avatar styles, English or Spanish, and image styles.
 - **Content Ideas** — trending ideas to keep the posting calendar full.
-- **Scheduled** — plan and track upcoming posts.
-- **Analytics** — performance tracking for published ads.
+- **Drafts** — review drafts prepared while the Ad Studio screen is open; they are not persisted or posted to a social platform.
+- **Analytics** — local creative and inventory readiness; it does not claim live social-platform metrics.
 
 Because it reads live inventory, ads reference homes actually on the lot. You
 can also jump here straight from a home on the Inventory page to create an ad
