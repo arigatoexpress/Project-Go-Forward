@@ -284,8 +284,35 @@ def test_schedule_social_post_stays_draft_without_social_publish_gate(monkeypatc
     assert result["live_integration"] is False
     assert result["publish_attempted"] is False
     assert result["video_url"] == "https://tho.example.com/api/marketing/videos/test.mp4"
-    assert "THO_SOCIAL_PUBLISH_ENABLED" in result["publish_blocked_reason"]
+    assert "publish action" in result["publish_blocked_reason"].lower()
     assert result["script_reference"] == "SCRIPT-123"
+
+
+def test_schedule_social_post_stays_draft_when_live_publish_is_configured(monkeypatch):
+    """The scheduling workflow must never become an immediate-publish shortcut."""
+    monkeypatch.setenv("PUBLIC_SITE_URL", "https://tho.example.com")
+    monkeypatch.setenv("TIKTOK_ACCESS_TOKEN", "token")
+    monkeypatch.setenv("THO_SOCIAL_PUBLISH_ENABLED", "true")
+    publish_calls = []
+    monkeypatch.setattr(
+        social_publishers,
+        "_publish_tiktok_video",
+        lambda *args: publish_calls.append(args) or {"success": True, "post_id": "live-post"},
+    )
+
+    result = marketing_tools.schedule_social_post(
+        platform="tiktok",
+        content_type="video",
+        script_id="SCRIPT-123",
+        caption="Tour this home",
+        video_url="https://cdn.example.com/test.mp4",
+    )
+
+    assert result["success"] is True
+    assert result["status"] == "draft_ready"
+    assert result["publish_attempted"] is False
+    assert publish_calls == []
+    assert "publish action" in result["publish_blocked_reason"].lower()
 
 
 def test_schedule_instagram_reels_reports_missing_meta_config(monkeypatch):
@@ -302,8 +329,7 @@ def test_schedule_instagram_reels_reports_missing_meta_config(monkeypatch):
 
     assert result["status"] == "draft_ready"
     assert result["live_integration"] is False
-    assert "META_ACCESS_TOKEN" in result["publish_blocked_reason"]
-    assert "INSTAGRAM_BUSINESS_ACCOUNT_ID" in result["publish_blocked_reason"]
+    assert "publish action" in result["publish_blocked_reason"].lower()
     assert result["optimal_times"] == ["9:00 AM", "12:00 PM", "5:00 PM"]
 
 

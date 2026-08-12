@@ -214,8 +214,8 @@ def test_prepare_returns_draft_when_publish_gate_unset(monkeypatch):
     assert result["live_integration"] is False
     assert result["publish_attempted"] is False
     assert result["post_id"].startswith("DRAFT-")
-    # The blocking reason must point at the disabled publish gate.
-    assert "THO_SOCIAL_PUBLISH_ENABLED" in result["publish_blocked_reason"]
+    # Draft preparation must be separated from any explicit publish action.
+    assert "publish action" in result["publish_blocked_reason"].lower()
     # readiness embedded in the draft confirms publish is not enabled.
     assert result["social_readiness"]["publish_enabled"] is False
 
@@ -237,6 +237,31 @@ def test_prepare_draft_does_not_call_requests(monkeypatch):
 
     assert result["status"] == "draft_ready"
     assert result["publish_attempted"] is False
+
+
+def test_prepare_publishes_only_with_explicit_allow_publish(monkeypatch):
+    monkeypatch.setenv("TIKTOK_ACCESS_TOKEN", "tok-abc")
+    monkeypatch.setenv("PUBLIC_SITE_URL", "https://example.com")
+    monkeypatch.setenv("THO_SOCIAL_PUBLISH_ENABLED", "true")
+    calls = []
+    monkeypatch.setattr(
+        social_publishers,
+        "_publish_tiktok_video",
+        lambda *args: calls.append(args) or {"success": True, "post_id": "post-123"},
+    )
+
+    result = social_publishers.prepare_or_publish_social_post(
+        platform="tiktok",
+        content_type="video",
+        scheduled_time="2026-07-01T12:00:00",
+        caption="New listing tour",
+        video_url="https://cdn.example.com/clip.mp4",
+        allow_publish=True,
+    )
+
+    assert result["status"] == "published"
+    assert result["publish_attempted"] is True
+    assert len(calls) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -302,9 +327,7 @@ def test_utm_cta_link_none_when_enabled_but_no_origin(monkeypatch):
     # Gate on but no resolvable origin -> still no-op. Block the config_loader
     # fallback so the absence of PUBLIC_SITE_URL truly means "no origin".
     monkeypatch.setenv("THO_UTM_CTA_ENABLED", "true")
-    monkeypatch.setattr(
-        social_publishers, "_canonical_origin", lambda: None
-    )
+    monkeypatch.setattr(social_publishers, "_canonical_origin", lambda: None)
 
     assert social_publishers._utm_cta_link("tiktok", "Spring Sale") is None
 

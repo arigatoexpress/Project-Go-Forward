@@ -441,11 +441,12 @@ export default function AdStudio({ onBack }) {
 
     const handlePublish = async () => {
         if (!script) return;
-        if (!window.confirm('This will post to Instagram Reels now. Continue?')) return;
+        if (!window.confirm(`This will post to ${selectedPlatform?.name || 'the selected platform'} now. Continue?`)) return;
         setPublishing(true);
         try {
             const result = await apiPublishPost({
                 filename: generatedGenAIClip?.filename || generatedVideo?.filename,
+                platform: script.platform,
                 caption: getCurrentScript()?.cta,
                 hashtags: script.hashtags,
                 home_name: homeName,
@@ -1303,9 +1304,9 @@ export default function AdStudio({ onBack }) {
                             disabled={scheduling || publishing}
                         >
                             {scheduling ? (
-                                <><Loader2 size={18} className="spin" /> Scheduling...</>
+                                <><Loader2 size={18} className="spin" /> Preparing...</>
                             ) : (
-                                <><Send size={18} /> Schedule Post</>
+                                <><Send size={18} /> Prepare Draft</>
                             )}
                         </button>
                         <button
@@ -1982,8 +1983,8 @@ export default function AdStudio({ onBack }) {
 
     const renderScheduled = () => (
         <div className="tho-scheduled-page">
-            <h2 className="tho-page-title">📅 Scheduled Posts</h2>
-            <p className="tho-page-subtitle">Posts queued for publishing</p>
+            <h2 className="tho-page-title">📋 Prepared Drafts</h2>
+            <p className="tho-page-subtitle">Drafts prepared during this browser session</p>
             {socialReadiness && (
                 <div className="tho-social-readiness-panel">
                     {Object.entries(socialReadiness.platforms || {}).map(([id, status]) => (
@@ -2001,8 +2002,8 @@ export default function AdStudio({ onBack }) {
             {scheduledPosts.length === 0 ? (
                 <div className="tho-empty-state">
                     <Calendar size={48} />
-                    <p>No posts scheduled yet</p>
-                    <p className="tho-preview-hint">Generate a script and hit "Schedule Post"</p>
+                    <p>No drafts prepared yet</p>
+                    <p className="tho-preview-hint">Generate a script and choose "Prepare Draft"</p>
                 </div>
             ) : (
                 <div className="tho-scheduled-list">

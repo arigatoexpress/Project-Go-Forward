@@ -104,6 +104,7 @@ class TestMarketingPublishEndpoint:
             "/api/marketing/publish",
             json={
                 "filename": "test_publish.mp4",
+                "platform": "tiktok",
                 "caption": "Test caption",
                 "hashtags": ["#test"],
                 "home_name": "Test Home",
@@ -116,6 +117,7 @@ class TestMarketingPublishEndpoint:
         assert body.get("status") == "published"
         assert body.get("post_id") == "test-post-123"
         assert body.get("video_url") == public_url
+        assert body.get("platform") == "tiktok"
 
     def test_publish_fails_closed_when_asset_not_public(self, monkeypatch):
         """If publish_video_asset returns failure, the endpoint must NOT
@@ -148,6 +150,30 @@ class TestMarketingPublishEndpoint:
         assert "gcs_unavailable" in body.get("reason", "")
         # Adapter must NOT have been called
         assert adapter_calls == []
+
+    def test_publish_rejects_unsupported_platform_before_asset_upload(self, monkeypatch):
+        client, main, _db, _logger = create_client(monkeypatch)
+        monkeypatch.setattr(main, "_verify_admin_token", lambda token: True)
+        asset_calls = []
+        monkeypatch.setattr(
+            main,
+            "publish_video_asset",
+            lambda path: asset_calls.append(path) or {"success": True, "public_url": "unused"},
+        )
+
+        resp = client.post(
+            "/api/marketing/publish",
+            json={"filename": "test.mp4", "platform": "facebook"},
+            headers={"X-Admin-Token": "test-token"},
+        )
+
+        assert resp.status_code == 200
+        assert resp.json() == {
+            "success": False,
+            "status": "blocked",
+            "reason": "unsupported_platform",
+        }
+        assert asset_calls == []
 
     def test_publish_is_human_endpoint_only(self, monkeypatch):
         """The endpoint has no scheduler/cron wiring; it is only reachable

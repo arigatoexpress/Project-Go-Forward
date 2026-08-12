@@ -216,16 +216,24 @@ def _publish_instagram_reel(asset_url: str, caption: str) -> dict[str, Any]:
     max_attempts = int(os.environ.get("META_REEL_POLL_ATTEMPTS", "20"))
     interval = float(os.environ.get("META_REEL_POLL_INTERVAL_SECONDS", "3"))
     for _ in range(max_attempts):
-        poll = requests.get(status_url, params={"fields": "status_code", "access_token": token}, timeout=30)
+        poll = requests.get(
+            status_url, params={"fields": "status_code", "access_token": token}, timeout=30
+        )
         poll.raise_for_status()
         code = (poll.json() or {}).get("status_code")
         if code == "FINISHED":
             break
         if code == "ERROR":
-            return {"success": False, "error": "Instagram media container ingestion failed (ERROR)."}
+            return {
+                "success": False,
+                "error": "Instagram media container ingestion failed (ERROR).",
+            }
         time.sleep(interval)
     else:
-        return {"success": False, "error": "Instagram media container did not finish ingesting in time."}
+        return {
+            "success": False,
+            "error": "Instagram media container did not finish ingesting in time.",
+        }
 
     publish_resp = requests.post(
         f"{base}/media_publish",
@@ -251,8 +259,9 @@ def prepare_or_publish_social_post(
     hashtags: list[str] | None = None,
     video_url: str | None = None,
     campaign: str | None = None,
+    allow_publish: bool = False,
 ) -> dict[str, Any]:
-    """Create a safe draft or publish through the configured platform adapter."""
+    """Create a safe draft, or publish only when the caller explicitly opts in."""
     hashtags = hashtags or []
     asset_url = _absolute_asset_url(video_url)
     full_caption = (caption or "").strip()
@@ -264,6 +273,17 @@ def prepare_or_publish_social_post(
     cta_link = _utm_cta_link(platform, campaign)
     if cta_link:
         full_caption = f"{full_caption}\n{cta_link}".strip()
+
+    if not allow_publish:
+        return _draft_response(
+            platform=platform,
+            content_type=content_type,
+            caption=full_caption,
+            hashtags=hashtags,
+            asset_url=asset_url,
+            scheduled_time=scheduled_time,
+            reason="A separate, explicit publish action is required before any platform API can be called.",
+        )
 
     if platform not in {"tiktok", "instagram_reels"}:
         return _draft_response(

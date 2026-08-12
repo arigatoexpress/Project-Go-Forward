@@ -1146,9 +1146,7 @@ def _store_analytics_event(
             _db.db.collection("analytics_events").add(record, timeout=FIRESTORE_RPC_TIMEOUT)
         return True
     except Exception as exc:
-        struct_logger.warning(
-            "Analytics event store failed", event=canonical, error=str(exc)
-        )
+        struct_logger.warning("Analytics event store failed", event=canonical, error=str(exc))
         return False
 
 
@@ -1945,7 +1943,11 @@ async def get_event_analytics(range: str = "30d"):
             # ISO timestamps sort lexicographically = chronologically; read the
             # collection and keep in-range docs. (Low launch volume; move to a
             # created_at .where()+index if it grows.)
-            for doc in _db.db.collection("analytics_events").limit(10000).stream(timeout=FIRESTORE_RPC_TIMEOUT):
+            for doc in (
+                _db.db.collection("analytics_events")
+                .limit(10000)
+                .stream(timeout=FIRESTORE_RPC_TIMEOUT)
+            ):
                 d = doc.to_dict() or {}
                 if str(d.get("created_at", "")) >= cutoff:
                     events.append(d)
@@ -2008,12 +2010,8 @@ async def get_event_analytics(range: str = "30d"):
                 "appointment_journeys": len(appointment_journeys),
                 "phone_journeys": len(phone_journeys),
                 "lead_conversion_rate": percentage(len(lead_journeys), len(journeys)),
-                "appointment_conversion_rate": percentage(
-                    len(appointment_journeys), len(journeys)
-                ),
-                "attribution_coverage_pct": percentage(
-                    len(attributed), len(canonical_events)
-                ),
+                "appointment_conversion_rate": percentage(len(appointment_journeys), len(journeys)),
+                "attribution_coverage_pct": percentage(len(attributed), len(canonical_events)),
             },
         }
     except Exception as e:
@@ -4451,7 +4449,7 @@ async def api_trending_ideas():
 
 @app.post("/api/marketing/schedule", dependencies=[Depends(require_admin)])
 async def api_schedule_post(request: Request):
-    """Schedule a post for publishing."""
+    """Prepare a reviewed draft without calling a social platform API."""
     try:
         data = await request.json()
         result = schedule_social_post(
@@ -4491,6 +4489,13 @@ async def api_marketing_publish(request: Request):
     """
     try:
         data = await request.json()
+        platform = data.get("platform", "instagram_reels")
+        if platform not in {"tiktok", "instagram_reels"}:
+            return {
+                "success": False,
+                "status": "blocked",
+                "reason": "unsupported_platform",
+            }
         # 1) resolve the approved local creative → public/signed URL (PR 5)
         asset = publish_video_asset(data.get("filename") or data.get("video_url"))
         if not asset.get("success"):
@@ -4501,13 +4506,14 @@ async def api_marketing_publish(request: Request):
             }
         # 2) hand the PUBLIC url to the gated, polling adapter (PR 4)
         return schedule_social_post(
-            platform="instagram_reels",
+            platform=platform,
             content_type="video",
             caption=data.get("caption"),
             hashtags=data.get("hashtags"),
             video_url=asset["public_url"],
             home_name=data.get("home_name"),
             campaign=data.get("campaign"),
+            allow_publish=True,
         )
     except Exception as e:
         struct_logger.error("Marketing publish failed", error=str(e))
@@ -5711,9 +5717,8 @@ async def create_appointment(request: Request):
                 if existing_lead and existing_digits[-10:] == submitted_digits:
                     existing_lead.appointment_requested = True
                     existing_lead.status = "qualified"
-                    existing_lead.journey_id = (
-                        existing_lead.journey_id
-                        or _normalize_journey_id(data.get("journey_id"))
+                    existing_lead.journey_id = existing_lead.journey_id or _normalize_journey_id(
+                        data.get("journey_id")
                     )
                     existing_lead.home_id = existing_lead.home_id or home_id
                     existing_lead.home_model = existing_lead.home_model or home_model
@@ -6615,9 +6620,7 @@ async def review_redirect(request: Request, src: str | None = None):
     try:
         struct_logger.info("Review redirect", src=src_clean or "direct")
         if _db and getattr(_db, "db", None):
-            _store_analytics_event(
-                "review_redirect", {"src": src_clean or "direct"}
-            )
+            _store_analytics_event("review_redirect", {"src": src_clean or "direct"})
     except Exception as e:  # tracking must never break the redirect
         try:
             struct_logger.warning("Review redirect tracking failed", error=str(e))
@@ -7695,7 +7698,9 @@ async def v1_webhook_notify(request: Request):
     }
 
     try:
-        _db.db.collection("activities").document(activity_id).set(activity, timeout=FIRESTORE_RPC_TIMEOUT)
+        _db.db.collection("activities").document(activity_id).set(
+            activity, timeout=FIRESTORE_RPC_TIMEOUT
+        )
         struct_logger.info(
             "Partner webhook activity logged", activity_id=activity_id, deal_id=deal_id
         )
@@ -7712,7 +7717,11 @@ async def v1_webhook_notify(request: Request):
 async def v1_service_request_resolve(request: Request, request_id: str):
     """Mark a service request as resolved. Called by Notion when warranty claims close."""
     try:
-        doc = _db.db.collection("service_requests").document(request_id).get(timeout=FIRESTORE_RPC_TIMEOUT)
+        doc = (
+            _db.db.collection("service_requests")
+            .document(request_id)
+            .get(timeout=FIRESTORE_RPC_TIMEOUT)
+        )
         if not doc.exists:
             raise HTTPException(status_code=404, detail="Service request not found")
 
@@ -7964,7 +7973,11 @@ async def get_secure_hub_deal(deal_id: str, request: Request, phone: str = ""):
             raise HTTPException(status_code=403, detail=_PORTAL_VERIFY_MSG)
 
         # Fetch documents (deal_notes of type esign_completed or document_generated)
-        docs_query = db.collection("deal_notes").where("deal_id", "==", deal_id).stream(timeout=FIRESTORE_RPC_TIMEOUT)
+        docs_query = (
+            db.collection("deal_notes")
+            .where("deal_id", "==", deal_id)
+            .stream(timeout=FIRESTORE_RPC_TIMEOUT)
+        )
         documents = []
         for doc in docs_query:
             d = doc.to_dict()
