@@ -21,7 +21,7 @@ import requests
 from google.auth.transport.requests import Request as GoogleAuthRequest
 
 ADS_SCOPE = "https://www.googleapis.com/auth/adwords"
-ADS_API_VERSION = "v24"
+ADS_API_VERSION = "v25"
 QUERY = "SELECT customer.id FROM customer LIMIT 1"
 
 

@@ -126,16 +126,16 @@ def test_rejects_unreviewed_paths_and_unbounded_tracking_values():
     assert "tracking.utm_term must equal {keyword}" in errors
 
 
-def test_rejects_inflated_stop_loss_or_removed_activation_checks():
+def test_rejects_inflated_stop_loss_or_removed_hard_readiness_checks():
     draft = _draft()
     draft["activation_gate"]["stop_loss"]["zero_reachable_leads_spend_usd"] = 50000
-    draft["activation_gate"]["required_checks"] = []
+    draft["readiness"]["hard_checks"] = []
     draft["campaign"]["geo"]["radius_miles"] = 500
 
     errors = validate_draft(draft)
 
     assert "stop_loss.zero_reachable_leads_spend_usd must equal reviewed value 200" in errors
-    assert "activation_gate.required_checks must match the reviewed checklist" in errors
+    assert "readiness.hard_checks must match the reviewed hard-check list" in errors
     assert "geo.radius_miles must equal reviewed value 50" in errors
 
 
