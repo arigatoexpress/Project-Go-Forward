@@ -401,6 +401,10 @@ def get_inventory_for_ads(limit: int = 5) -> dict:
 
     return {
         "success": True,
+        # `_load_inventory` is deliberately resilient: Firestore falls back to
+        # local JSON and then sample data. Useful for drafting, but not proof of
+        # Firestore provenance for an automatic public-source switch.
+        "source": "inventory_fallback_chain",
         "homes": homes_for_ads,
         "total_inventory": total,
         "new_homes": new_count,

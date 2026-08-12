@@ -1008,6 +1008,30 @@ def test_inventory_context_defaults_to_legacy_source(monkeypatch):
     assert main._seo_public_homes()["homes"] == data["homes"]
 
 
+def test_inventory_context_reports_stale_legacy_source_honestly(monkeypatch):
+    """A usable snapshot must not be presented as current when its timestamp is old."""
+    client, main, _db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
+    monkeypatch.setenv("INVENTORY_SOURCE", "legacy")
+    _isolate_inventory_merge(monkeypatch, main)
+    retrieved_at = (datetime.now(UTC) - timedelta(days=40)).isoformat()
+    legacy = {**_LEGACY_CTX, "source": "legacy_site_snapshot", "retrieved_at": retrieved_at}
+    monkeypatch.setattr(main, "load_legacy_inventory_context", lambda **_kwargs: legacy)
+
+    data = client.get("/api/marketing/inventory-context").json()
+
+    assert data["source"] == "legacy_site_snapshot"
+    assert data["source_status"] == {
+        "requested": "legacy",
+        "selected_path": "legacy",
+        "reported_source": "legacy_site_snapshot",
+        "freshness": "stale",
+        "retrieved_at": retrieved_at,
+        "age_days": 40,
+        "stale_after_days": 14,
+    }
+    assert "inventory_source_stale" in data["warnings"]
+
+
 def test_inventory_context_firestore_source_serves_firestore(monkeypatch):
     """INVENTORY_SOURCE=firestore -> staff-managed Firestore inventory wins."""
     client, main, _db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
@@ -1035,17 +1059,68 @@ def test_inventory_context_auto_falls_back_to_legacy_when_firestore_empty(monkey
     assert main._seo_public_homes()["homes"] == data["homes"]
 
 
-def test_inventory_context_auto_prefers_firestore_when_populated(monkeypatch):
-    """auto + >= min Firestore homes -> Firestore wins (the unfreeze)."""
+def test_inventory_context_auto_rejects_unverified_fallback_chain(monkeypatch):
+    """A non-empty fallback chain is not proof that Firestore is current."""
     client, main, _db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
     monkeypatch.setenv("INVENTORY_SOURCE", "auto")
     _isolate_inventory_merge(monkeypatch, main)
     monkeypatch.setattr(main, "load_legacy_inventory_context", lambda **k: dict(_LEGACY_CTX))
-    monkeypatch.setattr(main, "get_inventory_for_ads", lambda **k: dict(_FS_CTX))
+    monkeypatch.setattr(
+        main,
+        "get_inventory_for_ads",
+        lambda **k: {**_FS_CTX, "source": "inventory_fallback_chain"},
+    )
 
     data = client.get("/api/marketing/inventory-context").json()
+    assert [h["id"] for h in data["homes"]] == ["legacy-1"]
+    assert data["source_status"]["selected_path"] == "legacy"
+    assert data["source_status"]["requested"] == "auto"
+
+
+def test_inventory_context_auto_prefers_verified_fresh_firestore(monkeypatch):
+    """Automatic switching requires both strict provenance and fresh evidence."""
+    client, main, _db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
+    monkeypatch.setenv("INVENTORY_SOURCE", "auto")
+    _isolate_inventory_merge(monkeypatch, main)
+    monkeypatch.setattr(main, "load_legacy_inventory_context", lambda **k: dict(_LEGACY_CTX))
+    retrieved_at = (datetime.now(UTC) - timedelta(days=1)).isoformat()
+    monkeypatch.setattr(
+        main,
+        "get_inventory_for_ads",
+        lambda **k: {
+            **_FS_CTX,
+            "source": "firestore_inventory",
+            "retrieved_at": retrieved_at,
+        },
+    )
+
+    data = client.get("/api/marketing/inventory-context").json()
+
     assert [h["id"] for h in data["homes"]] == ["fs-1"]
+    assert data["source_status"]["reported_source"] == "firestore_inventory"
+    assert data["source_status"]["freshness"] == "fresh"
+    assert data["source_status"]["selected_path"] == "firestore"
     assert main._seo_public_homes()["homes"] == data["homes"]
+
+
+def test_inventory_context_explicit_firestore_reports_unknown_freshness(monkeypatch):
+    """An operator override may serve the path, but it may not claim freshness."""
+    client, main, _db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
+    monkeypatch.setenv("INVENTORY_SOURCE", "firestore")
+    _isolate_inventory_merge(monkeypatch, main)
+    monkeypatch.setattr(main, "load_legacy_inventory_context", lambda **k: dict(_LEGACY_CTX))
+    monkeypatch.setattr(
+        main,
+        "get_inventory_for_ads",
+        lambda **k: {**_FS_CTX, "source": "inventory_fallback_chain"},
+    )
+
+    data = client.get("/api/marketing/inventory-context").json()
+
+    assert [h["id"] for h in data["homes"]] == ["fs-1"]
+    assert data["source_status"]["reported_source"] == "inventory_fallback_chain"
+    assert data["source_status"]["freshness"] == "unknown"
+    assert "inventory_source_freshness_unknown" in data["warnings"]
 
 
 def test_inventory_context_legacy_unavailable_falls_back_to_firestore(monkeypatch):

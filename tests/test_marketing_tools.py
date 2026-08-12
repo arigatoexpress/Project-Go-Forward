@@ -42,6 +42,9 @@ def test_get_inventory_for_ads_preserves_live_firestore_media(monkeypatch):
     result = marketing_tools.get_inventory_for_ads(limit=10)
 
     assert result["success"] is True
+    # This helper uses a Firestore -> JSON -> sample fallback chain. It must not
+    # claim Firestore provenance until the loader returns explicit evidence.
+    assert result["source"] == "inventory_fallback_chain"
     assert result["total_inventory"] == 1
     home = result["homes"][0]
     assert home["id"] == "28102"
