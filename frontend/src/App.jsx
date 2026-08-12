@@ -1459,7 +1459,12 @@ function App() {
         <NavBar {...navProps} />
         <ErrorBoundary scope="getting-started">
           <Suspense fallback={<PageLoader />}>
-            <GettingStarted onOpenDocuments={() => navigateTo('documents')} onOpenCRM={() => navigateTo('crm')} onOpenAdStudio={() => navigateTo('adstudio')} />
+            <GettingStarted
+              onOpenDocuments={() => navigateTo('documents')}
+              onOpenCRM={() => navigateTo('crm')}
+              onOpenAdStudio={() => navigateTo('adstudio')}
+              onOpenPhotos={() => navigateTo('photos')}
+            />
           </Suspense>
         </ErrorBoundary>
       </div>
