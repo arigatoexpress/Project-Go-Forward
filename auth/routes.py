@@ -28,6 +28,7 @@ from typing import Any
 from fastapi import APIRouter, Body, Cookie, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 
+from .csrf import create_csrf_token, require_request_csrf, set_csrf_cookie
 from .session import (
     PASSKEY_COOKIE_NAME,
     SESSION_COOKIE_NAME,
@@ -289,6 +290,7 @@ def _request_is_admin(request: Request, manager: SessionManager) -> bool:
 def _require_admin_request(request: Request, manager: SessionManager) -> None:
     if not _request_is_admin(request, manager):
         raise HTTPException(status_code=401, detail="Admin authentication required")
+    require_request_csrf(request)
 
 
 def _credential_descriptors(
@@ -453,7 +455,15 @@ def register_complete(
 
     # Issue session immediately after registration
     token = manager.issue_session("admin", email=admin_email, auth_method="passkey")
-    result = JSONResponse({"success": True, "registered": True, "email": admin_email})
+    csrf_token = create_csrf_token()
+    result = JSONResponse(
+        {
+            "success": True,
+            "registered": True,
+            "email": admin_email,
+            "csrf_token": csrf_token,
+        }
+    )
     result.delete_cookie(key="tho_passkey_register", path="/api/admin/passkey/register/complete")
     result.set_cookie(
         key=PASSKEY_COOKIE_NAME,
@@ -463,6 +473,12 @@ def register_complete(
         secure=_cookie_secure(request),
         samesite="Strict",
         path="/",
+    )
+    set_csrf_cookie(
+        result,
+        csrf_token,
+        secure=_cookie_secure(request),
+        max_age=manager.session_ttl,
     )
     return result
 
@@ -565,7 +581,15 @@ def login_complete(
         raise HTTPException(status_code=503, detail="Passkey credential store unavailable")
 
     token = manager.issue_session("admin", email=rec.user_id, auth_method="passkey")
-    result = JSONResponse({"success": True, "authenticated": True, "email": rec.user_id})
+    csrf_token = create_csrf_token()
+    result = JSONResponse(
+        {
+            "success": True,
+            "authenticated": True,
+            "email": rec.user_id,
+            "csrf_token": csrf_token,
+        }
+    )
     result.delete_cookie(key="tho_passkey_login", path="/api/admin/passkey/login/complete")
     result.set_cookie(
         key=PASSKEY_COOKIE_NAME,
@@ -575,6 +599,12 @@ def login_complete(
         secure=_cookie_secure(request),
         samesite="Strict",
         path="/",
+    )
+    set_csrf_cookie(
+        result,
+        csrf_token,
+        secure=_cookie_secure(request),
+        max_age=manager.session_ttl,
     )
     return result
 

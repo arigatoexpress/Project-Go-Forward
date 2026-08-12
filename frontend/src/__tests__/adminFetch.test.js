@@ -2,12 +2,14 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import adminFetch from '../adminFetch';
 
 afterEach(() => {
+  document.cookie = 'tho_csrf_token=; Max-Age=0; path=/';
   vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
 describe('adminFetch retry safety', () => {
   it('never retries a POST after an ambiguous server failure by default', async () => {
+    document.cookie = 'tho_csrf_token=conflict-resolution-token; path=/';
     const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 503 });
     vi.stubGlobal('fetch', fetchMock);
 
@@ -15,6 +17,13 @@ describe('adminFetch retry safety', () => {
 
     expect(response.status).toBe(503);
     expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/marketing/publish',
+      expect.objectContaining({
+        method: 'POST',
+        headers: { 'X-CSRF-Token': 'conflict-resolution-token' },
+      }),
+    );
   });
 
   it('never retries a POST after an ambiguous network failure by default', async () => {

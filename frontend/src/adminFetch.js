@@ -9,6 +9,13 @@
 const MAX_RETRIES = 3;
 const RETRY_DELAY = 1000; // ms
 
+export function adminCsrfHeaders(headers = {}) {
+  const csrfMatch = document.cookie.match(/tho_csrf_token=([^;]+)/);
+  return csrfMatch
+    ? { ...headers, 'X-CSRF-Token': csrfMatch[1] }
+    : { ...headers };
+}
+
 async function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
@@ -21,13 +28,7 @@ export default async function adminFetch(url, options = {}) {
   const attempts = retryable ? MAX_RETRIES : 1;
 
   // Inject CSRF token into headers for admin endpoints
-  const csrfMatch = document.cookie.match(/tho_csrf_token=([^;]+)/);
-  if (csrfMatch) {
-    fetchOptions.headers = {
-      ...(fetchOptions.headers || {}),
-      'X-CSRF-Token': csrfMatch[1],
-    };
-  }
+  fetchOptions.headers = adminCsrfHeaders(fetchOptions.headers);
 
   for (let attempt = 0; attempt < attempts; attempt++) {
     try {
