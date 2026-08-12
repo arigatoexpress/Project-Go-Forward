@@ -40,6 +40,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.gzip import GZipMiddleware
 
 import caching
+from auth.csrf import create_csrf_token, require_request_csrf, set_csrf_cookie
 from auth.email_code import (
     EMAIL_CODE_TTL_SECONDS,
     MAX_CODE_ATTEMPTS,
@@ -1021,11 +1022,6 @@ def _admin_token_from_request(request: Request) -> str:
     return ""
 
 
-def _create_csrf_token() -> str:
-    """Generate a random CSRF token for double-submit cookie pattern."""
-    return secrets.token_hex(32)
-
-
 def _extract_utm(data: dict) -> dict:
     """Pull first-party UTM/referrer from a lead-submit payload. Length-capped,
     never PII. Honest attribution: only set when the visitor reached out."""
@@ -1150,32 +1146,10 @@ def _store_analytics_event(
         return False
 
 
-def _verify_csrf(request: Request) -> bool:
-    """Verify CSRF token for state-changing admin requests.
-
-    Safe methods (GET, HEAD, OPTIONS) are exempt.
-    Requests using X-Admin-Token or Authorization: Bearer header
-    (custom headers, already CSRF-safe) are exempt.
-    Cookie-based auth requests must provide matching X-CSRF-Token header.
-    """
-    if request.method in {"GET", "HEAD", "OPTIONS"}:
-        return True
-    # If using header-based auth, skip CSRF (custom headers are CSRF-safe)
-    if request.headers.get("X-Admin-Token", "").strip():
-        return True
-    auth = request.headers.get("Authorization", "").strip()
-    if auth.lower().startswith("bearer "):
-        return True
-    csrf_cookie = request.cookies.get("tho_csrf_token", "")
-    csrf_header = request.headers.get("X-CSRF-Token", "")
-    if not csrf_cookie or not csrf_header:
-        return False
-    return secrets.compare_digest(csrf_cookie, csrf_header)
-
-
 async def require_admin(request: Request):
     """FastAPI dependency that validates the stateless admin token or passkey session."""
     if _verify_passkey_cookie(request):
+        require_request_csrf(request)
         return
     token = _admin_token_from_request(request)
     if not token:
@@ -1184,8 +1158,7 @@ async def require_admin(request: Request):
         raise HTTPException(
             status_code=401, detail="Admin session expired. Please re-authenticate."
         )
-    if not _verify_csrf(request):
-        raise HTTPException(status_code=403, detail="CSRF token missing or invalid")
+    require_request_csrf(request)
 
 
 @app.get("/api/metrics", dependencies=[Depends(require_admin)])
@@ -6358,7 +6331,7 @@ async def verify_admin_pin(request: Request):
     # Successful login — clear attempt history
     _clear_pin_attempts(client_ip)
     token = _create_admin_token()
-    csrf_token = _create_csrf_token()
+    csrf_token = create_csrf_token()
     struct_logger.info("Admin login succeeded", client_ip=client_ip)
     # Audit trail: track who logged in and when. Use a hash of the freshly
     # minted token as the actor id so the entry is correlatable with later
@@ -6381,12 +6354,10 @@ async def verify_admin_pin(request: Request):
         samesite="strict",
         max_age=ADMIN_TOKEN_TTL,
     )
-    response.set_cookie(
-        key="tho_csrf_token",
-        value=csrf_token,
-        httponly=False,
+    set_csrf_cookie(
+        response,
+        csrf_token,
         secure=not IS_LOCAL,
-        samesite="strict",
         max_age=ADMIN_TOKEN_TTL,
     )
     return response
@@ -8314,7 +8285,7 @@ async def verify_admin_email_code(request: Request):
     _clear_pin_attempts(client_ip)
 
     token = _create_admin_token()
-    csrf_token = _create_csrf_token()
+    csrf_token = create_csrf_token()
     struct_logger.info("Admin email-code login succeeded", client_ip=client_ip)
     token_actor = f"admin:{hashlib.sha256(token.encode('utf-8')).hexdigest()[:12]}"
     log_admin_action(
@@ -8334,12 +8305,10 @@ async def verify_admin_email_code(request: Request):
         samesite="strict",
         max_age=ADMIN_TOKEN_TTL,
     )
-    response.set_cookie(
-        key="tho_csrf_token",
-        value=csrf_token,
-        httponly=False,
+    set_csrf_cookie(
+        response,
+        csrf_token,
         secure=not IS_LOCAL,
-        samesite="strict",
         max_age=ADMIN_TOKEN_TTL,
     )
     return response

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+from types import SimpleNamespace
 
 import pytest
 from fastapi import FastAPI
@@ -13,6 +14,18 @@ pytest.importorskip("webauthn")
 from auth import routes as passkey_routes  # noqa: E402
 from auth.session import PASSKEY_COOKIE_NAME, SESSION_COOKIE_NAME, SessionManager  # noqa: E402
 from auth.store import CredentialRecord, InMemoryCredentialStore  # noqa: E402
+
+CSRF_COOKIE_NAME = "tho_csrf_token"
+
+
+def _csrf_headers(client, token="passkey-route-csrf"):
+    client.cookies.set(CSRF_COOKIE_NAME, token)
+    return {"X-CSRF-Token": token}
+
+
+def _fixture_dependencies(client, routes):
+    overrides = client.app.dependency_overrides
+    return overrides[routes.get_session_manager](), overrides[routes.get_credential_store]()
 
 
 @pytest.fixture
@@ -121,6 +134,7 @@ def test_register_begin_returns_browser_json_after_admin_auth(passkey_client, mo
     response = client.post(
         "/api/admin/passkey/register/begin",
         json={"email": "Mark@TexasHomeOutlet.com"},
+        headers=_csrf_headers(client),
     )
 
     assert response.status_code == 200, response.text
@@ -143,6 +157,7 @@ def test_register_begin_rejects_unapproved_email_after_admin_auth(passkey_client
     response = client.post(
         "/api/admin/passkey/register/begin",
         json={"email": "vendor@example.com"},
+        headers=_csrf_headers(client),
     )
 
     assert response.status_code == 403
@@ -156,6 +171,7 @@ def test_register_begin_accepts_owner_email_after_admin_auth(passkey_client, mon
     response = client.post(
         "/api/admin/passkey/register/begin",
         json={"email": "aribspector@gmail.com"},
+        headers=_csrf_headers(client),
     )
 
     assert response.status_code == 200, response.text
@@ -168,12 +184,25 @@ def test_register_begin_uses_sapphire_xyz_cutover_context(passkey_client, monkey
 
     response = client.post(
         "/api/admin/passkey/register/begin",
-        headers={"Origin": "https://tho.sapphire.xyz"},
+        headers={"Origin": "https://tho.sapphire.xyz", **_csrf_headers(client)},
         json={"email": "mark@texashomeoutlet.com"},
     )
 
     assert response.status_code == 200, response.text
     assert response.json()["rp"]["id"] == "sapphire.xyz"
+
+
+def test_register_begin_rejects_authenticated_cookie_without_csrf(passkey_client, monkeypatch):
+    client, routes = passkey_client
+    monkeypatch.setattr(routes, "_request_is_admin", lambda request, manager: True)
+
+    response = client.post(
+        "/api/admin/passkey/register/begin",
+        json={"email": "mark@texashomeoutlet.com"},
+    )
+
+    assert response.status_code == 403
+    assert "CSRF" in response.json()["detail"]
 
 
 def test_status_reports_store_persistence_contract(passkey_client):
@@ -219,7 +248,10 @@ def test_credentials_management_lists_and_deletes_deprecated_key(passkey_client,
     assert body["credentials"][1]["credential_id"] == "Y3JlZGVudGlhbC0y"
     assert body["credentials"][1]["authorized"] is True
 
-    deleted = client.delete("/api/admin/passkey/credentials/Y3JlZGVudGlhbC0x")
+    deleted = client.delete(
+        "/api/admin/passkey/credentials/Y3JlZGVudGlhbC0x",  # pragma: allowlist secret
+        headers=_csrf_headers(client),
+    )
 
     assert deleted.status_code == 200, deleted.text
     assert deleted.json()["registered_keys"] == 1
@@ -227,3 +259,81 @@ def test_credentials_management_lists_and_deletes_deprecated_key(passkey_client,
     assert deleted.json()["unauthorized_keys"] == 0
     remaining = client.get("/api/admin/passkey/credentials").json()["credentials"]
     assert [cred["credential_id"] for cred in remaining] == ["Y3JlZGVudGlhbC0y"]
+
+
+def test_credentials_delete_rejects_authenticated_cookie_without_csrf(passkey_client, monkeypatch):
+    client, routes = passkey_client
+    monkeypatch.setattr(routes, "_request_is_admin", lambda request, manager: True)
+
+    response = client.delete(
+        "/api/admin/passkey/credentials/Y3JlZGVudGlhbC0x"  # pragma: allowlist secret
+    )
+
+    assert response.status_code == 403
+    assert "CSRF" in response.json()["detail"]
+
+
+def test_successful_passkey_login_issues_csrf_cookie_and_response_token(
+    passkey_client, monkeypatch
+):
+    client, routes = passkey_client
+    manager, _store = _fixture_dependencies(client, routes)
+    challenge = manager.new_challenge_bytes()
+    client.cookies.set("tho_passkey_login", manager.wrap_challenge(challenge, flow="login"))
+    monkeypatch.setattr(routes, "parse_authentication_credential_json", lambda value: value)
+    monkeypatch.setattr(
+        routes,
+        "verify_authentication_response",
+        lambda **kwargs: SimpleNamespace(credential_id=b"credential-2", new_sign_count=1),
+    )
+
+    response = client.post(
+        "/api/admin/passkey/login/complete",
+        json={"id": "Y3JlZGVudGlhbC0y"},
+    )
+
+    assert response.status_code == 200, response.text
+    csrf_token = response.json()["csrf_token"]
+    assert csrf_token
+    assert response.cookies[CSRF_COOKIE_NAME] == csrf_token
+    assert PASSKEY_COOKIE_NAME in response.cookies
+
+
+def test_successful_passkey_registration_issues_csrf_cookie_and_response_token(
+    passkey_client, monkeypatch
+):
+    client, routes = passkey_client
+    manager, _store = _fixture_dependencies(client, routes)
+    challenge = manager.new_challenge_bytes()
+    client.cookies.set(
+        "tho_passkey_register",
+        manager.wrap_challenge(
+            challenge,
+            flow="register",
+            email="mark@texashomeoutlet.com",
+        ),
+    )
+    monkeypatch.setattr(routes, "_request_is_admin", lambda request, manager: True)
+    monkeypatch.setattr(routes, "parse_registration_credential_json", lambda value: value)
+    monkeypatch.setattr(
+        routes,
+        "verify_registration_response",
+        lambda **kwargs: SimpleNamespace(
+            credential_id=b"new-credential",
+            credential_public_key=b"new-public-key",
+            sign_count=0,
+            aaguid=None,
+        ),
+    )
+
+    response = client.post(
+        "/api/admin/passkey/register/complete",
+        json={"id": "bmV3LWNyZWRlbnRpYWw"},
+        headers=_csrf_headers(client),
+    )
+
+    assert response.status_code == 200, response.text
+    csrf_token = response.json()["csrf_token"]
+    assert csrf_token
+    assert response.cookies[CSRF_COOKIE_NAME] == csrf_token
+    assert PASSKEY_COOKIE_NAME in response.cookies
