@@ -10,6 +10,7 @@ import {
     Pause
 } from 'lucide-react';
 import adminFetch from '../adminFetch';
+import GoogleAdsStatusCard from '../components/ad-studio/GoogleAdsStatusCard';
 import { describeFetchError, extractErrorMessage, safeUserMessage } from '../utils/apiError';
 import './AdStudio.css';
 
@@ -59,7 +60,8 @@ const TABS = [
     { id: 'create', label: 'Create Ad', icon: <Film size={18} /> },
     { id: 'ideas', label: 'Content Ideas', icon: <TrendingUp size={18} /> },
     { id: 'scheduled', label: 'Scheduled', icon: <Calendar size={18} /> },
-    { id: 'analytics', label: 'Analytics', icon: <BarChart3 size={18} /> }
+    { id: 'analytics', label: 'Analytics', icon: <BarChart3 size={18} /> },
+    { id: 'paid-search', label: 'Paid Search', icon: <Search size={18} /> }
 ];
 
 const AVATARS = [
@@ -2101,6 +2103,7 @@ export default function AdStudio({ onBack }) {
                             key={tab.id}
                             className={`tho-nav-item ${activeTab === tab.id ? 'active' : ''}`}
                             onClick={() => setActiveTab(tab.id)}
+                            aria-current={activeTab === tab.id ? 'page' : undefined}
                         >
                             {tab.icon}
                             <span>{tab.label}</span>
@@ -2120,6 +2123,7 @@ export default function AdStudio({ onBack }) {
                 {activeTab === 'ideas' && renderIdeas()}
                 {activeTab === 'scheduled' && renderScheduled()}
                 {activeTab === 'analytics' && renderAnalytics()}
+                {activeTab === 'paid-search' && <GoogleAdsStatusCard />}
             </main>
         </div>
         </div>
