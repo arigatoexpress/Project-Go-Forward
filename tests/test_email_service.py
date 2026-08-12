@@ -40,9 +40,10 @@ def _fresh_email_service(monkeypatch):
 
 
 class TestSendDocumentEmail:
-    def test_default_staff_alerts_use_lee_aswells_active_email(self, monkeypatch):
-        """Appointment/lead alerts must reach Lee's active THO mailbox."""
+    def test_default_staff_alerts_reach_the_current_team(self, monkeypatch):
+        """Lead and appointment alerts must reach every current staff recipient."""
         monkeypatch.delenv("NOTIFICATION_EMAIL", raising=False)
+        monkeypatch.delenv("REQUIRED_NOTIFICATION_EMAILS", raising=False)
         email_service = _fresh_email_service(monkeypatch)
 
         assert email_service.NOTIFICATION_EMAILS == [
@@ -50,6 +51,7 @@ class TestSendDocumentEmail:
             "leeaswell@texashomeoutlet.com",
             "celeste@texashomeoutlet.com",
             "mark@texashomeoutlet.com",
+            "adriana@texashomeoutlet.com",
         ]
 
     def test_business_config_documents_lee_aswells_active_email(self):
@@ -61,8 +63,32 @@ class TestSendDocumentEmail:
         assert notification_line.strip() == (
             'notification_email: "ben@texashomeoutlet.com,'
             "leeaswell@texashomeoutlet.com,celeste@texashomeoutlet.com,"
-            'mark@texashomeoutlet.com"'
+            'mark@texashomeoutlet.com,adriana@texashomeoutlet.com"'
         )
+
+    def test_stale_deployed_recipient_list_is_augmented_with_adriana(self, monkeypatch):
+        """Celeste's July 24 request must survive a stale Cloud Run env override.
+
+        Merely changing the source-code fallback is insufficient because deployed
+        NOTIFICATION_EMAIL values override it.  The required-recipient layer keeps
+        Adriana on both lead and appointment alerts until an operator explicitly
+        changes REQUIRED_NOTIFICATION_EMAILS.
+        """
+        monkeypatch.setenv(
+            "NOTIFICATION_EMAIL",
+            "ben@texashomeoutlet.com,lee@texashomeoutlet.com,"
+            "celeste@texashomeoutlet.com,mark@texashomeoutlet.com",
+        )
+        monkeypatch.delenv("REQUIRED_NOTIFICATION_EMAILS", raising=False)
+        email_service = _fresh_email_service(monkeypatch)
+
+        assert email_service.NOTIFICATION_EMAILS == [
+            "ben@texashomeoutlet.com",
+            "leeaswell@texashomeoutlet.com",
+            "celeste@texashomeoutlet.com",
+            "mark@texashomeoutlet.com",
+            "adriana@texashomeoutlet.com",
+        ]
 
     def test_stale_env_var_with_lees_old_email_is_remapped(self, monkeypatch):
         """A deployed NOTIFICATION_EMAIL env var may still contain Lee's retired
@@ -80,6 +106,7 @@ class TestSendDocumentEmail:
             "leeaswell@texashomeoutlet.com",
             "celeste@texashomeoutlet.com",
             "mark@texashomeoutlet.com",
+            "adriana@texashomeoutlet.com",
         ]
 
     def test_remap_dedupes_when_old_and_new_lee_both_present(self, monkeypatch):
@@ -91,7 +118,17 @@ class TestSendDocumentEmail:
         )
         email_service = _fresh_email_service(monkeypatch)
 
-        assert email_service.NOTIFICATION_EMAILS == ["leeaswell@texashomeoutlet.com"]
+        assert email_service.NOTIFICATION_EMAILS == [
+            "leeaswell@texashomeoutlet.com",
+            "adriana@texashomeoutlet.com",
+        ]
+
+    def test_operator_can_explicitly_clear_required_recipient_layer(self, monkeypatch):
+        monkeypatch.setenv("NOTIFICATION_EMAIL", "mark@texashomeoutlet.com")
+        monkeypatch.setenv("REQUIRED_NOTIFICATION_EMAILS", "")
+        email_service = _fresh_email_service(monkeypatch)
+
+        assert email_service.NOTIFICATION_EMAILS == ["mark@texashomeoutlet.com"]
 
     def test_custom_email_owns_one_greeting_and_one_signoff(self, monkeypatch):
         """CRM templates are body-only; this helper owns the delivery wrapper."""
@@ -266,6 +303,7 @@ class TestSendDocumentEmail:
             "ben@texashomeoutlet.com",
             "leeaswell@texashomeoutlet.com",
             "celeste@texashomeoutlet.com",
+            "adriana@texashomeoutlet.com",
         ]
 
         sent_payloads: list[dict] = []
@@ -294,12 +332,14 @@ class TestSendDocumentEmail:
             "ben@texashomeoutlet.com",
             "leeaswell@texashomeoutlet.com",
             "celeste@texashomeoutlet.com",
+            "adriana@texashomeoutlet.com",
         ]
         # Customer replies still route to the shared mailbox, not the staff list.
         assert sent_payloads[0]["reply_to"] == "sales@texashomeoutlet.com"
         # The activity log captures the joined recipient string.
         assert logged[0][0] == (
-            "ben@texashomeoutlet.com, leeaswell@texashomeoutlet.com, celeste@texashomeoutlet.com"
+            "ben@texashomeoutlet.com, leeaswell@texashomeoutlet.com, "
+            "celeste@texashomeoutlet.com, adriana@texashomeoutlet.com"
         )
 
     def test_skips_send_when_api_key_missing(self, monkeypatch):
