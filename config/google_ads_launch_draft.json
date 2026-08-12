@@ -1,6 +1,36 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "mode": "VALIDATE_ONLY",
+  "deployment": {
+    "key": "tho-search-high-intent-huffman-v1",
+    "feature_flag": "GOOGLE_ADS_ONE_CLICK_ENABLED",
+    "api_version": "v25",
+    "auto_enable_after_policy_approval": false,
+    "contract_hash_algorithm": "sha256"
+  },
+  "readiness": {
+    "hard_checks": [
+      "feature_flag_enabled",
+      "draft_validator_green",
+      "dedicated_job_runtime_green",
+      "google_ads_account_access_green",
+      "billing_and_account_serving_eligible",
+      "housing_policy_acknowledged_in_google_ads",
+      "landing_pages_live_canonical_and_lead_capable",
+      "ga4_or_gtm_exactly_one_loader",
+      "generate_lead_single_fire_verified",
+      "schedule_appointment_single_fire_verified",
+      "google_ads_conversion_import_verified",
+      "no_duplicate_active_deployment",
+      "stop_loss_scheduler_green",
+      "budget_and_stop_loss_bound_to_passkey_approval"
+    ],
+    "advisory_checks": [
+      "search_console_sitemap_accepted",
+      "business_profile_link_verified",
+      "business_profile_performance_api_ready"
+    ]
+  },
   "control_plane": {
     "runtime": "DEDICATED_CLOUD_RUN_JOB",
     "service_account_id": "google-growth-control",
@@ -16,13 +46,13 @@
     "channel": "SEARCH",
     "currency_code": "USD",
     "budget": {
-      "average_daily_usd": 20.0,
-      "max_single_day_charge_usd": 40.0,
-      "monthly_charge_limit_usd": 608.0
+      "average_daily_usd": 20,
+      "max_single_day_charge_usd": 40,
+      "monthly_charge_limit_usd": 608
     },
     "bidding": {
       "strategy": "MAXIMIZE_CLICKS",
-      "max_cpc_usd": 5.0
+      "max_cpc_usd": 5
     },
     "networks": {
       "google_search": true,
@@ -35,7 +65,9 @@
         "address": "10685 FM 1960 East",
         "city": "Huffman",
         "state": "TX",
-        "country_code": "US"
+        "country_code": "US",
+        "latitude": 30.018056,
+        "longitude": -95.115729
       },
       "radius_miles": 50,
       "presence_only": true,
@@ -49,6 +81,8 @@
       "parental_status_enabled_all": true,
       "marital_status_targeting": false,
       "postal_code_targeting": false,
+      "demographic_exclusions": [],
+      "customer_match_targeting": false,
       "audience_targeting": []
     },
     "tracking": {
@@ -173,23 +207,13 @@
     "approved_at": null,
     "approved_average_daily_usd": null,
     "approved_monthly_charge_limit_usd": null,
-    "required_checks": [
-      "readiness_audit_green",
-      "google_ads_customer_and_manager_ids_confirmed",
-      "housing_policy_acknowledged_in_google_ads",
-      "ga4_or_gtm_configured_without_duplicate_pageviews",
-      "generate_lead_and_schedule_appointment_single_fire_verified",
-      "google_ads_conversion_import_verified",
-      "search_console_sitemap_accepted",
-      "budget_and_stop_loss_explicitly_approved"
-    ],
     "stop_loss": {
       "action": "PAUSE_CAMPAIGN",
       "decision_logic": "ANY",
       "evaluation_window_days": 7,
-      "zero_reachable_leads_spend_usd": 200.0,
+      "zero_reachable_leads_spend_usd": 200,
       "zero_reachable_leads_clicks": 100,
-      "max_reachable_lead_cpa_usd": 150.0,
+      "max_reachable_lead_cpa_usd": 150,
       "minimum_reachable_leads_for_cpa_rule": 3
     }
   }

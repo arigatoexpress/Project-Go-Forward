@@ -1,21 +1,26 @@
 #!/usr/bin/env python3
-"""Offline validator for the zero-spend Google Ads launch draft.
+"""Pure contract and operation builder for the zero-spend Google Ads draft.
 
 This command never imports the Google Ads client, reads credentials, or makes a
-network request. It exists to keep the checked-in campaign package paused,
-policy-safe, attributable, and honest about Google's charging limits.
+network request. It validates the reviewed contract and can build inert v25
+``GoogleAdsService.Mutate`` request bodies for later validate-only or paused
+creation flows. It never sends those bodies or enables an Ads resource.
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
+import re
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
 DEFAULT_DRAFT = Path(__file__).resolve().parents[1] / "config" / "google_ads_launch_draft.json"
+GOOGLE_ADS_API_VERSION = "v25"
 CANONICAL_HOST = "www.texashomeoutlet.com"
 ALLOWED_LANDING_PATHS = {"/appointments", "/inventory"}
 ALLOWED_POSITIVE_MATCH_TYPES = {"EXACT", "PHRASE"}
@@ -26,6 +31,8 @@ REVIEWED_BUDGET = {
 }
 REVIEWED_MAX_CPC_USD = 5.0
 REVIEWED_RADIUS_MILES = 50.0
+REVIEWED_LATITUDE = 30.018056
+REVIEWED_LONGITUDE = -95.115729
 REVIEWED_STOP_LOSS = {
     "evaluation_window_days": 7.0,
     "zero_reachable_leads_spend_usd": 200.0,
@@ -33,15 +40,26 @@ REVIEWED_STOP_LOSS = {
     "max_reachable_lead_cpa_usd": 150.0,
     "minimum_reachable_leads_for_cpa_rule": 3.0,
 }
-REQUIRED_ACTIVATION_CHECKS = {
-    "readiness_audit_green",
-    "google_ads_customer_and_manager_ids_confirmed",
+REQUIRED_HARD_CHECKS = {
+    "feature_flag_enabled",
+    "draft_validator_green",
+    "dedicated_job_runtime_green",
+    "google_ads_account_access_green",
+    "billing_and_account_serving_eligible",
     "housing_policy_acknowledged_in_google_ads",
-    "ga4_or_gtm_configured_without_duplicate_pageviews",
-    "generate_lead_and_schedule_appointment_single_fire_verified",
+    "landing_pages_live_canonical_and_lead_capable",
+    "ga4_or_gtm_exactly_one_loader",
+    "generate_lead_single_fire_verified",
+    "schedule_appointment_single_fire_verified",
     "google_ads_conversion_import_verified",
+    "no_duplicate_active_deployment",
+    "stop_loss_scheduler_green",
+    "budget_and_stop_loss_bound_to_passkey_approval",
+}
+REQUIRED_ADVISORY_CHECKS = {
     "search_console_sitemap_accepted",
-    "budget_and_stop_loss_explicitly_approved",
+    "business_profile_link_verified",
+    "business_profile_performance_api_ready",
 }
 
 
@@ -59,16 +77,51 @@ def _number(value: Any) -> float | None:
     return float(value)
 
 
+def _matches_reviewed_number(value: Any, expected: int | float) -> bool:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return False
+    try:
+        candidate = Decimal(str(value))
+    except InvalidOperation:
+        return False
+    return candidate.is_finite() and candidate == Decimal(str(expected))
+
+
 def validate_draft(payload: dict[str, Any]) -> list[str]:
     """Return deterministic validation errors without mutating ``payload``."""
     errors: list[str] = []
     campaign = _mapping(payload.get("campaign"))
     activation = _mapping(payload.get("activation_gate"))
 
-    if payload.get("schema_version") != 2:
-        errors.append("schema_version must equal 2")
+    if payload.get("schema_version") != 3:
+        errors.append("schema_version must equal 3")
     if payload.get("mode") != "VALIDATE_ONLY":
         errors.append("mode must remain VALIDATE_ONLY")
+
+    deployment = _mapping(payload.get("deployment"))
+    expected_deployment = {
+        "key": "tho-search-high-intent-huffman-v1",
+        "feature_flag": "GOOGLE_ADS_ONE_CLICK_ENABLED",
+        "api_version": GOOGLE_ADS_API_VERSION,
+        "auto_enable_after_policy_approval": False,
+        "contract_hash_algorithm": "sha256",
+    }
+    for field, expected in expected_deployment.items():
+        if deployment.get(field) != expected:
+            if isinstance(expected, str):
+                errors.append(f"deployment.{field} must equal {expected}")
+            else:
+                errors.append(f"deployment.{field} must remain {str(expected).lower()}")
+
+    readiness = _mapping(payload.get("readiness"))
+    hard_checks = {value for value in _list(readiness.get("hard_checks")) if isinstance(value, str)}
+    advisory_checks = {
+        value for value in _list(readiness.get("advisory_checks")) if isinstance(value, str)
+    }
+    if hard_checks != REQUIRED_HARD_CHECKS:
+        errors.append("readiness.hard_checks must match the reviewed hard-check list")
+    if advisory_checks != REQUIRED_ADVISORY_CHECKS:
+        errors.append("readiness.advisory_checks must match the reviewed advisory-check list")
 
     control_plane = _mapping(payload.get("control_plane"))
     expected_control_plane = {
@@ -114,7 +167,7 @@ def validate_draft(payload: dict[str, Any]) -> list[str]:
             errors.append("monthly_charge_limit_usd must equal 30.4x average_daily_usd")
     for field, reviewed_value in REVIEWED_BUDGET.items():
         value = _number(budget.get(field))
-        if value is None or not math.isclose(value, reviewed_value, abs_tol=0.01):
+        if value is None or not _matches_reviewed_number(value, reviewed_value):
             errors.append(f"budget.{field} must equal reviewed value {reviewed_value:g}")
 
     bidding = _mapping(campaign.get("bidding"))
@@ -123,7 +176,7 @@ def validate_draft(payload: dict[str, Any]) -> list[str]:
     max_cpc = _number(bidding.get("max_cpc_usd"))
     if max_cpc is None or max_cpc <= 0:
         errors.append("bidding.max_cpc_usd must be a positive number")
-    elif not math.isclose(max_cpc, REVIEWED_MAX_CPC_USD, abs_tol=0.01):
+    elif not _matches_reviewed_number(max_cpc, REVIEWED_MAX_CPC_USD):
         errors.append(f"bidding.max_cpc_usd must equal reviewed value {REVIEWED_MAX_CPC_USD:g}")
 
     networks = _mapping(campaign.get("networks"))
@@ -137,6 +190,13 @@ def validate_draft(payload: dict[str, Any]) -> list[str]:
     geo = _mapping(campaign.get("geo"))
     if geo.get("type") != "RADIUS":
         errors.append("geo.type must equal RADIUS")
+    center = _mapping(geo.get("center"))
+    latitude = _number(center.get("latitude"))
+    longitude = _number(center.get("longitude"))
+    if latitude is None or not math.isclose(latitude, REVIEWED_LATITUDE, abs_tol=0.000001):
+        errors.append(f"geo.center.latitude must equal reviewed value {REVIEWED_LATITUDE:g}")
+    if longitude is None or not math.isclose(longitude, REVIEWED_LONGITUDE, abs_tol=0.000001):
+        errors.append(f"geo.center.longitude must equal reviewed value {REVIEWED_LONGITUDE:g}")
     radius_miles = _number(geo.get("radius_miles"))
     if radius_miles is None or radius_miles < 1:
         errors.append("housing radius must be at least 1 mile")
@@ -163,6 +223,10 @@ def validate_draft(payload: dict[str, Any]) -> list[str]:
         errors.append("marital-status targeting must remain disabled")
     if policy.get("postal_code_targeting") is not False:
         errors.append("postal-code targeting must remain disabled")
+    if _list(policy.get("demographic_exclusions")):
+        errors.append("demographic exclusions are prohibited for this housing campaign")
+    if policy.get("customer_match_targeting") is not False:
+        errors.append("Customer Match targeting must remain disabled")
     if _list(policy.get("audience_targeting")):
         errors.append("audience targeting must remain empty for the initial campaign")
 
@@ -250,13 +314,298 @@ def validate_draft(payload: dict[str, Any]) -> list[str]:
         elif not math.isclose(value, reviewed_value, abs_tol=0.01):
             errors.append(f"stop_loss.{field} must equal reviewed value {reviewed_value:g}")
 
-    required_checks = {
-        value for value in _list(activation.get("required_checks")) if isinstance(value, str)
-    }
-    if required_checks != REQUIRED_ACTIVATION_CHECKS:
-        errors.append("activation_gate.required_checks must match the reviewed checklist")
-
     return errors
+
+
+def canonical_contract_json(payload: dict[str, Any]) -> str:
+    """Return deterministic UTF-8 JSON bytes-as-text for contract hashing.
+
+    The contract intentionally contains only ordinary JSON values. Sorting
+    object keys and removing insignificant whitespace makes the digest
+    independent of source formatting and dictionary insertion order.
+    """
+    if not isinstance(payload, dict):
+        raise TypeError("Google Ads contract must be a JSON object")
+    return json.dumps(
+        payload,
+        allow_nan=False,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+
+
+def contract_sha256(payload: dict[str, Any]) -> str:
+    """Return the lowercase SHA-256 hex digest of the canonical contract."""
+    canonical = canonical_contract_json(payload).encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()
+
+
+def _normalize_customer_id(value: str) -> str:
+    normalized = str(value).strip().replace("-", "")
+    if not re.fullmatch(r"\d{10}", normalized):
+        raise ValueError("Google Ads customer ID must contain exactly 10 digits")
+    return normalized
+
+
+def _micros(value: Any, *, field: str) -> int:
+    if isinstance(value, bool):
+        raise ValueError(f"{field} must be a decimal number")
+    try:
+        micros = Decimal(str(value)) * Decimal(1_000_000)
+    except (InvalidOperation, ValueError) as exc:
+        raise ValueError(f"{field} must be a decimal number") from exc
+    integral = micros.to_integral_value()
+    if micros != integral:
+        raise ValueError(f"{field} must resolve to whole micros")
+    return int(integral)
+
+
+def _microdegrees(value: Any, *, field: str) -> int:
+    if isinstance(value, bool):
+        raise ValueError(f"{field} must be a decimal number")
+    try:
+        microdegrees = Decimal(str(value)) * Decimal(1_000_000)
+    except (InvalidOperation, ValueError) as exc:
+        raise ValueError(f"{field} must be a decimal number") from exc
+    integral = microdegrees.to_integral_value()
+    if microdegrees != integral:
+        raise ValueError(f"{field} must resolve to whole microdegrees")
+    return int(integral)
+
+
+def build_mutate_operations(payload: dict[str, Any], customer_id: str) -> list[dict[str, Any]]:
+    """Build one pure, dependency-ordered, paused-only v25 operation graph.
+
+    This function performs no I/O. The returned dictionaries match the REST
+    shape accepted by ``GoogleAdsService.Mutate`` but are never submitted here.
+    """
+    errors = validate_draft(payload)
+    if errors:
+        raise ValueError("Invalid Google Ads contract: " + "; ".join(errors))
+
+    customer = _normalize_customer_id(customer_id)
+    campaign = _mapping(payload.get("campaign"))
+    budget = _mapping(campaign.get("budget"))
+    bidding = _mapping(campaign.get("bidding"))
+    geo = _mapping(campaign.get("geo"))
+    center = _mapping(geo.get("center"))
+    tracking = _mapping(campaign.get("tracking"))
+    ad_groups = [_mapping(value) for value in _list(campaign.get("ad_groups"))]
+
+    next_temporary_id = -1
+
+    def allocate_temporary_id() -> int:
+        nonlocal next_temporary_id
+        allocated = next_temporary_id
+        next_temporary_id -= 1
+        return allocated
+
+    operations: list[dict[str, Any]] = []
+
+    budget_id = allocate_temporary_id()
+    budget_resource = f"customers/{customer}/campaignBudgets/{budget_id}"
+    operations.append(
+        {
+            "campaignBudgetOperation": {
+                "create": {
+                    "resourceName": budget_resource,
+                    "name": f"{campaign['name']} | Budget",
+                    "amountMicros": _micros(
+                        budget.get("average_daily_usd"), field="budget.average_daily_usd"
+                    ),
+                    "deliveryMethod": "STANDARD",
+                    "explicitlyShared": False,
+                }
+            }
+        }
+    )
+
+    label_id = allocate_temporary_id()
+    label_resource = f"customers/{customer}/labels/{label_id}"
+    digest = contract_sha256(payload)
+    operations.append(
+        {
+            "labelOperation": {
+                "create": {
+                    "resourceName": label_resource,
+                    "name": f"tho-contract-{digest[:12]}",
+                    "description": "Texas Home Outlet immutable campaign contract",
+                }
+            }
+        }
+    )
+
+    campaign_id = allocate_temporary_id()
+    campaign_resource = f"customers/{customer}/campaigns/{campaign_id}"
+    final_url_suffix = "&".join(
+        f"{key}={tracking[key]}"
+        for key in ("utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term")
+    )
+    operations.append(
+        {
+            "campaignOperation": {
+                "create": {
+                    "resourceName": campaign_resource,
+                    "name": campaign["name"],
+                    "status": "PAUSED",
+                    "advertisingChannelType": "SEARCH",
+                    "campaignBudget": budget_resource,
+                    "targetSpend": {
+                        "cpcBidCeilingMicros": _micros(
+                            bidding.get("max_cpc_usd"), field="bidding.max_cpc_usd"
+                        )
+                    },
+                    "networkSettings": {
+                        "targetGoogleSearch": True,
+                        "targetSearchNetwork": False,
+                        "targetContentNetwork": False,
+                        "targetPartnerSearchNetwork": False,
+                        "targetYouTube": False,
+                        "targetGoogleTvNetwork": False,
+                    },
+                    "geoTargetTypeSetting": {
+                        "positiveGeoTargetType": "PRESENCE",
+                        "negativeGeoTargetType": "PRESENCE",
+                    },
+                    "containsEuPoliticalAdvertising": ("DOES_NOT_CONTAIN_EU_POLITICAL_ADVERTISING"),
+                    "finalUrlSuffix": final_url_suffix,
+                }
+            }
+        }
+    )
+
+    operations.append(
+        {
+            "campaignLabelOperation": {
+                "create": {
+                    "campaign": campaign_resource,
+                    "label": label_resource,
+                }
+            }
+        }
+    )
+
+    campaign_criterion_operations: list[dict[str, Any]] = []
+    campaign_criterion_operations.append(
+        {
+            "campaignCriterionOperation": {
+                "create": {
+                    "campaign": campaign_resource,
+                    "negative": False,
+                    "proximity": {
+                        "geoPoint": {
+                            "latitudeInMicroDegrees": _microdegrees(
+                                center.get("latitude"), field="geo.center.latitude"
+                            ),
+                            "longitudeInMicroDegrees": _microdegrees(
+                                center.get("longitude"), field="geo.center.longitude"
+                            ),
+                        },
+                        "radius": int(REVIEWED_RADIUS_MILES),
+                        "radiusUnits": "MILES",
+                    },
+                }
+            }
+        }
+    )
+    for raw_keyword in _list(campaign.get("negative_keywords")):
+        keyword = _mapping(raw_keyword)
+        campaign_criterion_operations.append(
+            {
+                "campaignCriterionOperation": {
+                    "create": {
+                        "campaign": campaign_resource,
+                        "negative": True,
+                        "keyword": {
+                            "text": keyword["text"],
+                            "matchType": keyword["match_type"],
+                        },
+                    }
+                }
+            }
+        )
+    operations.extend(campaign_criterion_operations)
+
+    ad_group_operations: list[dict[str, Any]] = []
+    ad_group_resources: list[tuple[dict[str, Any], str]] = []
+    for ad_group in ad_groups:
+        ad_group_id = allocate_temporary_id()
+        ad_group_resource = f"customers/{customer}/adGroups/{ad_group_id}"
+        ad_group_resources.append((ad_group, ad_group_resource))
+        ad_group_operations.append(
+            {
+                "adGroupOperation": {
+                    "create": {
+                        "resourceName": ad_group_resource,
+                        "name": ad_group["name"],
+                        "campaign": campaign_resource,
+                        "status": "PAUSED",
+                        "type": "SEARCH_STANDARD",
+                    }
+                }
+            }
+        )
+    operations.extend(ad_group_operations)
+
+    ad_group_criterion_operations: list[dict[str, Any]] = []
+    for ad_group, ad_group_resource in ad_group_resources:
+        for raw_keyword in _list(ad_group.get("keywords")):
+            keyword = _mapping(raw_keyword)
+            ad_group_criterion_operations.append(
+                {
+                    "adGroupCriterionOperation": {
+                        "create": {
+                            "adGroup": ad_group_resource,
+                            "status": "PAUSED",
+                            "keyword": {
+                                "text": keyword["text"],
+                                "matchType": keyword["match_type"],
+                            },
+                        }
+                    }
+                }
+            )
+    operations.extend(ad_group_criterion_operations)
+
+    ad_group_ad_operations: list[dict[str, Any]] = []
+    for ad_group, ad_group_resource in ad_group_resources:
+        ad = _mapping(ad_group.get("responsive_search_ad"))
+        ad_group_ad_operations.append(
+            {
+                "adGroupAdOperation": {
+                    "create": {
+                        "adGroup": ad_group_resource,
+                        "status": "PAUSED",
+                        "ad": {
+                            "finalUrls": [ad["final_url"]],
+                            "responsiveSearchAd": {
+                                "headlines": [{"text": value} for value in ad["headlines"]],
+                                "descriptions": [{"text": value} for value in ad["descriptions"]],
+                                "path1": ad["path1"],
+                                "path2": ad["path2"],
+                            },
+                        },
+                    }
+                }
+            }
+        )
+    operations.extend(ad_group_ad_operations)
+    return operations
+
+
+def build_mutate_request(
+    payload: dict[str, Any], customer_id: str, *, validate_only: bool
+) -> dict[str, Any]:
+    """Return an inert atomic mutate body; callers choose validation vs create."""
+    if not isinstance(validate_only, bool):
+        raise TypeError("validate_only must be a boolean")
+    return {
+        "mutateOperations": build_mutate_operations(payload, customer_id),
+        "partialFailure": False,
+        "validateOnly": validate_only,
+        "responseContentType": "RESOURCE_NAME_ONLY",
+    }
 
 
 def main(argv: list[str] | None = None) -> int:

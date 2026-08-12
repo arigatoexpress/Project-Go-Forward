@@ -48,7 +48,7 @@ def test_live_probe_uses_scoped_adc_and_returns_presence_only_result():
 
     def post(url, *, headers, json, timeout):
         calls.append((url, headers, json, timeout))
-        assert url.endswith("/v24/customers/1234567890/googleAds:search")
+        assert url.endswith("/v25/customers/1234567890/googleAds:search")
         assert headers["Authorization"] == "Bearer access-token-do-not-leak"
         assert headers["developer-token"] == "developer-token-do-not-leak"
         assert headers["login-customer-id"] == "9999999999"
