@@ -1,0 +1,229 @@
+.google-ads-status-card {
+  width: min(980px, 100%);
+  margin: 0 auto;
+  color: #f8fafc;
+}
+
+.google-ads-status-header {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+  margin-bottom: 1.5rem;
+}
+
+.google-ads-status-header h1 {
+  margin: 0.15rem 0 0.3rem;
+  font-size: clamp(1.7rem, 4vw, 2.25rem);
+}
+
+.google-ads-status-header p,
+.google-ads-status-panel p {
+  color: #cbd5e1;
+}
+
+.google-ads-status-icon {
+  display: grid;
+  flex: 0 0 3rem;
+  width: 3rem;
+  height: 3rem;
+  place-items: center;
+  border: 1px solid rgb(56 189 248 / 35%);
+  border-radius: 0.9rem;
+  color: #7dd3fc;
+  background: rgb(14 165 233 / 12%);
+}
+
+.google-ads-status-eyebrow {
+  margin: 0;
+  color: #7dd3fc !important;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.google-ads-status-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.google-ads-status-panel {
+  padding: 1.25rem;
+  border: 1px solid rgb(148 163 184 / 22%);
+  border-radius: 1rem;
+  background: rgb(15 23 42 / 72%);
+  box-shadow: 0 16px 38px rgb(0 0 0 / 18%);
+}
+
+.google-ads-status-panel h2 {
+  margin: 0 0 1rem;
+  font-size: 1rem;
+}
+
+.google-ads-status-callout {
+  display: flex;
+  gap: 0.75rem;
+  padding: 0.9rem;
+  border: 1px solid rgb(251 191 36 / 28%);
+  border-radius: 0.75rem;
+  color: #fde68a;
+  background: rgb(245 158 11 / 10%);
+}
+
+.google-ads-status-callout p {
+  margin: 0.25rem 0 0;
+  font-size: 0.85rem;
+}
+
+.google-ads-status-details {
+  margin: 1rem 0 0;
+}
+
+.google-ads-status-details div {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.45rem 0;
+  border-bottom: 1px solid rgb(148 163 184 / 12%);
+}
+
+.google-ads-status-details dt {
+  color: #94a3b8;
+}
+
+.google-ads-status-details dd {
+  overflow-wrap: anywhere;
+  margin: 0;
+  color: #e2e8f0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.76rem;
+  text-align: right;
+}
+
+.google-ads-budget-summary {
+  margin: 0;
+  color: #f8fafc !important;
+  font-size: 1.05rem;
+  line-height: 1.65;
+}
+
+.google-ads-status-note {
+  margin: 0.8rem 0 0;
+  font-size: 0.85rem;
+}
+
+.google-ads-workflow-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: center;
+}
+
+.google-ads-locked-badge {
+  display: inline-flex;
+  gap: 0.35rem;
+  align-items: center;
+  padding: 0.35rem 0.55rem;
+  border-radius: 999px;
+  color: #cbd5e1;
+  background: #1e293b;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.google-ads-workflow {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.65rem;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.google-ads-workflow li {
+  display: flex;
+  gap: 0.6rem;
+  min-width: 0;
+  padding: 0.85rem;
+  border: 1px solid rgb(148 163 184 / 16%);
+  border-radius: 0.75rem;
+  color: #64748b;
+  background: rgb(2 6 23 / 35%);
+}
+
+.google-ads-workflow li.is-current {
+  border-color: rgb(56 189 248 / 40%);
+  color: #7dd3fc;
+  background: rgb(14 165 233 / 9%);
+}
+
+.google-ads-workflow strong,
+.google-ads-workflow small {
+  display: block;
+}
+
+.google-ads-workflow strong {
+  color: #e2e8f0;
+  font-size: 0.82rem;
+}
+
+.google-ads-workflow small {
+  margin-top: 0.2rem;
+  font-size: 0.72rem;
+}
+
+.google-ads-actions-locked {
+  margin: 1rem 0 0;
+  font-size: 0.85rem;
+}
+
+.google-ads-status-message {
+  display: flex;
+  gap: 0.7rem;
+  align-items: center;
+  width: min(760px, 100%);
+  padding: 1rem;
+  margin: 2rem auto;
+  border: 1px solid rgb(148 163 184 / 25%);
+  border-radius: 0.8rem;
+  color: #e2e8f0;
+  background: #0f172a;
+}
+
+.google-ads-status-message.is-error {
+  border-color: rgb(248 113 113 / 38%);
+  color: #fecaca;
+}
+
+.google-ads-status-spinner {
+  width: 1rem;
+  height: 1rem;
+  border: 2px solid #475569;
+  border-top-color: #7dd3fc;
+  border-radius: 50%;
+  animation: google-ads-status-spin 0.8s linear infinite;
+}
+
+@keyframes google-ads-status-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (max-width: 760px) {
+  .google-ads-status-grid,
+  .google-ads-workflow {
+    grid-template-columns: 1fr;
+  }
+
+  .google-ads-workflow-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .google-ads-status-spinner {
+    animation: none;
+  }
+}

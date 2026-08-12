@@ -8150,10 +8150,12 @@ async def download_secure_document(deal_id: str, note_id: str, request: Request,
 
 
 # AI PM Manager Routes (Linear-inspired)
+from google_ads_admin.routes import router as google_ads_admin_router
 from pm_routes import router as pm_router
 
 app.include_router(pm_router, dependencies=[Depends(require_admin)])
 app.include_router(passkey_router)
+app.include_router(google_ads_admin_router, dependencies=[Depends(require_admin)])
 
 
 # SEO surface: robots.txt, sitemap.xml, and per-route head/body injection for

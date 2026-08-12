@@ -5,6 +5,7 @@ APP = ROOT / "frontend/src/App.jsx"
 INVENTORY_BROWSE = ROOT / "frontend/src/pages/InventoryBrowse.jsx"
 DOCUMENT_CENTER = ROOT / "frontend/src/pages/DocumentCenter.jsx"
 AD_STUDIO = ROOT / "frontend/src/pages/AdStudio.jsx"
+GOOGLE_ADS_STATUS_CARD = ROOT / "frontend/src/components/ad-studio/GoogleAdsStatusCard.jsx"
 SYSTEM_HUB = ROOT / "frontend/src/pages/SystemHub.jsx"
 STATUS_BADGE = ROOT / "frontend/src/components/StatusBadge.jsx"
 PROPERTY_CARD = ROOT / "frontend/src/components/PropertyCard.jsx"
@@ -15,6 +16,19 @@ WARRANTY_PAGE = ROOT / "frontend/src/pages/Warranty.jsx"
 DELIVERY_PAGE = ROOT / "frontend/src/pages/Delivery.jsx"
 CONTENT_PAGE = ROOT / "frontend/src/components/ContentPage.jsx"
 IMAGE_RESEARCH = ROOT / "docs/MANUFACTURER_IMAGE_SOURCES_RESEARCH.md"
+
+
+def test_ad_studio_exposes_status_only_paid_search_tab():
+    studio_source = AD_STUDIO.read_text()
+    card_source = GOOGLE_ADS_STATUS_CARD.read_text()
+
+    assert "id: 'paid-search', label: 'Paid Search'" in studio_source
+    assert "activeTab === 'paid-search'" in studio_source
+    assert "<GoogleAdsStatusCard />" in studio_source
+    assert "aria-current" in studio_source
+    assert "All campaign and spend actions are locked." in card_source
+    for forbidden in ("Connect", "Review", "Approve", "Create campaign", "Enable", "Publish"):
+        assert f">{forbidden}<" not in card_source
 
 
 def test_inventory_hero_uses_readable_text_on_dark_photo_overlay():
