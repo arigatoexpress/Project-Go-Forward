@@ -144,6 +144,32 @@ def _manufacturer_key(home: Mapping[str, Any]) -> str:
     return " ".join(words)
 
 
+def _duplicate_signature(home: Mapping[str, Any]) -> tuple[frozenset[str], str, str]:
+    """Compute the normalized duplicate evidence for one home once."""
+    return (
+        frozenset(_identity_keys(home)),
+        _model_key(home),
+        _manufacturer_key(home),
+    )
+
+
+def _signatures_look_like_duplicate(
+    left: tuple[frozenset[str], str, str],
+    right: tuple[frozenset[str], str, str],
+) -> bool:
+    left_identities, left_model, left_mfr = left
+    right_identities, right_model, right_mfr = right
+    if left_identities & right_identities:
+        return True
+    if len(left_model) < 6 or len(right_model) < 6:
+        return False
+    manufacturer_matches = bool(
+        left_mfr and right_mfr and (left_mfr in right_mfr or right_mfr in left_mfr)
+    )
+    model_matches = left_model in right_model or right_model in left_model
+    return manufacturer_matches and model_matches
+
+
 def _has_strong_identity(left: Mapping[str, Any], right: Mapping[str, Any]) -> bool:
     """Return whether two rows have evidence strong enough to share URLs."""
     if _identity_keys(left) & _identity_keys(right):
@@ -157,21 +183,10 @@ def _has_strong_identity(left: Mapping[str, Any], right: Mapping[str, Any]) -> b
 
 
 def _looks_like_duplicate(left: Mapping[str, Any], right: Mapping[str, Any]) -> bool:
-    if _identity_keys(left) & _identity_keys(right):
-        return True
-
-    left_model = _model_key(left)
-    right_model = _model_key(right)
-    if len(left_model) < 6 or len(right_model) < 6:
-        return False
-
-    left_mfr = _manufacturer_key(left)
-    right_mfr = _manufacturer_key(right)
-    manufacturer_matches = bool(
-        left_mfr and right_mfr and (left_mfr in right_mfr or right_mfr in left_mfr)
+    return _signatures_look_like_duplicate(
+        _duplicate_signature(left),
+        _duplicate_signature(right),
     )
-    model_matches = left_model in right_model or right_model in left_model
-    return manufacturer_matches and model_matches
 
 
 def _preserve_legacy_url_aliases(survivor: dict[str, Any], duplicate: Mapping[str, Any]) -> None:
@@ -368,17 +383,29 @@ def merge_orderable_floorplan_catalog(
     homes = [copy.deepcopy(home) for home in merged.get("homes") or [] if isinstance(home, dict)]
 
     classified_homes: list[dict[str, Any]] = []
+    classified_signatures: list[tuple[frozenset[str], str, str]] = []
+
+    def append_if_unique(home: dict[str, Any]) -> bool:
+        signature = _duplicate_signature(home)
+        duplicate_index = next(
+            (
+                index
+                for index, existing in enumerate(classified_signatures)
+                if _signatures_look_like_duplicate(signature, existing)
+            ),
+            None,
+        )
+        if duplicate_index is not None:
+            _preserve_legacy_url_aliases(classified_homes[duplicate_index], home)
+            return False
+        classified_homes.append(home)
+        classified_signatures.append(signature)
+        return True
+
     for home in homes:
         apply_inventory_kind(home)
         apply_classifier_to_home(home)
-        duplicate = next(
-            (existing for existing in classified_homes if _looks_like_duplicate(home, existing)),
-            None,
-        )
-        if duplicate is not None:
-            _preserve_legacy_url_aliases(duplicate, home)
-            continue
-        classified_homes.append(home)
+        append_if_unique(home)
 
     orderable_added = 0
     if floorplan_context and floorplan_context.get("homes"):
@@ -387,15 +414,8 @@ def merge_orderable_floorplan_catalog(
         orderable_candidates = build_orderable_catalog(assets)
 
     for home in orderable_candidates:
-        duplicate = next(
-            (existing for existing in classified_homes if _looks_like_duplicate(home, existing)),
-            None,
-        )
-        if duplicate is not None:
-            _preserve_legacy_url_aliases(duplicate, home)
-            continue
-        classified_homes.append(home)
-        orderable_added += 1
+        if append_if_unique(home):
+            orderable_added += 1
 
     available_now = sum(
         1 for home in classified_homes if home.get("inventory_kind") == AVAILABLE_KIND
