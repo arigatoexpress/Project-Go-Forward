@@ -4,7 +4,6 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import adminFetch from '../adminFetch';
 import GoogleAdsStatusCard from '../components/ad-studio/GoogleAdsStatusCard';
 import {
-  approveGoogleAdsPausedCreate,
   ensureGoogleAdsInternalDraft,
   getGoogleAdsDeploymentReadiness,
   getGoogleAdsPausedCreateApprovalReadiness,
@@ -392,6 +391,10 @@ describe('GoogleAdsStatusCard', () => {
     await waitFor(() => expect(button).toBeEnabled());
     fireEvent.click(button);
 
+    expect(globalThis.confirm).toHaveBeenCalledWith(expect.stringMatching(
+      /separate dispatcher is already runnable.*creation may begin after approval/i,
+    ));
+
     expect(await screen.findByText(
       /PAUSED-only creation is approved; durable outbox is pending/i,
     )).toBeInTheDocument();
@@ -408,6 +411,26 @@ describe('GoogleAdsStatusCard', () => {
       access_evidence_id: accessId,
     });
     expect(approvalCall[1].body).not.toMatch(/caps|account|provider|activate|spend/i);
+  });
+
+  it('labels dispatch as storefront-local without claiming global isolation', async () => {
+    const enabledReadiness = {
+      ...APPROVAL_READY,
+      dispatch_enabled: true,
+    };
+    adminFetch
+      .mockResolvedValueOnce(response(VALIDATED))
+      .mockResolvedValueOnce(response(enabledReadiness));
+
+    render(<GoogleAdsStatusCard />);
+
+    expect(await screen.findByText(/Storefront dispatch flag/i)).toBeInTheDocument();
+    expect(screen.getByText(/^Enabled$/i)).toBeInTheDocument();
+    expect(screen.getByText(/does not prove whether the separate dispatcher job or a scheduler is runnable/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', {
+      name: 'Verify owner and approve PAUSED creation',
+    })).toBeEnabled();
+    expect(adminFetch).toHaveBeenCalledTimes(2);
   });
 
   it('reports a durable approved outbox truthfully and keeps approval disabled', async () => {
