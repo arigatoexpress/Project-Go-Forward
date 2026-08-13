@@ -197,6 +197,7 @@ class AuthorityLedger(Protocol):
         expected: DeploymentState,
         target: DeploymentState,
         expected_version: int | None = None,
+        server_validation_key_hash: str | None = None,
     ) -> DeploymentRecord: ...
 
     def claim_paused_create(
@@ -351,6 +352,7 @@ class InMemoryAuthorityLedger:
         if not 1 <= claim_lease_seconds <= 3600:
             raise ValueError("claim lease must be between 1 and 3600 seconds")
         self._records: dict[str, DeploymentRecord] = {}
+        self._server_validation_keys: dict[str, str] = {}
         self._lock = Lock()
         self._fail_next_write = False
         self._claim_lease_seconds = claim_lease_seconds
@@ -427,10 +429,21 @@ class InMemoryAuthorityLedger:
         expected: DeploymentState,
         target: DeploymentState,
         expected_version: int | None = None,
+        server_validation_key_hash: str | None = None,
     ) -> DeploymentRecord:
         with self._lock:
             self._assert_write_available()
             record = self._get_locked(deployment_id)
+            if (
+                target is DeploymentState.SERVER_VALIDATED
+                and record.state is target
+                and (
+                    server_validation_key_hash is None
+                    or self._server_validation_keys.get(deployment_id) == server_validation_key_hash
+                )
+                and expected_version in {None, record.version, record.version - 1}
+            ):
+                return record
             if (
                 record.state is not expected
                 or _ALLOWED_TRANSITIONS.get(expected) is not target
@@ -449,6 +462,8 @@ class InMemoryAuthorityLedger:
                 updated_at=self._now(),
             )
             self._records[deployment_id] = _validate_record(updated)
+            if target is DeploymentState.SERVER_VALIDATED and server_validation_key_hash:
+                self._server_validation_keys[deployment_id] = server_validation_key_hash
             return updated
 
     def claim_paused_create(
@@ -701,7 +716,13 @@ class DraftReviewControlPlane:
         record, _created = self._ledger.create_or_get(candidate)
         return record
 
-    def server_validate(self, requested_deployment_id: str) -> DeploymentRecord:
+    def server_validate(
+        self,
+        requested_deployment_id: str,
+        *,
+        expected_version: int | None = None,
+        idempotency_key: str | None = None,
+    ) -> DeploymentRecord:
         contract = self._contract_source.load()
         candidate = _record_for_contract(contract)
         if candidate.deployment_id != requested_deployment_id:
@@ -712,13 +733,23 @@ class DraftReviewControlPlane:
         record = self._ledger.get(requested_deployment_id)
         if record.contract_hash != candidate.contract_hash:
             raise ContractValidationError("contract_mismatch")
-        if record.state is DeploymentState.INTERNAL_DRAFT:
+        key_hash = _claimant_hash(idempotency_key) if idempotency_key is not None else None
+        if record.state in {
+            DeploymentState.INTERNAL_DRAFT,
+            DeploymentState.SERVER_VALIDATED,
+        }:
+            transition_options = {"expected_version": expected_version}
+            if key_hash is not None:
+                transition_options["server_validation_key_hash"] = key_hash
             return self._ledger.transition(
                 requested_deployment_id,
                 expected=DeploymentState.INTERNAL_DRAFT,
                 target=DeploymentState.SERVER_VALIDATED,
+                **transition_options,
             )
-        return record
+        # A lost response is replayed by the ledger against one-way operation-key
+        # evidence; the raw request key never enters the authority record.
+        raise InvalidStateTransition("deployment cannot be server validated")
 
 
 class PausedCreateControlPlane:

@@ -13,7 +13,11 @@ import pytest
 from pydantic import ValidationError
 
 from database.google_ads_authority import FirestoreAuthorityLedger
-from database.models import GoogleAdsAuthorityEventRecord, GoogleAdsDeploymentRecord
+from database.models import (
+    GoogleAdsAuthorityEventRecord,
+    GoogleAdsDeploymentRecord,
+    GoogleAdsOperationKeyRecord,
+)
 from scripts.google_ads_paused_worker import (
     DeploymentRecord,
     DeploymentState,
@@ -61,9 +65,28 @@ class _Collection:
     def __init__(self, store: _AtomicFirestore, path: tuple[str, ...]):
         self._store = store
         self.path = path
+        self._descending = False
+        self._limit = None
 
     def document(self, document_id: str):
         return _Document(self._store, (*self.path, document_id))
+
+    def order_by(self, field, *, direction):
+        assert field == "record_version"
+        assert direction == "DESCENDING"
+        self._descending = True
+        return self
+
+    def limit(self, value):
+        self._limit = value
+        return self
+
+    def stream(self, *, timeout=None):
+        assert timeout is not None
+        rows = [(path, value) for path, value in self._store.rows.items() if path[:-1] == self.path]
+        rows.sort(key=lambda item: item[1]["record_version"], reverse=self._descending)
+        for path, value in rows[: self._limit]:
+            yield _Snapshot(path[-1], value)
 
 
 class _Transaction:
@@ -81,6 +104,8 @@ class _Transaction:
             raise RuntimeError("already exists")
         if self._store.fail_event_create and "authority_events" in document.path:
             raise RuntimeError("event write failed")
+        if self._store.fail_operation_create and "operation_keys" in document.path:
+            raise RuntimeError("operation marker write failed")
         self._creates.add(document.path)
         self._staged[document.path] = copy.deepcopy(value)
 
@@ -98,6 +123,7 @@ class _AtomicFirestore:
         self.rows: dict[tuple[str, ...], dict] = {}
         self.lock = Lock()
         self.fail_event_create = False
+        self.fail_operation_create = False
 
     def collection(self, name: str):
         return _Collection(self, (name,))
@@ -117,6 +143,18 @@ class _AtomicFirestore:
         return [
             copy.deepcopy(value) for path, value in sorted(self.rows.items()) if path[:3] == prefix
         ]
+
+    def operation_key(self, deployment_id: str) -> dict | None:
+        return copy.deepcopy(
+            self.rows.get(
+                (
+                    "google_ads_deployments",
+                    deployment_id,
+                    "operation_keys",
+                    "server-validation",
+                )
+            )
+        )
 
 
 class _Clock:
@@ -156,6 +194,136 @@ def durable():
 
 def _draft(ledger):
     return DraftReviewControlPlane(ledger, StaticContractSource(CONTRACT)).ensure_internal_draft()
+
+
+def test_list_events_returns_strict_bounded_version_order(durable):
+    ledger, _store, _clock = durable
+    draft = _draft(ledger)
+    DraftReviewControlPlane(ledger, StaticContractSource(CONTRACT)).server_validate(
+        draft.deployment_id,
+        expected_version=draft.version,
+    )
+
+    events = ledger.list_events(draft.deployment_id, limit=1)
+
+    assert len(events) == 1
+    assert events[0].event_type == "SERVER_VALIDATED"
+    assert events[0].record_version == 2
+    with pytest.raises(ValueError):
+        ledger.list_events(draft.deployment_id, limit=0)
+
+
+def test_server_validation_key_is_hashed_and_same_key_replays_while_different_key_conflicts(
+    durable,
+):
+    ledger, store, _clock = durable
+    review = DraftReviewControlPlane(ledger, StaticContractSource(CONTRACT))
+    draft = review.ensure_internal_draft()
+
+    first = review.server_validate(
+        draft.deployment_id,
+        expected_version=1,
+        idempotency_key="offline-validation-one",
+    )
+    replay = review.server_validate(
+        draft.deployment_id,
+        expected_version=1,
+        idempotency_key="offline-validation-one",
+    )
+
+    assert first == replay
+    stored = store.deployment(draft.deployment_id)
+    marker = store.operation_key(draft.deployment_id)
+    assert "server_validation_key_hash" not in stored
+    assert set(stored) == set(GoogleAdsDeploymentRecord.model_fields)
+    assert marker["key_hash"].startswith("sha256:")
+    assert marker["operation"] == "SERVER_VALIDATION"
+    assert marker["record_version"] == 2
+    assert "offline-validation-one" not in str(store.rows)
+    assert GoogleAdsOperationKeyRecord.model_validate(marker).key_hash == marker["key_hash"]
+    with pytest.raises(ValidationError):
+        GoogleAdsOperationKeyRecord.model_validate({**marker, "idempotency_key": "raw"})
+    with pytest.raises(InvalidStateTransition):
+        review.server_validate(
+            draft.deployment_id,
+            expected_version=1,
+            idempotency_key="offline-validation-two",
+        )
+
+
+def test_concurrent_same_server_validation_key_returns_one_durable_result(durable):
+    ledger, store, _clock = durable
+    review = DraftReviewControlPlane(ledger, StaticContractSource(CONTRACT))
+    draft = review.ensure_internal_draft()
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(
+            pool.map(
+                lambda _index: review.server_validate(
+                    draft.deployment_id,
+                    expected_version=1,
+                    idempotency_key="offline-validation-concurrent",
+                ),
+                range(2),
+            )
+        )
+
+    assert results[0] == results[1]
+    assert results[0].state is DeploymentState.SERVER_VALIDATED
+    assert len(store.events(draft.deployment_id)) == 2
+
+
+@pytest.mark.parametrize("corruption", ["deployment", "contract", "version", "timestamp"])
+def test_server_validation_replay_rejects_marker_not_exactly_bound_to_record(durable, corruption):
+    ledger, store, clock = durable
+    review = DraftReviewControlPlane(ledger, StaticContractSource(CONTRACT))
+    draft = review.ensure_internal_draft()
+    validated = review.server_validate(
+        draft.deployment_id,
+        expected_version=1,
+        idempotency_key="offline-validation-bound-marker",
+    )
+    marker_path = (
+        "google_ads_deployments",
+        draft.deployment_id,
+        "operation_keys",
+        "server-validation",
+    )
+    marker = store.rows[marker_path]
+    if corruption == "deployment":
+        marker["deployment_id"] = f"other--{validated.contract_hash.removeprefix('sha256:')}"
+    elif corruption == "contract":
+        marker["contract_hash"] = f"sha256:{'f' * 64}"
+        marker["deployment_id"] = f"other--{'f' * 64}"
+    elif corruption == "version":
+        marker["record_version"] = 1
+    else:
+        marker["created_at"] = clock.value + timedelta(seconds=1)
+
+    with pytest.raises(InvalidStateTransition):
+        review.server_validate(
+            draft.deployment_id,
+            expected_version=1,
+            idempotency_key="offline-validation-bound-marker",
+        )
+
+
+def test_server_validation_marker_failure_rolls_back_record_and_event(durable):
+    ledger, store, _clock = durable
+    review = DraftReviewControlPlane(ledger, StaticContractSource(CONTRACT))
+    draft = review.ensure_internal_draft()
+    store.fail_operation_create = True
+
+    with pytest.raises(LedgerWriteError):
+        review.server_validate(
+            draft.deployment_id,
+            expected_version=1,
+            idempotency_key="offline-validation-failing-marker",
+        )
+
+    assert ledger.get(draft.deployment_id).state is DeploymentState.INTERNAL_DRAFT
+    assert len(store.events(draft.deployment_id)) == 1
+    assert store.operation_key(draft.deployment_id) is None
 
 
 def _approved(ledger):
@@ -200,6 +368,8 @@ def test_database_models_reject_extra_raw_provider_account_token_and_request_fie
         "provider_resource_name",
         "request_id",
         "provider_response",
+        "idempotency_key",
+        "server_validation_key_hash",
     ):
         with pytest.raises(ValidationError):
             GoogleAdsDeploymentRecord.model_validate({**base, forbidden: "raw-do-not-store"})

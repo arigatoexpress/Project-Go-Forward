@@ -18,7 +18,7 @@ CONTENT_PAGE = ROOT / "frontend/src/components/ContentPage.jsx"
 IMAGE_RESEARCH = ROOT / "docs/MANUFACTURER_IMAGE_SOURCES_RESEARCH.md"
 
 
-def test_ad_studio_exposes_status_only_paid_search_tab():
+def test_ad_studio_exposes_offline_review_paid_search_tab():
     studio_source = AD_STUDIO.read_text()
     card_source = GOOGLE_ADS_STATUS_CARD.read_text()
 
@@ -26,8 +26,9 @@ def test_ad_studio_exposes_status_only_paid_search_tab():
     assert "activeTab === 'paid-search'" in studio_source
     assert "<GoogleAdsStatusCard />" in studio_source
     assert "aria-current" in studio_source
-    assert "All campaign and spend actions are locked." in card_source
-    for forbidden in ("Connect", "Review", "Approve", "Create campaign", "Enable", "Publish"):
+    assert "Run offline server validation" in card_source
+    assert "Campaign and spend operations remain unavailable." in card_source
+    for forbidden in ("Connect", "Approve", "Create campaign", "Enable", "Publish"):
         assert f">{forbidden}<" not in card_source
 
 

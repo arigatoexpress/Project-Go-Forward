@@ -135,7 +135,7 @@
 
 .google-ads-workflow {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.65rem;
   padding: 0;
   margin: 0;
@@ -178,6 +178,27 @@
   margin: 1rem 0 0;
   font-size: 0.85rem;
 }
+
+.google-ads-validation-button {
+  padding: 0.7rem 1rem;
+  margin-top: 1rem;
+  border: 1px solid #38bdf8;
+  border-radius: 0.7rem;
+  color: #082f49;
+  background: #7dd3fc;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.google-ads-validation-button:disabled {
+  border-color: #475569;
+  color: #94a3b8;
+  background: #1e293b;
+  cursor: not-allowed;
+}
+
+.google-ads-validation-success { color: #86efac !important; }
+.google-ads-validation-error { color: #fecaca !important; }
 
 .google-ads-status-message {
   display: flex;

@@ -18,7 +18,11 @@ from typing import Any, TypeVar
 
 from pydantic import ValidationError
 
-from database.models import GoogleAdsAuthorityEventRecord, GoogleAdsDeploymentRecord
+from database.models import (
+    GoogleAdsAuthorityEventRecord,
+    GoogleAdsDeploymentRecord,
+    GoogleAdsOperationKeyRecord,
+)
 from database.rpc_timeout import FIRESTORE_RPC_TIMEOUT, FIRESTORE_TRANSACTION_TIMEOUT
 from scripts.google_ads_paused_worker import (
     PERSISTED_ERROR_CODES,
@@ -70,6 +74,7 @@ class FirestoreAuthorityLedger:
 
     COLLECTION = "google_ads_deployments"
     EVENTS_SUBCOLLECTION = "authority_events"
+    OPERATION_KEYS_SUBCOLLECTION = "operation_keys"
 
     def __init__(
         self,
@@ -336,6 +341,32 @@ class FirestoreAuthorityLedger:
         except Exception:
             raise LedgerWriteError("ledger_read_failed") from None
 
+    def list_events(
+        self, deployment_id: str, *, limit: int = 20
+    ) -> list[GoogleAdsAuthorityEventRecord]:
+        """Read a bounded, strictly validated append-only authority history."""
+        if not 1 <= limit <= 100:
+            raise ValueError("event limit must be between 1 and 100")
+        try:
+            collection = self._reference(deployment_id).collection(self.EVENTS_SUBCOLLECTION)
+            snapshots = (
+                collection.order_by("record_version", direction="DESCENDING")
+                .limit(limit)
+                .stream(timeout=FIRESTORE_RPC_TIMEOUT)
+            )
+            events = [
+                GoogleAdsAuthorityEventRecord.model_validate(snapshot.to_dict() or {})
+                for snapshot in snapshots
+            ]
+            events.sort(key=lambda event: event.record_version)
+            return events[-limit:]
+        except ControlPlaneError:
+            raise
+        except (ValidationError, AttributeError, TypeError, ValueError):
+            raise LedgerWriteError("ledger_event_invalid") from None
+        except Exception:
+            raise LedgerWriteError("ledger_read_failed") from None
+
     def transition(
         self,
         deployment_id: str,
@@ -343,6 +374,7 @@ class FirestoreAuthorityLedger:
         expected: DeploymentState,
         target: DeploymentState,
         expected_version: int | None = None,
+        server_validation_key_hash: str | None = None,
     ) -> DeploymentRecord:
         reference = self._reference(deployment_id)
         event_type = _TRANSITION_EVENTS.get(target)
@@ -353,9 +385,44 @@ class FirestoreAuthorityLedger:
             record = self._snapshot_to_domain(
                 reference.get(transaction=transaction, timeout=FIRESTORE_RPC_TIMEOUT)
             )
+            operation_reference = reference.collection(self.OPERATION_KEYS_SUBCOLLECTION).document(
+                "server-validation"
+            )
+            operation_snapshot = None
+            if target is DeploymentState.SERVER_VALIDATED and server_validation_key_hash:
+                operation_snapshot = operation_reference.get(
+                    transaction=transaction,
+                    timeout=FIRESTORE_RPC_TIMEOUT,
+                )
+            if (
+                target is DeploymentState.SERVER_VALIDATED
+                and record.state is target
+                and expected_version in {None, record.version, record.version - 1}
+            ):
+                if server_validation_key_hash is None:
+                    return record
+                try:
+                    marker = GoogleAdsOperationKeyRecord.model_validate(
+                        operation_snapshot.to_dict() if operation_snapshot.exists else {}
+                    )
+                except (ValidationError, AttributeError, TypeError, ValueError):
+                    raise InvalidStateTransition(
+                        "server validation replay evidence is missing"
+                    ) from None
+                if (
+                    marker.key_hash == server_validation_key_hash
+                    and marker.deployment_id == record.deployment_id
+                    and marker.contract_hash == record.contract_hash
+                    and marker.record_version == record.version
+                    and marker.created_at == record.updated_at
+                ):
+                    return record
+                raise InvalidStateTransition("server validation idempotency key conflicts")
             self._assert_version(record, expected_version)
             if record.state is not expected:
                 raise InvalidStateTransition(f"invalid transition: {expected} -> {target}")
+            if operation_snapshot is not None and operation_snapshot.exists:
+                raise InvalidStateTransition("server validation idempotency evidence conflicts")
             updated = replace(
                 record,
                 state=target,
@@ -374,6 +441,19 @@ class FirestoreAuthorityLedger:
                 event_type=event_type,
                 from_state=record.state,
             )
+            if server_validation_key_hash:
+                marker = GoogleAdsOperationKeyRecord.model_validate(
+                    {
+                        "schema_version": 1,
+                        "operation": "SERVER_VALIDATION",
+                        "deployment_id": updated.deployment_id,
+                        "contract_hash": updated.contract_hash,
+                        "key_hash": server_validation_key_hash,
+                        "record_version": 2,
+                        "created_at": updated.updated_at,
+                    }
+                )
+                transaction.create(operation_reference, marker.model_dump(mode="python"))
             return updated
 
         return self._run_transaction(operation)
