@@ -29,10 +29,11 @@ GoogleAdsAuthorityEventType = Literal[
     "PAUSED_CREATE_RECLAIMED",
     "PAUSED_CREATE_FENCED",
     "PAUSED_CREATE_FENCED_FAILED",
+    "PAUSED_CREATE_RECONCILIATION_CLAIMED",
     "PAUSED_CREATE_COMPLETED",
     "PAUSED_CREATE_CLAIM_RELEASED",
 ]
-GoogleAdsSafeErrorCode = Literal[
+GoogleAdsPersistedErrorCode = Literal[
     "contract_mismatch",
     "invalid_create_graph",
     "ledger_write_failed",
@@ -42,9 +43,60 @@ GoogleAdsSafeErrorCode = Literal[
     "provider_reconciliation_failed",
     "provider_timeout_unresolved",
     "provider_validation_failed",
-    "worker_claimed_elsewhere",
-    "worker_not_approved",
 ]
+
+_GOOGLE_ADS_EVENT_SEMANTICS = {
+    "INTERNAL_DRAFT_CREATED": (None, "INTERNAL_DRAFT", False, False),
+    "SERVER_VALIDATED": ("INTERNAL_DRAFT", "SERVER_VALIDATED", False, False),
+    "PAUSED_CREATE_APPROVED": (
+        "SERVER_VALIDATED",
+        "PAUSED_CREATE_APPROVED",
+        False,
+        False,
+    ),
+    "PAUSED_CREATE_CLAIMED": (
+        "PAUSED_CREATE_APPROVED",
+        "PAUSED_CREATE_APPROVED",
+        True,
+        False,
+    ),
+    "PAUSED_CREATE_RECLAIMED": (
+        "PAUSED_CREATE_APPROVED",
+        "PAUSED_CREATE_APPROVED",
+        True,
+        False,
+    ),
+    "PAUSED_CREATE_FENCED": (
+        "PAUSED_CREATE_APPROVED",
+        "PAUSED_CREATE_APPROVED",
+        True,
+        False,
+    ),
+    "PAUSED_CREATE_FENCED_FAILED": (
+        "PAUSED_CREATE_APPROVED",
+        "PAUSED_CREATE_APPROVED",
+        True,
+        True,
+    ),
+    "PAUSED_CREATE_RECONCILIATION_CLAIMED": (
+        "PAUSED_CREATE_APPROVED",
+        "PAUSED_CREATE_APPROVED",
+        True,
+        False,
+    ),
+    "PAUSED_CREATE_COMPLETED": (
+        "PAUSED_CREATE_APPROVED",
+        "PAUSED_CREATED",
+        True,
+        False,
+    ),
+    "PAUSED_CREATE_CLAIM_RELEASED": (
+        "PAUSED_CREATE_APPROVED",
+        "PAUSED_CREATE_APPROVED",
+        True,
+        True,
+    ),
+}
 
 
 def _require_utc(value: datetime) -> datetime:
@@ -73,8 +125,9 @@ class GoogleAdsDeploymentRecord(BaseModel):
     worker_claim_hash: str | None = Field(default=None, pattern=_GOOGLE_ADS_SHA256_PATTERN)
     claim_expires_at: datetime | None = None
     create_fenced_at: datetime | None = None
+    create_fence_claim_hash: str | None = Field(default=None, pattern=_GOOGLE_ADS_SHA256_PATTERN)
     provider_reference_hash: str | None = Field(default=None, pattern=_GOOGLE_ADS_SHA256_PATTERN)
-    error_code: GoogleAdsSafeErrorCode | None = None
+    error_code: GoogleAdsPersistedErrorCode | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -85,24 +138,44 @@ class GoogleAdsDeploymentRecord(BaseModel):
 
     @model_validator(mode="after")
     def claim_and_terminal_state_are_consistent(self):
+        digest = self.contract_hash.removeprefix("sha256:")
+        if self.deployment_id != f"{self.deployment_key}--{digest}":
+            raise ValueError("deployment identity does not match contract digest")
+        if self.contract_label != f"tho-contract-{digest[:12]}":
+            raise ValueError("contract label does not match contract digest")
         if (self.worker_claim_hash is None) != (self.claim_expires_at is None):
             raise ValueError("worker claim hash and expiry must be set together")
+        if self.state != "PAUSED_CREATE_APPROVED" and self.worker_claim_hash is not None:
+            raise ValueError("worker claims are allowed only while paused-create is approved")
+        if self.state != "PAUSED_CREATE_APPROVED" and self.error_code is not None:
+            raise ValueError("errors are allowed only while paused-create is approved")
         if self.state == "PAUSED_CREATED":
             if self.provider_reference_hash is None:
                 raise ValueError("paused-created record requires a provider reference hash")
             if self.create_fenced_at is None:
                 raise ValueError("paused-created record requires a durable create fence")
-            if self.worker_claim_hash is not None:
-                raise ValueError("paused-created record cannot retain a worker claim")
+            if self.create_fence_claim_hash is not None:
+                raise ValueError("paused-created record cannot retain a fence claimant")
         elif self.provider_reference_hash is not None:
             raise ValueError("provider reference hash is allowed only after paused creation")
         if self.create_fenced_at is not None:
             if self.state not in {"PAUSED_CREATE_APPROVED", "PAUSED_CREATED"}:
                 raise ValueError("create fence is allowed only after paused-create approval")
-            if self.state == "PAUSED_CREATE_APPROVED" and self.worker_claim_hash is None:
-                raise ValueError("an active create fence must retain its worker claim")
             if not self.created_at <= self.create_fenced_at <= self.updated_at:
                 raise ValueError("create fence timestamp must be within the record lifetime")
+            if self.state == "PAUSED_CREATE_APPROVED":
+                if self.worker_claim_hash is None or self.create_fence_claim_hash is None:
+                    raise ValueError("an active create fence must retain hashed claimants")
+                if self.create_fenced_at > self.claim_expires_at:
+                    raise ValueError("create fence must precede claim expiry")
+        elif self.create_fence_claim_hash is not None:
+            raise ValueError("fence claimant requires a durable create fence")
+        if (
+            self.error_code is not None
+            and self.worker_claim_hash is not None
+            and self.create_fenced_at is None
+        ):
+            raise ValueError("a pre-fence failed claim must be released")
         if self.updated_at < self.created_at:
             raise ValueError("updated_at cannot precede created_at")
         return self
@@ -122,13 +195,33 @@ class GoogleAdsAuthorityEventRecord(BaseModel):
     to_state: GoogleAdsDeploymentState
     record_version: int = Field(ge=1)
     worker_claim_hash: str | None = Field(default=None, pattern=_GOOGLE_ADS_SHA256_PATTERN)
-    error_code: GoogleAdsSafeErrorCode | None = None
+    error_code: GoogleAdsPersistedErrorCode | None = None
     occurred_at: datetime
 
     @field_validator("occurred_at")
     @classmethod
     def timestamp_is_utc(cls, value: datetime) -> datetime:
         return _require_utc(value)
+
+    @model_validator(mode="after")
+    def event_identity_and_semantics_are_consistent(self):
+        digest = self.contract_hash.removeprefix("sha256:")
+        if not self.deployment_id.endswith(f"--{digest}"):
+            raise ValueError("event deployment identity does not match contract digest")
+        event_slug = self.event_type.lower().replace("_", "-")
+        expected_id = f"{self.record_version:020d}-{event_slug}"
+        if self.event_id != expected_id:
+            raise ValueError("event ID does not match version and event type")
+        from_state, to_state, requires_claim, requires_error = _GOOGLE_ADS_EVENT_SEMANTICS[
+            self.event_type
+        ]
+        if self.from_state != from_state or self.to_state != to_state:
+            raise ValueError("event transition does not match event type")
+        if (self.worker_claim_hash is not None) != requires_claim:
+            raise ValueError("event claimant presence does not match event type")
+        if (self.error_code is not None) != requires_error:
+            raise ValueError("event error presence does not match event type")
+        return self
 
 
 class CustomerStatus(str, Enum):

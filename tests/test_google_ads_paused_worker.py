@@ -322,10 +322,81 @@ def test_provider_create_fence_prevents_reclaim_while_call_outlives_lease():
         assert create_started.wait(timeout=2)
         now[0] += timedelta(seconds=2)
         assert ledger.claim_paused_create(approved.deployment_id, "replacement-worker") is False
+        replacement = worker.run(approved.deployment_id)
+        assert replacement.error_code == "provider_timeout_unresolved"
+        assert [call[0] for call in provider.calls].count("create_paused") == 1
         release_create.set()
         result = result_future.result(timeout=2)
 
     assert result.state is DeploymentState.PAUSED_CREATED
+    assert ledger.get(approved.deployment_id).state is DeploymentState.PAUSED_CREATED
+
+
+def test_crashed_fenced_worker_is_reconciled_without_validation_or_create():
+    now = [datetime(2026, 8, 12, 12, 0, tzinfo=UTC)]
+    ledger = InMemoryAuthorityLedger(claim_lease_seconds=1, clock=lambda: now[0])
+    source = StaticContractSource(_contract())
+    approved, _invoker = _approved(ledger, source)
+    assert ledger.claim_paused_create(approved.deployment_id, "crashed-worker") is True
+    ledger.fence_paused_create(approved.deployment_id, "crashed-worker")
+    now[0] += timedelta(seconds=2)
+    provider = FakePausedProvider()
+    provider.find_results = [provider.created]
+
+    result = PausedCreateWorker(ledger, source, _request_builder, provider).run(
+        approved.deployment_id
+    )
+
+    assert [call[0] for call in provider.calls] == ["find_by_contract_label"]
+    assert result.state is DeploymentState.PAUSED_CREATED
+    assert result.reconciled is True
+
+
+def test_crashed_fenced_worker_stays_fenced_when_reconciliation_finds_nothing():
+    now = [datetime(2026, 8, 12, 12, 0, tzinfo=UTC)]
+    ledger = InMemoryAuthorityLedger(claim_lease_seconds=1, clock=lambda: now[0])
+    source = StaticContractSource(_contract())
+    approved, _invoker = _approved(ledger, source)
+    assert ledger.claim_paused_create(approved.deployment_id, "crashed-worker") is True
+    crashed = ledger.fence_paused_create(approved.deployment_id, "crashed-worker")
+    now[0] += timedelta(seconds=2)
+    provider = FakePausedProvider()
+
+    result = PausedCreateWorker(ledger, source, _request_builder, provider).run(
+        approved.deployment_id
+    )
+
+    stored = ledger.get(approved.deployment_id)
+    assert [call[0] for call in provider.calls] == ["find_by_contract_label"]
+    assert result.error_code == "provider_timeout_unresolved"
+    assert stored.state is DeploymentState.PAUSED_CREATE_APPROVED
+    assert stored.create_fenced_at == crashed.create_fenced_at
+    assert stored.worker_claim_hash != crashed.worker_claim_hash
+    assert stored.error_code == "provider_timeout_unresolved"
+
+
+def test_completion_failure_is_recorded_without_reopening_fenced_create():
+    ledger = InMemoryAuthorityLedger()
+    source = StaticContractSource(_contract())
+    approved, _invoker = _approved(ledger, source)
+
+    class CompletionFailProvider(FakePausedProvider):
+        def create_paused(self, request):
+            created = super().create_paused(request)
+            ledger.fail_next_write()
+            return created
+
+    provider = CompletionFailProvider()
+    result = PausedCreateWorker(ledger, source, _request_builder, provider).run(
+        approved.deployment_id
+    )
+
+    stored = ledger.get(approved.deployment_id)
+    assert result.error_code == "ledger_write_failed"
+    assert stored.state is DeploymentState.PAUSED_CREATE_APPROVED
+    assert stored.create_fenced_at is not None
+    assert stored.worker_claim_hash is not None
+    assert stored.error_code == "ledger_write_failed"
 
 
 def test_commit_then_timeout_reconciles_by_contract_label_without_retrying_create():

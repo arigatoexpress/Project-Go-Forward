@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import copy
 import json
+import threading
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from threading import Barrier, Event, Lock
@@ -13,8 +15,10 @@ from pydantic import ValidationError
 from database.google_ads_authority import FirestoreAuthorityLedger
 from database.models import GoogleAdsAuthorityEventRecord, GoogleAdsDeploymentRecord
 from scripts.google_ads_paused_worker import (
+    DeploymentRecord,
     DeploymentState,
     DraftReviewControlPlane,
+    InMemoryAuthorityLedger,
     InvalidStateTransition,
     LedgerConflict,
     LedgerWriteError,
@@ -144,7 +148,10 @@ def durable():
         clock=clock,
         claim_lease_seconds=30,
     )
-    return ledger, store, clock
+    try:
+        yield ledger, store, clock
+    finally:
+        ledger.close()
 
 
 def _draft(ledger):
@@ -175,6 +182,7 @@ def test_database_models_reject_extra_raw_provider_account_token_and_request_fie
         "worker_claim_hash": None,
         "claim_expires_at": None,
         "create_fenced_at": None,
+        "create_fence_claim_hash": None,
         "provider_reference_hash": None,
         "error_code": None,
         "created_at": now,
@@ -218,6 +226,142 @@ def test_database_models_reject_extra_raw_provider_account_token_and_request_fie
         GoogleAdsAuthorityEventRecord.model_validate(
             {**event, "error_code": "raw_google_error_customer_123"}
         )
+
+
+def test_database_model_couples_identity_claim_fence_state_and_error_semantics():
+    now = datetime(2026, 8, 12, 12, 0, tzinfo=UTC)
+    digest = "a" * 64
+    base = {
+        "schema_version": 1,
+        "deployment_id": f"draft--{digest}",
+        "deployment_key": "draft",
+        "contract_hash": f"sha256:{digest}",
+        "contract_label": f"tho-contract-{digest[:12]}",
+        "state": "INTERNAL_DRAFT",
+        "version": 1,
+        "worker_claim_hash": None,
+        "claim_expires_at": None,
+        "create_fenced_at": None,
+        "create_fence_claim_hash": None,
+        "provider_reference_hash": None,
+        "error_code": None,
+        "created_at": now,
+        "updated_at": now,
+    }
+    claim_hash = f"sha256:{'b' * 64}"
+
+    for invalid in (
+        {**base, "deployment_key": "other"},
+        {**base, "contract_hash": f"sha256:{'c' * 64}"},
+        {**base, "contract_label": f"tho-contract-{'d' * 12}"},
+        {
+            **base,
+            "worker_claim_hash": claim_hash,
+            "claim_expires_at": now + timedelta(seconds=10),
+        },
+        {**base, "error_code": "contract_mismatch"},
+    ):
+        with pytest.raises(ValidationError):
+            GoogleAdsDeploymentRecord.model_validate(invalid)
+
+    approved = {
+        **base,
+        "state": "PAUSED_CREATE_APPROVED",
+        "version": 4,
+        "worker_claim_hash": claim_hash,
+        "claim_expires_at": now + timedelta(seconds=10),
+        "create_fenced_at": now + timedelta(seconds=11),
+        "create_fence_claim_hash": claim_hash,
+        "updated_at": now + timedelta(seconds=11),
+    }
+    with pytest.raises(ValidationError):
+        GoogleAdsDeploymentRecord.model_validate(approved)
+    with pytest.raises(ValidationError):
+        GoogleAdsDeploymentRecord.model_validate(
+            {
+                **approved,
+                "create_fenced_at": now,
+                "error_code": "worker_claimed_elsewhere",
+            }
+        )
+
+
+def test_authority_event_model_couples_id_transition_claim_and_error_semantics():
+    now = datetime(2026, 8, 12, tzinfo=UTC)
+    digest = "a" * 64
+    claim_hash = f"sha256:{'b' * 64}"
+    base = {
+        "schema_version": 1,
+        "event_id": "00000000000000000004-paused-create-fenced-failed",
+        "deployment_id": f"draft--{digest}",
+        "contract_hash": f"sha256:{digest}",
+        "event_type": "PAUSED_CREATE_FENCED_FAILED",
+        "from_state": "PAUSED_CREATE_APPROVED",
+        "to_state": "PAUSED_CREATE_APPROVED",
+        "record_version": 4,
+        "worker_claim_hash": claim_hash,
+        "error_code": "provider_timeout_unresolved",
+        "occurred_at": now,
+    }
+    assert GoogleAdsAuthorityEventRecord.model_validate(base).record_version == 4
+
+    for invalid in (
+        {**base, "event_id": "00000000000000000005-paused-create-fenced-failed"},
+        {**base, "event_id": "00000000000000000004-paused-create-completed"},
+        {**base, "from_state": "SERVER_VALIDATED"},
+        {**base, "to_state": "PAUSED_CREATED"},
+        {**base, "worker_claim_hash": None},
+        {**base, "error_code": None},
+        {**base, "deployment_id": f"draft--{'c' * 64}"},
+    ):
+        with pytest.raises(ValidationError):
+            GoogleAdsAuthorityEventRecord.model_validate(invalid)
+
+    created = {
+        **base,
+        "event_id": "00000000000000000001-internal-draft-created",
+        "event_type": "INTERNAL_DRAFT_CREATED",
+        "from_state": None,
+        "to_state": "INTERNAL_DRAFT",
+        "record_version": 1,
+        "worker_claim_hash": None,
+        "error_code": None,
+    }
+    assert GoogleAdsAuthorityEventRecord.model_validate(created).record_version == 1
+
+
+def test_in_memory_create_normalizes_unsafe_caller_state_and_rejects_bad_identity():
+    ledger = InMemoryAuthorityLedger()
+    digest = "a" * 64
+    candidate = DeploymentRecord(
+        deployment_id=f"draft--{digest}",
+        deployment_key="draft",
+        contract_hash=f"sha256:{digest}",
+        contract_label=f"tho-contract-{digest[:12]}",
+        state=DeploymentState.PAUSED_CREATED,
+        version=999,
+        worker_claim_hash=f"sha256:{'b' * 64}",
+        claim_expires_at=datetime(2030, 1, 1, tzinfo=UTC),
+        create_fenced_at=datetime(2029, 1, 1, tzinfo=UTC),
+        create_fence_claim_hash=f"sha256:{'b' * 64}",
+        provider_reference_hash=f"sha256:{'c' * 64}",
+        error_code="provider_create_failed",
+    )
+
+    stored, created = ledger.create_or_get(candidate)
+
+    assert created is True
+    assert stored.state is DeploymentState.INTERNAL_DRAFT
+    assert stored.version == 1
+    assert stored.worker_claim_hash is None
+    assert stored.claim_expires_at is None
+    assert stored.create_fenced_at is None
+    assert stored.create_fence_claim_hash is None
+    assert stored.provider_reference_hash is None
+    assert stored.error_code is None
+
+    with pytest.raises(ValueError):
+        ledger.create_or_get(replace(candidate, deployment_key="other"))
 
 
 def test_create_or_get_is_deterministic_and_conflicting_identity_is_rejected(durable):
@@ -359,6 +503,44 @@ def test_create_fence_blocks_expired_claim_reclaim_and_allows_original_completio
     ]
 
 
+def test_expired_fenced_claim_has_exactly_one_reconciliation_only_successor(durable):
+    ledger, store, clock = durable
+    approved, _invoker = _approved(ledger)
+    assert ledger.claim_paused_create(approved.deployment_id, "crashed-worker") is True
+    fenced = ledger.fence_paused_create(approved.deployment_id, "crashed-worker")
+    clock.advance(31)
+    barrier = Barrier(8)
+
+    def claim(index: int):
+        barrier.wait()
+        return ledger.claim_fenced_reconciliation(
+            approved.deployment_id,
+            f"reconciler-{index}",
+        )
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        results = list(pool.map(claim, range(8)))
+
+    assert results.count(True) == 1
+    assert results.count(False) == 7
+    stored = store.deployment(approved.deployment_id)
+    assert stored["create_fenced_at"] == fenced.create_fenced_at
+    assert stored["worker_claim_hash"] != fenced.worker_claim_hash
+    assert stored["create_fence_claim_hash"] == fenced.worker_claim_hash
+    assert [row["event_type"] for row in store.events(approved.deployment_id)][-1] == (
+        "PAUSED_CREATE_RECONCILIATION_CLAIMED"
+    )
+
+    completed = ledger.complete_paused_create(
+        approved.deployment_id,
+        "crashed-worker",
+        f"sha256:{'d' * 64}",
+    )
+    assert completed.state is DeploymentState.PAUSED_CREATED
+    assert completed.worker_claim_hash is None
+    assert completed.create_fence_claim_hash is None
+
+
 def test_event_write_failure_rolls_back_state_change_and_surfaces_fail_closed(durable):
     ledger, store, _clock = durable
     draft = _draft(ledger)
@@ -408,6 +590,57 @@ def test_transaction_wall_clock_is_bounded_and_timeout_is_sanitized():
             _draft(ledger)
     finally:
         release.set()
+        ledger.close()
 
     assert str(exc_info.value) == "ledger_write_timeout"
     assert store.rows == {}
+
+
+def test_many_transaction_timeouts_use_one_bounded_pool_and_cancel_queued_work():
+    store = _AtomicFirestore()
+    release = Event()
+    started = 0
+    started_lock = Lock()
+
+    def blocked_executor(_operation):
+        nonlocal started
+        with started_lock:
+            started += 1
+        release.wait(timeout=2)
+
+    ledger = FirestoreAuthorityLedger(
+        client=store,
+        transaction_executor=blocked_executor,
+        transaction_workers=2,
+        transaction_timeout_seconds=0.02,
+    )
+    barrier = Barrier(12)
+
+    def timeout(_index):
+        barrier.wait()
+        with pytest.raises(LedgerWriteError, match="ledger_write_timeout"):
+            _draft(ledger)
+
+    try:
+        with ThreadPoolExecutor(max_workers=12) as callers:
+            list(callers.map(timeout, range(12)))
+        worker_threads = [
+            thread
+            for thread in threading.enumerate()
+            if thread.name.startswith(ledger.transaction_thread_name_prefix)
+        ]
+        assert len(worker_threads) <= 2
+        assert started <= 2
+    finally:
+        release.set()
+        ledger.close()
+
+
+def test_transaction_pool_rejects_more_than_four_workers():
+    store = _AtomicFirestore()
+    with pytest.raises(ValueError, match="between 1 and 4"):
+        FirestoreAuthorityLedger(client=store, transaction_workers=5)
+
+    with ThreadPoolExecutor(max_workers=5) as oversized_pool:
+        with pytest.raises(ValueError, match="cannot exceed 4"):
+            FirestoreAuthorityLedger(client=store, transaction_pool=oversized_pool)
