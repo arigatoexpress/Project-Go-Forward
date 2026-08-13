@@ -855,7 +855,7 @@ def test_transaction_pool_rejects_more_than_four_workers():
 def _access_evidence(deployment_id: str, clock: _Clock, *, status=AccessEvidenceStatus.PASSED):
     return build_access_evidence(
         deployment_id=deployment_id,
-        check_key=AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_GREEN,
+        check_key=AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_AND_USD_GREEN,
         status=status,
         observed_at=clock.value,
         expires_at=clock.value + timedelta(minutes=5),
@@ -928,7 +928,7 @@ def test_access_evidence_read_rejects_expired_or_corrupt_firestore_rows(durable)
     assert (
         ledger.get_access_evidence(
             draft.deployment_id,
-            AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_GREEN,
+            AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_AND_USD_GREEN,
         )
         == evidence
     )
@@ -937,7 +937,7 @@ def test_access_evidence_read_rejects_expired_or_corrupt_firestore_rows(durable)
     with pytest.raises(LedgerWriteError, match="access_evidence_invalid"):
         ledger.get_access_evidence(
             draft.deployment_id,
-            AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_GREEN,
+            AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_AND_USD_GREEN,
         )
 
     row = store.access_evidence(draft.deployment_id, evidence.check_key.value)
@@ -953,7 +953,7 @@ def test_access_evidence_read_rejects_expired_or_corrupt_firestore_rows(durable)
     with pytest.raises(LedgerWriteError, match="access_evidence_invalid") as exc_info:
         ledger.get_access_evidence(
             draft.deployment_id,
-            AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_GREEN,
+            AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_AND_USD_GREEN,
         )
     assert "raw-do-not-store" not in str(exc_info.value)
 
@@ -966,14 +966,14 @@ def test_access_evidence_read_rejects_payload_bound_to_another_document_path(dur
         "google_ads_deployments",
         draft.deployment_id,
         "access_evidence",
-        AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_GREEN.value,
+        AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_AND_USD_GREEN.value,
     )
     store.rows[evidence_path] = evidence_payload(misplaced)
 
     with pytest.raises(LedgerWriteError, match="access_evidence_invalid"):
         ledger.get_access_evidence(
             draft.deployment_id,
-            AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_GREEN,
+            AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_AND_USD_GREEN,
         )
 
 
@@ -985,7 +985,7 @@ def test_access_evidence_write_rejects_path_mismatched_current_row_atomically(du
         "google_ads_deployments",
         draft.deployment_id,
         "access_evidence",
-        AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_GREEN.value,
+        AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_AND_USD_GREEN.value,
     )
     misplaced_payload = evidence_payload(misplaced)
     store.rows[evidence_path] = misplaced_payload
@@ -1027,7 +1027,7 @@ def test_concurrent_distinct_evidence_at_one_observation_has_one_atomic_winner(d
     def write(index: int):
         evidence = build_access_evidence(
             deployment_id=draft.deployment_id,
-            check_key=AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_GREEN,
+            check_key=AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_AND_USD_GREEN,
             status=AccessEvidenceStatus.PASSED,
             observed_at=clock.value,
             expires_at=clock.value + timedelta(minutes=5),
@@ -1195,7 +1195,7 @@ def test_stale_future_proof_failed_access_and_atomic_write_failure_leave_no_appr
         "google_ads_deployments",
         validated.deployment_id,
         "access_evidence",
-        AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_GREEN.value,
+        AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_AND_USD_GREEN.value,
     )
     store.rows[evidence_path]["status"] = "FAILED"
     with pytest.raises(LedgerWriteError):
@@ -1309,6 +1309,9 @@ def test_accepted_dispatch_worker_failures_retry_twice_then_stop_at_durable_cap(
     class FailingProvider:
         last_failure = None
 
+        def verify_account_currency_usd(self):
+            return None
+
         def validate(self, _request):
             raise RuntimeError("raw provider detail")
 
@@ -1337,6 +1340,7 @@ def test_accepted_dispatch_worker_failures_retry_twice_then_stop_at_durable_cap(
             contract_loader=lambda: CONTRACT,
             provider_factory=lambda **_kwargs: FailingProvider(),
             environ=environment,
+            clock=_clock,
         )
         assert failed.state is DeploymentState.PAUSED_CREATE_APPROVED
         assert failed.error_code == "provider_validation_failed"

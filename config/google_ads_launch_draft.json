@@ -13,7 +13,7 @@
       "feature_flag_enabled",
       "draft_validator_green",
       "dedicated_job_runtime_green",
-      "google_ads_account_access_green",
+      "google_ads_account_access_and_usd_green",
       "billing_and_account_serving_eligible",
       "housing_policy_acknowledged_in_google_ads",
       "landing_pages_live_canonical_and_lead_capable",

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fixed-command job that records sanitized, read-only Ads access evidence.
+"""Fixed-command job that records sanitized read-only Ads access and USD evidence.
 
 There is no request payload or command-line configuration surface. Production
 credentials are read from the three fixed managed-secret environment names and
@@ -31,6 +31,7 @@ from scripts.google_ads_paused_worker import deployment_id
 
 _PROBE_RESULT_FIELDS = {
     "account_access_validated",
+    "account_currency_usd",
     "failure",
     "http_status",
     "live_probe_executed",
@@ -44,6 +45,7 @@ _SAFE_PROBE_FAILURES = {
     "credential_or_network_error",
     "google_ads_unavailable",
     "request_rejected",
+    "account_currency_not_usd_or_unverified",
 }
 
 
@@ -66,10 +68,12 @@ def _validate_probe_result(result: Any) -> AccessEvidenceStatus:
     if not isinstance(result, Mapping) or set(result) != _PROBE_RESULT_FIELDS:
         raise InvalidAccessEvidence("probe_result_invalid")
     validated = result["account_access_validated"]
+    currency_is_usd = result["account_currency_usd"]
     failure = result["failure"]
     http_status = result["http_status"]
     if (
         not isinstance(validated, bool)
+        or not isinstance(currency_is_usd, bool)
         or not isinstance(result["live_probe_executed"], bool)
         or result["live_probe_executed"] is not True
         or not isinstance(result["request_id_present"], bool)
@@ -84,9 +88,15 @@ def _validate_probe_result(result: Any) -> AccessEvidenceStatus:
     ):
         raise InvalidAccessEvidence("probe_result_invalid")
     if validated:
-        if failure is not None or http_status != 200:
+        if http_status != 200:
             raise InvalidAccessEvidence("probe_result_invalid")
-        return AccessEvidenceStatus.PASSED
+        if currency_is_usd and failure is None:
+            return AccessEvidenceStatus.PASSED
+        if not currency_is_usd and failure == "account_currency_not_usd_or_unverified":
+            return AccessEvidenceStatus.FAILED
+        raise InvalidAccessEvidence("probe_result_invalid")
+    if currency_is_usd:
+        raise InvalidAccessEvidence("probe_result_invalid")
     failure_status_valid = (
         (failure == "credential_or_network_error" and http_status is None)
         or (failure == "authentication_or_access_denied" and http_status in {401, 403})
@@ -147,7 +157,7 @@ def run_access_evidence_job(
         status = _validate_probe_result(probe_result)
     evidence = build_access_evidence(
         deployment_id=requested_deployment_id,
-        check_key=AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_GREEN,
+        check_key=AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_AND_USD_GREEN,
         status=status,
         observed_at=observed_at,
         expires_at=observed_at + DEFAULT_EVIDENCE_TTL,
@@ -184,6 +194,7 @@ def _run_production_job() -> AccessEvidence:
 def _failure_payload(reason: str) -> dict[str, Any]:
     return {
         "account_access_validated": False,
+        "account_currency_usd": False,
         "evidence_recorded": False,
         "failure": reason,
         "ready_to_spend": False,
@@ -203,6 +214,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     output = {
         "account_access_validated": evidence.status is AccessEvidenceStatus.PASSED,
+        "account_currency_usd": evidence.status is AccessEvidenceStatus.PASSED,
         "evidence": evidence_payload(evidence),
         "evidence_recorded": True,
         "ready_to_spend": False,

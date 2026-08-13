@@ -13,8 +13,14 @@ import json
 import os
 import re
 from collections.abc import Callable, Mapping
+from datetime import UTC, datetime
 from typing import Any, Protocol
 
+from scripts.google_ads_access_evidence import (
+    AccessCheckKey,
+    AccessEvidenceStatus,
+    validate_access_evidence,
+)
 from scripts.google_ads_access_probe import normalize_customer_id
 from scripts.google_ads_launch_draft import (
     DEFAULT_DRAFT,
@@ -40,6 +46,10 @@ from scripts.google_ads_paused_worker import (
 _SOURCE_REVISION_RE = re.compile(r"^[0-9a-f]{40}$")
 
 
+def _utc_now() -> datetime:
+    return datetime.now(UTC)
+
+
 class ProviderFactory(Protocol):
     def __call__(
         self,
@@ -55,7 +65,7 @@ def _load_checked_in_contract() -> dict[str, Any]:
     return json.loads(DEFAULT_DRAFT.read_text(encoding="utf-8"))
 
 
-def _runtime_configuration(environ: Mapping[str, str]) -> tuple[str, str, str | None]:
+def _runtime_configuration(environ: Mapping[str, str]) -> tuple[str, str, str | None, str]:
     try:
         customer_id = normalize_customer_id(environ.get("GOOGLE_ADS_CUSTOMER_ID", ""))
         login_value = environ.get("GOOGLE_ADS_LOGIN_CUSTOMER_ID", "")
@@ -63,11 +73,12 @@ def _runtime_configuration(environ: Mapping[str, str]) -> tuple[str, str, str | 
         developer_token = environ.get("GOOGLE_ADS_DEVELOPER_TOKEN", "")
         if not isinstance(developer_token, str) or not developer_token.strip():
             raise ValueError("developer token is required")
-        if not _SOURCE_REVISION_RE.fullmatch(environ.get("APP_VERSION", "")):
+        source_revision = environ.get("APP_VERSION", "")
+        if not _SOURCE_REVISION_RE.fullmatch(source_revision):
             raise ValueError("source revision is invalid")
     except (TypeError, ValueError):
         raise ValueError("invalid_configuration") from None
-    return customer_id, developer_token, login_customer_id
+    return customer_id, developer_token, login_customer_id, source_revision
 
 
 def _safe_result(authority: Any, *, error_code: str | None = None) -> WorkerResult:
@@ -86,6 +97,7 @@ def run_paused_create_job(
     contract_loader: Callable[[], dict[str, Any]],
     provider_factory: ProviderFactory,
     environ: Mapping[str, str],
+    clock: Callable[[], datetime] = _utc_now,
 ) -> WorkerResult:
     """Consume approved authority for the immutable checked-in graph."""
     try:
@@ -95,7 +107,9 @@ def run_paused_create_job(
     if not isinstance(contract, dict) or validate_draft(contract):
         raise ValueError("invalid_configuration")
 
-    customer_id, developer_token, login_customer_id = _runtime_configuration(environ)
+    customer_id, developer_token, login_customer_id, source_revision = _runtime_configuration(
+        environ
+    )
     expected_deployment_id = deployment_id(contract)
     expected_contract_hash = f"sha256:{contract_sha256(contract)}"
     expected_contract_label = contract_label(contract)
@@ -121,6 +135,32 @@ def run_paused_create_job(
     outbox = ledger.get_paused_create_outbox(expected_deployment_id)
     if outbox.state != "DISPATCHING" or not isinstance(outbox.dispatcher_claim_hash, str):
         return _safe_result(authority, error_code="worker_not_dispatched")
+
+    try:
+        currency_evidence = validate_access_evidence(
+            ledger.get_access_evidence(
+                expected_deployment_id,
+                AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_AND_USD_GREEN,
+            ),
+            now=clock(),
+        )
+    except Exception:
+        currency_evidence = None
+    if (
+        currency_evidence is None
+        or currency_evidence.deployment_id != expected_deployment_id
+        or currency_evidence.check_key is not AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_AND_USD_GREEN
+        or currency_evidence.status is not AccessEvidenceStatus.PASSED
+        or currency_evidence.source_revision != source_revision
+    ):
+        try:
+            ledger.record_paused_create_worker_failure(
+                expected_deployment_id,
+                outbox.dispatcher_claim_hash,
+            )
+        except Exception:
+            pass
+        return _safe_result(authority, error_code="worker_currency_evidence_unavailable")
 
     provider = provider_factory(
         customer_id=customer_id,

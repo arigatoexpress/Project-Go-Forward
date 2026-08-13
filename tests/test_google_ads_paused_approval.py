@@ -54,7 +54,7 @@ def _evidence():
     _contract, deployment_id, _contract_hash = _identity()
     return build_access_evidence(
         deployment_id=deployment_id,
-        check_key=AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_GREEN,
+        check_key=AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_AND_USD_GREEN,
         status=AccessEvidenceStatus.PASSED,
         observed_at=NOW,
         expires_at=NOW + timedelta(minutes=5),

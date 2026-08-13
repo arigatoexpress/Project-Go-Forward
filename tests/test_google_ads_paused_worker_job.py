@@ -3,11 +3,17 @@ from __future__ import annotations
 import inspect
 import json
 from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
+from scripts.google_ads_access_evidence import (
+    AccessCheckKey,
+    AccessEvidenceStatus,
+    build_access_evidence,
+)
 from scripts.google_ads_paused_worker import (
     DeploymentState,
     DraftReviewControlPlane,
@@ -23,6 +29,7 @@ from scripts.google_ads_paused_worker_job import main, run_paused_create_job
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACT = json.loads((ROOT / "config" / "google_ads_launch_draft.json").read_text())
 SOURCE_REVISION = "a" * 40
+NOW = datetime.now(UTC)
 
 
 class _Provider:
@@ -31,6 +38,9 @@ class _Provider:
 
     def validate(self, request):
         self.calls.append(("validate", request))
+
+    def verify_account_currency_usd(self):
+        self.calls.append(("verify_account_currency_usd", None))
 
     def find_by_contract_label(self, label):
         self.calls.append(("find", label))
@@ -66,6 +76,16 @@ def _ledger(state=DeploymentState.PAUSED_CREATE_APPROVED):
     )
     ledger.reconcile_terminal_paused_create_outbox = lambda _deployment_id: "DISPATCHED"
     ledger.record_paused_create_worker_failure = lambda _deployment_id, _claim_hash: "PENDING"
+    evidence = build_access_evidence(
+        deployment_id=deployment_id(CONTRACT),
+        check_key=AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_AND_USD_GREEN,
+        status=AccessEvidenceStatus.PASSED,
+        observed_at=NOW,
+        expires_at=NOW + timedelta(minutes=5),
+        source_revision=SOURCE_REVISION,
+        now=NOW,
+    )
+    ledger.get_access_evidence = lambda _deployment_id, _check_key: evidence
     return ledger
 
 
@@ -91,7 +111,11 @@ def test_fixed_job_consumes_only_existing_approval_and_server_owned_contract():
 
     assert result.state is DeploymentState.PAUSED_CREATED
     assert result.reconciled is True
-    assert [call[0] for call in provider.calls] == ["validate", "find"]
+    assert [call[0] for call in provider.calls] == [
+        "verify_account_currency_usd",
+        "validate",
+        "find",
+    ]
     assert captured == [
         {
             "customer_id",
@@ -133,6 +157,50 @@ def test_direct_worker_invocation_is_inert_while_outbox_is_pending():
 
     assert result.state is DeploymentState.PAUSED_CREATE_APPROVED
     assert result.error_code == "worker_not_dispatched"
+    assert called == []
+
+
+@pytest.mark.parametrize(
+    "evidence_change",
+    ["missing", "failed", "stale_revision", "expired", "legacy_access_only"],
+)
+def test_worker_requires_fresh_revision_bound_usd_evidence_before_provider(evidence_change):
+    ledger = _ledger()
+    called = []
+    if evidence_change == "missing":
+        ledger.get_access_evidence = lambda *_args: (_ for _ in ()).throw(
+            RuntimeError("raw firestore failure")
+        )
+    else:
+        observed_at = NOW - timedelta(minutes=10) if evidence_change == "expired" else NOW
+        evidence = build_access_evidence(
+            deployment_id=deployment_id(CONTRACT),
+            check_key=(
+                AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_GREEN
+                if evidence_change == "legacy_access_only"
+                else AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_AND_USD_GREEN
+            ),
+            status=(
+                AccessEvidenceStatus.FAILED
+                if evidence_change == "failed"
+                else AccessEvidenceStatus.PASSED
+            ),
+            observed_at=observed_at,
+            expires_at=observed_at + timedelta(minutes=5),
+            source_revision=("b" * 40 if evidence_change == "stale_revision" else SOURCE_REVISION),
+            now=observed_at,
+        )
+        ledger.get_access_evidence = lambda *_args: evidence
+
+    result = run_paused_create_job(
+        ledger=ledger,
+        contract_loader=lambda: CONTRACT,
+        provider_factory=lambda **_kwargs: called.append(True),
+        environ=_environ(),
+        clock=lambda: NOW,
+    )
+
+    assert result.error_code == "worker_currency_evidence_unavailable"
     assert called == []
 
 

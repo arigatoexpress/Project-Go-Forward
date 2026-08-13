@@ -1,4 +1,4 @@
-"""Pure, sanitized Google Ads account-access evidence contract.
+"""Pure, sanitized Google Ads account-access and USD-currency evidence contract.
 
 The contract deliberately contains no credential, account, request, resource,
 response, or free-form error field. It is shared by the fixed job entrypoint
@@ -22,7 +22,10 @@ _EVIDENCE_DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 
 
 class AccessCheckKey(StrEnum):
+    # Legacy rows remain parseable so a rollback fails closed instead of
+    # treating the document as corrupt. New authority uses the composite key.
     GOOGLE_ADS_ACCOUNT_ACCESS_GREEN = "google_ads_account_access_green"
+    GOOGLE_ADS_ACCOUNT_ACCESS_AND_USD_GREEN = "google_ads_account_access_and_usd_green"
 
 
 class AccessEvidenceStatus(StrEnum):

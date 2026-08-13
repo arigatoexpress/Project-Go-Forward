@@ -17,7 +17,7 @@ from scripts.google_ads_launch_draft import (
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACT_PATH = ROOT / "config" / "google_ads_launch_draft.json"
 CUSTOMER_ID = "1234567890"
-REVIEWED_CONTRACT_SHA256 = "443c3872f98c4c37c6c4584d19f4dfbd76c5ca138adac75f4be79c8de8060fca"  # pragma: allowlist secret - public contract digest
+REVIEWED_CONTRACT_SHA256 = "bade48b68441be6dad21c71276f875288ad4d8bcb9579272f4b2ec4119320893"  # pragma: allowlist secret - public contract digest
 
 
 def _contract():

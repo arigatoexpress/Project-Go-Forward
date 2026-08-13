@@ -567,7 +567,7 @@ class FirestoreAuthorityLedger:
         deployment_reference = self._reference(deployment_id)
         access_reference = deployment_reference.collection(
             self.ACCESS_EVIDENCE_SUBCOLLECTION
-        ).document(AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_GREEN.value)
+        ).document(AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_AND_USD_GREEN.value)
         source_reference = (
             self._client.collection(self.STEP_UP_NONCE_COLLECTION)
             .document(proof.nonce_hash)
@@ -639,7 +639,7 @@ class FirestoreAuthorityLedger:
                     timeout=FIRESTORE_RPC_TIMEOUT,
                 ),
                 expected_deployment_id=deployment_id,
-                expected_check_key=AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_GREEN,
+                expected_check_key=AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_AND_USD_GREEN,
             )
             source = self._snapshot_to_step_up_evidence(
                 source_reference.get(

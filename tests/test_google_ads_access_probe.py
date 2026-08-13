@@ -14,10 +14,16 @@ class _Credentials:
 
 
 class _Response:
-    def __init__(self, status_code, *, body="customer-data-do-not-leak"):
+    def __init__(self, status_code, *, payload=None, body="customer-data-do-not-leak"):
         self.status_code = status_code
         self.text = body
         self.headers = {"request-id": "request-id-do-not-leak"}
+        self._payload = payload
+
+    def json(self):
+        if self._payload is None:
+            raise ValueError("raw-response-do-not-leak")
+        return self._payload
 
 
 def test_default_cli_is_offline_and_never_loads_credentials(monkeypatch, capsys):
@@ -32,6 +38,7 @@ def test_default_cli_is_offline_and_never_loads_credentials(monkeypatch, capsys)
     output = json.loads(capsys.readouterr().out)
     assert output == {
         "account_access_validated": False,
+        "account_currency_usd": False,
         "live_probe_executed": False,
         "ready_to_spend": False,
         "spend_enabled": False,
@@ -52,8 +59,11 @@ def test_live_probe_uses_scoped_adc_and_returns_presence_only_result():
         assert headers["Authorization"] == "Bearer access-token-do-not-leak"
         assert headers["developer-token"] == "developer-token-do-not-leak"
         assert headers["login-customer-id"] == "9999999999"
-        assert json == {"query": "SELECT customer.id FROM customer LIMIT 1"}
-        return _Response(200)
+        assert json == {"query": "SELECT customer.id, customer.currency_code FROM customer LIMIT 1"}
+        return _Response(
+            200,
+            payload={"results": [{"customer": {"id": "1234567890", "currencyCode": "USD"}}]},
+        )
 
     result = access_probe.probe_access(
         customer_id="123-456-7890",
@@ -68,6 +78,7 @@ def test_live_probe_uses_scoped_adc_and_returns_presence_only_result():
     assert len(calls) == 1
     assert result == {
         "account_access_validated": True,
+        "account_currency_usd": True,
         "failure": None,
         "http_status": 200,
         "live_probe_executed": True,
@@ -88,6 +99,58 @@ def test_live_probe_uses_scoped_adc_and_returns_presence_only_result():
         assert secret not in serialized
 
 
+def test_non_usd_or_unknown_currency_is_sanitized_and_never_green():
+    credentials = _Credentials()
+
+    for payload in (
+        {"results": [{"customer": {"id": "1234567890", "currencyCode": "EUR"}}]},
+        {"results": [{"customer": {"id": "0000000000", "currencyCode": "USD"}}]},
+        {"results": [{"customer": {"currencyCode": "USD"}}]},
+        {"results": [{"customer": {"id": "1234567890"}}]},
+        {"results": []},
+        {"rawCurrency": "EUR-do-not-leak"},
+    ):
+        result = access_probe.probe_access(
+            customer_id="1234567890",
+            developer_token="developer-token-do-not-leak",
+            credential_loader=lambda **_kwargs: (credentials, None),
+            auth_request_factory=object,
+            requester=lambda *_args, **_kwargs: _Response(200, payload=payload),
+        )
+
+        assert result == {
+            "account_access_validated": True,
+            "account_currency_usd": False,
+            "failure": "account_currency_not_usd_or_unverified",
+            "http_status": 200,
+            "live_probe_executed": True,
+            "request_id_present": True,
+            "ready_to_spend": False,
+            "spend_enabled": False,
+        }
+        assert "EUR" not in json.dumps(result)
+
+
+def test_live_cli_fails_closed_when_account_currency_is_not_verified(monkeypatch, capsys):
+    monkeypatch.setattr(
+        access_probe,
+        "probe_access",
+        lambda **_kwargs: {
+            "account_access_validated": True,
+            "account_currency_usd": False,
+            "failure": "account_currency_not_usd_or_unverified",
+            "http_status": 200,
+            "live_probe_executed": True,
+            "request_id_present": True,
+            "ready_to_spend": False,
+            "spend_enabled": False,
+        },
+    )
+
+    assert access_probe.main(["--live"]) == 1
+    assert json.loads(capsys.readouterr().out)["account_currency_usd"] is False
+
+
 def test_denied_probe_does_not_echo_google_error_body():
     credentials = _Credentials()
 
@@ -102,6 +165,7 @@ def test_denied_probe_does_not_echo_google_error_body():
     )
 
     assert result["account_access_validated"] is False
+    assert result["account_currency_usd"] is False
     assert result["failure"] == "authentication_or_access_denied"
     assert result["http_status"] == 403
     assert "USER_PERMISSION_DENIED" not in json.dumps(result)

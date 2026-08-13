@@ -2,6 +2,8 @@ import copy
 import json
 from pathlib import Path
 
+import pytest
+
 from scripts.google_ads_launch_draft import validate_draft
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -19,6 +21,28 @@ def test_checked_in_google_ads_draft_is_valid_and_cannot_spend():
     assert draft["mode"] == "VALIDATE_ONLY"
     assert draft["campaign"]["status"] == "PAUSED"
     assert draft["activation_gate"]["approved"] is False
+
+
+@pytest.mark.parametrize("currency", [None, "EUR", "usd", "", 840])
+def test_rejects_missing_or_non_usd_account_currency(currency):
+    draft = _draft()
+    if currency is None:
+        draft["campaign"].pop("currency_code")
+    else:
+        draft["campaign"]["currency_code"] = currency
+
+    assert "campaign.currency_code must equal USD" in validate_draft(draft)
+
+
+def test_contract_requires_composite_account_access_and_usd_evidence():
+    draft = _draft()
+
+    assert "google_ads_account_access_and_usd_green" in draft["readiness"]["hard_checks"]
+    assert "google_ads_account_access_green" not in draft["readiness"]["hard_checks"]
+
+    draft["readiness"]["hard_checks"].remove("google_ads_account_access_and_usd_green")
+    draft["readiness"]["hard_checks"].append("google_ads_account_access_green")
+    assert "readiness.hard_checks must match the reviewed hard-check list" in validate_draft(draft)
 
 
 def test_rejects_any_serving_or_approval_state():

@@ -149,7 +149,7 @@ def _conflict_retry_transaction_executor(client):
 def _context(**overrides):
     access_evidence = build_access_evidence(
         deployment_id=DEPLOYMENT_ID,
-        check_key=AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_GREEN,
+        check_key=AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_AND_USD_GREEN,
         status=AccessEvidenceStatus.PASSED,
         observed_at=NOW,
         expires_at=NOW + timedelta(minutes=5),
@@ -201,7 +201,7 @@ def _access_evidence(context=None):
     context = context or _context()
     return build_access_evidence(
         deployment_id=context.deployment_id,
-        check_key=AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_GREEN,
+        check_key=AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_AND_USD_GREEN,
         status=AccessEvidenceStatus.PASSED,
         observed_at=NOW,
         expires_at=NOW + timedelta(minutes=5),
@@ -514,7 +514,7 @@ def test_firestore_consume_rejects_access_evidence_changed_after_route_read():
     route_read_evidence = _access_evidence(context)
     changed_evidence = build_access_evidence(
         deployment_id=context.deployment_id,
-        check_key=AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_GREEN,
+        check_key=AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_AND_USD_GREEN,
         status=AccessEvidenceStatus.PASSED,
         observed_at=NOW,
         expires_at=NOW + timedelta(minutes=5),
