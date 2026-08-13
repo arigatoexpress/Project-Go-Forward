@@ -53,8 +53,11 @@ It recognizes two authentication paths:
    user-managed keys and has only project-level `roles/datastore.user`, never
    Editor/Owner/Secret Accessor. The same-named Cloud Run Job must be attached
    to it, use the exact `python scripts/google_ads_access_evidence_job.py`
-   command, and bind only the named Ads secrets from Secret Manager. The
-   service account must have accessor rights on each bound secret itself.
+   command as a two-element command with an empty argument list, and bind only
+   the named Ads secrets from Secret Manager. The service account must have
+   accessor rights on each bound secret itself. Job-resource IAM may grant
+   only non-override execution/viewer roles; override-capable or custom roles
+   fail readiness.
 2. Compatibility-only: all three legacy user-OAuth secrets exist. The audit
    reports this path, but it does not satisfy GCP-native strict readiness.
 
@@ -62,7 +65,10 @@ The preferred path needs only the developer-token and customer-ID Secret
 Manager entries. The optional login-customer-ID entry is needed when the target
 account is accessed through a Google Ads manager account. Legacy user-OAuth
 secrets must be absent, and the public storefront must have no Ads credential
-bindings. Exactly one measurement path (GA4 or GTM) must be configured.
+bindings, must use a distinct identity, and must have no project-level Cloud
+Run Job invocation role, job-resource execution binding, direct Ads-secret
+access, or ability to impersonate the Ads job identity. Exactly one measurement
+path (GA4 or GTM) must be configured.
 Search Console and Business Profile API status remains advisory and does not
 block Ads presence readiness. A green presence audit does **not** prove the
 identity has Google Ads account access.
@@ -170,14 +176,22 @@ not create a key. The intended execution surface is a dedicated Cloud Run Job
 with:
 
 - `google-growth-control` as its attached service identity;
+- no public-storefront binding on this identity's IAM policy and no storefront
+  token-creator, service-account-user, or workload-identity-user grant;
 - the `adwords` OAuth scope requested through ADC by the probe/client;
 - Secret Manager access scoped only to the Ads developer-token and account-ID
   secrets;
 - the exact command `python scripts/google_ads_access_evidence_job.py`, split
-  as command `python` and the single argument
-  `scripts/google_ads_access_evidence_job.py`; the source image revision is
-  pinned in `APP_VERSION`, and command, credential, deployment, or executable
-  override arguments/environment values are forbidden;
+  as the two-element command array `python`,
+  `scripts/google_ads_access_evidence_job.py`, with an empty argument list;
+  the source image revision is pinned in `APP_VERSION`, and command,
+  credential, deployment, or executable override arguments/environment values
+  are forbidden;
+- job-resource IAM limited to `roles/run.invoker`,
+  `roles/run.jobsExecutor`, or `roles/run.viewer`; none of these grants
+  `run.jobs.runWithOverrides`. Custom and override-capable job roles fail the
+  readiness audit. Privileged infrastructure administrators can replace the
+  job itself and remain subject to the separate production-change gate;
 - no public endpoint, campaign activation command, or spend authority.
 
 The Google Ads administrator must separately add the service-account email as

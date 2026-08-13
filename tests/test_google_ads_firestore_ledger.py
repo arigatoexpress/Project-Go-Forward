@@ -23,6 +23,7 @@ from scripts.google_ads_access_evidence import (
     AccessCheckKey,
     AccessEvidenceStatus,
     build_access_evidence,
+    evidence_payload,
 )
 from scripts.google_ads_paused_worker import (
     DeploymentRecord,
@@ -939,6 +940,47 @@ def test_access_evidence_read_rejects_expired_or_corrupt_firestore_rows(durable)
             AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_GREEN,
         )
     assert "raw-do-not-store" not in str(exc_info.value)
+
+
+def test_access_evidence_read_rejects_payload_bound_to_another_document_path(durable):
+    ledger, store, clock = durable
+    draft = _draft(ledger)
+    misplaced = _access_evidence(f"other--{'b' * 64}", clock)
+    evidence_path = (
+        "google_ads_deployments",
+        draft.deployment_id,
+        "access_evidence",
+        AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_GREEN.value,
+    )
+    store.rows[evidence_path] = evidence_payload(misplaced)
+
+    with pytest.raises(LedgerWriteError, match="access_evidence_invalid"):
+        ledger.get_access_evidence(
+            draft.deployment_id,
+            AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_GREEN,
+        )
+
+
+def test_access_evidence_write_rejects_path_mismatched_current_row_atomically(durable):
+    ledger, store, clock = durable
+    draft = _draft(ledger)
+    misplaced = _access_evidence(f"other--{'b' * 64}", clock)
+    evidence_path = (
+        "google_ads_deployments",
+        draft.deployment_id,
+        "access_evidence",
+        AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_GREEN.value,
+    )
+    misplaced_payload = evidence_payload(misplaced)
+    store.rows[evidence_path] = misplaced_payload
+    clock.advance(1)
+    replacement = _access_evidence(draft.deployment_id, clock)
+
+    with pytest.raises(LedgerWriteError, match="access_evidence_invalid"):
+        ledger.record_access_evidence(replacement, expected_version=draft.version)
+
+    assert store.rows[evidence_path] == misplaced_payload
+    assert store.access_evidence_events(draft.deployment_id) == []
 
 
 def test_expired_current_evidence_can_be_atomically_replaced(durable):

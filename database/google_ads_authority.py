@@ -225,11 +225,23 @@ class FirestoreAuthorityLedger:
             raise LedgerWriteError("ledger_record_invalid") from None
         return self._model_to_domain(model)
 
-    def _snapshot_to_access_evidence(self, snapshot: Any) -> AccessEvidence:
+    def _snapshot_to_access_evidence(
+        self,
+        snapshot: Any,
+        *,
+        expected_deployment_id: str,
+        expected_check_key: AccessCheckKey,
+        require_fresh: bool = True,
+    ) -> AccessEvidence:
         if not getattr(snapshot, "exists", False):
             raise LedgerWriteError("access_evidence_missing")
         try:
             model = GoogleAdsAccessEvidenceRecord.model_validate(snapshot.to_dict() or {})
+            if (
+                model.deployment_id != expected_deployment_id
+                or model.check_key != expected_check_key.value
+            ):
+                raise ValueError("access evidence document identity mismatch")
             evidence = AccessEvidence(
                 deployment_id=model.deployment_id,
                 check_key=AccessCheckKey(model.check_key),
@@ -239,7 +251,9 @@ class FirestoreAuthorityLedger:
                 source_revision=model.source_revision,
                 evidence_digest=model.evidence_digest,
             )
-            return validate_access_evidence(evidence, now=self._now())
+            if require_fresh:
+                return validate_access_evidence(evidence, now=self._now())
+            return evidence
         except (InvalidAccessEvidence, ValidationError, AttributeError, TypeError, ValueError):
             raise LedgerWriteError("access_evidence_invalid") from None
 
@@ -410,7 +424,11 @@ class FirestoreAuthorityLedger:
                 .document(check_key.value)
                 .get(timeout=FIRESTORE_RPC_TIMEOUT)
             )
-            return self._snapshot_to_access_evidence(snapshot)
+            return self._snapshot_to_access_evidence(
+                snapshot,
+                expected_deployment_id=deployment_id,
+                expected_check_key=check_key,
+            )
         except ControlPlaneError:
             raise
         except Exception:
@@ -454,21 +472,12 @@ class FirestoreAuthorityLedger:
                 timeout=FIRESTORE_RPC_TIMEOUT,
             )
             if current_snapshot.exists:
-                try:
-                    current_model = GoogleAdsAccessEvidenceRecord.model_validate(
-                        current_snapshot.to_dict() or {}
-                    )
-                    current = AccessEvidence(
-                        deployment_id=current_model.deployment_id,
-                        check_key=AccessCheckKey(current_model.check_key),
-                        status=AccessEvidenceStatus(current_model.status),
-                        observed_at=current_model.observed_at,
-                        expires_at=current_model.expires_at,
-                        source_revision=current_model.source_revision,
-                        evidence_digest=current_model.evidence_digest,
-                    )
-                except (ValidationError, AttributeError, TypeError, ValueError):
-                    raise LedgerWriteError("access_evidence_invalid") from None
+                current = self._snapshot_to_access_evidence(
+                    current_snapshot,
+                    expected_deployment_id=evidence.deployment_id,
+                    expected_check_key=evidence.check_key,
+                    require_fresh=False,
+                )
                 if current.evidence_digest == evidence.evidence_digest:
                     return current
                 if current.observed_at >= evidence.observed_at:

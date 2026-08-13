@@ -47,8 +47,8 @@ JOB_SECRET_BINDINGS = {
 OPTIONAL_JOB_SECRET_BINDINGS = {
     "GOOGLE_ADS_LOGIN_CUSTOMER_ID": "google-ads-login-customer-id",
 }
-EXPECTED_JOB_COMMAND = ("python",)
-EXPECTED_JOB_ARGS = ("scripts/google_ads_access_evidence_job.py",)
+EXPECTED_JOB_COMMAND = ("python", "scripts/google_ads_access_evidence_job.py")
+EXPECTED_JOB_ARGS: tuple[str, ...] = ()
 SOURCE_REVISION_ENV = "APP_VERSION"
 SOURCE_REVISION_RE = re.compile(r"^[0-9a-f]{40}$")
 
@@ -66,6 +66,25 @@ ADS_CREDENTIAL_ENV_NAMES = {
 BROAD_PROJECT_ROLES = {"roles/editor", "roles/owner"}
 SECRET_ACCESSOR_ROLE = "roles/secretmanager.secretAccessor"  # pragma: allowlist secret
 REQUIRED_PROJECT_ROLES = {"roles/datastore.user"}
+SAFE_JOB_EXECUTION_ROLES = {
+    "roles/run.invoker",
+    "roles/run.jobsExecutor",
+    "roles/run.viewer",
+}
+STOREFRONT_JOB_ROLES = {
+    "roles/editor",
+    "roles/owner",
+    "roles/run.admin",
+    "roles/run.developer",
+    "roles/run.invoker",
+    "roles/run.jobsExecutor",
+    "roles/run.jobsExecutorWithOverrides",
+}
+IMPERSONATION_ROLES = {
+    "roles/iam.serviceAccountTokenCreator",
+    "roles/iam.serviceAccountUser",
+    "roles/iam.workloadIdentityUser",
+}
 
 RUNTIME_NAMES = (
     "GA4_MEASUREMENT_ID",
@@ -140,6 +159,22 @@ def _iam_roles_for_member(payload, member: str) -> set[str]:
         if isinstance(role, str) and member in members:
             roles.add(role)
     return roles
+
+
+def _job_policy_has_only_fixed_protocol_roles(payload) -> bool:
+    """Reject override-capable, custom, or unknown job-resource roles."""
+    if not isinstance(payload, dict) or not isinstance(payload.get("bindings", []), list):
+        raise ValueError("unexpected IAM policy shape")
+    for binding in payload.get("bindings", []):
+        if not isinstance(binding, dict):
+            raise ValueError("unexpected IAM binding shape")
+        role = binding.get("role")
+        members = binding.get("members", [])
+        if not isinstance(role, str) or not isinstance(members, list):
+            raise ValueError("unexpected IAM binding shape")
+        if members and role not in SAFE_JOB_EXECUTION_ROLES:
+            return False
+    return True
 
 
 def _job_runtime(payload, expected_service_account: str) -> dict[str, bool]:
@@ -290,6 +325,9 @@ def audit(project: str, service: str, region: str, *, runner=subprocess.run) -> 
     project_wide_secret_accessor_absent = False
     firestore_access_present = False
     project_roles_least_privilege = False
+    project_policy: dict = {}
+    service_account_policy: dict = {}
+    impersonation_policy_checked = False
     if dedicated_service_account:
         ok, output = _call(
             [
@@ -322,8 +360,9 @@ def audit(project: str, service: str, region: str, *, runner=subprocess.run) -> 
         )
         if ok:
             try:
+                project_policy = json.loads(output or "{}")
                 project_roles = _iam_roles_for_member(
-                    json.loads(output or "{}"),
+                    project_policy,
                     f"serviceAccount:{expected_service_account}",
                 )
                 iam_policy_checked = True
@@ -335,6 +374,29 @@ def audit(project: str, service: str, region: str, *, runner=subprocess.run) -> 
                 errors.append("service_account_iam")
         else:
             errors.append("service_account_iam")
+
+        ok, output = _call(
+            [
+                "gcloud",
+                "iam",
+                "service-accounts",
+                "get-iam-policy",
+                expected_service_account,
+                project_flag,
+                "--format=json",
+            ],
+            runner,
+        )
+        if ok:
+            try:
+                service_account_policy = json.loads(output or "{}")
+                if not isinstance(service_account_policy.get("bindings", []), list):
+                    raise ValueError("unexpected IAM policy shape")
+                impersonation_policy_checked = True
+            except (TypeError, ValueError, json.JSONDecodeError):
+                errors.append("service_account_policy")
+        else:
+            errors.append("service_account_policy")
 
     ok, output = _call(
         [
@@ -385,7 +447,38 @@ def audit(project: str, service: str, region: str, *, runner=subprocess.run) -> 
         else:
             errors.append("job_runtime")
 
+    override_capable_bindings_absent = False
+    job_iam_checked = False
+    job_policy: dict = {}
+    if dedicated_job_present:
+        ok, output = _call(
+            [
+                "gcloud",
+                "run",
+                "jobs",
+                "get-iam-policy",
+                ADS_JOB_ID,
+                f"--region={region}",
+                project_flag,
+                "--format=json",
+            ],
+            runner,
+        )
+        if ok:
+            try:
+                job_policy = json.loads(output or "{}")
+                override_capable_bindings_absent = _job_policy_has_only_fixed_protocol_roles(
+                    job_policy
+                )
+                job_iam_checked = True
+            except (TypeError, ValueError, json.JSONDecodeError):
+                errors.append("job_iam")
+        else:
+            errors.append("job_iam")
+    execution_iam_ready = job_iam_checked and override_capable_bindings_absent
+
     required_secret_access_present = False
+    required_secret_policies: list[dict] = []
     required_secret_names = list(JOB_SECRET_BINDINGS.values())
     if job_runtime["login_customer_id_bound"]:
         required_secret_names.extend(OPTIONAL_JOB_SECRET_BINDINGS.values())
@@ -409,8 +502,10 @@ def audit(project: str, service: str, region: str, *, runner=subprocess.run) -> 
                 secret_access_results.append(False)
                 continue
             try:
+                secret_policy = json.loads(output or "{}")
+                required_secret_policies.append(secret_policy)
                 roles = _iam_roles_for_member(
-                    json.loads(output or "{}"),
+                    secret_policy,
                     f"serviceAccount:{expected_service_account}",
                 )
                 secret_access_results.append(SECRET_ACCESSOR_ROLE in roles)
@@ -429,17 +524,69 @@ def audit(project: str, service: str, region: str, *, runner=subprocess.run) -> 
             service,
             f"--region={region}",
             project_flag,
-            "--format=json(spec.template.spec.containers[0].env)",
+            "--format=json(spec.template.spec.serviceAccountName,spec.template.spec.containers[0].env)",
         ],
         runner,
     )
     runtime_names = set()
     runtime_secret_names = set()
+    storefront_identity_separated = False
+    storefront_job_invocation_absent = False
+    storefront_secret_access_absent = False
+    storefront_impersonation_absent = False
     if ok:
         try:
             runtime_payload = json.loads(output or "[]")
             runtime_names = _runtime_env_names(runtime_payload)
             runtime_secret_names = _runtime_secret_names(runtime_payload)
+            storefront_identities = {
+                value
+                for key in ("serviceAccount", "serviceAccountName")
+                for value in _nested_values(runtime_payload, key)
+                if isinstance(value, str)
+            }
+            storefront_identity_separated = (
+                len(storefront_identities) == 1
+                and expected_service_account not in storefront_identities
+            )
+            if storefront_identity_separated and iam_policy_checked:
+                storefront_identity = next(iter(storefront_identities))
+                storefront_project_roles = _iam_roles_for_member(
+                    project_policy,
+                    f"serviceAccount:{storefront_identity}",
+                )
+                storefront_resource_roles = _iam_roles_for_member(
+                    job_policy,
+                    f"serviceAccount:{storefront_identity}",
+                )
+                storefront_roles = storefront_project_roles | storefront_resource_roles
+                storefront_job_invocation_absent = STOREFRONT_JOB_ROLES.isdisjoint(
+                    storefront_roles
+                ) and not any(
+                    role.startswith(("projects/", "organizations/")) for role in storefront_roles
+                )
+                storefront_member = f"serviceAccount:{storefront_identity}"
+                storefront_secret_access_absent = (
+                    len(required_secret_policies) == len(required_secret_names)
+                    and SECRET_ACCESSOR_ROLE not in storefront_project_roles
+                    and all(
+                        not _iam_roles_for_member(policy, storefront_member)
+                        for policy in required_secret_policies
+                    )
+                )
+                storefront_impersonation_roles = _iam_roles_for_member(
+                    service_account_policy,
+                    storefront_member,
+                )
+                storefront_impersonation_absent = (
+                    impersonation_policy_checked
+                    and not storefront_impersonation_roles
+                    and IMPERSONATION_ROLES.isdisjoint(storefront_project_roles)
+                    and not any(
+                        role.startswith(("projects/", "organizations/"))
+                        for role in storefront_project_roles
+                    )
+                )
         except (TypeError, ValueError, json.JSONDecodeError, IndexError):
             errors.append("runtime")
     else:
@@ -478,8 +625,11 @@ def audit(project: str, service: str, region: str, *, runner=subprocess.run) -> 
         and firestore_access_present
         and project_roles_least_privilege
         and required_secret_access_present
+        and impersonation_policy_checked
     )
-    service_account_adc = least_privilege_iam and job_runtime["runtime_ready"]
+    service_account_adc = (
+        least_privilege_iam and job_runtime["runtime_ready"] and execution_iam_ready
+    )
     ads_auth_path = service_account_adc
     presence_ready = (
         not errors
@@ -489,6 +639,10 @@ def audit(project: str, service: str, region: str, *, runner=subprocess.run) -> 
         and ads_auth_path
         and legacy_oauth_secrets_absent
         and storefront_ads_credentials_absent
+        and storefront_secret_access_absent
+        and storefront_impersonation_absent
+        and storefront_identity_separated
+        and storefront_job_invocation_absent
         and measurement_exactly_one
     )
 
@@ -507,11 +661,14 @@ def audit(project: str, service: str, region: str, *, runner=subprocess.run) -> 
             "firestore_access_present": firestore_access_present,
             "project_roles_least_privilege": project_roles_least_privilege,
             "required_secret_access_present": required_secret_access_present,
+            "impersonation_policy_checked": impersonation_policy_checked,
             "least_privilege_iam": least_privilege_iam,
         },
         "job": {
             "dedicated_job_present": dedicated_job_present,
             **job_runtime,
+            "override_capable_bindings_absent": override_capable_bindings_absent,
+            "execution_iam_ready": execution_iam_ready,
         },
         "auth_paths": {
             "service_account_adc": service_account_adc,
@@ -532,6 +689,10 @@ def audit(project: str, service: str, region: str, *, runner=subprocess.run) -> 
             "ads_auth_path": ads_auth_path,
             "legacy_oauth_secrets_absent": legacy_oauth_secrets_absent,
             "storefront_ads_credentials_absent": storefront_ads_credentials_absent,
+            "storefront_secret_access_absent": storefront_secret_access_absent,
+            "storefront_impersonation_absent": storefront_impersonation_absent,
+            "storefront_identity_separated": storefront_identity_separated,
+            "storefront_job_invocation_absent": storefront_job_invocation_absent,
             "least_privilege_iam": least_privilege_iam,
             "measurement": measurement_exactly_one,
             "measurement_exactly_one": measurement_exactly_one,
