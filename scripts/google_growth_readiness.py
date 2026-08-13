@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 from collections.abc import Callable
 
@@ -47,7 +48,9 @@ OPTIONAL_JOB_SECRET_BINDINGS = {
     "GOOGLE_ADS_LOGIN_CUSTOMER_ID": "google-ads-login-customer-id",
 }
 EXPECTED_JOB_COMMAND = ("python",)
-EXPECTED_JOB_ARGS = ("scripts/google_ads_access_probe.py", "--live")
+EXPECTED_JOB_ARGS = ("scripts/google_ads_access_evidence_job.py",)
+SOURCE_REVISION_ENV = "APP_VERSION"
+SOURCE_REVISION_RE = re.compile(r"^[0-9a-f]{40}$")
 
 LEGACY_OAUTH_ENV_NAMES = {
     "GOOGLE_ADS_CLIENT_ID",
@@ -62,6 +65,7 @@ ADS_CREDENTIAL_ENV_NAMES = {
 }
 BROAD_PROJECT_ROLES = {"roles/editor", "roles/owner"}
 SECRET_ACCESSOR_ROLE = "roles/secretmanager.secretAccessor"  # pragma: allowlist secret
+REQUIRED_PROJECT_ROLES = {"roles/datastore.user"}
 
 RUNTIME_NAMES = (
     "GA4_MEASUREMENT_ID",
@@ -179,6 +183,7 @@ def _job_runtime(payload, expected_service_account: str) -> dict[str, bool]:
     env_names = {item.get("name") for item in env_items if isinstance(item.get("name"), str)}
     env_name_counts: dict[str, int] = {}
     secret_bindings: dict[str, str] = {}
+    plain_env_values: dict[str, str] = {}
     for item in env_items:
         env_name = item.get("name")
         if isinstance(env_name, str):
@@ -190,6 +195,8 @@ def _job_runtime(payload, expected_service_account: str) -> dict[str, bool]:
         secret_name = secret_ref.get("secret") or secret_ref.get("name")
         if isinstance(env_name, str) and isinstance(secret_name, str):
             secret_bindings[env_name] = secret_name
+        elif isinstance(env_name, str) and isinstance(item.get("value"), str):
+            plain_env_values[env_name] = item["value"]
 
     required_bindings = dict(JOB_SECRET_BINDINGS)
     allowed_bindings = (
@@ -197,10 +204,17 @@ def _job_runtime(payload, expected_service_account: str) -> dict[str, bool]:
         {**required_bindings, **OPTIONAL_JOB_SECRET_BINDINGS},
     )
     ads_env_names = ADS_CREDENTIAL_ENV_NAMES.intersection(env_names)
+    exact_runtime_env = env_names == {*secret_bindings, SOURCE_REVISION_ENV}
+    source_revision_bound = (
+        exact_runtime_env
+        and env_name_counts.get(SOURCE_REVISION_ENV) == 1
+        and bool(SOURCE_REVISION_RE.fullmatch(plain_env_values.get(SOURCE_REVISION_ENV, "")))
+    )
     managed_secret_bindings = (
         secret_bindings in allowed_bindings
         and ads_env_names == set(secret_bindings)
         and all(env_name_counts.get(name) == 1 for name in ads_env_names)
+        and exact_runtime_env
     )
     legacy_oauth_bindings_absent = LEGACY_OAUTH_ENV_NAMES.isdisjoint(env_names) and set(
         LEGACY_OAUTH_SECRETS
@@ -220,12 +234,14 @@ def _job_runtime(payload, expected_service_account: str) -> dict[str, bool]:
         "login_customer_id_bound": login_customer_id_bound,
         "live_probe_configured": live_probe_configured,
         "persistent_key_path_absent": persistent_key_path_absent,
+        "source_revision_bound": source_revision_bound,
         "runtime_ready": (
             identity_attached
             and exact_probe_command
             and managed_secret_bindings
             and legacy_oauth_bindings_absent
             and persistent_key_path_absent
+            and source_revision_bound
         ),
     }
 
@@ -272,6 +288,8 @@ def audit(project: str, service: str, region: str, *, runner=subprocess.run) -> 
     iam_policy_checked = False
     broad_project_roles_absent = False
     project_wide_secret_accessor_absent = False
+    firestore_access_present = False
+    project_roles_least_privilege = False
     if dedicated_service_account:
         ok, output = _call(
             [
@@ -311,6 +329,8 @@ def audit(project: str, service: str, region: str, *, runner=subprocess.run) -> 
                 iam_policy_checked = True
                 broad_project_roles_absent = BROAD_PROJECT_ROLES.isdisjoint(project_roles)
                 project_wide_secret_accessor_absent = SECRET_ACCESSOR_ROLE not in project_roles
+                firestore_access_present = REQUIRED_PROJECT_ROLES.issubset(project_roles)
+                project_roles_least_privilege = project_roles == REQUIRED_PROJECT_ROLES
             except (TypeError, ValueError, json.JSONDecodeError):
                 errors.append("service_account_iam")
         else:
@@ -340,6 +360,7 @@ def audit(project: str, service: str, region: str, *, runner=subprocess.run) -> 
         "login_customer_id_bound": False,
         "live_probe_configured": False,
         "persistent_key_path_absent": True,
+        "source_revision_bound": False,
         "runtime_ready": False,
     }
     if dedicated_job_present:
@@ -454,6 +475,8 @@ def audit(project: str, service: str, region: str, *, runner=subprocess.run) -> 
         and iam_policy_checked
         and broad_project_roles_absent
         and project_wide_secret_accessor_absent
+        and firestore_access_present
+        and project_roles_least_privilege
         and required_secret_access_present
     )
     service_account_adc = least_privilege_iam and job_runtime["runtime_ready"]
@@ -481,6 +504,8 @@ def audit(project: str, service: str, region: str, *, runner=subprocess.run) -> 
             "iam_policy_checked": iam_policy_checked,
             "broad_project_roles_absent": broad_project_roles_absent,
             "project_wide_secret_accessor_absent": project_wide_secret_accessor_absent,
+            "firestore_access_present": firestore_access_present,
+            "project_roles_least_privilege": project_roles_least_privilege,
             "required_secret_access_present": required_secret_access_present,
             "least_privilege_iam": least_privilege_iam,
         },

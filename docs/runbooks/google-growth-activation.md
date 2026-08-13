@@ -50,11 +50,11 @@ prints measurement IDs, customer IDs, service-account emails, or token values.
 It recognizes two authentication paths:
 
 1. Preferred: the dedicated `google-growth-control` service account has no
-   user-managed keys or project-wide Editor/Owner/Secret Accessor role. The
-   same-named Cloud Run Job must be attached to it, use the exact
-   `python scripts/google_ads_access_probe.py --live` command, and bind only
-   the named Ads secrets from Secret Manager. The service account must have
-   accessor rights on each bound secret itself.
+   user-managed keys and has only project-level `roles/datastore.user`, never
+   Editor/Owner/Secret Accessor. The same-named Cloud Run Job must be attached
+   to it, use the exact `python scripts/google_ads_access_evidence_job.py`
+   command, and bind only the named Ads secrets from Secret Manager. The
+   service account must have accessor rights on each bound secret itself.
 2. Compatibility-only: all three legacy user-OAuth secrets exist. The audit
    reports this path, but it does not satisfy GCP-native strict readiness.
 
@@ -73,11 +73,16 @@ The account-access probe is offline by default:
 python3 scripts/google_ads_access_probe.py
 ```
 
-After a dedicated job identity and managed secret bindings exist, run the job
-with `--live`. The live path uses scoped ADC and performs only
-`SELECT customer.id FROM customer LIMIT 1`. Its output contains status booleans
-and an HTTP status, never credentials, IDs, response bodies, or request IDs.
-It cannot create Ads resources or enable spend.
+After a dedicated job identity and managed secret bindings exist, the job runs
+the fixed `python scripts/google_ads_access_evidence_job.py` command with no
+arguments or runtime overrides. It reads the immutable checked-in contract,
+uses scoped ADC for only `SELECT customer.id FROM customer LIMIT 1`, and writes
+a sanitized Firestore evidence record plus append-only event in one
+version-checked transaction. The strict record contains only deployment ID,
+the allowlisted access-check key/status, UTC observation/expiry, source
+revision, and an evidence digest. It never stores credentials, customer/login
+IDs, request IDs, resource names, raw responses, or provider errors. Evidence
+expires after five minutes and does not authorize campaign creation or spend.
 
 ## Checked-in zero-spend launch contract
 
@@ -168,10 +173,11 @@ with:
 - the `adwords` OAuth scope requested through ADC by the probe/client;
 - Secret Manager access scoped only to the Ads developer-token and account-ID
   secrets;
-- the exact command `python scripts/google_ads_access_probe.py --live`, split
-  as command `python` and arguments `scripts/google_ads_access_probe.py`,
-  `--live` (job executions do not add `--live` automatically and credential or
-  executable override arguments are forbidden);
+- the exact command `python scripts/google_ads_access_evidence_job.py`, split
+  as command `python` and the single argument
+  `scripts/google_ads_access_evidence_job.py`; the source image revision is
+  pinned in `APP_VERSION`, and command, credential, deployment, or executable
+  override arguments/environment values are forbidden;
 - no public endpoint, campaign activation command, or spend authority.
 
 The Google Ads administrator must separately add the service-account email as

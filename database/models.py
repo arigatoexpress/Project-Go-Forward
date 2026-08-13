@@ -11,6 +11,14 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from scripts.google_ads_access_evidence import (
+    MAX_EVIDENCE_TTL,
+    AccessCheckKey,
+    AccessEvidenceStatus,
+    InvalidAccessEvidence,
+    compute_evidence_digest,
+)
+
 _GOOGLE_ADS_SHA256_PATTERN = r"^sha256:[0-9a-f]{64}$"
 _GOOGLE_ADS_DEPLOYMENT_ID_PATTERN = r"^[a-z0-9][a-z0-9-]{0,62}--[0-9a-f]{64}$"
 _GOOGLE_ADS_DEPLOYMENT_KEY_PATTERN = r"^[a-z0-9][a-z0-9-]{0,62}$"
@@ -247,6 +255,46 @@ class GoogleAdsOperationKeyRecord(BaseModel):
         digest = self.contract_hash.removeprefix("sha256:")
         if not self.deployment_id.endswith(f"--{digest}"):
             raise ValueError("operation deployment identity does not match contract digest")
+        return self
+
+
+class GoogleAdsAccessEvidenceRecord(BaseModel):
+    """Exact sanitized shape for current and append-only access evidence."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    deployment_id: str = Field(pattern=_GOOGLE_ADS_DEPLOYMENT_ID_PATTERN)
+    check_key: Literal["google_ads_account_access_green"]
+    status: Literal["PASSED", "FAILED", "ERROR"]
+    observed_at: datetime
+    expires_at: datetime
+    source_revision: str = Field(pattern=r"^[0-9a-f]{40}$")
+    evidence_digest: str = Field(pattern=_GOOGLE_ADS_SHA256_PATTERN)
+
+    @field_validator("observed_at", "expires_at")
+    @classmethod
+    def evidence_timestamps_are_utc(cls, value: datetime) -> datetime:
+        return _require_utc(value)
+
+    @model_validator(mode="after")
+    def evidence_timeline_and_digest_are_consistent(self):
+        if self.expires_at <= self.observed_at:
+            raise ValueError("evidence expiry must follow observation")
+        if self.expires_at - self.observed_at > MAX_EVIDENCE_TTL:
+            raise ValueError("evidence expiry exceeds the freshness limit")
+        try:
+            expected = compute_evidence_digest(
+                deployment_id=self.deployment_id,
+                check_key=AccessCheckKey(self.check_key),
+                status=AccessEvidenceStatus(self.status),
+                observed_at=self.observed_at,
+                expires_at=self.expires_at,
+                source_revision=self.source_revision,
+            )
+        except (InvalidAccessEvidence, TypeError, ValueError):
+            raise ValueError("access evidence is invalid") from None
+        if self.evidence_digest != expected:
+            raise ValueError("evidence digest does not match evidence")
         return self
 
 

@@ -34,7 +34,7 @@ def _job_payload(
     if command is None:
         command = ["python"]
     if args is None:
-        args = ["scripts/google_ads_access_probe.py", "--live"]
+        args = ["scripts/google_ads_access_evidence_job.py"]
     if env is None:
         env = [
             {
@@ -45,6 +45,7 @@ def _job_payload(
                 "name": "GOOGLE_ADS_CUSTOMER_ID",
                 "valueFrom": {"secretKeyRef": {"name": "google-ads-customer-id"}},
             },
+            {"name": "APP_VERSION", "value": "a" * 40},
         ]
     return {
         "spec": {
@@ -82,7 +83,7 @@ def _healthy_responses(*, enabled_services=None, runtime_env=None, job_payload=N
         ("gcloud", "secrets", "list"): ("google-ads-developer-token\ngoogle-ads-customer-id\n"),
         ("gcloud", "iam", "service-accounts"): f"{SERVICE_ACCOUNT}\n",
         ("gcloud", "iam", "service-accounts", "keys"): "",
-        ("gcloud", "projects", "get-iam-policy"): _iam_policy(),
+        ("gcloud", "projects", "get-iam-policy"): _iam_policy("roles/datastore.user"),
         (
             "gcloud",
             "secrets",
@@ -187,6 +188,8 @@ def test_dedicated_service_account_is_preferred_without_legacy_oauth_secrets():
         "iam_policy_checked": True,
         "broad_project_roles_absent": True,
         "project_wide_secret_accessor_absent": True,
+        "firestore_access_present": True,
+        "project_roles_least_privilege": True,
         "required_secret_access_present": True,
         "least_privilege_iam": True,
     }
@@ -199,6 +202,7 @@ def test_dedicated_service_account_is_preferred_without_legacy_oauth_secrets():
         "login_customer_id_bound": False,
         "live_probe_configured": True,
         "persistent_key_path_absent": True,
+        "source_revision_bound": True,
         "runtime_ready": True,
     }
     assert result["auth_paths"] == {
@@ -305,14 +309,12 @@ def test_job_runtime_requires_exact_probe_command_without_override_surface():
     valid = readiness._job_runtime(_job_payload(), SERVICE_ACCOUNT)
     shell = readiness._job_runtime(
         _job_payload(
-            command=["sh", "-c"], args=["python scripts/google_ads_access_probe.py --live"]
+            command=["sh", "-c"], args=["python scripts/google_ads_access_evidence_job.py"]
         ),
         SERVICE_ACCOUNT,
     )
     extra_argument = readiness._job_runtime(
-        _job_payload(
-            args=["scripts/google_ads_access_probe.py", "--live", "--customer-id=override"]
-        ),
+        _job_payload(args=["scripts/google_ads_access_evidence_job.py", "--customer-id=override"]),
         SERVICE_ACCOUNT,
     )
     sidecar = _job_payload()
@@ -324,6 +326,33 @@ def test_job_runtime_requires_exact_probe_command_without_override_surface():
     assert valid["runtime_ready"] is True
     for unsafe in (shell, extra_argument, readiness._job_runtime(sidecar, SERVICE_ACCOUNT)):
         assert unsafe["exact_probe_command"] is False
+        assert unsafe["runtime_ready"] is False
+
+
+def test_job_runtime_requires_pinned_source_revision_and_rejects_arbitrary_env_overrides():
+    required = _job_payload()["spec"]["template"]["spec"]["template"]["spec"]["containers"][0][
+        "env"
+    ]
+    missing_revision = readiness._job_runtime(
+        _job_payload(env=[item for item in required if item["name"] != "APP_VERSION"]),
+        SERVICE_ACCOUNT,
+    )
+    invalid_revision = readiness._job_runtime(
+        _job_payload(
+            env=[
+                *[item for item in required if item["name"] != "APP_VERSION"],
+                {"name": "APP_VERSION", "value": "LATEST"},
+            ]
+        ),
+        SERVICE_ACCOUNT,
+    )
+    arbitrary_override = readiness._job_runtime(
+        _job_payload(env=[*required, {"name": "DEPLOYMENT_ID", "value": "override"}]),
+        SERVICE_ACCOUNT,
+    )
+
+    for unsafe in (missing_revision, invalid_revision, arbitrary_override):
+        assert unsafe["source_revision_bound"] is False
         assert unsafe["runtime_ready"] is False
 
 
@@ -471,7 +500,7 @@ def test_broad_project_role_blocks_least_privilege_auth_path(broad_role):
 def test_project_wide_secret_accessor_or_missing_resource_access_blocks_auth_path():
     broad = _healthy_responses()
     broad[("gcloud", "projects", "get-iam-policy")] = _iam_policy(
-        "roles/secretmanager.secretAccessor"
+        "roles/datastore.user", "roles/secretmanager.secretAccessor"
     )
     broad_run, _calls = _runner(broad)
     broad_result = readiness.audit(PROJECT, "project-go-forward", "us-central1", runner=broad_run)
@@ -489,6 +518,31 @@ def test_project_wide_secret_accessor_or_missing_resource_access_blocks_auth_pat
     assert missing_result["service_account"]["least_privilege_iam"] is False
     assert broad_result["readiness"]["presence_ready"] is False
     assert missing_result["readiness"]["presence_ready"] is False
+
+
+def test_missing_or_additional_project_role_blocks_direct_firestore_evidence_writer():
+    missing = _healthy_responses()
+    missing[("gcloud", "projects", "get-iam-policy")] = _iam_policy()
+    missing_run, _calls = _runner(missing)
+    missing_result = readiness.audit(
+        PROJECT, "project-go-forward", "us-central1", runner=missing_run
+    )
+
+    additional = _healthy_responses()
+    additional[("gcloud", "projects", "get-iam-policy")] = _iam_policy(
+        "roles/datastore.user",
+        "roles/viewer",
+    )
+    additional_run, _calls = _runner(additional)
+    additional_result = readiness.audit(
+        PROJECT, "project-go-forward", "us-central1", runner=additional_run
+    )
+
+    assert missing_result["service_account"]["firestore_access_present"] is False
+    assert missing_result["service_account"]["least_privilege_iam"] is False
+    assert additional_result["service_account"]["firestore_access_present"] is True
+    assert additional_result["service_account"]["project_roles_least_privilege"] is False
+    assert additional_result["service_account"]["least_privilege_iam"] is False
 
 
 def test_any_legacy_oauth_secret_presence_blocks_preferred_path():

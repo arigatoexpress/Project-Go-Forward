@@ -19,11 +19,20 @@ from typing import Any, TypeVar
 from pydantic import ValidationError
 
 from database.models import (
+    GoogleAdsAccessEvidenceRecord,
     GoogleAdsAuthorityEventRecord,
     GoogleAdsDeploymentRecord,
     GoogleAdsOperationKeyRecord,
 )
 from database.rpc_timeout import FIRESTORE_RPC_TIMEOUT, FIRESTORE_TRANSACTION_TIMEOUT
+from scripts.google_ads_access_evidence import (
+    AccessCheckKey,
+    AccessEvidence,
+    AccessEvidenceStatus,
+    InvalidAccessEvidence,
+    evidence_payload,
+    validate_access_evidence,
+)
 from scripts.google_ads_paused_worker import (
     PERSISTED_ERROR_CODES,
     ControlPlaneError,
@@ -75,6 +84,8 @@ class FirestoreAuthorityLedger:
     COLLECTION = "google_ads_deployments"
     EVENTS_SUBCOLLECTION = "authority_events"
     OPERATION_KEYS_SUBCOLLECTION = "operation_keys"
+    ACCESS_EVIDENCE_SUBCOLLECTION = "access_evidence"
+    ACCESS_EVIDENCE_EVENTS_SUBCOLLECTION = "access_evidence_events"
 
     def __init__(
         self,
@@ -213,6 +224,24 @@ class FirestoreAuthorityLedger:
         except (ValidationError, AttributeError, TypeError, ValueError):
             raise LedgerWriteError("ledger_record_invalid") from None
         return self._model_to_domain(model)
+
+    def _snapshot_to_access_evidence(self, snapshot: Any) -> AccessEvidence:
+        if not getattr(snapshot, "exists", False):
+            raise LedgerWriteError("access_evidence_missing")
+        try:
+            model = GoogleAdsAccessEvidenceRecord.model_validate(snapshot.to_dict() or {})
+            evidence = AccessEvidence(
+                deployment_id=model.deployment_id,
+                check_key=AccessCheckKey(model.check_key),
+                status=AccessEvidenceStatus(model.status),
+                observed_at=model.observed_at,
+                expires_at=model.expires_at,
+                source_revision=model.source_revision,
+                evidence_digest=model.evidence_digest,
+            )
+            return validate_access_evidence(evidence, now=self._now())
+        except (InvalidAccessEvidence, ValidationError, AttributeError, TypeError, ValueError):
+            raise LedgerWriteError("access_evidence_invalid") from None
 
     @staticmethod
     def _event(
@@ -366,6 +395,90 @@ class FirestoreAuthorityLedger:
             raise LedgerWriteError("ledger_event_invalid") from None
         except Exception:
             raise LedgerWriteError("ledger_read_failed") from None
+
+    def get_access_evidence(
+        self,
+        deployment_id: str,
+        check_key: AccessCheckKey,
+    ) -> AccessEvidence:
+        if not isinstance(check_key, AccessCheckKey):
+            raise LedgerWriteError("access_evidence_invalid")
+        try:
+            reference = self._reference(deployment_id)
+            snapshot = (
+                reference.collection(self.ACCESS_EVIDENCE_SUBCOLLECTION)
+                .document(check_key.value)
+                .get(timeout=FIRESTORE_RPC_TIMEOUT)
+            )
+            return self._snapshot_to_access_evidence(snapshot)
+        except ControlPlaneError:
+            raise
+        except Exception:
+            raise LedgerWriteError("access_evidence_read_failed") from None
+
+    def record_access_evidence(
+        self,
+        evidence: AccessEvidence,
+        *,
+        expected_version: int,
+    ) -> AccessEvidence:
+        """CAS-write current evidence and its immutable event atomically."""
+        try:
+            evidence = validate_access_evidence(evidence, now=self._now())
+            model = GoogleAdsAccessEvidenceRecord.model_validate(evidence_payload(evidence))
+        except (InvalidAccessEvidence, ValidationError, AttributeError, TypeError, ValueError):
+            raise LedgerWriteError("access_evidence_invalid") from None
+        if isinstance(expected_version, bool) or not isinstance(expected_version, int):
+            raise InvalidStateTransition("stale deployment version")
+
+        deployment_reference = self._reference(evidence.deployment_id)
+        evidence_reference = deployment_reference.collection(
+            self.ACCESS_EVIDENCE_SUBCOLLECTION
+        ).document(evidence.check_key.value)
+        event_reference = deployment_reference.collection(
+            self.ACCESS_EVIDENCE_EVENTS_SUBCOLLECTION
+        ).document(evidence.evidence_digest.removeprefix("sha256:"))
+        payload = model.model_dump(mode="python")
+
+        def operation(transaction):
+            deployment_snapshot = deployment_reference.get(
+                transaction=transaction,
+                timeout=FIRESTORE_RPC_TIMEOUT,
+            )
+            authority = self._snapshot_to_domain(deployment_snapshot)
+            if authority.version != expected_version:
+                raise InvalidStateTransition("stale deployment version")
+
+            current_snapshot = evidence_reference.get(
+                transaction=transaction,
+                timeout=FIRESTORE_RPC_TIMEOUT,
+            )
+            if current_snapshot.exists:
+                try:
+                    current_model = GoogleAdsAccessEvidenceRecord.model_validate(
+                        current_snapshot.to_dict() or {}
+                    )
+                    current = AccessEvidence(
+                        deployment_id=current_model.deployment_id,
+                        check_key=AccessCheckKey(current_model.check_key),
+                        status=AccessEvidenceStatus(current_model.status),
+                        observed_at=current_model.observed_at,
+                        expires_at=current_model.expires_at,
+                        source_revision=current_model.source_revision,
+                        evidence_digest=current_model.evidence_digest,
+                    )
+                except (ValidationError, AttributeError, TypeError, ValueError):
+                    raise LedgerWriteError("access_evidence_invalid") from None
+                if current.evidence_digest == evidence.evidence_digest:
+                    return current
+                if current.observed_at >= evidence.observed_at:
+                    raise LedgerConflict("access evidence conflict")
+
+            transaction.set(evidence_reference, payload)
+            transaction.create(event_reference, payload)
+            return evidence
+
+        return self._run_transaction(operation)
 
     def transition(
         self,
