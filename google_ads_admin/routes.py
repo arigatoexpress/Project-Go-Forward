@@ -47,13 +47,16 @@ def get_authority_ledger() -> FirestoreAuthorityLedger:
     return FirestoreAuthorityLedger()
 
 
-def _projection(ledger, contract):
-    record = ledger.get(deployment_id(contract))
+def _project_record(ledger, record):
     events = ledger.list_events(record.deployment_id)
     outbox_state = None
     if record.state.value in {"PAUSED_CREATE_APPROVED", "PAUSED_CREATED"}:
         outbox_state = ledger.get_paused_create_outbox(record.deployment_id).state
     return build_deployment_readiness(record, events, outbox_state=outbox_state)
+
+
+def _projection(ledger, contract):
+    return _project_record(ledger, ledger.get(deployment_id(contract)))
 
 
 @router.get("/deployment-readiness")
@@ -72,8 +75,7 @@ async def deployment_readiness():
 def _bootstrap_draft(ledger, contract):
     control = DraftReviewControlPlane(ledger, StaticContractSource(contract))
     record = control.ensure_internal_draft()
-    events = ledger.list_events(record.deployment_id)
-    return build_deployment_readiness(record, events)
+    return _project_record(ledger, record)
 
 
 @router.post("/draft")
@@ -98,8 +100,7 @@ def _server_validate(ledger, contract, request: ServerValidationRequest):
         expected_version=request.expected_version,
         idempotency_key=request.idempotency_key,
     )
-    events = ledger.list_events(record.deployment_id)
-    return build_deployment_readiness(record, events)
+    return _project_record(ledger, record)
 
 
 @router.post("/server-validation")

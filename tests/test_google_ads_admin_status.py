@@ -3,6 +3,7 @@ import json
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -29,6 +30,7 @@ class RecordingLedger(InMemoryAuthorityLedger):
     def __init__(self):
         super().__init__(clock=lambda: datetime(2026, 8, 12, 12, 0, tzinfo=UTC))
         self.events = []
+        self.outbox_state = None
 
     def create_or_get(self, candidate):
         record, created = super().create_or_get(candidate)
@@ -69,6 +71,11 @@ class RecordingLedger(InMemoryAuthorityLedger):
 
     def list_events(self, _deployment_id, *, limit=20):
         return self.events[-limit:]
+
+    def get_paused_create_outbox(self, _deployment_id):
+        if self.outbox_state is None:
+            raise AssertionError("pre-approval projection must not read an outbox")
+        return SimpleNamespace(state=self.outbox_state)
 
 
 @pytest.fixture
@@ -236,6 +243,46 @@ def test_csrf_protected_bootstrap_post_is_idempotent_and_get_then_projects(admin
     assert first.json() == replay.json() == read.json()
     assert read.json()["version"] == 1
     assert len(ledger.events) == 1
+
+
+def test_idempotent_bootstrap_projects_existing_approved_outbox(admin_client, ledger):
+    draft = admin_client.post(DRAFT, headers=_headers(), json={}).json()
+    admin_client.post(
+        VALIDATE,
+        headers=_headers(),
+        json={
+            "deployment_id": draft["deployment_id"],
+            "expected_version": 1,
+            "idempotency_key": "offline-validation-12345678",
+        },
+    )
+    validated = ledger.get(draft["deployment_id"])
+    approved = replace(
+        validated,
+        state=DeploymentState.PAUSED_CREATE_APPROVED,
+        version=3,
+    )
+    ledger._records[approved.deployment_id] = approved
+    ledger.events.append(
+        {
+            "event_id": "00000000000000000003-paused-create-approved",
+            "deployment_id": approved.deployment_id,
+            "contract_hash": approved.contract_hash,
+            "event_type": "PAUSED_CREATE_APPROVED",
+            "record_version": 3,
+            "from_state": "SERVER_VALIDATED",
+            "to_state": "PAUSED_CREATE_APPROVED",
+            "error_code": None,
+            "occurred_at": approved.updated_at,
+        }
+    )
+    ledger.outbox_state = "PENDING"
+
+    response = admin_client.post(DRAFT, headers=_headers(), json={})
+
+    assert response.status_code == 200
+    assert response.json()["state"] == "PAUSED_CREATE_APPROVED"
+    assert response.json()["paused_create"]["outbox_state"] == "PENDING"
 
 
 @pytest.mark.parametrize(
