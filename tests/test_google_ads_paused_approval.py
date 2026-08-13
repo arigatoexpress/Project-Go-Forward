@@ -144,6 +144,86 @@ def test_runtime_gate_is_false_without_every_explicit_current_revision_and_iam_g
     assert PausedCreateApprovalRuntime.from_env().approval_available is False
 
 
+def test_owner_readiness_projects_only_fresh_read_only_account_and_usd_evidence(monkeypatch):
+    _approval_env(monkeypatch)
+    evidence = _evidence()
+
+    class Ledger:
+        def get(self, deployment_id):
+            assert deployment_id == evidence.deployment_id
+            return type(
+                "Record",
+                (),
+                {"state": type("State", (), {"value": "SERVER_VALIDATED"})(), "version": 2},
+            )()
+
+        def get_access_evidence(self, deployment_id, check_key):
+            assert deployment_id == evidence.deployment_id
+            assert check_key is AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_AND_USD_GREEN
+            return evidence
+
+    readiness = approval_routes._read_approval_readiness(Ledger(), clock=lambda: NOW).model_dump(
+        mode="json"
+    )
+
+    assert readiness["action_available"] is True
+    assert readiness["evaluated_at"] == "2026-08-13T12:00:00Z"
+    assert readiness["account_connection"] == {
+        "state": "READ_PROBE_VERIFIED",
+        "check_key": "google_ads_account_access_and_usd_green",
+        "account_access_validated": True,
+        "account_currency_usd": True,
+        "evidence_digest": evidence.evidence_digest,
+        "observed_at": "2026-08-13T12:00:00Z",
+        "expires_at": "2026-08-13T12:05:00Z",
+        "source_revision": "a" * 40,
+    }
+    serialized = json.dumps(readiness)
+    for forbidden in (
+        "customer_id",
+        "login_customer_id",
+        "developer_token",
+        "provider_reference",
+        "resource_name",
+        "request_id",
+    ):
+        assert forbidden not in serialized
+
+
+def test_owner_readiness_hides_stale_or_wrong_revision_account_evidence(monkeypatch):
+    _approval_env(monkeypatch)
+    evidence = _evidence()
+
+    class Ledger:
+        def get(self, _deployment_id):
+            return type(
+                "Record",
+                (),
+                {"state": type("State", (), {"value": "SERVER_VALIDATED"})(), "version": 2},
+            )()
+
+        def get_access_evidence(self, _deployment_id, _check_key):
+            return evidence
+
+    monkeypatch.setenv("APP_VERSION", "b" * 40)
+    readiness = approval_routes._read_approval_readiness(Ledger(), clock=lambda: NOW).model_dump(
+        mode="json"
+    )
+
+    assert readiness["action_available"] is False
+    assert readiness["access_evidence_id"] is None
+    assert readiness["access_evidence_fresh"] is False
+    assert readiness["account_connection"] is None
+
+    _approval_env(monkeypatch)
+    expired = approval_routes._read_approval_readiness(
+        Ledger(), clock=lambda: NOW + timedelta(minutes=6)
+    ).model_dump(mode="json")
+    assert expired["action_available"] is False
+    assert expired["access_evidence_id"] is None
+    assert expired["account_connection"] is None
+
+
 def test_outbox_schema_is_strict_sanitized_and_never_represents_activation_or_spend():
     _contract, deployment_id, contract_hash = _identity()
     envelope = _envelope()
@@ -284,6 +364,13 @@ def test_approval_route_accepts_only_exact_owner_uv_reference_and_strict_ids(app
         )
         assert rejected.status_code == 422
     assert len(ledger.calls) == 1
+
+
+def test_approval_route_never_overclaims_its_atomic_control_plane_effects():
+    source = (ROOT / "google_ads_admin/approval_routes.py").read_text(encoding="utf-8")
+
+    assert "writes authority/outbox only" not in source
+    assert "writes control-plane records only" in source
 
 
 def test_approval_route_rejects_pin_bearer_staff_stale_or_mismatched_proof(approval_client):

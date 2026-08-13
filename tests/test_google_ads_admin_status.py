@@ -127,6 +127,42 @@ def test_projection_is_allowlisted_durable_state_and_sanitized_events(ledger):
         assert forbidden not in serialized
 
 
+def test_projection_includes_exact_sanitized_campaign_review_artifact(ledger):
+    record = DraftReviewControlPlane(ledger, StaticContractSource(CONTRACT)).ensure_internal_draft()
+
+    status = build_deployment_readiness(record, ledger.list_events(record.deployment_id))
+    review = status["campaign_review"]
+
+    assert "connection" not in status
+    assert review == {
+        "campaign_name": CONTRACT["campaign"]["name"],
+        "status": "PAUSED",
+        "channel": "SEARCH",
+        "currency_code": "USD",
+        "bidding": CONTRACT["campaign"]["bidding"],
+        "networks": CONTRACT["campaign"]["networks"],
+        "geo": CONTRACT["campaign"]["geo"],
+        "housing_policy": CONTRACT["campaign"]["housing_policy"],
+        "tracking": CONTRACT["campaign"]["tracking"],
+        "negative_keywords": CONTRACT["campaign"]["negative_keywords"],
+        "ad_groups": CONTRACT["campaign"]["ad_groups"],
+        "conversion_intent": CONTRACT["campaign"]["conversion_intent"],
+        "stop_loss": CONTRACT["activation_gate"]["stop_loss"],
+        "activation_supported": False,
+        "spend_authorized": False,
+    }
+    serialized = json.dumps(review)
+    for forbidden in (
+        "customer_id",
+        "login_customer_id",
+        "developer_token",
+        "provider_reference",
+        "resource_name",
+        "request_id",
+    ):
+        assert forbidden not in serialized
+
+
 def test_projection_reports_terminal_paused_outbox_without_activation_or_spend(ledger):
     control = DraftReviewControlPlane(ledger, StaticContractSource(CONTRACT))
     draft = control.ensure_internal_draft()

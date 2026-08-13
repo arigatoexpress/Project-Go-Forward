@@ -19,6 +19,12 @@ const STATE_LABELS = {
 };
 const STATUS_LABELS = { current: 'Current', not_started: 'Not started', complete: 'Complete' };
 
+function readinessMatchesStatus(readiness, status) {
+  return readiness.deployment_id === status.deployment_id
+    && readiness.contract_hash === status.contract_hash
+    && readiness.expected_version === status.version;
+}
+
 export default function GoogleAdsStatusCard() {
   const [status, setStatus] = useState(null);
   const [failed, setFailed] = useState(false);
@@ -30,6 +36,7 @@ export default function GoogleAdsStatusCard() {
   const [approving, setApproving] = useState(false);
   const [approvalResult, setApprovalResult] = useState(null);
   const [approvalError, setApprovalError] = useState('');
+  const [reviewAcknowledged, setReviewAcknowledged] = useState(false);
 
   async function refreshApprovalReadiness(nextStatus) {
     if (nextStatus?.state === 'PAUSED_CREATE_APPROVED') {
@@ -54,6 +61,11 @@ export default function GoogleAdsStatusCard() {
     }
     try {
       const readiness = await getGoogleAdsPausedCreateApprovalReadiness();
+      if (!readinessMatchesStatus(readiness, nextStatus)) {
+        setApprovalReadiness(null);
+        setApprovalRemediation('The reviewed contract changed. Refresh before approval.');
+        return;
+      }
       setApprovalReadiness(readiness);
       setApprovalRemediation(readiness.remediation.join(' '));
     } catch (error) {
@@ -75,6 +87,24 @@ export default function GoogleAdsStatusCard() {
     return () => { mounted = false; };
   }, []);
 
+  useEffect(() => {
+    setReviewAcknowledged(false);
+  }, [status?.contract_hash]);
+
+  useEffect(() => {
+    const expires = Date.parse(approvalReadiness?.account_connection?.expires_at);
+    if (!Number.isFinite(expires)) return undefined;
+    const evaluated = Date.parse(approvalReadiness?.evaluated_at);
+    if (!Number.isFinite(evaluated) || expires <= evaluated) return undefined;
+    const timer = globalThis.setTimeout(() => {
+      setApprovalReadiness(null);
+      setApprovalRemediation(
+        'The read-only account and USD evidence expired. Refresh before approval.',
+      );
+    }, expires - evaluated);
+    return () => globalThis.clearTimeout(timer);
+  }, [approvalReadiness?.account_connection?.expires_at, approvalReadiness?.evaluated_at]);
+
   async function runValidation() {
     if (!status?.actions.server_validation || validating) return;
     setValidating(true);
@@ -94,16 +124,25 @@ export default function GoogleAdsStatusCard() {
   }
 
   async function approvePausedCreate() {
-    if (!approvalReadiness?.action_available || approving) return;
-    const confirmed = globalThis.confirm(
-      'This authorizes creation of PAUSED Google Ads resources. If the separate dispatcher is already runnable, creation may begin after approval. It cannot activate ads or spend money. Continue?',
-    );
-    if (!confirmed) return;
+    if (!approvalReadiness?.action_available || !reviewAcknowledged || approving) return;
     setApproving(true);
     setApprovalError('');
     try {
-      const proof = await verifyGoogleAdsPausedCreateOwner(approvalReadiness);
-      const result = await approveGoogleAdsPausedCreate(approvalReadiness, proof);
+      const refreshedReadiness = await getGoogleAdsPausedCreateApprovalReadiness();
+      if (
+        !readinessMatchesStatus(refreshedReadiness, status)
+        || refreshedReadiness.access_evidence_id !== approvalReadiness.access_evidence_id
+        || !refreshedReadiness.action_available
+      ) {
+        setApprovalReadiness(refreshedReadiness);
+        throw new Error('PAUSED-only approval prerequisites changed. Review and retry.');
+      }
+      const confirmed = globalThis.confirm(
+        'This authorizes creation of PAUSED Google Ads resources. If the separate dispatcher is already runnable, creation may begin after approval. It cannot activate ads or spend money. Continue?',
+      );
+      if (!confirmed) return;
+      const proof = await verifyGoogleAdsPausedCreateOwner(refreshedReadiness);
+      const result = await approveGoogleAdsPausedCreate(refreshedReadiness, proof);
       setApprovalResult(result);
       try {
         const terminalStatus = await getGoogleAdsDeploymentReadiness();
@@ -137,6 +176,8 @@ export default function GoogleAdsStatusCard() {
   const eventLabel = `${status.events.count} recorded event${status.events.count === 1 ? '' : 's'}`;
   const validated = status.state === 'SERVER_VALIDATED';
   const approvalTerminal = ['PAUSED_CREATE_APPROVED', 'PAUSED_CREATED'].includes(status.state);
+  const review = status.campaign_review;
+  const connection = approvalReadiness?.account_connection;
   return (
     <section className="google-ads-status-card" aria-labelledby="paid-search-heading">
       <header className="google-ads-status-header">
@@ -170,6 +211,102 @@ export default function GoogleAdsStatusCard() {
         </article>
       </div>
 
+      <article className="google-ads-status-panel" aria-labelledby="campaign-review-heading">
+        <h2 id="campaign-review-heading">Exact PAUSED campaign review</h2>
+        <p className="google-ads-status-note">
+          This server-owned artifact is bound to the content hash below. It contains no account
+          identifier, credential, provider resource, or activation authority.
+        </p>
+        <dl className="google-ads-status-details">
+          <div><dt>Campaign</dt><dd>{review.campaign_name}</dd></div>
+          <div><dt>Serving state</dt><dd>{review.status} · {review.channel} · {review.currency_code}</dd></div>
+          <div>
+            <dt>Location</dt>
+            <dd>
+              {review.geo.radius_miles}-mile presence-only radius around
+              {' '}{review.geo.center.address}, {review.geo.center.city}, {review.geo.center.state}
+              {' '}({review.geo.center.latitude}, {review.geo.center.longitude}); no postal-code targeting
+            </dd>
+          </div>
+          <div>
+            <dt>Networks</dt>
+            <dd>Google Search only · Search Partners off · Display off</dd>
+          </div>
+          <div><dt>Bidding</dt><dd>Maximize clicks · ${review.bidding.max_cpc_usd} maximum CPC</dd></div>
+          <div>
+            <dt>Tracking template</dt>
+            <dd>
+              utm_source={review.tracking.utm_source} · utm_medium={review.tracking.utm_medium}
+              {' '}· utm_campaign={review.tracking.utm_campaign} ·
+              {' '}utm_content={review.tracking.utm_content} · utm_term={review.tracking.utm_term}
+            </dd>
+          </div>
+          <div>
+            <dt>Housing posture</dt>
+            <dd>
+              All age, gender, and parental-status groups enabled; no audiences, customer match,
+              demographic exclusions, marital-status, or postal-code targeting. Google Ads policy
+              acknowledgment is still required before activation.
+            </dd>
+          </div>
+        </dl>
+
+        <div className="google-ads-review-groups">
+          {review.ad_groups.map(group => (
+            <details key={group.name} className="google-ads-review-detail" open>
+              <summary>{group.name} · {group.status}</summary>
+              <p><strong>Landing URL:</strong> {group.responsive_search_ad.final_url}</p>
+              <p><strong>Display path:</strong> /{group.responsive_search_ad.path1}/{group.responsive_search_ad.path2}</p>
+              <p><strong>Keywords:</strong></p>
+              <ul>
+                {group.keywords.map(keyword => (
+                  <li key={`${keyword.text}-${keyword.match_type}`}>
+                    {keyword.text} <small>({keyword.match_type.toLowerCase()})</small>
+                  </li>
+                ))}
+              </ul>
+              <p><strong>Headlines:</strong></p>
+              <ul>{group.responsive_search_ad.headlines.map(text => <li key={text}>{text}</li>)}</ul>
+              <p><strong>Descriptions:</strong></p>
+              <ul>{group.responsive_search_ad.descriptions.map(text => <li key={text}>{text}</li>)}</ul>
+            </details>
+          ))}
+          <details className="google-ads-review-detail">
+            <summary>Negative keywords · {review.negative_keywords.length}</summary>
+            <ul>
+              {review.negative_keywords.map(keyword => (
+                <li key={`${keyword.text}-${keyword.match_type}`}>
+                  {keyword.text} <small>({keyword.match_type.toLowerCase()})</small>
+                </li>
+              ))}
+            </ul>
+          </details>
+        </div>
+
+        <div className="google-ads-review-warning">
+          <strong>Pre-activation holds</strong>
+          <p>
+            Conversion goals are not attached by PAUSED creation. Import and verify
+            {' '}{review.conversion_intent.events.map(event => event.name).join(' and ')} before
+            any future activation; no activation control exists here.
+          </p>
+          <p>
+            Stop-loss intent: pause on any 7-day threshold—$200 spend or 100 clicks with zero
+            reachable leads, or CPA above $150 after at least 3 reachable leads. This is reviewed
+            intent and a hard hold, not implemented protection.
+          </p>
+        </div>
+        <label className="google-ads-review-acknowledgement">
+          <input
+            type="checkbox"
+            checked={reviewAcknowledged}
+            disabled={approvalTerminal || Boolean(approvalResult)}
+            onChange={event => setReviewAcknowledged(event.target.checked)}
+          />
+          <span>I reviewed this exact PAUSED copy, targeting, limits, and pre-activation holds.</span>
+        </label>
+      </article>
+
       <article className="google-ads-status-panel" aria-labelledby="owner-verification-heading">
         <h2 id="owner-verification-heading">Owner PAUSED-create approval</h2>
         <p>
@@ -185,11 +322,45 @@ export default function GoogleAdsStatusCard() {
               <dd>{approvalReadiness.dispatch_enabled ? 'Enabled' : 'Disabled'}</dd>
             </div>
           )}
+          {connection && (
+            <>
+              <div>
+                <dt>Account connection</dt>
+                <dd>Exact configured account + USD verified by read-only probe</dd>
+              </div>
+              <div><dt>Evidence digest</dt><dd>{connection.evidence_digest}</dd></div>
+              <div>
+                <dt>Evidence window</dt>
+                <dd>
+                  Observed {new Date(connection.observed_at).toLocaleString()}; expires
+                  {' '}{new Date(connection.expires_at).toLocaleString()}
+                </dd>
+              </div>
+              <div><dt>Evidence revision</dt><dd>{connection.source_revision}</dd></div>
+            </>
+          )}
+          {approvalReadiness && !connection && (
+            <div><dt>Account connection</dt><dd>No fresh read-only account + USD evidence</dd></div>
+          )}
         </dl>
+        {approvalReadiness && (
+          <ul className="google-ads-gate-list" aria-label="PAUSED creation prerequisites">
+            <li>Owner approval config: {approvalReadiness.gates.feature_enabled ? 'verified' : 'not verified'}</li>
+            <li>Cloud readiness: {approvalReadiness.gates.cloud_readiness_verified ? 'verified' : 'not verified'}</li>
+            <li>Least-privilege IAM: {approvalReadiness.gates.iam_verified ? 'verified' : 'not verified'}</li>
+            <li>Candidate revision binding: {approvalReadiness.gates.revision_bound ? 'verified' : 'not verified'}</li>
+            <li>Fixed dispatcher target: {approvalReadiness.gates.dispatcher_configured ? 'verified' : 'not verified'}</li>
+          </ul>
+        )}
         <button
           className="google-ads-validation-button"
           type="button"
-          disabled={!approvalReadiness?.action_available || approving || Boolean(approvalResult)}
+          disabled={
+            !approvalReadiness?.action_available
+            || !reviewAcknowledged
+            || approving
+            || Boolean(approvalResult)
+          }
           onClick={approvePausedCreate}
         >
           {approving ? 'Verifying owner…' : 'Verify owner and approve PAUSED creation'}
@@ -203,11 +374,16 @@ export default function GoogleAdsStatusCard() {
           </p>
         )}
         {approvalReadiness?.action_available && !approvalResult && (
-          <p className="google-ads-status-note">
-            Approval queues PAUSED-only work. This storefront flag does not prove whether
-            the separate dispatcher job or a scheduler is runnable; verify external runtime
-            state before approving.
-          </p>
+          <>
+            {!reviewAcknowledged && (
+              <p className="google-ads-actions-locked">Review and acknowledge the exact campaign artifact above.</p>
+            )}
+            <p className="google-ads-status-note">
+              Approval queues PAUSED-only work. This storefront flag does not prove whether
+              the separate dispatcher job or a scheduler is runnable; verify external runtime
+              state before approving.
+            </p>
+          </>
         )}
         {approvalResult && (
           <p className="google-ads-validation-success" role="status">

@@ -394,9 +394,13 @@ workflow cannot activate a campaign or authorize spend.
 Before requesting spend approval, attach a review artifact containing keyword
 list, negatives, geo radius, ad copy, landing URL, non-operative conversion
 intent and import hold, daily cap, monthly maximum, and stop-loss rule. The
-checked-in launch contract contains that artifact. Any future activation would
-require a separately implemented and explicitly approved gate; none exists in
-the checked-in workflow.
+checked-in launch contract contains that artifact, and the owner-only Paid
+Search card projects its exact sanitized contents from the server. The card
+keeps PAUSED-create approval disabled until Ari acknowledges the displayed
+copy, targeting, limits, and holds; the acknowledgement is an operator UX
+guard, while the separately verified passkey proof remains the authorization
+boundary. Any future activation would require a separately implemented and
+explicitly approved gate; none exists in the checked-in workflow.
 
 ## Definition of ready-to-spend
 

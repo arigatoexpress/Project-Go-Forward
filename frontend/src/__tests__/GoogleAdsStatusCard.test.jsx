@@ -12,8 +12,11 @@ import {
 
 vi.mock('../adminFetch', () => ({ default: vi.fn() }));
 
+const EVIDENCE_OBSERVED = new Date(Date.now() - 60_000).toISOString();
+const EVIDENCE_EXPIRES = new Date(Date.now() + 240_000).toISOString();
+
 const SAFE_STATUS = {
-  schema_version: 2,
+  schema_version: 3,
   deployment_id: `tho-search-high-intent-huffman-v1--${'a'.repeat(64)}`,
   deployment_key: 'tho-search-high-intent-huffman-v1',
   contract_hash: `sha256:${'a'.repeat(64)}`,
@@ -21,7 +24,6 @@ const SAFE_STATUS = {
   state_source: 'FIRESTORE_AUTHORITY_LEDGER',
   version: 1,
   updated_at: '2026-08-12T12:00:00Z',
-  connection: { state: 'NO_EVIDENCE', verified_at: null },
   feature_enabled: false,
   ready: false,
   spend_enabled: false,
@@ -30,6 +32,111 @@ const SAFE_STATUS = {
     max_single_day_charge_usd: 40,
     monthly_charge_limit_usd: 608,
     max_cpc_usd: 5,
+  },
+  campaign_review: {
+    campaign_name: 'THO | Search | High Intent | Huffman | Draft',
+    status: 'PAUSED',
+    channel: 'SEARCH',
+    currency_code: 'USD',
+    bidding: { strategy: 'MAXIMIZE_CLICKS', max_cpc_usd: 5 },
+    networks: { google_search: true, search_partners: false, display: false },
+    geo: {
+      type: 'RADIUS',
+      center: {
+        address: '10685 FM 1960 East',
+        city: 'Huffman',
+        state: 'TX',
+        country_code: 'US',
+        latitude: 30.018056,
+        longitude: -95.115729,
+      },
+      radius_miles: 50,
+      presence_only: true,
+      postal_codes: [],
+    },
+    housing_policy: {
+      acknowledgement_required: true,
+      acknowledged: false,
+      age_enabled_all: true,
+      gender_enabled_all: true,
+      parental_status_enabled_all: true,
+      marital_status_targeting: false,
+      postal_code_targeting: false,
+      demographic_exclusions: [],
+      customer_match_targeting: false,
+      audience_targeting: [],
+    },
+    tracking: {
+      utm_source: 'google',
+      utm_medium: 'cpc',
+      utm_campaign: 'tho_search_high_intent_huffman',
+      utm_content: '{creative}',
+      utm_term: '{keyword}',
+    },
+    negative_keywords: Array.from({ length: 16 }, (_, index) => ({
+      text: index === 0 ? 'rent' : `negative ${index}`,
+      match_type: index % 2 ? 'PHRASE' : 'BROAD',
+    })),
+    ad_groups: [
+      {
+        name: 'Local Inventory',
+        status: 'PAUSED',
+        keywords: Array.from({ length: 11 }, (_, index) => ({
+          text: index === 0 ? 'manufactured homes huffman tx' : `inventory keyword ${index}`,
+          match_type: index % 2 ? 'PHRASE' : 'EXACT',
+        })),
+        responsive_search_ad: {
+          status: 'PAUSED',
+          final_url: 'https://www.texashomeoutlet.com/inventory',
+          path1: 'homes',
+          path2: 'huffman',
+          headlines: ['Texas Home Outlet', 'Browse Homes With Prices', 'Explore Home Models'],
+          descriptions: [
+            'Browse manufactured home models with prices, photos and floor plans near Huffman.',
+            'Review home details online and request a showroom tour.',
+          ],
+        },
+      },
+      {
+        name: 'Showroom Tours',
+        status: 'PAUSED',
+        keywords: Array.from({ length: 7 }, (_, index) => ({
+          text: index === 0 ? 'manufactured home showroom' : `showroom keyword ${index}`,
+          match_type: index % 2 ? 'PHRASE' : 'EXACT',
+        })),
+        responsive_search_ad: {
+          status: 'PAUSED',
+          final_url: 'https://www.texashomeoutlet.com/appointments',
+          path1: 'showroom',
+          path2: 'tour',
+          headlines: ['Tour Manufactured Homes', 'Book a Showroom Visit', 'Choose Your Tour Time'],
+          descriptions: [
+            'Pick an available time online and tour manufactured homes at our Huffman showroom.',
+            'Browse prices and floor plans first, then schedule a visit.',
+          ],
+        },
+      },
+    ],
+    conversion_intent: {
+      provider_goal_operations_in_paused_create: false,
+      import_required_before_activation: true,
+      activation_hold_check: 'google_ads_conversion_import_verified',
+      events: [
+        { name: 'schedule_appointment', primary: true },
+        { name: 'generate_lead', primary: false },
+      ],
+    },
+    stop_loss: {
+      action: 'PAUSE_CAMPAIGN',
+      decision_logic: 'ANY',
+      evaluation_window_days: 7,
+      zero_reachable_leads_spend_usd: 200,
+      zero_reachable_leads_clicks: 100,
+      max_reachable_lead_cpa_usd: 150,
+      minimum_reachable_leads_for_cpa_rule: 3,
+    },
+    activation_supported: false,
+    spend_authorized: false,
   },
   workflow: [
     { state: 'INTERNAL_DRAFT', status: 'current' },
@@ -88,11 +195,12 @@ const VALIDATED = {
 };
 
 const APPROVAL_READY = {
-  schema_version: 1,
+  schema_version: 2,
   deployment_id: VALIDATED.deployment_id,
   contract_hash: VALIDATED.contract_hash,
   expected_version: 2,
   state: 'SERVER_VALIDATED',
+  evaluated_at: EVIDENCE_OBSERVED,
   budget: { ...VALIDATED.budget },
   gates: {
     feature_enabled: true,
@@ -103,6 +211,16 @@ const APPROVAL_READY = {
   },
   access_evidence_id: `sha256:${'b'.repeat(64)}`,
   access_evidence_fresh: true,
+  account_connection: {
+    state: 'READ_PROBE_VERIFIED',
+    check_key: 'google_ads_account_access_and_usd_green',
+    account_access_validated: true,
+    account_currency_usd: true,
+    evidence_digest: `sha256:${'b'.repeat(64)}`,
+    observed_at: EVIDENCE_OBSERVED,
+    expires_at: EVIDENCE_EXPIRES,
+    source_revision: 'c'.repeat(40),
+  },
   action_available: true,
   dispatch_enabled: false,
   paused_only: true,
@@ -251,11 +369,51 @@ describe('Paid Search durable API', () => {
     await expect(getGoogleAdsDeploymentReadiness()).rejects.toThrow('Paid Search status is unavailable.');
   });
 
+  it.each([
+    { ...SAFE_STATUS.campaign_review, status: 'ENABLED' },
+    { ...SAFE_STATUS.campaign_review, currency_code: 'EUR' },
+    { ...SAFE_STATUS.campaign_review, geo: { ...SAFE_STATUS.campaign_review.geo, radius_miles: 500 } },
+    { ...SAFE_STATUS.campaign_review, stop_loss_implementation: 'ACTIVE' },
+    { ...SAFE_STATUS.campaign_review, provider_id: 'unsafe' },
+    {
+      ...SAFE_STATUS.campaign_review,
+      conversion_intent: {
+        ...SAFE_STATUS.campaign_review.conversion_intent,
+        import_required_before_activation: false,
+      },
+    },
+  ])('rejects broadened, operative, or extra campaign review fields', async (campaignReview) => {
+    adminFetch.mockResolvedValue(response({ ...SAFE_STATUS, campaign_review: campaignReview }));
+    await expect(getGoogleAdsDeploymentReadiness()).rejects.toThrow('Paid Search status is unavailable.');
+  });
+
   it('accepts only exact fail-closed PAUSED approval readiness', async () => {
     adminFetch.mockResolvedValue(response(APPROVAL_READY));
     await expect(getGoogleAdsPausedCreateApprovalReadiness()).resolves.toEqual(APPROVAL_READY);
     adminFetch.mockResolvedValue(response({ ...APPROVAL_READY, spend_enabled: true }));
     await expect(getGoogleAdsPausedCreateApprovalReadiness()).rejects.toThrow(/owner passkey/i);
+  });
+
+  it.each([
+    { ...APPROVAL_READY.account_connection, account_currency_usd: false },
+    { ...APPROVAL_READY.account_connection, state: 'CONNECTED' },
+    { ...APPROVAL_READY.account_connection, source_revision: 'latest' },
+    { ...APPROVAL_READY.account_connection, customer_id: 'unsafe' },
+    { ...APPROVAL_READY.account_connection, expires_at: EVIDENCE_OBSERVED },
+  ])('rejects unsanitized or weakened account connection evidence', async (accountConnection) => {
+    adminFetch.mockResolvedValue(response({
+      ...APPROVAL_READY,
+      account_connection: accountConnection,
+    }));
+    await expect(getGoogleAdsPausedCreateApprovalReadiness()).rejects.toThrow(/owner passkey/i);
+  });
+
+  it('uses the server evaluation timestamp, not a skewed browser clock, for freshness', async () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2099-01-01T00:00:00Z'));
+    adminFetch.mockResolvedValue(response(APPROVAL_READY));
+
+    await expect(getGoogleAdsPausedCreateApprovalReadiness()).resolves.toEqual(APPROVAL_READY);
+    now.mockRestore();
   });
 
   it.each([
@@ -276,7 +434,10 @@ describe('Paid Search durable API', () => {
 });
 
 describe('GoogleAdsStatusCard', () => {
-  beforeEach(() => adminFetch.mockReset());
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    adminFetch.mockReset();
+  });
 
   it('shows durable state and the single offline validation action', async () => {
     adminFetch.mockResolvedValue(response());
@@ -297,6 +458,42 @@ describe('GoogleAdsStatusCard', () => {
       headers: { 'Content-Type': 'application/json' },
       body: '{}',
     });
+  });
+
+  it('shows the exact PAUSED campaign artifact and requires review before owner approval', async () => {
+    adminFetch
+      .mockResolvedValueOnce(response(VALIDATED))
+      .mockResolvedValueOnce(response(APPROVAL_READY));
+
+    render(<GoogleAdsStatusCard />);
+
+    const confirm = vi.spyOn(globalThis, 'confirm').mockReturnValue(true);
+    expect(await screen.findByRole('heading', { name: 'Exact PAUSED campaign review' })).toBeInTheDocument();
+    expect(screen.getByText('THO | Search | High Intent | Huffman | Draft')).toBeInTheDocument();
+    expect(screen.getByText(/50-mile presence-only radius/i)).toBeInTheDocument();
+    expect(screen.getByText(/10685 FM 1960 East/i)).toBeInTheDocument();
+    expect(screen.getByText(/Maximize clicks.*\$5 maximum CPC/i)).toBeInTheDocument();
+    expect(screen.getByText('manufactured homes huffman tx')).toBeInTheDocument();
+    expect(screen.getByText('Browse Homes With Prices')).toBeInTheDocument();
+    expect(screen.getByText('https://www.texashomeoutlet.com/inventory')).toBeInTheDocument();
+    expect(screen.getByText(/conversion goals are not attached/i)).toBeInTheDocument();
+    expect(screen.getByText(/not implemented protection/i)).toBeInTheDocument();
+    expect(screen.getByText(/Exact configured account \+ USD verified by read-only probe/i)).toBeInTheDocument();
+    expect(screen.getByText(/expires/i)).toBeInTheDocument();
+    expect(screen.getByText(/Least-privilege IAM: verified/i)).toBeInTheDocument();
+    expect(screen.getByText(/Candidate revision binding: verified/i)).toBeInTheDocument();
+
+    const approve = screen.getByRole('button', {
+      name: 'Verify owner and approve PAUSED creation',
+    });
+    expect(approve).toBeDisabled();
+    fireEvent.click(approve);
+    expect(confirm).not.toHaveBeenCalled();
+    expect(adminFetch).toHaveBeenCalledTimes(2);
+    fireEvent.click(screen.getByRole('checkbox', {
+      name: /I reviewed this exact PAUSED copy, targeting, limits, and pre-activation holds/i,
+    }));
+    expect(approve).toBeEnabled();
   });
 
   it('submits once, disables while pending, and renders the durable result', async () => {
@@ -344,6 +541,7 @@ describe('GoogleAdsStatusCard', () => {
     adminFetch
       .mockResolvedValueOnce(response(VALIDATED))
       .mockResolvedValueOnce(response(APPROVAL_READY))
+      .mockResolvedValueOnce(response(APPROVAL_READY))
       .mockResolvedValueOnce(response({
         challenge: 'AQ',
         allowCredentials: [{ id: 'Ag', type: 'public-key' }],
@@ -388,12 +586,15 @@ describe('GoogleAdsStatusCard', () => {
     const button = await screen.findByRole('button', {
       name: 'Verify owner and approve PAUSED creation',
     });
+    fireEvent.click(screen.getByRole('checkbox', {
+      name: /I reviewed this exact PAUSED copy, targeting, limits, and pre-activation holds/i,
+    }));
     await waitFor(() => expect(button).toBeEnabled());
     fireEvent.click(button);
 
-    expect(globalThis.confirm).toHaveBeenCalledWith(expect.stringMatching(
+    await waitFor(() => expect(globalThis.confirm).toHaveBeenCalledWith(expect.stringMatching(
       /separate dispatcher is already runnable.*creation may begin after approval/i,
-    ));
+    )));
 
     expect(await screen.findByText(
       /PAUSED-only creation is approved; durable outbox is pending/i,
@@ -427,10 +628,66 @@ describe('GoogleAdsStatusCard', () => {
     expect(await screen.findByText(/Storefront dispatch flag/i)).toBeInTheDocument();
     expect(screen.getByText(/^Enabled$/i)).toBeInTheDocument();
     expect(screen.getByText(/does not prove whether the separate dispatcher job or a scheduler is runnable/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('checkbox', {
+      name: /I reviewed this exact PAUSED copy, targeting, limits, and pre-activation holds/i,
+    }));
     expect(screen.getByRole('button', {
       name: 'Verify owner and approve PAUSED creation',
     })).toBeEnabled();
     expect(adminFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps approval disabled when owner readiness is for another contract', async () => {
+    adminFetch
+      .mockResolvedValueOnce(response(VALIDATED))
+      .mockResolvedValueOnce(response({
+        ...APPROVAL_READY,
+        deployment_id: `tho-search-high-intent-huffman-v1--${'d'.repeat(64)}`,
+        contract_hash: `sha256:${'d'.repeat(64)}`,
+      }));
+
+    render(<GoogleAdsStatusCard />);
+    fireEvent.click(await screen.findByRole('checkbox', {
+      name: /I reviewed this exact PAUSED copy, targeting, limits, and pre-activation holds/i,
+    }));
+
+    expect(await screen.findByText(/reviewed contract changed.*refresh/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', {
+      name: 'Verify owner and approve PAUSED creation',
+    })).toBeDisabled();
+  });
+
+  it('rechecks evidence before confirmation and stops when prerequisites changed', async () => {
+    const rotatedEvidence = `sha256:${'e'.repeat(64)}`;
+    const changed = {
+      ...APPROVAL_READY,
+      access_evidence_id: rotatedEvidence,
+      account_connection: {
+        ...APPROVAL_READY.account_connection,
+        evidence_digest: rotatedEvidence,
+      },
+    };
+    const confirm = vi.spyOn(globalThis, 'confirm').mockReturnValue(true);
+    adminFetch
+      .mockResolvedValueOnce(response(VALIDATED))
+      .mockResolvedValueOnce(response(APPROVAL_READY))
+      .mockResolvedValueOnce(response(changed));
+
+    render(<GoogleAdsStatusCard />);
+    const approve = await screen.findByRole('button', {
+      name: 'Verify owner and approve PAUSED creation',
+    });
+    fireEvent.click(screen.getByRole('checkbox', {
+      name: /I reviewed this exact PAUSED copy, targeting, limits, and pre-activation holds/i,
+    }));
+    fireEvent.click(approve);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/prerequisites changed/i);
+    expect(confirm).not.toHaveBeenCalled();
+    expect(adminFetch.mock.calls.map(([url]) => url)).not.toContain(
+      '/api/admin/passkey/google-ads-step-up/begin',
+    );
+    expect(adminFetch).toHaveBeenCalledTimes(3);
   });
 
   it('reports a durable approved outbox truthfully and keeps approval disabled', async () => {
@@ -453,6 +710,7 @@ describe('GoogleAdsStatusCard', () => {
     const proofId = `sha256:${'c'.repeat(64)}`;
     adminFetch
       .mockResolvedValueOnce(response(VALIDATED))
+      .mockResolvedValueOnce(response(APPROVAL_READY))
       .mockResolvedValueOnce(response(APPROVAL_READY))
       .mockResolvedValueOnce(response({
         challenge: 'AQ',
@@ -498,6 +756,9 @@ describe('GoogleAdsStatusCard', () => {
     const button = await screen.findByRole('button', {
       name: 'Verify owner and approve PAUSED creation',
     });
+    fireEvent.click(screen.getByRole('checkbox', {
+      name: /I reviewed this exact PAUSED copy, targeting, limits, and pre-activation holds/i,
+    }));
     await waitFor(() => expect(button).toBeEnabled());
     fireEvent.click(button);
 
