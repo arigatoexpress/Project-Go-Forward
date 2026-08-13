@@ -344,6 +344,7 @@ def test_dedicated_service_account_is_preferred_without_legacy_oauth_secrets():
         "firestore_access_present": True,
         "project_roles_least_privilege": True,
         "required_secret_access_present": True,
+        "exclusive_ads_secret_custody": True,
         "impersonation_policy_checked": True,
         "least_privilege_iam": True,
     }
@@ -909,6 +910,35 @@ def test_storefront_direct_ads_secret_access_blocks_authority_separation():
     assert result["readiness"]["storefront_secret_access_absent"] is False
     assert result["readiness"]["presence_ready"] is False
     assert STOREFRONT_SERVICE_ACCOUNT not in json.dumps(result)
+
+
+@pytest.mark.parametrize(
+    ("role", "member"),
+    [
+        ("roles/secretmanager.secretAccessor", "allUsers"),
+        ("roles/secretmanager.secretAdmin", "user:operator@example.invalid"),
+        ("projects/tho-ai-agent/roles/customSecretReader", "user:operator@example.invalid"),
+        ("organizations/123456/roles/customSecretReader", "user:operator@example.invalid"),
+    ],
+)
+def test_public_admin_or_custom_ads_secret_access_blocks_readiness(role, member):
+    responses = _healthy_responses()
+    policy = json.loads(
+        responses[("gcloud", "secrets", "get-iam-policy", "google-ads-developer-token")]
+    )
+    policy["bindings"].append({"role": role, "members": [member]})
+    responses[("gcloud", "secrets", "get-iam-policy", "google-ads-developer-token")] = json.dumps(
+        policy
+    )
+
+    result = readiness.audit(
+        PROJECT, "project-go-forward", "us-central1", runner=_runner(responses)[0]
+    )
+
+    assert result["service_account"]["exclusive_ads_secret_custody"] is False
+    assert result["service_account"]["least_privilege_iam"] is False
+    assert result["readiness"]["presence_ready"] is False
+    assert member not in json.dumps(result)
 
 
 def test_storefront_project_secret_accessor_blocks_authority_separation():

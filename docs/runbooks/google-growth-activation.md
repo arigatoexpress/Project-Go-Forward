@@ -58,7 +58,9 @@ It recognizes two authentication paths:
    `python scripts/google_ads_paused_worker_job.py` command. Each command is a
    two-element command array with an empty argument list and only the named Ads
    secrets from Secret Manager. The service account must have accessor rights
-   on each bound secret itself. Job-resource IAM may grant only non-override
+   on each bound secret itself, and every present Ads-secret resource policy
+   must grant payload access only to that identity (never public, admin, or
+   opaque custom-role access). Job-resource IAM may grant only non-override
    execution/viewer roles; override-capable or custom roles fail readiness.
    A third `google-growth-paused-dispatch` job must use the separate keyless
    `google-growth-dispatcher` identity. Its template may contain only the fixed

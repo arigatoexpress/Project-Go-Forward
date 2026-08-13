@@ -296,6 +296,31 @@ def _project_policy_has_no_job_execution_authority(payload) -> bool:
     return True
 
 
+def _secret_policy_is_exclusive_accessor(payload, expected_member: str) -> bool:
+    """Allow only the provider identity to access one Ads secret directly."""
+    if not isinstance(payload, dict) or not isinstance(payload.get("bindings", []), list):
+        raise ValueError("unexpected IAM policy shape")
+    accessor_members: set[str] = set()
+    for binding in payload.get("bindings", []):
+        if not isinstance(binding, dict):
+            raise ValueError("unexpected IAM binding shape")
+        role = binding.get("role")
+        members = binding.get("members", [])
+        if not isinstance(role, str) or not isinstance(members, list):
+            raise ValueError("unexpected IAM binding shape")
+        if not members:
+            continue
+        if PUBLIC_IAM_MEMBERS.intersection(members):
+            return False
+        if role == SECRET_ACCESSOR_ROLE:
+            accessor_members.update(member for member in members if isinstance(member, str))
+        elif role != "roles/secretmanager.viewer":
+            # Admin and custom roles may contain payload access. Readiness
+            # cannot introspect permissions safely, so fail closed.
+            return False
+    return accessor_members == {expected_member}
+
+
 def _job_runtime(
     payload,
     expected_service_account: str,
@@ -1007,6 +1032,18 @@ def audit(project: str, service: str, region: str, *, runner=subprocess.run) -> 
 
     present_ads_secret_names = set(SECRETS).intersection(secret_names)
     all_present_ads_secret_policies_checked = set(ads_secret_policies) == present_ads_secret_names
+    exclusive_ads_secret_custody = False
+    if all_present_ads_secret_policies_checked and dedicated_service_account:
+        try:
+            exclusive_ads_secret_custody = all(
+                _secret_policy_is_exclusive_accessor(
+                    policy,
+                    f"serviceAccount:{expected_service_account}",
+                )
+                for policy in ads_secret_policies.values()
+            )
+        except (TypeError, ValueError):
+            errors.append("ads_secret_custody")
 
     dispatcher_ads_secret_access_absent = False
     dispatcher_ads_impersonation_absent = False
@@ -1187,6 +1224,7 @@ def audit(project: str, service: str, region: str, *, runner=subprocess.run) -> 
         and firestore_access_present
         and project_roles_least_privilege
         and required_secret_access_present
+        and exclusive_ads_secret_custody
         and impersonation_policy_checked
     )
     service_account_adc = (
@@ -1249,6 +1287,7 @@ def audit(project: str, service: str, region: str, *, runner=subprocess.run) -> 
             "firestore_access_present": firestore_access_present,
             "project_roles_least_privilege": project_roles_least_privilege,
             "required_secret_access_present": required_secret_access_present,
+            "exclusive_ads_secret_custody": exclusive_ads_secret_custody,
             "impersonation_policy_checked": impersonation_policy_checked,
             "least_privilege_iam": least_privilege_iam,
         },
