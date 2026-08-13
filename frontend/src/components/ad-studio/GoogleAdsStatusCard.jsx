@@ -94,14 +94,16 @@ export default function GoogleAdsStatusCard() {
   useEffect(() => {
     const expires = Date.parse(approvalReadiness?.account_connection?.expires_at);
     if (!Number.isFinite(expires)) return undefined;
+    const evaluated = Date.parse(approvalReadiness?.evaluated_at);
+    if (!Number.isFinite(evaluated) || expires <= evaluated) return undefined;
     const timer = globalThis.setTimeout(() => {
       setApprovalReadiness(null);
       setApprovalRemediation(
         'The read-only account and USD evidence expired. Refresh before approval.',
       );
-    }, Math.max(0, expires - Date.now()));
+    }, expires - evaluated);
     return () => globalThis.clearTimeout(timer);
-  }, [approvalReadiness?.account_connection?.expires_at]);
+  }, [approvalReadiness?.account_connection?.expires_at, approvalReadiness?.evaluated_at]);
 
   async function runValidation() {
     if (!status?.actions.server_validation || validating) return;

@@ -167,6 +167,7 @@ def test_owner_readiness_projects_only_fresh_read_only_account_and_usd_evidence(
     )
 
     assert readiness["action_available"] is True
+    assert readiness["evaluated_at"] == "2026-08-13T12:00:00Z"
     assert readiness["account_connection"] == {
         "state": "READ_PROBE_VERIFIED",
         "check_key": "google_ads_account_access_and_usd_green",

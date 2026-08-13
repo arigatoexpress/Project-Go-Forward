@@ -93,6 +93,7 @@ class PausedCreateApprovalReadiness(BaseModel):
     contract_hash: str = Field(pattern=_SHA256_PATTERN)
     expected_version: int = Field(ge=1)
     state: str
+    evaluated_at: datetime
     budget: dict[str, int]
     gates: dict[str, bool]
     access_evidence_id: str | None = Field(default=None, pattern=_SHA256_PATTERN)
@@ -149,6 +150,7 @@ def _read_approval_readiness(
     clock: Callable[[], datetime] = lambda: datetime.now(UTC),
 ):
     runtime = PausedCreateApprovalRuntime.from_env()
+    evaluated_at = clock()
     contract = load_checked_in_contract()
     digest = contract_sha256(contract)
     deployment_id = f"{contract['deployment']['key']}--{digest}"
@@ -162,7 +164,7 @@ def _read_approval_readiness(
                 deployment_id,
                 AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_AND_USD_GREEN,
             ),
-            now=clock(),
+            now=evaluated_at,
         )
         access_evidence_fresh = (
             evidence.status is AccessEvidenceStatus.PASSED
@@ -204,6 +206,7 @@ def _read_approval_readiness(
         contract_hash=f"sha256:{digest}",
         expected_version=record.version,
         state=record.state.value,
+        evaluated_at=evaluated_at,
         budget={
             "average_daily_usd": budget["average_daily_usd"],
             "max_single_day_charge_usd": budget["max_single_day_charge_usd"],

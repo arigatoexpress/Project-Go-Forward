@@ -309,7 +309,7 @@ function normalizeApprovalReadiness(payload) {
   const connection = payload?.account_connection;
   const observed = Date.parse(connection?.observed_at);
   const expires = Date.parse(connection?.expires_at);
-  const now = Date.now();
+  const evaluated = Date.parse(payload?.evaluated_at);
   const utcTimestamp = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/;
   const safeConnection = hasExactKeys(connection, [
     'state', 'check_key', 'account_access_validated', 'account_currency_usd',
@@ -320,12 +320,14 @@ function normalizeApprovalReadiness(payload) {
     && connection.account_access_validated === true && connection.account_currency_usd === true
     && connection.evidence_digest === payload?.access_evidence_id
     && utcTimestamp.test(connection.observed_at) && utcTimestamp.test(connection.expires_at)
-    && Number.isFinite(observed) && Number.isFinite(expires)
-    && observed <= now && now < expires
+    && utcTimestamp.test(payload?.evaluated_at)
+    && Number.isFinite(observed) && Number.isFinite(expires) && Number.isFinite(evaluated)
+    && observed <= evaluated && evaluated < expires
     && /^[a-f0-9]{40}$/.test(connection.source_revision);
   const safe = payload?.schema_version === 2
     && payload?.deployment_id === `tho-search-high-intent-huffman-v1--${digest}`
     && payload?.state === 'SERVER_VALIDATED'
+    && utcTimestamp.test(payload?.evaluated_at)
     && payload?.expected_version === 2
     && payload?.budget?.average_daily_usd === 20
     && payload?.budget?.max_single_day_charge_usd === 40

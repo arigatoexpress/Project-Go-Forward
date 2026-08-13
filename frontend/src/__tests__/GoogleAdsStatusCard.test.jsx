@@ -200,6 +200,7 @@ const APPROVAL_READY = {
   contract_hash: VALIDATED.contract_hash,
   expected_version: 2,
   state: 'SERVER_VALIDATED',
+  evaluated_at: EVIDENCE_OBSERVED,
   budget: { ...VALIDATED.budget },
   gates: {
     feature_enabled: true,
@@ -398,13 +399,21 @@ describe('Paid Search durable API', () => {
     { ...APPROVAL_READY.account_connection, state: 'CONNECTED' },
     { ...APPROVAL_READY.account_connection, source_revision: 'latest' },
     { ...APPROVAL_READY.account_connection, customer_id: 'unsafe' },
-    { ...APPROVAL_READY.account_connection, expires_at: '2000-01-01T00:00:00Z' },
+    { ...APPROVAL_READY.account_connection, expires_at: EVIDENCE_OBSERVED },
   ])('rejects unsanitized or weakened account connection evidence', async (accountConnection) => {
     adminFetch.mockResolvedValue(response({
       ...APPROVAL_READY,
       account_connection: accountConnection,
     }));
     await expect(getGoogleAdsPausedCreateApprovalReadiness()).rejects.toThrow(/owner passkey/i);
+  });
+
+  it('uses the server evaluation timestamp, not a skewed browser clock, for freshness', async () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2099-01-01T00:00:00Z'));
+    adminFetch.mockResolvedValue(response(APPROVAL_READY));
+
+    await expect(getGoogleAdsPausedCreateApprovalReadiness()).resolves.toEqual(APPROVAL_READY);
+    now.mockRestore();
   });
 
   it.each([
