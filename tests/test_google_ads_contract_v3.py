@@ -17,7 +17,7 @@ from scripts.google_ads_launch_draft import (
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACT_PATH = ROOT / "config" / "google_ads_launch_draft.json"
 CUSTOMER_ID = "1234567890"
-REVIEWED_CONTRACT_SHA256 = "7780ceb916013965bb41ece2ddf9e54482de3b6a3a25e548c37bafb10722cc94"  # pragma: allowlist secret - public contract digest
+REVIEWED_CONTRACT_SHA256 = "443c3872f98c4c37c6c4584d19f4dfbd76c5ca138adac75f4be79c8de8060fca"  # pragma: allowlist secret - public contract digest
 
 
 def _contract():
@@ -57,6 +57,27 @@ def test_checked_in_contract_is_schema_v3_with_separate_readiness_classes():
     }
     assert "search_console_sitemap_accepted" not in contract["readiness"]["hard_checks"]
     assert "search_console_sitemap_accepted" in contract["readiness"]["advisory_checks"]
+
+
+def test_checked_in_ad_copy_avoids_unproved_inventory_freshness_claims():
+    """A stale/fallback catalog must never be advertised as current or available."""
+    contract = _contract()
+    local_inventory = next(
+        group for group in contract["campaign"]["ad_groups"] if group["name"] == "Local Inventory"
+    )
+    ad = local_inventory["responsive_search_ad"]
+    serialized_copy = " ".join([*ad["headlines"], *ad["descriptions"]]).casefold()
+
+    for unsupported_claim in (
+        "current",
+        "new inventory",
+        "available homes",
+        "in stock",
+        "in-stock",
+        "on lot",
+        "on-lot",
+    ):
+        assert unsupported_claim not in serialized_copy
 
 
 def test_schema_v3_rejects_removed_or_reclassified_hard_checks():
