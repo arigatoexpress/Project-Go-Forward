@@ -224,6 +224,32 @@ class GoogleAdsAuthorityEventRecord(BaseModel):
         return self
 
 
+class GoogleAdsOperationKeyRecord(BaseModel):
+    """One-way idempotency evidence isolated from the strict v1 authority record."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    schema_version: Literal[1] = 1
+    operation: Literal["SERVER_VALIDATION"] = "SERVER_VALIDATION"
+    deployment_id: str = Field(pattern=_GOOGLE_ADS_DEPLOYMENT_ID_PATTERN)
+    contract_hash: str = Field(pattern=_GOOGLE_ADS_SHA256_PATTERN)
+    key_hash: str = Field(pattern=_GOOGLE_ADS_SHA256_PATTERN)
+    record_version: Literal[2] = 2
+    created_at: datetime
+
+    @field_validator("created_at")
+    @classmethod
+    def timestamp_is_utc(cls, value: datetime) -> datetime:
+        return _require_utc(value)
+
+    @model_validator(mode="after")
+    def deployment_identity_matches_contract(self):
+        digest = self.contract_hash.removeprefix("sha256:")
+        if not self.deployment_id.endswith(f"--{digest}"):
+            raise ValueError("operation deployment identity does not match contract digest")
+        return self
+
+
 class CustomerStatus(str, Enum):
     ENROLLED = "ENROLLED"
     NON_ENROLLED = "NON_ENROLLED"
