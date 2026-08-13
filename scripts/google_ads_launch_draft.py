@@ -41,7 +41,7 @@ REVIEWED_STOP_LOSS = {
     "minimum_reachable_leads_for_cpa_rule": 3.0,
 }
 REQUIRED_HARD_CHECKS = {
-    "feature_flag_enabled",
+    "paused_create_approval_and_dispatch_controls_verified",
     "draft_validator_green",
     "dedicated_job_runtime_green",
     "google_ads_account_access_and_usd_green",
@@ -101,9 +101,7 @@ def validate_draft(payload: dict[str, Any]) -> list[str]:
     deployment = _mapping(payload.get("deployment"))
     expected_deployment = {
         "key": "tho-search-high-intent-huffman-v1",
-        "feature_flag": "GOOGLE_ADS_ONE_CLICK_ENABLED",
         "api_version": GOOGLE_ADS_API_VERSION,
-        "auto_enable_after_policy_approval": False,
         "contract_hash_algorithm": "sha256",
     }
     for field, expected in expected_deployment.items():
@@ -112,6 +110,73 @@ def validate_draft(payload: dict[str, Any]) -> list[str]:
                 errors.append(f"deployment.{field} must equal {expected}")
             else:
                 errors.append(f"deployment.{field} must remain {str(expected).lower()}")
+    expected_approval_control = {
+        "required_true_envs": [
+            "THO_GOOGLE_ADS_PAUSED_CREATE_APPROVAL_ENABLED",
+            "THO_GOOGLE_ADS_PAUSED_CREATE_CLOUD_READINESS_VERIFIED",
+            "THO_GOOGLE_ADS_PAUSED_CREATE_IAM_VERIFIED",
+        ],
+        "revision_binding": {
+            "readiness_env": "THO_GOOGLE_ADS_PAUSED_CREATE_READINESS_REVISION",
+            "source_env": "APP_VERSION",
+            "format": "LOWERCASE_GIT_SHA40",
+            "must_match": True,
+        },
+        "fixed_target_envs": {
+            "project": "THO_GOOGLE_ADS_PAUSED_CREATE_PROJECT",
+            "region": "THO_GOOGLE_ADS_PAUSED_CREATE_REGION",
+            "job": "THO_GOOGLE_ADS_PAUSED_CREATE_JOB",
+        },
+        "requires_authority_state": "SERVER_VALIDATED",
+        "requires_authority_version": 2,
+        "requires_fresh_evidence": "google_ads_account_access_and_usd_green",
+        "binds_checked_in_contract_and_caps": True,
+        "owner_authentication": {
+            "session": "OWNER_PASSKEY_COOKIE",
+            "csrf": "COOKIE_HEADER_MATCH",
+            "step_up": "WEBAUTHN_UV_REQUIRED",
+        },
+        "owner_allowlist": {
+            "ads_env": "THO_GOOGLE_ADS_OWNER_EMAILS",
+            "passkey_envs": [
+                "THO_PASSKEY_OWNER_EMAILS",
+                "THO_ADMIN_OWNER_EMAILS",
+            ],
+            "must_be_nonempty": True,
+            "must_equal_effective_passkey_owner_allowlist": True,
+        },
+        "consumes_single_use_owner_proof": True,
+        "writes_control_plane_state_only": True,
+        "invokes_job": False,
+    }
+    if _mapping(deployment.get("approval_control")) != expected_approval_control:
+        errors.append("deployment.approval_control must match reviewed PAUSED-create semantics")
+    expected_dispatch_control = {
+        "required_true_envs": ["THO_GOOGLE_ADS_PAUSED_CREATE_DISPATCH_ENABLED"],
+        "requires_approval_control": True,
+        "requires_approved_outbox": True,
+        "invokes_paused_create_only": True,
+        "request_overrides_allowed": False,
+        "invocation_acceptance_is_completion": False,
+    }
+    if _mapping(deployment.get("dispatch_control")) != expected_dispatch_control:
+        errors.append("deployment.dispatch_control must match reviewed PAUSED-create semantics")
+    if deployment.get("activation_supported") is not False:
+        errors.append("deployment.activation_supported must remain false")
+    if deployment.get("spend_authorized") is not False:
+        errors.append("deployment.spend_authorized must remain false")
+    expected_deployment_fields = {
+        *expected_deployment,
+        "approval_control",
+        "dispatch_control",
+        "activation_supported",
+        "spend_authorized",
+    }
+    if set(deployment) != expected_deployment_fields:
+        errors.append("deployment fields must match the reviewed PAUSED-create contract")
+    for obsolete_field in ("feature_flag", "auto_enable_after_policy_approval"):
+        if obsolete_field in deployment:
+            errors.append(f"deployment.{obsolete_field} is obsolete")
 
     readiness = _mapping(payload.get("readiness"))
     hard_checks = {value for value in _list(readiness.get("hard_checks")) if isinstance(value, str)}
@@ -244,17 +309,34 @@ def validate_draft(payload: dict[str, Any]) -> list[str]:
     if tracking.get("utm_term") != "{keyword}":
         errors.append("tracking.utm_term must equal {keyword}")
 
-    conversions = {
-        item.get("name"): item
-        for item in _list(campaign.get("conversions"))
-        if isinstance(item, dict) and item.get("name")
+    if "conversions" in campaign:
+        errors.append("campaign.conversions is obsolete; use non-operative conversion_intent")
+    conversion_intent = _mapping(campaign.get("conversion_intent"))
+    if conversion_intent.get("provider_goal_operations_in_paused_create") is not False:
+        errors.append(
+            "conversion_intent.provider_goal_operations_in_paused_create must remain false"
+        )
+    if conversion_intent.get("import_required_before_activation") is not True:
+        errors.append("conversion_intent.import_required_before_activation must remain true")
+    if conversion_intent.get("activation_hold_check") != "google_ads_conversion_import_verified":
+        errors.append(
+            "conversion_intent.activation_hold_check must equal "
+            "google_ads_conversion_import_verified"
+        )
+    expected_conversion_intent_fields = {
+        "provider_goal_operations_in_paused_create",
+        "import_required_before_activation",
+        "activation_hold_check",
+        "events",
     }
-    for name in ("generate_lead", "schedule_appointment"):
-        conversion = _mapping(conversions.get(name))
-        if not conversion:
-            errors.append(f"conversion {name} is required")
-        elif conversion.get("required_before_enable") is not True:
-            errors.append(f"conversion {name} must be required before enable")
+    if set(conversion_intent) != expected_conversion_intent_fields:
+        errors.append("conversion_intent fields must match the reviewed non-operative intent")
+    expected_conversion_events = [
+        {"name": "schedule_appointment", "primary": True},
+        {"name": "generate_lead", "primary": False},
+    ]
+    if _list(conversion_intent.get("events")) != expected_conversion_events:
+        errors.append("conversion_intent.events must match the reviewed non-operative intent")
 
     if len(_list(campaign.get("negative_keywords"))) < 10:
         errors.append("at least 10 campaign negative keywords are required")

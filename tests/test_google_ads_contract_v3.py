@@ -17,7 +17,7 @@ from scripts.google_ads_launch_draft import (
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACT_PATH = ROOT / "config" / "google_ads_launch_draft.json"
 CUSTOMER_ID = "1234567890"
-REVIEWED_CONTRACT_SHA256 = "bade48b68441be6dad21c71276f875288ad4d8bcb9579272f4b2ec4119320893"  # pragma: allowlist secret - public contract digest
+REVIEWED_CONTRACT_SHA256 = "9a55b1e3b396efd383995642968c11c15d1d6af473a2a4e988a1ae0a08590192"  # pragma: allowlist secret - public contract digest
 
 
 def _contract():
@@ -50,11 +50,64 @@ def test_checked_in_contract_is_schema_v3_with_separate_readiness_classes():
     assert contract["schema_version"] == 3
     assert contract["deployment"] == {
         "key": "tho-search-high-intent-huffman-v1",
-        "feature_flag": "GOOGLE_ADS_ONE_CLICK_ENABLED",
         "api_version": "v25",
-        "auto_enable_after_policy_approval": False,
         "contract_hash_algorithm": "sha256",
+        "approval_control": {
+            "required_true_envs": [
+                "THO_GOOGLE_ADS_PAUSED_CREATE_APPROVAL_ENABLED",
+                "THO_GOOGLE_ADS_PAUSED_CREATE_CLOUD_READINESS_VERIFIED",
+                "THO_GOOGLE_ADS_PAUSED_CREATE_IAM_VERIFIED",
+            ],
+            "revision_binding": {
+                "readiness_env": "THO_GOOGLE_ADS_PAUSED_CREATE_READINESS_REVISION",
+                "source_env": "APP_VERSION",
+                "format": "LOWERCASE_GIT_SHA40",
+                "must_match": True,
+            },
+            "fixed_target_envs": {
+                "project": "THO_GOOGLE_ADS_PAUSED_CREATE_PROJECT",
+                "region": "THO_GOOGLE_ADS_PAUSED_CREATE_REGION",
+                "job": "THO_GOOGLE_ADS_PAUSED_CREATE_JOB",
+            },
+            "requires_authority_state": "SERVER_VALIDATED",
+            "requires_authority_version": 2,
+            "requires_fresh_evidence": "google_ads_account_access_and_usd_green",
+            "binds_checked_in_contract_and_caps": True,
+            "owner_authentication": {
+                "session": "OWNER_PASSKEY_COOKIE",
+                "csrf": "COOKIE_HEADER_MATCH",
+                "step_up": "WEBAUTHN_UV_REQUIRED",
+            },
+            "owner_allowlist": {
+                "ads_env": "THO_GOOGLE_ADS_OWNER_EMAILS",
+                "passkey_envs": [
+                    "THO_PASSKEY_OWNER_EMAILS",
+                    "THO_ADMIN_OWNER_EMAILS",
+                ],
+                "must_be_nonempty": True,
+                "must_equal_effective_passkey_owner_allowlist": True,
+            },
+            "consumes_single_use_owner_proof": True,
+            "writes_control_plane_state_only": True,
+            "invokes_job": False,
+        },
+        "dispatch_control": {
+            "required_true_envs": ["THO_GOOGLE_ADS_PAUSED_CREATE_DISPATCH_ENABLED"],
+            "requires_approval_control": True,
+            "requires_approved_outbox": True,
+            "invokes_paused_create_only": True,
+            "request_overrides_allowed": False,
+            "invocation_acceptance_is_completion": False,
+        },
+        "activation_supported": False,
+        "spend_authorized": False,
     }
+    assert "GOOGLE_ADS_ONE_CLICK_ENABLED" not in json.dumps(contract)
+    assert "feature_flag_enabled" not in contract["readiness"]["hard_checks"]
+    assert (
+        "paused_create_approval_and_dispatch_controls_verified"
+        in contract["readiness"]["hard_checks"]
+    )
     assert "search_console_sitemap_accepted" not in contract["readiness"]["hard_checks"]
     assert "search_console_sitemap_accepted" in contract["readiness"]["advisory_checks"]
 
@@ -89,6 +142,198 @@ def test_schema_v3_rejects_removed_or_reclassified_hard_checks():
 
     assert "readiness.hard_checks must match the reviewed hard-check list" in errors
     assert "readiness.advisory_checks must match the reviewed advisory-check list" in errors
+
+
+@pytest.mark.parametrize(
+    ("path", "value", "expected_error"),
+    [
+        (
+            ("approval_control", "required_true_envs"),
+            ["GOOGLE_ADS_ONE_CLICK_ENABLED"],
+            "deployment.approval_control must match reviewed PAUSED-create semantics",
+        ),
+        (
+            ("approval_control", "invokes_job"),
+            True,
+            "deployment.approval_control must match reviewed PAUSED-create semantics",
+        ),
+        (
+            ("approval_control", "consumes_single_use_owner_proof"),
+            False,
+            "deployment.approval_control must match reviewed PAUSED-create semantics",
+        ),
+        (
+            ("approval_control", "requires_fresh_evidence"),
+            "google_ads_account_access_green",
+            "deployment.approval_control must match reviewed PAUSED-create semantics",
+        ),
+        (
+            ("approval_control", "owner_authentication", "csrf"),
+            "NONE",
+            "deployment.approval_control must match reviewed PAUSED-create semantics",
+        ),
+        (
+            (
+                "approval_control",
+                "owner_allowlist",
+                "must_equal_effective_passkey_owner_allowlist",
+            ),
+            False,
+            "deployment.approval_control must match reviewed PAUSED-create semantics",
+        ),
+        (
+            ("approval_control", "revision_binding"),
+            {"must_match": False},
+            "deployment.approval_control must match reviewed PAUSED-create semantics",
+        ),
+        (
+            ("approval_control", "fixed_target_envs", "job"),
+            "UNREVIEWED_JOB",
+            "deployment.approval_control must match reviewed PAUSED-create semantics",
+        ),
+        (
+            ("dispatch_control", "required_true_envs"),
+            ["UNREVIEWED_DISPATCH"],
+            "deployment.dispatch_control must match reviewed PAUSED-create semantics",
+        ),
+        (
+            ("dispatch_control", "requires_approval_control"),
+            False,
+            "deployment.dispatch_control must match reviewed PAUSED-create semantics",
+        ),
+        (
+            ("dispatch_control", "invocation_acceptance_is_completion"),
+            True,
+            "deployment.dispatch_control must match reviewed PAUSED-create semantics",
+        ),
+        (
+            ("dispatch_control", "requires_approved_outbox"),
+            False,
+            "deployment.dispatch_control must match reviewed PAUSED-create semantics",
+        ),
+        (
+            ("activation_supported",),
+            True,
+            "deployment.activation_supported must remain false",
+        ),
+        (
+            ("spend_authorized",),
+            True,
+            "deployment.spend_authorized must remain false",
+        ),
+    ],
+)
+def test_contract_rejects_legacy_or_weakened_runtime_control_semantics(path, value, expected_error):
+    contract = _contract()
+    target = contract["deployment"]
+    for segment in path[:-1]:
+        target = target[segment]
+    target[path[-1]] = value
+
+    assert expected_error in validate_draft(contract)
+
+
+@pytest.mark.parametrize("obsolete_field", ["feature_flag", "auto_enable_after_policy_approval"])
+def test_contract_rejects_obsolete_deployment_control_fields(obsolete_field):
+    contract = _contract()
+    contract["deployment"][obsolete_field] = "legacy"
+
+    assert f"deployment.{obsolete_field} is obsolete" in validate_draft(contract)
+
+
+def test_contract_rejects_unreviewed_control_or_conversion_intent_fields():
+    contract = _contract()
+    contract["deployment"]["alternate_dispatch"] = "unsupported"
+    contract["campaign"]["conversion_intent"]["conversion_goal_resource"] = "unsupported"
+
+    errors = validate_draft(contract)
+
+    assert "deployment fields must match the reviewed PAUSED-create contract" in errors
+    assert "conversion_intent fields must match the reviewed non-operative intent" in errors
+
+
+def test_contract_rejects_old_overclaim_about_approval_transaction_effects():
+    contract = _contract()
+    contract["deployment"]["approval_control"]["writes_approval_and_outbox_only"] = True
+
+    errors = validate_draft(contract)
+
+    assert "deployment.approval_control must match reviewed PAUSED-create semantics" in errors
+
+
+def test_conversion_intent_is_explicitly_nonoperative_and_a_hard_activation_hold():
+    contract = _contract()
+
+    assert "conversions" not in contract["campaign"]
+    assert contract["campaign"]["conversion_intent"] == {
+        "provider_goal_operations_in_paused_create": False,
+        "import_required_before_activation": True,
+        "activation_hold_check": "google_ads_conversion_import_verified",
+        "events": [
+            {"name": "schedule_appointment", "primary": True},
+            {"name": "generate_lead", "primary": False},
+        ],
+    }
+    assert (
+        contract["campaign"]["conversion_intent"]["activation_hold_check"]
+        in contract["readiness"]["hard_checks"]
+    )
+
+    serialized_operations = json.dumps(
+        build_mutate_operations(contract, CUSTOMER_ID), sort_keys=True
+    ).casefold()
+    for forbidden in (
+        "conversionaction",
+        "campaignconversiongoal",
+        "conversiongoalcampaignconfig",
+    ):
+        assert forbidden not in serialized_operations
+
+    runbook = (ROOT / "docs" / "runbooks" / "google-growth-activation.md").read_text()
+    assert "attaches no conversion-action or" in runbook
+    assert "campaign-conversion-goal operations" in runbook
+    assert "hard\n`google_ads_conversion_import_verified` pre-activation hold" in runbook
+    assert "cannot activate a campaign or authorize spend" in runbook
+
+
+@pytest.mark.parametrize(
+    ("mutate", "expected_error"),
+    [
+        (
+            lambda value: value["campaign"]["conversion_intent"].update(
+                provider_goal_operations_in_paused_create=True
+            ),
+            "conversion_intent.provider_goal_operations_in_paused_create must remain false",
+        ),
+        (
+            lambda value: value["campaign"]["conversion_intent"].update(
+                import_required_before_activation=False
+            ),
+            "conversion_intent.import_required_before_activation must remain true",
+        ),
+        (
+            lambda value: value["campaign"]["conversion_intent"].update(
+                activation_hold_check="optional"
+            ),
+            "conversion_intent.activation_hold_check must equal google_ads_conversion_import_verified",
+        ),
+        (
+            lambda value: value["campaign"]["conversion_intent"]["events"].append(
+                {"name": "phone_call", "primary": True}
+            ),
+            "conversion_intent.events must match the reviewed non-operative intent",
+        ),
+        (
+            lambda value: value["campaign"].update(conversions=[]),
+            "campaign.conversions is obsolete; use non-operative conversion_intent",
+        ),
+    ],
+)
+def test_conversion_intent_rejects_goal_attachment_or_activation_hold_drift(mutate, expected_error):
+    contract = _contract()
+    mutate(contract)
+
+    assert expected_error in validate_draft(contract)
 
 
 def test_canonical_json_and_sha256_are_stable_across_key_order_and_whitespace():

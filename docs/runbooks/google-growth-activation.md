@@ -314,6 +314,27 @@ The Google Ads administrator must separately add the service-account email as
 an account user. This is the step that grants Ads access; GCP IAM roles and API
 enablement do not grant it.
 
+The immutable campaign contract records the complete current runtime
+configuration-gate semantics. Owner approval requires the approval,
+cloud-readiness, and IAM variables all to be exactly `true`; the readiness
+revision must equal the
+40-character lowercase `APP_VERSION`; and project, region, and PAUSED-create job
+must be valid fixed targets. It also requires owner WebAuthn user verification,
+an owner passkey session with cookie/header CSRF validation, and a nonempty
+`THO_GOOGLE_ADS_OWNER_EMAILS` allowlist exactly equal to the effective passkey
+owner allowlist. It requires the exact `SERVER_VALIDATED` authority version,
+fresh composite account-access and USD evidence, and proof binding to the
+checked-in contract and caps. It
+atomically marks the single-use proof as consumed for replay fencing and writes
+only control-plane approval, audit-event, proof-marker, and outbox state; it does
+not invoke a job. Separate dispatch requires that entire approval-control
+predicate, `THO_GOOGLE_ADS_PAUSED_CREATE_DISPATCH_ENABLED=true`, and the approved
+outbox, and can invoke only the fixed PAUSED-create job. The contract expressly
+forbids request overrides, does not treat accepted asynchronous invocation as
+completed PAUSED creation, and does not represent activation or spend
+authority. The obsolete
+`GOOGLE_ADS_ONE_CLICK_ENABLED` name is not an operative control.
+
 The legacy user-OAuth fallback additionally needs:
 
 - `google-ads-client-id`
@@ -355,25 +376,34 @@ itself.
 Create the initial Search campaigns through the Google Ads API with status
 `PAUSED`. Use the validated checked-in launch contract as the source artifact;
 the first API request must use the Ads API's validation-only mode before any
-paused resource is created. Each ad group must map to a high-intent landing
-surface and conversion:
+paused resource is created. Each reviewed ad group maps to a high-intent landing
+surface and non-operative measurement intent:
 
-| Intent | Landing surface | Primary conversion |
+| Intent | Landing surface | Measurement intent |
 |---|---|---|
 | manufactured homes near Huffman | `/inventory` | `generate_lead` |
 | mobile homes with showroom visit | `/appointments` | `schedule_appointment` |
-| specific available home/model | canonical detail URL | `generate_lead` |
+
+The PAUSED-create provider graph attaches no conversion-action or
+campaign-conversion-goal operations. The contract records `generate_lead` and
+`schedule_appointment` only as non-operative measurement intent. Verified GA4
+key-event import into Google Ads remains the hard
+`google_ads_conversion_import_verified` pre-activation hold; the checked-in
+workflow cannot activate a campaign or authorize spend.
 
 Before requesting spend approval, attach a review artifact containing keyword
-list, negatives, geo radius, ad copy, landing URL, conversion action, daily cap,
-monthly maximum, and stop-loss rule. The checked-in launch contract contains
-that artifact. Activation is a separate explicit gate.
+list, negatives, geo radius, ad copy, landing URL, non-operative conversion
+intent and import hold, daily cap, monthly maximum, and stop-loss rule. The
+checked-in launch contract contains that artifact. Any future activation would
+require a separately implemented and explicitly approved gate; none exists in
+the checked-in workflow.
 
 ## Definition of ready-to-spend
 
 - Readiness audit is green.
 - The sanitized live Ads access probe returns
-  `account_access_validated: true` from the dedicated job identity.
+  `account_access_validated: true` and `account_currency_usd: true` from the
+  dedicated job identity for the exact reviewed account.
 - Consent allow/deny browser checks are green.
 - Test lead and test appointment appear once in GA4 and once in the imported Ads
   conversion actions.
