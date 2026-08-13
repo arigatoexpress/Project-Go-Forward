@@ -5,10 +5,118 @@ Pydantic models matching the database schema for Texas Home Outlet
 
 import re
 import uuid
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from enum import Enum
+from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+_GOOGLE_ADS_SHA256_PATTERN = r"^sha256:[0-9a-f]{64}$"
+_GOOGLE_ADS_DEPLOYMENT_ID_PATTERN = r"^[a-z0-9][a-z0-9-]{0,62}--[0-9a-f]{64}$"
+_GOOGLE_ADS_DEPLOYMENT_KEY_PATTERN = r"^[a-z0-9][a-z0-9-]{0,62}$"
+_GOOGLE_ADS_CONTRACT_LABEL_PATTERN = r"^tho-contract-[0-9a-f]{12}$"
+GoogleAdsDeploymentState = Literal[
+    "INTERNAL_DRAFT",
+    "SERVER_VALIDATED",
+    "PAUSED_CREATE_APPROVED",
+    "PAUSED_CREATED",
+]
+GoogleAdsAuthorityEventType = Literal[
+    "INTERNAL_DRAFT_CREATED",
+    "SERVER_VALIDATED",
+    "PAUSED_CREATE_APPROVED",
+    "PAUSED_CREATE_CLAIMED",
+    "PAUSED_CREATE_RECLAIMED",
+    "PAUSED_CREATE_COMPLETED",
+    "PAUSED_CREATE_CLAIM_RELEASED",
+]
+GoogleAdsSafeErrorCode = Literal[
+    "contract_mismatch",
+    "invalid_create_graph",
+    "ledger_write_failed",
+    "provider_contract_mismatch",
+    "provider_create_failed",
+    "provider_not_paused",
+    "provider_reconciliation_failed",
+    "provider_timeout_unresolved",
+    "provider_validation_failed",
+    "worker_claimed_elsewhere",
+    "worker_not_approved",
+]
+
+
+def _require_utc(value: datetime) -> datetime:
+    if value.tzinfo is None or value.utcoffset() is None:
+        raise ValueError("timestamp must be timezone-aware")
+    return value.astimezone(UTC)
+
+
+class GoogleAdsDeploymentRecord(BaseModel):
+    """Strict, sanitized Firestore authority record for a paused-only deployment.
+
+    The schema intentionally has no account ID, credential, provider resource
+    name, request ID, provider response, or arbitrary metadata field. Unknown
+    fields fail validation instead of being silently retained.
+    """
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    schema_version: Literal[1] = 1
+    deployment_id: str = Field(pattern=_GOOGLE_ADS_DEPLOYMENT_ID_PATTERN)
+    deployment_key: str = Field(pattern=_GOOGLE_ADS_DEPLOYMENT_KEY_PATTERN)
+    contract_hash: str = Field(pattern=_GOOGLE_ADS_SHA256_PATTERN)
+    contract_label: str = Field(pattern=_GOOGLE_ADS_CONTRACT_LABEL_PATTERN)
+    state: GoogleAdsDeploymentState = "INTERNAL_DRAFT"
+    version: int = Field(default=1, ge=1)
+    worker_claim_hash: str | None = Field(default=None, pattern=_GOOGLE_ADS_SHA256_PATTERN)
+    claim_expires_at: datetime | None = None
+    provider_reference_hash: str | None = Field(default=None, pattern=_GOOGLE_ADS_SHA256_PATTERN)
+    error_code: GoogleAdsSafeErrorCode | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    @field_validator("created_at", "updated_at", "claim_expires_at")
+    @classmethod
+    def timestamps_are_utc(cls, value: datetime | None) -> datetime | None:
+        return _require_utc(value) if value is not None else None
+
+    @model_validator(mode="after")
+    def claim_and_terminal_state_are_consistent(self):
+        if (self.worker_claim_hash is None) != (self.claim_expires_at is None):
+            raise ValueError("worker claim hash and expiry must be set together")
+        if self.state == "PAUSED_CREATED":
+            if self.provider_reference_hash is None:
+                raise ValueError("paused-created record requires a provider reference hash")
+            if self.worker_claim_hash is not None:
+                raise ValueError("paused-created record cannot retain a worker claim")
+        elif self.provider_reference_hash is not None:
+            raise ValueError("provider reference hash is allowed only after paused creation")
+        if self.updated_at < self.created_at:
+            raise ValueError("updated_at cannot precede created_at")
+        return self
+
+
+class GoogleAdsAuthorityEventRecord(BaseModel):
+    """Append-only, PII-free evidence for one authority-record version."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    schema_version: Literal[1] = 1
+    event_id: str = Field(pattern=r"^[0-9]{20}-[a-z0-9-]{1,64}$")
+    deployment_id: str = Field(pattern=_GOOGLE_ADS_DEPLOYMENT_ID_PATTERN)
+    contract_hash: str = Field(pattern=_GOOGLE_ADS_SHA256_PATTERN)
+    event_type: GoogleAdsAuthorityEventType
+    from_state: GoogleAdsDeploymentState | None = None
+    to_state: GoogleAdsDeploymentState
+    record_version: int = Field(ge=1)
+    worker_claim_hash: str | None = Field(default=None, pattern=_GOOGLE_ADS_SHA256_PATTERN)
+    error_code: GoogleAdsSafeErrorCode | None = None
+    occurred_at: datetime
+
+    @field_validator("occurred_at")
+    @classmethod
+    def timestamp_is_utc(cls, value: datetime) -> datetime:
+        return _require_utc(value)
 
 
 class CustomerStatus(str, Enum):
