@@ -50,15 +50,22 @@ prints measurement IDs, customer IDs, service-account emails, or token values.
 It recognizes two authentication paths:
 
 1. Preferred: the dedicated `google-growth-control` service account has no
-   user-managed keys, and a same-named Cloud Run Job is attached to it with
-   managed secret references and the live probe command.
+   user-managed keys or project-wide Editor/Owner/Secret Accessor role. The
+   same-named Cloud Run Job must be attached to it, use the exact
+   `python scripts/google_ads_access_probe.py --live` command, and bind only
+   the named Ads secrets from Secret Manager. The service account must have
+   accessor rights on each bound secret itself.
 2. Compatibility-only: all three legacy user-OAuth secrets exist. The audit
    reports this path, but it does not satisfy GCP-native strict readiness.
 
 The preferred path needs only the developer-token and customer-ID Secret
 Manager entries. The optional login-customer-ID entry is needed when the target
-account is accessed through a Google Ads manager account. A green presence
-audit does **not** prove the identity has Google Ads account access.
+account is accessed through a Google Ads manager account. Legacy user-OAuth
+secrets must be absent, and the public storefront must have no Ads credential
+bindings. Exactly one measurement path (GA4 or GTM) must be configured.
+Search Console and Business Profile API status remains advisory and does not
+block Ads presence readiness. A green presence audit does **not** prove the
+identity has Google Ads account access.
 
 The account-access probe is offline by default:
 
@@ -161,9 +168,10 @@ with:
 - the `adwords` OAuth scope requested through ADC by the probe/client;
 - Secret Manager access scoped only to the Ads developer-token and account-ID
   secrets;
-- an explicit container command equivalent to
-  `python scripts/google_ads_access_probe.py --live` (job executions do not add
-  `--live` automatically);
+- the exact command `python scripts/google_ads_access_probe.py --live`, split
+  as command `python` and arguments `scripts/google_ads_access_probe.py`,
+  `--live` (job executions do not add `--live` automatically and credential or
+  executable override arguments are forbidden);
 - no public endpoint, campaign activation command, or spend authority.
 
 The Google Ads administrator must separately add the service-account email as
