@@ -40,6 +40,7 @@ LEGACY_OAUTH_SECRETS = (
 
 ADS_SERVICE_ACCOUNT_ID = "google-growth-control"
 ADS_JOB_ID = "google-growth-control"
+ADS_PAUSED_CREATE_JOB_ID = "google-growth-paused-create"
 JOB_SECRET_BINDINGS = {
     "GOOGLE_ADS_DEVELOPER_TOKEN": "google-ads-developer-token",
     "GOOGLE_ADS_CUSTOMER_ID": "google-ads-customer-id",
@@ -48,6 +49,7 @@ OPTIONAL_JOB_SECRET_BINDINGS = {
     "GOOGLE_ADS_LOGIN_CUSTOMER_ID": "google-ads-login-customer-id",
 }
 EXPECTED_JOB_COMMAND = ("python", "scripts/google_ads_access_evidence_job.py")
+EXPECTED_PAUSED_CREATE_JOB_COMMAND = ("python", "scripts/google_ads_paused_worker_job.py")
 EXPECTED_JOB_ARGS: tuple[str, ...] = ()
 SOURCE_REVISION_ENV = "APP_VERSION"
 SOURCE_REVISION_RE = re.compile(r"^[0-9a-f]{40}$")
@@ -71,6 +73,7 @@ SAFE_JOB_EXECUTION_ROLES = {
     "roles/run.jobsExecutor",
     "roles/run.viewer",
 }
+PUBLIC_IAM_MEMBERS = {"allUsers", "allAuthenticatedUsers"}
 STOREFRONT_JOB_ROLES = {
     "roles/editor",
     "roles/owner",
@@ -172,12 +175,19 @@ def _job_policy_has_only_fixed_protocol_roles(payload) -> bool:
         members = binding.get("members", [])
         if not isinstance(role, str) or not isinstance(members, list):
             raise ValueError("unexpected IAM binding shape")
+        if PUBLIC_IAM_MEMBERS.intersection(members):
+            return False
         if members and role not in SAFE_JOB_EXECUTION_ROLES:
             return False
     return True
 
 
-def _job_runtime(payload, expected_service_account: str) -> dict[str, bool]:
+def _job_runtime(
+    payload,
+    expected_service_account: str,
+    *,
+    expected_command: tuple[str, ...] = EXPECTED_JOB_COMMAND,
+) -> dict[str, bool]:
     """Return presence-only checks for v1 or v2 Cloud Run Job JSON."""
     if not isinstance(payload, dict):
         raise ValueError("unexpected Cloud Run Job shape")
@@ -205,7 +215,7 @@ def _job_runtime(payload, expected_service_account: str) -> dict[str, bool]:
     exact_probe_command = (
         single_container
         and isinstance(command, list)
-        and tuple(command) == EXPECTED_JOB_COMMAND
+        and tuple(command) == expected_command
         and isinstance(args, list)
         and tuple(args) == EXPECTED_JOB_ARGS
     )
@@ -414,6 +424,7 @@ def audit(project: str, service: str, region: str, *, runner=subprocess.run) -> 
     if not ok:
         errors.append("jobs")
     dedicated_job_present = ADS_JOB_ID in job_names
+    paused_create_job_present = ADS_PAUSED_CREATE_JOB_ID in job_names
     job_runtime = {
         "dedicated_identity_attached": False,
         "exact_probe_command": False,
@@ -447,6 +458,43 @@ def audit(project: str, service: str, region: str, *, runner=subprocess.run) -> 
         else:
             errors.append("job_runtime")
 
+    paused_create_job_runtime = {
+        "dedicated_identity_attached": False,
+        "exact_probe_command": False,
+        "managed_secret_bindings": False,
+        "legacy_oauth_bindings_absent": False,
+        "login_customer_id_bound": False,
+        "live_probe_configured": False,
+        "persistent_key_path_absent": True,
+        "source_revision_bound": False,
+        "runtime_ready": False,
+    }
+    if paused_create_job_present:
+        ok, output = _call(
+            [
+                "gcloud",
+                "run",
+                "jobs",
+                "describe",
+                ADS_PAUSED_CREATE_JOB_ID,
+                f"--region={region}",
+                project_flag,
+                "--format=json",
+            ],
+            runner,
+        )
+        if ok:
+            try:
+                paused_create_job_runtime = _job_runtime(
+                    json.loads(output),
+                    expected_service_account,
+                    expected_command=EXPECTED_PAUSED_CREATE_JOB_COMMAND,
+                )
+            except (TypeError, ValueError, json.JSONDecodeError):
+                errors.append("paused_create_job_runtime")
+        else:
+            errors.append("paused_create_job_runtime")
+
     override_capable_bindings_absent = False
     job_iam_checked = False
     job_policy: dict = {}
@@ -477,10 +525,45 @@ def audit(project: str, service: str, region: str, *, runner=subprocess.run) -> 
             errors.append("job_iam")
     execution_iam_ready = job_iam_checked and override_capable_bindings_absent
 
+    paused_create_override_capable_bindings_absent = False
+    paused_create_job_iam_checked = False
+    paused_create_job_policy: dict = {}
+    if paused_create_job_present:
+        ok, output = _call(
+            [
+                "gcloud",
+                "run",
+                "jobs",
+                "get-iam-policy",
+                ADS_PAUSED_CREATE_JOB_ID,
+                f"--region={region}",
+                project_flag,
+                "--format=json",
+            ],
+            runner,
+        )
+        if ok:
+            try:
+                paused_create_job_policy = json.loads(output or "{}")
+                paused_create_override_capable_bindings_absent = (
+                    _job_policy_has_only_fixed_protocol_roles(paused_create_job_policy)
+                )
+                paused_create_job_iam_checked = True
+            except (TypeError, ValueError, json.JSONDecodeError):
+                errors.append("paused_create_job_iam")
+        else:
+            errors.append("paused_create_job_iam")
+    paused_create_execution_iam_ready = (
+        paused_create_job_iam_checked and paused_create_override_capable_bindings_absent
+    )
+
     required_secret_access_present = False
     required_secret_policies: list[dict] = []
     required_secret_names = list(JOB_SECRET_BINDINGS.values())
-    if job_runtime["login_customer_id_bound"]:
+    if (
+        job_runtime["login_customer_id_bound"]
+        or paused_create_job_runtime["login_customer_id_bound"]
+    ):
         required_secret_names.extend(OPTIONAL_JOB_SECRET_BINDINGS.values())
     if dedicated_service_account and all(name in secret_names for name in required_secret_names):
         secret_access_results = []
@@ -559,7 +642,15 @@ def audit(project: str, service: str, region: str, *, runner=subprocess.run) -> 
                     job_policy,
                     f"serviceAccount:{storefront_identity}",
                 )
-                storefront_roles = storefront_project_roles | storefront_resource_roles
+                storefront_paused_create_roles = _iam_roles_for_member(
+                    paused_create_job_policy,
+                    f"serviceAccount:{storefront_identity}",
+                )
+                storefront_roles = (
+                    storefront_project_roles
+                    | storefront_resource_roles
+                    | storefront_paused_create_roles
+                )
                 storefront_job_invocation_absent = STOREFRONT_JOB_ROLES.isdisjoint(
                     storefront_roles
                 ) and not any(
@@ -630,6 +721,16 @@ def audit(project: str, service: str, region: str, *, runner=subprocess.run) -> 
     service_account_adc = (
         least_privilege_iam and job_runtime["runtime_ready"] and execution_iam_ready
     )
+    job_secret_topology_consistent = (
+        job_runtime["login_customer_id_bound"]
+        == paused_create_job_runtime["login_customer_id_bound"]
+    )
+    paused_create_path = (
+        least_privilege_iam
+        and paused_create_job_runtime["runtime_ready"]
+        and paused_create_execution_iam_ready
+        and job_secret_topology_consistent
+    )
     ads_auth_path = service_account_adc
     presence_ready = (
         not errors
@@ -637,6 +738,7 @@ def audit(project: str, service: str, region: str, *, runner=subprocess.run) -> 
         and measurement_apis
         and ads_account_config
         and ads_auth_path
+        and paused_create_path
         and legacy_oauth_secrets_absent
         and storefront_ads_credentials_absent
         and storefront_secret_access_absent
@@ -670,6 +772,22 @@ def audit(project: str, service: str, region: str, *, runner=subprocess.run) -> 
             "override_capable_bindings_absent": override_capable_bindings_absent,
             "execution_iam_ready": execution_iam_ready,
         },
+        "paused_create_job": {
+            "dedicated_job_present": paused_create_job_present,
+            "dedicated_identity_attached": paused_create_job_runtime["dedicated_identity_attached"],
+            "exact_paused_create_command": paused_create_job_runtime["exact_probe_command"],
+            "managed_secret_bindings": paused_create_job_runtime["managed_secret_bindings"],
+            "legacy_oauth_bindings_absent": paused_create_job_runtime[
+                "legacy_oauth_bindings_absent"
+            ],
+            "login_customer_id_bound": paused_create_job_runtime["login_customer_id_bound"],
+            "paused_create_configured": paused_create_job_runtime["live_probe_configured"],
+            "persistent_key_path_absent": paused_create_job_runtime["persistent_key_path_absent"],
+            "source_revision_bound": paused_create_job_runtime["source_revision_bound"],
+            "runtime_ready": paused_create_job_runtime["runtime_ready"],
+            "override_capable_bindings_absent": (paused_create_override_capable_bindings_absent),
+            "execution_iam_ready": paused_create_execution_iam_ready,
+        },
         "auth_paths": {
             "service_account_adc": service_account_adc,
             "legacy_user_oauth": legacy_user_oauth,
@@ -687,6 +805,7 @@ def audit(project: str, service: str, region: str, *, runner=subprocess.run) -> 
             "google_ecosystem_apis": google_ecosystem_apis,
             "ads_account_config": ads_account_config,
             "ads_auth_path": ads_auth_path,
+            "paused_create_path": paused_create_path,
             "legacy_oauth_secrets_absent": legacy_oauth_secrets_absent,
             "storefront_ads_credentials_absent": storefront_ads_credentials_absent,
             "storefront_secret_access_absent": storefront_secret_access_absent,

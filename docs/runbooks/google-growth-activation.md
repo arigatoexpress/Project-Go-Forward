@@ -51,13 +51,15 @@ It recognizes two authentication paths:
 
 1. Preferred: the dedicated `google-growth-control` service account has no
    user-managed keys and has only project-level `roles/datastore.user`, never
-   Editor/Owner/Secret Accessor. The same-named Cloud Run Job must be attached
-   to it, use the exact `python scripts/google_ads_access_evidence_job.py`
-   command as a two-element command with an empty argument list, and bind only
-   the named Ads secrets from Secret Manager. The service account must have
-   accessor rights on each bound secret itself. Job-resource IAM may grant
-   only non-override execution/viewer roles; override-capable or custom roles
-   fail readiness.
+   Editor/Owner/Secret Accessor. Two distinct Cloud Run Jobs must be attached
+   to it: `google-growth-control` runs only the exact
+   `python scripts/google_ads_access_evidence_job.py` command, while
+   `google-growth-paused-create` runs only the exact
+   `python scripts/google_ads_paused_worker_job.py` command. Each command is a
+   two-element command array with an empty argument list and only the named Ads
+   secrets from Secret Manager. The service account must have accessor rights
+   on each bound secret itself. Job-resource IAM may grant only non-override
+   execution/viewer roles; override-capable or custom roles fail readiness.
 2. Compatibility-only: all three legacy user-OAuth secrets exist. The audit
    reports this path, but it does not satisfy GCP-native strict readiness.
 
@@ -90,6 +92,22 @@ revision, and an evidence digest. It never stores credentials, customer/login
 IDs, request IDs, resource names, raw responses, or provider errors. Evidence
 expires after five minutes and does not authorize campaign creation or spend.
 
+The paused-create job is a separate, fixed protocol. There is no storefront
+route or job dispatcher, and it accepts no deployment ID, request body,
+credential selector, or command-line override. It can consume only an existing
+`PAUSED_CREATE_APPROVED` authority record for the checked-in contract. The v25
+REST adapter first submits the exact atomic graph with `validateOnly=true` and
+`partialFailure=false`, then submits the same operation graph with
+`validateOnly=false`. Campaign, campaign criteria, ad groups, keywords, and ads
+are all created `PAUSED`. A deterministic contract label is the idempotency
+key. Creation is accepted only after a full provider readback matches the
+reviewed statuses, $20 daily budget, $5 CPC ceiling, networks, geo criteria,
+keywords, ad copy, URLs, and contract hash. Duplicate labels, pagination,
+drift, and ambiguous provider outcomes fail fenced; raw account IDs, resource
+names, responses, request IDs, credentials, and provider errors are never
+written to Firestore or job output. No activation operation exists in this
+slice.
+
 ## Checked-in zero-spend launch contract
 
 The initial Search package lives at
@@ -100,7 +118,8 @@ python3 scripts/google_ads_launch_draft.py
 ```
 
 The validator has no Google client dependency and makes no network request. It
-fails if the campaign, ad groups, or ads stop being `PAUSED`; if the mode stops
+fails if the campaign, campaign criteria, ad groups, keywords, or ads stop
+being `PAUSED`; if the mode stops
 being `VALIDATE_ONLY`; if the approval fields become non-null; or if the package
 violates the dedicated-job/keyless-ADC identity contract or the initial
 housing, attribution, budget, landing-page, or responsive search ad constraints.
@@ -172,8 +191,8 @@ without reading values:
 
 Create a user-managed service account named `google-growth-control`. Do not
 grant it project-wide Editor, do not attach it to the public storefront, and do
-not create a key. The intended execution surface is a dedicated Cloud Run Job
-with:
+not create a key. The intended execution surface is two dedicated Cloud Run
+Jobs with:
 
 - `google-growth-control` as its attached service identity;
 - no public-storefront binding on this identity's IAM policy and no storefront
@@ -181,18 +200,25 @@ with:
 - the `adwords` OAuth scope requested through ADC by the probe/client;
 - Secret Manager access scoped only to the Ads developer-token and account-ID
   secrets;
-- the exact command `python scripts/google_ads_access_evidence_job.py`, split
-  as the two-element command array `python`,
-  `scripts/google_ads_access_evidence_job.py`, with an empty argument list;
-  the source image revision is pinned in `APP_VERSION`, and command,
-  credential, deployment, or executable override arguments/environment values
-  are forbidden;
+- the exact access command `python scripts/google_ads_access_evidence_job.py`
+  for `google-growth-control`, and the exact paused-create command
+  `python scripts/google_ads_paused_worker_job.py` for
+  `google-growth-paused-create`; each is split as the two-element command array
+  `python`, script path, with an empty argument list; the source image revision
+  is pinned in `APP_VERSION`, and command, credential, deployment, or
+  executable override arguments/environment values are forbidden;
 - job-resource IAM limited to `roles/run.invoker`,
   `roles/run.jobsExecutor`, or `roles/run.viewer`; none of these grants
   `run.jobs.runWithOverrides`. Custom and override-capable job roles fail the
   readiness audit. Privileged infrastructure administrators can replace the
   job itself and remain subject to the separate production-change gate;
 - no public endpoint, campaign activation command, or spend authority.
+
+Creating or changing the service account, jobs, IAM, API enablement, secret
+bindings, Ads account invitation, or any live job execution is an external
+operator gate. The checked-in code and injected-fake tests do not perform any
+of those actions. A live access probe must be completed before a separately
+approved paused-create execution; neither grants activation or spend authority.
 
 The Google Ads administrator must separately add the service-account email as
 an account user. This is the step that grants Ads access; GCP IAM roles and API
