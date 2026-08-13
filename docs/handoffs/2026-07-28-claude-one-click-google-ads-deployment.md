@@ -1,5 +1,11 @@
 # Claude handoff — one-click Google Ads deployment
 
+> **SUPERSEDED — historical design only.** The authoritative implementation
+> boundary is `docs/runbooks/google-growth-activation.md`. Storefront
+> `run.jobs.run` is forbidden; automatic enablement is forbidden; and no
+> activation or spend operation is part of the current PAUSED-only job. Do not
+> implement the older authority model described below.
+
 Date: 2026-07-28  
 Repository: `arigatoexpress/Project-Go-Forward`  
 Owner: Ari  

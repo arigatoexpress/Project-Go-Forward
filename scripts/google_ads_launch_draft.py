@@ -492,6 +492,7 @@ def build_mutate_operations(payload: dict[str, Any], customer_id: str) -> list[d
             "campaignCriterionOperation": {
                 "create": {
                     "campaign": campaign_resource,
+                    "status": "PAUSED",
                     "negative": False,
                     "proximity": {
                         "geoPoint": {
@@ -516,6 +517,7 @@ def build_mutate_operations(payload: dict[str, Any], customer_id: str) -> list[d
                 "campaignCriterionOperation": {
                     "create": {
                         "campaign": campaign_resource,
+                        "status": "PAUSED",
                         "negative": True,
                         "keyword": {
                             "text": keyword["text"],

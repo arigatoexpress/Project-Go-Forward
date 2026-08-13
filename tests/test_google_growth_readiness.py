@@ -31,9 +31,10 @@ def _job_payload(
     command=None,
     args=None,
     env=None,
+    script="scripts/google_ads_access_evidence_job.py",
 ):
     if command is None:
-        command = ["python", "scripts/google_ads_access_evidence_job.py"]
+        command = ["python", script]
     if args is None:
         args = []
     if env is None:
@@ -74,7 +75,13 @@ def _secret_policy():
     return _iam_policy("roles/secretmanager.secretAccessor")
 
 
-def _healthy_responses(*, enabled_services=None, runtime_env=None, job_payload=None):
+def _healthy_responses(
+    *,
+    enabled_services=None,
+    runtime_env=None,
+    job_payload=None,
+    paused_create_job_payload=None,
+):
     if enabled_services is None:
         enabled_services = readiness.SERVICES
     if runtime_env is None:
@@ -98,9 +105,47 @@ def _healthy_responses(*, enabled_services=None, runtime_env=None, job_payload=N
             "get-iam-policy",
             "google-ads-customer-id",
         ): _secret_policy(),
-        ("gcloud", "run", "jobs", "list"): "google-growth-control\n",
-        ("gcloud", "run", "jobs", "describe"): json.dumps(job_payload or _job_payload()),
-        ("gcloud", "run", "jobs", "get-iam-policy"): json.dumps(
+        ("gcloud", "run", "jobs", "list"): ("google-growth-control\ngoogle-growth-paused-create\n"),
+        (
+            "gcloud",
+            "run",
+            "jobs",
+            "describe",
+            readiness.ADS_JOB_ID,
+        ): json.dumps(job_payload or _job_payload()),
+        (
+            "gcloud",
+            "run",
+            "jobs",
+            "describe",
+            readiness.ADS_PAUSED_CREATE_JOB_ID,
+        ): json.dumps(
+            paused_create_job_payload
+            or _job_payload(script="scripts/google_ads_paused_worker_job.py")
+        ),
+        (
+            "gcloud",
+            "run",
+            "jobs",
+            "get-iam-policy",
+            readiness.ADS_JOB_ID,
+        ): json.dumps(
+            {
+                "bindings": [
+                    {
+                        "role": "roles/run.invoker",
+                        "members": ["user:operator@example.invalid"],
+                    }
+                ]
+            }
+        ),
+        (
+            "gcloud",
+            "run",
+            "jobs",
+            "get-iam-policy",
+            readiness.ADS_PAUSED_CREATE_JOB_ID,
+        ): json.dumps(
             {
                 "bindings": [
                     {
@@ -231,6 +276,20 @@ def test_dedicated_service_account_is_preferred_without_legacy_oauth_secrets():
         "override_capable_bindings_absent": True,
         "execution_iam_ready": True,
     }
+    assert result["paused_create_job"] == {
+        "dedicated_job_present": True,
+        "dedicated_identity_attached": True,
+        "exact_paused_create_command": True,
+        "managed_secret_bindings": True,
+        "legacy_oauth_bindings_absent": True,
+        "login_customer_id_bound": False,
+        "paused_create_configured": True,
+        "persistent_key_path_absent": True,
+        "source_revision_bound": True,
+        "runtime_ready": True,
+        "override_capable_bindings_absent": True,
+        "execution_iam_ready": True,
+    }
     assert result["auth_paths"] == {
         "service_account_adc": True,
         "legacy_user_oauth": False,
@@ -243,6 +302,7 @@ def test_dedicated_service_account_is_preferred_without_legacy_oauth_secrets():
         "google_ecosystem_apis": True,
         "ads_account_config": True,
         "ads_auth_path": True,
+        "paused_create_path": True,
         "legacy_oauth_secrets_absent": True,
         "storefront_ads_credentials_absent": True,
         "storefront_secret_access_absent": True,
@@ -353,6 +413,36 @@ def test_job_runtime_requires_exact_probe_command_without_override_surface():
     assert valid["exact_probe_command"] is True
     assert valid["runtime_ready"] is True
     for unsafe in (shell, extra_argument, readiness._job_runtime(sidecar, SERVICE_ACCOUNT)):
+        assert unsafe["exact_probe_command"] is False
+        assert unsafe["runtime_ready"] is False
+
+
+def test_paused_create_job_runtime_requires_fixed_zero_argument_entrypoint():
+    valid = readiness._job_runtime(
+        _job_payload(script="scripts/google_ads_paused_worker_job.py"),
+        SERVICE_ACCOUNT,
+        expected_command=("python", "scripts/google_ads_paused_worker_job.py"),
+    )
+    extra_argument = readiness._job_runtime(
+        _job_payload(
+            script="scripts/google_ads_paused_worker_job.py",
+            args=["--deployment-id=override"],
+        ),
+        SERVICE_ACCOUNT,
+        expected_command=("python", "scripts/google_ads_paused_worker_job.py"),
+    )
+    replaceable_script = readiness._job_runtime(
+        _job_payload(
+            command=["python"],
+            args=["scripts/google_ads_paused_worker_job.py"],
+        ),
+        SERVICE_ACCOUNT,
+        expected_command=("python", "scripts/google_ads_paused_worker_job.py"),
+    )
+
+    assert valid["exact_probe_command"] is True
+    assert valid["runtime_ready"] is True
+    for unsafe in (extra_argument, replaceable_script):
         assert unsafe["exact_probe_command"] is False
         assert unsafe["runtime_ready"] is False
 
@@ -577,7 +667,15 @@ def test_storefront_project_job_role_blocks_authority_separation():
 
 def test_storefront_resource_invoker_role_blocks_authority_separation():
     responses = _healthy_responses()
-    responses[("gcloud", "run", "jobs", "get-iam-policy")] = json.dumps(
+    responses[
+        (
+            "gcloud",
+            "run",
+            "jobs",
+            "get-iam-policy",
+            readiness.ADS_PAUSED_CREATE_JOB_ID,
+        )
+    ] = json.dumps(
         {
             "bindings": [
                 {
@@ -596,6 +694,28 @@ def test_storefront_resource_invoker_role_blocks_authority_separation():
     assert result["readiness"]["presence_ready"] is False
 
 
+@pytest.mark.parametrize("member", ["allUsers", "allAuthenticatedUsers"])
+def test_public_job_invocation_binding_blocks_fixed_protocol(member):
+    responses = _healthy_responses()
+    responses[
+        (
+            "gcloud",
+            "run",
+            "jobs",
+            "get-iam-policy",
+            readiness.ADS_PAUSED_CREATE_JOB_ID,
+        )
+    ] = json.dumps({"bindings": [{"role": "roles/run.invoker", "members": [member]}]})
+    run, _calls = _runner(responses)
+
+    result = readiness.audit(PROJECT, "project-go-forward", "us-central1", runner=run)
+
+    assert result["paused_create_job"]["override_capable_bindings_absent"] is False
+    assert result["paused_create_job"]["execution_iam_ready"] is False
+    assert result["readiness"]["paused_create_path"] is False
+    assert result["readiness"]["presence_ready"] is False
+
+
 @pytest.mark.parametrize(
     "role",
     [
@@ -607,7 +727,7 @@ def test_storefront_resource_invoker_role_blocks_authority_separation():
 )
 def test_override_capable_or_unknown_job_iam_blocks_fixed_protocol(role):
     responses = _healthy_responses()
-    responses[("gcloud", "run", "jobs", "get-iam-policy")] = json.dumps(
+    responses[("gcloud", "run", "jobs", "get-iam-policy", readiness.ADS_JOB_ID)] = json.dumps(
         {"bindings": [{"role": role, "members": ["user:operator@example.invalid"]}]}
     )
     run, _calls = _runner(responses)
@@ -767,4 +887,17 @@ def test_service_account_without_a_runnable_dedicated_job_is_not_an_auth_path():
     assert result["service_account"]["dedicated_identity_present"] is True
     assert result["job"]["dedicated_job_present"] is False
     assert result["auth_paths"]["service_account_adc"] is False
+    assert result["readiness"]["presence_ready"] is False
+
+
+def test_missing_paused_create_job_blocks_provider_readiness_without_weakening_probe_path():
+    responses = _healthy_responses()
+    responses[("gcloud", "run", "jobs", "list")] = f"{readiness.ADS_JOB_ID}\n"
+    run, _calls = _runner(responses)
+
+    result = readiness.audit(PROJECT, "project-go-forward", "us-central1", runner=run)
+
+    assert result["auth_paths"]["service_account_adc"] is True
+    assert result["paused_create_job"]["dedicated_job_present"] is False
+    assert result["readiness"]["paused_create_path"] is False
     assert result["readiness"]["presence_ready"] is False

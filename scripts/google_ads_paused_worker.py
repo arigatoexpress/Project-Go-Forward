@@ -833,6 +833,7 @@ def _assert_paused_request_pair(
 
     paused_operation_names = {
         "campaignOperation",
+        "campaignCriterionOperation",
         "adGroupOperation",
         "adGroupCriterionOperation",
         "adGroupAdOperation",
