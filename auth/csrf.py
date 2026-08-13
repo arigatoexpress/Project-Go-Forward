@@ -42,6 +42,18 @@ def require_request_csrf(request: Request) -> None:
         raise HTTPException(status_code=403, detail="CSRF token missing or invalid")
 
 
+def require_cookie_csrf(request: Request) -> None:
+    """Require strict double-submit CSRF with no bearer/header exemption.
+
+    Owner-sensitive routes use this after authenticating an exact passkey
+    session. A bearer or shared-admin header must never weaken that proof.
+    """
+    csrf_cookie = request.cookies.get(CSRF_COOKIE_NAME, "")
+    csrf_header = request.headers.get(CSRF_HEADER_NAME, "")
+    if not (csrf_cookie and csrf_header and secrets.compare_digest(csrf_cookie, csrf_header)):
+        raise HTTPException(status_code=403, detail="CSRF token missing or invalid")
+
+
 def set_csrf_cookie(
     response: Response,
     token: str,

@@ -152,6 +152,9 @@ describe('GoogleAdsStatusCard', () => {
     expect(screen.getByText('Durable review state')).toBeInTheDocument();
     expect(screen.getByText('1 recorded event')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Run offline server validation' })).toBeEnabled();
+    expect(screen.getByRole('heading', { name: 'Owner verification prerequisite' })).toBeInTheDocument();
+    expect(screen.getByText('No owner action is available in this build.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /owner|passkey|paused|campaign/i })).not.toBeInTheDocument();
     expect(screen.queryByText(/approve/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/create campaign/i)).not.toBeInTheDocument();
     expect(adminFetch).toHaveBeenCalledWith('/api/admin/google-ads/draft', {

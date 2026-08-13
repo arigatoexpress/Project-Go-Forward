@@ -49,10 +49,11 @@ from auth.email_code import (
     generate_code,
     hash_code,
 )
+from auth.google_ads_step_up_routes import router as google_ads_step_up_router
 from auth.routes import is_allowed_admin_email
 from auth.routes import router as passkey_router
 from auth.session import SESSION_COOKIE_NAME as PASSKEY_COOKIE_NAME
-from auth.session import SessionManager
+from auth.session import SessionManager, validate_cloud_run_session_secret
 from config_loader import business_name, get_deployment_config
 from inventory_classification import normalize_inventory_classification
 
@@ -938,14 +939,19 @@ import base64
 import hmac
 import struct
 
-# Derive a stable session secret from the PIN hash if not explicitly provided.
-# This prevents random secret rotation on every Cloud Run cold start, which
-# causes session invalidation and 'double PIN gates'.
-if not os.environ.get("ADMIN_SESSION_SECRET") and ADMIN_PIN_HASH:
-    # Use a different salt from the JWT secret below
-    _derived_secret = hashlib.sha256(f"tho-session-v2-{ADMIN_PIN_HASH}".encode()).hexdigest()
-    os.environ["ADMIN_SESSION_SECRET"] = _derived_secret
-    logger.info("ADMIN_SESSION_SECRET derived from PIN hash for stability")
+# Production passkey claims must use an independent secret that no shared PIN
+# holder can derive. Local development keeps the stable fallback to avoid
+# invalidating sessions on every restart.
+if os.environ.get("K_SERVICE"):
+    validate_cloud_run_session_secret(
+        os.environ.get("ADMIN_SESSION_SECRET"),
+        admin_pin_hash=ADMIN_PIN_HASH,
+    )
+elif not os.environ.get("ADMIN_SESSION_SECRET"):
+    if ADMIN_PIN_HASH:
+        _derived_secret = hashlib.sha256(f"tho-session-v2-{ADMIN_PIN_HASH}".encode()).hexdigest()
+        os.environ["ADMIN_SESSION_SECRET"] = _derived_secret
+        logger.info("ADMIN_SESSION_SECRET derived from PIN hash for local stability")
 
 ADMIN_TOKEN_TTL = int(os.environ.get("ADMIN_TOKEN_TTL", str(24 * 60 * 60)))  # 24 hours
 _JWT_SECRET = hashlib.sha256(f"sapphire-jwt-{ADMIN_PIN_HASH[:16]}".encode()).digest()
@@ -8124,6 +8130,7 @@ from pm_routes import router as pm_router
 
 app.include_router(pm_router, dependencies=[Depends(require_admin)])
 app.include_router(passkey_router)
+app.include_router(google_ads_step_up_router)
 app.include_router(google_ads_admin_router, dependencies=[Depends(require_admin)])
 
 

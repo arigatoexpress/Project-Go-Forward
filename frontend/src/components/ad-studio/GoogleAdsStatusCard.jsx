@@ -92,6 +92,18 @@ export default function GoogleAdsStatusCard() {
         </article>
       </div>
 
+      <article className="google-ads-status-panel" aria-labelledby="owner-verification-heading">
+        <h2 id="owner-verification-heading">Owner verification prerequisite</h2>
+        <p>
+          A future paused-creation review will require an exact server allowlist, a
+          freshly verified owner passkey, unchanged reviewed limits, and matching
+          account-access evidence.
+        </p>
+        <p className="google-ads-actions-locked" role="status">
+          No owner action is available in this build.
+        </p>
+      </article>
+
       <article className="google-ads-status-panel" aria-labelledby="workflow-heading">
         <h2 id="workflow-heading">Offline review workflow</h2>
         <ol className="google-ads-workflow">

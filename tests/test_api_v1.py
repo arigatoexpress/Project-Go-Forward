@@ -638,6 +638,10 @@ def load_app(monkeypatch, tho_api_key: str | None = "tho-secret", rate_limit_rpm
         index_html.write_text(spa_shell)
 
     sys.modules.pop("database.models", None)
+    from database.models import GoogleAdsAccessEvidenceRecord as RealGoogleAdsAccessEvidenceRecord
+    from database.models import GoogleAdsAuthorityEventRecord as RealGoogleAdsAuthorityEventRecord
+    from database.models import GoogleAdsDeploymentRecord as RealGoogleAdsDeploymentRecord
+    from database.models import GoogleAdsOperationKeyRecord as RealGoogleAdsOperationKeyRecord
     from database.models import Inventory as RealInventory
     from database.models import InventoryWrite as RealInventoryWrite
 
@@ -720,6 +724,10 @@ def load_app(monkeypatch, tho_api_key: str | None = "tho-secret", rate_limit_rpm
     database_models_module = types.ModuleType("database.models")
     database_models_module.Deal = FakeDeal
     database_models_module.DealStatus = FakeDealStatus
+    database_models_module.GoogleAdsAccessEvidenceRecord = RealGoogleAdsAccessEvidenceRecord
+    database_models_module.GoogleAdsAuthorityEventRecord = RealGoogleAdsAuthorityEventRecord
+    database_models_module.GoogleAdsDeploymentRecord = RealGoogleAdsDeploymentRecord
+    database_models_module.GoogleAdsOperationKeyRecord = RealGoogleAdsOperationKeyRecord
     database_models_module.Inventory = RealInventory
     database_models_module.InventoryWrite = RealInventoryWrite
     monkeypatch.setitem(sys.modules, "database.models", database_models_module)

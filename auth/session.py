@@ -5,6 +5,7 @@ Uses itsdangerous URLSafeTimedSerializer for tamper-resistant cookies.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import secrets
 from base64 import urlsafe_b64decode, urlsafe_b64encode
@@ -19,6 +20,10 @@ PASSKEY_COOKIE_NAME = "tho_passkey_session"
 # while main.py verifies ``tho_passkey_session``. Keep one canonical cookie
 # name so successful WebAuthn logins are actually honored by admin routes.
 SESSION_COOKIE_NAME = PASSKEY_COOKIE_NAME
+MIN_CLOUD_SESSION_SECRET_BYTES = 32
+_INVALID_CLOUD_SECRET = (  # pragma: allowlist secret
+    "ADMIN_SESSION_SECRET does not meet Cloud Run security requirements"
+)
 
 
 def _b64url_encode(data: bytes) -> str:
@@ -28,6 +33,24 @@ def _b64url_encode(data: bytes) -> str:
 def _b64url_decode(s: str) -> bytes:
     padding = "=" * (-len(s) % 4)
     return urlsafe_b64decode(s + padding)
+
+
+def validate_cloud_run_session_secret(secret: str | None, *, admin_pin_hash: str) -> str:
+    """Validate an independent production secret using its exact UTF-8 bytes."""
+    if not secret:
+        raise RuntimeError(_INVALID_CLOUD_SECRET)
+    secret_bytes = secret.encode("utf-8")
+    if len(secret_bytes) < MIN_CLOUD_SESSION_SECRET_BYTES:
+        raise RuntimeError(_INVALID_CLOUD_SECRET)
+    legacy_derived = hashlib.sha256(f"tho-session-v2-{admin_pin_hash}".encode()).hexdigest()
+    if (
+        admin_pin_hash and secrets.compare_digest(secret_bytes, admin_pin_hash.encode("utf-8"))
+    ) or secrets.compare_digest(
+        secret_bytes,
+        legacy_derived.encode("utf-8"),
+    ):
+        raise RuntimeError(_INVALID_CLOUD_SECRET)
+    return secret
 
 
 class SessionManager:
@@ -42,8 +65,13 @@ class SessionManager:
         salt: str = "tho-admin-session-v1",
     ) -> None:
         secret = secret_key or os.environ.get("ADMIN_SESSION_SECRET")
-        if not secret:
-            # Dev-only fallback. Real deploys must set ADMIN_SESSION_SECRET.
+        if os.environ.get("K_SERVICE"):
+            secret = validate_cloud_run_session_secret(
+                secret,
+                admin_pin_hash=os.environ.get("ADMIN_PIN_HASH", ""),
+            )
+        elif not secret:
+            # Dev-only fallback. Real deploys fail closed above.
             secret = secrets.token_urlsafe(32)
         self._serializer = URLSafeTimedSerializer(secret, salt=salt)
         self._challenge_serializer = URLSafeTimedSerializer(secret, salt=f"{salt}-challenge")
