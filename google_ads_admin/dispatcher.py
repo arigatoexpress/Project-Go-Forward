@@ -13,6 +13,10 @@ _JOB_RE = re.compile(r"^[a-z][a-z0-9-]{0,61}[a-z0-9]$")
 class DispatchError(RuntimeError):
     """Sanitized fixed-dispatch failure."""
 
+    def __init__(self, *, acceptance_unknown: bool) -> None:
+        super().__init__("job_invocation_failed")
+        self.acceptance_unknown = acceptance_unknown
+
 
 class FixedCloudRunJobDispatcher:
     """Invoke exactly one configured job with an empty v2 ``run`` request body."""
@@ -59,6 +63,12 @@ class FixedCloudRunJobDispatcher:
                 timeout=self._timeout_seconds,
             )
         except Exception:
-            raise DispatchError("job_invocation_failed") from None
+            raise DispatchError(acceptance_unknown=True) from None
         if not getattr(response, "ok", False):
-            raise DispatchError("job_invocation_failed")
+            status_code = getattr(response, "status_code", None)
+            known_rejection = (
+                isinstance(status_code, int)
+                and not isinstance(status_code, bool)
+                and 400 <= status_code < 500
+            )
+            raise DispatchError(acceptance_unknown=not known_rejection)

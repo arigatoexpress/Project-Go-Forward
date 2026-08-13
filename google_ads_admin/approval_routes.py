@@ -9,7 +9,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.concurrency import run_in_threadpool
 
-from auth.google_ads_step_up import StepUpProofReference, verify_proof_reference
+from auth.google_ads_step_up import (
+    StepUpProofReference,
+    email_hash,
+    verify_proof_reference,
+)
 from auth.google_ads_step_up_routes import (
     get_session_manager,
     require_owner_step_up,
@@ -105,6 +109,7 @@ def _checked_in_identity(request: PausedCreateApprovalRequest) -> tuple[str, dic
 def _verify_request_proof(
     manager: SessionManager,
     request: PausedCreateApprovalRequest,
+    owner_email: str,
 ) -> StepUpProofReference:
     proof = verify_proof_reference(manager, request.proof_reference)
     if (
@@ -112,6 +117,7 @@ def _verify_request_proof(
         or proof.proof_id != request.proof_id
         or proof.access_evidence_id != request.access_evidence_id
         or proof.deployment_id != request.deployment_id
+        or proof.owner_email_hash != email_hash(owner_email)
     ):
         raise InvalidStateTransition("owner proof changed")
     return proof
@@ -191,14 +197,14 @@ async def approve_paused_create(
     request: PausedCreateApprovalRequest,
     manager: SessionManager = Depends(get_session_manager),
     ledger: FirestoreAuthorityLedger = Depends(get_approval_ledger),
-    _owner_email: str = Depends(require_owner_step_up),
+    owner_email: str = Depends(require_owner_step_up),
 ):
     """Consume one owner UV proof and atomically queue PAUSED-only work."""
     runtime = PausedCreateApprovalRuntime.from_env()
     if not runtime.approval_available:
         raise HTTPException(503, "PAUSED-only approval prerequisites are unavailable.")
     try:
-        proof = _verify_request_proof(manager, request)
+        proof = _verify_request_proof(manager, request, owner_email)
         contract_hash, caps = _checked_in_identity(request)
         if proof.contract_hash != contract_hash:
             raise InvalidStateTransition("reviewed contract changed")

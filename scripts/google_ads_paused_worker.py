@@ -206,6 +206,7 @@ class AuthorityLedger(Protocol):
         claimant: str,
         *,
         expected_version: int | None = None,
+        require_dispatch_outbox: bool = False,
     ) -> bool: ...
 
     def complete_paused_create(
@@ -472,7 +473,13 @@ class InMemoryAuthorityLedger:
         claimant: str,
         *,
         expected_version: int | None = None,
+        require_dispatch_outbox: bool = False,
     ) -> bool:
+        # The in-memory ledger is the provider/control-plane test seam and has
+        # no durable dispatch-outbox collection. Production enforcement lives
+        # in Firestore; the fixed worker job also checks its outbox before it
+        # constructs the provider adapter.
+        del require_dispatch_outbox
         claimant_hash = _claimant_hash(claimant)
         with self._lock:
             self._assert_write_available()
@@ -982,7 +989,11 @@ class PausedCreateWorker:
         if record.create_fenced_at is not None:
             return self._run_fenced_reconciliation(record, claimant)
         try:
-            claimed = self._ledger.claim_paused_create(deployment_id, claimant)
+            claimed = self._ledger.claim_paused_create(
+                deployment_id,
+                claimant,
+                require_dispatch_outbox=True,
+            )
         except ControlPlaneError:
             return _safe_result(record, error_code="ledger_write_failed")
         if not claimed:

@@ -27,19 +27,55 @@ def run_dispatcher_job(
     target = deployment_id(contract)
     claimant = claimant_factory()
     if not ledger.claim_paused_create_outbox(target, claimant):
-        outbox = ledger.get_paused_create_outbox(target)
+        outbox_state = ledger.reconcile_terminal_paused_create_outbox(target)
         return {
             "schema_version": 1,
             "deployment_id": target,
-            "outbox_state": outbox.state,
+            "outbox_state": outbox_state,
             "dispatch_attempted": False,
-            "dispatch_succeeded": outbox.state == "DISPATCHED",
+            "dispatch_succeeded": outbox_state == "DISPATCHED",
             "spend_enabled": False,
         }
     try:
         dispatcher.invoke()
-    except DispatchError:
-        ledger.release_paused_create_outbox(target, claimant)
+    except DispatchError as exc:
+        outbox_state = ledger.reconcile_terminal_paused_create_outbox(target)
+        if outbox_state == "DISPATCHED":
+            return {
+                "schema_version": 1,
+                "deployment_id": target,
+                "outbox_state": outbox_state,
+                "dispatch_attempted": True,
+                "dispatch_succeeded": True,
+                "spend_enabled": False,
+            }
+        if exc.acceptance_unknown:
+            return {
+                "schema_version": 1,
+                "deployment_id": target,
+                "outbox_state": "DISPATCHING",
+                "dispatch_attempted": True,
+                "dispatch_succeeded": False,
+                "error_code": "job_invocation_acceptance_unknown",
+                "spend_enabled": False,
+            }
+        try:
+            ledger.release_paused_create_outbox(target, claimant)
+        except Exception:
+            # The worker can settle the authority between reconciliation and
+            # release. Heal that one safe race; every non-terminal conflict
+            # still fails closed through main's sanitized unavailable result.
+            outbox_state = ledger.reconcile_terminal_paused_create_outbox(target)
+            if outbox_state != "DISPATCHED":
+                raise
+            return {
+                "schema_version": 1,
+                "deployment_id": target,
+                "outbox_state": outbox_state,
+                "dispatch_attempted": True,
+                "dispatch_succeeded": True,
+                "spend_enabled": False,
+            }
         return {
             "schema_version": 1,
             "deployment_id": target,
@@ -49,13 +85,13 @@ def run_dispatcher_job(
             "error_code": "job_invocation_failed",
             "spend_enabled": False,
         }
-    ledger.complete_paused_create_outbox(target, claimant)
     return {
         "schema_version": 1,
         "deployment_id": target,
-        "outbox_state": "DISPATCHED",
+        "outbox_state": "DISPATCHING",
         "dispatch_attempted": True,
-        "dispatch_succeeded": True,
+        "dispatch_accepted": True,
+        "dispatch_succeeded": False,
         "spend_enabled": False,
     }
 
@@ -122,7 +158,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "spend_enabled": False,
         }
     print(json.dumps(result, sort_keys=True))
-    return 0 if result.get("dispatch_succeeded") else 1
+    return 0 if result.get("dispatch_succeeded") or result.get("dispatch_accepted") else 1
 
 
 if __name__ == "__main__":

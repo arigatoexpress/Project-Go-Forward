@@ -4,6 +4,7 @@ import { CircleAlert, CircleCheck, Search, ShieldCheck } from 'lucide-react';
 import {
   approveGoogleAdsPausedCreate,
   ensureGoogleAdsInternalDraft,
+  getGoogleAdsDeploymentReadiness,
   getGoogleAdsPausedCreateApprovalReadiness,
   runGoogleAdsServerValidation,
   verifyGoogleAdsPausedCreateOwner,
@@ -34,9 +35,9 @@ export default function GoogleAdsStatusCard() {
     if (nextStatus?.state === 'PAUSED_CREATE_APPROVED') {
       setApprovalReadiness(null);
       const outbox = nextStatus.paused_create?.outbox_state?.toLowerCase() || 'recorded';
-      setApprovalRemediation(
-        `PAUSED-only creation is approved; durable outbox is ${outbox}. No spend is enabled.`,
-      );
+      setApprovalRemediation(nextStatus.paused_create?.outbox_state === 'FAILED'
+        ? 'PAUSED-only creation remains approved, but the bounded dispatcher attempts are exhausted. Keep the feature disabled and review the sanitized job evidence. No spend is enabled.'
+        : `PAUSED-only creation is approved; durable outbox is ${outbox}. No spend is enabled.`);
       return;
     }
     if (nextStatus?.state === 'PAUSED_CREATED') {
@@ -102,7 +103,17 @@ export default function GoogleAdsStatusCard() {
     setApprovalError('');
     try {
       const proof = await verifyGoogleAdsPausedCreateOwner(approvalReadiness);
-      setApprovalResult(await approveGoogleAdsPausedCreate(approvalReadiness, proof));
+      const result = await approveGoogleAdsPausedCreate(approvalReadiness, proof);
+      setApprovalResult(result);
+      try {
+        const terminalStatus = await getGoogleAdsDeploymentReadiness();
+        setStatus(terminalStatus);
+        await refreshApprovalReadiness(terminalStatus);
+      } catch (_refreshError) {
+        setApprovalError(
+          'PAUSED-only approval was recorded, but durable status refresh is unavailable. Refresh before taking any further action.',
+        );
+      }
     } catch (error) {
       setApprovalError(error.message || 'PAUSED-only approval failed. Refresh and retry.');
     } finally {
@@ -193,7 +204,11 @@ export default function GoogleAdsStatusCard() {
         )}
         {approvalResult && (
           <p className="google-ads-validation-success" role="status">
-            PAUSED-only creation approved. Durable outbox pending; no spend is enabled.
+            {status.state === 'PAUSED_CREATED'
+              ? 'PAUSED resources were created and reconciled. They remain inactive; no spend is enabled.'
+              : status.state === 'PAUSED_CREATE_APPROVED'
+                ? `PAUSED-only creation approved. Durable outbox ${status.paused_create.outbox_state.toLowerCase()}; no spend is enabled.`
+                : 'PAUSED-only approval recorded. Refresh durable status before any further action; no spend is enabled.'}
           </p>
         )}
         {approvalError && <p className="google-ads-validation-error" role="alert">{approvalError}</p>}

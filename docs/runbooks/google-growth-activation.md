@@ -80,8 +80,12 @@ path (GA4 or GTM) must be configured.
 Search Console and Business Profile API status remains advisory and does not
 block Ads presence readiness. A green presence audit does **not** prove the
 identity has Google Ads account access. IAM checks cover direct project and
-job/secret/service-account resource bindings; folder/organization inheritance
-and transitive group membership remain an explicit external operator review.
+   job/secret/service-account resource bindings; folder/organization inheritance
+and transitive group membership remain an explicit external operator review. The
+audit also requires the storefront and all three jobs to report the same 40-hex
+`APP_VERSION` and the same immutable `@sha256:` container-image digest. That is
+not cryptographic digest-to-Git provenance: the go-live packet must separately
+record the verified image-digest-to-candidate-SHA build mapping.
 
 The account-access probe is offline by default:
 
@@ -103,7 +107,10 @@ expires after five minutes and does not authorize campaign creation or spend.
 The paused-create job is a separate, fixed protocol. There is no storefront job
 invocation route, and it accepts no deployment ID, request body, credential
 selector, or command-line override. It can consume only an existing
-`PAUSED_CREATE_APPROVED` authority record for the checked-in contract. The v25
+`PAUSED_CREATE_APPROVED` authority record for the checked-in contract while the
+same transaction observes its durable outbox in `DISPATCHING`; a direct or
+scheduled worker invocation while `PENDING`, `FAILED`, or `DISPATCHED` is inert.
+The v25
 REST adapter first submits the exact atomic graph with `validateOnly=true` and
 `partialFailure=false`, then submits the same operation graph with
 `validateOnly=false`. Campaign, campaign criteria, ad groups, keywords, and ads
@@ -129,8 +136,13 @@ Outbox delivery belongs to a third, fixed zero-argument Cloud Run Job running
 identity with only Firestore access and non-override invocation permission on
 the single configured `google-growth-paused-create` job. It sends the official
 Cloud Run v2 `:run` request with an empty JSON body: no request, environment,
-argument, credential, or executable overrides are representable. Failed
-invocation returns the durable row to `PENDING`; duplicate dispatchers use a
+argument, credential, or executable overrides are representable. Cloud Run's
+acceptance leaves the row `DISPATCHING`; it is not provider success. Only the
+worker's durable `PAUSED_CREATED` reconciliation settles `DISPATCHED`. A definite
+4xx rejection or sanitized worker failure re-arms `PENDING`; an ambiguous timeout
+or server failure stays leased as `DISPATCHING` so a possibly accepted worker can
+finish, then becomes reclaimable after expiry. After three attempts the outbox
+becomes `FAILED` and requires operator remediation. Duplicate dispatchers use a
 lease and cannot submit concurrently. The dispatcher remains inert unless both
 the approval and dispatch flags are explicitly true and the current app
 revision matches the externally verified readiness revision.
@@ -241,6 +253,14 @@ execution surface has:
   `run.jobs.runWithOverrides`. Custom and override-capable job roles fail the
   readiness audit. Privileged infrastructure administrators can replace the
   job itself and remain subject to the separate production-change gate;
+- the dispatcher identity is the only execution-role member on the paused-create
+  job; operator execution roles remain limited to the access-evidence and
+  dispatcher jobs, never the provider target. Project-wide built-in Cloud Run
+  execution/admin/developer roles fail readiness because they bypass that
+  resource boundary;
+- storefront, access-evidence, paused-create, and dispatcher runtimes use one
+  immutable image digest and one exact `APP_VERSION`; separately verify and
+  record the build provenance mapping from that digest to the candidate Git SHA;
 - no public endpoint, campaign activation command, or spend authority.
 
 The `google-growth-paused-dispatch` job must use the exact two-element command

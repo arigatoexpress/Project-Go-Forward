@@ -11,6 +11,7 @@ SERVICE_ACCOUNT_MEMBER = f"serviceAccount:{SERVICE_ACCOUNT}"
 DISPATCHER_SERVICE_ACCOUNT = "google-growth-dispatcher@tho-ai-agent.iam.gserviceaccount.com"
 DISPATCHER_SERVICE_ACCOUNT_MEMBER = f"serviceAccount:{DISPATCHER_SERVICE_ACCOUNT}"
 STOREFRONT_SERVICE_ACCOUNT = "project-go-forward@tho-ai-agent.iam.gserviceaccount.com"
+IMAGE = f"us-docker.pkg.dev/{PROJECT}/cloud-run-source-deploy/app@sha256:{'d' * 64}"
 
 
 def _runner(responses):
@@ -58,7 +59,9 @@ def _job_payload(
                     "template": {
                         "spec": {
                             "serviceAccountName": service_account,
-                            "containers": [{"command": command, "args": args, "env": env}],
+                            "containers": [
+                                {"image": IMAGE, "command": command, "args": args, "env": env}
+                            ],
                         }
                     }
                 }
@@ -139,6 +142,7 @@ def _healthy_responses(
         enabled_services = readiness.SERVICES
     if runtime_env is None:
         runtime_env = [{"name": "GTM_CONTAINER_ID", "value": "GTM-DO-NOT-LEAK"}]
+    runtime_env = [*runtime_env, {"name": "APP_VERSION", "value": "a" * 40}]
     return {
         ("gcloud", "services", "list"): "\n".join(enabled_services),
         ("gcloud", "secrets", "list"): ("google-ads-developer-token\ngoogle-ads-customer-id\n"),
@@ -148,6 +152,7 @@ def _healthy_responses(
         ("gcloud", "iam", "service-accounts", "keys"): "",
         ("gcloud", "iam", "service-accounts", "get-iam-policy"): json.dumps({"bindings": []}),
         ("gcloud", "projects", "get-iam-policy"): _project_iam_policy(),
+        ("gcloud", "secrets", "get-iam-policy"): json.dumps({"bindings": []}),
         (
             "gcloud",
             "secrets",
@@ -241,7 +246,7 @@ def _healthy_responses(
                     "template": {
                         "spec": {
                             "serviceAccountName": STOREFRONT_SERVICE_ACCOUNT,
-                            "containers": [{"env": runtime_env}],
+                            "containers": [{"image": IMAGE, "env": runtime_env}],
                         }
                     }
                 }
@@ -369,6 +374,7 @@ def test_dedicated_service_account_is_preferred_without_legacy_oauth_secrets():
         "runtime_ready": True,
         "override_capable_bindings_absent": True,
         "execution_iam_ready": True,
+        "project_job_execution_bindings_absent": True,
     }
     assert result["paused_dispatcher"] == {
         "dedicated_identity_present": True,
@@ -403,6 +409,8 @@ def test_dedicated_service_account_is_preferred_without_legacy_oauth_secrets():
         "ads_auth_path": True,
         "paused_create_path": True,
         "paused_dispatcher_path": True,
+        "exact_runtime_revision": True,
+        "immutable_image_consistent": True,
         "legacy_oauth_secrets_absent": True,
         "storefront_ads_credentials_absent": True,
         "storefront_secret_access_absent": True,
@@ -704,6 +712,70 @@ def test_missing_dispatcher_or_storefront_dispatcher_invocation_blocks_readiness
     assert storefront_result["readiness"]["presence_ready"] is False
 
 
+def test_runtime_revision_or_immutable_image_drift_blocks_candidate_readiness():
+    revision_drift = _healthy_responses(
+        paused_create_job_payload=_job_payload(
+            script="scripts/google_ads_paused_worker_job.py",
+            env=[
+                {
+                    "name": "GOOGLE_ADS_DEVELOPER_TOKEN",
+                    "valueFrom": {"secretKeyRef": {"name": "google-ads-developer-token"}},
+                },
+                {
+                    "name": "GOOGLE_ADS_CUSTOMER_ID",
+                    "valueFrom": {"secretKeyRef": {"name": "google-ads-customer-id"}},
+                },
+                {"name": "APP_VERSION", "value": "b" * 40},
+            ],
+        )
+    )
+    revision_result = readiness.audit(
+        PROJECT, "project-go-forward", "us-central1", runner=_runner(revision_drift)[0]
+    )
+
+    image_drift_payload = _dispatcher_job_payload()
+    image_drift_payload["spec"]["template"]["spec"]["template"]["spec"]["containers"][0][
+        "image"
+    ] = f"us-docker.pkg.dev/{PROJECT}/app@sha256:{'e' * 64}"
+    image_result = readiness.audit(
+        PROJECT,
+        "project-go-forward",
+        "us-central1",
+        runner=_runner(_healthy_responses(dispatcher_job_payload=image_drift_payload))[0],
+    )
+
+    assert revision_result["readiness"]["exact_runtime_revision"] is False
+    assert revision_result["readiness"]["presence_ready"] is False
+    assert image_result["readiness"]["immutable_image_consistent"] is False
+    assert image_result["readiness"]["presence_ready"] is False
+
+
+def test_unbound_optional_ads_secret_access_by_dispatcher_or_storefront_blocks_readiness():
+    for member in (
+        DISPATCHER_SERVICE_ACCOUNT_MEMBER,
+        f"serviceAccount:{STOREFRONT_SERVICE_ACCOUNT}",
+    ):
+        responses = _healthy_responses()
+        responses[("gcloud", "secrets", "list")] += "google-ads-login-customer-id\n"
+        responses[
+            (
+                "gcloud",
+                "secrets",
+                "get-iam-policy",
+                "google-ads-login-customer-id",
+            )
+        ] = json.dumps(
+            {"bindings": [{"role": "roles/secretmanager.secretAccessor", "members": [member]}]}
+        )
+
+        result = readiness.audit(
+            PROJECT, "project-go-forward", "us-central1", runner=_runner(responses)[0]
+        )
+
+        assert result["readiness"]["presence_ready"] is False
+        assert member not in json.dumps(result)
+
+
 def test_job_runtime_requires_pinned_source_revision_and_rejects_arbitrary_env_overrides():
     required = _job_payload()["spec"]["template"]["spec"]["template"]["spec"]["containers"][0][
         "env"
@@ -971,6 +1043,65 @@ def test_public_job_invocation_binding_blocks_fixed_protocol(member):
     assert result["paused_create_job"]["execution_iam_ready"] is False
     assert result["readiness"]["paused_create_path"] is False
     assert result["readiness"]["presence_ready"] is False
+
+
+def test_paused_create_target_rejects_every_additional_executor():
+    responses = _healthy_responses()
+    responses[
+        (
+            "gcloud",
+            "run",
+            "jobs",
+            "get-iam-policy",
+            readiness.ADS_PAUSED_CREATE_JOB_ID,
+        )
+    ] = json.dumps(
+        {
+            "bindings": [
+                {
+                    "role": "roles/run.invoker",
+                    "members": [
+                        DISPATCHER_SERVICE_ACCOUNT_MEMBER,
+                        "user:operator@example.invalid",
+                    ],
+                }
+            ]
+        }
+    )
+    result = readiness.audit(
+        PROJECT, "project-go-forward", "us-central1", runner=_runner(responses)[0]
+    )
+
+    assert result["paused_create_job"]["execution_iam_ready"] is False
+    assert result["readiness"]["paused_create_path"] is False
+    assert result["readiness"]["presence_ready"] is False
+    assert "operator@example.invalid" not in json.dumps(result)
+
+
+@pytest.mark.parametrize(
+    "role",
+    [
+        "roles/run.admin",
+        "roles/run.developer",
+        "roles/run.invoker",
+        "roles/run.jobsExecutor",
+        "roles/run.jobsExecutorWithOverrides",
+    ],
+)
+def test_paused_create_rejects_project_wide_job_execution_roles(role):
+    responses = _healthy_responses()
+    policy = json.loads(responses[("gcloud", "projects", "get-iam-policy")])
+    policy["bindings"].append({"role": role, "members": ["user:operator@example.invalid"]})
+    responses[("gcloud", "projects", "get-iam-policy")] = json.dumps(policy)
+
+    result = readiness.audit(
+        PROJECT, "project-go-forward", "us-central1", runner=_runner(responses)[0]
+    )
+
+    assert result["paused_create_job"]["project_job_execution_bindings_absent"] is False
+    assert result["readiness"]["paused_create_path"] is False
+    assert result["readiness"]["presence_ready"] is False
+    assert "operator@example.invalid" not in json.dumps(result)
 
 
 @pytest.mark.parametrize(

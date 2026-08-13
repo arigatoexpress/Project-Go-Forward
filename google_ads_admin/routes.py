@@ -48,7 +48,7 @@ def get_authority_ledger() -> FirestoreAuthorityLedger:
 
 
 def _project_record(ledger, record):
-    events = ledger.list_events(record.deployment_id)
+    events = ledger.list_events(record.deployment_id, limit=min(record.version, 100))
     outbox_state = None
     if record.state.value in {"PAUSED_CREATE_APPROVED", "PAUSED_CREATED"}:
         outbox_state = ledger.get_paused_create_outbox(record.deployment_id).state

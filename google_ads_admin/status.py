@@ -82,16 +82,21 @@ def build_deployment_readiness(
         raise ValueError("durable Google Ads record does not match the reviewed contract")
 
     projected_events = [_event_projection(event, record) for event in events]
+    expected_evidence_count = min(record.version, 100)
+    first_projected_version = record.version - expected_evidence_count + 1
     if (
-        len(projected_events) != record.version
+        len(projected_events) != expected_evidence_count
         or [event["record_version"] for event in projected_events]
-        != list(range(1, record.version + 1))
-        or [event["event_type"] for event in projected_events[:3]]
-        != [
-            "INTERNAL_DRAFT_CREATED",
-            "SERVER_VALIDATED",
-            "PAUSED_CREATE_APPROVED",
-        ][: min(record.version, 3)]
+        != list(range(first_projected_version, record.version + 1))
+        or (
+            first_projected_version == 1
+            and [event["event_type"] for event in projected_events[:3]]
+            != [
+                "INTERNAL_DRAFT_CREATED",
+                "SERVER_VALIDATED",
+                "PAUSED_CREATE_APPROVED",
+            ][: min(record.version, 3)]
+        )
         or projected_events[-1]["to_state"] != record.state.value
     ):
         raise ValueError("authority event history does not match the durable review state")
@@ -102,7 +107,7 @@ def build_deployment_readiness(
     }:
         if outbox_state is not None:
             raise ValueError("pre-approval deployment cannot have an outbox state")
-    elif outbox_state not in {"PENDING", "DISPATCHING", "DISPATCHED"}:
+    elif outbox_state not in {"PENDING", "DISPATCHING", "DISPATCHED", "FAILED"}:
         raise ValueError("approved deployment requires a sanitized outbox state")
     if record.state is DeploymentState.PAUSED_CREATED and outbox_state != "DISPATCHED":
         raise ValueError("paused-created deployment requires dispatched outbox evidence")
@@ -143,5 +148,9 @@ def build_deployment_readiness(
             "activation_authorized": False,
             "spend_enabled": False,
         },
-        "events": {"count": len(projected_events), "items": projected_events},
+        "events": {
+            "count": record.version,
+            "first_version": first_projected_version,
+            "items": projected_events,
+        },
     }

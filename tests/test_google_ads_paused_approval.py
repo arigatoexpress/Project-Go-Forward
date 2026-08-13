@@ -299,6 +299,15 @@ def test_approval_route_rejects_pin_bearer_staff_stale_or_mismatched_proof(appro
         ).status_code
         == 403
     )
+    _owner(client, manager, email="aribspector@gmail.com")
+    assert (
+        client.post(
+            "/api/admin/google-ads/paused-create-approval",
+            headers={"X-CSRF-Token": CSRF},
+            json=body,
+        ).status_code
+        == 409
+    )
     _owner(client, manager, email="mark@texashomeoutlet.com")
     assert (
         client.post(
@@ -384,6 +393,28 @@ def test_fixed_dispatcher_uses_official_v2_run_endpoint_and_empty_body_only():
     ]
 
 
+def test_fixed_dispatcher_distinguishes_definite_rejection_from_unknown_acceptance():
+    class Rejected:
+        def post(self, *_args, **_kwargs):
+            return type("Response", (), {"ok": False, "status_code": 403})()
+
+    class TimedOut:
+        def post(self, *_args, **_kwargs):
+            raise TimeoutError("raw transport detail")
+
+    for transport, acceptance_unknown in ((Rejected(), False), (TimedOut(), True)):
+        dispatcher = FixedCloudRunJobDispatcher(
+            project="tho-ai-agent",
+            region="us-central1",
+            job="google-growth-paused-create",
+            transport=transport,
+        )
+        with pytest.raises(DispatchError) as raised:
+            dispatcher.invoke()
+        assert raised.value.acceptance_unknown is acceptance_unknown
+        assert "raw transport detail" not in str(raised.value)
+
+
 def test_dispatcher_failure_leaves_outbox_pending_and_success_settles_once():
     contract, deployment_id, _contract_hash = _identity()
 
@@ -404,17 +435,17 @@ def test_dispatcher_failure_leaves_outbox_pending_and_success_settles_once():
             assert (target, claimant) == (deployment_id, self.claimed)
             self.state = "PENDING"
 
-        def complete_paused_create_outbox(self, target, claimant):
-            assert (target, claimant) == (deployment_id, self.claimed)
-            self.state = "DISPATCHED"
-
         def get_paused_create_outbox(self, target):
             assert target == deployment_id
             return type("Outbox", (), {"state": self.state})()
 
+        def reconcile_terminal_paused_create_outbox(self, target):
+            assert target == deployment_id
+            return self.state
+
     class Failing:
         def invoke(self):
-            raise DispatchError("raw provider-looking detail")
+            raise DispatchError(acceptance_unknown=False)
 
     ledger = Ledger()
     failed = run_dispatcher_job(
@@ -434,8 +465,11 @@ def test_dispatcher_failure_leaves_outbox_pending_and_success_settles_once():
         contract=contract,
         claimant_factory=lambda: "dispatcher-two",
     )
-    assert completed["outbox_state"] == "DISPATCHED"
+    assert completed["outbox_state"] == "DISPATCHING"
+    assert completed["dispatch_accepted"] is True
+    assert completed["dispatch_succeeded"] is False
     assert invoked == [True]
+    ledger.state = "DISPATCHED"  # worker-only terminal reconciliation
     replay = run_dispatcher_job(
         ledger=ledger,
         dispatcher=type("Never", (), {"invoke": lambda self: invoked.append(False)})(),
@@ -445,6 +479,100 @@ def test_dispatcher_failure_leaves_outbox_pending_and_success_settles_once():
     assert replay["dispatch_attempted"] is False
     assert replay["dispatch_succeeded"] is True
     assert invoked == [True]
+
+
+def test_dispatcher_retry_heals_terminal_authority_after_post_invocation_crash():
+    contract, deployment_id, _contract_hash = _identity()
+
+    class Ledger:
+        def claim_paused_create_outbox(self, target, _claimant):
+            assert target == deployment_id
+            return False
+
+        def reconcile_terminal_paused_create_outbox(self, target):
+            assert target == deployment_id
+            return "DISPATCHED"
+
+        def get_paused_create_outbox(self, _target):
+            raise AssertionError("healed terminal state must be returned directly")
+
+    result = run_dispatcher_job(
+        ledger=Ledger(),
+        dispatcher=type(
+            "Never",
+            (),
+            {"invoke": lambda _self: (_ for _ in ()).throw(AssertionError("no redispatch"))},
+        )(),
+        contract=contract,
+        claimant_factory=lambda: "retry-after-crash",
+    )
+
+    assert result["outbox_state"] == "DISPATCHED"
+    assert result["dispatch_attempted"] is False
+    assert result["dispatch_succeeded"] is True
+
+
+def test_dispatcher_error_after_worker_completion_settles_terminal_without_release():
+    contract, deployment_id, _contract_hash = _identity()
+
+    class Ledger:
+        def claim_paused_create_outbox(self, target, _claimant):
+            assert target == deployment_id
+            return True
+
+        def reconcile_terminal_paused_create_outbox(self, target):
+            assert target == deployment_id
+            return "DISPATCHED"
+
+        def release_paused_create_outbox(self, _target, _claimant):
+            raise AssertionError("terminal outbox must never be released")
+
+    result = run_dispatcher_job(
+        ledger=Ledger(),
+        dispatcher=type(
+            "AcceptedThenErrored",
+            (),
+            {"invoke": lambda _self: (_ for _ in ()).throw(DispatchError(acceptance_unknown=True))},
+        )(),
+        contract=contract,
+        claimant_factory=lambda: "dispatcher-ambiguous",
+    )
+
+    assert result["outbox_state"] == "DISPATCHED"
+    assert result["dispatch_attempted"] is True
+    assert result["dispatch_succeeded"] is True
+    assert "error_code" not in result
+
+
+def test_dispatcher_ambiguous_acceptance_stays_leased_until_worker_or_expiry():
+    contract, deployment_id, _contract_hash = _identity()
+
+    class Ledger:
+        def claim_paused_create_outbox(self, target, _claimant):
+            assert target == deployment_id
+            return True
+
+        def reconcile_terminal_paused_create_outbox(self, target):
+            assert target == deployment_id
+            return "DISPATCHING"
+
+        def release_paused_create_outbox(self, _target, _claimant):
+            raise AssertionError("ambiguous acceptance must retain the lease")
+
+    result = run_dispatcher_job(
+        ledger=Ledger(),
+        dispatcher=type(
+            "Ambiguous",
+            (),
+            {"invoke": lambda _self: (_ for _ in ()).throw(DispatchError(acceptance_unknown=True))},
+        )(),
+        contract=contract,
+        claimant_factory=lambda: "dispatcher-ambiguous",
+    )
+
+    assert result["outbox_state"] == "DISPATCHING"
+    assert result["dispatch_succeeded"] is False
+    assert result["error_code"] == "job_invocation_acceptance_unknown"
 
 
 def test_dispatcher_cli_rejects_every_argument_before_production(monkeypatch, capsys):

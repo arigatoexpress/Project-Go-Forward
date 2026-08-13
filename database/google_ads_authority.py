@@ -19,6 +19,7 @@ from typing import Any, TypeVar
 from pydantic import ValidationError
 
 from database.models import (
+    MAX_GOOGLE_ADS_DISPATCH_ATTEMPTS,
     GoogleAdsAccessEvidenceRecord,
     GoogleAdsAuthorityEventRecord,
     GoogleAdsDeploymentRecord,
@@ -549,6 +550,7 @@ class FirestoreAuthorityLedger:
             "deployment_id",
             "contract_hash",
             "access_evidence_id",
+            "owner_email_hash",
             "proof_reference_hash",
             "purpose",
         )
@@ -607,6 +609,7 @@ class FirestoreAuthorityLedger:
                     or marker.deployment_id != deployment_id
                     or marker.contract_hash != contract_hash
                     or marker.access_evidence_id != access_evidence_id
+                    or marker.owner_email_hash != proof.owner_email_hash
                     or outbox.proof_id != proof.proof_id
                     or outbox.access_evidence_id != access_evidence_id
                     or outbox.deployment_id != deployment_id
@@ -653,6 +656,7 @@ class FirestoreAuthorityLedger:
                 or source.deployment_id != deployment_id
                 or source.contract_hash != contract_hash
                 or source.evidence_digest != access_evidence_id
+                or source.owner_email_hash != proof.owner_email_hash
                 or source.caps.model_dump() != expected_caps
                 or source.verified_at > now
                 or now >= source.verified_at + timedelta(seconds=300)
@@ -676,6 +680,7 @@ class FirestoreAuthorityLedger:
                 deployment_id=deployment_id,
                 contract_hash=contract_hash,
                 access_evidence_id=access_evidence_id,
+                owner_email_hash=proof.owner_email_hash,
                 authority_from_version=2,
                 authority_to_version=3,
                 consumed_at=now,
@@ -730,6 +735,54 @@ class FirestoreAuthorityLedger:
         except Exception:
             raise LedgerWriteError("paused_create_outbox_read_failed") from None
 
+    def reconcile_terminal_paused_create_outbox(self, deployment_id: str) -> str:
+        """Heal only a terminal authority whose accepted dispatch settlement crashed."""
+        deployment_reference = self._reference(deployment_id)
+        outbox_reference = deployment_reference.collection(
+            self.DISPATCH_OUTBOX_SUBCOLLECTION
+        ).document(self.PAUSED_CREATE_OUTBOX_ID)
+
+        def operation(transaction):
+            authority = self._snapshot_to_domain(
+                deployment_reference.get(
+                    transaction=transaction,
+                    timeout=FIRESTORE_RPC_TIMEOUT,
+                )
+            )
+            outbox = self._snapshot_to_outbox(
+                outbox_reference.get(
+                    transaction=transaction,
+                    timeout=FIRESTORE_RPC_TIMEOUT,
+                )
+            )
+            if outbox.state == "DISPATCHED":
+                return outbox.state
+            if authority.state is not DeploymentState.PAUSED_CREATED:
+                return outbox.state
+            return self._settle_terminal_outbox(
+                transaction,
+                outbox_reference,
+                outbox,
+            )
+
+        return self._run_transaction(operation)
+
+    def _settle_terminal_outbox(self, transaction, outbox_reference, outbox) -> str:
+        now = self._now()
+        settled = GoogleAdsPausedCreateOutboxRecord.model_validate(
+            {
+                **outbox.model_dump(),
+                "state": "DISPATCHED",
+                "dispatcher_claim_hash": None,
+                "claim_expires_at": None,
+                "error_code": None,
+                "updated_at": now,
+                "dispatched_at": now,
+            }
+        )
+        transaction.set(outbox_reference, settled.model_dump(mode="python"))
+        return settled.state
+
     def claim_paused_create_outbox(self, deployment_id: str, claimant: str) -> bool:
         claimant_hash = _claimant_hash(claimant)
         deployment_reference = self._reference(deployment_id)
@@ -751,10 +804,26 @@ class FirestoreAuthorityLedger:
                     timeout=FIRESTORE_RPC_TIMEOUT,
                 )
             )
-            if authority.state is DeploymentState.PAUSED_CREATED or outbox.state == "DISPATCHED":
+            if authority.state is DeploymentState.PAUSED_CREATED or outbox.state in {
+                "DISPATCHED",
+                "FAILED",
+            }:
                 return False
             live_claim = outbox.state == "DISPATCHING" and outbox.claim_expires_at > now
             if authority.state is not DeploymentState.PAUSED_CREATE_APPROVED or live_claim:
+                return False
+            if outbox.attempt_count >= MAX_GOOGLE_ADS_DISPATCH_ATTEMPTS:
+                failed = GoogleAdsPausedCreateOutboxRecord.model_validate(
+                    {
+                        **outbox.model_dump(),
+                        "state": "FAILED",
+                        "dispatcher_claim_hash": None,
+                        "claim_expires_at": None,
+                        "error_code": "dispatch_attempts_exhausted",
+                        "updated_at": now,
+                    }
+                )
+                transaction.set(outbox_reference, failed.model_dump(mode="python"))
                 return False
             claimed = GoogleAdsPausedCreateOutboxRecord.model_validate(
                 {
@@ -789,13 +858,16 @@ class FirestoreAuthorityLedger:
             )
             if outbox.state != "DISPATCHING" or outbox.dispatcher_claim_hash != claimant_hash:
                 raise InvalidStateTransition("paused-create outbox is not claimed")
+            exhausted = outbox.attempt_count >= MAX_GOOGLE_ADS_DISPATCH_ATTEMPTS
             pending = GoogleAdsPausedCreateOutboxRecord.model_validate(
                 {
                     **outbox.model_dump(),
-                    "state": "PENDING",
+                    "state": "FAILED" if exhausted else "PENDING",
                     "dispatcher_claim_hash": None,
                     "claim_expires_at": None,
-                    "error_code": "job_invocation_failed",
+                    "error_code": (
+                        "dispatch_attempts_exhausted" if exhausted else "job_invocation_failed"
+                    ),
                     "updated_at": self._now(),
                 }
             )
@@ -803,40 +875,62 @@ class FirestoreAuthorityLedger:
 
         self._run_transaction(operation)
 
-    def complete_paused_create_outbox(self, deployment_id: str, claimant: str) -> None:
-        claimant_hash = _claimant_hash(claimant)
-        outbox_reference = (
-            self._reference(deployment_id)
-            .collection(self.DISPATCH_OUTBOX_SUBCOLLECTION)
-            .document(self.PAUSED_CREATE_OUTBOX_ID)
-        )
+    def record_paused_create_worker_failure(
+        self,
+        deployment_id: str,
+        dispatcher_claim_hash: str,
+    ) -> str:
+        """Re-arm one accepted execution, bounded by the durable attempt cap."""
+        if not re.fullmatch(r"sha256:[0-9a-f]{64}", dispatcher_claim_hash):
+            raise ValueError("dispatcher claim hash is invalid")
+        deployment_reference = self._reference(deployment_id)
+        outbox_reference = deployment_reference.collection(
+            self.DISPATCH_OUTBOX_SUBCOLLECTION
+        ).document(self.PAUSED_CREATE_OUTBOX_ID)
 
         def operation(transaction):
+            authority = self._snapshot_to_domain(
+                deployment_reference.get(
+                    transaction=transaction,
+                    timeout=FIRESTORE_RPC_TIMEOUT,
+                )
+            )
             outbox = self._snapshot_to_outbox(
                 outbox_reference.get(
                     transaction=transaction,
                     timeout=FIRESTORE_RPC_TIMEOUT,
                 )
             )
-            if outbox.state == "DISPATCHED":
-                return
-            if outbox.state != "DISPATCHING" or outbox.dispatcher_claim_hash != claimant_hash:
-                raise InvalidStateTransition("paused-create outbox is not claimed")
-            now = self._now()
-            dispatched = GoogleAdsPausedCreateOutboxRecord.model_validate(
+            if authority.state is DeploymentState.PAUSED_CREATED:
+                return self._settle_terminal_outbox(
+                    transaction,
+                    outbox_reference,
+                    outbox,
+                )
+            if authority.state is not DeploymentState.PAUSED_CREATE_APPROVED:
+                raise InvalidStateTransition("paused-create authority is not retryable")
+            if outbox.state in {"PENDING", "FAILED"}:
+                return outbox.state
+            if (
+                outbox.state != "DISPATCHING"
+                or outbox.dispatcher_claim_hash != dispatcher_claim_hash
+            ):
+                raise InvalidStateTransition("paused-create outbox is not executing")
+            exhausted = outbox.attempt_count >= MAX_GOOGLE_ADS_DISPATCH_ATTEMPTS
+            updated = GoogleAdsPausedCreateOutboxRecord.model_validate(
                 {
                     **outbox.model_dump(),
-                    "state": "DISPATCHED",
+                    "state": "FAILED" if exhausted else "PENDING",
                     "dispatcher_claim_hash": None,
                     "claim_expires_at": None,
-                    "error_code": None,
-                    "updated_at": now,
-                    "dispatched_at": now,
+                    "error_code": ("dispatch_attempts_exhausted" if exhausted else "worker_failed"),
+                    "updated_at": self._now(),
                 }
             )
-            transaction.set(outbox_reference, dispatched.model_dump(mode="python"))
+            transaction.set(outbox_reference, updated.model_dump(mode="python"))
+            return updated.state
 
-        self._run_transaction(operation)
+        return self._run_transaction(operation)
 
     def transition(
         self,
@@ -935,9 +1029,13 @@ class FirestoreAuthorityLedger:
         claimant: str,
         *,
         expected_version: int | None = None,
+        require_dispatch_outbox: bool = False,
     ) -> bool:
         claimant_hash = _claimant_hash(claimant)
         reference = self._reference(deployment_id)
+        outbox_reference = reference.collection(self.DISPATCH_OUTBOX_SUBCOLLECTION).document(
+            self.PAUSED_CREATE_OUTBOX_ID
+        )
 
         def operation(transaction):
             record = self._snapshot_to_domain(
@@ -946,6 +1044,15 @@ class FirestoreAuthorityLedger:
             self._assert_version(record, expected_version)
             if record.state is not DeploymentState.PAUSED_CREATE_APPROVED:
                 return False
+            if require_dispatch_outbox:
+                outbox = self._snapshot_to_outbox(
+                    outbox_reference.get(
+                        transaction=transaction,
+                        timeout=FIRESTORE_RPC_TIMEOUT,
+                    )
+                )
+                if outbox.state != "DISPATCHING":
+                    return False
             now = self._now()
             live_claim = record.worker_claim_hash is not None and (
                 record.claim_expires_at is None or record.claim_expires_at > now

@@ -155,6 +155,7 @@ class StepUpProofReference(BaseModel):
     deployment_id: str = Field(pattern=_DEPLOYMENT_PATTERN)
     contract_hash: str = Field(pattern=_SHA256_PATTERN)
     access_evidence_id: str = Field(pattern=_SHA256_PATTERN)
+    owner_email_hash: str = Field(pattern=_SHA256_PATTERN)
     proof_reference_hash: str = Field(pattern=_SHA256_PATTERN)
 
     @model_validator(mode="after")
@@ -175,6 +176,7 @@ def issue_proof_reference(manager: Any, envelope: StepUpEvidenceEnvelope) -> str
         deployment_id=envelope.deployment_id,
         contract_hash=envelope.contract_hash,
         access_evidence_id=envelope.evidence_digest,
+        owner_email_hash=envelope.owner_email_hash,
     )
 
 
@@ -191,6 +193,7 @@ def verify_proof_reference(manager: Any, reference: str | None) -> StepUpProofRe
             deployment_id=payload.get("deployment_id"),
             contract_hash=payload.get("contract_hash"),
             access_evidence_id=payload.get("access_evidence_id"),
+            owner_email_hash=payload.get("owner_email_hash"),
             proof_reference_hash=hash_value(reference or ""),
         )
         if payload.get("challenge") != proof.proof_id.encode("ascii"):

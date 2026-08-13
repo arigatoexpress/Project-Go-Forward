@@ -3,16 +3,17 @@ import adminFetch from '../adminFetch';
 const STATUS_UNAVAILABLE = 'Paid Search status is unavailable.';
 const STATES = ['INTERNAL_DRAFT', 'SERVER_VALIDATED', 'PAUSED_CREATE_APPROVED', 'PAUSED_CREATED'];
 
-function isSafeEvent(event, index) {
+function isSafeEvent(event, index, firstVersion) {
+  const recordVersion = firstVersion + index;
   const initial = [
     ['00000000000000000001-internal-draft-created', 'INTERNAL_DRAFT_CREATED', 1, null, 'INTERNAL_DRAFT'],
     ['00000000000000000002-server-validated', 'SERVER_VALIDATED', 2, 'INTERNAL_DRAFT', 'SERVER_VALIDATED'],
     ['00000000000000000003-paused-create-approved', 'PAUSED_CREATE_APPROVED', 3, 'SERVER_VALIDATED', 'PAUSED_CREATE_APPROVED'],
-  ][index];
+  ][recordVersion - 1];
   const expected = initial || [
     null,
     event?.event_type,
-    index + 1,
+    recordVersion,
     'PAUSED_CREATE_APPROVED',
     event?.event_type === 'PAUSED_CREATE_COMPLETED' ? 'PAUSED_CREATED' : 'PAUSED_CREATE_APPROVED',
   ];
@@ -39,10 +40,10 @@ function isSafeEvent(event, index) {
   return event
     && expected
     && (expected[0] === null
-      ? event.event_id === `${String(index + 1).padStart(20, '0')}-${event.event_type.toLowerCase().replaceAll('_', '-')}`
+      ? event.event_id === `${String(recordVersion).padStart(20, '0')}-${event.event_type.toLowerCase().replaceAll('_', '-')}`
       : event.event_id === expected[0])
     && event.event_type === expected[1]
-    && (index < 3 || laterTypes.includes(event.event_type))
+    && (recordVersion <= 3 || laterTypes.includes(event.event_type))
     && event.record_version === expected[2]
     && event.from_state === expected[3]
     && event.to_state === expected[4]
@@ -58,6 +59,7 @@ function normalizeStatus(payload) {
     index < currentIndex ? 'complete' : index === currentIndex ? 'current' : 'not_started',
   ]);
   const items = payload?.events?.items;
+  const firstVersion = payload?.events?.first_version;
   const safe = payload?.schema_version === 2
     && payload?.deployment_key === 'tho-search-high-intent-huffman-v1'
     && payload?.deployment_id === `${payload.deployment_key}--${digest}`
@@ -85,13 +87,15 @@ function normalizeStatus(payload) {
     && payload?.paused_create?.spend_enabled === false
     && (currentIndex < 2
       ? payload?.paused_create?.outbox_state === null
-      : ['PENDING', 'DISPATCHING', 'DISPATCHED'].includes(payload?.paused_create?.outbox_state))
+      : ['PENDING', 'DISPATCHING', 'DISPATCHED', 'FAILED'].includes(payload?.paused_create?.outbox_state))
     && (payload?.state !== 'PAUSED_CREATED'
       || payload?.paused_create?.outbox_state === 'DISPATCHED')
     && Array.isArray(items)
     && payload?.events?.count === payload.version
-    && items.length === payload.version
-    && items.every(isSafeEvent);
+    && Number.isInteger(firstVersion)
+    && firstVersion === payload.version - items.length + 1
+    && items.length === Math.min(payload.version, 100)
+    && items.every((event, index) => isSafeEvent(event, index, firstVersion));
   if (!safe) throw new Error(STATUS_UNAVAILABLE);
 
   return {
@@ -117,6 +121,7 @@ function normalizeStatus(payload) {
     },
     events: {
       count: payload.events.count,
+      first_version: firstVersion,
       items: items.map(event => ({
         event_id: event.event_id,
         event_type: event.event_type,

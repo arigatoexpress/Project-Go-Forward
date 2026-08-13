@@ -31,6 +31,7 @@ class RecordingLedger(InMemoryAuthorityLedger):
         super().__init__(clock=lambda: datetime(2026, 8, 12, 12, 0, tzinfo=UTC))
         self.events = []
         self.outbox_state = None
+        self.event_limits = []
 
     def create_or_get(self, candidate):
         record, created = super().create_or_get(candidate)
@@ -70,6 +71,7 @@ class RecordingLedger(InMemoryAuthorityLedger):
         return record
 
     def list_events(self, _deployment_id, *, limit=20):
+        self.event_limits.append(limit)
         return self.events[-limit:]
 
     def get_paused_create_outbox(self, _deployment_id):
@@ -283,6 +285,71 @@ def test_idempotent_bootstrap_projects_existing_approved_outbox(admin_client, le
     assert response.status_code == 200
     assert response.json()["state"] == "PAUSED_CREATE_APPROVED"
     assert response.json()["paused_create"]["outbox_state"] == "PENDING"
+    assert ledger.event_limits[-1] == 3
+
+
+def test_terminal_projection_fetches_and_validates_more_than_default_twenty_events(
+    admin_client, ledger
+):
+    draft = admin_client.post(DRAFT, headers=_headers(), json={}).json()
+    admin_client.post(
+        VALIDATE,
+        headers=_headers(),
+        json={
+            "deployment_id": draft["deployment_id"],
+            "expected_version": 1,
+            "idempotency_key": "offline-validation-12345678",
+        },
+    )
+    record = ledger.get(draft["deployment_id"])
+    approved_at = datetime(2026, 8, 12, 12, 2, tzinfo=UTC)
+    ledger.events.append(
+        {
+            "event_id": "00000000000000000003-paused-create-approved",
+            "deployment_id": record.deployment_id,
+            "contract_hash": record.contract_hash,
+            "event_type": "PAUSED_CREATE_APPROVED",
+            "record_version": 3,
+            "from_state": "SERVER_VALIDATED",
+            "to_state": "PAUSED_CREATE_APPROVED",
+            "error_code": None,
+            "occurred_at": approved_at,
+        }
+    )
+    worker_hash = f"sha256:{'c' * 64}"
+    for version in range(4, 104):
+        claimed = version % 2 == 0
+        event_type = "PAUSED_CREATE_CLAIMED" if claimed else "PAUSED_CREATE_CLAIM_RELEASED"
+        ledger.events.append(
+            {
+                "event_id": f"{version:020d}-{event_type.lower().replace('_', '-')}",
+                "deployment_id": record.deployment_id,
+                "contract_hash": record.contract_hash,
+                "event_type": event_type,
+                "record_version": version,
+                "from_state": "PAUSED_CREATE_APPROVED",
+                "to_state": "PAUSED_CREATE_APPROVED",
+                "worker_claim_hash": worker_hash,
+                "error_code": None if claimed else "provider_validation_failed",
+                "occurred_at": approved_at,
+            }
+        )
+    ledger._records[record.deployment_id] = replace(
+        record,
+        state=DeploymentState.PAUSED_CREATE_APPROVED,
+        version=103,
+        error_code="provider_validation_failed",
+        updated_at=approved_at,
+    )
+    ledger.outbox_state = "PENDING"
+
+    response = admin_client.get(READINESS, headers=_headers())
+
+    assert response.status_code == 200
+    assert response.json()["events"]["count"] == 103
+    assert response.json()["events"]["first_version"] == 4
+    assert len(response.json()["events"]["items"]) == 100
+    assert ledger.event_limits[-1] == 100
 
 
 @pytest.mark.parametrize(

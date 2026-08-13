@@ -46,6 +46,7 @@ const SAFE_STATUS = {
   },
   events: {
     count: 1,
+    first_version: 1,
     items: [{
       event_id: '00000000000000000001-internal-draft-created',
       event_type: 'INTERNAL_DRAFT_CREATED',
@@ -71,6 +72,7 @@ const VALIDATED = {
   actions: { server_validation: false },
   events: {
     count: 2,
+    first_version: 1,
     items: [
       ...SAFE_STATUS.events.items,
       {
@@ -127,6 +129,7 @@ const APPROVED = {
   },
   events: {
     count: 3,
+    first_version: 1,
     items: [
       ...VALIDATED.events.items,
       {
@@ -159,6 +162,7 @@ const CREATED = {
   },
   events: {
     count: 4,
+    first_version: 1,
     items: [
       ...APPROVED.events.items,
       {
@@ -185,6 +189,31 @@ describe('Paid Search durable API', () => {
     adminFetch.mockResolvedValue(response());
     await expect(getGoogleAdsDeploymentReadiness()).resolves.toEqual(SAFE_STATUS);
     expect(adminFetch).toHaveBeenCalledWith('/api/admin/google-ads/deployment-readiness');
+  });
+
+  it('accepts a contiguous sanitized 100-event tail for a longer durable history', async () => {
+    const tail = Array.from({ length: 100 }, (_, index) => {
+      const recordVersion = index + 4;
+      const claimed = recordVersion % 2 === 0;
+      const eventType = claimed ? 'PAUSED_CREATE_CLAIMED' : 'PAUSED_CREATE_CLAIM_RELEASED';
+      return {
+        event_id: `${String(recordVersion).padStart(20, '0')}-${eventType.toLowerCase().replaceAll('_', '-')}`,
+        event_type: eventType,
+        record_version: recordVersion,
+        from_state: 'PAUSED_CREATE_APPROVED',
+        to_state: 'PAUSED_CREATE_APPROVED',
+        error_code: claimed ? null : 'provider_validation_failed',
+        occurred_at: '2026-08-12T12:03:00Z',
+      };
+    });
+    const longStatus = {
+      ...APPROVED,
+      version: 103,
+      events: { count: 103, first_version: 4, items: tail },
+    };
+    adminFetch.mockResolvedValue(response(longStatus));
+
+    await expect(getGoogleAdsDeploymentReadiness()).resolves.toEqual(longStatus);
   });
 
   it('bootstraps only through a non-retrying CSRF-aware POST', async () => {
@@ -336,7 +365,8 @@ describe('GoogleAdsStatusCard', () => {
         paused_only: true,
         activation_authorized: false,
         spend_enabled: false,
-      }));
+      }))
+      .mockResolvedValueOnce(response(APPROVED));
     vi.spyOn(globalThis, 'confirm').mockReturnValue(true);
     Object.defineProperty(globalThis.navigator, 'credentials', {
       configurable: true,
@@ -362,7 +392,11 @@ describe('GoogleAdsStatusCard', () => {
     await waitFor(() => expect(button).toBeEnabled());
     fireEvent.click(button);
 
-    expect(await screen.findByText(/Durable outbox pending; no spend is enabled/i)).toBeInTheDocument();
+    expect(await screen.findByText(
+      /PAUSED-only creation is approved; durable outbox is pending/i,
+    )).toBeInTheDocument();
+    expect(screen.getAllByText('PAUSED creation approved')).toHaveLength(2);
+    expect(screen.getByText('3 recorded events')).toBeInTheDocument();
     const approvalCall = adminFetch.mock.calls.find(([url]) => (
       url === '/api/admin/google-ads/paused-create-approval'
     ));
@@ -390,6 +424,81 @@ describe('GoogleAdsStatusCard', () => {
     expect(screen.queryByText('Complete offline server validation first.')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /activate|publish|spend/i })).not.toBeInTheDocument();
     expect(adminFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('never reports approval failure when only the post-approval refresh is unavailable', async () => {
+    const proofId = `sha256:${'c'.repeat(64)}`;
+    adminFetch
+      .mockResolvedValueOnce(response(VALIDATED))
+      .mockResolvedValueOnce(response(APPROVAL_READY))
+      .mockResolvedValueOnce(response({
+        challenge: 'AQ',
+        allowCredentials: [{ id: 'Ag', type: 'public-key' }],
+      }))
+      .mockResolvedValueOnce(response({
+        verified: true,
+        proof_reference: 'signed-proof-reference-that-is-long-enough',
+        proof_id: proofId,
+        access_evidence_id: APPROVAL_READY.access_evidence_id,
+      }))
+      .mockResolvedValueOnce(response({
+        deployment_id: VALIDATED.deployment_id,
+        contract_hash: VALIDATED.contract_hash,
+        state: 'PAUSED_CREATE_APPROVED',
+        version: 3,
+        outbox_state: 'PENDING',
+        replayed: false,
+        paused_only: true,
+        activation_authorized: false,
+        spend_enabled: false,
+      }))
+      .mockResolvedValueOnce(response({}, 503));
+    vi.spyOn(globalThis, 'confirm').mockReturnValue(true);
+    Object.defineProperty(globalThis.navigator, 'credentials', {
+      configurable: true,
+      value: {
+        get: vi.fn().mockResolvedValue({
+          id: 'owner-key',
+          rawId: new Uint8Array([1]).buffer,
+          type: 'public-key',
+          response: {
+            authenticatorData: new Uint8Array([2]).buffer,
+            clientDataJSON: new Uint8Array([3]).buffer,
+            signature: new Uint8Array([4]).buffer,
+            userHandle: null,
+          },
+        }),
+      },
+    });
+
+    render(<GoogleAdsStatusCard />);
+    const button = await screen.findByRole('button', {
+      name: 'Verify owner and approve PAUSED creation',
+    });
+    await waitFor(() => expect(button).toBeEnabled());
+    fireEvent.click(button);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      /approval was recorded, but durable status refresh is unavailable/i,
+    );
+    expect(screen.getByText(/PAUSED-only approval recorded.*no spend is enabled/i)).toBeInTheDocument();
+    expect(screen.queryByText(/PAUSED-only approval failed/i)).not.toBeInTheDocument();
+  });
+
+  it('shows bounded-dispatch failure remediation without enabling another control', async () => {
+    const failedStatus = {
+      ...APPROVED,
+      paused_create: { ...APPROVED.paused_create, outbox_state: 'FAILED' },
+    };
+    adminFetch.mockResolvedValueOnce(response(failedStatus));
+
+    render(<GoogleAdsStatusCard />);
+
+    expect(await screen.findByText(/bounded dispatcher attempts are exhausted/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', {
+      name: 'Verify owner and approve PAUSED creation',
+    })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: /retry|activate|publish|spend/i })).not.toBeInTheDocument();
   });
 
   it('reports reconciled PAUSED resources without exposing a second approval', async () => {

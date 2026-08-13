@@ -54,7 +54,8 @@ GoogleAdsPersistedErrorCode = Literal[
     "provider_timeout_unresolved",
     "provider_validation_failed",
 ]
-GoogleAdsOutboxState = Literal["PENDING", "DISPATCHING", "DISPATCHED"]
+GoogleAdsOutboxState = Literal["PENDING", "DISPATCHING", "DISPATCHED", "FAILED"]
+MAX_GOOGLE_ADS_DISPATCH_ATTEMPTS = 3
 
 _GOOGLE_ADS_EVENT_SEMANTICS = {
     "INTERNAL_DRAFT_CREATED": (None, "INTERNAL_DRAFT", False, False),
@@ -376,6 +377,7 @@ class GoogleAdsPausedCreateApprovalProofRecord(BaseModel):
     deployment_id: str = Field(pattern=_GOOGLE_ADS_DEPLOYMENT_ID_PATTERN)
     contract_hash: str = Field(pattern=_GOOGLE_ADS_SHA256_PATTERN)
     access_evidence_id: str = Field(pattern=_GOOGLE_ADS_SHA256_PATTERN)
+    owner_email_hash: str = Field(pattern=_GOOGLE_ADS_SHA256_PATTERN)
     authority_from_version: Literal[2] = 2
     authority_to_version: Literal[3] = 3
     consumed_at: datetime
@@ -405,10 +407,17 @@ class GoogleAdsPausedCreateOutboxRecord(BaseModel):
     proof_id: str = Field(pattern=_GOOGLE_ADS_SHA256_PATTERN)
     access_evidence_id: str = Field(pattern=_GOOGLE_ADS_SHA256_PATTERN)
     state: GoogleAdsOutboxState = "PENDING"
-    attempt_count: int = Field(default=0, ge=0)
+    attempt_count: int = Field(default=0, ge=0, le=MAX_GOOGLE_ADS_DISPATCH_ATTEMPTS)
     dispatcher_claim_hash: str | None = Field(default=None, pattern=_GOOGLE_ADS_SHA256_PATTERN)
     claim_expires_at: datetime | None = None
-    error_code: Literal["job_invocation_failed"] | None = None
+    error_code: (
+        Literal[
+            "dispatch_attempts_exhausted",
+            "job_invocation_failed",
+            "worker_failed",
+        ]
+        | None
+    ) = None
     created_at: datetime
     updated_at: datetime
     dispatched_at: datetime | None = None
@@ -439,6 +448,11 @@ class GoogleAdsPausedCreateOutboxRecord(BaseModel):
             raise ValueError("pending outbox cannot have a dispatch timestamp")
         if self.state == "PENDING" and self.error_code is not None and self.attempt_count < 1:
             raise ValueError("failed pending outbox requires an attempted dispatch")
+        if self.state == "FAILED" and (
+            self.attempt_count != MAX_GOOGLE_ADS_DISPATCH_ATTEMPTS
+            or self.error_code != "dispatch_attempts_exhausted"
+        ):
+            raise ValueError("failed outbox requires exhausted sanitized attempts")
         return self
 
 

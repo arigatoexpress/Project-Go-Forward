@@ -39,6 +39,7 @@ from scripts.google_ads_access_evidence import (
     evidence_payload,
 )
 from scripts.google_ads_launch_draft import contract_sha256
+from scripts.google_ads_paused_dispatcher_job import run_dispatcher_job
 from scripts.google_ads_paused_worker import (
     DeploymentRecord,
     DeploymentState,
@@ -51,6 +52,7 @@ from scripts.google_ads_paused_worker import (
     PausedCreateControlPlane,
     StaticContractSource,
 )
+from scripts.google_ads_paused_worker_job import run_paused_create_job
 
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACT = json.loads((ROOT / "config" / "google_ads_launch_draft.json").read_text())
@@ -1220,6 +1222,138 @@ def test_dispatch_outbox_failure_is_retryable_and_duplicate_claims_are_safe(dura
     assert pending.error_code == "job_invocation_failed"
 
     assert ledger.claim_paused_create_outbox(validated.deployment_id, "dispatcher-2") is True
-    ledger.complete_paused_create_outbox(validated.deployment_id, "dispatcher-2")
-    assert ledger.get_paused_create_outbox(validated.deployment_id).state == "DISPATCHED"
-    assert ledger.claim_paused_create_outbox(validated.deployment_id, "dispatcher-3") is False
+    ledger.release_paused_create_outbox(validated.deployment_id, "dispatcher-2")
+    assert ledger.get_paused_create_outbox(validated.deployment_id).state == "PENDING"
+    # The third accepted attempt is already live; a worker failure exhausts
+    # the bounded retry budget and requires operator remediation.
+    assert ledger.claim_paused_create_outbox(validated.deployment_id, "dispatcher-3") is True
+    assert ledger.claim_paused_create_outbox(validated.deployment_id, "dispatcher-4") is False
+    claim_hash = ledger.get_paused_create_outbox(validated.deployment_id).dispatcher_claim_hash
+    assert claim_hash is not None
+    assert (
+        ledger.record_paused_create_worker_failure(validated.deployment_id, claim_hash) == "FAILED"
+    )
+    exhausted = ledger.get_paused_create_outbox(validated.deployment_id)
+    assert exhausted.state == "FAILED"
+    assert exhausted.attempt_count == 3
+    assert exhausted.error_code == "dispatch_attempts_exhausted"
+    assert ledger.claim_paused_create_outbox(validated.deployment_id, "dispatcher-4") is False
+
+
+def test_stale_worker_failure_cannot_rearm_a_newer_dispatch_attempt(durable):
+    ledger, _store, clock, validated, access, _envelope, proof = _approval_fixture(durable)
+    _approve(ledger, validated, access, proof)
+    assert ledger.claim_paused_create_outbox(validated.deployment_id, "dispatcher-old") is True
+    old_claim_hash = ledger.get_paused_create_outbox(validated.deployment_id).dispatcher_claim_hash
+    assert old_claim_hash is not None
+
+    clock.advance(301)
+    assert ledger.claim_paused_create_outbox(validated.deployment_id, "dispatcher-new") is True
+    newer = ledger.get_paused_create_outbox(validated.deployment_id)
+    assert newer.dispatcher_claim_hash != old_claim_hash
+
+    with pytest.raises(InvalidStateTransition):
+        ledger.record_paused_create_worker_failure(validated.deployment_id, old_claim_hash)
+    unchanged = ledger.get_paused_create_outbox(validated.deployment_id)
+    assert unchanged.state == "DISPATCHING"
+    assert unchanged.dispatcher_claim_hash == newer.dispatcher_claim_hash
+    assert unchanged.attempt_count == 2
+
+
+def test_dispatcher_crash_after_worker_completion_heals_stranded_outbox(durable):
+    ledger, _store, _clock, validated, access, _envelope, proof = _approval_fixture(durable)
+    _approve(ledger, validated, access, proof)
+    assert (
+        ledger.claim_paused_create(
+            validated.deployment_id,
+            "direct-worker",
+            require_dispatch_outbox=True,
+        )
+        is False
+    )
+    assert ledger.claim_paused_create_outbox(validated.deployment_id, "dispatcher-crash") is True
+    assert (
+        ledger.claim_paused_create(
+            validated.deployment_id,
+            "worker",
+            require_dispatch_outbox=True,
+        )
+        is True
+    )
+    fenced = ledger.fence_paused_create(validated.deployment_id, "worker")
+    completed = ledger.complete_paused_create(
+        validated.deployment_id,
+        "worker",
+        f"sha256:{'a' * 64}",
+        expected_version=fenced.version,
+    )
+    assert completed.state is DeploymentState.PAUSED_CREATED
+    assert ledger.get_paused_create_outbox(validated.deployment_id).state == "DISPATCHING"
+
+    assert ledger.reconcile_terminal_paused_create_outbox(validated.deployment_id) == "DISPATCHED"
+    healed = ledger.get_paused_create_outbox(validated.deployment_id)
+    assert healed.state == "DISPATCHED"
+    assert healed.dispatcher_claim_hash is None
+    assert healed.dispatched_at is not None
+
+
+def test_accepted_dispatch_worker_failures_retry_twice_then_stop_at_durable_cap(durable):
+    ledger, _store, _clock, validated, access, _envelope, proof = _approval_fixture(durable)
+    _approve(ledger, validated, access, proof)
+    invocations = []
+
+    class Dispatcher:
+        def invoke(self):
+            invocations.append(True)
+
+    class FailingProvider:
+        last_failure = None
+
+        def validate(self, _request):
+            raise RuntimeError("raw provider detail")
+
+        def find_by_contract_label(self, _label):
+            raise AssertionError("validation failure must stop before readback")
+
+        def create_paused(self, _request):
+            raise AssertionError("validation failure must stop before create")
+
+    environment = {
+        "GOOGLE_ADS_CUSTOMER_ID": "1234567890",
+        "GOOGLE_ADS_DEVELOPER_TOKEN": "injected-test-value",
+        "APP_VERSION": "a" * 40,
+    }
+    for attempt in range(1, 4):
+        dispatched = run_dispatcher_job(
+            ledger=ledger,
+            dispatcher=Dispatcher(),
+            contract=CONTRACT,
+            claimant_factory=lambda attempt=attempt: f"dispatcher-{attempt}",
+        )
+        assert dispatched["outbox_state"] == "DISPATCHING"
+        assert dispatched["dispatch_accepted"] is True
+        failed = run_paused_create_job(
+            ledger=ledger,
+            contract_loader=lambda: CONTRACT,
+            provider_factory=lambda **_kwargs: FailingProvider(),
+            environ=environment,
+        )
+        assert failed.state is DeploymentState.PAUSED_CREATE_APPROVED
+        assert failed.error_code == "provider_validation_failed"
+        expected = "FAILED" if attempt == 3 else "PENDING"
+        assert ledger.get_paused_create_outbox(validated.deployment_id).state == expected
+
+    replay = run_dispatcher_job(
+        ledger=ledger,
+        dispatcher=type(
+            "Never",
+            (),
+            {"invoke": lambda _self: invocations.append(False)},
+        )(),
+        contract=CONTRACT,
+        claimant_factory=lambda: "dispatcher-4",
+    )
+    assert replay["dispatch_attempted"] is False
+    assert replay["dispatch_succeeded"] is False
+    assert replay["outbox_state"] == "FAILED"
+    assert invocations == [True, True, True]
