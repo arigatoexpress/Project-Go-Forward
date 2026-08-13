@@ -27,6 +27,8 @@ GoogleAdsAuthorityEventType = Literal[
     "PAUSED_CREATE_APPROVED",
     "PAUSED_CREATE_CLAIMED",
     "PAUSED_CREATE_RECLAIMED",
+    "PAUSED_CREATE_FENCED",
+    "PAUSED_CREATE_FENCED_FAILED",
     "PAUSED_CREATE_COMPLETED",
     "PAUSED_CREATE_CLAIM_RELEASED",
 ]
@@ -70,12 +72,13 @@ class GoogleAdsDeploymentRecord(BaseModel):
     version: int = Field(default=1, ge=1)
     worker_claim_hash: str | None = Field(default=None, pattern=_GOOGLE_ADS_SHA256_PATTERN)
     claim_expires_at: datetime | None = None
+    create_fenced_at: datetime | None = None
     provider_reference_hash: str | None = Field(default=None, pattern=_GOOGLE_ADS_SHA256_PATTERN)
     error_code: GoogleAdsSafeErrorCode | None = None
     created_at: datetime
     updated_at: datetime
 
-    @field_validator("created_at", "updated_at", "claim_expires_at")
+    @field_validator("created_at", "updated_at", "claim_expires_at", "create_fenced_at")
     @classmethod
     def timestamps_are_utc(cls, value: datetime | None) -> datetime | None:
         return _require_utc(value) if value is not None else None
@@ -87,10 +90,19 @@ class GoogleAdsDeploymentRecord(BaseModel):
         if self.state == "PAUSED_CREATED":
             if self.provider_reference_hash is None:
                 raise ValueError("paused-created record requires a provider reference hash")
+            if self.create_fenced_at is None:
+                raise ValueError("paused-created record requires a durable create fence")
             if self.worker_claim_hash is not None:
                 raise ValueError("paused-created record cannot retain a worker claim")
         elif self.provider_reference_hash is not None:
             raise ValueError("provider reference hash is allowed only after paused creation")
+        if self.create_fenced_at is not None:
+            if self.state not in {"PAUSED_CREATE_APPROVED", "PAUSED_CREATED"}:
+                raise ValueError("create fence is allowed only after paused-create approval")
+            if self.state == "PAUSED_CREATE_APPROVED" and self.worker_claim_hash is None:
+                raise ValueError("an active create fence must retain its worker claim")
+            if not self.created_at <= self.create_fenced_at <= self.updated_at:
+                raise ValueError("create fence timestamp must be within the record lifetime")
         if self.updated_at < self.created_at:
             raise ValueError("updated_at cannot precede created_at")
         return self

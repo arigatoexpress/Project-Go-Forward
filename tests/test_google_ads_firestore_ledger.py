@@ -174,6 +174,7 @@ def test_database_models_reject_extra_raw_provider_account_token_and_request_fie
         "version": 1,
         "worker_claim_hash": None,
         "claim_expires_at": None,
+        "create_fenced_at": None,
         "provider_reference_hash": None,
         "error_code": None,
         "created_at": now,
@@ -299,6 +300,7 @@ def test_expired_claim_is_reclaimable_after_worker_crash_and_old_worker_cannot_c
             f"sha256:{'b' * 64}",
         )
 
+    ledger.fence_paused_create(approved.deployment_id, "replacement-worker")
     completed = ledger.complete_paused_create(
         approved.deployment_id,
         "replacement-worker",
@@ -307,9 +309,52 @@ def test_expired_claim_is_reclaimable_after_worker_crash_and_old_worker_cannot_c
     assert completed.state is DeploymentState.PAUSED_CREATED
     assert completed.worker_claim_hash is None
     assert completed.claim_expires_at is None
-    assert [row["event_type"] for row in store.events(approved.deployment_id)][-3:] == [
+    assert [row["event_type"] for row in store.events(approved.deployment_id)][-4:] == [
         "PAUSED_CREATE_CLAIMED",
         "PAUSED_CREATE_RECLAIMED",
+        "PAUSED_CREATE_FENCED",
+        "PAUSED_CREATE_COMPLETED",
+    ]
+
+
+def test_create_fence_blocks_expired_claim_reclaim_and_allows_original_completion(durable):
+    ledger, store, clock = durable
+    approved, _invoker = _approved(ledger)
+    assert ledger.claim_paused_create(approved.deployment_id, "original-worker") is True
+
+    fenced = ledger.fence_paused_create(approved.deployment_id, "original-worker")
+    assert fenced.create_fenced_at == clock.value
+
+    clock.advance(31)
+    assert ledger.fence_paused_create(approved.deployment_id, "original-worker") == fenced
+    assert ledger.claim_paused_create(approved.deployment_id, "replacement-worker") is False
+    with pytest.raises(InvalidStateTransition):
+        ledger.release_claim(
+            approved.deployment_id,
+            "original-worker",
+            "provider_timeout_unresolved",
+        )
+
+    failed = ledger.mark_fenced_failure(
+        approved.deployment_id,
+        "original-worker",
+        "provider_timeout_unresolved",
+    )
+    assert failed.error_code == "provider_timeout_unresolved"
+    assert failed.worker_claim_hash is not None
+    assert failed.create_fenced_at is not None
+
+    completed = ledger.complete_paused_create(
+        approved.deployment_id,
+        "original-worker",
+        f"sha256:{'c' * 64}",
+    )
+
+    assert completed.state is DeploymentState.PAUSED_CREATED
+    assert completed.create_fenced_at == datetime(2026, 8, 12, 12, 0, tzinfo=UTC)
+    assert [row["event_type"] for row in store.events(approved.deployment_id)][-3:] == [
+        "PAUSED_CREATE_FENCED",
+        "PAUSED_CREATE_FENCED_FAILED",
         "PAUSED_CREATE_COMPLETED",
     ]
 

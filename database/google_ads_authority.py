@@ -146,6 +146,7 @@ class FirestoreAuthorityLedger:
             version=model.version,
             worker_claim_hash=model.worker_claim_hash,
             claim_expires_at=model.claim_expires_at,
+            create_fenced_at=model.create_fenced_at,
             provider_reference_hash=model.provider_reference_hash,
             error_code=model.error_code,
             created_at=model.created_at,
@@ -166,6 +167,7 @@ class FirestoreAuthorityLedger:
                     "version": record.version,
                     "worker_claim_hash": record.worker_claim_hash,
                     "claim_expires_at": record.claim_expires_at,
+                    "create_fenced_at": record.create_fenced_at,
                     "provider_reference_hash": record.provider_reference_hash,
                     "error_code": record.error_code,
                     "created_at": record.created_at,
@@ -257,6 +259,7 @@ class FirestoreAuthorityLedger:
             version=1,
             worker_claim_hash=None,
             claim_expires_at=None,
+            create_fenced_at=None,
             provider_reference_hash=None,
             error_code=None,
             created_at=now,
@@ -329,6 +332,7 @@ class FirestoreAuthorityLedger:
                 version=record.version + 1,
                 worker_claim_hash=None,
                 claim_expires_at=None,
+                create_fenced_at=None,
                 error_code=None,
                 updated_at=self._now(),
             )
@@ -364,7 +368,7 @@ class FirestoreAuthorityLedger:
             live_claim = record.worker_claim_hash is not None and (
                 record.claim_expires_at is None or record.claim_expires_at > now
             )
-            if live_claim:
+            if live_claim or record.create_fenced_at is not None:
                 return False
             event_type = (
                 "PAUSED_CREATE_RECLAIMED"
@@ -390,6 +394,56 @@ class FirestoreAuthorityLedger:
 
         return self._run_transaction(operation)
 
+    def fence_paused_create(
+        self,
+        deployment_id: str,
+        claimant: str,
+        *,
+        expected_version: int | None = None,
+    ) -> DeploymentRecord:
+        """Permanently fence one provider create before crossing that boundary.
+
+        Once this atomic marker exists, an expired claim cannot be reclaimed.
+        The original claimant may finish after lease expiry, but no replacement
+        may start a second provider mutation. An ambiguous provider outcome must
+        therefore be reconciled, never blindly retried.
+        """
+        claimant_hash = _claimant_hash(claimant)
+        reference = self._reference(deployment_id)
+
+        def operation(transaction):
+            record = self._snapshot_to_domain(
+                reference.get(transaction=transaction, timeout=FIRESTORE_RPC_TIMEOUT)
+            )
+            self._assert_version(record, expected_version)
+            now = self._now()
+            if (
+                record.state is not DeploymentState.PAUSED_CREATE_APPROVED
+                or record.worker_claim_hash != claimant_hash
+            ):
+                raise InvalidStateTransition("paused create is not actively claimed by this worker")
+            if record.create_fenced_at is not None:
+                return record
+            if record.claim_expires_at is None or record.claim_expires_at <= now:
+                raise InvalidStateTransition("paused create is not actively claimed by this worker")
+            updated = replace(
+                record,
+                version=record.version + 1,
+                create_fenced_at=now,
+                error_code=None,
+                updated_at=now,
+            )
+            self._write_record_and_event(
+                transaction,
+                reference,
+                updated,
+                event_type="PAUSED_CREATE_FENCED",
+                from_state=record.state,
+            )
+            return updated
+
+        return self._run_transaction(operation)
+
     def complete_paused_create(
         self,
         deployment_id: str,
@@ -410,8 +464,8 @@ class FirestoreAuthorityLedger:
             if (
                 record.state is not DeploymentState.PAUSED_CREATE_APPROVED
                 or record.worker_claim_hash != claimant_hash
+                or record.create_fenced_at is None
                 or record.claim_expires_at is None
-                or record.claim_expires_at <= now
             ):
                 raise InvalidStateTransition("paused create is not actively claimed by this worker")
             updated = replace(
@@ -457,6 +511,7 @@ class FirestoreAuthorityLedger:
             if (
                 record.state is not DeploymentState.PAUSED_CREATE_APPROVED
                 or record.worker_claim_hash != claimant_hash
+                or record.create_fenced_at is not None
             ):
                 raise InvalidStateTransition("paused create is not claimed by this worker")
             updated = replace(
@@ -474,6 +529,48 @@ class FirestoreAuthorityLedger:
                 event_type="PAUSED_CREATE_CLAIM_RELEASED",
                 from_state=record.state,
                 event_worker_claim_hash=record.worker_claim_hash,
+            )
+            return updated
+
+        return self._run_transaction(operation)
+
+    def mark_fenced_failure(
+        self,
+        deployment_id: str,
+        claimant: str,
+        error_code: str,
+        *,
+        expected_version: int | None = None,
+    ) -> DeploymentRecord:
+        """Persist a safe failure without reopening a fenced provider mutation."""
+        if error_code not in SAFE_ERROR_CODES:
+            raise ValueError("error_code is not in the sanitized allowlist")
+        claimant_hash = _claimant_hash(claimant)
+        reference = self._reference(deployment_id)
+
+        def operation(transaction):
+            record = self._snapshot_to_domain(
+                reference.get(transaction=transaction, timeout=FIRESTORE_RPC_TIMEOUT)
+            )
+            self._assert_version(record, expected_version)
+            if (
+                record.state is not DeploymentState.PAUSED_CREATE_APPROVED
+                or record.worker_claim_hash != claimant_hash
+                or record.create_fenced_at is None
+            ):
+                raise InvalidStateTransition("paused create is not fenced by this worker")
+            updated = replace(
+                record,
+                version=record.version + 1,
+                error_code=error_code,
+                updated_at=self._now(),
+            )
+            self._write_record_and_event(
+                transaction,
+                reference,
+                updated,
+                event_type="PAUSED_CREATE_FENCED_FAILED",
+                from_state=record.state,
             )
             return updated
 

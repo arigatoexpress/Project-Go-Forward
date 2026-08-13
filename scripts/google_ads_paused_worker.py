@@ -13,6 +13,7 @@ import hashlib
 import json
 import re
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
@@ -111,6 +112,7 @@ class DeploymentRecord:
     version: int = 1
     worker_claim_hash: str | None = None
     claim_expires_at: datetime | None = None
+    create_fenced_at: datetime | None = None
     provider_reference_hash: str | None = None
     error_code: str | None = None
     created_at: datetime | None = None
@@ -209,7 +211,24 @@ class AuthorityLedger(Protocol):
         expected_version: int | None = None,
     ) -> DeploymentRecord: ...
 
+    def fence_paused_create(
+        self,
+        deployment_id: str,
+        claimant: str,
+        *,
+        expected_version: int | None = None,
+    ) -> DeploymentRecord: ...
+
     def release_claim(
+        self,
+        deployment_id: str,
+        claimant: str,
+        error_code: str,
+        *,
+        expected_version: int | None = None,
+    ) -> DeploymentRecord: ...
+
+    def mark_fenced_failure(
         self,
         deployment_id: str,
         claimant: str,
@@ -238,17 +257,25 @@ def _claimant_hash(claimant: str) -> str:
 class InMemoryAuthorityLedger:
     """Thread-safe Firestore transaction semantics without external I/O."""
 
-    def __init__(self, *, claim_lease_seconds: int = 300):
+    def __init__(
+        self,
+        *,
+        claim_lease_seconds: int = 300,
+        clock: Callable[[], datetime] | None = None,
+    ):
         if not 1 <= claim_lease_seconds <= 3600:
             raise ValueError("claim lease must be between 1 and 3600 seconds")
         self._records: dict[str, DeploymentRecord] = {}
         self._lock = Lock()
         self._fail_next_write = False
         self._claim_lease_seconds = claim_lease_seconds
+        self._clock = clock or (lambda: datetime.now(UTC))
 
-    @staticmethod
-    def _now() -> datetime:
-        return datetime.now(UTC)
+    def _now(self) -> datetime:
+        value = self._clock()
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise LedgerWriteError("ledger_clock_invalid")
+        return value.astimezone(UTC)
 
     def fail_next_write(self) -> None:
         """Test seam that makes the next transaction fail before mutation."""
@@ -316,6 +343,7 @@ class InMemoryAuthorityLedger:
                 version=record.version + 1,
                 worker_claim_hash=None,
                 claim_expires_at=None,
+                create_fenced_at=None,
                 error_code=None,
                 updated_at=self._now(),
             )
@@ -339,7 +367,11 @@ class InMemoryAuthorityLedger:
             live_claim = record.worker_claim_hash is not None and (
                 record.claim_expires_at is None or record.claim_expires_at > now
             )
-            if record.state is not DeploymentState.PAUSED_CREATE_APPROVED or live_claim:
+            if (
+                record.state is not DeploymentState.PAUSED_CREATE_APPROVED
+                or live_claim
+                or record.create_fenced_at is not None
+            ):
                 return False
             self._records[deployment_id] = replace(
                 record,
@@ -350,6 +382,38 @@ class InMemoryAuthorityLedger:
                 updated_at=now,
             )
             return True
+
+    def fence_paused_create(
+        self,
+        deployment_id: str,
+        claimant: str,
+        *,
+        expected_version: int | None = None,
+    ) -> DeploymentRecord:
+        claimant_hash = _claimant_hash(claimant)
+        with self._lock:
+            self._assert_write_available()
+            record = self._get_locked(deployment_id)
+            now = self._now()
+            if (
+                record.state is not DeploymentState.PAUSED_CREATE_APPROVED
+                or record.worker_claim_hash != claimant_hash
+                or (expected_version is not None and record.version != expected_version)
+            ):
+                raise InvalidStateTransition("paused create is not actively claimed by this worker")
+            if record.create_fenced_at is not None:
+                return record
+            if record.claim_expires_at is None or record.claim_expires_at <= now:
+                raise InvalidStateTransition("paused create is not actively claimed by this worker")
+            updated = replace(
+                record,
+                create_fenced_at=now,
+                version=record.version + 1,
+                error_code=None,
+                updated_at=now,
+            )
+            self._records[deployment_id] = updated
+            return updated
 
     def complete_paused_create(
         self,
@@ -367,8 +431,8 @@ class InMemoryAuthorityLedger:
             if (
                 record.state is not DeploymentState.PAUSED_CREATE_APPROVED
                 or record.worker_claim_hash != _claimant_hash(claimant)
+                or record.create_fenced_at is None
                 or record.claim_expires_at is None
-                or record.claim_expires_at <= self._now()
                 or (expected_version is not None and record.version != expected_version)
             ):
                 raise InvalidStateTransition("paused create is not claimed by this worker")
@@ -380,6 +444,35 @@ class InMemoryAuthorityLedger:
                 claim_expires_at=None,
                 provider_reference_hash=provider_reference_hash,
                 error_code=None,
+                updated_at=self._now(),
+            )
+            self._records[deployment_id] = updated
+            return updated
+
+    def mark_fenced_failure(
+        self,
+        deployment_id: str,
+        claimant: str,
+        error_code: str,
+        *,
+        expected_version: int | None = None,
+    ) -> DeploymentRecord:
+        if error_code not in SAFE_ERROR_CODES:
+            raise ValueError("error_code is not in the sanitized allowlist")
+        with self._lock:
+            self._assert_write_available()
+            record = self._get_locked(deployment_id)
+            if (
+                record.state is not DeploymentState.PAUSED_CREATE_APPROVED
+                or record.worker_claim_hash != _claimant_hash(claimant)
+                or record.create_fenced_at is None
+                or (expected_version is not None and record.version != expected_version)
+            ):
+                raise InvalidStateTransition("paused create is not fenced by this worker")
+            updated = replace(
+                record,
+                version=record.version + 1,
+                error_code=error_code,
                 updated_at=self._now(),
             )
             self._records[deployment_id] = updated
@@ -401,6 +494,7 @@ class InMemoryAuthorityLedger:
             if (
                 record.state is not DeploymentState.PAUSED_CREATE_APPROVED
                 or record.worker_claim_hash != _claimant_hash(claimant)
+                or record.create_fenced_at is not None
                 or (expected_version is not None and record.version != expected_version)
             ):
                 raise InvalidStateTransition("paused create is not claimed by this worker")
@@ -477,7 +571,7 @@ class DraftReviewControlPlane:
 
 
 class PausedCreateControlPlane:
-    """Approve PAUSED creation and invoke a deployment-ID-only worker seam."""
+    """Approve PAUSED creation and replay-safe dispatch of durable work."""
 
     def __init__(
         self,
@@ -497,9 +591,11 @@ class PausedCreateControlPlane:
         ):
             raise InvalidPausedCreateApproval("approval is not bound to paused creation")
         if record.state in {
-            DeploymentState.PAUSED_CREATE_APPROVED,
             DeploymentState.PAUSED_CREATED,
         }:
+            return record
+        if record.state is DeploymentState.PAUSED_CREATE_APPROVED:
+            self._invoker.invoke(record.deployment_id)
             return record
         if record.state is not DeploymentState.SERVER_VALIDATED:
             raise InvalidPausedCreateApproval("deployment is not server validated")
@@ -599,6 +695,26 @@ class PausedCreateWorker:
             return _safe_result(record, error_code="ledger_write_failed")
         return _safe_result(released, error_code=error_code)
 
+    def _mark_fenced_failure(
+        self, record: DeploymentRecord, claimant: str, error_code: str
+    ) -> WorkerResult:
+        try:
+            failed = self._ledger.mark_fenced_failure(
+                record.deployment_id,
+                claimant,
+                error_code,
+            )
+        except (ControlPlaneError, ValueError):
+            return _safe_result(record, error_code="ledger_write_failed")
+        return _safe_result(failed, error_code=error_code)
+
+    def _record_failure(
+        self, record: DeploymentRecord, claimant: str, error_code: str
+    ) -> WorkerResult:
+        if record.create_fenced_at is not None:
+            return self._mark_fenced_failure(record, claimant, error_code)
+        return self._release_failure(record, claimant, error_code)
+
     def _accept_provider_deployment(
         self,
         record: DeploymentRecord,
@@ -608,9 +724,14 @@ class PausedCreateWorker:
         reconciled: bool,
     ) -> WorkerResult:
         if provider_deployment.contract_hash != record.contract_hash:
-            return self._release_failure(record, claimant, "provider_contract_mismatch")
+            return self._record_failure(record, claimant, "provider_contract_mismatch")
         if provider_deployment.status != "PAUSED":
-            return self._release_failure(record, claimant, "provider_not_paused")
+            return self._record_failure(record, claimant, "provider_not_paused")
+        if record.create_fenced_at is None:
+            try:
+                record = self._ledger.fence_paused_create(record.deployment_id, claimant)
+            except ControlPlaneError:
+                return _safe_result(record, error_code="ledger_write_failed")
         try:
             reference_hash = _provider_reference_hash(provider_deployment.campaign_resource_name)
             completed = self._ledger.complete_paused_create(
@@ -686,18 +807,28 @@ class PausedCreateWorker:
             )
 
         try:
+            claimed_record = self._ledger.fence_paused_create(
+                claimed_record.deployment_id,
+                claimant,
+            )
+        except ControlPlaneError:
+            # A timed-out fence transaction may still commit. Never release or
+            # create on an ambiguous fence outcome; a later read can reconcile.
+            return _safe_result(claimed_record, error_code="ledger_write_failed")
+
+        try:
             created = self._provider.create_paused(create_request)
         except AmbiguousProviderTimeout:
             try:
                 reconciled = self._provider.find_by_contract_label(claimed_record.contract_label)
             except Exception:
-                return self._release_failure(
+                return self._record_failure(
                     claimed_record,
                     claimant,
                     "provider_reconciliation_failed",
                 )
             if reconciled is None:
-                return self._release_failure(
+                return self._mark_fenced_failure(
                     claimed_record,
                     claimant,
                     "provider_timeout_unresolved",
@@ -709,7 +840,7 @@ class PausedCreateWorker:
                 reconciled=True,
             )
         except Exception:
-            return self._release_failure(
+            return self._record_failure(
                 claimed_record,
                 claimant,
                 "provider_create_failed",
