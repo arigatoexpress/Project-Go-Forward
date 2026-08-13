@@ -284,7 +284,7 @@ python3 scripts/production_smoke.py --base-url https://tho.sapphirealpha.xyz
 | Variable | Purpose | Required? |
 |----------|---------|-----------|
 | `ADMIN_PIN_HASH` | SHA-256 of the staff admin PIN | **Yes** |
-| `ADMIN_SESSION_SECRET` | Session token signing (derived from PIN hash if unset) | Recommended |
+| `ADMIN_SESSION_SECRET` | Independent session signing secret (Cloud Run requires ≥32 UTF-8 bytes; never PIN-derived) | Required |
 | `GOOGLE_GENAI_USE_VERTEXAI=TRUE` | Use Vertex AI for Gemini | Yes |
 | `RESEND_API_KEY` | Transactional email (lead/appointment/deal emails, staff sign-in codes) | For email |
 | `NOTIFICATION_EMAIL` | Comma-separated staff alert recipients | For email |

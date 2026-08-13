@@ -6,6 +6,10 @@ from pathlib import Path
 
 # Ensure ADMIN_PIN_HASH is set before any test imports main.py
 os.environ.setdefault("ADMIN_PIN_HASH", hashlib.sha256(b"4832").hexdigest())
+os.environ.setdefault(
+    "ADMIN_SESSION_SECRET",
+    "test-only-independent-session-signing-key",  # pragma: allowlist secret
+)
 
 # These are captured at MODULE-IMPORT time by github_mira_trigger.py (e.g.
 # _GITHUB_WEBHOOK_SECRET), and main.py imports that module. Any test that does a

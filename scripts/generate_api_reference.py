@@ -42,12 +42,18 @@ _HTTP_METHODS = ("get", "post", "put", "patch", "delete", "options", "head", "tr
 # routes. Anything not listed here is rendered by its function name.
 _AUTH_LABELS = {
     "require_admin": "Admin session (PIN or email code)",
-    "require_partner_api_key": "Partner API key",
+    "require_partner_api_key": "Partner API key",  # pragma: allowlist secret
     "_require_passkey_user": "Passkey session",
+    "require_owner_step_up": "Exact owner passkey session + CSRF",
 }
 
 # Dependencies that are infrastructure (DI wiring), not auth — omit from docs.
-_NON_AUTH_DEPENDENCIES = {"get_credential_store", "get_session_manager"}
+_NON_AUTH_DEPENDENCIES = {
+    "get_credential_store",
+    "get_access_evidence_ledger",
+    "get_session_manager",
+    "get_step_up_store",
+}
 
 # Groups for untagged routes that do not start with /api/.
 _PUBLIC_FILE_ROUTES = {"/robots.txt", "/sitemap.xml", "/llms.txt"}
@@ -164,7 +170,7 @@ def _responses_cell(op: dict) -> str:
     for status in sorted((op.get("responses") or {}).keys()):
         if status == "422":  # FastAPI validation error boilerplate
             continue
-        content = (op["responses"][status].get("content") or {})
+        content = op["responses"][status].get("content") or {}
         name = None
         for media in content.values():
             name = _schema_name(media.get("schema") or {})
