@@ -402,7 +402,15 @@ def test_fixed_dispatcher_distinguishes_definite_rejection_from_unknown_acceptan
         def post(self, *_args, **_kwargs):
             raise TimeoutError("raw transport detail")
 
-    for transport, acceptance_unknown in ((Rejected(), False), (TimedOut(), True)):
+    class RequestTimedOut:
+        def post(self, *_args, **_kwargs):
+            return type("Response", (), {"ok": False, "status_code": 408})()
+
+    for transport, acceptance_unknown in (
+        (Rejected(), False),
+        (RequestTimedOut(), True),
+        (TimedOut(), True),
+    ):
         dispatcher = FixedCloudRunJobDispatcher(
             project="tho-ai-agent",
             region="us-central1",

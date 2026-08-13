@@ -346,6 +346,7 @@ def test_dedicated_service_account_is_preferred_without_legacy_oauth_secrets():
         "required_secret_access_present": True,
         "exclusive_ads_secret_custody": True,
         "impersonation_policy_checked": True,
+        "impersonation_bindings_absent": True,
         "least_privilege_iam": True,
     }
     assert result["job"] == {
@@ -984,6 +985,33 @@ def test_storefront_ads_identity_impersonation_blocks_authority_separation(scope
     assert STOREFRONT_SERVICE_ACCOUNT not in json.dumps(result)
 
 
+@pytest.mark.parametrize(
+    ("role", "member"),
+    [
+        ("roles/iam.serviceAccountTokenCreator", "allUsers"),
+        ("roles/iam.serviceAccountUser", "user:operator@example.invalid"),
+        ("roles/iam.workloadIdentityUser", "principalSet://example.invalid/pool"),
+        ("roles/iam.serviceAccountAdmin", "user:operator@example.invalid"),
+        ("projects/tho-ai-agent/roles/customImpersonator", "user:operator@example.invalid"),
+        ("organizations/123456/roles/customImpersonator", "user:operator@example.invalid"),
+    ],
+)
+def test_public_direct_or_custom_provider_impersonation_blocks_readiness(role, member):
+    responses = _healthy_responses()
+    responses[("gcloud", "iam", "service-accounts", "get-iam-policy")] = json.dumps(
+        {"bindings": [{"role": role, "members": [member]}]}
+    )
+
+    result = readiness.audit(
+        PROJECT, "project-go-forward", "us-central1", runner=_runner(responses)[0]
+    )
+
+    assert result["service_account"]["impersonation_bindings_absent"] is False
+    assert result["service_account"]["least_privilege_iam"] is False
+    assert result["readiness"]["presence_ready"] is False
+    assert member not in json.dumps(result)
+
+
 def test_storefront_ads_job_identity_blocks_presence_even_without_secret_env():
     responses = _healthy_responses()
     runtime = json.loads(responses[("gcloud", "run", "services")])
@@ -1118,6 +1146,14 @@ def test_paused_create_target_rejects_every_additional_executor():
         "roles/run.jobsExecutorWithOverrides",
         "projects/tho-ai-agent/roles/customRunner",
         "organizations/123456/roles/customRunner",
+        "roles/secretmanager.secretAccessor",
+        "roles/secretmanager.admin",
+        "roles/iam.serviceAccountTokenCreator",
+        "roles/iam.serviceAccountUser",
+        "roles/iam.workloadIdentityUser",
+        "roles/iam.serviceAccountAdmin",
+        "roles/owner",
+        "roles/editor",
     ],
 )
 def test_paused_create_rejects_project_wide_job_execution_roles(role):

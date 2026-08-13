@@ -20,8 +20,14 @@ and budgets.
   Ads access to its broad default Compute service account. Ads automation must
   run as a dedicated identity in a dedicated Cloud Run Job.
 - Do not create or download a persistent service-account JSON key. The preferred
-  GCP runtime uses an attached user-managed service account and scoped
-  Application Default Credentials (ADC).
+   GCP runtime uses an attached user-managed service account and scoped
+   Application Default Credentials (ADC).
+- The provider service-account resource policy must have no public, direct, or
+  opaque custom-role impersonators. Break-glass impersonation is an external
+  operator exception and cannot coexist with a green automated readiness gate.
+- Project IAM must have no populated Ads secret-access/admin, service-account
+  impersonation/admin, broad Editor/Owner, Cloud Run execution, or opaque custom
+  role binding. Those inherited authorities cannot coexist with green readiness.
 
 ## What the application provides
 

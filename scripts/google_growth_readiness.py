@@ -102,6 +102,16 @@ IMPERSONATION_ROLES = {
     "roles/iam.serviceAccountUser",
     "roles/iam.workloadIdentityUser",
 }
+PROJECT_IDENTITY_AUTHORITY_ROLES = {
+    *IMPERSONATION_ROLES,
+    "roles/iam.serviceAccountAdmin",
+    "roles/editor",
+    "roles/owner",
+}
+PROJECT_SECRET_AUTHORITY_ROLES = {
+    SECRET_ACCESSOR_ROLE,
+    "roles/secretmanager.admin",
+}
 
 RUNTIME_NAMES = (
     "GA4_MEASUREMENT_ID",
@@ -278,8 +288,8 @@ def _policy_has_no_roles(payload, forbidden_roles: set[str]) -> bool:
     return True
 
 
-def _project_policy_has_no_job_execution_authority(payload) -> bool:
-    """Reject known executors and every opaque custom project/org role."""
+def _project_policy_has_no_growth_authority(payload) -> bool:
+    """Reject inherited Ads execution, secret, identity, and custom authority."""
     if not isinstance(payload, dict) or not isinstance(payload.get("bindings", []), list):
         raise ValueError("unexpected IAM policy shape")
     for binding in payload.get("bindings", []):
@@ -290,7 +300,10 @@ def _project_policy_has_no_job_execution_authority(payload) -> bool:
         if not isinstance(role, str) or not isinstance(members, list):
             raise ValueError("unexpected IAM binding shape")
         if members and (
-            role in PROJECT_JOB_EXECUTION_ROLES or role.startswith(("projects/", "organizations/"))
+            role in PROJECT_JOB_EXECUTION_ROLES
+            or role in PROJECT_IDENTITY_AUTHORITY_ROLES
+            or role in PROJECT_SECRET_AUTHORITY_ROLES
+            or role.startswith(("projects/", "organizations/"))
         ):
             return False
     return True
@@ -319,6 +332,26 @@ def _secret_policy_is_exclusive_accessor(payload, expected_member: str) -> bool:
             # cannot introspect permissions safely, so fail closed.
             return False
     return accessor_members == {expected_member}
+
+
+def _service_account_policy_has_no_impersonators(payload) -> bool:
+    """Require zero direct principals able to act as the Ads runtime identity."""
+    if not isinstance(payload, dict) or not isinstance(payload.get("bindings", []), list):
+        raise ValueError("unexpected IAM policy shape")
+    for binding in payload.get("bindings", []):
+        if not isinstance(binding, dict):
+            raise ValueError("unexpected IAM binding shape")
+        role = binding.get("role")
+        members = binding.get("members", [])
+        if not isinstance(role, str) or not isinstance(members, list):
+            raise ValueError("unexpected IAM binding shape")
+        if not members:
+            continue
+        if PUBLIC_IAM_MEMBERS.intersection(members):
+            return False
+        if role != "roles/iam.serviceAccountViewer":
+            return False
+    return True
 
 
 def _job_runtime(
@@ -581,6 +614,7 @@ def audit(project: str, service: str, region: str, *, runner=subprocess.run) -> 
     project_policy: dict = {}
     service_account_policy: dict = {}
     impersonation_policy_checked = False
+    provider_impersonation_bindings_absent = False
     dispatcher_persistent_user_key_absent = False
     dispatcher_project_roles_least_privilege = False
     dispatcher_impersonation_policy_checked = False
@@ -650,6 +684,9 @@ def audit(project: str, service: str, region: str, *, runner=subprocess.run) -> 
                 if not isinstance(service_account_policy.get("bindings", []), list):
                     raise ValueError("unexpected IAM policy shape")
                 impersonation_policy_checked = True
+                provider_impersonation_bindings_absent = (
+                    _service_account_policy_has_no_impersonators(service_account_policy)
+                )
             except (TypeError, ValueError, json.JSONDecodeError):
                 errors.append("service_account_policy")
         else:
@@ -909,7 +946,7 @@ def audit(project: str, service: str, region: str, *, runner=subprocess.run) -> 
     project_job_execution_bindings_absent = False
     if iam_policy_checked:
         try:
-            project_job_execution_bindings_absent = _project_policy_has_no_job_execution_authority(
+            project_job_execution_bindings_absent = _project_policy_has_no_growth_authority(
                 project_policy
             )
         except (TypeError, ValueError):
@@ -1226,6 +1263,7 @@ def audit(project: str, service: str, region: str, *, runner=subprocess.run) -> 
         and required_secret_access_present
         and exclusive_ads_secret_custody
         and impersonation_policy_checked
+        and provider_impersonation_bindings_absent
     )
     service_account_adc = (
         least_privilege_iam and job_runtime["runtime_ready"] and execution_iam_ready
@@ -1289,6 +1327,7 @@ def audit(project: str, service: str, region: str, *, runner=subprocess.run) -> 
             "required_secret_access_present": required_secret_access_present,
             "exclusive_ads_secret_custody": exclusive_ads_secret_custody,
             "impersonation_policy_checked": impersonation_policy_checked,
+            "impersonation_bindings_absent": provider_impersonation_bindings_absent,
             "least_privilege_iam": least_privilege_iam,
         },
         "job": {

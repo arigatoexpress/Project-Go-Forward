@@ -70,5 +70,6 @@ class FixedCloudRunJobDispatcher:
                 isinstance(status_code, int)
                 and not isinstance(status_code, bool)
                 and 400 <= status_code < 500
+                and status_code != 408
             )
             raise DispatchError(acceptance_unknown=not known_rejection)
