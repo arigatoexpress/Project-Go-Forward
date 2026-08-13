@@ -8,6 +8,7 @@ import scripts.google_growth_readiness as readiness
 PROJECT = "tho-ai-agent"
 SERVICE_ACCOUNT = "google-growth-control@tho-ai-agent.iam.gserviceaccount.com"
 SERVICE_ACCOUNT_MEMBER = f"serviceAccount:{SERVICE_ACCOUNT}"
+STOREFRONT_SERVICE_ACCOUNT = "project-go-forward@tho-ai-agent.iam.gserviceaccount.com"
 
 
 def _runner(responses):
@@ -32,9 +33,9 @@ def _job_payload(
     env=None,
 ):
     if command is None:
-        command = ["python"]
+        command = ["python", "scripts/google_ads_access_evidence_job.py"]
     if args is None:
-        args = ["scripts/google_ads_access_probe.py", "--live"]
+        args = []
     if env is None:
         env = [
             {
@@ -45,6 +46,7 @@ def _job_payload(
                 "name": "GOOGLE_ADS_CUSTOMER_ID",
                 "valueFrom": {"secretKeyRef": {"name": "google-ads-customer-id"}},
             },
+            {"name": "APP_VERSION", "value": "a" * 40},
         ]
     return {
         "spec": {
@@ -82,7 +84,8 @@ def _healthy_responses(*, enabled_services=None, runtime_env=None, job_payload=N
         ("gcloud", "secrets", "list"): ("google-ads-developer-token\ngoogle-ads-customer-id\n"),
         ("gcloud", "iam", "service-accounts"): f"{SERVICE_ACCOUNT}\n",
         ("gcloud", "iam", "service-accounts", "keys"): "",
-        ("gcloud", "projects", "get-iam-policy"): _iam_policy(),
+        ("gcloud", "iam", "service-accounts", "get-iam-policy"): json.dumps({"bindings": []}),
+        ("gcloud", "projects", "get-iam-policy"): _iam_policy("roles/datastore.user"),
         (
             "gcloud",
             "secrets",
@@ -97,7 +100,28 @@ def _healthy_responses(*, enabled_services=None, runtime_env=None, job_payload=N
         ): _secret_policy(),
         ("gcloud", "run", "jobs", "list"): "google-growth-control\n",
         ("gcloud", "run", "jobs", "describe"): json.dumps(job_payload or _job_payload()),
-        ("gcloud", "run", "services"): json.dumps(runtime_env),
+        ("gcloud", "run", "jobs", "get-iam-policy"): json.dumps(
+            {
+                "bindings": [
+                    {
+                        "role": "roles/run.invoker",
+                        "members": ["user:operator@example.invalid"],
+                    }
+                ]
+            }
+        ),
+        ("gcloud", "run", "services"): json.dumps(
+            {
+                "spec": {
+                    "template": {
+                        "spec": {
+                            "serviceAccountName": STOREFRONT_SERVICE_ACCOUNT,
+                            "containers": [{"env": runtime_env}],
+                        }
+                    }
+                }
+            }
+        ),
     }
 
 
@@ -187,7 +211,10 @@ def test_dedicated_service_account_is_preferred_without_legacy_oauth_secrets():
         "iam_policy_checked": True,
         "broad_project_roles_absent": True,
         "project_wide_secret_accessor_absent": True,
+        "firestore_access_present": True,
+        "project_roles_least_privilege": True,
         "required_secret_access_present": True,
+        "impersonation_policy_checked": True,
         "least_privilege_iam": True,
     }
     assert result["job"] == {
@@ -199,7 +226,10 @@ def test_dedicated_service_account_is_preferred_without_legacy_oauth_secrets():
         "login_customer_id_bound": False,
         "live_probe_configured": True,
         "persistent_key_path_absent": True,
+        "source_revision_bound": True,
         "runtime_ready": True,
+        "override_capable_bindings_absent": True,
+        "execution_iam_ready": True,
     }
     assert result["auth_paths"] == {
         "service_account_adc": True,
@@ -215,6 +245,10 @@ def test_dedicated_service_account_is_preferred_without_legacy_oauth_secrets():
         "ads_auth_path": True,
         "legacy_oauth_secrets_absent": True,
         "storefront_ads_credentials_absent": True,
+        "storefront_secret_access_absent": True,
+        "storefront_impersonation_absent": True,
+        "storefront_identity_separated": True,
+        "storefront_job_invocation_absent": True,
         "least_privilege_iam": True,
         "measurement": True,
         "measurement_exactly_one": True,
@@ -304,26 +338,49 @@ def test_job_runtime_rejects_wrong_identity_missing_live_flag_or_plaintext_secre
 def test_job_runtime_requires_exact_probe_command_without_override_surface():
     valid = readiness._job_runtime(_job_payload(), SERVICE_ACCOUNT)
     shell = readiness._job_runtime(
-        _job_payload(
-            command=["sh", "-c"], args=["python scripts/google_ads_access_probe.py --live"]
-        ),
+        _job_payload(command=["sh", "-c"], args=["python google_ads_access_evidence_job.py"]),
         SERVICE_ACCOUNT,
     )
     extra_argument = readiness._job_runtime(
-        _job_payload(
-            args=["scripts/google_ads_access_probe.py", "--live", "--customer-id=override"]
-        ),
+        _job_payload(args=["--customer-id=override"]),
         SERVICE_ACCOUNT,
     )
     sidecar = _job_payload()
     sidecar["spec"]["template"]["spec"]["template"]["spec"]["containers"].append(
-        {"command": ["python"], "args": ["other.py"], "env": []}
+        {"command": ["python", "other.py"], "args": [], "env": []}
     )
 
     assert valid["exact_probe_command"] is True
     assert valid["runtime_ready"] is True
     for unsafe in (shell, extra_argument, readiness._job_runtime(sidecar, SERVICE_ACCOUNT)):
         assert unsafe["exact_probe_command"] is False
+        assert unsafe["runtime_ready"] is False
+
+
+def test_job_runtime_requires_pinned_source_revision_and_rejects_arbitrary_env_overrides():
+    required = _job_payload()["spec"]["template"]["spec"]["template"]["spec"]["containers"][0][
+        "env"
+    ]
+    missing_revision = readiness._job_runtime(
+        _job_payload(env=[item for item in required if item["name"] != "APP_VERSION"]),
+        SERVICE_ACCOUNT,
+    )
+    invalid_revision = readiness._job_runtime(
+        _job_payload(
+            env=[
+                *[item for item in required if item["name"] != "APP_VERSION"],
+                {"name": "APP_VERSION", "value": "LATEST"},
+            ]
+        ),
+        SERVICE_ACCOUNT,
+    )
+    arbitrary_override = readiness._job_runtime(
+        _job_payload(env=[*required, {"name": "DEPLOYMENT_ID", "value": "override"}]),
+        SERVICE_ACCOUNT,
+    )
+
+    for unsafe in (missing_revision, invalid_revision, arbitrary_override):
+        assert unsafe["source_revision_bound"] is False
         assert unsafe["runtime_ready"] is False
 
 
@@ -410,6 +467,159 @@ def test_storefront_ads_secret_alias_blocks_presence_readiness():
     assert result["readiness"]["presence_ready"] is False
 
 
+def test_storefront_direct_ads_secret_access_blocks_authority_separation():
+    responses = _healthy_responses()
+    responses[("gcloud", "secrets", "get-iam-policy", "google-ads-developer-token")] = json.dumps(
+        {
+            "bindings": [
+                {
+                    "role": "roles/secretmanager.secretAccessor",
+                    "members": [
+                        SERVICE_ACCOUNT_MEMBER,
+                        f"serviceAccount:{STOREFRONT_SERVICE_ACCOUNT}",
+                    ],
+                }
+            ]
+        }
+    )
+    run, _calls = _runner(responses)
+
+    result = readiness.audit(PROJECT, "project-go-forward", "us-central1", runner=run)
+
+    assert result["readiness"]["storefront_ads_credentials_absent"] is True
+    assert result["readiness"]["storefront_secret_access_absent"] is False
+    assert result["readiness"]["presence_ready"] is False
+    assert STOREFRONT_SERVICE_ACCOUNT not in json.dumps(result)
+
+
+def test_storefront_project_secret_accessor_blocks_authority_separation():
+    responses = _healthy_responses()
+    policy = json.loads(responses[("gcloud", "projects", "get-iam-policy")])
+    policy["bindings"].append(
+        {
+            "role": "roles/secretmanager.secretAccessor",
+            "members": [f"serviceAccount:{STOREFRONT_SERVICE_ACCOUNT}"],
+        }
+    )
+    responses[("gcloud", "projects", "get-iam-policy")] = json.dumps(policy)
+    run, _calls = _runner(responses)
+
+    result = readiness.audit(PROJECT, "project-go-forward", "us-central1", runner=run)
+
+    assert result["readiness"]["storefront_secret_access_absent"] is False
+    assert result["readiness"]["presence_ready"] is False
+    assert STOREFRONT_SERVICE_ACCOUNT not in json.dumps(result)
+
+
+@pytest.mark.parametrize("scope", ["project", "service_account"])
+def test_storefront_ads_identity_impersonation_blocks_authority_separation(scope):
+    responses = _healthy_responses()
+    binding = {
+        "role": "roles/iam.serviceAccountTokenCreator",
+        "members": [f"serviceAccount:{STOREFRONT_SERVICE_ACCOUNT}"],
+    }
+    if scope == "project":
+        policy = json.loads(responses[("gcloud", "projects", "get-iam-policy")])
+        policy["bindings"].append(binding)
+        responses[("gcloud", "projects", "get-iam-policy")] = json.dumps(policy)
+    else:
+        responses[("gcloud", "iam", "service-accounts", "get-iam-policy")] = json.dumps(
+            {"bindings": [binding]}
+        )
+    run, _calls = _runner(responses)
+
+    result = readiness.audit(PROJECT, "project-go-forward", "us-central1", runner=run)
+
+    assert result["readiness"]["storefront_impersonation_absent"] is False
+    assert result["readiness"]["presence_ready"] is False
+    assert STOREFRONT_SERVICE_ACCOUNT not in json.dumps(result)
+
+
+def test_storefront_ads_job_identity_blocks_presence_even_without_secret_env():
+    responses = _healthy_responses()
+    runtime = json.loads(responses[("gcloud", "run", "services")])
+    runtime["spec"]["template"]["spec"]["serviceAccountName"] = SERVICE_ACCOUNT
+    responses[("gcloud", "run", "services")] = json.dumps(runtime)
+    run, _calls = _runner(responses)
+
+    result = readiness.audit(PROJECT, "project-go-forward", "us-central1", runner=run)
+
+    assert result["runtime"]["ads_credentials_absent"] is True
+    assert result["readiness"]["storefront_identity_separated"] is False
+    assert result["readiness"]["presence_ready"] is False
+
+
+def test_storefront_project_job_role_blocks_authority_separation():
+    responses = _healthy_responses()
+    responses[("gcloud", "projects", "get-iam-policy")] = json.dumps(
+        {
+            "bindings": [
+                {
+                    "role": "roles/datastore.user",
+                    "members": [SERVICE_ACCOUNT_MEMBER],
+                },
+                {
+                    "role": "roles/run.invoker",
+                    "members": [f"serviceAccount:{STOREFRONT_SERVICE_ACCOUNT}"],
+                },
+            ]
+        }
+    )
+    run, _calls = _runner(responses)
+
+    result = readiness.audit(PROJECT, "project-go-forward", "us-central1", runner=run)
+
+    assert result["readiness"]["storefront_identity_separated"] is True
+    assert result["readiness"]["storefront_job_invocation_absent"] is False
+    assert result["readiness"]["presence_ready"] is False
+    assert STOREFRONT_SERVICE_ACCOUNT not in json.dumps(result)
+
+
+def test_storefront_resource_invoker_role_blocks_authority_separation():
+    responses = _healthy_responses()
+    responses[("gcloud", "run", "jobs", "get-iam-policy")] = json.dumps(
+        {
+            "bindings": [
+                {
+                    "role": "roles/run.invoker",
+                    "members": [f"serviceAccount:{STOREFRONT_SERVICE_ACCOUNT}"],
+                }
+            ]
+        }
+    )
+    run, _calls = _runner(responses)
+
+    result = readiness.audit(PROJECT, "project-go-forward", "us-central1", runner=run)
+
+    assert result["job"]["override_capable_bindings_absent"] is True
+    assert result["readiness"]["storefront_job_invocation_absent"] is False
+    assert result["readiness"]["presence_ready"] is False
+
+
+@pytest.mark.parametrize(
+    "role",
+    [
+        "roles/run.admin",
+        "roles/run.developer",
+        "roles/run.jobsExecutorWithOverrides",
+        "projects/tho-ai-agent/roles/custom-job-runner",
+    ],
+)
+def test_override_capable_or_unknown_job_iam_blocks_fixed_protocol(role):
+    responses = _healthy_responses()
+    responses[("gcloud", "run", "jobs", "get-iam-policy")] = json.dumps(
+        {"bindings": [{"role": role, "members": ["user:operator@example.invalid"]}]}
+    )
+    run, _calls = _runner(responses)
+
+    result = readiness.audit(PROJECT, "project-go-forward", "us-central1", runner=run)
+
+    assert result["job"]["override_capable_bindings_absent"] is False
+    assert result["job"]["execution_iam_ready"] is False
+    assert result["readiness"]["presence_ready"] is False
+    assert "operator@example.invalid" not in json.dumps(result)
+
+
 @pytest.mark.parametrize(
     ("runtime_env", "expected"),
     [
@@ -471,7 +681,7 @@ def test_broad_project_role_blocks_least_privilege_auth_path(broad_role):
 def test_project_wide_secret_accessor_or_missing_resource_access_blocks_auth_path():
     broad = _healthy_responses()
     broad[("gcloud", "projects", "get-iam-policy")] = _iam_policy(
-        "roles/secretmanager.secretAccessor"
+        "roles/datastore.user", "roles/secretmanager.secretAccessor"
     )
     broad_run, _calls = _runner(broad)
     broad_result = readiness.audit(PROJECT, "project-go-forward", "us-central1", runner=broad_run)
@@ -489,6 +699,31 @@ def test_project_wide_secret_accessor_or_missing_resource_access_blocks_auth_pat
     assert missing_result["service_account"]["least_privilege_iam"] is False
     assert broad_result["readiness"]["presence_ready"] is False
     assert missing_result["readiness"]["presence_ready"] is False
+
+
+def test_missing_or_additional_project_role_blocks_direct_firestore_evidence_writer():
+    missing = _healthy_responses()
+    missing[("gcloud", "projects", "get-iam-policy")] = _iam_policy()
+    missing_run, _calls = _runner(missing)
+    missing_result = readiness.audit(
+        PROJECT, "project-go-forward", "us-central1", runner=missing_run
+    )
+
+    additional = _healthy_responses()
+    additional[("gcloud", "projects", "get-iam-policy")] = _iam_policy(
+        "roles/datastore.user",
+        "roles/viewer",
+    )
+    additional_run, _calls = _runner(additional)
+    additional_result = readiness.audit(
+        PROJECT, "project-go-forward", "us-central1", runner=additional_run
+    )
+
+    assert missing_result["service_account"]["firestore_access_present"] is False
+    assert missing_result["service_account"]["least_privilege_iam"] is False
+    assert additional_result["service_account"]["firestore_access_present"] is True
+    assert additional_result["service_account"]["project_roles_least_privilege"] is False
+    assert additional_result["service_account"]["least_privilege_iam"] is False
 
 
 def test_any_legacy_oauth_secret_presence_blocks_preferred_path():

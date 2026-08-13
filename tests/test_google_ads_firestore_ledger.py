@@ -14,9 +14,16 @@ from pydantic import ValidationError
 
 from database.google_ads_authority import FirestoreAuthorityLedger
 from database.models import (
+    GoogleAdsAccessEvidenceRecord,
     GoogleAdsAuthorityEventRecord,
     GoogleAdsDeploymentRecord,
     GoogleAdsOperationKeyRecord,
+)
+from scripts.google_ads_access_evidence import (
+    AccessCheckKey,
+    AccessEvidenceStatus,
+    build_access_evidence,
+    evidence_payload,
 )
 from scripts.google_ads_paused_worker import (
     DeploymentRecord,
@@ -102,7 +109,9 @@ class _Transaction:
     def create(self, document: _Document, value: dict):
         if document.path in self._store.rows or document.path in self._staged:
             raise RuntimeError("already exists")
-        if self._store.fail_event_create and "authority_events" in document.path:
+        if self._store.fail_event_create and (
+            "authority_events" in document.path or "access_evidence_events" in document.path
+        ):
             raise RuntimeError("event write failed")
         if self._store.fail_operation_create and "operation_keys" in document.path:
             raise RuntimeError("operation marker write failed")
@@ -155,6 +164,17 @@ class _AtomicFirestore:
                 )
             )
         )
+
+    def access_evidence(self, deployment_id: str, check_key: str) -> dict | None:
+        return copy.deepcopy(
+            self.rows.get(("google_ads_deployments", deployment_id, "access_evidence", check_key))
+        )
+
+    def access_evidence_events(self, deployment_id: str) -> list[dict]:
+        prefix = ("google_ads_deployments", deployment_id, "access_evidence_events")
+        return [
+            copy.deepcopy(value) for path, value in sorted(self.rows.items()) if path[:3] == prefix
+        ]
 
 
 class _Clock:
@@ -814,3 +834,203 @@ def test_transaction_pool_rejects_more_than_four_workers():
     with ThreadPoolExecutor(max_workers=5) as oversized_pool:
         with pytest.raises(ValueError, match="cannot exceed 4"):
             FirestoreAuthorityLedger(client=store, transaction_pool=oversized_pool)
+
+
+def _access_evidence(deployment_id: str, clock: _Clock, *, status=AccessEvidenceStatus.PASSED):
+    return build_access_evidence(
+        deployment_id=deployment_id,
+        check_key=AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_GREEN,
+        status=status,
+        observed_at=clock.value,
+        expires_at=clock.value + timedelta(minutes=5),
+        source_revision="a" * 40,
+        now=clock.value,
+    )
+
+
+def test_access_evidence_write_is_atomic_append_only_and_version_cas_bound(durable):
+    ledger, store, clock = durable
+    draft = _draft(ledger)
+    evidence = _access_evidence(draft.deployment_id, clock)
+
+    stored = ledger.record_access_evidence(evidence, expected_version=draft.version)
+
+    expected = GoogleAdsAccessEvidenceRecord.model_validate(
+        store.access_evidence(draft.deployment_id, evidence.check_key.value)
+    )
+    assert stored == evidence
+    assert expected.model_dump() == store.access_evidence(
+        draft.deployment_id, evidence.check_key.value
+    )
+    assert store.access_evidence_events(draft.deployment_id) == [expected.model_dump()]
+    assert store.deployment(draft.deployment_id)["version"] == draft.version
+
+    transitioned = ledger.transition(
+        draft.deployment_id,
+        expected=DeploymentState.INTERNAL_DRAFT,
+        target=DeploymentState.SERVER_VALIDATED,
+        expected_version=draft.version,
+    )
+    clock.advance(1)
+    newer = _access_evidence(draft.deployment_id, clock, status=AccessEvidenceStatus.FAILED)
+    with pytest.raises(InvalidStateTransition, match="stale deployment version"):
+        ledger.record_access_evidence(newer, expected_version=draft.version)
+    assert transitioned.version != draft.version
+    assert len(store.access_evidence_events(draft.deployment_id)) == 1
+
+
+def test_access_evidence_replay_is_idempotent_and_event_failure_rolls_back_current(durable):
+    ledger, store, clock = durable
+    draft = _draft(ledger)
+    evidence = _access_evidence(draft.deployment_id, clock)
+
+    assert ledger.record_access_evidence(evidence, expected_version=draft.version) == evidence
+    assert ledger.record_access_evidence(evidence, expected_version=draft.version) == evidence
+    assert len(store.access_evidence_events(draft.deployment_id)) == 1
+
+    clock.advance(1)
+    replacement = _access_evidence(
+        draft.deployment_id,
+        clock,
+        status=AccessEvidenceStatus.FAILED,
+    )
+    store.fail_event_create = True
+    with pytest.raises(LedgerWriteError, match="ledger_write_failed"):
+        ledger.record_access_evidence(replacement, expected_version=draft.version)
+
+    current = store.access_evidence(draft.deployment_id, evidence.check_key.value)
+    assert current["evidence_digest"] == evidence.evidence_digest
+    assert len(store.access_evidence_events(draft.deployment_id)) == 1
+
+
+def test_access_evidence_read_rejects_expired_or_corrupt_firestore_rows(durable):
+    ledger, store, clock = durable
+    draft = _draft(ledger)
+    evidence = _access_evidence(draft.deployment_id, clock)
+    ledger.record_access_evidence(evidence, expected_version=draft.version)
+
+    assert (
+        ledger.get_access_evidence(
+            draft.deployment_id,
+            AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_GREEN,
+        )
+        == evidence
+    )
+
+    clock.advance(301)
+    with pytest.raises(LedgerWriteError, match="access_evidence_invalid"):
+        ledger.get_access_evidence(
+            draft.deployment_id,
+            AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_GREEN,
+        )
+
+    row = store.access_evidence(draft.deployment_id, evidence.check_key.value)
+    row["provider_error"] = "raw-do-not-store"
+    store.rows[
+        (
+            "google_ads_deployments",
+            draft.deployment_id,
+            "access_evidence",
+            evidence.check_key.value,
+        )
+    ] = row
+    with pytest.raises(LedgerWriteError, match="access_evidence_invalid") as exc_info:
+        ledger.get_access_evidence(
+            draft.deployment_id,
+            AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_GREEN,
+        )
+    assert "raw-do-not-store" not in str(exc_info.value)
+
+
+def test_access_evidence_read_rejects_payload_bound_to_another_document_path(durable):
+    ledger, store, clock = durable
+    draft = _draft(ledger)
+    misplaced = _access_evidence(f"other--{'b' * 64}", clock)
+    evidence_path = (
+        "google_ads_deployments",
+        draft.deployment_id,
+        "access_evidence",
+        AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_GREEN.value,
+    )
+    store.rows[evidence_path] = evidence_payload(misplaced)
+
+    with pytest.raises(LedgerWriteError, match="access_evidence_invalid"):
+        ledger.get_access_evidence(
+            draft.deployment_id,
+            AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_GREEN,
+        )
+
+
+def test_access_evidence_write_rejects_path_mismatched_current_row_atomically(durable):
+    ledger, store, clock = durable
+    draft = _draft(ledger)
+    misplaced = _access_evidence(f"other--{'b' * 64}", clock)
+    evidence_path = (
+        "google_ads_deployments",
+        draft.deployment_id,
+        "access_evidence",
+        AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_GREEN.value,
+    )
+    misplaced_payload = evidence_payload(misplaced)
+    store.rows[evidence_path] = misplaced_payload
+    clock.advance(1)
+    replacement = _access_evidence(draft.deployment_id, clock)
+
+    with pytest.raises(LedgerWriteError, match="access_evidence_invalid"):
+        ledger.record_access_evidence(replacement, expected_version=draft.version)
+
+    assert store.rows[evidence_path] == misplaced_payload
+    assert store.access_evidence_events(draft.deployment_id) == []
+
+
+def test_expired_current_evidence_can_be_atomically_replaced(durable):
+    ledger, store, clock = durable
+    draft = _draft(ledger)
+    expired = _access_evidence(draft.deployment_id, clock)
+    ledger.record_access_evidence(expired, expected_version=draft.version)
+    clock.advance(301)
+    replacement = _access_evidence(
+        draft.deployment_id,
+        clock,
+        status=AccessEvidenceStatus.FAILED,
+    )
+
+    assert ledger.record_access_evidence(replacement, expected_version=draft.version) == replacement
+    assert (
+        store.access_evidence(draft.deployment_id, replacement.check_key.value)["evidence_digest"]
+        == replacement.evidence_digest
+    )
+    assert len(store.access_evidence_events(draft.deployment_id)) == 2
+
+
+def test_concurrent_distinct_evidence_at_one_observation_has_one_atomic_winner(durable):
+    ledger, store, clock = durable
+    draft = _draft(ledger)
+    barrier = Barrier(8)
+
+    def write(index: int):
+        evidence = build_access_evidence(
+            deployment_id=draft.deployment_id,
+            check_key=AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_GREEN,
+            status=AccessEvidenceStatus.PASSED,
+            observed_at=clock.value,
+            expires_at=clock.value + timedelta(minutes=5),
+            source_revision=f"{index:040x}",
+            now=clock.value,
+        )
+        barrier.wait()
+        try:
+            return ledger.record_access_evidence(evidence, expected_version=draft.version)
+        except LedgerConflict:
+            return None
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        results = list(pool.map(write, range(8)))
+
+    winners = [result for result in results if result is not None]
+    assert len(winners) == 1
+    assert len(store.access_evidence_events(draft.deployment_id)) == 1
+    assert (
+        store.access_evidence(draft.deployment_id, winners[0].check_key.value)["evidence_digest"]
+        == winners[0].evidence_digest
+    )

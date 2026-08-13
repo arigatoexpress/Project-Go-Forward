@@ -50,11 +50,14 @@ prints measurement IDs, customer IDs, service-account emails, or token values.
 It recognizes two authentication paths:
 
 1. Preferred: the dedicated `google-growth-control` service account has no
-   user-managed keys or project-wide Editor/Owner/Secret Accessor role. The
-   same-named Cloud Run Job must be attached to it, use the exact
-   `python scripts/google_ads_access_probe.py --live` command, and bind only
+   user-managed keys and has only project-level `roles/datastore.user`, never
+   Editor/Owner/Secret Accessor. The same-named Cloud Run Job must be attached
+   to it, use the exact `python scripts/google_ads_access_evidence_job.py`
+   command as a two-element command with an empty argument list, and bind only
    the named Ads secrets from Secret Manager. The service account must have
-   accessor rights on each bound secret itself.
+   accessor rights on each bound secret itself. Job-resource IAM may grant
+   only non-override execution/viewer roles; override-capable or custom roles
+   fail readiness.
 2. Compatibility-only: all three legacy user-OAuth secrets exist. The audit
    reports this path, but it does not satisfy GCP-native strict readiness.
 
@@ -62,7 +65,10 @@ The preferred path needs only the developer-token and customer-ID Secret
 Manager entries. The optional login-customer-ID entry is needed when the target
 account is accessed through a Google Ads manager account. Legacy user-OAuth
 secrets must be absent, and the public storefront must have no Ads credential
-bindings. Exactly one measurement path (GA4 or GTM) must be configured.
+bindings, must use a distinct identity, and must have no project-level Cloud
+Run Job invocation role, job-resource execution binding, direct Ads-secret
+access, or ability to impersonate the Ads job identity. Exactly one measurement
+path (GA4 or GTM) must be configured.
 Search Console and Business Profile API status remains advisory and does not
 block Ads presence readiness. A green presence audit does **not** prove the
 identity has Google Ads account access.
@@ -73,11 +79,16 @@ The account-access probe is offline by default:
 python3 scripts/google_ads_access_probe.py
 ```
 
-After a dedicated job identity and managed secret bindings exist, run the job
-with `--live`. The live path uses scoped ADC and performs only
-`SELECT customer.id FROM customer LIMIT 1`. Its output contains status booleans
-and an HTTP status, never credentials, IDs, response bodies, or request IDs.
-It cannot create Ads resources or enable spend.
+After a dedicated job identity and managed secret bindings exist, the job runs
+the fixed `python scripts/google_ads_access_evidence_job.py` command with no
+arguments or runtime overrides. It reads the immutable checked-in contract,
+uses scoped ADC for only `SELECT customer.id FROM customer LIMIT 1`, and writes
+a sanitized Firestore evidence record plus append-only event in one
+version-checked transaction. The strict record contains only deployment ID,
+the allowlisted access-check key/status, UTC observation/expiry, source
+revision, and an evidence digest. It never stores credentials, customer/login
+IDs, request IDs, resource names, raw responses, or provider errors. Evidence
+expires after five minutes and does not authorize campaign creation or spend.
 
 ## Checked-in zero-spend launch contract
 
@@ -165,13 +176,22 @@ not create a key. The intended execution surface is a dedicated Cloud Run Job
 with:
 
 - `google-growth-control` as its attached service identity;
+- no public-storefront binding on this identity's IAM policy and no storefront
+  token-creator, service-account-user, or workload-identity-user grant;
 - the `adwords` OAuth scope requested through ADC by the probe/client;
 - Secret Manager access scoped only to the Ads developer-token and account-ID
   secrets;
-- the exact command `python scripts/google_ads_access_probe.py --live`, split
-  as command `python` and arguments `scripts/google_ads_access_probe.py`,
-  `--live` (job executions do not add `--live` automatically and credential or
-  executable override arguments are forbidden);
+- the exact command `python scripts/google_ads_access_evidence_job.py`, split
+  as the two-element command array `python`,
+  `scripts/google_ads_access_evidence_job.py`, with an empty argument list;
+  the source image revision is pinned in `APP_VERSION`, and command,
+  credential, deployment, or executable override arguments/environment values
+  are forbidden;
+- job-resource IAM limited to `roles/run.invoker`,
+  `roles/run.jobsExecutor`, or `roles/run.viewer`; none of these grants
+  `run.jobs.runWithOverrides`. Custom and override-capable job roles fail the
+  readiness audit. Privileged infrastructure administrators can replace the
+  job itself and remain subject to the separate production-change gate;
 - no public endpoint, campaign activation command, or spend authority.
 
 The Google Ads administrator must separately add the service-account email as
