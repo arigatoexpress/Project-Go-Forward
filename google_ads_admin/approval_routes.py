@@ -140,13 +140,11 @@ def _read_approval_readiness(ledger: FirestoreAuthorityLedger):
         access_evidence_id = evidence.evidence_digest if access_evidence_fresh else None
     except Exception:
         pass
-    dispatch_enabled = os.environ.get("THO_GOOGLE_ADS_PAUSED_CREATE_DISPATCH_ENABLED") == "true"
     action_available = (
         runtime.approval_available
         and record.state.value == "SERVER_VALIDATED"
         and record.version == 2
         and access_evidence_fresh
-        and not dispatch_enabled
     )
     remediation = []
     if record.state.value != "SERVER_VALIDATED" or record.version != 2:
@@ -155,8 +153,6 @@ def _read_approval_readiness(ledger: FirestoreAuthorityLedger):
         remediation.append("Run the read-only Google Ads account-access evidence job.")
     if not runtime.approval_available:
         remediation.append("Verify current cloud/IAM readiness and enable owner approval config.")
-    if dispatch_enabled:
-        remediation.append("Disable PAUSED-create dispatch before owner approval.")
     budget = contract["campaign"]["budget"]
     return PausedCreateApprovalReadiness(
         deployment_id=deployment_id,
@@ -173,7 +169,9 @@ def _read_approval_readiness(ledger: FirestoreAuthorityLedger):
         access_evidence_id=access_evidence_id,
         access_evidence_fresh=access_evidence_fresh,
         action_available=action_available,
-        dispatch_enabled=dispatch_enabled,
+        dispatch_enabled=(
+            os.environ.get("THO_GOOGLE_ADS_PAUSED_CREATE_DISPATCH_ENABLED") == "true"
+        ),
         paused_only=True,
         activation_authorized=False,
         spend_enabled=False,
@@ -205,8 +203,6 @@ async def approve_paused_create(
     runtime = PausedCreateApprovalRuntime.from_env()
     if not runtime.approval_available:
         raise HTTPException(503, "PAUSED-only approval prerequisites are unavailable.")
-    if os.environ.get("THO_GOOGLE_ADS_PAUSED_CREATE_DISPATCH_ENABLED") == "true":
-        raise HTTPException(503, "Disable PAUSED-create dispatch before owner approval.")
     try:
         proof = _verify_request_proof(manager, request, owner_email)
         contract_hash, caps = _checked_in_identity(request)

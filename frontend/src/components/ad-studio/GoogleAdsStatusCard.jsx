@@ -96,7 +96,7 @@ export default function GoogleAdsStatusCard() {
   async function approvePausedCreate() {
     if (!approvalReadiness?.action_available || approving) return;
     const confirmed = globalThis.confirm(
-      'This approves creation of PAUSED Google Ads resources only. It cannot activate ads or spend money. Continue?',
+      'This authorizes creation of PAUSED Google Ads resources. If the separate dispatcher is already runnable, creation may begin after approval. It cannot activate ads or spend money. Continue?',
     );
     if (!confirmed) return;
     setApproving(true);
@@ -181,8 +181,8 @@ export default function GoogleAdsStatusCard() {
           <div><dt>Creation mode</dt><dd>PAUSED only · $0 spend</dd></div>
           {approvalReadiness && (
             <div>
-              <dt>Dispatch state</dt>
-              <dd>{approvalReadiness.dispatch_enabled ? 'Enabled — approval locked' : 'Disabled — approval isolated'}</dd>
+              <dt>Storefront dispatch flag</dt>
+              <dd>{approvalReadiness.dispatch_enabled ? 'Enabled' : 'Disabled'}</dd>
             </div>
           )}
         </dl>
@@ -204,8 +204,9 @@ export default function GoogleAdsStatusCard() {
         )}
         {approvalReadiness?.action_available && !approvalResult && (
           <p className="google-ads-status-note">
-            Approval queues PAUSED-only work. The fixed dispatcher remains separately
-            feature- and cloud-gated.
+            Approval queues PAUSED-only work. This storefront flag does not prove whether
+            the separate dispatcher job or a scheduler is runnable; verify external runtime
+            state before approving.
           </p>
         )}
         {approvalResult && (

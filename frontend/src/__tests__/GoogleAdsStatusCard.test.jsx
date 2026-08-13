@@ -391,6 +391,10 @@ describe('GoogleAdsStatusCard', () => {
     await waitFor(() => expect(button).toBeEnabled());
     fireEvent.click(button);
 
+    expect(globalThis.confirm).toHaveBeenCalledWith(expect.stringMatching(
+      /separate dispatcher is already runnable.*creation may begin after approval/i,
+    ));
+
     expect(await screen.findByText(
       /PAUSED-only creation is approved; durable outbox is pending/i,
     )).toBeInTheDocument();
@@ -409,25 +413,23 @@ describe('GoogleAdsStatusCard', () => {
     expect(approvalCall[1].body).not.toMatch(/caps|account|provider|activate|spend/i);
   });
 
-  it('shows dispatch state and blocks owner approval when dispatch is already enabled', async () => {
-    const unsafeReadiness = {
+  it('labels dispatch as storefront-local without claiming global isolation', async () => {
+    const enabledReadiness = {
       ...APPROVAL_READY,
-      action_available: false,
       dispatch_enabled: true,
-      remediation: ['Disable PAUSED-create dispatch before owner approval.'],
     };
     adminFetch
       .mockResolvedValueOnce(response(VALIDATED))
-      .mockResolvedValueOnce(response(unsafeReadiness));
+      .mockResolvedValueOnce(response(enabledReadiness));
 
     render(<GoogleAdsStatusCard />);
 
-    expect(await screen.findByText(/Dispatch state/i)).toBeInTheDocument();
-    expect(screen.getByText(/Enabled — approval locked/i)).toBeInTheDocument();
-    expect(screen.getByText(/Disable PAUSED-create dispatch before owner approval/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Storefront dispatch flag/i)).toBeInTheDocument();
+    expect(screen.getByText(/^Enabled$/i)).toBeInTheDocument();
+    expect(screen.getByText(/does not prove whether the separate dispatcher job or a scheduler is runnable/i)).toBeInTheDocument();
     expect(screen.getByRole('button', {
       name: 'Verify owner and approve PAUSED creation',
-    })).toBeDisabled();
+    })).toBeEnabled();
     expect(adminFetch).toHaveBeenCalledTimes(2);
   });
 

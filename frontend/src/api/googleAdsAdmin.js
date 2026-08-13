@@ -214,9 +214,7 @@ function normalizeApprovalReadiness(payload) {
     && payload.remediation.every(item => typeof item === 'string')
     && payload.access_evidence_fresh === (payload.access_evidence_id !== null)
     && payload.action_available === (
-      gateKeys.every(key => payload.gates[key])
-      && payload.access_evidence_fresh
-      && !payload.dispatch_enabled
+      gateKeys.every(key => payload.gates[key]) && payload.access_evidence_fresh
     );
   if (!safe) throw new Error('PAUSED-only approval readiness is unavailable.');
   return {
