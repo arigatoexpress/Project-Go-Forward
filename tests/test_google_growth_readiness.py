@@ -1086,6 +1086,8 @@ def test_paused_create_target_rejects_every_additional_executor():
         "roles/run.invoker",
         "roles/run.jobsExecutor",
         "roles/run.jobsExecutorWithOverrides",
+        "projects/tho-ai-agent/roles/customRunner",
+        "organizations/123456/roles/customRunner",
     ],
 )
 def test_paused_create_rejects_project_wide_job_execution_roles(role):

@@ -278,6 +278,24 @@ def _policy_has_no_roles(payload, forbidden_roles: set[str]) -> bool:
     return True
 
 
+def _project_policy_has_no_job_execution_authority(payload) -> bool:
+    """Reject known executors and every opaque custom project/org role."""
+    if not isinstance(payload, dict) or not isinstance(payload.get("bindings", []), list):
+        raise ValueError("unexpected IAM policy shape")
+    for binding in payload.get("bindings", []):
+        if not isinstance(binding, dict):
+            raise ValueError("unexpected IAM binding shape")
+        role = binding.get("role")
+        members = binding.get("members", [])
+        if not isinstance(role, str) or not isinstance(members, list):
+            raise ValueError("unexpected IAM binding shape")
+        if members and (
+            role in PROJECT_JOB_EXECUTION_ROLES or role.startswith(("projects/", "organizations/"))
+        ):
+            return False
+    return True
+
+
 def _job_runtime(
     payload,
     expected_service_account: str,
@@ -866,9 +884,8 @@ def audit(project: str, service: str, region: str, *, runner=subprocess.run) -> 
     project_job_execution_bindings_absent = False
     if iam_policy_checked:
         try:
-            project_job_execution_bindings_absent = _policy_has_no_roles(
-                project_policy,
-                PROJECT_JOB_EXECUTION_ROLES,
+            project_job_execution_bindings_absent = _project_policy_has_no_job_execution_authority(
+                project_policy
             )
         except (TypeError, ValueError):
             errors.append("project_job_execution_iam")
