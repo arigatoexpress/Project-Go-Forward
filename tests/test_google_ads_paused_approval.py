@@ -201,6 +201,20 @@ class _ApprovalLedger:
             "replayed": len(self.calls) > 1,
         }
 
+    def get(self, deployment_id):
+        assert deployment_id == _identity()[1]
+        return type(
+            "Record",
+            (),
+            {"state": type("State", (), {"value": "SERVER_VALIDATED"})(), "version": 2},
+        )()
+
+    def get_access_evidence(self, deployment_id, check_key):
+        evidence = _evidence()
+        assert deployment_id == evidence.deployment_id
+        assert check_key is AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_GREEN
+        return evidence
+
 
 def _approval_env(monkeypatch):
     values = {
@@ -365,6 +379,31 @@ def test_approval_fails_503_before_ledger_when_feature_cloud_or_iam_config_missi
         )
         assert response.status_code == 503
         _approval_env(monkeypatch)
+    assert ledger.calls == []
+
+
+def test_approval_readiness_fails_closed_when_dispatch_is_already_enabled(
+    approval_client, monkeypatch
+):
+    client, manager, ledger = approval_client
+    _owner(client, manager)
+    monkeypatch.setenv("THO_GOOGLE_ADS_PAUSED_CREATE_DISPATCH_ENABLED", "true")
+
+    response = client.get(
+        "/api/admin/google-ads/paused-create-approval-readiness",
+        headers={"X-CSRF-Token": CSRF},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["dispatch_enabled"] is True
+    assert response.json()["action_available"] is False
+    assert any("Disable PAUSED-create dispatch" in item for item in response.json()["remediation"])
+    blocked = client.post(
+        "/api/admin/google-ads/paused-create-approval",
+        headers={"X-CSRF-Token": CSRF},
+        json=_approval_body(manager),
+    )
+    assert blocked.status_code == 503
     assert ledger.calls == []
 
 

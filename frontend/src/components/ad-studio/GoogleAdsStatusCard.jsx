@@ -179,6 +179,12 @@ export default function GoogleAdsStatusCard() {
         <dl className="google-ads-status-details">
           <div><dt>Content hash</dt><dd>{status.contract_hash}</dd></div>
           <div><dt>Creation mode</dt><dd>PAUSED only · $0 spend</dd></div>
+          {approvalReadiness && (
+            <div>
+              <dt>Dispatch state</dt>
+              <dd>{approvalReadiness.dispatch_enabled ? 'Enabled — approval locked' : 'Disabled — approval isolated'}</dd>
+            </div>
+          )}
         </dl>
         <button
           className="google-ads-validation-button"

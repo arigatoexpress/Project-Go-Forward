@@ -4,7 +4,6 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import adminFetch from '../adminFetch';
 import GoogleAdsStatusCard from '../components/ad-studio/GoogleAdsStatusCard';
 import {
-  approveGoogleAdsPausedCreate,
   ensureGoogleAdsInternalDraft,
   getGoogleAdsDeploymentReadiness,
   getGoogleAdsPausedCreateApprovalReadiness,
@@ -408,6 +407,28 @@ describe('GoogleAdsStatusCard', () => {
       access_evidence_id: accessId,
     });
     expect(approvalCall[1].body).not.toMatch(/caps|account|provider|activate|spend/i);
+  });
+
+  it('shows dispatch state and blocks owner approval when dispatch is already enabled', async () => {
+    const unsafeReadiness = {
+      ...APPROVAL_READY,
+      action_available: false,
+      dispatch_enabled: true,
+      remediation: ['Disable PAUSED-create dispatch before owner approval.'],
+    };
+    adminFetch
+      .mockResolvedValueOnce(response(VALIDATED))
+      .mockResolvedValueOnce(response(unsafeReadiness));
+
+    render(<GoogleAdsStatusCard />);
+
+    expect(await screen.findByText(/Dispatch state/i)).toBeInTheDocument();
+    expect(screen.getByText(/Enabled — approval locked/i)).toBeInTheDocument();
+    expect(screen.getByText(/Disable PAUSED-create dispatch before owner approval/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', {
+      name: 'Verify owner and approve PAUSED creation',
+    })).toBeDisabled();
+    expect(adminFetch).toHaveBeenCalledTimes(2);
   });
 
   it('reports a durable approved outbox truthfully and keeps approval disabled', async () => {
