@@ -3,6 +3,7 @@ import json
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -29,6 +30,8 @@ class RecordingLedger(InMemoryAuthorityLedger):
     def __init__(self):
         super().__init__(clock=lambda: datetime(2026, 8, 12, 12, 0, tzinfo=UTC))
         self.events = []
+        self.outbox_state = None
+        self.event_limits = []
 
     def create_or_get(self, candidate):
         record, created = super().create_or_get(candidate)
@@ -68,7 +71,13 @@ class RecordingLedger(InMemoryAuthorityLedger):
         return record
 
     def list_events(self, _deployment_id, *, limit=20):
+        self.event_limits.append(limit)
         return self.events[-limit:]
+
+    def get_paused_create_outbox(self, _deployment_id):
+        if self.outbox_state is None:
+            raise AssertionError("pre-approval projection must not read an outbox")
+        return SimpleNamespace(state=self.outbox_state)
 
 
 @pytest.fixture
@@ -116,6 +125,72 @@ def test_projection_is_allowlisted_durable_state_and_sanitized_events(ledger):
     serialized = json.dumps(status)
     for forbidden in ("customer_id", "developer_token", "provider_reference", "worker_claim"):
         assert forbidden not in serialized
+
+
+def test_projection_reports_terminal_paused_outbox_without_activation_or_spend(ledger):
+    control = DraftReviewControlPlane(ledger, StaticContractSource(CONTRACT))
+    draft = control.ensure_internal_draft()
+    validated = control.server_validate(draft.deployment_id, expected_version=1)
+    approved_at = datetime(2026, 8, 12, 12, 1, tzinfo=UTC)
+    approved = replace(
+        validated,
+        state=DeploymentState.PAUSED_CREATE_APPROVED,
+        version=3,
+        updated_at=approved_at,
+    )
+    approved_event = {
+        "event_id": "00000000000000000003-paused-create-approved",
+        "deployment_id": approved.deployment_id,
+        "contract_hash": approved.contract_hash,
+        "event_type": "PAUSED_CREATE_APPROVED",
+        "record_version": 3,
+        "from_state": "SERVER_VALIDATED",
+        "to_state": "PAUSED_CREATE_APPROVED",
+        "worker_claim_hash": None,
+        "error_code": None,
+        "occurred_at": approved_at,
+    }
+    events = [*ledger.list_events(approved.deployment_id), approved_event]
+
+    with pytest.raises(ValueError, match="outbox"):
+        build_deployment_readiness(approved, events)
+    status = build_deployment_readiness(approved, events, outbox_state="PENDING")
+
+    assert status["state"] == "PAUSED_CREATE_APPROVED"
+    assert status["paused_create"] == {
+        "outbox_state": "PENDING",
+        "activation_authorized": False,
+        "spend_enabled": False,
+    }
+
+    created_at = datetime(2026, 8, 12, 12, 2, tzinfo=UTC)
+    created = replace(
+        approved,
+        state=DeploymentState.PAUSED_CREATED,
+        version=4,
+        updated_at=created_at,
+    )
+    completed_event = {
+        "event_id": "00000000000000000004-paused-create-completed",
+        "deployment_id": created.deployment_id,
+        "contract_hash": created.contract_hash,
+        "event_type": "PAUSED_CREATE_COMPLETED",
+        "record_version": 4,
+        "from_state": "PAUSED_CREATE_APPROVED",
+        "to_state": "PAUSED_CREATED",
+        "worker_claim_hash": f"sha256:{'c' * 64}",
+        "error_code": None,
+        "occurred_at": created_at,
+    }
+    created_status = build_deployment_readiness(
+        created,
+        [*events, completed_event],
+        outbox_state="DISPATCHED",
+    )
+    assert created_status["state"] == "PAUSED_CREATED"
+    assert created_status["paused_create"]["outbox_state"] == "DISPATCHED"
+    with pytest.raises(ValueError, match="dispatched"):
+        build_deployment_readiness(created, [*events, completed_event], outbox_state="PENDING")
 
 
 def test_projection_rejects_non_review_or_semantically_invalid_events(ledger):
@@ -170,6 +245,111 @@ def test_csrf_protected_bootstrap_post_is_idempotent_and_get_then_projects(admin
     assert first.json() == replay.json() == read.json()
     assert read.json()["version"] == 1
     assert len(ledger.events) == 1
+
+
+def test_idempotent_bootstrap_projects_existing_approved_outbox(admin_client, ledger):
+    draft = admin_client.post(DRAFT, headers=_headers(), json={}).json()
+    admin_client.post(
+        VALIDATE,
+        headers=_headers(),
+        json={
+            "deployment_id": draft["deployment_id"],
+            "expected_version": 1,
+            "idempotency_key": "offline-validation-12345678",
+        },
+    )
+    validated = ledger.get(draft["deployment_id"])
+    approved = replace(
+        validated,
+        state=DeploymentState.PAUSED_CREATE_APPROVED,
+        version=3,
+    )
+    ledger._records[approved.deployment_id] = approved
+    ledger.events.append(
+        {
+            "event_id": "00000000000000000003-paused-create-approved",
+            "deployment_id": approved.deployment_id,
+            "contract_hash": approved.contract_hash,
+            "event_type": "PAUSED_CREATE_APPROVED",
+            "record_version": 3,
+            "from_state": "SERVER_VALIDATED",
+            "to_state": "PAUSED_CREATE_APPROVED",
+            "error_code": None,
+            "occurred_at": approved.updated_at,
+        }
+    )
+    ledger.outbox_state = "PENDING"
+
+    response = admin_client.post(DRAFT, headers=_headers(), json={})
+
+    assert response.status_code == 200
+    assert response.json()["state"] == "PAUSED_CREATE_APPROVED"
+    assert response.json()["paused_create"]["outbox_state"] == "PENDING"
+    assert ledger.event_limits[-1] == 3
+
+
+def test_terminal_projection_fetches_and_validates_more_than_default_twenty_events(
+    admin_client, ledger
+):
+    draft = admin_client.post(DRAFT, headers=_headers(), json={}).json()
+    admin_client.post(
+        VALIDATE,
+        headers=_headers(),
+        json={
+            "deployment_id": draft["deployment_id"],
+            "expected_version": 1,
+            "idempotency_key": "offline-validation-12345678",
+        },
+    )
+    record = ledger.get(draft["deployment_id"])
+    approved_at = datetime(2026, 8, 12, 12, 2, tzinfo=UTC)
+    ledger.events.append(
+        {
+            "event_id": "00000000000000000003-paused-create-approved",
+            "deployment_id": record.deployment_id,
+            "contract_hash": record.contract_hash,
+            "event_type": "PAUSED_CREATE_APPROVED",
+            "record_version": 3,
+            "from_state": "SERVER_VALIDATED",
+            "to_state": "PAUSED_CREATE_APPROVED",
+            "error_code": None,
+            "occurred_at": approved_at,
+        }
+    )
+    worker_hash = f"sha256:{'c' * 64}"
+    for version in range(4, 104):
+        claimed = version % 2 == 0
+        event_type = "PAUSED_CREATE_CLAIMED" if claimed else "PAUSED_CREATE_CLAIM_RELEASED"
+        ledger.events.append(
+            {
+                "event_id": f"{version:020d}-{event_type.lower().replace('_', '-')}",
+                "deployment_id": record.deployment_id,
+                "contract_hash": record.contract_hash,
+                "event_type": event_type,
+                "record_version": version,
+                "from_state": "PAUSED_CREATE_APPROVED",
+                "to_state": "PAUSED_CREATE_APPROVED",
+                "worker_claim_hash": worker_hash,
+                "error_code": None if claimed else "provider_validation_failed",
+                "occurred_at": approved_at,
+            }
+        )
+    ledger._records[record.deployment_id] = replace(
+        record,
+        state=DeploymentState.PAUSED_CREATE_APPROVED,
+        version=103,
+        error_code="provider_validation_failed",
+        updated_at=approved_at,
+    )
+    ledger.outbox_state = "PENDING"
+
+    response = admin_client.get(READINESS, headers=_headers())
+
+    assert response.status_code == 200
+    assert response.json()["events"]["count"] == 103
+    assert response.json()["events"]["first_version"] == 4
+    assert len(response.json()["events"]["items"]) == 100
+    assert ledger.event_limits[-1] == 100
 
 
 @pytest.mark.parametrize(

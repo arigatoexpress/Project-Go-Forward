@@ -39,8 +39,10 @@ LEGACY_OAUTH_SECRETS = (
 )
 
 ADS_SERVICE_ACCOUNT_ID = "google-growth-control"
+ADS_DISPATCHER_SERVICE_ACCOUNT_ID = "google-growth-dispatcher"
 ADS_JOB_ID = "google-growth-control"
 ADS_PAUSED_CREATE_JOB_ID = "google-growth-paused-create"
+ADS_PAUSED_DISPATCHER_JOB_ID = "google-growth-paused-dispatch"
 JOB_SECRET_BINDINGS = {
     "GOOGLE_ADS_DEVELOPER_TOKEN": "google-ads-developer-token",
     "GOOGLE_ADS_CUSTOMER_ID": "google-ads-customer-id",
@@ -50,9 +52,14 @@ OPTIONAL_JOB_SECRET_BINDINGS = {
 }
 EXPECTED_JOB_COMMAND = ("python", "scripts/google_ads_access_evidence_job.py")
 EXPECTED_PAUSED_CREATE_JOB_COMMAND = ("python", "scripts/google_ads_paused_worker_job.py")
+EXPECTED_PAUSED_DISPATCHER_JOB_COMMAND = (
+    "python",
+    "scripts/google_ads_paused_dispatcher_job.py",
+)
 EXPECTED_JOB_ARGS: tuple[str, ...] = ()
 SOURCE_REVISION_ENV = "APP_VERSION"
 SOURCE_REVISION_RE = re.compile(r"^[0-9a-f]{40}$")
+IMAGE_DIGEST_RE = re.compile(r"^.+@sha256:[0-9a-f]{64}$")
 
 LEGACY_OAUTH_ENV_NAMES = {
     "GOOGLE_ADS_CLIENT_ID",
@@ -73,6 +80,13 @@ SAFE_JOB_EXECUTION_ROLES = {
     "roles/run.jobsExecutor",
     "roles/run.viewer",
 }
+PROJECT_JOB_EXECUTION_ROLES = {
+    "roles/run.admin",
+    "roles/run.developer",
+    "roles/run.invoker",
+    "roles/run.jobsExecutor",
+    "roles/run.jobsExecutorWithOverrides",
+}
 PUBLIC_IAM_MEMBERS = {"allUsers", "allAuthenticatedUsers"}
 STOREFRONT_JOB_ROLES = {
     "roles/editor",
@@ -88,11 +102,33 @@ IMPERSONATION_ROLES = {
     "roles/iam.serviceAccountUser",
     "roles/iam.workloadIdentityUser",
 }
+PROJECT_IDENTITY_AUTHORITY_ROLES = {
+    *IMPERSONATION_ROLES,
+    "roles/iam.serviceAccountAdmin",
+    "roles/editor",
+    "roles/owner",
+}
+PROJECT_SECRET_AUTHORITY_ROLES = {
+    SECRET_ACCESSOR_ROLE,
+    "roles/secretmanager.admin",
+}
 
 RUNTIME_NAMES = (
     "GA4_MEASUREMENT_ID",
     "GTM_CONTAINER_ID",
 )
+
+DISPATCHER_RUNTIME_ENV_NAMES = {
+    SOURCE_REVISION_ENV,
+    "THO_GOOGLE_ADS_PAUSED_CREATE_APPROVAL_ENABLED",
+    "THO_GOOGLE_ADS_PAUSED_CREATE_CLOUD_READINESS_VERIFIED",
+    "THO_GOOGLE_ADS_PAUSED_CREATE_IAM_VERIFIED",
+    "THO_GOOGLE_ADS_PAUSED_CREATE_READINESS_REVISION",
+    "THO_GOOGLE_ADS_PAUSED_CREATE_PROJECT",
+    "THO_GOOGLE_ADS_PAUSED_CREATE_REGION",
+    "THO_GOOGLE_ADS_PAUSED_CREATE_JOB",
+    "THO_GOOGLE_ADS_PAUSED_CREATE_DISPATCH_ENABLED",
+}
 
 
 def _call(command: list[str], runner: Callable) -> tuple[bool, str]:
@@ -132,6 +168,43 @@ def _runtime_secret_names(payload) -> set[str]:
         if isinstance(secret_name, str):
             secret_names.add(secret_name)
     return secret_names
+
+
+def _plain_runtime_value(payload, name: str) -> str | None:
+    matches = [
+        item.get("value")
+        for item in _runtime_env_items(payload)
+        if item.get("name") == name and isinstance(item.get("value"), str)
+    ]
+    return matches[0] if len(matches) == 1 else None
+
+
+def _job_plain_env_value(payload, name: str) -> str | None:
+    matches = [
+        item.get("value")
+        for value in _nested_values(payload, "containers")
+        if isinstance(value, list)
+        for container in value
+        if isinstance(container, dict) and isinstance(container.get("env", []), list)
+        for item in container.get("env", [])
+        if isinstance(item, dict)
+        and item.get("name") == name
+        and isinstance(item.get("value"), str)
+    ]
+    return matches[0] if len(matches) == 1 else None
+
+
+def _container_image_digest(payload) -> str | None:
+    images = [
+        container.get("image")
+        for value in _nested_values(payload, "containers")
+        if isinstance(value, list)
+        for container in value
+        if isinstance(container, dict) and isinstance(container.get("image"), str)
+    ]
+    if len(images) != 1 or not IMAGE_DIGEST_RE.fullmatch(images[0]):
+        return None
+    return images[0].rsplit("@", 1)[1]
 
 
 def _nested_values(payload, key: str) -> list:
@@ -178,6 +251,105 @@ def _job_policy_has_only_fixed_protocol_roles(payload) -> bool:
         if PUBLIC_IAM_MEMBERS.intersection(members):
             return False
         if members and role not in SAFE_JOB_EXECUTION_ROLES:
+            return False
+    return True
+
+
+def _job_policy_has_single_executor(payload, expected_member: str) -> bool:
+    """Require one non-override executor; viewer bindings remain advisory-only."""
+    if not isinstance(payload, dict) or not isinstance(payload.get("bindings", []), list):
+        raise ValueError("unexpected IAM policy shape")
+    executors: set[tuple[str, str]] = set()
+    for binding in payload.get("bindings", []):
+        if not isinstance(binding, dict):
+            raise ValueError("unexpected IAM binding shape")
+        role = binding.get("role")
+        members = binding.get("members", [])
+        if not isinstance(role, str) or not isinstance(members, list):
+            raise ValueError("unexpected IAM binding shape")
+        if role in {"roles/run.invoker", "roles/run.jobsExecutor"}:
+            executors.update((role, member) for member in members if isinstance(member, str))
+    return executors == {("roles/run.invoker", expected_member)}
+
+
+def _policy_has_no_roles(payload, forbidden_roles: set[str]) -> bool:
+    """Return a presence-only answer without retaining IAM members."""
+    if not isinstance(payload, dict) or not isinstance(payload.get("bindings", []), list):
+        raise ValueError("unexpected IAM policy shape")
+    for binding in payload.get("bindings", []):
+        if not isinstance(binding, dict):
+            raise ValueError("unexpected IAM binding shape")
+        role = binding.get("role")
+        members = binding.get("members", [])
+        if not isinstance(role, str) or not isinstance(members, list):
+            raise ValueError("unexpected IAM binding shape")
+        if members and role in forbidden_roles:
+            return False
+    return True
+
+
+def _project_policy_has_no_growth_authority(payload) -> bool:
+    """Reject inherited Ads execution, secret, identity, and custom authority."""
+    if not isinstance(payload, dict) or not isinstance(payload.get("bindings", []), list):
+        raise ValueError("unexpected IAM policy shape")
+    for binding in payload.get("bindings", []):
+        if not isinstance(binding, dict):
+            raise ValueError("unexpected IAM binding shape")
+        role = binding.get("role")
+        members = binding.get("members", [])
+        if not isinstance(role, str) or not isinstance(members, list):
+            raise ValueError("unexpected IAM binding shape")
+        if members and (
+            role in PROJECT_JOB_EXECUTION_ROLES
+            or role in PROJECT_IDENTITY_AUTHORITY_ROLES
+            or role in PROJECT_SECRET_AUTHORITY_ROLES
+            or role.startswith(("projects/", "organizations/"))
+        ):
+            return False
+    return True
+
+
+def _secret_policy_is_exclusive_accessor(payload, expected_member: str) -> bool:
+    """Allow only the provider identity to access one Ads secret directly."""
+    if not isinstance(payload, dict) or not isinstance(payload.get("bindings", []), list):
+        raise ValueError("unexpected IAM policy shape")
+    accessor_members: set[str] = set()
+    for binding in payload.get("bindings", []):
+        if not isinstance(binding, dict):
+            raise ValueError("unexpected IAM binding shape")
+        role = binding.get("role")
+        members = binding.get("members", [])
+        if not isinstance(role, str) or not isinstance(members, list):
+            raise ValueError("unexpected IAM binding shape")
+        if not members:
+            continue
+        if PUBLIC_IAM_MEMBERS.intersection(members):
+            return False
+        if role == SECRET_ACCESSOR_ROLE:
+            accessor_members.update(member for member in members if isinstance(member, str))
+        elif role != "roles/secretmanager.viewer":
+            # Admin and custom roles may contain payload access. Readiness
+            # cannot introspect permissions safely, so fail closed.
+            return False
+    return accessor_members == {expected_member}
+
+
+def _service_account_policy_has_no_impersonators(payload) -> bool:
+    """Require zero direct principals able to act as the Ads runtime identity."""
+    if not isinstance(payload, dict) or not isinstance(payload.get("bindings", []), list):
+        raise ValueError("unexpected IAM policy shape")
+    for binding in payload.get("bindings", []):
+        if not isinstance(binding, dict):
+            raise ValueError("unexpected IAM binding shape")
+        role = binding.get("role")
+        members = binding.get("members", [])
+        if not isinstance(role, str) or not isinstance(members, list):
+            raise ValueError("unexpected IAM binding shape")
+        if not members:
+            continue
+        if PUBLIC_IAM_MEMBERS.intersection(members):
+            return False
+        if role != "roles/iam.serviceAccountViewer":
             return False
     return True
 
@@ -291,6 +463,104 @@ def _job_runtime(
     }
 
 
+def _dispatcher_job_runtime(
+    payload,
+    expected_service_account: str,
+    *,
+    project: str,
+    region: str,
+) -> dict[str, bool]:
+    """Validate the fixed, secretless outbox dispatcher job template."""
+    if not isinstance(payload, dict):
+        raise ValueError("unexpected Cloud Run Job shape")
+
+    service_accounts = {
+        value
+        for key in ("serviceAccount", "serviceAccountName")
+        for value in _nested_values(payload, key)
+        if isinstance(value, str)
+    }
+    containers = [
+        container
+        for value in _nested_values(payload, "containers")
+        if isinstance(value, list)
+        for container in value
+        if isinstance(container, dict)
+    ]
+    if not containers:
+        raise ValueError("Cloud Run Job has no container")
+    single_container = len(containers) == 1
+    container = containers[0] if single_container else {}
+    command = container.get("command", [])
+    args = container.get("args", [])
+    exact_dispatcher_command = (
+        single_container
+        and isinstance(command, list)
+        and tuple(command) == EXPECTED_PAUSED_DISPATCHER_JOB_COMMAND
+        and isinstance(args, list)
+        and tuple(args) == EXPECTED_JOB_ARGS
+    )
+    env_items = container.get("env", []) if single_container else []
+    if not isinstance(env_items, list) or not all(isinstance(item, dict) for item in env_items):
+        raise ValueError("unexpected Cloud Run Job env shape")
+    env_names = {item.get("name") for item in env_items if isinstance(item.get("name"), str)}
+    env_name_counts: dict[str, int] = {}
+    values: dict[str, str] = {}
+    secret_bound = False
+    for item in env_items:
+        name = item.get("name")
+        if not isinstance(name, str):
+            continue
+        env_name_counts[name] = env_name_counts.get(name, 0) + 1
+        value_source = item.get("valueSource") or item.get("valueFrom")
+        if value_source:
+            secret_bound = True
+        value = item.get("value")
+        if isinstance(value, str):
+            values[name] = value
+
+    revision = values.get(SOURCE_REVISION_ENV, "")
+    source_revision_bound = bool(
+        SOURCE_REVISION_RE.fullmatch(revision)
+        and values.get("THO_GOOGLE_ADS_PAUSED_CREATE_READINESS_REVISION") == revision
+    )
+    exact_values = {
+        "THO_GOOGLE_ADS_PAUSED_CREATE_APPROVAL_ENABLED": "true",
+        "THO_GOOGLE_ADS_PAUSED_CREATE_CLOUD_READINESS_VERIFIED": "true",
+        "THO_GOOGLE_ADS_PAUSED_CREATE_IAM_VERIFIED": "true",
+        "THO_GOOGLE_ADS_PAUSED_CREATE_PROJECT": project,
+        "THO_GOOGLE_ADS_PAUSED_CREATE_REGION": region,
+        "THO_GOOGLE_ADS_PAUSED_CREATE_JOB": ADS_PAUSED_CREATE_JOB_ID,
+        "THO_GOOGLE_ADS_PAUSED_CREATE_DISPATCH_ENABLED": "true",
+    }
+    fixed_runtime_config = (
+        env_names == DISPATCHER_RUNTIME_ENV_NAMES
+        and all(env_name_counts.get(name) == 1 for name in DISPATCHER_RUNTIME_ENV_NAMES)
+        and all(values.get(name) == value for name, value in exact_values.items())
+        and not secret_bound
+    )
+    ads_secret_bindings_absent = (
+        ADS_CREDENTIAL_ENV_NAMES.isdisjoint(env_names)
+        and set(SECRETS).isdisjoint(values.values())
+        and not secret_bound
+    )
+    dedicated_identity_attached = service_accounts == {expected_service_account}
+    return {
+        "dedicated_identity_attached": dedicated_identity_attached,
+        "exact_dispatcher_command": exact_dispatcher_command,
+        "ads_secret_bindings_absent": ads_secret_bindings_absent,
+        "fixed_runtime_config": fixed_runtime_config,
+        "source_revision_bound": source_revision_bound,
+        "runtime_ready": (
+            dedicated_identity_attached
+            and exact_dispatcher_command
+            and ads_secret_bindings_absent
+            and fixed_runtime_config
+            and source_revision_bound
+        ),
+    }
+
+
 def audit(project: str, service: str, region: str, *, runner=subprocess.run) -> dict:
     """Return presence-only readiness data. Command stderr is never retained."""
     project_flag = f"--project={project}"
@@ -328,7 +598,13 @@ def audit(project: str, service: str, region: str, *, runner=subprocess.run) -> 
         errors.append("service_accounts")
 
     expected_service_account = f"{ADS_SERVICE_ACCOUNT_ID}@{project}.iam.gserviceaccount.com"
+    expected_dispatcher_service_account = (
+        f"{ADS_DISPATCHER_SERVICE_ACCOUNT_ID}@{project}.iam.gserviceaccount.com"
+    )
     dedicated_service_account = expected_service_account in service_account_emails
+    dedicated_dispatcher_service_account = (
+        expected_dispatcher_service_account in service_account_emails
+    )
     persistent_user_key_absent = False
     iam_policy_checked = False
     broad_project_roles_absent = False
@@ -338,6 +614,11 @@ def audit(project: str, service: str, region: str, *, runner=subprocess.run) -> 
     project_policy: dict = {}
     service_account_policy: dict = {}
     impersonation_policy_checked = False
+    provider_impersonation_bindings_absent = False
+    dispatcher_persistent_user_key_absent = False
+    dispatcher_project_roles_least_privilege = False
+    dispatcher_impersonation_policy_checked = False
+    dispatcher_service_account_policy: dict = {}
     if dedicated_service_account:
         ok, output = _call(
             [
@@ -403,10 +684,67 @@ def audit(project: str, service: str, region: str, *, runner=subprocess.run) -> 
                 if not isinstance(service_account_policy.get("bindings", []), list):
                     raise ValueError("unexpected IAM policy shape")
                 impersonation_policy_checked = True
+                provider_impersonation_bindings_absent = (
+                    _service_account_policy_has_no_impersonators(service_account_policy)
+                )
             except (TypeError, ValueError, json.JSONDecodeError):
                 errors.append("service_account_policy")
         else:
             errors.append("service_account_policy")
+
+    if dedicated_dispatcher_service_account and iam_policy_checked:
+        ok, output = _call(
+            [
+                "gcloud",
+                "iam",
+                "service-accounts",
+                "keys",
+                "list",
+                f"--iam-account={expected_dispatcher_service_account}",
+                "--managed-by=user",
+                project_flag,
+                "--format=value(name)",
+            ],
+            runner,
+        )
+        dispatcher_persistent_user_key_absent = ok and not output.strip()
+        if not ok:
+            errors.append("dispatcher_service_account_keys")
+
+        try:
+            dispatcher_project_roles = _iam_roles_for_member(
+                project_policy,
+                f"serviceAccount:{expected_dispatcher_service_account}",
+            )
+            dispatcher_project_roles_least_privilege = (
+                dispatcher_project_roles == REQUIRED_PROJECT_ROLES
+            )
+        except (TypeError, ValueError):
+            errors.append("dispatcher_service_account_iam")
+
+        ok, output = _call(
+            [
+                "gcloud",
+                "iam",
+                "service-accounts",
+                "get-iam-policy",
+                expected_dispatcher_service_account,
+                project_flag,
+                "--format=json",
+            ],
+            runner,
+        )
+        if ok:
+            try:
+                dispatcher_service_account_policy = json.loads(output or "{}")
+                dispatcher_impersonation_policy_checked = _policy_has_no_roles(
+                    dispatcher_service_account_policy,
+                    IMPERSONATION_ROLES,
+                )
+            except (TypeError, ValueError, json.JSONDecodeError):
+                errors.append("dispatcher_service_account_policy")
+        else:
+            errors.append("dispatcher_service_account_policy")
 
     ok, output = _call(
         [
@@ -425,6 +763,7 @@ def audit(project: str, service: str, region: str, *, runner=subprocess.run) -> 
         errors.append("jobs")
     dedicated_job_present = ADS_JOB_ID in job_names
     paused_create_job_present = ADS_PAUSED_CREATE_JOB_ID in job_names
+    paused_dispatcher_job_present = ADS_PAUSED_DISPATCHER_JOB_ID in job_names
     job_runtime = {
         "dedicated_identity_attached": False,
         "exact_probe_command": False,
@@ -436,6 +775,7 @@ def audit(project: str, service: str, region: str, *, runner=subprocess.run) -> 
         "source_revision_bound": False,
         "runtime_ready": False,
     }
+    job_payload: dict = {}
     if dedicated_job_present:
         ok, output = _call(
             [
@@ -452,7 +792,8 @@ def audit(project: str, service: str, region: str, *, runner=subprocess.run) -> 
         )
         if ok:
             try:
-                job_runtime = _job_runtime(json.loads(output), expected_service_account)
+                job_payload = json.loads(output)
+                job_runtime = _job_runtime(job_payload, expected_service_account)
             except (TypeError, ValueError, json.JSONDecodeError):
                 errors.append("job_runtime")
         else:
@@ -469,6 +810,7 @@ def audit(project: str, service: str, region: str, *, runner=subprocess.run) -> 
         "source_revision_bound": False,
         "runtime_ready": False,
     }
+    paused_create_job_payload: dict = {}
     if paused_create_job_present:
         ok, output = _call(
             [
@@ -485,8 +827,9 @@ def audit(project: str, service: str, region: str, *, runner=subprocess.run) -> 
         )
         if ok:
             try:
+                paused_create_job_payload = json.loads(output)
                 paused_create_job_runtime = _job_runtime(
-                    json.loads(output),
+                    paused_create_job_payload,
                     expected_service_account,
                     expected_command=EXPECTED_PAUSED_CREATE_JOB_COMMAND,
                 )
@@ -494,6 +837,43 @@ def audit(project: str, service: str, region: str, *, runner=subprocess.run) -> 
                 errors.append("paused_create_job_runtime")
         else:
             errors.append("paused_create_job_runtime")
+
+    paused_dispatcher_runtime = {
+        "dedicated_identity_attached": False,
+        "exact_dispatcher_command": False,
+        "ads_secret_bindings_absent": False,
+        "fixed_runtime_config": False,
+        "source_revision_bound": False,
+        "runtime_ready": False,
+    }
+    paused_dispatcher_job_payload: dict = {}
+    if paused_dispatcher_job_present:
+        ok, output = _call(
+            [
+                "gcloud",
+                "run",
+                "jobs",
+                "describe",
+                ADS_PAUSED_DISPATCHER_JOB_ID,
+                f"--region={region}",
+                project_flag,
+                "--format=json",
+            ],
+            runner,
+        )
+        if ok:
+            try:
+                paused_dispatcher_job_payload = json.loads(output)
+                paused_dispatcher_runtime = _dispatcher_job_runtime(
+                    paused_dispatcher_job_payload,
+                    expected_dispatcher_service_account,
+                    project=project,
+                    region=region,
+                )
+            except (TypeError, ValueError, json.JSONDecodeError):
+                errors.append("paused_dispatcher_job_runtime")
+        else:
+            errors.append("paused_dispatcher_job_runtime")
 
     override_capable_bindings_absent = False
     job_iam_checked = False
@@ -526,6 +906,7 @@ def audit(project: str, service: str, region: str, *, runner=subprocess.run) -> 
     execution_iam_ready = job_iam_checked and override_capable_bindings_absent
 
     paused_create_override_capable_bindings_absent = False
+    paused_create_single_dispatcher = False
     paused_create_job_iam_checked = False
     paused_create_job_policy: dict = {}
     if paused_create_job_present:
@@ -548,17 +929,78 @@ def audit(project: str, service: str, region: str, *, runner=subprocess.run) -> 
                 paused_create_override_capable_bindings_absent = (
                     _job_policy_has_only_fixed_protocol_roles(paused_create_job_policy)
                 )
+                paused_create_single_dispatcher = _job_policy_has_single_executor(
+                    paused_create_job_policy,
+                    f"serviceAccount:{expected_dispatcher_service_account}",
+                )
                 paused_create_job_iam_checked = True
             except (TypeError, ValueError, json.JSONDecodeError):
                 errors.append("paused_create_job_iam")
         else:
             errors.append("paused_create_job_iam")
     paused_create_execution_iam_ready = (
-        paused_create_job_iam_checked and paused_create_override_capable_bindings_absent
+        paused_create_job_iam_checked
+        and paused_create_override_capable_bindings_absent
+        and paused_create_single_dispatcher
+    )
+    project_job_execution_bindings_absent = False
+    if iam_policy_checked:
+        try:
+            project_job_execution_bindings_absent = _project_policy_has_no_growth_authority(
+                project_policy
+            )
+        except (TypeError, ValueError):
+            errors.append("project_job_execution_iam")
+
+    paused_dispatcher_override_capable_bindings_absent = False
+    paused_dispatcher_job_iam_checked = False
+    paused_dispatcher_job_policy: dict = {}
+    if paused_dispatcher_job_present:
+        ok, output = _call(
+            [
+                "gcloud",
+                "run",
+                "jobs",
+                "get-iam-policy",
+                ADS_PAUSED_DISPATCHER_JOB_ID,
+                f"--region={region}",
+                project_flag,
+                "--format=json",
+            ],
+            runner,
+        )
+        if ok:
+            try:
+                paused_dispatcher_job_policy = json.loads(output or "{}")
+                paused_dispatcher_override_capable_bindings_absent = (
+                    _job_policy_has_only_fixed_protocol_roles(paused_dispatcher_job_policy)
+                )
+                paused_dispatcher_job_iam_checked = True
+            except (TypeError, ValueError, json.JSONDecodeError):
+                errors.append("paused_dispatcher_job_iam")
+        else:
+            errors.append("paused_dispatcher_job_iam")
+    paused_dispatcher_execution_iam_ready = (
+        paused_dispatcher_job_iam_checked and paused_dispatcher_override_capable_bindings_absent
     )
 
+    dispatcher_paused_create_invocation_only = False
+    if (
+        job_iam_checked
+        and paused_create_job_iam_checked
+        and paused_dispatcher_job_iam_checked
+        and dedicated_dispatcher_service_account
+    ):
+        dispatcher_member = f"serviceAccount:{expected_dispatcher_service_account}"
+        dispatcher_paused_create_invocation_only = (
+            _iam_roles_for_member(paused_create_job_policy, dispatcher_member)
+            == {"roles/run.invoker"}
+            and not _iam_roles_for_member(job_policy, dispatcher_member)
+            and not _iam_roles_for_member(paused_dispatcher_job_policy, dispatcher_member)
+        )
+
     required_secret_access_present = False
-    required_secret_policies: list[dict] = []
+    ads_secret_policies: dict[str, dict] = {}
     required_secret_names = list(JOB_SECRET_BINDINGS.values())
     if (
         job_runtime["login_customer_id_bound"]
@@ -586,7 +1028,7 @@ def audit(project: str, service: str, region: str, *, runner=subprocess.run) -> 
                 continue
             try:
                 secret_policy = json.loads(output or "{}")
-                required_secret_policies.append(secret_policy)
+                ads_secret_policies[secret_name] = secret_policy
                 roles = _iam_roles_for_member(
                     secret_policy,
                     f"serviceAccount:{expected_service_account}",
@@ -598,6 +1040,77 @@ def audit(project: str, service: str, region: str, *, runner=subprocess.run) -> 
                 secret_access_results.append(False)
         required_secret_access_present = bool(secret_access_results) and all(secret_access_results)
 
+    if dedicated_service_account or dedicated_dispatcher_service_account:
+        for secret_name in sorted(
+            set(SECRETS).intersection(secret_names) - set(ads_secret_policies)
+        ):
+            ok, output = _call(
+                [
+                    "gcloud",
+                    "secrets",
+                    "get-iam-policy",
+                    secret_name,
+                    project_flag,
+                    "--format=json",
+                ],
+                runner,
+            )
+            if not ok:
+                if "ads_secret_iam" not in errors:
+                    errors.append("ads_secret_iam")
+                continue
+            try:
+                policy = json.loads(output or "{}")
+                _iam_roles_for_member(policy, f"serviceAccount:{expected_service_account}")
+                ads_secret_policies[secret_name] = policy
+            except (TypeError, ValueError, json.JSONDecodeError):
+                if "ads_secret_iam" not in errors:
+                    errors.append("ads_secret_iam")
+
+    present_ads_secret_names = set(SECRETS).intersection(secret_names)
+    all_present_ads_secret_policies_checked = set(ads_secret_policies) == present_ads_secret_names
+    exclusive_ads_secret_custody = False
+    if all_present_ads_secret_policies_checked and dedicated_service_account:
+        try:
+            exclusive_ads_secret_custody = all(
+                _secret_policy_is_exclusive_accessor(
+                    policy,
+                    f"serviceAccount:{expected_service_account}",
+                )
+                for policy in ads_secret_policies.values()
+            )
+        except (TypeError, ValueError):
+            errors.append("ads_secret_custody")
+
+    dispatcher_ads_secret_access_absent = False
+    dispatcher_ads_impersonation_absent = False
+    if dedicated_dispatcher_service_account and iam_policy_checked:
+        dispatcher_member = f"serviceAccount:{expected_dispatcher_service_account}"
+        try:
+            dispatcher_project_roles = _iam_roles_for_member(
+                project_policy,
+                dispatcher_member,
+            )
+            dispatcher_ads_secret_access_absent = (
+                all_present_ads_secret_policies_checked
+                and SECRET_ACCESSOR_ROLE not in dispatcher_project_roles
+                and all(
+                    not _iam_roles_for_member(policy, dispatcher_member)
+                    for policy in ads_secret_policies.values()
+                )
+            )
+            dispatcher_ads_impersonation_absent = (
+                impersonation_policy_checked
+                and not _iam_roles_for_member(service_account_policy, dispatcher_member)
+                and IMPERSONATION_ROLES.isdisjoint(dispatcher_project_roles)
+                and not any(
+                    role.startswith(("projects/", "organizations/"))
+                    for role in dispatcher_project_roles
+                )
+            )
+        except (TypeError, ValueError):
+            errors.append("dispatcher_authority_separation")
+
     ok, output = _call(
         [
             "gcloud",
@@ -607,7 +1120,7 @@ def audit(project: str, service: str, region: str, *, runner=subprocess.run) -> 
             service,
             f"--region={region}",
             project_flag,
-            "--format=json(spec.template.spec.serviceAccountName,spec.template.spec.containers[0].env)",
+            "--format=json(spec.template.spec.serviceAccountName,spec.template.spec.containers[0].image,spec.template.spec.containers[0].env)",
         ],
         runner,
     )
@@ -617,6 +1130,7 @@ def audit(project: str, service: str, region: str, *, runner=subprocess.run) -> 
     storefront_job_invocation_absent = False
     storefront_secret_access_absent = False
     storefront_impersonation_absent = False
+    runtime_payload: dict | list = {}
     if ok:
         try:
             runtime_payload = json.loads(output or "[]")
@@ -631,6 +1145,7 @@ def audit(project: str, service: str, region: str, *, runner=subprocess.run) -> 
             storefront_identity_separated = (
                 len(storefront_identities) == 1
                 and expected_service_account not in storefront_identities
+                and expected_dispatcher_service_account not in storefront_identities
             )
             if storefront_identity_separated and iam_policy_checked:
                 storefront_identity = next(iter(storefront_identities))
@@ -646,10 +1161,15 @@ def audit(project: str, service: str, region: str, *, runner=subprocess.run) -> 
                     paused_create_job_policy,
                     f"serviceAccount:{storefront_identity}",
                 )
+                storefront_dispatcher_roles = _iam_roles_for_member(
+                    paused_dispatcher_job_policy,
+                    f"serviceAccount:{storefront_identity}",
+                )
                 storefront_roles = (
                     storefront_project_roles
                     | storefront_resource_roles
                     | storefront_paused_create_roles
+                    | storefront_dispatcher_roles
                 )
                 storefront_job_invocation_absent = STOREFRONT_JOB_ROLES.isdisjoint(
                     storefront_roles
@@ -658,20 +1178,26 @@ def audit(project: str, service: str, region: str, *, runner=subprocess.run) -> 
                 )
                 storefront_member = f"serviceAccount:{storefront_identity}"
                 storefront_secret_access_absent = (
-                    len(required_secret_policies) == len(required_secret_names)
+                    all_present_ads_secret_policies_checked
                     and SECRET_ACCESSOR_ROLE not in storefront_project_roles
                     and all(
                         not _iam_roles_for_member(policy, storefront_member)
-                        for policy in required_secret_policies
+                        for policy in ads_secret_policies.values()
                     )
                 )
                 storefront_impersonation_roles = _iam_roles_for_member(
                     service_account_policy,
                     storefront_member,
                 )
+                storefront_dispatcher_impersonation_roles = _iam_roles_for_member(
+                    dispatcher_service_account_policy,
+                    storefront_member,
+                )
                 storefront_impersonation_absent = (
                     impersonation_policy_checked
+                    and dispatcher_impersonation_policy_checked
                     and not storefront_impersonation_roles
+                    and not storefront_dispatcher_impersonation_roles
                     and IMPERSONATION_ROLES.isdisjoint(storefront_project_roles)
                     and not any(
                         role.startswith(("projects/", "organizations/"))
@@ -707,6 +1233,25 @@ def audit(project: str, service: str, region: str, *, runner=subprocess.run) -> 
         )
     )
     google_ecosystem_apis = all(name in enabled for name in SERVICES)
+    revision_values = {
+        _job_plain_env_value(job_payload, SOURCE_REVISION_ENV),
+        _job_plain_env_value(paused_create_job_payload, SOURCE_REVISION_ENV),
+        _job_plain_env_value(paused_dispatcher_job_payload, SOURCE_REVISION_ENV),
+        _plain_runtime_value(runtime_payload, SOURCE_REVISION_ENV),
+    }
+    image_digests = {
+        _container_image_digest(job_payload),
+        _container_image_digest(paused_create_job_payload),
+        _container_image_digest(paused_dispatcher_job_payload),
+        _container_image_digest(runtime_payload),
+    }
+    exact_runtime_revision = (
+        len(revision_values) == 1
+        and None not in revision_values
+        and bool(SOURCE_REVISION_RE.fullmatch(next(iter(revision_values))))
+    )
+    immutable_image_consistent = len(image_digests) == 1 and None not in image_digests
+    exact_candidate_runtime = exact_runtime_revision and immutable_image_consistent
     least_privilege_iam = (
         dedicated_service_account
         and persistent_user_key_absent
@@ -716,7 +1261,9 @@ def audit(project: str, service: str, region: str, *, runner=subprocess.run) -> 
         and firestore_access_present
         and project_roles_least_privilege
         and required_secret_access_present
+        and exclusive_ads_secret_custody
         and impersonation_policy_checked
+        and provider_impersonation_bindings_absent
     )
     service_account_adc = (
         least_privilege_iam and job_runtime["runtime_ready"] and execution_iam_ready
@@ -729,7 +1276,21 @@ def audit(project: str, service: str, region: str, *, runner=subprocess.run) -> 
         least_privilege_iam
         and paused_create_job_runtime["runtime_ready"]
         and paused_create_execution_iam_ready
+        and project_job_execution_bindings_absent
         and job_secret_topology_consistent
+        and exact_candidate_runtime
+    )
+    paused_dispatcher_path = (
+        dedicated_dispatcher_service_account
+        and dispatcher_persistent_user_key_absent
+        and dispatcher_project_roles_least_privilege
+        and dispatcher_impersonation_policy_checked
+        and paused_dispatcher_runtime["runtime_ready"]
+        and paused_dispatcher_execution_iam_ready
+        and dispatcher_paused_create_invocation_only
+        and dispatcher_ads_secret_access_absent
+        and dispatcher_ads_impersonation_absent
+        and exact_candidate_runtime
     )
     ads_auth_path = service_account_adc
     presence_ready = (
@@ -739,6 +1300,7 @@ def audit(project: str, service: str, region: str, *, runner=subprocess.run) -> 
         and ads_account_config
         and ads_auth_path
         and paused_create_path
+        and paused_dispatcher_path
         and legacy_oauth_secrets_absent
         and storefront_ads_credentials_absent
         and storefront_secret_access_absent
@@ -763,7 +1325,9 @@ def audit(project: str, service: str, region: str, *, runner=subprocess.run) -> 
             "firestore_access_present": firestore_access_present,
             "project_roles_least_privilege": project_roles_least_privilege,
             "required_secret_access_present": required_secret_access_present,
+            "exclusive_ads_secret_custody": exclusive_ads_secret_custody,
             "impersonation_policy_checked": impersonation_policy_checked,
+            "impersonation_bindings_absent": provider_impersonation_bindings_absent,
             "least_privilege_iam": least_privilege_iam,
         },
         "job": {
@@ -787,6 +1351,23 @@ def audit(project: str, service: str, region: str, *, runner=subprocess.run) -> 
             "runtime_ready": paused_create_job_runtime["runtime_ready"],
             "override_capable_bindings_absent": (paused_create_override_capable_bindings_absent),
             "execution_iam_ready": paused_create_execution_iam_ready,
+            "project_job_execution_bindings_absent": project_job_execution_bindings_absent,
+        },
+        "paused_dispatcher": {
+            "dedicated_identity_present": dedicated_dispatcher_service_account,
+            "persistent_user_key_absent": dispatcher_persistent_user_key_absent,
+            "project_roles_least_privilege": dispatcher_project_roles_least_privilege,
+            "impersonation_policy_checked": dispatcher_impersonation_policy_checked,
+            "dedicated_job_present": paused_dispatcher_job_present,
+            **paused_dispatcher_runtime,
+            "override_capable_bindings_absent": (
+                paused_dispatcher_override_capable_bindings_absent
+            ),
+            "execution_iam_ready": paused_dispatcher_execution_iam_ready,
+            "paused_create_invocation_only": dispatcher_paused_create_invocation_only,
+            "ads_secret_access_absent": dispatcher_ads_secret_access_absent,
+            "ads_impersonation_absent": dispatcher_ads_impersonation_absent,
+            "ready": paused_dispatcher_path,
         },
         "auth_paths": {
             "service_account_adc": service_account_adc,
@@ -806,6 +1387,9 @@ def audit(project: str, service: str, region: str, *, runner=subprocess.run) -> 
             "ads_account_config": ads_account_config,
             "ads_auth_path": ads_auth_path,
             "paused_create_path": paused_create_path,
+            "paused_dispatcher_path": paused_dispatcher_path,
+            "exact_runtime_revision": exact_runtime_revision,
+            "immutable_image_consistent": immutable_image_consistent,
             "legacy_oauth_secrets_absent": legacy_oauth_secrets_absent,
             "storefront_ads_credentials_absent": storefront_ads_credentials_absent,
             "storefront_secret_access_absent": storefront_secret_access_absent,

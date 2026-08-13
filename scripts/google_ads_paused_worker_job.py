@@ -27,6 +27,7 @@ from scripts.google_ads_paused_provider import (
     ProviderFailure,
 )
 from scripts.google_ads_paused_worker import (
+    PERSISTED_ERROR_CODES,
     AuthorityLedger,
     DeploymentState,
     PausedCreateWorker,
@@ -113,9 +114,13 @@ def run_paused_create_job(
     ):
         raise ValueError("invalid_configuration")
     if authority.state is DeploymentState.PAUSED_CREATED:
+        ledger.reconcile_terminal_paused_create_outbox(expected_deployment_id)
         return _safe_result(authority)
     if authority.state is not DeploymentState.PAUSED_CREATE_APPROVED:
         return _safe_result(authority, error_code="worker_not_approved")
+    outbox = ledger.get_paused_create_outbox(expected_deployment_id)
+    if outbox.state != "DISPATCHING" or not isinstance(outbox.dispatcher_claim_hash, str):
+        return _safe_result(authority, error_code="worker_not_dispatched")
 
     provider = provider_factory(
         customer_id=customer_id,
@@ -134,7 +139,15 @@ def run_paused_create_job(
         ),
         provider,
     )
-    return worker.run(expected_deployment_id)
+    result = worker.run(expected_deployment_id)
+    if result.state is DeploymentState.PAUSED_CREATED:
+        ledger.reconcile_terminal_paused_create_outbox(expected_deployment_id)
+    elif result.error_code in PERSISTED_ERROR_CODES:
+        ledger.record_paused_create_worker_failure(
+            expected_deployment_id,
+            outbox.dispatcher_claim_hash,
+        )
+    return result
 
 
 def _run_production_job() -> tuple[WorkerResult, ProviderFailure | None]:

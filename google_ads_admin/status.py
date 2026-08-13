@@ -9,12 +9,18 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from database.models import GoogleAdsAuthorityEventRecord
 from scripts.google_ads_launch_draft import contract_sha256, validate_draft
 from scripts.google_ads_paused_worker import DeploymentRecord, DeploymentState
 
 CONTRACT_PATH = Path(__file__).resolve().parents[1] / "config" / "google_ads_launch_draft.json"
 _DEPLOYMENT_KEY = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
-_VISIBLE_STATES = (DeploymentState.INTERNAL_DRAFT, DeploymentState.SERVER_VALIDATED)
+_VISIBLE_STATES = (
+    DeploymentState.INTERNAL_DRAFT,
+    DeploymentState.SERVER_VALIDATED,
+    DeploymentState.PAUSED_CREATE_APPROVED,
+    DeploymentState.PAUSED_CREATED,
+)
 
 
 def load_checked_in_contract(contract_path: Path = CONTRACT_PATH) -> dict[str, Any]:
@@ -35,45 +41,21 @@ def _iso(value: datetime | str) -> str:
 
 
 def _event_projection(event: Any, record: DeploymentRecord) -> dict[str, Any]:
-    get = event.get if isinstance(event, dict) else lambda key: getattr(event, key)
-    event_type = str(get("event_type"))
-    semantics = {
-        "INTERNAL_DRAFT_CREATED": (
-            "00000000000000000001-internal-draft-created",
-            1,
-            None,
-            "INTERNAL_DRAFT",
-        ),
-        "SERVER_VALIDATED": (
-            "00000000000000000002-server-validated",
-            2,
-            "INTERNAL_DRAFT",
-            "SERVER_VALIDATED",
-        ),
-    }.get(event_type)
-    if (
-        semantics is None
-        or (
-            str(get("event_id")),
-            int(get("record_version")),
-            get("from_state"),
-            str(get("to_state")),
-        )
-        != semantics
-        or get("deployment_id") != record.deployment_id
-        or get("contract_hash") != record.contract_hash
-        or get("error_code") is not None
-        or get("worker_claim_hash") is not None
-    ):
+    raw = event if isinstance(event, dict) else event.model_dump(mode="python")
+    try:
+        model = GoogleAdsAuthorityEventRecord.model_validate(raw)
+    except Exception:
+        raise ValueError("authority event is outside the offline review allowlist")
+    if model.deployment_id != record.deployment_id or model.contract_hash != record.contract_hash:
         raise ValueError("authority event is outside the offline review allowlist")
     return {
-        "event_id": str(get("event_id")),
-        "event_type": event_type,
-        "record_version": int(get("record_version")),
-        "from_state": str(get("from_state")) if get("from_state") is not None else None,
-        "to_state": str(get("to_state")),
-        "error_code": str(get("error_code")) if get("error_code") is not None else None,
-        "occurred_at": _iso(get("occurred_at")),
+        "event_id": model.event_id,
+        "event_type": model.event_type,
+        "record_version": model.record_version,
+        "from_state": model.from_state,
+        "to_state": model.to_state,
+        "error_code": model.error_code,
+        "occurred_at": _iso(model.occurred_at),
     }
 
 
@@ -81,6 +63,8 @@ def build_deployment_readiness(
     record: DeploymentRecord,
     events: Iterable[Any],
     contract_path: Path = CONTRACT_PATH,
+    *,
+    outbox_state: str | None = None,
 ) -> dict[str, Any]:
     """Return only reviewed contract fields and sanitized durable authority evidence."""
     payload = load_checked_in_contract(contract_path)
@@ -88,29 +72,45 @@ def build_deployment_readiness(
     budget = payload["campaign"]["budget"]
     bidding = payload["campaign"]["bidding"]
     digest = contract_sha256(payload)
-    expected_version = 1 if record.state is DeploymentState.INTERNAL_DRAFT else 2
     if (
         record.deployment_id != f"{deployment['key']}--{digest}"
         or record.contract_hash != f"sha256:{digest}"
         or record.deployment_key != deployment["key"]
         or record.state not in _VISIBLE_STATES
-        or record.version != expected_version
         or record.updated_at is None
     ):
         raise ValueError("durable Google Ads record does not match the reviewed contract")
 
     projected_events = [_event_projection(event, record) for event in events]
-    expected_event_types = (
-        ["INTERNAL_DRAFT_CREATED"]
-        if record.state is DeploymentState.INTERNAL_DRAFT
-        else ["INTERNAL_DRAFT_CREATED", "SERVER_VALIDATED"]
-    )
+    expected_evidence_count = min(record.version, 100)
+    first_projected_version = record.version - expected_evidence_count + 1
     if (
-        len(projected_events) != record.version
-        or [event["event_type"] for event in projected_events] != expected_event_types
+        len(projected_events) != expected_evidence_count
+        or [event["record_version"] for event in projected_events]
+        != list(range(first_projected_version, record.version + 1))
+        or (
+            first_projected_version == 1
+            and [event["event_type"] for event in projected_events[:3]]
+            != [
+                "INTERNAL_DRAFT_CREATED",
+                "SERVER_VALIDATED",
+                "PAUSED_CREATE_APPROVED",
+            ][: min(record.version, 3)]
+        )
+        or projected_events[-1]["to_state"] != record.state.value
     ):
         raise ValueError("authority event history does not match the durable review state")
     current_index = _VISIBLE_STATES.index(record.state)
+    if record.state in {
+        DeploymentState.INTERNAL_DRAFT,
+        DeploymentState.SERVER_VALIDATED,
+    }:
+        if outbox_state is not None:
+            raise ValueError("pre-approval deployment cannot have an outbox state")
+    elif outbox_state not in {"PENDING", "DISPATCHING", "DISPATCHED", "FAILED"}:
+        raise ValueError("approved deployment requires a sanitized outbox state")
+    if record.state is DeploymentState.PAUSED_CREATED and outbox_state != "DISPATCHED":
+        raise ValueError("paused-created deployment requires dispatched outbox evidence")
     workflow = []
     for index, state in enumerate(_VISIBLE_STATES):
         status = (
@@ -143,5 +143,14 @@ def build_deployment_readiness(
         },
         "workflow": workflow,
         "actions": {"server_validation": record.state is DeploymentState.INTERNAL_DRAFT},
-        "events": {"count": len(projected_events), "items": projected_events},
+        "paused_create": {
+            "outbox_state": outbox_state,
+            "activation_authorized": False,
+            "spend_enabled": False,
+        },
+        "events": {
+            "count": record.version,
+            "first_version": first_projected_version,
+            "items": projected_events,
+        },
     }

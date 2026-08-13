@@ -60,6 +60,12 @@ def _ledger(state=DeploymentState.PAUSED_CREATE_APPROVED):
         ledger,
         SimpleNamespace(invoke=lambda _deployment_id: None),
     ).approve_paused_create(approval)
+    ledger.get_paused_create_outbox = lambda _deployment_id: SimpleNamespace(
+        state="DISPATCHING",
+        dispatcher_claim_hash="sha256:" + "d" * 64,
+    )
+    ledger.reconcile_terminal_paused_create_outbox = lambda _deployment_id: "DISPATCHED"
+    ledger.record_paused_create_worker_failure = lambda _deployment_id, _claim_hash: "PENDING"
     return ledger
 
 
@@ -108,6 +114,50 @@ def test_unapproved_authority_is_inert_and_never_touches_provider():
     assert result.state is DeploymentState.SERVER_VALIDATED
     assert result.error_code == "worker_not_approved"
     assert called == []
+
+
+def test_direct_worker_invocation_is_inert_while_outbox_is_pending():
+    ledger = _ledger()
+    ledger.get_paused_create_outbox = lambda _deployment_id: SimpleNamespace(
+        state="PENDING",
+        dispatcher_claim_hash=None,
+    )
+    called = []
+
+    result = run_paused_create_job(
+        ledger=ledger,
+        contract_loader=lambda: CONTRACT,
+        provider_factory=lambda **_kwargs: called.append(True),
+        environ=_environ(),
+    )
+
+    assert result.state is DeploymentState.PAUSED_CREATE_APPROVED
+    assert result.error_code == "worker_not_dispatched"
+    assert called == []
+
+
+def test_provider_failure_rearms_accepted_dispatch_without_marking_success():
+    ledger = _ledger()
+    settled = []
+    ledger.record_paused_create_worker_failure = (
+        lambda target, claim_hash: settled.append((target, claim_hash)) or "PENDING"
+    )
+
+    class FailingProvider(_Provider):
+        def validate(self, request):
+            self.calls.append(("validate", request))
+            raise RuntimeError("raw provider failure")
+
+    result = run_paused_create_job(
+        ledger=ledger,
+        contract_loader=lambda: CONTRACT,
+        provider_factory=lambda **_kwargs: FailingProvider(),
+        environ=_environ(),
+    )
+
+    assert result.state is DeploymentState.PAUSED_CREATE_APPROVED
+    assert result.error_code == "provider_validation_failed"
+    assert settled == [(deployment_id(CONTRACT), "sha256:" + "d" * 64)]
 
 
 @pytest.mark.parametrize(

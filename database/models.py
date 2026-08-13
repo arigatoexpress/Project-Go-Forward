@@ -3,6 +3,8 @@ THO Database Models - Firestore Data Layer
 Pydantic models matching the database schema for Texas Home Outlet
 """
 
+import hashlib
+import json
 import re
 import uuid
 from datetime import UTC, date, datetime
@@ -52,6 +54,8 @@ GoogleAdsPersistedErrorCode = Literal[
     "provider_timeout_unresolved",
     "provider_validation_failed",
 ]
+GoogleAdsOutboxState = Literal["PENDING", "DISPATCHING", "DISPATCHED", "FAILED"]
+MAX_GOOGLE_ADS_DISPATCH_ATTEMPTS = 3
 
 _GOOGLE_ADS_EVENT_SEMANTICS = {
     "INTERNAL_DRAFT_CREATED": (None, "INTERNAL_DRAFT", False, False),
@@ -295,6 +299,160 @@ class GoogleAdsAccessEvidenceRecord(BaseModel):
             raise ValueError("access evidence is invalid") from None
         if self.evidence_digest != expected:
             raise ValueError("evidence digest does not match evidence")
+        return self
+
+
+class GoogleAdsStepUpCapsRecord(BaseModel):
+    """Server-owned caps embedded in sanitized owner step-up evidence."""
+
+    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
+
+    average_daily_usd: int = Field(gt=0)
+    max_single_day_charge_usd: int = Field(gt=0)
+    monthly_charge_limit_usd: int = Field(gt=0)
+    max_cpc_usd: int = Field(gt=0)
+
+
+class GoogleAdsOwnerStepUpEvidenceRecord(BaseModel):
+    """Strict persisted UV evidence; raw WebAuthn/account material is impossible."""
+
+    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
+
+    schema_version: Literal[1] = 1
+    evidence_id: str = Field(pattern=_GOOGLE_ADS_SHA256_PATTERN)
+    purpose: Literal["PAUSED_CREATE"] = "PAUSED_CREATE"
+    deployment_id: str = Field(pattern=_GOOGLE_ADS_DEPLOYMENT_ID_PATTERN)
+    contract_hash: str = Field(pattern=_GOOGLE_ADS_SHA256_PATTERN)
+    caps: GoogleAdsStepUpCapsRecord
+    evidence_digest: str = Field(pattern=_GOOGLE_ADS_SHA256_PATTERN)
+    context_digest: str = Field(pattern=_GOOGLE_ADS_SHA256_PATTERN)
+    nonce_hash: str = Field(pattern=_GOOGLE_ADS_SHA256_PATTERN)
+    owner_email_hash: str = Field(pattern=_GOOGLE_ADS_SHA256_PATTERN)
+    credential_id_hash: str = Field(pattern=_GOOGLE_ADS_SHA256_PATTERN)
+    verified_at: datetime
+
+    @field_validator("verified_at")
+    @classmethod
+    def verified_timestamp_is_utc(cls, value: datetime) -> datetime:
+        return _require_utc(value)
+
+    @model_validator(mode="after")
+    def identity_and_digests_are_consistent(self):
+        digest = self.contract_hash.removeprefix("sha256:")
+        if not self.deployment_id.endswith(f"--{digest}"):
+            raise ValueError("step-up deployment identity does not match contract")
+        context = {
+            "caps": self.caps.model_dump(mode="json"),
+            "contract_hash": self.contract_hash,
+            "deployment_id": self.deployment_id,
+            "evidence_digest": self.evidence_digest,
+            "purpose": self.purpose,
+        }
+        raw_context = json.dumps(context, sort_keys=True, separators=(",", ":")).encode()
+        expected_context = "sha256:" + hashlib.sha256(raw_context).hexdigest()
+        if self.context_digest != expected_context:
+            raise ValueError("step-up context digest mismatch")
+        raw_evidence_id = "|".join(
+            (
+                self.nonce_hash,
+                self.context_digest,
+                self.owner_email_hash,
+                self.credential_id_hash,
+            )
+        ).encode()
+        expected_evidence_id = "sha256:" + hashlib.sha256(raw_evidence_id).hexdigest()
+        if self.evidence_id != expected_evidence_id:
+            raise ValueError("step-up evidence identity mismatch")
+        return self
+
+
+class GoogleAdsPausedCreateApprovalProofRecord(BaseModel):
+    """Single-use sanitized proof-consumption marker."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    schema_version: Literal[1] = 1
+    proof_id: str = Field(pattern=_GOOGLE_ADS_SHA256_PATTERN)
+    proof_reference_hash: str = Field(pattern=_GOOGLE_ADS_SHA256_PATTERN)
+    deployment_id: str = Field(pattern=_GOOGLE_ADS_DEPLOYMENT_ID_PATTERN)
+    contract_hash: str = Field(pattern=_GOOGLE_ADS_SHA256_PATTERN)
+    access_evidence_id: str = Field(pattern=_GOOGLE_ADS_SHA256_PATTERN)
+    owner_email_hash: str = Field(pattern=_GOOGLE_ADS_SHA256_PATTERN)
+    authority_from_version: Literal[2] = 2
+    authority_to_version: Literal[3] = 3
+    consumed_at: datetime
+
+    @field_validator("consumed_at")
+    @classmethod
+    def consumed_timestamp_is_utc(cls, value: datetime) -> datetime:
+        return _require_utc(value)
+
+    @model_validator(mode="after")
+    def deployment_matches_contract(self):
+        if not self.deployment_id.endswith(f"--{self.contract_hash.removeprefix('sha256:')}"):
+            raise ValueError("proof deployment identity does not match contract")
+        return self
+
+
+class GoogleAdsPausedCreateOutboxRecord(BaseModel):
+    """Durable, sanitized job-dispatch intent for PAUSED creation only."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    schema_version: Literal[1] = 1
+    outbox_id: Literal["paused-create"] = "paused-create"
+    deployment_id: str = Field(pattern=_GOOGLE_ADS_DEPLOYMENT_ID_PATTERN)
+    contract_hash: str = Field(pattern=_GOOGLE_ADS_SHA256_PATTERN)
+    approval_record_version: Literal[3] = 3
+    proof_id: str = Field(pattern=_GOOGLE_ADS_SHA256_PATTERN)
+    access_evidence_id: str = Field(pattern=_GOOGLE_ADS_SHA256_PATTERN)
+    state: GoogleAdsOutboxState = "PENDING"
+    attempt_count: int = Field(default=0, ge=0, le=MAX_GOOGLE_ADS_DISPATCH_ATTEMPTS)
+    dispatcher_claim_hash: str | None = Field(default=None, pattern=_GOOGLE_ADS_SHA256_PATTERN)
+    claim_expires_at: datetime | None = None
+    error_code: (
+        Literal[
+            "dispatch_attempts_exhausted",
+            "job_invocation_failed",
+            "worker_failed",
+        ]
+        | None
+    ) = None
+    created_at: datetime
+    updated_at: datetime
+    dispatched_at: datetime | None = None
+
+    @field_validator("created_at", "updated_at", "claim_expires_at", "dispatched_at")
+    @classmethod
+    def outbox_timestamps_are_utc(cls, value: datetime | None) -> datetime | None:
+        return _require_utc(value) if value is not None else None
+
+    @model_validator(mode="after")
+    def state_and_identity_are_consistent(self):
+        if not self.deployment_id.endswith(f"--{self.contract_hash.removeprefix('sha256:')}"):
+            raise ValueError("outbox deployment identity does not match contract")
+        if self.updated_at < self.created_at:
+            raise ValueError("outbox update cannot precede creation")
+        claimed = self.dispatcher_claim_hash is not None or self.claim_expires_at is not None
+        if (self.dispatcher_claim_hash is None) != (self.claim_expires_at is None):
+            raise ValueError("outbox claim hash and expiry must be set together")
+        if self.state == "DISPATCHING":
+            if not claimed or self.dispatched_at is not None:
+                raise ValueError("dispatching outbox requires one live claim")
+        elif claimed:
+            raise ValueError("only dispatching outbox may retain a claim")
+        if self.state == "DISPATCHED":
+            if self.dispatched_at is None or self.error_code is not None:
+                raise ValueError("dispatched outbox requires a clean dispatch timestamp")
+        elif self.dispatched_at is not None:
+            raise ValueError("pending outbox cannot have a dispatch timestamp")
+        if self.state == "PENDING" and self.error_code is not None and self.attempt_count < 1:
+            raise ValueError("failed pending outbox requires an attempted dispatch")
+        if self.state == "FAILED" and (
+            self.attempt_count != MAX_GOOGLE_ADS_DISPATCH_ATTEMPTS
+            or self.error_code != "dispatch_attempts_exhausted"
+        ):
+            raise ValueError("failed outbox requires exhausted sanitized attempts")
         return self
 
 

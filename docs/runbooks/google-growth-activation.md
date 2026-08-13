@@ -20,8 +20,14 @@ and budgets.
   Ads access to its broad default Compute service account. Ads automation must
   run as a dedicated identity in a dedicated Cloud Run Job.
 - Do not create or download a persistent service-account JSON key. The preferred
-  GCP runtime uses an attached user-managed service account and scoped
-  Application Default Credentials (ADC).
+   GCP runtime uses an attached user-managed service account and scoped
+   Application Default Credentials (ADC).
+- The provider service-account resource policy must have no public, direct, or
+  opaque custom-role impersonators. Break-glass impersonation is an external
+  operator exception and cannot coexist with a green automated readiness gate.
+- Project IAM must have no populated Ads secret-access/admin, service-account
+  impersonation/admin, broad Editor/Owner, Cloud Run execution, or opaque custom
+  role binding. Those inherited authorities cannot coexist with green readiness.
 
 ## What the application provides
 
@@ -51,15 +57,23 @@ It recognizes two authentication paths:
 
 1. Preferred: the dedicated `google-growth-control` service account has no
    user-managed keys and has only project-level `roles/datastore.user`, never
-   Editor/Owner/Secret Accessor. Two distinct Cloud Run Jobs must be attached
-   to it: `google-growth-control` runs only the exact
+   Editor/Owner/Secret Accessor. Two provider-facing Cloud Run Jobs must be
+   attached to it: `google-growth-control` runs only the exact
    `python scripts/google_ads_access_evidence_job.py` command, while
    `google-growth-paused-create` runs only the exact
    `python scripts/google_ads_paused_worker_job.py` command. Each command is a
    two-element command array with an empty argument list and only the named Ads
    secrets from Secret Manager. The service account must have accessor rights
-   on each bound secret itself. Job-resource IAM may grant only non-override
+   on each bound secret itself, and every present Ads-secret resource policy
+   must grant payload access only to that identity (never public, admin, or
+   opaque custom-role access). Job-resource IAM may grant only non-override
    execution/viewer roles; override-capable or custom roles fail readiness.
+   A third `google-growth-paused-dispatch` job must use the separate keyless
+   `google-growth-dispatcher` identity. Its template may contain only the fixed
+   dispatcher command and revision-bound, non-secret approval configuration;
+   its identity has only `roles/datastore.user` at project scope and exactly
+   `roles/run.invoker` on `google-growth-paused-create`, with no binding on the
+   access-evidence or dispatcher job and no Ads-secret or impersonation access.
 2. Compatibility-only: all three legacy user-OAuth secrets exist. The audit
    reports this path, but it does not satisfy GCP-native strict readiness.
 
@@ -73,7 +87,13 @@ access, or ability to impersonate the Ads job identity. Exactly one measurement
 path (GA4 or GTM) must be configured.
 Search Console and Business Profile API status remains advisory and does not
 block Ads presence readiness. A green presence audit does **not** prove the
-identity has Google Ads account access.
+identity has Google Ads account access. IAM checks cover direct project and
+   job/secret/service-account resource bindings; folder/organization inheritance
+and transitive group membership remain an explicit external operator review. The
+audit also requires the storefront and all three jobs to report the same 40-hex
+`APP_VERSION` and the same immutable `@sha256:` container-image digest. That is
+not cryptographic digest-to-Git provenance: the go-live packet must separately
+record the verified image-digest-to-candidate-SHA build mapping.
 
 The account-access probe is offline by default:
 
@@ -92,10 +112,13 @@ revision, and an evidence digest. It never stores credentials, customer/login
 IDs, request IDs, resource names, raw responses, or provider errors. Evidence
 expires after five minutes and does not authorize campaign creation or spend.
 
-The paused-create job is a separate, fixed protocol. There is no storefront
-route or job dispatcher, and it accepts no deployment ID, request body,
-credential selector, or command-line override. It can consume only an existing
-`PAUSED_CREATE_APPROVED` authority record for the checked-in contract. The v25
+The paused-create job is a separate, fixed protocol. There is no storefront job
+invocation route, and it accepts no deployment ID, request body, credential
+selector, or command-line override. It can consume only an existing
+`PAUSED_CREATE_APPROVED` authority record for the checked-in contract while the
+same transaction observes its durable outbox in `DISPATCHING`; a direct or
+scheduled worker invocation while `PENDING`, `FAILED`, or `DISPATCHED` is inert.
+The v25
 REST adapter first submits the exact atomic graph with `validateOnly=true` and
 `partialFailure=false`, then submits the same operation graph with
 `validateOnly=false`. Campaign, campaign criteria, ad groups, keywords, and ads
@@ -107,6 +130,30 @@ drift, and ambiguous provider outcomes fail fenced; raw account IDs, resource
 names, responses, request IDs, credentials, and provider errors are never
 written to Firestore or job output. No activation operation exists in this
 slice.
+
+The admin approval request also never invokes a job. After exact-owner WebAuthn
+user verification, it consumes a signed five-minute proof reference and, in one
+Firestore transaction, changes `SERVER_VALIDATED` to
+`PAUSED_CREATE_APPROVED`, appends the authority event, and creates one sanitized
+`PENDING` outbox row. Exact replay is idempotent; another proof, version,
+contract, caps, or access-evidence digest conflicts. PIN, bearer, shared-admin,
+and staff sessions cannot approve.
+
+Outbox delivery belongs to a third, fixed zero-argument Cloud Run Job running
+`python scripts/google_ads_paused_dispatcher_job.py`. It must use a separate
+identity with only Firestore access and non-override invocation permission on
+the single configured `google-growth-paused-create` job. It sends the official
+Cloud Run v2 `:run` request with an empty JSON body: no request, environment,
+argument, credential, or executable overrides are representable. Cloud Run's
+acceptance leaves the row `DISPATCHING`; it is not provider success. Only the
+worker's durable `PAUSED_CREATED` reconciliation settles `DISPATCHED`. A definite
+4xx rejection or sanitized worker failure re-arms `PENDING`; an ambiguous timeout
+or server failure stays leased as `DISPATCHING` so a possibly accepted worker can
+finish, then becomes reclaimable after expiry. After three attempts the outbox
+becomes `FAILED` and requires operator remediation. Duplicate dispatchers use a
+lease and cannot submit concurrently. The dispatcher remains inert unless both
+the approval and dispatch flags are explicitly true and the current app
+revision matches the externally verified readiness revision.
 
 ## Checked-in zero-spend launch contract
 
@@ -189,10 +236,12 @@ without reading values:
 - `google-ads-customer-id`
 - `google-ads-login-customer-id` (manager-account access only)
 
-Create a user-managed service account named `google-growth-control`. Do not
-grant it project-wide Editor, do not attach it to the public storefront, and do
-not create a key. The intended execution surface is two dedicated Cloud Run
-Jobs with:
+Create user-managed service accounts named `google-growth-control` and
+`google-growth-dispatcher`. Do not grant either project-wide Editor, do not
+attach either to the public storefront, and do not create keys. The first is
+the Ads identity for the two provider-facing jobs; the second is the
+secretless Firestore/outbox identity for the dispatcher job. The intended
+execution surface has:
 
 - `google-growth-control` as its attached service identity;
 - no public-storefront binding on this identity's IAM policy and no storefront
@@ -212,13 +261,43 @@ Jobs with:
   `run.jobs.runWithOverrides`. Custom and override-capable job roles fail the
   readiness audit. Privileged infrastructure administrators can replace the
   job itself and remain subject to the separate production-change gate;
+- the dispatcher identity is the only execution-role member on the paused-create
+  job; operator execution roles remain limited to the access-evidence and
+  dispatcher jobs, never the provider target. Project-wide built-in Cloud Run
+  execution/admin/developer roles fail readiness because they bypass that
+  resource boundary;
+- storefront, access-evidence, paused-create, and dispatcher runtimes use one
+  immutable image digest and one exact `APP_VERSION`; separately verify and
+  record the build provenance mapping from that digest to the candidate Git SHA;
 - no public endpoint, campaign activation command, or spend authority.
 
-Creating or changing the service account, jobs, IAM, API enablement, secret
+The `google-growth-paused-dispatch` job must use the exact two-element command
+array `python`, `scripts/google_ads_paused_dispatcher_job.py`, an empty argument
+list, the exact revision-bound non-secret flags listed below, and no secret
+binding. Give its `google-growth-dispatcher` identity only
+`roles/datastore.user` at project scope and `roles/run.invoker` directly on
+`google-growth-paused-create`; do not grant it any role on
+`google-growth-control` or on itself. Storefront identity bindings on any of
+the three jobs fail the readiness audit.
+
+The storefront settings below default false/empty and must not be enabled by a
+source merge alone:
+
+- `THO_GOOGLE_ADS_PAUSED_CREATE_APPROVAL_ENABLED`
+- `THO_GOOGLE_ADS_PAUSED_CREATE_CLOUD_READINESS_VERIFIED`
+- `THO_GOOGLE_ADS_PAUSED_CREATE_IAM_VERIFIED`
+- `THO_GOOGLE_ADS_PAUSED_CREATE_READINESS_REVISION` (must equal `APP_VERSION`)
+- `THO_GOOGLE_ADS_PAUSED_CREATE_PROJECT`, `..._REGION`, and `..._JOB`
+- `THO_GOOGLE_ADS_PAUSED_CREATE_DISPATCH_ENABLED` (separate execution gate)
+
+Creating or changing the service accounts, jobs, IAM, API enablement, secret
 bindings, Ads account invitation, or any live job execution is an external
 operator gate. The checked-in code and injected-fake tests do not perform any
 of those actions. A live access probe must be completed before a separately
 approved paused-create execution; neither grants activation or spend authority.
+Enabling approval/config and Ari's exact owner WebAuthn are one human gate. A
+live dispatch that actually creates PAUSED provider resources is a later,
+separate Ari gate. No activation/publish/spend state or control exists.
 
 The Google Ads administrator must separately add the service-account email as
 an account user. This is the step that grants Ads access; GCP IAM roles and API
