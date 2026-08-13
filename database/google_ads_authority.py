@@ -23,6 +23,9 @@ from database.models import (
     GoogleAdsAuthorityEventRecord,
     GoogleAdsDeploymentRecord,
     GoogleAdsOperationKeyRecord,
+    GoogleAdsOwnerStepUpEvidenceRecord,
+    GoogleAdsPausedCreateApprovalProofRecord,
+    GoogleAdsPausedCreateOutboxRecord,
 )
 from database.rpc_timeout import FIRESTORE_RPC_TIMEOUT, FIRESTORE_TRANSACTION_TIMEOUT
 from scripts.google_ads_access_evidence import (
@@ -86,6 +89,11 @@ class FirestoreAuthorityLedger:
     OPERATION_KEYS_SUBCOLLECTION = "operation_keys"
     ACCESS_EVIDENCE_SUBCOLLECTION = "access_evidence"
     ACCESS_EVIDENCE_EVENTS_SUBCOLLECTION = "access_evidence_events"
+    APPROVAL_PROOFS_SUBCOLLECTION = "approval_proofs"
+    DISPATCH_OUTBOX_SUBCOLLECTION = "dispatch_outbox"
+    PAUSED_CREATE_OUTBOX_ID = "paused-create"
+    STEP_UP_NONCE_COLLECTION = "google_ads_owner_step_up_nonces"
+    STEP_UP_EVIDENCE_SUBCOLLECTION = "verified_evidence"
 
     def __init__(
         self,
@@ -256,6 +264,35 @@ class FirestoreAuthorityLedger:
             return evidence
         except (InvalidAccessEvidence, ValidationError, AttributeError, TypeError, ValueError):
             raise LedgerWriteError("access_evidence_invalid") from None
+
+    @staticmethod
+    def _snapshot_to_step_up_evidence(snapshot: Any) -> GoogleAdsOwnerStepUpEvidenceRecord:
+        if not getattr(snapshot, "exists", False):
+            raise InvalidStateTransition("owner proof is unavailable")
+        try:
+            return GoogleAdsOwnerStepUpEvidenceRecord.model_validate(snapshot.to_dict() or {})
+        except (ValidationError, AttributeError, TypeError, ValueError):
+            raise LedgerWriteError("owner_proof_invalid") from None
+
+    @staticmethod
+    def _snapshot_to_approval_proof(
+        snapshot: Any,
+    ) -> GoogleAdsPausedCreateApprovalProofRecord:
+        if not getattr(snapshot, "exists", False):
+            raise InvalidStateTransition("owner proof replay evidence is unavailable")
+        try:
+            return GoogleAdsPausedCreateApprovalProofRecord.model_validate(snapshot.to_dict() or {})
+        except (ValidationError, AttributeError, TypeError, ValueError):
+            raise LedgerWriteError("owner_proof_invalid") from None
+
+    @staticmethod
+    def _snapshot_to_outbox(snapshot: Any) -> GoogleAdsPausedCreateOutboxRecord:
+        if not getattr(snapshot, "exists", False):
+            raise InvalidStateTransition("paused-create outbox is unavailable")
+        try:
+            return GoogleAdsPausedCreateOutboxRecord.model_validate(snapshot.to_dict() or {})
+        except (ValidationError, AttributeError, TypeError, ValueError):
+            raise LedgerWriteError("paused_create_outbox_invalid") from None
 
     @staticmethod
     def _event(
@@ -488,6 +525,318 @@ class FirestoreAuthorityLedger:
             return evidence
 
         return self._run_transaction(operation)
+
+    def approve_paused_create_with_proof(
+        self,
+        *,
+        deployment_id: str,
+        expected_version: int,
+        contract_hash: str,
+        expected_caps: dict[str, int],
+        proof: Any,
+        access_evidence_id: str,
+    ) -> dict[str, Any]:
+        """Atomically consume one UV proof and append approval plus outbox intent."""
+        if isinstance(expected_version, bool) or expected_version != 2:
+            raise InvalidStateTransition("stale deployment version")
+        if not re.fullmatch(r"sha256:[0-9a-f]{64}", contract_hash):
+            raise InvalidStateTransition("reviewed contract changed")
+        if not re.fullmatch(r"sha256:[0-9a-f]{64}", access_evidence_id):
+            raise InvalidStateTransition("access evidence changed")
+        required_proof_fields = (
+            "proof_id",
+            "nonce_hash",
+            "deployment_id",
+            "contract_hash",
+            "access_evidence_id",
+            "proof_reference_hash",
+            "purpose",
+        )
+        if any(not hasattr(proof, field) for field in required_proof_fields):
+            raise InvalidStateTransition("owner proof is invalid")
+        if (
+            proof.purpose != "PAUSED_CREATE"
+            or proof.deployment_id != deployment_id
+            or proof.contract_hash != contract_hash
+            or proof.access_evidence_id != access_evidence_id
+        ):
+            raise InvalidStateTransition("owner proof changed")
+
+        deployment_reference = self._reference(deployment_id)
+        access_reference = deployment_reference.collection(
+            self.ACCESS_EVIDENCE_SUBCOLLECTION
+        ).document(AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_GREEN.value)
+        source_reference = (
+            self._client.collection(self.STEP_UP_NONCE_COLLECTION)
+            .document(proof.nonce_hash)
+            .collection(self.STEP_UP_EVIDENCE_SUBCOLLECTION)
+            .document(proof.proof_id)
+        )
+        marker_reference = deployment_reference.collection(
+            self.APPROVAL_PROOFS_SUBCOLLECTION
+        ).document(proof.proof_id)
+        outbox_reference = deployment_reference.collection(
+            self.DISPATCH_OUTBOX_SUBCOLLECTION
+        ).document(self.PAUSED_CREATE_OUTBOX_ID)
+
+        def operation(transaction):
+            now = self._now()
+            record = self._snapshot_to_domain(
+                deployment_reference.get(
+                    transaction=transaction,
+                    timeout=FIRESTORE_RPC_TIMEOUT,
+                )
+            )
+            marker_snapshot = marker_reference.get(
+                transaction=transaction,
+                timeout=FIRESTORE_RPC_TIMEOUT,
+            )
+            outbox_snapshot = outbox_reference.get(
+                transaction=transaction,
+                timeout=FIRESTORE_RPC_TIMEOUT,
+            )
+            if marker_snapshot.exists or record.state in {
+                DeploymentState.PAUSED_CREATE_APPROVED,
+                DeploymentState.PAUSED_CREATED,
+            }:
+                marker = self._snapshot_to_approval_proof(marker_snapshot)
+                outbox = self._snapshot_to_outbox(outbox_snapshot)
+                if (
+                    marker.proof_id != proof.proof_id
+                    or marker.proof_reference_hash != proof.proof_reference_hash
+                    or marker.deployment_id != deployment_id
+                    or marker.contract_hash != contract_hash
+                    or marker.access_evidence_id != access_evidence_id
+                    or outbox.proof_id != proof.proof_id
+                    or outbox.access_evidence_id != access_evidence_id
+                    or outbox.deployment_id != deployment_id
+                    or outbox.contract_hash != contract_hash
+                    or expected_version != marker.authority_from_version
+                ):
+                    raise InvalidStateTransition("owner approval replay conflicts")
+                return {
+                    "deployment_id": record.deployment_id,
+                    "contract_hash": record.contract_hash,
+                    "state": record.state.value,
+                    "version": record.version,
+                    "outbox_state": outbox.state,
+                    "replayed": True,
+                }
+
+            self._assert_version(record, expected_version)
+            if (
+                record.state is not DeploymentState.SERVER_VALIDATED
+                or record.contract_hash != contract_hash
+                or outbox_snapshot.exists
+            ):
+                raise InvalidStateTransition("deployment is not ready for paused approval")
+            access = self._snapshot_to_access_evidence(
+                access_reference.get(
+                    transaction=transaction,
+                    timeout=FIRESTORE_RPC_TIMEOUT,
+                ),
+                expected_deployment_id=deployment_id,
+                expected_check_key=AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_GREEN,
+            )
+            source = self._snapshot_to_step_up_evidence(
+                source_reference.get(
+                    transaction=transaction,
+                    timeout=FIRESTORE_RPC_TIMEOUT,
+                )
+            )
+            if (
+                access.status is not AccessEvidenceStatus.PASSED
+                or access.evidence_digest != access_evidence_id
+                or source.purpose != "PAUSED_CREATE"
+                or source.evidence_id != proof.proof_id
+                or source.nonce_hash != proof.nonce_hash
+                or source.deployment_id != deployment_id
+                or source.contract_hash != contract_hash
+                or source.evidence_digest != access_evidence_id
+                or source.caps.model_dump() != expected_caps
+                or source.verified_at > now
+                or now >= source.verified_at + timedelta(seconds=300)
+            ):
+                raise InvalidStateTransition("owner proof or access evidence changed")
+
+            updated = replace(
+                record,
+                state=DeploymentState.PAUSED_CREATE_APPROVED,
+                version=3,
+                worker_claim_hash=None,
+                claim_expires_at=None,
+                create_fenced_at=None,
+                create_fence_claim_hash=None,
+                error_code=None,
+                updated_at=now,
+            )
+            marker = GoogleAdsPausedCreateApprovalProofRecord(
+                proof_id=proof.proof_id,
+                proof_reference_hash=proof.proof_reference_hash,
+                deployment_id=deployment_id,
+                contract_hash=contract_hash,
+                access_evidence_id=access_evidence_id,
+                authority_from_version=2,
+                authority_to_version=3,
+                consumed_at=now,
+            )
+            outbox = GoogleAdsPausedCreateOutboxRecord(
+                outbox_id=self.PAUSED_CREATE_OUTBOX_ID,
+                deployment_id=deployment_id,
+                contract_hash=contract_hash,
+                approval_record_version=3,
+                proof_id=proof.proof_id,
+                access_evidence_id=access_evidence_id,
+                state="PENDING",
+                attempt_count=0,
+                dispatcher_claim_hash=None,
+                claim_expires_at=None,
+                error_code=None,
+                created_at=now,
+                updated_at=now,
+                dispatched_at=None,
+            )
+            self._write_record_and_event(
+                transaction,
+                deployment_reference,
+                updated,
+                event_type="PAUSED_CREATE_APPROVED",
+                from_state=DeploymentState.SERVER_VALIDATED,
+            )
+            transaction.create(marker_reference, marker.model_dump(mode="python"))
+            transaction.create(outbox_reference, outbox.model_dump(mode="python"))
+            return {
+                "deployment_id": updated.deployment_id,
+                "contract_hash": updated.contract_hash,
+                "state": updated.state.value,
+                "version": updated.version,
+                "outbox_state": outbox.state,
+                "replayed": False,
+            }
+
+        return self._run_transaction(operation)
+
+    def get_paused_create_outbox(self, deployment_id: str) -> GoogleAdsPausedCreateOutboxRecord:
+        try:
+            snapshot = (
+                self._reference(deployment_id)
+                .collection(self.DISPATCH_OUTBOX_SUBCOLLECTION)
+                .document(self.PAUSED_CREATE_OUTBOX_ID)
+                .get(timeout=FIRESTORE_RPC_TIMEOUT)
+            )
+            return self._snapshot_to_outbox(snapshot)
+        except ControlPlaneError:
+            raise
+        except Exception:
+            raise LedgerWriteError("paused_create_outbox_read_failed") from None
+
+    def claim_paused_create_outbox(self, deployment_id: str, claimant: str) -> bool:
+        claimant_hash = _claimant_hash(claimant)
+        deployment_reference = self._reference(deployment_id)
+        outbox_reference = deployment_reference.collection(
+            self.DISPATCH_OUTBOX_SUBCOLLECTION
+        ).document(self.PAUSED_CREATE_OUTBOX_ID)
+
+        def operation(transaction):
+            now = self._now()
+            authority = self._snapshot_to_domain(
+                deployment_reference.get(
+                    transaction=transaction,
+                    timeout=FIRESTORE_RPC_TIMEOUT,
+                )
+            )
+            outbox = self._snapshot_to_outbox(
+                outbox_reference.get(
+                    transaction=transaction,
+                    timeout=FIRESTORE_RPC_TIMEOUT,
+                )
+            )
+            if authority.state is DeploymentState.PAUSED_CREATED or outbox.state == "DISPATCHED":
+                return False
+            live_claim = outbox.state == "DISPATCHING" and outbox.claim_expires_at > now
+            if authority.state is not DeploymentState.PAUSED_CREATE_APPROVED or live_claim:
+                return False
+            claimed = GoogleAdsPausedCreateOutboxRecord.model_validate(
+                {
+                    **outbox.model_dump(),
+                    "state": "DISPATCHING",
+                    "attempt_count": outbox.attempt_count + 1,
+                    "dispatcher_claim_hash": claimant_hash,
+                    "claim_expires_at": now + timedelta(seconds=self._claim_lease_seconds),
+                    "error_code": None,
+                    "updated_at": now,
+                }
+            )
+            transaction.set(outbox_reference, claimed.model_dump(mode="python"))
+            return True
+
+        return self._run_transaction(operation)
+
+    def release_paused_create_outbox(self, deployment_id: str, claimant: str) -> None:
+        claimant_hash = _claimant_hash(claimant)
+        outbox_reference = (
+            self._reference(deployment_id)
+            .collection(self.DISPATCH_OUTBOX_SUBCOLLECTION)
+            .document(self.PAUSED_CREATE_OUTBOX_ID)
+        )
+
+        def operation(transaction):
+            outbox = self._snapshot_to_outbox(
+                outbox_reference.get(
+                    transaction=transaction,
+                    timeout=FIRESTORE_RPC_TIMEOUT,
+                )
+            )
+            if outbox.state != "DISPATCHING" or outbox.dispatcher_claim_hash != claimant_hash:
+                raise InvalidStateTransition("paused-create outbox is not claimed")
+            pending = GoogleAdsPausedCreateOutboxRecord.model_validate(
+                {
+                    **outbox.model_dump(),
+                    "state": "PENDING",
+                    "dispatcher_claim_hash": None,
+                    "claim_expires_at": None,
+                    "error_code": "job_invocation_failed",
+                    "updated_at": self._now(),
+                }
+            )
+            transaction.set(outbox_reference, pending.model_dump(mode="python"))
+
+        self._run_transaction(operation)
+
+    def complete_paused_create_outbox(self, deployment_id: str, claimant: str) -> None:
+        claimant_hash = _claimant_hash(claimant)
+        outbox_reference = (
+            self._reference(deployment_id)
+            .collection(self.DISPATCH_OUTBOX_SUBCOLLECTION)
+            .document(self.PAUSED_CREATE_OUTBOX_ID)
+        )
+
+        def operation(transaction):
+            outbox = self._snapshot_to_outbox(
+                outbox_reference.get(
+                    transaction=transaction,
+                    timeout=FIRESTORE_RPC_TIMEOUT,
+                )
+            )
+            if outbox.state == "DISPATCHED":
+                return
+            if outbox.state != "DISPATCHING" or outbox.dispatcher_claim_hash != claimant_hash:
+                raise InvalidStateTransition("paused-create outbox is not claimed")
+            now = self._now()
+            dispatched = GoogleAdsPausedCreateOutboxRecord.model_validate(
+                {
+                    **outbox.model_dump(),
+                    "state": "DISPATCHED",
+                    "dispatcher_claim_hash": None,
+                    "claim_expires_at": None,
+                    "error_code": None,
+                    "updated_at": now,
+                    "dispatched_at": now,
+                }
+            )
+            transaction.set(outbox_reference, dispatched.model_dump(mode="python"))
+
+        self._run_transaction(operation)
 
     def transition(
         self,

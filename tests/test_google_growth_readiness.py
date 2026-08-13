@@ -8,6 +8,8 @@ import scripts.google_growth_readiness as readiness
 PROJECT = "tho-ai-agent"
 SERVICE_ACCOUNT = "google-growth-control@tho-ai-agent.iam.gserviceaccount.com"
 SERVICE_ACCOUNT_MEMBER = f"serviceAccount:{SERVICE_ACCOUNT}"
+DISPATCHER_SERVICE_ACCOUNT = "google-growth-dispatcher@tho-ai-agent.iam.gserviceaccount.com"
+DISPATCHER_SERVICE_ACCOUNT_MEMBER = f"serviceAccount:{DISPATCHER_SERVICE_ACCOUNT}"
 STOREFRONT_SERVICE_ACCOUNT = "project-go-forward@tho-ai-agent.iam.gserviceaccount.com"
 
 
@@ -71,6 +73,56 @@ def _iam_policy(*roles):
     )
 
 
+def _project_iam_policy(*, dispatcher_roles=("roles/datastore.user",)):
+    bindings = [
+        {"role": "roles/datastore.user", "members": [SERVICE_ACCOUNT_MEMBER]},
+    ]
+    bindings.extend(
+        {"role": role, "members": [DISPATCHER_SERVICE_ACCOUNT_MEMBER]} for role in dispatcher_roles
+    )
+    return json.dumps({"bindings": bindings})
+
+
+def _dispatcher_job_payload(*, service_account=DISPATCHER_SERVICE_ACCOUNT, env=None):
+    revision = "a" * 40
+    if env is None:
+        env = [
+            {"name": "APP_VERSION", "value": revision},
+            {
+                "name": "THO_GOOGLE_ADS_PAUSED_CREATE_APPROVAL_ENABLED",
+                "value": "true",
+            },
+            {
+                "name": "THO_GOOGLE_ADS_PAUSED_CREATE_CLOUD_READINESS_VERIFIED",
+                "value": "true",
+            },
+            {
+                "name": "THO_GOOGLE_ADS_PAUSED_CREATE_IAM_VERIFIED",
+                "value": "true",
+            },
+            {
+                "name": "THO_GOOGLE_ADS_PAUSED_CREATE_READINESS_REVISION",
+                "value": revision,
+            },
+            {"name": "THO_GOOGLE_ADS_PAUSED_CREATE_PROJECT", "value": PROJECT},
+            {"name": "THO_GOOGLE_ADS_PAUSED_CREATE_REGION", "value": "us-central1"},
+            {
+                "name": "THO_GOOGLE_ADS_PAUSED_CREATE_JOB",
+                "value": readiness.ADS_PAUSED_CREATE_JOB_ID,
+            },
+            {
+                "name": "THO_GOOGLE_ADS_PAUSED_CREATE_DISPATCH_ENABLED",
+                "value": "true",
+            },
+        ]
+    return _job_payload(
+        service_account=service_account,
+        command=["python", "scripts/google_ads_paused_dispatcher_job.py"],
+        args=[],
+        env=env,
+    )
+
+
 def _secret_policy():
     return _iam_policy("roles/secretmanager.secretAccessor")
 
@@ -81,6 +133,7 @@ def _healthy_responses(
     runtime_env=None,
     job_payload=None,
     paused_create_job_payload=None,
+    dispatcher_job_payload=None,
 ):
     if enabled_services is None:
         enabled_services = readiness.SERVICES
@@ -89,10 +142,12 @@ def _healthy_responses(
     return {
         ("gcloud", "services", "list"): "\n".join(enabled_services),
         ("gcloud", "secrets", "list"): ("google-ads-developer-token\ngoogle-ads-customer-id\n"),
-        ("gcloud", "iam", "service-accounts"): f"{SERVICE_ACCOUNT}\n",
+        ("gcloud", "iam", "service-accounts"): (
+            f"{SERVICE_ACCOUNT}\n{DISPATCHER_SERVICE_ACCOUNT}\n"
+        ),
         ("gcloud", "iam", "service-accounts", "keys"): "",
         ("gcloud", "iam", "service-accounts", "get-iam-policy"): json.dumps({"bindings": []}),
-        ("gcloud", "projects", "get-iam-policy"): _iam_policy("roles/datastore.user"),
+        ("gcloud", "projects", "get-iam-policy"): _project_iam_policy(),
         (
             "gcloud",
             "secrets",
@@ -105,7 +160,9 @@ def _healthy_responses(
             "get-iam-policy",
             "google-ads-customer-id",
         ): _secret_policy(),
-        ("gcloud", "run", "jobs", "list"): ("google-growth-control\ngoogle-growth-paused-create\n"),
+        ("gcloud", "run", "jobs", "list"): (
+            "google-growth-control\ngoogle-growth-paused-create\ngoogle-growth-paused-dispatch\n"
+        ),
         (
             "gcloud",
             "run",
@@ -127,8 +184,31 @@ def _healthy_responses(
             "gcloud",
             "run",
             "jobs",
+            "describe",
+            readiness.ADS_PAUSED_DISPATCHER_JOB_ID,
+        ): json.dumps(dispatcher_job_payload or _dispatcher_job_payload()),
+        (
+            "gcloud",
+            "run",
+            "jobs",
             "get-iam-policy",
             readiness.ADS_JOB_ID,
+        ): json.dumps(
+            {
+                "bindings": [
+                    {
+                        "role": "roles/run.invoker",
+                        "members": ["user:operator@example.invalid"],
+                    }
+                ]
+            }
+        ),
+        (
+            "gcloud",
+            "run",
+            "jobs",
+            "get-iam-policy",
+            readiness.ADS_PAUSED_DISPATCHER_JOB_ID,
         ): json.dumps(
             {
                 "bindings": [
@@ -150,7 +230,7 @@ def _healthy_responses(
                 "bindings": [
                     {
                         "role": "roles/run.invoker",
-                        "members": ["user:operator@example.invalid"],
+                        "members": [DISPATCHER_SERVICE_ACCOUNT_MEMBER],
                     }
                 ]
             }
@@ -290,6 +370,25 @@ def test_dedicated_service_account_is_preferred_without_legacy_oauth_secrets():
         "override_capable_bindings_absent": True,
         "execution_iam_ready": True,
     }
+    assert result["paused_dispatcher"] == {
+        "dedicated_identity_present": True,
+        "persistent_user_key_absent": True,
+        "project_roles_least_privilege": True,
+        "impersonation_policy_checked": True,
+        "dedicated_job_present": True,
+        "dedicated_identity_attached": True,
+        "exact_dispatcher_command": True,
+        "ads_secret_bindings_absent": True,
+        "fixed_runtime_config": True,
+        "source_revision_bound": True,
+        "runtime_ready": True,
+        "override_capable_bindings_absent": True,
+        "execution_iam_ready": True,
+        "paused_create_invocation_only": True,
+        "ads_secret_access_absent": True,
+        "ads_impersonation_absent": True,
+        "ready": True,
+    }
     assert result["auth_paths"] == {
         "service_account_adc": True,
         "legacy_user_oauth": False,
@@ -303,6 +402,7 @@ def test_dedicated_service_account_is_preferred_without_legacy_oauth_secrets():
         "ads_account_config": True,
         "ads_auth_path": True,
         "paused_create_path": True,
+        "paused_dispatcher_path": True,
         "legacy_oauth_secrets_absent": True,
         "storefront_ads_credentials_absent": True,
         "storefront_secret_access_absent": True,
@@ -445,6 +545,163 @@ def test_paused_create_job_runtime_requires_fixed_zero_argument_entrypoint():
     for unsafe in (extra_argument, replaceable_script):
         assert unsafe["exact_probe_command"] is False
         assert unsafe["runtime_ready"] is False
+
+
+def test_paused_dispatcher_requires_separate_fixed_job_with_no_ads_secrets():
+    valid = readiness._dispatcher_job_runtime(
+        _dispatcher_job_payload(),
+        DISPATCHER_SERVICE_ACCOUNT,
+        project=PROJECT,
+        region="us-central1",
+    )
+    ads_secret = _dispatcher_job_payload()
+    env = ads_secret["spec"]["template"]["spec"]["template"]["spec"]["containers"][0]["env"]
+    env.append(
+        {
+            "name": "GOOGLE_ADS_CUSTOMER_ID",
+            "valueFrom": {"secretKeyRef": {"name": "google-ads-customer-id"}},
+        }
+    )
+    wrong_identity = readiness._dispatcher_job_runtime(
+        _dispatcher_job_payload(service_account=SERVICE_ACCOUNT),
+        DISPATCHER_SERVICE_ACCOUNT,
+        project=PROJECT,
+        region="us-central1",
+    )
+    replaceable_script = _dispatcher_job_payload()
+    container = replaceable_script["spec"]["template"]["spec"]["template"]["spec"]["containers"][0]
+    container["command"] = ["python"]
+    container["args"] = ["scripts/google_ads_paused_dispatcher_job.py"]
+
+    assert valid == {
+        "dedicated_identity_attached": True,
+        "exact_dispatcher_command": True,
+        "ads_secret_bindings_absent": True,
+        "fixed_runtime_config": True,
+        "source_revision_bound": True,
+        "runtime_ready": True,
+    }
+    for unsafe in (
+        readiness._dispatcher_job_runtime(
+            ads_secret,
+            DISPATCHER_SERVICE_ACCOUNT,
+            project=PROJECT,
+            region="us-central1",
+        ),
+        wrong_identity,
+        readiness._dispatcher_job_runtime(
+            replaceable_script,
+            DISPATCHER_SERVICE_ACCOUNT,
+            project=PROJECT,
+            region="us-central1",
+        ),
+    ):
+        assert unsafe["runtime_ready"] is False
+
+
+@pytest.mark.parametrize(
+    ("mutation", "expected_gate"),
+    [
+        ({"THO_GOOGLE_ADS_PAUSED_CREATE_APPROVAL_ENABLED": "TRUE"}, "fixed_runtime_config"),
+        ({"THO_GOOGLE_ADS_PAUSED_CREATE_JOB": "another-job"}, "fixed_runtime_config"),
+        ({"THO_GOOGLE_ADS_PAUSED_CREATE_REGION": "europe-west1"}, "fixed_runtime_config"),
+        ({"APP_VERSION": "latest"}, "source_revision_bound"),
+    ],
+)
+def test_paused_dispatcher_runtime_rejects_unverified_or_unbound_config(mutation, expected_gate):
+    payload = _dispatcher_job_payload()
+    env = payload["spec"]["template"]["spec"]["template"]["spec"]["containers"][0]["env"]
+    for item in env:
+        if item["name"] in mutation:
+            item["value"] = mutation[item["name"]]
+
+    result = readiness._dispatcher_job_runtime(
+        payload,
+        DISPATCHER_SERVICE_ACCOUNT,
+        project=PROJECT,
+        region="us-central1",
+    )
+
+    assert result[expected_gate] is False
+    assert result["runtime_ready"] is False
+
+
+def test_dispatcher_identity_must_be_keyless_firestore_only_and_single_job_invoker():
+    broad = _healthy_responses()
+    broad[("gcloud", "projects", "get-iam-policy")] = _project_iam_policy(
+        dispatcher_roles=("roles/datastore.user", "roles/editor")
+    )
+    broad_result = readiness.audit(
+        PROJECT, "project-go-forward", "us-central1", runner=_runner(broad)[0]
+    )
+
+    wrong_target = _healthy_responses()
+    wrong_target[
+        (
+            "gcloud",
+            "run",
+            "jobs",
+            "get-iam-policy",
+            readiness.ADS_JOB_ID,
+        )
+    ] = json.dumps(
+        {
+            "bindings": [
+                {
+                    "role": "roles/run.invoker",
+                    "members": [DISPATCHER_SERVICE_ACCOUNT_MEMBER],
+                }
+            ]
+        }
+    )
+    wrong_result = readiness.audit(
+        PROJECT, "project-go-forward", "us-central1", runner=_runner(wrong_target)[0]
+    )
+
+    assert broad_result["paused_dispatcher"]["project_roles_least_privilege"] is False
+    assert broad_result["paused_dispatcher"]["ready"] is False
+    assert wrong_result["paused_dispatcher"]["paused_create_invocation_only"] is False
+    assert wrong_result["readiness"]["presence_ready"] is False
+    assert DISPATCHER_SERVICE_ACCOUNT not in json.dumps(wrong_result)
+
+
+def test_missing_dispatcher_or_storefront_dispatcher_invocation_blocks_readiness():
+    missing = _healthy_responses()
+    missing[("gcloud", "run", "jobs", "list")] = (
+        f"{readiness.ADS_JOB_ID}\n{readiness.ADS_PAUSED_CREATE_JOB_ID}\n"
+    )
+    missing_result = readiness.audit(
+        PROJECT, "project-go-forward", "us-central1", runner=_runner(missing)[0]
+    )
+
+    storefront = _healthy_responses()
+    storefront[
+        (
+            "gcloud",
+            "run",
+            "jobs",
+            "get-iam-policy",
+            readiness.ADS_PAUSED_DISPATCHER_JOB_ID,
+        )
+    ] = json.dumps(
+        {
+            "bindings": [
+                {
+                    "role": "roles/run.invoker",
+                    "members": [f"serviceAccount:{STOREFRONT_SERVICE_ACCOUNT}"],
+                }
+            ]
+        }
+    )
+    storefront_result = readiness.audit(
+        PROJECT, "project-go-forward", "us-central1", runner=_runner(storefront)[0]
+    )
+
+    assert missing_result["paused_dispatcher"]["dedicated_job_present"] is False
+    assert missing_result["readiness"]["paused_dispatcher_path"] is False
+    assert missing_result["readiness"]["presence_ready"] is False
+    assert storefront_result["readiness"]["storefront_job_invocation_absent"] is False
+    assert storefront_result["readiness"]["presence_ready"] is False
 
 
 def test_job_runtime_requires_pinned_source_revision_and_rejects_arbitrary_env_overrides():

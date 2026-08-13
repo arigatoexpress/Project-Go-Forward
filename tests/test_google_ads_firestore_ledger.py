@@ -12,12 +12,25 @@ from threading import Barrier, Event, Lock
 import pytest
 from pydantic import ValidationError
 
+from auth.google_ads_step_up import (
+    StepUpContext,
+    StepUpNonce,
+    build_evidence_envelope,
+    context_digest,
+    email_hash,
+    hash_value,
+    issue_proof_reference,
+    verify_proof_reference,
+)
+from auth.session import SessionManager
 from database.google_ads_authority import FirestoreAuthorityLedger
 from database.models import (
     GoogleAdsAccessEvidenceRecord,
     GoogleAdsAuthorityEventRecord,
     GoogleAdsDeploymentRecord,
     GoogleAdsOperationKeyRecord,
+    GoogleAdsPausedCreateApprovalProofRecord,
+    GoogleAdsPausedCreateOutboxRecord,
 )
 from scripts.google_ads_access_evidence import (
     AccessCheckKey,
@@ -25,6 +38,7 @@ from scripts.google_ads_access_evidence import (
     build_access_evidence,
     evidence_payload,
 )
+from scripts.google_ads_launch_draft import contract_sha256
 from scripts.google_ads_paused_worker import (
     DeploymentRecord,
     DeploymentState,
@@ -1034,3 +1048,178 @@ def test_concurrent_distinct_evidence_at_one_observation_has_one_atomic_winner(d
         store.access_evidence(draft.deployment_id, winners[0].check_key.value)["evidence_digest"]
         == winners[0].evidence_digest
     )
+
+
+def _approval_fixture(durable):
+    ledger, store, clock = durable
+    draft = _draft(ledger)
+    validated = DraftReviewControlPlane(ledger, StaticContractSource(CONTRACT)).server_validate(
+        draft.deployment_id,
+        expected_version=draft.version,
+    )
+    access = _access_evidence(validated.deployment_id, clock)
+    ledger.record_access_evidence(access, expected_version=validated.version)
+    digest = contract_sha256(CONTRACT)
+    context = StepUpContext(
+        deployment_id=validated.deployment_id,
+        contract_hash=f"sha256:{digest}",
+        caps={
+            "average_daily_usd": 20,
+            "max_single_day_charge_usd": 40,
+            "monthly_charge_limit_usd": 608,
+            "max_cpc_usd": 5,
+        },
+        evidence_digest=access.evidence_digest,
+    )
+    nonce = StepUpNonce(
+        nonce_hash=hash_value("atomic-approval-nonce"),
+        context_digest=context_digest(context),
+        owner_email_hash=email_hash("aristotlespec@gmail.com"),
+        issued_at=clock.value,
+        expires_at=clock.value + timedelta(minutes=5),
+    )
+    envelope = build_evidence_envelope(
+        nonce=nonce,
+        context=context,
+        credential_id_hash=hash_value("owner-credential"),
+        verified_at=clock.value,
+    )
+    store.rows[
+        (
+            "google_ads_owner_step_up_nonces",
+            nonce.nonce_hash,
+            "verified_evidence",
+            envelope.evidence_id,
+        )
+    ] = envelope.model_dump(mode="python")
+    manager = SessionManager(secret_key="atomic-approval-secret")
+    proof = verify_proof_reference(manager, issue_proof_reference(manager, envelope))
+    assert proof is not None
+    return ledger, store, clock, validated, access, envelope, proof
+
+
+def _approve(ledger, validated, access, proof):
+    return ledger.approve_paused_create_with_proof(
+        deployment_id=validated.deployment_id,
+        expected_version=validated.version,
+        contract_hash=validated.contract_hash,
+        expected_caps={
+            "average_daily_usd": 20,
+            "max_single_day_charge_usd": 40,
+            "monthly_charge_limit_usd": 608,
+            "max_cpc_usd": 5,
+        },
+        proof=proof,
+        access_evidence_id=access.evidence_digest,
+    )
+
+
+def test_owner_proof_consumption_approval_event_and_outbox_are_one_atomic_commit(durable):
+    ledger, store, _clock, validated, access, envelope, proof = _approval_fixture(durable)
+
+    result = _approve(ledger, validated, access, proof)
+
+    assert result == {
+        "deployment_id": validated.deployment_id,
+        "contract_hash": validated.contract_hash,
+        "state": "PAUSED_CREATE_APPROVED",
+        "version": 3,
+        "outbox_state": "PENDING",
+        "replayed": False,
+    }
+    assert store.deployment(validated.deployment_id)["state"] == "PAUSED_CREATE_APPROVED"
+    assert store.events(validated.deployment_id)[-1]["event_type"] == "PAUSED_CREATE_APPROVED"
+    marker = store.rows[
+        ("google_ads_deployments", validated.deployment_id, "approval_proofs", envelope.evidence_id)
+    ]
+    outbox = store.rows[
+        ("google_ads_deployments", validated.deployment_id, "dispatch_outbox", "paused-create")
+    ]
+    GoogleAdsPausedCreateApprovalProofRecord.model_validate(marker)
+    GoogleAdsPausedCreateOutboxRecord.model_validate(outbox)
+    serialized = json.dumps({"marker": marker, "outbox": outbox}, default=str)
+    for forbidden in ("aristotlespec", "customer_id", "account_id", "token", "raw_error"):
+        assert forbidden not in serialized
+
+
+def test_exact_approval_replay_is_idempotent_but_proof_version_or_caps_conflicts(durable):
+    ledger, store, _clock, validated, access, _envelope, proof = _approval_fixture(durable)
+    first = _approve(ledger, validated, access, proof)
+    replay = _approve(ledger, validated, access, proof)
+
+    assert first["replayed"] is False
+    assert replay["replayed"] is True
+    assert len(store.events(validated.deployment_id)) == 3
+
+    changed_proof = proof.model_copy(update={"proof_reference_hash": f"sha256:{'f' * 64}"})
+    with pytest.raises(InvalidStateTransition):
+        _approve(ledger, validated, access, changed_proof)
+    with pytest.raises(InvalidStateTransition):
+        ledger.approve_paused_create_with_proof(
+            deployment_id=validated.deployment_id,
+            expected_version=99,
+            contract_hash=validated.contract_hash,
+            expected_caps={
+                "average_daily_usd": 20,
+                "max_single_day_charge_usd": 40,
+                "monthly_charge_limit_usd": 609,
+                "max_cpc_usd": 5,
+            },
+            proof=proof,
+            access_evidence_id=access.evidence_digest,
+        )
+
+
+def test_stale_future_proof_failed_access_and_atomic_write_failure_leave_no_approval(durable):
+    ledger, store, clock, validated, access, envelope, proof = _approval_fixture(durable)
+    clock.advance(300)
+    with pytest.raises((InvalidStateTransition, LedgerWriteError)):
+        _approve(ledger, validated, access, proof)
+    assert store.deployment(validated.deployment_id)["state"] == "SERVER_VALIDATED"
+
+    clock.value -= timedelta(seconds=300)
+    source_path = (
+        "google_ads_owner_step_up_nonces",
+        envelope.nonce_hash,
+        "verified_evidence",
+        envelope.evidence_id,
+    )
+    store.rows[source_path]["verified_at"] = clock.value + timedelta(seconds=1)
+    with pytest.raises(InvalidStateTransition):
+        _approve(ledger, validated, access, proof)
+    store.rows[source_path]["verified_at"] = clock.value
+
+    evidence_path = (
+        "google_ads_deployments",
+        validated.deployment_id,
+        "access_evidence",
+        AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_GREEN.value,
+    )
+    store.rows[evidence_path]["status"] = "FAILED"
+    with pytest.raises(LedgerWriteError):
+        _approve(ledger, validated, access, proof)
+    store.rows[evidence_path] = evidence_payload(access)
+
+    store.fail_event_create = True
+    with pytest.raises(LedgerWriteError):
+        _approve(ledger, validated, access, proof)
+    assert store.deployment(validated.deployment_id)["state"] == "SERVER_VALIDATED"
+    assert not any("approval_proofs" in path or "dispatch_outbox" in path for path in store.rows)
+
+
+def test_dispatch_outbox_failure_is_retryable_and_duplicate_claims_are_safe(durable):
+    ledger, _store, _clock, validated, access, _envelope, proof = _approval_fixture(durable)
+    _approve(ledger, validated, access, proof)
+
+    assert ledger.claim_paused_create_outbox(validated.deployment_id, "dispatcher-1") is True
+    assert ledger.claim_paused_create_outbox(validated.deployment_id, "dispatcher-2") is False
+    ledger.release_paused_create_outbox(validated.deployment_id, "dispatcher-1")
+    pending = ledger.get_paused_create_outbox(validated.deployment_id)
+    assert pending.state == "PENDING"
+    assert pending.attempt_count == 1
+    assert pending.error_code == "job_invocation_failed"
+
+    assert ledger.claim_paused_create_outbox(validated.deployment_id, "dispatcher-2") is True
+    ledger.complete_paused_create_outbox(validated.deployment_id, "dispatcher-2")
+    assert ledger.get_paused_create_outbox(validated.deployment_id).state == "DISPATCHED"
+    assert ledger.claim_paused_create_outbox(validated.deployment_id, "dispatcher-3") is False

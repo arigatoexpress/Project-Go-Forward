@@ -33,6 +33,7 @@ from scripts.google_ads_access_evidence import (
 )
 
 PAUSED_CREATE_PURPOSE = "PAUSED_CREATE"
+PAUSED_CREATE_PROOF_FLOW = "google-ads-paused-create-proof-v1"
 MAX_NONCE_TTL_SECONDS = 300
 _SHA256_PATTERN = r"^sha256:[0-9a-f]{64}$"
 _DEPLOYMENT_PATTERN = r"^[a-z0-9][a-z0-9-]{0,62}--[0-9a-f]{64}$"
@@ -141,6 +142,62 @@ class StepUpEvidenceEnvelope(BaseModel):
             raise ValueError("evidence context digest mismatch")
         _utc(self.verified_at)
         return self
+
+
+class StepUpProofReference(BaseModel):
+    """Verified, purpose-bound fields recovered from one signed opaque reference."""
+
+    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
+
+    purpose: Literal["PAUSED_CREATE"] = PAUSED_CREATE_PURPOSE
+    proof_id: str = Field(pattern=_SHA256_PATTERN)
+    nonce_hash: str = Field(pattern=_SHA256_PATTERN)
+    deployment_id: str = Field(pattern=_DEPLOYMENT_PATTERN)
+    contract_hash: str = Field(pattern=_SHA256_PATTERN)
+    access_evidence_id: str = Field(pattern=_SHA256_PATTERN)
+    proof_reference_hash: str = Field(pattern=_SHA256_PATTERN)
+
+    @model_validator(mode="after")
+    def deployment_matches_contract(self):
+        if not self.deployment_id.endswith(f"--{self.contract_hash.removeprefix('sha256:')}"):
+            raise ValueError("proof deployment identity does not match contract")
+        return self
+
+
+def issue_proof_reference(manager: Any, envelope: StepUpEvidenceEnvelope) -> str:
+    """Issue a short-lived signed reference containing sanitized IDs only."""
+    return manager.wrap_challenge(
+        envelope.evidence_id.encode("ascii"),
+        flow=PAUSED_CREATE_PROOF_FLOW,
+        purpose=envelope.purpose,
+        proof_id=envelope.evidence_id,
+        nonce_hash=envelope.nonce_hash,
+        deployment_id=envelope.deployment_id,
+        contract_hash=envelope.contract_hash,
+        access_evidence_id=envelope.evidence_digest,
+    )
+
+
+def verify_proof_reference(manager: Any, reference: str | None) -> StepUpProofReference | None:
+    """Verify one signed proof reference without exposing signature/parser details."""
+    payload = manager.unwrap_challenge_payload(reference, flow=PAUSED_CREATE_PROOF_FLOW)
+    if not payload:
+        return None
+    try:
+        proof = StepUpProofReference(
+            purpose=payload.get("purpose"),
+            proof_id=payload.get("proof_id"),
+            nonce_hash=payload.get("nonce_hash"),
+            deployment_id=payload.get("deployment_id"),
+            contract_hash=payload.get("contract_hash"),
+            access_evidence_id=payload.get("access_evidence_id"),
+            proof_reference_hash=hash_value(reference or ""),
+        )
+        if payload.get("challenge") != proof.proof_id.encode("ascii"):
+            return None
+        return proof
+    except (TypeError, UnicodeError, ValidationError, ValueError):
+        return None
 
 
 def build_evidence_envelope(

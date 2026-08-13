@@ -2,14 +2,19 @@ import { useEffect, useState } from 'react';
 import { CircleAlert, CircleCheck, Search, ShieldCheck } from 'lucide-react';
 
 import {
+  approveGoogleAdsPausedCreate,
   ensureGoogleAdsInternalDraft,
+  getGoogleAdsPausedCreateApprovalReadiness,
   runGoogleAdsServerValidation,
+  verifyGoogleAdsPausedCreateOwner,
 } from '../../api/googleAdsAdmin';
 import './GoogleAdsStatusCard.css';
 
 const STATE_LABELS = {
   INTERNAL_DRAFT: 'Internal draft',
   SERVER_VALIDATED: 'Server validated',
+  PAUSED_CREATE_APPROVED: 'PAUSED creation approved',
+  PAUSED_CREATED: 'PAUSED resources created',
 };
 const STATUS_LABELS = { current: 'Current', not_started: 'Not started', complete: 'Complete' };
 
@@ -19,11 +24,52 @@ export default function GoogleAdsStatusCard() {
   const [validating, setValidating] = useState(false);
   const [validationError, setValidationError] = useState(false);
   const [validationKey, setValidationKey] = useState(null);
+  const [approvalReadiness, setApprovalReadiness] = useState(null);
+  const [approvalRemediation, setApprovalRemediation] = useState('Complete offline server validation first.');
+  const [approving, setApproving] = useState(false);
+  const [approvalResult, setApprovalResult] = useState(null);
+  const [approvalError, setApprovalError] = useState('');
+
+  async function refreshApprovalReadiness(nextStatus) {
+    if (nextStatus?.state === 'PAUSED_CREATE_APPROVED') {
+      setApprovalReadiness(null);
+      const outbox = nextStatus.paused_create?.outbox_state?.toLowerCase() || 'recorded';
+      setApprovalRemediation(
+        `PAUSED-only creation is approved; durable outbox is ${outbox}. No spend is enabled.`,
+      );
+      return;
+    }
+    if (nextStatus?.state === 'PAUSED_CREATED') {
+      setApprovalReadiness(null);
+      setApprovalRemediation(
+        'PAUSED Google Ads resources were created and reconciled. They remain inactive; no spend is enabled.',
+      );
+      return;
+    }
+    if (nextStatus?.state !== 'SERVER_VALIDATED') {
+      setApprovalReadiness(null);
+      setApprovalRemediation('Complete offline server validation first.');
+      return;
+    }
+    try {
+      const readiness = await getGoogleAdsPausedCreateApprovalReadiness();
+      setApprovalReadiness(readiness);
+      setApprovalRemediation(readiness.remediation.join(' '));
+    } catch (error) {
+      setApprovalReadiness(null);
+      setApprovalRemediation(error.message);
+    }
+  }
 
   useEffect(() => {
     let mounted = true;
     ensureGoogleAdsInternalDraft()
-      .then(payload => { if (mounted) setStatus(payload); })
+      .then(payload => {
+        if (mounted) {
+          setStatus(payload);
+          refreshApprovalReadiness(payload);
+        }
+      })
       .catch(() => { if (mounted) setFailed(true); });
     return () => { mounted = false; };
   }, []);
@@ -35,12 +81,32 @@ export default function GoogleAdsStatusCard() {
     const requestKey = validationKey || `offline-validation-${globalThis.crypto.randomUUID()}`;
     setValidationKey(requestKey);
     try {
-      setStatus(await runGoogleAdsServerValidation(status, requestKey));
+      const nextStatus = await runGoogleAdsServerValidation(status, requestKey);
+      setStatus(nextStatus);
+      await refreshApprovalReadiness(nextStatus);
       setValidationKey(null);
     } catch (_error) {
       setValidationError(true);
     } finally {
       setValidating(false);
+    }
+  }
+
+  async function approvePausedCreate() {
+    if (!approvalReadiness?.action_available || approving) return;
+    const confirmed = globalThis.confirm(
+      'This approves creation of PAUSED Google Ads resources only. It cannot activate ads or spend money. Continue?',
+    );
+    if (!confirmed) return;
+    setApproving(true);
+    setApprovalError('');
+    try {
+      const proof = await verifyGoogleAdsPausedCreateOwner(approvalReadiness);
+      setApprovalResult(await approveGoogleAdsPausedCreate(approvalReadiness, proof));
+    } catch (error) {
+      setApprovalError(error.message || 'PAUSED-only approval failed. Refresh and retry.');
+    } finally {
+      setApproving(false);
     }
   }
 
@@ -59,6 +125,7 @@ export default function GoogleAdsStatusCard() {
 
   const eventLabel = `${status.events.count} recorded event${status.events.count === 1 ? '' : 's'}`;
   const validated = status.state === 'SERVER_VALIDATED';
+  const approvalTerminal = ['PAUSED_CREATE_APPROVED', 'PAUSED_CREATED'].includes(status.state);
   return (
     <section className="google-ads-status-card" aria-labelledby="paid-search-heading">
       <header className="google-ads-status-header">
@@ -93,15 +160,43 @@ export default function GoogleAdsStatusCard() {
       </div>
 
       <article className="google-ads-status-panel" aria-labelledby="owner-verification-heading">
-        <h2 id="owner-verification-heading">Owner verification prerequisite</h2>
+        <h2 id="owner-verification-heading">Owner PAUSED-create approval</h2>
         <p>
-          A future paused-creation review will require an exact server allowlist, a
-          freshly verified owner passkey, unchanged reviewed limits, and matching
-          account-access evidence.
+          Ari’s freshly verified owner passkey is single-use and bound to this exact
+          checked-in contract, current access evidence, and reviewed limits.
         </p>
-        <p className="google-ads-actions-locked" role="status">
-          No owner action is available in this build.
-        </p>
+        <dl className="google-ads-status-details">
+          <div><dt>Content hash</dt><dd>{status.contract_hash}</dd></div>
+          <div><dt>Creation mode</dt><dd>PAUSED only · $0 spend</dd></div>
+        </dl>
+        <button
+          className="google-ads-validation-button"
+          type="button"
+          disabled={!approvalReadiness?.action_available || approving || Boolean(approvalResult)}
+          onClick={approvePausedCreate}
+        >
+          {approving ? 'Verifying owner…' : 'Verify owner and approve PAUSED creation'}
+        </button>
+        {!approvalReadiness?.action_available && (
+          <p
+            className={approvalTerminal ? 'google-ads-validation-success' : 'google-ads-actions-locked'}
+            role="status"
+          >
+            {approvalRemediation}
+          </p>
+        )}
+        {approvalReadiness?.action_available && !approvalResult && (
+          <p className="google-ads-status-note">
+            Approval queues PAUSED-only work. The fixed dispatcher remains separately
+            feature- and cloud-gated.
+          </p>
+        )}
+        {approvalResult && (
+          <p className="google-ads-validation-success" role="status">
+            PAUSED-only creation approved. Durable outbox pending; no spend is enabled.
+          </p>
+        )}
+        {approvalError && <p className="google-ads-validation-error" role="alert">{approvalError}</p>}
       </article>
 
       <article className="google-ads-status-panel" aria-labelledby="workflow-heading">

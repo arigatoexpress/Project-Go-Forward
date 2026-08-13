@@ -118,6 +118,72 @@ def test_projection_is_allowlisted_durable_state_and_sanitized_events(ledger):
         assert forbidden not in serialized
 
 
+def test_projection_reports_terminal_paused_outbox_without_activation_or_spend(ledger):
+    control = DraftReviewControlPlane(ledger, StaticContractSource(CONTRACT))
+    draft = control.ensure_internal_draft()
+    validated = control.server_validate(draft.deployment_id, expected_version=1)
+    approved_at = datetime(2026, 8, 12, 12, 1, tzinfo=UTC)
+    approved = replace(
+        validated,
+        state=DeploymentState.PAUSED_CREATE_APPROVED,
+        version=3,
+        updated_at=approved_at,
+    )
+    approved_event = {
+        "event_id": "00000000000000000003-paused-create-approved",
+        "deployment_id": approved.deployment_id,
+        "contract_hash": approved.contract_hash,
+        "event_type": "PAUSED_CREATE_APPROVED",
+        "record_version": 3,
+        "from_state": "SERVER_VALIDATED",
+        "to_state": "PAUSED_CREATE_APPROVED",
+        "worker_claim_hash": None,
+        "error_code": None,
+        "occurred_at": approved_at,
+    }
+    events = [*ledger.list_events(approved.deployment_id), approved_event]
+
+    with pytest.raises(ValueError, match="outbox"):
+        build_deployment_readiness(approved, events)
+    status = build_deployment_readiness(approved, events, outbox_state="PENDING")
+
+    assert status["state"] == "PAUSED_CREATE_APPROVED"
+    assert status["paused_create"] == {
+        "outbox_state": "PENDING",
+        "activation_authorized": False,
+        "spend_enabled": False,
+    }
+
+    created_at = datetime(2026, 8, 12, 12, 2, tzinfo=UTC)
+    created = replace(
+        approved,
+        state=DeploymentState.PAUSED_CREATED,
+        version=4,
+        updated_at=created_at,
+    )
+    completed_event = {
+        "event_id": "00000000000000000004-paused-create-completed",
+        "deployment_id": created.deployment_id,
+        "contract_hash": created.contract_hash,
+        "event_type": "PAUSED_CREATE_COMPLETED",
+        "record_version": 4,
+        "from_state": "PAUSED_CREATE_APPROVED",
+        "to_state": "PAUSED_CREATED",
+        "worker_claim_hash": f"sha256:{'c' * 64}",
+        "error_code": None,
+        "occurred_at": created_at,
+    }
+    created_status = build_deployment_readiness(
+        created,
+        [*events, completed_event],
+        outbox_state="DISPATCHED",
+    )
+    assert created_status["state"] == "PAUSED_CREATED"
+    assert created_status["paused_create"]["outbox_state"] == "DISPATCHED"
+    with pytest.raises(ValueError, match="dispatched"):
+        build_deployment_readiness(created, [*events, completed_event], outbox_state="PENDING")
+
+
 def test_projection_rejects_non_review_or_semantically_invalid_events(ledger):
     record = DraftReviewControlPlane(ledger, StaticContractSource(CONTRACT)).ensure_internal_draft()
     base = ledger.list_events(record.deployment_id)[0]

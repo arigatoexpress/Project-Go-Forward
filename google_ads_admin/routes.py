@@ -50,7 +50,10 @@ def get_authority_ledger() -> FirestoreAuthorityLedger:
 def _projection(ledger, contract):
     record = ledger.get(deployment_id(contract))
     events = ledger.list_events(record.deployment_id)
-    return build_deployment_readiness(record, events)
+    outbox_state = None
+    if record.state.value in {"PAUSED_CREATE_APPROVED", "PAUSED_CREATED"}:
+        outbox_state = ledger.get_paused_create_outbox(record.deployment_id).state
+    return build_deployment_readiness(record, events, outbox_state=outbox_state)
 
 
 @router.get("/deployment-readiness")

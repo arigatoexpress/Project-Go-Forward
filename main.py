@@ -55,6 +55,7 @@ from auth.routes import router as passkey_router
 from auth.session import SESSION_COOKIE_NAME as PASSKEY_COOKIE_NAME
 from auth.session import SessionManager, validate_cloud_run_session_secret
 from config_loader import business_name, get_deployment_config
+from google_ads_admin.approval_routes import router as google_ads_approval_router
 from inventory_classification import normalize_inventory_classification
 
 # render_prompt is the SAME loader root_agent.py feeds the ADK runner — the
@@ -8131,6 +8132,7 @@ from pm_routes import router as pm_router
 app.include_router(pm_router, dependencies=[Depends(require_admin)])
 app.include_router(passkey_router)
 app.include_router(google_ads_step_up_router)
+app.include_router(google_ads_approval_router)
 app.include_router(google_ads_admin_router, dependencies=[Depends(require_admin)])
 
 

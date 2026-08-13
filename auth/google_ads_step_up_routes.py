@@ -31,6 +31,7 @@ from auth.google_ads_step_up import (
     default_step_up_store,
     email_hash,
     hash_value,
+    issue_proof_reference,
 )
 from auth.session import PASSKEY_COOKIE_NAME, SessionManager
 from auth.store import CredentialStore
@@ -80,6 +81,10 @@ class StepUpCompleteResponse(BaseModel):
     verified: Literal[True]
     approval_enabled: Literal[False]
     action_available: Literal[False]
+    proof_reference: str = Field(min_length=32, max_length=4096)
+    proof_id: str = Field(pattern=_SHA256_PATTERN)
+    access_evidence_id: str = Field(pattern=_SHA256_PATTERN)
+    expires_at: datetime
     evidence: StepUpEvidenceEnvelope
 
 
@@ -358,6 +363,10 @@ def complete_step_up(
             verified=True,
             approval_enabled=False,
             action_available=False,
+            proof_reference=issue_proof_reference(manager, envelope),
+            proof_id=envelope.evidence_id,
+            access_evidence_id=envelope.evidence_digest,
+            expires_at=_utc_now() + timedelta(seconds=MAX_NONCE_TTL_SECONDS),
             evidence=envelope,
         ).model_dump(mode="json")
     )
