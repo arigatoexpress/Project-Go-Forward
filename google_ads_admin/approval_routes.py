@@ -134,9 +134,13 @@ def _read_approval_readiness(ledger: FirestoreAuthorityLedger):
     try:
         evidence = ledger.get_access_evidence(
             deployment_id,
-            AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_GREEN,
+            AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_AND_USD_GREEN,
         )
-        access_evidence_fresh = evidence.status is AccessEvidenceStatus.PASSED
+        access_evidence_fresh = (
+            evidence.status is AccessEvidenceStatus.PASSED
+            and evidence.check_key is AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_AND_USD_GREEN
+            and evidence.source_revision == os.environ.get("APP_VERSION")
+        )
         access_evidence_id = evidence.evidence_digest if access_evidence_fresh else None
     except Exception:
         pass
@@ -150,7 +154,9 @@ def _read_approval_readiness(ledger: FirestoreAuthorityLedger):
     if record.state.value != "SERVER_VALIDATED" or record.version != 2:
         remediation.append("Complete offline server validation.")
     if not access_evidence_fresh:
-        remediation.append("Run the read-only Google Ads account-access evidence job.")
+        remediation.append(
+            "Run the read-only Google Ads account-access and USD-currency evidence job."
+        )
     if not runtime.approval_available:
         remediation.append("Verify current cloud/IAM readiness and enable owner approval config.")
     budget = contract["campaign"]["budget"]

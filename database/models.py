@@ -268,7 +268,10 @@ class GoogleAdsAccessEvidenceRecord(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
     deployment_id: str = Field(pattern=_GOOGLE_ADS_DEPLOYMENT_ID_PATTERN)
-    check_key: Literal["google_ads_account_access_green"]
+    check_key: Literal[
+        "google_ads_account_access_green",
+        "google_ads_account_access_and_usd_green",
+    ]
     status: Literal["PASSED", "FAILED", "ERROR"]
     observed_at: datetime
     expires_at: datetime

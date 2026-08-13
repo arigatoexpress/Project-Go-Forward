@@ -205,6 +205,8 @@ def _ad_group_ad_rows():
 
 
 def _readback_payload(query: str):
+    if "SELECT customer.id, customer.currency_code FROM customer" in query:
+        return {"results": [{"customer": {"id": CUSTOMER_ID, "currencyCode": "USD"}}]}
     if "FROM campaign_label" in query:
         return {
             "results": [
@@ -347,6 +349,57 @@ def test_v25_rest_provider_runs_validate_only_then_atomic_paused_create_and_full
     assert result.reconciled is False
     assert responder.mutate_count == 2
     assert "ENABLED" not in json.dumps([call[2] for call in mutate_calls])
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"results": [{"customer": {"currencyCode": "EUR"}}]},
+        {"results": [{"customer": {"id": "0000000000", "currencyCode": "USD"}}]},
+        {"results": [{"customer": {}}]},
+        {"results": []},
+        {"results": [{"customer": {"currencyCode": "USD"}}, {"customer": {"currencyCode": "USD"}}]},
+    ],
+)
+def test_provider_currency_preflight_fails_before_any_mutate_without_leaking_value(payload):
+    class CurrencyResponder(_Responder):
+        def __call__(self, url, *, headers, json, timeout, allow_redirects):
+            if "SELECT customer.id, customer.currency_code FROM customer" in json.get("query", ""):
+                self.calls.append((url, headers, json, timeout, allow_redirects))
+                return _Response(payload=payload)
+            return super().__call__(
+                url,
+                headers=headers,
+                json=json,
+                timeout=timeout,
+                allow_redirects=allow_redirects,
+            )
+
+    responder = CurrencyResponder()
+    provider = _provider(responder)
+
+    with pytest.raises(GoogleAdsProviderError) as exc_info:
+        provider.verify_account_currency_usd()
+
+    assert exc_info.value.code is ProviderErrorCode.ACCOUNT_CURRENCY_UNVERIFIED
+    assert responder.mutate_count == 0
+    assert "EUR" not in str(exc_info.value)
+
+
+def test_adapter_refuses_validate_mutate_until_usd_preflight_succeeds():
+    responder = _Responder()
+    provider = _provider(responder)
+    validation_request = build_mutate_request(CONTRACT, CUSTOMER_ID, validate_only=True)
+    create_request = build_mutate_request(CONTRACT, CUSTOMER_ID, validate_only=False)
+
+    with pytest.raises(GoogleAdsProviderError) as exc_info:
+        provider.validate(validation_request)
+
+    assert exc_info.value.code is ProviderErrorCode.ACCOUNT_CURRENCY_UNVERIFIED
+    with pytest.raises(GoogleAdsProviderError) as create_error:
+        provider.create_paused(create_request)
+    assert create_error.value.code is ProviderErrorCode.ACCOUNT_CURRENCY_UNVERIFIED
+    assert responder.calls == []
 
 
 def test_readback_matches_every_reviewed_resource_and_returns_only_hashable_boundary_value():
@@ -586,7 +639,12 @@ def test_adapter_exposes_no_generic_mutation_or_activation_operation():
         if not name.startswith("_")
     }
 
-    assert public_methods == {"validate", "find_by_contract_label", "create_paused"}
+    assert public_methods == {
+        "validate",
+        "verify_account_currency_usd",
+        "find_by_contract_label",
+        "create_paused",
+    }
 
 
 def test_create_transport_failure_is_ambiguous_and_contains_only_enum_and_request_hash():
@@ -596,12 +654,17 @@ def test_create_transport_failure_is_ambiguous_and_contains_only_enum_and_reques
         nonlocal calls
         calls += 1
         if calls == 1:
+            return _Response(
+                payload={"results": [{"customer": {"id": CUSTOMER_ID, "currencyCode": "USD"}}]}
+            )
+        if calls == 2:
             return _Response()
         raise RuntimeError(
             "customer=1234567890 token=do-not-leak request-id=raw-request-id-must-not-escape"
         )
 
     provider = _provider(fail)
+    provider.verify_account_currency_usd()
     provider.validate(build_mutate_request(CONTRACT, CUSTOMER_ID, validate_only=True))
     request = build_mutate_request(CONTRACT, CUSTOMER_ID, validate_only=False)
 

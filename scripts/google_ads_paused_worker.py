@@ -34,6 +34,7 @@ PERSISTED_ERROR_CODES = frozenset(
         "ledger_write_failed",
         "provider_contract_mismatch",
         "provider_create_failed",
+        "provider_currency_unverified",
         "provider_not_paused",
         "provider_reconciliation_failed",
         "provider_timeout_unresolved",
@@ -42,6 +43,7 @@ PERSISTED_ERROR_CODES = frozenset(
 )
 SAFE_ERROR_CODES = PERSISTED_ERROR_CODES | {
     "worker_claimed_elsewhere",
+    "worker_currency_evidence_unavailable",
     "worker_not_approved",
 }
 _SHA256_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
@@ -178,6 +180,8 @@ class MutateRequestBuilder(Protocol):
 
 
 class PausedProvider(Protocol):
+    def verify_account_currency_usd(self) -> None: ...
+
     def validate(self, request: dict[str, Any]) -> None: ...
 
     def find_by_contract_label(self, label: str) -> ProviderPausedDeployment | None: ...
@@ -957,6 +961,14 @@ class PausedCreateWorker:
 
         claimed_record = self._ledger.get(record.deployment_id)
         try:
+            self._provider.verify_account_currency_usd()
+        except Exception:
+            return self._record_failure(
+                claimed_record,
+                claimant,
+                "provider_currency_unverified",
+            )
+        try:
             existing = self._provider.find_by_contract_label(claimed_record.contract_label)
         except Exception:
             return self._record_failure(
@@ -1003,6 +1015,14 @@ class PausedCreateWorker:
             return _safe_result(refreshed, error_code="worker_claimed_elsewhere")
 
         claimed_record = self._ledger.get(deployment_id)
+        try:
+            self._provider.verify_account_currency_usd()
+        except Exception:
+            return self._release_failure(
+                claimed_record,
+                claimant,
+                "provider_currency_unverified",
+            )
         contract = self._contract_source.load()
         try:
             candidate = _record_for_contract(contract)

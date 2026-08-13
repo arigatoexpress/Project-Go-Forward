@@ -475,7 +475,7 @@ class FirestoreStepUpStore:
             self._client.collection("google_ads_deployments")
             .document(envelope.deployment_id)
             .collection("access_evidence")
-            .document(AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_GREEN.value)
+            .document(AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_AND_USD_GREEN.value)
         )
 
         def operation(transaction):
@@ -522,6 +522,8 @@ class FirestoreStepUpStore:
                 or envelope.credential_id_hash != hash_value(credential_usage.credential_id)
                 or persisted_access.status is not AccessEvidenceStatus.PASSED
                 or persisted_access.deployment_id != envelope.deployment_id
+                or persisted_access.check_key
+                is not AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_AND_USD_GREEN
                 or persisted_access.evidence_digest != envelope.evidence_digest
                 or evidence_payload(persisted_access) != evidence_payload(access_evidence)
                 or not nonce.issued_at <= envelope.verified_at < nonce.expires_at

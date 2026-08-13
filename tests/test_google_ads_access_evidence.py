@@ -31,6 +31,7 @@ SOURCE_REVISION = "a" * 40
 def _safe_probe_result(*, validated=True):
     return {
         "account_access_validated": validated,
+        "account_currency_usd": validated,
         "failure": None if validated else "authentication_or_access_denied",
         "http_status": 200 if validated else 403,
         "live_probe_executed": True,
@@ -65,7 +66,7 @@ class _Ledger:
 def test_evidence_schema_is_an_exact_allowlist_and_rejects_raw_provider_fields():
     evidence = build_access_evidence(
         deployment_id=deployment_id(CONTRACT),
-        check_key=AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_GREEN,
+        check_key=AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_AND_USD_GREEN,
         status=AccessEvidenceStatus.PASSED,
         observed_at=NOW,
         expires_at=NOW + timedelta(minutes=5),
@@ -84,6 +85,17 @@ def test_evidence_schema_is_an_exact_allowlist_and_rejects_raw_provider_fields()
         "evidence_digest",
     }
     assert GoogleAdsAccessEvidenceRecord.model_validate(payload).model_dump() == payload
+
+    legacy = build_access_evidence(
+        deployment_id=deployment_id(CONTRACT),
+        check_key=AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_GREEN,
+        status=AccessEvidenceStatus.FAILED,
+        observed_at=NOW,
+        expires_at=NOW + timedelta(minutes=5),
+        source_revision=SOURCE_REVISION,
+        now=NOW,
+    )
+    assert GoogleAdsAccessEvidenceRecord.model_validate(evidence_payload(legacy))
 
     with pytest.raises(ValidationError):
         GoogleAdsAccessEvidenceRecord.model_validate(
@@ -119,7 +131,7 @@ def test_evidence_rejects_unknown_enums_future_expired_or_non_utc_timestamps_and
     ):
         values = {
             "deployment_id": deployment,
-            "check_key": AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_GREEN,
+            "check_key": AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_AND_USD_GREEN,
             "status": AccessEvidenceStatus.PASSED,
             "observed_at": NOW,
             "expires_at": NOW + timedelta(minutes=5),
@@ -132,7 +144,7 @@ def test_evidence_rejects_unknown_enums_future_expired_or_non_utc_timestamps_and
 
     evidence = build_access_evidence(
         deployment_id=deployment,
-        check_key=AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_GREEN,
+        check_key=AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_AND_USD_GREEN,
         status=AccessEvidenceStatus.PASSED,
         observed_at=NOW,
         expires_at=NOW + timedelta(minutes=5),
@@ -164,6 +176,7 @@ def test_fixed_job_records_only_sanitized_read_only_access_evidence_with_cas():
 
     assert observed == ["read-only-probe"]
     assert evidence.status is AccessEvidenceStatus.PASSED
+    assert evidence.check_key is AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_AND_USD_GREEN
     assert ledger.writes == [(evidence, 4)]
     serialized = json.dumps(evidence_payload(evidence), default=str)
     for forbidden in (
@@ -200,9 +213,32 @@ def test_failed_probe_records_only_failed_status_and_never_grants_spend():
     }
 
 
-def test_probe_result_with_unknown_or_raw_fields_is_rejected_without_a_ledger_write():
+def test_access_without_verified_usd_records_failed_composite_evidence():
     ledger = _Ledger()
-    unsafe = {**_safe_probe_result(), "customer_id": "1234567890"}
+    result = _safe_probe_result()
+    result.update(
+        account_currency_usd=False,
+        failure="account_currency_not_usd_or_unverified",
+    )
+
+    evidence = run_access_evidence_job(
+        ledger=ledger,
+        contract_loader=lambda: CONTRACT,
+        access_probe=lambda: result,
+        source_revision=SOURCE_REVISION,
+        clock=lambda: NOW,
+    )
+
+    assert evidence.check_key is AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_AND_USD_GREEN
+    assert evidence.status is AccessEvidenceStatus.FAILED
+
+
+@pytest.mark.parametrize("unsafe_field", ["customer_id", "currency_code", "raw_currency"])
+def test_probe_result_with_unknown_or_raw_fields_is_rejected_without_a_ledger_write(
+    unsafe_field,
+):
+    ledger = _Ledger()
+    unsafe = {**_safe_probe_result(), unsafe_field: "raw-do-not-store"}
 
     with pytest.raises(InvalidAccessEvidence, match="probe_result_invalid"):
         run_access_evidence_job(
@@ -289,6 +325,7 @@ def test_cli_accepts_no_arguments_or_runtime_overrides(monkeypatch, capsys):
     assert called == []
     assert json.loads(capsys.readouterr().out) == {
         "account_access_validated": False,
+        "account_currency_usd": False,
         "evidence_recorded": False,
         "failure": "fixed_command_required",
         "ready_to_spend": False,
@@ -299,7 +336,7 @@ def test_cli_accepts_no_arguments_or_runtime_overrides(monkeypatch, capsys):
 def test_cli_success_output_is_sanitized_and_inert(monkeypatch, capsys):
     evidence = build_access_evidence(
         deployment_id=deployment_id(CONTRACT),
-        check_key=AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_GREEN,
+        check_key=AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_AND_USD_GREEN,
         status=AccessEvidenceStatus.PASSED,
         observed_at=NOW,
         expires_at=NOW + timedelta(minutes=5),
@@ -340,6 +377,7 @@ def test_cli_failure_never_echoes_raw_exception(monkeypatch, capsys):
     output = capsys.readouterr().out
     assert json.loads(output) == {
         "account_access_validated": False,
+        "account_currency_usd": False,
         "evidence_recorded": False,
         "failure": "access_evidence_job_failed",
         "ready_to_spend": False,

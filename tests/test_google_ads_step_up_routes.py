@@ -56,7 +56,7 @@ def _access_evidence(
     context = _request_context()
     return build_access_evidence(
         deployment_id=context["deployment_id"],
-        check_key=AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_GREEN,
+        check_key=AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_AND_USD_GREEN,
         status=status,
         observed_at=observed_at,
         expires_at=observed_at + timedelta(minutes=5),
@@ -80,6 +80,7 @@ class _AccessEvidenceLedger:
 
 @pytest.fixture
 def step_up_client(monkeypatch):
+    monkeypatch.setenv("APP_VERSION", "a" * 40)
     monkeypatch.setenv(
         "THO_GOOGLE_ADS_OWNER_EMAILS",
         "aristotlespec@gmail.com,aribspector@gmail.com",
@@ -221,7 +222,7 @@ def test_begin_requires_exact_checked_in_contract_and_creates_uv_required_short_
     assert access.calls == [
         (
             _request_context()["deployment_id"],
-            AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_GREEN,
+            AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_AND_USD_GREEN,
         )
     ]
 
@@ -313,7 +314,7 @@ def test_complete_rejects_changed_context_stale_nonce_and_uv_false_without_evide
     assert evidence_store._evidence == {}
 
     access.evidence = _access_evidence(source_revision="b" * 40)
-    assert _complete(client).status_code == 409
+    assert _complete(client).status_code == 503
     assert evidence_store._evidence == {}
     access.evidence = _access_evidence()
 

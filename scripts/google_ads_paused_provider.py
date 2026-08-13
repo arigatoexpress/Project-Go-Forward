@@ -60,6 +60,7 @@ class ProviderErrorCode(StrEnum):
     AMBIGUOUS_CREATE = "AMBIGUOUS_CREATE"
     AMBIGUOUS_LABEL = "AMBIGUOUS_LABEL"
     AMBIGUOUS_READBACK = "AMBIGUOUS_READBACK"
+    ACCOUNT_CURRENCY_UNVERIFIED = "ACCOUNT_CURRENCY_UNVERIFIED"
     READBACK_MISMATCH = "READBACK_MISMATCH"
 
 
@@ -334,6 +335,7 @@ class GoogleAdsV25PausedProvider:
         self._auth_request_factory = auth_request_factory
         self._requester = requester
         self._access_token: str | None = None
+        self._account_currency_verified = False
         self._validated_graph_hash: str | None = None
         self._last_failure: ProviderFailure | None = None
 
@@ -420,7 +422,9 @@ class GoogleAdsV25PausedProvider:
         return request_hash
 
     def validate(self, request: dict[str, Any]) -> None:
-        self._assert_exact_request(request, validate_only=True)
+        request_hash = self._assert_exact_request(request, validate_only=True)
+        if not self._account_currency_verified:
+            self._raise(ProviderErrorCode.ACCOUNT_CURRENCY_UNVERIFIED, request_hash)
         self._post(
             url=f"{ADS_API_ROOT}/customers/{self._customer_id}/googleAds:mutate",
             body=request,
@@ -430,6 +434,8 @@ class GoogleAdsV25PausedProvider:
 
     def create_paused(self, request: dict[str, Any]) -> ProviderPausedDeployment:
         request_hash = self._assert_exact_request(request, validate_only=False)
+        if not self._account_currency_verified:
+            self._raise(ProviderErrorCode.ACCOUNT_CURRENCY_UNVERIFIED, request_hash)
         if self._validated_graph_hash != _canonical_hash(request["mutateOperations"]):
             self._raise(ProviderErrorCode.INVALID_GRAPH, request_hash)
         self._post(
@@ -463,6 +469,26 @@ class GoogleAdsV25PausedProvider:
             raise
         except Exception:
             self._raise(ProviderErrorCode.MALFORMED_RESPONSE, request_hash)
+
+    def verify_account_currency_usd(self) -> None:
+        """Prove the current credential/account pair uses reviewed USD before mutate."""
+        self._account_currency_verified = False
+        rows, request_hash = self._search(
+            "SELECT customer.id, customer.currency_code FROM customer LIMIT 1"
+        )
+        try:
+            if len(rows) != 1:
+                raise ValueError("customer cardinality mismatch")
+            customer = _required_mapping(rows[0].get("customer"))
+            if (
+                self._contract["campaign"].get("currency_code") != "USD"
+                or customer.get("id") != self._customer_id
+                or customer.get("currencyCode") != "USD"
+            ):
+                raise ValueError("account currency mismatch")
+        except (KeyError, TypeError, ValueError):
+            self._raise(ProviderErrorCode.ACCOUNT_CURRENCY_UNVERIFIED, request_hash)
+        self._account_currency_verified = True
 
     def _label_campaign(self, label: str) -> tuple[str | None, str]:
         if label != self._contract_label or not _CONTRACT_LABEL_RE.fullmatch(label):

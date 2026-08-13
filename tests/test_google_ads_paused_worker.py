@@ -53,6 +53,7 @@ class FakePausedProvider:
     def __init__(self):
         self.calls = []
         self.validation_error = None
+        self.currency_error = None
         self.create_error = None
         self.find_results = []
         self.created = ProviderPausedDeployment(
@@ -60,6 +61,11 @@ class FakePausedProvider:
             campaign_resource_name="customers/1234567890/campaigns/987654321",
             status="PAUSED",
         )
+
+    def verify_account_currency_usd(self):
+        self.calls.append(("verify_account_currency_usd", None))
+        if self.currency_error:
+            raise self.currency_error
 
     @property
     def create_calls(self):
@@ -274,6 +280,23 @@ def test_provider_validation_failure_performs_zero_create_calls():
     assert ledger.get(approved.deployment_id).claimed_by is None
 
 
+def test_currency_preflight_failure_performs_zero_validation_or_create_calls():
+    ledger = InMemoryAuthorityLedger()
+    source = StaticContractSource(_contract())
+    approved, _invoker = _approved(ledger, source)
+    provider = FakePausedProvider()
+    provider.currency_error = RuntimeError("currency=EUR customer=1234567890")
+
+    result = PausedCreateWorker(ledger, source, _request_builder, provider).run(
+        approved.deployment_id
+    )
+
+    assert result.error_code == "provider_currency_unverified"
+    assert [call[0] for call in provider.calls] == ["verify_account_currency_usd"]
+    assert provider.create_calls == []
+    assert "EUR" not in repr(result)
+
+
 def test_worker_validates_then_creates_the_identical_paused_only_graph():
     ledger = InMemoryAuthorityLedger()
     source = StaticContractSource(_contract())
@@ -284,12 +307,13 @@ def test_worker_validates_then_creates_the_identical_paused_only_graph():
     result = worker.run(approved.deployment_id)
 
     assert [call[0] for call in provider.calls] == [
+        "verify_account_currency_usd",
         "validate",
         "find_by_contract_label",
         "create_paused",
     ]
-    validation_request = provider.calls[0][1]
-    create_request = provider.calls[2][1]
+    validation_request = provider.calls[1][1]
+    create_request = provider.calls[3][1]
     assert validation_request["mutateOperations"] == create_request["mutateOperations"]
     assert validation_request["validateOnly"] is True
     assert create_request["validateOnly"] is False
@@ -347,7 +371,10 @@ def test_crashed_fenced_worker_is_reconciled_without_validation_or_create():
         approved.deployment_id
     )
 
-    assert [call[0] for call in provider.calls] == ["find_by_contract_label"]
+    assert [call[0] for call in provider.calls] == [
+        "verify_account_currency_usd",
+        "find_by_contract_label",
+    ]
     assert result.state is DeploymentState.PAUSED_CREATED
     assert result.reconciled is True
 
@@ -367,7 +394,10 @@ def test_crashed_fenced_worker_stays_fenced_when_reconciliation_finds_nothing():
     )
 
     stored = ledger.get(approved.deployment_id)
-    assert [call[0] for call in provider.calls] == ["find_by_contract_label"]
+    assert [call[0] for call in provider.calls] == [
+        "verify_account_currency_usd",
+        "find_by_contract_label",
+    ]
     assert result.error_code == "provider_timeout_unresolved"
     assert stored.state is DeploymentState.PAUSED_CREATE_APPROVED
     assert stored.create_fenced_at == crashed.create_fenced_at
@@ -413,6 +443,7 @@ def test_commit_then_timeout_reconciles_by_contract_label_without_retrying_creat
     result = worker.run(approved.deployment_id)
 
     assert [call[0] for call in provider.calls] == [
+        "verify_account_currency_usd",
         "validate",
         "find_by_contract_label",
         "create_paused",

@@ -44,7 +44,7 @@ REQUIRED_HARD_CHECKS = {
     "feature_flag_enabled",
     "draft_validator_green",
     "dedicated_job_runtime_green",
-    "google_ads_account_access_green",
+    "google_ads_account_access_and_usd_green",
     "billing_and_account_serving_eligible",
     "housing_policy_acknowledged_in_google_ads",
     "landing_pages_live_canonical_and_lead_capable",
@@ -143,6 +143,8 @@ def validate_draft(payload: dict[str, Any]) -> list[str]:
         errors.append("campaign.status must remain PAUSED")
     if campaign.get("channel") != "SEARCH":
         errors.append("campaign.channel must equal SEARCH")
+    if campaign.get("currency_code") != "USD":
+        errors.append("campaign.currency_code must equal USD")
     if activation.get("approved") is not False:
         errors.append("activation_gate.approved must remain false")
     for field in (

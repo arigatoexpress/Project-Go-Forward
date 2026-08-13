@@ -104,13 +104,20 @@ python3 scripts/google_ads_access_probe.py
 After a dedicated job identity and managed secret bindings exist, the job runs
 the fixed `python scripts/google_ads_access_evidence_job.py` command with no
 arguments or runtime overrides. It reads the immutable checked-in contract,
-uses scoped ADC for only `SELECT customer.id FROM customer LIMIT 1`, and writes
+uses scoped ADC for only
+`SELECT customer.id, customer.currency_code FROM customer LIMIT 1`, and writes
 a sanitized Firestore evidence record plus append-only event in one
 version-checked transaction. The strict record contains only deployment ID,
-the allowlisted access-check key/status, UTC observation/expiry, source
+the composite `google_ads_account_access_and_usd_green` key/status, UTC
+observation/expiry, source
 revision, and an evidence digest. It never stores credentials, customer/login
-IDs, request IDs, resource names, raw responses, or provider errors. Evidence
-expires after five minutes and does not authorize campaign creation or spend.
+IDs, the raw currency value, request IDs, resource names, raw responses, or
+provider errors. PASS means the credential can read the exact account and its
+reported currency is exactly USD; non-USD, missing, malformed, stale, or
+revision-mismatched evidence fails closed. The legacy access-only key remains
+readable for rollback compatibility but cannot grant new owner step-up,
+approval, or worker authority. Evidence expires after five minutes and does
+not authorize campaign creation or spend.
 
 The paused-create job is a separate, fixed protocol. There is no storefront job
 invocation route, and it accepts no deployment ID, request body, credential
@@ -118,8 +125,12 @@ selector, or command-line override. It can consume only an existing
 `PAUSED_CREATE_APPROVED` authority record for the checked-in contract while the
 same transaction observes its durable outbox in `DISPATCHING`; a direct or
 scheduled worker invocation while `PENDING`, `FAILED`, or `DISPATCHED` is inert.
-The v25
-REST adapter first submits the exact atomic graph with `validateOnly=true` and
+Before constructing the provider, the worker requires fresh composite PASS
+evidence bound to the same deployment and `APP_VERSION`. The v25 REST adapter
+then re-reads `customer.id` plus `customer.currency_code` using the same runtime
+credentials and refuses every mutate unless the returned account matches the
+configured target and its currency is exactly USD. Only after both gates does it
+submit the exact atomic graph with `validateOnly=true` and
 `partialFailure=false`, then submits the same operation graph with
 `validateOnly=false`. Campaign, campaign criteria, ad groups, keywords, and ads
 are all created `PAUSED`. A deterministic contract label is the idempotency

@@ -8,6 +8,7 @@ campaign, activate anything, or authorize spend.
 from __future__ import annotations
 
 import logging
+import os
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
@@ -170,13 +171,14 @@ def _checked_in_context(
             raise HTTPException(409, "Owner step-up context changed. Refresh and retry.")
         evidence = access_ledger.get_access_evidence(
             context.deployment_id,
-            AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_GREEN,
+            AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_AND_USD_GREEN,
         )
         evidence = validate_access_evidence(evidence, now=_utc_now())
         if (
             evidence.deployment_id != context.deployment_id
-            or evidence.check_key is not AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_GREEN
+            or evidence.check_key is not AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_AND_USD_GREEN
             or evidence.status is not AccessEvidenceStatus.PASSED
+            or evidence.source_revision != os.environ.get("APP_VERSION")
         ):
             raise InvalidAccessEvidence("current_access_evidence_not_green")
         expected_context = StepUpContext.model_validate(
