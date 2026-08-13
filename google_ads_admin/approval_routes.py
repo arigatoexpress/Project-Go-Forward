@@ -1,9 +1,12 @@
-"""Exact-owner PAUSED-create approval route; writes authority/outbox only."""
+"""Exact-owner PAUSED-create approval route; writes control-plane records only."""
 
 from __future__ import annotations
 
 import logging
 import os
+from collections.abc import Callable
+from datetime import UTC, datetime
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
@@ -26,6 +29,7 @@ from google_ads_admin.status import load_checked_in_contract
 from scripts.google_ads_access_evidence import (
     AccessCheckKey,
     AccessEvidenceStatus,
+    validate_access_evidence,
 )
 from scripts.google_ads_launch_draft import contract_sha256
 from scripts.google_ads_paused_worker import (
@@ -66,10 +70,25 @@ class PausedCreateApprovalResponse(BaseModel):
     spend_enabled: bool = False
 
 
+class ReadOnlyAccountConnection(BaseModel):
+    """The complete sanitized account evidence shown to the approving owner."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    state: Literal["READ_PROBE_VERIFIED"]
+    check_key: Literal["google_ads_account_access_and_usd_green"]
+    account_access_validated: Literal[True]
+    account_currency_usd: Literal[True]
+    evidence_digest: str = Field(pattern=_SHA256_PATTERN)
+    observed_at: datetime
+    expires_at: datetime
+    source_revision: str = Field(pattern=r"^[0-9a-f]{40}$")
+
+
 class PausedCreateApprovalReadiness(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
-    schema_version: int = 1
+    schema_version: Literal[2] = 2
     deployment_id: str = Field(pattern=_DEPLOYMENT_PATTERN)
     contract_hash: str = Field(pattern=_SHA256_PATTERN)
     expected_version: int = Field(ge=1)
@@ -78,6 +97,7 @@ class PausedCreateApprovalReadiness(BaseModel):
     gates: dict[str, bool]
     access_evidence_id: str | None = Field(default=None, pattern=_SHA256_PATTERN)
     access_evidence_fresh: bool
+    account_connection: ReadOnlyAccountConnection | None
     action_available: bool
     dispatch_enabled: bool
     paused_only: bool = True
@@ -123,7 +143,11 @@ def _verify_request_proof(
     return proof
 
 
-def _read_approval_readiness(ledger: FirestoreAuthorityLedger):
+def _read_approval_readiness(
+    ledger: FirestoreAuthorityLedger,
+    *,
+    clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+):
     runtime = PausedCreateApprovalRuntime.from_env()
     contract = load_checked_in_contract()
     digest = contract_sha256(contract)
@@ -131,10 +155,14 @@ def _read_approval_readiness(ledger: FirestoreAuthorityLedger):
     record = ledger.get(deployment_id)
     access_evidence_id = None
     access_evidence_fresh = False
+    account_connection = None
     try:
-        evidence = ledger.get_access_evidence(
-            deployment_id,
-            AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_AND_USD_GREEN,
+        evidence = validate_access_evidence(
+            ledger.get_access_evidence(
+                deployment_id,
+                AccessCheckKey.GOOGLE_ADS_ACCOUNT_ACCESS_AND_USD_GREEN,
+            ),
+            now=clock(),
         )
         access_evidence_fresh = (
             evidence.status is AccessEvidenceStatus.PASSED
@@ -142,6 +170,17 @@ def _read_approval_readiness(ledger: FirestoreAuthorityLedger):
             and evidence.source_revision == os.environ.get("APP_VERSION")
         )
         access_evidence_id = evidence.evidence_digest if access_evidence_fresh else None
+        if access_evidence_fresh:
+            account_connection = {
+                "state": "READ_PROBE_VERIFIED",
+                "check_key": evidence.check_key.value,
+                "account_access_validated": True,
+                "account_currency_usd": True,
+                "evidence_digest": evidence.evidence_digest,
+                "observed_at": evidence.observed_at,
+                "expires_at": evidence.expires_at,
+                "source_revision": evidence.source_revision,
+            }
     except Exception:
         pass
     action_available = (
@@ -174,6 +213,7 @@ def _read_approval_readiness(ledger: FirestoreAuthorityLedger):
         gates=runtime.sanitized_gates(),
         access_evidence_id=access_evidence_id,
         access_evidence_fresh=access_evidence_fresh,
+        account_connection=account_connection,
         action_available=action_available,
         dispatch_enabled=(
             os.environ.get("THO_GOOGLE_ADS_PAUSED_CREATE_DISPATCH_ENABLED") == "true"

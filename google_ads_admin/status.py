@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Iterable
+from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -56,6 +57,29 @@ def _event_projection(event: Any, record: DeploymentRecord) -> dict[str, Any]:
         "to_state": model.to_state,
         "error_code": model.error_code,
         "occurred_at": _iso(model.occurred_at),
+    }
+
+
+def _campaign_review(payload: dict[str, Any]) -> dict[str, Any]:
+    """Project the exact checked-in operator artifact without provider/account data."""
+    campaign = payload["campaign"]
+    deployment = payload["deployment"]
+    return {
+        "campaign_name": campaign["name"],
+        "status": campaign["status"],
+        "channel": campaign["channel"],
+        "currency_code": campaign["currency_code"],
+        "bidding": deepcopy(campaign["bidding"]),
+        "networks": deepcopy(campaign["networks"]),
+        "geo": deepcopy(campaign["geo"]),
+        "housing_policy": deepcopy(campaign["housing_policy"]),
+        "tracking": deepcopy(campaign["tracking"]),
+        "negative_keywords": deepcopy(campaign["negative_keywords"]),
+        "ad_groups": deepcopy(campaign["ad_groups"]),
+        "conversion_intent": deepcopy(campaign["conversion_intent"]),
+        "stop_loss": deepcopy(payload["activation_gate"]["stop_loss"]),
+        "activation_supported": deployment["activation_supported"],
+        "spend_authorized": deployment["spend_authorized"],
     }
 
 
@@ -123,7 +147,7 @@ def build_deployment_readiness(
         workflow.append({"state": state.value, "status": status})
 
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "deployment_id": record.deployment_id,
         "deployment_key": record.deployment_key,
         "contract_hash": record.contract_hash,
@@ -131,7 +155,6 @@ def build_deployment_readiness(
         "state_source": "FIRESTORE_AUTHORITY_LEDGER",
         "version": record.version,
         "updated_at": _iso(record.updated_at),
-        "connection": {"state": "NO_EVIDENCE", "verified_at": None},
         "feature_enabled": False,
         "ready": False,
         "spend_enabled": False,
@@ -141,6 +164,7 @@ def build_deployment_readiness(
             "monthly_charge_limit_usd": budget["monthly_charge_limit_usd"],
             "max_cpc_usd": bidding["max_cpc_usd"],
         },
+        "campaign_review": _campaign_review(payload),
         "workflow": workflow,
         "actions": {"server_validation": record.state is DeploymentState.INTERNAL_DRAFT},
         "paused_create": {
