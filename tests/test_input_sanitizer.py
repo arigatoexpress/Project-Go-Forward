@@ -569,7 +569,7 @@ class TestInputSanitizationEndToEnd:
         try:
             res = client.post(
                 "/api/test-sanitizer-text",
-                data="plain text body",
+                content="plain text body",
                 headers={"content-type": "text/plain"},
             )
             assert res.status_code == 200
