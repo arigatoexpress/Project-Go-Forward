@@ -60,10 +60,12 @@ current marketing loader can fall back from Firestore to local JSON or sample
 data, so it reports `inventory_fallback_chain` and is not eligible for an
 automatic switch merely because it returned homes.
 
-### Dated production evidence — 2026-08-12
+### Dated production evidence — 2026-08-29
 
-The deployed legacy snapshot reports `retrieved_at=2026-05-11T23:49:10Z`, 19
-current homes, and 260 de-duplicated orderable floorplans (279 total). A
+The deployed legacy snapshot reports `retrieved_at=2026-05-11T23:49:10Z`, age
+109 days, 19 current homes, and 260 de-duplicated orderable floorplans (279 total).
+The public payload remains usable but reports stale source truth, and the soft
+inventory check is `ok=false` while `/readyz` remains ready. An earlier
 read-only Firestore projection found 19 `AVAILABLE` documents, all with
 `source=texashomeoutlet.com`, no freshness timestamps, and exactly the same 19
 identifiers and model names as the May 11 snapshot. Therefore changing to

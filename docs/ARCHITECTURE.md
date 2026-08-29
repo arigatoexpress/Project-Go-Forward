@@ -41,9 +41,10 @@ Two GCP projects are in play. **Do not conflate them.**
 
 - **Service name**: `project-go-forward`
 - **Region**: `us-central1`
-- **Canonical production URL**: `https://tho.sapphirealpha.xyz`
+- **Canonical production URL**: `https://www.texashomeoutlet.com`
+- **Diagnostic alias**: `https://tho.sapphirealpha.xyz`
 - **Cloud Run diagnostic URL**: `https://project-go-forward-trgi34bxuq-uc.a.run.app`
-- **URL rule**: human-facing `run.app` pages redirect to `tho.sapphirealpha.xyz`; health, API, and static asset paths remain available for Cloud Run probes and operator diagnostics.
+- **URL rule**: human-facing `run.app` pages redirect to `www.texashomeoutlet.com`; health, API, and static asset paths remain available for Cloud Run probes and operator diagnostics.
 - **Auth**: public endpoints + admin-only endpoints gated by `X-Admin-Token` header (JWT)
 
 ### Cloud DNS
