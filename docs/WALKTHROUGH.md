@@ -80,14 +80,16 @@ second location is configuration plus their inventory, not a rewrite.
 
 **"Who built this and who maintains it?"**
 Built by Ari with AI-assisted engineering, with every change going through
-the same reviewed-PR pipeline you saw. Maintenance is the same loop: propose,
-test, review, merge, auto-deploy — plus monitoring that pages us if anything
-is down (`docs/RUNBOOK.md` is the break-glass manual).
+the same PR pipeline you saw. Maintenance is the same loop: propose, test,
+explicitly observe CI green, merge, deploy a zero-traffic candidate, then use a
+separate operator gate for production promotion — plus monitoring that pages us
+if anything is down (`docs/RUNBOOK.md` is the break-glass manual).
 
 **"What's left before full launch?"**
-The open items on `LAUNCH_READINESS.md`: standing up the e-signature server,
-final secrets verification, a staging load test, and the domain cutover
-itself. The work is sequenced and documented; nothing is mystery-blocked.
+The open items on `LAUNCH_READINESS.md`: recover fresh current inventory,
+repair and validate the e-signature deployment, enforce the CI status check,
+complete final secrets/restore verification, and run the staging E2E/load
+gauntlet. The DNS cutover is complete.
 
 ## Presenter notes
 

@@ -3,32 +3,33 @@
 Status ledger for the pre-launch punch list. GO requires every row ✅ and
 operator sign-off on this file's PR trail.
 
-Last updated: 2026-07-25 (**PR #302** staff user guide refreshed — `docs/CLIENT_WALKTHROUGH.md` rewritten to the current feature set; **code side of IMPROVEMENTS.md now fully closed** — every remaining launch item is an operator action). Previously: 2026-07-25 (merge-train cycle: **PR #298** staging-gauntlet e2e tests codified for partner-API auth + DocuSeal e-sign, **PR #299** API reference docs, **PR #300** user-safe error messages — all merged). Previously: 2026-07-25 (Firestore RPC-timeout hardening **merged via PR #296** — risk #2 code is on `main`; clears fully on the next production traffic promotion, which remains an operator canary cutover). Previously: 2026-07-24 (code-complete on branch `agent/firestore-timeouts`); 2026-06-10 (Phase 0 + Phase 1 code-side complete).
+Last updated: 2026-08-29 (read-only operational audit reconciled GitHub, Cloud Run, DNS, and public health state). The code-side improvement backlog remains closed; the remaining work is inventory-source recovery, e-sign deployment/E2E, release-governance enforcement, and operator validation.
 
 ## Punch list
 
 | # | Item | Status | Evidence |
 |---|---|---|---|
-| 1 | Branch protection on `main` | ✅ DONE | Ruleset active (require PR, required check `test`, block force-push, no bypass). Verified 2026-06-09: direct push **rejected** (403); PR #136 with green `test` **merged**. |
+| 1 | Branch protection on `main` | ⚠️ PARTIAL | Active ruleset requires a PR and blocks deletion/non-fast-forward with no bypass actors, but the 2026-08-29 GitHub API readback shows **no required status-check rule**. Until `test` is enforced by the ruleset, explicitly wait for all applicable checks to finish green before every merge. |
 | 2 | HEAD handler for `/` | ✅ DONE | PR #135. Prod verified: `HEAD / → 200`; regression test `test_head_requests_supported_for_uptime_monitors`. |
-| 3 | `/api/v1/inventory` 503 | ⚠️ DIAGNOSED — operator action | Intentional fail-closed when no partner key configured (`require_partner_api_key`). **Action: one click — run the "Ops bootstrap" workflow** (Actions tab), which creates the `tho-api-key` secret (never printed; retrieve via `gcloud secrets versions access latest --secret=tho-api-key`) and attaches it as `THO_API_KEY`. Manual fallback: `docs/RUNBOOK.md` §3.4. |
+| 3 | Partner API key | ✅ DONE | Ops bootstrap run `27723297970` succeeded on 2026-06-17 and the serving revision has `THO_API_KEY` attached from Secret Manager. Partner routes remain intentionally fail-closed if that binding is ever removed. |
 | 4 | Secrets posture | ⚠️ PARTIAL | gitleaks v8.24.3 over full history (271 commits): **no credentials** (only public captcha sitekeys in archived HTML + baseline self-matches). CI `ADMIN_PIN_HASH` is a test fixture (OK). **Action: verify prod PIN strength** per `docs/PRODUCTION_READINESS.md`. |
 | 5 | Machine-specific path purge | ✅ DONE | PR #135; `docs/LOCAL_DATA.md` added; repo-wide grep for `/Users/` clean. |
-| 6 | DocuSeal e-sign deployed + E2E | ❌ NOT DEPLOYED | `deploy-docuseal.yml` has **zero workflow runs** — the e-sign server has never been stood up. Code is merged (#127–129) but inert. **Action: one click — run the "Deploy DocuSeal (e-sign server)" workflow** (Actions tab, defaults are correct; creates Cloud SQL db-g1-small + a 1-instance Cloud Run service, ~$40-80/mo). Then the ~5-min manual steps printed at the end of the run (admin account, API token, app secrets, webhook), then E2E test incl. ESIGN consent — `docs/DOCUSEAL_DEPLOY_RUNBOOK.md`. |
+| 6 | DocuSeal e-sign deployed + E2E | ❌ UNAVAILABLE | Five workflow attempts on 2026-06-17 failed container startup. The `docuseal` Cloud Run service has no ready revision; `docuseal-db` exists but is stopped; only the infrastructure secrets exist. `main` references mutable `docuseal/docuseal:latest`. Re-evaluate and pin a current compatible image digest, add a boot/migration smoke, then complete the gated deployment and signer/webhook E2E. |
 | 7 | PR #118 (llms.txt) | ✅ DONE | Merged 2026-06-09; prod serves `/llms.txt`. |
-| 8 | Operational readiness | ⚠️ PARTIAL | `docs/RUNBOOK.md` written (rollback, triage tree, secret rotation). **Action: one click — run the "Ops bootstrap" workflow** (Actions tab): uptime check on /healthz/ + email alerting, 5xx-burst alert, daily Firestore backups (7-day retention), $200/mo budget alarm (best-effort), and a no-traffic `staging` tag for the load test. Idempotent; any step that 403s names the missing WIF role. Backup **restore drill** remains manual after the schedule exists. |
+| 8 | Operational readiness | ⚠️ PARTIAL | Ops bootstrap run `27723297970` succeeded: uptime and 5xx alerts, daily Firestore backups, partner key, staging tag, and budget alarm were created. The backup restore drill remains unverified. |
 | 9 | Pre-launch gauntlet | ⚠️ PARTIAL | See below. |
-| 10 | SEO cutover surface (client request 2026-06-10) | ✅ CODE DONE — operator steps remain | `seo_routes.py`: all 279 legacy texashomeoutlet.com detail URLs kept alive at 200 with per-home meta/JSON-LD/crawlable HTML; 279 quote-URL 301s; sitemap.xml; robots.txt; real 404s; noindex on admin routes; llms.txt rewrite. 13 new tests. **Operator: cutover checklist in `docs/SEO_MIGRATION.md`** (GSC domain property, DNS TTL, sitemap submission, GBP check, `CANONICAL_PUBLIC_URL` env). |
+| 10 | DNS + SEO cutover surface | ✅ DNS LIVE / ⚠️ SEO OPS | Apex and `www.texashomeoutlet.com` both serve the app with valid TLS; `www` is the canonical origin in homepage, robots, and sitemap output. The code preserves the legacy detail/quote URL surface. Search Console sitemap acceptance and Business Profile link verification remain operator evidence items; future DNS changes remain gated. |
+| 11 | Current-listing freshness | ❌ STALE | On 2026-08-29, production `/readyz/` reported the selected `legacy_site_snapshot` was retrieved 2026-05-11, age 109 days, with 19 current listings and `ok=false`; readiness remains soft-green so the known catalog stays visible. The public 279-home response includes those 19 current listings plus 260 orderable floorplans. Recover an operator-approved current source and prove candidate parity before changing `INVENTORY_SOURCE`. |
 
 ## Gauntlet evidence (item 9)
 
-| Check | Status | Evidence (2026-06-10) |
+| Check | Status | Current evidence |
 |---|---|---|
-| Full test suite | ✅ | `pytest tests/` → **628 passed, 29 skipped** (incl. after dependency upgrades) |
-| Frontend build | ✅ | `npm ci && npm run build` clean (Vite + PWA, 20 precache entries) |
+| Full test suite | ✅ | Latest `main` run `31784526533` (2026-08-14): **2,122 passed, 24 skipped**. |
+| Frontend build/tests | ✅ | Build clean; **39 test files / 260 tests passed** in run `31784526533`. |
 | Frontend lint | ✅ | `eslint .` clean |
 | ruff | ✅ | PR #138: repo-wide `ruff check .` clean (379 findings fixed); CI lint step widened to the full repo. |
-| Live frontend smoke | ✅ | Headless Chromium against prod: home + inventory render live data (273 houses hero, property cards, images), Document Center correctly gated by admin modal, Contact renders. Only console error = sandbox TLS-proxy artifact. |
+| Live public smoke | ✅ | Read-only 2026-08-29 production smoke: **33/33 probes passed**, including canonical authority, 279-home catalog response, media depth, admin protection, and appointment slots. This does not override the stale-current-inventory blocker above. |
 | Backend dependency audit | ✅ | pip-audit clean of runtime findings after google-adk 2.5.0 + starlette 1.3.1 + pypdf 6.14.2 (PR #297). Only remainder: setuptools 80.9.0 PYSEC-2026-3447 (build tool, not a runtime pin). |
 | Frontend dependency audit | ✅ | `npm audit`: 1 moderate (dev-chain `brace-expansion`), no prod-impacting findings |
 | E2E vs staging revision | ❌ TODO | Needs a staging revision + operator-run pass: inventory browse, lead submission, admin login (PIN + passkey), packet generation + download, e-sign flow, partner API auth. **PR #298 (merged 2026-07-25):** `tests/e2e/test_staging_gauntlet.py` codifies the two previously untestable flows (partner-API authorized access, DocuSeal e-sign) — 7 tests, skip gracefully until the operator provisions the `tho-api-key` secret and the e-sign server |
@@ -42,7 +43,8 @@ Last updated: 2026-07-25 (**PR #302** staff user guide refreshed — `docs/CLIEN
 
 ## GO decision
 
-**Current answer: NO.** Blocking items: 3 (partner key), 4 (PIN verify), 6
-(DocuSeal deploy + E2E), 8 (monitoring/alerts/backup), 9 (staging E2E + load).
+**Current answer: NO.** Blocking items: 1 (required CI status enforcement), 4
+(PIN verify), 6 (DocuSeal deploy + E2E), 8 (backup restore drill), 9 (staging
+E2E + load), and 11 (current-listing freshness/source recovery).
 Operator sign-off recorded by approving/merging the PR that flips this section
 to GO.

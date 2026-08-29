@@ -195,9 +195,13 @@ manager with an audit trail.
 
 ## Deployment Gate
 
-This repository auto-deploys from `main`. Agent branches should open a draft PR
-and wait for a human merge unless the operator explicitly authorizes a direct
-production push.
+Feature branches open a PR; direct pushes to `main` are forbidden. A THO PR may
+be merged after every applicable check has been explicitly observed green; no
+separate human merge approval is required by the canonical operator policy.
+GitHub's current ruleset requires a PR but does not enforce the `test` status
+check, so do not use auto-merge as a substitute for watching CI. A merge builds,
+deploys, and smokes a zero-traffic candidate only. Any production traffic
+promotion, direct deployment, or DNS change remains a separate operator gate.
 
 
-*Last verified: 2026-05-04*
+*Last verified: 2026-08-29*

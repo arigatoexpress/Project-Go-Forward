@@ -1,13 +1,16 @@
 # Incident Runbook — Project Go Forward (Texas Home Outlet)
 
-Production: `https://tho.sapphirealpha.xyz` · Cloud Run service `project-go-forward`,
-project `tho-ai-agent`, region `us-central1`. Every push to `main` auto-deploys.
+Canonical production: `https://www.texashomeoutlet.com` · diagnostic alias:
+`https://tho.sapphirealpha.xyz` · Cloud Run service `project-go-forward`, project
+`tho-ai-agent`, region `us-central1`. Every push to `main` builds, deploys, and
+smokes a zero-traffic `candidate` revision. Production traffic promotion is a
+separate gated operator action.
 
 ## 1. Quick health checks
 
 ```bash
-curl -s https://tho.sapphirealpha.xyz/healthz/        # {"status":"ok","version":"<git sha>"}
-curl -sI https://tho.sapphirealpha.xyz/ | head -1     # HTTP 200 (HEAD supported)
+curl -s https://www.texashomeoutlet.com/healthz/      # {"status":"ok","version":"<git sha>"}
+curl -sI https://www.texashomeoutlet.com/ | head -1   # HTTP 200 (HEAD supported)
 ```
 
 `version` tells you exactly which commit is serving. Compare with `git log origin/main -1`.
@@ -75,9 +78,11 @@ then fix forward through a PR.
    - `ADMIN_PIN_HASH` secret missing/rotated incorrectly. See
      `docs/PIN_ROTATION_RUNBOOK.md` (includes rollback to the previous secret
      version). Note: rotating the PIN invalidates all admin sessions by design.
-6. **Deploy pipeline broken (merges don't deploy)**
+6. **Deploy pipeline broken (merges don't produce a candidate)**
    - Check Actions: the `test` job gates `build-and-deploy`. A red `test` on
      `main` means the merge commit is bad — revert it via PR.
+   - A successful run intentionally leaves the candidate at zero traffic. Do
+     not diagnose unchanged production traffic as a failed deploy.
    - `workflow_dispatch` on `deploy.yml` can re-run a deploy without a new commit.
 
 ## 4. Secret rotation

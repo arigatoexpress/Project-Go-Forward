@@ -1,4 +1,11 @@
-# Texas Home Outlet AI Platform - System Status
+# Texas Home Outlet AI Platform — Historical Status Snapshot
+
+> **Archived snapshot, not current operational truth.** This file records the
+> 2026-02-25 state and must not be used for launch decisions. Current truth is
+> maintained in `LAUNCH_READINESS.md`, `docs/RUNBOOK.md`, and
+> `docs/THO_INVENTORY_CATALOG_OPERATIONS.md`. As of the 2026-08-29 read-only
+> audit, DNS is live at `www.texashomeoutlet.com`, merges deploy zero-traffic
+> candidates, current-listing inventory is stale, and DocuSeal is unavailable.
 
 **Last Updated:** 2026-02-25  
 **Environment:** Production (Cloud Run)  

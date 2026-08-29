@@ -2,10 +2,13 @@
 
 **Audience:** THO staff (day-to-day users) and any developer taking the project
 forward.
-**Live site:** https://tho.sapphirealpha.xyz
-**Status as of 2026-07-25:** Deployed and healthy on Cloud Run, running the
-latest `main`. Production smoke checks pass; the full automated test suite is
-green (1,796 passed, 24 environment-dependent skips).
+**Live site:** https://www.texashomeoutlet.com
+**Diagnostic alias:** https://tho.sapphirealpha.xyz
+**Status as of 2026-08-29:** Deployed and healthy on Cloud Run. Production runs
+the last promoted revision; the latest `main` is a healthy zero-traffic
+candidate because merges do not automatically promote traffic. Read-only
+production smoke passed 33/33 probes; latest CI passed 2,122 backend tests and
+260 frontend tests.
 
 This guide has two parts:
 
@@ -105,11 +108,11 @@ It's a 4-step wizard:
    Inc. dba Texas Home Outlet** with RBI license 35248, so documents are
    accepted as filed.
 
-**E-signatures (coming soon):** the DocuSeal e-sign integration is built into
-the app (you'll see **Send for Signature** on deals in the CRM), but the
-e-sign server isn't deployed yet — until an operator turns it on, that button
-shows a friendly "coming soon" message. Keep downloading and wet-signing for
-now.
+**E-signatures (unavailable):** the DocuSeal e-sign integration is built into
+the app, but five deployment attempts failed and the service has no ready
+revision. Until a compatible pinned image is verified, deployed, and exercised
+end to end, **Send for Signature** remains unavailable. Keep downloading and
+wet-signing for now.
 
 ### 5. CRM — Leads, Pipeline, Tasks, Email
 
@@ -122,7 +125,7 @@ The CRM is the team's home base, organized into tabs:
   contract → funded → complete). A deal stores all the buyer/home/financial
   data once, and you can **generate the Sales Contract, Consumer Disclosure,
   Warranty, Homestead, or a full closing packet straight from the deal** — no
-  re-typing. **Send for Signature** lives here too (e-sign coming soon, see
+  re-typing. **Send for Signature** lives here too (e-sign unavailable, see
   §4). Customers get a secure document link for their deal that verifies them
   with the phone number on their application before showing any paperwork.
 - **Tasks** — to-dos for follow-ups, with pending/done tracking.
@@ -223,7 +226,7 @@ for incident response and rollback.
 | E-sign | DocuSeal (integration built; returns 501 until env-configured — see `docs/DOCUSEAL_DEPLOY_RUNBOOK.md`) |
 | Email | Resend (optional, env-gated) |
 | Deploy | Single Docker container on Cloud Run (project `tho-ai-agent`, region `us-central1`) |
-| Hosting | Canonical URL `tho.sapphirealpha.xyz`; auto-deploys from `main` |
+| Hosting | Canonical URL `www.texashomeoutlet.com`; `main` deploys a zero-traffic candidate |
 
 ### Repository map
 
@@ -264,9 +267,12 @@ See `docs/DEV_SETUP.md` for the fuller local setup.
 
 ### Deploy
 
-The repo **auto-deploys from `main`**. Agent/feature branches should open a
-draft PR and wait for a human merge unless a direct push is explicitly
-authorized. Manual deploy if ever needed:
+Feature branches open a PR; direct pushes to `main` are forbidden. After all
+applicable checks are explicitly green, a THO PR may merge without a separate
+human approval. The merge deploys and smokes a zero-traffic candidate; it does
+not promote production traffic. Direct deployment and production traffic
+promotion remain operator-gated actions. Manual command for the operator
+runbook, if ever needed:
 
 ```bash
 gcloud run deploy project-go-forward --source . --region us-central1
@@ -275,8 +281,8 @@ gcloud run deploy project-go-forward --source . --region us-central1
 ### Health & smoke (read-only, safe to run anytime)
 
 ```bash
-curl -fsS https://tho.sapphirealpha.xyz/healthz/        # liveness + deployed commit
-python3 scripts/production_smoke.py --base-url https://tho.sapphirealpha.xyz
+curl -fsS https://www.texashomeoutlet.com/healthz/      # liveness + deployed commit
+python3 scripts/production_smoke.py --base-url https://www.texashomeoutlet.com
 ```
 
 ### Secrets / environment (Cloud Run, via Secret Manager)

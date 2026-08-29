@@ -66,7 +66,11 @@
 - ~~Firestore RPC timeouts (event-loop wedge, LAUNCH_READINESS risk #2)~~ — **MERGED via PR #296 (2026-07-25)**: shared `database/rpc_timeout.py` (`FIRESTORE_RPC_TIMEOUT`, env `FIRESTORE_RPC_TIMEOUT_SECONDS`, default 10s) applied to every request-path Firestore RPC across `database/firestore_client.py`, `main.py`, `mira_routes.py`, `obsidian_routes.py`, `github_mira_trigger.py`, `chat_history.py`, `conversation_memory.py`, `audit_log.py`, `appointment_manager.py`, `lead_management.py`, `email_service.py`, `email_reply_drafts.py`, `auth/`, and request-path tools; coverage-audit gaps closed (CRM chat lead persist, lead-transition transactional read, transaction Begin/Commit wall-clock bounds). Full suite green (1791 passed). Reaches production on the next operator canary traffic promotion.
 
 ### Operator / Launch Blockers (see LAUNCH_READINESS.md)
-- Ops bootstrap (partner API key, monitoring, backups, budget alarm)
-- DocuSeal e-sign deploy + E2E
-- Prod PIN strength verification
+- Enforce the `test` status check in the active `main` ruleset
+- Recover and verify a fresh operator-approved current-listing source
+- DocuSeal compatible-image fix, gated deploy, and signer/webhook E2E
+- Prod PIN strength verification and Firestore restore drill
 - Staging E2E gauntlet + load test
+
+Ops bootstrap (partner key, monitoring, backups, staging tag, and budget alarm)
+completed successfully on 2026-06-17.
