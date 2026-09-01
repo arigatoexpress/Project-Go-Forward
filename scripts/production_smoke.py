@@ -28,7 +28,9 @@ import argparse
 import json
 import re
 import sys
+from pathlib import Path
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any
@@ -36,9 +38,18 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import unquote, urljoin, urlsplit
 from urllib.request import Request, urlopen
 
+# Make the repo root importable when this file is run directly
+# (`python scripts/production_smoke.py`). Without it the import below failed
+# silently and the smoke fell back to a filename-only classifier that cannot see
+# content-flagged floorplans — reporting floorplan_heroes=0 while the live site
+# served 33 of them. A degraded check that stays green is worse than no check.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+CLASSIFIER_FULL = True
 try:
     from tools.photo_classifier import is_floorplan_url
 except Exception:  # pragma: no cover - smoke fallback for minimal runtimes
+    CLASSIFIER_FULL = False
 
     def is_floorplan_url(url: str | None) -> bool:
         if not url or not isinstance(url, str):
@@ -327,6 +338,113 @@ def check_inventory_media_depth(base_url: str, *, timeout: float) -> Probe:
         evidence=evidence,
         elapsed_ms=elapsed_ms,
     )
+
+
+def _head_status(url: str, *, timeout: float = 15.0) -> int:
+    """HEAD a media URL and return its status (0 when unreachable)."""
+    try:
+        request = Request(url, method="HEAD")
+        with urlopen(request, timeout=timeout) as response:
+            return int(response.status)
+    except HTTPError as exc:
+        return int(exc.code)
+    except Exception:
+        return 0
+
+
+def evaluate_floorplan_heroes(
+    homes: list[dict[str, Any]], *, status: int, elapsed_ms: int
+) -> Probe:
+    """Fail when any listing leads with a floorplan drawing.
+
+    `check_inventory_media_depth` counts photo URLs, so a floorplan counted as a
+    photo and the probe stayed green while the site's FEATURED home was a
+    floorplan drawing (2026-08-31). This asks the classifier what the hero
+    actually IS.
+    """
+    offenders: list[str] = []
+    for home in homes:
+        hero = home.get("image_url")
+        if not hero or not isinstance(hero, str):
+            continue  # photo-less homes render a branded placeholder by design
+        if is_floorplan_url(hero):
+            offenders.append(str(home.get("id") or home.get("model_name") or "?"))
+    # Fail CLOSED on a degraded classifier. Without the content manifest this
+    # probe cannot see the floorplans it exists to catch, and a green result
+    # would be a lie.
+    return Probe(
+        name="inventory heroes are photos, not floorplans",
+        ok=status == 200 and not offenders and CLASSIFIER_FULL,
+        status=status,
+        evidence=(
+            f"floorplan_heroes={len(offenders)}; ids={','.join(offenders[:8]) or 'none'}; "
+            f"classifier={'full' if CLASSIFIER_FULL else 'DEGRADED-filename-only'}"
+        ),
+        elapsed_ms=elapsed_ms,
+    )
+
+
+def evaluate_hero_reachability(
+    homes: list[dict[str, Any]],
+    *,
+    status: int,
+    elapsed_ms: int,
+    fetch_status: Callable[[str], int],
+    max_dead: int = 0,
+    sample: int | None = None,
+) -> Probe:
+    """Fail when hero images do not actually load.
+
+    A URL in a JSON array is not a picture. 22 heroes answered 403 from the
+    vendor CDN while every existing probe stayed green, because nothing ever
+    fetched them.
+    """
+    heroes = [
+        (str(home.get("id") or "?"), home["image_url"])
+        for home in homes
+        if isinstance(home.get("image_url"), str) and home["image_url"].strip()
+    ]
+    if sample:
+        heroes = heroes[:sample]
+    dead: list[str] = []
+    for home_id, url in heroes:
+        code = fetch_status(url)
+        if code != 200:
+            dead.append(f"{home_id}:{code}:{url.rsplit('/', 1)[-1][:40]}")
+    return Probe(
+        name="inventory hero images are reachable",
+        ok=status == 200 and len(dead) <= max_dead,
+        status=status,
+        evidence=(
+            f"checked={len(heroes)}; dead={len(dead)}; allowed={max_dead}; "
+            f"{'; '.join(dead[:6]) or 'all reachable'}"
+        ),
+        elapsed_ms=elapsed_ms,
+    )
+
+
+def check_inventory_media_reality(
+    base_url: str, *, timeout: float, hero_sample: int, max_dead_heroes: int
+) -> list[Probe]:
+    """Assert what the catalog SHOWS, not merely what it lists.
+
+    Fetched once and shared by both probes so a full smoke stays cheap.
+    """
+    status, payload, elapsed_ms = _json_probe(
+        base_url, "/api/marketing/inventory-context", timeout=timeout
+    )
+    homes = [home for home in _as_list(payload.get("homes")) if isinstance(home, dict)]
+    return [
+        evaluate_floorplan_heroes(homes, status=status, elapsed_ms=elapsed_ms),
+        evaluate_hero_reachability(
+            homes,
+            status=status,
+            elapsed_ms=elapsed_ms,
+            fetch_status=lambda url: _head_status(url, timeout=timeout),
+            max_dead=max_dead_heroes,
+            sample=hero_sample,
+        ),
+    ]
 
 
 def check_canonical_authority(
@@ -706,11 +824,21 @@ def run_smoke(
     check_admin_auth: bool = False,
     admin_token: str | None = None,
     canonical_origin: str | None = None,
+    hero_sample: int = 40,
+    max_dead_heroes: int = 0,
 ) -> dict[str, Any]:
     probes: list[Probe] = []
     probes.extend(check_health(base_url, timeout=timeout))
     probes.append(check_inventory(base_url, timeout=timeout, min_homes=min_homes))
     probes.append(check_inventory_media_depth(base_url, timeout=timeout))
+    probes.extend(
+        check_inventory_media_reality(
+            base_url,
+            timeout=timeout,
+            hero_sample=hero_sample,
+            max_dead_heroes=max_dead_heroes,
+        )
+    )
     probes.append(
         check_canonical_authority(base_url, timeout=timeout, canonical_origin=canonical_origin)
     )
@@ -737,6 +865,18 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--base-url", default=DEFAULT_BASE_URL)
     parser.add_argument("--timeout", type=float, default=10.0)
     parser.add_argument("--min-homes", type=int, default=DEFAULT_MIN_HOMES)
+    parser.add_argument(
+        "--hero-sample",
+        type=int,
+        default=40,
+        help="How many hero images to actually fetch (0 = all).",
+    )
+    parser.add_argument(
+        "--max-dead-heroes",
+        type=int,
+        default=0,
+        help="Dead hero images tolerated before the smoke fails.",
+    )
     parser.add_argument(
         "--canonical-origin",
         default=None,
@@ -792,6 +932,8 @@ def main(argv: list[str] | None = None) -> int:
         check_admin_auth=args.check_admin_auth,
         admin_token=args.admin_token,
         canonical_origin=args.canonical_origin,
+        hero_sample=args.hero_sample or None,
+        max_dead_heroes=args.max_dead_heroes,
     )
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0 if result["ok"] else 1
