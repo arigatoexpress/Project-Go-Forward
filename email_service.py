@@ -86,6 +86,62 @@ def _current_api_key() -> str:
     return os.environ.get("RESEND_API_KEY", "")
 
 
+def _verify_resend_key(api_key: str, timeout: float = 8.0) -> bool:
+    """Ask Resend whether this key is actually accepted.
+
+    Uses the domains endpoint, which is read-only — it never sends mail. A 2xx
+    means the key is live; an HTTP error means it is not.
+    """
+    import urllib.error
+    import urllib.request
+
+    request = urllib.request.Request(
+        "https://api.resend.com/domains",
+        headers={"Authorization": f"Bearer {api_key}"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return 200 <= int(response.status) < 300
+    except urllib.error.HTTPError:
+        # A rejected key answers with an HTTP error, not a transport failure.
+        return False
+
+
+def check_email_liveness(api_key=None, verify=None) -> dict:
+    """Report whether transactional email actually WORKS.
+
+    ``/healthz/detailed`` used to report ``email: configured`` whenever the env
+    var was a non-empty string. On 2026-08-31 the key was present AND rejected
+    by the provider, so health stayed green while every transactional email was
+    dead — including the admin email sign-in code, the documented fallback for
+    staff who cannot use the shared PIN. They were asking for access at exactly
+    that moment.
+
+    States are deliberately distinct because they need different responses:
+    ``not_configured`` (nobody set it), ``invalid_key`` (rotate it),
+    ``unreachable`` (transient — retry), ``ok``. Never returns the key itself.
+    """
+    key = _current_api_key() if api_key is None else api_key
+    if not key:
+        return {"ok": False, "state": "not_configured", "detail": "RESEND_API_KEY is not set"}
+    verifier = verify or _verify_resend_key
+    try:
+        accepted = verifier(key)
+    except Exception as exc:
+        return {
+            "ok": False,
+            "state": "unreachable",
+            "detail": f"could not reach the email provider: {type(exc).__name__}",
+        }
+    if accepted:
+        return {"ok": True, "state": "ok", "detail": "provider accepted the API key"}
+    return {
+        "ok": False,
+        "state": "invalid_key",
+        "detail": "the email provider rejected the API key — rotate it",
+    }
+
+
 # Retired staff mailboxes that may still linger in a deployed NOTIFICATION_EMAIL
 # env var (Cloud Run env vars override the code default, so a stale value keeps
 # routing alerts to dead inboxes long after the code is fixed). Remap them to
