@@ -60,6 +60,11 @@ def test_inventory_cards_replace_slow_or_failed_cdn_images_with_visible_fallback
     assert "IntersectionObserver" in source
     assert 'loading="lazy"' in source
     assert 'decoding="async"' in source
+    # A dead photo must not cost the whole card. 22 hero URLs in the live
+    # catalog answer 403, and a listing with five good photos rendered "Photo
+    # Unavailable" because only the FIRST was ever tried. onError walks to the
+    # next candidate and gives up only once every one has failed.
+    assert "setHeroIndex(heroIndex + 1)" in source
     assert "setHeroLoadState('failed')" in source
     assert "Photo Unavailable" in source
 
