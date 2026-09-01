@@ -50,10 +50,17 @@ def test_inventory_cards_replace_slow_or_failed_cdn_images_with_visible_fallback
     source = INVENTORY_BROWSE.read_text()
 
     assert "heroLoadState" in source
-    assert "setHeroLoadState((state) => (state === 'loaded' ? state : 'failed'))" in source
+    # The watchdog must NOT declare a lazy image failed. It used to fire
+    # 'failed' 4.5s after MOUNT, while loading="lazy" meant the browser had not
+    # even requested the image for any below-the-fold card — so every off-screen
+    # listing was marked photo-less and the <img> unmounted, and the photo could
+    # never arrive. Staff reported this three times. 'slow' keeps the <img>
+    # mounted so a late photo still heals the card; only a real onError fails.
+    assert "setHeroLoadState((state) => (state === 'loading' ? 'slow' : state))" in source
+    assert "IntersectionObserver" in source
     assert 'loading="lazy"' in source
     assert 'decoding="async"' in source
-    assert "onError={() => setHeroLoadState('failed')}" in source
+    assert "setHeroLoadState('failed')" in source
     assert "Photo Unavailable" in source
 
 
