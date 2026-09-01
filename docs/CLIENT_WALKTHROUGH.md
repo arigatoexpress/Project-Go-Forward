@@ -2,7 +2,7 @@
 
 **Audience:** THO staff (day-to-day users) and any developer taking the project
 forward.
-**Live site:** https://tho.sapphirealpha.xyz
+**Live site:** https://www.texashomeoutlet.com
 **Status as of 2026-07-25:** Deployed and healthy on Cloud Run, running the
 latest `main`. Production smoke checks pass; the full automated test suite is
 green (1,796 passed, 24 environment-dependent skips).
@@ -223,7 +223,7 @@ for incident response and rollback.
 | E-sign | DocuSeal (integration built; returns 501 until env-configured — see `docs/DOCUSEAL_DEPLOY_RUNBOOK.md`) |
 | Email | Resend (optional, env-gated) |
 | Deploy | Single Docker container on Cloud Run (project `tho-ai-agent`, region `us-central1`) |
-| Hosting | Canonical URL `tho.sapphirealpha.xyz`; auto-deploys from `main` |
+| Hosting | Canonical URL `www.texashomeoutlet.com`; auto-deploys from `main` |
 
 ### Repository map
 
@@ -275,8 +275,8 @@ gcloud run deploy project-go-forward --source . --region us-central1
 ### Health & smoke (read-only, safe to run anytime)
 
 ```bash
-curl -fsS https://tho.sapphirealpha.xyz/healthz/        # liveness + deployed commit
-python3 scripts/production_smoke.py --base-url https://tho.sapphirealpha.xyz
+curl -fsS https://www.texashomeoutlet.com/healthz/        # liveness + deployed commit
+python3 scripts/production_smoke.py --base-url https://www.texashomeoutlet.com
 ```
 
 ### Secrets / environment (Cloud Run, via Secret Manager)

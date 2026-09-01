@@ -7,7 +7,7 @@ revision.
 ## Production URLs
 
 ```bash
-export THO_PROD_URL="https://tho.sapphirealpha.xyz"
+export THO_PROD_URL="https://www.texashomeoutlet.com"
 export THO_CLOUD_RUN_URL="https://project-go-forward-trgi34bxuq-uc.a.run.app"
 export THO_PROJECT="tho-ai-agent"
 export THO_REGION="us-central1"

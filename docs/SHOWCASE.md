@@ -1,6 +1,6 @@
 # Project Go Forward Showcase
 
-Use this as the short demo and diligence script for the live Texas Home Outlet app at [https://tho.sapphirealpha.xyz](https://tho.sapphirealpha.xyz).
+Use this as the short demo and diligence script for the live Texas Home Outlet app at [https://www.texashomeoutlet.com](https://www.texashomeoutlet.com).
 
 ## Current Live Facts
 
@@ -20,7 +20,7 @@ source of truth; do not claim the latest `main` is live unless the `version` val
 matches the commit you are discussing.
 
 ```bash
-export THO_PROD_URL="https://tho.sapphirealpha.xyz"
+export THO_PROD_URL="https://www.texashomeoutlet.com"
 python3 scripts/production_smoke.py --base-url "$THO_PROD_URL"
 ```
 
@@ -28,7 +28,7 @@ python3 scripts/production_smoke.py --base-url "$THO_PROD_URL"
 
 ### 1. Public Buyer Experience
 
-Open [https://tho.sapphirealpha.xyz](https://tho.sapphirealpha.xyz).
+Open [https://www.texashomeoutlet.com](https://www.texashomeoutlet.com).
 
 Show:
 
@@ -41,7 +41,7 @@ Do not submit real customer information during a demo.
 
 ### 2. Inventory-Aware Marketing
 
-Open [https://tho.sapphirealpha.xyz/studio](https://tho.sapphirealpha.xyz/studio).
+Open [https://www.texashomeoutlet.com/studio](https://www.texashomeoutlet.com/studio).
 
 Show the route and positioning first. Only continue into authenticated Ad Studio actions for an authorized audience:
 
@@ -50,7 +50,7 @@ Show the route and positioning first. Only continue into authenticated Ad Studio
 - generated social or video concepts,
 - marketing analytics tab.
 
-Standalone entry: [https://tho.sapphirealpha.xyz/studio.html](https://tho.sapphirealpha.xyz/studio.html).
+Standalone entry: [https://www.texashomeoutlet.com/studio.html](https://www.texashomeoutlet.com/studio.html).
 
 ### 3. Internal Operations
 

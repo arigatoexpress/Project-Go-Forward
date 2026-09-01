@@ -408,7 +408,11 @@ def test_run_and_admin_probes_are_opt_in_in_run_smoke(monkeypatch):
         if "passkey/status" in path:
             return (
                 200,
-                {"enabled": True, "persistent": True, "rp_ids": ["sapphirealpha.xyz"]},
+                {
+                    "enabled": True,
+                    "persistent": True,
+                    "rp_ids": ["texashomeoutlet.com", "sapphirealpha.xyz"],
+                },
                 5,
             )
         return 200, {}, 5
