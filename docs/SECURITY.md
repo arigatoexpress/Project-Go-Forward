@@ -30,7 +30,7 @@ Two patterns drafted:
 |-----|-----|-----|
 | `PII_ENCRYPTION_KEY` | Secret Manager (`secretKeyRef`) | ✓ correct |
 | `ADMIN_PIN_HASH` | Secret Manager (`admin-pin-hash`) | ✓ correct |
-| `RESEND_API_KEY` | Secret Manager target: `resend-api-key` | ⚠️ bind before relying on transactional email |
+| `RESEND_API_KEY` | Secret Manager (`resend-api-key`) | ✓ bound in `deploy.yml` as of 2026-08-31. Prerequisite: the `resend-api-key` secret must exist, or the deploy step fails. Rotate with `gcloud secrets versions add resend-api-key --data-file=-`; the service picks up `:latest` on the next revision. |
 | `N8N_API_TOKEN` | plaintext env | ⚠️ move to Secret Manager + rotate (exposed in prior tooling output) |
 | `THO_API_KEY` | plaintext env | ⚠️ move to Secret Manager + rotate (exposed in prior tooling output) |
 | `GOOGLE_APPLICATION_CREDENTIALS` | not used in Cloud Run (uses metadata server) | ✓ correct |
