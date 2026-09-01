@@ -820,15 +820,18 @@ async def resilient_json_decode_handler(request: Request, exc: JSONDecodeError) 
 # Add CORS — production origins from env, with sensible defaults
 IS_LOCAL = os.environ.get("K_SERVICE") is None  # K_SERVICE is set by Cloud Run
 _default_origins = [
+    # Canonical customer/staff origins.
+    "https://texashomeoutlet.com",
+    "https://www.texashomeoutlet.com",
     "https://tho-agent-691674245427.us-central1.run.app",
     "https://tho-agent-trgi34bxuq-uc.a.run.app",
     "https://tho-ai-agent.web.app",
     "https://tho-ai-agent.firebaseapp.com",
+    # Build-era origins, retained until the passkey re-registration sweep is
+    # done (see _CUTOVER_ORIGIN_RP_IDS in auth/routes.py). Remove together.
     "https://tho.sapphirealpha.xyz",
     "https://sapphirealpha.xyz",
     "https://www.sapphirealpha.xyz",
-    "https://texashomeoutlet.com",
-    "https://www.texashomeoutlet.com",
 ]
 ALLOWED_ORIGINS = [
     o.strip()

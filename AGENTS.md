@@ -46,7 +46,7 @@ python -m pytest tests/test_healthz.py tests/test_api_v1.py tests/test_document_
 
 ## Current status
 
-- Production live at `https://tho.sapphirealpha.xyz`
+- Production live at `https://www.texashomeoutlet.com`
 - Cloud Run service `project-go-forward` in `tho-ai-agent`
 - Health: `/health` (readiness), `/healthz/` (liveness)
 - Rollback via `gcloud run revisions list` + `gcloud run services update-traffic`

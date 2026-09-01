@@ -7,7 +7,7 @@ revision.
 ## Production URLs
 
 ```bash
-export THO_PROD_URL="https://tho.sapphirealpha.xyz"
+export THO_PROD_URL="https://www.texashomeoutlet.com"
 export THO_CLOUD_RUN_URL="https://project-go-forward-trgi34bxuq-uc.a.run.app"
 export THO_PROJECT="tho-ai-agent"
 export THO_REGION="us-central1"
@@ -87,9 +87,8 @@ After binding, verify `dependencies.email` changes to `configured` through the
 admin-only detailed probe:
 
 ```bash
-ADMIN_TOKEN="<admin token from /api/admin/verify>"
-curl -fsS "$THO_PROD_URL/healthz/detailed" \
-  -H "X-Admin-Token: $ADMIN_TOKEN" | python3 -m json.tool
+# $COOKIE_JAR comes from the admin sign-in block under "Admin PIN Commands".
+curl -fsS "$THO_PROD_URL/healthz/detailed" -b "$COOKIE_JAR" | python3 -m json.tool
 python3 scripts/production_smoke.py --base-url "$THO_PROD_URL"
 ```
 
@@ -149,25 +148,34 @@ PY
 unset THO_ADMIN_PIN ADMIN_PIN_HASH
 ```
 
-Exchange a known-good PIN for an admin token without echoing the PIN:
+Open an authenticated admin session without echoing the PIN.
+
+`POST /api/admin/verify` does **not** return the bearer token in its body — it
+answers `{"success": true, "csrf_token": "..."}` and sets the token as an
+httpOnly `tho_admin_token` cookie. Capture it with a cookie jar and send the
+cookie on subsequent calls:
 
 ```bash
+COOKIE_JAR="$(mktemp)"
 read -rsp "THO admin PIN: " THO_ADMIN_PIN; echo
-THO_ADMIN_TOKEN="$(
-  THO_ADMIN_PIN="$THO_ADMIN_PIN" python3 - <<'PY' | curl -fsS -X POST "$THO_PROD_URL/api/admin/verify" \
-  -H "Content-Type: application/json" \
-  --data-binary @- | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])'
-import json
-import os
-
-print(json.dumps({"pin": os.environ["THO_ADMIN_PIN"]}))
-PY
-)"
+THO_ADMIN_PIN="$THO_ADMIN_PIN" python3 -c \
+  'import json,os; print(json.dumps({"pin": os.environ["THO_ADMIN_PIN"]}))' \
+  | curl -sS -X POST "$THO_PROD_URL/api/admin/verify" \
+      -H "Content-Type: application/json" \
+      --data-binary @- \
+      -c "$COOKIE_JAR" -o /dev/null -w 'HTTP %{http_code}\n'
 unset THO_ADMIN_PIN
-printf 'Admin token loaded into THO_ADMIN_TOKEN (%s chars)\n' "${#THO_ADMIN_TOKEN}"
-curl -fsS "$THO_PROD_URL/api/admin/check" \
-  -H "X-Admin-Token: $THO_ADMIN_TOKEN" | python3 -m json.tool
+grep -q tho_admin_token "$COOKIE_JAR" && echo "signed in" || echo "PIN rejected"
+
+curl -fsS "$THO_PROD_URL/api/admin/check" -b "$COOKIE_JAR" | python3 -m json.tool
 ```
+
+`401` means the PIN is wrong. `429` means the rate limiter tripped (5/min per
+IP, then a 10-attempt / 5-minute lockout) — wait it out rather than retrying.
+`503` with `Admin auth not configured` means `ADMIN_PIN_HASH` is missing from
+the serving revision.
+
+Remove the jar when finished: `rm -f "$COOKIE_JAR"`.
 
 Rotate the admin PIN:
 

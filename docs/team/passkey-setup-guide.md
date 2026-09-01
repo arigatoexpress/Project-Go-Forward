@@ -9,6 +9,14 @@ A passkey replaces typing the admin PIN. Once it's set up:
 
 If you lose your laptop or phone, you can still use the PIN — passkeys are an *extra* convenience, not a replacement for the PIN you already know.
 
+> **Set your passkey up on `www.texashomeoutlet.com`.**
+> During the build we ran the site on a temporary address,
+> `tho.sapphirealpha.xyz`. Your device ties a passkey to the exact web address
+> you created it on, so one registered on the old address will not work on the
+> new one — your browser won't even offer it. If you already registered on the
+> old address, sign in with the PIN here and register again. It takes about a
+> minute.
+
 ---
 
 ## Pick the section that matches your device
@@ -27,7 +35,7 @@ If you lose your laptop or phone, you can still use the PIN — passkeys are an 
 
 **You'll need:** Touch ID set up on your Mac (most newer MacBooks and Magic Keyboards), OR your Mac password.
 
-1. **Open the THO admin site.** Go to https://tho.sapphirealpha.xyz on Safari, Chrome, or your usual browser.
+1. **Open the THO admin site.** Go to https://www.texashomeoutlet.com on Safari, Chrome, or your usual browser.
 2. **Click the lock icon** in the top-right corner of the page (it looks like 🔒).
 3. **Type the admin PIN once.** This proves it's you. (You only do this on first setup; later you'll skip it.)
 4. **Click "Settings"** in the menu that appears after you log in.
@@ -37,7 +45,7 @@ If you lose your laptop or phone, you can still use the PIN — passkeys are an 
 8. **Done.** You'll see a green checkmark.
 
 **To sign in next time:**
-1. Open https://tho.sapphirealpha.xyz, click the 🔒 icon.
+1. Open https://www.texashomeoutlet.com, click the 🔒 icon.
 2. Click **"Sign in with passkey"**.
 3. Tap your fingerprint when the box pops up.
 4. You're in.
@@ -48,7 +56,7 @@ If you lose your laptop or phone, you can still use the PIN — passkeys are an 
 
 **You'll need:** Windows Hello set up (fingerprint, face camera, or PIN).
 
-1. **Open the THO admin site.** Go to https://tho.sapphirealpha.xyz on Edge or Chrome.
+1. **Open the THO admin site.** Go to https://www.texashomeoutlet.com on Edge or Chrome.
 2. **Click the lock icon** in the top-right (🔒).
 3. **Type the admin PIN once** to log in.
 4. **Click "Settings"** in the menu.
@@ -58,7 +66,7 @@ If you lose your laptop or phone, you can still use the PIN — passkeys are an 
 8. **Done.**
 
 **To sign in next time:**
-1. Open https://tho.sapphirealpha.xyz, click 🔒.
+1. Open https://www.texashomeoutlet.com, click 🔒.
 2. Click **"Sign in with passkey"**.
 3. Use Windows Hello (fingerprint / face / PIN) when the box pops up.
 4. You're in.
@@ -70,16 +78,16 @@ If you lose your laptop or phone, you can still use the PIN — passkeys are an 
 **You'll need:** Face ID or Touch ID set up.
 
 1. **Open Safari** (not another browser — Safari is required on iPhone for the smoothest experience).
-2. **Go to** https://tho.sapphirealpha.xyz.
+2. **Go to** https://www.texashomeoutlet.com.
 3. **Tap the lock icon** (🔒) in the top-right.
 4. **Type the admin PIN once** to log in.
 5. **Tap "Settings"**.
-6. **Tap "Set up a passkey"** — iOS will pop up *"Save a passkey for tho.sapphirealpha.xyz?"*
+6. **Tap "Set up a passkey"** — iOS will pop up *"Save a passkey for www.texashomeoutlet.com?"*
 7. **Tap "Continue"**, then look at your phone for Face ID (or touch the home button for Touch ID).
 8. **Done.** Your passkey is now saved in your iCloud Keychain — it'll automatically appear on your other Apple devices that share the same Apple ID.
 
 **To sign in next time:**
-1. Open Safari to https://tho.sapphirealpha.xyz, tap 🔒.
+1. Open Safari to https://www.texashomeoutlet.com, tap 🔒.
 2. Tap **"Sign in with passkey"**.
 3. Look at your phone (Face ID) or tap fingerprint (Touch ID).
 4. You're in.
@@ -91,7 +99,7 @@ If you lose your laptop or phone, you can still use the PIN — passkeys are an 
 **You'll need:** Fingerprint, face unlock, or screen lock set up.
 
 1. **Open Chrome** on your Android phone.
-2. **Go to** https://tho.sapphirealpha.xyz.
+2. **Go to** https://www.texashomeoutlet.com.
 3. **Tap the lock icon** (🔒) in the top-right.
 4. **Type the admin PIN once** to log in.
 5. **Tap "Settings"**.
@@ -99,7 +107,7 @@ If you lose your laptop or phone, you can still use the PIN — passkeys are an 
 7. **Use your fingerprint, face, or screen lock pattern**.
 8. **Done.** Your passkey is now saved in your Google Account — it'll appear on your other Android devices signed into the same Google Account.
 
-**To sign in next time:** open Chrome to https://tho.sapphirealpha.xyz, tap 🔒, tap **"Sign in with passkey"**, use your fingerprint or face.
+**To sign in next time:** open Chrome to https://www.texashomeoutlet.com, tap 🔒, tap **"Sign in with passkey"**, use your fingerprint or face.
 
 ---
 
@@ -168,7 +176,7 @@ Use the PIN fallback once, open **System Hub → Passkey Recovery**, and revoke 
 
 | To do this | On Mac / Windows | On iPhone / Android |
 |---|---|---|
-| **Open admin site** | Browser → tho.sapphirealpha.xyz | Safari/Chrome → tho.sapphirealpha.xyz |
+| **Open admin site** | Browser → www.texashomeoutlet.com | Safari/Chrome → www.texashomeoutlet.com |
 | **Open login** | Click 🔒 (top-right) | Tap 🔒 (top-right) |
 | **Sign in (after setup)** | Click "Sign in with passkey" → fingerprint/face | Tap "Sign in with passkey" → Face ID/fingerprint |
 | **Set up new passkey** | Settings → "Set up a passkey" → fingerprint | Settings → "Set up a passkey" → Face ID |
@@ -186,7 +194,7 @@ PINs work, but they have problems:
 
 Passkeys solve all three:
 - Nothing to type — your fingerprint never leaves your device
-- A passkey only works on the real `tho.sapphirealpha.xyz` — fake sites can't use it
+- A passkey only works on the real `www.texashomeoutlet.com` — fake sites can't use it
 - If your passkey is compromised, only your one device is affected — everyone else is fine
 
 The PIN stays as a fallback so no one ever gets locked out.
