@@ -352,6 +352,51 @@ def _head_status(url: str, *, timeout: float = 15.0) -> int:
         return 0
 
 
+def evaluate_served_commit(
+    *, served: str | None, expected: str | None, status: int, elapsed_ms: int
+) -> Probe:
+    """Fail when production is not serving the commit you merged.
+
+    Production pins traffic (`--no-traffic --tag=candidate` in deploy.yml), so a
+    merge alone never promotes a revision — drift is the DEFAULT state here, not
+    an edge case. Twice on 2026-08-31 a cutover was believed complete while the
+    live bundle still carried pre-fix code, and nothing anywhere compared what is
+    DEPLOYED to what is MERGED.
+
+    Short SHAs are accepted on either side so a 7-char expectation matches.
+    """
+    served = (served or "").strip()
+    if not served:
+        return Probe(
+            name="production serves the merged commit",
+            ok=False,
+            status=status,
+            evidence="deployed commit unknown (/healthz/ returned no version)",
+            elapsed_ms=elapsed_ms,
+        )
+    if not expected:
+        return Probe(
+            name="production serves the merged commit",
+            ok=True,
+            status=status,
+            evidence=f"serving {served[:7]}; no expected commit supplied (--expect-commit)",
+            elapsed_ms=elapsed_ms,
+        )
+    expected = expected.strip()
+    width = min(len(served), len(expected))
+    match = served[:width].lower() == expected[:width].lower()
+    return Probe(
+        name="production serves the merged commit",
+        ok=status == 200 and match,
+        status=status,
+        evidence=(
+            f"serving={served[:7]}; expected={expected[:7]}; "
+            + ("match" if match else "DRIFT — production is not running the merged code")
+        ),
+        elapsed_ms=elapsed_ms,
+    )
+
+
 def evaluate_floorplan_heroes(
     homes: list[dict[str, Any]], *, status: int, elapsed_ms: int
 ) -> Probe:
@@ -445,6 +490,17 @@ def check_inventory_media_reality(
             sample=hero_sample,
         ),
     ]
+
+
+def check_served_commit(base_url: str, *, timeout: float, expected: str | None) -> Probe:
+    status, payload, elapsed_ms = _json_probe(base_url, "/healthz/", timeout=timeout)
+    served = payload.get("version") if isinstance(payload, dict) else ""
+    return evaluate_served_commit(
+        served=served if isinstance(served, str) else "",
+        expected=expected,
+        status=status,
+        elapsed_ms=elapsed_ms,
+    )
 
 
 def check_canonical_authority(
@@ -826,9 +882,11 @@ def run_smoke(
     canonical_origin: str | None = None,
     hero_sample: int = 40,
     max_dead_heroes: int = 0,
+    expect_commit: str | None = None,
 ) -> dict[str, Any]:
     probes: list[Probe] = []
     probes.extend(check_health(base_url, timeout=timeout))
+    probes.append(check_served_commit(base_url, timeout=timeout, expected=expect_commit))
     probes.append(check_inventory(base_url, timeout=timeout, min_homes=min_homes))
     probes.append(check_inventory_media_depth(base_url, timeout=timeout))
     probes.extend(
@@ -865,6 +923,11 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--base-url", default=DEFAULT_BASE_URL)
     parser.add_argument("--timeout", type=float, default=10.0)
     parser.add_argument("--min-homes", type=int, default=DEFAULT_MIN_HOMES)
+    parser.add_argument(
+        "--expect-commit",
+        default=None,
+        help="Fail if production is not serving this commit SHA (short or full).",
+    )
     parser.add_argument(
         "--hero-sample",
         type=int,
@@ -934,6 +997,7 @@ def main(argv: list[str] | None = None) -> int:
         canonical_origin=args.canonical_origin,
         hero_sample=args.hero_sample or None,
         max_dead_heroes=args.max_dead_heroes,
+        expect_commit=args.expect_commit,
     )
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0 if result["ok"] else 1

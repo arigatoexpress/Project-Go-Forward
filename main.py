@@ -2193,6 +2193,27 @@ def healthz() -> JSONResponse:
     )
 
 
+_EMAIL_LIVENESS_CACHE: dict[str, object] = {"checked_at": 0.0, "status": None}
+_EMAIL_LIVENESS_TTL_S = 300
+
+
+def _cached_email_liveness() -> dict[str, object]:
+    """Verified email status, re-checked at most every 5 minutes."""
+    now = time.monotonic()
+    cached = _EMAIL_LIVENESS_CACHE.get("status")
+    if cached and (now - float(_EMAIL_LIVENESS_CACHE.get("checked_at") or 0)) < _EMAIL_LIVENESS_TTL_S:
+        return cached
+    try:
+        from email_service import check_email_liveness
+
+        status = check_email_liveness()
+    except Exception as exc:  # a health probe must never 500
+        status = {"ok": False, "state": "unreachable", "detail": type(exc).__name__}
+    _EMAIL_LIVENESS_CACHE["status"] = status
+    _EMAIL_LIVENESS_CACHE["checked_at"] = now
+    return status
+
+
 @app.get("/healthz/detailed", response_class=JSONResponse)
 @limiter.exempt
 def healthz_detailed(request: Request) -> JSONResponse:
@@ -2201,10 +2222,21 @@ def healthz_detailed(request: Request) -> JSONResponse:
         token = _admin_token_from_request(request)
         if not token or not _verify_admin_token(token):
             raise HTTPException(status_code=403, detail="Admin access required")
-    email_configured = bool(os.environ.get("RESEND_API_KEY"))
+    # "Set" is not "works". This endpoint used to report email: configured
+    # whenever RESEND_API_KEY was a non-empty string — so it stayed green on
+    # 2026-08-31 while the provider rejected the key and every transactional
+    # email was dead, including the admin email sign-in code that staff rely on
+    # when the shared PIN will not work. Verified for real, cached so health
+    # probes cannot hammer the provider.
+    email_status = _cached_email_liveness()
+    email_configured = bool(email_status.get("ok"))
     warnings = []
-    if not email_configured:
+    if email_status.get("state") == "not_configured":
         warnings.append("email_not_configured")
+    elif email_status.get("state") == "invalid_key":
+        warnings.append("email_key_rejected")
+    elif email_status.get("state") == "unreachable":
+        warnings.append("email_provider_unreachable")
     credential_dependency_key = "sec" + "rets"
     version = (
         os.environ.get("APP_VERSION")
@@ -2231,7 +2263,7 @@ def healthz_detailed(request: Request) -> JSONResponse:
             else "not_configured",
             credential_dependency_key: "configured" if ADMIN_PIN_HASH else "missing",
             "db": "configured" if project_id else "missing",
-            "email": "configured" if email_configured else "missing",
+            "email": str(email_status.get("state", "missing")),
         },
         "warnings": warnings,
     }
