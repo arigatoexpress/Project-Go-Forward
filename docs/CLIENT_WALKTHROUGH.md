@@ -315,7 +315,19 @@ Runbooks live in `docs/PRODUCTION_READINESS.md` (deploy/email/PIN),
 - Cold-start latency of ~5–10s on first hit (Cloud Run scale-to-zero).
 - Chat history persists per browser session; a visitor on a new browser or
   cleared storage starts a fresh session.
-- Inventory sync is run periodically via the scraper tool, not real-time.
+- **Inventory is currently frozen.** The public Inventory page is served from a
+  legacy snapshot captured **2026-05-11**, because `INVENTORY_SOURCE` defaults to
+  `legacy` and the old scraper target was repointed at this app by the domain
+  cutover (so the periodic re-scrape can no longer reach a real source).
+  Consequences for staff:
+  - **Photos added in the Photos tab DO appear publicly** — staff uploads are
+    overlaid onto every inventory source (`_overlay_staff_photos`).
+  - **Homes added/edited/retired in Inventory Manager do NOT appear publicly
+    yet** — those writes go to the Firestore `inventory` collection, which the
+    public page will not read until `INVENTORY_SOURCE` is switched.
+  To enable self-serve inventory: seed Firestore from the snapshot
+  (`python -m tools.inventory_seed --apply`), verify the admin list, then set
+  `INVENTORY_SOURCE=firestore` (env var; no redeploy, revert with `legacy`).
 
 ---
 
