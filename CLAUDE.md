@@ -150,7 +150,7 @@ python scripts/batch_inspect_pdfs.py
 ### Marketing
 - `POST /api/marketing/generate-script` — Ad Studio script generation
 - `GET /api/marketing/trending-ideas` — Trending content ideas
-- `POST /api/marketing/schedule` — Schedule social post
+- `POST /api/marketing/schedule` — Prepare a reviewed social draft (legacy route name)
 - `GET /api/marketing/analytics` — Content performance analytics
 - `POST /api/marketing/generate-image` — AI image generation
 - `GET /api/marketing/inventory-context` — Inventory data for ad creation

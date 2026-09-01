@@ -318,3 +318,50 @@ def test_merge_preserves_explicit_home_id_and_fills_only_missing_values():
         "stable-explicit-id",
         "12345",
     ]
+
+
+def test_merge_computes_duplicate_signatures_once_per_home(monkeypatch):
+    """A large catalog must not renormalize every home for every comparison."""
+    from tools import catalog_floorplans
+
+    homes = [
+        {
+            "id": f"performance-{index:03d}",
+            "model_name": f"Performance Model {index:03d} Unique",
+            "manufacturer": f"Maker {index:03d} Brand",
+            "status": "Available",
+        }
+        for index in range(60)
+    ]
+    calls = {"identity": 0, "model": 0, "manufacturer": 0}
+    original_identity = catalog_floorplans._identity_keys
+    original_model = catalog_floorplans._model_key
+    original_manufacturer = catalog_floorplans._manufacturer_key
+
+    def counted_identity(home):
+        calls["identity"] += 1
+        return original_identity(home)
+
+    def counted_model(home):
+        calls["model"] += 1
+        return original_model(home)
+
+    def counted_manufacturer(home):
+        calls["manufacturer"] += 1
+        return original_manufacturer(home)
+
+    monkeypatch.setattr(catalog_floorplans, "_identity_keys", counted_identity)
+    monkeypatch.setattr(catalog_floorplans, "_model_key", counted_model)
+    monkeypatch.setattr(catalog_floorplans, "_manufacturer_key", counted_manufacturer)
+
+    merged = catalog_floorplans.merge_orderable_floorplan_catalog(
+        {"homes": homes},
+        assets={},
+    )
+
+    assert len(merged["homes"]) == len(homes)
+    assert calls == {
+        "identity": len(homes),
+        "model": len(homes),
+        "manufacturer": len(homes),
+    }

@@ -161,8 +161,8 @@ AI-assisted marketing content built around real inventory:
   Financing Tips, Clearance Alert, Behind the Scenes, Customer Story,
   Comparison, FAQ), Tex avatar styles, English or Spanish, and image styles.
 - **Content Ideas** — trending ideas to keep the posting calendar full.
-- **Scheduled** — plan and track upcoming posts.
-- **Analytics** — performance tracking for published ads.
+- **Drafts** — review drafts prepared while the Ad Studio screen is open; they are not persisted or posted to a social platform.
+- **Analytics** — local creative and inventory readiness; it does not claim live social-platform metrics.
 
 Because it reads live inventory, ads reference homes actually on the lot. You
 can also jump here straight from a home on the Inventory page to create an ad
@@ -284,7 +284,7 @@ python3 scripts/production_smoke.py --base-url https://tho.sapphirealpha.xyz
 | Variable | Purpose | Required? |
 |----------|---------|-----------|
 | `ADMIN_PIN_HASH` | SHA-256 of the staff admin PIN | **Yes** |
-| `ADMIN_SESSION_SECRET` | Session token signing (derived from PIN hash if unset) | Recommended |
+| `ADMIN_SESSION_SECRET` | Independent session signing secret (Cloud Run requires ≥32 UTF-8 bytes; never PIN-derived) | Required |
 | `GOOGLE_GENAI_USE_VERTEXAI=TRUE` | Use Vertex AI for Gemini | Yes |
 | `RESEND_API_KEY` | Transactional email (lead/appointment/deal emails, staff sign-in codes) | For email |
 | `NOTIFICATION_EMAIL` | Comma-separated staff alert recipients | For email |

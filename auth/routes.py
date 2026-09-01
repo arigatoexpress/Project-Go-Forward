@@ -23,17 +23,25 @@ import os
 import struct
 import time
 from base64 import urlsafe_b64decode
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Body, Cookie, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 
+from .csrf import create_csrf_token, require_cookie_csrf, require_request_csrf, set_csrf_cookie
 from .session import (
     PASSKEY_COOKIE_NAME,
     SESSION_COOKIE_NAME,
     SessionManager,
 )
-from .store import CredentialStore, CredentialStoreUnavailable, default_store
+from .store import (
+    CredentialAlreadyExists,
+    CredentialStore,
+    CredentialStoreUnavailable,
+    MinimumCredentialError,
+    default_store,
+)
 
 # webauthn may not be installed in all environments (e.g. CI without it)
 try:
@@ -167,6 +175,23 @@ def _passkey_allowed_owner_emails() -> set[str]:
     return configured or set(DEFAULT_OWNER_EMAILS)
 
 
+def _protected_owner_emails() -> set[str]:
+    """Owner identities that shared PIN/staff sessions may never enroll for."""
+    return _passkey_allowed_owner_emails() | _split_env_values("THO_GOOGLE_ADS_OWNER_EMAILS")
+
+
+def google_ads_owner_emails() -> set[str]:
+    """Return the exact Ads-owner set only when login authorization matches it."""
+    ads_owners = _split_env_values("THO_GOOGLE_ADS_OWNER_EMAILS")
+    if (
+        not ads_owners
+        or any("@" not in email or len(email.encode("utf-8")) > 200 for email in ads_owners)
+        or ads_owners != _passkey_allowed_owner_emails()
+    ):
+        raise ValueError("Google Ads owner allowlist is not consistently configured")
+    return ads_owners
+
+
 def _passkey_allowed_domains() -> set[str]:
     configured = _split_env_values("THO_PASSKEY_ALLOWED_DOMAINS")
     return configured or {DEFAULT_PASSKEY_STAFF_DOMAIN}
@@ -289,6 +314,29 @@ def _request_is_admin(request: Request, manager: SessionManager) -> bool:
 def _require_admin_request(request: Request, manager: SessionManager) -> None:
     if not _request_is_admin(request, manager):
         raise HTTPException(status_code=401, detail="Admin authentication required")
+    require_request_csrf(request)
+
+
+def _require_same_owner_passkey_for_registration(
+    request: Request,
+    manager: SessionManager,
+    email: str,
+) -> None:
+    if email not in _protected_owner_emails():
+        return
+    require_cookie_csrf(request)
+    payload = manager.verify_session(request.cookies.get(PASSKEY_COOKIE_NAME))
+    session_email = _normalize_email((payload or {}).get("email"))
+    if (
+        not payload
+        or payload.get("user_id") != "admin"
+        or payload.get("auth_method") != "passkey"
+        or session_email != email
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Owner passkeys can only be added from the same owner's passkey session.",
+        )
 
 
 def _credential_descriptors(
@@ -369,6 +417,7 @@ def register_begin(
         raise HTTPException(status_code=503, detail="WebAuthn library not available")
     _require_admin_request(request, manager)
     admin_email = _require_allowed_passkey_email((payload or {}).get("email"))
+    _require_same_owner_passkey_for_registration(request, manager, admin_email)
 
     challenge = manager.new_challenge_bytes()
     challenge_handle = manager.wrap_challenge(challenge, flow="register", email=admin_email)
@@ -422,6 +471,7 @@ def register_complete(
         raise HTTPException(status_code=400, detail="Challenge expired or invalid")
     expected_challenge = challenge_payload["challenge"]
     admin_email = _require_allowed_passkey_email(challenge_payload.get("email"))
+    _require_same_owner_passkey_for_registration(request, manager, admin_email)
     expected_origin, expected_rp_id = _webauthn_context(request)
 
     try:
@@ -447,13 +497,27 @@ def register_complete(
     )
     try:
         store.add(record)
+    except CredentialAlreadyExists:
+        log.warning("passkey credential registration rejected an existing id")
+        raise HTTPException(
+            status_code=409,
+            detail="Passkey credential is already registered.",
+        ) from None
     except Exception as exc:
         log.warning("passkey credential persist failed: %s", exc)
         raise HTTPException(status_code=503, detail="Passkey credential store unavailable")
 
     # Issue session immediately after registration
     token = manager.issue_session("admin", email=admin_email, auth_method="passkey")
-    result = JSONResponse({"success": True, "registered": True, "email": admin_email})
+    csrf_token = create_csrf_token()
+    result = JSONResponse(
+        {
+            "success": True,
+            "registered": True,
+            "email": admin_email,
+            "csrf_token": csrf_token,
+        }
+    )
     result.delete_cookie(key="tho_passkey_register", path="/api/admin/passkey/register/complete")
     result.set_cookie(
         key=PASSKEY_COOKIE_NAME,
@@ -463,6 +527,12 @@ def register_complete(
         secure=_cookie_secure(request),
         samesite="Strict",
         path="/",
+    )
+    set_csrf_cookie(
+        result,
+        csrf_token,
+        secure=_cookie_secure(request),
+        max_age=manager.session_ttl,
     )
     return result
 
@@ -554,18 +624,40 @@ def login_complete(
             credential_public_key=rec.public_key,
             credential_current_sign_count=rec.sign_count,
         )
+        if verified.credential_id != raw_id:
+            raise ValueError("credential identity mismatch")
     except Exception as exc:
         log.warning("passkey login verify failed: %s", exc)
         raise HTTPException(status_code=400, detail="Authentication verification failed")
 
     try:
-        store.update_usage(verified.credential_id, sign_count=verified.new_sign_count)
+        usage = store.prepare_usage_cas(rec, new_sign_count=verified.new_sign_count)
+    except (TypeError, ValueError):
+        raise HTTPException(
+            status_code=409,
+            detail="Passkey counter changed. Refresh and retry.",
+        ) from None
+    try:
+        updated = store.compare_and_set_usage(usage, used_at=datetime.now(UTC))
     except Exception as exc:
         log.warning("passkey credential usage update failed: %s", exc)
         raise HTTPException(status_code=503, detail="Passkey credential store unavailable")
+    if not updated:
+        raise HTTPException(
+            status_code=409,
+            detail="Passkey counter changed. Refresh and retry.",
+        )
 
     token = manager.issue_session("admin", email=rec.user_id, auth_method="passkey")
-    result = JSONResponse({"success": True, "authenticated": True, "email": rec.user_id})
+    csrf_token = create_csrf_token()
+    result = JSONResponse(
+        {
+            "success": True,
+            "authenticated": True,
+            "email": rec.user_id,
+            "csrf_token": csrf_token,
+        }
+    )
     result.delete_cookie(key="tho_passkey_login", path="/api/admin/passkey/login/complete")
     result.set_cookie(
         key=PASSKEY_COOKIE_NAME,
@@ -575,6 +667,12 @@ def login_complete(
         secure=_cookie_secure(request),
         samesite="Strict",
         path="/",
+    )
+    set_csrf_cookie(
+        result,
+        csrf_token,
+        secure=_cookie_secure(request),
+        max_age=manager.session_ttl,
     )
     return result
 
@@ -623,8 +721,27 @@ def delete_credential(
     _require_admin_request(request, manager)
     credential_id = _decode_credential_id(credential_id_b64)
     try:
-        deleted = store.delete(credential_id)
+        target = store.get(credential_id)
+        if target is None:
+            raise HTTPException(status_code=404, detail="Passkey credential not found")
+        target_email = _normalize_email(target.user_id)
+        if target_email in _protected_owner_emails():
+            _require_same_owner_passkey_for_registration(request, manager, target_email)
+            deleted = store.delete_preserving_user_minimum(
+                credential_id,
+                user_id=target_email,
+                minimum_remaining=1,
+            )
+        else:
+            deleted = store.delete(credential_id)
         remaining_records = store.list_all()
+    except HTTPException:
+        raise
+    except MinimumCredentialError:
+        raise HTTPException(
+            status_code=409,
+            detail="Add a replacement owner passkey before revoking this recovery key.",
+        ) from None
     except Exception as exc:
         log.warning("passkey credential delete failed: %s", exc)
         raise HTTPException(status_code=503, detail="Passkey credential store unavailable")

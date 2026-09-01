@@ -40,6 +40,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.gzip import GZipMiddleware
 
 import caching
+from auth.csrf import create_csrf_token, require_request_csrf, set_csrf_cookie
 from auth.email_code import (
     EMAIL_CODE_TTL_SECONDS,
     MAX_CODE_ATTEMPTS,
@@ -48,11 +49,13 @@ from auth.email_code import (
     generate_code,
     hash_code,
 )
+from auth.google_ads_step_up_routes import router as google_ads_step_up_router
 from auth.routes import is_allowed_admin_email
 from auth.routes import router as passkey_router
 from auth.session import SESSION_COOKIE_NAME as PASSKEY_COOKIE_NAME
-from auth.session import SessionManager
+from auth.session import SessionManager, validate_cloud_run_session_secret
 from config_loader import business_name, get_deployment_config
+from google_ads_admin.approval_routes import router as google_ads_approval_router
 from inventory_classification import normalize_inventory_classification
 
 # render_prompt is the SAME loader root_agent.py feeds the ADK runner — the
@@ -937,14 +940,19 @@ import base64
 import hmac
 import struct
 
-# Derive a stable session secret from the PIN hash if not explicitly provided.
-# This prevents random secret rotation on every Cloud Run cold start, which
-# causes session invalidation and 'double PIN gates'.
-if not os.environ.get("ADMIN_SESSION_SECRET") and ADMIN_PIN_HASH:
-    # Use a different salt from the JWT secret below
-    _derived_secret = hashlib.sha256(f"tho-session-v2-{ADMIN_PIN_HASH}".encode()).hexdigest()
-    os.environ["ADMIN_SESSION_SECRET"] = _derived_secret
-    logger.info("ADMIN_SESSION_SECRET derived from PIN hash for stability")
+# Production passkey claims must use an independent secret that no shared PIN
+# holder can derive. Local development keeps the stable fallback to avoid
+# invalidating sessions on every restart.
+if os.environ.get("K_SERVICE"):
+    validate_cloud_run_session_secret(
+        os.environ.get("ADMIN_SESSION_SECRET"),
+        admin_pin_hash=ADMIN_PIN_HASH,
+    )
+elif not os.environ.get("ADMIN_SESSION_SECRET"):
+    if ADMIN_PIN_HASH:
+        _derived_secret = hashlib.sha256(f"tho-session-v2-{ADMIN_PIN_HASH}".encode()).hexdigest()
+        os.environ["ADMIN_SESSION_SECRET"] = _derived_secret
+        logger.info("ADMIN_SESSION_SECRET derived from PIN hash for local stability")
 
 ADMIN_TOKEN_TTL = int(os.environ.get("ADMIN_TOKEN_TTL", str(24 * 60 * 60)))  # 24 hours
 _JWT_SECRET = hashlib.sha256(f"sapphire-jwt-{ADMIN_PIN_HASH[:16]}".encode()).digest()
@@ -1019,11 +1027,6 @@ def _admin_token_from_request(request: Request) -> str:
     if scheme.lower() == "bearer" and value:
         return value.strip()
     return ""
-
-
-def _create_csrf_token() -> str:
-    """Generate a random CSRF token for double-submit cookie pattern."""
-    return secrets.token_hex(32)
 
 
 def _extract_utm(data: dict) -> dict:
@@ -1146,38 +1149,14 @@ def _store_analytics_event(
             _db.db.collection("analytics_events").add(record, timeout=FIRESTORE_RPC_TIMEOUT)
         return True
     except Exception as exc:
-        struct_logger.warning(
-            "Analytics event store failed", event=canonical, error=str(exc)
-        )
+        struct_logger.warning("Analytics event store failed", event=canonical, error=str(exc))
         return False
-
-
-def _verify_csrf(request: Request) -> bool:
-    """Verify CSRF token for state-changing admin requests.
-
-    Safe methods (GET, HEAD, OPTIONS) are exempt.
-    Requests using X-Admin-Token or Authorization: Bearer header
-    (custom headers, already CSRF-safe) are exempt.
-    Cookie-based auth requests must provide matching X-CSRF-Token header.
-    """
-    if request.method in {"GET", "HEAD", "OPTIONS"}:
-        return True
-    # If using header-based auth, skip CSRF (custom headers are CSRF-safe)
-    if request.headers.get("X-Admin-Token", "").strip():
-        return True
-    auth = request.headers.get("Authorization", "").strip()
-    if auth.lower().startswith("bearer "):
-        return True
-    csrf_cookie = request.cookies.get("tho_csrf_token", "")
-    csrf_header = request.headers.get("X-CSRF-Token", "")
-    if not csrf_cookie or not csrf_header:
-        return False
-    return secrets.compare_digest(csrf_cookie, csrf_header)
 
 
 async def require_admin(request: Request):
     """FastAPI dependency that validates the stateless admin token or passkey session."""
     if _verify_passkey_cookie(request):
+        require_request_csrf(request)
         return
     token = _admin_token_from_request(request)
     if not token:
@@ -1186,8 +1165,7 @@ async def require_admin(request: Request):
         raise HTTPException(
             status_code=401, detail="Admin session expired. Please re-authenticate."
         )
-    if not _verify_csrf(request):
-        raise HTTPException(status_code=403, detail="CSRF token missing or invalid")
+    require_request_csrf(request)
 
 
 @app.get("/api/metrics", dependencies=[Depends(require_admin)])
@@ -1945,7 +1923,11 @@ async def get_event_analytics(range: str = "30d"):
             # ISO timestamps sort lexicographically = chronologically; read the
             # collection and keep in-range docs. (Low launch volume; move to a
             # created_at .where()+index if it grows.)
-            for doc in _db.db.collection("analytics_events").limit(10000).stream(timeout=FIRESTORE_RPC_TIMEOUT):
+            for doc in (
+                _db.db.collection("analytics_events")
+                .limit(10000)
+                .stream(timeout=FIRESTORE_RPC_TIMEOUT)
+            ):
                 d = doc.to_dict() or {}
                 if str(d.get("created_at", "")) >= cutoff:
                     events.append(d)
@@ -2008,12 +1990,8 @@ async def get_event_analytics(range: str = "30d"):
                 "appointment_journeys": len(appointment_journeys),
                 "phone_journeys": len(phone_journeys),
                 "lead_conversion_rate": percentage(len(lead_journeys), len(journeys)),
-                "appointment_conversion_rate": percentage(
-                    len(appointment_journeys), len(journeys)
-                ),
-                "attribution_coverage_pct": percentage(
-                    len(attributed), len(canonical_events)
-                ),
+                "appointment_conversion_rate": percentage(len(appointment_journeys), len(journeys)),
+                "attribution_coverage_pct": percentage(len(attributed), len(canonical_events)),
             },
         }
     except Exception as e:
@@ -2309,6 +2287,27 @@ def _readyz_check_firestore() -> dict:
     return {"ok": True}
 
 
+def _readyz_check_inventory_source() -> dict:
+    """Report selected-source truth without making stale data a process outage."""
+    requested = _inventory_source_pref()
+    if requested == "legacy":
+        context = load_legacy_inventory_snapshot_metadata()
+        status = source_status(
+            context,
+            requested=requested,
+            selected_path="legacy",
+        )
+        status["ok"] = status.get("freshness") == "fresh"
+        status["current_inventory_count"] = context.get("total_inventory")
+        return status
+
+    context = _resolve_public_inventory_context()
+    status = dict(context.get("source_status") or {})
+    status["ok"] = status.get("freshness") == "fresh"
+    status["current_inventory_count"] = context.get("current_inventory_count")
+    return status
+
+
 @app.api_route("/readyz", methods=["GET", "HEAD"], response_class=JSONResponse)
 @app.api_route("/readyz/", methods=["GET", "HEAD"], response_class=JSONResponse)
 @limiter.exempt
@@ -2316,8 +2315,9 @@ def readyz() -> JSONResponse:
     """Real readiness probe — exercises runtime deps a working request needs.
 
     Hard checks (failure -> 503): prompt templates render, regulatory documents
-    present. Soft check (reported, never fails the probe locally): Firestore
-    reachability. Returns 200 {"ready": true, "checks": {...}} or 503
+    present. Soft checks (reported, never fail the serving process): Firestore
+    reachability and selected inventory-source freshness. Returns 200
+    {"ready": true, "checks": {...}} or 503
     {"ready": false, "failed": "<check>", "checks": {...}}.
 
     This is the probe that would have caught the #223 chat outage: strip the
@@ -2341,6 +2341,13 @@ def readyz() -> JSONResponse:
         checks["firestore"] = _readyz_check_firestore()
     except Exception as exc:  # noqa: BLE001
         checks["firestore"] = {"ok": False, "error": str(exc)[:300]}
+
+    # Inventory freshness is a data-quality signal, not process liveness. Keep
+    # serving the known catalog while making stale/unknown evidence explicit.
+    try:
+        checks["inventory"] = _readyz_check_inventory_source()
+    except Exception as exc:  # noqa: BLE001
+        checks["inventory"] = {"ok": False, "error": str(exc)[:300]}
 
     headers = {"Cache-Control": "no-store, no-cache, must-revalidate", "Pragma": "no-cache"}
     if failed is not None:
@@ -4394,11 +4401,16 @@ async def docuseal_webhook(request: Request):
 # ─── Marketing API (Tex's Ad Studio) ───
 from tools.asset_scraper import PROPERTY_ASSETS, get_matterport_url
 from tools.catalog_floorplans import merge_orderable_floorplan_catalog
+from tools.inventory_source_status import (
+    automatic_firestore_eligible,
+    load_legacy_inventory_snapshot_metadata,
+    source_status,
+    warning_code,
+)
 from tools.legacy_site_crawler import (
     load_legacy_floorplan_catalog_context,
     load_legacy_inventory_context,
 )
-from tools.marketing_assets import publish_video_asset
 from tools.marketing_tools import (
     GENERATED_ADS_DIR,
     analyze_content_performance,
@@ -4410,7 +4422,6 @@ from tools.marketing_tools import (
     schedule_social_post,
 )
 from tools.photo_classifier import apply_classifier_to_home, has_real_photo
-from tools.social_publishers import social_readiness
 from tools.video_generator import GENERATED_VIDEOS_DIR
 
 
@@ -4449,9 +4460,13 @@ async def api_trending_ideas():
         return {"error": "Failed to load trending ideas. Please try again."}
 
 
-@app.post("/api/marketing/schedule", dependencies=[Depends(require_admin)])
-async def api_schedule_post(request: Request):
-    """Schedule a post for publishing."""
+@app.post(
+    "/api/marketing/schedule",
+    dependencies=[Depends(require_admin)],
+    summary="Prepare response-only social draft",
+)
+async def api_prepare_social_draft(request: Request):
+    """Prepare a non-persisted reviewed draft without calling a social platform API."""
     try:
         data = await request.json()
         result = schedule_social_post(
@@ -4467,8 +4482,8 @@ async def api_schedule_post(request: Request):
         )
         return result
     except Exception as e:
-        struct_logger.error("Post scheduling failed", error=str(e))
-        return {"error": "Failed to schedule post. Please try again."}
+        struct_logger.error("Draft preparation failed", error=str(e))
+        return {"error": "Failed to prepare draft. Please try again."}
 
 
 @app.get("/api/marketing/analytics", dependencies=[Depends(require_admin)])
@@ -4482,38 +4497,6 @@ async def api_content_analytics():
         return {"error": "Failed to load analytics. Please try again."}
 
 
-@app.post("/api/marketing/publish", dependencies=[Depends(require_admin)])
-async def api_marketing_publish(request: Request):
-    """Human one-tap 'Approve & Publish' for a single approved creative.
-
-    Outward action → admin-gated + THO_SOCIAL_PUBLISH_ENABLED + explicit click.
-    Claude never calls this endpoint.
-    """
-    try:
-        data = await request.json()
-        # 1) resolve the approved local creative → public/signed URL (PR 5)
-        asset = publish_video_asset(data.get("filename") or data.get("video_url"))
-        if not asset.get("success"):
-            return {
-                "success": False,
-                "status": "blocked",
-                "reason": asset.get("reason", "asset_not_public"),
-            }
-        # 2) hand the PUBLIC url to the gated, polling adapter (PR 4)
-        return schedule_social_post(
-            platform="instagram_reels",
-            content_type="video",
-            caption=data.get("caption"),
-            hashtags=data.get("hashtags"),
-            video_url=asset["public_url"],
-            home_name=data.get("home_name"),
-            campaign=data.get("campaign"),
-        )
-    except Exception as e:
-        struct_logger.error("Marketing publish failed", error=str(e))
-        return {"error": "Failed to publish. Please try again."}
-
-
 @app.get("/api/marketing/gcp-readiness", dependencies=[Depends(require_admin)])
 async def api_marketing_gcp_readiness():
     """Expose AI provider readiness for Ad Studio without making generation calls."""
@@ -4522,16 +4505,6 @@ async def api_marketing_gcp_readiness():
     except Exception as e:
         struct_logger.error("GCP AI readiness failed", error=str(e))
         return {"success": False, "ready": False, "error": "Failed to inspect GCP AI readiness"}
-
-
-@app.get("/api/marketing/social-readiness", dependencies=[Depends(require_admin)])
-async def api_marketing_social_readiness():
-    """Expose TikTok/Instagram connection readiness without exposing secrets."""
-    try:
-        return social_readiness()
-    except Exception as e:
-        struct_logger.error("Social readiness failed", error=str(e))
-        return {"success": False, "error": "Failed to inspect social readiness"}
 
 
 @app.post("/api/marketing/generate-voiceover", dependencies=[Depends(require_admin)])
@@ -4716,7 +4689,7 @@ def _overlay_staff_photos(homes: list[dict]) -> None:
 
         grouped = image_storage.list_all_grouped()
     except Exception as exc:  # pragma: no cover - storage backend optional
-        struct_logger.warning("Staff photo overlay unavailable", error=str(exc))
+        struct_logger.warning("Staff photo overlay unavailable", error_type=type(exc).__name__)
         return
     if not grouped:
         return
@@ -4903,25 +4876,63 @@ def _canonicalize_inventory_context(result: dict) -> dict:
     return canonical
 
 
+def _annotate_inventory_context(
+    result: dict,
+    *,
+    requested: str,
+    selected_path: str,
+) -> dict:
+    """Attach PII-free provenance/freshness without changing serving behavior."""
+    annotated = _canonicalize_inventory_context(result)
+    status = source_status(
+        annotated,
+        requested=requested,
+        selected_path=selected_path,
+    )
+    annotated["source_status"] = status
+    warning = warning_code(status)
+    if warning:
+        existing_warnings = annotated.get("warnings") or []
+        if not isinstance(existing_warnings, list):
+            existing_warnings = [existing_warnings]
+        warnings = [str(item) for item in existing_warnings]
+        if warning not in warnings:
+            warnings.append(warning)
+        annotated["warnings"] = warnings
+    return annotated
+
+
 def _resolve_public_inventory_context() -> dict:
     """Resolve the one public inventory context used by the API and SEO."""
     prefer = _inventory_source_pref()
     raw = None
     if prefer != "legacy":
         raw = get_inventory_for_ads(limit=100)
-        raw_homes = raw.get("homes") or []
-        if prefer == "firestore" or (
-            raw.get("success") and len(raw_homes) >= _inventory_firestore_min_homes()
+        if prefer == "firestore" or automatic_firestore_eligible(
+            raw,
+            min_homes=_inventory_firestore_min_homes(),
         ):
-            return _canonicalize_inventory_context(_firestore_inventory_context(raw))
+            return _annotate_inventory_context(
+                _firestore_inventory_context(raw),
+                requested=prefer,
+                selected_path="firestore",
+            )
 
     legacy = _legacy_inventory_context()
     if legacy is not None:
-        return _canonicalize_inventory_context(legacy)
+        return _annotate_inventory_context(
+            legacy,
+            requested=prefer,
+            selected_path="legacy",
+        )
 
     # Legacy snapshot unavailable — fall back to the Firestore/asset path
     # (reusing the raw query if we already ran it above).
-    return _canonicalize_inventory_context(_firestore_inventory_context(raw))
+    return _annotate_inventory_context(
+        _firestore_inventory_context(raw),
+        requested=prefer,
+        selected_path="firestore_fallback",
+    )
 
 
 @app.get("/api/marketing/inventory-context")
@@ -4975,6 +4986,8 @@ async def serve_listing_photo(home_id: str, filename: str):
         result = image_storage.get_photo(home_id, filename)
     except image_storage.PhotoValidationError:
         return JSONResponse({"error": "Invalid request"}, status_code=400)
+    except image_storage.PhotoStorageError:
+        return JSONResponse({"error": "Photo storage is temporarily unavailable."}, status_code=503)
     if result is None:
         return JSONResponse({"error": "Photo not found"}, status_code=404)
     data, content_type = result
@@ -4994,6 +5007,11 @@ async def list_listing_photos(home_id: str):
         photos = image_storage.list_photos(home_id)
     except image_storage.PhotoValidationError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except image_storage.PhotoStorageError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Durable photo storage is temporarily unavailable.",
+        ) from exc
     return {
         "success": True,
         "home_id": image_storage.safe_home_id(home_id),
@@ -5024,7 +5042,10 @@ async def upload_listing_photos(
 
     stored: list[dict] = []
     errors: list[dict] = []
-    for upload in files:
+    storage_unavailable = False
+    unattempted: list[str] = []
+    retryable: list[str] = []
+    for position, upload in enumerate(files):
         try:
             data = await upload.read()
             photo = image_storage.store_photo(
@@ -5038,8 +5059,35 @@ async def upload_listing_photos(
             )
         except image_storage.PhotoValidationError as exc:
             errors.append({"name": upload.filename, "error": str(exc)})
+        except image_storage.PhotoStorageError as exc:
+            storage_unavailable = True
+            retryable.append(upload.filename or "unnamed upload")
+            struct_logger.error(
+                "Durable listing photo storage unavailable",
+                home_id=image_storage.safe_home_id(home_id),
+                error_type=type(exc).__name__,
+            )
+            errors.append(
+                {
+                    "name": upload.filename,
+                    "error": "Durable photo storage is temporarily unavailable.",
+                }
+            )
+            # A provider outage is request-wide. Continuing can create a
+            # surprising success-after-failure sequence and makes retries
+            # duplicate any earlier durable writes.
+            for remaining in files[position + 1 :]:
+                name = remaining.filename or "unnamed upload"
+                unattempted.append(name)
+                retryable.append(name)
+                await remaining.close()
+            break
         except Exception as exc:  # pragma: no cover - unexpected storage failure
-            struct_logger.error("Listing photo upload failed", home_id=home_id, error=str(exc))
+            struct_logger.error(
+                "Listing photo upload failed",
+                home_id=image_storage.safe_home_id(home_id),
+                error_type=type(exc).__name__,
+            )
             errors.append({"name": upload.filename, "error": "Could not save this photo."})
         finally:
             await upload.close()
@@ -5056,16 +5104,30 @@ async def upload_listing_photos(
             action="inventory.photos_upload",
             target_type="inventory",
             target_id=image_storage.safe_home_id(home_id),
-            details={"uploaded_count": len(stored), "error_count": len(errors)},
+            details={
+                "uploaded_count": len(stored),
+                "error_count": len(errors),
+                "unattempted_count": len(unattempted),
+            },
             request=request,
         )
-    # 207-style summary: report both successes and per-file failures.
-    return {
+    # A partial durable write is reported as non-retryable multi-status. A
+    # complete storage outage remains a retryable service failure.
+    result = {
         "success": bool(stored),
         "home_id": image_storage.safe_home_id(home_id),
         "uploaded": stored,
         "errors": errors,
     }
+    if storage_unavailable:
+        result["storage_unavailable"] = True
+        result["unattempted"] = unattempted
+        result["unattempted_count"] = len(unattempted)
+        result["retryable"] = retryable
+        if stored:
+            return JSONResponse(result, status_code=207)
+        return JSONResponse(result, status_code=503)
+    return result
 
 
 @app.delete(
@@ -5080,6 +5142,11 @@ async def delete_listing_photo(request: Request, home_id: str, filename: str):
         deleted = image_storage.delete_photo(home_id, filename)
     except image_storage.PhotoValidationError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except image_storage.PhotoStorageError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Durable photo storage is temporarily unavailable.",
+        ) from exc
     if not deleted:
         raise HTTPException(status_code=404, detail="Photo not found.")
     struct_logger.info(
@@ -5115,6 +5182,11 @@ async def reorder_listing_photos(request: Request, home_id: str):
         photos = image_storage.set_photo_order(home_id, order)
     except image_storage.PhotoValidationError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except image_storage.PhotoStorageError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Durable photo storage is temporarily unavailable.",
+        ) from exc
     log_admin_action(
         actor=_audit_actor(request),
         action="inventory.photos_reorder",
@@ -5711,9 +5783,8 @@ async def create_appointment(request: Request):
                 if existing_lead and existing_digits[-10:] == submitted_digits:
                     existing_lead.appointment_requested = True
                     existing_lead.status = "qualified"
-                    existing_lead.journey_id = (
-                        existing_lead.journey_id
-                        or _normalize_journey_id(data.get("journey_id"))
+                    existing_lead.journey_id = existing_lead.journey_id or _normalize_journey_id(
+                        data.get("journey_id")
                     )
                     existing_lead.home_id = existing_lead.home_id or home_id
                     existing_lead.home_model = existing_lead.home_model or home_model
@@ -6372,7 +6443,7 @@ async def verify_admin_pin(request: Request):
     # Successful login — clear attempt history
     _clear_pin_attempts(client_ip)
     token = _create_admin_token()
-    csrf_token = _create_csrf_token()
+    csrf_token = create_csrf_token()
     struct_logger.info("Admin login succeeded", client_ip=client_ip)
     # Audit trail: track who logged in and when. Use a hash of the freshly
     # minted token as the actor id so the entry is correlatable with later
@@ -6395,12 +6466,10 @@ async def verify_admin_pin(request: Request):
         samesite="strict",
         max_age=ADMIN_TOKEN_TTL,
     )
-    response.set_cookie(
-        key="tho_csrf_token",
-        value=csrf_token,
-        httponly=False,
+    set_csrf_cookie(
+        response,
+        csrf_token,
         secure=not IS_LOCAL,
-        samesite="strict",
         max_age=ADMIN_TOKEN_TTL,
     )
     return response
@@ -6615,9 +6684,7 @@ async def review_redirect(request: Request, src: str | None = None):
     try:
         struct_logger.info("Review redirect", src=src_clean or "direct")
         if _db and getattr(_db, "db", None):
-            _store_analytics_event(
-                "review_redirect", {"src": src_clean or "direct"}
-            )
+            _store_analytics_event("review_redirect", {"src": src_clean or "direct"})
     except Exception as e:  # tracking must never break the redirect
         try:
             struct_logger.warning("Review redirect tracking failed", error=str(e))
@@ -7695,7 +7762,9 @@ async def v1_webhook_notify(request: Request):
     }
 
     try:
-        _db.db.collection("activities").document(activity_id).set(activity, timeout=FIRESTORE_RPC_TIMEOUT)
+        _db.db.collection("activities").document(activity_id).set(
+            activity, timeout=FIRESTORE_RPC_TIMEOUT
+        )
         struct_logger.info(
             "Partner webhook activity logged", activity_id=activity_id, deal_id=deal_id
         )
@@ -7712,7 +7781,11 @@ async def v1_webhook_notify(request: Request):
 async def v1_service_request_resolve(request: Request, request_id: str):
     """Mark a service request as resolved. Called by Notion when warranty claims close."""
     try:
-        doc = _db.db.collection("service_requests").document(request_id).get(timeout=FIRESTORE_RPC_TIMEOUT)
+        doc = (
+            _db.db.collection("service_requests")
+            .document(request_id)
+            .get(timeout=FIRESTORE_RPC_TIMEOUT)
+        )
         if not doc.exists:
             raise HTTPException(status_code=404, detail="Service request not found")
 
@@ -7964,7 +8037,11 @@ async def get_secure_hub_deal(deal_id: str, request: Request, phone: str = ""):
             raise HTTPException(status_code=403, detail=_PORTAL_VERIFY_MSG)
 
         # Fetch documents (deal_notes of type esign_completed or document_generated)
-        docs_query = db.collection("deal_notes").where("deal_id", "==", deal_id).stream(timeout=FIRESTORE_RPC_TIMEOUT)
+        docs_query = (
+            db.collection("deal_notes")
+            .where("deal_id", "==", deal_id)
+            .stream(timeout=FIRESTORE_RPC_TIMEOUT)
+        )
         documents = []
         for doc in docs_query:
             d = doc.to_dict()
@@ -8049,10 +8126,14 @@ async def download_secure_document(deal_id: str, note_id: str, request: Request,
 
 
 # AI PM Manager Routes (Linear-inspired)
+from google_ads_admin.routes import router as google_ads_admin_router
 from pm_routes import router as pm_router
 
 app.include_router(pm_router, dependencies=[Depends(require_admin)])
 app.include_router(passkey_router)
+app.include_router(google_ads_step_up_router)
+app.include_router(google_ads_approval_router)
+app.include_router(google_ads_admin_router, dependencies=[Depends(require_admin)])
 
 
 # SEO surface: robots.txt, sitemap.xml, and per-route head/body injection for
@@ -8320,7 +8401,7 @@ async def verify_admin_email_code(request: Request):
     _clear_pin_attempts(client_ip)
 
     token = _create_admin_token()
-    csrf_token = _create_csrf_token()
+    csrf_token = create_csrf_token()
     struct_logger.info("Admin email-code login succeeded", client_ip=client_ip)
     token_actor = f"admin:{hashlib.sha256(token.encode('utf-8')).hexdigest()[:12]}"
     log_admin_action(
@@ -8340,12 +8421,10 @@ async def verify_admin_email_code(request: Request):
         samesite="strict",
         max_age=ADMIN_TOKEN_TTL,
     )
-    response.set_cookie(
-        key="tho_csrf_token",
-        value=csrf_token,
-        httponly=False,
+    set_csrf_cookie(
+        response,
+        csrf_token,
         secure=not IS_LOCAL,
-        samesite="strict",
         max_age=ADMIN_TOKEN_TTL,
     )
     return response

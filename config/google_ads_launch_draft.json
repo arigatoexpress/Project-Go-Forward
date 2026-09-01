@@ -1,6 +1,85 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "mode": "VALIDATE_ONLY",
+  "deployment": {
+    "key": "tho-search-high-intent-huffman-v1",
+    "api_version": "v25",
+    "contract_hash_algorithm": "sha256",
+    "approval_control": {
+      "required_true_envs": [
+        "THO_GOOGLE_ADS_PAUSED_CREATE_APPROVAL_ENABLED",
+        "THO_GOOGLE_ADS_PAUSED_CREATE_CLOUD_READINESS_VERIFIED",
+        "THO_GOOGLE_ADS_PAUSED_CREATE_IAM_VERIFIED"
+      ],
+      "revision_binding": {
+        "readiness_env": "THO_GOOGLE_ADS_PAUSED_CREATE_READINESS_REVISION",
+        "source_env": "APP_VERSION",
+        "format": "LOWERCASE_GIT_SHA40",
+        "must_match": true
+      },
+      "fixed_target_envs": {
+        "project": "THO_GOOGLE_ADS_PAUSED_CREATE_PROJECT",
+        "region": "THO_GOOGLE_ADS_PAUSED_CREATE_REGION",
+        "job": "THO_GOOGLE_ADS_PAUSED_CREATE_JOB"
+      },
+      "requires_authority_state": "SERVER_VALIDATED",
+      "requires_authority_version": 2,
+      "requires_fresh_evidence": "google_ads_account_access_and_usd_green",
+      "binds_checked_in_contract_and_caps": true,
+      "owner_authentication": {
+        "session": "OWNER_PASSKEY_COOKIE",
+        "csrf": "COOKIE_HEADER_MATCH",
+        "step_up": "WEBAUTHN_UV_REQUIRED"
+      },
+      "owner_allowlist": {
+        "ads_env": "THO_GOOGLE_ADS_OWNER_EMAILS",
+        "passkey_envs": [
+          "THO_PASSKEY_OWNER_EMAILS",
+          "THO_ADMIN_OWNER_EMAILS"
+        ],
+        "must_be_nonempty": true,
+        "must_equal_effective_passkey_owner_allowlist": true
+      },
+      "consumes_single_use_owner_proof": true,
+      "writes_control_plane_state_only": true,
+      "invokes_job": false
+    },
+    "dispatch_control": {
+      "required_true_envs": [
+        "THO_GOOGLE_ADS_PAUSED_CREATE_DISPATCH_ENABLED"
+      ],
+      "requires_approval_control": true,
+      "requires_approved_outbox": true,
+      "invokes_paused_create_only": true,
+      "request_overrides_allowed": false,
+      "invocation_acceptance_is_completion": false
+    },
+    "activation_supported": false,
+    "spend_authorized": false
+  },
+  "readiness": {
+    "hard_checks": [
+      "paused_create_approval_and_dispatch_controls_verified",
+      "draft_validator_green",
+      "dedicated_job_runtime_green",
+      "google_ads_account_access_and_usd_green",
+      "billing_and_account_serving_eligible",
+      "housing_policy_acknowledged_in_google_ads",
+      "landing_pages_live_canonical_and_lead_capable",
+      "ga4_or_gtm_exactly_one_loader",
+      "generate_lead_single_fire_verified",
+      "schedule_appointment_single_fire_verified",
+      "google_ads_conversion_import_verified",
+      "no_duplicate_active_deployment",
+      "stop_loss_scheduler_green",
+      "budget_and_stop_loss_bound_to_passkey_approval"
+    ],
+    "advisory_checks": [
+      "search_console_sitemap_accepted",
+      "business_profile_link_verified",
+      "business_profile_performance_api_ready"
+    ]
+  },
   "control_plane": {
     "runtime": "DEDICATED_CLOUD_RUN_JOB",
     "service_account_id": "google-growth-control",
@@ -16,13 +95,13 @@
     "channel": "SEARCH",
     "currency_code": "USD",
     "budget": {
-      "average_daily_usd": 20.0,
-      "max_single_day_charge_usd": 40.0,
-      "monthly_charge_limit_usd": 608.0
+      "average_daily_usd": 20,
+      "max_single_day_charge_usd": 40,
+      "monthly_charge_limit_usd": 608
     },
     "bidding": {
       "strategy": "MAXIMIZE_CLICKS",
-      "max_cpc_usd": 5.0
+      "max_cpc_usd": 5
     },
     "networks": {
       "google_search": true,
@@ -35,7 +114,9 @@
         "address": "10685 FM 1960 East",
         "city": "Huffman",
         "state": "TX",
-        "country_code": "US"
+        "country_code": "US",
+        "latitude": 30.018056,
+        "longitude": -95.115729
       },
       "radius_miles": 50,
       "presence_only": true,
@@ -49,6 +130,8 @@
       "parental_status_enabled_all": true,
       "marital_status_targeting": false,
       "postal_code_targeting": false,
+      "demographic_exclusions": [],
+      "customer_match_targeting": false,
       "audience_targeting": []
     },
     "tracking": {
@@ -58,18 +141,21 @@
       "utm_content": "{creative}",
       "utm_term": "{keyword}"
     },
-    "conversions": [
-      {
-        "name": "schedule_appointment",
-        "primary": true,
-        "required_before_enable": true
-      },
-      {
-        "name": "generate_lead",
-        "primary": false,
-        "required_before_enable": true
-      }
-    ],
+    "conversion_intent": {
+      "provider_goal_operations_in_paused_create": false,
+      "import_required_before_activation": true,
+      "activation_hold_check": "google_ads_conversion_import_verified",
+      "events": [
+        {
+          "name": "schedule_appointment",
+          "primary": true
+        },
+        {
+          "name": "generate_lead",
+          "primary": false
+        }
+      ]
+    },
     "negative_keywords": [
       {"text": "rent", "match_type": "BROAD"},
       {"text": "rental", "match_type": "BROAD"},
@@ -118,15 +204,15 @@
             "Floor Plans, Photos & Prices",
             "Visit Our Huffman Showroom",
             "Homes Near Humble & Conroe",
-            "Explore Available Homes",
+            "Explore Home Models",
             "Shop Manufactured Homes",
             "Book a Showroom Visit"
           ],
           "descriptions": [
-            "Browse current manufactured homes with prices, photos and floor plans near Huffman.",
+            "Browse manufactured home models with prices, photos and floor plans near Huffman.",
             "Compare single- and double-wide homes, then schedule a visit to see your favorites.",
             "Visit Texas Home Outlet in Huffman, serving Humble, Conroe, Baytown and nearby areas.",
-            "New inventory is available online. Review details, save favorites and request a tour."
+            "Review home details online, save favorites and request a showroom tour."
           ]
         }
       },
@@ -173,23 +259,13 @@
     "approved_at": null,
     "approved_average_daily_usd": null,
     "approved_monthly_charge_limit_usd": null,
-    "required_checks": [
-      "readiness_audit_green",
-      "google_ads_customer_and_manager_ids_confirmed",
-      "housing_policy_acknowledged_in_google_ads",
-      "ga4_or_gtm_configured_without_duplicate_pageviews",
-      "generate_lead_and_schedule_appointment_single_fire_verified",
-      "google_ads_conversion_import_verified",
-      "search_console_sitemap_accepted",
-      "budget_and_stop_loss_explicitly_approved"
-    ],
     "stop_loss": {
       "action": "PAUSE_CAMPAIGN",
       "decision_logic": "ANY",
       "evaluation_window_days": 7,
-      "zero_reachable_leads_spend_usd": 200.0,
+      "zero_reachable_leads_spend_usd": 200,
       "zero_reachable_leads_clicks": 100,
-      "max_reachable_lead_cpa_usd": 150.0,
+      "max_reachable_lead_cpa_usd": 150,
       "minimum_reachable_leads_for_cpa_rule": 3
     }
   }
