@@ -87,9 +87,9 @@ const IMAGE_STYLES = [
 const INVENTORY_PICKER_LIMIT = 40;
 
 /* ─────────────────── API helpers ─────────────────── */
-async function readJsonOrThrow(resp, fallbackMessage) {
+export async function readJsonOrThrow(resp, fallbackMessage) {
     const data = await resp.json().catch(() => ({}));
-    if (!resp.ok) {
+    if (!resp.ok || data?.success === false || data?.error) {
         throw new Error(safeUserMessage(extractErrorMessage(data), fallbackMessage));
     }
     return data;
@@ -116,6 +116,15 @@ async function apiPrepareDraft(params) {
         body: JSON.stringify(params)
     });
     return readJsonOrThrow(resp, 'Draft preparation failed');
+}
+
+async function apiPublishPost(params) {
+    const resp = await adminFetch('/api/marketing/publish', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(params)
+    });
+    return readJsonOrThrow(resp, 'Publish failed');
 }
 
 async function apiGetAnalytics() {
@@ -258,6 +267,8 @@ export default function AdStudio({ onBack }) {
     // Drafts tab
     const [preparedDrafts, setPreparedDrafts] = useState([]);
     const [preparingDraft, setPreparingDraft] = useState(false);
+    const [publishing, setPublishing] = useState(false);
+    const [postActionError, setPostActionError] = useState(null);
     const [matterportCopied, setMatterportCopied] = useState(false);
 
     // Analytics tab
@@ -405,8 +416,9 @@ export default function AdStudio({ onBack }) {
     }, []);
 
     const handlePrepareDraft = async () => {
-        if (!script) return;
+        if (!script) return false;
         setPreparingDraft(true);
+        setPostActionError(null);
         try {
             const result = await apiPrepareDraft({
                 platform: script.platform,
@@ -417,10 +429,38 @@ export default function AdStudio({ onBack }) {
                 video_url: generatedGenAIClip?.download_url || generatedVideo?.download_url
             });
             setPreparedDrafts(prev => [result, ...prev]);
+            return true;
         } catch (err) {
-            console.error('Draft preparation failed:', err);
+            setPostActionError(safeUserMessage(err?.message, describeFetchError(err, 'prepare the draft')));
+            return false;
         } finally {
             setPreparingDraft(false);
+        }
+    };
+
+    const handlePublish = async () => {
+        if (!script) return false;
+        const platformName = PLATFORMS.find(item => item.id === platform)?.name || platform;
+        if (!window.confirm(`Publish this video live to ${platformName} now?`)) return false;
+
+        setPublishing(true);
+        setPostActionError(null);
+        try {
+            const result = await apiPublishPost({
+                platform,
+                filename: generatedGenAIClip?.filename || generatedVideo?.filename,
+                caption: getCurrentScript()?.cta,
+                hashtags: script.hashtags,
+                home_name: homeName,
+                campaign: script.campaign
+            });
+            setPreparedDrafts(prev => [result, ...prev]);
+            return true;
+        } catch (err) {
+            setPostActionError(safeUserMessage(err?.message, describeFetchError(err, 'publish the post')));
+            return false;
+        } finally {
+            setPublishing(false);
         }
     };
 
@@ -711,6 +751,8 @@ export default function AdStudio({ onBack }) {
     /* ─── render helpers ─── */
     const selectedPlatform = PLATFORMS.find(p => p.id === platform);
     const currentScript = getCurrentScript();
+    const livePublishSupported = platform === 'tiktok' || platform === 'instagram_reels';
+    const publishFilename = generatedGenAIClip?.filename || generatedVideo?.filename;
 
     const renderPreview = () => (
         <div className="tho-preview-layer animate-in fade-in zoom-in duration-300">
@@ -1240,19 +1282,49 @@ export default function AdStudio({ onBack }) {
                         <div className="tho-readiness-note">
                             {`This adds a reviewed ${selectedPlatform?.name || 'social'} draft to the list on this screen. Nothing is sent to a social platform.`}
                         </div>
+                        {postActionError && (
+                            <div className="tho-error-state" role="alert">
+                                <AlertTriangle size={18} />
+                                <p>{postActionError}</p>
+                            </div>
+                        )}
                         <button
                             className="tho-btn tho-btn-primary w-full flex items-center justify-center gap-2"
                             onClick={async () => {
-                                await handlePrepareDraft();
-                                setShowPreview(false);
-                                setActiveTab('scheduled');
+                                if (await handlePrepareDraft()) {
+                                    setShowPreview(false);
+                                    setActiveTab('scheduled');
+                                }
                             }}
-                            disabled={preparingDraft}
+                            disabled={preparingDraft || publishing}
                         >
                             {preparingDraft ? (
                                 <><Loader2 size={18} className="spin" /> Preparing...</>
                             ) : (
                                 <><Send size={18} /> Prepare Draft</>
+                            )}
+                        </button>
+                        <button
+                            className="tho-btn tho-btn-secondary w-full flex items-center justify-center gap-2 mt-2"
+                            onClick={async () => {
+                                if (await handlePublish()) {
+                                    setShowPreview(false);
+                                    setActiveTab('scheduled');
+                                }
+                            }}
+                            disabled={preparingDraft || publishing || !livePublishSupported || !publishFilename}
+                            title={
+                                !livePublishSupported
+                                    ? 'Live publishing is supported only for TikTok and Instagram Reels'
+                                    : !publishFilename
+                                        ? 'Generate a video before publishing'
+                                        : `Publish live to ${selectedPlatform?.name}`
+                            }
+                        >
+                            {publishing ? (
+                                <><Loader2 size={18} className="spin" /> Publishing...</>
+                            ) : (
+                                <><Flame size={18} /> Publish Now to {selectedPlatform?.name}</>
                             )}
                         </button>
                     </div>
