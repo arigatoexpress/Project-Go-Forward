@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 
 import adminFetch from '../adminFetch';
-import AdStudio from '../pages/AdStudio';
+import AdStudio, { readJsonOrThrow } from '../pages/AdStudio';
 
 vi.mock('../adminFetch', () => ({
   default: vi.fn(),
@@ -66,5 +66,56 @@ describe('Ad Studio truth contracts', () => {
     expect(screen.queryByText('New Followers')).not.toBeInTheDocument();
     expect(screen.queryByText('DMs Received')).not.toBeInTheDocument();
     expect(screen.queryByText('Leads Generated')).not.toBeInTheDocument();
+  });
+
+  it('treats a success-false HTTP 200 envelope as a failure', async () => {
+    await expect(readJsonOrThrow(
+      okResponse({ success: false, error: 'Draft preparation was rejected.' }),
+      'Draft preparation failed',
+    )).rejects.toThrow('Draft preparation was rejected.');
+  });
+
+  it('does not navigate to Drafts when draft preparation fails', async () => {
+    adminFetch.mockImplementation((url) => {
+      if (url === '/api/marketing/voiceover-voices') {
+        return Promise.resolve(okResponse({ success: true, voices: [] }));
+      }
+      if (url === '/api/marketing/gcp-readiness') {
+        return Promise.resolve(okResponse({ success: true, ready: false }));
+      }
+      if (url === '/api/marketing/generate-script') {
+        return Promise.resolve(okResponse({
+          success: true,
+          platform: 'tiktok',
+          script_id: 'SCRIPT-1',
+          hashtags: ['#TexasHomes'],
+          script: {
+            hook: 'Tour this home',
+            body: 'A reviewed home tour.',
+            cta: 'Call today.',
+            suggested_image_prompts: [],
+          },
+        }));
+      }
+      if (url === '/api/marketing/schedule') {
+        return Promise.resolve(okResponse({
+          success: false,
+          error: 'The draft could not be prepared. Please try again.',
+        }));
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    });
+
+    render(<AdStudio onBack={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: /^Generate Script$/ }));
+
+    expect(await screen.findByText('Ad Content Preview')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Prepare Draft' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'The draft could not be prepared. Please try again.',
+    );
+    expect(screen.getByText('Ad Content Preview')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Drafts' })).not.toHaveAttribute('aria-current');
   });
 });

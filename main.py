@@ -4422,7 +4422,20 @@ from tools.marketing_tools import (
     schedule_social_post,
 )
 from tools.photo_classifier import apply_classifier_to_home, has_real_photo
+from tools.social_live_publishers import (
+    SUPPORTED_PLATFORMS as SUPPORTED_SOCIAL_PUBLISH_PLATFORMS,
+)
+from tools.social_live_publishers import publish_social_post, social_publish_readiness
+from tools.social_publish_assets import publish_video_asset
 from tools.video_generator import GENERATED_VIDEOS_DIR
+
+
+def _marketing_error_response(message: str, *, status_code: int, error_code: str) -> JSONResponse:
+    """Return the stable, user-safe failure envelope used by Ad Studio."""
+    return JSONResponse(
+        {"success": False, "error": message, "error_code": error_code},
+        status_code=status_code,
+    )
 
 
 @app.post("/api/marketing/generate-script", dependencies=[Depends(require_admin)])
@@ -4469,6 +4482,12 @@ async def api_prepare_social_draft(request: Request):
     """Prepare a non-persisted reviewed draft without calling a social platform API."""
     try:
         data = await request.json()
+        if not isinstance(data, dict):
+            return _marketing_error_response(
+                "The draft request must be a JSON object.",
+                status_code=400,
+                error_code="invalid_request",
+            )
         result = schedule_social_post(
             platform=data.get("platform", "tiktok"),
             content_type=data.get("content_type", "video"),
@@ -4480,10 +4499,123 @@ async def api_prepare_social_draft(request: Request):
             home_name=data.get("home_name"),
             campaign=data.get("campaign"),
         )
+        if not isinstance(result, dict) or result.get("success") is False:
+            return _marketing_error_response(
+                "The draft could not be prepared. Please try again.",
+                status_code=500,
+                error_code="draft_preparation_failed",
+            )
         return result
-    except Exception as e:
-        struct_logger.error("Draft preparation failed", error=str(e))
-        return {"error": "Failed to prepare draft. Please try again."}
+    except JSONDecodeError:
+        return _marketing_error_response(
+            "The draft request contains invalid JSON.",
+            status_code=400,
+            error_code="invalid_json",
+        )
+    except Exception as exc:
+        struct_logger.error("Draft preparation failed", error=str(exc))
+        return _marketing_error_response(
+            "The draft could not be prepared. Please try again.",
+            status_code=500,
+            error_code="draft_preparation_failed",
+        )
+
+
+@app.post("/api/marketing/publish", dependencies=[Depends(require_admin)])
+async def api_marketing_publish(request: Request):
+    """Publish one approved generated video immediately to the chosen platform."""
+    try:
+        data = await request.json()
+        if not isinstance(data, dict):
+            return _marketing_error_response(
+                "The publish request must be a JSON object.",
+                status_code=400,
+                error_code="invalid_request",
+            )
+
+        platform = data.get("platform")
+        if not isinstance(platform, str) or platform not in SUPPORTED_SOCIAL_PUBLISH_PLATFORMS:
+            return _marketing_error_response(
+                "Live publishing is supported only for TikTok and Instagram Reels.",
+                status_code=400,
+                error_code="unsupported_platform",
+            )
+
+        readiness = social_publish_readiness(platform)
+        if not readiness.get("configured"):
+            platform_name = "TikTok" if platform == "tiktok" else "Instagram Reels"
+            return _marketing_error_response(
+                f"{platform_name} publishing is not configured.",
+                status_code=503,
+                error_code="platform_not_configured",
+            )
+        if not readiness.get("publish_enabled"):
+            return _marketing_error_response(
+                "Live social publishing is disabled.",
+                status_code=503,
+                error_code="publishing_disabled",
+            )
+
+        filename = data.get("filename") or data.get("video_url")
+        if not isinstance(filename, str) or not filename.strip():
+            return _marketing_error_response(
+                "A generated video is required before publishing.",
+                status_code=400,
+                error_code="missing_video",
+            )
+
+        caption = data.get("caption") or ""
+        hashtags = data.get("hashtags") or []
+        if not isinstance(caption, str) or not (
+            isinstance(hashtags, list) and all(isinstance(tag, str) for tag in hashtags)
+        ):
+            return _marketing_error_response(
+                "The caption or hashtags are invalid.",
+                status_code=400,
+                error_code="invalid_content",
+            )
+
+        asset = publish_video_asset(filename)
+        if not asset.get("success"):
+            error_code = asset.get("error_code")
+            if error_code in {"local_file_not_found", "invalid_filename"}:
+                return _marketing_error_response(
+                    "The selected generated video could not be found.",
+                    status_code=404,
+                    error_code="video_not_found",
+                )
+            return _marketing_error_response(
+                "The video could not be prepared for publishing. Please try again.",
+                status_code=503,
+                error_code="asset_publish_failed",
+            )
+
+        result = publish_social_post(
+            platform=platform,
+            asset_url=asset["public_url"],
+            caption=caption,
+            hashtags=hashtags,
+        )
+        if not result.get("success"):
+            return _marketing_error_response(
+                "The social platform could not publish this post. Please try again.",
+                status_code=502,
+                error_code="social_publish_failed",
+            )
+        return result
+    except JSONDecodeError:
+        return _marketing_error_response(
+            "The publish request contains invalid JSON.",
+            status_code=400,
+            error_code="invalid_json",
+        )
+    except Exception as exc:
+        struct_logger.error("Marketing publish failed", error=str(exc))
+        return _marketing_error_response(
+            "The post could not be published. Please try again.",
+            status_code=500,
+            error_code="publish_failed",
+        )
 
 
 @app.get("/api/marketing/analytics", dependencies=[Depends(require_admin)])
