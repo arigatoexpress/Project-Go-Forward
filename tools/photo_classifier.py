@@ -31,8 +31,10 @@ filename such as ``jackson.jpg``.
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Iterable
+from pathlib import Path
 from urllib.parse import unquote, urlparse
 
 # Filename tokens that mark an actual floorplan diagram (not just any
@@ -121,6 +123,33 @@ def _is_placeholder_url(url: str | None) -> bool:
     return any(token in filename for token in PLACEHOLDER_FILENAME_TOKENS)
 
 
+_CONTENT_MANIFEST: frozenset[str] | None = None
+
+
+def _content_flagged_floorplans() -> frozenset[str]:
+    """URLs that PIXEL analysis proved are floorplan drawings.
+
+    The filename rules below can only reject what they recognize, so an
+    unfamiliar name defaults to "photo". Two real sources exploit that: seeded
+    ``.../inventory/<id>/hero.jpg`` heroes, and bare ``1.jpg`` names inside the
+    manufacturer floorplan namespace. On 2026-08-31 that put a floorplan drawing
+    on the site's FEATURED home. ``tools.floorplan_image_scan`` measures the
+    pixels offline and records the drawings here, so this stays a pure lookup
+    with no network on the request path. A missing manifest is not an error —
+    detection simply falls back to the filename rules.
+    """
+    global _CONTENT_MANIFEST
+    if _CONTENT_MANIFEST is None:
+        path = Path(__file__).resolve().parent.parent / "data" / "floorplan_image_manifest.json"
+        try:
+            payload = json.loads(path.read_text())
+            urls = payload.get("urls") or []
+            _CONTENT_MANIFEST = frozenset(u for u in urls if isinstance(u, str))
+        except (OSError, ValueError):
+            _CONTENT_MANIFEST = frozenset()
+    return _CONTENT_MANIFEST
+
+
 def is_floorplan_url(url: str | None) -> bool:
     """Return True if ``url`` is a floorplan image/PDF URL.
 
@@ -134,6 +163,8 @@ def is_floorplan_url(url: str | None) -> bool:
     """
     if not url or not isinstance(url, str):
         return False
+    if url in _content_flagged_floorplans():
+        return True
     lowered = url.lower()
     filename = unquote(lowered.rsplit("/", 1)[-1].split("?", 1)[0])
     if filename.endswith(FLOORPLAN_FILE_EXTS):
