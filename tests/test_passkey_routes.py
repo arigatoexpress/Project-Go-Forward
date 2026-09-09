@@ -393,7 +393,7 @@ def test_login_begin_returns_browser_json(passkey_client):
 
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["rpId"] == "sapphirealpha.xyz"
+    assert body["rpId"] == "texashomeoutlet.com"
     assert isinstance(body["challenge"], str)
     assert body.get("allowCredentials", []) == []
     assert "tho_passkey_login=" in response.headers["set-cookie"]
@@ -461,9 +461,27 @@ def test_login_begin_uses_sapphire_xyz_cutover_context(passkey_client):
 def test_login_begin_defaults_to_current_production_origin(passkey_client):
     client, routes = passkey_client
 
-    assert routes.THO_ORIGIN == "https://tho.sapphirealpha.xyz"
+    assert routes.THO_ORIGIN == "https://www.texashomeoutlet.com"
 
     response = client.post("/api/admin/passkey/login/begin")
+
+    assert response.status_code == 200, response.text
+    assert response.json()["rpId"] == "texashomeoutlet.com"
+
+
+def test_login_begin_still_serves_build_era_sapphirealpha_origin(passkey_client):
+    """Passkeys registered during the build are bound to sapphirealpha.xyz for life.
+
+    Dropping this origin does not migrate them, it locks out whoever still holds
+    one, so the cutover row must keep resolving until the re-registration sweep
+    is confirmed complete.
+    """
+    client, _routes = passkey_client
+
+    response = client.post(
+        "/api/admin/passkey/login/begin",
+        headers={"Origin": "https://tho.sapphirealpha.xyz"},
+    )
 
     assert response.status_code == 200, response.text
     assert response.json()["rpId"] == "sapphirealpha.xyz"
@@ -501,7 +519,7 @@ def test_register_begin_returns_browser_json_after_admin_auth(passkey_client, mo
 
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["rp"]["id"] == "sapphirealpha.xyz"
+    assert body["rp"]["id"] == "texashomeoutlet.com"
     assert body["user"]["name"] == "mark@texashomeoutlet.com"
     assert body["user"]["displayName"] == "mark@texashomeoutlet.com"
     assert len(body["user"]["id"]) > 20
@@ -622,6 +640,7 @@ def test_status_reports_store_persistence_contract(passkey_client):
     assert body["store_ready"] is True
     assert body["discoverable_login"] is True
     assert body["allowed_domains"] == ["texashomeoutlet.com"]
+    assert "texashomeoutlet.com" in body["rp_ids"]
     assert "sapphire.xyz" in body["rp_ids"]
     assert "sapphirealpha.xyz" in body["rp_ids"]
 
