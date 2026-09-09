@@ -315,7 +315,11 @@ Runbooks live in `docs/PRODUCTION_READINESS.md` (deploy/email/PIN),
 - Cold-start latency of ~5–10s on first hit (Cloud Run scale-to-zero).
 - Chat history persists per browser session; a visitor on a new browser or
   cleared storage starts a fresh session.
-- Inventory sync is run periodically via the scraper tool, not real-time.
+- Public inventory follows the configured inventory source. Inventory Manager
+  changes feed the Firestore source; Photos tab uploads are overlaid onto every
+  source. Operators can verify the selected source and current inventory count
+  in `/readyz`. Do not assume that the legacy website scraper keeps inventory
+  current: after the domain cutover its old target points back to this app.
 
 ---
 
