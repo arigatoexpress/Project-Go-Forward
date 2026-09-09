@@ -1,5 +1,15 @@
 # Firestore Backup & Restore Runbook — Texas Home Outlet
 
+> **Sections 4.3–4.4 are not executable cutover guidance — September 9, 2026.**
+> The current application constructs Firestore clients with the default database
+> and does not read `FIRESTORE_DATABASE`. Setting that environment variable will
+> create a revision but will not redirect its database clients. A restore into an
+> isolated database can be validated separately; do not claim the application has
+> switched to it. Before any recovery cutover, implement and test database selection
+> consistently across all application clients, or prepare another reviewed restore
+> method. Require explicit approval for production data/traffic changes and validate
+> the actual database identity. Backup existence is not a completed restore drill.
+
 **Scope:** Google Cloud Firestore (Native mode) database `(default)` in project `tho-ai-agent`.  
 **Companion docs:** `docs/RUNBOOK.md`, `docs/ON_CALL.md`, `docs/SLO.md`, `docs/READ_TIMEOUTS.md`.
 
