@@ -1,4 +1,5 @@
 import adminFetch from './adminFetch';
+import { responseErrorMessage } from './utils/apiError.js';
 
 function filenameFromDisposition(disposition) {
   if (!disposition) return '';
@@ -25,18 +26,12 @@ function filenameFromDisposition(disposition) {
 export default async function downloadAdminFile(url, fallbackFilename = 'document.pdf') {
   const response = await adminFetch(url);
   if (!response.ok) {
-    let message = response.status === 401
-      ? 'Your admin session expired before the document could download. Re-enter the admin PIN, then click Download again.'
-      : `Download failed (${response.status})`;
-    try {
-      const body = await response.json();
-      if (response.status !== 401) {
-        message = body.error || body.detail || message;
-      }
-    } catch {
-      // Keep the status-based message when the response is not JSON.
+    if (response.status === 401) {
+      throw new Error(
+        'Your admin session expired before the document could download. Re-enter the admin PIN, then click Download again.',
+      );
     }
-    throw new Error(message);
+    throw new Error(await responseErrorMessage(response, { context: 'download the document' }));
   }
 
   const blob = await response.blob();

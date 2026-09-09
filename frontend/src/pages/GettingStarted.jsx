@@ -65,13 +65,15 @@ const WIKI_SECTIONS = {
     label: 'Adding Photos',
     icon: Camera,
     items: [
+      'Existing actual on-lot photos stay attached to their current listings; use Photos to add or replace dealer pictures.',
+      'Orderable floorplans are manufacturer plans, not homes sitting on the lot. They may show a floorplan diagram instead of actual-home photos.',
       'Open the Photos tab in the top menu (you must be logged in with the PIN or a passkey).',
       'Step 1 — pick the home: type part of its name, then click it in the list.',
       'Step 2 — add pictures: click the dashed box to choose photos, or drag them in. You can add several at once.',
       'Step 3 — review: the first photo (marked "Main") is what customers see first; click "Make main" on any photo to feature it.',
       'Tick "Show only homes that still need photos" to see exactly which homes are missing pictures.',
       'Photos are auto-rotated and shrunk for the web, and appear on the public Inventory page within about a minute.',
-      'Full step-by-step with pictures: docs/team/photo-upload-guide.md.',
+      'If a new upload is not visible after one minute, refresh Inventory once; then report the home name if it is still missing.',
     ],
   },
   support: {
@@ -86,7 +88,7 @@ const WIKI_SECTIONS = {
   },
 };
 
-export default function GettingStarted({ onOpenDocuments, onOpenCRM, onOpenAdStudio }) {
+export default function GettingStarted({ onOpenDocuments, onOpenCRM, onOpenAdStudio, onOpenPhotos }) {
   const [active, setActive] = useState('daily');
   const ActiveIcon = WIKI_SECTIONS[active].icon;
 
@@ -119,6 +121,10 @@ export default function GettingStarted({ onOpenDocuments, onOpenCRM, onOpenAdStu
               <button type="button" onClick={onOpenAdStudio} className="cp-btn-outline px-4 py-2 text-sm inline-flex items-center gap-2">
                 <Video size={16} />
                 Open Ad Studio
+              </button>
+              <button type="button" onClick={onOpenPhotos} className="cp-btn-outline px-4 py-2 text-sm inline-flex items-center gap-2">
+                <Camera size={16} />
+                Open Photos
               </button>
             </div>
           </div>

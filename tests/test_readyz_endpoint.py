@@ -10,7 +10,8 @@ the ADK runner could not init and every `/run` errored.
 
   (a) the agent prompt templates render (same prompt_loader the ADK runner uses),
   (b) the regulatory document templates (tho_documents/*.pdf) are present, and
-  (c) Firestore reachability is reported best-effort (never hard-fails locally).
+  (c) Firestore reachability is reported best-effort (never hard-fails locally),
+  (d) selected inventory-source freshness is reported without flapping readiness.
 
 It returns 200 {"ready": true, "checks": {...}} when all hard checks pass, or 503
 {"ready": false, ...} naming the failing check. This is the probe that WOULD have
@@ -37,10 +38,11 @@ def test_readyz_returns_200_and_ready_true_when_assets_present():
     body = resp.json()
     assert body["ready"] is True
     checks = body["checks"]
-    # The three runtime dimensions a working request depends on are all reported.
+    # Runtime dimensions and the data-truth signal are all reported.
     assert checks["prompts"]["ok"] is True
     assert checks["documents"]["ok"] is True
     assert "firestore" in checks  # best-effort, reported either way
+    assert "inventory" in checks  # stale/unknown is loud but soft
 
 
 def test_readyz_is_distinct_from_healthz_liveness():
@@ -107,6 +109,57 @@ def test_readyz_firestore_failure_is_soft(monkeypatch):
     body = resp.json()
     assert body["ready"] is True
     assert body["checks"]["firestore"]["ok"] is False
+
+
+def test_readyz_reports_stale_inventory_without_flapping(monkeypatch):
+    """Frozen data is visible to operators while the serving process stays ready."""
+    monkeypatch.setattr(
+        main,
+        "_readyz_check_inventory_source",
+        lambda: {
+            "ok": False,
+            "requested": "legacy",
+            "reported_source": "legacy_site_snapshot",
+            "freshness": "stale",
+            "age_days": 93,
+        },
+    )
+
+    resp = client.get("/readyz")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["ready"] is True
+    assert body["checks"]["inventory"]["ok"] is False
+    assert body["checks"]["inventory"]["freshness"] == "stale"
+
+
+def test_readyz_inventory_check_reads_metadata_without_populating_inventory_cache(monkeypatch):
+    """A health probe must not seed the public inventory cache with a one-home limit."""
+    monkeypatch.setenv("INVENTORY_SOURCE", "legacy")
+    monkeypatch.setattr(
+        main,
+        "load_legacy_inventory_snapshot_metadata",
+        lambda: {
+            "success": True,
+            "source": "legacy_site_snapshot",
+            "retrieved_at": "2026-05-11T23:49:10Z",
+            "total_inventory": 19,
+        },
+        raising=False,
+    )
+    monkeypatch.setattr(
+        main,
+        "load_legacy_inventory_context",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            AssertionError("must not populate inventory cache")
+        ),
+    )
+
+    check = main._readyz_check_inventory_source()
+
+    assert check["reported_source"] == "legacy_site_snapshot"
+    assert check["current_inventory_count"] == 19
 
 
 def _req(path: str, host: str = "candidate---x.a.run.app", method: str = "GET"):

@@ -47,15 +47,20 @@ def test_render_covers_every_openapi_operation(app, openapi_paths):
     missing = [
         f"{method} {path}"
         for path, method in _operations(openapi_paths)
-        if f"`{path}`" not in markdown or not any(
-            line.startswith(f"| {method} | `{path}` |") for line in markdown.splitlines()
-        )
+        if f"`{path}`" not in markdown
+        or not any(line.startswith(f"| {method} | `{path}` |") for line in markdown.splitlines())
     ]
     assert not missing, "generator output is missing operations:\n" + "\n".join(missing)
 
 
 def test_render_is_deterministic(app):
     assert gen.render_markdown(app) == gen.render_markdown(app)
+
+
+def test_social_draft_compatibility_route_is_documented_as_response_only(app):
+    markdown = gen.render_markdown(app)
+
+    assert "| POST | `/api/marketing/schedule` | Prepare response-only social draft |" in markdown
 
 
 def test_generator_never_embeds_secret_values(app):

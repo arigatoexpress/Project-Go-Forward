@@ -19,6 +19,7 @@ import { attachPhoneClickTracking, isPublicAnalyticsPath, trackEvent } from './u
 import { navigateDocument } from './utils/documentNavigation';
 import { getInventoryCategoryRoute, isInventoryCategoryPath } from './utils/inventoryCategoryRoutes';
 import { safeUserMessage, extractErrorMessage, describeFetchError } from './utils/apiError';
+import { adminCsrfHeaders } from './adminFetch';
 import {
   BUSINESS_NAME, BUSINESS_PHONE, BUSINESS_PHONE_RAW, BUSINESS_FULL_ADDRESS,
   BUSINESS_HOURS, BUSINESS_LICENSE, BUSINESS_CITY, BUSINESS_STATE
@@ -661,7 +662,7 @@ function App() {
       const beginRes = await fetch('/api/admin/passkey/register/begin', {
         method: 'POST',
         credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
+        headers: adminCsrfHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ email: normalizedEmail }),
       });
       if (!beginRes.ok) {
@@ -691,7 +692,7 @@ function App() {
       };
       const completeRes = await fetch('/api/admin/passkey/register/complete', {
         method: 'POST', credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
+        headers: adminCsrfHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify(payload),
       });
       const data = await completeRes.json();
@@ -1459,7 +1460,12 @@ function App() {
         <NavBar {...navProps} />
         <ErrorBoundary scope="getting-started">
           <Suspense fallback={<PageLoader />}>
-            <GettingStarted onOpenDocuments={() => navigateTo('documents')} onOpenCRM={() => navigateTo('crm')} onOpenAdStudio={() => navigateTo('adstudio')} />
+            <GettingStarted
+              onOpenDocuments={() => navigateTo('documents')}
+              onOpenCRM={() => navigateTo('crm')}
+              onOpenAdStudio={() => navigateTo('adstudio')}
+              onOpenPhotos={() => navigateTo('photos')}
+            />
           </Suspense>
         </ErrorBoundary>
       </div>

@@ -17,6 +17,7 @@ if str(REPO_ROOT) not in sys.path:
 def admin_client(monkeypatch):
     """Create a test client with admin auth configured."""
     from tests.test_api_v1 import create_client
+
     client, main, _db, _logger = create_client(monkeypatch)
     return client, main
 
@@ -35,6 +36,15 @@ class TestCSRFTokens:
         assert data["success"] is True
         assert "csrf_token" in data
         return data["csrf_token"]
+
+    @staticmethod
+    def _set_passkey_session(client, main):
+        token = main._get_passkey_session_manager().issue_session(
+            "admin",
+            email="mark@texashomeoutlet.com",
+            auth_method="passkey",
+        )
+        client.cookies.set(main.PASSKEY_COOKIE_NAME, token)
 
     def test_login_sets_csrf_cookie(self, admin_client):
         client, _ = admin_client
@@ -57,7 +67,7 @@ class TestCSRFTokens:
         # POST without X-CSRF-Token header should be rejected
         res = client.post(
             "/api/crm/tasks",
-            json={"title": "test", "status": "pending"},
+            json={},
         )
         assert res.status_code == 403
         data = res.json()
@@ -94,6 +104,41 @@ class TestCSRFTokens:
         assert res.status_code == 403
         data = res.json()
         assert "CSRF" in data.get("message", data.get("detail", ""))
+
+    def test_passkey_cookie_post_without_csrf_returns_403(self, admin_client):
+        client, main = admin_client
+        self._set_passkey_session(client, main)
+
+        res = client.post(
+            "/api/crm/tasks",
+            json={"title": "test", "status": "pending"},
+        )
+
+        assert res.status_code == 403
+        assert "CSRF" in res.json().get("message", res.json().get("detail", ""))
+
+    def test_passkey_cookie_post_with_matching_csrf_succeeds(self, admin_client):
+        client, main = admin_client
+        self._set_passkey_session(client, main)
+        client.cookies.set("tho_csrf_token", "passkey-csrf-token")
+
+        res = client.post(
+            "/api/crm/tasks",
+            json={},
+            headers={"X-CSRF-Token": "passkey-csrf-token"},
+        )
+
+        # Reaching handler validation proves CSRF passed without creating a task.
+        assert res.status_code == 400
+        assert res.json()["error"] == "Task title is required."
+
+    def test_passkey_cookie_get_remains_csrf_exempt(self, admin_client):
+        client, main = admin_client
+        self._set_passkey_session(client, main)
+
+        res = client.get("/api/crm/tasks")
+
+        assert res.status_code == 200
 
     def test_admin_header_auth_skips_csrf(self, admin_client, monkeypatch):
         client, main = admin_client

@@ -637,9 +637,10 @@ def load_app(monkeypatch, tho_api_key: str | None = "tho-secret", rate_limit_rpm
     if "</head>" not in existing_shell or '<div id="root">' not in existing_shell:
         index_html.write_text(spa_shell)
 
-    sys.modules.pop("database.models", None)
-    from database.models import Inventory as RealInventory
-    from database.models import InventoryWrite as RealInventoryWrite
+    # Keep the complete production models module available to main.py's eager
+    # imports.  Replacing it with a hand-maintained partial stub made this suite
+    # depend on other tests importing new Ads models/constants first.
+    real_database_models_module = importlib.import_module("database.models")
 
     fake_logger = FakeStructuredLogger()
     fake_db = FakeTHODatabase()
@@ -717,12 +718,9 @@ def load_app(monkeypatch, tho_api_key: str | None = "tho-secret", rate_limit_rpm
     firestore_client_module.get_database = lambda: fake_db
     monkeypatch.setitem(sys.modules, "database.firestore_client", firestore_client_module)
 
-    database_models_module = types.ModuleType("database.models")
-    database_models_module.Deal = FakeDeal
-    database_models_module.DealStatus = FakeDealStatus
-    database_models_module.Inventory = RealInventory
-    database_models_module.InventoryWrite = RealInventoryWrite
-    monkeypatch.setitem(sys.modules, "database.models", database_models_module)
+    monkeypatch.setattr(real_database_models_module, "Deal", FakeDeal)
+    monkeypatch.setattr(real_database_models_module, "DealStatus", FakeDealStatus)
+    monkeypatch.setitem(sys.modules, "database.models", real_database_models_module)
 
     document_schemas_module = types.ModuleType("schemas.document_schemas")
     document_schemas_module.SalesContractForm = DummyBodyModel
@@ -1008,6 +1006,30 @@ def test_inventory_context_defaults_to_legacy_source(monkeypatch):
     assert main._seo_public_homes()["homes"] == data["homes"]
 
 
+def test_inventory_context_reports_stale_legacy_source_honestly(monkeypatch):
+    """A usable snapshot must not be presented as current when its timestamp is old."""
+    client, main, _db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
+    monkeypatch.setenv("INVENTORY_SOURCE", "legacy")
+    _isolate_inventory_merge(monkeypatch, main)
+    retrieved_at = (datetime.now(UTC) - timedelta(days=40)).isoformat()
+    legacy = {**_LEGACY_CTX, "source": "legacy_site_snapshot", "retrieved_at": retrieved_at}
+    monkeypatch.setattr(main, "load_legacy_inventory_context", lambda **_kwargs: legacy)
+
+    data = client.get("/api/marketing/inventory-context").json()
+
+    assert data["source"] == "legacy_site_snapshot"
+    assert data["source_status"] == {
+        "requested": "legacy",
+        "selected_path": "legacy",
+        "reported_source": "legacy_site_snapshot",
+        "freshness": "stale",
+        "retrieved_at": retrieved_at,
+        "age_days": 40,
+        "stale_after_days": 14,
+    }
+    assert "inventory_source_stale" in data["warnings"]
+
+
 def test_inventory_context_firestore_source_serves_firestore(monkeypatch):
     """INVENTORY_SOURCE=firestore -> staff-managed Firestore inventory wins."""
     client, main, _db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
@@ -1035,17 +1057,68 @@ def test_inventory_context_auto_falls_back_to_legacy_when_firestore_empty(monkey
     assert main._seo_public_homes()["homes"] == data["homes"]
 
 
-def test_inventory_context_auto_prefers_firestore_when_populated(monkeypatch):
-    """auto + >= min Firestore homes -> Firestore wins (the unfreeze)."""
+def test_inventory_context_auto_rejects_unverified_fallback_chain(monkeypatch):
+    """A non-empty fallback chain is not proof that Firestore is current."""
     client, main, _db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
     monkeypatch.setenv("INVENTORY_SOURCE", "auto")
     _isolate_inventory_merge(monkeypatch, main)
     monkeypatch.setattr(main, "load_legacy_inventory_context", lambda **k: dict(_LEGACY_CTX))
-    monkeypatch.setattr(main, "get_inventory_for_ads", lambda **k: dict(_FS_CTX))
+    monkeypatch.setattr(
+        main,
+        "get_inventory_for_ads",
+        lambda **k: {**_FS_CTX, "source": "inventory_fallback_chain"},
+    )
 
     data = client.get("/api/marketing/inventory-context").json()
+    assert [h["id"] for h in data["homes"]] == ["legacy-1"]
+    assert data["source_status"]["selected_path"] == "legacy"
+    assert data["source_status"]["requested"] == "auto"
+
+
+def test_inventory_context_auto_prefers_verified_fresh_firestore(monkeypatch):
+    """Automatic switching requires both strict provenance and fresh evidence."""
+    client, main, _db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
+    monkeypatch.setenv("INVENTORY_SOURCE", "auto")
+    _isolate_inventory_merge(monkeypatch, main)
+    monkeypatch.setattr(main, "load_legacy_inventory_context", lambda **k: dict(_LEGACY_CTX))
+    retrieved_at = (datetime.now(UTC) - timedelta(days=1)).isoformat()
+    monkeypatch.setattr(
+        main,
+        "get_inventory_for_ads",
+        lambda **k: {
+            **_FS_CTX,
+            "source": "firestore_inventory",
+            "retrieved_at": retrieved_at,
+        },
+    )
+
+    data = client.get("/api/marketing/inventory-context").json()
+
     assert [h["id"] for h in data["homes"]] == ["fs-1"]
+    assert data["source_status"]["reported_source"] == "firestore_inventory"
+    assert data["source_status"]["freshness"] == "fresh"
+    assert data["source_status"]["selected_path"] == "firestore"
     assert main._seo_public_homes()["homes"] == data["homes"]
+
+
+def test_inventory_context_explicit_firestore_reports_unknown_freshness(monkeypatch):
+    """An operator override may serve the path, but it may not claim freshness."""
+    client, main, _db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
+    monkeypatch.setenv("INVENTORY_SOURCE", "firestore")
+    _isolate_inventory_merge(monkeypatch, main)
+    monkeypatch.setattr(main, "load_legacy_inventory_context", lambda **k: dict(_LEGACY_CTX))
+    monkeypatch.setattr(
+        main,
+        "get_inventory_for_ads",
+        lambda **k: {**_FS_CTX, "source": "inventory_fallback_chain"},
+    )
+
+    data = client.get("/api/marketing/inventory-context").json()
+
+    assert [h["id"] for h in data["homes"]] == ["fs-1"]
+    assert data["source_status"]["reported_source"] == "inventory_fallback_chain"
+    assert data["source_status"]["freshness"] == "unknown"
+    assert "inventory_source_freshness_unknown" in data["warnings"]
 
 
 def test_inventory_context_legacy_unavailable_falls_back_to_firestore(monkeypatch):
@@ -1276,7 +1349,7 @@ def test_delete_inventory_item_hard(monkeypatch):
     assert "inv-1" not in fake_db.collections["inventory"]
 
 
-def test_marketing_readiness_routes_are_admin_protected(monkeypatch):
+def test_marketing_gcp_readiness_route_is_admin_protected(monkeypatch):
     client, main, _db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
     token = main._create_admin_token()
 
@@ -1284,13 +1357,38 @@ def test_marketing_readiness_routes_are_admin_protected(monkeypatch):
     assert denied.status_code == 401
 
     gcp = client.get("/api/marketing/gcp-readiness", headers={"X-Admin-Token": token})
-    social = client.get("/api/marketing/social-readiness", headers={"X-Admin-Token": token})
 
     assert gcp.status_code == 200
     assert gcp.json()["ready"] is True
-    assert social.status_code == 200
-    assert "tiktok" in social.json()["platforms"]
-    assert "instagram_reels" in social.json()["platforms"]
+
+
+def test_marketing_schedule_declares_response_only_retention(monkeypatch):
+    client, main, _db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
+    token = main._create_admin_token()
+    from tools.social_publishers import prepare_social_post_draft
+
+    def prepare_draft(**kwargs):
+        return prepare_social_post_draft(
+            platform=kwargs["platform"],
+            content_type=kwargs["content_type"],
+            scheduled_time=kwargs.get("post_time") or "2026-08-12T12:00:00",
+            caption=kwargs.get("caption") or "",
+            hashtags=kwargs.get("hashtags"),
+            video_url=kwargs.get("video_url"),
+            campaign=kwargs.get("campaign"),
+        )
+
+    monkeypatch.setattr(main, "schedule_social_post", prepare_draft)
+
+    response = client.post(
+        "/api/marketing/schedule",
+        json={"platform": "instagram_reels", "content_type": "video"},
+        headers={"X-Admin-Token": token},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["persisted"] is False
+    assert response.json()["retention"] == "response_only"
 
 
 def test_admin_inventory_recovers_photo_ready_media_for_document_workflows(monkeypatch):

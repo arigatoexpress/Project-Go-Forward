@@ -114,13 +114,28 @@ def _parse_recipients(raw: str) -> list:
 
 # Internal staff alert recipients (new leads + new appointments). These fan out
 # to the whole THO team so no lead is missed — the old single aribspector@gmail.com
-# fallback was a deleted account, so alerts were silently lost. Override with the
-# NOTIFICATION_EMAIL env var as a comma-separated list (one or many addresses).
+# fallback was a deleted account, so alerts were silently lost. NOTIFICATION_EMAIL
+# remains the operator-managed base list. REQUIRED_NOTIFICATION_EMAILS is additive
+# and protects newly added recipients from an older Cloud Run override silently
+# winning over a source-code fallback. Operators can explicitly replace or clear
+# the required layer when staff membership changes.
+_DEFAULT_NOTIFICATION_EMAILS = (
+    "ben@texashomeoutlet.com,leeaswell@texashomeoutlet.com,"
+    "celeste@texashomeoutlet.com,mark@texashomeoutlet.com,"
+    "adriana@texashomeoutlet.com"
+)
+_REQUIRED_NOTIFICATION_EMAILS = os.environ.get(
+    "REQUIRED_NOTIFICATION_EMAILS",
+    "adriana@texashomeoutlet.com",
+)
 NOTIFICATION_EMAILS = _parse_recipients(
-    os.environ.get(
-        "NOTIFICATION_EMAIL",
-        "ben@texashomeoutlet.com,leeaswell@texashomeoutlet.com,"
-        "celeste@texashomeoutlet.com,mark@texashomeoutlet.com",
+    ",".join(
+        value
+        for value in (
+            os.environ.get("NOTIFICATION_EMAIL", _DEFAULT_NOTIFICATION_EMAILS),
+            _REQUIRED_NOTIFICATION_EMAILS,
+        )
+        if value
     )
 )
 # Back-compat string view (joined) for any caller still referencing the scalar.

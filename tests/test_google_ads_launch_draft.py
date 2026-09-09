@@ -2,6 +2,8 @@ import copy
 import json
 from pathlib import Path
 
+import pytest
+
 from scripts.google_ads_launch_draft import validate_draft
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -19,6 +21,28 @@ def test_checked_in_google_ads_draft_is_valid_and_cannot_spend():
     assert draft["mode"] == "VALIDATE_ONLY"
     assert draft["campaign"]["status"] == "PAUSED"
     assert draft["activation_gate"]["approved"] is False
+
+
+@pytest.mark.parametrize("currency", [None, "EUR", "usd", "", 840])
+def test_rejects_missing_or_non_usd_account_currency(currency):
+    draft = _draft()
+    if currency is None:
+        draft["campaign"].pop("currency_code")
+    else:
+        draft["campaign"]["currency_code"] = currency
+
+    assert "campaign.currency_code must equal USD" in validate_draft(draft)
+
+
+def test_contract_requires_composite_account_access_and_usd_evidence():
+    draft = _draft()
+
+    assert "google_ads_account_access_and_usd_green" in draft["readiness"]["hard_checks"]
+    assert "google_ads_account_access_green" not in draft["readiness"]["hard_checks"]
+
+    draft["readiness"]["hard_checks"].remove("google_ads_account_access_and_usd_green")
+    draft["readiness"]["hard_checks"].append("google_ads_account_access_green")
+    assert "readiness.hard_checks must match the reviewed hard-check list" in validate_draft(draft)
 
 
 def test_rejects_any_serving_or_approval_state():
@@ -126,16 +150,16 @@ def test_rejects_unreviewed_paths_and_unbounded_tracking_values():
     assert "tracking.utm_term must equal {keyword}" in errors
 
 
-def test_rejects_inflated_stop_loss_or_removed_activation_checks():
+def test_rejects_inflated_stop_loss_or_removed_hard_readiness_checks():
     draft = _draft()
     draft["activation_gate"]["stop_loss"]["zero_reachable_leads_spend_usd"] = 50000
-    draft["activation_gate"]["required_checks"] = []
+    draft["readiness"]["hard_checks"] = []
     draft["campaign"]["geo"]["radius_miles"] = 500
 
     errors = validate_draft(draft)
 
     assert "stop_loss.zero_reachable_leads_spend_usd must equal reviewed value 200" in errors
-    assert "activation_gate.required_checks must match the reviewed checklist" in errors
+    assert "readiness.hard_checks must match the reviewed hard-check list" in errors
     assert "geo.radius_miles must equal reviewed value 50" in errors
 
 

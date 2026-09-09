@@ -11,18 +11,19 @@ Storage layout (GCS or local fallback)::
     listing_photos/<home_id>/<filename>
 
 A local-disk fallback under ``data/listing_photos`` keeps the feature working in
-local development and tests where GCS credentials are unavailable. GCS is
-preferred whenever it is reachable so photos survive Cloud Run restarts.
+local development and tests where GCS credentials are unavailable. Cloud Run
+mutations require GCS and fail closed because its local filesystem is ephemeral.
 """
 
 from __future__ import annotations
 
+import hashlib
+import io
 import json
 import logging
 import os
 import re
 import time
-import uuid
 from dataclasses import dataclass
 
 from tools.input_sanitizer import sanitize_filename
@@ -30,7 +31,7 @@ from tools.input_sanitizer import sanitize_filename
 log = logging.getLogger(__name__)
 
 # Listing photos get their own bucket so we never widen access on the
-# secure-documents bucket. Falls back to local disk when GCS is unavailable.
+# secure-documents bucket. Local fallback is development-only.
 _GCS_BUCKET_NAME = os.getenv("GCS_LISTING_PHOTOS_BUCKET", "tho-listing-photos")
 _PREFIX = "listing_photos"
 
@@ -41,7 +42,9 @@ _ORDER_FILE = "_order.json"
 
 _LOCAL_DIR = os.getenv(
     "THO_LISTING_PHOTOS_DIR",
-    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "listing_photos"),
+    os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "listing_photos"
+    ),
 )
 
 # Content types we accept, mapped to a canonical file extension.
@@ -67,6 +70,9 @@ MAX_PHOTO_BYTES = int(os.getenv("THO_MAX_PHOTO_BYTES", str(15 * 1024 * 1024)))  
 # uploads, and strip metadata so the public site stays fast and photos display
 # the right way up. Tunable via env; set THO_DISABLE_IMAGE_PROCESSING to skip.
 MAX_IMAGE_DIM = int(os.getenv("THO_MAX_IMAGE_DIM", "2400"))
+MAX_IMAGE_PIXELS = int(os.getenv("THO_MAX_IMAGE_PIXELS", "40000000"))
+MAX_DECODED_PIXELS = int(os.getenv("THO_MAX_DECODED_PIXELS", "80000000"))
+MAX_IMAGE_FRAMES = int(os.getenv("THO_MAX_IMAGE_FRAMES", "500"))
 JPEG_QUALITY = int(os.getenv("THO_JPEG_QUALITY", "85"))
 
 # content_type -> Pillow format string (gif is left untouched to preserve animation).
@@ -111,6 +117,15 @@ class PhotoValidationError(ValueError):
     """Raised when an uploaded file is not an acceptable image."""
 
 
+class PhotoStorageError(RuntimeError):
+    """Raised when production cannot complete a durable photo operation."""
+
+
+def _requires_durable_storage() -> bool:
+    """Cloud Run's writable filesystem is ephemeral and must never be success."""
+    return bool((os.environ.get("K_SERVICE") or "").strip())
+
+
 def detect_content_type(data: bytes, declared: str | None) -> str:
     """Return a trusted content type from magic bytes, falling back to declared.
 
@@ -126,17 +141,55 @@ def detect_content_type(data: bytes, declared: str | None) -> str:
     declared = (declared or "").split(";")[0].strip().lower()
     if declared in ALLOWED_CONTENT_TYPES:
         return "image/jpeg" if declared == "image/jpg" else declared
-    raise PhotoValidationError(
-        "File is not a recognized image (allowed: JPG, PNG, WebP, GIF)."
-    )
+    raise PhotoValidationError("File is not a recognized image (allowed: JPG, PNG, WebP, GIF).")
+
+
+def validate_image_bytes(data: bytes, content_type: str) -> None:
+    """Fully decode pixels so signatures or declared MIME are insufficient."""
+    try:
+        from PIL import Image, ImageSequence
+
+        with Image.open(io.BytesIO(data)) as image:
+            detected_format = (image.format or "").upper()
+            image.verify()
+        # ``verify`` checks container structure but can accept JPEGs with a
+        # truncated pixel stream. Reopen and force a complete decode before a
+        # byte is eligible for durable storage. Every animation frame counts
+        # toward a total budget so a small canvas cannot hide a decode bomb.
+        with Image.open(io.BytesIO(data)) as image:
+            decoded_pixels = 0
+            frame_count = 0
+            for frame in ImageSequence.Iterator(image):
+                frame_count += 1
+                if frame_count > MAX_IMAGE_FRAMES:
+                    raise PhotoValidationError("Image has too many animation frames.")
+                frame_pixels = frame.width * frame.height
+                if frame_pixels > MAX_IMAGE_PIXELS:
+                    raise PhotoValidationError("Image dimensions are too large.")
+                decoded_pixels += frame_pixels
+                if decoded_pixels > MAX_DECODED_PIXELS:
+                    raise PhotoValidationError("Image decoded size is too large.")
+                frame.load()
+    except PhotoValidationError:
+        raise
+    except Exception as exc:
+        raise PhotoValidationError("File is not a valid image.") from exc
+
+    detected_type = {
+        "JPEG": "image/jpeg",
+        "PNG": "image/png",
+        "WEBP": "image/webp",
+        "GIF": "image/gif",
+    }.get(detected_format)
+    if detected_type != content_type:
+        raise PhotoValidationError("File image type does not match its content.")
 
 
 def process_image(data: bytes, content_type: str) -> bytes:
     """Auto-orient, downscale, and strip metadata. Returns processed bytes.
 
-    Falls back to the original bytes if Pillow is unavailable, the format is
-    left untouched (GIF), or anything goes wrong — the upload must never fail
-    just because optimization did.
+    Falls back to already-validated original bytes when optimization is
+    disabled, the format is left untouched (GIF), or optimization fails.
     """
     if os.getenv("THO_DISABLE_IMAGE_PROCESSING", "").lower() in {"1", "true", "yes"}:
         return data
@@ -144,8 +197,6 @@ def process_image(data: bytes, content_type: str) -> bytes:
     if fmt is None:  # gif / unknown — keep as-is
         return data
     try:
-        import io
-
         from PIL import Image, ImageOps
 
         with Image.open(io.BytesIO(data)) as img:
@@ -166,7 +217,10 @@ def process_image(data: bytes, content_type: str) -> bytes:
         # Only keep the processed version if it actually parsed to something.
         return processed or data
     except Exception as exc:  # pragma: no cover - depends on Pillow/env
-        log.warning("Image processing skipped (%s); storing original", exc)
+        log.warning(
+            "Image processing skipped; storing validated original",
+            extra={"error_type": type(exc).__name__},
+        )
         return data
 
 
@@ -178,16 +232,16 @@ def safe_home_id(home_id: str) -> str:
     return cleaned[:128]
 
 
-def _build_filename(original_name: str | None, content_type: str) -> str:
-    """Generate a unique, safe filename, preserving a friendly stem."""
+def _build_filename(original_name: str | None, content_type: str, data: bytes) -> str:
+    """Generate a deterministic content identity with an optional friendly stem."""
     stem = ""
     if original_name:
         safe_name = sanitize_filename(original_name, max_len=200) or ""
         stem = os.path.splitext(os.path.basename(safe_name))[0]
         stem = re.sub(r"[^A-Za-z0-9_-]+", "-", stem).strip("-").lower()[:40]
     ext = ALLOWED_CONTENT_TYPES.get(content_type, ".jpg")
-    unique = f"{int(time.time())}-{uuid.uuid4().hex[:8]}"
-    return f"{stem + '-' if stem else ''}{unique}{ext}"
+    digest = hashlib.sha256(data).hexdigest()[:24]
+    return f"{stem + '-' if stem else ''}{digest}{ext}"
 
 
 def _safe_filename(filename: str) -> str:
@@ -217,8 +271,14 @@ def _get_bucket():
             _gcs_client = storage.Client()
             _gcs_bucket = _gcs_client.bucket(_GCS_BUCKET_NAME)
         except Exception as exc:  # pragma: no cover - depends on env
-            log.warning("Listing-photo GCS unavailable, using local disk: %s", exc)
-            _gcs_unavailable = True
+            log.warning(
+                "Listing-photo GCS unavailable",
+                extra={"error_type": type(exc).__name__},
+            )
+            # Local development can avoid repeatedly probing missing ADC. A
+            # production instance must be able to recover after a transient
+            # client-initialization failure without waiting for a restart.
+            _gcs_unavailable = not _requires_durable_storage()
             return None
     return _gcs_bucket
 
@@ -246,8 +306,8 @@ def store_photo(
 ) -> StoredPhoto:
     """Validate and persist one photo for ``home_id``. Returns a StoredPhoto.
 
-    Tries GCS first; falls back to local disk if GCS is unreachable so the
-    feature still works in development.
+    Tries GCS first; falls back to local disk only outside Cloud Run so local
+    development works without pretending ephemeral production writes persist.
     """
     if not data:
         raise PhotoValidationError("Uploaded file is empty.")
@@ -258,20 +318,46 @@ def store_photo(
         )
     home = safe_home_id(home_id)
     content_type = detect_content_type(data, declared_content_type)
+    validate_image_bytes(data, content_type)
     # Auto-orient / downscale / strip metadata (no-op fallback on failure).
     data = process_image(data, content_type)
-    filename = _build_filename(original_name, content_type)
+    filename = _build_filename(original_name, content_type, data)
 
     bucket = _get_bucket()
     if bucket is not None:
         try:
             blob = bucket.blob(_blob_path(home, filename))
             blob.cache_control = "public, max-age=86400"
-            blob.upload_from_string(data, content_type=content_type)
+            # The deterministic object name and create-only precondition make
+            # retries idempotent. If GCS commits but the response is lost, the
+            # existence check below reconciles the ambiguous outcome.
+            blob.upload_from_string(data, content_type=content_type, if_generation_match=0)
             _invalidate_grouped_cache()
             return StoredPhoto(home, filename, len(data), content_type, "gcs")
         except Exception as exc:  # pragma: no cover - depends on env
-            log.error("Listing-photo GCS upload failed, using local disk: %s", exc)
+            try:
+                committed = blob.exists()
+            except Exception as reconcile_exc:
+                committed = False
+                log.error(
+                    "Listing-photo GCS upload reconciliation failed",
+                    extra={"error_type": type(reconcile_exc).__name__},
+                )
+            if committed:
+                log.warning(
+                    "Listing-photo GCS upload reconciled after ambiguous response",
+                    extra={"error_type": type(exc).__name__},
+                )
+                _invalidate_grouped_cache()
+                return StoredPhoto(home, filename, len(data), content_type, "gcs")
+            log.error("Listing-photo GCS upload failed", extra={"error_type": type(exc).__name__})
+            if _requires_durable_storage():
+                raise PhotoStorageError(
+                    "Durable photo storage is temporarily unavailable."
+                ) from exc
+
+    if _requires_durable_storage():
+        raise PhotoStorageError("Durable photo storage is temporarily unavailable.")
 
     path = _local_path(home, filename)
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -287,10 +373,30 @@ def _read_order(home: str) -> list[str]:
     if bucket is not None:
         try:
             blob = bucket.blob(_blob_path(home, _ORDER_FILE))
-            if blob.exists():
-                return [str(x) for x in json.loads(blob.download_as_bytes() or b"[]")]
+            payload = blob.download_as_bytes() if blob.exists() else b"[]"
         except Exception as exc:  # pragma: no cover - depends on env
-            log.error("Listing-photo order read failed: %s", exc)
+            log.error("Listing-photo order read failed", extra={"error_type": type(exc).__name__})
+            if _requires_durable_storage():
+                raise PhotoStorageError(
+                    "Durable photo storage is temporarily unavailable."
+                ) from exc
+        else:
+            try:
+                parsed = json.loads(payload or b"[]")
+            except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+                log.warning(
+                    "Listing-photo order metadata is invalid; ignoring it",
+                    extra={"error_type": type(exc).__name__},
+                )
+                return []
+            if not isinstance(parsed, list) or any(not isinstance(item, str) for item in parsed):
+                log.warning("Listing-photo order metadata has an invalid schema; ignoring it")
+                return []
+            return parsed
+        if _requires_durable_storage():
+            return []
+    elif _requires_durable_storage():
+        raise PhotoStorageError("Durable photo storage is temporarily unavailable.")
     path = _local_path(home, _ORDER_FILE)
     if os.path.isfile(path):
         try:
@@ -311,7 +417,13 @@ def _write_order(home: str, filenames: list[str]) -> None:
             _invalidate_grouped_cache()
             return
         except Exception as exc:  # pragma: no cover - depends on env
-            log.error("Listing-photo order write failed, using local disk: %s", exc)
+            log.error("Listing-photo order write failed", extra={"error_type": type(exc).__name__})
+            if _requires_durable_storage():
+                raise PhotoStorageError(
+                    "Durable photo storage is temporarily unavailable."
+                ) from exc
+    if _requires_durable_storage():
+        raise PhotoStorageError("Durable photo storage is temporarily unavailable.")
     path = _local_path(home, _ORDER_FILE)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "wb") as fh:
@@ -326,9 +438,7 @@ def _ordered(home: str, photos: dict[str, StoredPhoto]) -> list[StoredPhoto]:
     order = _read_order(home)
     in_order = [photos[f] for f in order if f in photos]
     placed = {f for f in order if f in photos}
-    rest = sorted(
-        (p for f, p in photos.items() if f not in placed), key=lambda p: p.filename
-    )
+    rest = sorted((p for f, p in photos.items() if f not in placed), key=lambda p: p.filename)
     return in_order + rest
 
 
@@ -344,11 +454,17 @@ def list_photos(home_id: str) -> list[StoredPhoto]:
                 name = blob.name.split("/")[-1]
                 if not name or name == _ORDER_FILE:
                     continue
-                seen[name] = StoredPhoto(
-                    home, name, blob.size or 0, _content_type_for(name), "gcs"
-                )
+                seen[name] = StoredPhoto(home, name, blob.size or 0, _content_type_for(name), "gcs")
         except Exception as exc:  # pragma: no cover - depends on env
-            log.error("Listing-photo GCS list failed: %s", exc)
+            log.error("Listing-photo GCS list failed", extra={"error_type": type(exc).__name__})
+            if _requires_durable_storage():
+                raise PhotoStorageError(
+                    "Durable photo storage is temporarily unavailable."
+                ) from exc
+        if _requires_durable_storage():
+            return _ordered(home, seen)
+    elif _requires_durable_storage():
+        raise PhotoStorageError("Durable photo storage is temporarily unavailable.")
 
     local_dir = os.path.join(_LOCAL_DIR, home)
     if os.path.isdir(local_dir):
@@ -391,7 +507,15 @@ def get_photo(home_id: str, filename: str) -> tuple[bytes, str] | None:
             if blob.exists():
                 return blob.download_as_bytes(), (blob.content_type or _content_type_for(name))
         except Exception as exc:  # pragma: no cover - depends on env
-            log.error("Listing-photo GCS fetch failed: %s", exc)
+            log.error("Listing-photo GCS fetch failed", extra={"error_type": type(exc).__name__})
+            if _requires_durable_storage():
+                raise PhotoStorageError(
+                    "Durable photo storage is temporarily unavailable."
+                ) from exc
+        if _requires_durable_storage():
+            return None
+    elif _requires_durable_storage():
+        raise PhotoStorageError("Durable photo storage is temporarily unavailable.")
 
     path = _local_path(home, name)
     if os.path.isfile(path):
@@ -407,6 +531,8 @@ def delete_photo(home_id: str, filename: str) -> bool:
     deleted = False
 
     bucket = _get_bucket()
+    if bucket is None and _requires_durable_storage():
+        raise PhotoStorageError("Durable photo storage is temporarily unavailable.")
     if bucket is not None:
         try:
             blob = bucket.blob(_blob_path(home, name))
@@ -414,17 +540,32 @@ def delete_photo(home_id: str, filename: str) -> bool:
                 blob.delete()
                 deleted = True
         except Exception as exc:  # pragma: no cover - depends on env
-            log.error("Listing-photo GCS delete failed: %s", exc)
+            log.error("Listing-photo GCS delete failed", extra={"error_type": type(exc).__name__})
+            if _requires_durable_storage():
+                raise PhotoStorageError(
+                    "Durable photo storage is temporarily unavailable."
+                ) from exc
 
-    path = _local_path(home, name)
-    if os.path.isfile(path):
-        os.remove(path)
-        deleted = True
+    if not _requires_durable_storage():
+        path = _local_path(home, name)
+        if os.path.isfile(path):
+            os.remove(path)
+            deleted = True
     if deleted:
-        order = _read_order(home)
-        if name in order:
-            _write_order(home, [f for f in order if f != name])
+        # The primary durable delete is already committed. Invalidate public
+        # reads immediately and treat sidecar pruning as best-effort: stale
+        # order entries are ignored by ``_ordered`` and must not turn a real
+        # deletion into a retryable 503 that could mislead an operator.
         _invalidate_grouped_cache()
+        try:
+            order = _read_order(home)
+            if name in order:
+                _write_order(home, [f for f in order if f != name])
+        except PhotoStorageError as exc:
+            log.warning(
+                "Listing-photo order cleanup deferred after committed delete",
+                extra={"error_type": type(exc).__name__},
+            )
     return deleted
 
 
@@ -456,9 +597,14 @@ def list_all_grouped(*, use_cache: bool = True) -> dict[str, list[StoredPhoto]]:
                     home, name, blob.size or 0, _content_type_for(name), "gcs"
                 )
         except Exception as exc:  # pragma: no cover - depends on env
-            log.error("Listing-photo GCS grouped list failed: %s", exc)
+            log.error(
+                "Listing-photo GCS grouped list failed",
+                extra={"error_type": type(exc).__name__},
+            )
+            if _requires_durable_storage():
+                return {}
 
-    if os.path.isdir(_LOCAL_DIR):
+    if not _requires_durable_storage() and os.path.isdir(_LOCAL_DIR):
         for home in os.listdir(_LOCAL_DIR):
             home_dir = os.path.join(_LOCAL_DIR, home)
             if not os.path.isdir(home_dir):

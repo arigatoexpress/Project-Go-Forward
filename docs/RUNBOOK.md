@@ -85,7 +85,7 @@ then fix forward through a PR.
 | Secret | Where | Procedure |
 |---|---|---|
 | `ADMIN_PIN_HASH` | Secret Manager `admin-pin-hash` | `docs/PIN_ROTATION_RUNBOOK.md` |
-| `ADMIN_SESSION_SECRET` | Secret Manager | add new version, redeploy (invalidates sessions) |
+| `ADMIN_SESSION_SECRET` | Secret Manager | add independent ≥32-byte version (not PIN hash/legacy derivation), redeploy (invalidates sessions) |
 | `THO_API_KEY` / `THO_API_KEY_<PARTNER>` | Secret Manager | add new version, `--update-secrets`, notify partner; per-partner vars allow revoking one partner without rotating the rest |
 | Resend / DocuSeal tokens | Secret Manager | rotate at provider, add new secret version, redeploy |
 

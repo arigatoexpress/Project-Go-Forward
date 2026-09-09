@@ -22,6 +22,42 @@ Two patterns drafted:
 | `/api/v1/*` Bearer | `THO_API_KEY` | `Authorization: Bearer <key>` or `X-API-Key` | CRUD on customers/inventory/leads + webhooks + stats |
 | `/api/v1/*` n8n-style | `N8N_API_TOKEN` | `Authorization: Bearer <token>` | automation workflows |
 
+### Google Ads owner WebAuthn step-up
+
+The inert Google Ads step-up evidence endpoints use one exact owner identity
+set across both normal passkey login and the purpose-bound step-up:
+
+- `THO_PASSKEY_OWNER_EMAILS` is the canonical comma-separated passkey owner
+  allowlist. The legacy `THO_ADMIN_OWNER_EMAILS` alias is still unioned into
+  that set when present, so it must not contain a divergent owner.
+- `THO_GOOGLE_ADS_OWNER_EMAILS` must be present and exactly equal to that
+  canonical set. A missing or divergent value fails step-up closed with 503;
+  the staff-domain allowlist, PIN, email code, bearer token, and shared admin
+  session never substitute for it.
+- Each configured owner must retain at least one registered recovery
+  credential. Revoking an owner credential requires the same owner's passkey
+  session plus CSRF and cannot delete the final owner credential.
+- Credential registration is create-only by credential id. A collision returns
+  409 before any new session is issued and can never replace or transfer an
+  existing owner's credential record.
+- Every passkey usage write uses an exact transactional compare-and-set.
+  Positive authenticator counters must increase; counterless authenticators may
+  repeat zero only against the exact last-used timestamp, so stale or concurrent
+  assertions cannot regress state or both win.
+- Cloud Run requires an independently provisioned `ADMIN_SESSION_SECRET` and
+  fails startup unless it is at least 32 UTF-8 bytes and differs from both the
+  PIN hash and the legacy PIN-derived session value; production never derives
+  owner-session signing authority from the shared PIN. Owner mutations require
+  a strict cookie/header double-submit token even if bearer or admin-token
+  headers are also present.
+
+Step-up requires a fresh WebAuthn assertion with user verification, a one-time
+nonce of at most five minutes, the checked-in deployment/hash/caps, and the
+current fresh `PASSED` access-evidence record read by the server. The browser
+cannot supply the evidence digest. This infrastructure records evidence only;
+paused-create approval, dispatch, provider calls, activation, and spend remain
+unavailable.
+
 ## 2. Secret hygiene — current state and plan
 
 ### Current (Cloud Run env)

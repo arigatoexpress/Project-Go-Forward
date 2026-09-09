@@ -42,6 +42,9 @@ def test_get_inventory_for_ads_preserves_live_firestore_media(monkeypatch):
     result = marketing_tools.get_inventory_for_ads(limit=10)
 
     assert result["success"] is True
+    # This helper uses a Firestore -> JSON -> sample fallback chain. It must not
+    # claim Firestore provenance until the loader returns explicit evidence.
+    assert result["source"] == "inventory_fallback_chain"
     assert result["total_inventory"] == 1
     home = result["homes"][0]
     assert home["id"] == "28102"
@@ -206,7 +209,6 @@ def test_content_performance_uses_honest_local_readiness(monkeypatch, tmp_path):
             },
         ],
     )
-    monkeypatch.setattr(marketing_tools.tiktok_handler, "is_configured", lambda: False)
     monkeypatch.setattr(marketing_tools, "GENERATED_ADS_DIR", str(tmp_path / "ads"))
     (tmp_path / "ads").mkdir()
     (tmp_path / "ads" / "creative.png").write_bytes(b"fake image")
@@ -227,7 +229,12 @@ def test_content_performance_uses_honest_local_readiness(monkeypatch, tmp_path):
 
     assert result["source"] == "local_readiness"
     assert result["social_analytics_connected"] is False
-    assert result["summary"]["total_views"] == 0
+    assert "social_readiness" not in result
+    assert result["summary"]["total_views"] is None
+    assert result["summary"]["total_engagement"] is None
+    assert result["summary"]["new_followers"] is None
+    assert result["summary"]["dms_received"] is None
+    assert result["summary"]["leads_generated"] is None
     assert result["summary"]["generated_images"] == 1
     assert result["summary"]["generated_videos"] == 1
     assert result["summary"]["inventory_count"] == 2
@@ -265,10 +272,8 @@ def test_generate_ad_flyer_creates_downloadable_social_creative(monkeypatch, tmp
     assert len(base64.b64decode(result["image_base64"])) > 1000
 
 
-def test_schedule_social_post_stays_draft_without_social_publish_gate(monkeypatch):
+def test_schedule_social_post_prepares_local_draft(monkeypatch):
     monkeypatch.setenv("PUBLIC_SITE_URL", "https://tho.example.com")
-    monkeypatch.setenv("TIKTOK_ACCESS_TOKEN", "token")
-    monkeypatch.delenv("THO_SOCIAL_PUBLISH_ENABLED", raising=False)
 
     result = marketing_tools.schedule_social_post(
         platform="tiktok",
@@ -284,14 +289,14 @@ def test_schedule_social_post_stays_draft_without_social_publish_gate(monkeypatc
     assert result["live_integration"] is False
     assert result["publish_attempted"] is False
     assert result["video_url"] == "https://tho.example.com/api/marketing/videos/test.mp4"
-    assert "THO_SOCIAL_PUBLISH_ENABLED" in result["publish_blocked_reason"]
+    assert result["publish_blocked_reason"] == (
+        "Draft prepared locally; no social platform request was made."
+    )
     assert result["script_reference"] == "SCRIPT-123"
 
 
-def test_schedule_instagram_reels_reports_missing_meta_config(monkeypatch):
+def test_schedule_instagram_reels_prepares_draft_without_provider_config(monkeypatch):
     monkeypatch.setenv("PUBLIC_SITE_URL", "https://tho.example.com")
-    monkeypatch.delenv("META_ACCESS_TOKEN", raising=False)
-    monkeypatch.delenv("INSTAGRAM_BUSINESS_ACCOUNT_ID", raising=False)
 
     result = marketing_tools.schedule_social_post(
         platform="instagram_reels",
@@ -302,8 +307,7 @@ def test_schedule_instagram_reels_reports_missing_meta_config(monkeypatch):
 
     assert result["status"] == "draft_ready"
     assert result["live_integration"] is False
-    assert "META_ACCESS_TOKEN" in result["publish_blocked_reason"]
-    assert "INSTAGRAM_BUSINESS_ACCOUNT_ID" in result["publish_blocked_reason"]
+    assert result["publish_attempted"] is False
     assert result["optimal_times"] == ["9:00 AM", "12:00 PM", "5:00 PM"]
 
 

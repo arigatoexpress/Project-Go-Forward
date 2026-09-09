@@ -35,13 +35,13 @@ you'll see.
 
 ### 1. Open the website and log in
 
-1. Go to **https://tho.sapphirealpha.xyz** in your web browser (Safari, Chrome,
+1. Go to **https://www.texashomeoutlet.com** in your web browser (Safari, Chrome,
    or Edge are all fine).
 2. Click the **lock icon (🔒)** in the top-right corner.
 3. Type the **admin PIN** and press enter. (Or use your passkey/fingerprint if
    you've set one up.)
 
-> **Tip:** If your PIN doesn't work, double-check the number with Ari — it can
+> **Tip:** If your PIN doesn't work, double-check the value with Ari — it can
 > be changed and you may have an old one.
 
 ### 2. Open the Photos screen

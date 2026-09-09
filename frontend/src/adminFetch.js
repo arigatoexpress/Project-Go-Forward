@@ -2,11 +2,19 @@
  * Fetch wrapper for admin-only API calls.
  * Relies on httpOnly SameSite=Strict cookie for auth — no manual token handling.
  * Intercepts 401 responses to signal re-auth.
- * Includes automatic retry logic for transient failures.
+ * Retries read-only requests. Mutating requests retry only when a caller
+ * explicitly marks the operation idempotent with ``retry: true``.
  */
 
 const MAX_RETRIES = 3;
 const RETRY_DELAY = 1000; // ms
+
+export function adminCsrfHeaders(headers = {}) {
+  const csrfMatch = document.cookie.match(/tho_csrf_token=([^;]+)/);
+  return csrfMatch
+    ? { ...headers, 'X-CSRF-Token': csrfMatch[1] }
+    : { ...headers };
+}
 
 async function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -14,19 +22,17 @@ async function sleep(ms) {
 
 export default async function adminFetch(url, options = {}) {
   let lastError;
+  const { retry, ...fetchOptions } = options;
+  const method = (fetchOptions.method || 'GET').toUpperCase();
+  const retryable = retry === true || (retry !== false && ['GET', 'HEAD', 'OPTIONS'].includes(method));
+  const attempts = retryable ? MAX_RETRIES : 1;
 
   // Inject CSRF token into headers for admin endpoints
-  const csrfMatch = document.cookie.match(/tho_csrf_token=([^;]+)/);
-  if (csrfMatch) {
-    options.headers = {
-      ...(options.headers || {}),
-      'X-CSRF-Token': csrfMatch[1],
-    };
-  }
+  fetchOptions.headers = adminCsrfHeaders(fetchOptions.headers);
 
-  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+  for (let attempt = 0; attempt < attempts; attempt++) {
     try {
-      const response = await fetch(url, options);
+      const response = await fetch(url, fetchOptions);
 
       // Handle auth errors immediately (no retry)
       if (response.status === 401) {
@@ -40,7 +46,7 @@ export default async function adminFetch(url, options = {}) {
       }
 
       // Server errors (5xx) might be transient, retry
-      if (response.status >= 500 && attempt < MAX_RETRIES - 1) {
+      if (response.status >= 500 && attempt < attempts - 1) {
         lastError = new Error(`Server error: ${response.status}`);
         // Carry the status so consumers can map it via describeFetchError
         // instead of ever showing this raw message to users.
@@ -56,7 +62,7 @@ export default async function adminFetch(url, options = {}) {
       // Network errors might be transient, retry
       lastError = error;
 
-      if (attempt < MAX_RETRIES - 1) {
+      if (attempt < attempts - 1) {
         console.warn(`adminFetch attempt ${attempt + 1} failed, retrying...`, error.message);
         await sleep(RETRY_DELAY * (attempt + 1));
       }
@@ -64,6 +70,8 @@ export default async function adminFetch(url, options = {}) {
   }
 
   // All retries exhausted
-  console.error('adminFetch failed after all retries:', lastError);
+  if (retryable) {
+    console.error('adminFetch failed after all retries:', lastError);
+  }
   throw lastError;
 }

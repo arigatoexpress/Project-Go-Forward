@@ -23,7 +23,7 @@ business:
   # Staff who receive new-lead / new-appointment alerts. Fans out to the whole
   # team so no lead is missed. Operative value is the NOTIFICATION_EMAIL env var
   # (comma-separated) read by email_service.py; this line documents the intent.
-  notification_email: "ben@texashomeoutlet.com,leeaswell@texashomeoutlet.com,celeste@texashomeoutlet.com,mark@texashomeoutlet.com"
+  notification_email: "ben@texashomeoutlet.com,leeaswell@texashomeoutlet.com,celeste@texashomeoutlet.com,mark@texashomeoutlet.com,adriana@texashomeoutlet.com"
   website: "https://www.texashomeoutlet.com"
 
   # LocalBusiness SEO fields (schema.org JSON-LD via seo_routes.py). Each optional.

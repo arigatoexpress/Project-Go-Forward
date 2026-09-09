@@ -21,26 +21,36 @@ this just makes the activation push-button.
 
 ## Part A — Inventory unfreeze  (branch `feat/in-app-inventory`)
 
+> **HOLD — source evidence failed on 2026-08-12.** A read-only comparison found
+> that Firestore contains the same 19 identifiers/models as the May 11 legacy
+> snapshot, all under `source=texashomeoutlet.com`, with no freshness timestamp.
+> The existing marketing loader can also fall back to JSON/sample data. Do not
+> run the Firestore flip below until the five activation gates in
+> `docs/THO_INVENTORY_CATALOG_OPERATIONS.md` are satisfied. `auto` now fails
+> closed when provenance or freshness is unverified.
+
 1. **Rebase + merge.** That branch was cut from main `6098a91` (#192); main is now
    ≥ #198. Rebase onto current main (changes are additive — new files + targeted
    edits, should be clean), then merge the PR. Default `INVENTORY_SOURCE=legacy`
    → **the merge deploys with zero behavior change.**
 
-2. **Seed Firestore from the real source.** Put `House Orders.xlsx` in `data/`,
-   preview, then write (uses Application Default Credentials with Firestore access
-   to `tho-ai-agent`):
+2. **Reconcile a current, operator-approved source.** Put the reviewed current
+   `House Orders.xlsx` in `data/` and preview it. Do not apply a historical copy:
    ```bash
-   python -m tools.house_orders_sync                 # dry-run: Current Inventory only; review all statuses
-   python -m tools.house_orders_sync --apply --approved-serial SERIAL_1 --approved-serial SERIAL_2
+   python -m tools.house_orders_sync  # dry-run only; Current Inventory section
    ```
-   Only explicitly reviewed serials can be written. Parsing stops before the
+   Applying remains a gated data mutation and must use exact approved serials
+   only after the source date and reconciliation report are recorded. Parsing stops before the
    `On Approval` section, ambiguous Customer notes become `REVIEW_REQUIRED`,
    and buyer/customer fields, invoice cost, MSRP, and salesman data are never
    persisted.
-   (Fallback if you don't have the sheet handy: `python -m tools.inventory_seed --apply`
-   seeds the 279-home May-11 snapshot instead.)
+   Do **not** use `tools.inventory_seed --apply` as an unfreeze: it copies the
+   same May 11 snapshot and cannot establish freshness.
 
-3. **Flip the public read onto the in-app store** (gated deploy → new revision):
+3. **Verify before any flip.** The candidate response must show strict
+   `reported_source=firestore_inventory`, `freshness=fresh`, the reviewed
+   current-home count, and media parity. Until then the command below is a
+   reference only and must not be run. The flip is a gated production mutation:
    ```bash
    gcloud run services update project-go-forward --region=us-central1 --project=tho-ai-agent \
      --update-env-vars INVENTORY_SOURCE=firestore

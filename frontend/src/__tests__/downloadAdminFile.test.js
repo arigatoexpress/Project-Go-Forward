@@ -11,6 +11,18 @@ describe('downloadAdminFile', () => {
     adminFetch.mockReset();
   });
 
+  function failedResponse(status, body, { jsonError, retryAfter } = {}) {
+    const json = jsonError
+      ? vi.fn().mockRejectedValue(jsonError)
+      : vi.fn().mockResolvedValue(body);
+    return {
+      ok: false,
+      status,
+      headers: { get: name => (name === 'Retry-After' ? retryAfter || null : null) },
+      clone: () => ({ json }),
+    };
+  }
+
   it('keeps the actionable expired-session message for 401 downloads', async () => {
     adminFetch.mockResolvedValue({
       ok: false,
@@ -24,14 +36,30 @@ describe('downloadAdminFile', () => {
   });
 
   it('uses backend error details for non-auth download failures', async () => {
-    adminFetch.mockResolvedValue({
-      ok: false,
-      status: 422,
-      json: vi.fn().mockResolvedValue({ detail: 'Sales price is required' }),
-    });
+    adminFetch.mockResolvedValue(failedResponse(422, { detail: 'Sales price is required' }));
 
     await expect(downloadAdminFile('/api/admin/documents/latest')).rejects.toThrow(
       'Sales price is required',
+    );
+  });
+
+  it('does not expose technical backend details for failed downloads', async () => {
+    adminFetch.mockResolvedValue(
+      failedResponse(500, { detail: 'RuntimeError: bucket credentials unavailable' }),
+    );
+
+    await expect(downloadAdminFile('/api/admin/documents/latest')).rejects.toThrow(
+      'We couldn’t download the document right now. Please try again.',
+    );
+  });
+
+  it('uses friendly status copy when a failed download is not JSON', async () => {
+    adminFetch.mockResolvedValue(
+      failedResponse(503, null, { jsonError: new SyntaxError('Unexpected token <') }),
+    );
+
+    await expect(downloadAdminFile('/api/admin/documents/latest')).rejects.toThrow(
+      'We couldn’t download the document right now. Please try again.',
     );
   });
 

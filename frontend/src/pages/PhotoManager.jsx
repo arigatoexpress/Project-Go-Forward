@@ -74,6 +74,7 @@ export default function PhotoManager({ onBack }) {
   // --- Upload ---
   const uploadFiles = useCallback(async (fileList) => {
     const files = Array.from(fileList || []).filter(f => f && f.type.startsWith('image/'));
+    if (uploading) return;
     if (!selectedId) {
       setMessage({ type: 'error', text: 'Pick a home first, then add photos.' });
       return;
@@ -93,12 +94,24 @@ export default function PhotoManager({ onBack }) {
         body: form,
       });
       const data = await res.json();
+      const retryNames = Array.isArray(data?.retryable) ? data.retryable.filter(Boolean) : [];
+      const retry = retryNames.length > 0 ? ` Retry: ${retryNames.join(', ')}.` : '';
       if (!res.ok) {
-        setMessage({ type: 'error', text: data?.detail || 'Upload failed. Please try again.' });
+        setMessage({
+          type: 'error',
+          text: data?.storage_unavailable
+            ? `Durable photo storage is temporarily unavailable, so this upload could not be confirmed. Refresh the photo list before retrying.${retry}`
+            : data?.message || data?.detail || data?.error || 'Upload failed. Please try again.',
+        });
       } else {
         const okCount = (data.uploaded || []).length;
         const errCount = (data.errors || []).length;
-        if (okCount > 0 && errCount === 0) {
+        if (data.storage_unavailable && okCount > 0) {
+          setMessage({
+            type: 'error',
+            text: `${okCount} photo${okCount === 1 ? ' was' : 's were'} confirmed, then durable storage became unavailable. Refresh the photo list before retrying the listed files.${retry}`,
+          });
+        } else if (okCount > 0 && errCount === 0) {
           setMessage({ type: 'ok', text: `${okCount} photo${okCount === 1 ? '' : 's'} added. They will show on the website shortly.` });
         } else if (okCount > 0) {
           setMessage({ type: 'ok', text: `${okCount} added, ${errCount} skipped (not a valid image).` });
@@ -113,13 +126,15 @@ export default function PhotoManager({ onBack }) {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
-  }, [selectedId, fetchPhotos]);
+  }, [selectedId, fetchPhotos, uploading]);
 
   const handleDrop = (e) => {
     e.preventDefault();
     setDragOver(false);
-    if (e.dataTransfer?.files?.length) uploadFiles(e.dataTransfer.files);
+    if (selectedId && !uploading && e.dataTransfer?.files?.length) uploadFiles(e.dataTransfer.files);
   };
+
+  const uploadDisabled = !selectedId || uploading;
 
   const handleDelete = async (filename) => {
     if (!window.confirm('Remove this photo from the website?')) return;
@@ -252,6 +267,7 @@ export default function PhotoManager({ onBack }) {
             </div>
           ) : (
             <select
+              aria-label="Choose a home"
               value={selectedId}
               onChange={e => { setSelectedId(e.target.value); setMessage(null); }}
               className="w-full border border-gray-300 rounded-lg px-3 py-3 text-[15px] bg-white"
@@ -266,7 +282,7 @@ export default function PhotoManager({ onBack }) {
         </section>
 
         {/* Step 2 — add photos */}
-        <section className={`bg-white rounded-2xl shadow-sm border border-gray-200 p-5 mb-5 ${!selectedId ? 'opacity-50 pointer-events-none' : ''}`}>
+        <section className={`bg-white rounded-2xl shadow-sm border border-gray-200 p-5 mb-5 ${!selectedId ? 'opacity-50' : ''}`}>
           <h2 className="text-base font-bold text-slate-800 mb-1 flex items-center gap-2">
             <span className="bg-slate-800 text-white rounded-full w-6 h-6 inline-flex items-center justify-center text-sm">2</span>
             Add the photos
@@ -276,10 +292,20 @@ export default function PhotoManager({ onBack }) {
           </p>
 
           <div
-            onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+            role="button"
+            tabIndex={uploadDisabled ? -1 : 0}
+            aria-label="Choose listing photos"
+            aria-disabled={uploadDisabled}
+            onDragOver={e => { e.preventDefault(); if (!uploadDisabled) setDragOver(true); }}
             onDragLeave={() => setDragOver(false)}
             onDrop={handleDrop}
-            onClick={() => fileInputRef.current?.click()}
+            onClick={() => { if (!uploadDisabled) fileInputRef.current?.click(); }}
+            onKeyDown={e => {
+              if (!uploadDisabled && (e.key === 'Enter' || e.key === ' ')) {
+                e.preventDefault();
+                fileInputRef.current?.click();
+              }
+            }}
             className={`cursor-pointer border-2 border-dashed rounded-xl p-8 text-center transition-colors ${
               dragOver ? 'border-blue-500 bg-blue-50' : 'border-gray-300 hover:border-blue-400 hover:bg-gray-50'
             }`}
@@ -289,6 +315,7 @@ export default function PhotoManager({ onBack }) {
               type="file"
               accept={ACCEPT}
               multiple
+              disabled={uploadDisabled}
               className="hidden"
               onChange={e => uploadFiles(e.target.files)}
             />
@@ -312,11 +339,15 @@ export default function PhotoManager({ onBack }) {
 
         {/* Status message */}
         {message && (
-          <div className={`flex items-center gap-2 rounded-lg px-4 py-3 text-sm mb-5 ${
-            message.type === 'ok'
-              ? 'bg-green-50 border border-green-200 text-green-800'
-              : 'bg-red-50 border border-red-200 text-red-800'
-          }`}>
+          <div
+            role={message.type === 'error' ? 'alert' : 'status'}
+            aria-live="polite"
+            className={`flex items-center gap-2 rounded-lg px-4 py-3 text-sm mb-5 ${
+              message.type === 'ok'
+                ? 'bg-green-50 border border-green-200 text-green-800'
+                : 'bg-red-50 border border-red-200 text-red-800'
+            }`}
+          >
             {message.type === 'ok' ? <CheckCircle size={18} /> : <AlertCircle size={18} />}
             {message.text}
           </div>
@@ -351,7 +382,7 @@ export default function PhotoManager({ onBack }) {
                   <div key={p.filename} className={`relative group rounded-lg overflow-hidden border bg-gray-100 ${idx === 0 ? 'border-blue-500 ring-2 ring-blue-200' : 'border-gray-200'}`}>
                     <img
                       src={p.url}
-                      alt="Home"
+                      alt={`${selectedHome ? homeLabel(selectedHome) : 'Home'} photo ${idx + 1}`}
                       loading="lazy"
                       className="w-full h-32 object-cover"
                     />
