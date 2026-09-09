@@ -1190,7 +1190,15 @@ export function HomeCard({ home, onClick, onGetPrice, isFavorite = false, onTogg
   const floorplanUrls = getFloorplanUrls(home);
   const galleryPhotos = getListingPhotos(home);
   const photoCount = galleryPhotos.length;
-  const heroImage = galleryPhotos[0] || '';
+  const galleryKey = JSON.stringify([home.id, galleryPhotos]);
+  const [heroAttempt, setHeroAttempt] = useState({ galleryKey, index: 0 });
+  // Failures belong to this ordered gallery, not to a later home or refresh.
+  // Reset before rendering children so a refreshed gallery starts at its hero.
+  if (heroAttempt.galleryKey !== galleryKey) {
+    setHeroAttempt({ galleryKey, index: 0 });
+  }
+  const heroIndex = heroAttempt.galleryKey === galleryKey ? heroAttempt.index : 0;
+  const heroImage = galleryPhotos[heroIndex] || '';
   // 'loading' → 'loaded' | 'slow' | 'failed'.
   //
   // 'slow' and 'failed' are deliberately DIFFERENT states. 'failed' means the
@@ -1257,7 +1265,7 @@ export function HomeCard({ home, onClick, onGetPrice, isFavorite = false, onTogg
       observer.disconnect();
       window.clearTimeout(timeout);
     };
-  }, [heroImage]);
+  }, [heroImage, galleryKey]);
 
   return (
     <Card padded={false} hover className="group !bg-[var(--cp-panel)] !border-[var(--cp-border)]">
@@ -1278,7 +1286,13 @@ export function HomeCard({ home, onClick, onGetPrice, isFavorite = false, onTogg
             loading="lazy"
             decoding="async"
             onLoad={() => setHeroLoadState('loaded')}
-            onError={() => setHeroLoadState('failed')}
+            onError={() => {
+              if (heroIndex + 1 < galleryPhotos.length) {
+                setHeroAttempt({ galleryKey, index: heroIndex + 1 });
+              } else {
+                setHeroLoadState('failed');
+              }
+            }}
           />
           {/* Slow, not broken: a quiet shimmer over the still-loading <img>.
               It clears itself the moment onLoad fires. */}
