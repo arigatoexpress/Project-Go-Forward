@@ -1,4 +1,70 @@
+from urllib.parse import urlsplit
+
+import pytest
+
 from scripts import production_smoke
+
+
+@pytest.fixture
+def smoke_http_requests(monkeypatch):
+    requests = []
+
+    class Response:
+        status = 200
+        headers = {"content-type": "application/json"}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self, limit):
+            return b'{"status":"ok","success":false,"homes":[]}'
+
+    def fake_urlopen(request, timeout):
+        requests.append((request.get_method(), urlsplit(request.full_url).path))
+        return Response()
+
+    monkeypatch.setattr(production_smoke, "urlopen", fake_urlopen)
+    return requests
+
+
+def test_default_smoke_sends_only_get_requests(smoke_http_requests):
+    production_smoke.main(["--base-url", "https://example.test"])
+
+    assert smoke_http_requests
+    assert {method for method, _ in smoke_http_requests} == {"GET"}
+    assert all(
+        ("GET", urlsplit(path).path) in smoke_http_requests
+        for path in production_smoke.ADMIN_PROTECTED_GET_ROUTES
+    )
+
+
+@pytest.mark.parametrize(
+    ("flag", "expected_post_paths"),
+    [
+        (
+            "--check-public-validation",
+            {"/api/contact", "/api/appointments", "/api/feedback"},
+        ),
+        (
+            "--check-admin-post-protection",
+            set(production_smoke.ADMIN_PROTECTED_POST_ROUTES),
+        ),
+        ("--check-empty-doc-rejection", {"/api/documents/generate"}),
+        ("--check-run-reply", {"/run"}),
+        ("--check-admin-auth", {"/api/admin/verify"}),
+    ],
+)
+def test_post_probe_groups_require_separate_cli_opt_ins(
+    smoke_http_requests, flag, expected_post_paths
+):
+    production_smoke.main(["--base-url", "https://example.test", flag])
+
+    assert {path for method, path in smoke_http_requests if method == "POST"} == (
+        expected_post_paths
+    )
 
 
 class _TimeoutContext:
@@ -418,8 +484,7 @@ def test_run_and_admin_probes_are_opt_in_in_run_smoke(monkeypatch):
     monkeypatch.setattr(production_smoke, "_json_probe", fake_json_probe)
 
     production_smoke.run_smoke("https://example.test", timeout=1.0, min_homes=0)
-    assert "/run" not in seen_paths
-    assert "/api/admin/verify" not in seen_paths
+    assert seen_paths == []
 
     seen_paths.clear()
     production_smoke.run_smoke(
