@@ -149,7 +149,7 @@ jobs:
           PROBE_URL="$URL" python scripts/probe_healthz.py
           echo "50-probe healthz: PASS"
 
-          # 4. SHA verification — warn only, never fail (manual deploys won't match)
+          # 4. Require the candidate to serve this workflow's exact commit.
           echo "=== SHA verification ==="
           DEPLOYED_SHA=""
           if HEALTHZ_BODY=$(curl -sf --max-time 15 "$URL/healthz/" 2>/dev/null); then
@@ -158,12 +158,12 @@ jobs:
               2>/dev/null) || DEPLOYED_SHA=""
           fi
           EXPECTED_SHA="$GH_SHA"
-          if [ "$DEPLOYED_SHA" = "$EXPECTED_SHA" ]; then
+          if [ -n "$EXPECTED_SHA" ] && [ "$DEPLOYED_SHA" = "$EXPECTED_SHA" ]; then
             echo "SHA match: ${DEPLOYED_SHA:0:7}"
             SHA_NOTE="SHA match: ${DEPLOYED_SHA:0:7}"
           else
-            echo "WARNING: SHA mismatch deployed=${DEPLOYED_SHA:0:7} expected=${EXPECTED_SHA:0:7} (possible manual deploy)"
-            SHA_NOTE="SHA mismatch (deployed: ${DEPLOYED_SHA:0:7}, expected: ${EXPECTED_SHA:0:7})"
+            echo "ERROR: candidate SHA unverified deployed=${DEPLOYED_SHA:0:7} expected=${EXPECTED_SHA:0:7}"
+            exit 1
           fi
 
           # 5. Post commit status summarising all checks
