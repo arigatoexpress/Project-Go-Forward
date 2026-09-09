@@ -1,46 +1,72 @@
 # Incident Runbook — Project Go Forward (Texas Home Outlet)
 
-Production: `https://tho.sapphirealpha.xyz` · Cloud Run service `project-go-forward`,
-project `tho-ai-agent`, region `us-central1`. Every push to `main` auto-deploys.
+Production: `https://www.texashomeoutlet.com` · Cloud Run service `project-go-forward`,
+project `tho-ai-agent`, region `us-central1`. The legacy `tho.sapphirealpha.xyz`
+origin is not the canonical storefront.
+
+## Release and approval flow
+
+1. Use a branch and PR; observe every applicable check finish green before merging.
+   PR merges are authorized under the standing operator policy; direct pushes to
+   `main` are not.
+2. The `main` workflow builds and verifies a candidate using
+   `--no-traffic --tag=candidate`. A successful workflow does not move production
+   traffic. Verify the exact final main run before promotion; newer main runs
+   may cancel earlier candidate pipelines, so canceled or superseded runs are
+   not release evidence.
+3. Before promotion, resolve the candidate tag URL and exact revision, verify its
+   `/healthz/` version against the intended commit, and review its smoke results.
+   Record the currently serving revision and traffic allocation as rollback
+   evidence. Include the exact rollback revision and failure conditions in the
+   promotion approval. Obtain explicit operator approval for the exact traffic
+   change, then verify the canonical storefront's serving commit and affected
+   behavior.
+
+Direct production deploys, traffic changes (including rollback), DNS changes,
+secret rotations, and outward messages require explicit operator approval.
+Read-only inspection and preparation may proceed before that approval.
+Approval persists within its stated scope: an already authorized rollback plan
+may execute when its approved failure conditions occur without a second
+confirmation. Obtain approval if the required action falls outside that plan.
 
 ## 1. Quick health checks
 
 ```bash
-curl -s https://tho.sapphirealpha.xyz/healthz/        # {"status":"ok","version":"<git sha>"}
-curl -sI https://tho.sapphirealpha.xyz/ | head -1     # HTTP 200 (HEAD supported)
+curl -s https://www.texashomeoutlet.com/healthz/        # {"status":"ok","version":"<git sha>"}
+curl -sI https://www.texashomeoutlet.com/ | head -1     # HTTP 200 (HEAD supported)
 ```
 
-`version` tells you exactly which commit is serving. Compare with `git log origin/main -1`.
+`version` identifies the serving commit. Compare it with the approved serving
+revision, not automatically with the newest `origin/main`: main may contain a
+verified candidate that has not been promoted. Probe the candidate tag URL
+separately when checking candidate code.
 
 ## 2. Rollback (the most important section)
 
-Rolling back traffic is faster and safer than hot-fixing. Do this FIRST when a
-deploy goes bad; diagnose afterwards.
+When a promoted revision causes an outage, use the recorded last known-good
+revision. If the existing promotion approval includes that rollback revision and
+the observed failure conditions, execute the approved plan without another
+confirmation. Otherwise obtain explicit operator approval before changing
+traffic. The commands below must stay within the approved scope.
 
 ```bash
 # 1. List revisions, newest first; pick the last known-good one
 gcloud run revisions list --service project-go-forward \
   --region us-central1 --project tho-ai-agent
 
-# 2. Point 100% of traffic at it
+# 2. Within the approved rollback plan, point traffic at the exact known-good revision
 gcloud run services update-traffic project-go-forward \
   --region us-central1 --project tho-ai-agent \
   --to-revisions <GOOD_REVISION>=100
 
 # 3. Verify
-curl -s https://tho.sapphirealpha.xyz/healthz/   # version should be the old SHA
+curl -s https://www.texashomeoutlet.com/healthz/   # version should be the approved rollback SHA
 ```
 
-To re-enable normal "latest revision serves" behavior after the bad commit is
-reverted/fixed on `main`:
-
-```bash
-gcloud run services update-traffic project-go-forward \
-  --region us-central1 --project tho-ai-agent --to-latest
-```
-
-Never bypass branch protection to hot-push a fix to `main`. Roll back traffic,
-then fix forward through a PR.
+Keep traffic pinned to that explicit revision. Fix forward through a verified PR,
+then review and approve the new candidate's exact revision before promotion.
+Do not use `--to-latest`, which can select an unreviewed candidate. Never bypass
+branch protection to hot-push a fix to `main`.
 
 ## 3. "Site down" triage tree
 
@@ -75,10 +101,16 @@ then fix forward through a PR.
    - `ADMIN_PIN_HASH` secret missing/rotated incorrectly. See
      `docs/PIN_ROTATION_RUNBOOK.md` (includes rollback to the previous secret
      version). Note: rotating the PIN invalidates all admin sessions by design.
-6. **Deploy pipeline broken (merges don't deploy)**
-   - Check Actions: the `test` job gates `build-and-deploy`. A red `test` on
-     `main` means the merge commit is bad — revert it via PR.
-   - `workflow_dispatch` on `deploy.yml` can re-run a deploy without a new commit.
+6. **Candidate pipeline failed, or merged changes are not visible in production**
+   - Check the exact main Actions run: the `test` job gates `build-and-deploy`.
+     Diagnose whether a failure is in source, infrastructure, or credentials;
+     a failed check alone does not establish a bad commit. Fix or revert source
+     regressions through a PR.
+   - If the candidate passes but the storefront still serves the previous
+     approved commit, check the traffic allocation. This is expected until an
+     approved promotion, not evidence that the deployment failed.
+   - `workflow_dispatch` on `deploy.yml` can rebuild a candidate without a new
+     commit; it does not promote that candidate.
 
 ## 4. Secret rotation
 
@@ -89,14 +121,15 @@ then fix forward through a PR.
 | `THO_API_KEY` / `THO_API_KEY_<PARTNER>` | Secret Manager | add new version, `--update-secrets`, notify partner; per-partner vars allow revoking one partner without rotating the rest |
 | Resend / DocuSeal tokens | Secret Manager | rotate at provider, add new secret version, redeploy |
 
-After any rotation: `curl /healthz/` for liveness, then exercise the affected
-flow (admin login, partner API call, email send) before closing the incident.
+After an approved rotation, check `/healthz/` for liveness and verify the affected
+flow. Email delivery requires a separately approved test send; a secret binding
+or liveness response alone does not prove delivery.
 
 ## 5. Escalation / ownership
 
 - Operator: Ari (`arigatoexpress`) — repo admin, GCP owner.
 - Client-facing: treat any customer-visible outage during business hours
   (Mon–Fri 9–6, Sat 9–5 CT; closed Sunday) as P1; the storefront is the business.
-- Post-incident: file an issue with timeline + root cause; if the incident
-  required a rollback, the bad commit must be reverted on `main` via PR before
-  `--to-latest` is restored.
+- Post-incident: record the timeline, root cause, serving revision, and rollback
+  evidence. Fix or revert the source through a PR; keep production traffic pinned
+  until the replacement candidate is verified and its promotion approved.
