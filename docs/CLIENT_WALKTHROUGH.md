@@ -2,10 +2,11 @@
 
 **Audience:** THO staff (day-to-day users) and any developer taking the project
 forward.
-**Live site:** https://tho.sapphirealpha.xyz
-**Status as of 2026-07-25:** Deployed and healthy on Cloud Run, running the
-latest `main`. Production smoke checks pass; the full automated test suite is
-green (1,796 passed, 24 environment-dependent skips).
+**Live site:** https://www.texashomeoutlet.com
+**Operating guidance updated September 9, 2026:** Production runs an explicitly
+selected Cloud Run revision. A merge to `main` creates a verified candidate and
+does not promote it to customers. See [Client handoff acceptance](CLIENT_HANDOFF_ACCEPTANCE.md)
+for dated verification and the remaining ownership and workflow checks.
 
 This guide has two parts:
 
@@ -35,9 +36,10 @@ There are three ways in, all from the lock icon in the top nav (or the
    "Sign in with Passkey" (fingerprint / face / device PIN) unlocks the staff
    tools with no PIN. Lost or replaced devices can be revoked from
    **System Hub → Passkey Recovery**.
-3. **Email sign-in code** — the fallback if the PIN expired or you're on a
+3. **Email sign-in code** — an optional fallback if the PIN expired or you're on a
    new device. Click **Email me a sign-in code**, enter your authorized staff
-   email, and type the 6-digit code we send.
+   email, and type the 6-digit code if received. Delivery has not yet been
+   accepted for handoff; keep the PIN or a working passkey available.
 
 Sessions expire after a while; if you see "Session expired," just sign in
 again — your work in the Document Center is saved in the browser.
@@ -46,9 +48,9 @@ again — your work in the Document Center is saved in the browser.
 
 The chat box ("Tex") is a 24/7 assistant that answers customer questions about
 homes, pricing, hours, financing, and warranty, can capture leads, and helps
-book appointments. It pulls live inventory and routes between a Sales agent
-and a Service agent. No staff action needed — it runs itself and emails the
-team when a new lead or appointment comes in. You can review what customers
+book appointments. It pulls the configured inventory and routes between a Sales
+agent and a Service agent. Staff must keep inventory current and check CRM leads
+and appointments directly until notification delivery is verified. You can review what customers
 asked in **Chat History** (see §6).
 
 ### 3. Browsing Inventory
@@ -56,7 +58,9 @@ asked in **Chat History** (see §6).
 The **Inventory** page lists every home with photos, specs (beds, baths,
 sq ft), pricing, and 3D tours where available. This is the same data the AI
 assistant and the Document Center pull from, so a home you pick for a contract
-is the real listing.
+must still be checked against the lot before quoting or preparing a contract.
+Orderable catalog floorplans are separate from current homes; a catalog listing
+does not mean the home is on the lot. Source freshness currently reports unknown.
 
 Staff also get two inventory tools (top nav once signed in):
 
@@ -102,8 +106,8 @@ It's a 4-step wizard:
 4. **Review & Generate** — the wizard flags any missing fields before you
    generate, then produces the PDFs (or one merged packet) to download. The
    seller is filled as the registered legal entity **Prosperity Acquisitions,
-   Inc. dba Texas Home Outlet** with RBI license 35248, so documents are
-   accepted as filed.
+   Inc. dba Texas Home Outlet** with RBI license 35248. Staff must review every
+   generated packet and confirm its suitability before signing or filing.
 
 **E-signatures (coming soon):** the DocuSeal e-sign integration is built into
 the app (you'll see **Send for Signature** on deals in the CRM), but the
@@ -115,8 +119,9 @@ now.
 
 The CRM is the team's home base, organized into tabs:
 
-- **Leads** — everything that comes in from the website/chat and the contact
-  form; the whole team is emailed automatically. View, update status (with
+- **Leads** — records captured from the website/chat and contact form.
+  Staff alerts depend on email configuration and successful delivery; check the
+  CRM directly until the handoff delivery test passes. View, update status (with
   first-response-time tracking), email a lead directly, and export to CSV.
 - **Pipeline (Deals)** — track a sale end to end (pending → approved →
   contract → funded → complete). A deal stores all the buyer/home/financial
@@ -127,7 +132,8 @@ The CRM is the team's home base, organized into tabs:
   with the phone number on their application before showing any paperwork.
 - **Tasks** — to-dos for follow-ups, with pending/done tracking.
 - **Appointments** — everything booked through the site, in one list.
-- **Email Log** — every email the system has sent.
+- **Email Log** — application email records; a recorded attempt does not prove
+  that the recipient received the message.
 - **Reply Drafts** — AI-drafted replies to inbound customer emails, ready for
   a human to review and send.
 - **Customers** — the customer records behind deals and documents.
@@ -164,7 +170,8 @@ AI-assisted marketing content built around real inventory:
 - **Drafts** — review drafts prepared while the Ad Studio screen is open; they are not persisted or posted to a social platform.
 - **Analytics** — local creative and inventory readiness; it does not claim live social-platform metrics.
 
-Because it reads live inventory, ads reference homes actually on the lot. You
+Because it reads configured inventory, confirm availability and pricing before
+using an ad. Catalog floorplans may be orderable rather than on the lot. You
 can also jump here straight from a home on the Inventory page to create an ad
 for that home.
 
@@ -223,7 +230,7 @@ for incident response and rollback.
 | E-sign | DocuSeal (integration built; returns 501 until env-configured — see `docs/DOCUSEAL_DEPLOY_RUNBOOK.md`) |
 | Email | Resend (optional, env-gated) |
 | Deploy | Single Docker container on Cloud Run (project `tho-ai-agent`, region `us-central1`) |
-| Hosting | Canonical URL `tho.sapphirealpha.xyz`; auto-deploys from `main` |
+| Hosting | Canonical URL `www.texashomeoutlet.com`; `main` builds a candidate, production promotion is separate |
 
 ### Repository map
 
@@ -264,26 +271,24 @@ See `docs/DEV_SETUP.md` for the fuller local setup.
 
 ### Deploy
 
-The repo **auto-deploys from `main`**. Agent/feature branches should open a
-draft PR and wait for a human merge unless a direct push is explicitly
-authorized. Manual deploy if ever needed:
-
-```bash
-gcloud run deploy project-go-forward --source . --region us-central1
-```
+Use a feature branch and PR. Observe every applicable check finish green before
+merging. Standing operator policy authorizes PR merges; never push directly to
+`main`. The workflow deploys a **candidate with no production traffic** and verifies
+its exact commit. Production promotion or rollback requires explicit operator
+approval and an exact revision plan; follow [RUNBOOK.md](RUNBOOK.md).
 
 ### Health & smoke (read-only, safe to run anytime)
 
 ```bash
-curl -fsS https://tho.sapphirealpha.xyz/healthz/        # liveness + deployed commit
-python3 scripts/production_smoke.py --base-url https://tho.sapphirealpha.xyz
+curl -fsS https://www.texashomeoutlet.com/healthz/      # liveness + serving commit
+python3 scripts/production_smoke.py --base-url https://www.texashomeoutlet.com
 ```
 
 ### Secrets / environment (Cloud Run, via Secret Manager)
 
 | Variable | Purpose | Required? |
 |----------|---------|-----------|
-| `ADMIN_PIN_HASH` | SHA-256 of the staff admin PIN | **Yes** |
+| `ADMIN_PIN_HASH` | Staff PIN verifier; preserve the configured format and follow reviewed auth guidance | **Yes** |
 | `ADMIN_SESSION_SECRET` | Independent session signing secret (Cloud Run requires ≥32 UTF-8 bytes; never PIN-derived) | Required |
 | `GOOGLE_GENAI_USE_VERTEXAI=TRUE` | Use Vertex AI for Gemini | Yes |
 | `RESEND_API_KEY` | Transactional email (lead/appointment/deal emails, staff sign-in codes) | For email |
@@ -323,4 +328,4 @@ Runbooks live in `docs/PRODUCTION_READINESS.md` (deploy/email/PIN),
 
 ---
 
-*Maintained alongside `docs/PRODUCTION_READINESS.md`. Last updated 2026-07-25.*
+*Maintained alongside `docs/PRODUCTION_READINESS.md`. Last updated 2026-09-09.*

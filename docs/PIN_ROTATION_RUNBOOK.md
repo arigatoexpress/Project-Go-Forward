@@ -2,7 +2,19 @@
 
 Audience: production operator with Google Cloud access to project `tho-ai-agent`.
 
-Scope: rotate the admin PIN hash used by Cloud Run without recording the PIN itself. This invalidates existing admin sessions because session signing is derived from `ADMIN_PIN_HASH`.
+Scope: rotate the admin PIN verifier used by Cloud Run without recording the PIN itself.
+
+> **Review required before execution — September 9, 2026.** The legacy procedure
+> below is not the current rotation plan. Cloud Run uses an independent
+> `ADMIN_SESSION_SECRET`; changing `ADMIN_PIN_HASH` alone does **not** invalidate
+> existing sessions. Current authentication supports salted scrypt verifiers as
+> well as legacy SHA-256. Do not downgrade an existing scrypt verifier by following
+> the SHA-256 example below. Prepare and approve a rotation plan that preserves
+> the supported verifier format, separately addresses session invalidation when
+> required, keeps working staff recovery, and verifies the exact promoted revision.
+> Do not execute the full-environment display or print a verifier into shared logs.
+> Keep the active gcloud configuration unchanged and pass `--project=tho-ai-agent`
+> explicitly. See [client acceptance](CLIENT_HANDOFF_ACCEPTANCE.md).
 
 Do not paste the PIN into chat, tickets, shell history, logs, or docs.
 

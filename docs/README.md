@@ -4,6 +4,11 @@ This folder holds the canonical documentation for the Project-Go-Forward / THO A
 
 ## Read in this order
 
+Start with [CLIENT_HANDOFF_ACCEPTANCE.md](CLIENT_HANDOFF_ACCEPTANCE.md) for the
+remaining client ownership and workflow checks. [CLIENT_WALKTHROUGH.md](CLIENT_WALKTHROUGH.md)
+is the staff guide. A dated readiness report does not prove current service health
+or client acceptance.
+
 1. [SHOWCASE.md](SHOWCASE.md) — Live demo path, verified URLs, audience-specific surfaces, and screenshot safety notes.
 2. [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md) — Read-only smoke checks, local gates, admin-token handling, and Cloud Run rollback path.
 3. [PIN_ROTATION_RUNBOOK.md](PIN_ROTATION_RUNBOOK.md) — Operator-only admin PIN hash rotation without exposing the PIN, token, or hash.
