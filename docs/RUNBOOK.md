@@ -11,8 +11,9 @@ origin is not the canonical storefront.
    `main` are not.
 2. The `main` workflow builds and verifies a candidate using
    `--no-traffic --tag=candidate`. A successful workflow does not move production
-   traffic. Wait for that exact main run to finish before another merge: newer
-   main runs can cancel an in-flight candidate pipeline.
+   traffic. Verify the exact final main run before promotion; newer main runs
+   may cancel earlier candidate pipelines, so canceled or superseded runs are
+   not release evidence.
 3. Before promotion, resolve the candidate tag URL and exact revision, verify its
    `/healthz/` version against the intended commit, and review its smoke results.
    Record the currently serving revision and traffic allocation as rollback
