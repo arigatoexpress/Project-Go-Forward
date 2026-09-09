@@ -43,7 +43,7 @@ python -m pytest tests/test_healthz.py tests/test_api_v1.py tests/test_document_
 4. **Do NOT** push directly to `main`. Use a branch and PR; observe every applicable check finish green before merging. PR merges are authorized under the standing operator policy; a merge does not authorize production traffic promotion.
 5. **Do NOT** modify Firestore schema without updating `database/models.py` and tests
 6. Pre-commit before push: `pre-commit run --files <changed-files>`
-7. Direct production deploys, traffic promotion or rollback, DNS changes, and outward messages require explicit operator approval. Prepare the exact candidate revision, expected commit, verification evidence, and rollback revision before requesting a traffic change; see `docs/RUNBOOK.md`.
+7. Direct production deploys, traffic promotion or rollback, DNS changes, and outward messages require explicit operator approval. Prepare the exact candidate revision, expected commit, verification evidence, rollback revision, and rollback conditions before requesting a traffic change. Existing approval persists: execute an already approved rollback plan within its scope without requesting approval again; see `docs/RUNBOOK.md`.
 
 ## Current status
 

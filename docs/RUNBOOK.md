@@ -16,12 +16,17 @@ origin is not the canonical storefront.
 3. Before promotion, resolve the candidate tag URL and exact revision, verify its
    `/healthz/` version against the intended commit, and review its smoke results.
    Record the currently serving revision and traffic allocation as rollback
-   evidence. Obtain explicit operator approval for the exact traffic change,
-   then verify the canonical storefront's serving commit and affected behavior.
+   evidence. Include the exact rollback revision and failure conditions in the
+   promotion approval. Obtain explicit operator approval for the exact traffic
+   change, then verify the canonical storefront's serving commit and affected
+   behavior.
 
 Direct production deploys, traffic changes (including rollback), DNS changes,
 secret rotations, and outward messages require explicit operator approval.
 Read-only inspection and preparation may proceed before that approval.
+Approval persists within its stated scope: an already authorized rollback plan
+may execute when its approved failure conditions occur without a second
+confirmation. Obtain approval if the required action falls outside that plan.
 
 ## 1. Quick health checks
 
@@ -37,16 +42,18 @@ separately when checking candidate code.
 
 ## 2. Rollback (the most important section)
 
-When a promoted revision causes an outage, prepare a rollback to the recorded
-last known-good revision and obtain explicit operator approval before changing
-traffic. The commands below are an operator runbook, not unattended instructions.
+When a promoted revision causes an outage, use the recorded last known-good
+revision. If the existing promotion approval includes that rollback revision and
+the observed failure conditions, execute the approved plan without another
+confirmation. Otherwise obtain explicit operator approval before changing
+traffic. The commands below must stay within the approved scope.
 
 ```bash
 # 1. List revisions, newest first; pick the last known-good one
 gcloud run revisions list --service project-go-forward \
   --region us-central1 --project tho-ai-agent
 
-# 2. After approval, point traffic at the exact last known-good revision
+# 2. Within the approved rollback plan, point traffic at the exact known-good revision
 gcloud run services update-traffic project-go-forward \
   --region us-central1 --project tho-ai-agent \
   --to-revisions <GOOD_REVISION>=100
