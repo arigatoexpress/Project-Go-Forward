@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { describe, it, expect, vi } from 'vitest';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { HomeCard } from '../pages/InventoryBrowse';
 
 const FIRST = 'https://cdn.example.com/curated-living.jpg';
@@ -17,6 +17,13 @@ const home = {
 const card = (value = home) => <HomeCard home={value} onClick={() => {}} onGetPrice={() => {}} />;
 
 describe('HomeCard photo fallback', () => {
+  it('keeps an empty gallery as an intentional placeholder', () => {
+    const { container } = render(card({ ...home, image_url: '', real_photos: [] }));
+    expect(container.querySelector('img')).toBeNull();
+    expect(screen.getByText(/photos coming soon/i)).toBeInTheDocument();
+    expect(screen.queryByText(/photo unavailable/i)).toBeNull();
+  });
+
   it('keeps curated order and recovers when the next eligible photo loads', () => {
     const { container } = render(card());
     expect(container.querySelector('img')).toHaveAttribute('src', FIRST);
@@ -64,5 +71,20 @@ describe('HomeCard photo fallback', () => {
     }));
     fireEvent.error(container.querySelector('img'));
     expect(container.querySelector('img')).toHaveAttribute('src', SECOND);
+  });
+
+  it('keeps a slow fallback mounted until it can load', () => {
+    vi.useFakeTimers();
+    try {
+      const { container } = render(card());
+      fireEvent.error(container.querySelector('img'));
+      act(() => { vi.advanceTimersByTime(6000); });
+      expect(container.querySelector('img')).toHaveAttribute('src', SECOND);
+      fireEvent.load(container.querySelector('img'));
+      expect(container.querySelector('img')).toHaveAttribute('src', SECOND);
+      expect(screen.queryByText(/photo unavailable/i)).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
