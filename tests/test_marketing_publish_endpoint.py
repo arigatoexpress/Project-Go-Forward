@@ -153,6 +153,31 @@ def test_publish_rejects_unsupported_platform(monkeypatch):
     assert response.json()["error_code"] == "unsupported_platform"
 
 
+def test_publish_is_disabled_by_default_even_with_platform_credentials(monkeypatch):
+    client, main, admin_headers = _admin_client(monkeypatch)
+    monkeypatch.delenv("THO_SOCIAL_PUBLISH_ENABLED", raising=False)
+    monkeypatch.setenv("TIKTOK_ACCESS_TOKEN", "test-only-tiktok-token")
+    monkeypatch.setenv("META_ACCESS_TOKEN", "test-only-meta-token")
+    monkeypatch.setenv("INSTAGRAM_BUSINESS_ACCOUNT_ID", "test-only-account")
+    outward_calls = []
+    monkeypatch.setattr(
+        main, "publish_video_asset", lambda *args: outward_calls.append(("asset", args))
+    )
+    monkeypatch.setattr(
+        main, "publish_social_post", lambda **kwargs: outward_calls.append(("social", kwargs))
+    )
+
+    for platform in ("tiktok", "instagram_reels"):
+        response = client.post(
+            "/api/marketing/publish",
+            json={"platform": platform, "filename": "approved.mp4"},
+            headers=admin_headers,
+        )
+        assert response.status_code == 503
+        assert response.json()["error_code"] == "publishing_disabled"
+    assert outward_calls == []
+
+
 def test_schedule_failure_is_non_2xx_and_does_not_leak_exception(monkeypatch):
     client, main, admin_headers = _admin_client(monkeypatch)
 
