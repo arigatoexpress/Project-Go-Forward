@@ -269,6 +269,7 @@ export default function AdStudio({ onBack }) {
     const [preparingDraft, setPreparingDraft] = useState(false);
     const [publishing, setPublishing] = useState(false);
     const [postActionError, setPostActionError] = useState(null);
+    const [publicationReceipt, setPublicationReceipt] = useState(null);
     const [matterportCopied, setMatterportCopied] = useState(false);
 
     // Analytics tab
@@ -345,6 +346,8 @@ export default function AdStudio({ onBack }) {
     /* ─── handlers ─── */
     const handleGenerate = async () => {
         setGenerating(true);
+        setPublicationReceipt(null);
+        setPostActionError(null);
         setScript(null);
         setShowPreview(false);
         setActiveVariation(0);
@@ -445,6 +448,7 @@ export default function AdStudio({ onBack }) {
 
         setPublishing(true);
         setPostActionError(null);
+        setPublicationReceipt(null);
         try {
             const result = await apiPublishPost({
                 platform,
@@ -454,7 +458,7 @@ export default function AdStudio({ onBack }) {
                 home_name: homeName,
                 campaign: script.campaign
             });
-            setPreparedDrafts(prev => [result, ...prev]);
+            setPublicationReceipt({ platformName, postId: result.post_id });
             return true;
         } catch (err) {
             setPostActionError(safeUserMessage(err?.message, describeFetchError(err, 'publish the post')));
@@ -1288,6 +1292,12 @@ export default function AdStudio({ onBack }) {
                                 <p>{postActionError}</p>
                             </div>
                         )}
+                        {publicationReceipt && (
+                            <div className="tho-readiness-note" role="status">
+                                Publish request accepted by {publicationReceipt.platformName}.
+                                {' '}Reference: {publicationReceipt.postId}. Check the platform for final availability.
+                            </div>
+                        )}
                         <button
                             className="tho-btn tho-btn-primary w-full flex items-center justify-center gap-2"
                             onClick={async () => {
@@ -1306,12 +1316,7 @@ export default function AdStudio({ onBack }) {
                         </button>
                         <button
                             className="tho-btn tho-btn-secondary w-full flex items-center justify-center gap-2 mt-2"
-                            onClick={async () => {
-                                if (await handlePublish()) {
-                                    setShowPreview(false);
-                                    setActiveTab('scheduled');
-                                }
-                            }}
+                            onClick={handlePublish}
                             disabled={preparingDraft || publishing || !livePublishSupported || !publishFilename}
                             title={
                                 !livePublishSupported

@@ -157,7 +157,17 @@ def test_ad_studio_schedule_action_is_labeled_as_draft_only():
     assert "Live Publishing Locked" not in source
     assert "Live enabled" not in source
     assert "Approve & Publish" not in source
-    assert "/api/marketing/publish" not in source
+    # Draft preparation stays transport-free even when a separate, explicitly
+    # confirmed live-publish action is available on the same screen.
+    draft_api = source.split("async function apiPrepareDraft", 1)[1].split("async function ", 1)[0]
+    draft_handler = source.split("const handlePrepareDraft =", 1)[1].split(
+        "const handlePublish =", 1
+    )[0]
+    assert "/api/marketing/schedule" in draft_api
+    assert "/api/marketing/publish" not in draft_api
+    assert "apiPublishPost" not in draft_handler
+    assert "Publish Now to" in source
+    assert "if (!window.confirm(" in source
     assert "/api/marketing/social-readiness" not in source
 
 
