@@ -44,6 +44,9 @@ a transcript, a temporary JSON request body, or chat. The helper asks twice and
 refuses empty input, mismatched confirmation, insecure input fallback, and values
 longer than the browser's 64 UTF-16-unit limit. It refuses an interactive stdout
 so the verifier does not appear in the terminal transcript.
+The browser trims surrounding whitespace, including nonbreaking space and U+FEFF.
+The helper rejects any PIN that would change under that operation; it does not
+silently normalize the secret you chose. Internal spaces are preserved.
 
 From the repository root, create an operator-private temporary file and redirect
 only the verifier into it:

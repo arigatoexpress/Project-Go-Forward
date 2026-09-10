@@ -34,6 +34,14 @@ N, R, P, DKLEN = 16384, 8, 1, 32
 # input at this many characters, so a longer PIN cannot be typed/pasted to log in.
 ADMIN_PIN_MAXLEN = 64
 
+# App.jsx submits pinInput.trim(). ECMAScript trims these whitespace/line
+# terminator characters; Python str.strip() differs, notably for U+FEFF.
+BROWSER_TRIM_CHARS = (
+    "\t\n\v\f\r \u00a0\u1680"
+    "\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a"
+    "\u2028\u2029\u202f\u205f\u3000\ufeff"
+)
+
 
 def make_hash(pin: str) -> str:
     """Return a ``scrypt$n$r$p$salt_b64$dk_b64`` hash string for ``pin``."""
@@ -64,6 +72,13 @@ def main() -> int:
             pin = getpass.getpass("New admin PIN: ")
             if not pin:
                 print("PIN must not be empty", file=sys.stderr)
+                return 1
+            if pin != pin.strip(BROWSER_TRIM_CHARS):
+                print(
+                    "PIN has leading or trailing whitespace the browser would remove; "
+                    "choose another PIN.",
+                    file=sys.stderr,
+                )
                 return 1
             # HTML maxLength and JavaScript slice count UTF-16 code units.
             # Python len counts code points and would accept unusable emoji PINs.

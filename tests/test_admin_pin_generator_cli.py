@@ -55,6 +55,21 @@ def test_empty_input_does_not_generate_verifier(generator, monkeypatch, capsys):
     assert capsys.readouterr().out == ""
 
 
+@pytest.mark.parametrize(
+    "pin",
+    [" synthetic-pin", "synthetic-pin ", "   ", "\u00a0synthetic-pin", "\ufeffsynthetic-pin\ufeff"],
+)
+def test_rejects_input_changed_by_browser_trim(generator, monkeypatch, capsys, pin):
+    monkeypatch.setattr(generator.getpass, "getpass", Mock(return_value=pin))
+    derive = Mock(return_value="should-not-be-generated")
+    monkeypatch.setattr(generator, "make_hash", derive)
+    assert generator.main() != 0
+    output = capsys.readouterr()
+    assert output.out == ""
+    assert pin not in output.err
+    derive.assert_not_called()
+
+
 def test_refuses_echoing_getpass_fallback(generator, monkeypatch, capsys):
     def fallback(_):
         warnings.warn("echo would be enabled", getpass.GetPassWarning)
@@ -81,7 +96,7 @@ def test_refuses_verifier_on_interactive_terminal(generator, monkeypatch, capsys
     assert capsys.readouterr().out == ""
 
 
-@pytest.mark.parametrize("pin", ["synthetic-pin", "x" * 64, "\U0001f512" * 32])
+@pytest.mark.parametrize("pin", ["synthetic-pin", "synthetic pin", "x" * 64, "\U0001f512" * 32])
 def test_confirmed_input_outputs_only_salted_verifier(generator, monkeypatch, capsys, pin):
     prompts = []
 
