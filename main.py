@@ -935,12 +935,12 @@ elif not os.environ.get("RESEND_API_KEY"):
     logger.warning("RESEND_API_KEY not set — emails will run in dry-run mode (local dev).")
 
 # JWT-based admin tokens — works across multiple Cloud Run instances.
-# Uses HMAC-SHA256 with a shared secret derived from the PIN hash.
+# Uses HMAC-SHA256 with the independent session secret shared across instances.
 import base64
 import hmac
 import struct
 
-# Production passkey claims must use an independent secret that no shared PIN
+# Production session claims must use an independent secret that no shared PIN
 # holder can derive. Local development keeps the stable fallback to avoid
 # invalidating sessions on every restart.
 if os.environ.get("K_SERVICE"):
@@ -955,7 +955,14 @@ elif not os.environ.get("ADMIN_SESSION_SECRET"):
         logger.info("ADMIN_SESSION_SECRET derived from PIN hash for local stability")
 
 ADMIN_TOKEN_TTL = int(os.environ.get("ADMIN_TOKEN_TTL", str(24 * 60 * 60)))  # 24 hours
-_JWT_SECRET = hashlib.sha256(f"sapphire-jwt-{ADMIN_PIN_HASH[:16]}".encode()).digest()
+# Separate PIN tokens from passkey cookies and bind the entire verifier so
+# either secret rotation or PIN rotation revokes existing PIN sessions.
+# No legacy-key fallback: older PIN cookies must sign in again after promotion.
+_JWT_SECRET = hmac.new(
+    os.environ["ADMIN_SESSION_SECRET"].encode("utf-8"),
+    f"tho-pin-session-v2:{ADMIN_PIN_HASH}".encode(),
+    hashlib.sha256,
+).digest()
 
 
 def _create_admin_token() -> str:
