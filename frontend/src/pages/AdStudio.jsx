@@ -118,14 +118,6 @@ async function apiPrepareDraft(params) {
     return readJsonOrThrow(resp, 'Draft preparation failed');
 }
 
-async function apiPublishPost(params) {
-    const resp = await adminFetch('/api/marketing/publish', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(params)
-    });
-    return readJsonOrThrow(resp, 'Publish failed');
-}
 
 async function apiGetAnalytics() {
     const resp = await adminFetch('/api/marketing/analytics');
@@ -267,7 +259,6 @@ export default function AdStudio({ onBack }) {
     // Drafts tab
     const [preparedDrafts, setPreparedDrafts] = useState([]);
     const [preparingDraft, setPreparingDraft] = useState(false);
-    const [publishing, setPublishing] = useState(false);
     const [postActionError, setPostActionError] = useState(null);
     const [matterportCopied, setMatterportCopied] = useState(false);
 
@@ -438,31 +429,6 @@ export default function AdStudio({ onBack }) {
         }
     };
 
-    const handlePublish = async () => {
-        if (!script) return false;
-        const platformName = PLATFORMS.find(item => item.id === platform)?.name || platform;
-        if (!window.confirm(`Publish this video live to ${platformName} now?`)) return false;
-
-        setPublishing(true);
-        setPostActionError(null);
-        try {
-            const result = await apiPublishPost({
-                platform,
-                filename: generatedGenAIClip?.filename || generatedVideo?.filename,
-                caption: getCurrentScript()?.cta,
-                hashtags: script.hashtags,
-                home_name: homeName,
-                campaign: script.campaign
-            });
-            setPreparedDrafts(prev => [result, ...prev]);
-            return true;
-        } catch (err) {
-            setPostActionError(safeUserMessage(err?.message, describeFetchError(err, 'publish the post')));
-            return false;
-        } finally {
-            setPublishing(false);
-        }
-    };
 
     const handleLoadAnalytics = useCallback(async () => {
         setLoadingAnalytics(true);
@@ -751,8 +717,6 @@ export default function AdStudio({ onBack }) {
     /* ─── render helpers ─── */
     const selectedPlatform = PLATFORMS.find(p => p.id === platform);
     const currentScript = getCurrentScript();
-    const livePublishSupported = platform === 'tiktok' || platform === 'instagram_reels';
-    const publishFilename = generatedGenAIClip?.filename || generatedVideo?.filename;
 
     const renderPreview = () => (
         <div className="tho-preview-layer animate-in fade-in zoom-in duration-300">
@@ -1296,35 +1260,12 @@ export default function AdStudio({ onBack }) {
                                     setActiveTab('scheduled');
                                 }
                             }}
-                            disabled={preparingDraft || publishing}
+                            disabled={preparingDraft}
                         >
                             {preparingDraft ? (
                                 <><Loader2 size={18} className="spin" /> Preparing...</>
                             ) : (
                                 <><Send size={18} /> Prepare Draft</>
-                            )}
-                        </button>
-                        <button
-                            className="tho-btn tho-btn-secondary w-full flex items-center justify-center gap-2 mt-2"
-                            onClick={async () => {
-                                if (await handlePublish()) {
-                                    setShowPreview(false);
-                                    setActiveTab('scheduled');
-                                }
-                            }}
-                            disabled={preparingDraft || publishing || !livePublishSupported || !publishFilename}
-                            title={
-                                !livePublishSupported
-                                    ? 'Live publishing is supported only for TikTok and Instagram Reels'
-                                    : !publishFilename
-                                        ? 'Generate a video before publishing'
-                                        : `Publish live to ${selectedPlatform?.name}`
-                            }
-                        >
-                            {publishing ? (
-                                <><Loader2 size={18} className="spin" /> Publishing...</>
-                            ) : (
-                                <><Flame size={18} /> Publish Now to {selectedPlatform?.name}</>
                             )}
                         </button>
                     </div>
