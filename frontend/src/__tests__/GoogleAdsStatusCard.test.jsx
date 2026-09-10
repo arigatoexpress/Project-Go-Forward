@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import adminFetch from '../adminFetch';
 import GoogleAdsStatusCard from '../components/ad-studio/GoogleAdsStatusCard';
@@ -707,10 +707,11 @@ describe('GoogleAdsStatusCard', () => {
   });
 
   it('never reports approval failure when only the post-approval refresh is unavailable', async () => {
+    let resolveReadiness;
     const proofId = `sha256:${'c'.repeat(64)}`;
     adminFetch
       .mockResolvedValueOnce(response(VALIDATED))
-      .mockResolvedValueOnce(response(APPROVAL_READY))
+      .mockImplementationOnce(() => new Promise(resolve => { resolveReadiness = resolve; }))
       .mockResolvedValueOnce(response(APPROVAL_READY))
       .mockResolvedValueOnce(response({
         challenge: 'AQ',
@@ -752,14 +753,21 @@ describe('GoogleAdsStatusCard', () => {
       },
     });
 
-    render(<GoogleAdsStatusCard />);
-    const button = await screen.findByRole('button', {
+    // Settle initial status/effects while holding account readiness pending.
+    await act(async () => { render(<GoogleAdsStatusCard />); });
+    const button = screen.getByRole('button', {
       name: 'Verify owner and approve PAUSED creation',
     });
-    fireEvent.click(screen.getByRole('checkbox', {
+    expect(button).toBeDisabled();
+    const acknowledgement = screen.getByRole('checkbox', {
       name: /I reviewed this exact PAUSED copy, targeting, limits, and pre-activation holds/i,
-    }));
-    await waitFor(() => expect(button).toBeEnabled());
+    });
+    fireEvent.click(acknowledgement);
+    expect(acknowledgement).toBeChecked();
+    expect(button).toBeDisabled();
+    await act(async () => { resolveReadiness(response(APPROVAL_READY)); });
+    expect(acknowledgement).toBeChecked();
+    expect(button).toBeEnabled();
     fireEvent.click(button);
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
