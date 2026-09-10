@@ -7,8 +7,12 @@ new value here and set it as the ``ADMIN_PIN_HASH`` env var / Cloud Run secret.
 
 Usage::
 
-    python scripts/generate_admin_pin_hash.py          # prompts (hidden input)
-    python scripts/generate_admin_pin_hash.py 4832     # PIN as arg (shell history!)
+    # First create a private destination; see docs/PIN_ROTATION_RUNBOOK.md.
+    python scripts/generate_admin_pin_hash.py > "$PIN_HASH_FILE"
+
+The PIN is entered twice using hidden terminal input, never argv or environment.
+The verifier is emitted only to redirected stdout, never an interactive terminal.
+This script performs no cloud action and does not change any credential or session.
 
 Why scrypt: a 4-digit PIN has only 10,000 possibilities. Fast SHA-256 lets an
 attacker who obtains the hash try all of them in microseconds; a salted,
@@ -21,6 +25,7 @@ import getpass
 import hashlib
 import os
 import sys
+import warnings
 
 # Interactive-tier scrypt parameters (~16 MB, tens of ms server-side).
 N, R, P, DKLEN = 16384, 8, 1, 32
@@ -28,6 +33,14 @@ N, R, P, DKLEN = 16384, 8, 1, 32
 # Must match ADMIN_PIN_MAXLEN in frontend/src/App.jsx: the admin login box caps
 # input at this many characters, so a longer PIN cannot be typed/pasted to log in.
 ADMIN_PIN_MAXLEN = 64
+
+# App.jsx submits pinInput.trim(). ECMAScript trims these whitespace/line
+# terminator characters; Python str.strip() differs, notably for U+FEFF.
+BROWSER_TRIM_CHARS = (
+    "\t\n\v\f\r \u00a0\u1680"
+    "\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a"
+    "\u2028\u2029\u202f\u205f\u3000\ufeff"
+)
 
 
 def make_hash(pin: str) -> str:
@@ -42,19 +55,48 @@ def make_hash(pin: str) -> str:
 
 
 def main() -> int:
-    pin = sys.argv[1] if len(sys.argv) > 1 else getpass.getpass("Admin PIN: ")
-    if not pin:
-        print("PIN must not be empty", file=sys.stderr)
-        return 1
-    if len(pin) > ADMIN_PIN_MAXLEN:
-        # Don't echo the PIN — just warn about the length so the operator knows
-        # this secret won't fit the admin login box (which caps at ADMIN_PIN_MAXLEN).
+    if len(sys.argv) != 1:
+        print("PIN arguments are not accepted; use hidden terminal input.", file=sys.stderr)
+        return 2
+    if sys.stdout.isatty():
         print(
-            f"WARNING: PIN is {len(pin)} characters; the admin login box only accepts "
-            f"up to {ADMIN_PIN_MAXLEN} and will not let anyone type/paste it to log in. "
-            "Choose a shorter PIN.",
+            "Redirect the verifier to a private file; see the PIN rotation runbook.",
             file=sys.stderr,
         )
+        return 2
+    try:
+        with warnings.catch_warnings():
+            # getpass otherwise falls back to echoing input when no secure
+            # terminal is available. Stop before it can read that input.
+            warnings.simplefilter("error", getpass.GetPassWarning)
+            pin = getpass.getpass("New admin PIN: ")
+            if not pin:
+                print("PIN must not be empty", file=sys.stderr)
+                return 1
+            if pin != pin.strip(BROWSER_TRIM_CHARS):
+                print(
+                    "PIN has leading or trailing whitespace the browser would remove; "
+                    "choose another PIN.",
+                    file=sys.stderr,
+                )
+                return 1
+            # HTML maxLength and JavaScript slice count UTF-16 code units.
+            # Python len counts code points and would accept unusable emoji PINs.
+            if len(pin.encode("utf-16-le")) // 2 > ADMIN_PIN_MAXLEN:
+                print(
+                    f"PIN exceeds the browser limit of {ADMIN_PIN_MAXLEN} UTF-16 units.",
+                    file=sys.stderr,
+                )
+                return 1
+            confirmation = getpass.getpass("Confirm admin PIN: ")
+    except (getpass.GetPassWarning, EOFError, KeyboardInterrupt, UnicodeError):
+        print(
+            "Secure PIN input was unavailable or cancelled; no verifier generated.", file=sys.stderr
+        )
+        return 1
+    if pin != confirmation:
+        print("PIN confirmation does not match; no verifier generated.", file=sys.stderr)
+        return 1
     print(make_hash(pin))
     return 0
 
