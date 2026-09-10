@@ -5342,7 +5342,7 @@ async def submit_contact_form(request: Request):
         # lost revenue, so make it LOUD: log at error level + flag it in the
         # response `warnings` so a Cloud Run log-based alert can fire on
         # "lead_storage_failed". The owner notification below is the fallback
-        # delivery path, so the visitor still gets a success response.
+        # delivery path; at least one path must accept the lead for success.
         try:
             lead_source = str(data.get("source") or "contact_form").strip()[:100]
             home_id = str(data.get("home_id") or "").strip()[:200] or None
@@ -5430,16 +5430,34 @@ async def submit_contact_form(request: Request):
             struct_logger.warning("Lead DocuSeal trigger failed", error=str(e))
 
         # Notify owner of new lead (fallback delivery path if storage failed)
+        owner_notified = False
         try:
-            notify_new_lead(
+            notification = notify_new_lead(
                 customer_name=name,
                 phone=phone,
                 email=email,
                 source=data.get("source", "contact_form"),
             )
-        except Exception as e:
+            owner_notified = (
+                isinstance(notification, dict)
+                and notification.get("success") is True
+                and not notification.get("dry_run")
+            )
+        except Exception:
+            pass
+        if not owner_notified:
             warnings.append("owner_notify_failed")
-            struct_logger.warning("Lead admin notification failed", error=str(e))
+            struct_logger.warning("Lead admin notification failed", event="owner_notify_failed")
+
+        if not lead_persisted and not owner_notified:
+            return JSONResponse(
+                status_code=503,
+                content={
+                    "success": False,
+                    "error": "Unable to accept your request. Please try again or call us directly.",
+                    "warnings": warnings,
+                },
+            )
 
         result = {"success": True, "message": "Thank you! We'll be in touch shortly."}
         if lead_persisted:
