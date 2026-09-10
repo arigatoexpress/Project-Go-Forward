@@ -14,22 +14,27 @@ Keep working staff passkeys and a tested recovery path throughout the change.
 scrypt and legacy SHA-256 verifiers. Generate new values with the scrypt helper;
 do not downgrade to an unsalted SHA-256 value.
 
-Passkey and email-code sessions use a separate `ADMIN_SESSION_SECRET`. PIN-cookie
-sessions currently use a separate legacy signing path; do not infer that changing
-the PIN verifier invalidates them. Authentication hardening must establish and
-test consistent session-secret behavior before executing a recovery plan.
-Choose the intended scope explicitly:
+Passkey and email-code sessions use a separate `ADMIN_SESSION_SECRET`. Hardened
+PIN-cookie signing binds both that independent secret and the full PIN verifier.
+Verify that the candidate includes this behavior before executing the plan;
+older revisions use a different signing path. Choose the intended scope explicitly:
 
 - **PIN replacement only:** change the PIN verifier and retain the independent
-  session secret; verify the expected behavior of both PIN and passkey sessions.
+  session secret. On the hardened revision this invalidates existing PIN-cookie
+  tokens; passkey/email-code sessions retain their normal expiration.
 - **PIN replacement and session invalidation:** separately prepare a new independent
   session secret meeting the application's security requirements. Include both
   changes and the expected staff reauthentication in the approved release plan.
+  Rotating the session secret invalidates both PIN-cookie and passkey/email-code
+  sessions on the hardened revision.
 
 Do not derive the session secret from the PIN or its verifier. Restoring an old
 session secret can re-enable previously issued tokens that have not expired;
 therefore a rollback must consider the incident's security reason as well as
 availability. Preserve legacy-domain passkeys until replacement access is proven.
+The first promotion of the hardened signing behavior invalidates older PIN-cookie
+tokens even if neither secret value changes. Users can sign in again; passkey
+credentials are not deleted by that signing change.
 
 ## 2. Prepare a verifier offline
 
@@ -97,9 +102,9 @@ Before promotion, the designated human tests the approved candidate in the brows
 1. New PIN signs in and opens the required staff tools.
 2. Previous PIN is rejected without triggering repeated lockouts.
 3. A working passkey and the agreed recovery path still work.
-4. For PIN-only scope, existing PIN and passkey sessions behave as expected. For
-   session invalidation scope, both pre-rotation session types are rejected by
-   the candidate.
+4. For PIN-only scope, a pre-rotation PIN session is rejected and an unexpired
+   passkey/email-code session still works. For session-secret rotation scope,
+   both pre-rotation session types are rejected by the candidate.
 
 Record pass/fail results, not PINs, verifiers, session cookies, screenshots of
 secrets, or customer data. Candidate testing alone does not prove the production
