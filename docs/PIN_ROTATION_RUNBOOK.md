@@ -1,186 +1,139 @@
-# ADMIN_PIN_HASH Rotation Runbook
+# Prepare and execute an approved admin PIN rotation
 
-Audience: production operator with Google Cloud access to project `tho-ai-agent`.
+Audience: the named production operator for project `tho-ai-agent`. Canonical
+staff site: `https://www.texashomeoutlet.com`.
 
-Scope: rotate the admin PIN verifier used by Cloud Run without recording the PIN itself.
+The offline preparation below does not change a credential or session. Writing a
+Secret Manager version, deploying a revision, changing traffic, rotating the
+session secret, and notifying staff require approval for their concrete effects.
+Keep working staff passkeys and a tested recovery path throughout the change.
 
-> **Review required before execution — September 9, 2026.** The legacy procedure
-> below is not the current rotation plan. Cloud Run uses an independent
-> `ADMIN_SESSION_SECRET`; changing `ADMIN_PIN_HASH` alone does **not** invalidate
-> existing sessions. Current authentication supports salted scrypt verifiers as
-> well as legacy SHA-256. Do not downgrade an existing scrypt verifier by following
-> the SHA-256 example below. Prepare and approve a rotation plan that preserves
-> the supported verifier format, separately addresses session invalidation when
-> required, keeps working staff recovery, and verifies the exact promoted revision.
-> Do not execute the full-environment display or print a verifier into shared logs.
-> Keep the active gcloud configuration unchanged and pass `--project=tho-ai-agent`
-> explicitly. See [client acceptance](CLIENT_HANDOFF_ACCEPTANCE.md).
+## 1. Choose the rotation scope
 
-Do not paste the PIN into chat, tickets, shell history, logs, or docs.
+`ADMIN_PIN_HASH` is the PIN verifier. Current application code accepts salted
+scrypt and legacy SHA-256 verifiers. Generate new values with the scrypt helper;
+do not downgrade to an unsalted SHA-256 value.
 
-## Prerequisites
+Passkey and email-code sessions use a separate `ADMIN_SESSION_SECRET`. PIN-cookie
+sessions currently use a separate legacy signing path; do not infer that changing
+the PIN verifier invalidates them. Authentication hardening must establish and
+test consistent session-secret behavior before executing a recovery plan.
+Choose the intended scope explicitly:
 
-- Human operator has chosen the new PIN out of band.
-- Operator is authenticated to the correct Google account:
+- **PIN replacement only:** change the PIN verifier and retain the independent
+  session secret; verify the expected behavior of both PIN and passkey sessions.
+- **PIN replacement and session invalidation:** separately prepare a new independent
+  session secret meeting the application's security requirements. Include both
+  changes and the expected staff reauthentication in the approved release plan.
+
+Do not derive the session secret from the PIN or its verifier. Restoring an old
+session secret can re-enable previously issued tokens that have not expired;
+therefore a rollback must consider the incident's security reason as well as
+availability. Preserve legacy-domain passkeys until replacement access is proven.
+
+## 2. Prepare a verifier offline
+
+Use a trusted local terminal with input recording disabled. Enter the new PIN
+only at the hidden prompts; do not pass it through argv, an environment variable,
+a transcript, a temporary JSON request body, or chat. The helper asks twice and
+refuses empty input, mismatched confirmation, insecure input fallback, and values
+longer than the browser's 64 UTF-16-unit limit. It refuses an interactive stdout
+so the verifier does not appear in the terminal transcript.
+
+From the repository root, create an operator-private temporary file and redirect
+only the verifier into it:
 
 ```bash
-gcloud auth list
-gcloud config set project tho-ai-agent
+umask 077
+PIN_HASH_FILE="$(mktemp "${TMPDIR:-/tmp}/tho-pin-verifier.XXXXXX")"
+if python3 scripts/generate_admin_pin_hash.py > "$PIN_HASH_FILE"; then
+  printf 'Prepared private verifier file: %s\n' "$PIN_HASH_FILE"
+else
+  rm -f "$PIN_HASH_FILE"
+  unset PIN_HASH_FILE
+  false
+fi
 ```
 
-- Confirm current service and Secret Manager binding:
+Do not display, copy into a ticket, or commit that file. Record only its private
+location in the operator's local session. Stop on any error; an empty output file
+is not a prepared verifier. Clean up the file if the rotation is abandoned or after
+the approved secret update succeeds. Keep the PIN itself in the approved password
+manager/recovery channel, not in this file.
+
+## 3. Prepare the exact change for approval
+
+Read-only metadata checks may be performed without revealing secret values or
+switching the active gcloud configuration:
 
 ```bash
-gcloud run services describe project-go-forward \
-  --project=tho-ai-agent \
-  --region=us-central1 \
-  --format='value(spec.template.spec.containers[0].env)'
-
 gcloud secrets describe admin-pin-hash --project=tho-ai-agent
 gcloud secrets versions list admin-pin-hash --project=tho-ai-agent
+gcloud run services describe project-go-forward --project=tho-ai-agent \
+  --region=us-central1 --format='json(status.traffic,status.latestReadyRevisionName)'
 ```
 
-## Rotate
+Record the current serving revision and commit, previous secret version numbers,
+the required session-invalidation scope, intended candidate secret bindings,
+staff verification owner, and rollback conditions. Inspect only secret binding
+names/version metadata when resolving a revision; do not dump its full environment.
 
-Generate the SHA-256 hash locally without echoing the PIN. This command reads the PIN interactively and prints only the hash.
+Have an operator review the exact Secret Manager update and candidate deployment
+steps before execution. Read the verifier directly from the prepared file rather
+than echoing its contents. Bind the candidate to the reviewed numeric secret
+versions so the plan identifies the actual credential set. A `latest` alias or
+`latestReadyRevisionName` is not enough to identify the approved target.
+
+The regular main workflow builds a zero-traffic candidate and uses its configured
+secret bindings. Account for later workflow runs before selecting numeric bindings
+for a recovery release; do not assume they remain pinned by the normal workflow.
+Follow [RUNBOOK.md](RUNBOOK.md) for an explicit candidate/commit verification and
+separately approved traffic promotion. Do not use `--to-latest`.
+
+## 4. Verify without disclosing credentials
+
+Before promotion, the designated human tests the approved candidate in the browser:
+
+1. New PIN signs in and opens the required staff tools.
+2. Previous PIN is rejected without triggering repeated lockouts.
+3. A working passkey and the agreed recovery path still work.
+4. For PIN-only scope, existing PIN and passkey sessions behave as expected. For
+   session invalidation scope, both pre-rotation session types are rejected by
+   the candidate.
+
+Record pass/fail results, not PINs, verifiers, session cookies, screenshots of
+secrets, or customer data. Candidate testing alone does not prove the production
+revision changed. After the approved promotion, repeat the agreed staff checks and
+read the public serving identity:
 
 ```bash
-read -rsp "New admin PIN: " ADMIN_PIN; echo
-NEW_ADMIN_PIN_HASH="$(ADMIN_PIN="$ADMIN_PIN" python3 - <<'PY'
-import hashlib
-import os
-pin = os.environ["ADMIN_PIN"]
-print(hashlib.sha256(pin.encode()).hexdigest())
-PY
-)"
-unset ADMIN_PIN
-printf '%s\n' "$NEW_ADMIN_PIN_HASH"
+curl -fsS https://www.texashomeoutlet.com/healthz/
 ```
 
-Add the printed hash as a new Secret Manager version.
+Compare the returned commit with the approved revision. A successful liveness
+request is not authentication acceptance. Review startup/auth error counts through
+an authorized log viewer without copying raw secrets or customer content into the
+handoff.
+
+## 5. Rollback and closeout
+
+Use only the previously reviewed rollback revision/secret-version plan, with its
+security implications understood. A compromised credential must not be restored
+merely to make a login check green. Never reset or remove passkeys as incidental
+cleanup. Direct traffic or secret changes remain within the applicable approval.
+
+Remove the operator-owned temporary verifier file after use. Record the operator,
+time, secret version numbers, candidate and serving revisions, expected commit,
+verification results, session-invalidation scope and rollback outcome. State
+whether sessions were retained or invalidated; do not automatically claim the latter.
+Any staff notification is a separately approved outward message.
+
+## Offline rehearsal
 
 ```bash
-printf '%s' "$NEW_ADMIN_PIN_HASH" | gcloud secrets versions add admin-pin-hash \
-  --project=tho-ai-agent \
-  --data-file=-
-unset NEW_ADMIN_PIN_HASH
+python -m pytest tests/test_admin_pin_generator_cli.py tests/test_admin_pin_kdf.py -q
 ```
 
-Make Cloud Run read the latest secret version and create a new revision:
-
-```bash
-gcloud run services update project-go-forward \
-  --project=tho-ai-agent \
-  --region=us-central1 \
-  --update-secrets=ADMIN_PIN_HASH=admin-pin-hash:latest
-```
-
-Record the new revision name:
-
-```bash
-gcloud run services describe project-go-forward \
-  --project=tho-ai-agent \
-  --region=us-central1 \
-  --format='value(status.latestReadyRevisionName,status.url)'
-```
-
-## Verify
-
-Public health, no credentials required:
-
-```bash
-BASE_URL="https://tho.sapphirealpha.xyz"
-curl -fsS "$BASE_URL/health"
-curl -fsS "$BASE_URL/healthz/"
-```
-
-Admin login requires a human to enter the new PIN locally. The response sets an
-httpOnly admin cookie; do not paste the PIN, cookie jar, or any session value
-into tickets or docs.
-
-```bash
-COOKIE_JAR="$(mktemp)"
-read -rsp "Admin PIN: " ADMIN_PIN; echo
-ADMIN_PIN="$ADMIN_PIN" python3 - <<'PY' > /tmp/tho-admin-pin-body.json
-import json
-import os
-print(json.dumps({"pin": os.environ["ADMIN_PIN"]}))
-PY
-unset ADMIN_PIN
-
-curl -fsS -c "$COOKIE_JAR" -X POST "$BASE_URL/api/admin/verify" \
-  -H 'Content-Type: application/json' \
-  --data @/tmp/tho-admin-pin-body.json
-rm -f /tmp/tho-admin-pin-body.json
-
-curl -fsS "$BASE_URL/api/admin/check" \
-  -b "$COOKIE_JAR"
-
-curl -fsS -D - -o /dev/null "$BASE_URL/api/documents/templates" \
-  -b "$COOKIE_JAR" | sed -n '1,12p'
-
-rm -f "$COOKIE_JAR"
-```
-
-Expected:
-
-- `/health` returns `{"status":"ok"}`.
-- `/healthz/` returns minimal public `status` and `version`.
-- `/healthz/detailed` returns `status`, `version`, `sha`, `uptime_s`, dependency statuses for `drive`, `secrets`, `db`, and `email`, plus non-secret warnings such as `email_not_configured` when called with a valid `X-Admin-Token`.
-- `/api/admin/verify` succeeds only with the new PIN.
-- `/api/admin/check` returns `{"valid":true}` for the new cookie-backed session.
-- Existing sessions minted before rotation fail and users must re-authenticate.
-
-Check Cloud Run logs for startup/auth errors without exposing secret values:
-
-```bash
-gcloud logging read \
-  'resource.type="cloud_run_revision" AND resource.labels.service_name="project-go-forward" AND severity>=WARNING' \
-  --project=tho-ai-agent \
-  --limit=50 \
-  --format='table(timestamp,severity,textPayload,jsonPayload.message)'
-```
-
-## Rollback
-
-Rollback should restore the previous known-good Secret Manager version, not a real PIN value.
-
-Find candidate versions:
-
-```bash
-gcloud secrets versions list admin-pin-hash \
-  --project=tho-ai-agent \
-  --sort-by='~createTime'
-```
-
-Point Cloud Run at the previous enabled version:
-
-```bash
-PREVIOUS_VERSION="<previous-enabled-version-number>"
-gcloud run services update project-go-forward \
-  --project=tho-ai-agent \
-  --region=us-central1 \
-  --update-secrets=ADMIN_PIN_HASH=admin-pin-hash:$PREVIOUS_VERSION
-```
-
-Verify health and admin auth with the previous operator-held PIN using the same verification commands above.
-
-If the service revision itself is bad, shift traffic back to the last known-good revision:
-
-```bash
-gcloud run revisions list \
-  --service=project-go-forward \
-  --project=tho-ai-agent \
-  --region=us-central1
-
-gcloud run services update-traffic project-go-forward \
-  --project=tho-ai-agent \
-  --region=us-central1 \
-  --to-revisions=<known-good-revision>=100
-```
-
-## Closeout Notes
-
-- Notify internal users out of band that admin sessions were invalidated and the new PIN is available through the approved human channel.
-- Do not include the PIN, token, or hash in the closeout note.
-- Record only: rotation timestamp, operator, Secret Manager version number, Cloud Run revision, health result, admin-check result, and rollback version.
+These tests use synthetic PINs and mocked terminal input, including cancellation
+and fallback errors. They prove local preparation and application-verifier
+compatibility, not a completed production credential rotation or staff acceptance.
