@@ -1,6 +1,6 @@
 # Firestore Backup & Restore Runbook — Texas Home Outlet
 
-> **Sections 4.3–4.4 are not executable cutover guidance — September 9, 2026.**
+> **Application recovery requires a separately reviewed method — September 10, 2026.**
 > The current application constructs Firestore clients with the default database
 > and does not read `FIRESTORE_DATABASE`. Setting that environment variable will
 > create a revision but will not redirect its database clients. A restore into an
@@ -96,26 +96,16 @@ This is **non-destructive** to the live database. Validate the restored data bef
 
 ### 4.3 Cut over the app
 
-Only after validation, point the Cloud Run service at the new database by setting `FIRESTORE_DATABASE`:
-
-```bash
-gcloud run services update project-go-forward \
-  --project="$PROJECT_ID" \
-  --region=us-central1 \
-  --update-env-vars="FIRESTORE_DATABASE=$NEW_DB"   # --update, NOT --set: --set wipes every other env var (WEBAUTHN_*, ADMIN_PIN_HASH, Resend key)
-```
-
-> **Warning:** This deploys a new revision. Have your rollback command ready (`docs/RUNBOOK.md` §2).
+The current application does **not** support selecting a restored database through
+`FIRESTORE_DATABASE`. Setting that variable does not redirect its clients. Validate
+the isolated database using section 6, then prepare a reviewed recovery method with
+actual application/database identity checks and explicit production-cutover approval.
 
 ### 4.4 Rollback if the restore is bad
 
-```bash
-# Revert to the original (default) database
-gcloud run services update project-go-forward \
-  --project="$PROJECT_ID" \
-  --region=us-central1 \
-  --remove-env-vars="FIRESTORE_DATABASE"
-```
+Prepare rollback for the chosen recovery method before cutover (`docs/RUNBOOK.md`
+§2). Removing an ignored environment variable does not switch databases or undo
+an import. Do not assume a traffic rollback reverses database writes.
 
 ---
 
@@ -145,36 +135,64 @@ gcloud firestore import "$IMPORT_PATH" \
   --database="restore-test"
 ```
 
-Firestore import is **all-or-nothing for the specified export**. It does not merge with existing data; import into an empty database.
+An import creates documents from the export and **overwrites matching document
+IDs**. Documents absent from the export remain in the target. Import is not an
+atomic replacement: canceling it leaves writes already applied. Use an empty,
+isolated target and verify completion before validation. See Google's
+[import behavior and cancellation guidance](https://firebase.google.com/docs/firestore/manage-data/export-import#import_data).
 
 ---
 
 ## 6. Post-restore validation
 
-After any restore or cutover:
+### 6.1 Validate the isolated restored database
+
+Set the project and database IDs from the completed restore/import receipt.
+The example requires both explicitly and refuses the live `(default)` database.
+It fetches document IDs only; do not print customer data or secrets into receipts.
+These validation variables are local to this script, not application settings.
 
 ```bash
-# 1. App health
-curl -fsS https://www.texashomeoutlet.com/healthz/ | python3 -m json.tool
-
-# 2. Document counts for key collections (run from a Python shell with google-cloud-firestore)
-python3 - <<'PY'
+VALIDATION_PROJECT="${PROJECT_ID:?Set the restored project ID}" \
+VALIDATION_DATABASE="${NEW_DB:?Set the restored database ID}" python3 - <<'PY'
+import os
 from google.cloud import firestore
-db = firestore.Client(project="tho-ai-agent", database="(default)")
+
+project = os.environ["VALIDATION_PROJECT"].strip()
+database = os.environ["VALIDATION_DATABASE"].strip()
+if not project or not database or database == "(default)":
+    raise SystemExit("Select the explicit isolated restored project/database")
+db = firestore.Client(project=project, database=database)
+print(f"Validation target: projects/{project}/databases/{database}")
 for col in ["customers", "inventory", "deals", "service_requests", "appointments", "analytics_events"]:
-    docs = list(db.collection(col).limit(1000).stream())
-    print(f"{col}: {len(docs)} (sampled up to 1000)")
+    count = sum(1 for _ in db.collection(col).select([]).limit(1000).stream(timeout=10))
+    print(f"{col}: {count} (capped at 1000; excludes subcollections)")
 PY
-
-# 3. Production smoke
-.venv/bin/python scripts/production_smoke.py --base-url https://www.texashomeoutlet.com
-
-# 4. Lead-capture end-to-end (do not submit real PII; use a test email)
-curl -fsS -X POST https://www.texashomeoutlet.com/api/contact \
-  -H "Content-Type: application/json" \
-  -d '{"name":"Restore Test","phone":"+15555550100","email":"restore-test@example.invalid","message":"SLO restore validation."}'
-# phone is REQUIRED by /api/contact — omitting it returns {"success":false} and the smoke test silently fails
 ```
+
+Compare against approved expectations for that backup. Capped counts alone do not
+prove complete recovery: validate required document relationships, subcollections,
+indexes and encrypted-field recovery through an approved process. Application health
+does not establish that the application uses this database.
+
+### 6.2 Check the serving application separately
+
+The following read-only probes check the serving application, which may still use
+the original database. Record its serving commit separately from the restored
+database's validation evidence.
+
+```bash
+curl -fsS https://www.texashomeoutlet.com/healthz/ | python3 -m json.tool
+.venv/bin/python scripts/production_smoke.py --base-url https://www.texashomeoutlet.com
+```
+
+### 6.3 Approve any live end-to-end probe separately
+
+A live contact POST creates records and may send staff/customer notifications even
+with synthetic contact details. It is **not** part of the read-only validation above.
+Require explicit owner approval for the exact payload and expected recipients/side
+effects before executing it; use an isolated synthetic test otherwise. A successful
+HTTP response is not proof that an email reached an inbox.
 
 ---
 
@@ -192,6 +210,6 @@ If these targets are too loose for the business, increase backup frequency or ad
 ## 8. Common mistakes
 
 - **Restoring over the live database without a validation step.** Always restore to a new DB first.
-- **Forgetting to update the Cloud Run env var.** The app must point at the restored database.
-- **Importing into a non-empty database.** Firestore import replaces data; use an empty target database.
+- **Assuming an environment variable switches databases.** Current clients ignore `FIRESTORE_DATABASE`; verify the chosen recovery method's actual database identity.
+- **Importing into a non-empty database.** Matching documents are overwritten and unrelated documents remain; use an empty isolated target.
 - **Not testing restores.** Run a test restore quarterly to prove the process.
