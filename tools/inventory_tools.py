@@ -122,6 +122,10 @@ def _load_inventory_from_firestore(*, status="AVAILABLE", public_prices_only=Fal
             )
             if item.get("is_new") is False and home_status == "Available":
                 home_status = "Pre-Owned"
+            if not status and item.get("status") != "AVAILABLE":
+                # The all-status publication query must retain inactive IDs
+                # without expanding the old exact AVAILABLE eligibility rule.
+                home_status = "INACTIVE"
             gallery_images = item.get("gallery_images") or item.get("photos") or []
 
             home = {

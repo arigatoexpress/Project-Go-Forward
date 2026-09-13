@@ -83,6 +83,8 @@ def test_missing_status_is_not_published_as_available(monkeypatch):
     db = types.SimpleNamespace(
         search_inventory=lambda **kwargs: [
             {"id": "unverified", "model_name": "Unknown status"},
+            {"id": "wrong-case", "model_name": "Unapproved state", "status": "Available"},
+            {"id": "not-an-enum", "model_name": "Unapproved used state", "status": "Pre-Owned"},
             {"id": "listed", "model_name": "Available model", "status": "AVAILABLE"},
         ]
     )
