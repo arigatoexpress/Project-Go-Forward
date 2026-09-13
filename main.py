@@ -668,7 +668,7 @@ class ImmutableStaticFiles(StaticFiles):
 #
 # Cache-Control is applied consistently:
 #   * GET /api/marketing/inventory-context (public read-side):
-#       max-age=3600, public, stale-while-revalidate=60
+#       staff-backed reads revalidate; archived legacy reads may cache for 1h
 #   * Any other /api/* path: no-cache (CRM data must never be cached)
 #   * Non-/api paths: header is left untouched so the SPA / static asset
 #     handlers can set their own caching policy.
@@ -679,6 +679,11 @@ class ImmutableStaticFiles(StaticFiles):
 
 _PUBLIC_INVENTORY_CACHE = "max-age=3600, public, stale-while-revalidate=60"
 _DYNAMIC_API_CACHE = "no-cache"
+
+
+def _public_inventory_cache_policy() -> str:
+    # A browser/CDN must not hide staff changes for an hour after a save.
+    return _PUBLIC_INVENTORY_CACHE if _inventory_source_pref() == "legacy" else _DYNAMIC_API_CACHE
 
 
 def _is_public_inventory_read(method: str, path: str) -> bool:
@@ -706,7 +711,7 @@ def _apply_api_cache_headers(request: Request, response: JSONResponse) -> JSONRe
     if not (path.startswith("/api/") or path == "/api"):
         return response
     if _is_public_inventory_read(request.method, path):
-        response.headers["Cache-Control"] = _PUBLIC_INVENTORY_CACHE
+        response.headers["Cache-Control"] = _public_inventory_cache_policy()
     else:
         response.headers["Cache-Control"] = _DYNAMIC_API_CACHE
     return response
@@ -728,7 +733,7 @@ class APICacheControlMiddleware(BaseHTTPMiddleware):
         if any(h.lower() == "cache-control" for h in response.headers.keys()):
             return response
         if _is_public_inventory_read(request.method, path):
-            response.headers["Cache-Control"] = _PUBLIC_INVENTORY_CACHE
+            response.headers["Cache-Control"] = _public_inventory_cache_policy()
         else:
             response.headers["Cache-Control"] = _DYNAMIC_API_CACHE
         return response
@@ -3288,10 +3293,21 @@ async def list_inventory(status: str = "AVAILABLE", limit: int = 100, is_new: bo
             if is_new is not None and item.get("is_new") != is_new:
                 continue
 
+            classification = normalize_inventory_classification(item.get("classification"))
+            if not classification:
+                try:
+                    width = float(item.get("width") or 0)
+                except (TypeError, ValueError):
+                    width = 0
+                if width > 0:
+                    classification = "Double Wide" if width >= 24 else "Single Wide"
+
             result = {
                 "id": item.get("id"),
                 "model_name": item.get("model_name") or item.get("model"),
                 "manufacturer": item.get("manufacturer"),
+                "classification": classification,
+                "features": item.get("features") or [],
                 "year": item.get("year"),
                 "is_new": item.get("is_new", True),
                 "serial_number": item.get("serial_number"),
@@ -4783,7 +4799,11 @@ def _firestore_inventory_context(preloaded: dict | None = None) -> dict:
     """
     from tools.asset_scraper import get_assets_for_home
 
-    result = preloaded if preloaded is not None else get_inventory_for_ads(limit=100)
+    result = (
+        preloaded
+        if preloaded is not None
+        else get_inventory_for_ads(limit=100, staff_publication=True)
+    )
     firestore_homes = result.get("homes", [])
 
     # Enrich Firestore homes with asset catalog images only when they lack
@@ -4808,7 +4828,7 @@ def _firestore_inventory_context(preloaded: dict | None = None) -> dict:
                     home["matterport_url"] = get_matterport_url(asset["matterport_id"])
                 apply_classifier_to_home(home)
     website_homes = []
-    if not firestore_homes:
+    if not firestore_homes and not str(result.get("source", "")).startswith("staff_inventory"):
         for slug, asset in PROPERTY_ASSETS.items():
             home_data = {
                 "id": slug,
@@ -4897,6 +4917,8 @@ def _annotate_inventory_context(
         selected_path=selected_path,
     )
     annotated["source_status"] = status
+    if result.get("source") == "staff_inventory_unavailable":
+        annotated["warnings"] = [*(annotated.get("warnings") or []), "inventory_source_unavailable"]
     warning = warning_code(status)
     if warning:
         existing_warnings = annotated.get("warnings") or []
@@ -4914,7 +4936,7 @@ def _resolve_public_inventory_context() -> dict:
     prefer = _inventory_source_pref()
     raw = None
     if prefer != "legacy":
-        raw = get_inventory_for_ads(limit=100)
+        raw = get_inventory_for_ads(limit=100, staff_publication=True)
         if prefer == "firestore" or automatic_firestore_eligible(
             raw,
             min_homes=_inventory_firestore_min_homes(),

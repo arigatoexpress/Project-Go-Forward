@@ -99,6 +99,34 @@ curl -fsS https://www.texashomeoutlet.com/readyz \
 
 ## Adding Or Editing Inventory
 
+### Staff publication bridge (September 13, 2026)
+
+When `INVENTORY_SOURCE=firestore`, the public API now reads staff records on
+each request instead of using the cached marketing/JSON/sample fallback chain.
+Browser and CDN responses require revalidation. Numeric strings from historical
+Firestore imports are normalized so one width value cannot discard the whole
+query. Only `sale_price` supplies an advertised price; internal MSRP is not a
+substitute for an approved public price.
+
+Untouched supplemental catalog listings remain present. A staff record with
+an inactive status suppresses a supplemental listing only when their listing
+IDs match. A model-name match does not establish physical-home identity. Use
+soft retirement to retain this record; hard deletion removes the identity and
+must not be used as a substitute for retirement.
+
+The mixed response reports `staff_inventory_with_catalog`, with unknown
+freshness unless independently established. It does not certify lot contents
+or satisfy the separate approved-source gates above. A failed staff query
+keeps only orderable floorplans and exposes `inventory_source_unavailable`;
+it never replaces staff records with sample homes or historical used inventory.
+
+The read-only September 13 candidate comparison preserved all 46 existing
+noncatalog listing IDs and 240 orderable floorplans, including their public
+specs, prices, photos and tours. Actual stock/serial reconciliation remains a
+staff acceptance step. The admin edit form preserves existing classification
+and features; missing classification is inferred from a positive width using
+the same threshold as the public loader.
+
 Use this path for current homes:
 
 - Add or update the home in the live inventory source or admin inventory feed.
