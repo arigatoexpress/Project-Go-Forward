@@ -63,6 +63,8 @@ export default function InventoryManager({ onBack, onNavigate }) {
   const startEdit = (home) => {
     setForm({
       ...EMPTY, ...home,
+      model_name: home.model_name ?? '', manufacturer: home.manufacturer ?? '',
+      serial_number: home.serial_number ?? '',
       bedrooms: home.beds ?? home.bedrooms ?? '', bathrooms: home.baths ?? home.bathrooms ?? '',
       sqft: home.sqft ?? '', features: (home.features || []).join(', '),
     });

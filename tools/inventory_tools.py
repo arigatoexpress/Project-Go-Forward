@@ -68,7 +68,7 @@ def _normalized_specs(
     }
 
 
-def _load_inventory_from_firestore():
+def _load_inventory_from_firestore(*, status="AVAILABLE", public_prices_only=False):
     """Load inventory from Firestore (cloud-native)"""
     try:
         # Try different import paths for different contexts
@@ -79,10 +79,11 @@ def _load_inventory_from_firestore():
         db = get_database()
 
         # Query all available inventory
-        results = db.search_inventory(status="AVAILABLE", limit=100)
+        results = db.search_inventory(status=status, limit=500 if not status else 100)
 
         if not results:
-            return None
+            # An authoritative empty list is different from a failed query.
+            return []
 
         # Convert Firestore format to tool format
         try:
@@ -92,7 +93,10 @@ def _load_inventory_from_firestore():
 
         inventory = []
         for item in results:
-            price_value = item.get("sale_price") or item.get("msrp", 0) or 0
+            raw_price = item.get("sale_price")
+            if not public_prices_only:
+                raw_price = raw_price or item.get("msrp")
+            price_value = _to_number(raw_price) or 0
 
             # Price tier
             if price_value < 50000:
@@ -107,17 +111,17 @@ def _load_inventory_from_firestore():
                 price_tier = "$150k+"
 
             # Determine classification from width
-            width = item.get("width", 0) or 0
+            width = _to_number(item.get("width")) or 0
             classification = item.get("classification") or (
                 "Double Wide" if width >= 24 else "Single Wide"
             )
-            status = (
+            home_status = (
                 "Available"
                 if item.get("status") == "AVAILABLE"
-                else item.get("status", "Available")
+                else item.get("status") or "UNKNOWN"
             )
-            if item.get("is_new") is False and status == "Available":
-                status = "Pre-Owned"
+            if item.get("is_new") is False and home_status == "Available":
+                home_status = "Pre-Owned"
             gallery_images = item.get("gallery_images") or item.get("photos") or []
 
             home = {
@@ -126,7 +130,7 @@ def _load_inventory_from_firestore():
                 "manufacturer": item.get("manufacturer", "Unknown"),
                 "model_name": item.get("model_name", ""),
                 "classification": classification,
-                "status": status,
+                "status": home_status,
                 "specs": _normalized_specs(
                     beds=item.get("bedrooms"),
                     baths=item.get("bathrooms"),
@@ -173,6 +177,27 @@ def _load_inventory_from_firestore():
         # Firestore not available or error - return None to try fallback
         print(f"[Firestore] Not available: {e}")
         return None
+
+
+def _load_inventory_for_publication():
+    """Read staff changes immediately while preserving untouched catalog homes.
+
+    Include inactive records when suppressing static supplements by listing ID:
+    a retired home must not reappear with that same identity. Model names alone
+    cannot establish that two records are the same physical unit. No cache,
+    JSON, or sample fallback is used.
+    Catalog supplements remain unverified, as they were before this bridge.
+    """
+    managed = _load_inventory_from_firestore(status="", public_prices_only=True)
+    if managed is None:
+        return None
+    managed_ids = {str(home.get("id") or "") for home in managed}
+    inventory = [home for home in managed if home.get("status") in ("Available", "Pre-Owned")]
+    for home in _load_website_homes():
+        if str(home.get("id") or "") in managed_ids:
+            continue
+        inventory.append(home)
+    return inventory
 
 
 def _load_inventory_from_json():
