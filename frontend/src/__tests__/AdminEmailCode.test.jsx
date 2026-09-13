@@ -155,4 +155,33 @@ describe('Admin email one-time-code login', () => {
     await screen.findByText(/Invalid or expired code/i);
     expect(screen.getByLabelText(/sign-in code/i)).toBeInTheDocument();
   });
+
+  it('lets staff correct a mistyped address without reusing the previous code', async () => {
+    const fallback = baseFetch();
+    global.fetch = vi.fn((url, opts) => {
+      if (typeof url === 'string' && url.includes('/api/admin/email-code/request')) {
+        return Promise.resolve({ ok: true, json: async () => ({ success: true }) });
+      }
+      return fallback(url, opts);
+    });
+    renderApp();
+    openEmailCodeFlow();
+    fireEvent.change(screen.getByLabelText(/email/i), { target: { value: 'typo@texashomeoutlet.com' } });
+    fireEvent.click(screen.getByRole('button', { name: /^Send code$/i }));
+    fireEvent.change(await screen.findByLabelText(/sign-in code/i), { target: { value: '123456' } });
+    expect(screen.getByText('typo@texashomeoutlet.com')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /^Change email$/i }));
+    expect(screen.queryByLabelText(/sign-in code/i)).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText(/email/i), { target: { value: 'staff@texashomeoutlet.com' } });
+    fireEvent.click(screen.getByRole('button', { name: /^Send code$/i }));
+
+    expect(await screen.findByLabelText(/sign-in code/i)).toHaveValue('');
+    expect(screen.getByText('staff@texashomeoutlet.com')).toBeInTheDocument();
+    const requests = global.fetch.mock.calls.filter(([url]) => url.includes('/email-code/request'));
+    expect(requests.map(([, opts]) => JSON.parse(opts.body).email)).toEqual([
+      'typo@texashomeoutlet.com', 'staff@texashomeoutlet.com',
+    ]);
+    expect(global.fetch.mock.calls.some(([url]) => url.includes('/email-code/verify'))).toBe(false);
+  });
 });
