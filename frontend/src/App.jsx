@@ -579,7 +579,7 @@ function App() {
   const handlePasskeyLogin = async () => {
     if (!window.PublicKeyCredential) { setPasskeyError('Passkeys not supported in this browser'); return; }
     if (passkeyStatus && !passkeyStatus.has_keys) {
-      setPasskeyError('No passkeys are enrolled yet. Unlock with PIN once, then register this device.');
+      setPasskeyError('No passkeys are enrolled yet. Sign in with your PIN or an email code, then register this device.');
       return;
     }
     setPasskeyLoading(true); setPasskeyError('');
@@ -639,7 +639,7 @@ function App() {
       return;
     }
     if (!adminAuthed) {
-      setPasskeyError('Unlock with PIN before registering a passkey.');
+      setPasskeyError('Sign in with your PIN or an email code before registering a staff passkey.');
       setShowPinModal(true);
       return;
     }
@@ -667,7 +667,7 @@ function App() {
       });
       if (!beginRes.ok) {
         const data = await beginRes.json().catch(() => ({}));
-        throw new Error(safeUserMessage(extractErrorMessage(data), 'Unlock with PIN before registering a passkey'));
+        throw new Error(safeUserMessage(extractErrorMessage(data), 'Sign in before registering a staff passkey'));
       }
       const options = await beginRes.json();
       options.user.id = base64urlToBuffer(options.user.id);
@@ -710,7 +710,7 @@ function App() {
     } catch (err) {
       console.warn('Passkey register error:', err);
       const message = err.name === 'InvalidStateError'
-        ? 'That passkey provider already has a THO key. Revoke the deprecated key in System Hub, then register again.'
+        ? 'That passkey provider already has a THO key. Try signing in with it, or choose another provider or device. Confirm another working sign-in method before revoking a key in System Hub.'
         : safeUserMessage(err?.message, describeFetchError(err, 'register your passkey'));
       setPasskeyEmailError(message);
     } finally {
@@ -1136,14 +1136,14 @@ function App() {
   // --- PIN Modal ---
   const pinModal = showPinModal && (
     <div className="fixed inset-0 bg-black/70 z-[100] flex items-center justify-center p-4 backdrop-blur-sm" style={{ animation: 'tho-fade-in 0.15s ease' }}>
-      <div className="cp-panel p-6 sm:p-8 max-w-sm w-full" style={{ animation: 'tho-slide-up 0.2s ease' }}>
+      <div className="cp-panel p-6 sm:p-8 max-w-sm w-full max-h-[calc(100dvh-2rem)] overflow-y-auto" style={{ animation: 'tho-slide-up 0.2s ease' }}>
         <div className="flex items-center justify-center mb-4">
           <div className="p-3 bg-[var(--cp-accent-dim)] rounded-full">
             <Lock size={24} className="text-[var(--cp-accent)]" />
           </div>
         </div>
         <h2 className="text-xl font-bold text-center text-[var(--cp-text)] mb-1 font-mono">Admin Access</h2>
-        <p className="text-xs text-[var(--cp-muted)] text-center mb-6 font-mono">Enter PIN or use an approved staff passkey.</p>
+        <p className="text-xs text-[var(--cp-muted)] text-center mb-6 font-mono">Use your PIN, an existing passkey, or an email sign-in code.</p>
 
         <form onSubmit={handlePinSubmit}>
           <input
@@ -1204,8 +1204,8 @@ function App() {
                   {passkeyStatus === null
                     ? 'Checking passkey enrollment...'
                     : passkeyStatus.store_ready === false
-                      ? 'Passkey storage is not ready. PIN fallback remains available.'
-                      : 'No approved passkeys enrolled yet. Unlock with PIN, then register an owner or @texashomeoutlet.com email.'}
+                      ? 'Passkey sign-in is unavailable. Try your PIN or an email sign-in code.'
+                      : 'No approved passkeys enrolled yet. Sign in with your PIN or an email code, then register a staff passkey.'}
                 </p>
               </div>
             )}
@@ -1267,6 +1267,9 @@ function App() {
                 </form>
               ) : (
                 <form onSubmit={handleEmailCodeVerify} className="space-y-2">
+                  <p className="text-xs text-[var(--cp-muted)] break-all">
+                    Address entered: <span>{emailCodeAddress.trim()}</span>
+                  </p>
                   {emailCodeNotice && (
                     <p className="text-[11px] text-[var(--cp-faint)] leading-relaxed font-mono">
                       {emailCodeNotice}
@@ -1297,6 +1300,19 @@ function App() {
                   </button>
                   <button
                     type="button"
+                    onClick={() => {
+                      setEmailCodeSent(false);
+                      setEmailCodeInput('');
+                      setEmailCodeError('');
+                      setEmailCodeNotice('');
+                    }}
+                    disabled={emailCodeLoading}
+                    className="cp-btn-outline w-full py-2 text-xs"
+                  >
+                    Change email
+                  </button>
+                  <button
+                    type="button"
                     onClick={handleEmailCodeRequest}
                     disabled={emailCodeLoading}
                     className="w-full py-1.5 text-[11px] text-[var(--cp-faint)] hover:text-[var(--cp-text)] transition font-mono"
@@ -1320,6 +1336,13 @@ function App() {
             </div>
           )}
         </div>
+
+        <details className="mt-4 text-xs text-[var(--cp-muted)] leading-relaxed">
+          <summary className="cursor-pointer">Need help signing in?</summary>
+          <p className="mt-2">No fingerprint or face recognition is required: your device may offer its screen-lock PIN or password for a passkey.</p>
+          <p className="mt-2">A passkey saved for the old site may not appear here. Use your PIN or email code on this site, then register a new staff passkey from the key button after signing in.</p>
+          <p className="mt-2">For an email code, use your approved staff address and check spam. If no sign-in method works, ask your THO site administrator for help. Never share a sign-in code or PIN in a support message.</p>
+        </details>
 
         <button
           type="button"
