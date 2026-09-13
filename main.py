@@ -3369,6 +3369,9 @@ async def list_inventory(status: str = "AVAILABLE", limit: int = 100, is_new: bo
                 "baths": item.get("bathrooms"),
                 "sqft": item.get("sqft"),
                 "sale_price": item.get("sale_price") or item.get("msrp"),
+                # The price editor must not advertise the document autofill
+                # fallback above as though MSRP were an approved sale price.
+                "public_sale_price": item.get("sale_price"),
                 "image_url": item.get("image_url") or item.get("hero_image"),
                 "status": item.get("status", "AVAILABLE"),
             }

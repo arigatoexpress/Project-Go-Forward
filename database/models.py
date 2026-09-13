@@ -752,7 +752,7 @@ class InventoryWrite(BaseModel):
     sqft: int | None = Field(default=None, ge=0)
     width: int | None = Field(default=None, ge=0)
     length: int | None = Field(default=None, ge=0)
-    sale_price: float | None = Field(default=None, ge=0)
+    sale_price: float | None = Field(default=None, ge=0, allow_inf_nan=False, multiple_of=0.01)
     msrp: float | None = Field(default=None, ge=0)
     features: list[str] | None = None
     marketing_tags: list[str] | None = None

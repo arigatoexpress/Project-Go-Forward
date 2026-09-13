@@ -145,7 +145,11 @@ def _load_inventory_from_firestore(*, status="AVAILABLE", public_prices_only=Fal
                 ),
                 "pricing": {
                     "price_value": price_value,
-                    "display_price": f"${price_value:,.0f}"
+                    "display_price": (
+                        f"${price_value:,.0f}"
+                        if float(price_value).is_integer()
+                        else f"${price_value:,.2f}"
+                    )
                     if price_value > 0
                     else "Call for Price",
                     "price_tier": price_tier,

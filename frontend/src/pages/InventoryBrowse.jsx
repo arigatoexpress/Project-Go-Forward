@@ -486,7 +486,7 @@ export default function InventoryBrowse({
     try {
       setLoading(true);
       setError(null);  // clear any stale error so "Try Again" can recover
-      const resp = await fetch('/api/marketing/inventory-context');
+      const resp = await fetch('/api/marketing/inventory-context', { cache: 'no-cache' });
       if (!resp.ok) {
         setError(await responseErrorMessage(resp, { context: 'load inventory' }));
         return;
