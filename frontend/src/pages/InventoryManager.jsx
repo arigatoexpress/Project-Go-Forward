@@ -14,7 +14,7 @@ const CLASSIFICATIONS = ['Single Wide', 'Double Wide'];
 const EMPTY = {
   model_name: '', manufacturer: '', classification: 'Single Wide', status: 'AVAILABLE',
   serial_number: '', bedrooms: '', bathrooms: '', sqft: '', width: '', length: '',
-  is_new: true, features: '',
+  is_new: true, features: '', sale_price: '',
 };
 
 function toPayload(form) {
@@ -27,6 +27,7 @@ function toPayload(form) {
     serial_number: form.serial_number.trim() || undefined,
     bedrooms: num(form.bedrooms), bathrooms: num(form.bathrooms), sqft: num(form.sqft),
     width: num(form.width), length: num(form.length), is_new: !!form.is_new,
+    sale_price: Number(form.sale_price || 0),
     features: form.features ? form.features.split(',').map((s) => s.trim()).filter(Boolean) : undefined,
   };
   Object.keys(payload).forEach((k) => payload[k] === undefined && delete payload[k]);
@@ -65,6 +66,7 @@ export default function InventoryManager({ onBack, onNavigate }) {
       ...EMPTY, ...home,
       model_name: home.model_name ?? '', manufacturer: home.manufacturer ?? '',
       serial_number: home.serial_number ?? '',
+      sale_price: home.public_sale_price || '',
       bedrooms: home.beds ?? home.bedrooms ?? '', bathrooms: home.baths ?? home.bathrooms ?? '',
       sqft: home.sqft ?? '', features: (home.features || []).join(', '),
     });
@@ -74,6 +76,15 @@ export default function InventoryManager({ onBack, onNavigate }) {
 
   const save = async () => {
     if (!form.model_name.trim()) { setMessage({ type: 'error', text: 'Model name is required.' }); return; }
+    const publicPrice = Number(form.sale_price || 0);
+    if (!Number.isFinite(publicPrice) || publicPrice < 0) {
+      setMessage({ type: 'error', text: 'Public sale price must be a nonnegative number.' });
+      return;
+    }
+    if (Math.abs(publicPrice * 100 - Math.round(publicPrice * 100)) > 0.000001) {
+      setMessage({ type: 'error', text: 'Public sale price can have at most two decimal places.' });
+      return;
+    }
     setSaving(true);
     setMessage(null);
     try {
@@ -166,6 +177,10 @@ export default function InventoryManager({ onBack, onNavigate }) {
             {field('Width', 'width', { type: 'number', min: 0 })}
             {field('Length', 'length', { type: 'number', min: 0 })}
             {field('Features (comma-separated)', 'features')}
+            <div>
+              {field('Public sale price ($)', 'sale_price', { type: 'number', min: 0, step: '0.01', 'aria-describedby': 'public-price-help' })}
+              <p id="public-price-help" className="mt-1 text-xs text-[var(--cp-muted)]">Enter only the approved advertised price. Leave blank or enter 0 for Call for Price.</p>
+            </div>
           </div>
           <div className="mt-4 flex gap-2">
             <button disabled={saving} onClick={save}

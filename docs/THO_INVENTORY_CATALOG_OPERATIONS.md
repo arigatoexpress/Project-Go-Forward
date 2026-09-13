@@ -127,6 +127,13 @@ staff acceptance step. The admin edit form preserves existing classification
 and features; missing classification is inferred from a positive width using
 the same threshold as the public loader.
 
+The staff editor's **Public sale price ($)** field accepts an approved
+nonnegative dollar amount with up to two decimal places. Leaving it blank or
+entering zero explicitly saves Call for Price. The editor reads the dedicated
+`public_sale_price` API projection, never the older document-autofill
+`sale_price`/MSRP fallback. The saved field remains `sale_price`; no new
+Firestore property or stock verification is introduced.
+
 Use this path for current homes:
 
 - Add or update the home in the live inventory source or admin inventory feed.
