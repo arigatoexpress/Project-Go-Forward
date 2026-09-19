@@ -90,8 +90,7 @@ def test_healthz_detailed_accepts_cookie_auth(monkeypatch):
     client, _main, _db, _logger = create_client(monkeypatch)
 
     # Login via PIN to get cookie auth
-    login = client.post("/api/admin/verify", json={"pin": "4832"})
-    assert login.status_code == 200
+    assert client.post("/api/admin/verify", json={"pin": "4832"}).status_code == 200
 
     # Access /healthz/detailed with cookie auth (no X-Admin-Token header)
     response = client.get("/healthz/detailed")
@@ -109,6 +108,23 @@ def test_healthz_detailed_rejects_unauthenticated(monkeypatch):
 
     response = client.get("/healthz/detailed")
     assert response.status_code == 403
+
+
+def test_healthz_detailed_reports_cached_email_liveness(monkeypatch):
+    client, main, _db, _logger = create_client(monkeypatch)
+    monkeypatch.setattr(
+        main,
+        "_cached_email_liveness",
+        lambda: {"ok": False, "state": "invalid_key"},
+    )
+    assert client.post("/api/admin/verify", json={"pin": "4832"}).status_code == 200
+
+    response = client.get("/healthz/detailed")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["dependencies"]["email"] == "invalid_key"
+    assert "email_key_rejected" in body["warnings"]
 
 
 def test_llms_txt_serves_plain_text_agent_context(monkeypatch):
