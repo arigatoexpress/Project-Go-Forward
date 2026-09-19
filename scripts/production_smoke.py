@@ -242,6 +242,41 @@ def check_health(base_url: str, *, timeout: float) -> list[Probe]:
     return probes
 
 
+def evaluate_served_commit(
+    *, served: str | None, expected: str, status: int, elapsed_ms: int
+) -> Probe:
+    """Compare the public deployed version with one exact expected commit."""
+    served_sha = (served or "").strip().lower()
+    expected_sha = expected.strip().lower()
+    match = bool(served_sha and expected_sha and served_sha == expected_sha)
+    if not served_sha:
+        evidence = "serving=unknown; expected={}; DRIFT".format(expected_sha[:7] or "missing")
+    elif not expected_sha:
+        evidence = f"serving={served_sha[:7]}; expected=missing; DRIFT"
+    else:
+        evidence = f"serving={served_sha[:7]}; expected={expected_sha[:7]}; " + (
+            "match" if match else "DRIFT"
+        )
+    return Probe(
+        name="production serves expected commit",
+        ok=status == 200 and match,
+        status=status,
+        evidence=evidence,
+        elapsed_ms=elapsed_ms,
+    )
+
+
+def check_served_commit(base_url: str, *, timeout: float, expected: str) -> Probe:
+    status, payload, elapsed_ms = _json_probe(base_url, "/healthz/", timeout=timeout)
+    served = payload.get("version") if isinstance(payload, dict) else None
+    return evaluate_served_commit(
+        served=served if isinstance(served, str) else None,
+        expected=expected,
+        status=status,
+        elapsed_ms=elapsed_ms,
+    )
+
+
 def check_inventory(base_url: str, *, timeout: float, min_homes: int) -> Probe:
     status, payload, elapsed_ms = _json_probe(
         base_url, "/api/marketing/inventory-context", timeout=timeout
@@ -713,9 +748,12 @@ def run_smoke(
     check_admin_post_protection: bool = False,
     admin_token: str | None = None,
     canonical_origin: str | None = None,
+    expect_commit: str | None = None,
 ) -> dict[str, Any]:
     probes: list[Probe] = []
     probes.extend(check_health(base_url, timeout=timeout))
+    if expect_commit is not None:
+        probes.append(check_served_commit(base_url, timeout=timeout, expected=expect_commit))
     probes.append(check_inventory(base_url, timeout=timeout, min_homes=min_homes))
     probes.append(check_inventory_media_depth(base_url, timeout=timeout))
     probes.append(
@@ -747,6 +785,11 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--base-url", default=DEFAULT_BASE_URL)
     parser.add_argument("--timeout", type=float, default=10.0)
     parser.add_argument("--min-homes", type=int, default=DEFAULT_MIN_HOMES)
+    parser.add_argument(
+        "--expect-commit",
+        default=None,
+        help="Fail unless /healthz/ serves this exact commit SHA.",
+    )
     parser.add_argument(
         "--check-public-validation",
         action="store_true",
@@ -820,6 +863,7 @@ def main(argv: list[str] | None = None) -> int:
         check_admin_post_protection=args.check_admin_post_protection,
         admin_token=args.admin_token,
         canonical_origin=args.canonical_origin,
+        expect_commit=args.expect_commit,
     )
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0 if result["ok"] else 1
