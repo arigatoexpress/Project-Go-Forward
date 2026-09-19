@@ -14,9 +14,12 @@ Setup:
 """
 
 import html as html_mod
+import json
 import logging
 import os
 import re
+import urllib.error
+import urllib.request
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -84,6 +87,73 @@ def _extract_address(from_value: str) -> str:
 def _current_api_key() -> str:
     """Read RESEND_API_KEY at call time so env-var patches in tests are respected."""
     return os.environ.get("RESEND_API_KEY", "")
+
+
+_RESEND_LIVENESS_URL = "https://api.resend.com/domains"
+_RESEND_LIVENESS_TIMEOUT_S = 5.0
+_EMAIL_LIVENESS_STATES = frozenset({"not_configured", "invalid_key", "unreachable", "ok"})
+
+
+def _resend_error_type(exc: urllib.error.HTTPError) -> str:
+    """Return only Resend's documented error type, never its message or IDs."""
+    try:
+        payload = json.loads(exc.read(8 * 1024).decode("utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return ""
+    if not isinstance(payload, dict):
+        return ""
+    value = payload.get("name") or payload.get("type")
+    return value if isinstance(value, str) else ""
+
+
+def _probe_resend_key(
+    api_key: str,
+    *,
+    timeout: float = _RESEND_LIVENESS_TIMEOUT_S,
+    opener=urllib.request.urlopen,
+) -> str:
+    """Validate a Resend key without sending mail or returning provider data.
+
+    Resend has no read-only endpoint granted to sending-only keys. Its documented
+    response to a valid sending-only key on a read endpoint is a 401 with the
+    ``restricted_api_key`` type, which still proves that the credential is live.
+    All provider/transport failures remain distinct from rejected credentials.
+    """
+    request = urllib.request.Request(
+        _RESEND_LIVENESS_URL,
+        headers={"Authorization": f"Bearer {api_key}"},
+        method="GET",
+    )
+    try:
+        with opener(request, timeout=timeout) as response:
+            return "ok" if 200 <= int(response.status) < 300 else "unreachable"
+    except urllib.error.HTTPError as exc:
+        error_type = _resend_error_type(exc)
+        if exc.code == 401 and error_type == "restricted_api_key":
+            return "ok"
+        if exc.code == 401 or (
+            exc.code == 403 and error_type in {"restricted_api_key", "suspended_api_key"}
+        ):
+            return "invalid_key"
+        return "unreachable"
+    except (TimeoutError, urllib.error.URLError, OSError):
+        return "unreachable"
+
+
+def check_email_liveness(api_key: str | None = None, verify=None) -> dict[str, object]:
+    """Return one of four non-secret transactional-email readiness states."""
+    key = _current_api_key() if api_key is None else api_key
+    if not key:
+        return {"ok": False, "state": "not_configured"}
+
+    verifier = verify or _probe_resend_key
+    try:
+        state = verifier(key)
+    except Exception:  # The health endpoint must never expose provider details.
+        state = "unreachable"
+    if state not in _EMAIL_LIVENESS_STATES or state == "not_configured":
+        state = "unreachable"
+    return {"ok": state == "ok", "state": state}
 
 
 # Retired staff mailboxes that may still linger in a deployed NOTIFICATION_EMAIL
