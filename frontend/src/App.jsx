@@ -625,9 +625,12 @@ function App() {
       }
     } catch (err) {
       console.warn('Passkey login error:', err);
-      // Keep intentional copy thrown above (e.g. "Passkey login cancelled");
-      // translate anything raw (network failures, browser DOMExceptions).
-      setPasskeyError(safeUserMessage(err?.message, describeFetchError(err, 'complete passkey sign-in')));
+      // Browsers use NotAllowedError for several outcomes (including timeout
+      // and cancellation), so do not guess why the prompt did not finish.
+      const message = err?.name === 'NotAllowedError' || err?.name === 'AbortError'
+        ? 'Passkey sign-in did not finish. Try again, or choose Email me a sign-in code below.'
+        : safeUserMessage(err?.message, describeFetchError(err, 'complete passkey sign-in'));
+      setPasskeyError(message);
     } finally {
       setPasskeyLoading(false);
     }
@@ -777,7 +780,7 @@ function App() {
       }
       setAdminAuthed(false);
       setShowPinModal(true);
-      setPinError('Session expired — please re-enter PIN');
+      setPinError('Session expired — please sign in again');
     };
     window.addEventListener('admin-session-expired', handleExpired);
 
@@ -1158,9 +1161,9 @@ function App() {
             autoFocus
             aria-label="Admin PIN"
           />
-          {(pinError || passkeyError) && (
+          {pinError && (
             <p className="text-[var(--cp-danger)] text-xs text-center mt-2 font-mono">
-              {pinError || passkeyError}
+              {pinError}
             </p>
           )}
           <button
@@ -1191,6 +1194,7 @@ function App() {
                 type="button"
                 onClick={handlePasskeyLogin}
                 disabled={passkeyLoading}
+                aria-describedby={passkeyError ? 'passkey-login-error' : undefined}
                 className="cp-btn-outline w-full py-2.5 text-sm flex items-center justify-center gap-2"
               >
                 <Fingerprint size={16} />
@@ -1221,6 +1225,12 @@ function App() {
               </button>
             )}
           </div>
+        )}
+
+        {passkeyError && (
+          <p id="passkey-login-error" role="alert" className="text-[var(--cp-danger)] text-xs text-center mt-2 font-mono">
+            {passkeyError}
+          </p>
         )}
 
         {/* Email one-time-code fallback */}
