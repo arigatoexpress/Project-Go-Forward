@@ -1,5 +1,12 @@
 # Texas Home Outlet — Go-Live Readiness & Action Plan
 
+> **Historical assessment from June 14, 2026; not an execution queue.** The
+> percentages, PR sequence, email claims, and `--to-latest` behavior below are
+> historical. Do not execute this plan as current instructions. Use
+> [CLIENT_HANDOFF_ACCEPTANCE.md](CLIENT_HANDOFF_ACCEPTANCE.md) for remaining
+> acceptance work and [RUNBOOK.md](RUNBOOK.md) for the candidate-only deployment
+> and separately approved production promotion process.
+
 **Status: ~64% positioned — soft-launch ready, not yet fully positioned.**
 The storefront captures + routes leads today. What's left is closing two ops gates,
 a thin trust/discoverability layer, and merging the staged improvement PRs.

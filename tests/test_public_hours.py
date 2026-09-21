@@ -53,7 +53,7 @@ def test_config_and_structured_hours_mark_sunday_closed():
 def test_frontend_business_hours_constant_marks_sunday_closed():
     constants = (REPO / "frontend/src/constants.js").read_text(encoding="utf-8")
 
-    assert 'BUSINESS_HOURS = "Mon-Fri 9-6, Sat 9-5, Sun Closed"' in constants
+    assert 'BUSINESS_HOURS = "Mon-Fri 9-6, Sat 10-3, Sun Closed"' in constants
     assert "Sun 12-3" not in constants
 
 
@@ -75,3 +75,17 @@ def test_ai_business_hours_tool_reports_sunday_closed():
 
     assert "Sun: Closed" in hours
     assert "Sun: 12pm-3pm" not in hours
+
+
+def test_saturday_hours_match_staff_confirmed_schedule():
+    """Lee's September 1 request applies to advertising and booking alike."""
+    config = yaml.safe_load((REPO / "config.yaml").read_text(encoding="utf-8"))
+    assert config["business"]["hours"]["saturday"] == "Sat 10:00 AM - 3:00 PM"
+    saturday = next(b for b in config["business"]["hours_structured"] if "Saturday" in b["days"])
+    assert (saturday["opens"], saturday["closes"]) == ("10:00", "15:00")
+    today = _crm_tools().datetime.now(TIMEZONE).date()
+    next_saturday = today + timedelta(days=(5 - today.weekday()) % 7 or 7)
+    assert _get_hours_for_date(next_saturday) == (10, 15)
+    slots = _crm_tools().check_available_slots(next_saturday.isoformat())
+    assert slots["available_slots"] == ["10:00 AM", "11:00 AM", "12:00 PM", "1:00 PM", "2:00 PM"]
+    assert "Sat: 10am-3pm" in _crm_tools().get_business_hours()["hours"]

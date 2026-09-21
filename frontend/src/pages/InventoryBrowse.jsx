@@ -486,7 +486,7 @@ export default function InventoryBrowse({
     try {
       setLoading(true);
       setError(null);  // clear any stale error so "Try Again" can recover
-      const resp = await fetch('/api/marketing/inventory-context');
+      const resp = await fetch('/api/marketing/inventory-context', { cache: 'no-cache' });
       if (!resp.ok) {
         setError(await responseErrorMessage(resp, { context: 'load inventory' }));
         return;
@@ -1190,8 +1190,25 @@ export function HomeCard({ home, onClick, onGetPrice, isFavorite = false, onTogg
   const floorplanUrls = getFloorplanUrls(home);
   const galleryPhotos = getListingPhotos(home);
   const photoCount = galleryPhotos.length;
-  const heroImage = galleryPhotos[0] || '';
+  const galleryKey = JSON.stringify([home.id, galleryPhotos]);
+  const [heroAttempt, setHeroAttempt] = useState({ galleryKey, index: 0 });
+  // Failures belong to this ordered gallery, not to a later home or refresh.
+  // Reset before rendering children so a refreshed gallery starts at its hero.
+  if (heroAttempt.galleryKey !== galleryKey) {
+    setHeroAttempt({ galleryKey, index: 0 });
+  }
+  const heroIndex = heroAttempt.galleryKey === galleryKey ? heroAttempt.index : 0;
+  const heroImage = galleryPhotos[heroIndex] || '';
+  // 'loading' → 'loaded' | 'slow' | 'failed'.
+  //
+  // 'slow' and 'failed' are deliberately DIFFERENT states. 'failed' means the
+  // browser reported a real error (onError) and the photo is never coming, so
+  // we swap in a placeholder. 'slow' only means the watchdog lost patience —
+  // the <img> stays mounted so a photo that is merely late can still arrive
+  // and heal the card. Collapsing these two is what caused staff to see
+  // "Photos Coming Soon" on homes that had 21 photos (see watchdog note below).
   const [heroLoadState, setHeroLoadState] = useState(heroImage ? 'loading' : 'empty');
+  const heroRef = useRef(null);
   const hasFloorplanOnly = !heroImage && (
     home.media_quality?.status === 'floorplan_only' || floorplanUrls.length > 0
   );
@@ -1209,23 +1226,57 @@ export function HomeCard({ home, onClick, onGetPrice, isFavorite = false, onTogg
   const specs = home.specs || {};
   const categories = home.image_categories || {};
 
+  // Hero watchdog.
+  //
+  // The <img> below is loading="lazy", so the browser does not even REQUEST it
+  // until the card nears the viewport. A watchdog armed at mount therefore
+  // raced a download that had not started, and every below-the-fold card was
+  // declared broken ~4.5s after page load. Arm the timer only once the card is
+  // actually near the viewport, so we measure real load time rather than
+  // scroll distance.
   useEffect(() => {
     setHeroLoadState(heroImage ? 'loading' : 'empty');
     if (!heroImage) return undefined;
-    const timeout = window.setTimeout(() => {
-      setHeroLoadState((state) => (state === 'loaded' ? state : 'failed'));
-    }, 4500);
-    return () => window.clearTimeout(timeout);
-  }, [heroImage]);
+
+    let timeout;
+    const armWatchdog = () => {
+      timeout = window.setTimeout(() => {
+        // Never overwrite a settled state; 'slow' keeps the <img> mounted.
+        setHeroLoadState((state) => (state === 'loading' ? 'slow' : state));
+      }, 4500);
+    };
+
+    const node = heroRef.current;
+    if (!node || typeof IntersectionObserver === 'undefined') {
+      // No observer support (or jsdom): fall back to arming immediately.
+      armWatchdog();
+      return () => window.clearTimeout(timeout);
+    }
+
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) {
+        observer.disconnect();
+        armWatchdog();
+      }
+    }, { rootMargin: '200px' });
+    observer.observe(node);
+
+    return () => {
+      observer.disconnect();
+      window.clearTimeout(timeout);
+    };
+  }, [heroImage, galleryKey]);
 
   return (
     <Card padded={false} hover className="group !bg-[var(--cp-panel)] !border-[var(--cp-border)]">
       {/* Image — click opens detail */}
       <div
+        ref={heroRef}
         className="relative h-[220px] overflow-hidden bg-[var(--cp-bg-2)] cursor-pointer"
         onClick={onClick}
       >
         {heroImage && heroLoadState !== 'failed' ? (
+          <>
           <img
             src={heroImage}
             srcSet={generateSrcSet(heroImage)}
@@ -1235,8 +1286,25 @@ export function HomeCard({ home, onClick, onGetPrice, isFavorite = false, onTogg
             loading="lazy"
             decoding="async"
             onLoad={() => setHeroLoadState('loaded')}
-            onError={() => setHeroLoadState('failed')}
+            onError={() => {
+              if (heroIndex + 1 < galleryPhotos.length) {
+                setHeroAttempt({ galleryKey, index: heroIndex + 1 });
+              } else {
+                setHeroLoadState('failed');
+              }
+            }}
           />
+          {/* Slow, not broken: a quiet shimmer over the still-loading <img>.
+              It clears itself the moment onLoad fires. */}
+          {heroLoadState === 'slow' && (
+            <div
+              aria-hidden="true"
+              className="absolute inset-0 animate-pulse bg-[var(--cp-bg-2)] flex items-center justify-center"
+            >
+              <Camera size={28} className="text-[var(--cp-muted)]" />
+            </div>
+          )}
+          </>
         ) : showOrderOnlyPlaceholder ? (
           /* Branded build-to-order placeholder (NOT a broken <img>).
              role="img" + aria-label keeps it accessible to screen readers. */

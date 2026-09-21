@@ -45,7 +45,7 @@ export default function PhotoManager({ onBack }) {
   const fetchHomes = useCallback(() => {
     setLoadingHomes(true);
     setLoadError('');
-    fetch('/api/marketing/inventory-context')
+    fetch('/api/marketing/inventory-context', { cache: 'no-cache' })
       .then(r => r.json())
       .then(data => {
         const list = Array.isArray(data?.homes) ? data.homes : [];

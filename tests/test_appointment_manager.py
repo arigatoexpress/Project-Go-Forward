@@ -45,11 +45,11 @@ class TestGetHoursForDate:
         assert d.weekday() == 0
         assert _get_hours_for_date(d) == (9, 18)
 
-    def test_saturday_returns_nine_to_five(self):
+    def test_saturday_returns_ten_to_three(self):
         # 2026-04-18 is a Saturday
         d = date(2026, 4, 18)
         assert d.weekday() == 5
-        assert _get_hours_for_date(d) == (9, 17)
+        assert _get_hours_for_date(d) == (10, 15)
 
     def test_sunday_returns_closed(self):
         # 2026-04-19 is a Sunday
@@ -80,8 +80,8 @@ class TestGenerateSlots:
         assert slots[-1] == "5:00 PM"
 
     def test_saturday_slots(self):
-        slots = _generate_slots(9, 17)
-        assert len(slots) == 8
+        slots = _generate_slots(*HOURS_BY_DAY[5])
+        assert slots == ["10:00 AM", "11:00 AM", "12:00 PM", "1:00 PM", "2:00 PM"]
 
     def test_no_slots_same_hour(self):
         assert _generate_slots(9, 9) == []

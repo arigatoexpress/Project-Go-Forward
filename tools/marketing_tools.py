@@ -299,7 +299,7 @@ def _load_inventory_for_marketing():
         return []
 
 
-def get_inventory_for_ads(limit: int = 5) -> dict:
+def get_inventory_for_ads(limit: int = 5, *, staff_publication: bool = False) -> dict:
     """
     Get current inventory highlights for ad creation context.
 
@@ -312,7 +312,31 @@ def get_inventory_for_ads(limit: int = 5) -> dict:
     Returns:
         Dictionary with homes list and summary stats
     """
-    inventory = _load_inventory_for_marketing()
+    if staff_publication:
+        # Public staff-managed inventory must observe the database on each
+        # read. The drafting cache and static/sample fallbacks can resurrect
+        # sold or retired homes and hide staff edits across Cloud Run instances.
+        from tools.inventory_tools import _load_inventory_for_publication
+
+        inventory = _load_inventory_for_publication()
+        if inventory is None:
+            return {
+                "success": False,
+                "source": "staff_inventory_unavailable",
+                "homes": [],
+                "error": "Staff inventory is temporarily unavailable.",
+            }
+        if not inventory:
+            return {
+                "success": True,
+                "source": "staff_inventory_with_catalog",
+                "homes": [],
+                "total_inventory": 0,
+                "new_homes": 0,
+                "preowned_homes": 0,
+            }
+    else:
+        inventory = _load_inventory_for_marketing()
 
     if not inventory:
         return {
@@ -404,7 +428,9 @@ def get_inventory_for_ads(limit: int = 5) -> dict:
         # `_load_inventory` is deliberately resilient: Firestore falls back to
         # local JSON and then sample data. Useful for drafting, but not proof of
         # Firestore provenance for an automatic public-source switch.
-        "source": "inventory_fallback_chain",
+        "source": "staff_inventory_with_catalog"
+        if staff_publication
+        else "inventory_fallback_chain",
         "homes": homes_for_ads,
         "total_inventory": total,
         "new_homes": new_count,

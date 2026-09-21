@@ -130,7 +130,7 @@ async function apiGetGcpReadiness() {
 }
 
 async function apiGetInventory() {
-    const resp = await adminFetch('/api/marketing/inventory-context');
+    const resp = await adminFetch('/api/marketing/inventory-context', { cache: 'no-cache' });
     return readJsonOrThrow(resp, 'Failed to load inventory');
 }
 

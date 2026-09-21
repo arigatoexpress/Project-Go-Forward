@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Production smoke checks for the public THO app.
 
-The script is intentionally read-only by default. It checks public health,
-public SPA routes, inventory payload shape, and admin-route protection
-without submitting leads, appointments, documents, or marketing jobs.
+The default run sends GET requests only: public health, public SPA routes,
+inventory payload shape, and protection of admin GET routes. Every POST
+probe requires an explicit opt-in flag. Rejection probes expect validation
+or authentication to block writes; a server regression could allow side effects.
 
 Smoke-deal id convention
 ------------------------
@@ -510,7 +511,9 @@ def check_safe_public_validation(base_url: str, *, timeout: float) -> list[Probe
     return probes
 
 
-def check_admin_protection(base_url: str, *, timeout: float) -> list[Probe]:
+def check_admin_protection(
+    base_url: str, *, timeout: float, include_post: bool = False
+) -> list[Probe]:
     probes: list[Probe] = []
     for path in ADMIN_PROTECTED_GET_ROUTES:
         status, body, content_type, elapsed_ms = _read_url(base_url, path, timeout=timeout)
@@ -520,6 +523,8 @@ def check_admin_protection(base_url: str, *, timeout: float) -> list[Probe]:
         probes.append(
             Probe(name=path, ok=ok, status=status, evidence=evidence, elapsed_ms=elapsed_ms)
         )
+    if not include_post:
+        return probes
     for path in ADMIN_PROTECTED_POST_ROUTES:
         status, body, content_type, elapsed_ms = _post_json(
             base_url,
@@ -704,6 +709,8 @@ def run_smoke(
     check_empty_doc: bool = False,
     check_run_reply: bool = False,
     check_admin_auth: bool = False,
+    check_public_validation: bool = False,
+    check_admin_post_protection: bool = False,
     admin_token: str | None = None,
     canonical_origin: str | None = None,
 ) -> dict[str, Any]:
@@ -716,8 +723,11 @@ def run_smoke(
     )
     probes.extend(check_public_helpers(base_url, timeout=timeout))
     probes.extend(check_spa_routes(base_url, timeout=timeout))
-    probes.extend(check_safe_public_validation(base_url, timeout=timeout))
-    probes.extend(check_admin_protection(base_url, timeout=timeout))
+    if check_public_validation:
+        probes.extend(check_safe_public_validation(base_url, timeout=timeout))
+    probes.extend(
+        check_admin_protection(base_url, timeout=timeout, include_post=check_admin_post_protection)
+    )
     if check_empty_doc:
         probes.append(check_empty_doc_rejection(base_url, timeout=timeout, admin_token=admin_token))
     if check_run_reply:
@@ -737,6 +747,22 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--base-url", default=DEFAULT_BASE_URL)
     parser.add_argument("--timeout", type=float, default=10.0)
     parser.add_argument("--min-homes", type=int, default=DEFAULT_MIN_HOMES)
+    parser.add_argument(
+        "--check-public-validation",
+        action="store_true",
+        help=(
+            "Opt-in: POST invalid payloads to contact, appointments, and feedback "
+            "and verify rejection. May cause side effects if validation regresses."
+        ),
+    )
+    parser.add_argument(
+        "--check-admin-post-protection",
+        action="store_true",
+        help=(
+            "Opt-in: POST unauthenticated payloads to protected admin routes "
+            "and verify rejection. May cause side effects if protection regresses."
+        ),
+    )
     parser.add_argument(
         "--canonical-origin",
         default=None,
@@ -790,6 +816,8 @@ def main(argv: list[str] | None = None) -> int:
         check_empty_doc=args.check_empty_doc_rejection,
         check_run_reply=args.check_run_reply,
         check_admin_auth=args.check_admin_auth,
+        check_public_validation=args.check_public_validation,
+        check_admin_post_protection=args.check_admin_post_protection,
         admin_token=args.admin_token,
         canonical_origin=args.canonical_origin,
     )

@@ -13,7 +13,14 @@ Available Now, Orderable, and Pre-Owned. Orderable floorplans are labeled
 `Orderable`, not `Available`, so customers see the broad manufacturer offering
 without confusing catalog plans for homes already on the lot.
 
-## Source Order
+## Historical source order
+
+> The list below describes the legacy source path, not current production
+> priority. On September 9, 2026, production requested and selected Firestore,
+> with 46 current homes and 240 catalog floorplans. Provenance still reported
+> `inventory_fallback_chain` and freshness `unknown`. Do not infer currentness
+> from the selected path or a successful response. See
+> [client handoff acceptance](CLIENT_HANDOFF_ACCEPTANCE.md).
 
 1. Archived current-listing snapshot in `data/legacy_site/legacy_inventory_context.json`.
 2. Archived orderable catalog snapshot from the legacy `/floor-plans/` page.
@@ -21,8 +28,9 @@ without confusing catalog plans for homes already on the lot.
    offline/development fallback.
 4. Firestore/seed fallback only when the archived/current listing path is unavailable.
 
-The live legacy crawl remains available as a manual refresh path, but the public
-site should not depend on ManufacturedHomes.com staying online after cutover.
+Do not crawl the canonical website as a legacy refresh: after cutover it points
+back to this app. Use only an independently verified provider source or an approved
+staff export. The public site must not depend on the old provider staying online.
 
 The archived orderable catalog lives in
 `data/legacy_site/legacy_floorplan_catalog_context.json`. It was generated from
@@ -69,8 +77,9 @@ read-only Firestore projection found 19 `AVAILABLE` documents, all with
 identifiers and model names as the May 11 snapshot. Therefore changing to
 Firestore would change storage paths, not establish fresher inventory.
 
-Do not set `INVENTORY_SOURCE=firestore` or promote `auto` on this evidence. A
-future activation must first provide:
+The August observation did not justify a source activation. The September
+observation above supersedes its source selection and counts, but still does not
+establish freshness. A future source activation or freshness claim needs:
 
 1. an operator-approved current inventory export;
 2. a dry-run reconciliation with explicit serial allow-list and no PII/cost;
@@ -90,6 +99,41 @@ curl -fsS https://www.texashomeoutlet.com/readyz \
 
 ## Adding Or Editing Inventory
 
+### Staff publication bridge (September 13, 2026)
+
+When `INVENTORY_SOURCE=firestore`, the public API now reads staff records on
+each request instead of using the cached marketing/JSON/sample fallback chain.
+Browser and CDN responses require revalidation. Numeric strings from historical
+Firestore imports are normalized so one width value cannot discard the whole
+query. Only `sale_price` supplies an advertised price; internal MSRP is not a
+substitute for an approved public price.
+
+Untouched supplemental catalog listings remain present. A staff record with
+an inactive status suppresses a supplemental listing only when their listing
+IDs match. A model-name match does not establish physical-home identity. Use
+soft retirement to retain this record; hard deletion removes the identity and
+must not be used as a substitute for retirement.
+
+The mixed response reports `staff_inventory_with_catalog`, with unknown
+freshness unless independently established. It does not certify lot contents
+or satisfy the separate approved-source gates above. A failed staff query
+keeps only orderable floorplans and exposes `inventory_source_unavailable`;
+it never replaces staff records with sample homes or historical used inventory.
+
+The read-only September 13 candidate comparison preserved all 46 existing
+noncatalog listing IDs and 240 orderable floorplans, including their public
+specs, prices, photos and tours. Actual stock/serial reconciliation remains a
+staff acceptance step. The admin edit form preserves existing classification
+and features; missing classification is inferred from a positive width using
+the same threshold as the public loader.
+
+The staff editor's **Public sale price ($)** field accepts an approved
+nonnegative dollar amount with up to two decimal places. Leaving it blank or
+entering zero explicitly saves Call for Price. The editor reads the dedicated
+`public_sale_price` API projection, never the older document-autofill
+`sale_price`/MSRP fallback. The saved field remains `sale_price`; no new
+Firestore property or stock verification is introduced.
+
 Use this path for current homes:
 
 - Add or update the home in the live inventory source or admin inventory feed.
@@ -102,7 +146,8 @@ Use this path for current homes:
 
 Use this path for orderable manufacturer floorplans:
 
-- If the legacy provider site is still online, refresh the snapshot with:
+- Only after independently verifying an upstream provider target (the old canonical
+  domain now points back to this app), the historical crawler invocation was:
   `python3 tools/legacy_site_crawler.py --floorplans --max-pages 35 --limit 500 --output-dir data/legacy_site`.
 - If the legacy provider site is offline, add the floorplan to
   `tools/asset_scraper.py` with `is_new: True`.
@@ -124,7 +169,7 @@ cd frontend && npm run build
 After deployment, read back:
 
 ```bash
-curl -fsS https://tho.sapphirealpha.xyz/api/marketing/inventory-context
+curl -fsS https://www.texashomeoutlet.com/api/marketing/inventory-context
 ```
 
 Confirm `orderable_floorplans` is greater than zero and that homes with

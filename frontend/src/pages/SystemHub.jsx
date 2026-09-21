@@ -528,7 +528,7 @@ export default function SystemHub({ onBack }) {
                 </button>
               </div>
               <p className="text-xs text-[var(--cp-muted)] leading-relaxed mb-3">
-                Sign in with the PIN once, revoke deprecated or lost-device keys, then register a fresh passkey for Ari or a @texashomeoutlet.com staff email from the key button in the top navigation.
+                Keep another working sign-in method before revoking a key. Identify the lost or unusable credential below; register a replacement staff passkey from the key button in the top navigation. Owner credentials require that owner's existing passkey sign-in.
               </p>
               {passkeyError && (
                 <div className="text-xs text-[var(--cp-danger)] border border-[var(--cp-danger)]/25 bg-[var(--cp-danger-dim)] rounded-md px-3 py-2 mb-3">

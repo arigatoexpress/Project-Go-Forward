@@ -26,13 +26,21 @@ Run the repeatable public production smoke:
 python3 scripts/production_smoke.py --base-url "$THO_PROD_URL"
 ```
 
-The smoke checks:
+The default smoke sends GET requests only and checks:
 
 - `/health` and `/healthz/`
 - public SPA routes for the main app, documents, studio, CRM, and analytics
 - `/api/marketing/inventory-context` has a healthy inventory payload
-- admin API routes reject unauthenticated traffic
+- admin GET routes reject unauthenticated traffic
 - `/healthz/` exposes only the public liveness/deployed-version envelope
+
+POST checks require explicit opt-in: `--check-public-validation` sends invalid
+contact, appointment, and feedback payloads; `--check-admin-post-protection`
+checks unauthenticated admin POST rejection. These expect rejection but could
+cause side effects if server validation or protection regresses. The existing
+`--check-empty-doc-rejection`, `--check-run-reply`, and `--check-admin-auth`
+flags also send POST requests and remain opt-in. Use these only when the
+operator has authorized the corresponding probes.
 
 Direct endpoint checks:
 

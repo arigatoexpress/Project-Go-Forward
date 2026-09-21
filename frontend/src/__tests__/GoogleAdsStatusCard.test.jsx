@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import adminFetch from '../adminFetch';
 import GoogleAdsStatusCard from '../components/ad-studio/GoogleAdsStatusCard';
@@ -465,7 +465,7 @@ describe('GoogleAdsStatusCard', () => {
       .mockResolvedValueOnce(response(VALIDATED))
       .mockResolvedValueOnce(response(APPROVAL_READY));
 
-    render(<GoogleAdsStatusCard />);
+    await act(async () => { render(<GoogleAdsStatusCard />); });
 
     const confirm = vi.spyOn(globalThis, 'confirm').mockReturnValue(true);
     expect(await screen.findByRole('heading', { name: 'Exact PAUSED campaign review' })).toBeInTheDocument();
@@ -582,7 +582,7 @@ describe('GoogleAdsStatusCard', () => {
       },
     });
 
-    render(<GoogleAdsStatusCard />);
+    await act(async () => { render(<GoogleAdsStatusCard />); });
     const button = await screen.findByRole('button', {
       name: 'Verify owner and approve PAUSED creation',
     });
@@ -615,17 +615,23 @@ describe('GoogleAdsStatusCard', () => {
   });
 
   it('labels dispatch as storefront-local without claiming global isolation', async () => {
+    let resolveReadiness;
     const enabledReadiness = {
       ...APPROVAL_READY,
       dispatch_enabled: true,
     };
     adminFetch
       .mockResolvedValueOnce(response(VALIDATED))
-      .mockResolvedValueOnce(response(enabledReadiness));
+      .mockImplementationOnce(() => new Promise(resolve => { resolveReadiness = resolve; }));
 
-    render(<GoogleAdsStatusCard />);
+    await act(async () => { render(<GoogleAdsStatusCard />); });
+    const approve = screen.getByRole('button', {
+      name: 'Verify owner and approve PAUSED creation',
+    });
+    expect(approve).toBeDisabled();
+    await act(async () => { resolveReadiness(response(enabledReadiness)); });
 
-    expect(await screen.findByText(/Storefront dispatch flag/i)).toBeInTheDocument();
+    expect(screen.getByText(/Storefront dispatch flag/i)).toBeInTheDocument();
     expect(screen.getByText(/^Enabled$/i)).toBeInTheDocument();
     expect(screen.getByText(/does not prove whether the separate dispatcher job or a scheduler is runnable/i)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('checkbox', {
@@ -673,7 +679,7 @@ describe('GoogleAdsStatusCard', () => {
       .mockResolvedValueOnce(response(APPROVAL_READY))
       .mockResolvedValueOnce(response(changed));
 
-    render(<GoogleAdsStatusCard />);
+    await act(async () => { render(<GoogleAdsStatusCard />); });
     const approve = await screen.findByRole('button', {
       name: 'Verify owner and approve PAUSED creation',
     });
@@ -707,10 +713,11 @@ describe('GoogleAdsStatusCard', () => {
   });
 
   it('never reports approval failure when only the post-approval refresh is unavailable', async () => {
+    let resolveReadiness;
     const proofId = `sha256:${'c'.repeat(64)}`;
     adminFetch
       .mockResolvedValueOnce(response(VALIDATED))
-      .mockResolvedValueOnce(response(APPROVAL_READY))
+      .mockImplementationOnce(() => new Promise(resolve => { resolveReadiness = resolve; }))
       .mockResolvedValueOnce(response(APPROVAL_READY))
       .mockResolvedValueOnce(response({
         challenge: 'AQ',
@@ -752,14 +759,21 @@ describe('GoogleAdsStatusCard', () => {
       },
     });
 
-    render(<GoogleAdsStatusCard />);
-    const button = await screen.findByRole('button', {
+    // Settle initial status/effects while holding account readiness pending.
+    await act(async () => { render(<GoogleAdsStatusCard />); });
+    const button = screen.getByRole('button', {
       name: 'Verify owner and approve PAUSED creation',
     });
-    fireEvent.click(screen.getByRole('checkbox', {
+    expect(button).toBeDisabled();
+    const acknowledgement = screen.getByRole('checkbox', {
       name: /I reviewed this exact PAUSED copy, targeting, limits, and pre-activation holds/i,
-    }));
-    await waitFor(() => expect(button).toBeEnabled());
+    });
+    fireEvent.click(acknowledgement);
+    expect(acknowledgement).toBeChecked();
+    expect(button).toBeDisabled();
+    await act(async () => { resolveReadiness(response(APPROVAL_READY)); });
+    expect(acknowledgement).toBeChecked();
+    expect(button).toBeEnabled();
     fireEvent.click(button);
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
