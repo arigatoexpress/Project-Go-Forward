@@ -2320,8 +2320,10 @@ def _readyz_check_inventory_source() -> dict:
     return status
 
 
-@app.api_route("/readyz", methods=["GET", "HEAD"], response_class=JSONResponse)
-@app.api_route("/readyz/", methods=["GET", "HEAD"], response_class=JSONResponse)
+@app.get("/readyz", response_class=JSONResponse)
+@app.head("/readyz", response_class=JSONResponse)
+@app.get("/readyz/", response_class=JSONResponse)
+@app.head("/readyz/", response_class=JSONResponse)
 @limiter.exempt
 def readyz() -> JSONResponse:
     """Real readiness probe — exercises runtime deps a working request needs.
