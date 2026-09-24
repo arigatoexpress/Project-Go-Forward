@@ -2183,6 +2183,33 @@ def healthz() -> JSONResponse:
     )
 
 
+_EMAIL_LIVENESS_CACHE: dict[str, object] = {"checked_at": 0.0, "status": None}
+_EMAIL_LIVENESS_TTL_S = 300.0
+_EMAIL_LIVENESS_LOCK = threading.Lock()
+
+
+def _cached_email_liveness() -> dict[str, object]:
+    """Return a bounded, non-secret provider check cached for five minutes."""
+    now = time.monotonic()
+    cached = _EMAIL_LIVENESS_CACHE.get("status")
+    checked_at = float(_EMAIL_LIVENESS_CACHE.get("checked_at") or 0.0)
+    if isinstance(cached, dict) and now - checked_at < _EMAIL_LIVENESS_TTL_S:
+        return cached
+    with _EMAIL_LIVENESS_LOCK:
+        cached = _EMAIL_LIVENESS_CACHE.get("status")
+        checked_at = float(_EMAIL_LIVENESS_CACHE.get("checked_at") or 0.0)
+        if isinstance(cached, dict) and now - checked_at < _EMAIL_LIVENESS_TTL_S:
+            return cached
+        try:
+            from email_service import check_email_liveness
+
+            status = check_email_liveness()
+        except Exception:  # Detailed health must degrade, never fail or leak details.
+            status = {"ok": False, "state": "unreachable"}
+        _EMAIL_LIVENESS_CACHE.update(checked_at=time.monotonic(), status=status)
+        return status
+
+
 @app.get("/healthz/detailed", response_class=JSONResponse)
 @limiter.exempt
 def healthz_detailed(request: Request) -> JSONResponse:
@@ -2191,10 +2218,14 @@ def healthz_detailed(request: Request) -> JSONResponse:
         token = _admin_token_from_request(request)
         if not token or not _verify_admin_token(token):
             raise HTTPException(status_code=403, detail="Admin access required")
-    email_configured = bool(os.environ.get("RESEND_API_KEY"))
+    email_status = _cached_email_liveness()
     warnings = []
-    if not email_configured:
+    if email_status["state"] == "not_configured":
         warnings.append("email_not_configured")
+    elif email_status["state"] == "invalid_key":
+        warnings.append("email_key_rejected")
+    elif email_status["state"] == "unreachable":
+        warnings.append("email_provider_unreachable")
     credential_dependency_key = "sec" + "rets"
     version = (
         os.environ.get("APP_VERSION")
@@ -2221,7 +2252,7 @@ def healthz_detailed(request: Request) -> JSONResponse:
             else "not_configured",
             credential_dependency_key: "configured" if ADMIN_PIN_HASH else "missing",
             "db": "configured" if project_id else "missing",
-            "email": "configured" if email_configured else "missing",
+            "email": email_status["state"],
         },
         "warnings": warnings,
     }
