@@ -7,10 +7,14 @@ domain MUST be verified in the Resend dashboard (DKIM/SPF/DMARC) before
 deliverability is reliable.
 
 Setup:
-  1. Sign up at resend.com → get API key
-  2. Set env var: RESEND_API_KEY=re_xxxxx
-  3. Verify texashomeoutlet.com in Resend dashboard, then set:
+  1. Create or rotate the sending key in the Resend dashboard.
+  2. Store it only in Secret Manager secret ``resend-api-key`` (or export
+     ``RESEND_API_KEY`` in a local shell). Never commit the value.
+  3. Verify the sending domain in the Resend dashboard, then set:
         RESEND_FROM="Texas Home Outlet <noreply@texashomeoutlet.com>"
+
+The key is read only from the process environment. See
+``docs/OPERATOR_DOCUSEAL_RESEND_CHECKLIST.md`` (status: NOT RUN).
 """
 
 import html as html_mod
@@ -84,9 +88,20 @@ def _extract_address(from_value: str) -> str:
     return from_value
 
 
+# Env var the process reads. Production mounts Secret Manager secret
+# ``resend-api-key`` (a resource id, not a key value) into this variable.
+RESEND_API_KEY_ENV = "RESEND_API_KEY"  # pragma: allowlist secret
+RESEND_API_KEY_SECRET_ID = "resend-api-key"  # pragma: allowlist secret
+
+
 def _current_api_key() -> str:
-    """Read RESEND_API_KEY at call time so env-var patches in tests are respected."""
-    return os.environ.get("RESEND_API_KEY", "")
+    """Read the Resend key only from the environment.
+
+    Call-time lookup so tests can patch the env var. This never reads a
+    file, config.yaml, or a hardcoded credential. Cloud Run supplies the
+    value by mounting Secret Manager secret ``resend-api-key``.
+    """
+    return os.environ.get(RESEND_API_KEY_ENV, "")
 
 
 _RESEND_LIVENESS_URL = "https://api.resend.com/domains"

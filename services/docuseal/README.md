@@ -1,119 +1,37 @@
-# DocuSeal Deployment Runbook
+# DocuSeal sidecar
 
-> **Status:** NOT DEPLOYED — activation requires Ari's sign-off.  
-> See [docs/integration/docuseal-design.md](../../docs/integration/docuseal-design.md) for architecture and full activation checklist.
+**STATUS: NOT RUN.** Nothing in this directory deploys by itself.
 
----
+The activation path is the owner checklist
+[docs/OPERATOR_DOCUSEAL_RESEND_CHECKLIST.md](../../docs/OPERATOR_DOCUSEAL_RESEND_CHECKLIST.md).
+Detailed command reference: [docs/DOCUSEAL_DEPLOY_RUNBOOK.md](../../docs/DOCUSEAL_DEPLOY_RUNBOOK.md).
 
-## Pre-requisites
+## What to use
 
-- GCP project `tho-ai-agent` with Cloud Run and Artifact Registry enabled
-- `gcloud` CLI authenticated with `roles/run.admin` + `roles/secretmanager.admin`
-- A dedicated service account `docuseal-sa@tho-ai-agent.iam.gserviceaccount.com`
+| File | Role |
+|---|---|
+| `.github/workflows/deploy-docuseal.yml` | Gated `workflow_dispatch` deploy. Aborts unless `confirm` is `YES`. |
+| `secret-bindings.example.yaml` | Env var names and Secret Manager ids. No values. |
+| `Dockerfile` | Local image notes. The gated workflow runs `docuseal/docuseal:latest` directly. |
+| `cloudbuild.yaml` | Commented sketch. **Do not uncomment or submit.** Its secret names are not canonical. |
 
-## Step 1 — Create secrets
+## Canonical names
 
-```bash
-# 32-byte random key for DocuSeal's Rails session signing
-gcloud secrets create DOCUSEAL_SECRET_KEY --replication-policy=automatic
-echo -n "$(openssl rand -hex 32)" | \
-  gcloud secrets versions add DOCUSEAL_SECRET_KEY --data-file=-
+App env vars (values only from the environment):
 
-# Database URL (leave as default SQLite for MVP)
-gcloud secrets create DOCUSEAL_DATABASE_URL --replication-policy=automatic
-echo -n "sqlite3:///data/docuseal.sqlite3" | \
-  gcloud secrets versions add DOCUSEAL_DATABASE_URL --data-file=-
-```
+- `DOCUSEAL_API_URL` ← secret `docuseal-api-url`
+- `DOCUSEAL_API_TOKEN` ← secret `docuseal-api-token`
+- `DOCUSEAL_WEBHOOK_SECRET` ← secret `docuseal-webhook-secret`
+- `RESEND_API_KEY` ← secret `resend-api-key`
 
-## Step 2 — Service account permissions
+Sidecar secrets created by the gated workflow, not stored in git:
 
-```bash
-SA=docuseal-sa@tho-ai-agent.iam.gserviceaccount.com
+- `docuseal-secret-key-base` → DocuSeal `SECRET_KEY_BASE`
+- `docuseal-db-password` → Cloud SQL password used to assemble `DATABASE_URL`
 
-# Read secrets
-gcloud projects add-iam-policy-binding tho-ai-agent \
-  --member="serviceAccount:$SA" \
-  --role="roles/secretmanager.secretAccessor"
+Do not create `DOCUSEAL_SECRET_KEY` or `DOCUSEAL_DATABASE_URL`. Those names
+belong to the commented sketch only.
 
-# Write to GCS (for future direct-upload flows)
-gsutil iam ch serviceAccount:$SA:objectCreator gs://tho-secure-documents
-```
-
-## Step 3 — Deploy
-
-Uncomment `cloudbuild.yaml` and run:
-
-```bash
-gcloud builds submit --config services/docuseal/cloudbuild.yaml .
-```
-
-Or deploy directly:
-
-```bash
-gcloud run deploy docuseal \
-  --image=docuseal/docuseal:latest \
-  --region=us-central1 \
-  --project=tho-ai-agent \
-  --port=8080 \
-  --memory=512Mi \
-  --no-allow-unauthenticated \
-  --set-secrets=SECRET_KEY_BASE=DOCUSEAL_SECRET_KEY:latest
-```
-
-## Step 4 — Wire up THO main service
-
-Add the following env vars to the THO Cloud Run service (do NOT add them until DocuSeal is running):
-
-```bash
-DOCUSEAL_API_URL=https://docuseal-<hash>-uc.a.run.app
-DOCUSEAL_API_TOKEN=<token from DocuSeal admin panel>
-DOCUSEAL_WEBHOOK_SECRET=<random 32-byte hex>
-```
-
-## Step 5 — Upload templates
-
-```bash
-# Upload TMHA_SalesContract.pdf to DocuSeal
-curl -X POST "$DOCUSEAL_API_URL/api/templates/pdf" \
-  -H "X-Auth-Token: $DOCUSEAL_API_TOKEN" \
-  -F "file=@tho_documents/TMHA_SalesContract.pdf" \
-  -F "name=TMHA Sales Contract"
-# Record the returned template ID → add to config/field_map.json
-```
-
-## Step 6 — Configure webhook
-
-In the DocuSeal admin panel (Settings → Webhooks):
-- URL: `https://<tho-service-url>/api/docuseal/webhook`
-- Secret: value of `DOCUSEAL_WEBHOOK_SECRET`
-- Events: `form.completed`
-
-## Step 7 — Smoke test
-
-```bash
-# Create a test submission
-curl -X POST "$DOCUSEAL_API_URL/api/submissions" \
-  -H "X-Auth-Token: $DOCUSEAL_API_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "template_id": <template_id>,
-    "send_email": false,
-    "submitters": [{"role": "Buyer", "email": "test@example.com", "name": "Test Buyer"}],
-    "metadata": {"deal_id": "test-deal-001"}
-  }'
-```
-
-Complete the signing flow at the returned URL, then verify:
-1. DocuSeal sends webhook to THO
-2. Signed PDF appears at `gs://tho-secure-documents/signed_documents/test-deal-001/signed_<id>.pdf`
-3. Deal note appears in Firestore `deal_notes` collection
-
-## Rollback
-
-```bash
-gcloud run services delete docuseal --region=us-central1 --project=tho-ai-agent
-```
-
-THO main service continues working — the DocuSeal endpoints return `501 Not
-Implemented` when `DOCUSEAL_API_URL` is unset, so removing the sidecar has no
-impact on document generation.
+Template ids, after the owner runs the uploader, go in
+`config/docuseal_templates.json`. The committed shape example is
+`config/docuseal_templates.example.json`.

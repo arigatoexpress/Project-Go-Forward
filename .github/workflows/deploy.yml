@@ -97,6 +97,15 @@ jobs:
       - name: Install Python dependencies
         run: pip install -r requirements.txt
 
+      # NOT RUN: do not append Resend or DocuSeal secrets to --update-secrets
+      # until those Secret Manager secrets exist. A missing secret fails this
+      # candidate deploy. Bindings to add later (see
+      # docs/OPERATOR_DOCUSEAL_RESEND_CHECKLIST.md and
+      # services/docuseal/secret-bindings.example.yaml):
+      #   RESEND_API_KEY=resend-api-key:latest
+      #   DOCUSEAL_API_URL=docuseal-api-url:latest
+      #   DOCUSEAL_API_TOKEN=docuseal-api-token:latest
+      #   DOCUSEAL_WEBHOOK_SECRET=docuseal-webhook-secret:latest
       - name: Build and deploy to Cloud Run
         run: |
           gcloud run deploy ${{ env.SERVICE }} \

@@ -5,8 +5,10 @@
 # and docs/DOCUSEAL_DEPLOY_RUNBOOK.md). It runs through the SAME keyless Workload
 # Identity Federation auth as deploy.yml, so no service-account keys are needed.
 #
-# IMPORTANT — this is manual-trigger only (workflow_dispatch). It does NOT run on
-# push and cannot break the app deploy. Run it from the Actions tab when ready.
+# STATUS: NOT RUN.
+# This workflow does not run on push. Dispatch aborts before any GCP API, IAM,
+# DNS, or Cloud Run change unless the owner sets confirm to exactly YES.
+# See docs/OPERATOR_DOCUSEAL_RESEND_CHECKLIST.md.
 #
 # PREREQUISITES (one-time):
 #   The WIF service account (secrets.WIF_SERVICE_ACCOUNT) must have, on project
@@ -33,6 +35,10 @@ name: Deploy DocuSeal (e-sign server)
 on:
   workflow_dispatch:
     inputs:
+      confirm:
+        description: "Type YES to deploy DocuSeal. Any other value aborts before APIs, IAM, DNS, or Cloud Run are touched."
+        required: true
+        default: "NO"
       region:
         description: "Cloud Run / Cloud SQL region"
         required: true
@@ -54,7 +60,20 @@ env:
   SERVICE: docuseal
 
 jobs:
+  confirm-owner-intent:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Abort unless the owner set confirm to YES
+        run: |
+          if [ "${{ github.event.inputs.confirm }}" != "YES" ]; then
+            echo "NOT RUN. DocuSeal deploy aborted before any GCP API, IAM, DNS, or Cloud Run change."
+            echo "See docs/OPERATOR_DOCUSEAL_RESEND_CHECKLIST.md"
+            exit 1
+          fi
+          echo "Owner confirm=YES. Continuing to the deploy job."
+
   deploy-docuseal:
+    needs: confirm-owner-intent
     runs-on: ubuntu-latest
     permissions:
       contents: read

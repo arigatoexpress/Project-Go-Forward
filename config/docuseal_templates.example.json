@@ -1,0 +1,8 @@
+{
+  "_status": "NOT_RUN",
+  "_description": "Schema example only. docuseal_service.py loads config/docuseal_templates.json, which the template uploader writes after a real upload. This example is not loaded. docuseal_template_id stays null until the owner runs docs/OPERATOR_DOCUSEAL_RESEND_CHECKLIST.md. Do not put API tokens in the mapping file. config/field_map.json remains the AcroForm registry.",
+  "TMHA_SalesContract.pdf": {
+    "docuseal_template_id": null,
+    "fields_count": null
+  }
+}
