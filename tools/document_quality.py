@@ -737,6 +737,17 @@ def enrich_document_data(data: dict[str, Any]) -> dict[str, Any]:
                     _round_money(annual_tax / Decimal("12"))
                 )
 
+    # What the buyer pays each month. Escrow is not interest, so finance_charge
+    # and total_payments stay on the principal-and-interest figure above.
+    principal_and_interest = _decimal(enriched.get("monthly_payment"))
+    tax_part = _decimal(enriched.get("tax_escrow_payment")) or Decimal("0")
+    insurance_part = _decimal(enriched.get("insurance_premium_monthly")) or Decimal("0")
+    if principal_and_interest is not None or tax_part or insurance_part:
+        payer = _round_money((principal_and_interest or Decimal("0")) + tax_part + insurance_part)
+        enriched["total_monthly_payment"] = _money(payer)
+    if tax_part > 0 and _is_blank(enriched.get("tax_escrow_included")):
+        enriched["tax_escrow_included"] = True
+
     return enriched
 
 

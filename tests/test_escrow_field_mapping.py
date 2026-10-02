@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import os
 import sys
+from decimal import Decimal
 
 from pypdf import PdfReader
 
@@ -126,7 +127,42 @@ def test_explicit_escrow_values_not_overwritten():
 # ─────────── the keys actually map to this real regulatory form ───────────
 
 
-def test_existing_field_map_wires_escrow_keys_to_real_widgets():
+def test_total_monthly_payment_includes_escrow_finance_charge_does_not():
+    """Mark Willcott, 2026-10-01: escrow was missing from the payment.
+
+    The buyer-facing total includes monthly tax escrow and insurance.
+    The finance charge stays principal-and-interest, so escrow is not interest.
+    """
+    out = enrich_document_data(
+        {
+            "sales_price": 120000,
+            "down_payment": 20000,
+            "loan_term": 240,
+            "apr": "7.5",
+            "annual_insurance": 1200,
+            "tax_rate": "1.8",
+        }
+    )
+    principal = Decimal(out["monthly_payment"].replace(",", ""))
+    assert out["tax_escrow_payment"] == "180.00"
+    assert out["insurance_premium_monthly"] == "100.00"
+    total = Decimal(out["total_monthly_payment"].replace(",", ""))
+    assert total == principal + Decimal("280.00")
+    payments = Decimal(out["total_payments"].replace(",", ""))
+    assert payments == (principal * 240).quantize(Decimal("0.01"))
+    assert out["tax_escrow_included"] is True
+
+
+def test_sales_contract_payment_box_uses_the_escrow_inclusive_total():
+    cfg = get_template_config("TMHA_SalesContract.pdf")
+    field_map = cfg.get("field_map", {})
+    payment = [
+        src
+        for widget, src in field_map.items()
+        if widget.endswith("Total_Payment[0]")
+    ]
+    assert payment == ["total_monthly_payment"]
+
     """Guard the wiring: these human keys must map to the real PDF widgets.
 
     If a future edit renames a key or drops a mapping, the escrow figures would
