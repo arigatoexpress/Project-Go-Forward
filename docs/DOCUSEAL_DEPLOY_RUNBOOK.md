@@ -1,5 +1,12 @@
 # DocuSeal Deployment Runbook — Turning E-Signature On
 
+**STATUS: NOT RUN.** This runbook is the command reference. Do not execute it
+from the prepare change. The short owner order is
+`docs/OPERATOR_DOCUSEAL_RESEND_CHECKLIST.md`. Secret ids are
+`docuseal-api-url`, `docuseal-api-token`, `docuseal-webhook-secret`,
+`docuseal-secret-key-base`, and `docuseal-db-password`. Do not uncomment
+`services/docuseal/cloudbuild.yaml`.
+
 **Prepared for:** Texas Home Outlet (THO) — Project Go Forward
 **Companion docs:** `DOCUSEAL_INTEGRATION_SPEC.md` (architecture/cost), `TX_MH_COMPLIANCE_RESEARCH.md` (legal basis)
 

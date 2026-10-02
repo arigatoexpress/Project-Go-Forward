@@ -64,7 +64,9 @@ available at `/healthz/detailed` with a valid admin token; it reports
 is absent. The public health endpoint stays HTTP 200 so Cloud Run liveness does
 not restart a healthy app because of an operator-owned email-provider setup gap.
 
-Bind the Resend key through Secret Manager:
+Bind the Resend key through Secret Manager. The short owner order, including
+DocuSeal, is `docs/OPERATOR_DOCUSEAL_RESEND_CHECKLIST.md` (**STATUS: NOT RUN**).
+Do not run the commands below until that checklist says to:
 
 ```bash
 read -rsp "Resend API key: " RESEND_API_KEY; echo

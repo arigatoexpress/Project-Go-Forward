@@ -219,16 +219,12 @@ REST — it is not a derivative work.
 
 ## Activation Checklist
 
-Complete all steps before merging the activation PR:
+**STATUS: NOT RUN.** Follow `docs/OPERATOR_DOCUSEAL_RESEND_CHECKLIST.md`.
+Do not uncomment `services/docuseal/cloudbuild.yaml`. The gated workflow is
+`.github/workflows/deploy-docuseal.yml` (`confirm` must be `YES`).
 
-- [ ] Deploy DocuSeal to Cloud Run using `services/docuseal/cloudbuild.yaml`
-- [ ] Set `DOCUSEAL_SECRET_KEY` (random 32-byte hex) in DocuSeal service secrets
-- [ ] Set `DATABASE_URL` (Cloud SQL URL or leave blank for SQLite)
-- [ ] Obtain DocuSeal API token from `http://<docuseal-url>/user/settings`
-- [ ] Set `DOCUSEAL_API_URL` + `DOCUSEAL_API_TOKEN` in THO main service env vars (Cloud Run)
-- [ ] Set `DOCUSEAL_WEBHOOK_SECRET` (match value configured in DocuSeal → Webhooks)
-- [ ] Upload TMHA_SalesContract.pdf via `POST /api/templates/pdf`; record template ID
-- [ ] Populate `docuseal_template_id` fields in `config/field_map.json` for top 9 templates
-- [ ] Configure DocuSeal webhook URL: `https://<tho-service-url>/api/docuseal/webhook`
-- [ ] Smoke test: create a sandbox submission → verify signed PDF appears in GCS
-- [ ] Enable "Send for Signature" button by un-gating in frontend (currently shows "Coming soon" on 501)
+Template ids are written to `config/docuseal_templates.json` by
+`tools/docuseal_template_uploader.py`. `config/field_map.json` stays the
+AcroForm registry. Secret ids: `docuseal-secret-key-base`,
+`docuseal-db-password`, `docuseal-api-url`, `docuseal-api-token`,
+`docuseal-webhook-secret`.

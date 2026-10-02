@@ -1,11 +1,18 @@
 # DocuSeal Cloud Run deployment pipeline
 # ──────────────────────────────────────────────────────────────────────────────
-# STATUS: COMMENTED OUT — do NOT run until Ari approves activation.
+# STATUS: NOT RUN. Do not uncomment these steps and do not submit this build.
 #
-# To activate:
-#   1. Uncomment all steps below
-#   2. Create Cloud Run secrets: DOCUSEAL_SECRET_KEY, DOCUSEAL_DATABASE_URL
-#   3. Run: gcloud builds submit --config services/docuseal/cloudbuild.yaml .
+# This file is a commented SQLite/GCS sketch. It is not the activation path.
+# Secret names below (DOCUSEAL_SECRET_KEY, DOCUSEAL_DATABASE_URL) are not the
+# names the app or the gated workflow use. Canonical secret ids:
+#   docuseal-secret-key-base  -> DocuSeal SECRET_KEY_BASE
+#   docuseal-db-password      -> Cloud SQL user password (workflow-assembled DATABASE_URL)
+#   docuseal-api-url          -> app env DOCUSEAL_API_URL
+#   docuseal-api-token        -> app env DOCUSEAL_API_TOKEN
+#   docuseal-webhook-secret   -> app env DOCUSEAL_WEBHOOK_SECRET
+#   resend-api-key            -> app env RESEND_API_KEY
+# Owner steps: docs/OPERATOR_DOCUSEAL_RESEND_CHECKLIST.md
+# Gated workflow: .github/workflows/deploy-docuseal.yml (confirm must be YES)
 # ──────────────────────────────────────────────────────────────────────────────
 
 # steps:
