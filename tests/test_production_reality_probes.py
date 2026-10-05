@@ -14,6 +14,9 @@ These probes fetch the image and consult the classifier, so they can fail for
 the reasons the site was actually broken.
 """
 
+from contextlib import contextmanager
+from urllib.error import HTTPError
+
 import pytest
 
 from scripts.production_smoke import (
@@ -24,6 +27,45 @@ from scripts.production_smoke import (
 FLOORPLAN = "https://cdn.example.com/manufacturer/1/floorplan/2/floor-plans.jpg"
 PHOTO = "https://cdn.example.com/dealer/3522/inventory/9/Nassau-ext-1.jpg"
 PHOTO_2 = "https://cdn.example.com/dealer/3522/inventory/9/Nassau-kitchen-2.jpg"
+
+
+@pytest.mark.parametrize("get_status", [200, 206])
+def test_get_only_staff_photo_is_reachable(monkeypatch, get_status):
+    from scripts import production_smoke as smoke
+
+    requests = []
+
+    @contextmanager
+    def fake_urlopen(request, *, timeout):
+        requests.append(request)
+        if request.method == "HEAD":
+            raise HTTPError(request.full_url, 405, "Method Not Allowed", None, None)
+        assert request.method == "GET"
+        assert request.get_header("Range") == "bytes=0-0"
+        assert timeout == 1
+        # No read method: the probe must not download the response body.
+        yield type("Response", (), {"status": get_status})()
+
+    monkeypatch.setattr(smoke, "urlopen", fake_urlopen)
+    assert (
+        smoke._head_status("https://example.test/api/inventory/photos/a/photo.jpg", timeout=1)
+        == 200
+    )
+    assert len(requests) == 2
+
+
+def test_reachability_does_not_retry_a_denied_image(monkeypatch):
+    from scripts import production_smoke as smoke
+
+    requests = []
+
+    def fake_urlopen(request, *, timeout):
+        requests.append(request)
+        raise HTTPError(request.full_url, 403, "Forbidden", None, None)
+
+    monkeypatch.setattr(smoke, "urlopen", fake_urlopen)
+    assert smoke._head_status(PHOTO, timeout=1) == 403
+    assert len(requests) == 1
 
 
 def _home(hid, image_url, **extra):

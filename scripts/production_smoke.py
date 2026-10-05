@@ -380,13 +380,24 @@ def check_inventory_media_depth(base_url: str, *, timeout: float) -> Probe:
 
 
 def _head_status(url: str, *, timeout: float = 15.0) -> int:
-    """HEAD a media URL and return its status (0 when unreachable)."""
+    """Check reachability, using a bounded GET when HEAD is unsupported."""
     try:
         request = Request(url, method="HEAD")
         with urlopen(request, timeout=timeout) as response:
             return int(response.status)
     except HTTPError as exc:
-        return int(exc.code)
+        if exc.code != 405:
+            return int(exc.code)
+        # FastAPI's staff-photo GET route does not register HEAD. Ask for one
+        # byte and close without reading if the server ignores the Range.
+        try:
+            request = Request(url, method="GET", headers={"Range": "bytes=0-0"})
+            with urlopen(request, timeout=timeout) as response:
+                return 200 if response.status == 206 else int(response.status)
+        except HTTPError as fallback_exc:
+            return int(fallback_exc.code)
+        except Exception:
+            return 0
     except Exception:
         return 0
 
