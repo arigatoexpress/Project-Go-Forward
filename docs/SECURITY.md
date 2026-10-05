@@ -66,10 +66,25 @@ unavailable.
 |-----|-----|-----|
 | `PII_ENCRYPTION_KEY` | Secret Manager (`secretKeyRef`) | ✓ correct |
 | `ADMIN_PIN_HASH` | Secret Manager (`admin-pin-hash`) | ✓ correct |
-| `RESEND_API_KEY` | Secret Manager target: `resend-api-key` | ⚠️ bind before relying on transactional email |
+| `RESEND_API_KEY` | Secret Manager (`resend-api-key:latest`) | Referenced by `deploy.yml`; deployment prerequisites below must be verified. Serving revision configuration is not established by this repository change. |
 | `N8N_API_TOKEN` | plaintext env | ⚠️ move to Secret Manager + rotate (exposed in prior tooling output) |
 | `THO_API_KEY` | plaintext env | ⚠️ move to Secret Manager + rotate (exposed in prior tooling output) |
 | `GOOGLE_APPLICATION_CREDENTIALS` | not used in Cloud Run (uses metadata server) | ✓ correct |
+
+### Resend deployment prerequisites
+
+Before deploying a candidate with this binding, an operator must verify that
+`resend-api-key` exists in the deployment project, its `latest` version is
+enabled, and the service's **actual runtime service account** has
+`roles/secretmanager.secretAccessor` on that secret. The GitHub deploy identity
+is not a substitute for the runtime identity. An existing plaintext
+`RESEND_API_KEY` configuration must also be resolved before using a secret
+binding for the same variable. Missing prerequisites can prevent revision
+creation; do not merge this draft until those checks are complete.
+
+This change only references the secret name. It does not create or rotate a
+secret, grant IAM access, deploy a revision, or promote traffic. No production
+email delivery or runtime readiness has been verified.
 
 ### Plan
 

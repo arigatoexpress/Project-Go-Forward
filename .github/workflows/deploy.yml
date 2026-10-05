@@ -97,6 +97,9 @@ jobs:
       - name: Install Python dependencies
         run: pip install -r requirements.txt
 
+      # Prerequisite: resend-api-key must have an enabled latest version and
+      # the actual runtime service account must already have per-secret
+      # roles/secretmanager.secretAccessor. Provisioning is out of band.
       - name: Build and deploy to Cloud Run
         run: |
           gcloud run deploy ${{ env.SERVICE }} \
@@ -105,7 +108,7 @@ jobs:
             --project ${{ env.PROJECT_ID }} \
             --min-instances=1 \
             --update-env-vars=APP_VERSION=${{ github.sha }} \
-            --update-secrets=ADMIN_PIN_HASH=admin-pin-hash:latest,ADMIN_SESSION_SECRET=admin-session-secret:latest \
+            --update-secrets=ADMIN_PIN_HASH=admin-pin-hash:latest,ADMIN_SESSION_SECRET=admin-session-secret:latest,RESEND_API_KEY=resend-api-key:latest \
             --liveness-probe=httpGet.path=/healthz,httpGet.port=8080,periodSeconds=30,timeoutSeconds=5,failureThreshold=3 \
             --no-traffic --tag=candidate \
             --quiet
