@@ -96,20 +96,25 @@ def get_credential_store() -> CredentialStore:
 
 
 THO_ORIGIN = os.environ.get("WEBAUTHN_ORIGIN") or os.environ.get(
-    "THO_ORIGIN", "https://tho.sapphirealpha.xyz"
+    "THO_ORIGIN", "https://www.texashomeoutlet.com"
 )
 RP_NAME = "THO Admin"
-RP_ID = os.environ.get("WEBAUTHN_RP_ID") or os.environ.get("THO_RP_ID", "sapphirealpha.xyz")
+RP_ID = os.environ.get("WEBAUTHN_RP_ID") or os.environ.get("THO_RP_ID", "texashomeoutlet.com")
 DEFAULT_PASSKEY_STAFF_DOMAIN = "texashomeoutlet.com"
 DEFAULT_OWNER_EMAILS = {
     "aribspector@gmail.com",
     "aristotlespec@gmail.com",
 }
+# Origin -> RP ID. A WebAuthn credential is bound for life to the RP ID it was
+# registered under, so the build-era sapphire origins stay listed until every
+# staff member has re-registered a passkey on texashomeoutlet.com. Removing a
+# row here does not migrate those credentials — it locks out whoever still has
+# one. Drop the sapphire rows only after the re-registration sweep is complete.
 _CUTOVER_ORIGIN_RP_IDS = {
-    "https://tho.sapphirealpha.xyz": "sapphirealpha.xyz",
-    "https://tho.sapphire.xyz": "sapphire.xyz",
     "https://texashomeoutlet.com": "texashomeoutlet.com",
     "https://www.texashomeoutlet.com": "texashomeoutlet.com",
+    "https://tho.sapphirealpha.xyz": "sapphirealpha.xyz",
+    "https://tho.sapphire.xyz": "sapphire.xyz",
 }
 
 

@@ -2,7 +2,7 @@
 
 **The digital storefront and back office for Texas Home Outlet — built, owned, and operated by the business instead of rented from third-party vendors.**
 
-[![Live site](https://img.shields.io/badge/live-tho.sapphirealpha.xyz-0f766e)](https://tho.sapphirealpha.xyz/)
+[![Live site](https://img.shields.io/badge/live-www.texashomeoutlet.com-0f766e)](https://www.texashomeoutlet.com/)
 [![Tests](https://img.shields.io/badge/tests-655%20passing-22c55e)](tests/)
 [![Backend](https://img.shields.io/badge/backend-FastAPI%20%2B%20Firestore-009688)](main.py)
 [![Frontend](https://img.shields.io/badge/frontend-React%2019%20%2B%20Vite-111827)](frontend/)

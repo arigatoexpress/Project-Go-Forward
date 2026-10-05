@@ -4,6 +4,12 @@ Use **https://www.texashomeoutlet.com** in your usual browser. Click the lock
 button labeled **Admin access**. On a narrow screen, open the navigation menu
 if needed.
 
+A passkey registered on the legacy **tho.sapphirealpha.xyz** site is tied to
+its old relying-party ID and cannot sign you in on **www.texashomeoutlet.com**.
+The legacy origin remains supported during the transition. Use a working
+canonical-site sign-in method below, register a new staff passkey there, and
+test it before relying on it. Owner recovery follows the protections below.
+
 ## Sign in
 
 Choose any working method:

@@ -70,7 +70,7 @@ FLOORPLAN_SNAPSHOT_PATH = (
 REQUEST_TIMEOUT_SECONDS = 18
 DEFAULT_HEADERS = {
     "User-Agent": (
-        "Mozilla/5.0 (compatible; THOInventoryParity/1.0; " "+https://tho.sapphirealpha.xyz)"
+        "Mozilla/5.0 (compatible; THOInventoryParity/1.0; " "+https://www.texashomeoutlet.com)"
     )
 }
 
