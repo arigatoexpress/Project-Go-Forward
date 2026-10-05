@@ -10,6 +10,8 @@ import re
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).parent))
 
 from test_api_v1 import create_client
@@ -49,6 +51,18 @@ FAKE_HOMES = [
         "specs": {"beds": 3, "baths": 2},
     },
 ]
+
+
+@pytest.fixture(autouse=True)
+def isolated_seo_shell(monkeypatch, tmp_path):
+    """Use a fresh SPA shell, independent of builds and other test suites."""
+    import seo_routes
+
+    shell = tmp_path / "index.html"
+    source = Path(__file__).resolve().parent.parent / "frontend" / "index.html"
+    shell.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+    monkeypatch.setattr(seo_routes, "_index_html_path", str(shell))
+    monkeypatch.setattr(seo_routes, "_shell_cache", None)
 
 
 def seo_client(monkeypatch):

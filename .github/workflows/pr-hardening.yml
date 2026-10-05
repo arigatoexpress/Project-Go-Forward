@@ -1,0 +1,63 @@
+name: PR hardening checks
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  dependency-audit:
+    name: Dependency audit (${{ matrix.ecosystem }})
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        ecosystem: [frontend, backend]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        if: matrix.ecosystem == 'frontend'
+        with:
+          node-version: '20'
+      - name: Audit frontend dependencies (high and critical)
+        if: matrix.ecosystem == 'frontend'
+        working-directory: frontend
+        run: npm audit --audit-level=high
+      - uses: actions/setup-python@v5
+        if: matrix.ecosystem == 'backend'
+        with:
+          python-version: '3.11'
+      - name: Install backend audit tool
+        if: matrix.ecosystem == 'backend'
+        run: python -m pip install pip-audit==2.9.0
+      - name: Audit backend dependencies
+        if: matrix.ecosystem == 'backend'
+        run: python -m pip_audit -r requirements.txt -r requirements-dev.txt
+
+  seo-order-check:
+    name: SEO isolation and randomized order
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install test dependencies
+        run: python -m pip install -r requirements.txt -r requirements-dev.txt pytest-randomly==3.16.0
+      - name: Check SEO tests with reproducible randomized orders
+        env:
+          PYTHONPATH: .
+        run: |
+          python -m pytest tests/test_seo_routes.py -q --randomly-seed=61
+          python -m pytest tests/test_seo_routes.py -q --randomly-seed=2200
