@@ -51,6 +51,7 @@ describe('App pathname-aware routing', () => {
   beforeEach(() => {
     window.history.replaceState({}, '', '/single-wide');
     window.scrollTo = vi.fn();
+    Element.prototype.scrollIntoView = vi.fn();
     window.matchMedia = vi.fn(() => ({
       matches: false,
       addEventListener() {},
@@ -129,5 +130,50 @@ describe('App pathname-aware routing', () => {
 
     expect(navigateDocument).toHaveBeenCalledWith('/');
     expect(window.location.pathname).toBe('/single-wide');
+  });
+});
+
+describe('legal pages and site-wide footer', () => {
+  beforeEach(() => {
+    window.scrollTo = vi.fn();
+    Element.prototype.scrollIntoView = vi.fn();
+    window.matchMedia = vi.fn(() => ({ matches: false, addEventListener() {}, removeEventListener() {} }));
+    vi.stubGlobal('fetch', vi.fn((url) => response(
+      String(url) === '/api/admin/check' ? { valid: false } : { success: true, homes: [], messages: [] },
+    )));
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    window.history.replaceState({}, '', '/');
+  });
+
+  it.each([
+    ['/privacy', 'Privacy Policy'],
+    ['/terms', 'Terms of Use'],
+    ['/privacy/', 'Privacy Policy'],
+    ['/terms/', 'Terms of Use'],
+  ])('renders %s with owner placeholders and legal footer links', async (path, title) => {
+    window.history.replaceState({}, '', path);
+    render(<ToastProvider><App /></ToastProvider>);
+    expect(await screen.findByRole('heading', { level: 1, name: title })).toBeVisible();
+    expect(document.title).toContain(title);
+    for (const placeholder of ['[LEGAL BUSINESS NAME]', '[MAILING ADDRESS]', '[CONTACT EMAIL]', '[EFFECTIVE DATE]']) {
+      expect(screen.getByRole('main').textContent).toContain(placeholder);
+    }
+    const footer = screen.getByRole('navigation', { name: 'Footer' });
+    expect(footer.querySelector('a[href="/privacy"]')).toHaveTextContent('Privacy Policy');
+    expect(footer.querySelector('a[href="/terms"]')).toHaveTextContent('Terms of Use');
+    expect(screen.getByRole('main').textContent).not.toContain('\u2014');
+  });
+
+  it.each(['/', '/single-wide', '/double-wide', '/chat', '/contact', '/appointments', '/about', '/financing', '/faq', '/warranty', '/delivery', '/missing-page'])('shows legal footer links on %s', async (path) => {
+    window.history.replaceState({}, '', path);
+    render(<ToastProvider><App /></ToastProvider>);
+    const footer = await screen.findByRole('navigation', { name: 'Footer' });
+    expect(footer.querySelector('a[href="/privacy"]')).toHaveTextContent('Privacy Policy');
+    expect(footer.querySelector('a[href="/terms"]')).toHaveTextContent('Terms of Use');
   });
 });

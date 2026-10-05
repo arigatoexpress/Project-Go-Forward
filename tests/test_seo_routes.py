@@ -899,3 +899,43 @@ def test_inventory_page_emits_itemlist_jsonld(monkeypatch):
     # each item links to a real detail/plan URL, with no price/offer fabrication
     assert any("/inventory-detail/43372/" in i["url"] for i in items)
     assert all("offers" not in i and "price" not in i for i in items)
+
+
+def test_legal_routes_render_shared_copy_on_each_host(monkeypatch):
+    import seo_routes
+
+    client, _ = seo_client(monkeypatch)
+    for host in ("www.texashomeoutlet.com", "texashomeoutlet.com", "tho.sapphirealpha.xyz"):
+        for page, content in seo_routes.LEGAL_PAGES.items():
+            path = f"/{page}"
+            response = client.get(path, headers={"Host": host}, follow_redirects=False)
+            assert response.status_code == 200
+            assert f"<h1>{content['title']}</h1>" in response.text
+            for placeholder in (
+                "[LEGAL BUSINESS NAME]",
+                "[MAILING ADDRESS]",
+                "[CONTACT EMAIL]",
+                "[EFFECTIVE DATE]",
+            ):
+                assert placeholder in response.text
+            assert f'href="https://www.texashomeoutlet.com{path}"' in response.text
+            for heading, text in content["sections"]:
+                import html
+
+                assert html.escape(text) in response.text
+                assert "\u2014" not in text
+
+
+def test_legal_routes_canonicalize_and_appear_in_sitemap(monkeypatch):
+    client, _ = seo_client(monkeypatch)
+    for path in ("/privacy", "/terms"):
+        for variant in (path + "/", path.title()):
+            response = client.get(variant, follow_redirects=False)
+            assert response.status_code == 301
+            assert response.headers["location"] == path
+        assert (
+            client.get("/sitemap.xml").text.count(f"https://www.texashomeoutlet.com{path}</loc>")
+            == 1
+        )
+    assert client.get("/privacy/unknown", follow_redirects=False).status_code == 404
+    assert client.get("/terms/unknown", follow_redirects=False).status_code == 404

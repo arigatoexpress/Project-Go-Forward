@@ -12,6 +12,7 @@ import ErrorBoundary from './components/ErrorBoundary';
 import ClosureBanner from './components/ClosureBanner';
 import ChatCallbackCard from './components/ChatCallbackCard';
 import InventoryBrowse from './pages/InventoryBrowse';
+import LegalPage from './pages/LegalPage';
 import { v4 as uuidv4 } from 'uuid';
 import { captureUtmFromUrl, getUtmParams } from './utils/utm';
 import { getJourneyAttribution } from './utils/attribution';
@@ -315,6 +316,8 @@ function Footer({ adminAuthed, onAdminAccess, onNavigate }) {
           <button onClick={() => onNavigate('warranty')} className={linkClass}>Warranty</button>
           <button onClick={() => onNavigate('delivery')} className={linkClass}>Delivery & Setup</button>
           <a href="/contact" className={linkClass} onClick={(e) => { e.preventDefault(); onNavigate('contact'); }}>Contact</a>
+          <a href="/privacy" className={linkClass}>Privacy Policy</a>
+          <a href="/terms" className={linkClass}>Terms of Use</a>
         </nav>
         <div className="flex items-center justify-center">
           <button onClick={onAdminAccess} className="flex items-center hover:text-[var(--cp-accent)] transition-colors">
@@ -399,6 +402,8 @@ function pageFromPath(path) {
   if (p.startsWith('/crm')) return 'crm';
   if (p.startsWith('/analytics')) return 'analytics';
   if (p.startsWith('/getting-started') || p.startsWith('/guide')) return 'getting-started';
+  if (p === '/privacy' || p === '/privacy/') return 'privacy';
+  if (p === '/terms' || p === '/terms/') return 'terms';
   if (p.startsWith('/contact')) return 'contact';
   if (p.startsWith('/appointments')) return 'appointments';
   if (p.startsWith('/about')) return 'about';
@@ -859,6 +864,8 @@ function App() {
       chat: `Chat with Tex — ${BUSINESS_NAME} Home Finder`,
       contact: `Contact ${BUSINESS_NAME} — ${BUSINESS_CITY}, ${BUSINESS_STATE}`,
       appointments: `Book a Showroom Visit | ${BUSINESS_NAME}`,
+      privacy: `Privacy Policy | ${BUSINESS_NAME}`,
+      terms: `Terms of Use | ${BUSINESS_NAME}`,
       about: `About Us | ${BUSINESS_NAME}`,
       financing: `Financing Options | ${BUSINESS_NAME}`,
       faq: `Frequently Asked Questions | ${BUSINESS_NAME}`,
@@ -1235,6 +1242,7 @@ function App() {
             <SystemHub onBack={() => navigateTo('inventory')} adminAuthed={adminAuthed} />
           </Suspense>
         </ErrorBoundary>
+        <Footer adminAuthed={adminAuthed} onAdminAccess={handleAdminAccess} onNavigate={navigateTo} />
       </div>
     );
   }
@@ -1249,6 +1257,7 @@ function App() {
             <HealthDashboard onBack={() => navigateTo('system')} />
           </Suspense>
         </ErrorBoundary>
+        <Footer adminAuthed={adminAuthed} onAdminAccess={handleAdminAccess} onNavigate={navigateTo} />
       </div>
     );
   }
@@ -1268,6 +1277,7 @@ function App() {
             />
           </Suspense>
         </ErrorBoundary>
+        <Footer adminAuthed={adminAuthed} onAdminAccess={handleAdminAccess} onNavigate={navigateTo} />
       </div>
     );
   }
@@ -1282,6 +1292,7 @@ function App() {
             <Analytics />
           </Suspense>
         </ErrorBoundary>
+        <Footer adminAuthed={adminAuthed} onAdminAccess={handleAdminAccess} onNavigate={navigateTo} />
       </div>
     );
   }
@@ -1296,6 +1307,7 @@ function App() {
             <CRM onBack={() => navigateTo('inventory')} />
           </Suspense>
         </ErrorBoundary>
+        <Footer adminAuthed={adminAuthed} onAdminAccess={handleAdminAccess} onNavigate={navigateTo} />
       </div>
     );
   }
@@ -1310,6 +1322,7 @@ function App() {
             <PhotoManager onBack={() => navigateTo('inventory')} />
           </Suspense>
         </ErrorBoundary>
+        <Footer adminAuthed={adminAuthed} onAdminAccess={handleAdminAccess} onNavigate={navigateTo} />
       </div>
     );
   }
@@ -1324,6 +1337,7 @@ function App() {
             <InventoryManager onBack={() => navigateTo('inventory')} onNavigate={navigateTo} />
           </Suspense>
         </ErrorBoundary>
+        <Footer adminAuthed={adminAuthed} onAdminAccess={handleAdminAccess} onNavigate={navigateTo} />
       </div>
     );
   }
@@ -1338,6 +1352,7 @@ function App() {
             <ChatHistory />
           </Suspense>
         </ErrorBoundary>
+        <Footer adminAuthed={adminAuthed} onAdminAccess={handleAdminAccess} onNavigate={navigateTo} />
       </div>
     );
   }
@@ -1352,6 +1367,7 @@ function App() {
             <OpsCopilot />
           </Suspense>
         </ErrorBoundary>
+        <Footer adminAuthed={adminAuthed} onAdminAccess={handleAdminAccess} onNavigate={navigateTo} />
       </div>
     );
   }
@@ -1377,6 +1393,7 @@ function App() {
             <DocumentCenter onBack={() => navigateTo('chat')} sessionId={sessionId} standalone={isStandaloneMode} />
           </Suspense>
         </ErrorBoundary>
+        <Footer adminAuthed={adminAuthed} onAdminAccess={handleAdminAccess} onNavigate={navigateTo} />
       </div>
     );
   }
@@ -1391,6 +1408,7 @@ function App() {
             <SecureHub dealId={activeDealId} />
           </Suspense>
         </ErrorBoundary>
+        <Footer adminAuthed={adminAuthed} onAdminAccess={handleAdminAccess} onNavigate={navigateTo} />
       </div>
     );
   }
@@ -1416,6 +1434,18 @@ function App() {
             <AdStudio onBack={() => navigateTo('chat')} standalone={isStandaloneMode} />
           </Suspense>
         </ErrorBoundary>
+        <Footer adminAuthed={adminAuthed} onAdminAccess={handleAdminAccess} onNavigate={navigateTo} />
+      </div>
+    );
+  }
+
+  if (activePage === 'privacy' || activePage === 'terms') {
+    return (
+      <div className="bg-[var(--cp-bg)] min-h-screen flex flex-col">
+        {appModals}
+        <NavBar {...navProps} />
+        <LegalPage page={activePage} />
+        <Footer adminAuthed={adminAuthed} onAdminAccess={handleAdminAccess} onNavigate={navigateTo} />
       </div>
     );
   }
@@ -1433,6 +1463,7 @@ function App() {
             />
           </Suspense>
         </ErrorBoundary>
+        <Footer adminAuthed={adminAuthed} onAdminAccess={handleAdminAccess} onNavigate={navigateTo} />
       </div>
     );
   }
@@ -1451,6 +1482,7 @@ function App() {
             />
           </Suspense>
         </ErrorBoundary>
+        <Footer adminAuthed={adminAuthed} onAdminAccess={handleAdminAccess} onNavigate={navigateTo} />
       </div>
     );
   }
@@ -1567,6 +1599,7 @@ function App() {
             </div>
           </div>
         </main>
+        <Footer adminAuthed={adminAuthed} onAdminAccess={handleAdminAccess} onNavigate={navigateTo} />
       </div>
     );
   }
