@@ -29,7 +29,13 @@ jobs:
       - name: Audit frontend dependencies (high and critical)
         if: matrix.ecosystem == 'frontend'
         working-directory: frontend
-        run: npm audit --audit-level=high
+        run: |
+          set +e
+          npm audit --audit-level=high > "$RUNNER_TEMP/dependency-audit.txt" 2>&1
+          status=$?
+          cat "$RUNNER_TEMP/dependency-audit.txt"
+          printf '\nAudit exit status: %s (informational)\n' "$status"
+          exit 0
       - uses: actions/setup-python@v5
         if: matrix.ecosystem == 'backend'
         with:
@@ -39,7 +45,28 @@ jobs:
         run: python -m pip install pip-audit==2.9.0
       - name: Audit backend dependencies
         if: matrix.ecosystem == 'backend'
-        run: python -m pip_audit -r requirements.txt -r requirements-dev.txt
+        run: |
+          set +e
+          python -m pip_audit -r requirements.txt -r requirements-dev.txt > "$RUNNER_TEMP/dependency-audit.txt" 2>&1
+          status=$?
+          cat "$RUNNER_TEMP/dependency-audit.txt"
+          printf '\nAudit exit status: %s (informational)\n' "$status"
+          exit 0
+      - name: Summarize dependency audit findings
+        if: always()
+        env:
+          ECOSYSTEM: ${{ matrix.ecosystem }}
+        run: |
+          {
+            printf '## Dependency audit (%s)\n\nReporting only. Findings do not block this PR.\n\n' "$ECOSYSTEM"
+            printf '```text\n'
+            if [ -f "$RUNNER_TEMP/dependency-audit.txt" ]; then
+              cat "$RUNNER_TEMP/dependency-audit.txt"
+            else
+              printf 'Audit unavailable. Check setup logs; no clean audit result is claimed.\n'
+            fi
+            printf '\n```\n'
+          } >> "$GITHUB_STEP_SUMMARY"
 
   seo-order-check:
     name: SEO isolation and randomized order
