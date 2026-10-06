@@ -35,6 +35,7 @@ from .session import (
     SESSION_COOKIE_NAME,
     SessionManager,
 )
+from .staff_directory import override_status
 from .store import (
     CredentialAlreadyExists,
     CredentialStore,
@@ -95,11 +96,14 @@ def get_credential_store() -> CredentialStore:
         raise HTTPException(status_code=503, detail="Passkey credential store unavailable")
 
 
+# Canonical storefront. A passkey is bound to this RP ID, so the default must
+# be texashomeoutlet.com. The legacy sapphire hosts stay in the cutover map
+# below and keep their own RP IDs; they are not the default.
 THO_ORIGIN = os.environ.get("WEBAUTHN_ORIGIN") or os.environ.get(
-    "THO_ORIGIN", "https://tho.sapphirealpha.xyz"
+    "THO_ORIGIN", "https://www.texashomeoutlet.com"
 )
 RP_NAME = "THO Admin"
-RP_ID = os.environ.get("WEBAUTHN_RP_ID") or os.environ.get("THO_RP_ID", "sapphirealpha.xyz")
+RP_ID = os.environ.get("WEBAUTHN_RP_ID") or os.environ.get("THO_RP_ID", "texashomeoutlet.com")
 DEFAULT_PASSKEY_STAFF_DOMAIN = "texashomeoutlet.com"
 DEFAULT_OWNER_EMAILS = {
     "aribspector@gmail.com",
@@ -201,7 +205,14 @@ def _passkey_email_allowed(email: str | None) -> bool:
     normalized = _normalize_email(email)
     if not normalized or "@" not in normalized:
         return False
+    # Owners stay allowed even if a directory row says blocked, so the team
+    # cannot lock out the last person who can manage access.
     if normalized in _passkey_allowed_owner_emails():
+        return True
+    status = override_status(normalized)
+    if status == "blocked":
+        return False
+    if status == "allowed":
         return True
     _, _, domain = normalized.rpartition("@")
     return domain in _passkey_allowed_domains()
@@ -212,6 +223,16 @@ def _passkey_email_allowed(email: str | None) -> bool:
 # THO_PASSKEY_ALLOWED_DOMAINS / THO_PASSKEY_OWNER_EMAILS). Importers should use
 # this name; the underscore-prefixed original stays for internal callers.
 is_allowed_admin_email = _passkey_email_allowed
+
+
+def allowed_owner_emails() -> set[str]:
+    """Owner addresses that always remain allowed to sign in."""
+    return set(_passkey_allowed_owner_emails())
+
+
+def allowed_staff_domains() -> set[str]:
+    """Email domains whose addresses can sign in unless an admin blocks them."""
+    return set(_passkey_allowed_domains())
 
 
 def _require_allowed_passkey_email(email: Any) -> str:

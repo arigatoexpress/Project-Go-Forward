@@ -70,6 +70,7 @@ ALLOWED_ACTIONS: tuple[str, ...] = (
     "admin.login",
     "admin.login_code.request",
     "admin.logout",
+    "admin.staff_access.update",
 )
 
 ALLOWED_TARGET_TYPES: tuple[str, ...] = (

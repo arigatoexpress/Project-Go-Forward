@@ -89,6 +89,11 @@ def _current_api_key() -> str:
     return os.environ.get("RESEND_API_KEY", "")
 
 
+def email_delivery_configured() -> bool:
+    """True when a Resend key is present. Does not reveal the key or call Resend."""
+    return bool(_current_api_key())
+
+
 _RESEND_LIVENESS_URL = "https://api.resend.com/domains"
 _RESEND_LIVENESS_TIMEOUT_S = 5.0
 _EMAIL_LIVENESS_STATES = frozenset({"not_configured", "invalid_key", "unreachable", "ok"})
@@ -432,33 +437,58 @@ def _base_wrapper(content: str) -> str:
     """
 
 
-def send_admin_login_code(to: str, code: str, *, ttl_minutes: int = 10) -> dict:
-    """Send a one-time admin sign-in code to an authorized staff/owner email.
+def send_admin_login_code(
+    to: str,
+    code: str,
+    *,
+    link: str = "",
+    ttl_minutes: int = 10,
+) -> dict:
+    """Send a one-time admin sign-in link and backup code.
 
-    The code is rendered prominently in a branded email. The CALLER is
-    responsible for the allowlist check + storing the hashed code; this helper
-    only delivers. The plaintext ``code`` is NEVER logged here (send_email logs
-    only the subject + recipient).
+    The caller checks the allowlist and stores only hashes. This helper only
+    delivers. The plaintext code and link are never logged here (``send_email``
+    logs the subject and recipient only).
     """
     safe_code = html_mod.escape(str(code))
+    safe_link = html_mod.escape(str(link), quote=True)
+    button = ""
+    if link:
+        button = f"""
+        <p style="margin: 28px 0;">
+          <a href="{safe_link}" style="display: block; background: #1e3a5f; color: #ffffff; text-decoration: none; font-size: 22px; font-weight: 700; padding: 18px 24px; border-radius: 12px; text-align: center;">Sign me in</a>
+        </p>
+        <p style="font-size: 16px;">On the next page, tap <strong>Sign me in</strong>.</p>
+        <p style="font-size: 16px;">If the button does not open, type this code instead:</p>
+        """
+    else:
+        button = '<p style="font-size: 16px;">Type this code on the staff sign-in page:</p>'
     content = f"""
-    <h2 style="color: #1e3a5f; margin-top: 0;">Admin sign-in code</h2>
-    <p>Use this one-time code to finish signing in to the Texas Home Outlet admin console:</p>
-
+    <h2 style="color: #1e3a5f; margin-top: 0; font-size: 28px;">Sign in to Texas Home Outlet</h2>
+    {button}
     <div style="text-align: center; margin: 28px 0;">
       <div style="display: inline-block; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 12px; padding: 18px 32px;">
-        <span style="font-family: 'SFMono-Regular', Menlo, Consolas, monospace; font-size: 34px; font-weight: 700; letter-spacing: 0.35em; color: #1e3a5f;">{safe_code}</span>
+        <span style="font-family: 'SFMono-Regular', Menlo, Consolas, monospace; font-size: 40px; font-weight: 700; letter-spacing: 0.35em; color: #1e3a5f;">{safe_code}</span>
       </div>
     </div>
-
-    <p style="color: #6b7280; font-size: 13px; text-align: center; margin-top: 0;">
-      Expires in {ttl_minutes} minutes &bull; single use &bull; ignore if you didn't request this.
+    <p style="color: #374151; font-size: 16px; text-align: center; margin-top: 0;">
+      Ignore this message if you did not ask to sign in.
     </p>
     """
+    link_line = f"Tap Sign me in:\n{link}\n\n" if link else ""
+    text = (
+        "Your Texas Home Outlet sign-in link\n\n"
+        f"{link_line}"
+        "Or type this code on the sign-in page:\n\n"
+        f"{code}\n\n"
+        f"It works for {int(ttl_minutes)} minutes.\n\n"
+        "Ignore this message if you did not ask to sign in.\n"
+    )
     return send_email(
         to=to,
-        subject="Your Texas Home Outlet admin sign-in code",
+        subject="Your Texas Home Outlet sign-in link",
         html=_base_wrapper(content),
+        text=text,
         email_type="admin_login_code",
     )
 

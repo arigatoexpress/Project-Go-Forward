@@ -1,23 +1,11 @@
 # Staff sign-in and passkey setup
 
-Use **https://www.texashomeoutlet.com** in your usual browser. Click the lock
-button labeled **Admin access**. On a narrow screen, open the navigation menu
-if needed.
+Sign in with email. The short instructions are in
+[staff-sign-in.md](staff-sign-in.md). Bookmark
+**https://www.texashomeoutlet.com/staff**.
 
-## Sign in
-
-Choose any working method:
-
-- **PIN:** enter the current admin PIN and click **Unlock**.
-- **Existing passkey:** click **Sign in with Passkey** and follow your device's
-  prompt. Fingerprint and face recognition are not required; your device may
-  offer its screen-lock PIN or password. This is your device's unlock method,
-  which is separate from the THO admin PIN.
-- **Email:** click **Email me a sign-in code**, enter your approved staff email,
-  and click **Send code**. Check that inbox and spam folder. Enter the newest
-  six-digit code and click **Verify**. **Change email** corrects a mistyped
-  address; **Resend code** requests a new code. The generic request notice does
-  not confirm that an address is authorized or that a message was delivered.
+Passkeys are optional. A passkey saved on the old temporary site will not work
+on www.texashomeoutlet.com. You do not need one to get into the admin tools.
 
 If none works, contact your THO site administrator through the established
 support channel. Do not send your PIN, email code, recovery codes, or passkey

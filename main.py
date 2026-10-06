@@ -25,7 +25,7 @@ import uuid
 from collections import defaultdict, deque
 from datetime import UTC, datetime, timedelta
 from json import JSONDecodeError
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import quote, urlsplit, urlunsplit
 
 import uvicorn
 from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
@@ -47,10 +47,11 @@ from auth.email_code import (
     EmailLoginCodeStoreUnavailable,
     default_code_store,
     generate_code,
+    generate_link_token,
     hash_code,
 )
 from auth.google_ads_step_up_routes import router as google_ads_step_up_router
-from auth.routes import is_allowed_admin_email
+from auth.routes import allowed_owner_emails, allowed_staff_domains, is_allowed_admin_email
 from auth.routes import router as passkey_router
 from auth.session import SESSION_COOKIE_NAME as PASSKEY_COOKIE_NAME
 from auth.session import SessionManager, validate_cloud_run_session_secret
@@ -136,6 +137,7 @@ from docuseal_service import (
     send_for_signature as docuseal_send_for_signature,
 )
 from email_service import (
+    email_delivery_configured,
     get_email_log,
     notify_new_appointment,
     notify_new_lead,
@@ -888,11 +890,61 @@ def _should_redirect_to_canonical_host(request: Request) -> bool:
         return False
     if path in _STATIC_RATE_LIMIT_PATHS:
         return False
+    # Staff entry pages are handled by staff_front_door_target, including the
+    # candidate host, which must keep /staff instead of bouncing to production.
+    if _is_staff_entry_path(path):
+        return False
     return True
+
+
+_STAFF_ENTRY_PATHS = {"/admin", "/login", "/admin/login", "/staff"}
+_LOCAL_STAFF_HOSTS = {"localhost", "127.0.0.1", "testserver"}
+STAFF_FRONT_DOOR = f"{CANONICAL_PUBLIC_URL}/staff"
+
+
+def _request_hostname(request: Request) -> str:
+    host = request.headers.get("host", "")
+    return host.split(":", 1)[0].lower().rstrip(".")
+
+
+def _normalized_path(path: str) -> str:
+    trimmed = (path or "/").rstrip("/")
+    return trimmed or "/"
+
+
+def _is_staff_entry_path(path: str) -> bool:
+    return _normalized_path(path) in _STAFF_ENTRY_PATHS
+
+
+def staff_front_door_target(request: Request) -> str | None:
+    """Send old staff entry URLs to the one sign-in page.
+
+    Local tests and the Cloud Run candidate stay on their own host so a
+    no-traffic revision can be opened. Apex, www aliases, and the old
+    sapphire host always land on https://www.texashomeoutlet.com/staff.
+    """
+    if request.method.upper() not in {"GET", "HEAD"}:
+        return None
+    if not _is_staff_entry_path(request.url.path):
+        return None
+    host = _request_hostname(request)
+    if host in _LOCAL_STAFF_HOSTS:
+        return None
+    normalized = _normalized_path(request.url.path)
+    if host.endswith(".run.app"):
+        if normalized == "/staff" and request.url.path == "/staff":
+            return None
+        return f"https://{host}/staff"
+    if host == _CANONICAL_PUBLIC_HOST and request.url.path == "/staff":
+        return None
+    return STAFF_FRONT_DOOR
 
 
 class CanonicalHostMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
+        staff_target = staff_front_door_target(request)
+        if staff_target:
+            return RedirectResponse(staff_target, status_code=308)
         if _should_redirect_to_canonical_host(request):
             target = urlunsplit(
                 (
@@ -959,7 +1011,12 @@ elif not os.environ.get("ADMIN_SESSION_SECRET"):
         os.environ["ADMIN_SESSION_SECRET"] = _derived_secret
         logger.info("ADMIN_SESSION_SECRET derived from PIN hash for local stability")
 
-ADMIN_TOKEN_TTL = int(os.environ.get("ADMIN_TOKEN_TTL", str(24 * 60 * 60)))  # 24 hours
+# Staff stay signed in on that device for 30 days. Each later visit slides the
+# window forward. ADMIN_TOKEN_TTL still overrides this for tests and operators.
+ADMIN_TOKEN_TTL = int(os.environ.get("ADMIN_TOKEN_TTL", str(30 * 24 * 60 * 60)))
+# Refresh once the cookie is at least an hour old so a busy day does not
+# rewrite the session on every request.
+_STAFF_SESSION_SLIDE_AFTER = 60 * 60
 # Separate PIN tokens from passkey cookies and bind the entire verifier so
 # either secret rotation or PIN rotation revokes existing PIN sessions.
 # No legacy-key fallback: older PIN cookies must sign in again after promotion.
@@ -970,14 +1027,65 @@ _JWT_SECRET = hmac.new(
 ).digest()
 
 
-def _create_admin_token() -> str:
-    """Create an HMAC-signed JWT-like token with embedded expiration."""
+_EMAIL_TOKEN_VERSION = 2
+
+
+def _create_admin_token(email: str | None = None) -> str:
+    """Create an HMAC-signed admin token with embedded expiration.
+
+    PIN sessions stay on the original 8-byte payload. Email sessions use
+    version 2 and carry the staff address so a later block takes effect
+    without waiting for the cookie to expire.
+    """
     if not ADMIN_PIN_HASH:
         raise RuntimeError("Admin auth not configured")
     expires = int(time.time()) + ADMIN_TOKEN_TTL
-    payload = struct.pack(">Q", expires)  # 8 bytes, big-endian uint64
-    sig = hmac.new(_JWT_SECRET, payload, hashlib.sha256).digest()[:16]  # 16-byte signature
+    if email:
+        email_bytes = str(email).strip().lower().encode("utf-8")
+        if not email_bytes or len(email_bytes) > 200 or b"@" not in email_bytes:
+            raise RuntimeError("Admin auth not configured")
+        payload = (
+            bytes([_EMAIL_TOKEN_VERSION])
+            + struct.pack(">Q", expires)
+            + struct.pack(">H", len(email_bytes))
+            + email_bytes
+        )
+    else:
+        payload = struct.pack(">Q", expires)
+    sig = hmac.new(_JWT_SECRET, payload, hashlib.sha256).digest()[:16]
     return base64.urlsafe_b64encode(payload + sig).decode().rstrip("=")
+
+
+def _decode_admin_token(token: str) -> tuple[int, str | None] | None:
+    """Return ``(expires, email)`` for a valid signature, else ``None``.
+
+    ``email`` is ``None`` for a shared PIN session.
+    """
+    if not token or not ADMIN_PIN_HASH:
+        return None
+    try:
+        padding = "=" * (-len(token) % 4)
+        raw = base64.urlsafe_b64decode(token + padding)
+        if len(raw) < 24:
+            return None
+        payload, sig = raw[:-16], raw[-16:]
+        expected_sig = hmac.new(_JWT_SECRET, payload, hashlib.sha256).digest()[:16]
+        if not hmac.compare_digest(sig, expected_sig):
+            return None
+        if len(payload) == 8:
+            return struct.unpack(">Q", payload)[0], None
+        if len(payload) < 11 or payload[0] != _EMAIL_TOKEN_VERSION:
+            return None
+        expires = struct.unpack(">Q", payload[1:9])[0]
+        email_len = struct.unpack(">H", payload[9:11])[0]
+        if email_len <= 0 or email_len > 200 or len(payload) != 11 + email_len:
+            return None
+        email = payload[11:].decode("utf-8")
+        if email != email.strip().lower() or "@" not in email:
+            return None
+        return expires, email
+    except Exception:
+        return None
 
 
 _passkey_session_manager: SessionManager | None = None
@@ -990,26 +1098,103 @@ def _get_passkey_session_manager() -> SessionManager:
     return _passkey_session_manager
 
 
-def _verify_admin_token(token: str) -> bool:
-    """Verify an HMAC-signed admin token. Stateless — works across instances."""
-    if not ADMIN_PIN_HASH:
-        return False
+def _attach_staff_session_cookies(response: Response, token: str, csrf_token: str) -> None:
+    """Set the staff session. HttpOnly, Secure outside local dev, SameSite=strict."""
+    response.set_cookie(
+        key="tho_admin_token",
+        value=token,
+        httponly=True,
+        secure=not IS_LOCAL,
+        samesite="strict",
+        max_age=ADMIN_TOKEN_TTL,
+        path="/",
+    )
+    set_csrf_cookie(
+        response,
+        csrf_token,
+        secure=not IS_LOCAL,
+        max_age=ADMIN_TOKEN_TTL,
+    )
+
+
+def _clear_staff_session_cookies(response: Response) -> None:
+    """Drop PIN, email, and passkey cookies so Sign out really signs out."""
+    flags = {"path": "/", "secure": not IS_LOCAL, "samesite": "strict"}
+    response.delete_cookie("tho_admin_token", **flags)
+    response.delete_cookie("tho_csrf_token", **flags)
+    response.delete_cookie("tho_passkey_session", **flags)
+
+
+def _response_clears_staff_cookie(response: Response) -> bool:
+    for raw in response.headers.getlist("set-cookie"):
+        lower = raw.lower()
+        if lower.startswith("tho_admin_token=") and "max-age=0" in lower:
+            return True
+    return False
+
+
+def _maybe_slide_staff_session(request: Request, response: Response) -> None:
+    """Extend a still-valid staff cookie so 30 days counts from last use."""
+    if _response_clears_staff_cookie(response):
+        return
+    token = request.cookies.get("tho_admin_token", "").strip()
+    if not token or not _verify_admin_token(token):
+        return
+    decoded = _decode_admin_token(token)
+    if decoded is None:
+        return
+    expires, email = decoded
+    remaining = expires - time.time()
+    if remaining > ADMIN_TOKEN_TTL - _STAFF_SESSION_SLIDE_AFTER:
+        return
     try:
-        # Pad base64 if needed
-        padding = 4 - len(token) % 4
-        if padding != 4:
-            token += "=" * padding
-        raw = base64.urlsafe_b64decode(token)
-        if len(raw) != 24:  # 8 bytes payload + 16 bytes signature
-            return False
-        payload, sig = raw[:8], raw[8:]
-        expected_sig = hmac.new(_JWT_SECRET, payload, hashlib.sha256).digest()[:16]
-        if not hmac.compare_digest(sig, expected_sig):
-            return False
-        expires = struct.unpack(">Q", payload)[0]
-        return time.time() < expires
-    except Exception:
+        fresh = _create_admin_token(email)
+    except RuntimeError:
+        return
+    response.set_cookie(
+        key="tho_admin_token",
+        value=fresh,
+        httponly=True,
+        secure=not IS_LOCAL,
+        samesite="strict",
+        max_age=ADMIN_TOKEN_TTL,
+        path="/",
+    )
+    csrf = request.cookies.get("tho_csrf_token", "")
+    if csrf:
+        set_csrf_cookie(
+            response,
+            csrf,
+            secure=not IS_LOCAL,
+            max_age=ADMIN_TOKEN_TTL,
+        )
+
+
+class StaffSessionSlideMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        _maybe_slide_staff_session(request, response)
+        return response
+
+
+app.add_middleware(StaffSessionSlideMiddleware)
+
+
+def _verify_admin_token(token: str) -> bool:
+    """Verify an HMAC-signed admin token. Stateless — works across instances.
+
+    Email sessions are re-checked against the staff allowlist so removing a
+    teammate ends that session. Shared PIN sessions have no email claim.
+    """
+    decoded = _decode_admin_token(token)
+    if decoded is None:
         return False
+    expires, email = decoded
+    if time.time() >= expires:
+        return False
+    if email is not None and not is_allowed_admin_email(email):
+        return False
+    return True
 
 
 def _verify_passkey_cookie(request: Request) -> bool:
@@ -1019,7 +1204,12 @@ def _verify_passkey_cookie(request: Request) -> bool:
         return False
     mgr = _get_passkey_session_manager()
     payload = mgr.verify_session(token)
-    return payload is not None and payload.get("user_id") == "admin"
+    if not payload or payload.get("user_id") != "admin":
+        return False
+    email = str(payload.get("email") or "").strip().lower()
+    if email and not is_allowed_admin_email(email):
+        return False
+    return True
 
 
 def _admin_token_from_request(request: Request) -> str:
@@ -6539,20 +6729,7 @@ async def verify_admin_pin(request: Request):
         request=request,
     )
     response = JSONResponse({"success": True, "csrf_token": csrf_token})
-    response.set_cookie(
-        key="tho_admin_token",
-        value=token,
-        httponly=True,
-        secure=not IS_LOCAL,
-        samesite="strict",
-        max_age=ADMIN_TOKEN_TTL,
-    )
-    set_csrf_cookie(
-        response,
-        csrf_token,
-        secure=not IS_LOCAL,
-        max_age=ADMIN_TOKEN_TTL,
-    )
+    _attach_staff_session_cookies(response, token, csrf_token)
     return response
 
 
@@ -6565,9 +6742,29 @@ async def check_admin_token(request: Request):
     token = request.cookies.get("tho_admin_token", "")
     if not token:
         token = _admin_token_from_request(request)
+    decoded = _decode_admin_token(token) if token else None
+    if (
+        decoded is not None
+        and time.time() < decoded[0]
+        and decoded[1] is not None
+        and not is_allowed_admin_email(decoded[1])
+    ):
+        # Blocking the email ends that session now, not when the cookie ages out.
+        response = JSONResponse({"valid": False})
+        _clear_staff_session_cookies(response)
+        return response
     if _verify_admin_token(token):
         return {"valid": True}
     return {"valid": False}
+
+
+@app.post("/api/admin/logout")
+@limiter.limit("30/minute")
+async def logout_admin(request: Request):
+    """Clear the staff session on this device. No message is sent."""
+    response = JSONResponse({"success": True})
+    _clear_staff_session_cookies(response)
+    return response
 
 
 @app.get("/api/admin/audit-log", dependencies=[Depends(require_admin)])
@@ -8314,21 +8511,41 @@ async def admin_ops_copilot(body: CopilotRequest):
 
 
 # ---------------------------------------------------------------------------
-# Email one-time-code admin login (FALLBACK alongside PIN + passkey)
-# ---------------------------------------------------------------------------
+# Email sign-in (primary staff login). PIN remains the backup. Passkeys stay
+# optional for people who already have one.
 #
 # Shares ONE allowlist with passkeys (auth.routes.is_allowed_admin_email) and
-# the SAME brute-force lockout + session minting as /api/admin/verify, so a
-# successful code login is honored by /api/admin/check and require_admin.
+# the same brute-force lockout as /api/admin/verify. A successful email login
+# mints an email-bound admin session so /api/admin/check and require_admin
+# honor it, and so removing that person ends the session.
 #
-# Defenses, mirroring verify_admin_pin:
+# Defenses:
 #   * slowapi caps /request at 3/min and /verify at 5/min per IP;
-#   * the request endpoint NEVER reveals whether an email is authorized
-#     (always 200) — no account enumeration;
-#   * codes are single-use, hashed at rest, TTL-bound, and per-code
-#     attempt-capped; the shared IP pin-attempts lockout still applies.
+#   * when email delivery is not configured, every request gets the same 503
+#     (no account enumeration, and staff are not told a message is coming);
+#   * when delivery is configured, /request returns the same 200 for allowed
+#     and unknown addresses;
+#   * the link token and the 6-digit code are single-use, hashed at rest,
+#     TTL-bound, and attempt-capped.
 
 EMAIL_CODE_RESEND_COOLDOWN_SECONDS = 30
+EMAIL_SIGN_IN_UNAVAILABLE = (
+    "Email sign-in is not turned on yet. "
+    "Ask the owner to finish email setup, or use the backup PIN."
+)
+
+
+def _staff_sign_in_link(email: str, token: str) -> str:
+    """Build a canonical sign-in URL. The token stays in the fragment."""
+    base = CANONICAL_PUBLIC_URL.rstrip("/")
+    return f"{base}/staff#t={quote(token, safe='')}&e={quote(email, safe='')}"
+
+
+def _email_unavailable_response() -> JSONResponse:
+    return JSONResponse(
+        {"success": False, "error": EMAIL_SIGN_IN_UNAVAILABLE},
+        status_code=503,
+    )
 
 
 def _email_login_invalid_response() -> JSONResponse:
@@ -8357,6 +8574,12 @@ async def request_admin_email_code(request: Request):
     email = str(data.get("email", "")).strip().lower()
     client_ip = _get_client_ip(request)
 
+    # Same response for every address when the sender is not configured.
+    # Checked before the allowlist so this is not an account oracle.
+    if not email_delivery_configured():
+        struct_logger.warning("Admin email sign-in unavailable: email delivery is not configured")
+        return _email_unavailable_response()
+
     # Generic success envelope — computed once, returned on every path so the
     # response is identical for authorized and unauthorized emails.
     generic_ok = JSONResponse({"success": True})
@@ -8382,9 +8605,28 @@ async def request_admin_email_code(request: Request):
         return generic_ok
 
     code = generate_code()
-    store.put(email, hash_code(code), now + EMAIL_CODE_TTL_SECONDS)
-    # NEVER log the code. send_admin_login_code logs only subject + recipient.
-    send_admin_login_code(email, code, ttl_minutes=EMAIL_CODE_TTL_SECONDS // 60)
+    link_token = generate_link_token()
+    store.put(
+        email,
+        hash_code(code),
+        now + EMAIL_CODE_TTL_SECONDS,
+        hash_code(link_token),
+    )
+    # NEVER log the code or the link token. send_admin_login_code logs subject
+    # and recipient only.
+    sent = send_admin_login_code(
+        email,
+        code,
+        link=_staff_sign_in_link(email, link_token),
+        ttl_minutes=EMAIL_CODE_TTL_SECONDS // 60,
+    )
+    if not isinstance(sent, dict) or not sent.get("success"):
+        try:
+            store.delete(email)
+        except Exception:
+            struct_logger.warning("Could not discard an undelivered admin sign-in code")
+        struct_logger.warning("Admin sign-in email was not delivered", client_ip=client_ip)
+        return generic_ok
     # Actor/target are a salted hash of the email so the audit trail correlates
     # request→login without ever persisting the address in cleartext.
     email_actor = f"email:{hashlib.sha256(email.encode('utf-8')).hexdigest()[:12]}"
@@ -8434,9 +8676,11 @@ async def verify_admin_email_code(request: Request):
         )
     email = str(data.get("email", "")).strip().lower()
     code = data.get("code", "")
-    if not isinstance(code, str):
+    link_token = data.get("link_token", "")
+    if not isinstance(code, str) or not isinstance(link_token, str):
         return JSONResponse({"success": False, "error": "Code must be a string."}, status_code=400)
     code = code.strip()
+    link_token = link_token.strip()
 
     # Fail closed BEFORE consuming a code: if admin auth isn't configured, mirror
     # verify_admin_pin's 503 instead of burning the user's valid code on a misconfig.
@@ -8473,15 +8717,23 @@ async def verify_admin_email_code(request: Request):
         _add_pin_attempt(client_ip, now)
         return _email_login_invalid_response()
 
-    if not hmac.compare_digest(hash_code(code), rec.code_hash):
+    if link_token:
+        expected_link = rec.link_hash or ""
+        matched = bool(expected_link) and hmac.compare_digest(hash_code(link_token), expected_link)
+    elif code:
+        matched = bool(rec.code_hash) and hmac.compare_digest(hash_code(code), rec.code_hash)
+    else:
+        matched = False
+    if not matched:
         _add_pin_attempt(client_ip, now)
         return _email_login_invalid_response()
 
-    # Success → single-use: consume the code immediately.
+    # Success → single-use: consume the code and the link together.
     store.delete(email)
     _clear_pin_attempts(client_ip)
 
-    token = _create_admin_token()
+    token = _create_admin_token(email)
+    login_method = "email_link" if link_token else "email_code"
     csrf_token = create_csrf_token()
     struct_logger.info("Admin email-code login succeeded", client_ip=client_ip)
     token_actor = f"admin:{hashlib.sha256(token.encode('utf-8')).hexdigest()[:12]}"
@@ -8490,25 +8742,116 @@ async def verify_admin_email_code(request: Request):
         action="admin.login",
         target_type="session",
         target_id=token_actor,
-        details={"method": "email_code", "client_ip": client_ip},
+        details={"method": login_method, "client_ip": client_ip},
         request=request,
     )
     response = JSONResponse({"success": True, "csrf_token": csrf_token})
-    response.set_cookie(
-        key="tho_admin_token",
-        value=token,
-        httponly=True,
-        secure=not IS_LOCAL,
-        samesite="strict",
-        max_age=ADMIN_TOKEN_TTL,
-    )
-    set_csrf_cookie(
-        response,
-        csrf_token,
-        secure=not IS_LOCAL,
-        max_age=ADMIN_TOKEN_TTL,
-    )
+    _attach_staff_session_cookies(response, token, csrf_token)
     return response
+
+
+@app.get("/api/admin/sign-in/options")
+@limiter.limit("60/minute")
+def admin_sign_in_options(request: Request):
+    """Public sign-in readiness. Does not list staff or reveal secrets."""
+    return JSONResponse(
+        {
+            "email_ready": email_delivery_configured(),
+            "canonical_origin": CANONICAL_PUBLIC_URL,
+            "sign_in_path": "/staff",
+        }
+    )
+
+
+_STAFF_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def _valid_staff_email(value: str) -> bool:
+    return bool(value) and len(value.encode("utf-8")) <= 200 and bool(_STAFF_EMAIL_RE.match(value))
+
+
+@app.get("/api/admin/staff", dependencies=[Depends(require_admin)])
+@limiter.limit("30/minute")
+async def list_admin_staff(request: Request):
+    """List explicit team adds and blocks. Domain members are allowed by policy."""
+    from auth.staff_directory import StaffDirectoryUnavailable, list_overrides
+
+    try:
+        rows = list_overrides()
+    except StaffDirectoryUnavailable:
+        return JSONResponse(
+            {"success": False, "error": "Team list is unavailable right now."},
+            status_code=503,
+        )
+    return {
+        "success": True,
+        "domains": sorted(allowed_staff_domains()),
+        "owners": sorted(allowed_owner_emails()),
+        "added": [row.email for row in rows if row.status == "allowed"],
+        "blocked": [row.email for row in rows if row.status == "blocked"],
+    }
+
+
+@app.post("/api/admin/staff", dependencies=[Depends(require_admin)])
+@limiter.limit("30/minute")
+async def update_admin_staff(request: Request):
+    """Add, block, or clear a staff email. Owners cannot be blocked."""
+    from auth.staff_directory import (
+        StaffDirectoryUnavailable,
+        clear_override,
+        set_override,
+    )
+
+    try:
+        data = await request.json()
+    except (JSONDecodeError, ValueError):
+        return JSONResponse({"success": False, "error": "Malformed JSON body."}, status_code=400)
+    if not isinstance(data, dict):
+        return JSONResponse(
+            {"success": False, "error": "Request body must be a JSON object."},
+            status_code=400,
+        )
+    email = str(data.get("email", "")).strip().lower()
+    action = str(data.get("action", "")).strip().lower()
+    if action not in {"allow", "block", "reset"}:
+        return JSONResponse(
+            {"success": False, "error": "Action must be allow, block, or reset."},
+            status_code=400,
+        )
+    if not _valid_staff_email(email):
+        return JSONResponse(
+            {"success": False, "error": "Enter a valid email address."},
+            status_code=400,
+        )
+    if action == "block" and email in allowed_owner_emails():
+        return JSONResponse(
+            {"success": False, "error": "Owner emails stay on the team list."},
+            status_code=400,
+        )
+    try:
+        if action == "reset":
+            clear_override(email)
+        else:
+            set_override(email, "allowed" if action == "allow" else "blocked")
+    except StaffDirectoryUnavailable:
+        return JSONResponse(
+            {"success": False, "error": "Team list is unavailable right now."},
+            status_code=503,
+        )
+    except ValueError:
+        return JSONResponse(
+            {"success": False, "error": "Could not update that email."}, status_code=400
+        )
+    email_actor = f"email:{hashlib.sha256(email.encode('utf-8')).hexdigest()[:12]}"
+    log_admin_action(
+        actor=_audit_actor(request),
+        action="admin.staff_access.update",
+        target_type="session",
+        target_id=email_actor,
+        details={"staff_action": action},
+        request=request,
+    )
+    return {"success": True}
 
 
 # Serve Frontend — Must be last to avoid catching API routes

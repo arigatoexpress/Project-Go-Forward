@@ -24,25 +24,15 @@ booking) with no login. **Staff tools** — Documents, CRM, Inventory, Photos,
 Ad Studio, Analytics, System Hub, Health, Chat History, Ops Copilot, and the
 in-app Guide — are behind staff sign-in.
 
-There are three ways in, all from the lock icon in the top nav (or the
-**Admin** link in the footer):
+Staff sign in with email. Open **https://www.texashomeoutlet.com/staff**
+(bookmark that page), type your work email, and tap the button in the message.
+The short guide is [docs/team/staff-sign-in.md](team/staff-sign-in.md).
 
-1. **Admin PIN** — the shared staff PIN. Enter it and you're signed in on
-   that browser. (The PIN is shared by phone / password manager, never by
-   email — see the PIN Rotation Runbook for how to change it.)
-2. **Passkey** — the fastest option once set up. Sign in with the PIN once,
-   click the key icon in the top nav, and register the device using an
-   approved owner email or a `@texashomeoutlet.com` staff email. After that,
-   "Sign in with Passkey" (fingerprint / face / device PIN) unlocks the staff
-   tools with no PIN. Lost or replaced devices can be revoked from
-   **System Hub → Passkey Recovery**.
-3. **Email sign-in code** — an optional fallback if the PIN expired or you're on a
-   new device. Click **Email me a sign-in code**, enter your authorized staff
-   email, and type the 6-digit code if received. Delivery has not yet been
-   accepted for handoff; keep the PIN or a working passkey available.
+A shared backup PIN is still there if email is down. Passkeys are optional and
+only for a device that was already set up on www.texashomeoutlet.com. Do not
+start with a passkey or the old temporary website.
 
-Sessions expire after a while; if you see "Session expired," just sign in
-again — your work in the Document Center is saved in the browser.
+This phone or computer stays signed in for 30 days. Tap **Sign out** on a shared computer.
 
 ### 2. The AI Assistant (customer-facing)
 

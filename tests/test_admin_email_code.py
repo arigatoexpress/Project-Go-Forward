@@ -34,6 +34,7 @@ os.environ.setdefault("THO_EMAIL_CODE_ALLOW_MEMORY_STORE", "1")
 # Force the in-memory backend so the test never reaches Firestore (conftest
 # points FIRESTORE_EMULATOR_HOST at a non-running emulator, which would hang).
 os.environ.setdefault("THO_EMAIL_CODE_STORE", "memory")
+os.environ.setdefault("THO_STAFF_DIRECTORY_STORE", "memory")
 os.environ.setdefault("THO_PASSKEY_ALLOWED_DOMAINS", "texashomeoutlet.com")
 
 ALLOWED_EMAIL = "staff@texashomeoutlet.com"
@@ -155,8 +156,10 @@ def email_client(monkeypatch):
     """Bring up the app via the shared harness with the OTP store forced to memory."""
     monkeypatch.setenv("THO_EMAIL_CODE_ALLOW_MEMORY_STORE", "1")
     monkeypatch.setenv("THO_EMAIL_CODE_STORE", "memory")
+    monkeypatch.setenv("THO_STAFF_DIRECTORY_STORE", "memory")
     monkeypatch.setenv("THO_PASSKEY_ALLOWED_DOMAINS", "texashomeoutlet.com")
     monkeypatch.setenv("THO_PASSKEY_OWNER_EMAILS", "owner@example.com")
+    monkeypatch.setenv("RESEND_API_KEY", "test-not-a-real-key")
 
     sys.path.insert(0, str(Path(__file__).parent))
     from test_api_v1 import create_client  # noqa: E402
@@ -177,6 +180,9 @@ def email_client(monkeypatch):
     from auth import email_code
 
     email_code.default_code_store.cache_clear()
+    from auth import staff_directory
+
+    staff_directory.default_directory.cache_clear()
     return client, main, email_code
 
 
@@ -204,14 +210,19 @@ class TestRequestEndpoint:
         sent = _last_sent(captured)
         assert sent["to"] == ALLOWED_EMAIL
         assert isinstance(sent["code"], str) and sent["code"].isdigit() and len(sent["code"]) == 6
+        link = sent["kwargs"]["link"]
+        assert link.startswith("https://www.texashomeoutlet.com/staff#t=")
+        assert sent["code"] not in link
 
-        # Code must be stored (hashed) for the allowed email.
+        # Code and link token must be stored only as hashes.
         store = email_code.default_code_store()
         rec = store.get(ALLOWED_EMAIL)
         assert rec is not None
         assert rec.code_hash == email_code.hash_code(sent["code"])
-        # Plaintext code is NEVER stored.
         assert rec.code_hash != sent["code"]
+        token = link.split("#t=", 1)[1].split("&", 1)[0]
+        assert rec.link_hash == email_code.hash_code(token)
+        assert token not in rec.link_hash
 
     def test_disallowed_email_is_generic_no_store_no_send(self, email_client, monkeypatch):
         client, main, email_code = email_client
@@ -233,7 +244,9 @@ class TestRequestEndpoint:
 
     def test_request_response_never_contains_code(self, email_client, monkeypatch):
         client, main, email_code = email_client
-        monkeypatch.setattr(main, "send_admin_login_code", lambda *a, **k: {"success": True}, raising=False)
+        monkeypatch.setattr(
+            main, "send_admin_login_code", lambda *a, **k: {"success": True}, raising=False
+        )
         res = client.post("/api/admin/email-code/request", json={"email": ALLOWED_EMAIL})
         body = res.json()
         assert "code" not in body
@@ -388,3 +401,272 @@ class TestVerifyEndpoint:
         )
         assert res.status_code == 401
         assert "tho_admin_token" not in res.cookies
+
+
+class TestEmailSignInDelivery:
+    def test_unconfigured_sender_is_503_for_every_address(self, email_client, monkeypatch):
+        client, main, email_code = email_client
+        monkeypatch.delenv("RESEND_API_KEY", raising=False)
+        captured: list = []
+        monkeypatch.setattr(
+            main,
+            "send_admin_login_code",
+            lambda *a, **k: captured.append((a, k)) or {"success": True},
+            raising=False,
+        )
+
+        allowed = client.post("/api/admin/email-code/request", json={"email": ALLOWED_EMAIL})
+        stranger = client.post("/api/admin/email-code/request", json={"email": DISALLOWED_EMAIL})
+
+        assert allowed.status_code == 503
+        assert stranger.status_code == 503
+        assert allowed.json() == stranger.json()
+        assert "not turned on" in allowed.json()["error"]
+        assert captured == []
+        assert email_code.default_code_store().get(ALLOWED_EMAIL) is None
+
+    def test_failed_send_does_not_leave_a_usable_code(self, email_client, monkeypatch):
+        client, main, email_code = email_client
+        monkeypatch.setattr(
+            main,
+            "send_admin_login_code",
+            lambda *a, **k: {"success": False, "error": "provider down"},
+            raising=False,
+        )
+        res = client.post("/api/admin/email-code/request", json={"email": ALLOWED_EMAIL})
+        assert res.status_code == 200
+        assert res.json() == {"success": True}
+        assert email_code.default_code_store().get(ALLOWED_EMAIL) is None
+
+    def test_link_token_signs_in_once(self, email_client, monkeypatch):
+        client, main, email_code = email_client
+        holder: dict = {}
+
+        def _capture(to, code, **kwargs):
+            holder["link"] = kwargs["link"]
+            return {"success": True}
+
+        monkeypatch.setattr(main, "send_admin_login_code", _capture, raising=False)
+        res = client.post("/api/admin/email-code/request", json={"email": ALLOWED_EMAIL})
+        assert res.status_code == 200
+        fragment = holder["link"].split("#", 1)[1]
+        token = fragment.split("&", 1)[0].removeprefix("t=")
+
+        first = client.post(
+            "/api/admin/email-code/verify",
+            json={"email": ALLOWED_EMAIL, "link_token": token},
+        )
+        assert first.status_code == 200, first.text
+        assert first.json()["success"] is True
+        check = client.get("/api/admin/check")
+        assert check.json() == {"valid": True}
+
+        second = client.post(
+            "/api/admin/email-code/verify",
+            json={"email": ALLOWED_EMAIL, "link_token": token},
+        )
+        assert second.status_code == 401
+
+    def test_blocked_staff_email_cannot_request_or_keep_a_session(self, email_client, monkeypatch):
+        client, main, email_code = email_client
+        sends: list[str] = []
+        monkeypatch.setattr(
+            main,
+            "send_admin_login_code",
+            lambda to, code, **k: sends.append(code) or {"success": True},
+            raising=False,
+        )
+        requested = client.post("/api/admin/email-code/request", json={"email": ALLOWED_EMAIL})
+        assert requested.status_code == 200
+        verified = client.post(
+            "/api/admin/email-code/verify",
+            json={"email": ALLOWED_EMAIL, "code": sends[-1]},
+        )
+        assert verified.status_code == 200
+        assert client.get("/api/admin/check").json() == {"valid": True}
+
+        from auth.staff_directory import set_override
+
+        set_override(ALLOWED_EMAIL, "blocked")
+        blocked = client.get("/api/admin/check")
+        assert blocked.json() == {"valid": False}
+        cleared = " ".join(blocked.headers.get_list("set-cookie")).lower()
+        assert "tho_admin_token=" in cleared
+        assert "max-age=0" in cleared
+
+        again = client.post("/api/admin/email-code/request", json={"email": ALLOWED_EMAIL})
+        assert again.status_code == 200
+        assert again.json() == {"success": True}
+        assert len(sends) == 1
+        assert email_code.default_code_store().get(ALLOWED_EMAIL) is None
+
+
+def _csrf(client) -> dict[str, str]:
+    return {"X-CSRF-Token": client.cookies.get("tho_csrf_token")}
+
+
+class TestStaffDirectoryApi:
+    def _sign_in(self, email_client, monkeypatch):
+        client, main, email_code = email_client
+        holder: dict = {}
+        monkeypatch.setattr(
+            main,
+            "send_admin_login_code",
+            lambda to, code, **k: holder.update(code=code) or {"success": True},
+            raising=False,
+        )
+        client.post("/api/admin/email-code/request", json={"email": ALLOWED_EMAIL})
+        verified = client.post(
+            "/api/admin/email-code/verify",
+            json={"email": ALLOWED_EMAIL, "code": holder["code"]},
+        )
+        assert verified.status_code == 200, verified.text
+        return client, main
+
+    def test_admin_can_add_and_remove_a_teammate(self, email_client, monkeypatch):
+        client, main = self._sign_in(email_client, monkeypatch)
+        extra = "helper@example.com"
+
+        denied = client.post(
+            "/api/admin/email-code/request",
+            json={"email": extra},
+        )
+        # Unknown address still looks successful and does not reveal the list.
+        assert denied.status_code == 200
+
+        added = client.post(
+            "/api/admin/staff",
+            json={"email": extra, "action": "allow"},
+            headers=_csrf(client),
+        )
+        assert added.status_code == 200, added.text
+        listed = client.get("/api/admin/staff")
+        assert extra in listed.json()["added"]
+        sent: list = []
+        monkeypatch.setattr(
+            main,
+            "send_admin_login_code",
+            lambda *args, **kwargs: sent.append(args) or {"success": True},
+            raising=False,
+        )
+        follow = client.post("/api/admin/email-code/request", json={"email": extra})
+        assert follow.status_code == 200
+        assert sent and sent[0][0] == extra
+
+        cleared = client.post(
+            "/api/admin/staff",
+            json={"email": extra, "action": "reset"},
+            headers=_csrf(client),
+        )
+        assert cleared.status_code == 200
+        assert extra not in client.get("/api/admin/staff").json()["added"]
+
+    def test_owner_cannot_be_blocked(self, email_client, monkeypatch):
+        client, _main = self._sign_in(email_client, monkeypatch)
+        res = client.post(
+            "/api/admin/staff",
+            json={"email": "owner@example.com", "action": "block"},
+            headers=_csrf(client),
+        )
+        assert res.status_code == 400
+        assert "Owner" in res.json()["error"]
+
+    def test_staff_changes_require_admin(self, email_client):
+        client, _main, _email_code = email_client
+        res = client.post(
+            "/api/admin/staff",
+            json={"email": "helper@example.com", "action": "allow"},
+        )
+        assert res.status_code == 401
+
+    def test_sign_in_options_hide_the_team_list(self, email_client, monkeypatch):
+        client, _main, _email_code = email_client
+        ready = client.get("/api/admin/sign-in/options")
+        assert ready.status_code == 200
+        body = ready.json()
+        assert body["email_ready"] is True
+        assert body["sign_in_path"] == "/staff"
+        assert "added" not in body
+        assert "owners" not in body
+
+
+def _sign_in_with_code(client, main, monkeypatch):
+    holder: dict = {}
+    monkeypatch.setattr(
+        main,
+        "send_admin_login_code",
+        lambda to, code, **k: holder.update(code=code) or {"success": True},
+        raising=False,
+    )
+    requested = client.post("/api/admin/email-code/request", json={"email": ALLOWED_EMAIL})
+    assert requested.status_code == 200
+    verified = client.post(
+        "/api/admin/email-code/verify",
+        json={"email": ALLOWED_EMAIL, "code": holder["code"]},
+    )
+    assert verified.status_code == 200, verified.text
+    return verified
+
+
+class TestStaffSessionLifetime:
+    def test_email_sign_in_cookie_lasts_30_days(self, email_client, monkeypatch):
+        client, main, _email_code = email_client
+        monkeypatch.setattr(main, "IS_LOCAL", False)
+        verified = _sign_in_with_code(client, main, monkeypatch)
+        header = " ".join(verified.headers.get_list("set-cookie"))
+        assert "Max-Age=2592000" in header
+        assert "HttpOnly" in header
+        assert "Secure" in header
+        assert "SameSite=strict" in header
+        expires, email = main._decode_admin_token(verified.cookies["tho_admin_token"])
+        assert email == ALLOWED_EMAIL
+        remaining = expires - time.time()
+        assert 30 * 24 * 60 * 60 - 120 < remaining <= 30 * 24 * 60 * 60
+
+    def test_session_slides_forward_after_it_has_been_used(self, email_client, monkeypatch):
+        client, main, _email_code = email_client
+        _sign_in_with_code(client, main, monkeypatch)
+        fresh = client.get("/api/admin/check")
+        assert fresh.json() == {"valid": True}
+        assert fresh.headers.get_list("set-cookie") == []
+
+        now = time.time()
+        monkeypatch.setattr(main.time, "time", lambda: now - 2 * 60 * 60)
+        old = main._create_admin_token(ALLOWED_EMAIL)
+        old_expires = main._decode_admin_token(old)[0]
+        monkeypatch.setattr(main.time, "time", lambda: now)
+        client.cookies.set("tho_admin_token", old)
+        slid = client.get("/api/admin/check")
+        assert slid.json() == {"valid": True}
+        new_expires = main._decode_admin_token(slid.cookies["tho_admin_token"])[0]
+        assert new_expires > old_expires
+        assert new_expires > now + 29 * 24 * 60 * 60
+
+    def test_sign_out_ends_the_session_on_this_device(self, email_client, monkeypatch):
+        client, main, _email_code = email_client
+        _sign_in_with_code(client, main, monkeypatch)
+        signed_out = client.post("/api/admin/logout")
+        assert signed_out.status_code == 200
+        assert client.get("/api/admin/check").json() == {"valid": False}
+
+    def test_pin_sign_in_uses_the_same_30_day_cookie(self, email_client, monkeypatch):
+        client, main, _email_code = email_client
+        import hashlib
+
+        pin = "4832"
+        monkeypatch.setattr(main, "ADMIN_PIN_HASH", hashlib.sha256(pin.encode()).hexdigest())
+        monkeypatch.setattr(main, "IS_LOCAL", False)
+        response = client.post("/api/admin/verify", json={"pin": pin})
+        assert response.status_code == 200, response.text
+        header = " ".join(response.headers.get_list("set-cookie"))
+        assert "Max-Age=2592000" in header
+        assert "HttpOnly" in header
+        assert "Secure" in header
+        assert "SameSite=strict" in header
+        expires, email = main._decode_admin_token(response.cookies["tho_admin_token"])
+        assert email is None
+        assert expires - time.time() > 29 * 24 * 60 * 60
+
+        monkeypatch.delenv("RESEND_API_KEY", raising=False)
+        missing = client.get("/api/admin/sign-in/options")
+        assert missing.json()["email_ready"] is False

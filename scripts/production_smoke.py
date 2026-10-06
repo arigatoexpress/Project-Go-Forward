@@ -465,6 +465,7 @@ def check_public_helpers(base_url: str, *, timeout: float) -> list[Probe]:
         and payload.get("enabled") is True
         and payload.get("persistent") is True
         and "sapphirealpha.xyz" in (payload.get("rp_ids") or [])
+        and "texashomeoutlet.com" in (payload.get("rp_ids") or [])
     )
     probes.append(
         Probe(

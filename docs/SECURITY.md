@@ -7,7 +7,7 @@
 - **Mechanism**: stateless HMAC-SHA256 JWT ([main.py:217](../main.py)–254).
 - **Token**: 24 bytes = 8-byte big-endian uint64 expiry + 16-byte HMAC tag. Base64 → ~32-char string.
 - **Secret derivation**: `SHA256(f"sapphire-jwt-{ADMIN_PIN_HASH[:16]}")` — tied to the admin PIN hash.
-- **TTL**: default 2 hours, tunable via `ADMIN_TOKEN_TTL`.
+- **TTL**: staff PIN and email sessions last 30 days and slide forward on later visits (`ADMIN_TOKEN_TTL`, default 2592000 seconds). Blocking an email ends that email session on the next check. A shared PIN session has no email on it.
 - **Header**: `X-Admin-Token`. `require_admin()` dependency on protected routes.
 - **Revocation**: none (stateless). To invalidate all tokens, rotate `ADMIN_PIN_HASH`.
 
@@ -66,7 +66,7 @@ unavailable.
 |-----|-----|-----|
 | `PII_ENCRYPTION_KEY` | Secret Manager (`secretKeyRef`) | ✓ correct |
 | `ADMIN_PIN_HASH` | Secret Manager (`admin-pin-hash`) | ✓ correct |
-| `RESEND_API_KEY` | Secret Manager target: `resend-api-key` | ⚠️ bind before relying on transactional email |
+| `RESEND_API_KEY` | Secret Manager target: `resend-api-key` | ⚠️ referenced by the candidate deploy workflow; create the secret and grant the runtime service account `roles/secretmanager.secretAccessor` on that secret before merging, or the next candidate deploy fails |
 | `N8N_API_TOKEN` | plaintext env | ⚠️ move to Secret Manager + rotate (exposed in prior tooling output) |
 | `THO_API_KEY` | plaintext env | ⚠️ move to Secret Manager + rotate (exposed in prior tooling output) |
 | `GOOGLE_APPLICATION_CREDENTIALS` | not used in Cloud Run (uses metadata server) | ✓ correct |
