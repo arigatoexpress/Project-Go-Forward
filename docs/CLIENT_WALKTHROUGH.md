@@ -28,9 +28,9 @@ Staff sign in with email. Open **https://www.texashomeoutlet.com/staff**
 (bookmark that page), type your work email, and tap the button in the message.
 The short guide is [docs/team/staff-sign-in.md](team/staff-sign-in.md).
 
-A shared backup PIN is still there if email is down. Passkeys are optional and
-only for a device that was already set up on www.texashomeoutlet.com. Do not
-start with a passkey or the old temporary website.
+A shared backup PIN is the small link under the email box if email is down.
+The staff page does not show a passkey button. Do not start with a passkey
+or the old temporary website.
 
 This phone or computer stays signed in for 30 days. Tap **Sign out** on a shared computer.
 

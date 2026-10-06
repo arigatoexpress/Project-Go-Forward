@@ -36,4 +36,6 @@ On a shared computer, tap **Sign out**.
 
 **Use backup PIN** is the small link under the email box. Use it only if email is not working and someone gave you the PIN.
 
+There is no passkey button on this page. Use the email link.
+
 Do not text or email your code or PIN to anyone.

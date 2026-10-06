@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Fingerprint, Loader2, Lock, Mail, ShieldCheck } from 'lucide-react';
+import { Loader2, Lock, Mail, ShieldCheck } from 'lucide-react';
 import { extractErrorMessage, safeUserMessage } from '../utils/apiError';
 
 const SENT_NOTICE =
@@ -46,6 +46,7 @@ export default function StaffSignInPanel({
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [emailReady, setEmailReady] = useState(true);
+  const [passkeySignIn, setPasskeySignIn] = useState(false);
   const [showPin, setShowPin] = useState(false);
   const [pin, setPin] = useState('');
   const [pinError, setPinError] = useState('');
@@ -56,7 +57,9 @@ export default function StaffSignInPanel({
     fetch('/api/admin/sign-in/options', { headers: { Accept: 'application/json' }, credentials: 'same-origin' })
       .then((response) => (response.ok ? response.json() : null))
       .then((data) => {
-        if (!cancelled && data && data.email_ready === false) {
+        if (cancelled || !data) return;
+        if (data.passkey_sign_in === true) setPasskeySignIn(true);
+        if (data.email_ready === false) {
           setEmailReady(false);
           setShowPin(true);
         }
@@ -177,7 +180,9 @@ export default function StaffSignInPanel({
     }
   };
 
-  const showPasskey = passkeyAvailable && passkeyStatus?.has_keys;
+  // Hidden unless the owner flag is on. Browser support and an enrolled key
+  // are still required so a turned-on flag does not offer a dead control.
+  const showPasskey = passkeySignIn && passkeyAvailable && passkeyStatus?.has_keys;
   const offCanonical = typeof window !== 'undefined'
     && !['www.texashomeoutlet.com', 'localhost', '127.0.0.1'].includes(window.location.hostname);
 
@@ -332,26 +337,6 @@ export default function StaffSignInPanel({
         <p role="alert" className="text-[var(--cp-danger)] text-xs text-center mt-3">{error}</p>
       )}
 
-      {showPasskey && (
-        <div className="mt-4">
-          <button
-            type="button"
-            onClick={onPasskeyLogin}
-            disabled={passkeyLoading}
-            aria-describedby={passkeyError ? 'passkey-login-error' : undefined}
-            className="cp-btn-outline w-full py-2.5 text-sm flex items-center justify-center gap-2"
-          >
-            <Fingerprint size={16} />
-            {passkeyLoading ? 'Authenticating...' : 'Sign in with Passkey'}
-          </button>
-        </div>
-      )}
-      {passkeyError && (
-        <p id="passkey-login-error" role="alert" className="text-[var(--cp-danger)] text-xs text-center mt-2">
-          {passkeyError}
-        </p>
-      )}
-
       <div className="mt-4">
         {!showPin ? (
           <button
@@ -388,6 +373,27 @@ export default function StaffSignInPanel({
           </form>
         )}
       </div>
+
+      {showPasskey && (
+        <>
+          <div className="mt-2 text-center">
+            <button
+              type="button"
+              onClick={onPasskeyLogin}
+              disabled={passkeyLoading}
+              aria-describedby={passkeyError ? 'passkey-login-error' : undefined}
+              className="py-1 text-xs text-[var(--cp-faint)] underline"
+            >
+              {passkeyLoading ? 'Authenticating...' : 'Sign in with Passkey'}
+            </button>
+          </div>
+          {passkeyError && (
+            <p id="passkey-login-error" role="alert" className="text-[var(--cp-danger)] text-xs text-center mt-2">
+              {passkeyError}
+            </p>
+          )}
+        </>
+      )}
 
       <p className="mt-6 text-base text-[var(--cp-muted)] leading-relaxed text-center">
         Nothing arrived? Check spam, then tap the button again. If it still does not come, ask a teammate to add your email. Do not send a code or PIN to anyone.

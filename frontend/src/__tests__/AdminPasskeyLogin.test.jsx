@@ -27,6 +27,9 @@ describe('Admin passkey sign-in recovery', () => {
       if (url === '/api/admin/passkey/status') {
         return { ok: true, json: async () => ({ enabled: true, has_keys: true, store_ready: true }) };
       }
+      if (url === '/api/admin/sign-in/options') {
+        return { ok: true, json: async () => ({ email_ready: true, passkey_sign_in: true }) };
+      }
       if (url === '/api/admin/passkey/login/begin') {
         return { ok: true, json: async () => ({ challenge: 'dGVzdA', allowCredentials: [] }) };
       }
