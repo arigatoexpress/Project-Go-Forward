@@ -8759,6 +8759,9 @@ def admin_sign_in_options(request: Request):
             "email_ready": email_delivery_configured(),
             "canonical_origin": CANONICAL_PUBLIC_URL,
             "sign_in_path": "/staff",
+            # Off unless the owner sets feature flag STAFF_PASSKEY_SIGN_IN.
+            # The passkey login API stays available for other paths.
+            "passkey_sign_in": feature_flags.is_enabled("STAFF_PASSKEY_SIGN_IN", default=False),
         }
     )
 

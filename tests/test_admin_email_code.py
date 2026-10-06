@@ -586,8 +586,16 @@ class TestStaffDirectoryApi:
         body = ready.json()
         assert body["email_ready"] is True
         assert body["sign_in_path"] == "/staff"
+        assert body["passkey_sign_in"] is False
         assert "added" not in body
         assert "owners" not in body
+
+    def test_passkey_sign_in_stays_off_unless_the_owner_flag_is_on(self, email_client, monkeypatch):
+        client, _main, _email_code = email_client
+        monkeypatch.delenv("FF_STAFF_PASSKEY_SIGN_IN", raising=False)
+        assert client.get("/api/admin/sign-in/options").json()["passkey_sign_in"] is False
+        monkeypatch.setenv("FF_STAFF_PASSKEY_SIGN_IN", "1")
+        assert client.get("/api/admin/sign-in/options").json()["passkey_sign_in"] is True
 
 
 def _sign_in_with_code(client, main, monkeypatch):

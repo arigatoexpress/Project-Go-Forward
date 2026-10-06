@@ -3,7 +3,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import App from '../App';
 import { ToastProvider } from '../components/Toast';
 
-// Email one-time-code admin login is the FALLBACK path alongside PIN + passkey.
+// Email link is the primary staff sign-in. Backup PIN stays available.
 // These tests assert the three contracts that matter for security/UX:
 //   1. email -> request -> code -> verify authenticates (success path);
 //   2. a disallowed/unknown email still shows the SAME generic message

@@ -4,8 +4,16 @@ Sign in with email. The short instructions are in
 [staff-sign-in.md](staff-sign-in.md). Bookmark
 **https://www.texashomeoutlet.com/staff**.
 
-Passkeys are optional. A passkey saved on the old temporary site will not work
-on www.texashomeoutlet.com. You do not need one to get into the admin tools.
+Passkeys are optional and are not on the staff sign-in page. A passkey saved
+on the old temporary site will not work on www.texashomeoutlet.com. You do not
+need one to get into the admin tools. Daily sign-in is the email link in
+[staff-sign-in.md](staff-sign-in.md).
+
+The owner keeps **Sign in with Passkey** off. It appears only as a small link
+under **Use backup PIN** when `STAFF_PASSKEY_SIGN_IN` is turned on
+(`feature_flags` in `config.yaml`, or env `FF_STAFF_PASSKEY_SIGN_IN=1`).
+That switch does not turn off the passkey APIs used after someone is already
+signed in.
 
 If none works, contact your THO site administrator through the established
 support channel. Do not send your PIN, email code, recovery codes, or passkey
@@ -22,7 +30,9 @@ an appropriate method is tested.
    prompt. Use the offered fingerprint, face, screen-lock PIN, or password.
 5. Wait for **Passkey registered for this staff email.**
 6. Keep a recovery method available. Sign out, reopen the canonical site, and
-   test **Sign in with Passkey**. Saving a key alone is not a verified sign-in.
+   sign back in with the email link. Saving a key alone is not a verified
+   sign-in. Do not look for **Sign in with Passkey** on `/staff` unless the
+   owner setting above is on.
 
 Owner credentials have additional protections. Registering or revoking an owner
 credential requires the same owner's existing passkey session; a shared PIN or
@@ -30,14 +40,16 @@ email-code session cannot bypass that restriction.
 
 ## If you already registered
 
-Try your existing key first. Do not repeat enrollment merely because somebody's
-checklist has not been updated. If the key works on the canonical site, report
-that successful sign-in and whether your recovery method also works.
+Sign in with the email link. Do not repeat enrollment merely because somebody's
+checklist has not been updated. If the owner has turned the passkey link on
+and that key works on the canonical site, report that successful sign-in and
+whether your recovery method also works.
 
 A key saved for the old temporary site may not appear on the canonical site.
-Sign in on the canonical site using your PIN or email code, then register and
-test a canonical-site staff key. **Keep working legacy credentials and
-legacy-domain support until canonical sign-in and recovery are confirmed.**
+Sign in on the canonical site with the email link or backup PIN. Register a
+canonical-site key only if an owner still needs one for a tool that asks for
+it. **Keep working legacy credentials and legacy-domain support until
+canonical sign-in and recovery are confirmed.**
 
 If the provider says a THO key already exists, try using it or choose another
 provider/device. Do not delete a working key just to clear a registration error.
@@ -65,4 +77,4 @@ These confirmations establish staff access only. They do not approve inventory
 accuracy, outbound email delivery, or the overall client handoff. See
 [client acceptance](../CLIENT_HANDOFF_ACCEPTANCE.md).
 
-Updated September 13, 2026 to match current button labels and supported recovery.
+Updated October 6, 2026. Email is the staff sign-in. Passkey sign-in stays off unless the owner flag is on.

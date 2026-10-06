@@ -83,7 +83,7 @@ After the sign-in change is merged, GitHub builds a candidate and does not send 
 2. In the deploy log, copy the URL that starts with `https://candidate---`. You can also find it in Cloud Run under **Revisions**, on the revision whose tag is `candidate`.
 3. Do not open **Manage traffic**. Do not move any slider.
 4. On the end of that candidate URL, add `/staff` and open it. Example shape: `https://candidate---....run.app/staff`
-5. You should see one big email box and **Email me a sign-in link**.
+5. You should see one big email box and **Email me a sign-in link**. You should not see **Sign in with Passkey**. **Use backup PIN** is the small link under the email box.
 6. Type your own work email and tap the button.
 7. Stay on the candidate page. Open the email. The **Sign me in** button in the email opens www.texashomeoutlet.com, which is still the old site until traffic is moved on purpose. Do not use that button for this test.
 8. On the candidate page, tap **Type the 6-digit code instead**. Type the code from the email. Tap **Verify**.

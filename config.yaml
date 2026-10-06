@@ -199,6 +199,12 @@ feature_flags:
   EMAIL_DRAFT_PIPELINE: false # create review drafts for substantive inbound email (no sends)
   EMAIL_TG_GATE: false        # Telegram approve/reject cards for pending drafts (no sends by itself)
 
+  # Staff sign-in page (/staff). Email link is the only obvious path.
+  # Leave false. Set true only if the owner wants "Sign in with Passkey"
+  # back on that page (still a small link under the backup PIN).
+  # Env override: FF_STAFF_PASSKEY_SIGN_IN=1. Does not disable passkey APIs.
+  STAFF_PASSKEY_SIGN_IN: false
+
 # Notion "Command Center" integration. DB ids are identifiers, NOT secrets — the
 # only secret is NOTION_TOKEN (Secret Manager). The Ops Copilot reads these
 # PII-free (count-by-status) when NOTION_COMMAND_CENTER=on. Each id can also be
