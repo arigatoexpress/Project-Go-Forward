@@ -68,6 +68,8 @@ def test_robots_txt_allows_public_blocks_admin(monkeypatch):
     assert response.status_code == 200
     body = response.text
     assert "Disallow: /crm" in body
+    assert "Disallow: /staff" in body
+    assert "Disallow: /team" in body
     assert "Disallow: /api/admin/" in body
     assert "Sitemap: https://www.texashomeoutlet.com/sitemap.xml" in body
     # Never block assets or the public inventory API the renderer depends on
@@ -360,7 +362,7 @@ def test_unknown_route_returns_real_404_not_soft_404(monkeypatch):
 
 def test_admin_routes_are_noindex_but_200(monkeypatch):
     client, _ = seo_client(monkeypatch)
-    for path in ("/crm", "/documents", "/studio"):
+    for path in ("/crm", "/documents", "/studio", "/staff", "/team"):
         response = client.get(path)
         assert response.status_code == 200, path
         assert '<meta name="robots" content="noindex" />' in response.text, path

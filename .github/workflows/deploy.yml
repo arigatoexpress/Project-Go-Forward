@@ -98,14 +98,19 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Build and deploy to Cloud Run
+        # RESEND_API_KEY is required for staff email sign-in. Create Secret
+        # Manager secret resend-api-key and grant the runtime service account
+        # secretAccessor on it before this job runs, or the deploy fails closed.
+        # WEBAUTHN_* pins new passkeys to www.texashomeoutlet.com. Legacy
+        # sapphire passkeys stay valid only on the old host.
         run: |
           gcloud run deploy ${{ env.SERVICE }} \
             --source . \
             --region ${{ env.REGION }} \
             --project ${{ env.PROJECT_ID }} \
             --min-instances=1 \
-            --update-env-vars=APP_VERSION=${{ github.sha }} \
-            --update-secrets=ADMIN_PIN_HASH=admin-pin-hash:latest,ADMIN_SESSION_SECRET=admin-session-secret:latest \
+            --update-env-vars=APP_VERSION=${{ github.sha }},WEBAUTHN_ORIGIN=https://www.texashomeoutlet.com,WEBAUTHN_RP_ID=texashomeoutlet.com \
+            --update-secrets=ADMIN_PIN_HASH=admin-pin-hash:latest,ADMIN_SESSION_SECRET=admin-session-secret:latest,RESEND_API_KEY=resend-api-key:latest \
             --liveness-probe=httpGet.path=/healthz,httpGet.port=8080,periodSeconds=30,timeoutSeconds=5,failureThreshold=3 \
             --no-traffic --tag=candidate \
             --quiet

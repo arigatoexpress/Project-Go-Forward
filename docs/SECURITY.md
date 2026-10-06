@@ -66,7 +66,7 @@ unavailable.
 |-----|-----|-----|
 | `PII_ENCRYPTION_KEY` | Secret Manager (`secretKeyRef`) | ✓ correct |
 | `ADMIN_PIN_HASH` | Secret Manager (`admin-pin-hash`) | ✓ correct |
-| `RESEND_API_KEY` | Secret Manager target: `resend-api-key` | ⚠️ bind before relying on transactional email |
+| `RESEND_API_KEY` | Secret Manager target: `resend-api-key` | ⚠️ referenced by the candidate deploy workflow; create the secret and grant the runtime service account `roles/secretmanager.secretAccessor` on that secret before merging, or the next candidate deploy fails |
 | `N8N_API_TOKEN` | plaintext env | ⚠️ move to Secret Manager + rotate (exposed in prior tooling output) |
 | `THO_API_KEY` | plaintext env | ⚠️ move to Secret Manager + rotate (exposed in prior tooling output) |
 | `GOOGLE_APPLICATION_CREDENTIALS` | not used in Cloud Run (uses metadata server) | ✓ correct |

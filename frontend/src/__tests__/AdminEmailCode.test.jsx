@@ -33,9 +33,8 @@ function baseFetch() {
 }
 
 function openEmailCodeFlow() {
-  // Open the admin PIN modal, then switch to the email-code path.
+  // Email is the first thing in the staff sign-in panel.
   fireEvent.click(screen.getByRole('button', { name: /Admin access/i }));
-  fireEvent.click(screen.getByRole('button', { name: /Email me a sign-in code/i }));
 }
 
 describe('Admin email one-time-code login', () => {
@@ -75,10 +74,10 @@ describe('Admin email one-time-code login', () => {
     // Enter authorized email, request the code.
     const emailInput = screen.getByLabelText(/email/i);
     fireEvent.change(emailInput, { target: { value: 'staff@texashomeoutlet.com' } });
-    fireEvent.click(screen.getByRole('button', { name: /Send code/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Email me a sign-in link/i }));
 
     // Generic confirmation appears + the code field shows.
-    await screen.findByText(/a code is on its way/i);
+    await screen.findByText(/on its way/i);
     const codeInput = await screen.findByLabelText(/sign-in code/i);
 
     // The request hit the backend with the email.
@@ -123,10 +122,10 @@ describe('Admin email one-time-code login', () => {
 
     const emailInput = screen.getByLabelText(/email/i);
     fireEvent.change(emailInput, { target: { value: 'stranger@gmail.com' } });
-    fireEvent.click(screen.getByRole('button', { name: /Send code/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Email me a sign-in link/i }));
 
     // Identical generic copy — the UI must not reveal authorization status.
-    await screen.findByText(/a code is on its way/i);
+    await screen.findByText(/on its way/i);
   });
 
   it('surfaces an error and does not authenticate on a wrong code', async () => {
@@ -145,7 +144,7 @@ describe('Admin email one-time-code login', () => {
     openEmailCodeFlow();
 
     fireEvent.change(screen.getByLabelText(/email/i), { target: { value: 'staff@texashomeoutlet.com' } });
-    fireEvent.click(screen.getByRole('button', { name: /Send code/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Email me a sign-in link/i }));
 
     const codeInput = await screen.findByLabelText(/sign-in code/i);
     fireEvent.change(codeInput, { target: { value: '000000' } });
@@ -167,14 +166,14 @@ describe('Admin email one-time-code login', () => {
     renderApp();
     openEmailCodeFlow();
     fireEvent.change(screen.getByLabelText(/email/i), { target: { value: 'typo@texashomeoutlet.com' } });
-    fireEvent.click(screen.getByRole('button', { name: /^Send code$/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Email me a sign-in link/i }));
     fireEvent.change(await screen.findByLabelText(/sign-in code/i), { target: { value: '123456' } });
     expect(screen.getByText('typo@texashomeoutlet.com')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: /^Change email$/i }));
     expect(screen.queryByLabelText(/sign-in code/i)).not.toBeInTheDocument();
     fireEvent.change(screen.getByLabelText(/email/i), { target: { value: 'staff@texashomeoutlet.com' } });
-    fireEvent.click(screen.getByRole('button', { name: /^Send code$/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Email me a sign-in link/i }));
 
     expect(await screen.findByLabelText(/sign-in code/i)).toHaveValue('');
     expect(screen.getByText('staff@texashomeoutlet.com')).toBeInTheDocument();
@@ -183,5 +182,34 @@ describe('Admin email one-time-code login', () => {
       'typo@texashomeoutlet.com', 'staff@texashomeoutlet.com',
     ]);
     expect(global.fetch.mock.calls.some(([url]) => url.includes('/email-code/verify'))).toBe(false);
+  });
+
+  it('posts the link token when staff tap Sign me in from the email', async () => {
+    window.history.replaceState({}, '', '/staff#t=link-token&e=staff%40texashomeoutlet.com');
+    const fallback = baseFetch();
+    global.fetch = vi.fn((url, opts) => {
+      if (typeof url === 'string' && url.includes('/api/admin/email-code/verify')) {
+        return Promise.resolve({ ok: true, json: async () => ({ success: true, csrf_token: 'csrf-xyz' }) });
+      }
+      return fallback(url, opts);
+    });
+
+    renderApp();
+    expect(await screen.findByRole('button', { name: /Sign me in/i })).toBeInTheDocument();
+    expect(screen.getByText(/staff@texashomeoutlet.com/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Sign me in/i }));
+
+    await waitFor(() => {
+      const verifyCall = global.fetch.mock.calls.find(
+        ([u]) => typeof u === 'string' && u.includes('/api/admin/email-code/verify'),
+      );
+      expect(verifyCall).toBeTruthy();
+      const body = JSON.parse(verifyCall[1].body);
+      expect(body.email).toBe('staff@texashomeoutlet.com');
+      expect(body.link_token).toBe('link-token');
+      expect(body.code).toBeUndefined();
+    });
+    expect(global.fetch.mock.calls.some(([url]) => String(url).includes('/email-code/request'))).toBe(false);
+    window.history.replaceState({}, '', '/');
   });
 });

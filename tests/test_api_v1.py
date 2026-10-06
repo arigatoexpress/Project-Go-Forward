@@ -703,6 +703,7 @@ def load_app(monkeypatch, tho_api_key: str | None = "tho-secret", rate_limit_rpm
     monkeypatch.setitem(sys.modules, "appointment_manager", appointment_manager_module)
 
     email_service_module = types.ModuleType("email_service")
+    email_service_module.email_delivery_configured = lambda: bool(os.environ.get("RESEND_API_KEY"))
     email_service_module.send_admin_login_code = lambda *args, **kwargs: {"success": True}
     email_service_module.send_appointment_confirmation = lambda *args, **kwargs: {"success": True}
     email_service_module.send_lead_welcome = lambda *args, **kwargs: {"success": True}
@@ -2065,6 +2066,7 @@ def test_cloud_run_admin_auth_fails_closed_without_pin_hash(monkeypatch):
     monkeypatch.setitem(sys.modules, "appointment_manager", appointment_manager_module)
 
     email_service_module = types.ModuleType("email_service")
+    email_service_module.email_delivery_configured = lambda: bool(os.environ.get("RESEND_API_KEY"))
     email_service_module.send_admin_login_code = lambda *a, **k: {"success": True}
     email_service_module.send_appointment_confirmation = lambda *a, **k: {"success": True}
     email_service_module.send_lead_welcome = lambda *a, **k: {"success": True}

@@ -2,6 +2,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 APP = ROOT / "frontend/src/App.jsx"
+STAFF_SIGN_IN = ROOT / "frontend/src/components/StaffSignInPanel.jsx"
 INVENTORY_BROWSE = ROOT / "frontend/src/pages/InventoryBrowse.jsx"
 DOCUMENT_CENTER = ROOT / "frontend/src/pages/DocumentCenter.jsx"
 AD_STUDIO = ROOT / "frontend/src/pages/AdStudio.jsx"
@@ -126,10 +127,12 @@ def test_document_center_inactive_navigation_remains_readable():
 
 def test_admin_cookie_verification_closes_pin_overlay_on_admin_routes():
     source = APP.read_text()
+    panel = STAFF_SIGN_IN.read_text()
 
     assert "if (adminAuthed)" in source
     assert "setShowPinModal(false)" in source
-    assert "setPinError('')" in source
+    # The backup PIN lives in the sign-in panel. Editing it clears a stale error.
+    assert "setPinError('')" in panel
 
 
 def test_web_media_source_policy_blocks_unapproved_free_image_imports():

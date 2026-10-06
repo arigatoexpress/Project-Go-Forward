@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, lazy, Suspense, useCallback } from 'react';
-import { Send, Home, Menu, X, Phone, MapPin, Loader2, User, Bot, FileText, Video, Lock, ShieldCheck, CalendarDays, Users, MessageSquare, MessageCircle, RotateCcw, WifiOff, Moon, Sun, KeyRound, Fingerprint, Mail, BookOpen, Activity, Camera, Sparkles } from 'lucide-react';
+import { Send, Home, Menu, X, Phone, MapPin, Loader2, User, Bot, FileText, Video, Lock, ShieldCheck, CalendarDays, Users, MessageSquare, MessageCircle, RotateCcw, WifiOff, Moon, Sun, KeyRound, BookOpen, Activity, Camera, Sparkles } from 'lucide-react';
 import { useDarkMode } from './hooks/useDarkMode';
 import SafeMarkdown from './components/SafeMarkdown';
 import SearchFilters from './components/SearchFilters';
@@ -20,6 +20,7 @@ import { navigateDocument } from './utils/documentNavigation';
 import { getInventoryCategoryRoute, isInventoryCategoryPath } from './utils/inventoryCategoryRoutes';
 import { safeUserMessage, extractErrorMessage, describeFetchError } from './utils/apiError';
 import { adminCsrfHeaders } from './adminFetch';
+import StaffSignInPanel from './components/StaffSignInPanel';
 import {
   BUSINESS_NAME, BUSINESS_PHONE, BUSINESS_PHONE_RAW, BUSINESS_FULL_ADDRESS,
   BUSINESS_HOURS, BUSINESS_LICENSE, BUSINESS_CITY, BUSINESS_STATE
@@ -56,13 +57,14 @@ const Delivery = lazy(() => import('./pages/Delivery'));
 const PhotoManager = lazy(() => import('./pages/PhotoManager'));
 const InventoryManager = lazy(() => import('./pages/InventoryManager'));
 const HealthDashboard = lazy(() => import('./pages/HealthDashboard'));
+const StaffAccess = lazy(() => import('./pages/StaffAccess'));
 // Max characters the admin PIN box accepts. The configured backend PIN may be a
 // long alphanumeric secret, so the input must NOT strip non-digits or cap short —
 // doing so (an old 8-digit-only cap) locked everyone out of the admin UI. Cap only
 // at a generous upper bound so an over-long secret is still flagged
 // (see scripts/generate_admin_pin_hash.py).
 const ADMIN_PIN_MAXLEN = 64;
-const ADMIN_PAGE_KEYS = new Set(['analytics', 'crm', 'chat-history', 'documents', 'adstudio', 'system', 'getting-started', 'photos', 'manage-inventory', 'health']);
+const ADMIN_PAGE_KEYS = new Set(['analytics', 'crm', 'chat-history', 'documents', 'adstudio', 'system', 'getting-started', 'photos', 'manage-inventory', 'health', 'team']);
 
 // Page loading fallback with skeleton
 const PageLoader = () => (
@@ -101,6 +103,7 @@ function NavBar({
     { key: 'manage-inventory', label: 'Inventory', icon: Home },
     { key: 'photos', label: 'Photos', icon: Camera },
     { key: 'crm', label: 'CRM', icon: Users },
+    { key: 'team', label: 'Team', icon: ShieldCheck },
     { key: 'system', label: 'System Hub', icon: Activity },
     { key: 'health', label: 'Health', icon: Activity },
     { key: 'getting-started', label: 'Guide', icon: BookOpen },
@@ -395,6 +398,8 @@ function pageFromPath(path) {
   // Legacy texashomeoutlet.com deep links resolve inside the inventory page.
   if (p.startsWith('/plan/') || p.startsWith('/quote/')) return 'inventory';
   if (p.startsWith('/hub/')) return 'hub';
+  if (p === '/staff' || p.startsWith('/staff/')) return 'staff-sign-in';
+  if (p === '/team' || p.startsWith('/team/')) return 'team';
   if (p.startsWith('/system')) return 'system';
   if (p === '/' || p === '') return 'inventory';
   // Unknown path: the server already responded 404 — render a friendly view.
@@ -526,9 +531,7 @@ function App() {
   // Admin auth — token validated by backend via httpOnly cookie
   const [adminAuthed, setAdminAuthed] = useState(false);
   const [showPinModal, setShowPinModal] = useState(false);
-  const [pinInput, setPinInput] = useState('');
-  const [pinError, setPinError] = useState('');
-  const [pinLoading, setPinLoading] = useState(false);
+  const [signInNotice, setSignInNotice] = useState('');
 
   // Passkey state
   const [passkeyLoading, setPasskeyLoading] = useState(false);
@@ -543,18 +546,6 @@ function App() {
     return window.localStorage.getItem('tho_passkey_email') || '';
   });
   const [passkeyEmailError, setPasskeyEmailError] = useState('');
-
-  // Email one-time-code login (fallback alongside PIN + passkey)
-  const [showEmailCode, setShowEmailCode] = useState(false);
-  const [emailCodeAddress, setEmailCodeAddress] = useState(() => {
-    if (typeof window === 'undefined') return '';
-    return window.localStorage.getItem('tho_passkey_email') || '';
-  });
-  const [emailCodeSent, setEmailCodeSent] = useState(false);
-  const [emailCodeInput, setEmailCodeInput] = useState('');
-  const [emailCodeError, setEmailCodeError] = useState('');
-  const [emailCodeNotice, setEmailCodeNotice] = useState('');
-  const [emailCodeLoading, setEmailCodeLoading] = useState(false);
 
   const refreshPasskeyStatus = useCallback(async () => {
     try {
@@ -628,7 +619,7 @@ function App() {
       // Browsers use NotAllowedError for several outcomes (including timeout
       // and cancellation), so do not guess why the prompt did not finish.
       const message = err?.name === 'NotAllowedError' || err?.name === 'AbortError'
-        ? 'Passkey sign-in did not finish. Try again, or choose Email me a sign-in code below.'
+        ? 'Passkey sign-in did not finish. Try again, or use the email sign-in on this page.'
         : safeUserMessage(err?.message, describeFetchError(err, 'complete passkey sign-in'));
       setPasskeyError(message);
     } finally {
@@ -755,7 +746,7 @@ function App() {
       const timer = setTimeout(() => {
         if (mounted && !adminAuthed) {
           setShowPinModal(true);
-          setPinError('');
+          setSignInNotice('');
           setPasskeyError('');
         }
       }, 100);
@@ -766,7 +757,7 @@ function App() {
   useEffect(() => {
     if (adminAuthed) {
       setShowPinModal(false);
-      setPinError('');
+      setSignInNotice('');
     }
   }, [adminAuthed]);
 
@@ -780,7 +771,7 @@ function App() {
       }
       setAdminAuthed(false);
       setShowPinModal(true);
-      setPinError('Session expired — please sign in again');
+      setSignInNotice('Session expired — please sign in again');
     };
     window.addEventListener('admin-session-expired', handleExpired);
 
@@ -862,6 +853,8 @@ function App() {
       crm: 'CRM Dashboard',
       system: 'THO System Hub',
       health: 'Health Dashboard',
+      team: 'Team access',
+      'staff-sign-in': 'Staff sign-in',
       'getting-started': 'Getting Started',
       'chat-history': 'Chat History',
     };
@@ -905,6 +898,8 @@ function App() {
       'chat-history': '/chat-history',
       system: '/system',
       health: '/health',
+      team: '/team',
+      'staff-sign-in': '/staff',
     };
     const targetUrl = urlMap[page] || '/';
     navigatePath(targetUrl);
@@ -916,121 +911,25 @@ function App() {
   };
 
   // Admin PIN handlers
+  const completeStaffSignIn = () => {
+    lastLoginTime.current = Date.now();
+    setAdminAuthed(true);
+    setShowPinModal(false);
+    setSignInNotice('');
+    const destination = activePage === 'staff-sign-in'
+      ? 'analytics'
+      : (ADMIN_PAGE_KEYS.has(activePage) ? activePage : 'analytics');
+    navigateTo(destination);
+  };
+
   const handleAdminAccess = () => {
     if (adminAuthed) {
       navigateTo('analytics');
+    } else if (activePage === 'staff-sign-in') {
+      document.getElementById('staff-sign-in')?.scrollIntoView({ behavior: 'smooth' });
     } else {
       setShowPinModal(true);
-      setPinInput('');
-      setPinError('');
-    }
-  };
-
-  const handlePinSubmit = async (e) => {
-    e.preventDefault();
-    setPinLoading(true);
-    setPinError('');
-    try {
-      const res = await fetch('/api/admin/verify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'same-origin',
-        body: JSON.stringify({ pin: pinInput.trim() }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        lastLoginTime.current = Date.now();
-        setAdminAuthed(true);
-        setShowPinModal(false);
-        setPinInput('');
-        navigateTo(ADMIN_PAGE_KEYS.has(activePage) ? activePage : 'analytics');
-      } else {
-        const fallbackHint = 'If the shared PIN expired, use Email me a sign-in code below.';
-        setPinError(`${safeUserMessage(extractErrorMessage(data), 'Incorrect PIN.')} ${fallbackHint}`);
-        setPinInput('');
-      }
-    } catch {
-      setPinError('Unable to verify. Try Email me a sign-in code below.');
-    } finally {
-      setPinLoading(false);
-    }
-  };
-
-  // --- Email one-time-code login (fallback) ---
-  const GENERIC_EMAIL_CODE_NOTICE =
-    "If that's an authorized address, a code is on its way. Check your inbox.";
-
-  const resetEmailCodeFlow = () => {
-    setShowEmailCode(false);
-    setEmailCodeSent(false);
-    setEmailCodeInput('');
-    setEmailCodeError('');
-    setEmailCodeNotice('');
-  };
-
-  const handleEmailCodeRequest = async (e) => {
-    if (e) e.preventDefault();
-    const email = emailCodeAddress.trim();
-    if (!email) {
-      setEmailCodeError('Enter your authorized email address.');
-      return;
-    }
-    setEmailCodeLoading(true);
-    setEmailCodeError('');
-    try {
-      // The backend ALWAYS returns 200 with a generic body (no account
-      // enumeration), so we show the same notice regardless of the response.
-      await fetch('/api/admin/email-code/request', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'same-origin',
-        body: JSON.stringify({ email }),
-      });
-      window.localStorage.setItem('tho_passkey_email', email);
-      setEmailCodeSent(true);
-      setEmailCodeNotice(GENERIC_EMAIL_CODE_NOTICE);
-    } catch {
-      // Even on a network error, keep the message generic and let them enter
-      // a code if they already have one.
-      setEmailCodeSent(true);
-      setEmailCodeNotice(GENERIC_EMAIL_CODE_NOTICE);
-    } finally {
-      setEmailCodeLoading(false);
-    }
-  };
-
-  const handleEmailCodeVerify = async (e) => {
-    if (e) e.preventDefault();
-    const email = emailCodeAddress.trim();
-    const code = emailCodeInput.trim();
-    if (!code) {
-      setEmailCodeError('Enter the 6-digit code from your email.');
-      return;
-    }
-    setEmailCodeLoading(true);
-    setEmailCodeError('');
-    try {
-      const res = await fetch('/api/admin/email-code/verify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'same-origin',
-        body: JSON.stringify({ email, code }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (res.ok && data.success) {
-        lastLoginTime.current = Date.now();
-        setAdminAuthed(true);
-        setShowPinModal(false);
-        resetEmailCodeFlow();
-        navigateTo(ADMIN_PAGE_KEYS.has(activePage) ? activePage : 'analytics');
-      } else {
-        setEmailCodeError(safeUserMessage(extractErrorMessage(data), 'Invalid or expired code.'));
-        setEmailCodeInput('');
-      }
-    } catch {
-      setEmailCodeError('Unable to verify. Please try again.');
-    } finally {
-      setEmailCodeLoading(false);
+      setSignInNotice('');
     }
   };
 
@@ -1140,227 +1039,16 @@ function App() {
   const pinModal = showPinModal && (
     <div className="fixed inset-0 bg-black/70 z-[100] flex items-center justify-center p-4 backdrop-blur-sm" style={{ animation: 'tho-fade-in 0.15s ease' }}>
       <div className="cp-panel p-6 sm:p-8 max-w-sm w-full max-h-[calc(100dvh-2rem)] overflow-y-auto" style={{ animation: 'tho-slide-up 0.2s ease' }}>
-        <div className="flex items-center justify-center mb-4">
-          <div className="p-3 bg-[var(--cp-accent-dim)] rounded-full">
-            <Lock size={24} className="text-[var(--cp-accent)]" />
-          </div>
-        </div>
-        <h2 className="text-xl font-bold text-center text-[var(--cp-text)] mb-1 font-mono">Admin Access</h2>
-        <p className="text-xs text-[var(--cp-muted)] text-center mb-6 font-mono">Use your PIN, an existing passkey, or an email sign-in code.</p>
-
-        <form onSubmit={handlePinSubmit}>
-          <input
-            type="password"
-            inputMode="text"
-            maxLength={ADMIN_PIN_MAXLEN}
-            autoComplete="current-password"
-            value={pinInput}
-            onChange={(e) => { setPinInput(e.target.value.slice(0, ADMIN_PIN_MAXLEN)); setPinError(''); setPasskeyError(''); }}
-            placeholder="Enter admin PIN"
-            className="cp-input w-full px-4 py-3 text-center text-lg tracking-[0.15em]"
-            autoFocus
-            aria-label="Admin PIN"
-          />
-          {pinError && (
-            <p className="text-[var(--cp-danger)] text-xs text-center mt-2 font-mono">
-              {pinError}
-            </p>
-          )}
-          <button
-            type="submit"
-            disabled={!pinInput.trim() || pinLoading}
-            className="cp-btn-accent w-full mt-4 py-3 rounded-lg text-sm"
-          >
-            {pinLoading ? 'Verifying...' : 'Unlock'}
-          </button>
-        </form>
-
-        {/* Passkey divider */}
-        {passkeyAvailable && (
-          <div className="relative my-4">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-[var(--cp-border)]" />
-            </div>
-            <div className="relative flex justify-center text-[10px]">
-              <span className="px-2 bg-[var(--cp-panel)] text-[var(--cp-faint)] font-mono uppercase tracking-widest">or</span>
-            </div>
-          </div>
-        )}
-
-        {passkeyAvailable && (
-          <div className="space-y-2">
-            {passkeyStatus?.has_keys && (
-              <button
-                type="button"
-                onClick={handlePasskeyLogin}
-                disabled={passkeyLoading}
-                aria-describedby={passkeyError ? 'passkey-login-error' : undefined}
-                className="cp-btn-outline w-full py-2.5 text-sm flex items-center justify-center gap-2"
-              >
-                <Fingerprint size={16} />
-                {passkeyLoading ? 'Authenticating...' : 'Sign in with Passkey'}
-              </button>
-            )}
-
-            {!passkeyStatus?.has_keys && (
-              <div className="space-y-3">
-                <p className="text-[11px] text-[var(--cp-faint)] text-center leading-relaxed font-mono border border-[var(--cp-border)] rounded-lg px-3 py-2 bg-[var(--cp-bg-2)]">
-                  {passkeyStatus === null
-                    ? 'Checking passkey enrollment...'
-                    : passkeyStatus.store_ready === false
-                      ? 'Passkey sign-in is unavailable. Try your PIN or an email sign-in code.'
-                      : 'No approved passkeys enrolled yet. Sign in with your PIN or an email code, then register a staff passkey.'}
-                </p>
-              </div>
-            )}
-
-            {adminAuthed && (
-              <button
-                type="button"
-                onClick={openPasskeyRegisterModal}
-                className="cp-btn-accent w-full py-2.5 text-sm flex items-center justify-center gap-2 mt-2"
-              >
-                <KeyRound size={16} />
-                Register new passkey / device
-              </button>
-            )}
-          </div>
-        )}
-
-        {passkeyError && (
-          <p id="passkey-login-error" role="alert" className="text-[var(--cp-danger)] text-xs text-center mt-2 font-mono">
-            {passkeyError}
-          </p>
-        )}
-
-        {/* Email one-time-code fallback */}
-        <div className="mt-3">
-          {!showEmailCode ? (
-            <button
-              type="button"
-              onClick={() => { setShowEmailCode(true); setEmailCodeError(''); setPinError(''); setPasskeyError(''); }}
-              className="cp-btn-outline w-full py-2.5 text-sm flex items-center justify-center gap-2"
-            >
-              <Mail size={16} />
-              Email me a sign-in code
-            </button>
-          ) : (
-            <div className="border border-[var(--cp-border)] rounded-lg p-3 bg-[var(--cp-bg-2)] space-y-3">
-              <div className="flex items-center gap-2 text-[var(--cp-muted)]">
-                <Mail size={15} className="text-[var(--cp-accent)]" />
-                <span className="text-xs font-mono uppercase tracking-wide">Email sign-in code</span>
-              </div>
-
-              {!emailCodeSent ? (
-                <form onSubmit={handleEmailCodeRequest} className="space-y-2">
-                  <label className="block">
-                    <span className="sr-only">Authorized email</span>
-                    <input
-                      type="email"
-                      autoComplete="email"
-                      value={emailCodeAddress}
-                      onChange={(e) => { setEmailCodeAddress(e.target.value); setEmailCodeError(''); }}
-                      placeholder="name@texashomeoutlet.com"
-                      className="cp-input w-full px-3 py-2.5 text-sm"
-                      aria-label="Authorized email"
-                      autoFocus
-                    />
-                  </label>
-                  <button
-                    type="submit"
-                    disabled={emailCodeLoading || !emailCodeAddress.trim()}
-                    className="cp-btn-accent w-full py-2.5 text-sm flex items-center justify-center gap-2"
-                  >
-                    {emailCodeLoading ? <Loader2 size={15} className="animate-spin" /> : <Mail size={15} />}
-                    {emailCodeLoading ? 'Sending...' : 'Send code'}
-                  </button>
-                </form>
-              ) : (
-                <form onSubmit={handleEmailCodeVerify} className="space-y-2">
-                  <p className="text-xs text-[var(--cp-muted)] break-all">
-                    Address entered: <span>{emailCodeAddress.trim()}</span>
-                  </p>
-                  {emailCodeNotice && (
-                    <p className="text-[11px] text-[var(--cp-faint)] leading-relaxed font-mono">
-                      {emailCodeNotice}
-                    </p>
-                  )}
-                  <label className="block">
-                    <span className="sr-only">Sign-in code</span>
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      autoComplete="one-time-code"
-                      maxLength={6}
-                      value={emailCodeInput}
-                      onChange={(e) => { setEmailCodeInput(e.target.value.replace(/\D/g, '').slice(0, 6)); setEmailCodeError(''); }}
-                      placeholder="6-digit code"
-                      className="cp-input w-full px-3 py-2.5 text-center text-lg tracking-[0.3em]"
-                      aria-label="Sign-in code"
-                      autoFocus
-                    />
-                  </label>
-                  <button
-                    type="submit"
-                    disabled={emailCodeLoading || !emailCodeInput.trim()}
-                    className="cp-btn-accent w-full py-2.5 text-sm flex items-center justify-center gap-2"
-                  >
-                    {emailCodeLoading ? <Loader2 size={15} className="animate-spin" /> : <ShieldCheck size={15} />}
-                    {emailCodeLoading ? 'Verifying...' : 'Verify'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setEmailCodeSent(false);
-                      setEmailCodeInput('');
-                      setEmailCodeError('');
-                      setEmailCodeNotice('');
-                    }}
-                    disabled={emailCodeLoading}
-                    className="cp-btn-outline w-full py-2 text-xs"
-                  >
-                    Change email
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleEmailCodeRequest}
-                    disabled={emailCodeLoading}
-                    className="w-full py-1.5 text-[11px] text-[var(--cp-faint)] hover:text-[var(--cp-text)] transition font-mono"
-                  >
-                    Resend code
-                  </button>
-                </form>
-              )}
-
-              {emailCodeError && (
-                <p className="text-[var(--cp-danger)] text-xs text-center font-mono">{emailCodeError}</p>
-              )}
-
-              <button
-                type="button"
-                onClick={resetEmailCodeFlow}
-                className="w-full py-1 text-[10px] text-[var(--cp-faint)] hover:text-[var(--cp-text)] transition font-mono"
-              >
-                Back to other options
-              </button>
-            </div>
-          )}
-        </div>
-
-        <details className="mt-4 text-xs text-[var(--cp-muted)] leading-relaxed">
-          <summary className="cursor-pointer">Need help signing in?</summary>
-          <p className="mt-2">No fingerprint or face recognition is required: your device may offer its screen-lock PIN or password for a passkey.</p>
-          <p className="mt-2">A passkey saved for the old site may not appear here. Use your PIN or email code on this site, then register a new staff passkey from the key button after signing in.</p>
-          <p className="mt-2">For an email code, use your approved staff address and check spam. If no sign-in method works, ask your THO site administrator for help. Never share a sign-in code or PIN in a support message.</p>
-        </details>
-
-        <button
-          type="button"
-          onClick={() => { setShowPinModal(false); resetEmailCodeFlow(); }}
-          className="w-full mt-4 py-2 text-[var(--cp-faint)] text-xs hover:text-[var(--cp-text)] transition font-mono"
-        >
-          Cancel
-        </button>
+        <StaffSignInPanel
+          onSuccess={completeStaffSignIn}
+          onCancel={() => setShowPinModal(false)}
+          passkeyAvailable={passkeyAvailable}
+          passkeyStatus={passkeyStatus}
+          passkeyLoading={passkeyLoading}
+          passkeyError={passkeyError}
+          onPasskeyLogin={handlePasskeyLogin}
+          initialNotice={signInNotice}
+        />
       </div>
     </div>
   );
@@ -1458,6 +1146,40 @@ function App() {
   };
 
   // --- Page renders ---
+  if (activePage === 'staff-sign-in') {
+    return (
+      <div className="bg-[var(--cp-bg)] min-h-screen">
+        {passkeyEmailModal}
+        <NavBar {...navProps} />
+        <main className="max-w-sm mx-auto px-4 py-8">
+          <StaffSignInPanel
+            onSuccess={completeStaffSignIn}
+            passkeyAvailable={passkeyAvailable}
+            passkeyStatus={passkeyStatus}
+            passkeyLoading={passkeyLoading}
+            passkeyError={passkeyError}
+            onPasskeyLogin={handlePasskeyLogin}
+            initialNotice={signInNotice}
+          />
+        </main>
+      </div>
+    );
+  }
+
+  if (activePage === 'team' && adminAuthed) {
+    return (
+      <div className="bg-[var(--cp-bg)] min-h-screen">
+        {appModals}
+        <NavBar {...navProps} />
+        <ErrorBoundary scope="team">
+          <Suspense fallback={<PageLoader />}>
+            <StaffAccess onBack={() => navigateTo('analytics')} />
+          </Suspense>
+        </ErrorBoundary>
+      </div>
+    );
+  }
+
   if (activePage === 'system' && adminAuthed) {
     return (
       <div className="bg-[var(--cp-bg)] min-h-screen">
