@@ -32,8 +32,7 @@ A shared backup PIN is still there if email is down. Passkeys are optional and
 only for a device that was already set up on www.texashomeoutlet.com. Do not
 start with a passkey or the old temporary website.
 
-Sessions expire after a while; if you see "Session expired," just sign in
-again — your work in the Document Center is saved in the browser.
+This phone or computer stays signed in for 30 days. Tap **Sign out** on a shared computer.
 
 ### 2. The AI Assistant (customer-facing)
 

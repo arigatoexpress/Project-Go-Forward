@@ -455,30 +455,40 @@ def send_admin_login_code(
     button = ""
     if link:
         button = f"""
-        <p style="text-align: center; margin: 28px 0;">
-          <a href="{safe_link}" style="display: inline-block; background: #1e3a5f; color: #ffffff; text-decoration: none; font-size: 18px; font-weight: 700; padding: 14px 28px; border-radius: 10px;">Sign me in</a>
+        <p style="margin: 28px 0;">
+          <a href="{safe_link}" style="display: block; background: #1e3a5f; color: #ffffff; text-decoration: none; font-size: 22px; font-weight: 700; padding: 18px 24px; border-radius: 12px; text-align: center;">Sign me in</a>
         </p>
-        <p>On the next page, tap <strong>Sign me in</strong>. That button works once.</p>
-        <p>If the button does not open, go to the staff sign-in page and type this code instead:</p>
+        <p style="font-size: 16px;">On the next page, tap <strong>Sign me in</strong>.</p>
+        <p style="font-size: 16px;">If the button does not open, type this code instead:</p>
         """
     else:
-        button = "<p>Type this code on the staff sign-in page:</p>"
+        button = '<p style="font-size: 16px;">Type this code on the staff sign-in page:</p>'
     content = f"""
-    <h2 style="color: #1e3a5f; margin-top: 0;">Sign in to Texas Home Outlet</h2>
+    <h2 style="color: #1e3a5f; margin-top: 0; font-size: 28px;">Sign in to Texas Home Outlet</h2>
     {button}
     <div style="text-align: center; margin: 28px 0;">
       <div style="display: inline-block; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 12px; padding: 18px 32px;">
-        <span style="font-family: 'SFMono-Regular', Menlo, Consolas, monospace; font-size: 34px; font-weight: 700; letter-spacing: 0.35em; color: #1e3a5f;">{safe_code}</span>
+        <span style="font-family: 'SFMono-Regular', Menlo, Consolas, monospace; font-size: 40px; font-weight: 700; letter-spacing: 0.35em; color: #1e3a5f;">{safe_code}</span>
       </div>
     </div>
-    <p style="color: #6b7280; font-size: 13px; text-align: center; margin-top: 0;">
-      Expires in {ttl_minutes} minutes. Ignore this message if you did not ask to sign in.
+    <p style="color: #374151; font-size: 16px; text-align: center; margin-top: 0;">
+      Ignore this message if you did not ask to sign in.
     </p>
     """
+    link_line = f"Tap Sign me in:\n{link}\n\n" if link else ""
+    text = (
+        "Your Texas Home Outlet sign-in link\n\n"
+        f"{link_line}"
+        "Or type this code on the sign-in page:\n\n"
+        f"{code}\n\n"
+        f"It works for {int(ttl_minutes)} minutes.\n\n"
+        "Ignore this message if you did not ask to sign in.\n"
+    )
     return send_email(
         to=to,
         subject="Your Texas Home Outlet sign-in link",
         html=_base_wrapper(content),
+        text=text,
         email_type="admin_login_code",
     )
 

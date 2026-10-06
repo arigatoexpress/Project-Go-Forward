@@ -7,7 +7,7 @@
 - **Mechanism**: stateless HMAC-SHA256 JWT ([main.py:217](../main.py)–254).
 - **Token**: 24 bytes = 8-byte big-endian uint64 expiry + 16-byte HMAC tag. Base64 → ~32-char string.
 - **Secret derivation**: `SHA256(f"sapphire-jwt-{ADMIN_PIN_HASH[:16]}")` — tied to the admin PIN hash.
-- **TTL**: default 2 hours, tunable via `ADMIN_TOKEN_TTL`.
+- **TTL**: staff PIN and email sessions last 30 days and slide forward on later visits (`ADMIN_TOKEN_TTL`, default 2592000 seconds). Blocking an email ends that email session on the next check. A shared PIN session has no email on it.
 - **Header**: `X-Admin-Token`. `require_admin()` dependency on protected routes.
 - **Revocation**: none (stateless). To invalidate all tokens, rotate `ADMIN_PIN_HASH`.
 

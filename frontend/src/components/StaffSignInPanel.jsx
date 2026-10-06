@@ -2,8 +2,10 @@ import { useEffect, useState } from 'react';
 import { Fingerprint, Loader2, Lock, Mail, ShieldCheck } from 'lucide-react';
 import { extractErrorMessage, safeUserMessage } from '../utils/apiError';
 
-const GENERIC_NOTICE =
-  'If that email is on the team list, a message is on its way. Open it and tap Sign me in, or type the 6-digit code.';
+const SENT_NOTICE =
+  'Check your email on this phone or computer and tap Sign me in. It works for 10 minutes.';
+const EXPIRED_LINK =
+  'That sign-in link has expired.';
 
 const PIN_MAX = 64;
 
@@ -37,6 +39,8 @@ export default function StaffSignInPanel({
   const linked = readLinkFromHash();
   const [email, setEmail] = useState(linked?.email || '');
   const [sent, setSent] = useState(false);
+  const [showCode, setShowCode] = useState(false);
+  const [linkExpired, setLinkExpired] = useState(false);
   const [code, setCode] = useState('');
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
@@ -93,11 +97,15 @@ export default function StaffSignInPanel({
       }
       window.localStorage.setItem('tho_passkey_email', address);
       setSent(true);
-      setNotice(GENERIC_NOTICE);
+      setShowCode(false);
+      setLinkExpired(false);
+      setNotice(SENT_NOTICE);
       setLinkToken('');
     } catch {
       setSent(true);
-      setNotice(GENERIC_NOTICE);
+      setShowCode(false);
+      setLinkExpired(false);
+      setNotice(SENT_NOTICE);
     } finally {
       setLoading(false);
     }
@@ -129,7 +137,13 @@ export default function StaffSignInPanel({
         finish();
         return;
       }
-      setError(safeUserMessage(extractErrorMessage(data), 'Invalid or expired code.'));
+      if (token) {
+        setLinkToken('');
+        setLinkExpired(true);
+        setError('');
+        return;
+      }
+      setError('That code did not work. Check the email and try the digits again.');
       setCode('');
     } catch {
       setError('Unable to verify. Please try again.');
@@ -174,9 +188,9 @@ export default function StaffSignInPanel({
           <Lock size={24} className="text-[var(--cp-accent)]" />
         </div>
       </div>
-      <h2 className="text-xl font-bold text-center text-[var(--cp-text)] mb-1">Staff sign-in</h2>
-      <p className="text-sm text-[var(--cp-muted)] text-center mb-5">
-        Enter your work email. We will send a sign-in button to that inbox.
+      <h2 className="text-3xl font-bold text-center text-[var(--cp-text)] mb-3">Staff sign-in</h2>
+      <p className="text-lg text-[var(--cp-text)] text-center mb-6 leading-relaxed">
+        Type your work email. We will email you a sign-in button.
       </p>
 
       {initialNotice && (
@@ -199,28 +213,40 @@ export default function StaffSignInPanel({
         </p>
       )}
 
-      {linkToken ? (
-        <form onSubmit={(event) => verify(event, linkToken)} className="space-y-3">
-          <p className="text-sm text-center break-all">
+      {linkExpired ? (
+        <div className="space-y-4">
+          <p role="alert" className="text-lg text-center leading-relaxed">{EXPIRED_LINK}</p>
+          <button
+            type="button"
+            disabled={loading || !email.trim()}
+            onClick={requestEmail}
+            className="cp-btn-accent w-full py-4 rounded-lg text-lg"
+          >
+            {loading ? 'Sending...' : 'Email me a new sign-in link'}
+          </button>
+        </div>
+      ) : linkToken ? (
+        <form onSubmit={(event) => verify(event, linkToken)} className="space-y-4">
+          <p className="text-lg text-center break-all">
             Signing in as <span>{email}</span>
           </p>
           <button
             type="submit"
             disabled={loading}
-            className="cp-btn-accent w-full py-3 rounded-lg text-base"
+            className="cp-btn-accent w-full py-4 rounded-lg text-lg"
           >
             {loading ? 'Signing in...' : 'Sign me in'}
           </button>
           <button
             type="button"
-            className="w-full py-2 text-xs text-[var(--cp-faint)]"
-            onClick={() => { setLinkToken(''); setSent(true); }}
+            className="w-full py-3 text-base underline"
+            onClick={() => { setLinkToken(''); setSent(true); setShowCode(true); setNotice(SENT_NOTICE); }}
           >
-            Type the code instead
+            Type the 6-digit code instead
           </button>
         </form>
       ) : !sent ? (
-        <form onSubmit={requestEmail} className="space-y-3">
+        <form onSubmit={requestEmail} className="space-y-4">
           <label className="block">
             <span className="sr-only">Work email</span>
             <input
@@ -230,7 +256,7 @@ export default function StaffSignInPanel({
               value={email}
               onChange={(event) => { setEmail(event.target.value); setError(''); }}
               placeholder="name@texashomeoutlet.com"
-              className="cp-input w-full px-3 py-3 text-base"
+              className="cp-input w-full px-4 py-4 text-lg"
               aria-label="Work email"
               autoFocus
             />
@@ -238,18 +264,29 @@ export default function StaffSignInPanel({
           <button
             type="submit"
             disabled={loading || !email.trim() || !emailReady}
-            className="cp-btn-accent w-full py-3 rounded-lg text-base flex items-center justify-center gap-2"
+            className="cp-btn-accent w-full py-4 rounded-lg text-lg flex items-center justify-center gap-2"
           >
-            {loading ? <Loader2 size={16} className="animate-spin" /> : <Mail size={16} />}
+            {loading ? <Loader2 size={20} className="animate-spin" /> : <Mail size={20} />}
             {loading ? 'Sending...' : 'Email me a sign-in link'}
           </button>
         </form>
+      ) : !showCode ? (
+        <div className="space-y-4">
+          <p role="status" className="text-lg text-center leading-relaxed">{notice || SENT_NOTICE}</p>
+          <button
+            type="button"
+            className="w-full py-3 text-base underline"
+            onClick={() => setShowCode(true)}
+          >
+            Type the 6-digit code instead
+          </button>
+        </div>
       ) : (
-        <form onSubmit={(event) => verify(event)} className="space-y-3">
-          <p className="text-sm text-center break-all">
+        <form onSubmit={(event) => verify(event)} className="space-y-4">
+          <p className="text-lg text-center break-all">
             Address entered: <span>{email.trim()}</span>
           </p>
-          {notice && <p className="text-xs text-center leading-relaxed">{notice}</p>}
+          {notice && <p className="text-base text-center leading-relaxed">{notice}</p>}
           <label className="block">
             <span className="sr-only">Sign-in code</span>
             <input
@@ -260,7 +297,7 @@ export default function StaffSignInPanel({
               value={code}
               onChange={(event) => { setCode(event.target.value.replace(/\D/g, '').slice(0, 6)); setError(''); }}
               placeholder="6-digit code"
-              className="cp-input w-full px-3 py-3 text-center text-lg tracking-[0.3em]"
+              className="cp-input w-full px-4 py-4 text-center text-2xl tracking-[0.3em]"
               aria-label="Sign-in code"
               autoFocus
             />
@@ -268,15 +305,15 @@ export default function StaffSignInPanel({
           <button
             type="submit"
             disabled={loading || !code.trim()}
-            className="cp-btn-accent w-full py-3 text-base flex items-center justify-center gap-2"
+            className="cp-btn-accent w-full py-4 text-lg flex items-center justify-center gap-2"
           >
-            {loading ? <Loader2 size={16} className="animate-spin" /> : <ShieldCheck size={16} />}
+            {loading ? <Loader2 size={20} className="animate-spin" /> : <ShieldCheck size={20} />}
             {loading ? 'Verifying...' : 'Verify'}
           </button>
           <button
             type="button"
-            onClick={() => { setSent(false); setCode(''); setError(''); setNotice(''); }}
-            className="cp-btn-outline w-full py-2 text-sm"
+            onClick={() => { setSent(false); setShowCode(false); setCode(''); setError(''); setNotice(''); }}
+            className="cp-btn-outline w-full py-3 text-base"
           >
             Change email
           </button>
@@ -284,7 +321,7 @@ export default function StaffSignInPanel({
             type="button"
             onClick={requestEmail}
             disabled={loading}
-            className="w-full py-1.5 text-xs text-[var(--cp-faint)]"
+            className="w-full py-2 text-base underline"
           >
             Resend code
           </button>
@@ -352,8 +389,8 @@ export default function StaffSignInPanel({
         )}
       </div>
 
-      <p className="mt-4 text-xs text-[var(--cp-muted)] leading-relaxed text-center">
-        Nothing arrived? Check spam. The message expires in 10 minutes. If it still does not come, ask a teammate who can sign in to add your email on the Team page. Do not send a code or PIN to anyone.
+      <p className="mt-6 text-base text-[var(--cp-muted)] leading-relaxed text-center">
+        Nothing arrived? Check spam, then tap the button again. If it still does not come, ask a teammate to add your email. Do not send a code or PIN to anyone.
       </p>
 
       {onCancel && (

@@ -80,6 +80,7 @@ function NavBar({
   navigateTo,
   adminAuthed,
   onAdminAccess,
+  onSignOut,
   onPasskeyRegister,
   passkeyLoading,
   isMobileMenuOpen,
@@ -212,6 +213,16 @@ function NavBar({
               </button>
             )}
 
+            {adminAuthed && onSignOut && (
+              <button
+                type="button"
+                onClick={onSignOut}
+                className="hidden md:inline-flex items-center px-3 py-1.5 text-sm text-[var(--cp-text)] hover:bg-[var(--cp-surface)] rounded-md"
+              >
+                Sign out
+              </button>
+            )}
+
             {/* Mobile menu button */}
             <button
               className="md:hidden p-2 hover:bg-[var(--cp-surface)] rounded-lg transition text-[var(--cp-text)]"
@@ -265,6 +276,15 @@ function NavBar({
               >
                 <KeyRound size={18} className="mr-3" />
                 Register passkey
+              </button>
+            )}
+            {adminAuthed && onSignOut && (
+              <button
+                type="button"
+                onClick={onSignOut}
+                className="flex items-center w-full py-3 px-2 text-base text-[var(--cp-text)] hover:bg-[var(--cp-surface)] rounded-lg"
+              >
+                Sign out
               </button>
             )}
           </nav>
@@ -933,6 +953,18 @@ function App() {
     }
   };
 
+  const handleSignOut = async () => {
+    try {
+      await fetch('/api/admin/logout', { method: 'POST', credentials: 'same-origin' });
+    } catch {
+      // The button still leaves the screen. The cookie clear is best-effort.
+    }
+    setAdminAuthed(false);
+    setShowPinModal(false);
+    setSignInNotice('');
+    navigateTo('inventory');
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!input.trim() || isLoading) return;
@@ -1038,7 +1070,7 @@ function App() {
   // --- PIN Modal ---
   const pinModal = showPinModal && (
     <div className="fixed inset-0 bg-black/70 z-[100] flex items-center justify-center p-4 backdrop-blur-sm" style={{ animation: 'tho-fade-in 0.15s ease' }}>
-      <div className="cp-panel p-6 sm:p-8 max-w-sm w-full max-h-[calc(100dvh-2rem)] overflow-y-auto" style={{ animation: 'tho-slide-up 0.2s ease' }}>
+      <div className="cp-panel p-6 sm:p-8 max-w-md w-full max-h-[calc(100dvh-2rem)] overflow-y-auto" style={{ animation: 'tho-slide-up 0.2s ease' }}>
         <StaffSignInPanel
           onSuccess={completeStaffSignIn}
           onCancel={() => setShowPinModal(false)}
@@ -1137,6 +1169,7 @@ function App() {
     navigateTo,
     adminAuthed,
     onAdminAccess: handleAdminAccess,
+    onSignOut: handleSignOut,
     onPasskeyRegister: openPasskeyRegisterModal,
     passkeyLoading,
     isMobileMenuOpen,
@@ -1151,16 +1184,28 @@ function App() {
       <div className="bg-[var(--cp-bg)] min-h-screen">
         {passkeyEmailModal}
         <NavBar {...navProps} />
-        <main className="max-w-sm mx-auto px-4 py-8">
-          <StaffSignInPanel
-            onSuccess={completeStaffSignIn}
-            passkeyAvailable={passkeyAvailable}
-            passkeyStatus={passkeyStatus}
-            passkeyLoading={passkeyLoading}
-            passkeyError={passkeyError}
-            onPasskeyLogin={handlePasskeyLogin}
-            initialNotice={signInNotice}
-          />
+        <main className="max-w-md mx-auto px-4 py-8">
+          {adminAuthed ? (
+            <div className="text-center">
+              <h1 className="text-3xl font-bold mb-4">You are signed in</h1>
+              <p className="text-lg leading-relaxed mb-6">
+                This phone or computer stays signed in. Use the menu for photos, documents, and the customer list.
+              </p>
+              <button type="button" onClick={handleSignOut} className="cp-btn-outline px-6 py-3 text-lg">
+                Sign out
+              </button>
+            </div>
+          ) : (
+            <StaffSignInPanel
+              onSuccess={completeStaffSignIn}
+              passkeyAvailable={passkeyAvailable}
+              passkeyStatus={passkeyStatus}
+              passkeyLoading={passkeyLoading}
+              passkeyError={passkeyError}
+              onPasskeyLogin={handlePasskeyLogin}
+              initialNotice={signInNotice}
+            />
+          )}
         </main>
       </div>
     );

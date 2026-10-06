@@ -488,7 +488,11 @@ class TestEmailSignInDelivery:
         from auth.staff_directory import set_override
 
         set_override(ALLOWED_EMAIL, "blocked")
-        assert client.get("/api/admin/check").json() == {"valid": False}
+        blocked = client.get("/api/admin/check")
+        assert blocked.json() == {"valid": False}
+        cleared = " ".join(blocked.headers.get_list("set-cookie")).lower()
+        assert "tho_admin_token=" in cleared
+        assert "max-age=0" in cleared
 
         again = client.post("/api/admin/email-code/request", json={"email": ALLOWED_EMAIL})
         assert again.status_code == 200
@@ -584,6 +588,84 @@ class TestStaffDirectoryApi:
         assert body["sign_in_path"] == "/staff"
         assert "added" not in body
         assert "owners" not in body
+
+
+def _sign_in_with_code(client, main, monkeypatch):
+    holder: dict = {}
+    monkeypatch.setattr(
+        main,
+        "send_admin_login_code",
+        lambda to, code, **k: holder.update(code=code) or {"success": True},
+        raising=False,
+    )
+    requested = client.post("/api/admin/email-code/request", json={"email": ALLOWED_EMAIL})
+    assert requested.status_code == 200
+    verified = client.post(
+        "/api/admin/email-code/verify",
+        json={"email": ALLOWED_EMAIL, "code": holder["code"]},
+    )
+    assert verified.status_code == 200, verified.text
+    return verified
+
+
+class TestStaffSessionLifetime:
+    def test_email_sign_in_cookie_lasts_30_days(self, email_client, monkeypatch):
+        client, main, _email_code = email_client
+        monkeypatch.setattr(main, "IS_LOCAL", False)
+        verified = _sign_in_with_code(client, main, monkeypatch)
+        header = " ".join(verified.headers.get_list("set-cookie"))
+        assert "Max-Age=2592000" in header
+        assert "HttpOnly" in header
+        assert "Secure" in header
+        assert "SameSite=strict" in header
+        expires, email = main._decode_admin_token(verified.cookies["tho_admin_token"])
+        assert email == ALLOWED_EMAIL
+        remaining = expires - time.time()
+        assert 30 * 24 * 60 * 60 - 120 < remaining <= 30 * 24 * 60 * 60
+
+    def test_session_slides_forward_after_it_has_been_used(self, email_client, monkeypatch):
+        client, main, _email_code = email_client
+        _sign_in_with_code(client, main, monkeypatch)
+        fresh = client.get("/api/admin/check")
+        assert fresh.json() == {"valid": True}
+        assert fresh.headers.get_list("set-cookie") == []
+
+        now = time.time()
+        monkeypatch.setattr(main.time, "time", lambda: now - 2 * 60 * 60)
+        old = main._create_admin_token(ALLOWED_EMAIL)
+        old_expires = main._decode_admin_token(old)[0]
+        monkeypatch.setattr(main.time, "time", lambda: now)
+        client.cookies.set("tho_admin_token", old)
+        slid = client.get("/api/admin/check")
+        assert slid.json() == {"valid": True}
+        new_expires = main._decode_admin_token(slid.cookies["tho_admin_token"])[0]
+        assert new_expires > old_expires
+        assert new_expires > now + 29 * 24 * 60 * 60
+
+    def test_sign_out_ends_the_session_on_this_device(self, email_client, monkeypatch):
+        client, main, _email_code = email_client
+        _sign_in_with_code(client, main, monkeypatch)
+        signed_out = client.post("/api/admin/logout")
+        assert signed_out.status_code == 200
+        assert client.get("/api/admin/check").json() == {"valid": False}
+
+    def test_pin_sign_in_uses_the_same_30_day_cookie(self, email_client, monkeypatch):
+        client, main, _email_code = email_client
+        import hashlib
+
+        pin = "4832"
+        monkeypatch.setattr(main, "ADMIN_PIN_HASH", hashlib.sha256(pin.encode()).hexdigest())
+        monkeypatch.setattr(main, "IS_LOCAL", False)
+        response = client.post("/api/admin/verify", json={"pin": pin})
+        assert response.status_code == 200, response.text
+        header = " ".join(response.headers.get_list("set-cookie"))
+        assert "Max-Age=2592000" in header
+        assert "HttpOnly" in header
+        assert "Secure" in header
+        assert "SameSite=strict" in header
+        expires, email = main._decode_admin_token(response.cookies["tho_admin_token"])
+        assert email is None
+        assert expires - time.time() > 29 * 24 * 60 * 60
 
         monkeypatch.delenv("RESEND_API_KEY", raising=False)
         missing = client.get("/api/admin/sign-in/options")

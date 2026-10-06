@@ -890,11 +890,61 @@ def _should_redirect_to_canonical_host(request: Request) -> bool:
         return False
     if path in _STATIC_RATE_LIMIT_PATHS:
         return False
+    # Staff entry pages are handled by staff_front_door_target, including the
+    # candidate host, which must keep /staff instead of bouncing to production.
+    if _is_staff_entry_path(path):
+        return False
     return True
+
+
+_STAFF_ENTRY_PATHS = {"/admin", "/login", "/admin/login", "/staff"}
+_LOCAL_STAFF_HOSTS = {"localhost", "127.0.0.1", "testserver"}
+STAFF_FRONT_DOOR = f"{CANONICAL_PUBLIC_URL}/staff"
+
+
+def _request_hostname(request: Request) -> str:
+    host = request.headers.get("host", "")
+    return host.split(":", 1)[0].lower().rstrip(".")
+
+
+def _normalized_path(path: str) -> str:
+    trimmed = (path or "/").rstrip("/")
+    return trimmed or "/"
+
+
+def _is_staff_entry_path(path: str) -> bool:
+    return _normalized_path(path) in _STAFF_ENTRY_PATHS
+
+
+def staff_front_door_target(request: Request) -> str | None:
+    """Send old staff entry URLs to the one sign-in page.
+
+    Local tests and the Cloud Run candidate stay on their own host so a
+    no-traffic revision can be opened. Apex, www aliases, and the old
+    sapphire host always land on https://www.texashomeoutlet.com/staff.
+    """
+    if request.method.upper() not in {"GET", "HEAD"}:
+        return None
+    if not _is_staff_entry_path(request.url.path):
+        return None
+    host = _request_hostname(request)
+    if host in _LOCAL_STAFF_HOSTS:
+        return None
+    normalized = _normalized_path(request.url.path)
+    if host.endswith(".run.app"):
+        if normalized == "/staff" and request.url.path == "/staff":
+            return None
+        return f"https://{host}/staff"
+    if host == _CANONICAL_PUBLIC_HOST and request.url.path == "/staff":
+        return None
+    return STAFF_FRONT_DOOR
 
 
 class CanonicalHostMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
+        staff_target = staff_front_door_target(request)
+        if staff_target:
+            return RedirectResponse(staff_target, status_code=308)
         if _should_redirect_to_canonical_host(request):
             target = urlunsplit(
                 (
@@ -961,7 +1011,12 @@ elif not os.environ.get("ADMIN_SESSION_SECRET"):
         os.environ["ADMIN_SESSION_SECRET"] = _derived_secret
         logger.info("ADMIN_SESSION_SECRET derived from PIN hash for local stability")
 
-ADMIN_TOKEN_TTL = int(os.environ.get("ADMIN_TOKEN_TTL", str(24 * 60 * 60)))  # 24 hours
+# Staff stay signed in on that device for 30 days. Each later visit slides the
+# window forward. ADMIN_TOKEN_TTL still overrides this for tests and operators.
+ADMIN_TOKEN_TTL = int(os.environ.get("ADMIN_TOKEN_TTL", str(30 * 24 * 60 * 60)))
+# Refresh once the cookie is at least an hour old so a busy day does not
+# rewrite the session on every request.
+_STAFF_SESSION_SLIDE_AFTER = 60 * 60
 # Separate PIN tokens from passkey cookies and bind the entire verifier so
 # either secret rotation or PIN rotation revokes existing PIN sessions.
 # No legacy-key fallback: older PIN cookies must sign in again after promotion.
@@ -1041,6 +1096,88 @@ def _get_passkey_session_manager() -> SessionManager:
     if _passkey_session_manager is None:
         _passkey_session_manager = SessionManager()
     return _passkey_session_manager
+
+
+def _attach_staff_session_cookies(response: Response, token: str, csrf_token: str) -> None:
+    """Set the staff session. HttpOnly, Secure outside local dev, SameSite=strict."""
+    response.set_cookie(
+        key="tho_admin_token",
+        value=token,
+        httponly=True,
+        secure=not IS_LOCAL,
+        samesite="strict",
+        max_age=ADMIN_TOKEN_TTL,
+        path="/",
+    )
+    set_csrf_cookie(
+        response,
+        csrf_token,
+        secure=not IS_LOCAL,
+        max_age=ADMIN_TOKEN_TTL,
+    )
+
+
+def _clear_staff_session_cookies(response: Response) -> None:
+    """Drop PIN, email, and passkey cookies so Sign out really signs out."""
+    flags = {"path": "/", "secure": not IS_LOCAL, "samesite": "strict"}
+    response.delete_cookie("tho_admin_token", **flags)
+    response.delete_cookie("tho_csrf_token", **flags)
+    response.delete_cookie("tho_passkey_session", **flags)
+
+
+def _response_clears_staff_cookie(response: Response) -> bool:
+    for raw in response.headers.getlist("set-cookie"):
+        lower = raw.lower()
+        if lower.startswith("tho_admin_token=") and "max-age=0" in lower:
+            return True
+    return False
+
+
+def _maybe_slide_staff_session(request: Request, response: Response) -> None:
+    """Extend a still-valid staff cookie so 30 days counts from last use."""
+    if _response_clears_staff_cookie(response):
+        return
+    token = request.cookies.get("tho_admin_token", "").strip()
+    if not token or not _verify_admin_token(token):
+        return
+    decoded = _decode_admin_token(token)
+    if decoded is None:
+        return
+    expires, email = decoded
+    remaining = expires - time.time()
+    if remaining > ADMIN_TOKEN_TTL - _STAFF_SESSION_SLIDE_AFTER:
+        return
+    try:
+        fresh = _create_admin_token(email)
+    except RuntimeError:
+        return
+    response.set_cookie(
+        key="tho_admin_token",
+        value=fresh,
+        httponly=True,
+        secure=not IS_LOCAL,
+        samesite="strict",
+        max_age=ADMIN_TOKEN_TTL,
+        path="/",
+    )
+    csrf = request.cookies.get("tho_csrf_token", "")
+    if csrf:
+        set_csrf_cookie(
+            response,
+            csrf,
+            secure=not IS_LOCAL,
+            max_age=ADMIN_TOKEN_TTL,
+        )
+
+
+class StaffSessionSlideMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        _maybe_slide_staff_session(request, response)
+        return response
+
+
+app.add_middleware(StaffSessionSlideMiddleware)
 
 
 def _verify_admin_token(token: str) -> bool:
@@ -6592,20 +6729,7 @@ async def verify_admin_pin(request: Request):
         request=request,
     )
     response = JSONResponse({"success": True, "csrf_token": csrf_token})
-    response.set_cookie(
-        key="tho_admin_token",
-        value=token,
-        httponly=True,
-        secure=not IS_LOCAL,
-        samesite="strict",
-        max_age=ADMIN_TOKEN_TTL,
-    )
-    set_csrf_cookie(
-        response,
-        csrf_token,
-        secure=not IS_LOCAL,
-        max_age=ADMIN_TOKEN_TTL,
-    )
+    _attach_staff_session_cookies(response, token, csrf_token)
     return response
 
 
@@ -6618,9 +6742,29 @@ async def check_admin_token(request: Request):
     token = request.cookies.get("tho_admin_token", "")
     if not token:
         token = _admin_token_from_request(request)
+    decoded = _decode_admin_token(token) if token else None
+    if (
+        decoded is not None
+        and time.time() < decoded[0]
+        and decoded[1] is not None
+        and not is_allowed_admin_email(decoded[1])
+    ):
+        # Blocking the email ends that session now, not when the cookie ages out.
+        response = JSONResponse({"valid": False})
+        _clear_staff_session_cookies(response)
+        return response
     if _verify_admin_token(token):
         return {"valid": True}
     return {"valid": False}
+
+
+@app.post("/api/admin/logout")
+@limiter.limit("30/minute")
+async def logout_admin(request: Request):
+    """Clear the staff session on this device. No message is sent."""
+    response = JSONResponse({"success": True})
+    _clear_staff_session_cookies(response)
+    return response
 
 
 @app.get("/api/admin/audit-log", dependencies=[Depends(require_admin)])
@@ -8602,20 +8746,7 @@ async def verify_admin_email_code(request: Request):
         request=request,
     )
     response = JSONResponse({"success": True, "csrf_token": csrf_token})
-    response.set_cookie(
-        key="tho_admin_token",
-        value=token,
-        httponly=True,
-        secure=not IS_LOCAL,
-        samesite="strict",
-        max_age=ADMIN_TOKEN_TTL,
-    )
-    set_csrf_cookie(
-        response,
-        csrf_token,
-        secure=not IS_LOCAL,
-        max_age=ADMIN_TOKEN_TTL,
-    )
+    _attach_staff_session_cookies(response, token, csrf_token)
     return response
 
 
