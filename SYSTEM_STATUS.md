@@ -2,7 +2,7 @@
 
 **Last Updated:** 2026-02-25  
 **Environment:** Production (Cloud Run)  
-**Service URL:** https://tho-agent-s77j6bxyra-uc.a.run.app
+**Service URL:** https://www.texashomeoutlet.com (Cloud Run service `project-go-forward`, us-central1)
 
 ---
 

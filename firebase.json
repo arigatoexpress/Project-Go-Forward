@@ -7,7 +7,7 @@
       {
         "source": "**",
         "run": {
-          "serviceId": "tho-agent",
+          "serviceId": "project-go-forward",
           "region": "us-central1"
         }
       }
