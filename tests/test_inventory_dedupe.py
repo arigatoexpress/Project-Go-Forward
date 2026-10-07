@@ -1,16 +1,19 @@
-"""Manage Inventory showed 4 homes twice ("PRE-OWNED / Big Blue" + "Big Blue",
-Heritage 1684-32A, Select S-1256-21A, Select S-1272-32A).
+"""Inventory twins: staff list and public /inventory must collapse the same way.
 
-The legacy-snapshot seeder keeps the website title with its "PRE-OWNED /"
-prefix under the legacy listing id, while other writers store the bare model
-name under a different doc id. ``/api/inventory`` listed every document as-is.
-The fix is display-only: records are annotated, Firestore is never written.
+Manage Inventory showed 4 homes twice ("PRE-OWNED / Big Blue" + "Big Blue",
+Heritage 1684-32A, Select S-1256-21A, Select S-1272-32A). The public browse
+page used a different feed and still showed those twins, plus website-title
+pairs like "The Razor" / floorplan-227314.
+
+The shared helper annotates copies; staff hides them in the UI and the public
+feed drops them before responding. Firestore is never written.
 
 Run: python -m pytest tests/test_inventory_dedupe.py -v
 """
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -20,6 +23,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from tools.inventory_dedupe import (  # noqa: E402
     annotate_possible_duplicates,
+    collapse_duplicate_homes,
     is_active_status,
     normalize_model_key,
 )
@@ -128,8 +132,12 @@ def test_admin_inventory_endpoint_annotates_without_writing(monkeypatch):
     client, main, fake_db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
     fake_db.collections["inventory"].update(
         {
-            "44490": {"id": "44490", "model_name": "PRE-OWNED / Big Blue", "status": "AVAILABLE",
-                      "legacy_inventory_id": "44490"},
+            "44490": {
+                "id": "44490",
+                "model_name": "PRE-OWNED / Big Blue",
+                "status": "AVAILABLE",
+                "legacy_inventory_id": "44490",
+            },
             "fs-big-blue": {"id": "fs-big-blue", "model_name": "Big Blue", "status": "AVAILABLE"},
         }
     )
@@ -144,3 +152,152 @@ def test_admin_inventory_endpoint_annotates_without_writing(monkeypatch):
     assert rows["44490"]["stock_number"] == "44490"
 
     assert fake_db.collections["inventory"] == before
+
+
+def test_collapse_duplicate_homes_keeps_richer_record_and_can_strip_hints():
+    homes = [
+        {"id": "44490", "model_name": "PRE-OWNED / Big Blue", "status": "AVAILABLE"},
+        {
+            "id": "big-blue",
+            "model_name": "Big Blue",
+            "status": "AVAILABLE",
+            "real_photos": ["lot.jpg"],
+            "serial_number": "S1",
+        },
+    ]
+    visible = collapse_duplicate_homes(homes, strip_annotations=True)
+    assert [h["id"] for h in visible] == ["big-blue"]
+    assert "possible_duplicate_ids" not in visible[0]
+    assert "duplicate_of" not in visible[0]
+
+
+def _public_inventory_client(monkeypatch, homes):
+    from tests.test_api_v1 import _isolate_inventory_merge, create_client
+
+    client, main, _db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
+    monkeypatch.setenv("INVENTORY_SOURCE", "firestore")
+    _isolate_inventory_merge(monkeypatch, main)
+    payload = {
+        "success": True,
+        "source": "staff_inventory_with_catalog",
+        "homes": [dict(home) for home in homes],
+        "total_inventory": len(homes),
+    }
+    monkeypatch.setattr(main, "get_inventory_for_ads", lambda **_kwargs: dict(payload))
+    return client, main
+
+
+def test_public_inventory_collapses_preowned_and_website_title_twins(monkeypatch):
+    client, main = _public_inventory_client(
+        monkeypatch,
+        [
+            {"id": "44490", "model_name": "PRE-OWNED / Big Blue", "status": "AVAILABLE"},
+            {
+                "id": "big-blue",
+                "model_name": "Big Blue",
+                "status": "AVAILABLE",
+                "real_photos": ["lot.jpg"],
+            },
+            {"id": "43945", "model_name": "PRE-OWNED / Heritage 1684-32A", "status": "AVAILABLE"},
+            {"id": "heritage", "model_name": "Heritage 1684-32A", "status": "AVAILABLE"},
+            {"id": "43944", "model_name": "PRE-OWNED / Select S-1256-21A", "status": "AVAILABLE"},
+            {"id": "select-1256", "model_name": "Select S-1256-21A", "status": "AVAILABLE"},
+            {"id": "43943", "model_name": "PRE-OWNED / Select S-1272-32A", "status": "AVAILABLE"},
+            {"id": "select-1272", "model_name": "Select S-1272-32A", "status": "AVAILABLE"},
+            {
+                "id": "the-razor",
+                "model_name": "The Razor",
+                "status": "Available",
+                "real_photos": ["a.jpg", "b.jpg"],
+            },
+            {
+                "id": "floorplan-227314",
+                "model_name": "New Vision / The Razor",
+                "status": "Orderable",
+                "real_photos": ["a.jpg"],
+            },
+        ],
+    )
+
+    data = client.get("/api/marketing/inventory-context").json()
+    ids = [home["id"] for home in data["homes"]]
+    assert ids == ["big-blue", "heritage", "select-1256", "select-1272", "the-razor"]
+    assert data["total_inventory"] == 5
+    assert all("duplicate_of" not in home for home in data["homes"])
+    assert all("possible_duplicate_ids" not in home for home in data["homes"])
+    assert main._seo_public_homes()["homes"] == data["homes"]
+
+
+def test_public_inventory_keeps_distinct_homes_that_only_share_a_model(monkeypatch):
+    client, _main = _public_inventory_client(
+        monkeypatch,
+        [
+            {"id": "lot-a", "model_name": "The Nassau"},
+            {"id": "lot-b", "model_name": "The Nassau"},
+            {"id": "with-serial", "model_name": "The Nassau", "serial_number": "TXL111"},
+            {"id": "no-serial", "model_name": "The Nassau"},
+        ],
+    )
+
+    data = client.get("/api/marketing/inventory-context").json()
+    assert [home["id"] for home in data["homes"]] == [
+        "lot-a",
+        "lot-b",
+        "with-serial",
+        "no-serial",
+    ]
+    assert data["total_inventory"] == 4
+
+
+def test_public_inventory_collapses_same_serial_only(monkeypatch):
+    client, _main = _public_inventory_client(
+        monkeypatch,
+        [
+            {"id": "a", "model_name": "The Nassau", "serial_number": "TXL111"},
+            {"id": "b", "model_name": "PRE-OWNED / The Nassau", "serial_number": "txl111"},
+            {"id": "c", "model_name": "The Nassau", "serial_number": "TXL222"},
+            {"id": "d", "model_name": "The Nassau"},
+        ],
+    )
+
+    data = client.get("/api/marketing/inventory-context").json()
+    assert [home["id"] for home in data["homes"]] == ["a", "c", "d"]
+    assert data["total_inventory"] == 3
+
+
+def test_public_inventory_saved_legacy_sample_before_after_counts(monkeypatch):
+    """Pin visitor-visible counts against the saved live snapshot + catalog."""
+    from tests.test_api_v1 import create_client
+    from tools.catalog_floorplans import merge_orderable_floorplan_catalog
+
+    snapshot = json.loads(
+        (REPO_ROOT / "data" / "legacy_site" / "legacy_inventory_context.json").read_text()
+    )
+    catalog = json.loads(
+        (REPO_ROOT / "data" / "legacy_site" / "legacy_floorplan_catalog_context.json").read_text()
+    )
+    before = merge_orderable_floorplan_catalog(
+        snapshot,
+        assets={},
+        floorplan_context=catalog,
+    )
+
+    client, main, _db, _logger = create_client(monkeypatch, tho_api_key="tho-secret")
+    monkeypatch.delenv("INVENTORY_SOURCE", raising=False)
+    monkeypatch.setattr(main, "load_legacy_inventory_context", lambda **_kwargs: dict(snapshot))
+    monkeypatch.setattr(
+        main, "load_legacy_floorplan_catalog_context", lambda **_kwargs: dict(catalog)
+    )
+    monkeypatch.setattr(main, "PROPERTY_ASSETS", {})
+    monkeypatch.setattr(main, "_overlay_staff_photos", lambda homes: None)
+
+    after = client.get("/api/marketing/inventory-context").json()
+    assert after["success"] is True
+    assert after["total_inventory"] == len(after["homes"])
+    # The saved snapshot has the four prefixed website titles but not their
+    # bare-name Firestore twins, so this sample does not shrink. The live
+    # public feed (Firestore + website homes) is covered by the tests above.
+    assert before["total_inventory"] == 279
+    assert after["total_inventory"] == 279
+    shown_ids = {str(home["id"]) for home in after["homes"]}
+    assert {"44490", "43945", "43944", "43943"} <= shown_ids

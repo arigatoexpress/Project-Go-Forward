@@ -3,12 +3,15 @@
 The Firestore ``inventory`` collection is written by several importers that key
 documents differently: the legacy-snapshot seeder uses the legacy listing id and
 keeps the website title (``"PRE-OWNED / Big Blue"``), while other writers store
-the bare model name (``"Big Blue"``) under a different doc id. The staff list
-read every document as-is, so one home showed twice.
+the bare model name (``"Big Blue"``) under a different doc id. Website-title
+pairs like ``The Razor`` next to ``New Vision / The Razor`` (floorplan-227314)
+are the same physical plan under two ids.
 
-This module never writes. It annotates a list of homes so the staff UI can show
-each home once and surface a "possible duplicate" hint with the record ids, and
-the owner decides what (if anything) to clean up in the data.
+This module never writes. ``annotate_possible_duplicates`` marks copies in
+place so the staff UI can show each home once and surface a hint. The public
+feed calls ``collapse_duplicate_homes`` (same rule, then drop the copies) so
+visitors see one card. The owner still decides what, if anything, to clean up
+in the data.
 """
 
 from __future__ import annotations
@@ -155,3 +158,23 @@ def annotate_possible_duplicates(homes: list[dict]) -> list[dict]:
             for other in others:
                 other["duplicate_of"] = str(primary["id"])
     return homes
+
+
+def collapse_duplicate_homes(
+    homes: list[dict],
+    *,
+    strip_annotations: bool = False,
+) -> list[dict]:
+    """Apply the shared rule, then keep one record per duplicated home.
+
+    Staff lists call ``annotate_possible_duplicates`` and hide copies in the
+    UI. The public feed calls this so visitors never see the twin. Ranking is
+    unchanged: the richer record (serial, photos, clean name) wins.
+    """
+    annotate_possible_duplicates(homes)
+    visible = [home for home in homes if not home.get("duplicate_of")]
+    if strip_annotations:
+        for home in visible:
+            home.pop("possible_duplicate_ids", None)
+            home.pop("duplicate_of", None)
+    return visible

@@ -164,7 +164,7 @@ from tools.contact_capture import (
     capture_explicit_contact,
 )
 from tools.input_sanitizer import sanitize_body, sanitize_query_params
-from tools.inventory_dedupe import annotate_possible_duplicates
+from tools.inventory_dedupe import annotate_possible_duplicates, collapse_duplicate_homes
 from tools.pii_guard import redact_pii_from_text, validate_no_pii_in_text
 from tools.user_activity_log import log_user_action, query_user_activity
 
@@ -5113,7 +5113,13 @@ async def docuseal_webhook(request: Request):
 
 # ─── Marketing API (Tex's Ad Studio) ───
 from tools.asset_scraper import PROPERTY_ASSETS, get_matterport_url
-from tools.catalog_floorplans import merge_orderable_floorplan_catalog
+from tools.catalog_floorplans import (
+    AVAILABLE_KIND,
+    ORDERABLE_KIND,
+    PREOWNED_KIND,
+    classify_inventory_kind,
+    merge_orderable_floorplan_catalog,
+)
 from tools.inventory_source_status import (
     automatic_firestore_eligible,
     load_legacy_inventory_snapshot_metadata,
@@ -5593,14 +5599,45 @@ def _canonicalize_inventory_context(result: dict) -> dict:
     return canonical
 
 
+def _refresh_public_inventory_counts(result: dict) -> dict:
+    """Keep public totals in sync after collapsing duplicate listings."""
+    homes = [home for home in result.get("homes") or [] if isinstance(home, dict)]
+    available_now = sum(1 for home in homes if classify_inventory_kind(home) == AVAILABLE_KIND)
+    preowned = sum(1 for home in homes if classify_inventory_kind(home) == PREOWNED_KIND)
+    orderable = sum(1 for home in homes if classify_inventory_kind(home) == ORDERABLE_KIND)
+    result["total_inventory"] = len(homes)
+    result["returned_inventory"] = len(homes)
+    result["current_inventory_count"] = available_now + preowned
+    result["available_now"] = available_now
+    result["preowned_homes"] = preowned
+    result["orderable_floorplans"] = orderable
+    summary = result.get("catalog_summary")
+    if isinstance(summary, dict):
+        result["catalog_summary"] = {
+            **summary,
+            "available_now": available_now,
+            "pre_owned": preowned,
+            "orderable_floorplans": orderable,
+            "total_public_homes": len(homes),
+        }
+    return result
+
+
+def _apply_public_inventory_dedupe(result: dict) -> dict:
+    """Hide the same twins the staff list already collapses, on the public feed."""
+    homes = [home for home in result.get("homes") or [] if isinstance(home, dict)]
+    result["homes"] = collapse_duplicate_homes(homes, strip_annotations=True)
+    return _refresh_public_inventory_counts(result)
+
+
 def _annotate_inventory_context(
     result: dict,
     *,
     requested: str,
     selected_path: str,
 ) -> dict:
-    """Attach PII-free provenance/freshness without changing serving behavior."""
-    annotated = _canonicalize_inventory_context(result)
+    """Attach PII-free provenance/freshness and collapse public listing twins."""
+    annotated = _apply_public_inventory_dedupe(_canonicalize_inventory_context(result))
     status = source_status(
         annotated,
         requested=requested,
