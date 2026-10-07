@@ -30,6 +30,7 @@ from tools.document_quality import (
 # Local imports
 from tools.document_tools import DOCUMENTS_DIR, OUTPUT_DIR, fill_pdf_form, upload_to_gcs
 from tools.drive_service import ensure_deal_folder, upload_to_drive
+from tools.form_set import dedupe_packet_templates
 
 logger = logging.getLogger(__name__)
 
@@ -169,8 +170,7 @@ def resolve_form_set(template_names: list[str], data: dict[str, Any]) -> list[st
     """
     rules = get_form_set_rules()
     if not rules:
-        # No config: still guarantee no exact duplicates (cheap C1 safety net).
-        return list(dict.fromkeys(template_names))
+        return dedupe_packet_templates(template_names)
 
     result = list(template_names)
 
@@ -193,18 +193,8 @@ def resolve_form_set(template_names: list[str], data: dict[str, Any]) -> list[st
     if used_only and _resolve_is_new(data):
         result = [tpl for tpl in result if tpl not in used_only]
 
-    # 3. C1/C2 — collapse duplicate groups to the first present member.
-    for group in rules.get("duplicate_groups", []) or []:
-        members = group.get("keep_first_present", []) or []
-        present = [tpl for tpl in members if tpl in result]
-        if len(present) <= 1:
-            continue
-        keeper = present[0]
-        drop = set(present[1:])
-        result = [tpl for tpl in result if tpl == keeper or tpl not in drop]
-
-    # Final safety net: drop any remaining exact-duplicate names (C1).
-    return list(dict.fromkeys(result))
+    # 3. C1/C2/C4 — collapse duplicate groups and exact repeats.
+    return dedupe_packet_templates(result)
 
 
 # ─── Pydantic Models ────────────────────────────────────────────────────────
@@ -753,6 +743,11 @@ class DocumentEngineV2:
         """
         Generate multiple documents and optionally merge.
         """
+        requested = list(template_names)
+        template_names = dedupe_packet_templates(requested)
+        duplicates_removed = [tpl for tpl in dict.fromkeys(requested) if tpl not in template_names]
+        if duplicates_removed:
+            logger.info(f"Dropped duplicate/older-edition forms from batch: {duplicates_removed}")
         data = enrich_document_data(data)
         quality_failure = self._quality_gate(data, template_names)
         if quality_failure:
@@ -838,6 +833,7 @@ class DocumentEngineV2:
             "merged": merged,
             "total": len(template_names),
             "successful": len(successful_files),
+            "duplicates_removed": duplicates_removed,
         }
 
     def generate_packet(
