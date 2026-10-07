@@ -275,12 +275,21 @@ class TestRealSalesContractValues:
         assert values["topmostSubform[0].Page2[0].Max_Financed[0]"] == "75,000.00"
         assert any(v == "Clayton" for v in values.values())
 
-    def test_no_printed_money_line_is_blank(self, filled):
+    def test_printed_money_lines_match_the_deal(self, filled):
         doc, values = filled
-        problems = esign_review.printed_money_problems(SALES_CONTRACT, values, doc)
-        assert not [p for p in problems if p["code"] == "printed_money_blank"]
-        # Only the escrow-inclusive monthly payment may disagree (escrow print fix pending).
-        assert {p["field"] for p in problems} <= {"total_monthly_payment"}
+        assert values["topmostSubform[0].Page2[0].Total_Payment[0]"] == "884.20"
+        assert esign_review.printed_money_problems(SALES_CONTRACT, values, doc) == []
+
+    def test_complete_deal_is_ready_end_to_end(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(document_tools, "OUTPUT_DIR", str(tmp_path))
+        monkeypatch.setattr(document_tools, "upload_to_gcs", lambda *a, **k: None)
+        prepared = esign_review.prepare_signing_packet(
+            doc_data=_ready_doc_data(),
+            template_name=SALES_CONTRACT,
+            generate=generate_document,
+        )
+        assert prepared["ready"] is True, prepared["problems"]
+        assert prepared["values"]["topmostSubform[0].Page1[0].SalePrice[0]"] == "80,000.00"
 
 
 # ─── DocuSeal service safety ────────────────────────────────────────────────
