@@ -16,9 +16,11 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from pypdf import PdfReader, PdfWriter
 
 from config.field_map_loader import get_field_map, get_form_set_rules
+from tools import document_quality
 from tools.document_quality import (
     PRODUCTION_BLOCKED_TEMPLATES,
     enrich_document_data,
+    monthly_escrow_amount,
     normalize_section_count,
     quality_failure_response,
     validate_document_quality,
@@ -28,6 +30,7 @@ from tools.document_quality import (
 # Local imports
 from tools.document_tools import DOCUMENTS_DIR, OUTPUT_DIR, fill_pdf_form, upload_to_gcs
 from tools.drive_service import ensure_deal_folder, upload_to_drive
+from tools.form_set import dedupe_packet_templates
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +72,7 @@ LEGACY_FIELD_SOURCES: dict[str, tuple[str, ...]] = {
     "apr": ("financial.apr",),
     "interest_rate": ("financial.apr",),
     "monthly_payment": ("financial.monthly_payment",),
-    "total_monthly_payment": ("financial.monthly_payment",),
+    "total_monthly_payment": ("financial.total_monthly_payment",),
     "total_payments": ("financial.total_of_payments",),
     "total_paid": ("financial.total_paid", "financial.total_sale_price"),
     "total_sale_price": ("financial.total_sale_price", "financial.total_paid"),
@@ -167,8 +170,7 @@ def resolve_form_set(template_names: list[str], data: dict[str, Any]) -> list[st
     """
     rules = get_form_set_rules()
     if not rules:
-        # No config: still guarantee no exact duplicates (cheap C1 safety net).
-        return list(dict.fromkeys(template_names))
+        return dedupe_packet_templates(template_names)
 
     result = list(template_names)
 
@@ -191,18 +193,8 @@ def resolve_form_set(template_names: list[str], data: dict[str, Any]) -> list[st
     if used_only and _resolve_is_new(data):
         result = [tpl for tpl in result if tpl not in used_only]
 
-    # 3. C1/C2 — collapse duplicate groups to the first present member.
-    for group in rules.get("duplicate_groups", []) or []:
-        members = group.get("keep_first_present", []) or []
-        present = [tpl for tpl in members if tpl in result]
-        if len(present) <= 1:
-            continue
-        keeper = present[0]
-        drop = set(present[1:])
-        result = [tpl for tpl in result if tpl == keeper or tpl not in drop]
-
-    # Final safety net: drop any remaining exact-duplicate names (C1).
-    return list(dict.fromkeys(result))
+    # 3. C1/C2/C4 — collapse duplicate groups and exact repeats.
+    return dedupe_packet_templates(result)
 
 
 # ─── Pydantic Models ────────────────────────────────────────────────────────
@@ -290,10 +282,13 @@ class FinancialModel(BaseModel):
     total_paid: Decimal | None = None
     total_sale_price: Decimal | None = None
     payment_breakdown: str | None = None
+    # Monthly tax + insurance escrow; added to the payment, never to finance charge.
+    monthly_escrow: Decimal = Field(default=Decimal("0"), decimal_places=2)
 
     # Computed fields
     loan_amount: Decimal | None = None
     monthly_payment: Decimal | None = None
+    total_monthly_payment: Decimal | None = None
     total_of_payments: Decimal | None = None
     finance_charge: Decimal | None = None
 
@@ -344,6 +339,16 @@ class FinancialModel(BaseModel):
             return None if cleaned == "" else cleaned
         return value
 
+    @field_validator("monthly_escrow", mode="before")
+    @classmethod
+    def default_blank_escrow(cls, value: Any) -> Any:
+        if value is None:
+            return Decimal("0")
+        if isinstance(value, str):
+            cleaned = value.replace(",", "").replace("$", "").strip()
+            return Decimal("0") if cleaned == "" else cleaned
+        return value
+
     @model_validator(mode="after")
     def compute_fields(self):
         self.loan_amount = self.sales_price - self.down_payment
@@ -363,18 +368,27 @@ class FinancialModel(BaseModel):
                 Decimal("0.01")
             )
 
-        self.total_of_payments = (self.monthly_payment * self.loan_term).quantize(
+        principal_and_interest_total = (self.monthly_payment * self.loan_term).quantize(
             Decimal("0.01"), rounding=ROUND_HALF_UP
         )
+        self.total_monthly_payment = (self.monthly_payment + self.monthly_escrow).quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_UP
+        )
+        if document_quality.TOTAL_OF_PAYMENTS_INCLUDES_ESCROW:
+            self.total_of_payments = (self.total_monthly_payment * self.loan_term).quantize(
+                Decimal("0.01"), rounding=ROUND_HALF_UP
+            )
+        else:
+            self.total_of_payments = principal_and_interest_total
         self.total_paid = (self.total_of_payments + self.down_payment).quantize(
             Decimal("0.01"), rounding=ROUND_HALF_UP
         )
         self.total_sale_price = self.total_paid
-        self.finance_charge = (self.total_of_payments - self.loan_amount).quantize(
+        self.finance_charge = (principal_and_interest_total - self.loan_amount).quantize(
             Decimal("0.01"), rounding=ROUND_HALF_UP
         )
         self.payment_breakdown = (
-            f"{self.loan_term} monthly payments of ${self.monthly_payment:,.2f}"
+            f"{self.loan_term} monthly payments of ${self.total_monthly_payment:,.2f}"
         )
         return self
 
@@ -469,6 +483,7 @@ class UnifiedPayload(BaseModel):
             elif k in ["generation_id", "generation_timestamp", "generated_by"]:
                 normalized["meta"][k] = v
 
+        normalized["financial"]["monthly_escrow"] = monthly_escrow_amount(data)
         return cls(**normalized)
 
 
@@ -649,6 +664,8 @@ class DocumentEngineV2:
                                 "unpaid_balance",
                                 "total_unpaid_balance",
                                 "finance_charge",
+                                "tax_escrow_payment",
+                                "insurance_premium_monthly",
                             ]
                         ):
                             try:
@@ -726,6 +743,11 @@ class DocumentEngineV2:
         """
         Generate multiple documents and optionally merge.
         """
+        requested = list(template_names)
+        template_names = dedupe_packet_templates(requested)
+        duplicates_removed = [tpl for tpl in dict.fromkeys(requested) if tpl not in template_names]
+        if duplicates_removed:
+            logger.info(f"Dropped duplicate/older-edition forms from batch: {duplicates_removed}")
         data = enrich_document_data(data)
         quality_failure = self._quality_gate(data, template_names)
         if quality_failure:
@@ -811,6 +833,7 @@ class DocumentEngineV2:
             "merged": merged,
             "total": len(template_names),
             "successful": len(successful_files),
+            "duplicates_removed": duplicates_removed,
         }
 
     def generate_packet(
