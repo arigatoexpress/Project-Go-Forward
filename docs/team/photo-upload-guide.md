@@ -15,8 +15,7 @@ automatically — usually within a minute.
 - A computer, phone, or tablet.
 - The photos saved on that device (from your camera roll, Photos app, or a
   folder). JPG, PNG, WebP, and GIF pictures all work.
-- The admin **PIN** (the same number you use to get into Documents and CRM). If
-  you don't have it, ask Ari.
+- Your work email, so you can sign in. See [How to sign in](staff-sign-in.md).
 
 ---
 
