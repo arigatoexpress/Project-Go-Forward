@@ -20,19 +20,12 @@ REDIRECTS = {301, 302, 307, 308}
 HOSTS = ("www.texashomeoutlet.com", "texashomeoutlet.com", "testserver")
 MAX_HOPS = 5
 
-# /privacy and /terms are not on main yet: the legal copy is waiting on owner
-# review in draft PRs #368 / #372. strict=True turns this into a failure the
-# moment they ship, so the marker has to be removed and the routes stay guarded.
-LEGAL_PENDING = pytest.mark.xfail(
-    strict=True, reason="legal pages pending owner review (PRs #368 / #372)"
-)
-
 CRITICAL_ROUTES = [
     "/",
     "/staff",
     "/photos",
-    pytest.param("/privacy", marks=LEGAL_PENDING),
-    pytest.param("/terms", marks=LEGAL_PENDING),
+    "/privacy",
+    "/terms",
 ]
 
 
