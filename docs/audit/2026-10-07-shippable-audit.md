@@ -83,10 +83,25 @@ Out of scope by request:
 - OpenAPI warning about duplicate operation IDs for `readyz` variants appears in test logs; low severity but worth cleanup.
 
 ## Stale open PR triage (requested addendum)
-- **#333 — REBASE:** Docs-only operational-truth changes are old (last updated 2026-08-29) and should be rebased/revalidated against current runbook/docs before merge.
-- **#335 — CLOSE:** The `RESEND_API_KEY` Secret Manager binding this PR adds is already present on `main` in `.github/workflows/deploy.yml`, so this branch is effectively superseded.
-- **#336 — CLOSE:** Core inventory hero/fallback behavior from this branch (lazy-watchdog + fallback handling) is already represented in `main` (`InventoryBrowse.jsx` + hero fallback/watchdog tests), so the PR appears superseded.
-- **#337 — REBASE:** It is stacked on `fix/hero-photo-ranking` (not `main`) and introduces a different floorplan-classification path; rebase to `main` and re-justify against current `tools/photo_classifier.py` before any merge decision.
+
+### Supersession checks requested (#363/#364/#365)
+Diff basis used: `git diff main...pr-<id>` file-level deltas plus targeted content diffs on overlapping files.
+
+| Claim | Verdict | Diff-based note |
+|---|---|---|
+| `#363` replaces `#341` | **Confirmed (substantive)** | The auth/passkey origin hardening files overlap almost exactly; `#341` additionally includes `AGENTS.md` + `docs/CLIENT_WALKTHROUGH.md` copy updates that `#363` intentionally leaves out. |
+| `#364` replaces `#335` | **Confirmed** | Both carry the Resend secret binding intent in deploy/docs; the remaining `#335` `main.py` delta is a cosmetic heading-width comment change, not runtime behavior. |
+| `#365` replaces `#336`, `#337`, `#338` | **Confirmed (substantive)** | `#365` includes the same inventory/media hardening surfaces (`InventoryBrowse`, classifier/scan, smoke probes, related tests) on current `main`; old branches retain a few docs/readability-only hunks not carried forward. |
+
+### Keep / Rebase / Close recommendations
+| PR | Recommendation | One-line reason |
+|---|---|---|
+| **#333** | **REBASE** | Docs-only operational-truth edits are stale (last update 2026-08-29) and should be reconciled with current runbooks before merge. |
+| **#335** | **CLOSE** | Superseded by `#364` for Resend secret binding and prerequisite docs, with no remaining runtime-meaningful delta. |
+| **#336** | **CLOSE** | Superseded substantively by `#365` on current `main` for hero fallback/ranking behavior and tests. |
+| **#337** | **CLOSE** | Superseded substantively by `#365`; original branch is also stacked/non-main and no longer the clean landing path. |
+| **#338** | **CLOSE** | Superseded substantively by `#365`, which carries forward and extends the production reality/smoke probe hardening. |
+| **#341** | **CLOSE** | Superseded substantively by `#363` for canonical WebAuthn origin hardening on a current `main` base. |
 
 ## Changes implemented in this PR
 
