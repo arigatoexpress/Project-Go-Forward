@@ -727,6 +727,7 @@
         "topmostSubform[0].Page1[0].Tax_Escrow_Yearly[0]": "tax_escrow_yearly",
         "topmostSubform[0].Page1[0].Tax_Escrow_Pmt[0]": "tax_escrow_payment",
         "topmostSubform[0].Page1[0].Calc_Pmt[0]": "monthly_payment",
+        "topmostSubform[0].Page1[0].Tax_Escrow_Pmt[1]": "tax_escrow_payment",
         "topmostSubform[0].Page1[0].Insurance_Premium_Monthly[0]": "insurance_premium_monthly",
         "topmostSubform[0].Page1[0].Total_Payment[0]": "total_monthly_payment",
         "topmostSubform[0].Page1[0].Seller_Name[0]": "seller_name"
@@ -1731,7 +1732,7 @@
     }
   },
   "form_set_rules": {
-    "_description": "Phase 3 form-set logic (Mark Willcott acceptance review). Applied by tools/document_engine_v2.py resolve_form_set() at packet-generation time (generate_packet). Keeps the static packet lists above as the superset; these rules de-duplicate same-document templates, suppress used-home-only forms on NEW packages, and gate optional contracts behind flags. Editing here changes behavior without touching the template registry or the regulatory PDFs.",
+    "_description": "Phase 3 form-set logic (Mark Willcott acceptance review). Applied by tools/document_engine_v2.py resolve_form_set() at packet-generation time (generate_packet); duplicate_groups are also applied to every batch/packet path (Document Center batch, deal packets, legacy v1 engine) via tools/form_set.py dedupe_packet_templates(). Keeps the static packet lists above as the superset; these rules de-duplicate same-document templates, suppress used-home-only forms on NEW packages, and gate optional contracts behind flags. Editing here changes behavior without touching the template registry or the regulatory PDFs.",
     "duplicate_groups": [
       {
         "_comment": "C2 (Mark review): the Internal and TDHCA arbitration templates render the SAME 'ARBITRATION AGREEMENT' the buyer signs once. Keep the Internal copy (pre-filled with THO/Harris-County address and used by standard_closing); drop the TDHCA duplicate. REVERT: if a separate TDHCA-branded arbitration copy is ever required in a packet, remove 'TDHCA_ArbitrationAgreement.pdf' from this group (or delete the group) and it will flow through again.",
@@ -1742,10 +1743,11 @@
         ]
       },
       {
-        "_comment": "C1 (Mark review): guard against the 'Disclosure to Consumer - Need to Vacate Home' emitting twice. Today only TDHCA_1074 is mapped, so this is a single-member safety group + the global drop-exact-duplicate pass below. REVERT: remove this group to allow a second vacate template to flow through.",
+        "_comment": "C1 (Mark review, Oct 1 packet): 'Disclosure to Consumer - Need to Vacate Home' printed twice. TDHCA_1074_Vacate_If_No_Financing is MHD Form 1074 Rev. 11/15/2019; TDHCA_Disclosure is the same Form 1074 at Eff. 07/03/2011. Members are listed newest edition first; the first present one is kept. REVERT: remove TDHCA_Disclosure.pdf from this group to let both flow through.",
         "document": "Need to Vacate Home",
         "keep_first_present": [
-          "TDHCA_1074_Vacate_If_No_Financing.pdf"
+          "TDHCA_1074_Vacate_If_No_Financing.pdf",
+          "TDHCA_Disclosure.pdf"
         ]
       },
       {

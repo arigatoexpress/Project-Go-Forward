@@ -85,6 +85,17 @@ business:
       opens: "10:00"
       closes: "15:00"
 
+# Creditor/lender contact blocks auto-filled on closing documents when the deal's
+# creditor name starts with one of `match_names`. Only blank creditor fields are
+# filled; blank values here leave the PDF line blank for manual entry.
+lenders:
+  21st_mortgage:
+    match_names: ["21st Mortgage"]
+    # OWNER TO FILL IN from 21st Mortgage's own paperwork (not found in repo).
+    creditor_address: ""
+    creditor_city_state_zip: ""
+    creditor_phone: ""
+
 agent:
   # The name your AI assistant goes by
   assistant_name: "AI Assistant"
