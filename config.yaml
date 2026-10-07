@@ -178,7 +178,7 @@ deployment:
   # Google Cloud
   project_id: "tho-ai-agent"
   region: "us-central1"
-  service_name: "tho-agent"
+  service_name: "project-go-forward"
   
 scraper:
   # Website to scrape inventory from

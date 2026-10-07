@@ -827,8 +827,7 @@ async def resilient_json_decode_handler(request: Request, exc: JSONDecodeError) 
 # Add CORS — production origins from env, with sensible defaults
 IS_LOCAL = os.environ.get("K_SERVICE") is None  # K_SERVICE is set by Cloud Run
 _default_origins = [
-    "https://tho-agent-691674245427.us-central1.run.app",
-    "https://tho-agent-trgi34bxuq-uc.a.run.app",
+    "https://project-go-forward-trgi34bxuq-uc.a.run.app",
     "https://tho-ai-agent.web.app",
     "https://tho-ai-agent.firebaseapp.com",
     "https://tho.sapphirealpha.xyz",

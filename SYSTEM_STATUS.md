@@ -3,8 +3,8 @@
 **Last updated:** 2026-10-07
 
 This file is a pointer, not a live status board. It replaces a 2026-02-25
-snapshot that named a Cloud Run service URL
-(`tho-agent-s77j6bxyra-uc.a.run.app`) that now returns 404. Check the sources
+snapshot that named the retired Cloud Run service `tho-agent`, whose URL
+now returns 404. Check the sources
 below for current status instead of trusting any dated document.
 
 ## What was observed on 2026-10-07
@@ -53,10 +53,10 @@ Read-only checks, recorded for orientation only:
 
 ## Known config drift (follow-ups, not yet fixed)
 
-- `tools/health_check.py` hardcodes Firestore project `sapphire-479610`.
-  Production Firestore is in `tho-ai-agent`.
-- `firebase.json` rewrites to Cloud Run service `tho-agent`. The live service is
-  `project-go-forward`.
+- `tools/health_check.py` hardcoded Firestore project `sapphire-479610`; since
+  PR #375 it uses the env/config project (default `tho-ai-agent`).
+- `firebase.json` rewrote to Cloud Run service `tho-agent`; since PR #375 it
+  points at the live service `project-go-forward`.
 
 ## Domains
 

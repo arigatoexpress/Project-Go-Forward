@@ -50,6 +50,9 @@ the **camera icon** that says **Photos**.
 
 On a phone, tap the **menu (☰)** first, then tap **Photos**.
 
+You can also go straight to **https://www.texashomeoutlet.com/photos**. If you
+are not signed in yet, it asks you to sign in first, then opens the Photos screen.
+
 ### 3. Pick the home
 
 1. In the **"Search homes…"** box, start typing part of the home's name
