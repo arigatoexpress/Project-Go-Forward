@@ -126,6 +126,26 @@ class TestMoneyProblems:
         assert [p["field"] for p in problems] == [flagged]
         assert phrase in problems[0]["message"]
 
+    @pytest.mark.parametrize(
+        ("field", "value", "phrase"),
+        [
+            ("loan_term", "0.5", "whole number of months"),
+            ("loan_term", "360.5", "whole number of months"),
+            ("loan_term", "1e9", "whole number of months"),
+            ("loan_term", "481", "whole number of months"),
+            ("apr", "850", "APR looks wrong"),
+        ],
+    )
+    def test_implausible_term_or_apr_is_named(self, field, value, phrase):
+        problems = esign_review.money_problems(_ready_doc_data(**{field: value}))
+        assert [p["field"] for p in problems] == [field]
+        assert phrase in problems[0]["message"]
+
+    @pytest.mark.parametrize("value", ["NaN", "Infinity", "-Infinity"])
+    def test_non_finite_amount_is_treated_as_blank(self, value):
+        problems = esign_review.money_problems(_ready_doc_data(apr=value))
+        assert [p["field"] for p in problems] == ["monthly_payment"]
+
     def test_zero_escrow_is_flagged(self):
         problems = esign_review.money_problems(_ready_doc_data(taxable_value=0))
         assert [p["field"] for p in problems] == ["escrow"]
@@ -252,6 +272,10 @@ class TestPrepareSigningPacket:
 
         changed = dict(values, **{"topmostSubform[0].Page1[0].SalePrice[0]": "81,000.00"})
         assert esign_review.review_token(SALES_CONTRACT, changed) != first["review_token"]
+        rerouted = esign_review.review_token(
+            SALES_CONTRACT, values, ("x@example.com", "Alice Buyer")
+        )
+        assert rerouted != first["review_token"]
 
 
 # ─── Real PDF read-back (TMHA_SalesContract.pdf baseline) ───────────────────

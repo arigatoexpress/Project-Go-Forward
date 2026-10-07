@@ -245,6 +245,20 @@ def test_send_refuses_stale_preview(monkeypatch):
     assert h.sent == []
 
 
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [("buyer_email", "someone-else@example.com"), ("buyer_first_name", "Mallory")],
+)
+def test_send_refuses_when_signer_changed_after_preview(monkeypatch, field, value):
+    h = Harness(monkeypatch)
+    token = h.preview().json()["review_token"]
+    h.doc_data[field] = value
+    response = h.send(confirm=True, review_token=token)
+    assert response.status_code == 409
+    assert response.json()["error"] == "review_stale"
+    assert h.sent == []
+
+
 def test_confirmed_send_uses_deal_values_and_records_request(monkeypatch):
     h = Harness(monkeypatch)
     token = h.preview().json()["review_token"]

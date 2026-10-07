@@ -44,6 +44,10 @@ PRINTED_MONEY_LABELS: dict[str, str] = {
     "insurance_premium_monthly": "Monthly insurance escrow",
 }
 
+MAX_LOAN_TERM_MONTHS = 480
+# Above this the APR is a decimal-point typo (e.g. 850 for 8.50), not a rate.
+MAX_APR_PERCENT = Decimal("100")
+
 
 def auto_send_enabled() -> bool:
     """Automatic sends on stage change / packet generation. Default OFF."""
@@ -57,9 +61,36 @@ def _amount(value: Any) -> Decimal | None:
     if not text:
         return None
     try:
-        return Decimal(text)
+        amount = Decimal(text)
     except (InvalidOperation, ValueError):
         return None
+    return amount if amount.is_finite() else None
+
+
+MONEY_INPUT_KEYS = (
+    "sales_price",
+    "down_payment",
+    "apr",
+    "loan_term",
+    "monthly_payment",
+    "tax_rate",
+    "taxable_value",
+    "annual_insurance",
+)
+
+
+def _finite_money_inputs(doc_data: dict[str, Any]) -> dict[str, Any]:
+    """Drop NaN/Infinity money inputs (the payment engine raises on them)."""
+    cleaned = dict(doc_data)
+    for key in MONEY_INPUT_KEYS:
+        value = cleaned.get(key)
+        if value is not None and _amount(value) is None and str(value).strip():
+            try:
+                if not Decimal(str(value).strip()).is_finite():
+                    cleaned[key] = None
+            except (InvalidOperation, ValueError):
+                pass
+    return cleaned
 
 
 def _positive(value: Any) -> bool:
@@ -78,6 +109,7 @@ def _problem(code: str, field: str | None, message: str) -> dict[str, Any]:
 
 def money_problems(doc_data: dict[str, Any]) -> list[dict[str, Any]]:
     """Plain-English reasons the deal's money lines are not ready to sign."""
+    doc_data = _finite_money_inputs(doc_data)
     enriched = enrich_document_data(doc_data)
     problems: list[dict[str, Any]] = []
 
@@ -107,6 +139,25 @@ def money_problems(doc_data: dict[str, Any]) -> list[dict[str, Any]]:
                 "monthly_payment",
                 "Monthly payment can't be worked out because the APR or loan term "
                 "is blank. Enter both on the deal.",
+            )
+        )
+    elif not _whole_months(doc_data.get("loan_term")):
+        # The engine reads only the leading digits of the term ("0.5" -> 240
+        # fallback, "1e9" -> 1), so the payment would not match the printed term.
+        problems.append(
+            _problem(
+                "invalid_money_field",
+                "loan_term",
+                f"Loan term must be a whole number of months from 1 to "
+                f"{MAX_LOAN_TERM_MONTHS}. Fix the loan term on the deal.",
+            )
+        )
+    elif _amount(doc_data.get("apr")) > MAX_APR_PERCENT:
+        problems.append(
+            _problem(
+                "invalid_money_field",
+                "apr",
+                "APR looks wrong (over 100%). Enter it as a percent, e.g. 8.5.",
             )
         )
     elif price_ok and not _positive(enriched.get("monthly_payment")):
@@ -156,8 +207,18 @@ def money_problems(doc_data: dict[str, Any]) -> list[dict[str, Any]]:
     return problems
 
 
+def _whole_months(value: Any) -> bool:
+    amount = _amount(value)
+    return (
+        amount is not None
+        and amount == amount.to_integral_value()
+        and 1 <= amount <= MAX_LOAN_TERM_MONTHS
+    )
+
+
 def money_summary(doc_data: dict[str, Any]) -> list[dict[str, str]]:
     """Payment lines staff hand-check before confirming a send."""
+    doc_data = _finite_money_inputs(doc_data)
     enriched = enrich_document_data(doc_data)
     apr = _amount(doc_data.get("apr"))
     term = _amount(doc_data.get("loan_term"))
@@ -308,9 +369,21 @@ def printed_money_problems(
     return problems
 
 
-def review_token(template_name: str, values: dict[str, Any]) -> str:
-    """Fingerprint of exactly what will be sent; changes if any value changes."""
-    blob = json.dumps({"template": template_name, "values": values}, sort_keys=True, default=str)
+def review_token(
+    template_name: str,
+    values: dict[str, Any],
+    signer: tuple[str, str] = ("", ""),
+) -> str:
+    """Fingerprint of exactly what will be sent and to whom.
+
+    The signer is hashed separately because the buyer's email (and on the
+    Sales Contract, the name) is not a field on the PDF.
+    """
+    blob = json.dumps(
+        {"template": template_name, "values": values, "signer": list(signer)},
+        sort_keys=True,
+        default=str,
+    )
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
@@ -403,7 +476,9 @@ def prepare_signing_packet(
         {
             "ready": True,
             "values": values,
-            "review_token": review_token(template_name, values),
+            "review_token": review_token(
+                template_name, values, (signer_email, base["signer_name"])
+            ),
         }
     )
     return base
