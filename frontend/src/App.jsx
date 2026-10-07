@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, lazy, Suspense, useCallback } from 'react';
-import { Send, Home, Menu, X, Phone, MapPin, Loader2, User, Bot, FileText, Video, Lock, ShieldCheck, CalendarDays, Users, MessageSquare, MessageCircle, RotateCcw, WifiOff, Moon, Sun, KeyRound, BookOpen, Activity, Camera, Sparkles } from 'lucide-react';
+import { Send, Home, Menu, X, Phone, MapPin, Loader2, User, Bot, FileText, Video, Lock, ShieldCheck, CalendarDays, Users, MessageSquare, MessageCircle, RotateCcw, WifiOff, Moon, Sun, KeyRound, BookOpen, Activity, Camera, Sparkles, ClipboardList, Store, MoreHorizontal, LogOut } from 'lucide-react';
 import { useDarkMode } from './hooks/useDarkMode';
 import SafeMarkdown from './components/SafeMarkdown';
 import SearchFilters from './components/SearchFilters';
@@ -59,13 +59,14 @@ const PhotoManager = lazy(() => import('./pages/PhotoManager'));
 const InventoryManager = lazy(() => import('./pages/InventoryManager'));
 const HealthDashboard = lazy(() => import('./pages/HealthDashboard'));
 const StaffAccess = lazy(() => import('./pages/StaffAccess'));
+const StaffHome = lazy(() => import('./pages/StaffHome'));
 // Max characters the admin PIN box accepts. The configured backend PIN may be a
 // long alphanumeric secret, so the input must NOT strip non-digits or cap short —
 // doing so (an old 8-digit-only cap) locked everyone out of the admin UI. Cap only
 // at a generous upper bound so an over-long secret is still flagged
 // (see scripts/generate_admin_pin_hash.py).
 const ADMIN_PIN_MAXLEN = 64;
-const ADMIN_PAGE_KEYS = new Set(['analytics', 'crm', 'chat-history', 'documents', 'adstudio', 'system', 'getting-started', 'photos', 'manage-inventory', 'copilot', 'health', 'team']);
+const ADMIN_PAGE_KEYS = new Set(['staff-home', 'analytics', 'crm', 'chat-history', 'documents', 'adstudio', 'system', 'getting-started', 'photos', 'manage-inventory', 'copilot', 'health', 'team']);
 
 // Page loading fallback with skeleton
 const PageLoader = () => (
@@ -76,6 +77,22 @@ const PageLoader = () => (
 );
 
 // ─── Shared Navigation Component ───
+function NavItemButton({ item, activePage, onClick, className }) {
+  const Icon = item.icon;
+  const isActive = activePage === item.key;
+  return (
+    <button
+      type="button"
+      onClick={() => onClick(item.key)}
+      className={className(isActive)}
+      aria-current={isActive ? 'page' : undefined}
+    >
+      <Icon size={14} className="shrink-0" />
+      <span className="whitespace-nowrap">{item.label}</span>
+    </button>
+  );
+}
+
 function NavBar({
   activePage,
   navigateTo,
@@ -92,28 +109,47 @@ function NavBar({
   darkMode,
   onToggleDarkMode,
 }) {
-  const navItems = [
-    { key: 'inventory', label: 'Inventory', icon: Home },
+  const [moreOpen, setMoreOpen] = useState(false);
+  const publicItems = [
+    { key: 'inventory', label: 'Homes for Sale', icon: Store },
     { key: 'chat', label: 'Chat', icon: MessageSquare },
     { key: 'contact', label: 'Contact', icon: Phone },
     { key: 'appointments', label: 'Book Visit', icon: CalendarDays },
   ];
-
-  const adminItems = adminAuthed ? [
-    { key: 'copilot', label: 'Ops Copilot', icon: Sparkles },
-    { key: 'documents', label: 'Documents', icon: FileText },
-    { key: 'manage-inventory', label: 'Inventory', icon: Home },
+  const staffPrimary = adminAuthed ? [
+    { key: 'manage-inventory', label: 'Manage Homes', icon: ClipboardList },
     { key: 'photos', label: 'Photos', icon: Camera },
-    { key: 'crm', label: 'CRM', icon: Users },
+    { key: 'documents', label: 'Documents', icon: FileText },
+    { key: 'crm', label: 'Leads', icon: Users },
+  ] : [];
+  const staffMore = adminAuthed ? [
+    { key: 'staff-home', label: 'Staff Home', icon: Home },
+    { key: 'copilot', label: 'Ops Copilot', icon: Sparkles },
     { key: 'team', label: 'Team', icon: ShieldCheck },
     { key: 'system', label: 'System Hub', icon: Activity },
     { key: 'health', label: 'Health', icon: Activity },
     { key: 'getting-started', label: 'Guide', icon: BookOpen },
     { key: 'chat-history', label: 'Chat History', icon: MessageCircle },
     { key: 'adstudio', label: 'Ad Studio', icon: Video },
+    { key: 'analytics', label: 'Numbers', icon: Activity },
   ] : [];
-
-  const allItems = [...navItems, ...adminItems];
+  const desktopPrimary = adminAuthed
+    ? [publicItems[0], ...staffPrimary]
+    : publicItems;
+  const desktopMore = adminAuthed
+    ? [...publicItems.slice(1), ...staffMore]
+    : [];
+  const allItems = [...publicItems, ...staffPrimary, ...staffMore];
+  const go = (key) => {
+    setMoreOpen(false);
+    navigateTo(key);
+  };
+  const desktopBtn = (isActive) =>
+    `flex items-center gap-1.5 px-2.5 py-1.5 rounded-md transition-colors text-xs shrink-0 ${
+      isActive
+        ? 'bg-[var(--cp-accent-dim)] text-[var(--cp-accent)]'
+        : 'text-[var(--cp-muted)] hover:text-[var(--cp-text)] hover:bg-[var(--cp-surface)]'
+    }`;
 
   return (
     <>
@@ -135,44 +171,69 @@ function NavBar({
         </div>
       </div>
 
-      {/* Main NavBar */}
-      <header className="bg-[var(--cp-panel)] border-b border-[var(--cp-border)] z-30 sticky top-9 shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-14 flex items-center justify-between">
+      {/* Main NavBar — never grows the page sideways from 1024–1920. Extra
+          staff tools fold into More; Sign out stays in the right cluster. */}
+      <header className="bg-[var(--cp-panel)] border-b border-[var(--cp-border)] z-30 sticky top-9 shadow-sm overflow-x-hidden">
+        <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-6 h-14 flex items-center justify-between gap-2 min-w-0">
           {/* Logo */}
           <div
-            className="flex items-center space-x-2.5 cursor-pointer group"
-            onClick={() => navigateTo('inventory')}
+            className="flex items-center gap-2 cursor-pointer group min-w-0 shrink"
+            onClick={() => navigateTo(adminAuthed ? 'staff-home' : 'inventory')}
             role="button"
             aria-label={`${BUSINESS_NAME} — home`}
           >
-            <Home className="h-6 w-6 text-[var(--cp-accent)] group-hover:drop-shadow-[0_2px_8px_rgba(80,29,29,0.35)] transition" />
-            <h1 className="text-base font-bold tracking-tight text-[var(--cp-text)]">
+            <Home className="h-6 w-6 shrink-0 text-[var(--cp-accent)] group-hover:drop-shadow-[0_2px_8px_rgba(80,29,29,0.35)] transition" />
+            <h1 className="text-sm sm:text-base font-bold tracking-tight text-[var(--cp-text)] whitespace-nowrap truncate">
               {BUSINESS_NAME}
             </h1>
           </div>
 
-          <div className="flex items-center gap-2">
-            {/* Desktop nav */}
-            <nav className="hidden md:flex items-center space-x-0.5 text-sm font-medium" aria-label="Main navigation">
-              {allItems.map(item => {
-                const Icon = item.icon;
-                const isActive = activePage === item.key;
-                return (
+          <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+            {/* Desktop nav (1024px+). Staff extras live in More. */}
+            <nav className="hidden lg:flex items-center gap-0.5 text-sm font-medium" aria-label="Main navigation">
+              {desktopPrimary.map((item) => (
+                <NavItemButton key={item.key} item={item} activePage={activePage} onClick={go} className={desktopBtn} />
+              ))}
+              {desktopMore.length > 0 && (
+                <div className="relative">
                   <button
-                    key={item.key}
-                    onClick={() => navigateTo(item.key)}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md transition-colors text-xs ${
-                      isActive
-                        ? 'bg-[var(--cp-accent-dim)] text-[var(--cp-accent)]'
-                        : 'text-[var(--cp-muted)] hover:text-[var(--cp-text)] hover:bg-[var(--cp-surface)]'
-                    }`}
-                    aria-current={isActive ? 'page' : undefined}
+                    type="button"
+                    onClick={() => setMoreOpen((open) => !open)}
+                    className={desktopBtn(desktopMore.some((item) => item.key === activePage))}
+                    aria-expanded={moreOpen}
+                    aria-haspopup="menu"
                   >
-                    <Icon size={14} />
-                    {item.label}
+                    <MoreHorizontal size={14} className="shrink-0" />
+                    More
                   </button>
-                );
-              })}
+                  {moreOpen && (
+                    <div
+                      role="menu"
+                      className="absolute right-0 top-full mt-1 z-50 min-w-[12rem] rounded-lg border border-[var(--cp-border)] bg-[var(--cp-panel)] py-1 shadow-lg"
+                    >
+                      {desktopMore.map((item) => {
+                        const Icon = item.icon;
+                        return (
+                          <button
+                            key={item.key}
+                            type="button"
+                            role="menuitem"
+                            onClick={() => go(item.key)}
+                            className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm ${
+                              activePage === item.key
+                                ? 'bg-[var(--cp-accent-dim)] text-[var(--cp-accent)]'
+                                : 'text-[var(--cp-text)] hover:bg-[var(--cp-surface)]'
+                            }`}
+                          >
+                            <Icon size={14} className="shrink-0" />
+                            {item.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
             </nav>
 
             {/* Search filters — only on chat page */}
@@ -184,7 +245,7 @@ function NavBar({
             {onToggleDarkMode && (
               <button
                 onClick={onToggleDarkMode}
-                className="hidden md:flex items-center gap-1 px-2 py-1.5 text-xs text-[var(--cp-muted)] hover:text-[var(--cp-text)] hover:bg-[var(--cp-surface)] rounded-md transition-colors"
+                className="hidden lg:flex items-center gap-1 px-2 py-1.5 text-xs text-[var(--cp-muted)] hover:text-[var(--cp-text)] hover:bg-[var(--cp-surface)] rounded-md transition-colors"
                 aria-label="Toggle dark mode"
                 title="Toggle dark mode (Ctrl+D)"
               >
@@ -195,7 +256,7 @@ function NavBar({
             {/* Admin button — desktop */}
             <button
               onClick={onAdminAccess}
-              className="hidden md:flex items-center gap-1 px-2 py-1.5 text-xs text-[var(--cp-muted)] hover:text-[var(--cp-accent)] hover:bg-[var(--cp-surface)] rounded-md transition-colors"
+              className="hidden lg:flex items-center gap-1 px-2 py-1.5 text-xs text-[var(--cp-muted)] hover:text-[var(--cp-accent)] hover:bg-[var(--cp-surface)] rounded-md transition-colors"
               aria-label="Admin access"
               title="Admin access"
             >
@@ -206,7 +267,7 @@ function NavBar({
               <button
                 onClick={onPasskeyRegister}
                 disabled={passkeyLoading}
-                className="hidden md:flex items-center gap-1 px-2 py-1.5 text-xs text-[var(--cp-muted)] hover:text-[var(--cp-accent)] hover:bg-[var(--cp-surface)] rounded-md transition-colors disabled:opacity-50"
+                className="hidden lg:flex items-center gap-1 px-2 py-1.5 text-xs text-[var(--cp-muted)] hover:text-[var(--cp-accent)] hover:bg-[var(--cp-surface)] rounded-md transition-colors disabled:opacity-50"
                 aria-label="Register this device passkey"
                 title="Register this device passkey"
               >
@@ -218,15 +279,17 @@ function NavBar({
               <button
                 type="button"
                 onClick={onSignOut}
-                className="hidden md:inline-flex items-center px-3 py-1.5 text-sm text-[var(--cp-text)] hover:bg-[var(--cp-surface)] rounded-md"
+                className="hidden lg:inline-flex items-center gap-1 px-3 py-1.5 text-sm text-[var(--cp-text)] hover:bg-[var(--cp-surface)] rounded-md shrink-0"
+                data-testid="desktop-sign-out"
               >
+                <LogOut size={14} />
                 Sign out
               </button>
             )}
 
-            {/* Mobile menu button */}
+            {/* Phone / tablet menu (below 1024px) */}
             <button
-              className="md:hidden p-2 hover:bg-[var(--cp-surface)] rounded-lg transition text-[var(--cp-text)]"
+              className="lg:hidden p-2 hover:bg-[var(--cp-surface)] rounded-lg transition text-[var(--cp-text)]"
               onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
               aria-label={isMobileMenuOpen ? 'Close menu' : 'Open menu'}
               aria-expanded={isMobileMenuOpen}
@@ -236,10 +299,10 @@ function NavBar({
           </div>
         </div>
 
-        {/* Mobile Menu */}
+        {/* Phone / tablet Menu */}
         {isMobileMenuOpen && (
           <nav
-            className="md:hidden bg-[var(--cp-panel)] border-t border-[var(--cp-border)] py-2 px-4"
+            className="lg:hidden bg-[var(--cp-panel)] border-t border-[var(--cp-border)] py-2 px-4"
             aria-label="Mobile navigation"
             style={{ animation: 'tho-slide-up 0.15s ease' }}
           >
@@ -267,7 +330,7 @@ function NavBar({
               className="flex items-center w-full py-3 px-2 text-[var(--cp-muted)] hover:text-[var(--cp-accent)] hover:bg-[var(--cp-surface)] rounded-lg transition-colors mt-1 border-t border-[var(--cp-border)] pt-3 text-sm"
             >
               {adminAuthed ? <ShieldCheck size={18} className="mr-3 text-[var(--cp-accent)]" /> : <Lock size={18} className="mr-3" />}
-              {adminAuthed ? 'Analytics' : 'Admin'}
+              {adminAuthed ? 'Staff Home' : 'Staff sign-in'}
             </button>
             {adminAuthed && (
               <button
@@ -424,6 +487,7 @@ function pageFromPath(path) {
   // Legacy texashomeoutlet.com deep links resolve inside the inventory page.
   if (p.startsWith('/plan/') || p.startsWith('/quote/')) return 'inventory';
   if (p.startsWith('/hub/')) return 'hub';
+  if (p === '/staff-home' || p.startsWith('/staff-home/')) return 'staff-home';
   if (p === '/staff' || p.startsWith('/staff/')) return 'staff-sign-in';
   if (p === '/team' || p.startsWith('/team/')) return 'team';
   if (p.startsWith('/system')) return 'system';
@@ -636,7 +700,7 @@ function App() {
       const data = await completeRes.json();
       if (data.success) {
         setAdminAuthed(true); setShowPinModal(false); setPasskeyError('');
-        navigateTo('analytics');
+        navigateTo('staff-home');
       } else {
         setPasskeyError(safeUserMessage(extractErrorMessage(data), 'Passkey login failed'));
       }
@@ -801,6 +865,11 @@ function App() {
     };
     window.addEventListener('admin-session-expired', handleExpired);
 
+    const handleRateLimited = () => {
+      addToast('Too many clicks, try again in a moment', 'warning', 4000);
+    };
+    window.addEventListener('admin-rate-limited', handleRateLimited);
+
     const handleTriggerRegister = (e) => {
       if (e.detail?.email) {
         setPasskeyEmail(e.detail.email);
@@ -811,9 +880,10 @@ function App() {
 
     return () => {
       window.removeEventListener('admin-session-expired', handleExpired);
+      window.removeEventListener('admin-rate-limited', handleRateLimited);
       window.removeEventListener('trigger-passkey-register', handleTriggerRegister);
     };
-  }, [openPasskeyRegisterModal]);
+  }, [openPasskeyRegisterModal, addToast]);
 
   const messagesEndRef = useRef(null);
 
@@ -821,7 +891,7 @@ function App() {
     const params = new URLSearchParams(window.location.search);
     if (params.get('admin') === 'true') {
       if (adminAuthed) {
-        navigatePath('/analytics', { replace: true });
+        navigatePath('/staff-home', { replace: true });
       } else {
         setShowPinModal(true);
       }
@@ -887,6 +957,7 @@ function App() {
       health: 'Health Dashboard',
       team: 'Team access',
       'staff-sign-in': 'Staff sign-in',
+      'staff-home': 'Staff Home',
       'getting-started': 'Getting Started',
       'chat-history': 'Chat History',
       'manage-inventory': 'Manage Inventory',
@@ -939,10 +1010,17 @@ function App() {
       health: '/health',
       team: '/team',
       'staff-sign-in': '/staff',
+      'staff-home': '/staff-home',
     };
     const targetUrl = urlMap[page] || '/';
     navigatePath(targetUrl);
   };
+
+  useEffect(() => {
+    if (adminAuthed && activePage === 'staff-sign-in') {
+      navigateTo('staff-home');
+    }
+  }, [adminAuthed, activePage]);
 
   const startAppointmentHandoff = (handoff) => {
     setAppointmentHandoff(handoff);
@@ -956,14 +1034,14 @@ function App() {
     setShowPinModal(false);
     setSignInNotice('');
     const destination = activePage === 'staff-sign-in'
-      ? 'analytics'
-      : (ADMIN_PAGE_KEYS.has(activePage) ? activePage : 'analytics');
+      ? 'staff-home'
+      : (ADMIN_PAGE_KEYS.has(activePage) ? activePage : 'staff-home');
     navigateTo(destination);
   };
 
   const handleAdminAccess = () => {
     if (adminAuthed) {
-      navigateTo('analytics');
+      navigateTo('staff-home');
     } else if (activePage === 'staff-sign-in') {
       document.getElementById('staff-sign-in')?.scrollIntoView({ behavior: 'smooth' });
     } else {
@@ -1231,6 +1309,21 @@ function App() {
     );
   }
 
+  if (activePage === 'staff-home' && adminAuthed) {
+    return (
+      <div className="bg-[var(--cp-bg)] min-h-screen">
+        {appModals}
+        <NavBar {...navProps} />
+        <ErrorBoundary scope="staff-home">
+          <Suspense fallback={<PageLoader />}>
+            <StaffHome onNavigate={navigateTo} />
+          </Suspense>
+        </ErrorBoundary>
+        <Footer adminAuthed={adminAuthed} onAdminAccess={handleAdminAccess} onNavigate={navigateTo} />
+      </div>
+    );
+  }
+
   if (activePage === 'team' && adminAuthed) {
     return (
       <div className="bg-[var(--cp-bg)] min-h-screen">
@@ -1238,7 +1331,7 @@ function App() {
         <NavBar {...navProps} />
         <ErrorBoundary scope="team">
           <Suspense fallback={<PageLoader />}>
-            <StaffAccess onBack={() => navigateTo('analytics')} />
+            <StaffAccess onBack={() => navigateTo('staff-home')} />
           </Suspense>
         </ErrorBoundary>
         <Footer adminAuthed={adminAuthed} onAdminAccess={handleAdminAccess} onNavigate={navigateTo} />
