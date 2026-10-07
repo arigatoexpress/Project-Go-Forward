@@ -48,16 +48,22 @@ describe('staff header at laptop widths', () => {
     expect(screen.getAllByRole('button', { name: 'Manage Homes' }).length).toBeGreaterThan(0);
     expect(screen.queryAllByRole('button', { name: /^Inventory$/ })).toHaveLength(0);
 
-    const header = document.querySelector('header.overflow-x-hidden');
+    const header = document.querySelector('header.sticky');
     expect(header).toBeTruthy();
+    expect(header.className).toMatch(/overflow-visible/);
+    expect(header.className).not.toMatch(/overflow-x-hidden/);
     const logo = header.querySelector('h1');
     expect(logo.className).toMatch(/whitespace-nowrap/);
     expect(logo.className).toMatch(/truncate/);
+    expect(logo.parentElement.className).toMatch(/overflow-hidden/);
 
     expect(screen.getByTestId('desktop-sign-out')).toHaveTextContent('Sign out');
     expect(screen.getAllByRole('button', { name: 'Sign out' }).length).toBeGreaterThan(0);
 
     fireEvent.click(screen.getAllByRole('button', { name: /^More$/ })[0]);
+    const moreMenu = screen.getByTestId('staff-more-menu');
+    expect(moreMenu).toBeInTheDocument();
+    expect(moreMenu.closest('header')?.className).toMatch(/overflow-visible/);
     expect(screen.getByRole('menuitem', { name: 'Ops Copilot' })).toBeInTheDocument();
     expect(screen.getByRole('menuitem', { name: 'Numbers' })).toBeInTheDocument();
     expect(screen.queryByRole('menuitem', { name: 'Sign out' })).toBeNull();

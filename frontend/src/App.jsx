@@ -173,11 +173,11 @@ function NavBar({
 
       {/* Main NavBar — never grows the page sideways from 1024–1920. Extra
           staff tools fold into More; Sign out stays in the right cluster. */}
-      <header className="bg-[var(--cp-panel)] border-b border-[var(--cp-border)] z-30 sticky top-9 shadow-sm overflow-x-hidden">
-        <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-6 h-14 flex items-center justify-between gap-2 min-w-0">
-          {/* Logo */}
+      <header className="bg-[var(--cp-panel)] border-b border-[var(--cp-border)] z-30 sticky top-9 shadow-sm overflow-visible">
+        <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-6 h-14 flex items-center justify-between gap-2 min-w-0 overflow-visible">
+          {/* Logo — clip only this text, not the More menu below the bar. */}
           <div
-            className="flex items-center gap-2 cursor-pointer group min-w-0 shrink"
+            className="flex items-center gap-2 cursor-pointer group min-w-0 shrink overflow-hidden"
             onClick={() => navigateTo(adminAuthed ? 'staff-home' : 'inventory')}
             role="button"
             aria-label={`${BUSINESS_NAME} — home`}
@@ -209,6 +209,7 @@ function NavBar({
                   {moreOpen && (
                     <div
                       role="menu"
+                      data-testid="staff-more-menu"
                       className="absolute right-0 top-full mt-1 z-50 min-w-[12rem] rounded-lg border border-[var(--cp-border)] bg-[var(--cp-panel)] py-1 shadow-lg"
                     >
                       {desktopMore.map((item) => {

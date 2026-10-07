@@ -61,6 +61,24 @@ def test_reported_live_duplicates_collapse_to_one_each():
     assert "duplicate_of" not in by_id["solo"]
 
 
+def test_same_model_without_serials_stays_two_homes():
+    homes = [
+        {"id": "lot-a", "model_name": "The Nassau"},
+        {"id": "lot-b", "model_name": "The Nassau"},
+    ]
+    annotate_possible_duplicates(homes)
+    assert all("duplicate_of" not in h for h in homes)
+
+
+def test_bare_model_with_serial_does_not_hide_unserialized_twin():
+    homes = [
+        {"id": "with-serial", "model_name": "The Nassau", "serial_number": "TXL111"},
+        {"id": "no-serial", "model_name": "The Nassau"},
+    ]
+    annotate_possible_duplicates(homes)
+    assert all("duplicate_of" not in h for h in homes)
+
+
 def test_different_serials_are_different_homes():
     homes = [
         {"id": "a", "model_name": "The Nassau", "serial_number": "TXL111"},

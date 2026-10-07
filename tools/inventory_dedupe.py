@@ -71,25 +71,63 @@ def _primary_rank(home: dict) -> tuple:
     )
 
 
+def _is_website_title(model_name: Any) -> bool:
+    """True when the stored name still carries a website series / sale prefix."""
+    value = str(model_name or "")
+    if "/" in value:
+        return True
+    lowered = value.lower()
+    return any(prefix in lowered for prefix in _WEBSITE_PREFIXES)
+
+
 def _clusters(group: list[dict]) -> list[list[dict]]:
     """Split one same-model group into likely-same-home clusters.
 
-    Two different serial numbers mean two different homes, so with more than
-    one distinct serial only records sharing a serial are clustered; records
-    without a serial are then left alone rather than guessed at.
+    A shared model name is not enough: two Nassaus on the lot are two homes.
+    We only join records that share a serial, or the exact importer pair the
+    walkthrough found (one website title like ``PRE-OWNED / Big Blue`` and
+    exactly one bare ``Big Blue``) when their serials do not conflict.
     """
-    serials = {_serial(h) for h in group if _serial(h)}
-    if len(serials) <= 1:
-        return [group]
-    by_serial: dict[str, list[dict]] = {}
-    singles: list[list[dict]] = []
-    for home in group:
+    n = len(group)
+    parent = list(range(n))
+
+    def find(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    def union(i: int, j: int) -> None:
+        ri, rj = find(i), find(j)
+        if ri != rj:
+            parent[rj] = ri
+
+    by_serial: dict[str, int] = {}
+    for i, home in enumerate(group):
         serial = _serial(home)
-        if serial:
-            by_serial.setdefault(serial, []).append(home)
+        if not serial:
+            continue
+        if serial in by_serial:
+            union(by_serial[serial], i)
         else:
-            singles.append([home])
-    return list(by_serial.values()) + singles
+            by_serial[serial] = i
+
+    website_idx = [i for i, home in enumerate(group) if _is_website_title(home.get("model_name"))]
+    bare_idx = [i for i in range(n) if i not in set(website_idx)]
+    # Only attach prefixed titles to a single bare name. Two bare records of
+    # the same model stay visible — they may be two physical homes.
+    if len(bare_idx) == 1:
+        bare_i = bare_idx[0]
+        for web_i in website_idx:
+            left, right = _serial(group[bare_i]), _serial(group[web_i])
+            if left and right and left != right:
+                continue
+            union(bare_i, web_i)
+
+    buckets: dict[int, list[dict]] = {}
+    for i, home in enumerate(group):
+        buckets.setdefault(find(i), []).append(home)
+    return list(buckets.values())
 
 
 def annotate_possible_duplicates(homes: list[dict]) -> list[dict]:
