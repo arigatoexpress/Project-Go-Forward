@@ -31,16 +31,25 @@ Read-only checks, recorded for orientation only:
 | Go-live checklist | [LAUNCH_READINESS.md](LAUNCH_READINESS.md) |
 | Incidents and rollback | [docs/RUNBOOK.md](docs/RUNBOOK.md) |
 
-## Monitoring and backups (verified in GCP on 2026-10-07)
+## Monitoring and backups (verified in GCP on 2026-10-07, after 10:06 MT)
 
-- **Backups:** daily Firestore backups, 7-day retention, on the `(default)`
-  database, active since 2026-06-20. Check with
+- **Backups:** a daily Firestore backup schedule on the `(default)` database,
+  active since 2026-06-20. Retention changed from 7 days to 14 days
+  (`1209600s`) at 10:05 MT (16:05 UTC) on 2026-10-07. Backups taken before that
+  change still expire after 7 days. Check with
   `gcloud firestore backups schedules list --database="(default)" --project=tho-ai-agent`
   ([restore runbook](docs/FIRESTORE_RESTORE_RUNBOOK.md)).
-- **Uptime:** a `/healthz/` uptime check every 5 minutes, with email alerts for
-  uptime failures and 5xx bursts (created by
-  [`.github/workflows/ops-bootstrap.yml`](.github/workflows/ops-bootstrap.yml)).
-- **Not set up yet:** uptime checks on `/` and `/staff`, and SSL-expiry alerting.
+- **Uptime checks:** three checks, every 5 minutes, all with SSL validation:
+  - `/healthz/`
+  - `/` (response must contain "Texas Home Outlet")
+  - `/staff`
+- **Alert policies (email to the owner):**
+  - `/healthz/` uptime failure and 5xx burst alerts (created by
+    [`.github/workflows/ops-bootstrap.yml`](.github/workflows/ops-bootstrap.yml)),
+    unchanged.
+  - "THO home/staff down + SSL expiring": fires when the `/` or `/staff` check
+    fails from 2 or more regions for 5 minutes, or when the SSL certificate has
+    under 21 days left.
 
 ## Known config drift (follow-ups, not yet fixed)
 

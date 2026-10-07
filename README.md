@@ -107,8 +107,8 @@ to production.
 - **Automated tests** run on every change, and the candidate build is blocked if any fail. The `main` build for commit `bd4fd22` (2026-10-06) ran 2,217 backend tests (24 skipped) and 291 frontend tests.
 - **Branch protection** verified: direct pushes to production are rejected at the platform level
 - **PII guardrails**: SSNs and financial data are stripped before anything reaches logs or the AI; Tex refuses to collect them in chat
-- **Backups**: daily Firestore backups, 7-day retention ([restore runbook](docs/FIRESTORE_RESTORE_RUNBOOK.md))
-- **Monitoring**: an uptime check on `/healthz/` every 5 minutes, with email alerts for uptime failures and 5xx bursts, plus a written [incident runbook](docs/RUNBOOK.md). Checks on `/` and `/staff` and SSL-expiry alerting are not set up yet.
+- **Backups**: daily Firestore backups, 14-day retention since 2026-10-07 (backups taken before that change still expire after 7 days) ([restore runbook](docs/FIRESTORE_RESTORE_RUNBOOK.md))
+- **Monitoring**: uptime checks every 5 minutes, all with SSL validation, on `/healthz/`, `/` (must contain "Texas Home Outlet"), and `/staff`. Email alerts fire for `/healthz/` uptime failures, 5xx bursts, the home or staff page failing from 2 or more regions for 5 minutes, and an SSL certificate with under 21 days left. See the [incident runbook](docs/RUNBOOK.md).
 - **Search ranking protected**: all 279 indexed URLs from the old website stay alive here, with structured data the old site never had ([migration plan](docs/SEO_MIGRATION.md))
 - **AI behavior is reviewable**: Tex's instructions are plain-English files in [`prompts/`](prompts/) — anyone can read exactly what the AI is told to do
 
