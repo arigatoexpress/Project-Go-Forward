@@ -8027,21 +8027,14 @@ async def share_document(
             status_code=500,
         )
 
-    # ── Soft-import audit log; never hard-fail if it isn't deployed yet. ──
-    try:
-        from audit_log import log_admin_action  # type: ignore[import-not-found]
-
-        try:
-            log_admin_action(
-                action="documents.share",
-                actor_ip=getattr(request.client, "host", None) if request.client else None,
-                target=object_key,
-                details={"ttl_hours": ttl_hours, "bucket": bucket_name},
-            )
-        except Exception:  # noqa: BLE001
-            logger.exception("audit_log.log_admin_action failed")
-    except ImportError:
-        pass
+    log_admin_action(
+        actor=_audit_actor(request),
+        action="documents.share",
+        target_type="document",
+        target_id=object_key,
+        details={"ttl_hours": ttl_hours, "bucket": bucket_name},
+        request=request,
+    )
 
     return {
         "filename": safe_filename,
