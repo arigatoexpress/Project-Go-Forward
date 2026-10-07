@@ -265,6 +265,154 @@ def test_public_inventory_collapses_same_serial_only(monkeypatch):
     assert data["total_inventory"] == 3
 
 
+# Minimal fields from the 2026-10-07 public feed. Do not store the live JSON.
+_LIVE_PUBLIC_PAIRS = [
+    {
+        "id": "44490",
+        "model_name": "PRE-OWNED / Big Blue",
+        "inventory_kind": "pre_owned",
+        "real_photos": ["a.jpg"] * 4,
+    },
+    {"id": "big-blue", "model_name": "Big Blue", "inventory_kind": "pre_owned"},
+    {
+        "id": "43945",
+        "model_name": "PRE-OWNED / Heritage 1684-32A",
+        "inventory_kind": "pre_owned",
+        "real_photos": ["a.jpg"] * 4,
+    },
+    {
+        "id": "heritage-1684-32a",
+        "model_name": "Heritage 1684-32A",
+        "inventory_kind": "pre_owned",
+        "real_photos": ["a.jpg"] * 8,
+    },
+    {
+        "id": "43944",
+        "model_name": "PRE-OWNED / Select S-1256-21A",
+        "inventory_kind": "pre_owned",
+        "real_photos": ["a.jpg"] * 4,
+    },
+    {
+        "id": "select-s-1256-21a",
+        "model_name": "Select S-1256-21A",
+        "inventory_kind": "pre_owned",
+        "real_photos": ["a.jpg"] * 11,
+    },
+    {
+        "id": "43943",
+        "model_name": "PRE-OWNED / Select S-1272-32A",
+        "inventory_kind": "pre_owned",
+        "real_photos": ["a.jpg"] * 4,
+    },
+    {
+        "id": "select-s-1272-32a",
+        "model_name": "Select S-1272-32A",
+        "inventory_kind": "pre_owned",
+        "real_photos": ["a.jpg"] * 9,
+    },
+    {
+        "id": "the-razor",
+        "model_name": "The Razor",
+        "inventory_kind": "available_now",
+        "real_photos": ["a.jpg"],
+    },
+    {
+        "id": "floorplan-227314",
+        "model_name": "New Vision / The Razor",
+        "inventory_kind": "orderable_floorplan",
+        "real_photos": ["a.jpg"],
+    },
+    {
+        "id": "28527",
+        "model_name": "PRE-OWNED / Heritage 1672-32C",
+        "inventory_kind": "pre_owned",
+        "real_photos": ["a.jpg"] * 3,
+    },
+    {"id": "heritage-1672-32c", "model_name": "Heritage 1672-32C", "inventory_kind": "pre_owned"},
+    {
+        "id": "floorplan-230325",
+        "model_name": "Palmetto / The Claiborne 1676H32006",
+        "inventory_kind": "orderable_floorplan",
+    },
+    {
+        "id": "floorplan-232414",
+        "model_name": "Premier / The Claiborne 1676H32006",
+        "inventory_kind": "orderable_floorplan",
+    },
+    {
+        "id": "floorplan-230137",
+        "model_name": "Skyline / The Royal 1660-H-22001",
+        "inventory_kind": "orderable_floorplan",
+    },
+    {
+        "id": "floorplan-227807",
+        "model_name": "Premier / The Royal 1660-H-22001",
+        "inventory_kind": "orderable_floorplan",
+    },
+]
+
+
+def test_live_public_feed_pairs_collapse_and_manufacturer_twins_stay():
+    """Replay the live public pairs without committing the live JSON."""
+    homes = [dict(home) for home in _LIVE_PUBLIC_PAIRS]
+    annotate_possible_duplicates(homes)
+    by_id = {home["id"]: home for home in homes}
+
+    assert by_id["44490"]["possible_duplicate_ids"] == ["big-blue"]
+    assert by_id["big-blue"]["duplicate_of"] == "44490"
+    assert by_id["heritage-1684-32a"]["possible_duplicate_ids"] == ["43945"]
+    assert by_id["43945"]["duplicate_of"] == "heritage-1684-32a"
+    assert by_id["select-s-1256-21a"]["possible_duplicate_ids"] == ["43944"]
+    assert by_id["43944"]["duplicate_of"] == "select-s-1256-21a"
+    assert by_id["select-s-1272-32a"]["possible_duplicate_ids"] == ["43943"]
+    assert by_id["43943"]["duplicate_of"] == "select-s-1272-32a"
+    assert by_id["the-razor"]["possible_duplicate_ids"] == ["floorplan-227314"]
+    assert by_id["floorplan-227314"]["duplicate_of"] == "the-razor"
+    assert by_id["28527"]["possible_duplicate_ids"] == ["heritage-1672-32c"]
+    assert by_id["heritage-1672-32c"]["duplicate_of"] == "28527"
+
+    for home_id in (
+        "floorplan-230325",
+        "floorplan-232414",
+        "floorplan-230137",
+        "floorplan-227807",
+    ):
+        assert "duplicate_of" not in by_id[home_id]
+        assert "possible_duplicate_ids" not in by_id[home_id]
+
+    visible = collapse_duplicate_homes([dict(home) for home in _LIVE_PUBLIC_PAIRS])
+    assert [home["id"] for home in visible] == [
+        "44490",
+        "heritage-1684-32a",
+        "select-s-1256-21a",
+        "select-s-1272-32a",
+        "the-razor",
+        "28527",
+        "floorplan-230325",
+        "floorplan-232414",
+        "floorplan-230137",
+        "floorplan-227807",
+    ]
+
+
+def test_public_inventory_live_pairs_on_public_path(monkeypatch):
+    client, _main = _public_inventory_client(monkeypatch, _LIVE_PUBLIC_PAIRS)
+    data = client.get("/api/marketing/inventory-context").json()
+    assert [home["id"] for home in data["homes"]] == [
+        "44490",
+        "heritage-1684-32a",
+        "select-s-1256-21a",
+        "select-s-1272-32a",
+        "the-razor",
+        "28527",
+        "floorplan-230325",
+        "floorplan-232414",
+        "floorplan-230137",
+        "floorplan-227807",
+    ]
+    assert data["total_inventory"] == 10
+
+
 def test_public_inventory_saved_legacy_sample_before_after_counts(monkeypatch):
     """Pin visitor-visible counts against the saved live snapshot + catalog."""
     from tests.test_api_v1 import create_client
