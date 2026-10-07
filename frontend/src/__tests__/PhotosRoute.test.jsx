@@ -86,13 +86,13 @@ describe('/photos staff route', () => {
     render(<ToastProvider><App /></ToastProvider>);
     await screen.findByRole('heading', { name: 'Add Photos to Homes' });
 
-    // Desktop nav lists public items first, so the second "Inventory" is the staff one.
-    fireEvent.click(screen.getAllByRole('button', { name: /^Inventory$/ })[1]);
+    fireEvent.click(screen.getAllByRole('button', { name: /^Manage Homes$/ })[0]);
     expect(window.location.pathname).toBe('/manage-inventory');
-    expect(await screen.findByRole('heading', { name: /Manage Inventory/ })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /Manage Homes/ })).toBeInTheDocument();
     expect(screen.queryByRole('textbox', { name: 'Search homes' })).toBeNull();
 
-    fireEvent.click(screen.getAllByRole('button', { name: /^Ops Copilot$/ })[0]);
+    fireEvent.click(screen.getAllByRole('button', { name: /^More$/ })[0]);
+    fireEvent.click(screen.getAllByRole('menuitem', { name: /^Ops Copilot$/ })[0]);
     expect(window.location.pathname).toBe('/copilot');
 
     fireEvent.click(screen.getAllByRole('button', { name: /^Photos$/ })[0]);
@@ -106,7 +106,7 @@ describe('/photos staff route', () => {
     window.history.replaceState({}, '', '/manage-inventory');
     render(<ToastProvider><App /></ToastProvider>);
 
-    expect(await screen.findByRole('heading', { name: /Manage Inventory/ })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /Manage Homes/ })).toBeInTheDocument();
     expect(window.location.pathname).toBe('/manage-inventory');
   });
 });

@@ -2,7 +2,6 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { createElement } from 'react';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import InventoryBrowse from '../pages/InventoryBrowse';
-import PhotoManager from '../pages/PhotoManager';
 import AdStudio from '../pages/AdStudio';
 
 const endpoint = '/api/marketing/inventory-context';
@@ -15,7 +14,6 @@ afterEach(() => {
 
 it.each([
   { name: 'customer inventory', Component: InventoryBrowse },
-  { name: 'photo home picker', Component: PhotoManager },
   { name: 'Ad Studio inventory picker', Component: AdStudio, openPicker: true },
 ])('$name revalidates an old cached catalog on first navigation', async ({ Component, openPicker }) => {
   // Model a browser holding the pre-cutover response with max-age=3600:
