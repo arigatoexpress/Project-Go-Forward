@@ -13,7 +13,7 @@ import seo_routes
 from config_loader import business_address, business_email, business_phone
 
 ROOT = Path(__file__).resolve().parents[1]
-OWNER_PLACEHOLDERS = ("[EFFECTIVE DATE]",)
+EFFECTIVE_DATE = "October 7, 2026"
 
 
 def _all_text(page: str) -> str:
@@ -38,11 +38,10 @@ def test_legal_copy_uses_repo_business_facts(page):
 
 
 @pytest.mark.parametrize("page", ["privacy", "terms"])
-def test_legal_copy_keeps_only_owner_placeholders(page):
+def test_legal_copy_has_effective_date_and_no_placeholders(page):
     text = _all_text(page)
-    for placeholder in OWNER_PLACEHOLDERS:
-        assert placeholder in text
-    assert set(re.findall(r"\[[A-Z ]+\]", text)) == set(OWNER_PLACEHOLDERS)
+    assert f"Effective date: {EFFECTIVE_DATE}." in text
+    assert re.findall(r"\[[A-Z ]+\]", text) == []
     assert "\u2014" not in text
 
 

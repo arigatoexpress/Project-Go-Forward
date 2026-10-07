@@ -155,14 +155,15 @@ describe('legal pages and site-wide footer', () => {
     ['/terms', 'Terms of Use'],
     ['/privacy/', 'Privacy Policy'],
     ['/terms/', 'Terms of Use'],
-  ])('renders %s with business details, the owner placeholder, and legal footer links', async (path, title) => {
+  ])('renders %s with business details, the effective date, and legal footer links', async (path, title) => {
     window.history.replaceState({}, '', path);
     render(<ToastProvider><App /></ToastProvider>);
     expect(await screen.findByRole('heading', { level: 1, name: title })).toBeVisible();
     expect(document.title).toBe(`${title} | Texas Home Outlet`);
     const main = screen.getByRole('main');
     expect(main.textContent).toContain('Prosperity Acquisitions, Inc. dba Texas Home Outlet');
-    expect(main.textContent).toContain('[EFFECTIVE DATE]');
+    expect(main.textContent).toContain('Effective date: October 7, 2026.');
+    expect(main.textContent).not.toMatch(/\[[A-Z ]+\]/);
     expect(main.textContent).not.toMatch(/\[(LEGAL BUSINESS NAME|MAILING ADDRESS|CONTACT EMAIL)\]/);
     expect(main.textContent).not.toContain('\u2014');
     expect(main.querySelector('a[href="mailto:sales@texashomeoutlet.com"]')).not.toBeNull();

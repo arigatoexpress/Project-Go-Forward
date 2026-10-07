@@ -920,7 +920,8 @@ def test_legal_routes_render_shared_copy_on_each_host(monkeypatch):
             assert f'href="https://www.texashomeoutlet.com{path}"' in body
             assert 'name="robots" content="noindex"' not in body
             assert f"<h1>{content['title']}</h1>" in body
-            assert "[EFFECTIVE DATE]" in body
+            assert "Effective date: October 7, 2026." in body
+            assert "[EFFECTIVE DATE]" not in body
             for heading, text in content["sections"]:
                 assert html.escape(heading) in body
                 assert html.escape(text) in body
