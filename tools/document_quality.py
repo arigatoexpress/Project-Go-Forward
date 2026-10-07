@@ -26,6 +26,12 @@ BUSINESS_ZIP = "77336"
 BUSINESS_CITY_STATE_ZIP = "Huffman, TX 77336"
 BUSINESS_RBI = "35248"
 
+# Owner decision pending. TILA / Reg Z reading: "Total of Payments" is amount
+# financed + finance charge, so tax and insurance escrow stay out of it (and out
+# of Total Sale Price). Flip to True to print escrow x term in both instead.
+# The monthly payment amount includes escrow either way; finance charge never does.
+TOTAL_OF_PAYMENTS_INCLUDES_ESCROW = False
+
 
 IDENTITY_FIELDS = {
     "serial_number_1": "Serial # 1",
@@ -695,10 +701,6 @@ def enrich_document_data(data: dict[str, Any]) -> dict[str, Any]:
         enriched["total_paid"] = _money(total_paid)
         enriched["total_sale_price"] = _money(total_paid)
         enriched["finance_charge"] = _money(finance_charge)
-        if _is_blank(enriched.get("payment_breakdown")):
-            enriched["payment_breakdown"] = (
-                f"{loan_term} monthly payments of ${_money(monthly_payment)}"
-            )
 
     # ─── Tax + insurance escrow (Mark Willcott spec, 2026-06-24) ───
     # Renders on the "Important Notice - Property Tax" notice
@@ -733,22 +735,68 @@ def enrich_document_data(data: dict[str, Any]) -> dict[str, Any]:
             if _is_blank(enriched.get("tax_escrow_yearly")):
                 enriched["tax_escrow_yearly"] = _money(annual_tax)
             if _is_blank(enriched.get("tax_escrow_payment")):
-                enriched["tax_escrow_payment"] = _money(
-                    _round_money(annual_tax / Decimal("12"))
-                )
+                enriched["tax_escrow_payment"] = _money(_round_money(annual_tax / Decimal("12")))
 
     # What the buyer pays each month. Escrow is not interest, so finance_charge
     # and total_payments stay on the principal-and-interest figure above.
     principal_and_interest = _decimal(enriched.get("monthly_payment"))
     tax_part = _decimal(enriched.get("tax_escrow_payment")) or Decimal("0")
-    insurance_part = _decimal(enriched.get("insurance_premium_monthly")) or Decimal("0")
-    if principal_and_interest is not None or tax_part or insurance_part:
-        payer = _round_money((principal_and_interest or Decimal("0")) + tax_part + insurance_part)
+    escrow = monthly_escrow_amount(enriched)
+    if principal_and_interest is not None or escrow:
+        payer = _round_money((principal_and_interest or Decimal("0")) + escrow)
         enriched["total_monthly_payment"] = _money(payer)
+        if (
+            TOTAL_OF_PAYMENTS_INCLUDES_ESCROW
+            and escrow
+            and loan_amount is not None
+            and principal_and_interest is not None
+        ):
+            scheduled = _round_money(payer * Decimal(loan_term))
+            enriched["total_payments"] = _money(scheduled)
+            enriched["total_paid"] = _money(_round_money(scheduled + down_payment))
+            enriched["total_sale_price"] = enriched["total_paid"]
+        if (
+            loan_amount is not None
+            and principal_and_interest is not None
+            and _is_blank(enriched.get("payment_breakdown"))
+        ):
+            enriched["payment_breakdown"] = f"{loan_term} monthly payments of ${_money(payer)}"
     if tax_part > 0 and _is_blank(enriched.get("tax_escrow_included")):
         enriched["tax_escrow_included"] = True
 
+    _apply_lender_profile(enriched)
+
     return enriched
+
+
+def monthly_escrow_amount(data: dict[str, Any]) -> Decimal:
+    """Monthly tax + insurance escrow already derived on ``data`` (0 when none)."""
+    tax_part = _decimal(data.get("tax_escrow_payment")) or Decimal("0")
+    insurance_part = _decimal(data.get("insurance_premium_monthly")) or Decimal("0")
+    return _round_money(tax_part + insurance_part)
+
+
+def _normalized_lender_name(value: Any) -> str:
+    return re.sub(r"[^a-z0-9]", "", _clean(value).lower())
+
+
+def _apply_lender_profile(enriched: dict[str, Any]) -> None:
+    """Fill blank creditor contact fields from config.yaml ``lenders`` profiles."""
+    from config_loader import get_lender_profiles
+
+    lender = _normalized_lender_name(
+        enriched.get("creditor_name") or enriched.get("compliance_lender")
+    )
+    if not lender:
+        return
+    for profile in get_lender_profiles().values():
+        names = [_normalized_lender_name(name) for name in profile.get("match_names") or []]
+        if not any(name and lender.startswith(name) for name in names):
+            continue
+        for key in ("creditor_address", "creditor_city_state_zip", "creditor_phone"):
+            if _has_value(profile.get(key)):
+                _set_if_blank(enriched, key, _clean(profile.get(key)))
+        return
 
 
 def _required_field_has_value(data: dict[str, Any], field: str) -> bool:

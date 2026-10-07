@@ -9,6 +9,11 @@ remaining client ownership and workflow checks. [CLIENT_WALKTHROUGH.md](CLIENT_W
 is the staff guide. A dated readiness report does not prove current service health
 or client acceptance.
 
+**Staff (non-technical):** start at [team/README.md](team/README.md) for plain-language
+guides such as staff sign-in and adding home photos.
+
+**Current live status:** see [../SYSTEM_STATUS.md](../SYSTEM_STATUS.md) for where to check it.
+
 1. [SHOWCASE.md](SHOWCASE.md) — Live demo path, verified URLs, audience-specific surfaces, and screenshot safety notes.
 2. [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md) — Read-only smoke checks, local gates, admin-token handling, and Cloud Run rollback path.
 3. [PIN_ROTATION_RUNBOOK.md](PIN_ROTATION_RUNBOOK.md) — Operator-only admin PIN hash rotation without exposing the PIN, token, or hash.
