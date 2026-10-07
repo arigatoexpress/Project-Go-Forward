@@ -196,6 +196,68 @@ def test_collapse_keeps_stocked_identity_and_borrows_catalog_photos():
     assert "duplicate_of" not in kept
 
 
+def _stocked_nassau(**overrides):
+    home = {
+        "id": "1001",
+        "model_name": "PRE-OWNED / Nassau",
+        "status": "Pre-Owned",
+        "inventory_kind": "pre_owned",
+        "display_price": "Call for Price",
+        "price_value": 0,
+        "detail_url": "https://www.texashomeoutlet.com/inventory-detail/1001/",
+        "image_url": "lot-1.jpg",
+    }
+    home.update(overrides)
+    return home
+
+
+def test_equal_length_distinct_donor_photos_are_kept():
+    homes = [
+        _stocked_nassau(real_photos=["lot-1.jpg", "lot-2.jpg"]),
+        {
+            "id": "nassau",
+            "model_name": "Nassau",
+            "status": "Available",
+            "real_photos": ["mfr-1.jpg", "mfr-2.jpg"],
+        },
+    ]
+    visible = collapse_duplicate_homes(homes, strip_annotations=True)
+    assert [home["id"] for home in visible] == ["1001"]
+    kept = visible[0]
+    assert kept["real_photos"] == ["lot-1.jpg", "lot-2.jpg", "mfr-1.jpg", "mfr-2.jpg"]
+    assert kept["gallery_images"] == ["lot-1.jpg", "lot-2.jpg", "mfr-1.jpg"]
+    assert kept["model_name"] == "PRE-OWNED / Nassau"
+    assert kept["status"] == "Pre-Owned"
+    assert kept["inventory_kind"] == "pre_owned"
+    assert kept["display_price"] == "Call for Price"
+    assert kept["price_value"] == 0
+    assert kept["detail_url"].endswith("/1001/")
+    assert kept["image_url"] == "lot-1.jpg"
+
+
+def test_shorter_distinct_donor_photos_are_kept():
+    homes = [
+        _stocked_nassau(real_photos=["lot-1.jpg", "lot-2.jpg", "lot-3.jpg"]),
+        {
+            "id": "nassau",
+            "model_name": "Nassau",
+            "status": "Available",
+            "real_photos": ["lot-2.jpg", "mfr-1.jpg"],
+            "photos": ["lot-2.jpg", "mfr-1.jpg"],
+        },
+    ]
+    visible = collapse_duplicate_homes(homes, strip_annotations=True)
+    assert [home["id"] for home in visible] == ["1001"]
+    kept = visible[0]
+    assert kept["real_photos"] == ["lot-1.jpg", "lot-2.jpg", "lot-3.jpg", "mfr-1.jpg"]
+    assert kept["photos"] == ["lot-1.jpg", "lot-2.jpg", "lot-3.jpg", "mfr-1.jpg"]
+    assert kept["model_name"] == "PRE-OWNED / Nassau"
+    assert kept["status"] == "Pre-Owned"
+    assert kept["price_value"] == 0
+    assert kept["detail_url"].endswith("/1001/")
+    assert kept["image_url"] == "lot-1.jpg"
+
+
 def test_does_not_collapse_preowned_unit_with_orderable_new_floorplan():
     homes = [
         {
@@ -232,6 +294,95 @@ def test_does_not_collapse_same_model_with_different_sale_prices():
     ]
     annotate_possible_duplicates(homes)
     assert all("duplicate_of" not in home for home in homes)
+
+
+def test_two_prefixed_listings_with_different_serials_stay_two_homes():
+    """An empty bare overlay must not glue two real serialized units together."""
+    homes = [
+        {
+            "id": "1001",
+            "model_name": "PRE-OWNED / Nassau",
+            "serial_number": "TXL111",
+            "status": "Pre-Owned",
+            "inventory_kind": "pre_owned",
+            "display_price": "Call for Price",
+            "price_value": 0,
+            "detail_url": "https://www.texashomeoutlet.com/inventory-detail/1001/",
+        },
+        {
+            "id": "1002",
+            "model_name": "PRE-OWNED / Nassau",
+            "serial_number": "TXL222",
+            "status": "Pre-Owned",
+            "inventory_kind": "pre_owned",
+            "display_price": "Call for Price",
+            "price_value": 0,
+            "detail_url": "https://www.texashomeoutlet.com/inventory-detail/1002/",
+        },
+        {
+            "id": "nassau",
+            "model_name": "Nassau",
+            "status": "Available",
+            "display_price": "Call for Price",
+            "price_value": 0,
+        },
+    ]
+    visible = collapse_duplicate_homes(homes)
+    assert [home["id"] for home in visible] == ["1001", "1002"]
+    by_id = {home["id"]: home for home in homes}
+    assert by_id["nassau"]["duplicate_of"] in {"1001", "1002"}
+    assert by_id["1001"]["model_name"] == "PRE-OWNED / Nassau"
+    assert by_id["1001"]["serial_number"] == "TXL111"
+    assert by_id["1001"]["status"] == "Pre-Owned"
+    assert by_id["1001"]["price_value"] == 0
+    assert by_id["1001"]["detail_url"].endswith("/1001/")
+    assert by_id["1002"]["model_name"] == "PRE-OWNED / Nassau"
+    assert by_id["1002"]["serial_number"] == "TXL222"
+    assert by_id["1002"]["status"] == "Pre-Owned"
+    assert by_id["1002"]["detail_url"].endswith("/1002/")
+
+
+def test_two_prefixed_listings_with_different_prices_stay_two_homes():
+    """An unpriced bare overlay must not glue two differently priced units together."""
+    homes = [
+        {
+            "id": "1001",
+            "model_name": "PRE-OWNED / Nassau",
+            "status": "Pre-Owned",
+            "inventory_kind": "pre_owned",
+            "display_price": "$45,000",
+            "price_value": 45000,
+            "sale_price": 45000,
+        },
+        {
+            "id": "1002",
+            "model_name": "PRE-OWNED / Nassau",
+            "status": "Pre-Owned",
+            "inventory_kind": "pre_owned",
+            "display_price": "$62,000",
+            "price_value": 62000,
+            "sale_price": 62000,
+        },
+        {
+            "id": "nassau",
+            "model_name": "Nassau",
+            "status": "Available",
+            "display_price": "Call for Price",
+            "price_value": 0,
+        },
+    ]
+    visible = collapse_duplicate_homes(homes)
+    assert [home["id"] for home in visible] == ["1001", "1002"]
+    by_id = {home["id"]: home for home in homes}
+    assert by_id["nassau"]["duplicate_of"] in {"1001", "1002"}
+    assert by_id["1001"]["price_value"] == 45000
+    assert by_id["1001"]["sale_price"] == 45000
+    assert by_id["1001"]["display_price"] == "$45,000"
+    assert by_id["1001"]["model_name"] == "PRE-OWNED / Nassau"
+    assert by_id["1002"]["price_value"] == 62000
+    assert by_id["1002"]["sale_price"] == 62000
+    assert by_id["1002"]["display_price"] == "$62,000"
+    assert by_id["1002"]["status"] == "Pre-Owned"
 
 
 def test_identity_helpers():

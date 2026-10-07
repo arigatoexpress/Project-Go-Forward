@@ -135,6 +135,18 @@ def offerings_conflict(left: dict, right: dict) -> bool:
     return False
 
 
+def _join_blocked(left: dict, right: dict) -> bool:
+    """True when these two rows must not share a cluster.
+
+    Different serials are different homes. Price and new-vs-used conflicts
+    use the same rule as ``offerings_conflict``.
+    """
+    left_serial, right_serial = _serial(left), _serial(right)
+    if left_serial and right_serial and left_serial != right_serial:
+        return True
+    return offerings_conflict(left, right)
+
+
 def _has_public_link(home: dict) -> bool:
     return any(
         str(home.get(field) or "").strip() for field in ("detail_url", "quote_url", "source_url")
@@ -174,9 +186,17 @@ def _borrow_media(survivor: dict, donor: dict) -> None:
     """
     survivor_photos = _photo_list(survivor) or _photo_list(survivor, "photos")
     donor_photos = _photo_list(donor) or _photo_list(donor, "photos")
-    if len(donor_photos) > len(survivor_photos):
-        seen = set(survivor_photos)
-        merged = survivor_photos + [url for url in donor_photos if url not in seen]
+    seen = set(survivor_photos)
+    extras: list[str] = []
+    for url in donor_photos:
+        if url in seen:
+            continue
+        seen.add(url)
+        extras.append(url)
+    # Length is not the test: a shorter donor can still hold a photo the
+    # survivor does not. Survivor URLs stay first and are never reordered.
+    if extras:
+        merged = survivor_photos + extras
         survivor["real_photos"] = merged
         if "photos" in survivor or "photos" in donor:
             survivor["photos"] = merged
@@ -205,10 +225,10 @@ def _clusters(group: list[dict]) -> list[list[dict]]:
     """Split one same-model group into likely-same-home clusters.
 
     A shared model name is not enough: two Nassaus on the lot are two homes.
-    We only join records that share a serial, or the exact importer pair the
-    walkthrough found (one website title like ``PRE-OWNED / Big Blue`` and
-    exactly one bare ``Big Blue``) when their serials do not conflict and the
-    rows are not a used unit next to a separate new/orderable offering.
+    We join records that share a serial, or a prefixed website title
+    (``PRE-OWNED / Big Blue``) with the single bare name, but only when every
+    row in the prospective cluster agrees: no conflicting serials, sale
+    prices, or used-vs-orderable mismatch.
     """
     n = len(group)
     parent = list(range(n))
@@ -238,14 +258,22 @@ def _clusters(group: list[dict]) -> list[list[dict]]:
     bare_idx = [i for i in range(n) if i not in set(website_idx)]
     # Only attach prefixed titles to a single bare name. Two bare records of
     # the same model stay visible — they may be two physical homes.
+    # Each prefixed row has to agree with the whole cluster it would join.
+    # Checking only the bare overlay lets two real PRE-OWNED units (different
+    # serials or sale prices) both pass an empty overlay and collapse together.
     if len(bare_idx) == 1:
         bare_i = bare_idx[0]
         for web_i in website_idx:
-            left, right = group[bare_i], group[web_i]
-            left_serial, right_serial = _serial(left), _serial(right)
-            if left_serial and right_serial and left_serial != right_serial:
+            bare_root, web_root = find(bare_i), find(web_i)
+            if bare_root == web_root:
                 continue
-            if offerings_conflict(left, right):
+            bare_members = [i for i in range(n) if find(i) == bare_root]
+            web_members = [i for i in range(n) if find(i) == web_root]
+            if any(
+                _join_blocked(group[left_i], group[right_i])
+                for left_i in bare_members
+                for right_i in web_members
+            ):
                 continue
             union(bare_i, web_i)
 
