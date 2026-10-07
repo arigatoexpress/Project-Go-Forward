@@ -563,6 +563,10 @@ _STATIC_RATE_LIMIT_EXTENSIONS = (
     ".woff2",
 )
 _STATIC_RATE_LIMIT_PATHS = {
+    "/apple-touch-icon-120x120.png",
+    "/apple-touch-icon-precomposed.png",
+    "/apple-touch-icon.png",
+    "/favicon.ico",
     "/manifest.webmanifest",
     "/registerSW.js",
     "/sw.js",
@@ -4839,7 +4843,14 @@ async def _send_reviewed_signing(deal_id: str, data: dict, request: Request):
         deal_id=deal_id, prepared=prepared, actor=_audit_actor(request), trigger="staff_review"
     )
     if not sent.get("success"):
-        struct_logger.error("Reviewed DocuSeal send failed", error=str(sent.get("error")))
+        struct_logger.error(
+            "Reviewed DocuSeal send failed",
+            operation="staff_review_send",
+            deal_id=deal_id,
+            template_name=template_name,
+            status_code=sent.get("status_code"),
+            request_id=str(sent.get("request_id") or "")[:120],
+        )
         return JSONResponse(
             {
                 "success": False,
@@ -5934,7 +5945,9 @@ def _validate_public_contact_payload(data: object) -> tuple[dict[str, str], JSON
     if not isinstance(name_raw, str) or not isinstance(phone_raw, str):
         return (
             {},
-            JSONResponse({"success": False, "error": "Name and phone are required"}, status_code=400),
+            JSONResponse(
+                {"success": False, "error": "Name and phone are required"}, status_code=400
+            ),
         )
 
     if email_raw is None:
@@ -5953,11 +5966,16 @@ def _validate_public_contact_payload(data: object) -> tuple[dict[str, str], JSON
     message = message_raw.strip()
 
     if not name or not phone:
-        return {}, JSONResponse({"success": False, "error": "Name and phone are required"}, status_code=400)
+        return {}, JSONResponse(
+            {"success": False, "error": "Name and phone are required"}, status_code=400
+        )
     if len(name) > _PUBLIC_CONTACT_NAME_MAX:
         return (
             {},
-            JSONResponse({"success": False, "error": "Name must be 120 characters or fewer."}, status_code=400),
+            JSONResponse(
+                {"success": False, "error": "Name must be 120 characters or fewer."},
+                status_code=400,
+            ),
         )
     if len(phone) > _PUBLIC_CONTACT_PHONE_MAX:
         return (
@@ -5979,7 +5997,9 @@ def _validate_public_contact_payload(data: object) -> tuple[dict[str, str], JSON
     if email and (len(email) > 254 or not _PUBLIC_EMAIL_RE.fullmatch(email)):
         return (
             {},
-            JSONResponse({"success": False, "error": "Enter a valid email address."}, status_code=400),
+            JSONResponse(
+                {"success": False, "error": "Enter a valid email address."}, status_code=400
+            ),
         )
     if len(message) > _PUBLIC_CONTACT_MESSAGE_MAX:
         return (
@@ -9412,16 +9432,18 @@ async def serve_spa(full_path: str):
     if seo_response is not None:
         return seo_response
 
-    # Serve actual files from dist if they exist (e.g., tex-icon.svg, vite.svg)
+    # Serve built assets from dist first, then fall back to frontend/public for
+    # local/test contexts that have not run a Vite build yet.
     if full_path:
-        file_path = os.path.join("frontend/dist", full_path)
-        if os.path.isfile(file_path):
-            response = FileResponse(file_path)
-            if file_path.endswith(".html"):
-                response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-                response.headers["Pragma"] = "no-cache"
-                response.headers["Expires"] = "0"
-            return response
+        for base_dir in ("frontend/dist", "frontend/public"):
+            file_path = os.path.join(base_dir, full_path)
+            if os.path.isfile(file_path):
+                response = FileResponse(file_path)
+                if file_path.endswith(".html"):
+                    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+                    response.headers["Pragma"] = "no-cache"
+                    response.headers["Expires"] = "0"
+                return response
     # Unknown route and not a dist file: real 404 with the SPA shell so
     # crawlers don't index every typo as a page (soft-404 avoidance).
     return seo_routes.render_not_found()
