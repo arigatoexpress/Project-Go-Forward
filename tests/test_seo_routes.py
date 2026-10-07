@@ -899,3 +899,63 @@ def test_inventory_page_emits_itemlist_jsonld(monkeypatch):
     # each item links to a real detail/plan URL, with no price/offer fabrication
     assert any("/inventory-detail/43372/" in i["url"] for i in items)
     assert all("offers" not in i and "price" not in i for i in items)
+
+
+def test_legal_routes_render_shared_copy_on_each_host(monkeypatch):
+    import html
+
+    import seo_routes
+
+    client, _ = seo_client(monkeypatch)
+    for host in ("www.texashomeoutlet.com", "texashomeoutlet.com", "tho.sapphirealpha.xyz"):
+        for page, content in seo_routes.LEGAL_PAGES.items():
+            path = f"/{page}"
+            response = client.get(path, headers={"Host": host}, follow_redirects=False)
+            assert response.status_code == 200
+            body = response.text
+            assert f"<title>{content['title']} | Texas Home Outlet</title>" in body
+            assert (
+                f'<meta name="description" content="{html.escape(content["description"])}"' in body
+            )
+            assert f'href="https://www.texashomeoutlet.com{path}"' in body
+            assert 'name="robots" content="noindex"' not in body
+            assert f"<h1>{content['title']}</h1>" in body
+            assert "Effective date: October 7, 2026." in body
+            assert "[EFFECTIVE DATE]" not in body
+            for heading, text in content["sections"]:
+                assert html.escape(heading) in body
+                assert html.escape(text) in body
+
+
+def test_legal_routes_canonicalize_and_appear_in_sitemap(monkeypatch):
+    client, _ = seo_client(monkeypatch)
+    sitemap = client.get("/sitemap.xml").text
+    for path in ("/privacy", "/terms"):
+        for variant in (path + "/", path.title()):
+            response = client.get(variant, follow_redirects=False)
+            assert response.status_code == 301
+            assert response.headers["location"] == path
+        assert sitemap.count(f"https://www.texashomeoutlet.com{path}</loc>") == 1
+    assert "/legal</loc>" not in sitemap
+    assert client.get("/privacy/unknown", follow_redirects=False).status_code == 404
+    assert client.get("/terms/unknown", follow_redirects=False).status_code == 404
+
+
+def test_legal_aliases_redirect_to_canonical_pages(monkeypatch):
+    client, _ = seo_client(monkeypatch)
+    for path, target in (
+        ("/legal", "/privacy"),
+        ("/legal/", "/privacy"),
+        ("/Legal", "/privacy"),
+        ("/privacy-policy", "/privacy"),
+        ("/terms-of-use", "/terms"),
+        ("/terms-of-service", "/terms"),
+        ("/terms-and-conditions", "/terms"),
+    ):
+        response = client.get(
+            path, headers={"Host": "www.texashomeoutlet.com"}, follow_redirects=False
+        )
+        assert response.status_code == 301, path
+        assert response.headers["location"] == target
+        assert client.get(path).status_code == 200
+    assert client.get("/legal/unknown", follow_redirects=False).status_code == 404
