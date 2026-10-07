@@ -85,7 +85,7 @@ model: "gemini-2.5-flash"  # Current
 model: "gemini-2.5-pro"    # Higher quality option
 
 # Redeploy
-gcloud run deploy tho-agent --source .
+gcloud run deploy project-go-forward --source . --region us-central1
 ```
 
 ---
@@ -93,7 +93,7 @@ gcloud run deploy tho-agent --source .
 ## 📞 Questions?
 
 If you see any issues after March 9:
-1. Check the logs: `gcloud logging read "resource.labels.service_name=tho-agent"`
+1. Check the logs: `gcloud logging read "resource.labels.service_name=project-go-forward"`
 2. Verify model: Check `config.yaml` line 31
 3. Contact: File a ticket if issues persist
 

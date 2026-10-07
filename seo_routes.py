@@ -26,6 +26,7 @@ import os
 import re
 import threading
 import time
+from pathlib import Path
 from urllib.parse import quote_plus, unquote, urlparse
 
 from fastapi import APIRouter
@@ -126,6 +127,35 @@ PUBLIC_ROUTES = {
     ),
 }
 
+# Shared copy keeps server-rendered and React legal pages identical.
+LEGAL_PAGES = json.loads(
+    (Path(__file__).parent / "frontend/src/content/legalPages.json").read_text(encoding="utf-8")
+)
+for _page, _content in LEGAL_PAGES.items():
+    PUBLIC_ROUTES[f"/{_page}"] = (
+        f"{_content['title']} | {business_name()}",
+        _content["description"],
+    )
+
+# Common legal URLs people and crawlers guess. Keys are lowercase, no trailing slash.
+_LEGAL_REDIRECTS: dict[str, str] = {
+    "/legal": "/privacy",
+    "/privacy-policy": "/privacy",
+    "/terms-of-use": "/terms",
+    "/terms-of-service": "/terms",
+    "/terms-and-conditions": "/terms",
+}
+
+
+def _crawlable_legal_block(page: str) -> str:
+    content = LEGAL_PAGES[page]
+    sections = "".join(
+        f"<section><h2>{html.escape(heading)}</h2><p>{html.escape(text)}</p></section>"
+        for heading, text in content["sections"]
+    )
+    return f"<main><h1>{html.escape(content['title'])}</h1>{sections}</main>"
+
+
 # High-intent legacy category URLs that now resolve to real, inventory-backed
 # landing pages instead of collapsing into the generic /inventory hub.
 HOME_CATEGORY_PAGES = {
@@ -164,6 +194,10 @@ NOINDEX_PREFIXES = (
     "/team",
     "/guide",
     "/chat-history",
+    "/manage-inventory",
+    "/photos",
+    "/copilot",
+    "/ops-copilot",
     "/hub/",
     "/app/",
 )
@@ -1289,7 +1323,7 @@ def _render_spa_response(full_path: str) -> Response | None:
 
     # 2b. Legacy vendor marketing/brand/city pages -> closest relevant page (301).
     #     Preserves the old site's search equity instead of hard-404ing on cutover.
-    vendor_target = _LEGACY_VENDOR_REDIRECTS.get(path.lower())
+    vendor_target = _LEGACY_VENDOR_REDIRECTS.get(path.lower()) or _LEGAL_REDIRECTS.get(path.lower())
     if vendor_target:
         return RedirectResponse(vendor_target, status_code=301)
 
@@ -1479,6 +1513,8 @@ def _render_spa_response(full_path: str) -> Response | None:
             body = _crawlable_warranty_block()
         elif path == "/delivery":
             body = _crawlable_delivery_block()
+        elif path in ("/privacy", "/terms"):
+            body = _crawlable_legal_block(path.lstrip("/"))
         else:
             body = None
         return HTMLResponse(_inject(_shell(), head, body), headers=no_cache)
@@ -1528,6 +1564,10 @@ def robots_txt() -> PlainTextResponse:
             "/staff",
             "/team",
             "/chat-history",
+            "/manage-inventory",
+            "/photos",
+            "/copilot",
+            "/ops-copilot",
             "/hub/",
             "/app/",
             "/api/admin/",
@@ -1556,6 +1596,8 @@ def sitemap_xml() -> Response:
             "/faq",
             "/warranty",
             "/delivery",
+            "/privacy",
+            "/terms",
         )
     ]
     urls += [base + p for p in sorted(_city_pages())]

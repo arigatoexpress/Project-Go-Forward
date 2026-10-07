@@ -834,8 +834,7 @@ async def resilient_json_decode_handler(request: Request, exc: JSONDecodeError) 
 # Add CORS — production origins from env, with sensible defaults
 IS_LOCAL = os.environ.get("K_SERVICE") is None  # K_SERVICE is set by Cloud Run
 _default_origins = [
-    "https://tho-agent-691674245427.us-central1.run.app",
-    "https://tho-agent-trgi34bxuq-uc.a.run.app",
+    "https://project-go-forward-trgi34bxuq-uc.a.run.app",
     "https://tho-ai-agent.web.app",
     "https://tho-ai-agent.firebaseapp.com",
     "https://tho.sapphirealpha.xyz",
@@ -5816,6 +5815,83 @@ async def reorder_listing_photos(request: Request, home_id: str):
 
 _PUBLIC_CHAT_SESSION_RE = re.compile(r"^[A-Za-z0-9_-]{8,128}$")
 _PUBLIC_EMAIL_RE = re.compile(r"^[^\s@]{1,64}@[^\s@]{1,190}\.[^\s@]{2,24}$")
+_PUBLIC_CONTACT_NAME_MAX = 120
+_PUBLIC_CONTACT_PHONE_MAX = 40
+_PUBLIC_CONTACT_MESSAGE_MAX = 2000
+
+
+def _validate_public_contact_payload(data: object) -> tuple[dict[str, str], JSONResponse | None]:
+    if not isinstance(data, dict):
+        return {}, JSONResponse({"success": False, "error": "Invalid request."}, status_code=400)
+
+    name_raw = data.get("name", "")
+    phone_raw = data.get("phone", "")
+    email_raw = data.get("email", "")
+    message_raw = data.get("message", "")
+
+    if not isinstance(name_raw, str) or not isinstance(phone_raw, str):
+        return (
+            {},
+            JSONResponse({"success": False, "error": "Name and phone are required"}, status_code=400),
+        )
+
+    if email_raw is None:
+        email_raw = ""
+    if message_raw is None:
+        message_raw = ""
+    if not isinstance(email_raw, str) or not isinstance(message_raw, str):
+        return (
+            {},
+            JSONResponse({"success": False, "error": "Invalid request."}, status_code=400),
+        )
+
+    name = name_raw.strip()
+    phone = phone_raw.strip()
+    email = email_raw.strip()
+    message = message_raw.strip()
+
+    if not name or not phone:
+        return {}, JSONResponse({"success": False, "error": "Name and phone are required"}, status_code=400)
+    if len(name) > _PUBLIC_CONTACT_NAME_MAX:
+        return (
+            {},
+            JSONResponse({"success": False, "error": "Name must be 120 characters or fewer."}, status_code=400),
+        )
+    if len(phone) > _PUBLIC_CONTACT_PHONE_MAX:
+        return (
+            {},
+            JSONResponse(
+                {"success": False, "error": "Please enter a valid 10-digit phone number."},
+                status_code=400,
+            ),
+        )
+    phone_digits = re.sub(r"\D", "", phone)
+    if not (len(phone_digits) == 10 or (len(phone_digits) == 11 and phone_digits.startswith("1"))):
+        return (
+            {},
+            JSONResponse(
+                {"success": False, "error": "Please enter a valid 10-digit phone number."},
+                status_code=400,
+            ),
+        )
+    if email and (len(email) > 254 or not _PUBLIC_EMAIL_RE.fullmatch(email)):
+        return (
+            {},
+            JSONResponse({"success": False, "error": "Enter a valid email address."}, status_code=400),
+        )
+    if len(message) > _PUBLIC_CONTACT_MESSAGE_MAX:
+        return (
+            {},
+            JSONResponse(
+                {
+                    "success": False,
+                    "error": f"Message must be {_PUBLIC_CONTACT_MESSAGE_MAX} characters or fewer.",
+                },
+                status_code=400,
+            ),
+        )
+
+    return {"name": name, "phone": phone, "email": email, "message": message}, None
 
 
 @app.post("/api/chat/contact")
@@ -5906,19 +5982,19 @@ async def submit_contact_form(request: Request):
     """Receive contact form submissions and log as leads."""
     try:
         data = await request.json()
-        name = data.get("name", "").strip()
-        phone = data.get("phone", "").strip()
-        has_message = bool(data.get("message", "").strip())
+    except Exception:
+        return JSONResponse({"success": False, "error": "Invalid request."}, status_code=400)
 
-        email = data.get("email", "").strip()
+    validated, validation_error = _validate_public_contact_payload(data)
+    if validation_error:
+        return validation_error
 
-        if not name or not phone:
-            return {"success": False, "error": "Name and phone are required"}
-        if len(re.sub(r"\D", "", phone)) < 10:
-            return {
-                "success": False,
-                "error": "Please enter a valid 10-digit phone number.",
-            }
+    try:
+        name = validated["name"]
+        phone = validated["phone"]
+        email = validated["email"]
+        message = validated["message"]
+        has_message = bool(message)
 
         struct_logger.info(
             "Contact form submitted",
@@ -6002,7 +6078,7 @@ async def submit_contact_form(request: Request):
                     name,
                     email=email or None,
                     phone=phone,
-                    message=data.get("message"),
+                    message=message,
                     source=data.get("source", "contact_form"),
                     lead_id=lead_id,
                 )

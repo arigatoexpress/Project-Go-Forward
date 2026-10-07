@@ -1,10 +1,11 @@
 import asyncio
+import os
 import time
 import uuid
 
 import aiohttp
 
-BASE_URL = "https://tho-agent-691674245427.us-central1.run.app"
+BASE_URL = os.environ.get("ROBUSTNESS_BASE_URL", "https://www.texashomeoutlet.com").rstrip("/")
 RUN_ENDPOINT = f"{BASE_URL}/run"
 
 

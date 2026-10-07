@@ -5,7 +5,7 @@ import uuid
 import requests
 
 # Configuration
-PROD_URL = "https://tho-agent-691674245427.us-central1.run.app"
+PROD_URL = "https://www.texashomeoutlet.com"
 BASE_URL = os.environ.get("AGENT_API_URL", PROD_URL)
 
 

@@ -15,8 +15,7 @@ automatically — usually within a minute.
 - A computer, phone, or tablet.
 - The photos saved on that device (from your camera roll, Photos app, or a
   folder). JPG, PNG, WebP, and GIF pictures all work.
-- The admin **PIN** (the same number you use to get into Documents and CRM). If
-  you don't have it, ask Ari.
+- Your work email, so you can sign in. See [How to sign in](staff-sign-in.md).
 
 ---
 
@@ -50,6 +49,9 @@ After you log in, a few extra buttons appear in the top menu. Click the one with
 the **camera icon** that says **Photos**.
 
 On a phone, tap the **menu (☰)** first, then tap **Photos**.
+
+You can also go straight to **https://www.texashomeoutlet.com/photos**. If you
+are not signed in yet, it asks you to sign in first, then opens the Photos screen.
 
 ### 3. Pick the home
 

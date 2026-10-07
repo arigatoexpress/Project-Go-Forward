@@ -2009,9 +2009,8 @@ export function LeadCaptureForm({ home, type, onClose, onBookAppointment }) {
           ...getJourneyAttribution(),
         }),
       });
-      // The backend returns HTTP 200 with {success:false} on validation or
-      // storage failure, so checking resp.ok alone showed a false success
-      // screen and silently dropped the lead. Check the parsed body too.
+      // Validation/storage issues can return either non-2xx or {success:false},
+      // so gate the success path on BOTH HTTP and response payload.
       const result = await resp.json().catch(() => ({}));
       if (!resp.ok || !result.success) {
         setError(safeUserMessage(extractErrorMessage(result), `Something went wrong. Please call us at ${BUSINESS_PHONE}.`));
