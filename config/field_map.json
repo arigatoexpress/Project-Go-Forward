@@ -727,6 +727,7 @@
         "topmostSubform[0].Page1[0].Tax_Escrow_Yearly[0]": "tax_escrow_yearly",
         "topmostSubform[0].Page1[0].Tax_Escrow_Pmt[0]": "tax_escrow_payment",
         "topmostSubform[0].Page1[0].Calc_Pmt[0]": "monthly_payment",
+        "topmostSubform[0].Page1[0].Tax_Escrow_Pmt[1]": "tax_escrow_payment",
         "topmostSubform[0].Page1[0].Insurance_Premium_Monthly[0]": "insurance_premium_monthly",
         "topmostSubform[0].Page1[0].Total_Payment[0]": "total_monthly_payment",
         "topmostSubform[0].Page1[0].Seller_Name[0]": "seller_name"
