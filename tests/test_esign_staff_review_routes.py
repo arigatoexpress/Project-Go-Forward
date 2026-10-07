@@ -436,3 +436,53 @@ def test_cancel_failure_keeps_request_pending(monkeypatch):
     response = h.client.post("/api/deals/deal-1/esign/42/cancel", headers=h.headers)
     assert response.status_code == 502
     assert h.main._esign_requests["deal-1_42"]["status"] == "pending"
+
+
+def test_send_failure_never_leaks_docuseal_body(monkeypatch, caplog):
+    h = Harness(monkeypatch)
+    token = h.preview().json()["review_token"]
+    buyer_email = "buyer@example.com"
+    buyer_phone = "512-555-0101"
+
+    async def leaking_send(**_kwargs):
+        return {
+            "success": False,
+            "status_code": 422,
+            "request_id": "deal-1:abc123",
+            "error": f"DocuSeal says email={buyer_email} phone={buyer_phone}",
+            "detail": {"submitter": {"email": buyer_email, "phone": buyer_phone}},
+        }
+
+    monkeypatch.setattr(h.main, "docuseal_send_for_signature", leaking_send)
+    response = h.send(confirm=True, review_token=token)
+    assert response.status_code == 502
+    assert response.json()["message"] == (
+        "DocuSeal didn't accept the request, so nothing was sent. Try again."
+    )
+    assert buyer_email not in response.text
+    assert buyer_phone not in response.text
+    assert buyer_email not in caplog.text
+    assert buyer_phone not in caplog.text
+
+
+def test_cancel_failure_never_leaks_docuseal_body(monkeypatch):
+    h = Harness(monkeypatch)
+    _send_one(h)
+    buyer_email = "buyer@example.com"
+    buyer_phone = "512-555-0101"
+
+    async def failing_archive(_submission_id):
+        return {
+            "success": False,
+            "error": f"email={buyer_email} phone={buyer_phone}",
+            "detail": {"email": buyer_email, "phone": buyer_phone},
+        }
+
+    monkeypatch.setattr(h.main, "docuseal_archive_submission", failing_archive)
+    response = h.client.post("/api/deals/deal-1/esign/42/cancel", headers=h.headers)
+    assert response.status_code == 502
+    assert response.json()["message"] == (
+        "DocuSeal didn't cancel the request. It may still be open; try again."
+    )
+    assert buyer_email not in response.text
+    assert buyer_phone not in response.text

@@ -4737,7 +4737,14 @@ async def _send_reviewed_signing(deal_id: str, data: dict, request: Request):
         deal_id=deal_id, prepared=prepared, actor=_audit_actor(request), trigger="staff_review"
     )
     if not sent.get("success"):
-        struct_logger.error("Reviewed DocuSeal send failed", error=str(sent.get("error")))
+        struct_logger.error(
+            "Reviewed DocuSeal send failed",
+            operation="staff_review_send",
+            deal_id=deal_id,
+            template_name=template_name,
+            status_code=sent.get("status_code"),
+            request_id=str(sent.get("request_id") or "")[:120],
+        )
         return JSONResponse(
             {
                 "success": False,
