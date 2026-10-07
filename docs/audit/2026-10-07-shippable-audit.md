@@ -82,6 +82,12 @@ Out of scope by request:
 - Pytest warnings include deprecated `datetime.utcnow()` usage at several call sites. Not breaking now, but should be migrated to timezone-aware `datetime.now(datetime.UTC)`.
 - OpenAPI warning about duplicate operation IDs for `readyz` variants appears in test logs; low severity but worth cleanup.
 
+## Stale open PR triage (requested addendum)
+- **#333 — REBASE:** Docs-only operational-truth changes are old (last updated 2026-08-29) and should be rebased/revalidated against current runbook/docs before merge.
+- **#335 — CLOSE:** The `RESEND_API_KEY` Secret Manager binding this PR adds is already present on `main` in `.github/workflows/deploy.yml`, so this branch is effectively superseded.
+- **#336 — CLOSE:** Core inventory hero/fallback behavior from this branch (lazy-watchdog + fallback handling) is already represented in `main` (`InventoryBrowse.jsx` + hero fallback/watchdog tests), so the PR appears superseded.
+- **#337 — REBASE:** It is stacked on `fix/hero-photo-ranking` (not `main`) and introduces a different floorplan-classification path; rebase to `main` and re-justify against current `tools/photo_classifier.py` before any merge decision.
+
 ## Changes implemented in this PR
 
 - `main.py`
