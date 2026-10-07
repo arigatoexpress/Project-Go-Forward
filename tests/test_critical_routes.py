@@ -61,9 +61,9 @@ def _resolve(client, method: str, path: str, host: str):
 @pytest.mark.parametrize("route", CRITICAL_ROUTES)
 def test_critical_route_is_200_or_redirect_to_200(client, route, host, method):
     first = client.request(method, route, headers={"host": host}, follow_redirects=False)
-    assert first.status_code == 200 or first.status_code in REDIRECTS, (
-        f"{method} {host}{route} -> {first.status_code}"
-    )
+    assert (
+        first.status_code == 200 or first.status_code in REDIRECTS
+    ), f"{method} {host}{route} -> {first.status_code}"
     final, hops = _resolve(client, method, route, host)
     assert final.status_code == 200, f"{method} {route} via {hops} ended {final.status_code}"
 
