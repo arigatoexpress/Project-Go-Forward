@@ -1,9 +1,11 @@
 # Project Go Forward — Texas Home Outlet
 
+> Texas Home Outlet storefront (repo: Project-Go-Forward). Not related to WeGoForward, the owner's separate AI services business.
+
 **The digital storefront and back office for Texas Home Outlet — built, owned, and operated by the business instead of rented from third-party vendors.**
 
-[![Live site](https://img.shields.io/badge/live-tho.sapphirealpha.xyz-0f766e)](https://tho.sapphirealpha.xyz/)
-[![Tests](https://img.shields.io/badge/tests-655%20passing-22c55e)](tests/)
+[![Live site](https://img.shields.io/badge/live-www.texashomeoutlet.com-0f766e)](https://www.texashomeoutlet.com/)
+[![CI](https://github.com/arigatoexpress/Project-Go-Forward/actions/workflows/deploy.yml/badge.svg?branch=main)](https://github.com/arigatoexpress/Project-Go-Forward/actions/workflows/deploy.yml)
 [![Backend](https://img.shields.io/badge/backend-FastAPI%20%2B%20Firestore-009688)](main.py)
 [![Frontend](https://img.shields.io/badge/frontend-React%2019%20%2B%20Vite-111827)](frontend/)
 [![AI](https://img.shields.io/badge/AI-Gemini%20on%20Vertex%20AI-4285F4)](root_agent.py)
@@ -22,8 +24,10 @@ One system that replaces several vendor subscriptions and manual processes:
 | No after-hours coverage | **Tex**, an AI consultant who answers questions, searches inventory, and books showroom visits 24/7 |
 | Marketing made one ad at a time | Ad Studio drafts campaigns from the home catalog |
 
-It runs as a single service on Google Cloud and deploys automatically every time a
-change is approved and merged in this repository.
+It runs as a single Cloud Run service (`project-go-forward` in Google Cloud
+project `tho-ai-agent`). Every merge to `main` automatically builds and checks a
+new no-traffic candidate version. The public site only switches to it after the
+owner approves the move.
 
 ## The customer experience
 
@@ -54,12 +58,18 @@ appointment lands in the CRM.
 
 ## The staff side (behind the lock)
 
-Staff surfaces — Document Center, CRM, Ad Studio, analytics — sit behind a
-PIN + passkey gate. The Document Center fills the complete Texas
-manufactured-housing closing packet (TMHA/TDHCA forms) from deal data and
-sends it for e-signature with the federally required consent step.
+Staff surfaces (Document Center, CRM, Ad Studio, analytics) sit behind staff
+sign-in at [`/staff`](https://www.texashomeoutlet.com/staff). Staff type their
+work email and get a sign-in link, with a 6-digit code as a fallback. Passkeys
+are hidden from the sign-in page, and a backup PIN exists for emergencies only
+(see [`docs/team/staff-sign-in.md`](docs/team/staff-sign-in.md), PRs
+[#369](https://github.com/arigatoexpress/Project-Go-Forward/pull/369) and
+[#370](https://github.com/arigatoexpress/Project-Go-Forward/pull/370)). The
+Document Center fills the complete Texas manufactured-housing closing packet
+(TMHA/TDHCA forms) from deal data and sends it for e-signature with the
+federally required consent step.
 
-![Staff areas require PIN or passkey authentication](docs/assets/admin-gate.jpg)
+Plain-language guides for the team live in [`docs/team/`](docs/team/README.md).
 
 ## How it's built
 
@@ -87,16 +97,17 @@ flowchart LR
     DS --> GCS
 ```
 
-Every change follows the same path: branch → pull request → 655 automated
-tests must pass → human approval → merge → automatic deploy. Nobody — human
-or AI — can push code straight to production.
+Every change follows the same path: branch → pull request → automated tests
+must pass → human approval → merge → automatic no-traffic candidate build →
+owner-approved traffic promotion. Nobody — human or AI — can push code straight
+to production.
 
 ## Trust, safety, and operations
 
-- **655 automated tests** run on every change; the deploy is blocked if any fail
+- **Automated tests** run on every change, and the candidate build is blocked if any fail. The `main` build for commit `bd4fd22` (2026-10-06) ran 2,217 backend tests (24 skipped) and 291 frontend tests.
 - **Branch protection** verified: direct pushes to production are rejected at the platform level
 - **PII guardrails**: SSNs and financial data are stripped before anything reaches logs or the AI; Tex refuses to collect them in chat
-- **Monitoring**: uptime checks, error alerts, daily Firestore backups, and a written [incident runbook](docs/RUNBOOK.md)
+- **Monitoring and backups**: a written [incident runbook](docs/RUNBOOK.md) and liveness endpoint (`/healthz/`) exist today. An uptime check, alert policies, and a daily Firestore backup schedule are **planned but not verified**: the manual [Ops bootstrap workflow](.github/workflows/ops-bootstrap.yml) is meant to create them, but its only run (2026-06-17) had failing steps. Confirm in Cloud Monitoring and with `gcloud firestore backups schedules list` before relying on them ([restore runbook](docs/FIRESTORE_RESTORE_RUNBOOK.md)).
 - **Search ranking protected**: all 279 indexed URLs from the old website stay alive here, with structured data the old site never had ([migration plan](docs/SEO_MIGRATION.md))
 - **AI behavior is reviewable**: Tex's instructions are plain-English files in [`prompts/`](prompts/) — anyone can read exactly what the AI is told to do
 
@@ -104,6 +115,8 @@ or AI — can push code straight to production.
 
 | Document | What it covers |
 |---|---|
+| [`docs/team/README.md`](docs/team/README.md) | Staff guides in plain language (sign-in, photos, and more) |
+| [`SYSTEM_STATUS.md`](SYSTEM_STATUS.md) | Where to find current live status |
 | [`LAUNCH_READINESS.md`](LAUNCH_READINESS.md) | Go-live checklist with evidence — the honest status board |
 | [`docs/RUNBOOK.md`](docs/RUNBOOK.md) | What to do when something breaks |
 | [`docs/SEO_MIGRATION.md`](docs/SEO_MIGRATION.md) | How we keep (and improve) our Google ranking at cutover |
