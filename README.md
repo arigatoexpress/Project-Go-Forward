@@ -107,7 +107,8 @@ to production.
 - **Automated tests** run on every change, and the candidate build is blocked if any fail. The `main` build for commit `bd4fd22` (2026-10-06) ran 2,217 backend tests (24 skipped) and 291 frontend tests.
 - **Branch protection** verified: direct pushes to production are rejected at the platform level
 - **PII guardrails**: SSNs and financial data are stripped before anything reaches logs or the AI; Tex refuses to collect them in chat
-- **Monitoring and backups**: a written [incident runbook](docs/RUNBOOK.md) and liveness endpoint (`/healthz/`) exist today. An uptime check, alert policies, and a daily Firestore backup schedule are **planned but not verified**: the manual [Ops bootstrap workflow](.github/workflows/ops-bootstrap.yml) is meant to create them, but its only run (2026-06-17) had failing steps. Confirm in Cloud Monitoring and with `gcloud firestore backups schedules list` before relying on them ([restore runbook](docs/FIRESTORE_RESTORE_RUNBOOK.md)).
+- **Backups**: daily Firestore backups, 7-day retention ([restore runbook](docs/FIRESTORE_RESTORE_RUNBOOK.md))
+- **Monitoring**: an uptime check on `/healthz/` every 5 minutes, with email alerts for uptime failures and 5xx bursts, plus a written [incident runbook](docs/RUNBOOK.md). Checks on `/` and `/staff` and SSL-expiry alerting are not set up yet.
 - **Search ranking protected**: all 279 indexed URLs from the old website stay alive here, with structured data the old site never had ([migration plan](docs/SEO_MIGRATION.md))
 - **AI behavior is reviewable**: Tex's instructions are plain-English files in [`prompts/`](prompts/) — anyone can read exactly what the AI is told to do
 

@@ -31,16 +31,23 @@ Read-only checks, recorded for orientation only:
 | Go-live checklist | [LAUNCH_READINESS.md](LAUNCH_READINESS.md) |
 | Incidents and rollback | [docs/RUNBOOK.md](docs/RUNBOOK.md) |
 
-## Not verified
+## Monitoring and backups (verified in GCP on 2026-10-07)
 
-- **Uptime check and alert policies:** defined in
-  [`.github/workflows/ops-bootstrap.yml`](.github/workflows/ops-bootstrap.yml)
-  (manual trigger). Its only run, 2026-06-17, had several failing steps and its
-  logs have expired. Confirm in Cloud Monitoring before relying on alerts.
-- **Daily Firestore backups:** the same workflow is meant to create the
-  schedule. Confirm with
+- **Backups:** daily Firestore backups, 7-day retention, on the `(default)`
+  database, active since 2026-06-20. Check with
   `gcloud firestore backups schedules list --database="(default)" --project=tho-ai-agent`
   ([restore runbook](docs/FIRESTORE_RESTORE_RUNBOOK.md)).
+- **Uptime:** a `/healthz/` uptime check every 5 minutes, with email alerts for
+  uptime failures and 5xx bursts (created by
+  [`.github/workflows/ops-bootstrap.yml`](.github/workflows/ops-bootstrap.yml)).
+- **Not set up yet:** uptime checks on `/` and `/staff`, and SSL-expiry alerting.
+
+## Known config drift (follow-ups, not yet fixed)
+
+- `tools/health_check.py` hardcodes Firestore project `sapphire-479610`.
+  Production Firestore is in `tho-ai-agent`.
+- `firebase.json` rewrites to Cloud Run service `tho-agent`. The live service is
+  `project-go-forward`.
 
 ## Domains
 
