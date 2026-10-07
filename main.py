@@ -14,6 +14,7 @@ import os
 os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "TRUE"
 
 import asyncio
+import contextvars
 import hashlib
 import json
 import logging
@@ -163,6 +164,7 @@ from tools.contact_capture import (
     capture_explicit_contact,
 )
 from tools.input_sanitizer import sanitize_body, sanitize_query_params
+from tools.inventory_dedupe import annotate_possible_duplicates
 from tools.pii_guard import redact_pii_from_text, validate_no_pii_in_text
 from tools.user_activity_log import log_user_action, query_user_activity
 
@@ -377,13 +379,90 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 def _get_client_ip(request: Request) -> str:
     """Get real client IP, checking X-Forwarded-For for reverse proxy (Cloud Run).
 
-    Reused as the slowapi ``key_func`` so per-IP rate limiting and the
-    Redis-backed brute-force counter key the same client identity.
+    Used by the slowapi ``key_func`` for unauthenticated callers so per-IP rate
+    limiting and the Redis-backed brute-force counter key the same identity.
     """
     forwarded = request.headers.get("x-forwarded-for", "")
     if forwarded:
         return forwarded.split(",")[0].strip()
     return request.client.host if request.client else "unknown"
+
+
+# ── Staff-session rate limiting ─────────────────────────────────────────────
+# Several staff often share one shop IP, so signed-in staff traffic is bucketed
+# per session with a higher cap instead of sharing the per-IP public bucket.
+# Unauthenticated sign-in / code endpoints always stay on the strict per-IP
+# bucket so a stolen or forged cookie can't buy extra brute-force attempts.
+STAFF_RATE_LIMIT_RPM = int(os.environ.get("STAFF_RATE_LIMIT_RPM", "600"))
+PUBLIC_DEFAULT_RATE_LIMIT = "100/minute"
+_STRICT_AUTH_PATH_PREFIXES = (
+    "/api/admin/verify",
+    "/api/admin/email-code/",
+    "/api/admin/passkey/login/",
+)
+_rate_limit_staff_key: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "rate_limit_staff_key", default=None
+)
+
+
+def _is_strict_auth_path(path: str) -> bool:
+    return any(path.startswith(prefix) for prefix in _STRICT_AUTH_PATH_PREFIXES)
+
+
+def _staff_session_rate_key(request: Request) -> str | None:
+    """Return ``staff:<fingerprint>`` for a validly signed staff session, else None.
+
+    Signature + expiry only (no allowlist lookup) — this picks a rate-limit
+    bucket, it does not authorize anything; ``require_admin`` still does that.
+    """
+    if _is_strict_auth_path(request.url.path):
+        return None
+    try:
+        token = _admin_token_from_request(request)
+        if token:
+            decoded = _decode_admin_token(token)
+            if decoded is not None and time.time() < decoded[0]:
+                return "staff:" + hashlib.sha256(token.encode("utf-8")).hexdigest()[:16]
+        passkey_token = request.cookies.get(PASSKEY_COOKIE_NAME, "")
+        if passkey_token:
+            payload = _get_passkey_session_manager().verify_session(passkey_token)
+            if payload and payload.get("user_id") == "admin":
+                digest = hashlib.sha256(passkey_token.encode("utf-8")).hexdigest()[:16]
+                return f"staff:pk:{digest}"
+    except Exception:  # noqa: BLE001
+        return None
+    return None
+
+
+def _rate_limit_key(request: Request) -> str:
+    """slowapi key: per staff session when signed in, otherwise per client IP."""
+    staff_key = _rate_limit_staff_key.get()
+    if staff_key is None:
+        staff_key = _staff_session_rate_key(request)
+    return staff_key or _get_client_ip(request)
+
+
+def _default_rate_limit() -> str:
+    if _rate_limit_staff_key.get():
+        return f"{STAFF_RATE_LIMIT_RPM}/minute"
+    return PUBLIC_DEFAULT_RATE_LIMIT
+
+
+class RateLimitIdentityMiddleware:
+    """Resolve the rate-limit identity once per request, before any limiter runs."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        token = _rate_limit_staff_key.set(_staff_session_rate_key(Request(scope)))
+        try:
+            await self.app(scope, receive, send)
+        finally:
+            _rate_limit_staff_key.reset(token)
 
 
 # slowapi per-IP rate limiter — layered on top of the legacy
@@ -398,8 +477,8 @@ def _get_client_ip(request: Request) -> str:
 # 429 handler below adds Retry-After by hand using the exception's limit
 # metadata so callers still get the standard rate-limit signal.
 limiter = Limiter(
-    key_func=_get_client_ip,
-    default_limits=["100/minute"],
+    key_func=_rate_limit_key,
+    default_limits=[_default_rate_limit],
     headers_enabled=False,
     # Fail-open hardening. With slowapi's default in-process memory storage
     # (no RATELIMIT_STORAGE_URI set) these are a no-op and limiting behaves
@@ -519,12 +598,14 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         if _is_rate_limit_exempt_path(request.url.path, request.method):
             return await call_next(request)
-        client_ip = _get_client_ip(request)
+        staff_key = _rate_limit_staff_key.get()
+        bucket = staff_key or _get_client_ip(request)
+        cap = STAFF_RATE_LIMIT_RPM if staff_key else MAX_REQUESTS_PER_MINUTE
         now = time.time()
-        window = self._hits[client_ip]
+        window = self._hits[bucket]
         # Prune entries older than 60s
-        self._hits[client_ip] = window = [t for t in window if now - t < 60]
-        if len(window) >= MAX_REQUESTS_PER_MINUTE:
+        self._hits[bucket] = window = [t for t in window if now - t < 60]
+        if len(window) >= cap:
             return JSONResponse(
                 {"error": "Rate limit exceeded. Please try again shortly."}, status_code=429
             )
@@ -659,6 +740,8 @@ app.add_middleware(InputSanitizationMiddleware)
 # @limiter.limit decorators short-circuit hot paths (e.g. /api/admin/verify
 # at 5/min) before they ever reach the brute-force _pin_attempts counter.
 app.add_middleware(SlowAPIMiddleware)
+# Registered after (so outside) both limiters, which read the identity it resolves.
+app.add_middleware(RateLimitIdentityMiddleware)
 
 
 class ImmutableStaticFiles(StaticFiles):
@@ -3511,8 +3594,17 @@ def _apply_inventory_media_fallback(result: dict, item: dict, legacy_media_index
 
 
 @app.get("/api/inventory", dependencies=[Depends(require_admin)])
-async def list_inventory(status: str = "AVAILABLE", limit: int = 100, is_new: bool = None):
-    """List inventory for document generation."""
+async def list_inventory(
+    status: str = "AVAILABLE",
+    limit: int = 100,
+    is_new: bool = None,
+    include_staff_photos: bool = False,
+):
+    """List staff inventory (documents, Manage Homes, Photos picker).
+
+    ``include_staff_photos`` folds staff-uploaded photos in, as the public page
+    does, so "needs photos" is honest in the Photos picker.
+    """
     try:
         inventory = _db.search_inventory(status=status, limit=limit)
         legacy_media_index = _load_legacy_inventory_media_index()
@@ -3605,9 +3697,19 @@ async def list_inventory(status: str = "AVAILABLE", limit: int = 100, is_new: bo
                 "public_sale_price": item.get("sale_price"),
                 "image_url": item.get("image_url") or item.get("hero_image"),
                 "status": item.get("status", "AVAILABLE"),
+                "stock_number": _pick_inventory_field(
+                    item, "stock_number", "legacy_inventory_id", "inventory_id", "listing_id"
+                ),
             }
             results.append(_apply_inventory_media_fallback(result, item, legacy_media_index))
 
+        if include_staff_photos:
+            _overlay_staff_photos(results)
+            for result in results:
+                if result.get("has_staff_photos"):
+                    result.pop("image_placeholder", None)
+                    result.pop("placeholder_reason", None)
+        annotate_possible_duplicates(results)
         return {"success": True, "inventory": results, "count": len(results)}
     except Exception as e:
         struct_logger.error("Inventory listing failed", error=str(e))
@@ -8047,21 +8149,14 @@ async def share_document(
             status_code=500,
         )
 
-    # ── Soft-import audit log; never hard-fail if it isn't deployed yet. ──
-    try:
-        from audit_log import log_admin_action  # type: ignore[import-not-found]
-
-        try:
-            log_admin_action(
-                action="documents.share",
-                actor_ip=getattr(request.client, "host", None) if request.client else None,
-                target=object_key,
-                details={"ttl_hours": ttl_hours, "bucket": bucket_name},
-            )
-        except Exception:  # noqa: BLE001
-            logger.exception("audit_log.log_admin_action failed")
-    except ImportError:
-        pass
+    log_admin_action(
+        actor=_audit_actor(request),
+        action="documents.share",
+        target_type="document",
+        target_id=object_key,
+        details={"ttl_hours": ttl_hours, "bucket": bucket_name},
+        request=request,
+    )
 
     return {
         "filename": safe_filename,

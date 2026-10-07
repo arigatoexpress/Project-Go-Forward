@@ -40,6 +40,13 @@ export default async function adminFetch(url, options = {}) {
         return response;
       }
 
+      // Never treat "slow down" as a sign-out. The header stays put; App
+      // shows a gentle toast so staff know to wait a moment.
+      if (response.status === 429) {
+        window.dispatchEvent(new CustomEvent('admin-rate-limited'));
+        return response;
+      }
+
       // Return successful responses
       if (response.ok) {
         return response;
