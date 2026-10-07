@@ -40,6 +40,7 @@ from tools.document_quality import (
 )
 from tools.document_tools import DOCUMENTS_DIR, OUTPUT_DIR, fill_pdf_form, upload_to_gcs
 from tools.drive_service import ensure_deal_folder, upload_to_drive
+from tools.form_set import dedupe_packet_templates
 
 logger = logging.getLogger(__name__)
 
@@ -433,9 +434,12 @@ def generate_packet(
             "message": f"Packet '{packet_name}' not found in field_map.json",
         }
 
-    template_names = packet_config.get("templates", [])
+    template_names = dedupe_packet_templates(packet_config.get("templates", []))
     if not template_names:
         return {"success": False, "message": "Packet has no templates defined"}
+    if packet_config.get("include_cover_page"):
+        cover = packet_config.get("cover_page_template", "All_Cover.pdf")
+        template_names = [tpl for tpl in template_names if tpl != cover]
 
     # Generate cover page first if configured
     generated_files = []
@@ -616,6 +620,7 @@ def generate_batch(
     Returns:
         Dict with keys: success, documents (per-template results), merged (optional).
     """
+    template_names = dedupe_packet_templates(template_names)
     data = _normalize_document_data(data)
 
     results = []
