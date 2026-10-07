@@ -484,6 +484,10 @@ _STATIC_RATE_LIMIT_EXTENSIONS = (
     ".woff2",
 )
 _STATIC_RATE_LIMIT_PATHS = {
+    "/apple-touch-icon-120x120.png",
+    "/apple-touch-icon-precomposed.png",
+    "/apple-touch-icon.png",
+    "/favicon.ico",
     "/manifest.webmanifest",
     "/registerSW.js",
     "/sw.js",
@@ -9333,16 +9337,18 @@ async def serve_spa(full_path: str):
     if seo_response is not None:
         return seo_response
 
-    # Serve actual files from dist if they exist (e.g., tex-icon.svg, vite.svg)
+    # Serve built assets from dist first, then fall back to frontend/public for
+    # local/test contexts that have not run a Vite build yet.
     if full_path:
-        file_path = os.path.join("frontend/dist", full_path)
-        if os.path.isfile(file_path):
-            response = FileResponse(file_path)
-            if file_path.endswith(".html"):
-                response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-                response.headers["Pragma"] = "no-cache"
-                response.headers["Expires"] = "0"
-            return response
+        for base_dir in ("frontend/dist", "frontend/public"):
+            file_path = os.path.join(base_dir, full_path)
+            if os.path.isfile(file_path):
+                response = FileResponse(file_path)
+                if file_path.endswith(".html"):
+                    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+                    response.headers["Pragma"] = "no-cache"
+                    response.headers["Expires"] = "0"
+                return response
     # Unknown route and not a dist file: real 404 with the SPA shell so
     # crawlers don't index every typo as a page (soft-404 avoidance).
     return seo_routes.render_not_found()

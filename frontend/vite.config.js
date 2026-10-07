@@ -24,6 +24,18 @@ export default defineConfig({
         theme_color: '#1e3a5f',
         icons: [
           {
+            src: '/apple-touch-icon-120x120.png',
+            sizes: '120x120',
+            type: 'image/png',
+            purpose: 'any',
+          },
+          {
+            src: '/apple-touch-icon.png',
+            sizes: '180x180',
+            type: 'image/png',
+            purpose: 'any',
+          },
+          {
             src: '/tex-icon.svg',
             sizes: 'any',
             type: 'image/svg+xml',
