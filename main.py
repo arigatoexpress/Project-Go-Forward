@@ -113,6 +113,7 @@ def _get_runner():
     return _runner
 
 
+import esign_review
 import tools.feature_flags as feature_flags
 from appointment_manager import Appointment, AppointmentManager
 from audit_log import (
@@ -128,13 +129,19 @@ from audit_log import (
 from chat_history import ChatHistory
 from conversation_memory import ConversationMemory
 from docuseal_service import (
-    maybe_trigger_automated_signing as docuseal_auto_trigger,
+    archive_submission as docuseal_archive_submission,
+)
+from docuseal_service import (
+    is_configured as docuseal_is_configured,
 )
 from docuseal_service import (
     send_file_for_signature as docuseal_send_file_for_signature,
 )
 from docuseal_service import (
     send_for_signature as docuseal_send_for_signature,
+)
+from docuseal_service import (
+    submission_ids_from_response as docuseal_submission_ids,
 )
 from email_service import (
     email_delivery_configured,
@@ -3250,7 +3257,7 @@ async def download_document(filename: str):
 # ─── Inventory API ───
 from database.deal_validation import validate_for_documents
 from database.firestore_client import get_database
-from database.models import Deal, DealStatus, Inventory, InventoryWrite
+from database.models import Deal, DealStatus, ESignRequest, Inventory, InventoryWrite
 from database.rpc_timeout import FIRESTORE_RPC_TIMEOUT
 
 _db = get_database()
@@ -4273,20 +4280,16 @@ async def update_deal_status(deal_id: str, request: Request):
         except Exception as e:
             struct_logger.warning("Partner webhook dispatch failed", error=str(e))
 
-        # DocuSeal automated triggers
+        esign_outcome = None
         try:
-            await docuseal_auto_trigger(
-                event_type="deal.status_change",
-                payload={
-                    "deal_id": deal_id,
-                    "to": new_status,
-                    "deal_data": _deal_db.get_deal(deal_id) or {},
-                },
-            )
+            esign_outcome = await _handle_stage_change_signing(deal_id, new_status, request)
         except Exception as e:
-            struct_logger.warning("Deal DocuSeal trigger failed", error=str(e))
+            struct_logger.warning("Deal stage e-sign handling failed", error=str(e))
 
-        return {"success": True, "message": f"Deal status changed to {new_status}"}
+        response = {"success": True, "message": f"Deal status changed to {new_status}"}
+        if esign_outcome:
+            response["esign"] = esign_outcome
+        return response
     except Exception as e:
         struct_logger.error("Deal status update failed", error=str(e))
         return {"success": False, "error": "Failed to update deal status. Please try again."}
@@ -4434,9 +4437,15 @@ async def generate_packet_from_deal(deal_id: str, request: Request):
                     deal_id=deal_id,
                 )
 
-            # DocuSeal: Automated e-sign dispatch for deal packet
+            # Packets are only e-sign dispatched automatically when the
+            # ESIGN_AUTO_SEND flag is on AND every money line is filled in.
             email = doc_data.get("buyer_email") or doc_data.get("email")
-            if email and packet_fields.get("filename"):
+            if (
+                email
+                and packet_fields.get("filename")
+                and esign_review.auto_send_enabled()
+                and not esign_review.money_problems(doc_data)
+            ):
                 try:
                     await docuseal_send_file_for_signature(
                         email=email,
@@ -4479,54 +4488,388 @@ _DOCUSEAL_API_TOKEN = os.environ.get("DOCUSEAL_API_TOKEN", "")
 _DOCUSEAL_WEBHOOK_SECRET = os.environ.get("DOCUSEAL_WEBHOOK_SECRET", "")
 
 
-@app.post("/api/docuseal/send", dependencies=[Depends(require_admin)])
-async def docuseal_send(request: Request):
-    """Start a DocuSeal e-sign submission for a deal document.
+_DEFAULT_SIGNING_TEMPLATE = "TMHA_SalesContract.pdf"
+_esign_requests: dict[str, dict] = {}
+_ESIGN_REQUEST_COLLECTION = "esign_requests"
 
-    Body: {deal_id, template_name, signer_email, signer_name}
 
-    Returns 501 until DOCUSEAL_API_URL + DOCUSEAL_API_TOKEN env vars are set.
+def _esign_request_collection():
+    try:
+        db_client = getattr(_db, "db", None)
+        if db_client is None:
+            return None
+        return db_client.collection(_ESIGN_REQUEST_COLLECTION)
+    except Exception as exc:  # noqa: BLE001
+        struct_logger.warning("E-sign request collection unavailable", error=str(exc))
+        return None
+
+
+def _save_esign_request(record: dict) -> None:
+    _esign_requests[record["id"]] = record
+    collection = _esign_request_collection()
+    if collection is None:
+        return
+    try:
+        collection.document(record["id"]).set(record, timeout=FIRESTORE_RPC_TIMEOUT)
+    except Exception as exc:  # noqa: BLE001
+        struct_logger.warning("E-sign request save failed", error=str(exc))
+
+
+def _load_esign_request(record_id: str) -> dict | None:
+    collection = _esign_request_collection()
+    if collection is not None:
+        try:
+            doc = collection.document(record_id).get(timeout=FIRESTORE_RPC_TIMEOUT)
+            if doc.exists:
+                _esign_requests[record_id] = doc.to_dict() or {}
+        except Exception as exc:  # noqa: BLE001
+            struct_logger.warning("E-sign request fetch failed", error=str(exc))
+    return _esign_requests.get(record_id)
+
+
+def _list_esign_requests(deal_id: str) -> list[dict]:
+    collection = _esign_request_collection()
+    if collection is not None:
+        try:
+            for doc in collection.where("deal_id", "==", deal_id).stream(
+                timeout=FIRESTORE_RPC_TIMEOUT
+            ):
+                _esign_requests[doc.id] = doc.to_dict() or {}
+        except Exception as exc:  # noqa: BLE001
+            struct_logger.warning("E-sign request list failed", error=str(exc))
+    records = [r for r in _esign_requests.values() if r.get("deal_id") == deal_id]
+    records.sort(key=lambda r: str(r.get("created_at") or ""), reverse=True)
+    return records
+
+
+def _mark_esign_request(deal_id: str, submission_id: str, status: str, actor: str | None = None):
+    record = _load_esign_request(f"{deal_id}_{submission_id}")
+    if not record:
+        return None
+    record["status"] = status
+    record["updated_at"] = datetime.now(UTC).isoformat()
+    if status == "cancelled":
+        record["cancelled_by"] = actor
+    _save_esign_request(record)
+    return record
+
+
+def _deal_document_data(deal_data: dict) -> dict:
+    return Deal(**deal_data).to_document_data()
+
+
+def _prepare_deal_signing(deal_data: dict, template_name: str) -> dict:
+    return esign_review.prepare_signing_packet(
+        doc_data=_deal_document_data(deal_data),
+        template_name=template_name,
+        generate=engine_generate_document,
+    )
+
+
+async def _send_prepared_signing(*, deal_id: str, prepared: dict, actor: str, trigger: str) -> dict:
+    result = await docuseal_send_for_signature(
+        email=prepared["signer_email"],
+        name=prepared["signer_name"],
+        template_name=prepared["template_name"],
+        deal_id=deal_id,
+        metadata={"trigger": trigger, "review_token": prepared["review_token"][:16]},
+        values=prepared["values"],
+    )
+    if not result.get("success"):
+        return result
+    submission_ids = docuseal_submission_ids(result.get("submission"))
+    for submission_id in submission_ids:
+        record = ESignRequest(
+            id=f"{deal_id}_{submission_id}",
+            deal_id=deal_id,
+            submission_id=submission_id,
+            template_name=prepared["template_name"],
+            review_token=prepared["review_token"],
+            sent_by=actor,
+            trigger=trigger,
+        )
+        _save_esign_request(record.model_dump(mode="json"))
+    return {"success": True, "submission_ids": submission_ids}
+
+
+def _queue_staff_task(
+    *,
+    task_id: str,
+    title: str,
+    description: str,
+    priority: str = "high",
+    related_deal: str = "",
+    related_lead: str = "",
+) -> dict:
+    now = datetime.now(UTC).isoformat()
+    task = {
+        "task_id": task_id,
+        "title": title[:200],
+        "description": description[:2000],
+        "due_date": "",
+        "priority": priority,
+        "assigned_to": "",
+        "related_lead": related_lead[:120],
+        "related_deal": related_deal[:120],
+        "status": "pending",
+        "created_at": now,
+        "updated_at": now,
+    }
+    _save_crm_task(task)
+    return task
+
+
+async def _handle_stage_change_signing(deal_id: str, new_status: str, request: Request):
+    """Queue the stage's signing document for staff review (or auto-send if opted in).
+
+    Returns None when the stage has no signing document or e-sign is off.
     """
+    template_name = esign_review.STAGE_SIGNING_TEMPLATES.get(new_status)
+    if not template_name or not docuseal_is_configured():
+        return None
+    label = esign_review.SIGNABLE_TEMPLATES[template_name]
+    reasons: list[str] = []
+
+    if esign_review.auto_send_enabled():
+        deal_data = _deal_db.get_deal(deal_id) or {}
+        prepared = _prepare_deal_signing(deal_data, template_name)
+        if prepared["ready"]:
+            trigger = f"deal.status_change.{new_status}"
+            sent = await _send_prepared_signing(
+                deal_id=deal_id, prepared=prepared, actor="system:stage_change", trigger=trigger
+            )
+            if sent.get("success"):
+                log_admin_action(
+                    actor="system:stage_change",
+                    action="document.esign_send",
+                    target_type="document",
+                    target_id=str(deal_id),
+                    details={
+                        "template_name": template_name,
+                        "trigger": trigger,
+                        "submission_ids": sent["submission_ids"][:5],
+                    },
+                    request=request,
+                )
+                return "auto_sent"
+            reasons.append("The automatic send failed.")
+        else:
+            reasons.extend(problem["message"] for problem in prepared["problems"])
+
+    description = (
+        f"The deal moved to '{new_status}'. Nothing was sent to the buyer. Open the "
+        f"deal, click Send for Signature, hand-check the payment lines on the preview, "
+        f"then confirm to send the {label}."
+    )
+    if reasons:
+        description += " Needs fixing first: " + " ".join(reasons)
+    _queue_staff_task(
+        task_id=f"esign-review-{deal_id}-{template_name.removesuffix('.pdf')}",
+        title=f"Review and send {label} for signature",
+        description=description,
+        related_deal=str(deal_id),
+    )
+    return "queued_for_review"
+
+
+def _esign_not_configured_response() -> JSONResponse:
+    return JSONResponse(
+        {
+            "success": False,
+            "status": "not_configured",
+            "message": (
+                "E-signing isn't turned on yet. DocuSeal is not configured "
+                "(DOCUSEAL_API_URL + DOCUSEAL_API_TOKEN)."
+            ),
+        },
+        status_code=501,
+    )
+
+
+async def _request_json_object(request: Request) -> dict:
     try:
         data = await request.json()
-        result = await docuseal_send_for_signature(
-            email=data.get("signer_email"),
-            name=data.get("signer_name"),
-            template_name=data.get("template_name"),
-            deal_id=data.get("deal_id"),
-        )
-        if result.get("status") == "not_configured":
-            return JSONResponse(
-                {
-                    "success": False,
-                    "message": (
-                        "DocuSeal not configured — set DOCUSEAL_API_URL + "
-                        "DOCUSEAL_API_TOKEN env vars to enable."
-                    ),
-                },
-                status_code=501,
-            )
-        if not result.get("success"):
-            raise HTTPException(status_code=502, detail=result.get("error"))
+    except (JSONDecodeError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
 
-        log_admin_action(
-            actor=_audit_actor(request),
-            action="document.esign_send",
-            target_type="document",
-            target_id=str(data.get("deal_id") or ""),
-            details={
-                "template_name": str(data.get("template_name") or "")[:100],
-                "submission_id": str(result.get("submission_id") or "")[:80],
+
+async def _send_reviewed_signing(deal_id: str, data: dict, request: Request):
+    if not docuseal_is_configured():
+        return _esign_not_configured_response()
+    if data.get("confirm") is not True:
+        return JSONResponse(
+            {
+                "success": False,
+                "error": "confirmation_required",
+                "message": "Not sent. Review the preview and confirm before sending.",
             },
-            request=request,
+            status_code=400,
+        )
+    template_name = str(data.get("template_name") or _DEFAULT_SIGNING_TEMPLATE)
+    deal_data = _deal_db.get_deal(deal_id)
+    if not deal_data:
+        return JSONResponse({"success": False, "message": "Deal not found."}, status_code=404)
+
+    prepared = _prepare_deal_signing(deal_data, template_name)
+    view = esign_review.public_view(prepared)
+    if not prepared["ready"]:
+        first = prepared["problems"][0]["message"] if prepared["problems"] else ""
+        return JSONResponse(
+            {**view, "success": False, "error": "not_ready", "message": f"Not sent. {first}"},
+            status_code=422,
+        )
+    if str(data.get("review_token") or "") != prepared["review_token"]:
+        return JSONResponse(
+            {
+                **view,
+                "success": False,
+                "error": "review_stale",
+                "message": (
+                    "Not sent. The deal changed after you reviewed it. "
+                    "Review the new preview before sending."
+                ),
+            },
+            status_code=409,
         )
 
-        return result
-    except HTTPException:
-        raise
-    except Exception as exc:
-        struct_logger.error("DocuSeal send failed", error=str(exc))
-        raise HTTPException(status_code=500, detail=f"Internal error: {exc}")
+    sent = await _send_prepared_signing(
+        deal_id=deal_id, prepared=prepared, actor=_audit_actor(request), trigger="staff_review"
+    )
+    if not sent.get("success"):
+        struct_logger.error("Reviewed DocuSeal send failed", error=str(sent.get("error")))
+        return JSONResponse(
+            {
+                "success": False,
+                "error": "send_failed",
+                "message": "DocuSeal didn't accept the request, so nothing was sent. Try again.",
+            },
+            status_code=502,
+        )
+
+    log_admin_action(
+        actor=_audit_actor(request),
+        action="document.esign_send",
+        target_type="document",
+        target_id=str(deal_id),
+        details={
+            "template_name": template_name[:100],
+            "trigger": "staff_review",
+            "submission_ids": sent["submission_ids"][:5],
+        },
+        request=request,
+    )
+    return {
+        "success": True,
+        "message": f"{prepared['document_label']} sent to {prepared['signer_email']} for signature.",
+        "submission_ids": sent["submission_ids"],
+    }
+
+
+@app.post("/api/deals/{deal_id}/esign/preview", dependencies=[Depends(require_admin)])
+async def preview_deal_signing(deal_id: str, request: Request):
+    """Build the signing document from the deal and report whether it may be sent.
+
+    Never sends. Returns the money lines for staff to hand-check, a link to
+    the filled PDF, and a ``review_token`` the send step must echo back.
+    """
+    data = await _request_json_object(request)
+    template_name = str(data.get("template_name") or _DEFAULT_SIGNING_TEMPLATE)
+    deal_data = _deal_db.get_deal(deal_id)
+    if not deal_data:
+        return JSONResponse({"success": False, "message": "Deal not found."}, status_code=404)
+    prepared = _prepare_deal_signing(deal_data, template_name)
+    return {
+        "success": True,
+        "esign_configured": docuseal_is_configured(),
+        **esign_review.public_view(prepared),
+    }
+
+
+@app.post("/api/deals/{deal_id}/esign/send", dependencies=[Depends(require_admin)])
+async def send_deal_signing(deal_id: str, request: Request):
+    """Send the reviewed signing document. Body: {template_name, confirm, review_token}."""
+    data = await _request_json_object(request)
+    return await _send_reviewed_signing(deal_id, data, request)
+
+
+@app.get("/api/deals/{deal_id}/esign", dependencies=[Depends(require_admin)])
+async def list_deal_signing_requests(deal_id: str):
+    """Signing requests sent for this deal, newest first."""
+    return {"success": True, "requests": _list_esign_requests(deal_id)}
+
+
+@app.post(
+    "/api/deals/{deal_id}/esign/{submission_id}/cancel",
+    dependencies=[Depends(require_admin)],
+)
+async def cancel_deal_signing_request(deal_id: str, submission_id: str, request: Request):
+    """Cancel a pending signing request (DocuSeal archive API)."""
+    record = _load_esign_request(f"{deal_id}_{submission_id}")
+    if not record or record.get("deal_id") != deal_id:
+        return JSONResponse(
+            {"success": False, "message": "No signing request with that id on this deal."},
+            status_code=404,
+        )
+    if record.get("status") != "pending":
+        return JSONResponse(
+            {
+                "success": False,
+                "message": f"This signing request is already {record.get('status')}.",
+            },
+            status_code=409,
+        )
+    if not docuseal_is_configured():
+        return _esign_not_configured_response()
+
+    result = await docuseal_archive_submission(submission_id)
+    if not result.get("success"):
+        return JSONResponse(
+            {
+                "success": False,
+                "message": "DocuSeal didn't cancel the request. It may still be open; try again.",
+            },
+            status_code=502,
+        )
+    actor = _audit_actor(request)
+    record = _mark_esign_request(deal_id, submission_id, "cancelled", actor=actor)
+    log_admin_action(
+        actor=actor,
+        action="document.esign_cancel",
+        target_type="document",
+        target_id=str(deal_id),
+        details={"submission_id": str(submission_id)[:40]},
+        request=request,
+    )
+    return {
+        "success": True,
+        "message": "Signing request cancelled. The buyer can no longer sign it.",
+        "request": record,
+    }
+
+
+@app.post("/api/docuseal/send", dependencies=[Depends(require_admin)])
+async def docuseal_send(request: Request):
+    """Legacy entry point; same reviewed flow as /api/deals/{deal_id}/esign/send.
+
+    Body: {deal_id, template_name, confirm, review_token}.
+    """
+    data = await _request_json_object(request)
+    deal_id = str(data.get("deal_id") or "").strip()
+    if not docuseal_is_configured():
+        return _esign_not_configured_response()
+    if not deal_id:
+        return JSONResponse(
+            {
+                "success": False,
+                "message": (
+                    "Not sent. Start Send for Signature from a deal so the document "
+                    "is filled in with the deal's numbers."
+                ),
+            },
+            status_code=400,
+        )
+    return await _send_reviewed_signing(deal_id, data, request)
 
 
 @app.post("/api/docuseal/webhook")
@@ -4564,6 +4907,17 @@ async def docuseal_webhook(request: Request):
     if not document_url or not deal_id:
         struct_logger.warning("DocuSeal webhook missing document_url or deal_id", event=str(event))
         return {"status": "ignored", "reason": "missing_document_url_or_deal_id"}
+
+    # form.completed carries the submitter (submission_id); submission.completed
+    # carries the submission itself (id).
+    signed_submission_id = data.get("submission_id") or (
+        submission_id if event_type == "submission.completed" else None
+    )
+    if signed_submission_id is not None:
+        try:
+            _mark_esign_request(str(deal_id), str(signed_submission_id), "completed")
+        except Exception as mark_err:  # noqa: BLE001
+            struct_logger.warning("E-sign request status update failed", error=str(mark_err))
 
     import httpx
 
@@ -5741,15 +6095,23 @@ async def submit_contact_form(request: Request):
                 warnings.append("welcome_email_failed")
                 struct_logger.warning("Lead welcome email failed", error=str(e))
 
-        # Automate DocuSeal Welcome/Credit Auth early
-        try:
-            await docuseal_auto_trigger(
-                event_type="lead.captured",
-                payload={"email": email, "name": name, "lead_id": lead_id},
-            )
-        except Exception as e:
-            warnings.append("docuseal_failed")
-            struct_logger.warning("Lead DocuSeal trigger failed", error=str(e))
+        # Credit Authorization is never sent to a new lead automatically; staff
+        # get a task to review the lead and send paperwork from a deal.
+        if email and name and lead_persisted and docuseal_is_configured():
+            try:
+                _queue_staff_task(
+                    task_id=f"credit-auth-review-{lead_id}",
+                    title="New website lead: review before sending a Credit Authorization",
+                    description=(
+                        "A new website lead came in. Nothing was sent to them for "
+                        "signature. Review the lead, and if they want to apply, create "
+                        "a deal and send the paperwork after checking it."
+                    ),
+                    priority="medium",
+                    related_lead=str(lead_id),
+                )
+            except Exception as e:
+                struct_logger.warning("Lead credit-auth review task failed", error=str(e))
 
         # Notify owner of new lead (fallback delivery path if storage failed)
         owner_notified = False

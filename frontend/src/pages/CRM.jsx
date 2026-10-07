@@ -12,6 +12,7 @@ import StatusBadge, { STATUS_COLORS, DEAL_STATUS_COLORS } from '../components/St
 import ReviewRequestCard from '../components/ReviewRequestCard';
 import EmailDraftsPanel from '../components/EmailDraftsPanel';
 import LeadResponseQueue from '../components/LeadResponseQueue';
+import SignatureReview from '../components/SignatureReview';
 import { BUSINESS_FULL_ADDRESS } from '../constants';
 
 const DEAL_STATUS_ORDER = ['pending', 'approved', 'contract', 'funded', 'complete'];
@@ -182,6 +183,7 @@ export function renderEmailTemplate(templateId) {
 export default function CRM({ onBack }) {
   const [activeTab, setActiveTab] = useState('leads');
   const [actionError, setActionError] = useState('');
+  const [actionNotice, setActionNotice] = useState('');
   const [leads, setLeads] = useState([]);
   const [deals, setDeals] = useState([]);
   const [appointments, setAppointments] = useState([]);
@@ -266,6 +268,7 @@ export default function CRM({ onBack }) {
 
   const handleUpdateDealStatus = async (dealId, newStatus) => {
     setActionError('');
+    setActionNotice('');
     try {
       const res = await adminFetch(`/api/deals/${dealId}/status`, {
         method: 'PUT',
@@ -277,6 +280,12 @@ export default function CRM({ onBack }) {
         return;
       }
       setDeals(prev => prev.map(d => d.id === dealId ? { ...d, status: newStatus } : d));
+      const data = await res.json().catch(() => ({}));
+      if (data?.esign === 'queued_for_review') {
+        setActionNotice('Nothing was sent to the buyer. A review task was added: open the deal and use Review & Send for Signature.');
+      } else if (data?.esign === 'auto_sent') {
+        setActionNotice('The signing document was sent to the buyer automatically (auto-send is turned on).');
+      }
     } catch (err) {
       console.error('Deal status update failed:', err);
       setActionError(describeFetchError(err, 'update the deal status'));
@@ -470,6 +479,22 @@ export default function CRM({ onBack }) {
             onClick={() => setActionError('')}
             style={{ background: 'transparent', border: 'none', color: '#991b1b', cursor: 'pointer', fontWeight: 700 }}
             aria-label="Dismiss error"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
+      {actionNotice && (
+        <div
+          role="status"
+          className="sticky top-0 z-50 m-2 px-4 py-3 rounded-xl border-2 border-indigo-200 bg-indigo-50 text-indigo-900 flex justify-between items-center gap-2 font-medium"
+        >
+          <span>{actionNotice}</span>
+          <button
+            onClick={() => setActionNotice('')}
+            className="bg-transparent border-0 text-indigo-900 cursor-pointer font-bold"
+            aria-label="Dismiss notice"
           >
             ✕
           </button>
@@ -1658,8 +1683,6 @@ function DealCard({ deal, onUpdateStatus, statusOrder }) {
   const [expanded, setExpanded] = useState(false);
   const [generating, setGenerating] = useState(null); // 'doc' | 'packet' | null
   const [genResult, setGenResult] = useState(null);
-  const [signing, setSigning] = useState(false);
-  const [signResult, setSignResult] = useState(null);
   const currentIdx = statusOrder.indexOf(deal.status);
   const nextStatus = currentIdx >= 0 && currentIdx < statusOrder.length - 1 ? statusOrder[currentIdx + 1] : null;
   const buyerName = `${deal.buyer_first_name || ''} ${deal.buyer_last_name || ''}`.trim();
@@ -1714,38 +1737,6 @@ function DealCard({ deal, onUpdateStatus, statusOrder }) {
     } catch (err) {
       setGenResult({ success: false, error: safeUserMessage(err && err.message, 'Download failed. Please try again.') });
     }
-  };
-
-  const handleSendForSignature = async () => {
-    const signerEmail = deal.buyer_email;
-    const signerName = `${deal.buyer_first_name || ''} ${deal.buyer_last_name || ''}`.trim();
-    if (!signerEmail) {
-      setSignResult({ success: false, error: 'No buyer email on this deal.' });
-      return;
-    }
-    setSigning(true);
-    setSignResult(null);
-    try {
-      const res = await adminFetch('/api/docuseal/send', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          deal_id: deal.id,
-          template_name: 'TMHA_SalesContract.pdf',
-          signer_email: signerEmail,
-          signer_name: signerName || signerEmail,
-        }),
-      });
-      const data = await res.json();
-      if (res.status === 501) {
-        setSignResult({ success: false, comingSoon: true, message: data.message || 'DocuSeal not yet configured.' });
-      } else {
-        setSignResult(data);
-      }
-    } catch {
-      setSignResult({ success: false, error: 'Request failed. Please try again.' });
-    }
-    setSigning(false);
   };
 
   return (
@@ -1820,41 +1811,7 @@ function DealCard({ deal, onUpdateStatus, statusOrder }) {
             </button>
           </div>
 
-          {/* E-Sign */}
-          <div style={{ marginTop: '8px', display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-            <button
-              onClick={handleSendForSignature}
-              disabled={signing || generating !== null}
-              style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '6px 12px', fontSize: '12px',
-                       background: '#1a1a2e', border: '1px solid #6366f1', color: '#6366f1', borderRadius: '6px', cursor: 'pointer', fontWeight: 600 }}
-            >
-              {signing ? <Loader size={12} className="spin" /> : <Send size={12} />}
-              Send for Signature
-            </button>
-          </div>
-
-          {signResult && (
-            <div style={{ marginTop: '6px', padding: '8px', borderRadius: '6px', fontSize: '12px',
-                          background: signResult.comingSoon ? 'rgba(99,102,241,0.1)' : signResult.success ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)',
-                          border: `1px solid ${signResult.comingSoon ? '#6366f1' : signResult.success ? '#22c55e' : '#ef4444'}` }}>
-              {signResult.comingSoon ? (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#818cf8' }}>
-                  <Send size={13} />
-                  <span>Coming soon — {signResult.message}</span>
-                </div>
-              ) : signResult.success ? (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#22c55e' }}>
-                  <CheckCircle size={13} />
-                  <span>Signing request sent to {deal.buyer_email}</span>
-                </div>
-              ) : (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#ef4444' }}>
-                  <AlertCircle size={13} />
-                  <span>{safeUserMessage(extractErrorMessage(signResult), 'Send failed')}</span>
-                </div>
-              )}
-            </div>
-          )}
+          <SignatureReview deal={deal} disabled={generating !== null} />
 
           {/* Generation Result */}
           {genResult && (
