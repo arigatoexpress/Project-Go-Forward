@@ -28,6 +28,13 @@ CRITICAL_ROUTES = [
     "/terms",
 ]
 
+ICON_PATHS = [
+    "/favicon.ico",
+    "/apple-touch-icon.png",
+    "/apple-touch-icon-precomposed.png",
+    "/apple-touch-icon-120x120.png",
+]
+
 
 @pytest.fixture
 def client(monkeypatch):
@@ -86,3 +93,14 @@ def test_staff_photo_api_is_not_shadowed_by_spa_route(client):
     response = client.get("/api/inventory/photos/no-such-home/missing.jpg")
     assert response.status_code == 404
     assert response.headers["content-type"].startswith("application/json")
+
+
+@pytest.mark.parametrize("host", HOSTS)
+@pytest.mark.parametrize("route", ICON_PATHS)
+def test_icon_assets_return_200_with_image_content_type(client, host, route):
+    response, hops = _resolve(client, "GET", route, host)
+    assert response.status_code == 200, f"GET {route} via {hops} ended {response.status_code}"
+    assert response.headers.get("content-type", "").startswith("image/"), (
+        f"GET {route} via {hops} returned non-image content-type "
+        f"{response.headers.get('content-type')!r}"
+    )
