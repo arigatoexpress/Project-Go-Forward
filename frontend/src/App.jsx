@@ -402,7 +402,7 @@ function pageFromPath(path) {
   if (p.startsWith('/crm')) return 'crm';
   if (p.startsWith('/analytics')) return 'analytics';
   if (p.startsWith('/getting-started') || p.startsWith('/guide')) return 'getting-started';
-  if (p === '/privacy' || p === '/privacy/') return 'privacy';
+  if (p === '/privacy' || p === '/privacy/' || p === '/legal' || p === '/legal/') return 'privacy';
   if (p === '/terms' || p === '/terms/') return 'terms';
   if (p.startsWith('/contact')) return 'contact';
   if (p.startsWith('/appointments')) return 'appointments';
@@ -855,6 +855,10 @@ function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [addToast]);
 
+  useEffect(() => {
+    if (/^\/legal\/?$/i.test(pathname)) navigatePath('/privacy', { replace: true });
+  }, [pathname, navigatePath]);
+
   // Update page title per page. Public pages mirror the server-injected SEO
   // titles (seo_routes.py PUBLIC_ROUTES) so client-side navs stay in sync;
   // operator pages keep the short "Page | Business" pattern.
@@ -917,6 +921,8 @@ function App() {
       faq: '/faq',
       warranty: '/warranty',
       delivery: '/delivery',
+      privacy: '/privacy',
+      terms: '/terms',
       documents: '/documents',
       adstudio: '/studio',
       crm: '/crm',
@@ -1214,6 +1220,7 @@ function App() {
             />
           )}
         </main>
+        <Footer adminAuthed={adminAuthed} onAdminAccess={handleAdminAccess} onNavigate={navigateTo} />
       </div>
     );
   }
@@ -1228,6 +1235,7 @@ function App() {
             <StaffAccess onBack={() => navigateTo('analytics')} />
           </Suspense>
         </ErrorBoundary>
+        <Footer adminAuthed={adminAuthed} onAdminAccess={handleAdminAccess} onNavigate={navigateTo} />
       </div>
     );
   }

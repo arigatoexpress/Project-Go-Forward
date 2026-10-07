@@ -127,15 +127,24 @@ PUBLIC_ROUTES = {
     ),
 }
 
-# Shared starter copy keeps server-rendered and React legal pages identical.
+# Shared copy keeps server-rendered and React legal pages identical.
 LEGAL_PAGES = json.loads(
     (Path(__file__).parent / "frontend/src/content/legalPages.json").read_text(encoding="utf-8")
 )
 for _page, _content in LEGAL_PAGES.items():
     PUBLIC_ROUTES[f"/{_page}"] = (
         f"{_content['title']} | {business_name()}",
-        f"{_content['title']} for the {business_name()} website, inquiries, AI chat, and appointments.",
+        _content["description"],
     )
+
+# Common legal URLs people and crawlers guess. Keys are lowercase, no trailing slash.
+_LEGAL_REDIRECTS: dict[str, str] = {
+    "/legal": "/privacy",
+    "/privacy-policy": "/privacy",
+    "/terms-of-use": "/terms",
+    "/terms-of-service": "/terms",
+    "/terms-and-conditions": "/terms",
+}
 
 
 def _crawlable_legal_block(page: str) -> str:
@@ -1310,7 +1319,7 @@ def _render_spa_response(full_path: str) -> Response | None:
 
     # 2b. Legacy vendor marketing/brand/city pages -> closest relevant page (301).
     #     Preserves the old site's search equity instead of hard-404ing on cutover.
-    vendor_target = _LEGACY_VENDOR_REDIRECTS.get(path.lower())
+    vendor_target = _LEGACY_VENDOR_REDIRECTS.get(path.lower()) or _LEGAL_REDIRECTS.get(path.lower())
     if vendor_target:
         return RedirectResponse(vendor_target, status_code=301)
 
