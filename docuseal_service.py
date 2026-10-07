@@ -70,6 +70,14 @@ async def send_for_signature(
             "error": "DocuSeal API credentials not set",
         }
 
+    # A template submission without values emails the buyer a blank contract.
+    if not values:
+        return {
+            "success": False,
+            "status": "missing_values",
+            "error": "Refusing to send a signature request with no deal values filled in.",
+        }
+
     template_id = get_template_id(template_name)
     if not template_id:
         # If not found in mapping, try using template_name as ID (backward compat)
@@ -219,56 +227,60 @@ async def send_file_for_signature(
         return {"success": False, "error": str(exc)}
 
 
-async def maybe_trigger_automated_signing(
-    *,
-    event_type: str,
-    payload: dict[str, Any],
-) -> None:
+def is_configured() -> bool:
+    """True when DocuSeal credentials are present, i.e. e-signing is live."""
+    return bool(API_URL and API_TOKEN)
+
+
+def submission_ids_from_response(submission: Any) -> list[str]:
+    """Extract submission ids from a POST /api/submissions response.
+
+    DocuSeal returns a list of submitters (each carrying ``submission_id``);
+    some versions return a single submission object with ``id``.
     """
-    Trigger automated e-sign envelopes based on business events.
+    items = submission if isinstance(submission, list) else [submission]
+    ids: list[str] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        value = item.get("submission_id")
+        if value is None and not isinstance(submission, list):
+            value = item.get("id")
+        if value is not None and str(value) not in ids:
+            ids.append(str(value))
+    return ids
 
-    Supported events:
-      - lead.captured: Send Welcome/Disclosure
-      - deal.status_change: Send contract when status becomes 'contract'
+
+async def archive_submission(submission_id: str) -> dict[str, Any]:
+    """Cancel a pending signing request via DocuSeal's archive API.
+
+    ``DELETE /api/submissions/{id}`` archives the submission, which stops the
+    signer from completing it.
     """
-    if event_type == "lead.captured":
-        email = payload.get("email")
-        name = payload.get("name")
-        if email and name:
-            # Automate Credit Auth early to save time later
-            await send_for_signature(
-                email=email,
-                name=name,
-                template_name="State_CreditAuth.pdf",
-                metadata={"trigger": "lead.captured"},
+    if not is_configured():
+        return {
+            "success": False,
+            "status": "not_configured",
+            "error": "DocuSeal API credentials not set",
+        }
+    safe_id = str(submission_id or "").strip()
+    if not safe_id.isdigit():
+        return {"success": False, "error": "Invalid submission id"}
+
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.delete(
+                f"{API_URL.rstrip('/')}/api/submissions/{safe_id}",
+                headers={"X-Auth-Token": API_TOKEN},
             )
-
-    elif event_type == "deal.status_change":
-        new_status = payload.get("to")
-        deal_id = payload.get("deal_id")
-        deal_data = payload.get("deal_data", {})
-
-        email = deal_data.get("buyer_email")
-        name = f"{deal_data.get('buyer_first_name', '')} {deal_data.get('buyer_last_name', '')}".strip()
-
-        if not email or not name or not deal_id:
-            return
-
-        if new_status == "contract":
-            # Automate the big one: Sales Contract
-            await send_for_signature(
-                email=email,
-                name=name,
-                template_name="TMHA_SalesContract.pdf",
-                deal_id=deal_id,
-                metadata={"trigger": "deal.status_change.contract"},
+        if resp.status_code >= 400:
+            struct_logger.error(
+                "DocuSeal archive failed",
+                status_code=resp.status_code,
+                submission_id=safe_id,
             )
-        elif new_status == "pending":
-            # Automate Deposit Agreement
-            await send_for_signature(
-                email=email,
-                name=name,
-                template_name="TMHA-SalesContractDepositAgreement.pdf",
-                deal_id=deal_id,
-                metadata={"trigger": "deal.status_change.pending"},
-            )
+            return {"success": False, "error": f"DocuSeal API returned {resp.status_code}"}
+        return {"success": True}
+    except Exception as exc:
+        struct_logger.error("DocuSeal archive request failed", error=str(exc))
+        return {"success": False, "error": str(exc)}

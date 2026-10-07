@@ -205,6 +205,14 @@ feature_flags:
   # Env override: FF_STAFF_PASSKEY_SIGN_IN=1. Does not disable passkey APIs.
   STAFF_PASSKEY_SIGN_IN: false
 
+  # E-sign automatic sends. Leave false. When false, moving a deal to Contract
+  # or Pending only creates a CRM task, and closing-packet generation sends
+  # nothing; staff send from the deal after reviewing the preview. When true,
+  # those events send only if every money line is filled in, else they queue a
+  # task. New leads never get a Credit Authorization automatically either way.
+  # Env override: FF_ESIGN_AUTO_SEND=1.
+  ESIGN_AUTO_SEND: false
+
 # Notion "Command Center" integration. DB ids are identifiers, NOT secrets — the
 # only secret is NOTION_TOKEN (Secret Manager). The Ops Copilot reads these
 # PII-free (count-by-status) when NOTION_COMMAND_CENTER=on. Each id can also be

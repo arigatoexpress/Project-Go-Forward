@@ -730,6 +730,36 @@ class DealStatus(str, Enum):
     ARCHIVED = "archived"
 
 
+class ESignRequestStatus(str, Enum):
+    """Lifecycle of a staff-sent DocuSeal signing request."""
+
+    PENDING = "pending"
+    COMPLETED = "completed"
+    CANCELLED = "cancelled"
+
+
+class ESignRequest(BaseModel):
+    """One DocuSeal submission sent from the CRM (Firestore ``esign_requests``).
+
+    Kept out of ``deal_notes`` because the customer portal lists every
+    deal_note for a deal; an unsigned request must not appear there.
+    """
+
+    id: str
+    deal_id: str
+    submission_id: str
+    template_name: str
+    status: ESignRequestStatus = ESignRequestStatus.PENDING
+    review_token: str | None = None
+    sent_by: str | None = None
+    trigger: str = "staff_review"
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    cancelled_by: str | None = None
+
+    model_config = ConfigDict(use_enum_values=True)
+
+
 class InventoryWrite(BaseModel):
     """Permissive validation for admin inventory create/update payloads.
 
