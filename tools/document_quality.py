@@ -764,6 +764,8 @@ def enrich_document_data(data: dict[str, Any]) -> dict[str, Any]:
     if tax_part > 0 and _is_blank(enriched.get("tax_escrow_included")):
         enriched["tax_escrow_included"] = True
 
+    _apply_lender_profile(enriched)
+
     return enriched
 
 
@@ -772,6 +774,29 @@ def monthly_escrow_amount(data: dict[str, Any]) -> Decimal:
     tax_part = _decimal(data.get("tax_escrow_payment")) or Decimal("0")
     insurance_part = _decimal(data.get("insurance_premium_monthly")) or Decimal("0")
     return _round_money(tax_part + insurance_part)
+
+
+def _normalized_lender_name(value: Any) -> str:
+    return re.sub(r"[^a-z0-9]", "", _clean(value).lower())
+
+
+def _apply_lender_profile(enriched: dict[str, Any]) -> None:
+    """Fill blank creditor contact fields from config.yaml ``lenders`` profiles."""
+    from config_loader import get_lender_profiles
+
+    lender = _normalized_lender_name(
+        enriched.get("creditor_name") or enriched.get("compliance_lender")
+    )
+    if not lender:
+        return
+    for profile in get_lender_profiles().values():
+        names = [_normalized_lender_name(name) for name in profile.get("match_names") or []]
+        if not any(name and lender.startswith(name) for name in names):
+            continue
+        for key in ("creditor_address", "creditor_city_state_zip", "creditor_phone"):
+            if _has_value(profile.get(key)):
+                _set_if_blank(enriched, key, _clean(profile.get(key)))
+        return
 
 
 def _required_field_has_value(data: dict[str, Any], field: str) -> bool:
