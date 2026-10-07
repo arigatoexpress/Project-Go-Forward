@@ -64,7 +64,7 @@ const StaffAccess = lazy(() => import('./pages/StaffAccess'));
 // at a generous upper bound so an over-long secret is still flagged
 // (see scripts/generate_admin_pin_hash.py).
 const ADMIN_PIN_MAXLEN = 64;
-const ADMIN_PAGE_KEYS = new Set(['analytics', 'crm', 'chat-history', 'documents', 'adstudio', 'system', 'getting-started', 'photos', 'manage-inventory', 'health', 'team']);
+const ADMIN_PAGE_KEYS = new Set(['analytics', 'crm', 'chat-history', 'documents', 'adstudio', 'system', 'getting-started', 'photos', 'manage-inventory', 'copilot', 'health', 'team']);
 
 // Page loading fallback with skeleton
 const PageLoader = () => (
@@ -408,6 +408,7 @@ function pageFromPath(path) {
   if (p.startsWith('/delivery')) return 'delivery';
   if (p.startsWith('/chat-history')) return 'chat-history';
   if (p.startsWith('/manage-inventory')) return 'manage-inventory';
+  if (p === '/photos' || p.startsWith('/photos/')) return 'photos';
   if (p.startsWith('/copilot') || p.startsWith('/ops-copilot')) return 'copilot';
   if (p.startsWith('/health')) return 'health';
   if (p.startsWith('/chat')) return 'chat';
@@ -877,6 +878,8 @@ function App() {
       'staff-sign-in': 'Staff sign-in',
       'getting-started': 'Getting Started',
       'chat-history': 'Chat History',
+      'manage-inventory': 'Manage Inventory',
+      photos: 'Photos',
     };
     const inventoryCategory = activePage === 'inventory'
       ? getInventoryCategoryRoute(pathname)
@@ -916,6 +919,9 @@ function App() {
       analytics: '/analytics',
       'getting-started': '/getting-started',
       'chat-history': '/chat-history',
+      'manage-inventory': '/manage-inventory',
+      photos: '/photos',
+      copilot: '/copilot',
       system: '/system',
       health: '/health',
       team: '/team',
