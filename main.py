@@ -3590,8 +3590,17 @@ def _apply_inventory_media_fallback(result: dict, item: dict, legacy_media_index
 
 
 @app.get("/api/inventory", dependencies=[Depends(require_admin)])
-async def list_inventory(status: str = "AVAILABLE", limit: int = 100, is_new: bool = None):
-    """List inventory for document generation."""
+async def list_inventory(
+    status: str = "AVAILABLE",
+    limit: int = 100,
+    is_new: bool = None,
+    include_staff_photos: bool = False,
+):
+    """List staff inventory (documents, Manage Homes, Photos picker).
+
+    ``include_staff_photos`` folds staff-uploaded photos in, as the public page
+    does, so "needs photos" is honest in the Photos picker.
+    """
     try:
         inventory = _db.search_inventory(status=status, limit=limit)
         legacy_media_index = _load_legacy_inventory_media_index()
@@ -3690,6 +3699,12 @@ async def list_inventory(status: str = "AVAILABLE", limit: int = 100, is_new: bo
             }
             results.append(_apply_inventory_media_fallback(result, item, legacy_media_index))
 
+        if include_staff_photos:
+            _overlay_staff_photos(results)
+            for result in results:
+                if result.get("has_staff_photos"):
+                    result.pop("image_placeholder", None)
+                    result.pop("placeholder_reason", None)
         annotate_possible_duplicates(results)
         return {"success": True, "inventory": results, "count": len(results)}
     except Exception as e:

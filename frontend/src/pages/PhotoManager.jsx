@@ -4,24 +4,39 @@ import {
   Loader2, Search, ImageOff, Star, ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import adminFetch from '../adminFetch';
+import {
+  friendlyModelName, isActiveHome, staffVisibleHomes, statusLabel, stockLabel,
+} from '../utils/inventoryDisplay';
 
 // Staff photo uploader. Deliberately simple: pick a home, drop in photos, done.
 // Photos are stored server-side and appear on the public Inventory page.
+// The home list is the same one Manage Homes shows (staff inventory, one row
+// per home, homes for sale only unless "Include sold/archived" is ticked).
 
 const ACCEPT = 'image/jpeg,image/png,image/webp,image/gif';
 
 // A home "needs photos" when it has no real (non-floorplan) listing photos.
-// inventory-context already classifies floorplans out of real_photos and folds
-// in any staff uploads, so this is the honest "still needs pictures" signal.
+// The staff inventory API classifies floorplans out of real_photos and (with
+// include_staff_photos) folds in staff uploads, so this is the honest signal.
 function needsPhotos(home) {
   return !(Array.isArray(home.real_photos) && home.real_photos.length > 0);
 }
 
+function homeName(home) {
+  return friendlyModelName(home.model_name || home.name);
+}
+
+function homeDetails(home) {
+  return [
+    stockLabel(home),
+    isActiveHome(home) ? '' : statusLabel(home.status),
+    needsPhotos(home) ? 'Needs photos' : '',
+  ].filter(Boolean).join(' · ');
+}
+
 function homeLabel(home) {
-  const name = home.model_name || home.name || 'Home';
-  const status = home.status ? ` — ${home.status}` : '';
-  const flag = needsPhotos(home) ? '  ⚠ needs photos' : '';
-  return `${name}${status}${flag}`;
+  const details = homeDetails(home);
+  return details ? `${homeName(home)} (${details})` : homeName(home);
 }
 
 export default function PhotoManager({ onBack }) {
@@ -37,20 +52,20 @@ export default function PhotoManager({ onBack }) {
   const [message, setMessage] = useState(null); // { type: 'ok'|'error', text }
   const [dragOver, setDragOver] = useState(false);
   const [onlyNeedsPhotos, setOnlyNeedsPhotos] = useState(false);
+  const [includeInactive, setIncludeInactive] = useState(false);
   const fileInputRef = useRef(null);
 
   const selectedHome = homes.find(h => String(h.id) === String(selectedId));
 
-  // --- Load the list of homes (reuses the public inventory endpoint) ---
+  // --- Load the list of homes (same staff list as Manage Homes) ---
   const fetchHomes = useCallback(() => {
     setLoadingHomes(true);
     setLoadError('');
-    fetch('/api/marketing/inventory-context', { cache: 'no-cache' })
+    adminFetch('/api/inventory?status=&limit=500&include_staff_photos=true')
       .then(r => r.json())
       .then(data => {
-        const list = Array.isArray(data?.homes) ? data.homes : [];
-        // Only homes with a usable id can receive uploads.
-        setHomes(list.filter(h => h && (h.id !== undefined && h.id !== null && `${h.id}` !== '')));
+        if (data?.success === false) throw new Error('inventory unavailable');
+        setHomes(Array.isArray(data?.inventory) ? data.inventory : []);
       })
       .catch(() => setLoadError('Could not load the list of homes. Please refresh.'))
       .finally(() => setLoadingHomes(false));
@@ -192,11 +207,13 @@ export default function PhotoManager({ onBack }) {
     return applyOrder(order, 'Photo order updated.');
   };
 
-  const filteredHomes = homes.filter(h =>
-    (!query || homeLabel(h).toLowerCase().includes(query.toLowerCase())) &&
+  const listedHomes = staffVisibleHomes(homes, { includeInactive });
+  const filteredHomes = listedHomes.filter(h =>
+    (!query || homeLabel(h).toLowerCase().includes(query.toLowerCase())
+      || String(h.model_name || '').toLowerCase().includes(query.toLowerCase())) &&
     (!onlyNeedsPhotos || needsPhotos(h))
   );
-  const needsCount = homes.filter(needsPhotos).length;
+  const needsCount = listedHomes.filter(needsPhotos).length;
 
   return (
     <div className="min-h-screen bg-gray-50 font-sans">
@@ -225,7 +242,7 @@ export default function PhotoManager({ onBack }) {
             <span className="bg-slate-800 text-white rounded-full w-6 h-6 inline-flex items-center justify-center text-sm">1</span>
             Pick the home
           </h2>
-          <p className="text-sm text-gray-500 mb-3 ml-8">Type part of the name to find it.</p>
+          <p className="text-sm text-gray-500 mb-3 ml-8">Type part of the name or stock number to find it.</p>
 
           {loadError && (
             <div className="flex items-center gap-2 text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-sm mb-3">
@@ -240,44 +257,80 @@ export default function PhotoManager({ onBack }) {
               value={query}
               onChange={e => setQuery(e.target.value)}
               placeholder="Search homes…"
-              className="bg-transparent outline-none w-full text-[15px]"
+              aria-label="Search for a home"
+              className="bg-transparent outline-none w-full min-w-0 text-[15px]"
             />
           </div>
 
           {!loadingHomes && (
-            <label className="flex items-center gap-2 mb-3 text-sm text-slate-700 cursor-pointer select-none ml-8">
-              <input
-                type="checkbox"
-                checked={onlyNeedsPhotos}
-                onChange={e => setOnlyNeedsPhotos(e.target.checked)}
-                className="w-4 h-4"
-              />
-              Show only homes that still need photos
-              {needsCount > 0 && (
-                <span className="bg-amber-100 text-amber-800 rounded-full px-2 py-0.5 text-xs font-semibold">
-                  {needsCount} need photos
-                </span>
-              )}
-            </label>
+            <div className="flex flex-col gap-2 mb-3 ml-8 text-sm text-slate-700">
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={onlyNeedsPhotos}
+                  onChange={e => setOnlyNeedsPhotos(e.target.checked)}
+                  className="w-4 h-4 shrink-0"
+                />
+                Show only homes that still need photos
+                {needsCount > 0 && (
+                  <span className="bg-amber-100 text-amber-800 rounded-full px-2 py-0.5 text-xs font-semibold">
+                    {needsCount} need photos
+                  </span>
+                )}
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={includeInactive}
+                  onChange={e => setIncludeInactive(e.target.checked)}
+                  className="w-4 h-4 shrink-0"
+                />
+                Include sold/archived homes
+              </label>
+            </div>
           )}
 
           {loadingHomes ? (
             <div className="flex items-center gap-2 text-gray-500 text-sm py-3">
               <Loader2 className="animate-spin" size={18} /> Loading homes…
             </div>
+          ) : filteredHomes.length === 0 ? (
+            <p className="text-sm text-gray-500 py-3">
+              {listedHomes.length === 0 && !loadError
+                ? 'No homes for sale right now. Tick “Include sold/archived homes” to see the rest.'
+                : 'No homes match. Try fewer letters.'}
+            </p>
           ) : (
-            <select
+            <div
+              role="radiogroup"
               aria-label="Choose a home"
-              value={selectedId}
-              onChange={e => { setSelectedId(e.target.value); setMessage(null); }}
-              className="w-full border border-gray-300 rounded-lg px-3 py-3 text-[15px] bg-white"
-              size={Math.min(8, Math.max(3, filteredHomes.length))}
+              className="max-h-80 overflow-y-auto rounded-lg border border-gray-300 divide-y divide-gray-100 bg-white"
             >
-              <option value="">— Choose a home —</option>
-              {filteredHomes.map(h => (
-                <option key={h.id} value={h.id}>{homeLabel(h)}</option>
-              ))}
-            </select>
+              {filteredHomes.map(h => {
+                const checked = String(h.id) === String(selectedId);
+                const details = homeDetails(h);
+                return (
+                  <label
+                    key={h.id}
+                    className={`flex items-start gap-3 px-3 py-3 cursor-pointer ${checked ? 'bg-blue-50' : 'hover:bg-gray-50'}`}
+                  >
+                    <input
+                      type="radio"
+                      name="photo-home"
+                      value={h.id}
+                      checked={checked}
+                      onChange={() => { setSelectedId(String(h.id)); setMessage(null); }}
+                      aria-label={homeLabel(h)}
+                      className="mt-1 w-4 h-4 shrink-0"
+                    />
+                    <span className="min-w-0 flex-1">
+                      <span className="block font-semibold text-slate-800 text-[15px] break-words">{homeName(h)}</span>
+                      {details && <span className="block text-xs text-gray-500 break-words">{details}</span>}
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
           )}
         </section>
 
@@ -288,7 +341,7 @@ export default function PhotoManager({ onBack }) {
             Add the photos
           </h2>
           <p className="text-sm text-gray-500 mb-3 ml-8">
-            {selectedHome ? `For: ${homeLabel(selectedHome)}` : 'Pick a home above first.'}
+            {selectedHome ? `For: ${homeName(selectedHome)}${stockLabel(selectedHome) ? ` (${stockLabel(selectedHome)})` : ''}` : 'Pick a home above first.'}
           </p>
 
           <div
@@ -382,7 +435,7 @@ export default function PhotoManager({ onBack }) {
                   <div key={p.filename} className={`relative group rounded-lg overflow-hidden border bg-gray-100 ${idx === 0 ? 'border-blue-500 ring-2 ring-blue-200' : 'border-gray-200'}`}>
                     <img
                       src={p.url}
-                      alt={`${selectedHome ? homeLabel(selectedHome) : 'Home'} photo ${idx + 1}`}
+                      alt={`${selectedHome ? homeName(selectedHome) : 'Home'} photo ${idx + 1}`}
                       loading="lazy"
                       className="w-full h-32 object-cover"
                     />
