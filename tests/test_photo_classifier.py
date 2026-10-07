@@ -5,8 +5,11 @@ the suite locks in real-world detection behavior.
 """
 
 import importlib.util
+import json
 import os
 import sys
+
+import pytest
 
 # Import tools.photo_classifier directly without triggering tools/__init__.py,
 # which pulls in heavy optional deps (pypdf, google-adk) we don't need here.
@@ -57,6 +60,39 @@ INTERIOR_URL = "https://d132mt2yijm03y.cloudfront.net/dealer/3522/inventory/3064
 
 
 # ─── is_floorplan_url ───
+
+
+def test_content_flagged_ambiguous_url_is_normalized_and_removed_from_photos(monkeypatch):
+    url = "https://cdn.example.com/inventory/9/hero.jpg"
+    monkeypatch.setattr(photo_classifier, "_CONTENT_MANIFEST", frozenset([url]))
+    assert is_floorplan_url(f"  {url}  ")
+    result = reorder_for_listing([f"  {url}  ", EXTERIOR_URL])
+    assert result["image_url"] == EXTERIOR_URL
+    assert result["floorplan_url"].strip() == url
+
+
+@pytest.mark.parametrize(
+    "payload", [{"urls": []}, {"urls": [" https://cdn.example.com/hero.jpg "]}]
+)
+def test_valid_content_manifest_loads_and_normalizes_urls(monkeypatch, payload):
+    monkeypatch.setattr(photo_classifier, "_CONTENT_MANIFEST", None)
+    monkeypatch.setattr(photo_classifier, "_CONTENT_MANIFEST_AVAILABLE", False)
+    monkeypatch.setattr(photo_classifier.Path, "read_text", lambda self: json.dumps(payload))
+    assert photo_classifier.content_manifest_available()
+    assert photo_classifier._content_flagged_floorplans() == frozenset(
+        u.strip() for u in payload["urls"]
+    )
+
+
+@pytest.mark.parametrize(
+    "payload", ["bad-json", "[]", "{}", '{"urls": "not-a-list"}', '{"urls": [null]}']
+)
+def test_invalid_content_manifest_reports_degraded_detection(monkeypatch, payload):
+    monkeypatch.setattr(photo_classifier, "_CONTENT_MANIFEST", None)
+    monkeypatch.setattr(photo_classifier, "_CONTENT_MANIFEST_AVAILABLE", True)
+    monkeypatch.setattr(photo_classifier.Path, "read_text", lambda self: payload)
+    assert not photo_classifier.content_manifest_available()
+    assert not is_floorplan_url("https://cdn.example.com/hero.jpg")
 
 
 def test_is_floorplan_url_detects_floor_plans_filename_token():

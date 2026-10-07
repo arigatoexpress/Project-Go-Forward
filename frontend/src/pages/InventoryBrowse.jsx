@@ -138,7 +138,42 @@ function isFloorplanImage(url, floorplanUrls = []) {
     || looksLikeBareModelFloorplan(url, filename);
 }
 
-function getListingPhotos(home) {
+// Filenames that positively identify a real photograph of the home, split by
+// what the shot actually shows. `isFloorplanImage` can only reject what it
+// RECOGNIZES as a floorplan, and it recognizes floorplans by URL namespace and
+// filename token. Two real sources slip through it:
+//   * seeded heroes at tho-inventory-assets/inventory/<id>/hero.jpg, which live
+//     outside the manufacturer floorplan namespace and are named "hero" — four
+//     listed homes had a floorplan DRAWING as their card image this way; and
+//   * bare names like "1.jpg" inside the floorplan namespace, which
+//     `looksLikePhotoFilename` accepts because /^\d+$/ reads as a photo index.
+// So rather than trying to reject harder (and risk hiding real photos), rank:
+// a shot we can positively identify always leads an unidentifiable one.
+const EXTERIOR_PHOTO_TOKENS = ['ext', 'exterior', 'front'];
+const INTERIOR_PHOTO_TOKENS = [
+  'int', 'interior', 'kit', 'kitchen', 'living', 'bed', 'bath',
+  'room', 'porch', 'island', 'utility', 'coffee',
+];
+
+function photoFilename(url) {
+  return decodeURIComponent(String(url).split('/').pop()?.split('?')[0] || '').toLowerCase();
+}
+
+function hasToken(filename, tokens) {
+  const parts = filename.replace(/\.[a-z0-9]+$/i, '').split(/[^a-z0-9]+/).filter(Boolean);
+  return tokens.some(token => parts.includes(token) || filename.includes(token));
+}
+
+// 0 = exterior (a picture OF THE HOUSE — what a shopper expects on a card),
+// 1 = identifiable interior, 2 = unidentifiable (bare/seeded "hero" names).
+export function listingPhotoRank(url) {
+  const filename = photoFilename(url);
+  if (hasToken(filename, EXTERIOR_PHOTO_TOKENS)) return 0;
+  if (hasToken(filename, INTERIOR_PHOTO_TOKENS)) return 1;
+  return 2;
+}
+
+function getListingPhotos(home, { ranked = false } = {}) {
   if (!home) return [];
   const floorplanUrls = getFloorplanUrls(home);
   const candidates = [
@@ -146,9 +181,17 @@ function getListingPhotos(home) {
     ...(Array.isArray(home.real_photos) ? home.real_photos : []),
     ...(Array.isArray(home.gallery_images) ? home.gallery_images : []),
   ];
-  return candidates.filter((photo, index, values) => (
+  const photos = candidates.filter((photo, index, values) => (
     photo && values.indexOf(photo) === index && !isFloorplanImage(photo, floorplanUrls)
   ));
+  // Other surfaces keep curated order until they support candidate fallback.
+  if (!ranked) return photos;
+  // Stable sort: ordering within a rank is preserved, so a curated gallery
+  // order still holds among photos of the same kind.
+  return photos
+    .map((photo, index) => ({ photo, index, rank: listingPhotoRank(photo) }))
+    .sort((a, b) => (a.rank - b.rank) || (a.index - b.index))
+    .map(entry => entry.photo);
 }
 
 function getHomeImage(home) {
@@ -1188,7 +1231,7 @@ export function HomeCard({ home, onClick, onGetPrice, isFavorite = false, onTogg
   // We deliberately do NOT fall back to floor_plan_url here — floorplans
   // belong in the dedicated Floorplan tab, not as the card hero.
   const floorplanUrls = getFloorplanUrls(home);
-  const galleryPhotos = getListingPhotos(home);
+  const galleryPhotos = getListingPhotos(home, { ranked: true });
   const photoCount = galleryPhotos.length;
   const galleryKey = JSON.stringify([home.id, galleryPhotos]);
   const [heroAttempt, setHeroAttempt] = useState({ galleryKey, index: 0 });
