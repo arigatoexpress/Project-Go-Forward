@@ -164,6 +164,7 @@ from tools.contact_capture import (
     capture_explicit_contact,
 )
 from tools.input_sanitizer import sanitize_body, sanitize_query_params
+from tools.inventory_dedupe import annotate_possible_duplicates
 from tools.pii_guard import redact_pii_from_text, validate_no_pii_in_text
 from tools.user_activity_log import log_user_action, query_user_activity
 
@@ -3683,9 +3684,13 @@ async def list_inventory(status: str = "AVAILABLE", limit: int = 100, is_new: bo
                 "public_sale_price": item.get("sale_price"),
                 "image_url": item.get("image_url") or item.get("hero_image"),
                 "status": item.get("status", "AVAILABLE"),
+                "stock_number": _pick_inventory_field(
+                    item, "stock_number", "legacy_inventory_id", "inventory_id", "listing_id"
+                ),
             }
             results.append(_apply_inventory_media_fallback(result, item, legacy_media_index))
 
+        annotate_possible_duplicates(results)
         return {"success": True, "inventory": results, "count": len(results)}
     except Exception as e:
         struct_logger.error("Inventory listing failed", error=str(e))
