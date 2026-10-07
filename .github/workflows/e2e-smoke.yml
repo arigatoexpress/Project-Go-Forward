@@ -1,0 +1,46 @@
+name: Read-only storefront smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      BASE_URL:
+        description: Storefront origin to inspect using read-only requests
+        required: true
+        type: string
+        default: https://candidate---project-go-forward-trgi34bxuq-uc.a.run.app
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install smoke dependencies
+        working-directory: e2e
+        run: npm ci
+      - name: Install Chromium
+        working-directory: e2e
+        run: npx --no-install playwright install --with-deps chromium
+      - name: Run read-only smoke suite
+        working-directory: e2e
+        env:
+          BASE_URL: ${{ inputs.BASE_URL }}
+        run: npm test
+      - name: Upload smoke report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: read-only-smoke-report
+          path: e2e/playwright-report/
+          if-no-files-found: ignore
+          retention-days: 7

@@ -3,7 +3,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 import { HomeCard } from '../pages/InventoryBrowse';
 
 const FIRST = 'https://cdn.example.com/curated-living.jpg';
-const SECOND = 'https://cdn.example.com/exterior.jpg';
+const SECOND = 'https://cdn.example.com/living-2.jpg';
 const THIRD = 'https://cdn.example.com/kitchen.jpg';
 const home = {
   id: 'fallback-test',

@@ -1,0 +1,7 @@
+{
+  "name": "tho-read-only-smoke",
+  "private": true,
+  "type": "module",
+  "scripts": { "test": "playwright test" },
+  "devDependencies": { "playwright": "1.57.0" }
+}

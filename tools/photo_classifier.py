@@ -27,12 +27,19 @@ that folder (e.g. ``S-1672-32B-1.jpg``) is typically an exterior
 shot. The actual floorplan diagram lives alongside it as
 ``floor-plans.jpg``, ``floorplan.pdf``, or sometimes a bare model/plan
 filename such as ``jackson.jpg``.
+
+A committed content manifest (``data/floorplan_image_manifest.json``) flags
+drawings whose filenames look like photos, including seeded ``hero.jpg``
+files. ``tools.floorplan_image_scan`` rebuilds that file offline. The request
+path only reads it.
 """
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Iterable
+from pathlib import Path
 from urllib.parse import unquote, urlparse
 
 # Filename tokens that mark an actual floorplan diagram (not just any
@@ -121,19 +128,60 @@ def _is_placeholder_url(url: str | None) -> bool:
     return any(token in filename for token in PLACEHOLDER_FILENAME_TOKENS)
 
 
+_CONTENT_MANIFEST: frozenset[str] | None = None
+_CONTENT_MANIFEST_AVAILABLE = False
+
+
+def _content_flagged_floorplans() -> frozenset[str]:
+    """URLs that PIXEL analysis proved are floorplan drawings.
+
+    The filename rules below can only reject what they recognize, so an
+    unfamiliar name defaults to "photo". Two real sources exploit that: seeded
+    ``.../inventory/<id>/hero.jpg`` heroes, and bare ``1.jpg`` names inside the
+    manufacturer floorplan namespace. On 2026-08-31 that put a floorplan drawing
+    on the site's FEATURED home. ``tools.floorplan_image_scan`` measures the
+    pixels offline and records the drawings here, so this stays a pure lookup
+    with no network on the request path. A missing manifest is not an error —
+    detection simply falls back to the filename rules.
+    """
+    global _CONTENT_MANIFEST, _CONTENT_MANIFEST_AVAILABLE
+    if _CONTENT_MANIFEST is None:
+        path = Path(__file__).resolve().parent.parent / "data" / "floorplan_image_manifest.json"
+        try:
+            payload = json.loads(path.read_text())
+            urls = payload["urls"]
+            if not isinstance(urls, list) or any(not isinstance(u, str) for u in urls):
+                raise ValueError("Invalid floorplan manifest URLs")
+            _CONTENT_MANIFEST = frozenset(_normalize_url(u) for u in urls if _normalize_url(u))
+            _CONTENT_MANIFEST_AVAILABLE = True
+        except (OSError, ValueError, KeyError, TypeError):
+            _CONTENT_MANIFEST = frozenset()
+            _CONTENT_MANIFEST_AVAILABLE = False
+    return _CONTENT_MANIFEST
+
+
+def content_manifest_available() -> bool:
+    """Whether content detection loaded a valid manifest, including an empty one."""
+    _content_flagged_floorplans()
+    return _CONTENT_MANIFEST_AVAILABLE
+
+
 def is_floorplan_url(url: str | None) -> bool:
     """Return True if ``url`` is a floorplan image/PDF URL.
 
-    Detection is filename-based, not path-based. A URL whose PATH has
-    ``/floorplan/`` but whose FILENAME is just an indexed photo
-    (e.g. ``S-1672-32B-1.jpg``) is NOT a floorplan — it's an asset
-    stored under that model's CDN namespace. A URL with
-    ``floorplan``/``floor-plan``/``floor-plans`` in the filename, or
-    ending in ``.pdf``, IS a floorplan. Case-insensitive. Empty / None
-    inputs return False.
+    Detection checks the content manifest first, then the filename, not the
+    URL path. A URL whose PATH has ``/floorplan/`` but whose FILENAME is just
+    an indexed photo (e.g. ``S-1672-32B-1.jpg``) is NOT a floorplan — it's an
+    asset stored under that model's CDN namespace, unless the manifest lists
+    it. A URL with ``floorplan``/``floor-plan``/``floor-plans`` in the
+    filename, or ending in ``.pdf``, IS a floorplan. Case-insensitive.
+    Empty / None inputs return False.
     """
     if not url or not isinstance(url, str):
         return False
+    url = _normalize_url(url)
+    if url in _content_flagged_floorplans():
+        return True
     lowered = url.lower()
     filename = unquote(lowered.rsplit("/", 1)[-1].split("?", 1)[0])
     if filename.endswith(FLOORPLAN_FILE_EXTS):
