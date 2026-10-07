@@ -4,6 +4,7 @@ DocuSeal Service — Orchestrates e-sign submissions and template mapping.
 
 import json
 import os
+import re
 from typing import Any
 
 import httpx
@@ -23,6 +24,31 @@ MAPPING_FILE = os.path.join(
 )
 
 _template_cache: dict[str, dict[str, Any]] = {}
+_MAX_REDACTED_BODY_CHARS = 200
+
+_EMAIL_RE = re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.IGNORECASE)
+_PHONE_RE = re.compile(
+    r"(?:\+?1[-.\s]?)?(?:\(?\d{3}\)?[-.\s]?)\d{3}[-.\s]?\d{4}\b",
+    re.IGNORECASE,
+)
+# Conservative "full name" heuristic to scrub common buyer-name patterns in
+# vendor echoes (e.g., "name": "Alice Buyer", "submitter_name=John Doe").
+_NAME_VALUE_RE = re.compile(
+    r'(?P<prefix>\b(?:name|full_name|submitter_name)\b\s*[:=]\s*[\'"]?)'
+    r"(?P<value>[A-Za-z]+(?:\s+[A-Za-z]+){1,3})",
+    re.IGNORECASE,
+)
+
+
+def _redact_docuseal_body(raw_body: Any) -> str:
+    """Best-effort body scrub for safety logging only (never returned to UI)."""
+    text = str(raw_body or "")
+    text = _EMAIL_RE.sub("[REDACTED_EMAIL]", text)
+    text = _PHONE_RE.sub("[REDACTED_PHONE]", text)
+    text = _NAME_VALUE_RE.sub(r"\g<prefix>[REDACTED_NAME]", text)
+    if len(text) > _MAX_REDACTED_BODY_CHARS:
+        return text[:_MAX_REDACTED_BODY_CHARS] + "...[truncated]"
+    return text
 
 
 def _load_templates():
@@ -118,21 +144,22 @@ async def send_for_signature(
                 json=payload,
             )
             if resp.status_code >= 400:
-                error_detail = resp.text
-                try:
-                    error_detail = resp.json()
-                except Exception:
-                    pass
+                request_id = f"{str(deal_id or 'unknown')[:40]}:{template_name[:40]}"
+                body_preview = _redact_docuseal_body(resp.text)
                 struct_logger.error(
                     "DocuSeal API error",
+                    operation="send_for_signature",
+                    endpoint="/api/submissions",
                     status_code=resp.status_code,
-                    detail=error_detail,
-                    template=template_name,
+                    request_id=request_id,
+                    template_name=template_name[:100],
+                    response_preview=body_preview,
                 )
                 return {
                     "success": False,
+                    "status_code": resp.status_code,
                     "error": f"DocuSeal API returned {resp.status_code}",
-                    "detail": error_detail,
+                    "request_id": request_id,
                 }
 
             return {"success": True, "submission": resp.json()}
@@ -214,10 +241,22 @@ async def send_file_for_signature(
                 json=payload,
             )
             if resp.status_code >= 400:
+                request_id = f"{str(deal_id or 'unknown')[:40]}:custom-file"
+                body_preview = _redact_docuseal_body(resp.text)
+                struct_logger.error(
+                    "DocuSeal API error",
+                    operation="send_file_for_signature",
+                    endpoint="/api/submissions",
+                    status_code=resp.status_code,
+                    request_id=request_id,
+                    response_preview=body_preview,
+                    display_name=display_name[:100],
+                )
                 return {
                     "success": False,
+                    "status_code": resp.status_code,
                     "error": f"DocuSeal API error {resp.status_code}",
-                    "detail": resp.text,
+                    "request_id": request_id,
                 }
 
             return {"success": True, "submission": resp.json()}
@@ -276,8 +315,11 @@ async def archive_submission(submission_id: str) -> dict[str, Any]:
         if resp.status_code >= 400:
             struct_logger.error(
                 "DocuSeal archive failed",
+                operation="archive_submission",
+                endpoint=f"/api/submissions/{safe_id}",
                 status_code=resp.status_code,
                 submission_id=safe_id,
+                response_preview=_redact_docuseal_body(resp.text),
             )
             return {"success": False, "error": f"DocuSeal API returned {resp.status_code}"}
         return {"success": True}
