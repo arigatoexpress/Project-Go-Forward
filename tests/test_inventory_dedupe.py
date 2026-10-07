@@ -25,7 +25,10 @@ from tools.inventory_dedupe import (  # noqa: E402
     annotate_possible_duplicates,
     collapse_duplicate_homes,
     is_active_status,
+    is_preowned,
+    is_stocked_listing,
     normalize_model_key,
+    offerings_conflict,
 )
 
 
@@ -57,10 +60,10 @@ def test_reported_live_duplicates_collapse_to_one_each():
 
     shown = [h for h in homes if not h.get("duplicate_of")]
     assert len(shown) == 5
-    # The clean-named record wins when nothing else distinguishes them.
+    # The stocked PRE-OWNED listing keeps its identity.
     by_id = {h["id"]: h for h in homes}
-    assert by_id["fs-big-blue"]["possible_duplicate_ids"] == ["44490"]
-    assert by_id["44490"]["duplicate_of"] == "fs-big-blue"
+    assert by_id["44490"]["possible_duplicate_ids"] == ["fs-big-blue"]
+    assert by_id["fs-big-blue"]["duplicate_of"] == "44490"
     assert "possible_duplicate_ids" not in by_id["solo"]
     assert "duplicate_of" not in by_id["solo"]
 
@@ -101,8 +104,8 @@ def test_same_serial_is_flagged_and_unserialed_left_alone_when_ambiguous():
     ]
     annotate_possible_duplicates(homes)
     by_id = {h["id"]: h for h in homes}
-    assert by_id["a"]["possible_duplicate_ids"] == ["b"]
-    assert by_id["b"]["duplicate_of"] == "a"
+    assert by_id["b"]["possible_duplicate_ids"] == ["a"]
+    assert by_id["a"]["duplicate_of"] == "b"
     assert "duplicate_of" not in by_id["c"]
     assert "duplicate_of" not in by_id["d"]
 
@@ -147,28 +150,97 @@ def test_admin_inventory_endpoint_annotates_without_writing(monkeypatch):
     resp = client.get("/api/inventory?status=&limit=500", headers={"X-Admin-Token": token})
     assert resp.status_code == 200, resp.text
     rows = {r["id"]: r for r in resp.json()["inventory"]}
-    assert rows["fs-big-blue"]["possible_duplicate_ids"] == ["44490"]
-    assert rows["44490"]["duplicate_of"] == "fs-big-blue"
+    assert rows["44490"]["possible_duplicate_ids"] == ["fs-big-blue"]
+    assert rows["fs-big-blue"]["duplicate_of"] == "44490"
     assert rows["44490"]["stock_number"] == "44490"
 
     assert fake_db.collections["inventory"] == before
 
 
-def test_collapse_duplicate_homes_keeps_richer_record_and_can_strip_hints():
+def test_collapse_keeps_stocked_identity_and_borrows_catalog_photos():
     homes = [
-        {"id": "44490", "model_name": "PRE-OWNED / Big Blue", "status": "AVAILABLE"},
         {
-            "id": "big-blue",
-            "model_name": "Big Blue",
-            "status": "AVAILABLE",
-            "real_photos": ["lot.jpg"],
-            "serial_number": "S1",
+            "id": "43945",
+            "model_name": "PRE-OWNED / Heritage 1684-32A",
+            "status": "Pre-Owned",
+            "inventory_kind": "pre_owned",
+            "display_price": "Call for Price",
+            "price_value": 0,
+            "real_photos": ["lot-1.jpg", "lot-2.jpg"],
+            "detail_url": "https://www.texashomeoutlet.com/inventory-detail/43945/",
+        },
+        {
+            "id": "heritage-1684-32a",
+            "model_name": "Heritage 1684-32A",
+            "status": "Available",
+            "inventory_kind": "available_now",
+            "display_price": "$1",
+            "price_value": 1,
+            "real_photos": ["mfr-1.jpg", "mfr-2.jpg", "mfr-3.jpg", "mfr-4.jpg"],
+            "floor_plan_url": "https://example.com/1684-floorplan.jpg",
         },
     ]
     visible = collapse_duplicate_homes(homes, strip_annotations=True)
-    assert [h["id"] for h in visible] == ["big-blue"]
-    assert "possible_duplicate_ids" not in visible[0]
-    assert "duplicate_of" not in visible[0]
+    assert [home["id"] for home in visible] == ["43945"]
+    kept = visible[0]
+    assert kept["model_name"] == "PRE-OWNED / Heritage 1684-32A"
+    assert kept["status"] == "Pre-Owned"
+    assert kept["inventory_kind"] == "pre_owned"
+    assert kept["display_price"] == "Call for Price"
+    assert kept["price_value"] == 0
+    assert kept["detail_url"] == "https://www.texashomeoutlet.com/inventory-detail/43945/"
+    assert kept["real_photos"][:2] == ["lot-1.jpg", "lot-2.jpg"]
+    assert kept["real_photos"][2:] == ["mfr-1.jpg", "mfr-2.jpg", "mfr-3.jpg", "mfr-4.jpg"]
+    assert kept["floor_plan_url"] == "https://example.com/1684-floorplan.jpg"
+    assert "possible_duplicate_ids" not in kept
+    assert "duplicate_of" not in kept
+
+
+def test_does_not_collapse_preowned_unit_with_orderable_new_floorplan():
+    homes = [
+        {
+            "id": "43945",
+            "model_name": "PRE-OWNED / Heritage 1684-32A",
+            "status": "Pre-Owned",
+            "inventory_kind": "pre_owned",
+        },
+        {
+            "id": "floorplan-1684",
+            "model_name": "Heritage / 1684-32A",
+            "status": "Orderable",
+            "inventory_kind": "orderable_floorplan",
+            "is_orderable": True,
+        },
+    ]
+    annotate_possible_duplicates(homes)
+    assert all("duplicate_of" not in home for home in homes)
+    assert offerings_conflict(homes[0], homes[1])
+
+
+def test_does_not_collapse_same_model_with_different_sale_prices():
+    homes = [
+        {
+            "id": "lot-a",
+            "model_name": "PRE-OWNED / The Nassau",
+            "price_value": 45000,
+        },
+        {
+            "id": "the-nassau",
+            "model_name": "The Nassau",
+            "price_value": 89900,
+        },
+    ]
+    annotate_possible_duplicates(homes)
+    assert all("duplicate_of" not in home for home in homes)
+
+
+def test_identity_helpers():
+    assert is_stocked_listing({"id": "43945"})
+    assert is_stocked_listing({"id": "slug", "legacy_inventory_id": "44490"})
+    assert not is_stocked_listing({"id": "heritage-1684-32a"})
+    assert is_preowned({"model_name": "PRE-OWNED / Big Blue"})
+    assert is_preowned({"inventory_kind": "pre_owned"})
+    assert not is_preowned({"model_name": "The Razor", "inventory_kind": "available_now"})
 
 
 def _public_inventory_client(monkeypatch, homes):
@@ -221,8 +293,9 @@ def test_public_inventory_collapses_preowned_and_website_title_twins(monkeypatch
 
     data = client.get("/api/marketing/inventory-context").json()
     ids = [home["id"] for home in data["homes"]]
-    assert ids == ["big-blue", "heritage", "select-1256", "select-1272", "the-razor"]
+    assert ids == ["44490", "43945", "43944", "43943", "floorplan-227314"]
     assert data["total_inventory"] == 5
+    assert data["homes"][0]["model_name"] == "PRE-OWNED / Big Blue"
     assert all("duplicate_of" not in home for home in data["homes"])
     assert all("possible_duplicate_ids" not in home for home in data["homes"])
     assert main._seo_public_homes()["homes"] == data["homes"]
@@ -261,7 +334,8 @@ def test_public_inventory_collapses_same_serial_only(monkeypatch):
     )
 
     data = client.get("/api/marketing/inventory-context").json()
-    assert [home["id"] for home in data["homes"]] == ["a", "c", "d"]
+    assert [home["id"] for home in data["homes"]] == ["b", "c", "d"]
+    assert data["homes"][0]["model_name"] == "PRE-OWNED / The Nassau"
     assert data["total_inventory"] == 3
 
 
@@ -360,14 +434,14 @@ def test_live_public_feed_pairs_collapse_and_manufacturer_twins_stay():
 
     assert by_id["44490"]["possible_duplicate_ids"] == ["big-blue"]
     assert by_id["big-blue"]["duplicate_of"] == "44490"
-    assert by_id["heritage-1684-32a"]["possible_duplicate_ids"] == ["43945"]
-    assert by_id["43945"]["duplicate_of"] == "heritage-1684-32a"
-    assert by_id["select-s-1256-21a"]["possible_duplicate_ids"] == ["43944"]
-    assert by_id["43944"]["duplicate_of"] == "select-s-1256-21a"
-    assert by_id["select-s-1272-32a"]["possible_duplicate_ids"] == ["43943"]
-    assert by_id["43943"]["duplicate_of"] == "select-s-1272-32a"
-    assert by_id["the-razor"]["possible_duplicate_ids"] == ["floorplan-227314"]
-    assert by_id["floorplan-227314"]["duplicate_of"] == "the-razor"
+    assert by_id["43945"]["possible_duplicate_ids"] == ["heritage-1684-32a"]
+    assert by_id["heritage-1684-32a"]["duplicate_of"] == "43945"
+    assert by_id["43944"]["possible_duplicate_ids"] == ["select-s-1256-21a"]
+    assert by_id["select-s-1256-21a"]["duplicate_of"] == "43944"
+    assert by_id["43943"]["possible_duplicate_ids"] == ["select-s-1272-32a"]
+    assert by_id["select-s-1272-32a"]["duplicate_of"] == "43943"
+    assert by_id["floorplan-227314"]["possible_duplicate_ids"] == ["the-razor"]
+    assert by_id["the-razor"]["duplicate_of"] == "floorplan-227314"
     assert by_id["28527"]["possible_duplicate_ids"] == ["heritage-1672-32c"]
     assert by_id["heritage-1672-32c"]["duplicate_of"] == "28527"
 
@@ -383,16 +457,20 @@ def test_live_public_feed_pairs_collapse_and_manufacturer_twins_stay():
     visible = collapse_duplicate_homes([dict(home) for home in _LIVE_PUBLIC_PAIRS])
     assert [home["id"] for home in visible] == [
         "44490",
-        "heritage-1684-32a",
-        "select-s-1256-21a",
-        "select-s-1272-32a",
-        "the-razor",
+        "43945",
+        "43944",
+        "43943",
+        "floorplan-227314",
         "28527",
         "floorplan-230325",
         "floorplan-232414",
         "floorplan-230137",
         "floorplan-227807",
     ]
+    assert visible[0]["model_name"] == "PRE-OWNED / Big Blue"
+    assert visible[1]["model_name"] == "PRE-OWNED / Heritage 1684-32A"
+    assert visible[2]["model_name"] == "PRE-OWNED / Select S-1256-21A"
+    assert visible[3]["model_name"] == "PRE-OWNED / Select S-1272-32A"
 
 
 def test_public_inventory_live_pairs_on_public_path(monkeypatch):
@@ -400,10 +478,10 @@ def test_public_inventory_live_pairs_on_public_path(monkeypatch):
     data = client.get("/api/marketing/inventory-context").json()
     assert [home["id"] for home in data["homes"]] == [
         "44490",
-        "heritage-1684-32a",
-        "select-s-1256-21a",
-        "select-s-1272-32a",
-        "the-razor",
+        "43945",
+        "43944",
+        "43943",
+        "floorplan-227314",
         "28527",
         "floorplan-230325",
         "floorplan-232414",
@@ -411,6 +489,8 @@ def test_public_inventory_live_pairs_on_public_path(monkeypatch):
         "floorplan-227807",
     ]
     assert data["total_inventory"] == 10
+    assert data["homes"][1]["model_name"] == "PRE-OWNED / Heritage 1684-32A"
+    assert data["homes"][1]["inventory_kind"] == "pre_owned"
 
 
 def test_public_inventory_saved_legacy_sample_before_after_counts(monkeypatch):
