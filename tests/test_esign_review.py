@@ -406,21 +406,24 @@ class TestDocuSealService:
     def test_no_automatic_lead_or_stage_trigger_remains(self):
         assert not hasattr(docuseal_service, "maybe_trigger_automated_signing")
 
-    def test_template_send_error_redacts_body_from_logs_and_result(self, docuseal_configured, caplog):
+    def test_template_send_error_redacts_body_from_logs_and_result(
+        self, docuseal_configured, caplog
+    ):
         buyer_email = "buyer@example.com"
         buyer_phone = "512-555-0101"
-        response = MagicMock(status_code=422, text=f"email={buyer_email} phone={buyer_phone}")
-        http = _mock_http(response)
-        with patch("httpx.AsyncClient", return_value=http):
-            result = asyncio.run(
-                docuseal_service.send_for_signature(
-                    email=buyer_email,
-                    name="Alice Buyer",
-                    template_name=SALES_CONTRACT,
-                    deal_id="deal-123",
-                    values={"SalePrice": "80,000.00"},
+        with patch.object(docuseal_service, "get_template_id", return_value=7):
+            response = MagicMock(status_code=422, text=f"email={buyer_email} phone={buyer_phone}")
+            http = _mock_http(response)
+            with patch("httpx.AsyncClient", return_value=http):
+                result = asyncio.run(
+                    docuseal_service.send_for_signature(
+                        email=buyer_email,
+                        name="Alice Buyer",
+                        template_name=SALES_CONTRACT,
+                        deal_id="deal-123",
+                        values={"SalePrice": "80,000.00"},
+                    )
                 )
-            )
 
         assert result["success"] is False
         assert result["error"] == "DocuSeal API returned 422"
@@ -431,7 +434,9 @@ class TestDocuSealService:
         assert "[REDACTED_EMAIL]" in caplog.text
         assert "[REDACTED_PHONE]" in caplog.text
 
-    def test_file_send_error_redacts_body_from_logs_and_result(self, docuseal_configured, caplog, tmp_path):
+    def test_file_send_error_redacts_body_from_logs_and_result(
+        self, docuseal_configured, caplog, tmp_path
+    ):
         buyer_email = "buyer@example.com"
         buyer_phone = "(512) 555-0199"
         pdf = tmp_path / "sample.pdf"

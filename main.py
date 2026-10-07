@@ -5839,7 +5839,9 @@ def _validate_public_contact_payload(data: object) -> tuple[dict[str, str], JSON
     if not isinstance(name_raw, str) or not isinstance(phone_raw, str):
         return (
             {},
-            JSONResponse({"success": False, "error": "Name and phone are required"}, status_code=400),
+            JSONResponse(
+                {"success": False, "error": "Name and phone are required"}, status_code=400
+            ),
         )
 
     if email_raw is None:
@@ -5858,11 +5860,16 @@ def _validate_public_contact_payload(data: object) -> tuple[dict[str, str], JSON
     message = message_raw.strip()
 
     if not name or not phone:
-        return {}, JSONResponse({"success": False, "error": "Name and phone are required"}, status_code=400)
+        return {}, JSONResponse(
+            {"success": False, "error": "Name and phone are required"}, status_code=400
+        )
     if len(name) > _PUBLIC_CONTACT_NAME_MAX:
         return (
             {},
-            JSONResponse({"success": False, "error": "Name must be 120 characters or fewer."}, status_code=400),
+            JSONResponse(
+                {"success": False, "error": "Name must be 120 characters or fewer."},
+                status_code=400,
+            ),
         )
     if len(phone) > _PUBLIC_CONTACT_PHONE_MAX:
         return (
@@ -5884,7 +5891,9 @@ def _validate_public_contact_payload(data: object) -> tuple[dict[str, str], JSON
     if email and (len(email) > 254 or not _PUBLIC_EMAIL_RE.fullmatch(email)):
         return (
             {},
-            JSONResponse({"success": False, "error": "Enter a valid email address."}, status_code=400),
+            JSONResponse(
+                {"success": False, "error": "Enter a valid email address."}, status_code=400
+            ),
         )
     if len(message) > _PUBLIC_CONTACT_MESSAGE_MAX:
         return (
