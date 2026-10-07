@@ -23,6 +23,34 @@ Out of scope by request:
 - `npm --prefix frontend audit --json` ❌ 4 vulnerabilities (3 high, 1 moderate)
 - `python3 -m pip_audit` ❌ 71 findings across 11 packages
 
+## Dependabot alert triage addendum (18 open alerts, requested)
+
+Notes:
+- GitHub Dependabot REST alert listing is not accessible from this cloud run context (`403 Resource not accessible by integration`), so this triage uses the owner-provided open-alert count plus reproducible local evidence (`npm audit`, `pip-audit`, and dependency graph inspection).
+- Safe/non-breaking fixes were applied in this PR (lockfile updates + patch/minor pin updates only).
+
+### Safe fixes folded into this draft PR
+- `frontend/package-lock.json`: applied `npm audit fix` (resolved prior `undici`, `source-map-js`, `brace-expansion`, `fast-uri` advisories in the frontend tree).
+- `frontend/package.json`: tightened override to `undici: ^7.30.0` (non-breaking within major 7).
+- `requirements.txt`: bumped `pypdf` from `6.18.0` to `6.19.0` (patch/minor security uplift).
+
+### Severity + reachability triage
+| Package / alert cluster | Severity band | Reachability from storefront runtime | Action in this PR |
+|---|---|---|---|
+| `undici`, `source-map-js`, `brace-expansion`, `fast-uri` (frontend tree) | High/Moderate | Low direct runtime reachability (build/dev toolchain), but still supply-chain risk | **Fixed** via lockfile refresh and override floor |
+| `pypdf` | High | **Directly reachable** via document-generation paths | **Fixed** (`pypdf==6.19.0`) |
+| `urllib3` | High/Moderate cluster | Indirect runtime reachability via `requests` / `sentry-sdk` | Deferred (transitive, not directly pinned here) |
+| `httplib2` | High/Moderate cluster | Limited reachability (mainly Drive/admin integrations, not public hot path) | Deferred (transitive via `google-api-python-client`) |
+| `pyjwt`, `oauthlib` | High/Moderate cluster | Currently low observed reachability in this runtime (`Required-by` empty in env scan) | Deferred (dependency provenance to pin explicitly before changing) |
+| `ansible`, `ansible-core`, `pip`, `setuptools`, `wheel` | Mixed (tooling CVEs) | Not part of request-serving app path; environment/toolchain scope | Deferred to base-image/toolchain hardening track |
+
+### Alerts that require breaking (major) upgrades
+- `oauthlib` → `4.0.0` (major).
+- `ansible` → `12.2.0` (major).
+- `pip` → `26.x` (major train relative to currently provisioned tooling).
+
+These are intentionally **not** auto-applied in this draft because they can alter tooling behavior and need dedicated validation/release notes.
+
 ## Ranked findings (highest user/business impact first)
 
 ## 1) Public contact intake accepted malformed payloads and weak optional field validation (FIXED)
@@ -43,8 +71,8 @@ Out of scope by request:
 - Invalid requests now return HTTP 400 with safe user-facing errors.
 - Added regression tests for each validation path and status code.
 
-## 2) Dependency vulnerabilities in frontend transitive tree (OPEN)
-**Impact:** High. Current scan reports high-severity advisories in shipped build dependencies.
+## 2) Dependency vulnerabilities in frontend transitive tree (FIXED IN THIS PR)
+**Impact:** High before fix. Advisories were present in frontend dependency tree.
 
 **Observed (`npm audit`):**
 - High: `undici` (multiple advisories, including TLS/connect option handling + DoS vectors)
@@ -52,7 +80,7 @@ Out of scope by request:
 - High: `brace-expansion`
 - Moderate: `fast-uri`
 
-**Why not fixed here:** Requires coordinated lockfile/package updates and retest of build/runtime behavior. This should be done in a dedicated dependency-refresh PR to keep review scope safe.
+**Fix shipped in this PR:** Applied lockfile-safe upgrades (`npm audit fix`) and raised the `undici` override floor to a non-vulnerable 7.x patch line; post-fix `npm audit` reports 0 vulnerabilities.
 
 ## 3) Dependency vulnerabilities in Python environment (OPEN)
 **Impact:** High. `pip-audit` reports many known vulnerabilities in installed ecosystem packages, including auth/token and parsing libraries.
@@ -120,6 +148,8 @@ Diff basis used: `git diff main...pr-<id>` file-level deltas plus targeted conte
 - `python3 -m pytest -q` ✅
 - `npm --prefix frontend run test -- --run ContactDeliveryFailure.test.jsx` ✅
 - `npm --prefix frontend run lint` ✅
+- `npm --prefix frontend audit --json` ✅ (`0` vulnerabilities)
+- `python3 -m pip_audit` ⚠️ residual environment/toolchain findings remain (`65` vulnerabilities across `10` packages)
 
 ## Recommended follow-up PR sequence
 1. Frontend dependency patch PR (`npm audit fix` plus explicit package/override updates, full frontend + smoke validation).
