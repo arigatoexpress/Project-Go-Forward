@@ -45,7 +45,7 @@ describe('listingPhotoRank', () => {
 describe('HomeCard hero selection', () => {
   it('preserves the curated hero on featured and detail surfaces without fallback', async () => {
     window.localStorage.clear();
-    window.history.replaceState({}, '', '/inventory');
+    window.history.replaceState({}, '', `/inventory?home=${baseHome.id}`);
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({ homes: [{
@@ -60,8 +60,11 @@ describe('HomeCard hero selection', () => {
         const images = screen.getAllByAltText(baseHome.model_name);
         expect(images.map(image => image.getAttribute('src'))).toEqual([SEEDED_HERO, EXT]);
       });
-      fireEvent.click(screen.getByRole('button', { name: 'View Details' }));
-      expect(screen.getByAltText(`${baseHome.model_name} photo 1`)).toHaveAttribute('src', SEEDED_HERO);
+      expect(await screen.findByAltText(`${baseHome.model_name} photo 1`)).toHaveAttribute('src', SEEDED_HERO);
+      expect(screen.getByRole('link', { name: 'View Details' })).toHaveAttribute(
+        'href',
+        '/homes/tho-rank-001-the-nassau',
+      );
     } finally {
       vi.unstubAllGlobals();
       window.localStorage.clear();

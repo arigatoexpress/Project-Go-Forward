@@ -48,6 +48,22 @@ FAKE_HOMES = [
         "price_value": None,
         "specs": {"beds": 3, "baths": 2},
     },
+    {
+        "id": "44490",
+        "stock_number": "44490",
+        "model_name": "PRE-OWNED / Big Blue",
+        "manufacturer": "Pre-Owned",
+        "classification": "Single Wide",
+        "status": "Pre-Owned",
+        "inventory_kind": "pre_owned",
+        "display_price": "Call for Price",
+        "price_value": None,
+        "real_photos": ["https://img.example.com/lot-44490.jpg"],
+        "gallery_images": ["https://img.example.com/catalog-should-not-appear.jpg"],
+        "floor_plan_url": "https://img.example.com/big-blue-floorplan.jpg",
+        "specs": {"beds": 3, "baths": 2, "sqft": 1152},
+        "updated_at": "2026-10-01T12:00:00Z",
+    },
 ]
 
 
@@ -92,8 +108,13 @@ def test_sitemap_lists_static_and_detail_urls(monkeypatch):
     assert "/plan/223034/skyliner/4732b/</loc>" in body
     assert "/plan/235424/" not in body
     assert "/quote/floorplan/235424" not in body
-    # Google ignores priority/changefreq; lastmod only when truthful — omitted
-    assert "<priority>" not in body and "<changefreq>" not in body and "<lastmod>" not in body
+    assert "/homes/44490-pre-owned-big-blue</loc>" in body
+    assert "/homes/43372-premier-creole-3256h32447</loc>" in body
+    assert "<lastmod>2026-10-01</lastmod>" in body
+    # Google ignores priority/changefreq. lastmod is only on live /homes/ URLs.
+    assert "<priority>" not in body and "<changefreq>" not in body
+    static_block = body.split("/homes/")[0]
+    assert "<lastmod>" not in static_block
 
 
 def test_homepage_head_is_injected(monkeypatch):
@@ -959,3 +980,78 @@ def test_legal_aliases_redirect_to_canonical_pages(monkeypatch):
         assert response.headers["location"] == target
         assert client.get(path).status_code == 200
     assert client.get("/legal/unknown", follow_redirects=False).status_code == 404
+
+
+def _title_h1_canonical(body):
+    title = re.search(r"<title>(.*?)</title>", body, re.DOTALL).group(1)
+    h1 = re.search(r"<h1>(.*?)</h1>", body, re.DOTALL).group(1)
+    canonical = re.search(r'rel="canonical" href="([^"]+)"', body).group(1)
+    return title, h1, canonical
+
+
+def test_city_floorplan_and_home_pages_have_unique_title_h1_canonical(monkeypatch):
+    client, _ = seo_client(monkeypatch)
+    city = client.get("/manufactured-homes-in-humble-tx")
+    plan = client.get("/plan/223034/skyliner/4732b/")
+    home = client.get("/homes/44490-pre-owned-big-blue")
+    assert city.status_code == plan.status_code == home.status_code == 200
+
+    city_t, city_h, city_c = _title_h1_canonical(city.text)
+    plan_t, plan_h, plan_c = _title_h1_canonical(plan.text)
+    home_t, home_h, home_c = _title_h1_canonical(home.text)
+
+    assert "Humble, TX" in city_t and "Humble, TX" in city_h
+    assert city_c.endswith("/manufactured-homes-in-humble-tx")
+    assert "Skyliner 4732B" in plan_t and "Skyliner 4732B" in plan_h
+    assert "/plan/223034/skyliner/4732b/" in plan_c
+    assert "Big Blue" in home_t and "PRE-OWNED / Big Blue" in home_h
+    assert home_c.endswith("/homes/44490-pre-owned-big-blue")
+    assert len({city_t, plan_t, home_t}) == 3
+    assert len({city_h, plan_h, home_h}) == 3
+    assert len({city_c, plan_c, home_c}) == 3
+    assert "Mobile &amp; Manufactured Homes for Sale in Huffman, TX" not in city_t
+    assert "Mobile &amp; Manufactured Homes for Sale in Huffman, TX" not in plan_t
+    assert "Mobile &amp; Manufactured Homes for Sale in Huffman, TX" not in home_t
+
+
+def test_home_page_keeps_call_for_price_and_own_photos(monkeypatch):
+    client, _ = seo_client(monkeypatch)
+    body = client.get("/homes/44490-pre-owned-big-blue").text
+    assert "Call for Price" in body
+    assert "https://img.example.com/lot-44490.jpg" in body
+    assert "catalog-should-not-appear.jpg" not in body
+    products = [
+        json.loads(block)
+        for block in re.findall(
+            r'<script type="application/ld\+json">(.*?)</script>', body, re.DOTALL
+        )
+        if '"Product"' in block
+    ]
+    assert products
+    assert "offers" not in products[0]
+
+
+def test_home_page_wrong_slug_301s_and_missing_stock_is_410(monkeypatch):
+    client, _ = seo_client(monkeypatch)
+    redirect = client.get("/homes/44490-stale-slug", follow_redirects=False)
+    assert redirect.status_code == 301
+    assert redirect.headers["location"] == "/homes/44490-pre-owned-big-blue"
+    gone = client.get("/homes/99999-sold-home")
+    assert gone.status_code == 410
+    assert "no longer listed" in gone.text.lower()
+    assert "noindex" in gone.text
+
+
+def test_legacy_homes_hub_still_redirects_to_inventory(monkeypatch):
+    client, _ = seo_client(monkeypatch)
+    response = client.get("/homes/", follow_redirects=False)
+    assert response.status_code == 301
+    assert response.headers["location"] == "/inventory"
+
+
+def test_sitemap_includes_home_urls_with_lastmod(monkeypatch):
+    client, _ = seo_client(monkeypatch)
+    body = client.get("/sitemap.xml").text
+    assert body.count("https://www.texashomeoutlet.com/homes/44490-pre-owned-big-blue</loc>") == 1
+    home_entry = body[body.index("/homes/44490-pre-owned-big-blue") :]
+    assert "<lastmod>2026-10-01</lastmod>" in home_entry[:200]

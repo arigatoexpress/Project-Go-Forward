@@ -5638,6 +5638,9 @@ def _annotate_inventory_context(
 ) -> dict:
     """Attach PII-free provenance/freshness and collapse public listing twins."""
     annotated = _apply_public_inventory_dedupe(_canonicalize_inventory_context(result))
+    from tools.listing_urls import attach_listing_urls
+
+    annotated["homes"] = attach_listing_urls(annotated.get("homes") or [])
     status = source_status(
         annotated,
         requested=requested,
