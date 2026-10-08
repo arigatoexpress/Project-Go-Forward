@@ -24,6 +24,18 @@ guides such as staff sign-in and adding home photos.
 8. [INTEGRATION_NOTION.md](INTEGRATION_NOTION.md) — Integration plan for Etai's Notion workspace: division of responsibility, naming conventions, API contract, webhook flows, open decisions.
 9. [API_REFERENCE.md](API_REFERENCE.md) — Generated endpoint reference from the app's OpenAPI schema (regenerate: `python scripts/generate_api_reference.py`).
 
+## Operator runbooks
+
+- [RUNBOOK.md](RUNBOOK.md) — incidents, rollback, operator safety, open flips
+- [ON_CALL.md](ON_CALL.md) — severity, first-five-minutes, escalation
+- [DNS_CUTOVER_RUNBOOK.md](DNS_CUTOVER_RUNBOOK.md) — completed 2026-06-14 cutover; rollback / re-cutover reference
+- [runbooks/dns-rollback.md](runbooks/dns-rollback.md) — two-record DNS revert (owner / Mark only)
+- [runbooks/leads-bigquery-sync.md](runbooks/leads-bigquery-sync.md) — daily leads → BigQuery job
+- [resend_dns_records.md](resend_dns_records.md) — Resend DNS; confirm verified state in the dashboard
+- [INTEGRATION_GCP_ACTIVATION.md](INTEGRATION_GCP_ACTIVATION.md) — inventory unfreeze + Notion bridge (gated)
+- [THO_INVENTORY_CATALOG_OPERATIONS.md](THO_INVENTORY_CATALOG_OPERATIONS.md) — current inventory / catalog operations
+- [INVENTORY_SYNC_ACTION_PLAN.md](INVENTORY_SYNC_ACTION_PLAN.md) — stale (Feb 2026); do not run `--force`
+
 ## Older docs
 
 The following files exist in the repo root and are superseded by this folder. Do not treat as authoritative:

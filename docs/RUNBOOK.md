@@ -29,6 +29,45 @@ Approval persists within its stated scope: an already authorized rollback plan
 may execute when its approved failure conditions occur without a second
 confirmation. Obtain approval if the required action falls outside that plan.
 
+Related: [dns-rollback.md](runbooks/dns-rollback.md) ·
+[leads-bigquery-sync.md](runbooks/leads-bigquery-sync.md) ·
+[ON_CALL.md](ON_CALL.md).
+
+## Operator safety
+
+> **Owner-gated.** Read-only inspection is fine. Do not apply these commands
+> without explicit owner approval. A merge to `main` auto-deploys a no-traffic
+> candidate; this box is about live service mutations.
+
+1. **Always pass `--project tho-ai-agent`.** A local `gcloud` default may be
+   another project. Every `gcloud run` / Secret Manager / Scheduler command
+   for this service must include `--project tho-ai-agent`.
+2. **Use `--update-env-vars` / `--update-secrets` only. Never `--set-env-vars`
+   or `--set-secrets`.** `--set-*` replaces the whole map and would drop
+   out-of-band `WEBAUTHN_*` vars on the live service.
+3. **Email kill-switch (no code change):**
+   ```bash
+   gcloud run services update project-go-forward --project tho-ai-agent \
+     --region us-central1 --remove-secrets RESEND_API_KEY
+   ```
+   Sends revert to dry-run. Re-attach with `--update-secrets` after owner
+   approval; do not use `--set-secrets`.
+4. **Resend key rotation (owner):** add a new Secret Manager version → confirm
+   the domain is verified in the Resend dashboard → ship a new revision that
+   binds the updated secret → one internal test send → watch logs for
+   `welcome_email_failed` / `owner_notify_failed`. Do not record secret
+   version numbers in this public repo.
+
+## Open operator flips
+
+Both are owner-gated. Do not apply from a PR merge. Verify live behavior
+before changing anything.
+
+| Flip | Intent | Verify first | Gate |
+|---|---|---|---|
+| `OG_IMAGE_URL=/og-card.png` | Pin the shipped social-share card | Confirm `/og-card.png` returns 200 on the canonical host | owner |
+| Apex duplicate-200 vs apex→www 301 | Pick one canonical apex behavior | `curl -sI https://texashomeoutlet.com` (and the `www` URL) before changing DNS or Cloud Run | owner |
+
 ## 1. Quick health checks
 
 ```bash
