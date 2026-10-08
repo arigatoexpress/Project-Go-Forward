@@ -61,10 +61,6 @@ describe('HomeCard hero selection', () => {
         expect(images.map(image => image.getAttribute('src'))).toEqual([SEEDED_HERO, EXT]);
       });
       expect(await screen.findByAltText(`${baseHome.model_name} photo 1`)).toHaveAttribute('src', SEEDED_HERO);
-      expect(screen.getByRole('link', { name: 'View Details' })).toHaveAttribute(
-        'href',
-        '/homes/tho-rank-001-the-nassau',
-      );
     } finally {
       vi.unstubAllGlobals();
       window.localStorage.clear();

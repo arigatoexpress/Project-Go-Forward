@@ -880,7 +880,7 @@ def _crawlable_category_block(category: dict) -> str:
         path = (
             reg["detail_path_by_route"].get(route_key)
             if route_key and reg["detail_by_route"].get(route_key) is home
-            else None
+            else listing_path(home)
         )
         specs = home.get("specs") or {}
         label = home.get("model_name") or f"{classification} manufactured home"

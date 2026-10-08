@@ -73,7 +73,7 @@ def listing_path(home: dict | None) -> str | None:
     if not is_instock_home(home):
         return None
     identifier = stock_id(home)
-    if not identifier:
+    if not identifier or not str(identifier).isdigit():
         return None
     return f"/homes/{identifier}-{listing_slug(home.get('model_name'))}"
 

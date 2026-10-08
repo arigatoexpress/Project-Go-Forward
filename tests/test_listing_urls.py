@@ -44,6 +44,14 @@ def test_instock_paths_skip_orderable_floorplans():
     assert listing_path(deal) == "/homes/43372-premier-creole-3256h32447"
     assert not is_instock_home(plan)
     assert listing_path(plan) is None
+    slug_only = {
+        "id": "firestore-only",
+        "model_name": "Firestore Only Home",
+        "status": "Available",
+        "inventory_kind": "available_now",
+    }
+    assert is_instock_home(slug_only)
+    assert listing_path(slug_only) is None
 
 
 def test_used_home_photos_are_own_only_and_floorplan_fallback():

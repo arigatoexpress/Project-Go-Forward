@@ -58,7 +58,7 @@ export function listingPath(home) {
     }
   }
   const identifier = stockId(home);
-  if (!identifier) return '';
+  if (!identifier || !/^\d+$/.test(identifier)) return '';
   return `/homes/${identifier}-${listingSlug(home.model_name)}`;
 }
 

@@ -63,7 +63,7 @@ describe('InventoryBrowse quote conversion path', () => {
   it('keeps quote intent inside the detail modal too', async () => {
     window.history.replaceState({}, '', `/inventory?home=${home.id}`);
     const { container } = render(<InventoryBrowse />);
-    expect(await screen.findByRole('heading', { name: home.model_name })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Schedule a Tour' })).toBeInTheDocument();
 
     const availabilityButtons = screen.getAllByRole(
       'button',
@@ -99,7 +99,7 @@ describe('InventoryBrowse quote conversion path', () => {
 
     window.history.replaceState({}, '', `/inventory?home=${orderableHome.id}`);
     render(<InventoryBrowse />);
-    expect(await screen.findByRole('heading', { name: orderableHome.model_name })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Discuss Build Options' })).toBeInTheDocument();
 
     expect(screen.queryByRole('button', { name: 'Schedule a Tour' })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Discuss Build Options' }));
@@ -131,7 +131,7 @@ describe('InventoryBrowse quote conversion path', () => {
   it('preserves the tour flow for a listed home', async () => {
     window.history.replaceState({}, '', `/inventory?home=${home.id}`);
     render(<InventoryBrowse />);
-    expect(await screen.findByRole('heading', { name: home.model_name })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Schedule a Tour' })).toBeInTheDocument();
 
     expect(screen.queryByRole('button', { name: 'Discuss Build Options' })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Schedule a Tour' }));

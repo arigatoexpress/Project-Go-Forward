@@ -50,10 +50,12 @@ describe('unique city, floorplan, and home pages after hydration', () => {
   it('keeps the Humble city title and H1 instead of the generic Huffman inventory title', async () => {
     window.history.replaceState({}, '', '/manufactured-homes-in-humble-tx');
     render(<InventoryBrowse pathname="/manufactured-homes-in-humble-tx" />);
-    expect(await screen.findByRole('heading', {
-      level: 1,
-      name: 'Manufactured & Mobile Homes in Humble, TX',
-    })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByRole('heading', {
+        level: 1,
+        name: 'Manufactured & Mobile Homes in Humble, TX',
+      })).toBeInTheDocument();
+    });
     expect(document.title).toContain('Humble, TX');
     expect(document.title).not.toContain('Homes for Sale in Huffman, TX');
     expect(document.querySelector('link[rel="canonical"]')?.getAttribute('href')).toContain('/manufactured-homes-in-humble-tx');
