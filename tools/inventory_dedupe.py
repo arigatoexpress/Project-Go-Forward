@@ -13,13 +13,20 @@ feed calls ``collapse_duplicate_homes`` (same rule, then drop the copies) so
 visitors see one card. The surviving card keeps the PRE-OWNED / stocked unit's
 identity. A stocked lot listing keeps only its own photos; a missing floorplan
 drawing may be filled in. Catalog / orderable survivors may still merge photos.
-The owner still decides what, if anything, to clean up in the data.
+Used homes also drop manufacturer model-gallery photos, including ones that
+were already on the listing, so a donor cannot put catalog images back on a
+used card. The owner still decides what, if anything, to clean up in the data.
 """
 
 from __future__ import annotations
 
 import re
 from typing import Any
+
+from tools.photo_classifier import (
+    is_manufacturer_catalog_photo_url,
+    strip_manufacturer_catalog_photos,
+)
 
 INACTIVE_STATUSES = frozenset({"SOLD", "RETIRED", "ARCHIVED"})
 
@@ -95,6 +102,18 @@ def is_preowned(home: dict) -> bool:
     if "pre" in status and "owned" in status:
         return True
     return bool(re.search(r"pre-?owned", str(home.get("model_name") or ""), re.I))
+
+
+def suppress_used_home_catalog_photos(home: dict) -> dict:
+    """Remove manufacturer catalog photos from a used listing.
+
+    New and orderable homes keep their manufacturer gallery. A used home that
+    has only catalog photos is left with an empty photo list so the existing
+    no-photo placeholder can render.
+    """
+    if isinstance(home, dict) and is_preowned(home):
+        strip_manufacturer_catalog_photos(home)
+    return home
 
 
 def is_orderable_new(home: dict) -> bool:
@@ -189,6 +208,10 @@ def _borrow_media(survivor: dict, donor: dict) -> None:
     if not is_stocked_listing(survivor):
         survivor_photos = _photo_list(survivor) or _photo_list(survivor, "photos")
         donor_photos = _photo_list(donor) or _photo_list(donor, "photos")
+        if is_preowned(survivor):
+            donor_photos = [
+                url for url in donor_photos if not is_manufacturer_catalog_photo_url(url)
+            ]
         seen = set(survivor_photos)
         extras: list[str] = []
         for url in donor_photos:
@@ -221,6 +244,7 @@ def _choose_primary(cluster: list[dict]) -> tuple[dict, list[dict]]:
     primary, others = ordered[0], ordered[1:]
     for other in others:
         _borrow_media(primary, other)
+    suppress_used_home_catalog_photos(primary)
     return primary, others
 
 
@@ -325,6 +349,8 @@ def collapse_duplicate_homes(
     """
     annotate_possible_duplicates(homes)
     visible = [home for home in homes if not home.get("duplicate_of")]
+    for home in visible:
+        suppress_used_home_catalog_photos(home)
     if strip_annotations:
         for home in visible:
             home.pop("possible_duplicate_ids", None)

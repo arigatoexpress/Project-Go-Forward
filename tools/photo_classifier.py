@@ -166,6 +166,29 @@ def content_manifest_available() -> bool:
     return _CONTENT_MANIFEST_AVAILABLE
 
 
+def is_manufacturer_catalog_photo_url(url: str | None) -> bool:
+    """Return True for a manufacturer model-gallery photo.
+
+    The ManufacturedHomes CDN stores a model's stock gallery under
+    ``/manufacturer/{id}/floorplan/{plan_id}/``. That path is a namespace, not
+    a floorplan detector: indexed photos in it are catalog/showroom shots of
+    the model, and the drawing is identified separately by filename (see
+    :func:`is_floorplan_url`).
+
+    Checked against the live public feed on 2026-10-08
+    (``/api/marketing/inventory-context``): every catalog image on used
+    listings 43945, 43944, 43943, and 28527 used this namespace. Photos of a
+    specific home were under ``/dealer/{id}/inventory/{unit}/`` or
+    ``storage.googleapis.com/tho-inventory-assets/inventory/{id}/``.
+    Floorplan drawings in the manufacturer namespace are not catalog photos.
+    """
+    if not url or not isinstance(url, str):
+        return False
+    if is_floorplan_url(url):
+        return False
+    return _is_manufacturer_floorplan_namespace(url)
+
+
 def is_floorplan_url(url: str | None) -> bool:
     """Return True if ``url`` is a floorplan image/PDF URL.
 
@@ -418,6 +441,86 @@ def apply_classifier_to_home(home: dict) -> dict:
         cleaned["real_photos"],
     )
 
+    return home
+
+
+_CATALOG_PHOTO_LIST_FIELDS = ("real_photos", "photos", "gallery_images")
+
+
+def _without_catalog_photo_urls(values: list) -> list:
+    return [
+        value
+        for value in values
+        if not (isinstance(value, str) and is_manufacturer_catalog_photo_url(value))
+    ]
+
+
+def strip_manufacturer_catalog_photos(home: dict) -> dict:
+    """Drop manufacturer model-gallery photos from a listing's photo fields.
+
+    Floorplan fields are left as they were. Unit photos (dealer inventory,
+    THO storage, staff uploads) stay. Callers decide which listings are used;
+    this does not treat a new or orderable home differently on its own.
+    When a photo field changes, the classifier runs again so ``image_url``,
+    ``gallery_images``, and ``media_quality`` match the photos that remain.
+    An empty photo list leaves ``image_url`` blank for the existing
+    no-photo placeholder.
+    """
+    if not isinstance(home, dict):
+        return home
+
+    saved_floorplan = home.get("floorplan_url") or home.get("floor_plan_url") or ""
+    saved_floorplans = [
+        url for url in _as_url_list(home.get("floorplan_urls")) if isinstance(url, str) and url
+    ]
+    changed = False
+
+    for field in _CATALOG_PHOTO_LIST_FIELDS:
+        value = home.get(field)
+        if not isinstance(value, list):
+            continue
+        kept = _without_catalog_photo_urls(value)
+        if kept != value:
+            home[field] = kept
+            changed = True
+
+    for field in ("image_url", "hero_image"):
+        value = home.get(field)
+        if isinstance(value, str) and is_manufacturer_catalog_photo_url(value):
+            home[field] = ""
+            changed = True
+
+    categories = home.get("image_categories")
+    if isinstance(categories, dict):
+        cleaned: dict = {}
+        categories_changed = False
+        for key, values in categories.items():
+            if not isinstance(values, list):
+                cleaned[key] = values
+                continue
+            kept = _without_catalog_photo_urls(values)
+            if kept != values:
+                categories_changed = True
+            if kept:
+                cleaned[key] = kept
+        if categories_changed:
+            home["image_categories"] = cleaned
+            changed = True
+
+    if not changed:
+        return home
+
+    apply_classifier_to_home(home)
+    if saved_floorplan:
+        home["floorplan_url"] = saved_floorplan
+        home["floor_plan_url"] = saved_floorplan
+    if saved_floorplans:
+        merged = list(saved_floorplans)
+        for url in home.get("floorplan_urls") or []:
+            if isinstance(url, str) and url and url not in merged:
+                merged.append(url)
+        home["floorplan_urls"] = merged
+    home["hero_image"] = home.get("image_url") or ""
     return home
 
 
