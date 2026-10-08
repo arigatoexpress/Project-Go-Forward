@@ -1,0 +1,4 @@
+# Runtime deps for the tho-leads-bq Cloud Run Job only (scripts/sync_leads_to_bigquery.py).
+# Versions match the environment that ran the job on the ops laptop through 2026-10-07.
+google-cloud-bigquery==3.41.0
+google-cloud-firestore==2.22.0

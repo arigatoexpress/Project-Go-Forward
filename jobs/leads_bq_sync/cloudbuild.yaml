@@ -1,0 +1,19 @@
+# Builds the tho-leads-bq job image into the existing Artifact Registry repo.
+# Run from the repo root:
+#   gcloud builds submit --project tho-ai-agent \
+#     --config jobs/leads_bq_sync/cloudbuild.yaml \
+#     --substitutions _TAG=$(git rev-parse --short=12 HEAD) .
+substitutions:
+  _IMAGE: us-central1-docker.pkg.dev/tho-ai-agent/cloud-run-source-deploy/tho-leads-bq
+  _TAG: manual
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - --file=jobs/leads_bq_sync/Dockerfile
+      - --tag=${_IMAGE}:${_TAG}
+      - .
+images:
+  - ${_IMAGE}:${_TAG}
+options:
+  logging: CLOUD_LOGGING_ONLY
