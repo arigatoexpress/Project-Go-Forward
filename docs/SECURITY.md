@@ -216,7 +216,7 @@ not logged so the signal isn't drowned out). Each entry carries:
 | `actor` | `_audit_actor(request)` | SHA256-prefixed admin-token id (`admin:<12hex>`) or `partner:<8hex>` key fingerprint — never the raw token/key |
 | `action` | call site | from `ALLOWED_ACTIONS`; unknown values warn (drift detector) |
 | `target_type` / `target_id` | call site | entity kind + id (deal/customer/inventory/lead/crm_task/document/email/session) |
-| `ip` | `X-Forwarded-For` first hop | Cloud Run aware |
+| `ip` | `X-Forwarded-For` rightmost hop | Cloud Run appends the client; `TRUSTED_PROXY_HOPS` (default 1) |
 | `user_agent` | request header | capped to 300 chars |
 | `details` | call site | IDs / field-name deltas / counts only — `_sanitize_details` strips any PII-shaped key |
 

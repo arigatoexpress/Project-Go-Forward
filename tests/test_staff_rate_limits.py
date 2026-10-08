@@ -21,7 +21,8 @@ if str(REPO_ROOT) not in sys.path:
 
 from tests.test_api_v1 import load_app  # noqa: E402
 
-SHOP_IP = {"X-Forwarded-For": "203.0.113.7"}
+# Rightmost hop is the Cloud Run client; leftmost is attacker-controlled.
+SHOP_IP = {"X-Forwarded-For": "198.51.100.1, 203.0.113.7"}
 
 
 def _app(monkeypatch, rpm: str = "20"):
@@ -90,14 +91,20 @@ def test_sign_in_endpoint_stays_per_ip_even_with_staff_cookie(monkeypatch):
     codes = []
     for i in range(6):
         headers = alice if i % 2 == 0 else bob
-        codes.append(client.post("/api/admin/verify", json={"pin": "0000"}, headers=headers).status_code)
+        codes.append(
+            client.post("/api/admin/verify", json={"pin": "0000"}, headers=headers).status_code
+        )
     assert codes[:5] == [401] * 5
     assert codes[5] == 429
 
 
 def test_strict_auth_paths_cover_sign_in_and_code_endpoints(monkeypatch):
     main, _client = _app(monkeypatch, rpm="120")
-    for prefix in ("/api/admin/verify", "/api/admin/email-code/verify", "/api/admin/passkey/login/begin"):
+    for prefix in (
+        "/api/admin/verify",
+        "/api/admin/email-code/verify",
+        "/api/admin/passkey/login/begin",
+    ):
         assert main._is_strict_auth_path(prefix)
     assert not main._is_strict_auth_path("/api/admin/check")
     assert not main._is_strict_auth_path("/api/inventory")

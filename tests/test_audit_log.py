@@ -159,8 +159,8 @@ def test_log_admin_action_writes_expected_schema(fake_audit_db):
     assert entry["action"] == "deal.create"
     assert entry["target_type"] == "deal"
     assert entry["target_id"] == "deal-42"
-    # X-Forwarded-For first hop wins
-    assert entry["ip"] == "203.0.113.7"
+    # X-Forwarded-For rightmost hop wins (Cloud Run appends the client)
+    assert entry["ip"] == "10.0.0.1"
     assert entry["user_agent"].startswith("Mozilla/5.0")
     assert entry["details"] == {"fields": ["status", "model"]}
 
@@ -177,6 +177,9 @@ def test_log_admin_action_strips_pii_from_details(fake_audit_db):
         details={
             "fields": ["status"],
             # All of these MUST be dropped server-side.
+            "name": "X",
+            "customer_name": "X",
+            "co_buyer_email": "cobuyer@example.com",
             "ssn": "123-45-6789",
             "ssn_hash": "abcdef",
             "email": "buyer@example.com",
@@ -202,6 +205,7 @@ def test_log_admin_action_strips_pii_from_details(fake_audit_db):
         "123-45-6789",
         "buyer@example.com",
         "jane@example.com",
+        "cobuyer@example.com",
         "555-867-5309",
         "Jane Doe",
         "123 Main St",
@@ -209,6 +213,22 @@ def test_log_admin_action_strips_pii_from_details(fake_audit_db):
         "secret-bearer",
     ):
         assert pii_value not in flat, f"PII leaked: {pii_value!r}"
+
+
+def test_log_admin_action_strips_bare_name_key(fake_audit_db):
+    from audit_log import log_admin_action
+
+    log_admin_action(
+        actor="admin",
+        action="customer.update",
+        target_type="customer",
+        target_id="cust-8",
+        details={"name": "X", "status": "active"},
+    )
+
+    persisted = fake_audit_db.collections["audit_log"]._docs[0]["details"]
+    assert persisted == {"status": "active"}
+    assert "X" not in repr(persisted)
 
 
 def test_log_admin_action_swallows_db_failure(monkeypatch):
