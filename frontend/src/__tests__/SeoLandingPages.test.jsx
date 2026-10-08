@@ -10,8 +10,15 @@ const homes = [
     status: 'Pre-Owned',
     inventory_kind: 'pre_owned',
     display_price: 'Call for Price',
-    real_photos: ['https://lot.example/44490.jpg'],
-    gallery_images: ['https://cdn.example/catalog.jpg'],
+    image_url: 'https://d132mt2yijm03y.cloudfront.net/manufacturer/1944/floorplan/1391/showroom.jpg',
+    real_photos: [
+      'https://lot.example/44490.jpg',
+      'https://d132mt2yijm03y.cloudfront.net/manufacturer/1944/floorplan/1391/showroom.jpg',
+    ],
+    gallery_images: [
+      'https://cdn.example/catalog.jpg',
+      'https://d132mt2yijm03y.cloudfront.net/manufacturer/1944/floorplan/1391/showroom.jpg',
+    ],
     floor_plan_url: 'https://lot.example/plan.jpg',
     specs: { beds: 3, baths: 2, sq_ft: 1152 },
   },
@@ -78,6 +85,7 @@ describe('unique city, floorplan, and home pages after hydration', () => {
     expect(screen.getAllByText('Call for Price').length).toBeGreaterThan(0);
     expect(document.querySelector('img[src="https://lot.example/44490.jpg"]')).not.toBeNull();
     expect(document.querySelector('img[src="https://cdn.example/catalog.jpg"]')).toBeNull();
+    expect(document.querySelector('img[src="https://d132mt2yijm03y.cloudfront.net/manufacturer/1944/floorplan/1391/showroom.jpg"]')).toBeNull();
     const details = screen.getAllByRole('link', { name: /View Details|View PRE-OWNED/i });
     expect(details.some((link) => link.getAttribute('href') === '/homes/44490-pre-owned-big-blue')).toBe(true);
   });

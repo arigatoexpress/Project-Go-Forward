@@ -23,7 +23,7 @@ from tools.catalog_floorplans import (
     classify_inventory_kind,
 )
 from tools.inventory_dedupe import is_active_status, is_orderable_new, is_preowned
-from tools.photo_classifier import is_floorplan_url
+from tools.photo_classifier import is_floorplan_url, is_manufacturer_catalog_photo_url
 
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
 _HOME_PATH_RE = re.compile(r"^/homes/([^/]+)/?$", re.IGNORECASE)
@@ -126,24 +126,25 @@ def listing_lastmod(home: dict | None, *, today: str | None = None) -> str:
 def listing_page_images(home: dict | None) -> list[str]:
     """Photos a public listing page may show.
 
-    Used / pre-owned homes keep only their own ``real_photos``. Homes
-    without a real photo fall back to the floor-plan drawing only —
-    never a catalog or showroom shot.
+    Used / pre-owned homes keep only their own unit photos. Manufacturer
+    catalog / showroom shots are dropped even if they still sit in
+    ``real_photos``. Homes without a real photo fall back to the
+    floor-plan drawing only.
     """
     if not isinstance(home, dict):
         return []
     own_photos: list[str] = []
     seen: set[str] = set()
-    if is_preowned(home):
-        candidates = _url_list(home.get("real_photos"))
-    else:
-        candidates = [
-            home.get("image_url") or home.get("hero_image"),
-            *_url_list(home.get("real_photos")),
-        ]
+    used = is_preowned(home)
+    candidates = [
+        home.get("image_url") or home.get("hero_image"),
+        *_url_list(home.get("real_photos")),
+    ]
     for raw in candidates:
         url = str(raw or "").strip()
         if not url or url in seen or is_floorplan_url(url):
+            continue
+        if used and is_manufacturer_catalog_photo_url(url):
             continue
         seen.add(url)
         own_photos.append(url)

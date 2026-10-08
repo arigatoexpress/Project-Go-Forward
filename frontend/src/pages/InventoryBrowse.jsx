@@ -26,6 +26,7 @@ import {
   isHomeListingPath,
   isInventoryDetailPath,
   isPlanPath,
+  isPreownedHome,
   listingPagePhotos,
   listingPath,
   resolveHomeFromPath,
@@ -195,13 +196,17 @@ export function listingPhotoRank(url) {
 function getListingPhotos(home, { ranked = false } = {}) {
   if (!home) return [];
   const floorplanUrls = getFloorplanUrls(home);
+  const used = isPreownedHome(home);
   const candidates = [
     home.image_url,
     ...(Array.isArray(home.real_photos) ? home.real_photos : []),
     ...(Array.isArray(home.gallery_images) ? home.gallery_images : []),
   ];
   const photos = candidates.filter((photo, index, values) => (
-    photo && values.indexOf(photo) === index && !isFloorplanImage(photo, floorplanUrls)
+    photo
+    && values.indexOf(photo) === index
+    && !isFloorplanImage(photo, floorplanUrls)
+    && !(used && isManufacturerFloorplanNamespace(photo))
   ));
   // Other surfaces keep curated order until they support candidate fallback.
   if (!ranked) return photos;

@@ -140,6 +140,15 @@ export function resolveHomeFromPath(homes, pathname) {
   }) || null;
 }
 
+function isManufacturerCatalogPhotoUrl(url) {
+  if (!url) return false;
+  try {
+    return /\/manufacturer\/[^/]+\/floorplan\/[^/]+\//i.test(new URL(url).pathname);
+  } catch {
+    return /\/manufacturer\/[^/]+\/floorplan\/[^/]+\//i.test(String(url));
+  }
+}
+
 export function listingPagePhotos(home) {
   const floorplanUrls = [
     home?.floorplan_url,
@@ -153,14 +162,16 @@ export function listingPagePhotos(home) {
     const filename = decodeURIComponent(String(url).split('/').pop()?.split('?')[0] || '').toLowerCase();
     return filename.endsWith('.pdf') || filename.includes('floorplan') || filename.includes('floor-plan') || filename.includes('floor_plan');
   };
-  const candidates = isPreownedHome(home)
-    ? (Array.isArray(home?.real_photos) ? home.real_photos : [])
+  const used = isPreownedHome(home);
+  const candidates = used
+    ? [home?.image_url, home?.hero_image, ...(Array.isArray(home?.real_photos) ? home.real_photos : [])]
     : [home?.image_url, ...(Array.isArray(home?.real_photos) ? home.real_photos : [])];
   const photos = [];
   const seen = new Set();
   for (const raw of candidates) {
     const url = String(raw || '').trim();
     if (!url || seen.has(url) || isFloorplan(url)) continue;
+    if (used && isManufacturerCatalogPhotoUrl(url)) continue;
     seen.add(url);
     photos.push(url);
   }

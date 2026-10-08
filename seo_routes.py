@@ -44,6 +44,7 @@ from config_loader import (
     get_business,
 )
 from inventory_classification import normalize_inventory_classification
+from tools.inventory_dedupe import is_preowned
 from tools.listing_urls import (
     attach_listing_urls,
     listing_lastmod,
@@ -456,6 +457,15 @@ def _local_business_jsonld() -> dict:
 
 
 def _first_image(home: dict) -> str | None:
+    """Return the first public photo for OG / JSON-LD.
+
+    Used homes use the same own-photo picker as ``/homes/`` pages so social
+    cards never show a manufacturer catalog shot. New homes keep catalog
+    heroes.
+    """
+    if is_preowned(home):
+        images = listing_page_images(home)
+        return images[0] if images else None
     for key in ("hero_image", "image_url"):
         if home.get(key):
             return str(home[key])

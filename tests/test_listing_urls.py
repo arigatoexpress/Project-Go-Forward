@@ -55,24 +55,40 @@ def test_instock_paths_skip_orderable_floorplans():
 
 
 def test_used_home_photos_are_own_only_and_floorplan_fallback():
+    catalog = "https://cdn.example/manufacturer/1/floorplan/x/showroom.jpg"
     used = {
         "id": "43945",
         "model_name": "PRE-OWNED / Heritage 1684-32A",
         "status": "Pre-Owned",
         "inventory_kind": "pre_owned",
-        "real_photos": ["https://lot.example/1.jpg", "https://lot.example/floor-plan.jpg"],
-        "gallery_images": ["https://cdn.example/manufacturer/1/floorplan/x/showroom.jpg"],
-        "image_url": "https://cdn.example/manufacturer/1/floorplan/x/showroom.jpg",
+        "real_photos": [
+            "https://lot.example/1.jpg",
+            catalog,
+            "https://lot.example/floor-plan.jpg",
+        ],
+        "gallery_images": [catalog],
+        "image_url": catalog,
     }
     assert listing_page_images(used) == ["https://lot.example/1.jpg"]
 
     no_photos = {
         **used,
-        "real_photos": [],
-        "image_url": "https://cdn.example/catalog.jpg",
+        "real_photos": [catalog],
+        "image_url": catalog,
         "floor_plan_url": "https://lot.example/drawing.jpg",
     }
     assert listing_page_images(no_photos) == ["https://lot.example/drawing.jpg"]
+
+    new = {
+        "id": "catalog-fiesta",
+        "model_name": "The Fiesta",
+        "status": "Orderable",
+        "inventory_kind": "orderable_floorplan",
+        "is_new": True,
+        "image_url": catalog,
+        "real_photos": [catalog],
+    }
+    assert listing_page_images(new) == [catalog]
 
 
 def test_match_instock_home_accepts_stock_id_prefix():

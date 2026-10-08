@@ -26,6 +26,7 @@ _spec.loader.exec_module(photo_classifier)
 apply_classifier_to_home = photo_classifier.apply_classifier_to_home
 has_real_photo = photo_classifier.has_real_photo
 is_floorplan_url = photo_classifier.is_floorplan_url
+is_manufacturer_catalog_photo_url = photo_classifier.is_manufacturer_catalog_photo_url
 reorder_for_listing = photo_classifier.reorder_for_listing
 split_photos = photo_classifier.split_photos
 
@@ -103,6 +104,18 @@ def test_shipped_manifest_flags_seeded_hero_drawings(monkeypatch):
     assert photo_classifier.content_manifest_available() is True
     assert is_floorplan_url(hero) is True
     assert is_floorplan_url(EXTERIOR_URL) is False
+
+
+def test_manufacturer_catalog_photo_urls_match_the_model_gallery_namespace():
+    dealer = "https://d132mt2yijm03y.cloudfront.net/dealer/3522/inventory/43945/1.jpg"
+    real = "https://storage.googleapis.com/tho-inventory-assets/inventory/43945/hero.jpg"
+    assert is_manufacturer_catalog_photo_url(MFR_NAMESPACE_PHOTO) is True
+    assert is_manufacturer_catalog_photo_url(MFR_ROOM_PHOTO) is True
+    assert is_manufacturer_catalog_photo_url(dealer) is False
+    assert is_manufacturer_catalog_photo_url(real) is False
+    assert is_manufacturer_catalog_photo_url(MFR_FLOORPLAN_DIAGRAM) is False
+    assert is_manufacturer_catalog_photo_url("") is False
+    assert is_manufacturer_catalog_photo_url(None) is False
 
 
 def test_is_floorplan_url_detects_floor_plans_filename_token():

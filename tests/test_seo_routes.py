@@ -58,8 +58,24 @@ FAKE_HOMES = [
         "inventory_kind": "pre_owned",
         "display_price": "Call for Price",
         "price_value": None,
-        "real_photos": ["https://img.example.com/lot-44490.jpg"],
-        "gallery_images": ["https://img.example.com/catalog-should-not-appear.jpg"],
+        "image_url": (
+            "https://d132mt2yijm03y.cloudfront.net/manufacturer/1944/"
+            "floorplan/1391/Heritage-kitchen-1.jpg"
+        ),
+        "real_photos": [
+            "https://img.example.com/lot-44490.jpg",
+            (
+                "https://d132mt2yijm03y.cloudfront.net/manufacturer/1944/"
+                "floorplan/1391/Heritage-kitchen-1.jpg"
+            ),
+        ],
+        "gallery_images": [
+            "https://img.example.com/catalog-should-not-appear.jpg",
+            (
+                "https://d132mt2yijm03y.cloudfront.net/manufacturer/1944/"
+                "floorplan/1391/Heritage-kitchen-1.jpg"
+            ),
+        ],
         "floor_plan_url": "https://img.example.com/big-blue-floorplan.jpg",
         "specs": {"beds": 3, "baths": 2, "sqft": 1152},
         "updated_at": "2026-10-01T12:00:00Z",
@@ -1020,6 +1036,10 @@ def test_home_page_keeps_call_for_price_and_own_photos(monkeypatch):
     assert "Call for Price" in body
     assert "https://img.example.com/lot-44490.jpg" in body
     assert "catalog-should-not-appear.jpg" not in body
+    assert "Heritage-kitchen-1.jpg" not in body
+    og = re.search(r'<meta property="og:image" content="([^"]+)"', body)
+    assert og is not None
+    assert og.group(1) == "https://img.example.com/lot-44490.jpg"
     products = [
         json.loads(block)
         for block in re.findall(

@@ -25,16 +25,25 @@ describe('listingRoutes', () => {
   });
 
   it('keeps used-home photos to real_photos and falls back to the floor plan', () => {
+    const catalog = 'https://cdn.example/manufacturer/1/floorplan/x/showroom.jpg';
     const used = {
       inventory_kind: 'pre_owned',
       status: 'Pre-Owned',
-      real_photos: ['https://lot.example/1.jpg'],
-      gallery_images: ['https://cdn.example/showroom.jpg'],
-      image_url: 'https://cdn.example/showroom.jpg',
+      real_photos: ['https://lot.example/1.jpg', catalog],
+      gallery_images: [catalog],
+      image_url: catalog,
       floor_plan_url: 'https://lot.example/plan.jpg',
     };
     expect(listingPagePhotos(used)).toEqual(['https://lot.example/1.jpg']);
-    expect(listingPagePhotos({ ...used, real_photos: [] })).toEqual(['https://lot.example/plan.jpg']);
+    expect(listingPagePhotos({ ...used, real_photos: [catalog] })).toEqual(['https://lot.example/plan.jpg']);
+    const orderable = {
+      inventory_kind: 'orderable_floorplan',
+      status: 'Orderable',
+      is_new: true,
+      image_url: catalog,
+      real_photos: [catalog],
+    };
+    expect(listingPagePhotos(orderable)).toEqual([catalog]);
   });
 
   it('derives a unique heading from city, home, and plan URLs before inventory loads', () => {

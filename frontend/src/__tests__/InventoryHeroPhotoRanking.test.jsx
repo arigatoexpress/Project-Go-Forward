@@ -68,6 +68,22 @@ describe('HomeCard hero selection', () => {
     }
   });
 
+  it('drops manufacturer catalog photos from used-home cards', () => {
+    const catalog = 'https://d132mt2yijm03y.cloudfront.net/manufacturer/1944/floorplan/1391/Heritage-kitchen-1.jpg';
+    const { container } = renderCard({
+      ...baseHome,
+      id: '43945',
+      model_name: 'PRE-OWNED / Heritage 1684-32A',
+      status: 'Pre-Owned',
+      inventory_kind: 'pre_owned',
+      is_new: false,
+      image_url: catalog,
+      real_photos: [catalog, EXT],
+      gallery_images: [catalog],
+    });
+    expect(container.querySelector('img').getAttribute('src')).toBe(EXT);
+  });
+
   it('leads with a photo of the house even when an unlabeled "hero" file is listed first', () => {
     const { container } = renderCard({
       ...baseHome,

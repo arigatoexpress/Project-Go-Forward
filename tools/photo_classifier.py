@@ -166,6 +166,29 @@ def content_manifest_available() -> bool:
     return _CONTENT_MANIFEST_AVAILABLE
 
 
+def is_manufacturer_catalog_photo_url(url: str | None) -> bool:
+    """Return True for a manufacturer model-gallery photo.
+
+    The ManufacturedHomes CDN stores a model's stock gallery under
+    ``/manufacturer/{id}/floorplan/{plan_id}/``. That path is a namespace, not
+    a floorplan detector: indexed photos in it are catalog/showroom shots of
+    the model, and the drawing is identified separately by filename (see
+    :func:`is_floorplan_url`).
+
+    Checked against the live public feed on 2026-10-08
+    (``/api/marketing/inventory-context``): every catalog image on used
+    listings 43945, 43944, 43943, and 28527 used this namespace. Photos of a
+    specific home were under ``/dealer/{id}/inventory/{unit}/`` or
+    ``storage.googleapis.com/tho-inventory-assets/inventory/{id}/``.
+    Floorplan drawings in the manufacturer namespace are not catalog photos.
+    """
+    if not url or not isinstance(url, str):
+        return False
+    if is_floorplan_url(url):
+        return False
+    return _is_manufacturer_floorplan_namespace(url)
+
+
 def is_floorplan_url(url: str | None) -> bool:
     """Return True if ``url`` is a floorplan image/PDF URL.
 
