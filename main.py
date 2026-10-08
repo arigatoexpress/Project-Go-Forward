@@ -164,7 +164,11 @@ from tools.contact_capture import (
     capture_explicit_contact,
 )
 from tools.input_sanitizer import sanitize_body, sanitize_query_params
-from tools.inventory_dedupe import annotate_possible_duplicates, collapse_duplicate_homes
+from tools.inventory_dedupe import (
+    annotate_possible_duplicates,
+    collapse_duplicate_homes,
+    suppress_used_home_catalog_photos,
+)
 from tools.pii_guard import redact_pii_from_text, validate_no_pii_in_text
 from tools.user_activity_log import log_user_action, query_user_activity
 
@@ -3593,6 +3597,28 @@ def _apply_inventory_media_fallback(result: dict, item: dict, legacy_media_index
     return result
 
 
+def _suppress_used_catalog_photos_for_staff(homes: list[dict]) -> None:
+    """Drop manufacturer catalog photos from used homes on the staff list.
+
+    A used home left with no unit photo gets the same ``/tex-icon.svg``
+    placeholder the staff list already uses for a home with no photos.
+    """
+    from tools.photo_classifier import has_real_photo
+
+    for home in homes:
+        suppress_used_home_catalog_photos(home)
+        if home.get("has_staff_photos") or has_real_photo(home):
+            continue
+        if str(home.get("image_url") or "").strip():
+            continue
+        home["image_url"] = INVENTORY_PLACEHOLDER_IMAGE_URL
+        home["hero_image"] = INVENTORY_PLACEHOLDER_IMAGE_URL
+        home["image_placeholder"] = True
+        home["placeholder_reason"] = (home.get("media_quality") or {}).get(
+            "status", "missing_photos"
+        )
+
+
 @app.get("/api/inventory", dependencies=[Depends(require_admin)])
 async def list_inventory(
     status: str = "AVAILABLE",
@@ -3710,6 +3736,7 @@ async def list_inventory(
                     result.pop("image_placeholder", None)
                     result.pop("placeholder_reason", None)
         annotate_possible_duplicates(results)
+        _suppress_used_catalog_photos_for_staff(results)
         return {"success": True, "inventory": results, "count": len(results)}
     except Exception as e:
         struct_logger.error("Inventory listing failed", error=str(e))
