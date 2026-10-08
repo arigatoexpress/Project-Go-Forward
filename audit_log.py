@@ -130,6 +130,7 @@ def _is_denied_pii_key(key: str) -> bool:
         return True
     return any(token in lowered for token in _PII_KEY_SUBSTRINGS)
 
+
 # Maximum length of the details JSON — prevents a buggy caller from filling
 # Firestore with megabyte-sized payloads.
 _MAX_DETAILS_BYTES = 4096

@@ -17,7 +17,7 @@ from tools.docuseal_document_url import is_safe_docuseal_document_url  # noqa: E
 
 
 def _public_resolver(_host, _port):
-    return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("203.0.113.10", 0))]
+    return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("8.8.8.8", 0))]
 
 
 def _private_resolver(_host, _port):

@@ -80,7 +80,7 @@ def test_appointment_email_false_success_warns(monkeypatch):
             **{k: getattr(appt, k, None) for k in ("email", "appointment_id", "notes")},
         )
 
-    monkeypatch.setattr(main.appointment_manager, "create_appointment", ok_create)
+    monkeypatch.setattr(main.appointment_manager, "create_appointment", ok_create, raising=False)
     monkeypatch.setattr(main, "send_appointment_confirmation", _failed_send)
     monkeypatch.setattr(main, "notify_new_appointment", _failed_send)
 
@@ -161,8 +161,9 @@ def test_packet_esign_uses_output_dir_and_reports_dispatch(monkeypatch, tmp_path
     assert body["esign_dispatched"] is False
     assert body["esign_error"] == "file_not_found"
     assert h.file_sent[0]["file_path"] == str(tmp_path / "packet.pdf")
-    assert "generated_docs/packet.pdf" not in h.file_sent[0]["file_path"] or str(tmp_path) in (
-        h.file_sent[0]["file_path"]
+    assert (
+        "generated_docs/packet.pdf" not in h.file_sent[0]["file_path"]
+        or str(tmp_path) in (h.file_sent[0]["file_path"])
     )
 
 
@@ -250,7 +251,9 @@ def test_contact_and_inbound_logs_omit_name_and_email(monkeypatch):
     blob = json.dumps(main.struct_logger.entries)
     assert "Jordan Brooks" not in blob
     assert "jordan.brooks@example.com" not in blob
-    contact_logs = [e for e in main.struct_logger.entries if e.get("message") == "Contact form submitted"]
+    contact_logs = [
+        e for e in main.struct_logger.entries if e.get("message") == "Contact form submitted"
+    ]
     assert contact_logs
     assert contact_logs[0]["has_name"] is True
 

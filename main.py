@@ -644,7 +644,9 @@ class RequestSizeLimitMiddleware:
             await self.app(scope, receive, send)
             return
 
-        headers = {k.decode("latin1").lower(): v.decode("latin1") for k, v in scope.get("headers", [])}
+        headers = {
+            k.decode("latin1").lower(): v.decode("latin1") for k, v in scope.get("headers", [])
+        }
         content_length = headers.get("content-length")
         if content_length is not None and content_length != "":
             try:
@@ -1770,7 +1772,9 @@ def _check_chat_rate_limit(client_ip: str) -> bool:
             struct_logger.warning("Redis chat_ratelimit failed", error=str(e))
 
     # Fallback to in-memory
-    attempts = [t for t in _chat_rate_limit_fallback.get(client_ip, []) if now - t < CHAT_RATE_LIMIT_SECONDS]
+    attempts = [
+        t for t in _chat_rate_limit_fallback.get(client_ip, []) if now - t < CHAT_RATE_LIMIT_SECONDS
+    ]
     if len(attempts) >= CHAT_RATE_LIMIT_MAX_REQUESTS:
         _commit_rate_bucket(
             _chat_rate_limit_fallback, client_ip, attempts, CHAT_RATE_LIMIT_MAX_BUCKETS
@@ -4635,11 +4639,7 @@ def _public_esign_error(result: object) -> str:
 
 
 def _email_send_succeeded(result: object) -> bool:
-    return (
-        isinstance(result, dict)
-        and result.get("success") is True
-        and not result.get("dry_run")
-    )
+    return isinstance(result, dict) and result.get("success") is True and not result.get("dry_run")
 
 
 @app.post("/api/deals/{deal_id}/generate-packet", dependencies=[Depends(require_admin)])
@@ -6602,9 +6602,7 @@ async def email_inbound_webhook(request: Request):
     if not _inbound_sender_allowed(sender):
         dropped_bare = _inbound_bare_email(sender)
         sender_domain = dropped_bare.rsplit("@", 1)[-1] if "@" in dropped_bare else ""
-        struct_logger.info(
-            "Inbound email dropped (not allowlisted)", sender_domain=sender_domain
-        )
+        struct_logger.info("Inbound email dropped (not allowlisted)", sender_domain=sender_domain)
         return JSONResponse({"status": "dropped"}, status_code=200)
 
     bare = _inbound_bare_email(sender)
@@ -6634,9 +6632,7 @@ async def email_inbound_webhook(request: Request):
     except Exception:
         inbound_notified = False
     if not inbound_notified:
-        struct_logger.error(
-            "Inbound email staff notify failed", event="owner_notify_failed"
-        )
+        struct_logger.error("Inbound email staff notify failed", event="owner_notify_failed")
 
     # ── Reply pipeline (email automation lanes 1-4) ──────────────────────
     # Every stage below is default-OFF and independently gated: triage is a
