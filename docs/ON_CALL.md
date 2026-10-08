@@ -4,12 +4,36 @@
 **Canonical production URL:** `https://www.texashomeoutlet.com`  
 **Cloud Run direct URL:** `https://project-go-forward-trgi34bxuq-uc.a.run.app`  
 **Companion docs:**
-- `docs/RUNBOOK.md` — rollback, incident triage, secret rotation
+- `docs/RUNBOOK.md` — rollback, incident triage, secret rotation, operator safety
+- `docs/runbooks/dns-rollback.md` — two-record DNS revert (owner / Mark only)
+- `docs/runbooks/leads-bigquery-sync.md` — daily leads → BigQuery job
 - `docs/SLO.md` — targets, error budgets, restore checklists
 - `docs/FIRESTORE_RESTORE_RUNBOOK.md` — database recovery
 - `docs/READ_TIMEOUTS.md` — timeout values and why they matter
 
 This guide assumes the **Ops bootstrap workflow** (`.github/workflows/ops-bootstrap.yml`) has run and created the uptime check, 5xx alert, Firestore backup schedule, and `THO_API_KEY` secret.
+
+## Operator safety
+
+> **Owner-gated.** Same rules as [RUNBOOK.md](RUNBOOK.md). Read-only inspection
+> is fine; do not mutate the live service without owner approval.
+
+1. **Always pass `--project tho-ai-agent`.** A local `gcloud` default may be
+   another project.
+2. **Use `--update-env-vars` / `--update-secrets` only. Never `--set-env-vars`
+   or `--set-secrets`.** The live service has out-of-band `WEBAUTHN_*` vars
+   that `--set-*` would wipe.
+3. **Email kill-switch (no code change):**
+   ```bash
+   gcloud run services update project-go-forward --project tho-ai-agent \
+     --region us-central1 --remove-secrets RESEND_API_KEY
+   ```
+   Sends revert to dry-run.
+4. **Resend key rotation (owner):** add a new Secret Manager version → confirm
+   the domain is verified in the Resend dashboard → ship a new revision that
+   binds the updated secret → one internal test send → watch logs for
+   `welcome_email_failed` / `owner_notify_failed`. Do not record secret
+   version numbers in this public repo.
 
 ---
 

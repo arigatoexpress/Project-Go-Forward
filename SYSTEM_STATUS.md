@@ -30,6 +30,8 @@ Read-only checks, recorded for orientation only:
 | Which revision is serving traffic? | `gcloud run services describe project-go-forward --project tho-ai-agent --region us-central1 --format='value(status.traffic)'` (operator access required) |
 | Go-live checklist | [LAUNCH_READINESS.md](LAUNCH_READINESS.md) |
 | Incidents and rollback | [docs/RUNBOOK.md](docs/RUNBOOK.md) |
+| DNS rollback (owner / Mark) | [docs/runbooks/dns-rollback.md](docs/runbooks/dns-rollback.md) |
+| Leads → BigQuery sync | [docs/runbooks/leads-bigquery-sync.md](docs/runbooks/leads-bigquery-sync.md) |
 
 ## Monitoring and backups (verified in GCP on 2026-10-07, after 10:06 MT)
 

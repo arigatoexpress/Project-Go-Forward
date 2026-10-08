@@ -1,7 +1,12 @@
 # Ad Studio M1 — Instagram ROI Loop: Implementation Plan
 
+> **Status note (2026-10-07):** `tools/social_publishers.py` is draft-only today.
+> The optional publish action is held in draft PR
+> [#340](https://github.com/arigatoexpress/Project-Go-Forward/pull/340).
+> Do not build from this plan without re-checking current code and that PR.
+
 - **Date:** 2026-06-18
-- **Status:** Plan for review (TDD, surgical PRs). PLAN ONLY — no code written yet.
+- **Status:** Plan for review (TDD, surgical PRs). PLAN ONLY — no code written yet. Do not build from this plan without re-checking.
 - **Owner:** Ari (THO / Project-Go-Forward)
 - **Spec:** `docs/superpowers/specs/2026-06-16-ad-studio-instagram-roi-loop-design.md`
 - **Branching:** all PRs branch from `origin/main`. NOTE current local branch is
