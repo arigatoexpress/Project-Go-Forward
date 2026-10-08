@@ -21,7 +21,8 @@ if str(REPO_ROOT) not in sys.path:
 
 from tests.test_api_v1 import load_app  # noqa: E402
 
-SHOP_IP = {"X-Forwarded-For": "203.0.113.7"}
+# Rightmost hop is the Cloud Run client; leftmost is attacker-controlled.
+SHOP_IP = {"X-Forwarded-For": "198.51.100.1, 203.0.113.7"}
 
 
 def _app(monkeypatch, rpm: str = "20"):

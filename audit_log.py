@@ -99,6 +99,8 @@ _PII_KEYS_DENYLIST = frozenset(
         "last_name",
         "buyer_first_name",
         "buyer_last_name",
+        "name",
+        "customer_name",
         "email",
         "buyer_email",
         "phone",
@@ -114,6 +116,19 @@ _PII_KEYS_DENYLIST = frozenset(
         "token",
     }
 )
+
+# Substring match so buyer_email, home_phone, ssn_last4, mailing_address,
+# date_of_birth, customer_name, etc. are stripped even when not listed above.
+_PII_KEY_SUBSTRINGS = ("email", "phone", "ssn", "address", "dob", "name")
+
+
+def _is_denied_pii_key(key: str) -> bool:
+    lowered = key.lower()
+    if lowered in _PII_KEYS_DENYLIST:
+        return True
+    if lowered.startswith("co_buyer_"):
+        return True
+    return any(token in lowered for token in _PII_KEY_SUBSTRINGS)
 
 # Maximum length of the details JSON — prevents a buggy caller from filling
 # Firestore with megabyte-sized payloads.
@@ -154,15 +169,11 @@ def _client_ip_from_request(request: Any) -> str:
     if request is None:
         return ""
     try:
-        forwarded = request.headers.get("x-forwarded-for", "")
-        if forwarded:
-            return forwarded.split(",")[0].strip()
-        client = getattr(request, "client", None)
-        if client and getattr(client, "host", None):
-            return client.host
+        from tools.client_ip import get_client_ip
+
+        return get_client_ip(request, default="")
     except Exception:
         return ""
-    return ""
 
 
 def _user_agent_from_request(request: Any) -> str:
@@ -190,7 +201,7 @@ def _sanitize_details(details: dict[str, Any] | None) -> dict[str, Any]:
     for key, value in details.items():
         if not isinstance(key, str):
             continue
-        if key.lower() in _PII_KEYS_DENYLIST:
+        if _is_denied_pii_key(key):
             # Skip silently — call sites should never pass these, but if they
             # do we drop the value rather than write it.
             continue
@@ -219,7 +230,7 @@ def _coerce_safe(value: Any, _depth: int = 0) -> Any:
         for k, v in value.items():
             if not isinstance(k, str):
                 continue
-            if k.lower() in _PII_KEYS_DENYLIST:
+            if _is_denied_pii_key(k):
                 continue
             out[k] = _coerce_safe(v, _depth + 1)
         return out
