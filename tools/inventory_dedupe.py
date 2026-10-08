@@ -11,8 +11,9 @@ This module never writes. ``annotate_possible_duplicates`` marks copies in
 place so the staff UI can show each home once and surface a hint. The public
 feed calls ``collapse_duplicate_homes`` (same rule, then drop the copies) so
 visitors see one card. The surviving card keeps the PRE-OWNED / stocked unit's
-identity and only borrows extra photos or a missing floorplan from the catalog
-twin. The owner still decides what, if anything, to clean up in the data.
+identity. A stocked lot listing keeps only its own photos; a missing floorplan
+drawing may be filled in. Catalog / orderable survivors may still merge photos.
+The owner still decides what, if anything, to clean up in the data.
 """
 
 from __future__ import annotations
@@ -154,7 +155,7 @@ def _has_public_link(home: dict) -> bool:
 
 
 def _identity_rank(home: dict) -> tuple:
-    """Stocked / PRE-OWNED identity wins. Photos are borrowed, not ranked."""
+    """Stocked / PRE-OWNED identity wins. Photos are not the rank."""
     return (
         0 if is_active_status(home.get("status")) else 1,
         0 if is_stocked_listing(home) else 1,
@@ -180,29 +181,31 @@ def _is_website_title(model_name: Any) -> bool:
 
 
 def _borrow_media(survivor: dict, donor: dict) -> None:
-    """Copy extra photos / a missing floorplan onto the stocked unit.
+    """Fill a missing floorplan; borrow photos only onto catalog survivors.
 
-    Never changes title, id, price, condition, status, or listing links.
+    A stocked lot listing (real numeric id) keeps only its own photos. Never
+    changes title, id, price, condition, status, or listing links.
     """
-    survivor_photos = _photo_list(survivor) or _photo_list(survivor, "photos")
-    donor_photos = _photo_list(donor) or _photo_list(donor, "photos")
-    seen = set(survivor_photos)
-    extras: list[str] = []
-    for url in donor_photos:
-        if url in seen:
-            continue
-        seen.add(url)
-        extras.append(url)
-    # Length is not the test: a shorter donor can still hold a photo the
-    # survivor does not. Survivor URLs stay first and are never reordered.
-    if extras:
-        merged = survivor_photos + extras
-        survivor["real_photos"] = merged
-        if "photos" in survivor or "photos" in donor:
-            survivor["photos"] = merged
-        survivor["gallery_images"] = merged[:3]
-        if not str(survivor.get("image_url") or "").strip() and merged:
-            survivor["image_url"] = merged[0]
+    if not is_stocked_listing(survivor):
+        survivor_photos = _photo_list(survivor) or _photo_list(survivor, "photos")
+        donor_photos = _photo_list(donor) or _photo_list(donor, "photos")
+        seen = set(survivor_photos)
+        extras: list[str] = []
+        for url in donor_photos:
+            if url in seen:
+                continue
+            seen.add(url)
+            extras.append(url)
+        # Length is not the test: a shorter donor can still hold a photo the
+        # survivor does not. Survivor URLs stay first and are never reordered.
+        if extras:
+            merged = survivor_photos + extras
+            survivor["real_photos"] = merged
+            if "photos" in survivor or "photos" in donor:
+                survivor["photos"] = merged
+            survivor["gallery_images"] = merged[:3]
+            if not str(survivor.get("image_url") or "").strip() and merged:
+                survivor["image_url"] = merged[0]
 
     for key in ("floor_plan_url", "floorplan_url"):
         if not str(survivor.get(key) or "").strip() and donor.get(key):
@@ -318,7 +321,7 @@ def collapse_duplicate_homes(
 
     Staff lists call ``annotate_possible_duplicates`` and hide copies in the
     UI. The public feed calls this so visitors never see the twin. The stocked
-    PRE-OWNED unit keeps its identity; extra catalog photos are borrowed.
+    PRE-OWNED unit keeps its identity and its own photos.
     """
     annotate_possible_duplicates(homes)
     visible = [home for home in homes if not home.get("duplicate_of")]

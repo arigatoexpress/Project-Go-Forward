@@ -157,7 +157,7 @@ def test_admin_inventory_endpoint_annotates_without_writing(monkeypatch):
     assert fake_db.collections["inventory"] == before
 
 
-def test_collapse_keeps_stocked_identity_and_borrows_catalog_photos():
+def test_collapse_keeps_stocked_identity_and_own_photos_only():
     homes = [
         {
             "id": "43945",
@@ -189,8 +189,7 @@ def test_collapse_keeps_stocked_identity_and_borrows_catalog_photos():
     assert kept["display_price"] == "Call for Price"
     assert kept["price_value"] == 0
     assert kept["detail_url"] == "https://www.texashomeoutlet.com/inventory-detail/43945/"
-    assert kept["real_photos"][:2] == ["lot-1.jpg", "lot-2.jpg"]
-    assert kept["real_photos"][2:] == ["mfr-1.jpg", "mfr-2.jpg", "mfr-3.jpg", "mfr-4.jpg"]
+    assert kept["real_photos"] == ["lot-1.jpg", "lot-2.jpg"]
     assert kept["floor_plan_url"] == "https://example.com/1684-floorplan.jpg"
     assert "possible_duplicate_ids" not in kept
     assert "duplicate_of" not in kept
@@ -211,7 +210,7 @@ def _stocked_nassau(**overrides):
     return home
 
 
-def test_equal_length_distinct_donor_photos_are_kept():
+def test_stocked_survivor_does_not_take_equal_length_donor_photos():
     homes = [
         _stocked_nassau(real_photos=["lot-1.jpg", "lot-2.jpg"]),
         {
@@ -224,8 +223,7 @@ def test_equal_length_distinct_donor_photos_are_kept():
     visible = collapse_duplicate_homes(homes, strip_annotations=True)
     assert [home["id"] for home in visible] == ["1001"]
     kept = visible[0]
-    assert kept["real_photos"] == ["lot-1.jpg", "lot-2.jpg", "mfr-1.jpg", "mfr-2.jpg"]
-    assert kept["gallery_images"] == ["lot-1.jpg", "lot-2.jpg", "mfr-1.jpg"]
+    assert kept["real_photos"] == ["lot-1.jpg", "lot-2.jpg"]
     assert kept["model_name"] == "PRE-OWNED / Nassau"
     assert kept["status"] == "Pre-Owned"
     assert kept["inventory_kind"] == "pre_owned"
@@ -235,7 +233,7 @@ def test_equal_length_distinct_donor_photos_are_kept():
     assert kept["image_url"] == "lot-1.jpg"
 
 
-def test_shorter_distinct_donor_photos_are_kept():
+def test_stocked_survivor_does_not_take_shorter_distinct_donor_photos():
     homes = [
         _stocked_nassau(real_photos=["lot-1.jpg", "lot-2.jpg", "lot-3.jpg"]),
         {
@@ -249,13 +247,37 @@ def test_shorter_distinct_donor_photos_are_kept():
     visible = collapse_duplicate_homes(homes, strip_annotations=True)
     assert [home["id"] for home in visible] == ["1001"]
     kept = visible[0]
-    assert kept["real_photos"] == ["lot-1.jpg", "lot-2.jpg", "lot-3.jpg", "mfr-1.jpg"]
-    assert kept["photos"] == ["lot-1.jpg", "lot-2.jpg", "lot-3.jpg", "mfr-1.jpg"]
+    assert kept["real_photos"] == ["lot-1.jpg", "lot-2.jpg", "lot-3.jpg"]
+    assert kept.get("photos") in (None, ["lot-1.jpg", "lot-2.jpg", "lot-3.jpg"])
     assert kept["model_name"] == "PRE-OWNED / Nassau"
     assert kept["status"] == "Pre-Owned"
     assert kept["price_value"] == 0
     assert kept["detail_url"].endswith("/1001/")
     assert kept["image_url"] == "lot-1.jpg"
+
+
+def test_catalog_survivor_still_merges_distinct_photos():
+    homes = [
+        {
+            "id": "the-razor",
+            "model_name": "The Razor",
+            "status": "Available",
+            "inventory_kind": "available_now",
+            "real_photos": ["asset-1.jpg"],
+        },
+        {
+            "id": "floorplan-227314",
+            "model_name": "New Vision / The Razor",
+            "status": "Orderable",
+            "inventory_kind": "orderable_floorplan",
+            "is_orderable": True,
+            "detail_url": "https://www.texashomeoutlet.com/plan/227314/new-vision/the-razor/",
+            "real_photos": ["plan-1.jpg"],
+        },
+    ]
+    visible = collapse_duplicate_homes(homes, strip_annotations=True)
+    assert [home["id"] for home in visible] == ["floorplan-227314"]
+    assert visible[0]["real_photos"] == ["plan-1.jpg", "asset-1.jpg"]
 
 
 def test_does_not_collapse_preowned_unit_with_orderable_new_floorplan():
@@ -491,49 +513,50 @@ def test_public_inventory_collapses_same_serial_only(monkeypatch):
 
 
 # Minimal fields from the 2026-10-07 public feed. Do not store the live JSON.
+# Catalog overlays use distinct URLs so a photo-borrow bug would fail these tests.
 _LIVE_PUBLIC_PAIRS = [
     {
         "id": "44490",
         "model_name": "PRE-OWNED / Big Blue",
         "inventory_kind": "pre_owned",
-        "real_photos": ["a.jpg"] * 4,
+        "real_photos": [f"lot-44490-{i}.jpg" for i in range(4)],
     },
     {"id": "big-blue", "model_name": "Big Blue", "inventory_kind": "pre_owned"},
     {
         "id": "43945",
         "model_name": "PRE-OWNED / Heritage 1684-32A",
         "inventory_kind": "pre_owned",
-        "real_photos": ["a.jpg"] * 4,
+        "real_photos": [f"lot-43945-{i}.jpg" for i in range(4)],
     },
     {
         "id": "heritage-1684-32a",
         "model_name": "Heritage 1684-32A",
         "inventory_kind": "pre_owned",
-        "real_photos": ["a.jpg"] * 8,
+        "real_photos": [f"mfr-1684-{i}.jpg" for i in range(8)],
     },
     {
         "id": "43944",
         "model_name": "PRE-OWNED / Select S-1256-21A",
         "inventory_kind": "pre_owned",
-        "real_photos": ["a.jpg"] * 4,
+        "real_photos": [f"lot-43944-{i}.jpg" for i in range(4)],
     },
     {
         "id": "select-s-1256-21a",
         "model_name": "Select S-1256-21A",
         "inventory_kind": "pre_owned",
-        "real_photos": ["a.jpg"] * 11,
+        "real_photos": [f"mfr-1256-{i}.jpg" for i in range(11)],
     },
     {
         "id": "43943",
         "model_name": "PRE-OWNED / Select S-1272-32A",
         "inventory_kind": "pre_owned",
-        "real_photos": ["a.jpg"] * 4,
+        "real_photos": [f"lot-43943-{i}.jpg" for i in range(4)],
     },
     {
         "id": "select-s-1272-32a",
         "model_name": "Select S-1272-32A",
         "inventory_kind": "pre_owned",
-        "real_photos": ["a.jpg"] * 9,
+        "real_photos": [f"mfr-1272-{i}.jpg" for i in range(9)],
     },
     {
         "id": "the-razor",
@@ -551,7 +574,7 @@ _LIVE_PUBLIC_PAIRS = [
         "id": "28527",
         "model_name": "PRE-OWNED / Heritage 1672-32C",
         "inventory_kind": "pre_owned",
-        "real_photos": ["a.jpg"] * 3,
+        "real_photos": [f"lot-28527-{i}.jpg" for i in range(3)],
     },
     {"id": "heritage-1672-32c", "model_name": "Heritage 1672-32C", "inventory_kind": "pre_owned"},
     {
@@ -622,6 +645,12 @@ def test_live_public_feed_pairs_collapse_and_manufacturer_twins_stay():
     assert visible[1]["model_name"] == "PRE-OWNED / Heritage 1684-32A"
     assert visible[2]["model_name"] == "PRE-OWNED / Select S-1256-21A"
     assert visible[3]["model_name"] == "PRE-OWNED / Select S-1272-32A"
+    by_visible = {home["id"]: home for home in visible}
+    assert by_visible["44490"]["real_photos"] == [f"lot-44490-{i}.jpg" for i in range(4)]
+    assert by_visible["43945"]["real_photos"] == [f"lot-43945-{i}.jpg" for i in range(4)]
+    assert by_visible["43944"]["real_photos"] == [f"lot-43944-{i}.jpg" for i in range(4)]
+    assert by_visible["43943"]["real_photos"] == [f"lot-43943-{i}.jpg" for i in range(4)]
+    assert by_visible["28527"]["real_photos"] == [f"lot-28527-{i}.jpg" for i in range(3)]
 
 
 def test_public_inventory_live_pairs_on_public_path(monkeypatch):
@@ -642,6 +671,13 @@ def test_public_inventory_live_pairs_on_public_path(monkeypatch):
     assert data["total_inventory"] == 10
     assert data["homes"][1]["model_name"] == "PRE-OWNED / Heritage 1684-32A"
     assert data["homes"][1]["inventory_kind"] == "pre_owned"
+    by_id = {home["id"]: home for home in data["homes"]}
+    assert len(by_id["44490"]["real_photos"]) == 4
+    assert len(by_id["43945"]["real_photos"]) == 4
+    assert len(by_id["43944"]["real_photos"]) == 4
+    assert len(by_id["43943"]["real_photos"]) == 4
+    assert len(by_id["28527"]["real_photos"]) == 3
+    assert all(url.startswith("lot-") for url in by_id["43945"]["real_photos"])
 
 
 def test_public_inventory_saved_legacy_sample_before_after_counts(monkeypatch):
