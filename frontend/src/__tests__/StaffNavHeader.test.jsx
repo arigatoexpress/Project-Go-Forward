@@ -52,7 +52,9 @@ describe('staff header at laptop widths', () => {
     expect(header).toBeTruthy();
     expect(header.className).toMatch(/overflow-visible/);
     expect(header.className).not.toMatch(/overflow-x-hidden/);
-    const logo = header.querySelector('h1');
+    const logo = header.querySelector('[aria-label$="home"] span');
+    expect(logo).toBeTruthy();
+    expect(logo.tagName).toBe('SPAN');
     expect(logo.className).toMatch(/whitespace-nowrap/);
     expect(logo.className).toMatch(/truncate/);
     expect(logo.parentElement.className).toMatch(/overflow-hidden/);

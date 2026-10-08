@@ -23,7 +23,7 @@ test('home renders', async ({ page }) => {
 
 test('inventory has a home card with a loaded image', async ({ page }) => {
   await visit(page, '/inventory');
-  await expect(page.getByRole('button', { name: /View Details/i }).first()).toBeVisible();
+  await expect(page.getByRole('link', { name: /View Details/i }).first()).toBeVisible();
   const image = page.locator('img[loading="lazy"]').first();
   await image.scrollIntoViewIfNeeded();
   await expect(image).toBeVisible();
