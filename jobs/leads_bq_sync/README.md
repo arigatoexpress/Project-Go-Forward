@@ -18,7 +18,7 @@ was asleep. It now runs in Google Cloud on its own service account.
 
 | Piece | Value |
 |---|---|
-| Cloud Run Job | `tho-leads-bq`, region `us-central1`, 1 task, max 1 retry, 15 min timeout |
+| Cloud Run Job | `tho-leads-bq`, region `us-central1`, 1 task, max 1 retry, 30 min timeout (runs take ~3–6 min) |
 | Image | `us-central1-docker.pkg.dev/tho-ai-agent/cloud-run-source-deploy/tho-leads-bq:<git sha>` (this folder's `Dockerfile`; only the sync script + 2 client libraries) |
 | Runs as | `tho-leads-bq@tho-ai-agent.iam.gserviceaccount.com` (no keys) |
 | Schedule | Cloud Scheduler `tho-leads-bq-daily`, `15 6 * * *`, time zone `America/Denver`, OAuth as the same SA |
@@ -46,7 +46,7 @@ gcloud builds submit --project tho-ai-agent \
 gcloud run jobs deploy tho-leads-bq --project tho-ai-agent --region us-central1 \
   --image us-central1-docker.pkg.dev/tho-ai-agent/cloud-run-source-deploy/tho-leads-bq:$TAG \
   --service-account tho-leads-bq@tho-ai-agent.iam.gserviceaccount.com \
-  --tasks 1 --max-retries 1 --task-timeout 15m --cpu 1 --memory 1Gi
+  --tasks 1 --max-retries 1 --task-timeout 30m --cpu 1 --memory 1Gi
 ```
 
 ## Check it
