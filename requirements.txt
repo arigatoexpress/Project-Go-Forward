@@ -31,3 +31,6 @@ numpy==1.26.4
 # Drive floorplan sync (tools/drive_floorplan_sync.py)
 google-api-python-client>=2.140
 google-auth>=2.34
+
+# Runtime Ad Studio MP4 generation (MoviePy 1.x API).
+moviepy==1.0.3

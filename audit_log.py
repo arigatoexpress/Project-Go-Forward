@@ -29,6 +29,7 @@ Design notes:
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 from datetime import UTC, datetime
@@ -119,7 +120,10 @@ _PII_KEYS_DENYLIST = frozenset(
 
 # Substring match so buyer_email, home_phone, ssn_last4, mailing_address,
 # date_of_birth, customer_name, etc. are stripped even when not listed above.
-_PII_KEY_SUBSTRINGS = ("email", "phone", "ssn", "address", "dob", "name")
+_PII_KEY_SUBSTRINGS = ("email", "phone", "ssn", "address", "dob")
+# These exact operational fields identify artifacts, not people. Unknown name
+# fields remain denied, including camelCase and nested customer-name variants.
+_OPERATIONAL_NAME_KEYS = frozenset({"template_name", "packet_name", "model_name"})
 
 
 def _is_denied_pii_key(key: str) -> bool:
@@ -127,6 +131,8 @@ def _is_denied_pii_key(key: str) -> bool:
     if lowered in _PII_KEYS_DENYLIST:
         return True
     if lowered.startswith("co_buyer_"):
+        return True
+    if "name" in lowered and lowered not in _OPERATIONAL_NAME_KEYS:
         return True
     return any(token in lowered for token in _PII_KEY_SUBSTRINGS)
 
@@ -202,6 +208,11 @@ def _sanitize_details(details: dict[str, Any] | None) -> dict[str, Any]:
     for key, value in details.items():
         if not isinstance(key, str):
             continue
+        if key.lower() == "filename":
+            # Upload stems may contain names/phones; retain only a stable digest.
+            if isinstance(value, str):
+                cleaned["filename_sha256"] = hashlib.sha256(value.encode("utf-8")).hexdigest()
+            continue
         if _is_denied_pii_key(key):
             # Skip silently — call sites should never pass these, but if they
             # do we drop the value rather than write it.
@@ -230,6 +241,10 @@ def _coerce_safe(value: Any, _depth: int = 0) -> Any:
         out: dict[str, Any] = {}
         for k, v in value.items():
             if not isinstance(k, str):
+                continue
+            if k.lower() == "filename":
+                if isinstance(v, str):
+                    out["filename_sha256"] = hashlib.sha256(v.encode("utf-8")).hexdigest()
                 continue
             if _is_denied_pii_key(k):
                 continue

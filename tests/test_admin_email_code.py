@@ -287,6 +287,21 @@ class TestVerifyEndpoint:
         assert check.status_code == 200
         assert check.json() == {"valid": True}
 
+    def test_global_failures_do_not_block_valid_email_code(self, email_client, monkeypatch):
+        client, main, email_code = email_client
+        code = self._request_code(client, main, email_code, monkeypatch)
+        main._pin_global_attempts_fallback[:] = [time.time()] * main.PIN_GLOBAL_MAX_ATTEMPTS
+        response = client.post(
+            "/api/admin/email-code/verify", json={"email": ALLOWED_EMAIL, "code": code}
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["success"] is True
+        assert "tho_admin_token" in response.cookies
+        replay = client.post(
+            "/api/admin/email-code/verify", json={"email": ALLOWED_EMAIL, "code": code}
+        )
+        assert replay.status_code == 401
+
     def test_single_use_second_verify_fails(self, email_client, monkeypatch):
         client, main, email_code = email_client
         code = self._request_code(client, main, email_code, monkeypatch)

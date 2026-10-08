@@ -9,4 +9,3 @@ httpx>=0.28.0
 # Keep httpx for scripts and external-HTTP tests that import it directly.
 httpx2>=2.7.0
 google-cloud-bigquery>=3.25.0  # scripts/sync_leads_to_bigquery.py (PII-free lead analytics warehouse)
-moviepy==1.0.3  # lazy import in tools/video_generator.py; not required at app start

@@ -1618,6 +1618,8 @@ def _add_pin_global_attempt(timestamp: float) -> None:
     global _pin_global_attempts_fallback
     attempts = _get_pin_global_attempts()
     attempts.append(timestamp)
+    # Only the threshold matters; keep the alert signal bounded during attacks.
+    attempts = attempts[-PIN_GLOBAL_MAX_ATTEMPTS:]
     redis_client = caching.get_redis_client()
     if redis_client:
         try:
@@ -1633,7 +1635,7 @@ def _add_pin_global_attempt(timestamp: float) -> None:
 
 
 def _add_pin_attempt(client_ip: str, timestamp: float) -> None:
-    """Record a failed PIN attempt for a client IP and the global budget."""
+    """Record a failed PIN attempt for a client IP and the global alert signal."""
     attempts = _get_pin_attempts(client_ip)
     attempts.append(timestamp)
     redis_client = caching.get_redis_client()
@@ -1653,18 +1655,13 @@ def _add_pin_attempt(client_ip: str, timestamp: float) -> None:
 
 
 def _pin_budget_lockout_response(client_ip: str):
-    """Return a 429 response if the per-IP or global failed-PIN budget is spent."""
+    """Enforce per-IP lockout; alert on distributed failures without denying staff."""
     global_attempts = _get_pin_global_attempts()
     if len(global_attempts) >= PIN_GLOBAL_MAX_ATTEMPTS:
         struct_logger.error(
-            "Admin PIN global lockout",
-            event="admin_pin_global_lockout",
+            "Distributed admin login failures",
+            event="admin_pin_global_failures",
             attempts=len(global_attempts),
-        )
-        return JSONResponse(
-            {"success": False, "error": "Too many failed attempts. Please wait 5 minutes."},
-            status_code=429,
-            headers={"Retry-After": str(PIN_GLOBAL_WINDOW_SECONDS)},
         )
     attempts = _get_pin_attempts(client_ip)
     if len(attempts) >= PIN_MAX_ATTEMPTS:
@@ -7489,7 +7486,7 @@ async def verify_admin_pin(request: Request):
     """
     client_ip = _get_client_ip(request)
 
-    # Check brute-force lockout (per-IP + global failed-PIN budget)
+    # Check per-IP brute-force lockout and global failure alert
     now = time.time()
     lockout = _pin_budget_lockout_response(client_ip)
     if lockout is not None:
@@ -9457,7 +9454,7 @@ async def verify_admin_email_code(request: Request):
     """
     client_ip = _get_client_ip(request)
 
-    # Shared IP + global lockout — identical to verify_admin_pin.
+    # Shared IP lockout + global failure alert — identical to verify_admin_pin.
     now = time.time()
     lockout = _pin_budget_lockout_response(client_ip)
     if lockout is not None:

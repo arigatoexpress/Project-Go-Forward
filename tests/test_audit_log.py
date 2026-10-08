@@ -453,3 +453,37 @@ def test_audit_log_endpoint_rejects_invalid_target_type(monkeypatch):
     )
     assert r.status_code == 400
     assert "Invalid target_type" in r.json()["error"]
+
+
+def test_operational_names_survive_without_exposing_person_names():
+    from audit_log import _sanitize_details
+
+    operational = {
+        "template_name": "1023",
+        "packet_name": "closing",
+        "model_name": "inventory-model",
+    }
+    personal = {
+        "name": "Private",
+        "customer_name": "Private",
+        "buyer_first_name": "Private",
+        "co_buyer_name": "Private",
+        "customerName": "Private",
+        "full_name": "Private",
+        "email": "private@example.com",
+        "home_phone": "5125550123",
+    }
+    assert _sanitize_details({**operational, **personal}) == operational
+    assert _sanitize_details({"nested": {**operational, **personal}}) == {"nested": operational}
+
+
+def test_user_derived_filenames_are_hashed_at_every_depth():
+    import hashlib
+
+    from audit_log import _sanitize_details
+
+    filename = "jane_doe_5125550123-abc123.jpg"
+    expected = {"filename_sha256": hashlib.sha256(filename.encode()).hexdigest()}
+    assert _sanitize_details({"filename": filename}) == expected
+    assert _sanitize_details({"nested": [{"FileName": filename}]}) == {"nested": [expected]}
+    assert _sanitize_details({"filename": {"name": "Private"}}) == {}

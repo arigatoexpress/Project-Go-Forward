@@ -1,8 +1,8 @@
-"""Shared client-IP extraction for Cloud Run (rightmost trusted hop).
+"""Shared client-IP extraction with an explicitly verified proxy-hop count.
 
-Google's front end APPENDS the connecting client to X-Forwarded-For, so the
-rightmost valid hop is the trustworthy one. Leftmost values are attacker-
-controlled and must not key lockouts or per-IP limits.
+The correct X-Forwarded-For position depends on ingress topology. A single
+appended client uses one hop; a client followed by a load-balancer IP uses two.
+Validate candidate ingress before configuring TRUSTED_PROXY_HOPS or promotion.
 """
 
 from __future__ import annotations
@@ -38,8 +38,8 @@ def get_client_ip(request: Any, *, default: str = "unknown") -> str:
     """Return the client IP, trusting the Nth X-Forwarded-For hop from the right.
 
     ``TRUSTED_PROXY_HOPS`` (default 1) selects that hop: 1 = last entry,
-    2 = second-from-right, etc. Empty and non-IP tokens are ignored. Falls
-    back to ``request.client.host``.
+    2 = second-from-right, etc. Malformed or short chains fall back to
+    ``request.client.host``; never shift to an attacker-controlled earlier hop.
     """
     hops = trusted_proxy_hops()
     forwarded = ""
@@ -50,14 +50,11 @@ def get_client_ip(request: Any, *, default: str = "unknown") -> str:
     except Exception:
         forwarded = ""
 
-    parsed: list[str] = []
-    for token in str(forwarded).split(","):
-        ip = _valid_ip(token)
-        if ip:
-            parsed.append(ip)
-
-    if parsed:
-        return parsed[-min(hops, len(parsed))]
+    tokens = str(forwarded).split(",")
+    if len(tokens) >= hops:
+        selected = _valid_ip(tokens[-hops])
+        if selected:
+            return selected
 
     try:
         client = getattr(request, "client", None)
