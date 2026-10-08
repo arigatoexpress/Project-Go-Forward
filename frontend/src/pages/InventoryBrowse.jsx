@@ -5,7 +5,6 @@ import {
   MessageCircle, Grid3X3, Loader2, Eye, ArrowUpDown, Calendar,
   DollarSign, Video, CheckCircle2, AlertCircle, Tag, Heart, Share2
 } from 'lucide-react';
-import { BUSINESS_PHONE, BUSINESS_PHONE_RAW, BUSINESS_FULL_ADDRESS, BUSINESS_HOURS } from '../constants';
 import Card from '../components/Card';
 import EmptyState from '../components/EmptyState';
 import StatusBadge from '../components/StatusBadge';
@@ -20,6 +19,27 @@ import {
   INVENTORY_CATEGORY_ROUTES,
   normalizeInventoryClassification,
 } from '../utils/inventoryCategoryRoutes';
+import {
+  applyDocumentHead,
+  fallbackListingHeading,
+  getCityLanding,
+  isHomeListingPath,
+  isInventoryDetailPath,
+  isPlanPath,
+  isPreownedHome,
+  listingPagePhotos,
+  listingPath,
+  resolveHomeFromPath,
+} from '../utils/listingRoutes';
+import {
+  BUSINESS_NAME,
+  BUSINESS_PHONE,
+  BUSINESS_PHONE_RAW,
+  BUSINESS_FULL_ADDRESS,
+  BUSINESS_HOURS,
+  BUSINESS_CITY,
+  BUSINESS_STATE,
+} from '../constants';
 import AppointmentHandoffCard from '../components/AppointmentHandoffCard';
 import { describeFetchError, extractErrorMessage, responseErrorMessage, safeUserMessage } from '../utils/apiError';
 
@@ -176,13 +196,17 @@ export function listingPhotoRank(url) {
 function getListingPhotos(home, { ranked = false } = {}) {
   if (!home) return [];
   const floorplanUrls = getFloorplanUrls(home);
+  const used = isPreownedHome(home);
   const candidates = [
     home.image_url,
     ...(Array.isArray(home.real_photos) ? home.real_photos : []),
     ...(Array.isArray(home.gallery_images) ? home.gallery_images : []),
   ];
   const photos = candidates.filter((photo, index, values) => (
-    photo && values.indexOf(photo) === index && !isFloorplanImage(photo, floorplanUrls)
+    photo
+    && values.indexOf(photo) === index
+    && !isFloorplanImage(photo, floorplanUrls)
+    && !(used && isManufacturerFloorplanNamespace(photo))
   ));
   // Other surfaces keep curated order until they support candidate fallback.
   if (!ranked) return photos;
@@ -280,15 +304,23 @@ function InventoryMetric({ icon, label, value, tone = 'accent' }) {
   );
 }
 
+function listingHref(home) {
+  return listingPath(home) || '';
+}
+
 function FeaturedHomeSpotlight({ home, onClick, onGetPrice }) {
   if (!home) return null;
   const specs = home.specs || {};
   const image = getHomeImage(home);
+  const href = listingHref(home);
   return (
     <div className="overflow-hidden rounded-lg border border-[var(--cp-border-light)] bg-[var(--cp-panel)] shadow-[0_20px_60px_rgba(0,0,0,0.35)]">
-      <button
-        type="button"
-        onClick={onClick}
+      <a
+        href={href || undefined}
+        onClick={(event) => {
+          if (!href) event.preventDefault();
+          onClick?.(event);
+        }}
         className="group block w-full text-left"
       >
         <div className="relative h-[260px] overflow-hidden bg-[var(--cp-bg-2)]">
@@ -317,7 +349,7 @@ function FeaturedHomeSpotlight({ home, onClick, onGetPrice }) {
             <p className="text-sm text-white/75">{home.manufacturer || 'Texas Home Outlet'}</p>
           </div>
         </div>
-      </button>
+      </a>
       <div className="space-y-4 p-4">
         <div className="flex items-start justify-between gap-3">
           <div className="font-mono text-2xl font-bold text-[var(--cp-accent)]">
@@ -340,14 +372,17 @@ function FeaturedHomeSpotlight({ home, onClick, onGetPrice }) {
           </div>
         </div>
         <div className="grid grid-cols-2 gap-2">
-          <button
-            type="button"
-            onClick={onClick}
+          <a
+            href={href || undefined}
+            onClick={(event) => {
+              if (!href) event.preventDefault();
+              onClick?.(event);
+            }}
             className="inline-flex items-center justify-center gap-2 rounded-md border border-[var(--cp-border-light)] px-3 py-2 text-sm font-semibold text-[var(--cp-text)] transition hover:border-[var(--cp-secondary)] hover:text-[var(--cp-secondary)]"
           >
             <Eye size={15} />
             Details
-          </button>
+          </a>
           <button
             type="button"
             onClick={onGetPrice}
@@ -460,9 +495,12 @@ export default function InventoryBrowse({
   onBookAppointment,
   pathname,
 }) {
-  const routeCategory = getInventoryCategoryRoute(
-    pathname ?? (typeof window !== 'undefined' ? window.location.pathname : '/'),
-  );
+  const currentPath = pathname ?? (typeof window !== 'undefined' ? window.location.pathname : '/');
+  const routeCategory = getInventoryCategoryRoute(currentPath);
+  const cityLanding = getCityLanding(currentPath);
+  const onHomeListing = isHomeListingPath(currentPath);
+  const onPlanListing = isPlanPath(currentPath);
+  const onLegacyDetail = isInventoryDetailPath(currentPath);
   const [homes, setHomes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -771,6 +809,12 @@ export default function InventoryBrowse({
     trackEvent('lead_form_opened', { home: home.model_name, home_id: getHomeIdentifier(home), type });
   }, []);
 
+  const pathListingHome = onHomeListing
+    ? resolveHomeFromPath(homes, currentPath)
+    : (onPlanListing || onLegacyDetail)
+      ? resolveLegacyHome(homes, getLegacyInventoryIntent(currentPath)?.id)
+      : null;
+
   useEffect(() => {
     if (legacyRouteHandledRef.current || loading || homes.length === 0) return;
     const intent = getLegacyInventoryIntent(window.location.pathname);
@@ -780,11 +824,38 @@ export default function InventoryBrowse({
 
     legacyRouteHandledRef.current = true;
     setSearchQuery('');
-    openDetail(home);
     if (intent.intent === 'quote') {
+      openDetail(home);
       openLeadForm(home, 'price');
     }
   }, [homes, loading, openDetail, openLeadForm]);
+
+  useEffect(() => {
+    if (!pathListingHome) return;
+    const specs = pathListingHome.specs || {};
+    const descBits = [
+      specs.beds ? `${specs.beds} bed` : null,
+      specs.baths ? `${specs.baths} bath` : null,
+      specs.dimensions,
+      pathListingHome.manufacturer,
+    ].filter(Boolean).join(', ');
+    applyDocumentHead({
+      title: `${pathListingHome.model_name || 'Manufactured Home'} — ${BUSINESS_NAME}, ${BUSINESS_CITY}, ${BUSINESS_STATE}`,
+      description: `${pathListingHome.model_name || 'Manufactured home'}${descBits ? ` (${descBits})` : ''} at ${BUSINESS_NAME} in ${BUSINESS_CITY}, ${BUSINESS_STATE}. Call ${BUSINESS_PHONE}.`.slice(0, 300),
+      canonicalPath: listingPath(pathListingHome) || currentPath,
+    });
+  }, [pathListingHome, currentPath]);
+
+  useEffect(() => {
+    if (!cityLanding) return;
+    applyDocumentHead({
+      title: cityLanding.title,
+      description:
+        `${BUSINESS_NAME} delivers manufactured & mobile homes to ${cityLanding.city}, TX — `
+        + `listed homes plus orderable floorplans. Confirm current price and availability at ${BUSINESS_PHONE}.`,
+      canonicalPath: cityLanding.path,
+    });
+  }, [cityLanding]);
 
   // ?home=<id> deep link — open the matching home's detail modal once homes
   // have loaded. Mirrors the legacy-route handler above (guarded by a ref so
@@ -803,15 +874,28 @@ export default function InventoryBrowse({
 
   // --- RENDER ---
 
+  const uniqueHeading = cityLanding?.heading
+    || fallbackListingHeading(currentPath)
+    || routeCategory?.heading
+    || null;
+
   if (loading) {
     return (
       <div className="min-h-screen bg-[var(--cp-bg)]">
         {/* Match the loaded hero's mobile/desktop footprint so the inventory
-            response does not push the page down and create a large CLS. */}
+            response does not push the page down and create a large CLS.
+            Unique listing URLs keep their H1 during the fetch so hydration
+            never flashes the generic Huffman inventory title. */}
         <section className="border-b border-[var(--cp-border)] bg-[var(--cp-bg-2)]">
           <div className="mx-auto grid max-w-7xl gap-8 px-4 py-8 sm:px-6 lg:grid-cols-[1.1fr_0.9fr] lg:px-8 lg:py-10">
             <div className="flex min-h-[520px] flex-col justify-center">
-              <Skeleton className="mb-4" width="45%" height={28} />
+              {uniqueHeading ? (
+                <h1 className="mb-4 max-w-3xl text-4xl font-extrabold text-[var(--cp-text)]">
+                  {uniqueHeading}
+                </h1>
+              ) : (
+                <Skeleton className="mb-4" width="45%" height={28} />
+              )}
               <Skeleton className="mb-4" width="88%" height={52} />
               <Skeleton className="mb-6" width="75%" height={44} />
               <div className="mb-6 grid grid-cols-3 gap-3">
@@ -914,10 +998,19 @@ export default function InventoryBrowse({
               Inventory changes daily
             </div>
             <h1 className="max-w-3xl text-4xl font-extrabold leading-tight tracking-normal text-white sm:text-5xl">
-              {routeCategory?.heading || 'Mobile Homes For Sale in Huffman, TX'}
+              {pathListingHome?.model_name
+                || (onHomeListing && !loading && !pathListingHome ? 'This home is no longer listed' : null)
+                || cityLanding?.heading
+                || fallbackListingHeading(currentPath)
+                || routeCategory?.heading
+                || 'Mobile Homes For Sale in Huffman, TX'}
             </h1>
             <p className="mt-4 max-w-2xl text-base leading-relaxed text-white/90">
-              {routeCategory?.description || 'Browse current listed homes plus manufacturer floorplans Texas Home Outlet can custom order. Confirm price and availability with our team before planning a visit.'}
+              {pathListingHome
+                ? `${pathListingHome.model_name} at ${BUSINESS_NAME} in ${BUSINESS_CITY}, ${BUSINESS_STATE}. Confirm current price and availability with our team.`
+                : cityLanding
+                  ? `${BUSINESS_NAME} delivers new manufactured and mobile homes to ${cityLanding.city}, TX and the surrounding Houston area — single and double-section homes plus orderable factory floorplans. Visit our showroom at ${BUSINESS_FULL_ADDRESS} or call ${BUSINESS_PHONE}.`
+                : routeCategory?.description || 'Browse current listed homes plus manufacturer floorplans Texas Home Outlet can custom order. Confirm price and availability with our team before planning a visit.'}
             </p>
             <nav className="mt-4 flex flex-wrap gap-2" aria-label="Browse by home type">
               {Object.values(INVENTORY_CATEGORY_ROUTES).map(category => (
@@ -994,6 +1087,22 @@ export default function InventoryBrowse({
       </section>
 
       <AdminInventoryPanel enabled={adminAuthed} />
+
+      {onHomeListing && !loading && !pathListingHome && (
+        <section className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
+          <h2 className="text-2xl font-bold text-[var(--cp-text)]">This home is no longer listed</h2>
+          <p className="mt-2 text-[var(--cp-text-secondary)]">
+            The manufactured home you requested is sold or has been removed from inventory.
+          </p>
+          <p className="mt-3">
+            <a href="/inventory" className="text-[var(--cp-accent)] underline">Browse current homes for sale</a>
+          </p>
+        </section>
+      )}
+
+      {pathListingHome && (
+        <ListingArticle home={pathListingHome} onGetPrice={() => openLeadForm(pathListingHome, 'price')} />
+      )}
 
       {/* Toolbar */}
       <div className="flex flex-col items-center gap-3 border-b border-[var(--cp-border)] bg-[var(--cp-bg-2)] px-4 pb-4 pt-4">
@@ -1225,6 +1334,67 @@ export default function InventoryBrowse({
 
 
 // ─── Home Card Component ───
+function ListingArticle({ home, onGetPrice }) {
+  const specs = home?.specs || {};
+  const photos = listingPagePhotos(home);
+  const planUrl = home.floorplan_url || home.floor_plan_url || '';
+  const onlyFloorplan = photos.length === 1 && planUrl && photos[0] === planUrl;
+  return (
+    <article className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
+      <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
+        <div>
+          {photos.length > 0 ? (
+            <div className="grid gap-3 sm:grid-cols-2">
+              {photos.map((url) => (
+                <figure key={url} className="overflow-hidden rounded-lg border border-[var(--cp-border)] bg-[var(--cp-panel)]">
+                  <img
+                    src={url}
+                    alt={onlyFloorplan ? 'Floor plan' : home.model_name}
+                    className="h-64 w-full object-cover"
+                  />
+                  {onlyFloorplan && (
+                    <figcaption className="px-3 py-2 text-sm text-[var(--cp-muted)]">Floor plan</figcaption>
+                  )}
+                </figure>
+              ))}
+            </div>
+          ) : (
+            <div className="flex h-64 items-center justify-center rounded-lg border border-dashed border-[var(--cp-border)] text-sm text-[var(--cp-muted)]">
+              Photos coming soon
+            </div>
+          )}
+        </div>
+        <div>
+          <p className="text-sm text-[var(--cp-muted)]">{home.manufacturer || BUSINESS_NAME}</p>
+          <p className="mt-3 text-3xl font-bold text-[var(--cp-accent)]">
+            {home.display_price && home.display_price !== 'Call for Price' ? home.display_price : 'Call for Price'}
+          </p>
+          <ul className="mt-4 space-y-1 text-[var(--cp-text-secondary)]">
+            {specs.beds ? <li>Beds: {specs.beds}</li> : null}
+            {specs.baths ? <li>Baths: {specs.baths}</li> : null}
+            {specs.sq_ft ? <li>Square feet: {Number(specs.sq_ft).toLocaleString()}</li> : null}
+            {specs.dimensions ? <li>Dimensions: {specs.dimensions}</li> : null}
+            {home.stock_number || home.id ? <li>Stock #{home.stock_number || home.id}</li> : null}
+          </ul>
+          <div className="mt-6 flex flex-wrap gap-3">
+            <button
+              type="button"
+              onClick={onGetPrice}
+              className="inline-flex items-center gap-2 rounded-md bg-[var(--cp-accent)] px-5 py-3 text-sm font-bold text-[var(--cp-bg)]"
+            >
+              <DollarSign size={16} /> Check Price & Availability
+            </button>
+            <a href="/inventory" className="inline-flex items-center rounded-md border border-[var(--cp-border)] px-5 py-3 text-sm font-semibold">
+              Browse all homes
+            </a>
+          </div>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+
 export function HomeCard({ home, onClick, onGetPrice, isFavorite = false, onToggleFavorite }) {
   // image_url is guaranteed non-floorplan after PR #43's classifier;
   // real_photos[0] is also non-floorplan (exteriors are listed first).
@@ -1259,6 +1429,7 @@ export function HomeCard({ home, onClick, onGetPrice, isFavorite = false, onTogg
   // photo-less home in the catalog is is_orderable; zero listed homes
   // lack photos). Treat a missing photo on these as intentional and brand it,
   // rather than rendering a generic "coming soon" empty state.
+  const cardHref = listingHref(home);
   const isOrderOnly = (
     home.is_orderable === true || getAvailabilityKind(home) === 'orderable_floorplan'
   );
@@ -1316,8 +1487,16 @@ export function HomeCard({ home, onClick, onGetPrice, isFavorite = false, onTogg
       <div
         ref={heroRef}
         className="relative h-[220px] overflow-hidden bg-[var(--cp-bg-2)] cursor-pointer"
-        onClick={onClick}
       >
+        {cardHref ? (
+          <a
+            href={cardHref}
+            className="absolute inset-0 z-[1]"
+            aria-label={`View ${home.model_name}`}
+          />
+        ) : (
+          <button type="button" className="absolute inset-0 z-[1]" aria-label={`View ${home.model_name}`} onClick={onClick} />
+        )}
         {heroImage && heroLoadState !== 'failed' ? (
           <>
           <img
@@ -1398,7 +1577,7 @@ export function HomeCard({ home, onClick, onGetPrice, isFavorite = false, onTogg
             aria-label={isFavorite ? 'Saved' : 'Save home'}
             aria-pressed={isFavorite}
             onClick={(e) => { e.stopPropagation(); onToggleFavorite(); }}
-            className={`absolute top-3 right-3 z-[1] inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/55 backdrop-blur-sm transition hover:bg-black/70 ${isFavorite ? 'text-[var(--cp-accent)]' : 'text-white'}`}
+            className={`absolute top-3 right-3 z-[2] inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/55 backdrop-blur-sm transition hover:bg-black/70 ${isFavorite ? 'text-[var(--cp-accent)]' : 'text-white'}`}
           >
             <Heart size={18} fill={isFavorite ? 'currentColor' : 'none'} />
           </button>
@@ -1421,11 +1600,12 @@ export function HomeCard({ home, onClick, onGetPrice, isFavorite = false, onTogg
 
       {/* Info */}
       <div className="p-5">
-        <h3
-          className="text-lg font-bold text-[var(--cp-text)] leading-tight cursor-pointer"
-          onClick={onClick}
-        >
-          {home.model_name}
+        <h3 className="text-lg font-bold text-[var(--cp-text)] leading-tight">
+          {cardHref ? (
+            <a href={cardHref} className="hover:underline">{home.model_name}</a>
+          ) : (
+            <button type="button" className="text-left" onClick={onClick}>{home.model_name}</button>
+          )}
         </h3>
         <p className="text-sm text-[var(--cp-muted)] mt-1">{home.manufacturer || 'New Vision Manufacturing'}</p>
 
@@ -1476,12 +1656,21 @@ export function HomeCard({ home, onClick, onGetPrice, isFavorite = false, onTogg
 
         {/* Dual action buttons */}
         <div className="flex gap-2">
-          <button
-            className="flex-1 inline-flex items-center justify-center gap-1.5 py-2.5 rounded-md text-sm font-medium bg-[var(--cp-bg-2)] text-[var(--cp-text-secondary)] border border-[var(--cp-border)] hover:border-[var(--cp-secondary)] hover:text-[var(--cp-secondary)] transition"
-            onClick={onClick}
-          >
-            <Eye size={16} /> View Details
-          </button>
+          {cardHref ? (
+            <a
+              href={cardHref}
+              className="flex-1 inline-flex items-center justify-center gap-1.5 py-2.5 rounded-md text-sm font-medium bg-[var(--cp-bg-2)] text-[var(--cp-text-secondary)] border border-[var(--cp-border)] hover:border-[var(--cp-secondary)] hover:text-[var(--cp-secondary)] transition"
+            >
+              <Eye size={16} /> View Details
+            </a>
+          ) : (
+            <button
+              className="flex-1 inline-flex items-center justify-center gap-1.5 py-2.5 rounded-md text-sm font-medium bg-[var(--cp-bg-2)] text-[var(--cp-text-secondary)] border border-[var(--cp-border)] hover:border-[var(--cp-secondary)] hover:text-[var(--cp-secondary)] transition"
+              onClick={onClick}
+            >
+              <Eye size={16} /> View Details
+            </button>
+          )}
           <button
             type="button"
             className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-md bg-[var(--cp-accent)] py-2.5 text-sm font-medium text-[var(--cp-bg)] transition hover:bg-[var(--cp-accent-hot)]"
