@@ -44,6 +44,16 @@ from config_loader import (
     get_business,
 )
 from inventory_classification import normalize_inventory_classification
+from tools.inventory_dedupe import is_preowned
+from tools.listing_urls import (
+    attach_listing_urls,
+    listing_lastmod,
+    listing_page_images,
+    listing_path,
+    match_instock_home,
+    parse_home_path,
+    stock_id,
+)
 
 router = APIRouter()
 
@@ -299,6 +309,15 @@ def _build_registry() -> dict:
     quote_redirects: dict[str, str] = {}
     quote_alias_redirects: dict[str, str] = {}
     homes, inventory_ok = _load_homes()
+    attach_listing_urls(homes)
+    instock_by_stock: dict[str, dict] = {}
+    instock_path_by_stock: dict[str, str] = {}
+    for home in homes:
+        path_value = listing_path(home)
+        identifier = stock_id(home)
+        if path_value and identifier:
+            instock_by_stock[identifier] = home
+            instock_path_by_stock[identifier] = path_value
     for home in homes:
         dpath = _legacy_path(home.get("detail_url"))
         if not dpath:
@@ -345,6 +364,8 @@ def _build_registry() -> dict:
         "detail_alias_redirects": detail_alias_redirects,
         "quote_redirects": quote_redirects,
         "quote_alias_redirects": quote_alias_redirects,
+        "instock_by_stock": instock_by_stock,
+        "instock_path_by_stock": instock_path_by_stock,
     }
 
 
@@ -436,6 +457,15 @@ def _local_business_jsonld() -> dict:
 
 
 def _first_image(home: dict) -> str | None:
+    """Return the first public photo for OG / JSON-LD.
+
+    Used homes use the same own-photo picker as ``/homes/`` pages so social
+    cards never show a manufacturer catalog shot. New homes keep catalog
+    heroes.
+    """
+    if is_preowned(home):
+        images = listing_page_images(home)
+        return images[0] if images else None
     for key in ("hero_image", "image_url"):
         if home.get(key):
             return str(home[key])
@@ -787,6 +817,26 @@ def _crawlable_inventory_block() -> str:
         items.append(
             f'<li><a href="{e(path)}">{e(label)}</a>{" — " + e(extra) if extra else ""}</li>'
         )
+    seen_listing_paths = {reg["detail_path_by_route"].get(key) for key in reg["detail_by_route"]}
+    for home in reg["homes"]:
+        path = listing_path(home)
+        if not path or path in seen_listing_paths:
+            continue
+        seen_listing_paths.add(path)
+        specs = home.get("specs") or {}
+        label = home.get("model_name") or "Manufactured home"
+        extra = " · ".join(
+            str(x)
+            for x in (
+                f"{specs.get('beds')} bed" if specs.get("beds") else None,
+                f"{specs.get('baths')} bath" if specs.get("baths") else None,
+                home.get("manufacturer"),
+            )
+            if x
+        )
+        items.append(
+            f'<li><a href="{e(path)}">{e(label)}</a>{" — " + e(extra) if extra else ""}</li>'
+        )
     return (
         f"<h1>Mobile &amp; Manufactured Homes for Sale in {html.escape(_CITY_STATE)}</h1>"
         f"<p>{html.escape(business_name())} — {html.escape(business_address())} · "
@@ -840,7 +890,7 @@ def _crawlable_category_block(category: dict) -> str:
         path = (
             reg["detail_path_by_route"].get(route_key)
             if route_key and reg["detail_by_route"].get(route_key) is home
-            else None
+            else listing_path(home)
         )
         specs = home.get("specs") or {}
         label = home.get("model_name") or f"{classification} manufactured home"
@@ -891,6 +941,108 @@ def _crawlable_detail_block(home: dict) -> str:
         f"<ul>{''.join(rows)}</ul>"
         f'<p><a href="/inventory">All homes for sale at {e(business_name())}</a> — '
         f"{e(business_address())} · {e(business_phone())}</p>"
+    )
+
+
+def _listing_display_price(home: dict) -> str:
+    price = str(home.get("display_price") or "").strip()
+    return price if price else "Call for Price"
+
+
+def _listing_product_jsonld(home: dict, canonical_url: str) -> dict:
+    """Product JSON-LD for /homes/ pages. Never invents a price."""
+    priced = _product_jsonld(home, canonical_url)
+    if priced:
+        images = listing_page_images(home)
+        if images:
+            priced["image"] = images[0]
+        return priced
+    specs = home.get("specs") or {}
+    bits = []
+    if specs.get("beds"):
+        bits.append(f"{specs['beds']} bed")
+    if specs.get("baths"):
+        bits.append(f"{specs['baths']} bath")
+    if specs.get("dimensions"):
+        bits.append(str(specs["dimensions"]))
+    description = home.get("description") or (
+        f"{home.get('model_name', 'Manufactured home')} ({', '.join(bits)}) at "
+        f"{business_name()} in {_CITY_STATE}."
+    )
+    data = {
+        "@context": "https://schema.org",
+        "@type": "Product",
+        "name": home.get("model_name") or "Manufactured Home",
+        "description": str(description)[:300],
+        "url": canonical_url,
+    }
+    if home.get("manufacturer"):
+        data["brand"] = {"@type": "Brand", "name": home["manufacturer"]}
+    images = listing_page_images(home)
+    if images:
+        data["image"] = images[0]
+    return data
+
+
+def _crawlable_home_listing_block(home: dict) -> str:
+    e = html.escape
+    specs = home.get("specs") or {}
+    rows = []
+    identifier = stock_id(home)
+    if identifier:
+        rows.append(f"<li>Stock #{e(identifier)}</li>")
+    for label, key in (
+        ("Beds", "beds"),
+        ("Baths", "baths"),
+        ("Dimensions", "dimensions"),
+        ("Square feet", "sqft"),
+        ("Square feet", "sq_ft"),
+    ):
+        if specs.get(key) and f"{label}:" not in "".join(rows):
+            rows.append(f"<li>{label}: {e(str(specs[key]))}</li>")
+    if home.get("manufacturer"):
+        rows.append(f"<li>Manufacturer: {e(str(home['manufacturer']))}</li>")
+    rows.append(f"<li>Price: {e(_listing_display_price(home))}</li>")
+    images = listing_page_images(home)
+    plan_urls = {
+        str(home.get("floorplan_url") or "").strip(),
+        str(home.get("floor_plan_url") or "").strip(),
+        *[str(u).strip() for u in (home.get("floorplan_urls") or []) if u],
+    }
+    figures = []
+    for url in images:
+        if url in plan_urls or (len(images) == 1 and not any(u not in plan_urls for u in images)):
+            figures.append(
+                f'<figure><img src="{e(url)}" alt="Floor plan" />'
+                f"<figcaption>Floor plan</figcaption></figure>"
+            )
+        else:
+            figures.append(
+                f'<img src="{e(url)}" alt="{e(home.get("model_name") or "Manufactured home")}" />'
+            )
+    description = home.get("description") or (
+        f"{home.get('model_name') or 'Manufactured home'} at {business_name()} in {_CITY_STATE}."
+    )
+    return (
+        f"<article>"
+        f"<h1>{e(home.get('model_name') or 'Manufactured Home')}</h1>"
+        f"<p>{e(str(description)[:500])}</p>"
+        f"{''.join(figures)}"
+        f"<ul>{''.join(rows)}</ul>"
+        f'<p><a href="/inventory">All homes for sale at {e(business_name())}</a> — '
+        f"{e(business_address())} · {e(business_phone())}</p>"
+        f"</article>"
+    )
+
+
+def _crawlable_home_gone_block() -> str:
+    e = html.escape
+    return (
+        f"<h1>This home is no longer listed</h1>"
+        f"<p>The manufactured home you requested is sold or has been removed from "
+        f"{e(business_name())} inventory.</p>"
+        f'<p><a href="/inventory">Browse current homes for sale</a> · '
+        f'<a href="/contact">Contact us</a></p>'
     )
 
 
@@ -1233,6 +1385,28 @@ def _inventory_itemlist_jsonld(limit: int = 25, classification: str | None = Non
         )
         if len(elements) >= limit:
             break
+    if len(elements) < limit:
+        seen_urls = {item["url"] for item in elements}
+        for home in reg["homes"]:
+            if not _home_matches_classification(home, classification):
+                continue
+            path = listing_path(home)
+            if not path:
+                continue
+            url = base + path
+            if url in seen_urls:
+                continue
+            elements.append(
+                {
+                    "@type": "ListItem",
+                    "position": len(elements) + 1,
+                    "url": url,
+                    "name": home.get("model_name") or "Manufactured home",
+                }
+            )
+            seen_urls.add(url)
+            if len(elements) >= limit:
+                break
     if not elements:
         return None
     return {
@@ -1401,6 +1575,75 @@ def _render_spa_response(full_path: str) -> Response | None:
         )
         return HTMLResponse(
             _inject(_shell(), head, _crawlable_category_block(category)), headers=no_cache
+        )
+
+    # 3d. In-stock listing pages: /homes/<stock-id>-<slug> for special deals
+    #     and pre-owned units. Sold or removed stock ids return 410.
+    if parse_home_path(path):
+        if raw_path != path:
+            return RedirectResponse(path, status_code=301)
+        reg = _registry()
+        if not reg["inventory_ok"]:
+            head = _head_block(
+                f"Inventory temporarily unavailable | {business_name()}",
+                "Browse all manufactured homes or contact our team for current options.",
+                base + "/inventory",
+                noindex=True,
+            )
+            return HTMLResponse(
+                _inject(_shell(), head, _crawlable_home_gone_block()),
+                status_code=503,
+                headers=no_cache,
+            )
+        home = match_instock_home(path, reg["homes"])
+        if home is None:
+            head = _head_block(
+                f"Home no longer listed | {business_name()}",
+                "This home is sold or has been removed from inventory.",
+                base + "/inventory",
+                noindex=True,
+            )
+            return HTMLResponse(
+                _inject(_shell(), head, _crawlable_home_gone_block()),
+                status_code=410,
+                headers=no_cache,
+            )
+        canonical_path = listing_path(home)
+        if canonical_path and unquote(path) != unquote(canonical_path):
+            return RedirectResponse(canonical_path, status_code=301)
+        canonical_url = base + (canonical_path or path)
+        title = (
+            f"{home.get('model_name') or 'Manufactured Home'} — {business_name()}, {_CITY_STATE}"
+        )
+        specs = home.get("specs") or {}
+        desc_bits = ", ".join(
+            str(x)
+            for x in (
+                f"{specs.get('beds')} bed" if specs.get("beds") else None,
+                f"{specs.get('baths')} bath" if specs.get("baths") else None,
+                specs.get("dimensions"),
+                home.get("manufacturer"),
+                _listing_display_price(home),
+            )
+            if x
+        )
+        description = (
+            f"{home.get('model_name', 'Manufactured home')} ({desc_bits}) at "
+            f"{business_name()} in {_CITY_STATE}. Call {business_phone()}."
+        )[:300]
+        images = listing_page_images(home)
+        head = _head_block(
+            title,
+            description,
+            canonical_url,
+            og_image=images[0] if images else None,
+            jsonld=[
+                _listing_product_jsonld(home, canonical_url),
+                _breadcrumb_jsonld(home.get("model_name") or "Manufactured Home", canonical_url),
+            ],
+        )
+        return HTMLResponse(
+            _inject(_shell(), head, _crawlable_home_listing_block(home)), headers=no_cache
         )
 
     # 4. Live legacy detail/plan URLs: 200 + per-home head + crawlable body.
@@ -1609,9 +1852,25 @@ def sitemap_xml() -> Response:
             if _category_homes(category, reg)
         ]
     urls += [base + p for p in sorted(reg["detail_path_by_route"].values())]
-    # lastmod intentionally omitted: Google only trusts it when verifiably
-    # accurate, and inventory records carry no reliable update timestamps.
-    entries = "\n".join(f"  <url><loc>{html.escape(u)}</loc></url>" for u in urls)
+    home_entries: list[tuple[str, str]] = []
+    if reg["inventory_ok"]:
+        seen_home_paths: set[str] = set()
+        for home in reg["homes"]:
+            path_value = listing_path(home)
+            if not path_value or path_value in seen_home_paths:
+                continue
+            seen_home_paths.add(path_value)
+            home_entries.append((base + path_value, listing_lastmod(home)))
+        home_entries.sort(key=lambda item: item[0])
+    # lastmod is omitted on static/plan URLs (no reliable timestamps). In-stock
+    # /homes/ listings include lastmod from the record date, or today when the
+    # home is still in the live public feed.
+    static_entries = [f"  <url><loc>{html.escape(u)}</loc></url>" for u in urls]
+    listing_entries = [
+        f"  <url><loc>{html.escape(loc)}</loc><lastmod>{html.escape(lastmod)}</lastmod></url>"
+        for loc, lastmod in home_entries
+    ]
+    entries = "\n".join(static_entries + listing_entries)
     xml = (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
         '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'

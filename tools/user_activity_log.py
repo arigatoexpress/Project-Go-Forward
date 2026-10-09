@@ -125,15 +125,11 @@ def _client_ip_from_request(request: Any) -> str:
     if request is None:
         return ""
     try:
-        forwarded = request.headers.get("x-forwarded-for", "")
-        if forwarded:
-            return forwarded.split(",")[0].strip()
-        client = getattr(request, "client", None)
-        if client and getattr(client, "host", None):
-            return client.host
+        from tools.client_ip import get_client_ip
+
+        return get_client_ip(request, default="")
     except Exception:
         return ""
-    return ""
 
 
 def _user_agent_from_request(request: Any) -> str:

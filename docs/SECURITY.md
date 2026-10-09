@@ -216,7 +216,7 @@ not logged so the signal isn't drowned out). Each entry carries:
 | `actor` | `_audit_actor(request)` | SHA256-prefixed admin-token id (`admin:<12hex>`) or `partner:<8hex>` key fingerprint — never the raw token/key |
 | `action` | call site | from `ALLOWED_ACTIONS`; unknown values warn (drift detector) |
 | `target_type` / `target_id` | call site | entity kind + id (deal/customer/inventory/lead/crm_task/document/email/session) |
-| `ip` | `X-Forwarded-For` first hop | Cloud Run aware |
+| `ip` | Configured `X-Forwarded-For` hop from the right | `TRUSTED_PROXY_HOPS` (compatibility default 1); validate ingress topology before promotion |
 | `user_agent` | request header | capped to 300 chars |
 | `details` | call site | IDs / field-name deltas / counts only — `_sanitize_details` strips any PII-shaped key |
 
@@ -244,3 +244,23 @@ actor/action/target/since).
 
 - Per-key partner dashboards over the `/api/v1/*` request logs to drive rotation decisions.
 - Mirror state-change audit entries into the `activities/` Firestore collection used by PM entities for a unified activity feed.
+
+
+### PR #383 proxy topology release gate
+
+The default of one hop is **not evidence of the production topology**. Do not
+promote this change until a zero-traffic candidate has been checked through each
+supported ingress path. A chain ending in the connecting client needs one hop;
+a chain ending in `client, load-balancer` needs two. Record the revision, ingress
+path, observed chain shape (redact addresses), and expected selected client.
+Verify two independent clients get separate limiter buckets, and that changing
+an untrusted supplied prefix does not change either client's bucket. Validate
+that direct-service access cannot bypass the trusted ingress assumptions. If
+paths have different suffix shapes, one global hop count is insufficient;
+resolve ingress trust before promotion. Do not infer topology from header length.
+Malformed selected hops and chains shorter than the configured count fall back
+to the socket peer without selecting an earlier untrusted token.
+
+Distributed failed logins emit `admin_pin_global_failures` for operator alerting.
+They do not globally deny authentication. Per-IP lockout, SlowAPI limits, and
+email-code expiry, attempt limits, and single-use checks remain enforced.

@@ -19,6 +19,13 @@ import { getJourneyAttribution } from './utils/attribution';
 import { attachPhoneClickTracking, isPublicAnalyticsPath, trackEvent } from './utils/analytics';
 import { navigateDocument } from './utils/documentNavigation';
 import { getInventoryCategoryRoute, isInventoryCategoryPath } from './utils/inventoryCategoryRoutes';
+import {
+  applyDocumentHead,
+  getCityLanding,
+  isHomeListingPath,
+  isPlanPath,
+  isUniqueListingPath,
+} from './utils/listingRoutes';
 import { safeUserMessage, extractErrorMessage, describeFetchError } from './utils/apiError';
 import { adminCsrfHeaders } from './adminFetch';
 import StaffSignInPanel from './components/StaffSignInPanel';
@@ -183,9 +190,9 @@ function NavBar({
             aria-label={`${BUSINESS_NAME} — home`}
           >
             <Home className="h-6 w-6 shrink-0 text-[var(--cp-accent)] group-hover:drop-shadow-[0_2px_8px_rgba(80,29,29,0.35)] transition" />
-            <h1 className="text-sm sm:text-base font-bold tracking-tight text-[var(--cp-text)] whitespace-nowrap truncate">
+            <span className="text-sm sm:text-base font-bold tracking-tight text-[var(--cp-text)] whitespace-nowrap truncate">
               {BUSINESS_NAME}
-            </h1>
+            </span>
           </div>
 
           <div className="flex items-center gap-1 sm:gap-2 shrink-0">
@@ -485,8 +492,9 @@ function pageFromPath(path) {
   if (isInventoryCategoryPath(p)) return 'inventory';
   // City landing pages (/manufactured-homes-in-{city}-tx) render the inventory.
   if (p.startsWith('/manufactured-homes-in-')) return 'inventory';
+  if (p.startsWith('/homes/')) return 'inventory';
   // Legacy texashomeoutlet.com deep links resolve inside the inventory page.
-  if (p.startsWith('/plan/') || p.startsWith('/quote/')) return 'inventory';
+  if (p.startsWith('/inventory-detail/') || p.startsWith('/plan/') || p.startsWith('/quote/')) return 'inventory';
   if (p.startsWith('/hub/')) return 'hub';
   if (p === '/staff-home' || p.startsWith('/staff-home/')) return 'staff-home';
   if (p === '/staff' || p.startsWith('/staff/')) return 'staff-sign-in';
@@ -964,13 +972,39 @@ function App() {
       'manage-inventory': 'Manage Inventory',
       photos: 'Photos',
     };
+    const cityLanding = getCityLanding(pathname);
+    if (cityLanding) {
+      applyDocumentHead({
+        title: cityLanding.title,
+        description:
+          `${BUSINESS_NAME} delivers manufactured & mobile homes to ${cityLanding.city}, TX — `
+          + `listed homes plus orderable floorplans. Confirm current price and availability at ${BUSINESS_PHONE}.`,
+        canonicalPath: cityLanding.path,
+      });
+      return;
+    }
     const inventoryCategory = activePage === 'inventory'
       ? getInventoryCategoryRoute(pathname)
       : null;
-    document.title = inventoryCategory
-      ? `${inventoryCategory.classification} Mobile & Manufactured Homes in ${BUSINESS_CITY}, ${BUSINESS_STATE} | ${BUSINESS_NAME}`
-      : fullTitles[activePage] ||
-        (shortTitles[activePage] ? `${shortTitles[activePage]} | ${BUSINESS_NAME}` : BUSINESS_NAME);
+    if (inventoryCategory) {
+      applyDocumentHead({
+        title: `${inventoryCategory.classification} Mobile & Manufactured Homes in ${BUSINESS_CITY}, ${BUSINESS_STATE} | ${BUSINESS_NAME}`,
+        description: inventoryCategory.description,
+        canonicalPath: inventoryCategory.path,
+      });
+      return;
+    }
+    if (isHomeListingPath(pathname) || isPlanPath(pathname) || isUniqueListingPath(pathname)) {
+      // InventoryBrowse sets the model-specific title once the listing loads.
+      // Never fall back to the generic Huffman inventory title on these URLs.
+      return;
+    }
+    const nextTitle = fullTitles[activePage]
+      || (shortTitles[activePage] ? `${shortTitles[activePage]} | ${BUSINESS_NAME}` : BUSINESS_NAME);
+    applyDocumentHead({
+      title: nextTitle,
+      canonicalPath: pathname === '/' ? '/' : pathname.replace(/\/+$/, '') || '/',
+    });
   }, [activePage, pathname]);
 
   const scrollToBottom = () => {
