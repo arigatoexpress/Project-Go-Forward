@@ -303,9 +303,29 @@ def _admin_token_from_request(request: Request) -> str:
     return ""
 
 
+def _pin_token_key(admin_pin_hash: str) -> bytes | None:
+    """Return the PIN-session signing key, matching ``main._JWT_SECRET`` exactly.
+
+    The key comes from the server-only ``ADMIN_SESSION_SECRET`` bound to the full
+    PIN verifier, so this router and ``main.py`` accept exactly the same PIN
+    sessions and rotating either value revokes them.
+    """
+    session_secret = os.environ.get("ADMIN_SESSION_SECRET", "")
+    if not session_secret or not admin_pin_hash:
+        return None
+    return hmac.new(
+        session_secret.encode("utf-8"),
+        f"tho-pin-session-v2:{admin_pin_hash}".encode(),
+        hashlib.sha256,
+    ).digest()
+
+
 def _verify_admin_pin_token(token: str) -> bool:
     admin_pin_hash = os.environ.get("ADMIN_PIN_HASH", "")
     if not token or not admin_pin_hash:
+        return False
+    secret = _pin_token_key(admin_pin_hash)
+    if secret is None:
         return False
     try:
         padding = 4 - len(token) % 4
@@ -315,7 +335,6 @@ def _verify_admin_pin_token(token: str) -> bool:
         if len(raw) != 24:
             return False
         payload, sig = raw[:8], raw[8:]
-        secret = hashlib.sha256(f"sapphire-jwt-{admin_pin_hash[:16]}".encode()).digest()
         expected_sig = hmac.new(secret, payload, hashlib.sha256).digest()[:16]
         if not hmac.compare_digest(sig, expected_sig):
             return False
