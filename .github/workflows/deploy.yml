@@ -42,6 +42,12 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
+      - name: Check production video dependencies in isolation
+        run: |
+          python -m venv /tmp/tho-production-deps
+          /tmp/tho-production-deps/bin/pip install -r requirements.txt
+          /tmp/tho-production-deps/bin/python scripts/check_production_video.py
+
       - name: Install dependencies
         run: pip install -r requirements.txt -r requirements-dev.txt
 

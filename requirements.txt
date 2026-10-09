@@ -22,13 +22,15 @@ resend==2.5.1
 slowapi>=0.1.9
 PyYAML>=6.0
 python-dateutil>=2.8
-requests>=2.28
+requests>=2.32.4
 beautifulsoup4>=4.12
 sentry-sdk[fastapi]==2.22.0
 pytest==9.0.3
-moviepy==1.0.3
 numpy==1.26.4
 
 # Drive floorplan sync (tools/drive_floorplan_sync.py)
 google-api-python-client>=2.140
 google-auth>=2.34
+
+# Runtime Ad Studio MP4 generation (MoviePy 1.x API).
+moviepy==1.0.3

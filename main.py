@@ -158,11 +158,13 @@ from email_service import (
 )
 from lead_management import Lead, LeadManager
 from structured_logging import logger as struct_logger
+from tools.client_ip import get_client_ip
 from tools.contact_capture import (
     apply_utm,
     capture_contact_from_message,
     capture_explicit_contact,
 )
+from tools.docuseal_document_url import is_safe_docuseal_document_url
 from tools.input_sanitizer import sanitize_body, sanitize_query_params
 from tools.inventory_dedupe import (
     annotate_possible_duplicates,
@@ -385,11 +387,9 @@ def _get_client_ip(request: Request) -> str:
 
     Used by the slowapi ``key_func`` for unauthenticated callers so per-IP rate
     limiting and the Redis-backed brute-force counter key the same identity.
+    Trusts the rightmost hop (Google appends the connecting client).
     """
-    forwarded = request.headers.get("x-forwarded-for", "")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return request.client.host if request.client else "unknown"
+    return get_client_ip(request)
 
 
 # ── Staff-session rate limiting ─────────────────────────────────────────────
@@ -546,9 +546,25 @@ APPOINTMENTS_RATE_LIMIT = _route_rate_limit("APPOINTMENTS_RATE_LIMIT", "10/minut
 
 # Rate limiting middleware — per-IP sliding window
 MAX_REQUESTS_PER_MINUTE = int(os.environ.get("RATE_LIMIT_RPM", "60"))
+RATE_LIMIT_MAX_BUCKETS = int(os.environ.get("RATE_LIMIT_MAX_BUCKETS", "50000"))
 MAX_REQUEST_BODY_BYTES = int(
     os.environ.get("MAX_REQUEST_BODY_BYTES", str(1 * 1024 * 1024))
 )  # 1 MB default
+
+
+def _commit_rate_bucket(
+    buckets: dict[str, list[float]],
+    key: str,
+    window: list[float],
+    max_buckets: int,
+) -> None:
+    """Store a pruned window, drop empties, and evict the oldest bucket at cap."""
+    buckets.pop(key, None)
+    if not window:
+        return
+    while len(buckets) >= max_buckets:
+        buckets.pop(next(iter(buckets)))
+    buckets[key] = window
 
 
 _STATIC_RATE_LIMIT_EXTENSIONS = (
@@ -597,7 +613,7 @@ def _is_rate_limit_exempt_path(path: str, method: str = "GET") -> bool:
 class RateLimitMiddleware(BaseHTTPMiddleware):
     def __init__(self, app):
         super().__init__(app)
-        self._hits: dict[str, list[float]] = defaultdict(list)
+        self._hits: dict[str, list[float]] = {}
 
     async def dispatch(self, request: Request, call_next):
         if _is_rate_limit_exempt_path(request.url.path, request.method):
@@ -606,23 +622,83 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         bucket = staff_key or _get_client_ip(request)
         cap = STAFF_RATE_LIMIT_RPM if staff_key else MAX_REQUESTS_PER_MINUTE
         now = time.time()
-        window = self._hits[bucket]
-        # Prune entries older than 60s
-        self._hits[bucket] = window = [t for t in window if now - t < 60]
+        window = [t for t in self._hits.get(bucket, []) if now - t < 60]
         if len(window) >= cap:
+            _commit_rate_bucket(self._hits, bucket, window, RATE_LIMIT_MAX_BUCKETS)
             return JSONResponse(
                 {"error": "Rate limit exceeded. Please try again shortly."}, status_code=429
             )
         window.append(now)
+        _commit_rate_bucket(self._hits, bucket, window, RATE_LIMIT_MAX_BUCKETS)
         return await call_next(request)
 
 
-class RequestSizeLimitMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
-        content_length = request.headers.get("content-length")
-        if content_length and int(content_length) > MAX_REQUEST_BODY_BYTES:
-            return JSONResponse({"error": "Request body too large."}, status_code=413)
-        return await call_next(request)
+class RequestSizeLimitMiddleware:
+    """Pure ASGI middleware: count streamed bytes and reject before sanitization.
+
+    Starlette adds middleware last-outermost, so this class must be registered
+    AFTER InputSanitizationMiddleware to run first and cap chunked bodies.
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        headers = {
+            k.decode("latin1").lower(): v.decode("latin1") for k, v in scope.get("headers", [])
+        }
+        content_length = headers.get("content-length")
+        if content_length is not None and content_length != "":
+            try:
+                declared = int(content_length)
+            except (TypeError, ValueError):
+                response = JSONResponse({"error": "Invalid Content-Length."}, status_code=400)
+                await response(scope, receive, send)
+                return
+            if declared > MAX_REQUEST_BODY_BYTES:
+                response = JSONResponse({"error": "Request body too large."}, status_code=413)
+                await response(scope, receive, send)
+                return
+
+        chunks: list[bytes] = []
+        received = 0
+        more_body = True
+        while more_body:
+            message = await receive()
+            msg_type = message.get("type")
+            if msg_type == "http.disconnect":
+                return
+            if msg_type != "http.request":
+                continue
+            chunk = message.get("body") or b""
+            received += len(chunk)
+            if received > MAX_REQUEST_BODY_BYTES:
+                while message.get("more_body"):
+                    message = await receive()
+                response = JSONResponse({"error": "Request body too large."}, status_code=413)
+                await response(scope, receive, send)
+                return
+            chunks.append(chunk)
+            more_body = bool(message.get("more_body"))
+
+        replayed = False
+        body = b"".join(chunks)
+
+        async def replay_receive():
+            nonlocal replayed
+            if replayed:
+                # Body already replayed: defer to the server so disconnect
+                # listeners (BaseHTTPMiddleware, StreamingResponse) block until
+                # a real http.disconnect instead of seeing a second request.
+                return await receive()
+            replayed = True
+            return {"type": "http.request", "body": body, "more_body": False}
+
+        await self.app(scope, replay_receive, send)
 
 
 class InputSanitizationMiddleware(BaseHTTPMiddleware):
@@ -737,8 +813,11 @@ class PerformanceMetricsMiddleware(BaseHTTPMiddleware):
 
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(RateLimitMiddleware)
-app.add_middleware(RequestSizeLimitMiddleware)
 app.add_middleware(InputSanitizationMiddleware)
+# Size cap is added AFTER the sanitizer so it is outermost of the two and
+# rejects oversized / chunked bodies before InputSanitization buffers them.
+# (Starlette: last add_middleware call is outermost.)
+app.add_middleware(RequestSizeLimitMiddleware)
 # slowapi middleware is registered last so it sits outermost and runs
 # before the legacy per-IP RateLimitMiddleware. Per-route caps via
 # @limiter.limit decorators short-circuit hot paths (e.g. /api/admin/verify
@@ -1495,7 +1574,11 @@ def _audit_actor(request: Request) -> str:
 # Redis-backed with in-memory fallback for local dev without Redis
 PIN_MAX_ATTEMPTS = 10
 PIN_LOCKOUT_SECONDS = 300  # 5-minute lockout after 10 failures
+PIN_GLOBAL_MAX_ATTEMPTS = 50
+PIN_GLOBAL_WINDOW_SECONDS = 15 * 60
+PIN_GLOBAL_KEY = "tho:pin_attempts:global"
 _pin_attempts_fallback: dict[str, list[float]] = {}
+_pin_global_attempts_fallback: list[float] = []
 
 
 def _pin_attempts_key(client_ip: str) -> str:
@@ -1522,8 +1605,44 @@ def _get_pin_attempts(client_ip: str) -> list[float]:
     return attempts
 
 
+def _get_pin_global_attempts() -> list[float]:
+    """Retrieve recent failed PIN attempts across all IPs."""
+    redis_client = caching.get_redis_client()
+    if redis_client:
+        try:
+            data = redis_client.get(PIN_GLOBAL_KEY)
+            if data:
+                attempts = json.loads(data)
+                now = time.time()
+                return [t for t in attempts if now - t < PIN_GLOBAL_WINDOW_SECONDS]
+        except Exception as e:
+            struct_logger.warning("Redis pin_attempts global read failed", error=str(e))
+    now = time.time()
+    return [t for t in _pin_global_attempts_fallback if now - t < PIN_GLOBAL_WINDOW_SECONDS]
+
+
+def _add_pin_global_attempt(timestamp: float) -> None:
+    global _pin_global_attempts_fallback
+    attempts = _get_pin_global_attempts()
+    attempts.append(timestamp)
+    # Only the threshold matters; keep the alert signal bounded during attacks.
+    attempts = attempts[-PIN_GLOBAL_MAX_ATTEMPTS:]
+    redis_client = caching.get_redis_client()
+    if redis_client:
+        try:
+            redis_client.setex(
+                PIN_GLOBAL_KEY,
+                PIN_GLOBAL_WINDOW_SECONDS,
+                json.dumps(attempts),
+            )
+            return
+        except Exception as e:
+            struct_logger.warning("Redis pin_attempts global write failed", error=str(e))
+    _pin_global_attempts_fallback = attempts
+
+
 def _add_pin_attempt(client_ip: str, timestamp: float) -> None:
-    """Record a failed PIN attempt for a client IP."""
+    """Record a failed PIN attempt for a client IP and the global alert signal."""
     attempts = _get_pin_attempts(client_ip)
     attempts.append(timestamp)
     redis_client = caching.get_redis_client()
@@ -1534,10 +1653,32 @@ def _add_pin_attempt(client_ip: str, timestamp: float) -> None:
                 PIN_LOCKOUT_SECONDS,
                 json.dumps(attempts),
             )
+            _add_pin_global_attempt(timestamp)
             return
         except Exception as e:
             struct_logger.warning("Redis pin_attempts write failed", error=str(e))
     _pin_attempts_fallback[client_ip] = attempts
+    _add_pin_global_attempt(timestamp)
+
+
+def _pin_budget_lockout_response(client_ip: str):
+    """Enforce per-IP lockout; alert on distributed failures without denying staff."""
+    global_attempts = _get_pin_global_attempts()
+    if len(global_attempts) >= PIN_GLOBAL_MAX_ATTEMPTS:
+        struct_logger.error(
+            "Distributed admin login failures",
+            event="admin_pin_global_failures",
+            attempts=len(global_attempts),
+        )
+    attempts = _get_pin_attempts(client_ip)
+    if len(attempts) >= PIN_MAX_ATTEMPTS:
+        struct_logger.warning("Admin login locked out", client_ip=client_ip, attempts=len(attempts))
+        return JSONResponse(
+            {"success": False, "error": "Too many failed attempts. Please wait 5 minutes."},
+            status_code=429,
+            headers={"Retry-After": str(PIN_LOCKOUT_SECONDS)},
+        )
+    return None
 
 
 def _clear_pin_attempts(client_ip: str) -> None:
@@ -1610,6 +1751,7 @@ async def _execute_agent_run(runner, user_id, session_id, new_message, request_i
 # --- Rate Limiting for Chat API ---
 CHAT_RATE_LIMIT_SECONDS = 60
 CHAT_RATE_LIMIT_MAX_REQUESTS = 10
+CHAT_RATE_LIMIT_MAX_BUCKETS = int(os.environ.get("CHAT_RATE_LIMIT_MAX_BUCKETS", "50000"))
 _chat_rate_limit_fallback: dict[str, list[float]] = {}
 
 
@@ -1634,18 +1776,22 @@ def _check_chat_rate_limit(client_ip: str) -> bool:
             struct_logger.warning("Redis chat_ratelimit failed", error=str(e))
 
     # Fallback to in-memory
-    attempts = _chat_rate_limit_fallback.get(client_ip, [])
-    attempts = [t for t in attempts if now - t < CHAT_RATE_LIMIT_SECONDS]
+    attempts = [
+        t for t in _chat_rate_limit_fallback.get(client_ip, []) if now - t < CHAT_RATE_LIMIT_SECONDS
+    ]
     if len(attempts) >= CHAT_RATE_LIMIT_MAX_REQUESTS:
+        _commit_rate_bucket(
+            _chat_rate_limit_fallback, client_ip, attempts, CHAT_RATE_LIMIT_MAX_BUCKETS
+        )
         return False
     attempts.append(now)
-    _chat_rate_limit_fallback[client_ip] = attempts
+    _commit_rate_bucket(_chat_rate_limit_fallback, client_ip, attempts, CHAT_RATE_LIMIT_MAX_BUCKETS)
     return True
 
 
 @app.post("/run")
 async def run_agent(request: Request):
-    client_ip = request.client.host if request.client else "unknown"
+    client_ip = _get_client_ip(request)
     if not _check_chat_rate_limit(client_ip):
         return JSONResponse(
             {"error": "You're sending messages too fast. Please wait a moment and try again."},
@@ -4507,6 +4653,22 @@ async def generate_document_from_deal(deal_id: str, request: Request):
         }
 
 
+def _public_esign_error(result: object) -> str:
+    """Non-sensitive e-sign failure token for API responses (no paths or PII)."""
+    if not isinstance(result, dict):
+        return "dispatch_failed"
+    err = str(result.get("error") or result.get("message") or "").lower()
+    if "not found" in err:
+        return "file_not_found"
+    if "credential" in err or "not configured" in err or "missing" in err:
+        return "not_configured"
+    return "dispatch_failed"
+
+
+def _email_send_succeeded(result: object) -> bool:
+    return isinstance(result, dict) and result.get("success") is True and not result.get("dry_run")
+
+
 @app.post("/api/deals/{deal_id}/generate-packet", dependencies=[Depends(require_admin)])
 async def generate_packet_from_deal(deal_id: str, request: Request):
     """Generate a closing packet pre-filled with deal data."""
@@ -4573,6 +4735,8 @@ async def generate_packet_from_deal(deal_id: str, request: Request):
             # Packets are only e-sign dispatched automatically when the
             # ESIGN_AUTO_SEND flag is on AND every money line is filled in.
             email = doc_data.get("buyer_email") or doc_data.get("email")
+            esign_dispatched = False
+            esign_error = None
             if (
                 email
                 and packet_fields.get("filename")
@@ -4580,11 +4744,11 @@ async def generate_packet_from_deal(deal_id: str, request: Request):
                 and not esign_review.money_problems(doc_data)
             ):
                 try:
-                    await docuseal_send_file_for_signature(
+                    send_result = await docuseal_send_file_for_signature(
                         email=email,
                         name=f"{doc_data.get('buyer_first_name', '')} {doc_data.get('buyer_last_name', '')}".strip()
                         or "Customer",
-                        file_path=os.path.join("generated_docs", packet_fields["filename"]),
+                        file_path=os.path.join(OUTPUT_DIR, packet_fields["filename"]),
                         display_name=f"Closing Packet - {packet_name}",
                         deal_id=deal_id,
                         metadata={
@@ -4592,19 +4756,29 @@ async def generate_packet_from_deal(deal_id: str, request: Request):
                             "trigger": "generate_packet_from_deal",
                         },
                     )
+                    esign_dispatched = (
+                        isinstance(send_result, dict) and send_result.get("success") is True
+                    )
+                    if not esign_dispatched:
+                        esign_error = _public_esign_error(send_result)
                 except Exception as e:
                     struct_logger.warning(
-                        "Automated DocuSeal deal packet dispatch failed", error=str(e)
+                        "Automated DocuSeal deal packet dispatch failed", error=type(e).__name__
                     )
+                    esign_error = "dispatch_failed"
 
-            return {
+            response_body = {
                 "success": True,
                 "download_url": packet_fields["download_url"],
                 "filename": packet_fields["filename"],
                 "message": packet_fields["message"],
                 "page_count": packet_fields.get("page_count", 0),
                 "documents_included": packet_fields.get("documents_included", []),
+                "esign_dispatched": esign_dispatched,
             }
+            if esign_error:
+                response_body["esign_error"] = esign_error
+            return response_body
         return {
             "success": False,
             "error": result.get("message") or result.get("error") or "Packet generation failed",
@@ -5045,8 +5219,27 @@ async def docuseal_webhook(request: Request):
     template_name = (data.get("metadata") or {}).get("template_name")
 
     if not document_url or not deal_id:
-        struct_logger.warning("DocuSeal webhook missing document_url or deal_id", event=str(event))
+        struct_logger.warning(
+            "DocuSeal webhook missing document_url or deal_id",
+            event_type=event_type,
+            has_deal_id=bool(deal_id),
+            submission_id=submission_id,
+        )
         return {"status": "ignored", "reason": "missing_document_url_or_deal_id"}
+
+    if not is_safe_docuseal_document_url(
+        document_url,
+        api_url=_DOCUSEAL_API_URL,
+        extra_hosts=os.environ.get("DOCUSEAL_DOCUMENT_HOSTS", ""),
+    ):
+        struct_logger.warning(
+            "DocuSeal webhook rejected document_url",
+            event="docuseal_document_url_rejected",
+            event_type=event_type,
+            has_deal_id=bool(deal_id),
+            submission_id=submission_id,
+        )
+        return {"status": "ignored", "reason": "document_url_not_allowed"}
 
     # form.completed carries the submitter (submission_id); submission.completed
     # carries the submission itself (id).
@@ -5062,7 +5255,7 @@ async def docuseal_webhook(request: Request):
     import httpx
 
     try:
-        async with httpx.AsyncClient(timeout=60) as client:
+        async with httpx.AsyncClient(timeout=60, follow_redirects=False) as client:
             dl = await client.get(document_url)
         dl.raise_for_status()
 
@@ -6187,7 +6380,7 @@ async def submit_contact_form(request: Request):
 
         struct_logger.info(
             "Contact form submitted",
-            name=name,
+            has_name=bool(name),
             has_phone=bool(phone),
             has_message=has_message,
         )
@@ -6278,11 +6471,16 @@ async def submit_contact_form(request: Request):
 
         # Send welcome email if email provided
         if email:
+            welcome_ok = False
             try:
-                send_lead_welcome(to=email, customer_name=name, lead_id=lead_id)
-            except Exception as e:
+                welcome_ok = _email_send_succeeded(
+                    send_lead_welcome(to=email, customer_name=name, lead_id=lead_id)
+                )
+            except Exception:
+                welcome_ok = False
+            if not welcome_ok:
                 warnings.append("welcome_email_failed")
-                struct_logger.warning("Lead welcome email failed", error=str(e))
+                struct_logger.error("Lead welcome email failed", event="welcome_email_failed")
 
         # Credit Authorization is never sent to a new lead automatically; staff
         # get a task to review the lead and send paperwork from a deal.
@@ -6432,7 +6630,9 @@ async def email_inbound_webhook(request: Request):
     sender = data.get("from", "")
     subject = (data.get("subject") or "(no subject)").strip()
     if not _inbound_sender_allowed(sender):
-        struct_logger.info("Inbound email dropped (not allowlisted)", sender=sender)
+        dropped_bare = _inbound_bare_email(sender)
+        sender_domain = dropped_bare.rsplit("@", 1)[-1] if "@" in dropped_bare else ""
+        struct_logger.info("Inbound email dropped (not allowlisted)", sender_domain=sender_domain)
         return JSONResponse({"status": "dropped"}, status_code=200)
 
     bare = _inbound_bare_email(sender)
@@ -6452,12 +6652,17 @@ async def email_inbound_webhook(request: Request):
     except Exception as e:
         struct_logger.error("Inbound email lead persist failed", error=str(e))
         inbound_lead_id = ""
+    inbound_notified = False
     try:
-        notify_new_lead(
-            customer_name=name, phone="(email lead)", email=bare, source="inbound email"
+        inbound_notified = _email_send_succeeded(
+            notify_new_lead(
+                customer_name=name, phone="(email lead)", email=bare, source="inbound email"
+            )
         )
-    except Exception as e:
-        struct_logger.warning("Inbound email staff notify failed", error=str(e))
+    except Exception:
+        inbound_notified = False
+    if not inbound_notified:
+        struct_logger.error("Inbound email staff notify failed", event="owner_notify_failed")
 
     # ── Reply pipeline (email automation lanes 1-4) ──────────────────────
     # Every stage below is default-OFF and independently gated: triage is a
@@ -6633,32 +6838,47 @@ async def create_appointment(request: Request):
 
         # Send confirmation email if email provided
         if appt.email:
+            confirm_ok = False
             try:
-                send_appointment_confirmation(
-                    to=appt.email,
-                    customer_name=name,
-                    date=appt_date,
-                    time_slot=time_slot,
-                    appointment_id=appt.appointment_id,
-                    notes=appt.notes,
+                confirm_ok = _email_send_succeeded(
+                    send_appointment_confirmation(
+                        to=appt.email,
+                        customer_name=name,
+                        date=appt_date,
+                        time_slot=time_slot,
+                        appointment_id=appt.appointment_id,
+                        notes=appt.notes,
+                    )
                 )
-            except Exception as e:
+            except Exception:
+                confirm_ok = False
+            if not confirm_ok:
                 warnings.append("appointment_confirmation_failed")
-                struct_logger.warning("Appointment confirmation email failed", error=str(e))
+                struct_logger.error(
+                    "Appointment confirmation email failed",
+                    event="appointment_confirmation_failed",
+                )
 
         # Notify owner of new appointment
+        owner_notified = False
         try:
-            notify_new_appointment(
-                customer_name=name,
-                phone=phone,
-                date=appt_date,
-                time_slot=time_slot,
-                email=appt.email,
-                notes=appt.notes,
+            owner_notified = _email_send_succeeded(
+                notify_new_appointment(
+                    customer_name=name,
+                    phone=phone,
+                    date=appt_date,
+                    time_slot=time_slot,
+                    email=appt.email,
+                    notes=appt.notes,
+                )
             )
-        except Exception as e:
+        except Exception:
+            owner_notified = False
+        if not owner_notified:
             warnings.append("owner_notify_failed")
-            struct_logger.warning("Appointment admin notification failed", error=str(e))
+            struct_logger.error(
+                "Appointment admin notification failed", event="owner_notify_failed"
+            )
 
         # Promote the contact/quote lead that initiated this booking instead of
         # creating a duplicate. The public ID is accepted only in the exact
@@ -7299,16 +7519,11 @@ async def verify_admin_pin(request: Request):
     """
     client_ip = _get_client_ip(request)
 
-    # Check brute-force lockout
+    # Check per-IP brute-force lockout and global failure alert
     now = time.time()
-    attempts = _get_pin_attempts(client_ip)
-    if len(attempts) >= PIN_MAX_ATTEMPTS:
-        struct_logger.warning("Admin login locked out", client_ip=client_ip, attempts=len(attempts))
-        return JSONResponse(
-            {"success": False, "error": "Too many failed attempts. Please wait 5 minutes."},
-            status_code=429,
-            headers={"Retry-After": str(PIN_LOCKOUT_SECONDS)},
-        )
+    lockout = _pin_budget_lockout_response(client_ip)
+    if lockout is not None:
+        return lockout
 
     try:
         data = await request.json()
@@ -9272,18 +9487,11 @@ async def verify_admin_email_code(request: Request):
     """
     client_ip = _get_client_ip(request)
 
-    # Shared IP lockout — identical to verify_admin_pin.
+    # Shared IP lockout + global failure alert — identical to verify_admin_pin.
     now = time.time()
-    attempts = _get_pin_attempts(client_ip)
-    if len(attempts) >= PIN_MAX_ATTEMPTS:
-        struct_logger.warning(
-            "Admin email-code login locked out", client_ip=client_ip, attempts=len(attempts)
-        )
-        return JSONResponse(
-            {"success": False, "error": "Too many failed attempts. Please wait 5 minutes."},
-            status_code=429,
-            headers={"Retry-After": str(PIN_LOCKOUT_SECONDS)},
-        )
+    lockout = _pin_budget_lockout_response(client_ip)
+    if lockout is not None:
+        return lockout
 
     try:
         data = await request.json()
