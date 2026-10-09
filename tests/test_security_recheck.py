@@ -200,6 +200,39 @@ async def test_request_size_limit_chunked_oversize_returns_413(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_request_size_limit_replay_then_defers_to_server_receive(monkeypatch):
+    """After the buffered body is replayed, receive() must reach the server
+    (e.g. http.disconnect), never a second http.request. Starlette's
+    BaseHTTPMiddleware raises "Unexpected message received: http.request"
+    otherwise."""
+    import main
+
+    monkeypatch.setattr(main, "MAX_REQUEST_BODY_BYTES", 64)
+    upstream = [
+        {"type": "http.request", "body": b"{}", "more_body": False},
+        {"type": "http.disconnect"},
+    ]
+
+    async def receive():
+        return upstream.pop(0)
+
+    seen = []
+
+    async def inner(scope, inner_receive, send):
+        seen.append(await inner_receive())
+        seen.append(await inner_receive())
+        await JSONResponse({"ok": True})(scope, inner_receive, send)
+
+    async def send(message):
+        pass
+
+    scope = {"type": "http", "method": "POST", "path": "/api/contact", "headers": []}
+    await main.RequestSizeLimitMiddleware(inner)(scope, receive, send)
+    assert seen[0] == {"type": "http.request", "body": b"{}", "more_body": False}
+    assert seen[1] == {"type": "http.disconnect"}
+
+
+@pytest.mark.asyncio
 async def test_request_size_limit_malformed_content_length_returns_400(monkeypatch):
     import main
 

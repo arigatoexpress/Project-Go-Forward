@@ -691,7 +691,10 @@ class RequestSizeLimitMiddleware:
         async def replay_receive():
             nonlocal replayed
             if replayed:
-                return {"type": "http.request", "body": b"", "more_body": False}
+                # Body already replayed: defer to the server so disconnect
+                # listeners (BaseHTTPMiddleware, StreamingResponse) block until
+                # a real http.disconnect instead of seeing a second request.
+                return await receive()
             replayed = True
             return {"type": "http.request", "body": body, "more_body": False}
 
