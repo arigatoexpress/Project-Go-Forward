@@ -61,6 +61,33 @@ describe('LeadCaptureForm', () => {
     expect(payload.journey_id).toMatch(/^j_[0-9a-f]{32}$/);
   });
 
+  it('sends the home stock number and listing link so staff see which home the lead wants', async () => {
+    global.fetch.mockResolvedValue({ ok: true, json: async () => ({ success: true }) });
+    const listed = {
+      id: '28102',
+      home_id: '28102',
+      stock_id: '28102',
+      model_name: 'TRU Single Section Delight',
+      inventory_kind: 'available_now',
+      listing_url: '/homes/28102-tru-single-section-delight',
+    };
+
+    render(<LeadCaptureForm home={listed} type="tour" onClose={() => {}} />);
+    fireEvent.change(screen.getByPlaceholderText('Your full name'), { target: { value: 'Alice Buyer' } });
+    fireEvent.change(screen.getByPlaceholderText('(281) 000-0000'), { target: { value: '2813243020' } });
+    fireEvent.click(screen.getByRole('button', { name: /Request Tour/i }));
+
+    await waitFor(() => expect(global.fetch).toHaveBeenCalled());
+    const payload = JSON.parse(global.fetch.mock.calls[0][1].body);
+    expect(payload).toMatchObject({
+      source: 'inventory_tour',
+      home_id: '28102',
+      home_model: 'TRU Single Section Delight',
+      home_stock: '28102',
+      home_url: '/homes/28102-tru-single-section-delight',
+    });
+  });
+
   it('hands the persisted lead and home context to appointment booking', async () => {
     const onBookAppointment = vi.fn();
     global.fetch.mockResolvedValue({

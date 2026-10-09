@@ -98,6 +98,9 @@ class FakeLead:
     journey_id: str | None = None
     home_id: str | None = None
     home_model: str | None = None
+    home_stock: str | None = None
+    home_label: str | None = None
+    home_url: str | None = None
 
     # Marketing attribution (first-party UTM carried on a reached-out lead; NOT visitor tracking)
     utm_source: str | None = None
