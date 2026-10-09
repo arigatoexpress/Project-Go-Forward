@@ -1660,6 +1660,21 @@ def _render_spa_response(full_path: str) -> Response | None:
                     status_code=302,
                     headers={"Cache-Control": "no-store"},
                 )
+            # Lot homes (special deals / pre-owned) have no legacy detail_url;
+            # their canonical page is /homes/<stock>-<slug>. A bare
+            # /inventory-detail/<stock id> deep link (old shares, the SPA's
+            # legacy-intent route) must reach that page instead of 404ing.
+            # Only the inventory-detail family maps to stock ids; /plan/ ids
+            # are catalog plan ids and must never resolve to a lot home.
+            # Temporary + no-store because lot stock sells and disappears.
+            if route_key[0] == "inventory-detail":
+                stock_target = reg["instock_path_by_stock"].get(route_key[1])
+                if stock_target:
+                    return RedirectResponse(
+                        stock_target,
+                        status_code=302,
+                        headers={"Cache-Control": "no-store"},
+                    )
             head = _head_block(
                 "Home not found | " + business_name(),
                 "This home is no longer listed.",
