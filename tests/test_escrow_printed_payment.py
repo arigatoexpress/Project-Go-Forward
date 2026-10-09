@@ -168,3 +168,49 @@ def test_total_of_payments_flag_flips_both_engines(monkeypatch):
     assert enriched["total_payments"] == "345,347.76"
     assert enriched["total_paid"] == "355,347.76"
     assert enriched["finance_charge"] == "163,122.76"
+
+
+INSURANCE_BOX = "Insurance_Included_Yes[0]"
+TAX_BOX = "Tax_Escrow_Included_Yes[0]"
+
+
+def _box_states(reader: PdfReader) -> dict[str, str | None]:
+    """Appearance state of every checkbox widget, keyed by its short field name."""
+    states: dict[str, str | None] = {}
+    for page in reader.pages:
+        for annot in page.get("/Annots") or []:
+            widget = annot.get_object()
+            if widget.get("/Subtype") != "/Widget":
+                continue
+            name = widget.get("/T")
+            if name is None and widget.get("/Parent") is not None:
+                name = widget["/Parent"].get_object().get("/T")
+            if name is not None:
+                as_state = widget.get("/AS")
+                states[str(name)] = None if as_state is None else str(as_state)
+    return states
+
+
+def test_contract_page3_checks_insurance_escrow_box_when_insurance_escrowed(tmp_path, monkeypatch):
+    states = _box_states(_render(CONTRACT, DEAL, tmp_path, monkeypatch))
+    assert states[INSURANCE_BOX] not in (None, "/Off")
+    assert states[TAX_BOX] not in (None, "/Off")
+
+
+def test_contract_page3_leaves_insurance_escrow_box_off_without_insurance(tmp_path, monkeypatch):
+    deal = {k: v for k, v in DEAL.items() if k != "insurance_premium_monthly"}
+    states = _box_states(_render(CONTRACT, deal, tmp_path, monkeypatch))
+    assert states[INSURANCE_BOX] in (None, "/Off")
+    assert states[TAX_BOX] not in (None, "/Off")
+
+
+def test_enrichment_sets_insurance_included_only_for_positive_insurance():
+    assert enrich_document_data(dict(DEAL))["insurance_included"] is True
+    assert "insurance_included" not in enrich_document_data(dict(NO_ESCROW_DEAL))
+    zero = enrich_document_data({**DEAL, "insurance_premium_monthly": "0"})
+    assert "insurance_included" not in zero
+
+
+def test_enrichment_keeps_staff_entered_insurance_included():
+    kept = enrich_document_data({**DEAL, "insurance_included": False})
+    assert kept["insurance_included"] is False

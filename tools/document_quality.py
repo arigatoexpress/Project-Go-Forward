@@ -763,6 +763,11 @@ def enrich_document_data(data: dict[str, Any]) -> dict[str, Any]:
             enriched["payment_breakdown"] = f"{loan_term} monthly payments of ${_money(payer)}"
     if tax_part > 0 and _is_blank(enriched.get("tax_escrow_included")):
         enriched["tax_escrow_included"] = True
+    # Contract page 3, IX.D Insurance Escrow Option: mirror the tax escrow box.
+    # A staff-entered value (including an explicit False) is never overridden.
+    insurance_part = _decimal(enriched.get("insurance_premium_monthly")) or Decimal("0")
+    if insurance_part > 0 and _is_blank(enriched.get("insurance_included")):
+        enriched["insurance_included"] = True
 
     _apply_lender_profile(enriched)
 
