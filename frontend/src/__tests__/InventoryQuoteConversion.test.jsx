@@ -41,6 +41,7 @@ describe('InventoryBrowse quote conversion path', () => {
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
+    window.history.replaceState({}, '', '/');
   });
 
   it('opens the quote form from the featured CTA without leaving the storefront', async () => {
@@ -60,9 +61,9 @@ describe('InventoryBrowse quote conversion path', () => {
   });
 
   it('keeps quote intent inside the detail modal too', async () => {
+    window.history.replaceState({}, '', `/inventory?home=${home.id}`);
     const { container } = render(<InventoryBrowse />);
-    const details = await screen.findByRole('button', { name: 'View Details' });
-    fireEvent.click(details);
+    expect(await screen.findByRole('button', { name: 'Schedule a Tour' })).toBeInTheDocument();
 
     const availabilityButtons = screen.getAllByRole(
       'button',
@@ -96,8 +97,9 @@ describe('InventoryBrowse quote conversion path', () => {
       });
     vi.stubGlobal('fetch', fetchMock);
 
+    window.history.replaceState({}, '', `/inventory?home=${orderableHome.id}`);
     render(<InventoryBrowse />);
-    fireEvent.click(await screen.findByRole('button', { name: 'View Details' }));
+    expect(await screen.findByRole('button', { name: 'Discuss Build Options' })).toBeInTheDocument();
 
     expect(screen.queryByRole('button', { name: 'Schedule a Tour' })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Discuss Build Options' }));
@@ -127,8 +129,9 @@ describe('InventoryBrowse quote conversion path', () => {
   });
 
   it('preserves the tour flow for a listed home', async () => {
+    window.history.replaceState({}, '', `/inventory?home=${home.id}`);
     render(<InventoryBrowse />);
-    fireEvent.click(await screen.findByRole('button', { name: 'View Details' }));
+    expect(await screen.findByRole('button', { name: 'Schedule a Tour' })).toBeInTheDocument();
 
     expect(screen.queryByRole('button', { name: 'Discuss Build Options' })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Schedule a Tour' }));

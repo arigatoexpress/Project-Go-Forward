@@ -44,6 +44,13 @@ logger = logging.getLogger(__name__)
 _DELIVERY_POOL = ThreadPoolExecutor(max_workers=4, thread_name_prefix="partner-webhook")
 
 _DEFAULT_TIMEOUT_SECONDS = 8.0
+_unsigned_dispatch_blocked_logged = False
+
+
+def _reset_unsigned_guard_for_tests() -> None:
+    """Test hook: allow the once-per-process unsigned-dispatch error again."""
+    global _unsigned_dispatch_blocked_logged
+    _unsigned_dispatch_blocked_logged = False
 
 
 def _get_partner_webhook_urls() -> dict[str, str]:
@@ -186,10 +193,20 @@ def dispatch_partner_event(
     Returns the list of partner_ids that received a delivery attempt.
     If partner_ids is provided, only those partners are targeted.
     """
+    global _unsigned_dispatch_blocked_logged
     urls = _get_partner_webhook_urls()
     signing_key = _get_signing_key()
 
     if not urls:
+        return []
+
+    if not signing_key:
+        if not _unsigned_dispatch_blocked_logged:
+            logger.error(
+                "Partner webhook URLs configured but PARTNER_WEBHOOK_SIGNING_KEY "
+                "is unset; refusing unsigned dispatch"
+            )
+            _unsigned_dispatch_blocked_logged = True
         return []
 
     targets = list(urls.items())

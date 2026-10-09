@@ -45,7 +45,7 @@ describe('listingPhotoRank', () => {
 describe('HomeCard hero selection', () => {
   it('preserves the curated hero on featured and detail surfaces without fallback', async () => {
     window.localStorage.clear();
-    window.history.replaceState({}, '', '/inventory');
+    window.history.replaceState({}, '', `/inventory?home=${baseHome.id}`);
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({ homes: [{
@@ -60,13 +60,28 @@ describe('HomeCard hero selection', () => {
         const images = screen.getAllByAltText(baseHome.model_name);
         expect(images.map(image => image.getAttribute('src'))).toEqual([SEEDED_HERO, EXT]);
       });
-      fireEvent.click(screen.getByRole('button', { name: 'View Details' }));
-      expect(screen.getByAltText(`${baseHome.model_name} photo 1`)).toHaveAttribute('src', SEEDED_HERO);
+      expect(await screen.findByAltText(`${baseHome.model_name} photo 1`)).toHaveAttribute('src', SEEDED_HERO);
     } finally {
       vi.unstubAllGlobals();
       window.localStorage.clear();
       window.history.replaceState({}, '', '/');
     }
+  });
+
+  it('drops manufacturer catalog photos from used-home cards', () => {
+    const catalog = 'https://d132mt2yijm03y.cloudfront.net/manufacturer/1944/floorplan/1391/Heritage-kitchen-1.jpg';
+    const { container } = renderCard({
+      ...baseHome,
+      id: '43945',
+      model_name: 'PRE-OWNED / Heritage 1684-32A',
+      status: 'Pre-Owned',
+      inventory_kind: 'pre_owned',
+      is_new: false,
+      image_url: catalog,
+      real_photos: [catalog, EXT],
+      gallery_images: [catalog],
+    });
+    expect(container.querySelector('img').getAttribute('src')).toBe(EXT);
   });
 
   it('leads with a photo of the house even when an unlabeled "hero" file is listed first', () => {
