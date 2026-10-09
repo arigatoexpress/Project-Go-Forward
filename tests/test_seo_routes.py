@@ -319,6 +319,53 @@ def test_unknown_detail_id_is_404(monkeypatch):
     assert response.status_code == 404
 
 
+def test_bare_inventory_detail_deep_link_reaches_lot_home_listing(monkeypatch):
+    """Regression: /inventory-detail/<stock id> for a lot home (no legacy
+    detail_url) 404'd on live (stock 28102) while /inventory opened it."""
+    client, _ = seo_client(monkeypatch)
+    expected = "/homes/44490-pre-owned-big-blue"
+
+    for deep_link in (
+        "/inventory-detail/44490",
+        "/inventory-detail/44490/",
+        "/inventory-detail/44490/texas-home-outlet/huffman/big-blue/",
+    ):
+        response = client.get(deep_link, follow_redirects=False)
+        assert response.status_code == 302, deep_link
+        assert response.headers["location"] == expected, deep_link
+        assert "no-store" in response.headers["cache-control"], deep_link
+
+    landed = client.get("/inventory-detail/44490")
+    assert landed.status_code == 200
+    assert "Big Blue" in landed.text
+
+
+def test_stock_id_deep_link_does_not_capture_plan_family_or_sold_stock(monkeypatch):
+    client, _ = seo_client(monkeypatch)
+
+    # /plan/ ids are catalog plan ids; a matching lot stock number must not hijack them.
+    plan = client.get("/plan/44490/some/plan/", follow_redirects=False)
+    assert plan.status_code == 404
+    assert "location" not in plan.headers
+
+    import seo_routes
+
+    sold = {**FAKE_HOMES[2], "status": "Sold"}
+    monkeypatch.setattr(seo_routes, "_get_homes", lambda: [FAKE_HOMES[0], sold])
+    monkeypatch.setattr(seo_routes, "_registry_cache", None)
+    monkeypatch.setattr(seo_routes, "_registry_built_at", 0.0)
+
+    gone = client.get("/inventory-detail/44490", follow_redirects=False)
+    assert gone.status_code == 404
+    assert "location" not in gone.headers
+
+    # Real legacy detail ids still win over the stock fallback.
+    legacy = client.get(
+        "/inventory-detail/43372/texas-home-outlet/huffman/premier/", follow_redirects=False
+    )
+    assert legacy.status_code == 200
+
+
 def test_quote_urls_301_to_detail_pages(monkeypatch):
     client, _ = seo_client(monkeypatch)
     response = client.get("/quote/inventory/123/43372", follow_redirects=False)
