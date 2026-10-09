@@ -30,6 +30,7 @@ import {
   listingPagePhotos,
   listingPath,
   resolveHomeFromPath,
+  stockId,
 } from '../utils/listingRoutes';
 import {
   BUSINESS_NAME,
@@ -2235,6 +2236,9 @@ export function LeadCaptureForm({ home, type, onClose, onBookAppointment }) {
           ...(normalizedEmail ? { email: normalizedEmail } : {}),
           home_id: getHomeIdentifier(home),
           home_model: home.model_name,
+          // Shown to staff in the new-lead email ("Interested in: ...").
+          home_stock: stockId(home) || undefined,
+          home_url: listingPath(home) || undefined,
           message: `${type === 'tour' ? 'Tour Request' : 'Price Quote Request'} — ${home.model_name}. ${formData.message}`.trim(),
           source: `inventory_${intent}`,
           ...getUtmParams(),

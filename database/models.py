@@ -516,6 +516,9 @@ class LeadRecord(BaseModel):
     )
     home_id: str | None = Field(default=None, max_length=200)
     home_model: str | None = Field(default=None, max_length=200)
+    home_stock: str | None = Field(default=None, max_length=100)
+    home_label: str | None = Field(default=None, max_length=200)
+    home_url: str | None = Field(default=None, max_length=300)
 
     utm_source: str | None = Field(default=None, max_length=200)
     utm_medium: str | None = Field(default=None, max_length=200)

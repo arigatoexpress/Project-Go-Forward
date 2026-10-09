@@ -6193,6 +6193,108 @@ _PUBLIC_CONTACT_PHONE_MAX = 40
 _PUBLIC_CONTACT_MESSAGE_MAX = 2000
 
 
+_LEAD_HOME_PATH_RE = re.compile(r"^/(?:homes|plan)/[A-Za-z0-9][A-Za-z0-9/_.-]{0,180}$")
+_LEAD_HOME_TOKEN_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$")
+
+
+def _lead_home_stock_label(stock: str) -> str:
+    """Staff wording for a home identifier: stock #, plan #, or inventory id."""
+    stock = str(stock or "").strip()
+    if not stock:
+        return ""
+    if stock.isdigit():
+        return f"Stock #{stock}"
+    if stock.startswith("floorplan-") and stock[len("floorplan-") :].isdigit():
+        return f"Plan #{stock[len('floorplan-') :]} (build-to-order)"
+    return f"Inventory ID: {stock}"
+
+
+def _lead_home_public_url(value: object) -> str | None:
+    """Absolute site URL for a listing path, only for this site's own pages.
+
+    Accepts a site-relative /homes/ or /plan/ path, or an absolute URL whose
+    host is this site. Anything else returns None, so a customer-supplied
+    value can never put an outside link into the staff email.
+    """
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    if raw.startswith(("http://", "https://")):
+        parts = urlsplit(raw)
+        host = (parts.netloc or "").lower()
+        if host not in {_CANONICAL_PUBLIC_HOST.lower(), "texashomeoutlet.com", "www.texashomeoutlet.com"}:
+            return None
+        raw = parts.path or ""
+    if not _LEAD_HOME_PATH_RE.fullmatch(raw) or ".." in raw:
+        return None
+    return f"{CANONICAL_PUBLIC_URL}{raw}"
+
+
+def _find_public_home(home_id: str) -> dict | None:
+    if not home_id:
+        return None
+    try:
+        homes = (_resolve_public_inventory_context() or {}).get("homes") or []
+    except Exception as exc:  # inventory outage must never block a lead
+        struct_logger.warning("Lead home lookup failed", error=str(exc))
+        return None
+    for home in homes:
+        if not isinstance(home, dict):
+            continue
+        ids = {str(home.get(k) or "").strip() for k in ("home_id", "id", "stock_id")}
+        if home_id in ids:
+            return home
+    return None
+
+
+def _lead_home_summary(data: dict) -> dict | None:
+    """Which home a public lead is about, for the lead record and staff email.
+
+    The home is looked up by ``home_id`` in the same public inventory the site
+    renders, so the label, stock number and link come from our own data. If the
+    home is no longer listed, the browser-sent model/stock are used as plain
+    text, and a link only when it is one of this site's listing paths.
+    Returns None for a general inquiry (no home given).
+    """
+    home_id = str(data.get("home_id") or "").strip()[:200]
+    client_model = str(data.get("home_model") or "").strip()[:200]
+    client_stock = str(data.get("home_stock") or "").strip()[:100]
+    if not home_id and not client_model:
+        return None
+
+    home = _find_public_home(home_id)
+    if home is not None:
+        model = str(home.get("model_name") or "").strip() or client_model
+        maker = str(home.get("manufacturer") or "").strip()
+        label = model
+        if maker and maker.lower() not in {"pre-owned", "preowned"} and maker.lower() not in model.lower():
+            label = f"{maker} {model}".strip()
+        stock = str(home.get("stock_id") or home.get("home_id") or home_id).strip()
+        url = _lead_home_public_url(home.get("listing_url")) or _lead_home_public_url(
+            home.get("detail_url")
+        )
+        return {
+            "home_id": home_id,
+            "label": label[:200] or None,
+            "stock_id": stock[:100] or None,
+            "stock": _lead_home_stock_label(stock),
+            "url": url,
+            "note": None,
+        }
+
+    stock = client_stock or home_id
+    if stock and not _LEAD_HOME_TOKEN_RE.fullmatch(stock):
+        stock = ""
+    return {
+        "home_id": home_id or None,
+        "label": client_model or None,
+        "stock_id": stock or None,
+        "stock": _lead_home_stock_label(stock),
+        "url": _lead_home_public_url(data.get("home_url")),
+        "note": "This home was not found in current inventory (it may be sold or unlisted).",
+    }
+
+
 def _validate_public_contact_payload(data: object) -> tuple[dict[str, str], JSONResponse | None]:
     if not isinstance(data, dict):
         return {}, JSONResponse({"success": False, "error": "Invalid request."}, status_code=400)
@@ -6388,6 +6490,9 @@ async def submit_contact_form(request: Request):
         lead_id = f"contact_{int(time.time())}_{uuid.uuid4().hex[:4]}"
         warnings: list[str] = []
         lead_persisted = False
+        # Which home (if any) this lead is about: stored on the lead and shown
+        # at the top of the staff email so sales can prepare before calling.
+        lead_home = _lead_home_summary(data)
 
         log_user_action(
             action="contact.submit",
@@ -6415,6 +6520,9 @@ async def submit_contact_form(request: Request):
                 email=email or None,
                 home_id=home_id,
                 home_model=home_model,
+                home_stock=(lead_home or {}).get("stock_id"),
+                home_url=(lead_home or {}).get("url"),
+                home_label=(lead_home or {}).get("label"),
                 **_extract_attribution(data),
             )
             await lead_manager.create_lead(new_lead)
@@ -6508,6 +6616,7 @@ async def submit_contact_form(request: Request):
                 phone=phone,
                 email=email,
                 source=data.get("source", "contact_form"),
+                home=lead_home,
             )
             owner_notified = (
                 isinstance(notification, dict)
