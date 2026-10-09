@@ -794,31 +794,103 @@ def send_document_email(
 # ── Admin Notifications ─────────────────────────────────────────
 
 
+def format_lead_home_interest(home: dict | None) -> str:
+    """One plain-language line telling staff which home a lead is about.
+
+    ``home`` is the dict built by main._lead_home_summary (label, stock, url).
+    No home -> "General inquiry".
+    """
+    if not home or not (home.get("label") or home.get("stock")):
+        return "General inquiry"
+    parts = [str(home.get("label") or "Home (model not given)")]
+    if home.get("stock"):
+        parts.append(str(home["stock"]))
+    if home.get("url"):
+        parts.append(str(home["url"]))
+    return "Interested in: " + " — ".join(parts)
+
+
+def _lead_home_interest_html(home: dict | None) -> str:
+    esc = html_mod.escape
+    box = (
+        "background: #fef3c7; border-left: 4px solid #f59e0b; padding: 14px 16px; "
+        "margin: 0 0 16px; border-radius: 0 8px 8px 0; color: #1f2937; font-size: 16px;"
+    )
+    if not home or not (home.get("label") or home.get("stock")):
+        return f'<div style="{box}"><strong>General inquiry</strong> (no specific home)</div>'
+    pieces = [f"<strong>Interested in:</strong> {esc(str(home.get('label') or 'Home (model not given)'))}"]
+    if home.get("stock"):
+        pieces.append(esc(str(home["stock"])))
+    if home.get("url"):
+        url = esc(str(home["url"]), quote=True)
+        pieces.append(f'<a href="{url}" style="color: #1d4ed8;">View listing</a>')
+    note = ""
+    if home.get("note"):
+        note = (
+            '<br><span style="color: #6b7280; font-size: 13px;">'
+            f"{esc(str(home['note']))}</span>"
+        )
+    return f'<div style="{box}">{" — ".join(pieces)}{note}</div>'
+
+
 def notify_new_lead(
-    customer_name: str, phone: str, email: str = None, source: str = "website"
+    customer_name: str,
+    phone: str,
+    email: str = None,
+    source: str = "website",
+    home: dict | None = None,
 ) -> dict:
-    """Notify all THO staff when a new lead comes in."""
+    """Notify all THO staff when a new lead comes in.
+
+    ``home`` (optional) is the home the customer asked about. It is shown at
+    the very top of the email so sales can prepare before calling; leads with
+    no home say "General inquiry".
+    """
     if not NOTIFICATION_EMAILS:
         return {"success": False, "error": "No notification email configured"}
 
     esc = html_mod.escape
+    interest_line = format_lead_home_interest(home)
+    received = datetime.now(TIMEZONE).strftime("%B %d, %Y at %I:%M %p")
     content = f"""
     <h2 style="color: #1e3a5f; margin-top: 0;">New Lead Alert</h2>
+    {_lead_home_interest_html(home)}
     <div style="background: #eff6ff; border-left: 4px solid #3b82f6; padding: 16px; margin: 16px 0; border-radius: 0 8px 8px 0;">
       <p style="margin: 4px 0; color: #374151;"><strong>Name:</strong> {esc(customer_name)}</p>
       <p style="margin: 4px 0; color: #374151;"><strong>Phone:</strong> {esc(phone)}</p>
       {f'<p style="margin: 4px 0; color: #374151;"><strong>Email:</strong> {esc(email)}</p>' if email else ''}
       <p style="margin: 4px 0; color: #374151;"><strong>Source:</strong> {esc(source)}</p>
-      <p style="margin: 4px 0; color: #6b7280; font-size: 13px;">{datetime.now(TIMEZONE).strftime("%B %d, %Y at %I:%M %p")}</p>
+      <p style="margin: 4px 0; color: #6b7280; font-size: 13px;">{received}</p>
     </div>
     <p style="color: #374151;">Log into the <strong>CRM dashboard</strong> to follow up.</p>
     """
 
+    text_lines = [
+        interest_line,
+        "",
+        f"Name: {customer_name}",
+        f"Phone: {phone}",
+    ]
+    if email:
+        text_lines.append(f"Email: {email}")
+    text_lines += [f"Source: {source}", f"Received: {received}", ""]
+    if home and home.get("note"):
+        text_lines.insert(1, str(home["note"]))
+    text_lines.append("Log into the CRM dashboard to follow up.")
+
+    subject_tag = (home or {}).get("stock") or (
+        "General inquiry" if not (home and home.get("label")) else ""
+    )
+    subject = f"New Lead: {customer_name} — {phone}"
+    if subject_tag:
+        subject += f" — {subject_tag}"
+
     return send_email(
         to=NOTIFICATION_EMAILS,
-        subject=f"New Lead: {customer_name} — {phone}",
+        subject=subject,
         html=_base_wrapper(content),
         email_type="admin_lead_notification",
+        text="\n".join(text_lines),
     )
 
 
