@@ -170,7 +170,11 @@ def test_total_of_payments_flag_flips_both_engines(monkeypatch):
     assert enriched["finance_charge"] == "163,122.76"
 
 
-INSURANCE_BOX = "Insurance_Included_Yes[0]"
+# Page 3, IX.D: Insurance_Yes is the "YES, You agree to the Insurance Escrow
+# Option" box; Insurance_Included_Yes is the "You have paid $... for the first
+# year's insurance premium" sub-box (positions checked on the template).
+INSURANCE_ESCROW_YES_BOX = "Insurance_Yes[0]"
+FIRST_YEAR_PAID_BOX = "Insurance_Included_Yes[0]"
 TAX_BOX = "Tax_Escrow_Included_Yes[0]"
 
 
@@ -191,26 +195,35 @@ def _box_states(reader: PdfReader) -> dict[str, str | None]:
     return states
 
 
-def test_contract_page3_checks_insurance_escrow_box_when_insurance_escrowed(tmp_path, monkeypatch):
+def _is_checked(state: str | None) -> bool:
+    return state not in (None, "/Off")
+
+
+def test_contract_page3_checks_insurance_escrow_yes_when_insurance_escrowed(tmp_path, monkeypatch):
     states = _box_states(_render(CONTRACT, DEAL, tmp_path, monkeypatch))
-    assert states[INSURANCE_BOX] not in (None, "/Off")
-    assert states[TAX_BOX] not in (None, "/Off")
+    assert _is_checked(states[INSURANCE_ESCROW_YES_BOX])
+    # Whether the buyer prepaid the first year is a staff fact; never auto-ticked.
+    assert not _is_checked(states[FIRST_YEAR_PAID_BOX])
+    assert _is_checked(states[TAX_BOX])
 
 
-def test_contract_page3_leaves_insurance_escrow_box_off_without_insurance(tmp_path, monkeypatch):
+def test_contract_page3_leaves_insurance_escrow_yes_off_without_insurance(tmp_path, monkeypatch):
     deal = {k: v for k, v in DEAL.items() if k != "insurance_premium_monthly"}
     states = _box_states(_render(CONTRACT, deal, tmp_path, monkeypatch))
-    assert states[INSURANCE_BOX] in (None, "/Off")
-    assert states[TAX_BOX] not in (None, "/Off")
+    assert not _is_checked(states[INSURANCE_ESCROW_YES_BOX])
+    assert not _is_checked(states[FIRST_YEAR_PAID_BOX])
+    assert _is_checked(states[TAX_BOX])
 
 
-def test_enrichment_sets_insurance_included_only_for_positive_insurance():
-    assert enrich_document_data(dict(DEAL))["insurance_included"] is True
-    assert "insurance_included" not in enrich_document_data(dict(NO_ESCROW_DEAL))
+def test_enrichment_sets_insurance_escrow_yes_only_for_positive_insurance():
+    enriched = enrich_document_data(dict(DEAL))
+    assert enriched["insurance_required"] is True
+    assert "insurance_included" not in enriched
+    assert "insurance_required" not in enrich_document_data(dict(NO_ESCROW_DEAL))
     zero = enrich_document_data({**DEAL, "insurance_premium_monthly": "0"})
-    assert "insurance_included" not in zero
+    assert "insurance_required" not in zero
 
 
-def test_enrichment_keeps_staff_entered_insurance_included():
-    kept = enrich_document_data({**DEAL, "insurance_included": False})
-    assert kept["insurance_included"] is False
+def test_enrichment_keeps_staff_entered_insurance_escrow_choice():
+    kept = enrich_document_data({**DEAL, "insurance_required": False})
+    assert kept["insurance_required"] is False

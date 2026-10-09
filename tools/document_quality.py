@@ -764,10 +764,13 @@ def enrich_document_data(data: dict[str, Any]) -> dict[str, Any]:
     if tax_part > 0 and _is_blank(enriched.get("tax_escrow_included")):
         enriched["tax_escrow_included"] = True
     # Contract page 3, IX.D Insurance Escrow Option: mirror the tax escrow box.
+    # The "YES, You agree" box is the Insurance_Yes widget (insurance_required).
+    # Insurance_Included_Yes is the "You have paid $... for the first year's
+    # premium" sub-box, a fact staff must enter, so it is left alone.
     # A staff-entered value (including an explicit False) is never overridden.
     insurance_part = _decimal(enriched.get("insurance_premium_monthly")) or Decimal("0")
-    if insurance_part > 0 and _is_blank(enriched.get("insurance_included")):
-        enriched["insurance_included"] = True
+    if insurance_part > 0 and _is_blank(enriched.get("insurance_required")):
+        enriched["insurance_required"] = True
 
     _apply_lender_profile(enriched)
 
