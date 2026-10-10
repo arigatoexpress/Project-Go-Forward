@@ -76,3 +76,22 @@ export async function resolveChatSession({
   }
   return { sessionId: '', messages: [], fresh: true };
 }
+
+/**
+ * Use the session id POST /run actually wrote to.
+ *
+ * A different id means this browser did not own the id it sent. The page
+ * switches to the fresh chat the server started.
+ */
+export function adoptRunSessionId(currentId, payload, storage = globalThis.localStorage) {
+  const returned = payload && typeof payload.session_id === 'string' ? payload.session_id.trim() : '';
+  if (!returned) return currentId || '';
+  if (returned !== currentId) {
+    try {
+      storage.setItem(CHAT_SESSION_STORAGE_KEY, returned);
+    } catch {
+      // This page can still switch for this visit. A reload may start fresh.
+    }
+  }
+  return returned;
+}

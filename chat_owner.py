@@ -2,8 +2,10 @@
 
 The page keeps the session id so it can send messages. A separate httpOnly
 cookie proves this browser is the owner. The cookie value is an HMAC of the
-session id under the existing server session secret, so any instance can
-check it without a new secret or a Firestore field.
+session id. The HMAC key is derived from ADMIN_SESSION_SECRET, so rotating
+that secret makes every existing cookie fail. Visitors then start a fresh
+chat instead of continuing the old one. Staff can still open the old
+transcript in Chat History.
 
 Do not log the cookie value or chat transcripts.
 """
@@ -20,7 +22,9 @@ import secrets
 from fastapi.responses import JSONResponse, Response
 
 CHAT_OWNER_COOKIE = "tho_chat_owner"
-CHAT_OWNER_COOKIE_PATH = "/api/chat"
+# POST /run lives outside /api/chat. The browser only sends a cookie when the
+# path matches, so this has to cover both the history read and the chat send.
+CHAT_OWNER_COOKIE_PATH = "/"
 CHAT_OWNER_COOKIE_TTL_SECONDS = 30 * 24 * 60 * 60
 PRIVATE_CHAT_CACHE_CONTROL = "private, no-store"
 _OWNER_KEY_PURPOSE = b"tho-chat-owner-v1"
@@ -49,16 +53,18 @@ def is_high_entropy_session_id(session_id: object) -> bool:
     return len(raw) == _SESSION_ID_BYTES
 
 
-def resolve_public_session_id(raw: object) -> tuple[str, bool]:
-    """Return ``(session_id, minted)``.
+def bind_run_session(raw: object, presented_cookie: str | None) -> tuple[str, bool]:
+    """Return ``(session_id, replaced)`` for a public chat send.
 
-    A caller-supplied id is kept so an in-flight chat can still send messages.
-    Only a missing id is replaced, and the replacement is high-entropy.
+    Continue ``raw`` only when ``presented_cookie`` proves this browser owns
+    that id. Anyone else, including a caller who only knows the id, gets a
+    new high-entropy session. Callers must use the returned id for memory,
+    agent history, and the stored transcript, and must send it back so the
+    page can switch.
     """
-    if isinstance(raw, str):
-        session_id = raw.strip()
-        if session_id:
-            return session_id, False
+    session_id = raw.strip() if isinstance(raw, str) else ""
+    if session_id and chat_owner_cookie_matches(presented_cookie, session_id):
+        return session_id, False
     return new_chat_session_id(), True
 
 
@@ -79,7 +85,8 @@ def chat_owner_cookie_matches(presented: str | None, session_id: str) -> bool:
     """True when ``presented`` is the owner cookie for ``session_id``.
 
     A missing cookie, a mismatched cookie, and a low-entropy id are all
-    mismatches. Callers should answer those with 404.
+    mismatches. History reads answer those with 404. A chat send starts a
+    fresh session instead of continuing the named one.
     """
     if not presented or not is_high_entropy_session_id(session_id):
         return False

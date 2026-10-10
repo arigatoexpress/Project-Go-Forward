@@ -130,10 +130,11 @@ from audit_log import (
 from chat_history import ChatHistory
 from chat_owner import (
     CHAT_OWNER_COOKIE,
+    PRIVATE_CHAT_CACHE_CONTROL,
+    bind_run_session,
     chat_owner_cookie_matches,
     new_chat_session_id,
     private_chat_json,
-    resolve_public_session_id,
     set_chat_owner_cookie,
 )
 from conversation_memory import ConversationMemory
@@ -1813,16 +1814,29 @@ async def run_agent(request: Request, response: Response):
 
     request_id = str(uuid.uuid4())
     start_time = time.time()
+    session_id = ""
+    user_id = "default_user"
 
     try:
         data = await request.json()
-        user_id = data.get("userId", "default_user")
-        session_id, minted = resolve_public_session_id(data.get("sessionId"))
-        # Bind a server-minted id to this browser. A caller-supplied id only
-        # refreshes a cookie that already matches, so knowing an id is not
-        # enough to read its history.
-        if minted or chat_owner_cookie_matches(request.cookies.get(CHAT_OWNER_COOKIE), session_id):
-            set_chat_owner_cookie(response, session_id, secure=not IS_LOCAL)
+        # Continue a chat only when this browser's owner cookie matches the
+        # id it sent. Knowing the id is not enough: a missing or wrong cookie
+        # starts a new chat and must not read or extend the named session.
+        session_id, replaced = bind_run_session(
+            data.get("sessionId"),
+            request.cookies.get(CHAT_OWNER_COOKIE),
+        )
+        supplied_user = data.get("userId")
+        if replaced or not isinstance(supplied_user, str) or not supplied_user.strip():
+            # The page's next send uses web_user_<session id>. A replacement
+            # has to start under that same id or the follow-up lands in a
+            # different agent session.
+            user_id = f"web_user_{session_id}"
+        else:
+            user_id = supplied_user.strip()
+        set_chat_owner_cookie(response, session_id, secure=not IS_LOCAL)
+        response.headers["Cache-Control"] = PRIVATE_CHAT_CACHE_CONTROL
+        response.headers["Vary"] = "Cookie"
         new_message_dict = data.get("newMessage")
         # First-party UTM/referrer the frontend carries on the chat POST, so a
         # chat-sourced lead is attributable to the paid campaign that drove it
@@ -1868,7 +1882,10 @@ async def run_agent(request: Request, response: Response):
             runner = _get_runner()
         except RuntimeError as e:
             struct_logger.error("AI service unavailable", request_id=request_id, error=str(e))
-            return {"error": "AI service temporarily unavailable. Please try again later."}
+            return {
+                "error": "AI service temporarily unavailable. Please try again later.",
+                "session_id": session_id,
+            }
 
         # Ensure session exists
         existing_session = await runner.session_service.get_session(
@@ -1988,7 +2005,7 @@ async def run_agent(request: Request, response: Response):
             request=request,
         )
 
-        return {"text": final_text}
+        return {"text": final_text, "session_id": session_id}
 
     except Exception as e:
         duration_ms = (time.time() - start_time) * 1000
@@ -2008,7 +2025,10 @@ async def run_agent(request: Request, response: Response):
         user_message = (
             "I'm having trouble connecting to my brain right now. Please try again in a moment."
         )
-        return {"error": user_message}
+        body = {"error": user_message}
+        if session_id:
+            body["session_id"] = session_id
+        return body
 
 
 @app.post("/api/chat/session")
@@ -4853,7 +4873,9 @@ _DOCUSEAL_API_TOKEN = os.environ.get("DOCUSEAL_API_TOKEN", "")
 _DOCUSEAL_WEBHOOK_SECRET = os.environ.get("DOCUSEAL_WEBHOOK_SECRET", "")
 # Replay window for signed DocuSeal events: reject stale/future payload
 # timestamps and drop exact repeats seen by this instance inside the window.
-_DOCUSEAL_WEBHOOK_MAX_AGE_SECONDS = int(os.environ.get("DOCUSEAL_WEBHOOK_MAX_AGE_SECONDS", str(72 * 3600)))
+_DOCUSEAL_WEBHOOK_MAX_AGE_SECONDS = int(
+    os.environ.get("DOCUSEAL_WEBHOOK_MAX_AGE_SECONDS", str(72 * 3600))
+)
 _DOCUSEAL_REPLAY_GUARD = ReplayGuard(_DOCUSEAL_WEBHOOK_MAX_AGE_SECONDS)
 
 
@@ -5276,7 +5298,9 @@ async def docuseal_webhook(request: Request):
         event, body, max_age_seconds=_DOCUSEAL_WEBHOOK_MAX_AGE_SECONDS
     )
     if replay_reject:
-        struct_logger.warning("DocuSeal webhook rejected", event="docuseal_replay_window", reason=replay_reject)
+        struct_logger.warning(
+            "DocuSeal webhook rejected", event="docuseal_replay_window", reason=replay_reject
+        )
         return {"status": "ignored", "reason": replay_reject}
     if not _DOCUSEAL_REPLAY_GUARD.claim(replay_key):
         return {"status": "duplicate"}
@@ -6297,7 +6321,11 @@ def _lead_home_public_url(value: object) -> str | None:
     if raw.startswith(("http://", "https://")):
         parts = urlsplit(raw)
         host = (parts.netloc or "").lower()
-        if host not in {_CANONICAL_PUBLIC_HOST.lower(), "texashomeoutlet.com", "www.texashomeoutlet.com"}:
+        if host not in {
+            _CANONICAL_PUBLIC_HOST.lower(),
+            "texashomeoutlet.com",
+            "www.texashomeoutlet.com",
+        }:
             return None
         raw = parts.path or ""
     if not _LEAD_HOME_PATH_RE.fullmatch(raw) or ".." in raw:
@@ -6342,7 +6370,11 @@ def _lead_home_summary(data: dict) -> dict | None:
         model = str(home.get("model_name") or "").strip() or client_model
         maker = str(home.get("manufacturer") or "").strip()
         label = model
-        if maker and maker.lower() not in {"pre-owned", "preowned"} and maker.lower() not in model.lower():
+        if (
+            maker
+            and maker.lower() not in {"pre-owned", "preowned"}
+            and maker.lower() not in model.lower()
+        ):
             label = f"{maker} {model}".strip()
         stock = str(home.get("stock_id") or home.get("home_id") or home_id).strip()
         url = _lead_home_public_url(home.get("listing_url")) or _lead_home_public_url(

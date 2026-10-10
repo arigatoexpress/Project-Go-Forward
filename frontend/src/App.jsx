@@ -13,7 +13,7 @@ import ClosureBanner from './components/ClosureBanner';
 import ChatCallbackCard from './components/ChatCallbackCard';
 import InventoryBrowse from './pages/InventoryBrowse';
 import LegalPage from './pages/LegalPage';
-import { CHAT_SESSION_STORAGE_KEY, resolveChatSession } from './chatSession';
+import { CHAT_SESSION_STORAGE_KEY, adoptRunSessionId, resolveChatSession } from './chatSession';
 import { captureUtmFromUrl, getUtmParams } from './utils/utm';
 import { getJourneyAttribution } from './utils/attribution';
 import { attachPhoneClickTracking, isPublicAnalyticsPath, trackEvent } from './utils/analytics';
@@ -404,6 +404,7 @@ function Footer({ adminAuthed, onAdminAccess, onNavigate }) {
 // ─── Shared API call helper with retry logic ───
 async function sendToAgent(sessionId, text, maxRetries = 2) {
   let lastError;
+  let activeSessionId = sessionId;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
@@ -416,8 +417,8 @@ async function sendToAgent(sessionId, text, maxRetries = 2) {
         },
         body: JSON.stringify({
           appName: 'root_agent',
-          userId: `web_user_${sessionId}`,
-          sessionId: sessionId,
+          userId: `web_user_${activeSessionId}`,
+          sessionId: activeSessionId,
           newMessage: {
             role: 'user',
             parts: [{ text }]
@@ -438,14 +439,16 @@ async function sendToAgent(sessionId, text, maxRetries = 2) {
       }
 
       const data = await response.json();
+      activeSessionId = adoptRunSessionId(activeSessionId, data);
 
-      if (data.error) return `System Error: ${safeUserMessage(extractErrorMessage(data))}`;
-      if (data.text) return data.text;
-      if (data.content) return typeof data.content === 'string' ? data.content : JSON.stringify(data.content);
-      if (data.candidates?.[0]?.content?.parts) {
-        return data.candidates[0].content.parts.map(p => p.text).join(' ');
-      }
-      return "I apologize, I didn't catch that. Could you rephrase?";
+      let reply;
+      if (data.error) reply = `System Error: ${safeUserMessage(extractErrorMessage(data))}`;
+      else if (data.text) reply = data.text;
+      else if (data.content) reply = typeof data.content === 'string' ? data.content : JSON.stringify(data.content);
+      else if (data.candidates?.[0]?.content?.parts) {
+        reply = data.candidates[0].content.parts.map((part) => part.text).join(' ');
+      } else reply = "I apologize, I didn't catch that. Could you rephrase?";
+      return { text: reply, sessionId: activeSessionId };
 
     } catch (error) {
       lastError = error;
@@ -535,6 +538,7 @@ function App() {
     callbackStorageKey ? sessionStorage.getItem(callbackStorageKey) === 'dismissed' : false
   ));
   const sessionRequestRef = useRef(null);
+  const resolvedSessionRef = useRef('');
 
   useEffect(() => {
     if (!callbackStorageKey) {
@@ -548,19 +552,40 @@ function App() {
 
   const loadSession = useCallback(() => {
     if (!sessionRequestRef.current) {
-      sessionRequestRef.current = resolveChatSession().finally(() => {
-        sessionRequestRef.current = null;
-      });
+      sessionRequestRef.current = resolveChatSession()
+        .then((result) => {
+          if (result?.sessionId) resolvedSessionRef.current = result.sessionId;
+          return result;
+        })
+        .finally(() => {
+          sessionRequestRef.current = null;
+        });
     }
     return sessionRequestRef.current;
   }, []);
 
   const ensureSessionId = useCallback(async () => {
-    if (sessionId) return sessionId;
-    const resolved = await loadSession();
-    if (resolved.sessionId) setSessionId(resolved.sessionId);
-    return resolved.sessionId || '';
+    // Wait for the in-flight history read. It sets the owner cookie before
+    // the first send, including chats that started before that cookie existed.
+    let resolved = null;
+    if (sessionRequestRef.current) {
+      resolved = await sessionRequestRef.current;
+    } else if (!resolvedSessionRef.current) {
+      resolved = await loadSession();
+    }
+    const nextId = resolved?.sessionId || resolvedSessionRef.current || sessionId || '';
+    if (nextId && nextId !== sessionId) setSessionId(nextId);
+    return nextId;
   }, [loadSession, sessionId]);
+
+  const acceptRunResult = useCallback((result) => {
+    const nextId = result?.sessionId || '';
+    if (nextId) {
+      resolvedSessionRef.current = nextId;
+      setSessionId((current) => (current === nextId ? current : nextId));
+    }
+    return typeof result?.text === 'string' ? result.text : '';
+  }, []);
 
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [comparisonList, setComparisonList] = useState([]);
@@ -1147,7 +1172,7 @@ function App() {
     try {
       const activeSessionId = await ensureSessionId();
       if (!activeSessionId) throw new Error('Chat session unavailable');
-      const botText = await sendToAgent(activeSessionId, userMessage.text);
+      const botText = acceptRunResult(await sendToAgent(activeSessionId, userMessage.text));
       setMessages(prev => [...prev, { role: 'model', text: botText }]);
     } catch (error) {
       console.error('Error sending message:', error);
@@ -1172,7 +1197,7 @@ function App() {
     try {
       const activeSessionId = await ensureSessionId();
       if (!activeSessionId) throw new Error('Chat session unavailable');
-      const botText = await sendToAgent(activeSessionId, originalMessage);
+      const botText = acceptRunResult(await sendToAgent(activeSessionId, originalMessage));
       setMessages(prev => [...prev, { role: 'model', text: botText }]);
       addToast('Message sent successfully!', 'success');
     } catch {
@@ -1180,7 +1205,7 @@ function App() {
     } finally {
       setIsLoading(false);
     }
-  }, [ensureSessionId, addToast]);
+  }, [acceptRunResult, ensureSessionId, addToast]);
 
   const handleQuickAction = async (message) => {
     if (!isOnline) {
@@ -1192,7 +1217,7 @@ function App() {
     try {
       const activeSessionId = await ensureSessionId();
       if (!activeSessionId) throw new Error('Chat session unavailable');
-      const botText = await sendToAgent(activeSessionId, message);
+      const botText = acceptRunResult(await sendToAgent(activeSessionId, message));
       setMessages(prev => [...prev, { role: 'model', text: botText }]);
     } catch (error) {
       console.error('Error sending quick action:', error);

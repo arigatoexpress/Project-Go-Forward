@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { CHAT_SESSION_STORAGE_KEY, resolveChatSession } from '../chatSession';
+import { CHAT_SESSION_STORAGE_KEY, adoptRunSessionId, resolveChatSession } from '../chatSession';
 
 function memoryStorage(initial = {}) {
   const data = { ...initial };
@@ -94,5 +94,40 @@ describe('resolveChatSession', () => {
       '/api/chat/session',
       expect.objectContaining({ method: 'POST', credentials: 'same-origin' }),
     );
+  });
+});
+
+describe('adoptRunSessionId', () => {
+  it('switches the page to a replacement id returned by /run', () => {
+    const storage = memoryStorage({ [CHAT_SESSION_STORAGE_KEY]: 'victim-session' });
+
+    const next = adoptRunSessionId(
+      'victim-session',
+      { text: 'Hello from a new chat.', session_id: 'fresh-session' },
+      storage,
+    );
+
+    expect(next).toBe('fresh-session');
+    expect(storage.getItem(CHAT_SESSION_STORAGE_KEY)).toBe('fresh-session');
+  });
+
+  it('keeps the current id when /run continues that chat', () => {
+    const storage = memoryStorage({ [CHAT_SESSION_STORAGE_KEY]: 'session-a' });
+
+    const next = adoptRunSessionId(
+      'session-a',
+      { text: 'Still here.', session_id: 'session-a' },
+      storage,
+    );
+
+    expect(next).toBe('session-a');
+    expect(storage.getItem(CHAT_SESSION_STORAGE_KEY)).toBe('session-a');
+  });
+
+  it('keeps the current id when the reply has no session id', () => {
+    const storage = memoryStorage({ [CHAT_SESSION_STORAGE_KEY]: 'session-a' });
+
+    expect(adoptRunSessionId('session-a', { text: 'Hello' }, storage)).toBe('session-a');
+    expect(storage.getItem(CHAT_SESSION_STORAGE_KEY)).toBe('session-a');
   });
 });
