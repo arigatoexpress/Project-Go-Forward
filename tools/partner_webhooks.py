@@ -8,8 +8,13 @@ Design
   naming applies across auth and webhooks.
 - Every webhook body is signed with HMAC-SHA256 using the shared secret
   `PARTNER_WEBHOOK_SIGNING_KEY` (stored in Secret Manager, mounted as env).
-  Partners verify by recomputing HMAC(key, raw_body) and comparing to
-  the `X-THO-Signature: sha256=<hex>` header.
+  Every delivery carries two signatures:
+  - `X-THO-Signature-V2: v2=<hex>` with `X-THO-Timestamp: <unix seconds>`:
+    HMAC over the timestamp, event, partner, delivery id and raw body (see
+    `signed_message_v2`). Receivers should verify this one with
+    `verify_partner_webhook`, which also enforces a replay window.
+  - `X-THO-Signature: sha256=<hex>`: legacy HMAC(key, raw_body), kept so
+    existing receivers keep working while they migrate.
 - Delivery is fire-and-forget on a small thread pool (max_workers=4) so
   the admin PUT endpoint isn't blocked on remote latency.
 - Each attempt writes a row to the Firestore `activities/` collection so
@@ -30,7 +35,9 @@ import hmac
 import json
 import logging
 import os
+import time
 import uuid
+from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from typing import Any
@@ -78,6 +85,104 @@ def _get_signing_key() -> str:
 def _sign(body_bytes: bytes, signing_key: str) -> str:
     digest = hmac.new(signing_key.encode("utf-8"), body_bytes, hashlib.sha256).hexdigest()
     return f"sha256={digest}"
+
+
+SIGNATURE_HEADER = "X-THO-Signature"
+SIGNATURE_V2_HEADER = "X-THO-Signature-V2"
+TIMESTAMP_HEADER = "X-THO-Timestamp"
+DEFAULT_TOLERANCE_SECONDS = 300
+
+
+def signed_message_v2(
+    timestamp: str, event: str, partner_id: str, delivery_id: str, body: bytes
+) -> bytes:
+    """Bytes covered by the v2 signature. Newline-separated header values, then the body.
+
+    Header values cannot contain newlines, so the encoding is unambiguous.
+    """
+    for value in (timestamp, event, partner_id, delivery_id):
+        if "\n" in value or "\r" in value:
+            raise ValueError("webhook header values must not contain newlines")
+    head = "\n".join(("v2", timestamp, event, partner_id, delivery_id)) + "\n"
+    return head.encode("utf-8") + body
+
+
+def _sign_v2(
+    timestamp: str, event: str, partner_id: str, delivery_id: str, body: bytes, signing_key: str
+) -> str:
+    message = signed_message_v2(timestamp, event, partner_id, delivery_id, body)
+    return "v2=" + hmac.new(signing_key.encode("utf-8"), message, hashlib.sha256).hexdigest()
+
+
+def signed_headers(
+    event: str,
+    partner_id: str,
+    delivery_id: str,
+    body: bytes,
+    signing_key: str,
+    *,
+    now: float | None = None,
+) -> dict[str, str]:
+    """Headers for one delivery: legacy body signature plus timestamped v2 signature."""
+    timestamp = str(int(time.time() if now is None else now))
+    return {
+        "Content-Type": "application/json",
+        "X-THO-Event": event,
+        "X-THO-Partner": partner_id,
+        "X-THO-Delivery": delivery_id,
+        TIMESTAMP_HEADER: timestamp,
+        SIGNATURE_HEADER: _sign(body, signing_key),
+        SIGNATURE_V2_HEADER: _sign_v2(timestamp, event, partner_id, delivery_id, body, signing_key),
+    }
+
+
+def verify_partner_webhook(
+    headers: Mapping[str, str],
+    body: bytes,
+    signing_key: str,
+    *,
+    now: float | None = None,
+    tolerance_seconds: float = DEFAULT_TOLERANCE_SECONDS,
+    replay_guard=None,
+    allow_legacy: bool = False,
+) -> bool:
+    """Receiver-side check for a THO partner webhook. Fails closed.
+
+    Verifies the v2 signature, rejects timestamps outside ``tolerance_seconds``
+    and, when a ``tools.webhook_replay.ReplayGuard`` is passed, rejects a
+    delivery id seen before. ``allow_legacy=True`` accepts a body-only
+    signature when v2 headers are absent; that path has no replay protection
+    and exists only for migration.
+    """
+    if not signing_key:
+        return False
+    lower = {str(k).lower(): str(v) for k, v in headers.items()}
+    v2 = lower.get(SIGNATURE_V2_HEADER.lower(), "")
+    timestamp = lower.get(TIMESTAMP_HEADER.lower(), "")
+    if not v2 or not timestamp:
+        if not allow_legacy:
+            return False
+        legacy = lower.get(SIGNATURE_HEADER.lower(), "")
+        return bool(legacy) and hmac.compare_digest(_sign(body, signing_key), legacy)
+    if not timestamp.isdigit():
+        return False
+    current = time.time() if now is None else now
+    if abs(current - int(timestamp)) > tolerance_seconds:
+        return False
+    event = lower.get("x-tho-event", "")
+    partner_id = lower.get("x-tho-partner", "")
+    delivery_id = lower.get("x-tho-delivery", "")
+    try:
+        expected = _sign_v2(timestamp, event, partner_id, delivery_id, body, signing_key)
+    except ValueError:
+        return False
+    if not hmac.compare_digest(expected, v2):
+        return False
+    if replay_guard is not None and not replay_guard.claim(
+        f"tho-partner:{partner_id}:{delivery_id}"
+    ):
+        return False
+    return True
 
 
 def _log_delivery(
@@ -135,14 +240,15 @@ def _deliver_one(
     }
     body_bytes = json.dumps(body, separators=(",", ":")).encode("utf-8")
 
-    headers = {
-        "Content-Type": "application/json",
-        "X-THO-Event": event,
-        "X-THO-Partner": partner_id,
-        "X-THO-Delivery": delivery_id,
-    }
     if signing_key:
-        headers["X-THO-Signature"] = _sign(body_bytes, signing_key)
+        headers = signed_headers(event, partner_id, delivery_id, body_bytes, signing_key)
+    else:
+        headers = {
+            "Content-Type": "application/json",
+            "X-THO-Event": event,
+            "X-THO-Partner": partner_id,
+            "X-THO-Delivery": delivery_id,
+        }
 
     status_code: int | None = None
     success = False

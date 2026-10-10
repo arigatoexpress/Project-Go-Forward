@@ -173,6 +173,7 @@ from tools.inventory_dedupe import (
 )
 from tools.pii_guard import redact_pii_from_text, validate_no_pii_in_text
 from tools.user_activity_log import log_user_action, query_user_activity
+from tools.webhook_replay import ReplayGuard, docuseal_event_key
 
 
 def _safe_audit(action: str, details: dict) -> None:
@@ -4814,6 +4815,10 @@ async def generate_packet_from_deal(deal_id: str, request: Request):
 _DOCUSEAL_API_URL = os.environ.get("DOCUSEAL_API_URL", "")
 _DOCUSEAL_API_TOKEN = os.environ.get("DOCUSEAL_API_TOKEN", "")
 _DOCUSEAL_WEBHOOK_SECRET = os.environ.get("DOCUSEAL_WEBHOOK_SECRET", "")
+# Replay window for signed DocuSeal events: reject stale/future payload
+# timestamps and drop exact repeats seen by this instance inside the window.
+_DOCUSEAL_WEBHOOK_MAX_AGE_SECONDS = int(os.environ.get("DOCUSEAL_WEBHOOK_MAX_AGE_SECONDS", str(72 * 3600)))
+_DOCUSEAL_REPLAY_GUARD = ReplayGuard(_DOCUSEAL_WEBHOOK_MAX_AGE_SECONDS)
 
 
 _DEFAULT_SIGNING_TEMPLATE = "TMHA_SalesContract.pdf"
@@ -5227,7 +5232,18 @@ async def docuseal_webhook(request: Request):
     import json as _json
 
     event = _json.loads(body)
+    if not isinstance(event, dict):
+        return {"status": "ignored", "reason": "unexpected_payload"}
     event_type = event.get("event_type") or event.get("type", "")
+
+    replay_key, replay_reject = docuseal_event_key(
+        event, body, max_age_seconds=_DOCUSEAL_WEBHOOK_MAX_AGE_SECONDS
+    )
+    if replay_reject:
+        struct_logger.warning("DocuSeal webhook rejected", event="docuseal_replay_window", reason=replay_reject)
+        return {"status": "ignored", "reason": replay_reject}
+    if not _DOCUSEAL_REPLAY_GUARD.claim(replay_key):
+        return {"status": "duplicate"}
 
     if event_type not in ("form.completed", "submission.completed"):
         return {"status": "ignored", "event_type": event_type}
@@ -5348,6 +5364,8 @@ async def docuseal_webhook(request: Request):
         return {"status": "ok", "gcs_path": gcs_uri or gcs_path}
 
     except Exception as exc:
+        # Let DocuSeal's retry of this same event be processed.
+        _DOCUSEAL_REPLAY_GUARD.release(replay_key)
         struct_logger.error("DocuSeal webhook processing failed", error=str(exc))
         raise HTTPException(status_code=500, detail=f"Webhook processing failed: {exc}")
 

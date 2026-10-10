@@ -136,7 +136,7 @@ sequenceDiagram
     end
 ```
 
-**Token**: 24 bytes (8-byte BE uint64 expiry + 16-byte HMAC tag), base64 → ~32 chars. TTL default 2h (`ADMIN_TOKEN_TTL`). Secret derivation: `SHA256(f"sapphire-jwt-{ADMIN_PIN_HASH[:16]}")`.
+**Token**: 24 bytes (8-byte BE uint64 expiry + 16-byte HMAC tag), base64 → ~32 chars. TTL default 30 days (`ADMIN_TOKEN_TTL`). Signing key: `HMAC-SHA256(ADMIN_SESSION_SECRET, "tho-pin-session-v2:" + ADMIN_PIN_HASH)`. It needs the server-only session secret, and `main.py` and the passkey router use the same key. Rotating either value ends all PIN sessions.
 
 ## 6. Deployment (CI/CD)
 
