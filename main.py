@@ -3495,7 +3495,14 @@ async def download_document(filename: str):
 # ─── Inventory API ───
 from database.deal_validation import validate_for_documents
 from database.firestore_client import get_database
-from database.models import Deal, DealStatus, ESignRequest, Inventory, InventoryWrite
+from database.models import (
+    Deal,
+    DealStatus,
+    ESignRequest,
+    Inventory,
+    InventoryWrite,
+    unknown_deal_fields,
+)
 from database.rpc_timeout import FIRESTORE_RPC_TIMEOUT
 
 _db = get_database()
@@ -4280,11 +4287,24 @@ async def list_deals(status: str = None, salesrep: str = None, q: str = None, li
         return {"success": False, "error": "Failed to load deals. Please try again."}
 
 
+def _log_unknown_deal_fields(route: str, data: object) -> None:
+    """COD-158: record unknown deal key NAMES only (never values; deals hold PII)."""
+    ignored = unknown_deal_fields(data)
+    if ignored:
+        struct_logger.warning(
+            "Deal payload has unknown fields",
+            route=route,
+            unknown_fields=ignored[:50],
+            unknown_count=len(ignored),
+        )
+
+
 @app.post("/api/deals", dependencies=[Depends(require_admin)])
 async def create_deal(request: Request):
     """Create a new deal/application."""
     try:
         data = await request.json()
+        _log_unknown_deal_fields("create", data)
         # Generate ID if not provided
         deal = Deal(**data)
         deal_data = deal.model_dump()
@@ -4477,6 +4497,7 @@ async def update_deal(deal_id: str, request: Request):
         # Don't allow overwriting id or timestamps
         data.pop("id", None)
         data.pop("created_at", None)
+        _log_unknown_deal_fields("update", data)
         _deal_db.update_deal(deal_id, data)
         log_admin_action(
             actor=_audit_actor(request),
