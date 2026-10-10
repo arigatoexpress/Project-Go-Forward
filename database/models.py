@@ -1404,3 +1404,20 @@ DEFAULT_PM_LABELS = [
     ("debt", "#6b7280"),
     ("research", "#ec4899"),
 ]
+
+
+_DEAL_FIELD_NAMES = frozenset(Deal.model_fields)
+
+
+def unknown_deal_fields(data: object) -> list[str]:
+    """Names (never values) of payload keys that are not Deal fields.
+
+    COD-158 observation step: Deal currently ignores unknown keys on create and the
+    update route writes them through unvalidated. Before switching to extra="forbid",
+    we log which key names staff payloads actually send so a drifted form field is
+    caught before it can break deal entry.
+    """
+    if not isinstance(data, dict):
+        return []
+    return sorted(str(k) for k in data if k not in _DEAL_FIELD_NAMES)
+
