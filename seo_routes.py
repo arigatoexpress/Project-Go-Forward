@@ -672,22 +672,18 @@ def analytics_csp_sources() -> dict:
     return {k: sorted(v) for k, v in extra.items()}
 
 
-def _analytics_head() -> str:
-    """Consent-gated loader for whichever analytics IDs are validly set.
+# First-party consent-gated analytics bootstrap, served as an EXTERNAL script
+# from /tho-analytics.js so the CSP can drop 'unsafe-inline' from script-src
+# (COD-153). The per-deploy config (validated IDs only) rides in an inert
+# <script type="application/json"> data block, which CSP does not execute.
+# Behavior is unchanged: consent defaults to denied and no vendor JavaScript
+# is fetched until tho_analytics_consent_v1 is explicitly "granted".
+ANALYTICS_BOOTSTRAP_PATH = "/tho-analytics.js"
+_ANALYTICS_BOOTSTRAP_JS = """(function(w,d){
+var el=d.getElementById('tho-analytics-config');if(!el)return;
+var c;try{c=JSON.parse(el.textContent||'{}')}catch(e){return;}
+if(!c||typeof c!=='object')return;
 
-    The inline first-party bootstrap is the only code emitted initially. It
-    defaults Google's consent signals to denied and does not fetch Google,
-    Meta, or TikTok JavaScript until ``tho_analytics_consent_v1`` is explicitly
-    ``granted``. This is intentionally stricter than cookieless/advanced mode.
-    """
-    ids = _analytics_ids()
-    if not ids:
-        return ""
-    # Values have already passed strict alphanumeric ID regexes. JSON encoding
-    # is still used so this object can never become an inline-script breakout.
-    config = json.dumps(ids, separators=(",", ":")).replace("<", "\\u003c")
-    return (
-        """<script>(function(w,d,c){
 var KEY='tho_analytics_consent_v1',loaded=false;
 w.__THO_ANALYTICS_CONFIGURED__=true;
 w.dataLayer=w.dataLayer||[];
@@ -720,9 +716,30 @@ w.__THO_DISABLE_ANALYTICS__=function(){w.__THO_ANALYTICS_CONSENT__='denied';w.gt
 var pref=null;try{pref=w.localStorage.getItem(KEY)}catch(e){}
 w.__THO_ANALYTICS_CONSENT__=pref==='granted'?'granted':pref==='denied'?'denied':null;
 if(pref==='granted')w.__THO_ENABLE_ANALYTICS__();
-})(window,document,"""
+})(window,document);
+"""
+
+
+def _analytics_head() -> str:
+    """Consent-gated loader for whichever analytics IDs are validly set.
+
+    Emits an inert JSON config block plus a first-party external bootstrap
+    (``/tho-analytics.js``); no inline executable script. The bootstrap
+    defaults Google's consent signals to denied and does not fetch Google,
+    Meta, or TikTok JavaScript until ``tho_analytics_consent_v1`` is explicitly
+    ``granted``. This is intentionally stricter than cookieless/advanced mode.
+    """
+    ids = _analytics_ids()
+    if not ids:
+        return ""
+    # Values have already passed strict alphanumeric ID regexes. JSON encoding
+    # with "<" escaped means the data block can never break out of <script>.
+    config = json.dumps(ids, separators=(",", ":")).replace("<", "\\u003c")
+    return (
+        '<script type="application/json" id="tho-analytics-config">'
         + config
-        + ");</script>"
+        + "</script>\n    "
+        + f'<script src="{ANALYTICS_BOOTSTRAP_PATH}"></script>'
     )
 
 
@@ -1803,6 +1820,17 @@ def render_not_found() -> Response:
 
 
 # ── robots.txt and sitemap.xml ──────────────────────────────────────────────
+
+
+@router.get(ANALYTICS_BOOTSTRAP_PATH)
+def analytics_bootstrap_js() -> Response:
+    """Static first-party analytics bootstrap (no secrets, no IDs inside; it
+    reads the inert JSON config block and no-ops when that block is absent)."""
+    return Response(
+        content=_ANALYTICS_BOOTSTRAP_JS,
+        media_type="application/javascript; charset=utf-8",
+        headers={"Cache-Control": "public, max-age=300"},
+    )
 
 
 @router.get("/robots.txt", response_class=PlainTextResponse)

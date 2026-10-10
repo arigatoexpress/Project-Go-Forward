@@ -602,15 +602,17 @@ def test_ga4_loader_emitted_only_with_valid_id_and_defaults_to_denied(monkeypatc
     # created only after an explicit stored grant (no eager <script src>).
     monkeypatch.setenv("GA4_MEASUREMENT_ID", "G-ABC1234XYZ")
     body = client.get("/").text
-    assert "https://www.googletagmanager.com/gtag/js?id=" in body
     assert '"GA4_MEASUREMENT_ID":"G-ABC1234XYZ"' in body
-    assert "analytics_storage:'denied'" in body
-    assert "ad_storage:'denied'" in body
-    assert "ad_user_data:'granted',ad_personalization:'denied'" in body
-    assert "__THO_ENABLE_ANALYTICS__" in body
-    assert "__THO_ANALYTICS_CONFIGURED__=true" in body
-    assert "send_page_view:false" in body
+    assert '<script src="/tho-analytics.js"></script>' in body
     assert '<script async src="https://www.googletagmanager.com/gtag/js' not in body
+    js = client.get("/tho-analytics.js").text
+    assert "https://www.googletagmanager.com/gtag/js?id=" in js
+    assert "analytics_storage:'denied'" in js
+    assert "ad_storage:'denied'" in js
+    assert "ad_user_data:'granted',ad_personalization:'denied'" in js
+    assert "__THO_ENABLE_ANALYTICS__" in js
+    assert "__THO_ANALYTICS_CONFIGURED__=true" in js
+    assert "send_page_view:false" in js
 
 
 def test_meta_and_tiktok_pixels_emitted_with_valid_ids(monkeypatch):
@@ -622,8 +624,9 @@ def test_meta_and_tiktok_pixels_emitted_with_valid_ids(monkeypatch):
     body = client.get("/").text
     assert '"META_PIXEL_ID":"1234567890123456"' in body
     assert '"TIKTOK_PIXEL_ID":"CABCDEF1234567890GHIJK"' in body
-    assert "w.fbq('init',id)" in body
-    assert "ttq.load(id)" in body
+    js = client.get("/tho-analytics.js").text
+    assert "w.fbq('init',id)" in js
+    assert "ttq.load(id)" in js
 
 
 def test_analytics_bootloader_uses_one_first_party_consent_key(monkeypatch):
@@ -631,10 +634,11 @@ def test_analytics_bootloader_uses_one_first_party_consent_key(monkeypatch):
         monkeypatch.delenv(var, raising=False)
     client, _ = seo_client(monkeypatch)
     monkeypatch.setenv("GTM_CONTAINER_ID", "GTM-ABC1234")
-    body = client.get("/").text
-    assert "tho_analytics_consent_v1" in body
-    assert "localStorage.getItem" in body
-    assert "pref==='granted'" in body
+    assert '"GTM_CONTAINER_ID":"GTM-ABC1234"' in client.get("/").text
+    js = client.get("/tho-analytics.js").text
+    assert "tho_analytics_consent_v1" in js
+    assert "localStorage.getItem" in js
+    assert "pref==='granted'" in js
 
 
 def test_analytics_never_emitted_on_noindex_routes(monkeypatch):
@@ -1122,3 +1126,63 @@ def test_sitemap_includes_home_urls_with_lastmod(monkeypatch):
     assert body.count("https://www.texashomeoutlet.com/homes/44490-pre-owned-big-blue</loc>") == 1
     home_entry = body[body.index("/homes/44490-pre-owned-big-blue") :]
     assert "<lastmod>2026-10-01</lastmod>" in home_entry[:200]
+
+
+# ── COD-153: no inline executable script (CSP script-src without 'unsafe-inline')
+
+
+_INLINE_EXEC_SCRIPT_RE = re.compile(
+    r"<script(?![^>]*\bsrc=)(?![^>]*\btype=\"application/(?:ld\+)?json\")[^>]*>",
+    re.IGNORECASE,
+)
+
+
+def test_public_pages_emit_no_inline_executable_script_with_all_ids(monkeypatch):
+    for var in _ANALYTICS_ENV:
+        monkeypatch.delenv(var, raising=False)
+    client, _ = seo_client(monkeypatch)
+    monkeypatch.setenv("GA4_MEASUREMENT_ID", "G-ABC1234XYZ")
+    monkeypatch.setenv("GTM_CONTAINER_ID", "GTM-ABC1234")
+    monkeypatch.setenv("META_PIXEL_ID", "1234567890123456")
+    monkeypatch.setenv("TIKTOK_PIXEL_ID", "CABCDEF1234567890GHIJK")
+    body = client.get("/").text
+    assert "tho-analytics-config" in body
+    assert not _INLINE_EXEC_SCRIPT_RE.search(body), _INLINE_EXEC_SCRIPT_RE.search(body)
+    # The vendor bootstrap code itself never appears inline in the page.
+    assert "__THO_ENABLE_ANALYTICS__" not in body
+    assert "fbq(" not in body
+
+
+def test_analytics_config_block_is_inert_json(monkeypatch):
+    for var in _ANALYTICS_ENV:
+        monkeypatch.delenv(var, raising=False)
+    client, _ = seo_client(monkeypatch)
+    monkeypatch.setenv("GA4_MEASUREMENT_ID", "G-ABC1234XYZ")
+    body = client.get("/").text
+    m = re.search(r'<script type="application/json" id="tho-analytics-config">(.*?)</script>', body)
+    assert m, "config data block missing"
+    assert json.loads(m.group(1)) == {"GA4_MEASUREMENT_ID": "G-ABC1234XYZ"}
+
+
+def test_analytics_bootstrap_js_is_static_first_party_and_id_free(monkeypatch):
+    for var in _ANALYTICS_ENV:
+        monkeypatch.delenv(var, raising=False)
+    client, _ = seo_client(monkeypatch)
+    monkeypatch.setenv("GA4_MEASUREMENT_ID", "G-ABC1234XYZ")
+    r = client.get("/tho-analytics.js")
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("application/javascript")
+    # IDs come only from the page's data block, never baked into the script.
+    assert "G-ABC1234XYZ" not in r.text
+    assert "getElementById('tho-analytics-config')" in r.text
+    # No-ops (no vendor fetch, no globals) when the config block is absent.
+    assert r.text.index("if(!el)return;") < r.text.index("__THO_ANALYTICS_CONFIGURED__")
+
+
+def test_no_analytics_markup_when_unconfigured(monkeypatch):
+    for var in _ANALYTICS_ENV:
+        monkeypatch.delenv(var, raising=False)
+    client, _ = seo_client(monkeypatch)
+    body = client.get("/").text
+    assert "tho-analytics-config" not in body
+    assert "/tho-analytics.js" not in body

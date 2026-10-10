@@ -9,7 +9,7 @@ from test_api_v1 import create_client
 
 _BASELINE_CSP = (
     "default-src 'self'; "
-    "script-src 'self' 'unsafe-inline'; "
+    "script-src 'self'; "
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
     "img-src 'self' https://d132mt2yijm03y.cloudfront.net https: data:; "
     "frame-src https://my.matterport.com; "
