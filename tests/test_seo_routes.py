@@ -1186,3 +1186,36 @@ def test_no_analytics_markup_when_unconfigured(monkeypatch):
     body = client.get("/").text
     assert "tho-analytics-config" not in body
     assert "/tho-analytics.js" not in body
+
+
+# ── COD-153: served HTML has no inline styles (CSP style-src without 'unsafe-inline')
+
+# <style> blocks and style attributes in the HTML response are what style-src
+# blocks. React CSSOM updates and external stylesheets are not in this markup.
+_INLINE_STYLE_RE = re.compile(r"<style[\s>/]|\sstyle\s*=", re.IGNORECASE)
+
+_NO_INLINE_STYLE_PATHS = (
+    "/",
+    "/inventory",
+    "/contact",
+    "/financing",
+    "/appointments",
+    "/staff",
+    "/studio",
+    "/homes/44490-pre-owned-big-blue",
+    "/inventory-detail/43372/texas-home-outlet/huffman/premier/",
+)
+
+
+def test_served_html_has_no_inline_styles(monkeypatch):
+    for var in _ANALYTICS_ENV:
+        monkeypatch.delenv(var, raising=False)
+    client, _ = seo_client(monkeypatch)
+    monkeypatch.setenv("GA4_MEASUREMENT_ID", "G-ABC1234XYZ")
+    for path in _NO_INLINE_STYLE_PATHS:
+        response = client.get(path)
+        assert response.status_code == 200, path
+        assert response.headers["content-type"].startswith("text/html"), path
+        match = _INLINE_STYLE_RE.search(response.text)
+        assert match is None, f"{path} contains inline style markup: {match.group(0)!r}"
+        assert "'unsafe-inline'" not in response.headers["content-security-policy"]

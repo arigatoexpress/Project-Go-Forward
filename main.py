@@ -352,19 +352,21 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["X-XSS-Protection"] = "1; mode=block"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
-        # CSP: allow self, inline styles (Tailwind), Google Fonts, Matterport
-        # iframes, CloudFront CDN images. script-src has NO 'unsafe-inline'
-        # (COD-153): every page script is first-party external (Vite bundle,
+        # CSP: self, Google Fonts stylesheets, Matterport iframes, CloudFront
+        # CDN images. script-src and style-src have NO 'unsafe-inline'
+        # (COD-153). Scripts are first-party external (Vite bundle,
         # /tho-analytics.js); JSON-LD and the analytics config are inert data
-        # blocks that CSP does not execute. Vendor analytics/pixel script+connect
-        # hosts are appended ONLY for IDs that are validly set (see
-        # seo_routes.analytics_csp_sources, same _clean_id gate as the snippet).
+        # blocks. Styles ship in bundled CSS — server HTML has no <style> blocks
+        # or style attributes, and the toast keyframes live in App.css. Vendor
+        # analytics/pixel script+connect hosts are appended ONLY for IDs that
+        # are validly set (see seo_routes.analytics_csp_sources, same _clean_id
+        # gate as the snippet).
         import seo_routes
 
         _csp = [
             ("default-src", ["'self'"]),
             ("script-src", ["'self'"]),
-            ("style-src", ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"]),
+            ("style-src", ["'self'", "https://fonts.googleapis.com"]),
             ("img-src", ["'self'", "https://d132mt2yijm03y.cloudfront.net", "https:", "data:"]),
             ("frame-src", ["https://my.matterport.com"]),
             ("connect-src", ["'self'"]),
