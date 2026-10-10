@@ -128,6 +128,14 @@ from audit_log import (
     query_audit_log,
 )
 from chat_history import ChatHistory
+from chat_owner import (
+    CHAT_OWNER_COOKIE,
+    chat_owner_cookie_matches,
+    new_chat_session_id,
+    private_chat_json,
+    resolve_public_session_id,
+    set_chat_owner_cookie,
+)
 from conversation_memory import ConversationMemory
 from docuseal_service import (
     archive_submission as docuseal_archive_submission,
@@ -1795,7 +1803,7 @@ def _check_chat_rate_limit(client_ip: str) -> bool:
 
 
 @app.post("/run")
-async def run_agent(request: Request):
+async def run_agent(request: Request, response: Response):
     client_ip = _get_client_ip(request)
     if not _check_chat_rate_limit(client_ip):
         return JSONResponse(
@@ -1809,7 +1817,12 @@ async def run_agent(request: Request):
     try:
         data = await request.json()
         user_id = data.get("userId", "default_user")
-        session_id = data.get("sessionId") or f"anon_{uuid.uuid4().hex[:12]}"
+        session_id, minted = resolve_public_session_id(data.get("sessionId"))
+        # Bind a server-minted id to this browser. A caller-supplied id only
+        # refreshes a cookie that already matches, so knowing an id is not
+        # enough to read its history.
+        if minted or chat_owner_cookie_matches(request.cookies.get(CHAT_OWNER_COOKIE), session_id):
+            set_chat_owner_cookie(response, session_id, secure=not IS_LOCAL)
         new_message_dict = data.get("newMessage")
         # First-party UTM/referrer the frontend carries on the chat POST, so a
         # chat-sourced lead is attributable to the paid campaign that drove it
@@ -1998,31 +2011,50 @@ async def run_agent(request: Request):
         return {"error": user_message}
 
 
+@app.post("/api/chat/session")
+@limiter.limit("30/minute")
+async def start_public_chat_session(request: Request):
+    """Start a chat and bind it to this browser.
+
+    The session id goes back to the page. The owner cookie is httpOnly, so
+    page script cannot read it. The cookie value is not logged.
+    """
+    session_id = new_chat_session_id()
+    response = private_chat_json({"success": True, "session_id": session_id})
+    set_chat_owner_cookie(response, session_id, secure=not IS_LOCAL)
+    return response
+
+
 @app.get("/api/chat/session/{session_id}")
 @limiter.limit("30/minute")
 async def get_public_chat_session(session_id: str, request: Request):
-    """Retrieve chat history for a given session ID to persist memory on the frontend.
+    """Return chat history for the browser that started this session.
 
-    Rate-limited to blunt enumeration of the 48-bit anon session ids (customers
-    sometimes paste PII into chat). Full per-browser session binding is tracked
-    as a follow-up hardening item.
+    A missing or mismatched owner cookie is a 404, including when no session
+    is stored, so the response does not confirm that an id exists. Staff
+    review uses the admin chat-history routes and does not consult this cookie.
     """
+    if not chat_owner_cookie_matches(request.cookies.get(CHAT_OWNER_COOKIE), session_id):
+        return private_chat_json({"success": False, "error": "Not found"}, status_code=404)
     try:
         session = await chat_history.get_session(session_id)
-        if not session:
-            return {"success": True, "messages": []}
-
         messages = []
-        for msg in session.messages:
-            messages.append({"role": msg.role, "text": msg.text, "timestamp": msg.timestamp})
-
-        return {"success": True, "messages": messages}
+        if session:
+            messages = [
+                {"role": msg.role, "text": msg.text, "timestamp": msg.timestamp}
+                for msg in session.messages
+            ]
+        response = private_chat_json({"success": True, "messages": messages})
+        # Slide the owner cookie so an active visitor keeps the same chat.
+        set_chat_owner_cookie(response, session_id, secure=not IS_LOCAL)
+        return response
     except Exception as e:
         struct_logger.error(
             "Failed to retrieve public chat session", session_id=session_id, error=str(e)
         )
-        return JSONResponse(
-            {"success": False, "error": "Failed to retrieve chat history"}, status_code=500
+        return private_chat_json(
+            {"success": False, "error": "Failed to retrieve chat history"},
+            status_code=500,
         )
 
 

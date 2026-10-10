@@ -13,7 +13,7 @@ import ClosureBanner from './components/ClosureBanner';
 import ChatCallbackCard from './components/ChatCallbackCard';
 import InventoryBrowse from './pages/InventoryBrowse';
 import LegalPage from './pages/LegalPage';
-import { v4 as uuidv4 } from 'uuid';
+import { CHAT_SESSION_STORAGE_KEY, resolveChatSession } from './chatSession';
 import { captureUtmFromUrl, getUtmParams } from './utils/utm';
 import { getJourneyAttribution } from './utils/attribution';
 import { attachPhoneClickTracking, isPublicAnalyticsPath, trackEvent } from './utils/analytics';
@@ -409,6 +409,7 @@ async function sendToAgent(sessionId, text, maxRetries = 2) {
     try {
       const response = await fetch(API_URL, {
         method: 'POST',
+        credentials: 'same-origin',
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json'
@@ -519,14 +520,48 @@ function App() {
   ]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [sessionId] = useState(() => localStorage.getItem('tho_session_id') || uuidv4());
-  const callbackStorageKey = `tho_chat_callback_${sessionId}`;
-  const [chatCallbackCaptured, setChatCallbackCaptured] = useState(
-    () => localStorage.getItem(callbackStorageKey) === 'captured',
-  );
-  const [chatCallbackDismissed, setChatCallbackDismissed] = useState(
-    () => sessionStorage.getItem(callbackStorageKey) === 'dismissed',
-  );
+  const [sessionId, setSessionId] = useState(() => {
+    try {
+      return localStorage.getItem(CHAT_SESSION_STORAGE_KEY) || '';
+    } catch {
+      return '';
+    }
+  });
+  const callbackStorageKey = sessionId ? `tho_chat_callback_${sessionId}` : '';
+  const [chatCallbackCaptured, setChatCallbackCaptured] = useState(() => (
+    callbackStorageKey ? localStorage.getItem(callbackStorageKey) === 'captured' : false
+  ));
+  const [chatCallbackDismissed, setChatCallbackDismissed] = useState(() => (
+    callbackStorageKey ? sessionStorage.getItem(callbackStorageKey) === 'dismissed' : false
+  ));
+  const sessionRequestRef = useRef(null);
+
+  useEffect(() => {
+    if (!callbackStorageKey) {
+      setChatCallbackCaptured(false);
+      setChatCallbackDismissed(false);
+      return;
+    }
+    setChatCallbackCaptured(localStorage.getItem(callbackStorageKey) === 'captured');
+    setChatCallbackDismissed(sessionStorage.getItem(callbackStorageKey) === 'dismissed');
+  }, [callbackStorageKey]);
+
+  const loadSession = useCallback(() => {
+    if (!sessionRequestRef.current) {
+      sessionRequestRef.current = resolveChatSession().finally(() => {
+        sessionRequestRef.current = null;
+      });
+    }
+    return sessionRequestRef.current;
+  }, []);
+
+  const ensureSessionId = useCallback(async () => {
+    if (sessionId) return sessionId;
+    const resolved = await loadSession();
+    if (resolved.sessionId) setSessionId(resolved.sessionId);
+    return resolved.sessionId || '';
+  }, [loadSession, sessionId]);
+
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [comparisonList, setComparisonList] = useState([]);
   const [darkMode, setDarkMode] = useDarkMode();
@@ -556,29 +591,32 @@ function App() {
     captureUtmFromUrl();
   }, []);
 
-  // Load chat history
+  // Load chat history for this browser, or start a fresh chat when the
+  // owner cookie is missing (including sessions started before that cookie).
   useEffect(() => {
-    localStorage.setItem('tho_session_id', sessionId);
-    fetch(`/api/chat/session/${sessionId}`)
-      .then(r => r.json())
-      .then(data => {
-        if (data.success && data.messages && data.messages.length > 0) {
-          // If we have history, keep the initial greeting and append the history
-          setMessages(prev => {
-            const initialGreeting = prev[0]; // Assuming first message is greeting
-            return [
-              initialGreeting,
-              ...data.messages.map(msg => ({
-                role: msg.role,
-                text: msg.text,
-                showQuickActions: false // Don't show quick actions for history
-              }))
-            ];
-          });
-        }
+    let cancelled = false;
+    loadSession()
+      .then((result) => {
+        if (cancelled) return;
+        if (result.sessionId) setSessionId(result.sessionId);
+        if (!result.messages.length) return;
+        setMessages((prev) => {
+          if (prev.length > 1) return prev;
+          return [
+            prev[0],
+            ...result.messages.map((msg) => ({
+              role: msg.role,
+              text: msg.text,
+              showQuickActions: false,
+            })),
+          ];
+        });
       })
-      .catch(e => console.warn('Failed to load chat history:', e));
-  }, [sessionId]);
+      .catch((error) => console.warn('Failed to load chat history:', error));
+    return () => {
+      cancelled = true;
+    };
+  }, [loadSession]);
 
 
   // Keyboard shortcuts
@@ -905,7 +943,7 @@ function App() {
         setShowPinModal(true);
       }
     }
-    localStorage.setItem('tho_session_id', sessionId);
+    if (sessionId) localStorage.setItem('tho_session_id', sessionId);
   }, [sessionId, adminAuthed, navigatePath]);
 
   // Keyboard shortcuts
@@ -1107,7 +1145,9 @@ function App() {
     setIsLoading(true);
 
     try {
-      const botText = await sendToAgent(sessionId, userMessage.text);
+      const activeSessionId = await ensureSessionId();
+      if (!activeSessionId) throw new Error('Chat session unavailable');
+      const botText = await sendToAgent(activeSessionId, userMessage.text);
       setMessages(prev => [...prev, { role: 'model', text: botText }]);
     } catch (error) {
       console.error('Error sending message:', error);
@@ -1130,7 +1170,9 @@ function App() {
   const handleRetry = useCallback(async (originalMessage) => {
     setIsLoading(true);
     try {
-      const botText = await sendToAgent(sessionId, originalMessage);
+      const activeSessionId = await ensureSessionId();
+      if (!activeSessionId) throw new Error('Chat session unavailable');
+      const botText = await sendToAgent(activeSessionId, originalMessage);
       setMessages(prev => [...prev, { role: 'model', text: botText }]);
       addToast('Message sent successfully!', 'success');
     } catch {
@@ -1138,7 +1180,7 @@ function App() {
     } finally {
       setIsLoading(false);
     }
-  }, [sessionId, addToast]);
+  }, [ensureSessionId, addToast]);
 
   const handleQuickAction = async (message) => {
     if (!isOnline) {
@@ -1148,7 +1190,9 @@ function App() {
 
     setIsLoading(true);
     try {
-      const botText = await sendToAgent(sessionId, message);
+      const activeSessionId = await ensureSessionId();
+      if (!activeSessionId) throw new Error('Chat session unavailable');
+      const botText = await sendToAgent(activeSessionId, message);
       setMessages(prev => [...prev, { role: 'model', text: botText }]);
     } catch (error) {
       console.error('Error sending quick action:', error);
