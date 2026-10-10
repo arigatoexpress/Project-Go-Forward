@@ -1,8 +1,8 @@
-"""CSP must be byte-identical to the long-standing baseline when no analytics
-ID is set, and widen ONLY (and exactly) for validly-configured vendor IDs.
+"""CSP must be byte-identical to the baseline when no analytics ID is set, and
+widen ONLY (and exactly) for validly-configured vendor IDs.
 
-This guards the "strict no-op when unconfigured" invariant on the LIVE security
-header — the live site's CSP must not change until an operator sets a valid ID.
+style-src is ``'self'`` plus Google Fonts stylesheets: no ``'unsafe-inline'``,
+nonce, or hash (COD-153), so the header stays static and cache-safe.
 """
 
 from test_api_v1 import create_client
@@ -10,7 +10,7 @@ from test_api_v1 import create_client
 _BASELINE_CSP = (
     "default-src 'self'; "
     "script-src 'self'; "
-    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+    "style-src 'self' https://fonts.googleapis.com; "
     "img-src 'self' https://d132mt2yijm03y.cloudfront.net https: data:; "
     "frame-src https://my.matterport.com; "
     "connect-src 'self'; "
@@ -62,3 +62,35 @@ def test_csp_widens_for_meta_and_tiktok(monkeypatch):
     csp = _csp(client)
     assert "https://connect.facebook.net" in csp
     assert "https://analytics.tiktok.com" in csp
+
+
+def _directive(csp: str, name: str) -> str:
+    prefix = f"{name} "
+    for part in csp.split("; "):
+        if part == name or part.startswith(prefix):
+            return part
+    raise AssertionError(f"{name} missing from CSP: {csp}")
+
+
+def test_style_src_omits_unsafe_inline(monkeypatch):
+    """COD-153: style-src is static (no nonce, no hash, no unsafe-inline)."""
+    for var in _ANALYTICS_ENV:
+        monkeypatch.delenv(var, raising=False)
+    client, *_ = create_client(monkeypatch)
+    style_src = _directive(_csp(client), "style-src")
+    assert style_src == "style-src 'self' https://fonts.googleapis.com"
+    assert "'unsafe-inline'" not in style_src
+    assert "nonce-" not in style_src
+    assert "'sha" not in style_src
+
+
+def test_style_src_unchanged_when_analytics_widens_script_src(monkeypatch):
+    for var in _ANALYTICS_ENV:
+        monkeypatch.delenv(var, raising=False)
+    client, *_ = create_client(monkeypatch)
+    monkeypatch.setenv("GA4_MEASUREMENT_ID", "G-ABC1234XYZ")
+    style_src = _directive(_csp(client), "style-src")
+    assert style_src == "style-src 'self' https://fonts.googleapis.com"
+    script_src = _directive(_csp(client), "script-src")
+    assert "https://www.googletagmanager.com" in script_src
+    assert "'unsafe-inline'" not in script_src

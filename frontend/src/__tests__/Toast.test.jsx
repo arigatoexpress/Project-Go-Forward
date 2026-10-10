@@ -39,4 +39,11 @@ describe('Toast', () => {
 
     expect(screen.queryByText('Hello, THO')).not.toBeInTheDocument();
   });
+
+  it('does not inject a style element (CSP style-src has no unsafe-inline)', async () => {
+    document.querySelectorAll('style').forEach((el) => el.remove());
+    vi.resetModules();
+    await import('../components/Toast');
+    expect(document.querySelector('style')).toBeNull();
+  });
 });
