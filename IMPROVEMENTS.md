@@ -12,6 +12,17 @@
 ### 1. Service Response Time
 - Health check occasionally times out (10s+)
 - May need cold start optimization
+- **AUDITED 2026-10-12 (branch `fix/adstudio-publish-safety`):** the entire
+  `/healthz` request path is now I/O-free — the handler reads only env vars,
+  and every middleware in front of it is exempt or CPU-only (rate limiting,
+  metrics recording, input sanitization, session sliding all skip probe
+  paths). The historical 10s+ stalls trace to (a) cold starts, now mitigated
+  by `--min-instances=1` on production deploys, and (b) the pre-#296
+  unbounded Firestore RPCs, now timeout-bounded. Regression tests pin the
+  contract: `test_health_probes_bypass_performance_metrics_store` and
+  `test_public_healthz_never_checks_email_liveness` in
+  `tests/test_healthz.py`. Remaining latency evidence must come from
+  production traces during the staging load test (operator action).
 
 ### 2. Missing Features (Status as of 2025-06-13, verified 2025-06-24)
 - [x] Chat memory/persistence — **IMPLEMENTED** (`chat_history.py`, `conversation_memory.py`, Firestore-backed, admin API endpoints, full test coverage: `tests/test_chat_history.py` 22 tests, `tests/test_conversation_memory.py` 28 tests)
