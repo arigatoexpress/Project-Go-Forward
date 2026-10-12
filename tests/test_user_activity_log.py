@@ -137,7 +137,7 @@ def test_log_user_action_writes_expected_schema(fake_db):
         assert key in entry, f"missing key {key}"
     assert entry["action"] == "contact.submit"
     assert entry["session_id"] == "sess-42"
-    assert entry["ip"] == "203.0.113.7"
+    assert entry["ip"] == "10.0.0.1"
     assert entry["user_agent"].startswith("Mozilla/5.0")
     assert entry["details"] == {"has_email": True}
 

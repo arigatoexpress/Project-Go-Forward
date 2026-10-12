@@ -41,11 +41,6 @@ def _client_with_email_transport(monkeypatch, *, persist=True, provider_error=Fa
     monkeypatch.setattr(adapter, "REPLY_TO", "staff@example.com")
     monkeypatch.setattr(adapter, "_log_email_activity", lambda *a, **k: None)
     monkeypatch.setattr(main, "notify_new_lead", adapter.notify_new_lead)
-
-    async def no_docuseal(**kwargs):
-        return None
-
-    monkeypatch.setattr(main, "docuseal_auto_trigger", no_docuseal)
     if not persist:
 
         async def storage_failure(_lead):

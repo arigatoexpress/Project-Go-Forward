@@ -17,16 +17,15 @@ python-multipart==0.0.31
 uvicorn==0.34.0
 redis==5.2.1
 dnspython==2.7.0
-pypdf==6.18.0
+pypdf==6.19.0
 resend==2.5.1
 slowapi>=0.1.9
 PyYAML>=6.0
 python-dateutil>=2.8
-requests>=2.28
+requests>=2.32.4
 beautifulsoup4>=4.12
 sentry-sdk[fastapi]==2.22.0
 pytest==9.0.3
-moviepy==1.0.3
 numpy==1.26.4
 
 # Drive floorplan sync (tools/drive_floorplan_sync.py)
@@ -44,9 +43,13 @@ httplib2>=0.32.0
 httpx2>=2.12.0
 joserfc>=1.6.8
 mcp>=1.28.1
+multidict>=6.9.1,<7.0
 pyasn1>=0.6.4
 pydantic-settings>=2.14.2
-PyJWT>=2.13.0
+PyJWT>=2.15.0
 soupsieve>=2.9.0
 sqlparse>=0.6.0
 urllib3>=2.7.0
+
+# Runtime Ad Studio MP4 generation (MoviePy 1.x API).
+moviepy==1.0.3

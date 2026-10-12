@@ -27,12 +27,19 @@ that folder (e.g. ``S-1672-32B-1.jpg``) is typically an exterior
 shot. The actual floorplan diagram lives alongside it as
 ``floor-plans.jpg``, ``floorplan.pdf``, or sometimes a bare model/plan
 filename such as ``jackson.jpg``.
+
+A committed content manifest (``data/floorplan_image_manifest.json``) flags
+drawings whose filenames look like photos, including seeded ``hero.jpg``
+files. ``tools.floorplan_image_scan`` rebuilds that file offline. The request
+path only reads it.
 """
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Iterable
+from pathlib import Path
 from urllib.parse import unquote, urlparse
 
 # Filename tokens that mark an actual floorplan diagram (not just any
@@ -121,19 +128,83 @@ def _is_placeholder_url(url: str | None) -> bool:
     return any(token in filename for token in PLACEHOLDER_FILENAME_TOKENS)
 
 
-def is_floorplan_url(url: str | None) -> bool:
-    """Return True if ``url`` is a floorplan image/PDF URL.
+_CONTENT_MANIFEST: frozenset[str] | None = None
+_CONTENT_MANIFEST_AVAILABLE = False
 
-    Detection is filename-based, not path-based. A URL whose PATH has
-    ``/floorplan/`` but whose FILENAME is just an indexed photo
-    (e.g. ``S-1672-32B-1.jpg``) is NOT a floorplan — it's an asset
-    stored under that model's CDN namespace. A URL with
-    ``floorplan``/``floor-plan``/``floor-plans`` in the filename, or
-    ending in ``.pdf``, IS a floorplan. Case-insensitive. Empty / None
-    inputs return False.
+
+def _content_flagged_floorplans() -> frozenset[str]:
+    """URLs that PIXEL analysis proved are floorplan drawings.
+
+    The filename rules below can only reject what they recognize, so an
+    unfamiliar name defaults to "photo". Two real sources exploit that: seeded
+    ``.../inventory/<id>/hero.jpg`` heroes, and bare ``1.jpg`` names inside the
+    manufacturer floorplan namespace. On 2026-08-31 that put a floorplan drawing
+    on the site's FEATURED home. ``tools.floorplan_image_scan`` measures the
+    pixels offline and records the drawings here, so this stays a pure lookup
+    with no network on the request path. A missing manifest is not an error —
+    detection simply falls back to the filename rules.
+    """
+    global _CONTENT_MANIFEST, _CONTENT_MANIFEST_AVAILABLE
+    if _CONTENT_MANIFEST is None:
+        path = Path(__file__).resolve().parent.parent / "data" / "floorplan_image_manifest.json"
+        try:
+            payload = json.loads(path.read_text())
+            urls = payload["urls"]
+            if not isinstance(urls, list) or any(not isinstance(u, str) for u in urls):
+                raise ValueError("Invalid floorplan manifest URLs")
+            _CONTENT_MANIFEST = frozenset(_normalize_url(u) for u in urls if _normalize_url(u))
+            _CONTENT_MANIFEST_AVAILABLE = True
+        except (OSError, ValueError, KeyError, TypeError):
+            _CONTENT_MANIFEST = frozenset()
+            _CONTENT_MANIFEST_AVAILABLE = False
+    return _CONTENT_MANIFEST
+
+
+def content_manifest_available() -> bool:
+    """Whether content detection loaded a valid manifest, including an empty one."""
+    _content_flagged_floorplans()
+    return _CONTENT_MANIFEST_AVAILABLE
+
+
+def is_manufacturer_catalog_photo_url(url: str | None) -> bool:
+    """Return True for a manufacturer model-gallery photo.
+
+    The ManufacturedHomes CDN stores a model's stock gallery under
+    ``/manufacturer/{id}/floorplan/{plan_id}/``. That path is a namespace, not
+    a floorplan detector: indexed photos in it are catalog/showroom shots of
+    the model, and the drawing is identified separately by filename (see
+    :func:`is_floorplan_url`).
+
+    Checked against the live public feed on 2026-10-08
+    (``/api/marketing/inventory-context``): every catalog image on used
+    listings 43945, 43944, 43943, and 28527 used this namespace. Photos of a
+    specific home were under ``/dealer/{id}/inventory/{unit}/`` or
+    ``storage.googleapis.com/tho-inventory-assets/inventory/{id}/``.
+    Floorplan drawings in the manufacturer namespace are not catalog photos.
     """
     if not url or not isinstance(url, str):
         return False
+    if is_floorplan_url(url):
+        return False
+    return _is_manufacturer_floorplan_namespace(url)
+
+
+def is_floorplan_url(url: str | None) -> bool:
+    """Return True if ``url`` is a floorplan image/PDF URL.
+
+    Detection checks the content manifest first, then the filename, not the
+    URL path. A URL whose PATH has ``/floorplan/`` but whose FILENAME is just
+    an indexed photo (e.g. ``S-1672-32B-1.jpg``) is NOT a floorplan — it's an
+    asset stored under that model's CDN namespace, unless the manifest lists
+    it. A URL with ``floorplan``/``floor-plan``/``floor-plans`` in the
+    filename, or ending in ``.pdf``, IS a floorplan. Case-insensitive.
+    Empty / None inputs return False.
+    """
+    if not url or not isinstance(url, str):
+        return False
+    url = _normalize_url(url)
+    if url in _content_flagged_floorplans():
+        return True
     lowered = url.lower()
     filename = unquote(lowered.rsplit("/", 1)[-1].split("?", 1)[0])
     if filename.endswith(FLOORPLAN_FILE_EXTS):
@@ -370,6 +441,86 @@ def apply_classifier_to_home(home: dict) -> dict:
         cleaned["real_photos"],
     )
 
+    return home
+
+
+_CATALOG_PHOTO_LIST_FIELDS = ("real_photos", "photos", "gallery_images")
+
+
+def _without_catalog_photo_urls(values: list) -> list:
+    return [
+        value
+        for value in values
+        if not (isinstance(value, str) and is_manufacturer_catalog_photo_url(value))
+    ]
+
+
+def strip_manufacturer_catalog_photos(home: dict) -> dict:
+    """Drop manufacturer model-gallery photos from a listing's photo fields.
+
+    Floorplan fields are left as they were. Unit photos (dealer inventory,
+    THO storage, staff uploads) stay. Callers decide which listings are used;
+    this does not treat a new or orderable home differently on its own.
+    When a photo field changes, the classifier runs again so ``image_url``,
+    ``gallery_images``, and ``media_quality`` match the photos that remain.
+    An empty photo list leaves ``image_url`` blank for the existing
+    no-photo placeholder.
+    """
+    if not isinstance(home, dict):
+        return home
+
+    saved_floorplan = home.get("floorplan_url") or home.get("floor_plan_url") or ""
+    saved_floorplans = [
+        url for url in _as_url_list(home.get("floorplan_urls")) if isinstance(url, str) and url
+    ]
+    changed = False
+
+    for field in _CATALOG_PHOTO_LIST_FIELDS:
+        value = home.get(field)
+        if not isinstance(value, list):
+            continue
+        kept = _without_catalog_photo_urls(value)
+        if kept != value:
+            home[field] = kept
+            changed = True
+
+    for field in ("image_url", "hero_image"):
+        value = home.get(field)
+        if isinstance(value, str) and is_manufacturer_catalog_photo_url(value):
+            home[field] = ""
+            changed = True
+
+    categories = home.get("image_categories")
+    if isinstance(categories, dict):
+        cleaned: dict = {}
+        categories_changed = False
+        for key, values in categories.items():
+            if not isinstance(values, list):
+                cleaned[key] = values
+                continue
+            kept = _without_catalog_photo_urls(values)
+            if kept != values:
+                categories_changed = True
+            if kept:
+                cleaned[key] = kept
+        if categories_changed:
+            home["image_categories"] = cleaned
+            changed = True
+
+    if not changed:
+        return home
+
+    apply_classifier_to_home(home)
+    if saved_floorplan:
+        home["floorplan_url"] = saved_floorplan
+        home["floor_plan_url"] = saved_floorplan
+    if saved_floorplans:
+        merged = list(saved_floorplans)
+        for url in home.get("floorplan_urls") or []:
+            if isinstance(url, str) and url and url not in merged:
+                merged.append(url)
+        home["floorplan_urls"] = merged
+    home["hero_image"] = home.get("image_url") or ""
     return home
 
 

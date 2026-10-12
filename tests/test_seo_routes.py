@@ -48,6 +48,38 @@ FAKE_HOMES = [
         "price_value": None,
         "specs": {"beds": 3, "baths": 2},
     },
+    {
+        "id": "44490",
+        "stock_number": "44490",
+        "model_name": "PRE-OWNED / Big Blue",
+        "manufacturer": "Pre-Owned",
+        "classification": "Single Wide",
+        "status": "Pre-Owned",
+        "inventory_kind": "pre_owned",
+        "display_price": "Call for Price",
+        "price_value": None,
+        "image_url": (
+            "https://d132mt2yijm03y.cloudfront.net/manufacturer/1944/"
+            "floorplan/1391/Heritage-kitchen-1.jpg"
+        ),
+        "real_photos": [
+            "https://img.example.com/lot-44490.jpg",
+            (
+                "https://d132mt2yijm03y.cloudfront.net/manufacturer/1944/"
+                "floorplan/1391/Heritage-kitchen-1.jpg"
+            ),
+        ],
+        "gallery_images": [
+            "https://img.example.com/catalog-should-not-appear.jpg",
+            (
+                "https://d132mt2yijm03y.cloudfront.net/manufacturer/1944/"
+                "floorplan/1391/Heritage-kitchen-1.jpg"
+            ),
+        ],
+        "floor_plan_url": "https://img.example.com/big-blue-floorplan.jpg",
+        "specs": {"beds": 3, "baths": 2, "sqft": 1152},
+        "updated_at": "2026-10-01T12:00:00Z",
+    },
 ]
 
 
@@ -68,6 +100,8 @@ def test_robots_txt_allows_public_blocks_admin(monkeypatch):
     assert response.status_code == 200
     body = response.text
     assert "Disallow: /crm" in body
+    assert "Disallow: /staff" in body
+    assert "Disallow: /team" in body
     assert "Disallow: /api/admin/" in body
     assert "Sitemap: https://www.texashomeoutlet.com/sitemap.xml" in body
     # Never block assets or the public inventory API the renderer depends on
@@ -90,8 +124,13 @@ def test_sitemap_lists_static_and_detail_urls(monkeypatch):
     assert "/plan/223034/skyliner/4732b/</loc>" in body
     assert "/plan/235424/" not in body
     assert "/quote/floorplan/235424" not in body
-    # Google ignores priority/changefreq; lastmod only when truthful — omitted
-    assert "<priority>" not in body and "<changefreq>" not in body and "<lastmod>" not in body
+    assert "/homes/44490-pre-owned-big-blue</loc>" in body
+    assert "/homes/43372-premier-creole-3256h32447</loc>" in body
+    assert "<lastmod>2026-10-01</lastmod>" in body
+    # Google ignores priority/changefreq. lastmod is only on live /homes/ URLs.
+    assert "<priority>" not in body and "<changefreq>" not in body
+    static_block = body.split("/homes/")[0]
+    assert "<lastmod>" not in static_block
 
 
 def test_homepage_head_is_injected(monkeypatch):
@@ -280,6 +319,53 @@ def test_unknown_detail_id_is_404(monkeypatch):
     assert response.status_code == 404
 
 
+def test_bare_inventory_detail_deep_link_reaches_lot_home_listing(monkeypatch):
+    """Regression: /inventory-detail/<stock id> for a lot home (no legacy
+    detail_url) 404'd on live (stock 28102) while /inventory opened it."""
+    client, _ = seo_client(monkeypatch)
+    expected = "/homes/44490-pre-owned-big-blue"
+
+    for deep_link in (
+        "/inventory-detail/44490",
+        "/inventory-detail/44490/",
+        "/inventory-detail/44490/texas-home-outlet/huffman/big-blue/",
+    ):
+        response = client.get(deep_link, follow_redirects=False)
+        assert response.status_code == 302, deep_link
+        assert response.headers["location"] == expected, deep_link
+        assert "no-store" in response.headers["cache-control"], deep_link
+
+    landed = client.get("/inventory-detail/44490")
+    assert landed.status_code == 200
+    assert "Big Blue" in landed.text
+
+
+def test_stock_id_deep_link_does_not_capture_plan_family_or_sold_stock(monkeypatch):
+    client, _ = seo_client(monkeypatch)
+
+    # /plan/ ids are catalog plan ids; a matching lot stock number must not hijack them.
+    plan = client.get("/plan/44490/some/plan/", follow_redirects=False)
+    assert plan.status_code == 404
+    assert "location" not in plan.headers
+
+    import seo_routes
+
+    sold = {**FAKE_HOMES[2], "status": "Sold"}
+    monkeypatch.setattr(seo_routes, "_get_homes", lambda: [FAKE_HOMES[0], sold])
+    monkeypatch.setattr(seo_routes, "_registry_cache", None)
+    monkeypatch.setattr(seo_routes, "_registry_built_at", 0.0)
+
+    gone = client.get("/inventory-detail/44490", follow_redirects=False)
+    assert gone.status_code == 404
+    assert "location" not in gone.headers
+
+    # Real legacy detail ids still win over the stock fallback.
+    legacy = client.get(
+        "/inventory-detail/43372/texas-home-outlet/huffman/premier/", follow_redirects=False
+    )
+    assert legacy.status_code == 200
+
+
 def test_quote_urls_301_to_detail_pages(monkeypatch):
     client, _ = seo_client(monkeypatch)
     response = client.get("/quote/inventory/123/43372", follow_redirects=False)
@@ -360,7 +446,7 @@ def test_unknown_route_returns_real_404_not_soft_404(monkeypatch):
 
 def test_admin_routes_are_noindex_but_200(monkeypatch):
     client, _ = seo_client(monkeypatch)
-    for path in ("/crm", "/documents", "/studio"):
+    for path in ("/crm", "/documents", "/studio", "/staff", "/team"):
         response = client.get(path)
         assert response.status_code == 200, path
         assert '<meta name="robots" content="noindex" />' in response.text, path
@@ -516,15 +602,17 @@ def test_ga4_loader_emitted_only_with_valid_id_and_defaults_to_denied(monkeypatc
     # created only after an explicit stored grant (no eager <script src>).
     monkeypatch.setenv("GA4_MEASUREMENT_ID", "G-ABC1234XYZ")
     body = client.get("/").text
-    assert "https://www.googletagmanager.com/gtag/js?id=" in body
     assert '"GA4_MEASUREMENT_ID":"G-ABC1234XYZ"' in body
-    assert "analytics_storage:'denied'" in body
-    assert "ad_storage:'denied'" in body
-    assert "ad_user_data:'granted',ad_personalization:'denied'" in body
-    assert "__THO_ENABLE_ANALYTICS__" in body
-    assert "__THO_ANALYTICS_CONFIGURED__=true" in body
-    assert "send_page_view:false" in body
+    assert '<script src="/tho-analytics.js"></script>' in body
     assert '<script async src="https://www.googletagmanager.com/gtag/js' not in body
+    js = client.get("/tho-analytics.js").text
+    assert "https://www.googletagmanager.com/gtag/js?id=" in js
+    assert "analytics_storage:'denied'" in js
+    assert "ad_storage:'denied'" in js
+    assert "ad_user_data:'granted',ad_personalization:'denied'" in js
+    assert "__THO_ENABLE_ANALYTICS__" in js
+    assert "__THO_ANALYTICS_CONFIGURED__=true" in js
+    assert "send_page_view:false" in js
 
 
 def test_meta_and_tiktok_pixels_emitted_with_valid_ids(monkeypatch):
@@ -536,8 +624,9 @@ def test_meta_and_tiktok_pixels_emitted_with_valid_ids(monkeypatch):
     body = client.get("/").text
     assert '"META_PIXEL_ID":"1234567890123456"' in body
     assert '"TIKTOK_PIXEL_ID":"CABCDEF1234567890GHIJK"' in body
-    assert "w.fbq('init',id)" in body
-    assert "ttq.load(id)" in body
+    js = client.get("/tho-analytics.js").text
+    assert "w.fbq('init',id)" in js
+    assert "ttq.load(id)" in js
 
 
 def test_analytics_bootloader_uses_one_first_party_consent_key(monkeypatch):
@@ -545,10 +634,11 @@ def test_analytics_bootloader_uses_one_first_party_consent_key(monkeypatch):
         monkeypatch.delenv(var, raising=False)
     client, _ = seo_client(monkeypatch)
     monkeypatch.setenv("GTM_CONTAINER_ID", "GTM-ABC1234")
-    body = client.get("/").text
-    assert "tho_analytics_consent_v1" in body
-    assert "localStorage.getItem" in body
-    assert "pref==='granted'" in body
+    assert '"GTM_CONTAINER_ID":"GTM-ABC1234"' in client.get("/").text
+    js = client.get("/tho-analytics.js").text
+    assert "tho_analytics_consent_v1" in js
+    assert "localStorage.getItem" in js
+    assert "pref==='granted'" in js
 
 
 def test_analytics_never_emitted_on_noindex_routes(monkeypatch):
@@ -897,3 +987,235 @@ def test_inventory_page_emits_itemlist_jsonld(monkeypatch):
     # each item links to a real detail/plan URL, with no price/offer fabrication
     assert any("/inventory-detail/43372/" in i["url"] for i in items)
     assert all("offers" not in i and "price" not in i for i in items)
+
+
+def test_legal_routes_render_shared_copy_on_each_host(monkeypatch):
+    import html
+
+    import seo_routes
+
+    client, _ = seo_client(monkeypatch)
+    for host in ("www.texashomeoutlet.com", "texashomeoutlet.com", "tho.sapphirealpha.xyz"):
+        for page, content in seo_routes.LEGAL_PAGES.items():
+            path = f"/{page}"
+            response = client.get(path, headers={"Host": host}, follow_redirects=False)
+            assert response.status_code == 200
+            body = response.text
+            assert f"<title>{content['title']} | Texas Home Outlet</title>" in body
+            assert (
+                f'<meta name="description" content="{html.escape(content["description"])}"' in body
+            )
+            assert f'href="https://www.texashomeoutlet.com{path}"' in body
+            assert 'name="robots" content="noindex"' not in body
+            assert f"<h1>{content['title']}</h1>" in body
+            assert "Effective date: October 7, 2026." in body
+            assert "[EFFECTIVE DATE]" not in body
+            for heading, text in content["sections"]:
+                assert html.escape(heading) in body
+                assert html.escape(text) in body
+
+
+def test_legal_routes_canonicalize_and_appear_in_sitemap(monkeypatch):
+    client, _ = seo_client(monkeypatch)
+    sitemap = client.get("/sitemap.xml").text
+    for path in ("/privacy", "/terms"):
+        for variant in (path + "/", path.title()):
+            response = client.get(variant, follow_redirects=False)
+            assert response.status_code == 301
+            assert response.headers["location"] == path
+        assert sitemap.count(f"https://www.texashomeoutlet.com{path}</loc>") == 1
+    assert "/legal</loc>" not in sitemap
+    assert client.get("/privacy/unknown", follow_redirects=False).status_code == 404
+    assert client.get("/terms/unknown", follow_redirects=False).status_code == 404
+
+
+def test_legal_aliases_redirect_to_canonical_pages(monkeypatch):
+    client, _ = seo_client(monkeypatch)
+    for path, target in (
+        ("/legal", "/privacy"),
+        ("/legal/", "/privacy"),
+        ("/Legal", "/privacy"),
+        ("/privacy-policy", "/privacy"),
+        ("/terms-of-use", "/terms"),
+        ("/terms-of-service", "/terms"),
+        ("/terms-and-conditions", "/terms"),
+    ):
+        response = client.get(
+            path, headers={"Host": "www.texashomeoutlet.com"}, follow_redirects=False
+        )
+        assert response.status_code == 301, path
+        assert response.headers["location"] == target
+        assert client.get(path).status_code == 200
+    assert client.get("/legal/unknown", follow_redirects=False).status_code == 404
+
+
+def _title_h1_canonical(body):
+    title = re.search(r"<title>(.*?)</title>", body, re.DOTALL).group(1)
+    h1 = re.search(r"<h1>(.*?)</h1>", body, re.DOTALL).group(1)
+    canonical = re.search(r'rel="canonical" href="([^"]+)"', body).group(1)
+    return title, h1, canonical
+
+
+def test_city_floorplan_and_home_pages_have_unique_title_h1_canonical(monkeypatch):
+    client, _ = seo_client(monkeypatch)
+    city = client.get("/manufactured-homes-in-humble-tx")
+    plan = client.get("/plan/223034/skyliner/4732b/")
+    home = client.get("/homes/44490-pre-owned-big-blue")
+    assert city.status_code == plan.status_code == home.status_code == 200
+
+    city_t, city_h, city_c = _title_h1_canonical(city.text)
+    plan_t, plan_h, plan_c = _title_h1_canonical(plan.text)
+    home_t, home_h, home_c = _title_h1_canonical(home.text)
+
+    assert "Humble, TX" in city_t and "Humble, TX" in city_h
+    assert city_c.endswith("/manufactured-homes-in-humble-tx")
+    assert "Skyliner 4732B" in plan_t and "Skyliner 4732B" in plan_h
+    assert "/plan/223034/skyliner/4732b/" in plan_c
+    assert "Big Blue" in home_t and "PRE-OWNED / Big Blue" in home_h
+    assert home_c.endswith("/homes/44490-pre-owned-big-blue")
+    assert len({city_t, plan_t, home_t}) == 3
+    assert len({city_h, plan_h, home_h}) == 3
+    assert len({city_c, plan_c, home_c}) == 3
+    assert "Mobile &amp; Manufactured Homes for Sale in Huffman, TX" not in city_t
+    assert "Mobile &amp; Manufactured Homes for Sale in Huffman, TX" not in plan_t
+    assert "Mobile &amp; Manufactured Homes for Sale in Huffman, TX" not in home_t
+
+
+def test_home_page_keeps_call_for_price_and_own_photos(monkeypatch):
+    client, _ = seo_client(monkeypatch)
+    body = client.get("/homes/44490-pre-owned-big-blue").text
+    assert "Call for Price" in body
+    assert "https://img.example.com/lot-44490.jpg" in body
+    assert "catalog-should-not-appear.jpg" not in body
+    assert "Heritage-kitchen-1.jpg" not in body
+    og = re.search(r'<meta property="og:image" content="([^"]+)"', body)
+    assert og is not None
+    assert og.group(1) == "https://img.example.com/lot-44490.jpg"
+    products = [
+        json.loads(block)
+        for block in re.findall(
+            r'<script type="application/ld\+json">(.*?)</script>', body, re.DOTALL
+        )
+        if '"Product"' in block
+    ]
+    assert products
+    assert "offers" not in products[0]
+
+
+def test_home_page_wrong_slug_301s_and_missing_stock_is_410(monkeypatch):
+    client, _ = seo_client(monkeypatch)
+    redirect = client.get("/homes/44490-stale-slug", follow_redirects=False)
+    assert redirect.status_code == 301
+    assert redirect.headers["location"] == "/homes/44490-pre-owned-big-blue"
+    gone = client.get("/homes/99999-sold-home")
+    assert gone.status_code == 410
+    assert "no longer listed" in gone.text.lower()
+    assert "noindex" in gone.text
+
+
+def test_legacy_homes_hub_still_redirects_to_inventory(monkeypatch):
+    client, _ = seo_client(monkeypatch)
+    response = client.get("/homes/", follow_redirects=False)
+    assert response.status_code == 301
+    assert response.headers["location"] == "/inventory"
+
+
+def test_sitemap_includes_home_urls_with_lastmod(monkeypatch):
+    client, _ = seo_client(monkeypatch)
+    body = client.get("/sitemap.xml").text
+    assert body.count("https://www.texashomeoutlet.com/homes/44490-pre-owned-big-blue</loc>") == 1
+    home_entry = body[body.index("/homes/44490-pre-owned-big-blue") :]
+    assert "<lastmod>2026-10-01</lastmod>" in home_entry[:200]
+
+
+# ── COD-153: no inline executable script (CSP script-src without 'unsafe-inline')
+
+
+_INLINE_EXEC_SCRIPT_RE = re.compile(
+    r"<script(?![^>]*\bsrc=)(?![^>]*\btype=\"application/(?:ld\+)?json\")[^>]*>",
+    re.IGNORECASE,
+)
+
+
+def test_public_pages_emit_no_inline_executable_script_with_all_ids(monkeypatch):
+    for var in _ANALYTICS_ENV:
+        monkeypatch.delenv(var, raising=False)
+    client, _ = seo_client(monkeypatch)
+    monkeypatch.setenv("GA4_MEASUREMENT_ID", "G-ABC1234XYZ")
+    monkeypatch.setenv("GTM_CONTAINER_ID", "GTM-ABC1234")
+    monkeypatch.setenv("META_PIXEL_ID", "1234567890123456")
+    monkeypatch.setenv("TIKTOK_PIXEL_ID", "CABCDEF1234567890GHIJK")
+    body = client.get("/").text
+    assert "tho-analytics-config" in body
+    assert not _INLINE_EXEC_SCRIPT_RE.search(body), _INLINE_EXEC_SCRIPT_RE.search(body)
+    # The vendor bootstrap code itself never appears inline in the page.
+    assert "__THO_ENABLE_ANALYTICS__" not in body
+    assert "fbq(" not in body
+
+
+def test_analytics_config_block_is_inert_json(monkeypatch):
+    for var in _ANALYTICS_ENV:
+        monkeypatch.delenv(var, raising=False)
+    client, _ = seo_client(monkeypatch)
+    monkeypatch.setenv("GA4_MEASUREMENT_ID", "G-ABC1234XYZ")
+    body = client.get("/").text
+    m = re.search(r'<script type="application/json" id="tho-analytics-config">(.*?)</script>', body)
+    assert m, "config data block missing"
+    assert json.loads(m.group(1)) == {"GA4_MEASUREMENT_ID": "G-ABC1234XYZ"}
+
+
+def test_analytics_bootstrap_js_is_static_first_party_and_id_free(monkeypatch):
+    for var in _ANALYTICS_ENV:
+        monkeypatch.delenv(var, raising=False)
+    client, _ = seo_client(monkeypatch)
+    monkeypatch.setenv("GA4_MEASUREMENT_ID", "G-ABC1234XYZ")
+    r = client.get("/tho-analytics.js")
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("application/javascript")
+    # IDs come only from the page's data block, never baked into the script.
+    assert "G-ABC1234XYZ" not in r.text
+    assert "getElementById('tho-analytics-config')" in r.text
+    # No-ops (no vendor fetch, no globals) when the config block is absent.
+    assert r.text.index("if(!el)return;") < r.text.index("__THO_ANALYTICS_CONFIGURED__")
+
+
+def test_no_analytics_markup_when_unconfigured(monkeypatch):
+    for var in _ANALYTICS_ENV:
+        monkeypatch.delenv(var, raising=False)
+    client, _ = seo_client(monkeypatch)
+    body = client.get("/").text
+    assert "tho-analytics-config" not in body
+    assert "/tho-analytics.js" not in body
+
+
+# ── COD-153: served HTML has no inline styles (CSP style-src without 'unsafe-inline')
+
+# <style> blocks and style attributes in the HTML response are what style-src
+# blocks. React CSSOM updates and external stylesheets are not in this markup.
+_INLINE_STYLE_RE = re.compile(r"<style[\s>/]|\sstyle\s*=", re.IGNORECASE)
+
+_NO_INLINE_STYLE_PATHS = (
+    "/",
+    "/inventory",
+    "/contact",
+    "/financing",
+    "/appointments",
+    "/staff",
+    "/studio",
+    "/homes/44490-pre-owned-big-blue",
+    "/inventory-detail/43372/texas-home-outlet/huffman/premier/",
+)
+
+
+def test_served_html_has_no_inline_styles(monkeypatch):
+    for var in _ANALYTICS_ENV:
+        monkeypatch.delenv(var, raising=False)
+    client, _ = seo_client(monkeypatch)
+    monkeypatch.setenv("GA4_MEASUREMENT_ID", "G-ABC1234XYZ")
+    for path in _NO_INLINE_STYLE_PATHS:
+        response = client.get(path)
+        assert response.status_code == 200, path
+        assert response.headers["content-type"].startswith("text/html"), path
+        match = _INLINE_STYLE_RE.search(response.text)
+        assert match is None, f"{path} contains inline style markup: {match.group(0)!r}"
+        assert "'unsafe-inline'" not in response.headers["content-security-policy"]

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import App from '../App';
 import { ToastProvider } from '../components/Toast';
 import { navigateDocument } from '../utils/documentNavigation';
@@ -51,6 +51,7 @@ describe('App pathname-aware routing', () => {
   beforeEach(() => {
     window.history.replaceState({}, '', '/single-wide');
     window.scrollTo = vi.fn();
+    Element.prototype.scrollIntoView = vi.fn();
     window.matchMedia = vi.fn(() => ({
       matches: false,
       addEventListener() {},
@@ -129,5 +130,67 @@ describe('App pathname-aware routing', () => {
 
     expect(navigateDocument).toHaveBeenCalledWith('/');
     expect(window.location.pathname).toBe('/single-wide');
+  });
+});
+
+describe('legal pages and site-wide footer', () => {
+  beforeEach(() => {
+    window.scrollTo = vi.fn();
+    Element.prototype.scrollIntoView = vi.fn();
+    window.matchMedia = vi.fn(() => ({ matches: false, addEventListener() {}, removeEventListener() {} }));
+    vi.stubGlobal('fetch', vi.fn((url) => response(
+      String(url) === '/api/admin/check' ? { valid: false } : { success: true, homes: [], messages: [] },
+    )));
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    window.history.replaceState({}, '', '/');
+  });
+
+  it.each([
+    ['/privacy', 'Privacy Policy'],
+    ['/terms', 'Terms of Use'],
+    ['/privacy/', 'Privacy Policy'],
+    ['/terms/', 'Terms of Use'],
+  ])('renders %s with business details, the effective date, and legal footer links', async (path, title) => {
+    window.history.replaceState({}, '', path);
+    render(<ToastProvider><App /></ToastProvider>);
+    expect(await screen.findByRole('heading', { level: 1, name: title })).toBeVisible();
+    expect(document.title).toBe(`${title} | Texas Home Outlet`);
+    const main = screen.getByRole('main');
+    expect(main.textContent).toContain('Prosperity Acquisitions, Inc. dba Texas Home Outlet');
+    expect(main.textContent).toContain('Effective date: October 7, 2026.');
+    expect(main.textContent).not.toMatch(/\[[A-Z ]+\]/);
+    expect(main.textContent).not.toMatch(/\[(LEGAL BUSINESS NAME|MAILING ADDRESS|CONTACT EMAIL)\]/);
+    expect(main.textContent).not.toContain('\u2014');
+    expect(main.querySelector('a[href="mailto:sales@texashomeoutlet.com"]')).not.toBeNull();
+    const footer = screen.getByRole('navigation', { name: 'Footer' });
+    expect(footer.querySelector('a[href="/privacy"]')).toHaveTextContent('Privacy Policy');
+    expect(footer.querySelector('a[href="/terms"]')).toHaveTextContent('Terms of Use');
+  });
+
+  it('cross-links the two legal pages', async () => {
+    window.history.replaceState({}, '', '/privacy');
+    render(<ToastProvider><App /></ToastProvider>);
+    await screen.findByRole('heading', { level: 1, name: 'Privacy Policy' });
+    expect(screen.getByRole('main').querySelector('a[href="/terms"]')).toHaveTextContent('Terms of Use');
+  });
+
+  it('sends /legal to the privacy policy', async () => {
+    window.history.replaceState({}, '', '/legal');
+    render(<ToastProvider><App /></ToastProvider>);
+    expect(await screen.findByRole('heading', { level: 1, name: 'Privacy Policy' })).toBeVisible();
+    await waitFor(() => expect(window.location.pathname).toBe('/privacy'));
+  });
+
+  it.each(['/', '/single-wide', '/double-wide', '/chat', '/contact', '/appointments', '/about', '/financing', '/faq', '/warranty', '/delivery', '/staff', '/missing-page'])('shows legal footer links on %s', async (path) => {
+    window.history.replaceState({}, '', path);
+    render(<ToastProvider><App /></ToastProvider>);
+    const footer = await screen.findByRole('navigation', { name: 'Footer' });
+    expect(footer.querySelector('a[href="/privacy"]')).toHaveTextContent('Privacy Policy');
+    expect(footer.querySelector('a[href="/terms"]')).toHaveTextContent('Terms of Use');
   });
 });

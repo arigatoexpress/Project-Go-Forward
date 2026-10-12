@@ -16,29 +16,44 @@ function jsonResponse(body, { ok = true, status = 200 } = {}) {
   return { ok, status, json: vi.fn().mockResolvedValue(body) };
 }
 
+function inventoryThenPhotos() {
+  adminFetch.mockImplementation((url) => {
+    if (String(url).startsWith('/api/inventory?')) {
+      return Promise.resolve(jsonResponse({ success: true, inventory: [home] }));
+    }
+    return Promise.resolve(jsonResponse({ photos: [] }));
+  });
+}
+
+async function pickStarterHome() {
+  fireEvent.click(await screen.findByRole('radio', { name: /Starter Home/i }));
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
-  global.fetch = vi.fn().mockResolvedValue(jsonResponse({ homes: [home] }));
-  adminFetch.mockResolvedValue(jsonResponse({ photos: [] }));
+  inventoryThenPhotos();
 });
 
 describe('Photo Manager storage safety', () => {
   it('makes the home picker and upload target keyboard-accessible', async () => {
     render(<PhotoManager onBack={vi.fn()} />);
 
-    await screen.findByRole('option', { name: /Starter Home/i });
-    expect(screen.getByRole('listbox', { name: /Choose a home/i })).toBeInTheDocument();
+    await screen.findByRole('radio', { name: /Starter Home/i });
+    expect(screen.getByRole('radiogroup', { name: /Choose a home/i })).toBeInTheDocument();
     const uploadTarget = screen.getByRole('button', { name: /Choose listing photos/i });
     expect(uploadTarget).toHaveAttribute('aria-disabled', 'true');
     expect(uploadTarget).toHaveAttribute('tabindex', '-1');
 
-    fireEvent.change(screen.getByRole('listbox'), { target: { value: '43372' } });
+    await pickStarterHome();
     expect(uploadTarget).toHaveAttribute('aria-disabled', 'false');
     expect(uploadTarget).toHaveAttribute('tabindex', '0');
   });
 
   it('reports a partial durable write as an outage, not an invalid-image success', async () => {
-    adminFetch.mockImplementation((_url, options = {}) => {
+    adminFetch.mockImplementation((url, options = {}) => {
+      if (String(url).startsWith('/api/inventory?')) {
+        return Promise.resolve(jsonResponse({ success: true, inventory: [home] }));
+      }
       if (options.method === 'POST') {
         return Promise.resolve(jsonResponse({
           success: true,
@@ -57,8 +72,7 @@ describe('Photo Manager storage safety', () => {
     });
 
     const { container } = render(<PhotoManager onBack={vi.fn()} />);
-    await screen.findByRole('option', { name: /Starter Home/i });
-    fireEvent.change(screen.getByRole('listbox'), { target: { value: '43372' } });
+    await pickStarterHome();
 
     const input = container.querySelector('input[type="file"]');
     const files = [
@@ -72,11 +86,14 @@ describe('Photo Manager storage safety', () => {
     );
     expect(screen.getByRole('alert')).toHaveTextContent(/rear\.png/i);
     expect(screen.getByRole('alert')).toHaveTextContent(/side\.png/i);
-    await waitFor(() => expect(adminFetch).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(adminFetch.mock.calls.some(([, options]) => options?.method === 'POST')).toBe(true));
   });
 
   it('explains a complete durable-storage outage', async () => {
-    adminFetch.mockImplementation((_url, options = {}) => {
+    adminFetch.mockImplementation((url, options = {}) => {
+      if (String(url).startsWith('/api/inventory?')) {
+        return Promise.resolve(jsonResponse({ success: true, inventory: [home] }));
+      }
       if (options.method === 'POST') {
         return Promise.resolve(jsonResponse({
           success: false,
@@ -95,8 +112,7 @@ describe('Photo Manager storage safety', () => {
     });
 
     const { container } = render(<PhotoManager onBack={vi.fn()} />);
-    await screen.findByRole('option', { name: /Starter Home/i });
-    fireEvent.change(screen.getByRole('listbox'), { target: { value: '43372' } });
+    await pickStarterHome();
     const input = container.querySelector('input[type="file"]');
     fireEvent.change(input, { target: { files: [
       new File(['first'], 'front.png', { type: 'image/png' }),

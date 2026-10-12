@@ -9,6 +9,11 @@ remaining client ownership and workflow checks. [CLIENT_WALKTHROUGH.md](CLIENT_W
 is the staff guide. A dated readiness report does not prove current service health
 or client acceptance.
 
+**Staff (non-technical):** start at [team/README.md](team/README.md) for plain-language
+guides such as staff sign-in and adding home photos.
+
+**Current live status:** see [../SYSTEM_STATUS.md](../SYSTEM_STATUS.md) for where to check it.
+
 1. [SHOWCASE.md](SHOWCASE.md) — Live demo path, verified URLs, audience-specific surfaces, and screenshot safety notes.
 2. [PRODUCTION_READINESS.md](PRODUCTION_READINESS.md) — Read-only smoke checks, local gates, admin-token handling, and Cloud Run rollback path.
 3. [PIN_ROTATION_RUNBOOK.md](PIN_ROTATION_RUNBOOK.md) — Operator-only admin PIN hash rotation without exposing the PIN, token, or hash.
@@ -18,6 +23,18 @@ or client acceptance.
 7. [SECURITY.md](SECURITY.md) — Auth model, secret hygiene, PII handling, least-privilege access matrix, delete-protection posture.
 8. [INTEGRATION_NOTION.md](INTEGRATION_NOTION.md) — Integration plan for Etai's Notion workspace: division of responsibility, naming conventions, API contract, webhook flows, open decisions.
 9. [API_REFERENCE.md](API_REFERENCE.md) — Generated endpoint reference from the app's OpenAPI schema (regenerate: `python scripts/generate_api_reference.py`).
+
+## Operator runbooks
+
+- [RUNBOOK.md](RUNBOOK.md) — incidents, rollback, operator safety, open flips
+- [ON_CALL.md](ON_CALL.md) — severity, first-five-minutes, escalation
+- [DNS_CUTOVER_RUNBOOK.md](DNS_CUTOVER_RUNBOOK.md) — completed 2026-06-14 cutover; rollback / re-cutover reference
+- [runbooks/dns-rollback.md](runbooks/dns-rollback.md) — two-record DNS revert (owner / Mark only)
+- [runbooks/leads-bigquery-sync.md](runbooks/leads-bigquery-sync.md) — daily leads → BigQuery job
+- [resend_dns_records.md](resend_dns_records.md) — Resend DNS; confirm verified state in the dashboard
+- [INTEGRATION_GCP_ACTIVATION.md](INTEGRATION_GCP_ACTIVATION.md) — inventory unfreeze + Notion bridge (gated)
+- [THO_INVENTORY_CATALOG_OPERATIONS.md](THO_INVENTORY_CATALOG_OPERATIONS.md) — current inventory / catalog operations
+- [INVENTORY_SYNC_ACTION_PLAN.md](INVENTORY_SYNC_ACTION_PLAN.md) — stale (Feb 2026); do not run `--force`
 
 ## Older docs
 

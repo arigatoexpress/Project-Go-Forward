@@ -159,8 +159,8 @@ def test_log_admin_action_writes_expected_schema(fake_audit_db):
     assert entry["action"] == "deal.create"
     assert entry["target_type"] == "deal"
     assert entry["target_id"] == "deal-42"
-    # X-Forwarded-For first hop wins
-    assert entry["ip"] == "203.0.113.7"
+    # X-Forwarded-For rightmost hop wins (Cloud Run appends the client)
+    assert entry["ip"] == "10.0.0.1"
     assert entry["user_agent"].startswith("Mozilla/5.0")
     assert entry["details"] == {"fields": ["status", "model"]}
 
@@ -177,6 +177,9 @@ def test_log_admin_action_strips_pii_from_details(fake_audit_db):
         details={
             "fields": ["status"],
             # All of these MUST be dropped server-side.
+            "name": "X",
+            "customer_name": "X",
+            "co_buyer_email": "cobuyer@example.com",
             "ssn": "123-45-6789",
             "ssn_hash": "abcdef",
             "email": "buyer@example.com",
@@ -202,6 +205,7 @@ def test_log_admin_action_strips_pii_from_details(fake_audit_db):
         "123-45-6789",
         "buyer@example.com",
         "jane@example.com",
+        "cobuyer@example.com",
         "555-867-5309",
         "Jane Doe",
         "123 Main St",
@@ -209,6 +213,22 @@ def test_log_admin_action_strips_pii_from_details(fake_audit_db):
         "secret-bearer",
     ):
         assert pii_value not in flat, f"PII leaked: {pii_value!r}"
+
+
+def test_log_admin_action_strips_bare_name_key(fake_audit_db):
+    from audit_log import log_admin_action
+
+    log_admin_action(
+        actor="admin",
+        action="customer.update",
+        target_type="customer",
+        target_id="cust-8",
+        details={"name": "X", "status": "active"},
+    )
+
+    persisted = fake_audit_db.collections["audit_log"]._docs[0]["details"]
+    assert persisted == {"status": "active"}
+    assert "X" not in repr(persisted)
 
 
 def test_log_admin_action_swallows_db_failure(monkeypatch):
@@ -433,3 +453,37 @@ def test_audit_log_endpoint_rejects_invalid_target_type(monkeypatch):
     )
     assert r.status_code == 400
     assert "Invalid target_type" in r.json()["error"]
+
+
+def test_operational_names_survive_without_exposing_person_names():
+    from audit_log import _sanitize_details
+
+    operational = {
+        "template_name": "1023",
+        "packet_name": "closing",
+        "model_name": "inventory-model",
+    }
+    personal = {
+        "name": "Private",
+        "customer_name": "Private",
+        "buyer_first_name": "Private",
+        "co_buyer_name": "Private",
+        "customerName": "Private",
+        "full_name": "Private",
+        "email": "private@example.com",
+        "home_phone": "5125550123",
+    }
+    assert _sanitize_details({**operational, **personal}) == operational
+    assert _sanitize_details({"nested": {**operational, **personal}}) == {"nested": operational}
+
+
+def test_user_derived_filenames_are_hashed_at_every_depth():
+    import hashlib
+
+    from audit_log import _sanitize_details
+
+    filename = "jane_doe_5125550123-abc123.jpg"
+    expected = {"filename_sha256": hashlib.sha256(filename.encode()).hexdigest()}
+    assert _sanitize_details({"filename": filename}) == expected
+    assert _sanitize_details({"nested": [{"FileName": filename}]}) == {"nested": [expected]}
+    assert _sanitize_details({"filename": {"name": "Private"}}) == {}

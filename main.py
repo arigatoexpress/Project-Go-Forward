@@ -14,6 +14,7 @@ import os
 os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "TRUE"
 
 import asyncio
+import contextvars
 import hashlib
 import json
 import logging
@@ -25,7 +26,7 @@ import uuid
 from collections import defaultdict, deque
 from datetime import UTC, datetime, timedelta
 from json import JSONDecodeError
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import quote, urlsplit, urlunsplit
 
 import uvicorn
 from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
@@ -47,10 +48,11 @@ from auth.email_code import (
     EmailLoginCodeStoreUnavailable,
     default_code_store,
     generate_code,
+    generate_link_token,
     hash_code,
 )
 from auth.google_ads_step_up_routes import router as google_ads_step_up_router
-from auth.routes import is_allowed_admin_email
+from auth.routes import allowed_owner_emails, allowed_staff_domains, is_allowed_admin_email
 from auth.routes import router as passkey_router
 from auth.session import SESSION_COOKIE_NAME as PASSKEY_COOKIE_NAME
 from auth.session import SessionManager, validate_cloud_run_session_secret
@@ -112,6 +114,7 @@ def _get_runner():
     return _runner
 
 
+import esign_review
 import tools.feature_flags as feature_flags
 from appointment_manager import Appointment, AppointmentManager
 from audit_log import (
@@ -125,9 +128,21 @@ from audit_log import (
     query_audit_log,
 )
 from chat_history import ChatHistory
+from chat_owner import (
+    CHAT_OWNER_COOKIE,
+    PRIVATE_CHAT_CACHE_CONTROL,
+    bind_run_session,
+    chat_owner_cookie_matches,
+    new_chat_session_id,
+    private_chat_json,
+    set_chat_owner_cookie,
+)
 from conversation_memory import ConversationMemory
 from docuseal_service import (
-    maybe_trigger_automated_signing as docuseal_auto_trigger,
+    archive_submission as docuseal_archive_submission,
+)
+from docuseal_service import (
+    is_configured as docuseal_is_configured,
 )
 from docuseal_service import (
     send_file_for_signature as docuseal_send_file_for_signature,
@@ -135,7 +150,11 @@ from docuseal_service import (
 from docuseal_service import (
     send_for_signature as docuseal_send_for_signature,
 )
+from docuseal_service import (
+    submission_ids_from_response as docuseal_submission_ids,
+)
 from email_service import (
+    email_delivery_configured,
     get_email_log,
     notify_new_appointment,
     notify_new_lead,
@@ -148,14 +167,22 @@ from email_service import (
 )
 from lead_management import Lead, LeadManager
 from structured_logging import logger as struct_logger
+from tools.client_ip import get_client_ip
 from tools.contact_capture import (
     apply_utm,
     capture_contact_from_message,
     capture_explicit_contact,
 )
+from tools.docuseal_document_url import is_safe_docuseal_document_url
 from tools.input_sanitizer import sanitize_body, sanitize_query_params
+from tools.inventory_dedupe import (
+    annotate_possible_duplicates,
+    collapse_duplicate_homes,
+    suppress_used_home_catalog_photos,
+)
 from tools.pii_guard import redact_pii_from_text, validate_no_pii_in_text
 from tools.user_activity_log import log_user_action, query_user_activity
+from tools.webhook_replay import ReplayGuard, docuseal_event_key
 
 
 def _safe_audit(action: str, details: dict) -> None:
@@ -334,17 +361,21 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["X-XSS-Protection"] = "1; mode=block"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
-        # CSP: allow self, inline styles (Tailwind), Google Fonts, Matterport
-        # iframes, CloudFront CDN images. Vendor analytics/pixel script+connect
-        # hosts are appended ONLY for IDs that are validly set (see
-        # seo_routes.analytics_csp_sources, same _clean_id gate as the snippet);
-        # with none set this header is byte-identical to the static baseline.
+        # CSP: self, Google Fonts stylesheets, Matterport iframes, CloudFront
+        # CDN images. script-src and style-src have NO 'unsafe-inline'
+        # (COD-153). Scripts are first-party external (Vite bundle,
+        # /tho-analytics.js); JSON-LD and the analytics config are inert data
+        # blocks. Styles ship in bundled CSS — server HTML has no <style> blocks
+        # or style attributes, and the toast keyframes live in App.css. Vendor
+        # analytics/pixel script+connect hosts are appended ONLY for IDs that
+        # are validly set (see seo_routes.analytics_csp_sources, same _clean_id
+        # gate as the snippet).
         import seo_routes
 
         _csp = [
             ("default-src", ["'self'"]),
-            ("script-src", ["'self'", "'unsafe-inline'"]),
-            ("style-src", ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"]),
+            ("script-src", ["'self'"]),
+            ("style-src", ["'self'", "https://fonts.googleapis.com"]),
             ("img-src", ["'self'", "https://d132mt2yijm03y.cloudfront.net", "https:", "data:"]),
             ("frame-src", ["https://my.matterport.com"]),
             ("connect-src", ["'self'"]),
@@ -368,13 +399,88 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 def _get_client_ip(request: Request) -> str:
     """Get real client IP, checking X-Forwarded-For for reverse proxy (Cloud Run).
 
-    Reused as the slowapi ``key_func`` so per-IP rate limiting and the
-    Redis-backed brute-force counter key the same client identity.
+    Used by the slowapi ``key_func`` for unauthenticated callers so per-IP rate
+    limiting and the Redis-backed brute-force counter key the same identity.
+    Trusts the rightmost hop (Google appends the connecting client).
     """
-    forwarded = request.headers.get("x-forwarded-for", "")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return request.client.host if request.client else "unknown"
+    return get_client_ip(request)
+
+
+# ── Staff-session rate limiting ─────────────────────────────────────────────
+# Several staff often share one shop IP, so signed-in staff traffic is bucketed
+# per session with a higher cap instead of sharing the per-IP public bucket.
+# Unauthenticated sign-in / code endpoints always stay on the strict per-IP
+# bucket so a stolen or forged cookie can't buy extra brute-force attempts.
+STAFF_RATE_LIMIT_RPM = int(os.environ.get("STAFF_RATE_LIMIT_RPM", "600"))
+PUBLIC_DEFAULT_RATE_LIMIT = "100/minute"
+_STRICT_AUTH_PATH_PREFIXES = (
+    "/api/admin/verify",
+    "/api/admin/email-code/",
+    "/api/admin/passkey/login/",
+)
+_rate_limit_staff_key: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "rate_limit_staff_key", default=None
+)
+
+
+def _is_strict_auth_path(path: str) -> bool:
+    return any(path.startswith(prefix) for prefix in _STRICT_AUTH_PATH_PREFIXES)
+
+
+def _staff_session_rate_key(request: Request) -> str | None:
+    """Return ``staff:<fingerprint>`` for a validly signed staff session, else None.
+
+    Signature + expiry only (no allowlist lookup) — this picks a rate-limit
+    bucket, it does not authorize anything; ``require_admin`` still does that.
+    """
+    if _is_strict_auth_path(request.url.path):
+        return None
+    try:
+        token = _admin_token_from_request(request)
+        if token:
+            decoded = _decode_admin_token(token)
+            if decoded is not None and time.time() < decoded[0]:
+                return "staff:" + hashlib.sha256(token.encode("utf-8")).hexdigest()[:16]
+        passkey_token = request.cookies.get(PASSKEY_COOKIE_NAME, "")
+        if passkey_token:
+            payload = _get_passkey_session_manager().verify_session(passkey_token)
+            if payload and payload.get("user_id") == "admin":
+                digest = hashlib.sha256(passkey_token.encode("utf-8")).hexdigest()[:16]
+                return f"staff:pk:{digest}"
+    except Exception:  # noqa: BLE001
+        return None
+    return None
+
+
+def _rate_limit_key(request: Request) -> str:
+    """slowapi key: per staff session when signed in, otherwise per client IP."""
+    staff_key = _rate_limit_staff_key.get()
+    if staff_key is None:
+        staff_key = _staff_session_rate_key(request)
+    return staff_key or _get_client_ip(request)
+
+
+def _default_rate_limit() -> str:
+    if _rate_limit_staff_key.get():
+        return f"{STAFF_RATE_LIMIT_RPM}/minute"
+    return PUBLIC_DEFAULT_RATE_LIMIT
+
+
+class RateLimitIdentityMiddleware:
+    """Resolve the rate-limit identity once per request, before any limiter runs."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        token = _rate_limit_staff_key.set(_staff_session_rate_key(Request(scope)))
+        try:
+            await self.app(scope, receive, send)
+        finally:
+            _rate_limit_staff_key.reset(token)
 
 
 # slowapi per-IP rate limiter — layered on top of the legacy
@@ -389,8 +495,8 @@ def _get_client_ip(request: Request) -> str:
 # 429 handler below adds Retry-After by hand using the exception's limit
 # metadata so callers still get the standard rate-limit signal.
 limiter = Limiter(
-    key_func=_get_client_ip,
-    default_limits=["100/minute"],
+    key_func=_rate_limit_key,
+    default_limits=[_default_rate_limit],
     headers_enabled=False,
     # Fail-open hardening. With slowapi's default in-process memory storage
     # (no RATELIMIT_STORAGE_URI set) these are a no-op and limiting behaves
@@ -454,9 +560,25 @@ APPOINTMENTS_RATE_LIMIT = _route_rate_limit("APPOINTMENTS_RATE_LIMIT", "10/minut
 
 # Rate limiting middleware — per-IP sliding window
 MAX_REQUESTS_PER_MINUTE = int(os.environ.get("RATE_LIMIT_RPM", "60"))
+RATE_LIMIT_MAX_BUCKETS = int(os.environ.get("RATE_LIMIT_MAX_BUCKETS", "50000"))
 MAX_REQUEST_BODY_BYTES = int(
     os.environ.get("MAX_REQUEST_BODY_BYTES", str(1 * 1024 * 1024))
 )  # 1 MB default
+
+
+def _commit_rate_bucket(
+    buckets: dict[str, list[float]],
+    key: str,
+    window: list[float],
+    max_buckets: int,
+) -> None:
+    """Store a pruned window, drop empties, and evict the oldest bucket at cap."""
+    buckets.pop(key, None)
+    if not window:
+        return
+    while len(buckets) >= max_buckets:
+        buckets.pop(next(iter(buckets)))
+    buckets[key] = window
 
 
 _STATIC_RATE_LIMIT_EXTENSIONS = (
@@ -475,6 +597,10 @@ _STATIC_RATE_LIMIT_EXTENSIONS = (
     ".woff2",
 )
 _STATIC_RATE_LIMIT_PATHS = {
+    "/apple-touch-icon-120x120.png",
+    "/apple-touch-icon-precomposed.png",
+    "/apple-touch-icon.png",
+    "/favicon.ico",
     "/manifest.webmanifest",
     "/registerSW.js",
     "/sw.js",
@@ -501,30 +627,92 @@ def _is_rate_limit_exempt_path(path: str, method: str = "GET") -> bool:
 class RateLimitMiddleware(BaseHTTPMiddleware):
     def __init__(self, app):
         super().__init__(app)
-        self._hits: dict[str, list[float]] = defaultdict(list)
+        self._hits: dict[str, list[float]] = {}
 
     async def dispatch(self, request: Request, call_next):
         if _is_rate_limit_exempt_path(request.url.path, request.method):
             return await call_next(request)
-        client_ip = _get_client_ip(request)
+        staff_key = _rate_limit_staff_key.get()
+        bucket = staff_key or _get_client_ip(request)
+        cap = STAFF_RATE_LIMIT_RPM if staff_key else MAX_REQUESTS_PER_MINUTE
         now = time.time()
-        window = self._hits[client_ip]
-        # Prune entries older than 60s
-        self._hits[client_ip] = window = [t for t in window if now - t < 60]
-        if len(window) >= MAX_REQUESTS_PER_MINUTE:
+        window = [t for t in self._hits.get(bucket, []) if now - t < 60]
+        if len(window) >= cap:
+            _commit_rate_bucket(self._hits, bucket, window, RATE_LIMIT_MAX_BUCKETS)
             return JSONResponse(
                 {"error": "Rate limit exceeded. Please try again shortly."}, status_code=429
             )
         window.append(now)
+        _commit_rate_bucket(self._hits, bucket, window, RATE_LIMIT_MAX_BUCKETS)
         return await call_next(request)
 
 
-class RequestSizeLimitMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
-        content_length = request.headers.get("content-length")
-        if content_length and int(content_length) > MAX_REQUEST_BODY_BYTES:
-            return JSONResponse({"error": "Request body too large."}, status_code=413)
-        return await call_next(request)
+class RequestSizeLimitMiddleware:
+    """Pure ASGI middleware: count streamed bytes and reject before sanitization.
+
+    Starlette adds middleware last-outermost, so this class must be registered
+    AFTER InputSanitizationMiddleware to run first and cap chunked bodies.
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        headers = {
+            k.decode("latin1").lower(): v.decode("latin1") for k, v in scope.get("headers", [])
+        }
+        content_length = headers.get("content-length")
+        if content_length is not None and content_length != "":
+            try:
+                declared = int(content_length)
+            except (TypeError, ValueError):
+                response = JSONResponse({"error": "Invalid Content-Length."}, status_code=400)
+                await response(scope, receive, send)
+                return
+            if declared > MAX_REQUEST_BODY_BYTES:
+                response = JSONResponse({"error": "Request body too large."}, status_code=413)
+                await response(scope, receive, send)
+                return
+
+        chunks: list[bytes] = []
+        received = 0
+        more_body = True
+        while more_body:
+            message = await receive()
+            msg_type = message.get("type")
+            if msg_type == "http.disconnect":
+                return
+            if msg_type != "http.request":
+                continue
+            chunk = message.get("body") or b""
+            received += len(chunk)
+            if received > MAX_REQUEST_BODY_BYTES:
+                while message.get("more_body"):
+                    message = await receive()
+                response = JSONResponse({"error": "Request body too large."}, status_code=413)
+                await response(scope, receive, send)
+                return
+            chunks.append(chunk)
+            more_body = bool(message.get("more_body"))
+
+        replayed = False
+        body = b"".join(chunks)
+
+        async def replay_receive():
+            nonlocal replayed
+            if replayed:
+                # Body already replayed: defer to the server so disconnect
+                # listeners (BaseHTTPMiddleware, StreamingResponse) block until
+                # a real http.disconnect instead of seeing a second request.
+                return await receive()
+            replayed = True
+            return {"type": "http.request", "body": body, "more_body": False}
+
+        await self.app(scope, replay_receive, send)
 
 
 class InputSanitizationMiddleware(BaseHTTPMiddleware):
@@ -639,13 +827,18 @@ class PerformanceMetricsMiddleware(BaseHTTPMiddleware):
 
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(RateLimitMiddleware)
-app.add_middleware(RequestSizeLimitMiddleware)
 app.add_middleware(InputSanitizationMiddleware)
+# Size cap is added AFTER the sanitizer so it is outermost of the two and
+# rejects oversized / chunked bodies before InputSanitization buffers them.
+# (Starlette: last add_middleware call is outermost.)
+app.add_middleware(RequestSizeLimitMiddleware)
 # slowapi middleware is registered last so it sits outermost and runs
 # before the legacy per-IP RateLimitMiddleware. Per-route caps via
 # @limiter.limit decorators short-circuit hot paths (e.g. /api/admin/verify
 # at 5/min) before they ever reach the brute-force _pin_attempts counter.
 app.add_middleware(SlowAPIMiddleware)
+# Registered after (so outside) both limiters, which read the identity it resolves.
+app.add_middleware(RateLimitIdentityMiddleware)
 
 
 class ImmutableStaticFiles(StaticFiles):
@@ -825,8 +1018,7 @@ async def resilient_json_decode_handler(request: Request, exc: JSONDecodeError) 
 # Add CORS — production origins from env, with sensible defaults
 IS_LOCAL = os.environ.get("K_SERVICE") is None  # K_SERVICE is set by Cloud Run
 _default_origins = [
-    "https://tho-agent-691674245427.us-central1.run.app",
-    "https://tho-agent-trgi34bxuq-uc.a.run.app",
+    "https://project-go-forward-trgi34bxuq-uc.a.run.app",
     "https://tho-ai-agent.web.app",
     "https://tho-ai-agent.firebaseapp.com",
     "https://tho.sapphirealpha.xyz",
@@ -888,11 +1080,61 @@ def _should_redirect_to_canonical_host(request: Request) -> bool:
         return False
     if path in _STATIC_RATE_LIMIT_PATHS:
         return False
+    # Staff entry pages are handled by staff_front_door_target, including the
+    # candidate host, which must keep /staff instead of bouncing to production.
+    if _is_staff_entry_path(path):
+        return False
     return True
+
+
+_STAFF_ENTRY_PATHS = {"/admin", "/login", "/admin/login", "/staff"}
+_LOCAL_STAFF_HOSTS = {"localhost", "127.0.0.1", "testserver"}
+STAFF_FRONT_DOOR = f"{CANONICAL_PUBLIC_URL}/staff"
+
+
+def _request_hostname(request: Request) -> str:
+    host = request.headers.get("host", "")
+    return host.split(":", 1)[0].lower().rstrip(".")
+
+
+def _normalized_path(path: str) -> str:
+    trimmed = (path or "/").rstrip("/")
+    return trimmed or "/"
+
+
+def _is_staff_entry_path(path: str) -> bool:
+    return _normalized_path(path) in _STAFF_ENTRY_PATHS
+
+
+def staff_front_door_target(request: Request) -> str | None:
+    """Send old staff entry URLs to the one sign-in page.
+
+    Local tests and the Cloud Run candidate stay on their own host so a
+    no-traffic revision can be opened. Apex, www aliases, and the old
+    sapphire host always land on https://www.texashomeoutlet.com/staff.
+    """
+    if request.method.upper() not in {"GET", "HEAD"}:
+        return None
+    if not _is_staff_entry_path(request.url.path):
+        return None
+    host = _request_hostname(request)
+    if host in _LOCAL_STAFF_HOSTS:
+        return None
+    normalized = _normalized_path(request.url.path)
+    if host.endswith(".run.app"):
+        if normalized == "/staff" and request.url.path == "/staff":
+            return None
+        return f"https://{host}/staff"
+    if host == _CANONICAL_PUBLIC_HOST and request.url.path == "/staff":
+        return None
+    return STAFF_FRONT_DOOR
 
 
 class CanonicalHostMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
+        staff_target = staff_front_door_target(request)
+        if staff_target:
+            return RedirectResponse(staff_target, status_code=308)
         if _should_redirect_to_canonical_host(request):
             target = urlunsplit(
                 (
@@ -959,7 +1201,12 @@ elif not os.environ.get("ADMIN_SESSION_SECRET"):
         os.environ["ADMIN_SESSION_SECRET"] = _derived_secret
         logger.info("ADMIN_SESSION_SECRET derived from PIN hash for local stability")
 
-ADMIN_TOKEN_TTL = int(os.environ.get("ADMIN_TOKEN_TTL", str(24 * 60 * 60)))  # 24 hours
+# Staff stay signed in on that device for 30 days. Each later visit slides the
+# window forward. ADMIN_TOKEN_TTL still overrides this for tests and operators.
+ADMIN_TOKEN_TTL = int(os.environ.get("ADMIN_TOKEN_TTL", str(30 * 24 * 60 * 60)))
+# Refresh once the cookie is at least an hour old so a busy day does not
+# rewrite the session on every request.
+_STAFF_SESSION_SLIDE_AFTER = 60 * 60
 # Separate PIN tokens from passkey cookies and bind the entire verifier so
 # either secret rotation or PIN rotation revokes existing PIN sessions.
 # No legacy-key fallback: older PIN cookies must sign in again after promotion.
@@ -970,14 +1217,65 @@ _JWT_SECRET = hmac.new(
 ).digest()
 
 
-def _create_admin_token() -> str:
-    """Create an HMAC-signed JWT-like token with embedded expiration."""
+_EMAIL_TOKEN_VERSION = 2
+
+
+def _create_admin_token(email: str | None = None) -> str:
+    """Create an HMAC-signed admin token with embedded expiration.
+
+    PIN sessions stay on the original 8-byte payload. Email sessions use
+    version 2 and carry the staff address so a later block takes effect
+    without waiting for the cookie to expire.
+    """
     if not ADMIN_PIN_HASH:
         raise RuntimeError("Admin auth not configured")
     expires = int(time.time()) + ADMIN_TOKEN_TTL
-    payload = struct.pack(">Q", expires)  # 8 bytes, big-endian uint64
-    sig = hmac.new(_JWT_SECRET, payload, hashlib.sha256).digest()[:16]  # 16-byte signature
+    if email:
+        email_bytes = str(email).strip().lower().encode("utf-8")
+        if not email_bytes or len(email_bytes) > 200 or b"@" not in email_bytes:
+            raise RuntimeError("Admin auth not configured")
+        payload = (
+            bytes([_EMAIL_TOKEN_VERSION])
+            + struct.pack(">Q", expires)
+            + struct.pack(">H", len(email_bytes))
+            + email_bytes
+        )
+    else:
+        payload = struct.pack(">Q", expires)
+    sig = hmac.new(_JWT_SECRET, payload, hashlib.sha256).digest()[:16]
     return base64.urlsafe_b64encode(payload + sig).decode().rstrip("=")
+
+
+def _decode_admin_token(token: str) -> tuple[int, str | None] | None:
+    """Return ``(expires, email)`` for a valid signature, else ``None``.
+
+    ``email`` is ``None`` for a shared PIN session.
+    """
+    if not token or not ADMIN_PIN_HASH:
+        return None
+    try:
+        padding = "=" * (-len(token) % 4)
+        raw = base64.urlsafe_b64decode(token + padding)
+        if len(raw) < 24:
+            return None
+        payload, sig = raw[:-16], raw[-16:]
+        expected_sig = hmac.new(_JWT_SECRET, payload, hashlib.sha256).digest()[:16]
+        if not hmac.compare_digest(sig, expected_sig):
+            return None
+        if len(payload) == 8:
+            return struct.unpack(">Q", payload)[0], None
+        if len(payload) < 11 or payload[0] != _EMAIL_TOKEN_VERSION:
+            return None
+        expires = struct.unpack(">Q", payload[1:9])[0]
+        email_len = struct.unpack(">H", payload[9:11])[0]
+        if email_len <= 0 or email_len > 200 or len(payload) != 11 + email_len:
+            return None
+        email = payload[11:].decode("utf-8")
+        if email != email.strip().lower() or "@" not in email:
+            return None
+        return expires, email
+    except Exception:
+        return None
 
 
 _passkey_session_manager: SessionManager | None = None
@@ -990,26 +1288,103 @@ def _get_passkey_session_manager() -> SessionManager:
     return _passkey_session_manager
 
 
-def _verify_admin_token(token: str) -> bool:
-    """Verify an HMAC-signed admin token. Stateless — works across instances."""
-    if not ADMIN_PIN_HASH:
-        return False
+def _attach_staff_session_cookies(response: Response, token: str, csrf_token: str) -> None:
+    """Set the staff session. HttpOnly, Secure outside local dev, SameSite=strict."""
+    response.set_cookie(
+        key="tho_admin_token",
+        value=token,
+        httponly=True,
+        secure=not IS_LOCAL,
+        samesite="strict",
+        max_age=ADMIN_TOKEN_TTL,
+        path="/",
+    )
+    set_csrf_cookie(
+        response,
+        csrf_token,
+        secure=not IS_LOCAL,
+        max_age=ADMIN_TOKEN_TTL,
+    )
+
+
+def _clear_staff_session_cookies(response: Response) -> None:
+    """Drop PIN, email, and passkey cookies so Sign out really signs out."""
+    flags = {"path": "/", "secure": not IS_LOCAL, "samesite": "strict"}
+    response.delete_cookie("tho_admin_token", **flags)
+    response.delete_cookie("tho_csrf_token", **flags)
+    response.delete_cookie("tho_passkey_session", **flags)
+
+
+def _response_clears_staff_cookie(response: Response) -> bool:
+    for raw in response.headers.getlist("set-cookie"):
+        lower = raw.lower()
+        if lower.startswith("tho_admin_token=") and "max-age=0" in lower:
+            return True
+    return False
+
+
+def _maybe_slide_staff_session(request: Request, response: Response) -> None:
+    """Extend a still-valid staff cookie so 30 days counts from last use."""
+    if _response_clears_staff_cookie(response):
+        return
+    token = request.cookies.get("tho_admin_token", "").strip()
+    if not token or not _verify_admin_token(token):
+        return
+    decoded = _decode_admin_token(token)
+    if decoded is None:
+        return
+    expires, email = decoded
+    remaining = expires - time.time()
+    if remaining > ADMIN_TOKEN_TTL - _STAFF_SESSION_SLIDE_AFTER:
+        return
     try:
-        # Pad base64 if needed
-        padding = 4 - len(token) % 4
-        if padding != 4:
-            token += "=" * padding
-        raw = base64.urlsafe_b64decode(token)
-        if len(raw) != 24:  # 8 bytes payload + 16 bytes signature
-            return False
-        payload, sig = raw[:8], raw[8:]
-        expected_sig = hmac.new(_JWT_SECRET, payload, hashlib.sha256).digest()[:16]
-        if not hmac.compare_digest(sig, expected_sig):
-            return False
-        expires = struct.unpack(">Q", payload)[0]
-        return time.time() < expires
-    except Exception:
+        fresh = _create_admin_token(email)
+    except RuntimeError:
+        return
+    response.set_cookie(
+        key="tho_admin_token",
+        value=fresh,
+        httponly=True,
+        secure=not IS_LOCAL,
+        samesite="strict",
+        max_age=ADMIN_TOKEN_TTL,
+        path="/",
+    )
+    csrf = request.cookies.get("tho_csrf_token", "")
+    if csrf:
+        set_csrf_cookie(
+            response,
+            csrf,
+            secure=not IS_LOCAL,
+            max_age=ADMIN_TOKEN_TTL,
+        )
+
+
+class StaffSessionSlideMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        _maybe_slide_staff_session(request, response)
+        return response
+
+
+app.add_middleware(StaffSessionSlideMiddleware)
+
+
+def _verify_admin_token(token: str) -> bool:
+    """Verify an HMAC-signed admin token. Stateless — works across instances.
+
+    Email sessions are re-checked against the staff allowlist so removing a
+    teammate ends that session. Shared PIN sessions have no email claim.
+    """
+    decoded = _decode_admin_token(token)
+    if decoded is None:
         return False
+    expires, email = decoded
+    if time.time() >= expires:
+        return False
+    if email is not None and not is_allowed_admin_email(email):
+        return False
+    return True
 
 
 def _verify_passkey_cookie(request: Request) -> bool:
@@ -1019,7 +1394,12 @@ def _verify_passkey_cookie(request: Request) -> bool:
         return False
     mgr = _get_passkey_session_manager()
     payload = mgr.verify_session(token)
-    return payload is not None and payload.get("user_id") == "admin"
+    if not payload or payload.get("user_id") != "admin":
+        return False
+    email = str(payload.get("email") or "").strip().lower()
+    if email and not is_allowed_admin_email(email):
+        return False
+    return True
 
 
 def _admin_token_from_request(request: Request) -> str:
@@ -1208,7 +1588,11 @@ def _audit_actor(request: Request) -> str:
 # Redis-backed with in-memory fallback for local dev without Redis
 PIN_MAX_ATTEMPTS = 10
 PIN_LOCKOUT_SECONDS = 300  # 5-minute lockout after 10 failures
+PIN_GLOBAL_MAX_ATTEMPTS = 50
+PIN_GLOBAL_WINDOW_SECONDS = 15 * 60
+PIN_GLOBAL_KEY = "tho:pin_attempts:global"
 _pin_attempts_fallback: dict[str, list[float]] = {}
+_pin_global_attempts_fallback: list[float] = []
 
 
 def _pin_attempts_key(client_ip: str) -> str:
@@ -1235,8 +1619,44 @@ def _get_pin_attempts(client_ip: str) -> list[float]:
     return attempts
 
 
+def _get_pin_global_attempts() -> list[float]:
+    """Retrieve recent failed PIN attempts across all IPs."""
+    redis_client = caching.get_redis_client()
+    if redis_client:
+        try:
+            data = redis_client.get(PIN_GLOBAL_KEY)
+            if data:
+                attempts = json.loads(data)
+                now = time.time()
+                return [t for t in attempts if now - t < PIN_GLOBAL_WINDOW_SECONDS]
+        except Exception as e:
+            struct_logger.warning("Redis pin_attempts global read failed", error=str(e))
+    now = time.time()
+    return [t for t in _pin_global_attempts_fallback if now - t < PIN_GLOBAL_WINDOW_SECONDS]
+
+
+def _add_pin_global_attempt(timestamp: float) -> None:
+    global _pin_global_attempts_fallback
+    attempts = _get_pin_global_attempts()
+    attempts.append(timestamp)
+    # Only the threshold matters; keep the alert signal bounded during attacks.
+    attempts = attempts[-PIN_GLOBAL_MAX_ATTEMPTS:]
+    redis_client = caching.get_redis_client()
+    if redis_client:
+        try:
+            redis_client.setex(
+                PIN_GLOBAL_KEY,
+                PIN_GLOBAL_WINDOW_SECONDS,
+                json.dumps(attempts),
+            )
+            return
+        except Exception as e:
+            struct_logger.warning("Redis pin_attempts global write failed", error=str(e))
+    _pin_global_attempts_fallback = attempts
+
+
 def _add_pin_attempt(client_ip: str, timestamp: float) -> None:
-    """Record a failed PIN attempt for a client IP."""
+    """Record a failed PIN attempt for a client IP and the global alert signal."""
     attempts = _get_pin_attempts(client_ip)
     attempts.append(timestamp)
     redis_client = caching.get_redis_client()
@@ -1247,10 +1667,32 @@ def _add_pin_attempt(client_ip: str, timestamp: float) -> None:
                 PIN_LOCKOUT_SECONDS,
                 json.dumps(attempts),
             )
+            _add_pin_global_attempt(timestamp)
             return
         except Exception as e:
             struct_logger.warning("Redis pin_attempts write failed", error=str(e))
     _pin_attempts_fallback[client_ip] = attempts
+    _add_pin_global_attempt(timestamp)
+
+
+def _pin_budget_lockout_response(client_ip: str):
+    """Enforce per-IP lockout; alert on distributed failures without denying staff."""
+    global_attempts = _get_pin_global_attempts()
+    if len(global_attempts) >= PIN_GLOBAL_MAX_ATTEMPTS:
+        struct_logger.error(
+            "Distributed admin login failures",
+            event="admin_pin_global_failures",
+            attempts=len(global_attempts),
+        )
+    attempts = _get_pin_attempts(client_ip)
+    if len(attempts) >= PIN_MAX_ATTEMPTS:
+        struct_logger.warning("Admin login locked out", client_ip=client_ip, attempts=len(attempts))
+        return JSONResponse(
+            {"success": False, "error": "Too many failed attempts. Please wait 5 minutes."},
+            status_code=429,
+            headers={"Retry-After": str(PIN_LOCKOUT_SECONDS)},
+        )
+    return None
 
 
 def _clear_pin_attempts(client_ip: str) -> None:
@@ -1323,6 +1765,7 @@ async def _execute_agent_run(runner, user_id, session_id, new_message, request_i
 # --- Rate Limiting for Chat API ---
 CHAT_RATE_LIMIT_SECONDS = 60
 CHAT_RATE_LIMIT_MAX_REQUESTS = 10
+CHAT_RATE_LIMIT_MAX_BUCKETS = int(os.environ.get("CHAT_RATE_LIMIT_MAX_BUCKETS", "50000"))
 _chat_rate_limit_fallback: dict[str, list[float]] = {}
 
 
@@ -1347,18 +1790,22 @@ def _check_chat_rate_limit(client_ip: str) -> bool:
             struct_logger.warning("Redis chat_ratelimit failed", error=str(e))
 
     # Fallback to in-memory
-    attempts = _chat_rate_limit_fallback.get(client_ip, [])
-    attempts = [t for t in attempts if now - t < CHAT_RATE_LIMIT_SECONDS]
+    attempts = [
+        t for t in _chat_rate_limit_fallback.get(client_ip, []) if now - t < CHAT_RATE_LIMIT_SECONDS
+    ]
     if len(attempts) >= CHAT_RATE_LIMIT_MAX_REQUESTS:
+        _commit_rate_bucket(
+            _chat_rate_limit_fallback, client_ip, attempts, CHAT_RATE_LIMIT_MAX_BUCKETS
+        )
         return False
     attempts.append(now)
-    _chat_rate_limit_fallback[client_ip] = attempts
+    _commit_rate_bucket(_chat_rate_limit_fallback, client_ip, attempts, CHAT_RATE_LIMIT_MAX_BUCKETS)
     return True
 
 
 @app.post("/run")
-async def run_agent(request: Request):
-    client_ip = request.client.host if request.client else "unknown"
+async def run_agent(request: Request, response: Response):
+    client_ip = _get_client_ip(request)
     if not _check_chat_rate_limit(client_ip):
         return JSONResponse(
             {"error": "You're sending messages too fast. Please wait a moment and try again."},
@@ -1367,11 +1814,29 @@ async def run_agent(request: Request):
 
     request_id = str(uuid.uuid4())
     start_time = time.time()
+    session_id = ""
+    user_id = "default_user"
 
     try:
         data = await request.json()
-        user_id = data.get("userId", "default_user")
-        session_id = data.get("sessionId") or f"anon_{uuid.uuid4().hex[:12]}"
+        # Continue a chat only when this browser's owner cookie matches the
+        # id it sent. Knowing the id is not enough: a missing or wrong cookie
+        # starts a new chat and must not read or extend the named session.
+        session_id, replaced = bind_run_session(
+            data.get("sessionId"),
+            request.cookies.get(CHAT_OWNER_COOKIE),
+        )
+        supplied_user = data.get("userId")
+        if replaced or not isinstance(supplied_user, str) or not supplied_user.strip():
+            # The page's next send uses web_user_<session id>. A replacement
+            # has to start under that same id or the follow-up lands in a
+            # different agent session.
+            user_id = f"web_user_{session_id}"
+        else:
+            user_id = supplied_user.strip()
+        set_chat_owner_cookie(response, session_id, secure=not IS_LOCAL)
+        response.headers["Cache-Control"] = PRIVATE_CHAT_CACHE_CONTROL
+        response.headers["Vary"] = "Cookie"
         new_message_dict = data.get("newMessage")
         # First-party UTM/referrer the frontend carries on the chat POST, so a
         # chat-sourced lead is attributable to the paid campaign that drove it
@@ -1417,7 +1882,10 @@ async def run_agent(request: Request):
             runner = _get_runner()
         except RuntimeError as e:
             struct_logger.error("AI service unavailable", request_id=request_id, error=str(e))
-            return {"error": "AI service temporarily unavailable. Please try again later."}
+            return {
+                "error": "AI service temporarily unavailable. Please try again later.",
+                "session_id": session_id,
+            }
 
         # Ensure session exists
         existing_session = await runner.session_service.get_session(
@@ -1537,7 +2005,7 @@ async def run_agent(request: Request):
             request=request,
         )
 
-        return {"text": final_text}
+        return {"text": final_text, "session_id": session_id}
 
     except Exception as e:
         duration_ms = (time.time() - start_time) * 1000
@@ -1557,34 +2025,56 @@ async def run_agent(request: Request):
         user_message = (
             "I'm having trouble connecting to my brain right now. Please try again in a moment."
         )
-        return {"error": user_message}
+        body = {"error": user_message}
+        if session_id:
+            body["session_id"] = session_id
+        return body
+
+
+@app.post("/api/chat/session")
+@limiter.limit("30/minute")
+async def start_public_chat_session(request: Request):
+    """Start a chat and bind it to this browser.
+
+    The session id goes back to the page. The owner cookie is httpOnly, so
+    page script cannot read it. The cookie value is not logged.
+    """
+    session_id = new_chat_session_id()
+    response = private_chat_json({"success": True, "session_id": session_id})
+    set_chat_owner_cookie(response, session_id, secure=not IS_LOCAL)
+    return response
 
 
 @app.get("/api/chat/session/{session_id}")
 @limiter.limit("30/minute")
 async def get_public_chat_session(session_id: str, request: Request):
-    """Retrieve chat history for a given session ID to persist memory on the frontend.
+    """Return chat history for the browser that started this session.
 
-    Rate-limited to blunt enumeration of the 48-bit anon session ids (customers
-    sometimes paste PII into chat). Full per-browser session binding is tracked
-    as a follow-up hardening item.
+    A missing or mismatched owner cookie is a 404, including when no session
+    is stored, so the response does not confirm that an id exists. Staff
+    review uses the admin chat-history routes and does not consult this cookie.
     """
+    if not chat_owner_cookie_matches(request.cookies.get(CHAT_OWNER_COOKIE), session_id):
+        return private_chat_json({"success": False, "error": "Not found"}, status_code=404)
     try:
         session = await chat_history.get_session(session_id)
-        if not session:
-            return {"success": True, "messages": []}
-
         messages = []
-        for msg in session.messages:
-            messages.append({"role": msg.role, "text": msg.text, "timestamp": msg.timestamp})
-
-        return {"success": True, "messages": messages}
+        if session:
+            messages = [
+                {"role": msg.role, "text": msg.text, "timestamp": msg.timestamp}
+                for msg in session.messages
+            ]
+        response = private_chat_json({"success": True, "messages": messages})
+        # Slide the owner cookie so an active visitor keeps the same chat.
+        set_chat_owner_cookie(response, session_id, secure=not IS_LOCAL)
+        return response
     except Exception as e:
         struct_logger.error(
             "Failed to retrieve public chat session", session_id=session_id, error=str(e)
         )
-        return JSONResponse(
-            {"success": False, "error": "Failed to retrieve chat history"}, status_code=500
+        return private_chat_json(
+            {"success": False, "error": "Failed to retrieve chat history"},
+            status_code=500,
         )
 
 
@@ -2183,6 +2673,33 @@ def healthz() -> JSONResponse:
     )
 
 
+_EMAIL_LIVENESS_CACHE: dict[str, object] = {"checked_at": 0.0, "status": None}
+_EMAIL_LIVENESS_TTL_S = 300.0
+_EMAIL_LIVENESS_LOCK = threading.Lock()
+
+
+def _cached_email_liveness() -> dict[str, object]:
+    """Return a bounded, non-secret provider check cached for five minutes."""
+    now = time.monotonic()
+    cached = _EMAIL_LIVENESS_CACHE.get("status")
+    checked_at = float(_EMAIL_LIVENESS_CACHE.get("checked_at") or 0.0)
+    if isinstance(cached, dict) and now - checked_at < _EMAIL_LIVENESS_TTL_S:
+        return cached
+    with _EMAIL_LIVENESS_LOCK:
+        cached = _EMAIL_LIVENESS_CACHE.get("status")
+        checked_at = float(_EMAIL_LIVENESS_CACHE.get("checked_at") or 0.0)
+        if isinstance(cached, dict) and now - checked_at < _EMAIL_LIVENESS_TTL_S:
+            return cached
+        try:
+            from email_service import check_email_liveness
+
+            status = check_email_liveness()
+        except Exception:  # Detailed health must degrade, never fail or leak details.
+            status = {"ok": False, "state": "unreachable"}
+        _EMAIL_LIVENESS_CACHE.update(checked_at=time.monotonic(), status=status)
+        return status
+
+
 @app.get("/healthz/detailed", response_class=JSONResponse)
 @limiter.exempt
 def healthz_detailed(request: Request) -> JSONResponse:
@@ -2191,10 +2708,14 @@ def healthz_detailed(request: Request) -> JSONResponse:
         token = _admin_token_from_request(request)
         if not token or not _verify_admin_token(token):
             raise HTTPException(status_code=403, detail="Admin access required")
-    email_configured = bool(os.environ.get("RESEND_API_KEY"))
+    email_status = _cached_email_liveness()
     warnings = []
-    if not email_configured:
+    if email_status["state"] == "not_configured":
         warnings.append("email_not_configured")
+    elif email_status["state"] == "invalid_key":
+        warnings.append("email_key_rejected")
+    elif email_status["state"] == "unreachable":
+        warnings.append("email_provider_unreachable")
     credential_dependency_key = "sec" + "rets"
     version = (
         os.environ.get("APP_VERSION")
@@ -2221,7 +2742,7 @@ def healthz_detailed(request: Request) -> JSONResponse:
             else "not_configured",
             credential_dependency_key: "configured" if ADMIN_PIN_HASH else "missing",
             "db": "configured" if project_id else "missing",
-            "email": "configured" if email_configured else "missing",
+            "email": email_status["state"],
         },
         "warnings": warnings,
     }
@@ -3032,7 +3553,14 @@ async def download_document(filename: str):
 # ─── Inventory API ───
 from database.deal_validation import validate_for_documents
 from database.firestore_client import get_database
-from database.models import Deal, DealStatus, Inventory, InventoryWrite
+from database.models import (
+    Deal,
+    DealStatus,
+    ESignRequest,
+    Inventory,
+    InventoryWrite,
+    unknown_deal_fields,
+)
 from database.rpc_timeout import FIRESTORE_RPC_TIMEOUT
 
 _db = get_database()
@@ -3281,9 +3809,40 @@ def _apply_inventory_media_fallback(result: dict, item: dict, legacy_media_index
     return result
 
 
+def _suppress_used_catalog_photos_for_staff(homes: list[dict]) -> None:
+    """Drop manufacturer catalog photos from used homes on the staff list.
+
+    A used home left with no unit photo gets the same ``/tex-icon.svg``
+    placeholder the staff list already uses for a home with no photos.
+    """
+    from tools.photo_classifier import has_real_photo
+
+    for home in homes:
+        suppress_used_home_catalog_photos(home)
+        if home.get("has_staff_photos") or has_real_photo(home):
+            continue
+        if str(home.get("image_url") or "").strip():
+            continue
+        home["image_url"] = INVENTORY_PLACEHOLDER_IMAGE_URL
+        home["hero_image"] = INVENTORY_PLACEHOLDER_IMAGE_URL
+        home["image_placeholder"] = True
+        home["placeholder_reason"] = (home.get("media_quality") or {}).get(
+            "status", "missing_photos"
+        )
+
+
 @app.get("/api/inventory", dependencies=[Depends(require_admin)])
-async def list_inventory(status: str = "AVAILABLE", limit: int = 100, is_new: bool = None):
-    """List inventory for document generation."""
+async def list_inventory(
+    status: str = "AVAILABLE",
+    limit: int = 100,
+    is_new: bool = None,
+    include_staff_photos: bool = False,
+):
+    """List staff inventory (documents, Manage Homes, Photos picker).
+
+    ``include_staff_photos`` folds staff-uploaded photos in, as the public page
+    does, so "needs photos" is honest in the Photos picker.
+    """
     try:
         inventory = _db.search_inventory(status=status, limit=limit)
         legacy_media_index = _load_legacy_inventory_media_index()
@@ -3376,9 +3935,20 @@ async def list_inventory(status: str = "AVAILABLE", limit: int = 100, is_new: bo
                 "public_sale_price": item.get("sale_price"),
                 "image_url": item.get("image_url") or item.get("hero_image"),
                 "status": item.get("status", "AVAILABLE"),
+                "stock_number": _pick_inventory_field(
+                    item, "stock_number", "legacy_inventory_id", "inventory_id", "listing_id"
+                ),
             }
             results.append(_apply_inventory_media_fallback(result, item, legacy_media_index))
 
+        if include_staff_photos:
+            _overlay_staff_photos(results)
+            for result in results:
+                if result.get("has_staff_photos"):
+                    result.pop("image_placeholder", None)
+                    result.pop("placeholder_reason", None)
+        annotate_possible_duplicates(results)
+        _suppress_used_catalog_photos_for_staff(results)
         return {"success": True, "inventory": results, "count": len(results)}
     except Exception as e:
         struct_logger.error("Inventory listing failed", error=str(e))
@@ -3775,11 +4345,24 @@ async def list_deals(status: str = None, salesrep: str = None, q: str = None, li
         return {"success": False, "error": "Failed to load deals. Please try again."}
 
 
+def _log_unknown_deal_fields(route: str, data: object) -> None:
+    """COD-158: record unknown deal key NAMES only (never values; deals hold PII)."""
+    ignored = unknown_deal_fields(data)
+    if ignored:
+        struct_logger.warning(
+            "Deal payload has unknown fields",
+            route=route,
+            unknown_fields=ignored[:50],
+            unknown_count=len(ignored),
+        )
+
+
 @app.post("/api/deals", dependencies=[Depends(require_admin)])
 async def create_deal(request: Request):
     """Create a new deal/application."""
     try:
         data = await request.json()
+        _log_unknown_deal_fields("create", data)
         # Generate ID if not provided
         deal = Deal(**data)
         deal_data = deal.model_dump()
@@ -3972,6 +4555,7 @@ async def update_deal(deal_id: str, request: Request):
         # Don't allow overwriting id or timestamps
         data.pop("id", None)
         data.pop("created_at", None)
+        _log_unknown_deal_fields("update", data)
         _deal_db.update_deal(deal_id, data)
         log_admin_action(
             actor=_audit_actor(request),
@@ -4055,20 +4639,16 @@ async def update_deal_status(deal_id: str, request: Request):
         except Exception as e:
             struct_logger.warning("Partner webhook dispatch failed", error=str(e))
 
-        # DocuSeal automated triggers
+        esign_outcome = None
         try:
-            await docuseal_auto_trigger(
-                event_type="deal.status_change",
-                payload={
-                    "deal_id": deal_id,
-                    "to": new_status,
-                    "deal_data": _deal_db.get_deal(deal_id) or {},
-                },
-            )
+            esign_outcome = await _handle_stage_change_signing(deal_id, new_status, request)
         except Exception as e:
-            struct_logger.warning("Deal DocuSeal trigger failed", error=str(e))
+            struct_logger.warning("Deal stage e-sign handling failed", error=str(e))
 
-        return {"success": True, "message": f"Deal status changed to {new_status}"}
+        response = {"success": True, "message": f"Deal status changed to {new_status}"}
+        if esign_outcome:
+            response["esign"] = esign_outcome
+        return response
     except Exception as e:
         struct_logger.error("Deal status update failed", error=str(e))
         return {"success": False, "error": "Failed to update deal status. Please try again."}
@@ -4153,6 +4733,22 @@ async def generate_document_from_deal(deal_id: str, request: Request):
         }
 
 
+def _public_esign_error(result: object) -> str:
+    """Non-sensitive e-sign failure token for API responses (no paths or PII)."""
+    if not isinstance(result, dict):
+        return "dispatch_failed"
+    err = str(result.get("error") or result.get("message") or "").lower()
+    if "not found" in err:
+        return "file_not_found"
+    if "credential" in err or "not configured" in err or "missing" in err:
+        return "not_configured"
+    return "dispatch_failed"
+
+
+def _email_send_succeeded(result: object) -> bool:
+    return isinstance(result, dict) and result.get("success") is True and not result.get("dry_run")
+
+
 @app.post("/api/deals/{deal_id}/generate-packet", dependencies=[Depends(require_admin)])
 async def generate_packet_from_deal(deal_id: str, request: Request):
     """Generate a closing packet pre-filled with deal data."""
@@ -4216,15 +4812,23 @@ async def generate_packet_from_deal(deal_id: str, request: Request):
                     deal_id=deal_id,
                 )
 
-            # DocuSeal: Automated e-sign dispatch for deal packet
+            # Packets are only e-sign dispatched automatically when the
+            # ESIGN_AUTO_SEND flag is on AND every money line is filled in.
             email = doc_data.get("buyer_email") or doc_data.get("email")
-            if email and packet_fields.get("filename"):
+            esign_dispatched = False
+            esign_error = None
+            if (
+                email
+                and packet_fields.get("filename")
+                and esign_review.auto_send_enabled()
+                and not esign_review.money_problems(doc_data)
+            ):
                 try:
-                    await docuseal_send_file_for_signature(
+                    send_result = await docuseal_send_file_for_signature(
                         email=email,
                         name=f"{doc_data.get('buyer_first_name', '')} {doc_data.get('buyer_last_name', '')}".strip()
                         or "Customer",
-                        file_path=os.path.join("generated_docs", packet_fields["filename"]),
+                        file_path=os.path.join(OUTPUT_DIR, packet_fields["filename"]),
                         display_name=f"Closing Packet - {packet_name}",
                         deal_id=deal_id,
                         metadata={
@@ -4232,19 +4836,29 @@ async def generate_packet_from_deal(deal_id: str, request: Request):
                             "trigger": "generate_packet_from_deal",
                         },
                     )
+                    esign_dispatched = (
+                        isinstance(send_result, dict) and send_result.get("success") is True
+                    )
+                    if not esign_dispatched:
+                        esign_error = _public_esign_error(send_result)
                 except Exception as e:
                     struct_logger.warning(
-                        "Automated DocuSeal deal packet dispatch failed", error=str(e)
+                        "Automated DocuSeal deal packet dispatch failed", error=type(e).__name__
                     )
+                    esign_error = "dispatch_failed"
 
-            return {
+            response_body = {
                 "success": True,
                 "download_url": packet_fields["download_url"],
                 "filename": packet_fields["filename"],
                 "message": packet_fields["message"],
                 "page_count": packet_fields.get("page_count", 0),
                 "documents_included": packet_fields.get("documents_included", []),
+                "esign_dispatched": esign_dispatched,
             }
+            if esign_error:
+                response_body["esign_error"] = esign_error
+            return response_body
         return {
             "success": False,
             "error": result.get("message") or result.get("error") or "Packet generation failed",
@@ -4259,56 +4873,403 @@ async def generate_packet_from_deal(deal_id: str, request: Request):
 _DOCUSEAL_API_URL = os.environ.get("DOCUSEAL_API_URL", "")
 _DOCUSEAL_API_TOKEN = os.environ.get("DOCUSEAL_API_TOKEN", "")
 _DOCUSEAL_WEBHOOK_SECRET = os.environ.get("DOCUSEAL_WEBHOOK_SECRET", "")
+# Replay window for signed DocuSeal events: reject stale/future payload
+# timestamps and drop exact repeats seen by this instance inside the window.
+_DOCUSEAL_WEBHOOK_MAX_AGE_SECONDS = int(
+    os.environ.get("DOCUSEAL_WEBHOOK_MAX_AGE_SECONDS", str(72 * 3600))
+)
+_DOCUSEAL_REPLAY_GUARD = ReplayGuard(_DOCUSEAL_WEBHOOK_MAX_AGE_SECONDS)
+
+
+_DEFAULT_SIGNING_TEMPLATE = "TMHA_SalesContract.pdf"
+_esign_requests: dict[str, dict] = {}
+_ESIGN_REQUEST_COLLECTION = "esign_requests"
+
+
+def _esign_request_collection():
+    try:
+        db_client = getattr(_db, "db", None)
+        if db_client is None:
+            return None
+        return db_client.collection(_ESIGN_REQUEST_COLLECTION)
+    except Exception as exc:  # noqa: BLE001
+        struct_logger.warning("E-sign request collection unavailable", error=str(exc))
+        return None
+
+
+def _save_esign_request(record: dict) -> None:
+    _esign_requests[record["id"]] = record
+    collection = _esign_request_collection()
+    if collection is None:
+        return
+    try:
+        collection.document(record["id"]).set(record, timeout=FIRESTORE_RPC_TIMEOUT)
+    except Exception as exc:  # noqa: BLE001
+        struct_logger.warning("E-sign request save failed", error=str(exc))
+
+
+def _load_esign_request(record_id: str) -> dict | None:
+    collection = _esign_request_collection()
+    if collection is not None:
+        try:
+            doc = collection.document(record_id).get(timeout=FIRESTORE_RPC_TIMEOUT)
+            if doc.exists:
+                _esign_requests[record_id] = doc.to_dict() or {}
+        except Exception as exc:  # noqa: BLE001
+            struct_logger.warning("E-sign request fetch failed", error=str(exc))
+    return _esign_requests.get(record_id)
+
+
+def _list_esign_requests(deal_id: str) -> list[dict]:
+    collection = _esign_request_collection()
+    if collection is not None:
+        try:
+            for doc in collection.where("deal_id", "==", deal_id).stream(
+                timeout=FIRESTORE_RPC_TIMEOUT
+            ):
+                _esign_requests[doc.id] = doc.to_dict() or {}
+        except Exception as exc:  # noqa: BLE001
+            struct_logger.warning("E-sign request list failed", error=str(exc))
+    records = [r for r in _esign_requests.values() if r.get("deal_id") == deal_id]
+    records.sort(key=lambda r: str(r.get("created_at") or ""), reverse=True)
+    return records
+
+
+def _mark_esign_request(deal_id: str, submission_id: str, status: str, actor: str | None = None):
+    record = _load_esign_request(f"{deal_id}_{submission_id}")
+    if not record:
+        return None
+    record["status"] = status
+    record["updated_at"] = datetime.now(UTC).isoformat()
+    if status == "cancelled":
+        record["cancelled_by"] = actor
+    _save_esign_request(record)
+    return record
+
+
+def _deal_document_data(deal_data: dict) -> dict:
+    return Deal(**deal_data).to_document_data()
+
+
+def _prepare_deal_signing(deal_data: dict, template_name: str) -> dict:
+    return esign_review.prepare_signing_packet(
+        doc_data=_deal_document_data(deal_data),
+        template_name=template_name,
+        generate=engine_generate_document,
+    )
+
+
+async def _send_prepared_signing(*, deal_id: str, prepared: dict, actor: str, trigger: str) -> dict:
+    result = await docuseal_send_for_signature(
+        email=prepared["signer_email"],
+        name=prepared["signer_name"],
+        template_name=prepared["template_name"],
+        deal_id=deal_id,
+        metadata={"trigger": trigger, "review_token": prepared["review_token"][:16]},
+        values=prepared["values"],
+    )
+    if not result.get("success"):
+        return result
+    submission_ids = docuseal_submission_ids(result.get("submission"))
+    for submission_id in submission_ids:
+        record = ESignRequest(
+            id=f"{deal_id}_{submission_id}",
+            deal_id=deal_id,
+            submission_id=submission_id,
+            template_name=prepared["template_name"],
+            review_token=prepared["review_token"],
+            sent_by=actor,
+            trigger=trigger,
+        )
+        _save_esign_request(record.model_dump(mode="json"))
+    return {"success": True, "submission_ids": submission_ids}
+
+
+def _queue_staff_task(
+    *,
+    task_id: str,
+    title: str,
+    description: str,
+    priority: str = "high",
+    related_deal: str = "",
+    related_lead: str = "",
+) -> dict:
+    now = datetime.now(UTC).isoformat()
+    task = {
+        "task_id": task_id,
+        "title": title[:200],
+        "description": description[:2000],
+        "due_date": "",
+        "priority": priority,
+        "assigned_to": "",
+        "related_lead": related_lead[:120],
+        "related_deal": related_deal[:120],
+        "status": "pending",
+        "created_at": now,
+        "updated_at": now,
+    }
+    _save_crm_task(task)
+    return task
+
+
+async def _handle_stage_change_signing(deal_id: str, new_status: str, request: Request):
+    """Queue the stage's signing document for staff review (or auto-send if opted in).
+
+    Returns None when the stage has no signing document or e-sign is off.
+    """
+    template_name = esign_review.STAGE_SIGNING_TEMPLATES.get(new_status)
+    if not template_name or not docuseal_is_configured():
+        return None
+    label = esign_review.SIGNABLE_TEMPLATES[template_name]
+    reasons: list[str] = []
+
+    if esign_review.auto_send_enabled():
+        deal_data = _deal_db.get_deal(deal_id) or {}
+        prepared = _prepare_deal_signing(deal_data, template_name)
+        if prepared["ready"]:
+            trigger = f"deal.status_change.{new_status}"
+            sent = await _send_prepared_signing(
+                deal_id=deal_id, prepared=prepared, actor="system:stage_change", trigger=trigger
+            )
+            if sent.get("success"):
+                log_admin_action(
+                    actor="system:stage_change",
+                    action="document.esign_send",
+                    target_type="document",
+                    target_id=str(deal_id),
+                    details={
+                        "template_name": template_name,
+                        "trigger": trigger,
+                        "submission_ids": sent["submission_ids"][:5],
+                    },
+                    request=request,
+                )
+                return "auto_sent"
+            reasons.append("The automatic send failed.")
+        else:
+            reasons.extend(problem["message"] for problem in prepared["problems"])
+
+    description = (
+        f"The deal moved to '{new_status}'. Nothing was sent to the buyer. Open the "
+        f"deal, click Send for Signature, hand-check the payment lines on the preview, "
+        f"then confirm to send the {label}."
+    )
+    if reasons:
+        description += " Needs fixing first: " + " ".join(reasons)
+    _queue_staff_task(
+        task_id=f"esign-review-{deal_id}-{template_name.removesuffix('.pdf')}",
+        title=f"Review and send {label} for signature",
+        description=description,
+        related_deal=str(deal_id),
+    )
+    return "queued_for_review"
+
+
+def _esign_not_configured_response() -> JSONResponse:
+    return JSONResponse(
+        {
+            "success": False,
+            "status": "not_configured",
+            "message": (
+                "E-signing isn't turned on yet. DocuSeal is not configured "
+                "(DOCUSEAL_API_URL + DOCUSEAL_API_TOKEN)."
+            ),
+        },
+        status_code=501,
+    )
+
+
+async def _request_json_object(request: Request) -> dict:
+    try:
+        data = await request.json()
+    except (JSONDecodeError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+async def _send_reviewed_signing(deal_id: str, data: dict, request: Request):
+    if not docuseal_is_configured():
+        return _esign_not_configured_response()
+    if data.get("confirm") is not True:
+        return JSONResponse(
+            {
+                "success": False,
+                "error": "confirmation_required",
+                "message": "Not sent. Review the preview and confirm before sending.",
+            },
+            status_code=400,
+        )
+    template_name = str(data.get("template_name") or _DEFAULT_SIGNING_TEMPLATE)
+    deal_data = _deal_db.get_deal(deal_id)
+    if not deal_data:
+        return JSONResponse({"success": False, "message": "Deal not found."}, status_code=404)
+
+    prepared = _prepare_deal_signing(deal_data, template_name)
+    view = esign_review.public_view(prepared)
+    if not prepared["ready"]:
+        first = prepared["problems"][0]["message"] if prepared["problems"] else ""
+        return JSONResponse(
+            {**view, "success": False, "error": "not_ready", "message": f"Not sent. {first}"},
+            status_code=422,
+        )
+    if str(data.get("review_token") or "") != prepared["review_token"]:
+        return JSONResponse(
+            {
+                **view,
+                "success": False,
+                "error": "review_stale",
+                "message": (
+                    "Not sent. The deal changed after you reviewed it. "
+                    "Review the new preview before sending."
+                ),
+            },
+            status_code=409,
+        )
+
+    sent = await _send_prepared_signing(
+        deal_id=deal_id, prepared=prepared, actor=_audit_actor(request), trigger="staff_review"
+    )
+    if not sent.get("success"):
+        struct_logger.error(
+            "Reviewed DocuSeal send failed",
+            operation="staff_review_send",
+            deal_id=deal_id,
+            template_name=template_name,
+            status_code=sent.get("status_code"),
+            request_id=str(sent.get("request_id") or "")[:120],
+        )
+        return JSONResponse(
+            {
+                "success": False,
+                "error": "send_failed",
+                "message": "DocuSeal didn't accept the request, so nothing was sent. Try again.",
+            },
+            status_code=502,
+        )
+
+    log_admin_action(
+        actor=_audit_actor(request),
+        action="document.esign_send",
+        target_type="document",
+        target_id=str(deal_id),
+        details={
+            "template_name": template_name[:100],
+            "trigger": "staff_review",
+            "submission_ids": sent["submission_ids"][:5],
+        },
+        request=request,
+    )
+    return {
+        "success": True,
+        "message": f"{prepared['document_label']} sent to {prepared['signer_email']} for signature.",
+        "submission_ids": sent["submission_ids"],
+    }
+
+
+@app.post("/api/deals/{deal_id}/esign/preview", dependencies=[Depends(require_admin)])
+async def preview_deal_signing(deal_id: str, request: Request):
+    """Build the signing document from the deal and report whether it may be sent.
+
+    Never sends. Returns the money lines for staff to hand-check, a link to
+    the filled PDF, and a ``review_token`` the send step must echo back.
+    """
+    data = await _request_json_object(request)
+    template_name = str(data.get("template_name") or _DEFAULT_SIGNING_TEMPLATE)
+    deal_data = _deal_db.get_deal(deal_id)
+    if not deal_data:
+        return JSONResponse({"success": False, "message": "Deal not found."}, status_code=404)
+    prepared = _prepare_deal_signing(deal_data, template_name)
+    return {
+        "success": True,
+        "esign_configured": docuseal_is_configured(),
+        **esign_review.public_view(prepared),
+    }
+
+
+@app.post("/api/deals/{deal_id}/esign/send", dependencies=[Depends(require_admin)])
+async def send_deal_signing(deal_id: str, request: Request):
+    """Send the reviewed signing document. Body: {template_name, confirm, review_token}."""
+    data = await _request_json_object(request)
+    return await _send_reviewed_signing(deal_id, data, request)
+
+
+@app.get("/api/deals/{deal_id}/esign", dependencies=[Depends(require_admin)])
+async def list_deal_signing_requests(deal_id: str):
+    """Signing requests sent for this deal, newest first."""
+    return {"success": True, "requests": _list_esign_requests(deal_id)}
+
+
+@app.post(
+    "/api/deals/{deal_id}/esign/{submission_id}/cancel",
+    dependencies=[Depends(require_admin)],
+)
+async def cancel_deal_signing_request(deal_id: str, submission_id: str, request: Request):
+    """Cancel a pending signing request (DocuSeal archive API)."""
+    record = _load_esign_request(f"{deal_id}_{submission_id}")
+    if not record or record.get("deal_id") != deal_id:
+        return JSONResponse(
+            {"success": False, "message": "No signing request with that id on this deal."},
+            status_code=404,
+        )
+    if record.get("status") != "pending":
+        return JSONResponse(
+            {
+                "success": False,
+                "message": f"This signing request is already {record.get('status')}.",
+            },
+            status_code=409,
+        )
+    if not docuseal_is_configured():
+        return _esign_not_configured_response()
+
+    result = await docuseal_archive_submission(submission_id)
+    if not result.get("success"):
+        return JSONResponse(
+            {
+                "success": False,
+                "message": "DocuSeal didn't cancel the request. It may still be open; try again.",
+            },
+            status_code=502,
+        )
+    actor = _audit_actor(request)
+    record = _mark_esign_request(deal_id, submission_id, "cancelled", actor=actor)
+    log_admin_action(
+        actor=actor,
+        action="document.esign_cancel",
+        target_type="document",
+        target_id=str(deal_id),
+        details={"submission_id": str(submission_id)[:40]},
+        request=request,
+    )
+    return {
+        "success": True,
+        "message": "Signing request cancelled. The buyer can no longer sign it.",
+        "request": record,
+    }
 
 
 @app.post("/api/docuseal/send", dependencies=[Depends(require_admin)])
 async def docuseal_send(request: Request):
-    """Start a DocuSeal e-sign submission for a deal document.
+    """Legacy entry point; same reviewed flow as /api/deals/{deal_id}/esign/send.
 
-    Body: {deal_id, template_name, signer_email, signer_name}
-
-    Returns 501 until DOCUSEAL_API_URL + DOCUSEAL_API_TOKEN env vars are set.
+    Body: {deal_id, template_name, confirm, review_token}.
     """
-    try:
-        data = await request.json()
-        result = await docuseal_send_for_signature(
-            email=data.get("signer_email"),
-            name=data.get("signer_name"),
-            template_name=data.get("template_name"),
-            deal_id=data.get("deal_id"),
-        )
-        if result.get("status") == "not_configured":
-            return JSONResponse(
-                {
-                    "success": False,
-                    "message": (
-                        "DocuSeal not configured — set DOCUSEAL_API_URL + "
-                        "DOCUSEAL_API_TOKEN env vars to enable."
-                    ),
-                },
-                status_code=501,
-            )
-        if not result.get("success"):
-            raise HTTPException(status_code=502, detail=result.get("error"))
-
-        log_admin_action(
-            actor=_audit_actor(request),
-            action="document.esign_send",
-            target_type="document",
-            target_id=str(data.get("deal_id") or ""),
-            details={
-                "template_name": str(data.get("template_name") or "")[:100],
-                "submission_id": str(result.get("submission_id") or "")[:80],
+    data = await _request_json_object(request)
+    deal_id = str(data.get("deal_id") or "").strip()
+    if not docuseal_is_configured():
+        return _esign_not_configured_response()
+    if not deal_id:
+        return JSONResponse(
+            {
+                "success": False,
+                "message": (
+                    "Not sent. Start Send for Signature from a deal so the document "
+                    "is filled in with the deal's numbers."
+                ),
             },
-            request=request,
+            status_code=400,
         )
-
-        return result
-    except HTTPException:
-        raise
-    except Exception as exc:
-        struct_logger.error("DocuSeal send failed", error=str(exc))
-        raise HTTPException(status_code=500, detail=f"Internal error: {exc}")
+    return await _send_reviewed_signing(deal_id, data, request)
 
 
 @app.post("/api/docuseal/webhook")
@@ -4331,7 +5292,20 @@ async def docuseal_webhook(request: Request):
     import json as _json
 
     event = _json.loads(body)
+    if not isinstance(event, dict):
+        return {"status": "ignored", "reason": "unexpected_payload"}
     event_type = event.get("event_type") or event.get("type", "")
+
+    replay_key, replay_reject = docuseal_event_key(
+        event, body, max_age_seconds=_DOCUSEAL_WEBHOOK_MAX_AGE_SECONDS
+    )
+    if replay_reject:
+        struct_logger.warning(
+            "DocuSeal webhook rejected", event="docuseal_replay_window", reason=replay_reject
+        )
+        return {"status": "ignored", "reason": replay_reject}
+    if not _DOCUSEAL_REPLAY_GUARD.claim(replay_key):
+        return {"status": "duplicate"}
 
     if event_type not in ("form.completed", "submission.completed"):
         return {"status": "ignored", "event_type": event_type}
@@ -4344,13 +5318,43 @@ async def docuseal_webhook(request: Request):
     template_name = (data.get("metadata") or {}).get("template_name")
 
     if not document_url or not deal_id:
-        struct_logger.warning("DocuSeal webhook missing document_url or deal_id", event=str(event))
+        struct_logger.warning(
+            "DocuSeal webhook missing document_url or deal_id",
+            event_type=event_type,
+            has_deal_id=bool(deal_id),
+            submission_id=submission_id,
+        )
         return {"status": "ignored", "reason": "missing_document_url_or_deal_id"}
+
+    if not is_safe_docuseal_document_url(
+        document_url,
+        api_url=_DOCUSEAL_API_URL,
+        extra_hosts=os.environ.get("DOCUSEAL_DOCUMENT_HOSTS", ""),
+    ):
+        struct_logger.warning(
+            "DocuSeal webhook rejected document_url",
+            event="docuseal_document_url_rejected",
+            event_type=event_type,
+            has_deal_id=bool(deal_id),
+            submission_id=submission_id,
+        )
+        return {"status": "ignored", "reason": "document_url_not_allowed"}
+
+    # form.completed carries the submitter (submission_id); submission.completed
+    # carries the submission itself (id).
+    signed_submission_id = data.get("submission_id") or (
+        submission_id if event_type == "submission.completed" else None
+    )
+    if signed_submission_id is not None:
+        try:
+            _mark_esign_request(str(deal_id), str(signed_submission_id), "completed")
+        except Exception as mark_err:  # noqa: BLE001
+            struct_logger.warning("E-sign request status update failed", error=str(mark_err))
 
     import httpx
 
     try:
-        async with httpx.AsyncClient(timeout=60) as client:
+        async with httpx.AsyncClient(timeout=60, follow_redirects=False) as client:
             dl = await client.get(document_url)
         dl.raise_for_status()
 
@@ -4422,13 +5426,21 @@ async def docuseal_webhook(request: Request):
         return {"status": "ok", "gcs_path": gcs_uri or gcs_path}
 
     except Exception as exc:
+        # Let DocuSeal's retry of this same event be processed.
+        _DOCUSEAL_REPLAY_GUARD.release(replay_key)
         struct_logger.error("DocuSeal webhook processing failed", error=str(exc))
         raise HTTPException(status_code=500, detail=f"Webhook processing failed: {exc}")
 
 
 # ─── Marketing API (Tex's Ad Studio) ───
 from tools.asset_scraper import PROPERTY_ASSETS, get_matterport_url
-from tools.catalog_floorplans import merge_orderable_floorplan_catalog
+from tools.catalog_floorplans import (
+    AVAILABLE_KIND,
+    ORDERABLE_KIND,
+    PREOWNED_KIND,
+    classify_inventory_kind,
+    merge_orderable_floorplan_catalog,
+)
 from tools.inventory_source_status import (
     automatic_firestore_eligible,
     load_legacy_inventory_snapshot_metadata,
@@ -5040,14 +6052,48 @@ def _canonicalize_inventory_context(result: dict) -> dict:
     return canonical
 
 
+def _refresh_public_inventory_counts(result: dict) -> dict:
+    """Keep public totals in sync after collapsing duplicate listings."""
+    homes = [home for home in result.get("homes") or [] if isinstance(home, dict)]
+    available_now = sum(1 for home in homes if classify_inventory_kind(home) == AVAILABLE_KIND)
+    preowned = sum(1 for home in homes if classify_inventory_kind(home) == PREOWNED_KIND)
+    orderable = sum(1 for home in homes if classify_inventory_kind(home) == ORDERABLE_KIND)
+    result["total_inventory"] = len(homes)
+    result["returned_inventory"] = len(homes)
+    result["current_inventory_count"] = available_now + preowned
+    result["available_now"] = available_now
+    result["preowned_homes"] = preowned
+    result["orderable_floorplans"] = orderable
+    summary = result.get("catalog_summary")
+    if isinstance(summary, dict):
+        result["catalog_summary"] = {
+            **summary,
+            "available_now": available_now,
+            "pre_owned": preowned,
+            "orderable_floorplans": orderable,
+            "total_public_homes": len(homes),
+        }
+    return result
+
+
+def _apply_public_inventory_dedupe(result: dict) -> dict:
+    """Hide the same twins the staff list already collapses, on the public feed."""
+    homes = [home for home in result.get("homes") or [] if isinstance(home, dict)]
+    result["homes"] = collapse_duplicate_homes(homes, strip_annotations=True)
+    return _refresh_public_inventory_counts(result)
+
+
 def _annotate_inventory_context(
     result: dict,
     *,
     requested: str,
     selected_path: str,
 ) -> dict:
-    """Attach PII-free provenance/freshness without changing serving behavior."""
-    annotated = _canonicalize_inventory_context(result)
+    """Attach PII-free provenance/freshness and collapse public listing twins."""
+    annotated = _apply_public_inventory_dedupe(_canonicalize_inventory_context(result))
+    from tools.listing_urls import attach_listing_urls
+
+    annotated["homes"] = attach_listing_urls(annotated.get("homes") or [])
     status = source_status(
         annotated,
         requested=requested,
@@ -5375,6 +6421,202 @@ async def reorder_listing_photos(request: Request, home_id: str):
 
 _PUBLIC_CHAT_SESSION_RE = re.compile(r"^[A-Za-z0-9_-]{8,128}$")
 _PUBLIC_EMAIL_RE = re.compile(r"^[^\s@]{1,64}@[^\s@]{1,190}\.[^\s@]{2,24}$")
+_PUBLIC_CONTACT_NAME_MAX = 120
+_PUBLIC_CONTACT_PHONE_MAX = 40
+_PUBLIC_CONTACT_MESSAGE_MAX = 2000
+
+
+_LEAD_HOME_PATH_RE = re.compile(r"^/(?:homes|plan)/[A-Za-z0-9][A-Za-z0-9/_.-]{0,180}$")
+_LEAD_HOME_TOKEN_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$")
+
+
+def _lead_home_stock_label(stock: str) -> str:
+    """Staff wording for a home identifier: stock #, plan #, or inventory id."""
+    stock = str(stock or "").strip()
+    if not stock:
+        return ""
+    if stock.isdigit():
+        return f"Stock #{stock}"
+    if stock.startswith("floorplan-") and stock[len("floorplan-") :].isdigit():
+        return f"Plan #{stock[len('floorplan-') :]} (build-to-order)"
+    return f"Inventory ID: {stock}"
+
+
+def _lead_home_public_url(value: object) -> str | None:
+    """Absolute site URL for a listing path, only for this site's own pages.
+
+    Accepts a site-relative /homes/ or /plan/ path, or an absolute URL whose
+    host is this site. Anything else returns None, so a customer-supplied
+    value can never put an outside link into the staff email.
+    """
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    if raw.startswith(("http://", "https://")):
+        parts = urlsplit(raw)
+        host = (parts.netloc or "").lower()
+        if host not in {
+            _CANONICAL_PUBLIC_HOST.lower(),
+            "texashomeoutlet.com",
+            "www.texashomeoutlet.com",
+        }:
+            return None
+        raw = parts.path or ""
+    if not _LEAD_HOME_PATH_RE.fullmatch(raw) or ".." in raw:
+        return None
+    return f"{CANONICAL_PUBLIC_URL}{raw}"
+
+
+def _find_public_home(home_id: str) -> dict | None:
+    if not home_id:
+        return None
+    try:
+        homes = (_resolve_public_inventory_context() or {}).get("homes") or []
+    except Exception as exc:  # inventory outage must never block a lead
+        struct_logger.warning("Lead home lookup failed", error=str(exc))
+        return None
+    for home in homes:
+        if not isinstance(home, dict):
+            continue
+        ids = {str(home.get(k) or "").strip() for k in ("home_id", "id", "stock_id")}
+        if home_id in ids:
+            return home
+    return None
+
+
+def _lead_home_summary(data: dict) -> dict | None:
+    """Which home a public lead is about, for the lead record and staff email.
+
+    The home is looked up by ``home_id`` in the same public inventory the site
+    renders, so the label, stock number and link come from our own data. If the
+    home is no longer listed, the browser-sent model/stock are used as plain
+    text, and a link only when it is one of this site's listing paths.
+    Returns None for a general inquiry (no home given).
+    """
+    home_id = str(data.get("home_id") or "").strip()[:200]
+    client_model = str(data.get("home_model") or "").strip()[:200]
+    client_stock = str(data.get("home_stock") or "").strip()[:100]
+    if not home_id and not client_model:
+        return None
+
+    home = _find_public_home(home_id)
+    if home is not None:
+        model = str(home.get("model_name") or "").strip() or client_model
+        maker = str(home.get("manufacturer") or "").strip()
+        label = model
+        if (
+            maker
+            and maker.lower() not in {"pre-owned", "preowned"}
+            and maker.lower() not in model.lower()
+        ):
+            label = f"{maker} {model}".strip()
+        stock = str(home.get("stock_id") or home.get("home_id") or home_id).strip()
+        url = _lead_home_public_url(home.get("listing_url")) or _lead_home_public_url(
+            home.get("detail_url")
+        )
+        return {
+            "home_id": home_id,
+            "label": label[:200] or None,
+            "stock_id": stock[:100] or None,
+            "stock": _lead_home_stock_label(stock),
+            "url": url,
+            "note": None,
+        }
+
+    stock = client_stock or home_id
+    if stock and not _LEAD_HOME_TOKEN_RE.fullmatch(stock):
+        stock = ""
+    return {
+        "home_id": home_id or None,
+        "label": client_model or None,
+        "stock_id": stock or None,
+        "stock": _lead_home_stock_label(stock),
+        "url": _lead_home_public_url(data.get("home_url")),
+        "note": "This home was not found in current inventory (it may be sold or unlisted).",
+    }
+
+
+def _validate_public_contact_payload(data: object) -> tuple[dict[str, str], JSONResponse | None]:
+    if not isinstance(data, dict):
+        return {}, JSONResponse({"success": False, "error": "Invalid request."}, status_code=400)
+
+    name_raw = data.get("name", "")
+    phone_raw = data.get("phone", "")
+    email_raw = data.get("email", "")
+    message_raw = data.get("message", "")
+
+    if not isinstance(name_raw, str) or not isinstance(phone_raw, str):
+        return (
+            {},
+            JSONResponse(
+                {"success": False, "error": "Name and phone are required"}, status_code=400
+            ),
+        )
+
+    if email_raw is None:
+        email_raw = ""
+    if message_raw is None:
+        message_raw = ""
+    if not isinstance(email_raw, str) or not isinstance(message_raw, str):
+        return (
+            {},
+            JSONResponse({"success": False, "error": "Invalid request."}, status_code=400),
+        )
+
+    name = name_raw.strip()
+    phone = phone_raw.strip()
+    email = email_raw.strip()
+    message = message_raw.strip()
+
+    if not name or not phone:
+        return {}, JSONResponse(
+            {"success": False, "error": "Name and phone are required"}, status_code=400
+        )
+    if len(name) > _PUBLIC_CONTACT_NAME_MAX:
+        return (
+            {},
+            JSONResponse(
+                {"success": False, "error": "Name must be 120 characters or fewer."},
+                status_code=400,
+            ),
+        )
+    if len(phone) > _PUBLIC_CONTACT_PHONE_MAX:
+        return (
+            {},
+            JSONResponse(
+                {"success": False, "error": "Please enter a valid 10-digit phone number."},
+                status_code=400,
+            ),
+        )
+    phone_digits = re.sub(r"\D", "", phone)
+    if not (len(phone_digits) == 10 or (len(phone_digits) == 11 and phone_digits.startswith("1"))):
+        return (
+            {},
+            JSONResponse(
+                {"success": False, "error": "Please enter a valid 10-digit phone number."},
+                status_code=400,
+            ),
+        )
+    if email and (len(email) > 254 or not _PUBLIC_EMAIL_RE.fullmatch(email)):
+        return (
+            {},
+            JSONResponse(
+                {"success": False, "error": "Enter a valid email address."}, status_code=400
+            ),
+        )
+    if len(message) > _PUBLIC_CONTACT_MESSAGE_MAX:
+        return (
+            {},
+            JSONResponse(
+                {
+                    "success": False,
+                    "error": f"Message must be {_PUBLIC_CONTACT_MESSAGE_MAX} characters or fewer.",
+                },
+                status_code=400,
+            ),
+        )
+
+    return {"name": name, "phone": phone, "email": email, "message": message}, None
 
 
 @app.post("/api/chat/contact")
@@ -5465,23 +6707,23 @@ async def submit_contact_form(request: Request):
     """Receive contact form submissions and log as leads."""
     try:
         data = await request.json()
-        name = data.get("name", "").strip()
-        phone = data.get("phone", "").strip()
-        has_message = bool(data.get("message", "").strip())
+    except Exception:
+        return JSONResponse({"success": False, "error": "Invalid request."}, status_code=400)
 
-        email = data.get("email", "").strip()
+    validated, validation_error = _validate_public_contact_payload(data)
+    if validation_error:
+        return validation_error
 
-        if not name or not phone:
-            return {"success": False, "error": "Name and phone are required"}
-        if len(re.sub(r"\D", "", phone)) < 10:
-            return {
-                "success": False,
-                "error": "Please enter a valid 10-digit phone number.",
-            }
+    try:
+        name = validated["name"]
+        phone = validated["phone"]
+        email = validated["email"]
+        message = validated["message"]
+        has_message = bool(message)
 
         struct_logger.info(
             "Contact form submitted",
-            name=name,
+            has_name=bool(name),
             has_phone=bool(phone),
             has_message=has_message,
         )
@@ -5489,6 +6731,9 @@ async def submit_contact_form(request: Request):
         lead_id = f"contact_{int(time.time())}_{uuid.uuid4().hex[:4]}"
         warnings: list[str] = []
         lead_persisted = False
+        # Which home (if any) this lead is about: stored on the lead and shown
+        # at the top of the staff email so sales can prepare before calling.
+        lead_home = _lead_home_summary(data)
 
         log_user_action(
             action="contact.submit",
@@ -5516,6 +6761,9 @@ async def submit_contact_form(request: Request):
                 email=email or None,
                 home_id=home_id,
                 home_model=home_model,
+                home_stock=(lead_home or {}).get("stock_id"),
+                home_url=(lead_home or {}).get("url"),
+                home_label=(lead_home or {}).get("label"),
                 **_extract_attribution(data),
             )
             await lead_manager.create_lead(new_lead)
@@ -5561,7 +6809,7 @@ async def submit_contact_form(request: Request):
                     name,
                     email=email or None,
                     phone=phone,
-                    message=data.get("message"),
+                    message=message,
                     source=data.get("source", "contact_form"),
                     lead_id=lead_id,
                 )
@@ -5572,21 +6820,34 @@ async def submit_contact_form(request: Request):
 
         # Send welcome email if email provided
         if email:
+            welcome_ok = False
             try:
-                send_lead_welcome(to=email, customer_name=name, lead_id=lead_id)
-            except Exception as e:
+                welcome_ok = _email_send_succeeded(
+                    send_lead_welcome(to=email, customer_name=name, lead_id=lead_id)
+                )
+            except Exception:
+                welcome_ok = False
+            if not welcome_ok:
                 warnings.append("welcome_email_failed")
-                struct_logger.warning("Lead welcome email failed", error=str(e))
+                struct_logger.error("Lead welcome email failed", event="welcome_email_failed")
 
-        # Automate DocuSeal Welcome/Credit Auth early
-        try:
-            await docuseal_auto_trigger(
-                event_type="lead.captured",
-                payload={"email": email, "name": name, "lead_id": lead_id},
-            )
-        except Exception as e:
-            warnings.append("docuseal_failed")
-            struct_logger.warning("Lead DocuSeal trigger failed", error=str(e))
+        # Credit Authorization is never sent to a new lead automatically; staff
+        # get a task to review the lead and send paperwork from a deal.
+        if email and name and lead_persisted and docuseal_is_configured():
+            try:
+                _queue_staff_task(
+                    task_id=f"credit-auth-review-{lead_id}",
+                    title="New website lead: review before sending a Credit Authorization",
+                    description=(
+                        "A new website lead came in. Nothing was sent to them for "
+                        "signature. Review the lead, and if they want to apply, create "
+                        "a deal and send the paperwork after checking it."
+                    ),
+                    priority="medium",
+                    related_lead=str(lead_id),
+                )
+            except Exception as e:
+                struct_logger.warning("Lead credit-auth review task failed", error=str(e))
 
         # Notify owner of new lead (fallback delivery path if storage failed)
         owner_notified = False
@@ -5596,6 +6857,7 @@ async def submit_contact_form(request: Request):
                 phone=phone,
                 email=email,
                 source=data.get("source", "contact_form"),
+                home=lead_home,
             )
             owner_notified = (
                 isinstance(notification, dict)
@@ -5718,7 +6980,9 @@ async def email_inbound_webhook(request: Request):
     sender = data.get("from", "")
     subject = (data.get("subject") or "(no subject)").strip()
     if not _inbound_sender_allowed(sender):
-        struct_logger.info("Inbound email dropped (not allowlisted)", sender=sender)
+        dropped_bare = _inbound_bare_email(sender)
+        sender_domain = dropped_bare.rsplit("@", 1)[-1] if "@" in dropped_bare else ""
+        struct_logger.info("Inbound email dropped (not allowlisted)", sender_domain=sender_domain)
         return JSONResponse({"status": "dropped"}, status_code=200)
 
     bare = _inbound_bare_email(sender)
@@ -5738,12 +7002,17 @@ async def email_inbound_webhook(request: Request):
     except Exception as e:
         struct_logger.error("Inbound email lead persist failed", error=str(e))
         inbound_lead_id = ""
+    inbound_notified = False
     try:
-        notify_new_lead(
-            customer_name=name, phone="(email lead)", email=bare, source="inbound email"
+        inbound_notified = _email_send_succeeded(
+            notify_new_lead(
+                customer_name=name, phone="(email lead)", email=bare, source="inbound email"
+            )
         )
-    except Exception as e:
-        struct_logger.warning("Inbound email staff notify failed", error=str(e))
+    except Exception:
+        inbound_notified = False
+    if not inbound_notified:
+        struct_logger.error("Inbound email staff notify failed", event="owner_notify_failed")
 
     # ── Reply pipeline (email automation lanes 1-4) ──────────────────────
     # Every stage below is default-OFF and independently gated: triage is a
@@ -5919,32 +7188,47 @@ async def create_appointment(request: Request):
 
         # Send confirmation email if email provided
         if appt.email:
+            confirm_ok = False
             try:
-                send_appointment_confirmation(
-                    to=appt.email,
-                    customer_name=name,
-                    date=appt_date,
-                    time_slot=time_slot,
-                    appointment_id=appt.appointment_id,
-                    notes=appt.notes,
+                confirm_ok = _email_send_succeeded(
+                    send_appointment_confirmation(
+                        to=appt.email,
+                        customer_name=name,
+                        date=appt_date,
+                        time_slot=time_slot,
+                        appointment_id=appt.appointment_id,
+                        notes=appt.notes,
+                    )
                 )
-            except Exception as e:
+            except Exception:
+                confirm_ok = False
+            if not confirm_ok:
                 warnings.append("appointment_confirmation_failed")
-                struct_logger.warning("Appointment confirmation email failed", error=str(e))
+                struct_logger.error(
+                    "Appointment confirmation email failed",
+                    event="appointment_confirmation_failed",
+                )
 
         # Notify owner of new appointment
+        owner_notified = False
         try:
-            notify_new_appointment(
-                customer_name=name,
-                phone=phone,
-                date=appt_date,
-                time_slot=time_slot,
-                email=appt.email,
-                notes=appt.notes,
+            owner_notified = _email_send_succeeded(
+                notify_new_appointment(
+                    customer_name=name,
+                    phone=phone,
+                    date=appt_date,
+                    time_slot=time_slot,
+                    email=appt.email,
+                    notes=appt.notes,
+                )
             )
-        except Exception as e:
+        except Exception:
+            owner_notified = False
+        if not owner_notified:
             warnings.append("owner_notify_failed")
-            struct_logger.warning("Appointment admin notification failed", error=str(e))
+            struct_logger.error(
+                "Appointment admin notification failed", event="owner_notify_failed"
+            )
 
         # Promote the contact/quote lead that initiated this booking instead of
         # creating a duplicate. The public ID is accepted only in the exact
@@ -6585,16 +7869,11 @@ async def verify_admin_pin(request: Request):
     """
     client_ip = _get_client_ip(request)
 
-    # Check brute-force lockout
+    # Check per-IP brute-force lockout and global failure alert
     now = time.time()
-    attempts = _get_pin_attempts(client_ip)
-    if len(attempts) >= PIN_MAX_ATTEMPTS:
-        struct_logger.warning("Admin login locked out", client_ip=client_ip, attempts=len(attempts))
-        return JSONResponse(
-            {"success": False, "error": "Too many failed attempts. Please wait 5 minutes."},
-            status_code=429,
-            headers={"Retry-After": str(PIN_LOCKOUT_SECONDS)},
-        )
+    lockout = _pin_budget_lockout_response(client_ip)
+    if lockout is not None:
+        return lockout
 
     try:
         data = await request.json()
@@ -6642,20 +7921,7 @@ async def verify_admin_pin(request: Request):
         request=request,
     )
     response = JSONResponse({"success": True, "csrf_token": csrf_token})
-    response.set_cookie(
-        key="tho_admin_token",
-        value=token,
-        httponly=True,
-        secure=not IS_LOCAL,
-        samesite="strict",
-        max_age=ADMIN_TOKEN_TTL,
-    )
-    set_csrf_cookie(
-        response,
-        csrf_token,
-        secure=not IS_LOCAL,
-        max_age=ADMIN_TOKEN_TTL,
-    )
+    _attach_staff_session_cookies(response, token, csrf_token)
     return response
 
 
@@ -6668,9 +7934,29 @@ async def check_admin_token(request: Request):
     token = request.cookies.get("tho_admin_token", "")
     if not token:
         token = _admin_token_from_request(request)
+    decoded = _decode_admin_token(token) if token else None
+    if (
+        decoded is not None
+        and time.time() < decoded[0]
+        and decoded[1] is not None
+        and not is_allowed_admin_email(decoded[1])
+    ):
+        # Blocking the email ends that session now, not when the cookie ages out.
+        response = JSONResponse({"valid": False})
+        _clear_staff_session_cookies(response)
+        return response
     if _verify_admin_token(token):
         return {"valid": True}
     return {"valid": False}
+
+
+@app.post("/api/admin/logout")
+@limiter.limit("30/minute")
+async def logout_admin(request: Request):
+    """Clear the staff session on this device. No message is sent."""
+    response = JSONResponse({"success": True})
+    _clear_staff_session_cookies(response)
+    return response
 
 
 @app.get("/api/admin/audit-log", dependencies=[Depends(require_admin)])
@@ -7495,21 +8781,14 @@ async def share_document(
             status_code=500,
         )
 
-    # ── Soft-import audit log; never hard-fail if it isn't deployed yet. ──
-    try:
-        from audit_log import log_admin_action  # type: ignore[import-not-found]
-
-        try:
-            log_admin_action(
-                action="documents.share",
-                actor_ip=getattr(request.client, "host", None) if request.client else None,
-                target=object_key,
-                details={"ttl_hours": ttl_hours, "bucket": bucket_name},
-            )
-        except Exception:  # noqa: BLE001
-            logger.exception("audit_log.log_admin_action failed")
-    except ImportError:
-        pass
+    log_admin_action(
+        actor=_audit_actor(request),
+        action="documents.share",
+        target_type="document",
+        target_id=object_key,
+        details={"ttl_hours": ttl_hours, "bucket": bucket_name},
+        request=request,
+    )
 
     return {
         "filename": safe_filename,
@@ -8417,21 +9696,41 @@ async def admin_ops_copilot(body: CopilotRequest):
 
 
 # ---------------------------------------------------------------------------
-# Email one-time-code admin login (FALLBACK alongside PIN + passkey)
-# ---------------------------------------------------------------------------
+# Email sign-in (primary staff login). PIN remains the backup. Passkeys stay
+# optional for people who already have one.
 #
 # Shares ONE allowlist with passkeys (auth.routes.is_allowed_admin_email) and
-# the SAME brute-force lockout + session minting as /api/admin/verify, so a
-# successful code login is honored by /api/admin/check and require_admin.
+# the same brute-force lockout as /api/admin/verify. A successful email login
+# mints an email-bound admin session so /api/admin/check and require_admin
+# honor it, and so removing that person ends the session.
 #
-# Defenses, mirroring verify_admin_pin:
+# Defenses:
 #   * slowapi caps /request at 3/min and /verify at 5/min per IP;
-#   * the request endpoint NEVER reveals whether an email is authorized
-#     (always 200) — no account enumeration;
-#   * codes are single-use, hashed at rest, TTL-bound, and per-code
-#     attempt-capped; the shared IP pin-attempts lockout still applies.
+#   * when email delivery is not configured, every request gets the same 503
+#     (no account enumeration, and staff are not told a message is coming);
+#   * when delivery is configured, /request returns the same 200 for allowed
+#     and unknown addresses;
+#   * the link token and the 6-digit code are single-use, hashed at rest,
+#     TTL-bound, and attempt-capped.
 
 EMAIL_CODE_RESEND_COOLDOWN_SECONDS = 30
+EMAIL_SIGN_IN_UNAVAILABLE = (
+    "Email sign-in is not turned on yet. "
+    "Ask the owner to finish email setup, or use the backup PIN."
+)
+
+
+def _staff_sign_in_link(email: str, token: str) -> str:
+    """Build a canonical sign-in URL. The token stays in the fragment."""
+    base = CANONICAL_PUBLIC_URL.rstrip("/")
+    return f"{base}/staff#t={quote(token, safe='')}&e={quote(email, safe='')}"
+
+
+def _email_unavailable_response() -> JSONResponse:
+    return JSONResponse(
+        {"success": False, "error": EMAIL_SIGN_IN_UNAVAILABLE},
+        status_code=503,
+    )
 
 
 def _email_login_invalid_response() -> JSONResponse:
@@ -8460,6 +9759,12 @@ async def request_admin_email_code(request: Request):
     email = str(data.get("email", "")).strip().lower()
     client_ip = _get_client_ip(request)
 
+    # Same response for every address when the sender is not configured.
+    # Checked before the allowlist so this is not an account oracle.
+    if not email_delivery_configured():
+        struct_logger.warning("Admin email sign-in unavailable: email delivery is not configured")
+        return _email_unavailable_response()
+
     # Generic success envelope — computed once, returned on every path so the
     # response is identical for authorized and unauthorized emails.
     generic_ok = JSONResponse({"success": True})
@@ -8485,9 +9790,28 @@ async def request_admin_email_code(request: Request):
         return generic_ok
 
     code = generate_code()
-    store.put(email, hash_code(code), now + EMAIL_CODE_TTL_SECONDS)
-    # NEVER log the code. send_admin_login_code logs only subject + recipient.
-    send_admin_login_code(email, code, ttl_minutes=EMAIL_CODE_TTL_SECONDS // 60)
+    link_token = generate_link_token()
+    store.put(
+        email,
+        hash_code(code),
+        now + EMAIL_CODE_TTL_SECONDS,
+        hash_code(link_token),
+    )
+    # NEVER log the code or the link token. send_admin_login_code logs subject
+    # and recipient only.
+    sent = send_admin_login_code(
+        email,
+        code,
+        link=_staff_sign_in_link(email, link_token),
+        ttl_minutes=EMAIL_CODE_TTL_SECONDS // 60,
+    )
+    if not isinstance(sent, dict) or not sent.get("success"):
+        try:
+            store.delete(email)
+        except Exception:
+            struct_logger.warning("Could not discard an undelivered admin sign-in code")
+        struct_logger.warning("Admin sign-in email was not delivered", client_ip=client_ip)
+        return generic_ok
     # Actor/target are a salted hash of the email so the audit trail correlates
     # request→login without ever persisting the address in cleartext.
     email_actor = f"email:{hashlib.sha256(email.encode('utf-8')).hexdigest()[:12]}"
@@ -8513,18 +9837,11 @@ async def verify_admin_email_code(request: Request):
     """
     client_ip = _get_client_ip(request)
 
-    # Shared IP lockout — identical to verify_admin_pin.
+    # Shared IP lockout + global failure alert — identical to verify_admin_pin.
     now = time.time()
-    attempts = _get_pin_attempts(client_ip)
-    if len(attempts) >= PIN_MAX_ATTEMPTS:
-        struct_logger.warning(
-            "Admin email-code login locked out", client_ip=client_ip, attempts=len(attempts)
-        )
-        return JSONResponse(
-            {"success": False, "error": "Too many failed attempts. Please wait 5 minutes."},
-            status_code=429,
-            headers={"Retry-After": str(PIN_LOCKOUT_SECONDS)},
-        )
+    lockout = _pin_budget_lockout_response(client_ip)
+    if lockout is not None:
+        return lockout
 
     try:
         data = await request.json()
@@ -8537,9 +9854,11 @@ async def verify_admin_email_code(request: Request):
         )
     email = str(data.get("email", "")).strip().lower()
     code = data.get("code", "")
-    if not isinstance(code, str):
+    link_token = data.get("link_token", "")
+    if not isinstance(code, str) or not isinstance(link_token, str):
         return JSONResponse({"success": False, "error": "Code must be a string."}, status_code=400)
     code = code.strip()
+    link_token = link_token.strip()
 
     # Fail closed BEFORE consuming a code: if admin auth isn't configured, mirror
     # verify_admin_pin's 503 instead of burning the user's valid code on a misconfig.
@@ -8576,15 +9895,23 @@ async def verify_admin_email_code(request: Request):
         _add_pin_attempt(client_ip, now)
         return _email_login_invalid_response()
 
-    if not hmac.compare_digest(hash_code(code), rec.code_hash):
+    if link_token:
+        expected_link = rec.link_hash or ""
+        matched = bool(expected_link) and hmac.compare_digest(hash_code(link_token), expected_link)
+    elif code:
+        matched = bool(rec.code_hash) and hmac.compare_digest(hash_code(code), rec.code_hash)
+    else:
+        matched = False
+    if not matched:
         _add_pin_attempt(client_ip, now)
         return _email_login_invalid_response()
 
-    # Success → single-use: consume the code immediately.
+    # Success → single-use: consume the code and the link together.
     store.delete(email)
     _clear_pin_attempts(client_ip)
 
-    token = _create_admin_token()
+    token = _create_admin_token(email)
+    login_method = "email_link" if link_token else "email_code"
     csrf_token = create_csrf_token()
     struct_logger.info("Admin email-code login succeeded", client_ip=client_ip)
     token_actor = f"admin:{hashlib.sha256(token.encode('utf-8')).hexdigest()[:12]}"
@@ -8593,25 +9920,119 @@ async def verify_admin_email_code(request: Request):
         action="admin.login",
         target_type="session",
         target_id=token_actor,
-        details={"method": "email_code", "client_ip": client_ip},
+        details={"method": login_method, "client_ip": client_ip},
         request=request,
     )
     response = JSONResponse({"success": True, "csrf_token": csrf_token})
-    response.set_cookie(
-        key="tho_admin_token",
-        value=token,
-        httponly=True,
-        secure=not IS_LOCAL,
-        samesite="strict",
-        max_age=ADMIN_TOKEN_TTL,
-    )
-    set_csrf_cookie(
-        response,
-        csrf_token,
-        secure=not IS_LOCAL,
-        max_age=ADMIN_TOKEN_TTL,
-    )
+    _attach_staff_session_cookies(response, token, csrf_token)
     return response
+
+
+@app.get("/api/admin/sign-in/options")
+@limiter.limit("60/minute")
+def admin_sign_in_options(request: Request):
+    """Public sign-in readiness. Does not list staff or reveal secrets."""
+    return JSONResponse(
+        {
+            "email_ready": email_delivery_configured(),
+            "canonical_origin": CANONICAL_PUBLIC_URL,
+            "sign_in_path": "/staff",
+            # Off unless the owner sets feature flag STAFF_PASSKEY_SIGN_IN.
+            # The passkey login API stays available for other paths.
+            "passkey_sign_in": feature_flags.is_enabled("STAFF_PASSKEY_SIGN_IN", default=False),
+        }
+    )
+
+
+_STAFF_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def _valid_staff_email(value: str) -> bool:
+    return bool(value) and len(value.encode("utf-8")) <= 200 and bool(_STAFF_EMAIL_RE.match(value))
+
+
+@app.get("/api/admin/staff", dependencies=[Depends(require_admin)])
+@limiter.limit("30/minute")
+async def list_admin_staff(request: Request):
+    """List explicit team adds and blocks. Domain members are allowed by policy."""
+    from auth.staff_directory import StaffDirectoryUnavailable, list_overrides
+
+    try:
+        rows = list_overrides()
+    except StaffDirectoryUnavailable:
+        return JSONResponse(
+            {"success": False, "error": "Team list is unavailable right now."},
+            status_code=503,
+        )
+    return {
+        "success": True,
+        "domains": sorted(allowed_staff_domains()),
+        "owners": sorted(allowed_owner_emails()),
+        "added": [row.email for row in rows if row.status == "allowed"],
+        "blocked": [row.email for row in rows if row.status == "blocked"],
+    }
+
+
+@app.post("/api/admin/staff", dependencies=[Depends(require_admin)])
+@limiter.limit("30/minute")
+async def update_admin_staff(request: Request):
+    """Add, block, or clear a staff email. Owners cannot be blocked."""
+    from auth.staff_directory import (
+        StaffDirectoryUnavailable,
+        clear_override,
+        set_override,
+    )
+
+    try:
+        data = await request.json()
+    except (JSONDecodeError, ValueError):
+        return JSONResponse({"success": False, "error": "Malformed JSON body."}, status_code=400)
+    if not isinstance(data, dict):
+        return JSONResponse(
+            {"success": False, "error": "Request body must be a JSON object."},
+            status_code=400,
+        )
+    email = str(data.get("email", "")).strip().lower()
+    action = str(data.get("action", "")).strip().lower()
+    if action not in {"allow", "block", "reset"}:
+        return JSONResponse(
+            {"success": False, "error": "Action must be allow, block, or reset."},
+            status_code=400,
+        )
+    if not _valid_staff_email(email):
+        return JSONResponse(
+            {"success": False, "error": "Enter a valid email address."},
+            status_code=400,
+        )
+    if action == "block" and email in allowed_owner_emails():
+        return JSONResponse(
+            {"success": False, "error": "Owner emails stay on the team list."},
+            status_code=400,
+        )
+    try:
+        if action == "reset":
+            clear_override(email)
+        else:
+            set_override(email, "allowed" if action == "allow" else "blocked")
+    except StaffDirectoryUnavailable:
+        return JSONResponse(
+            {"success": False, "error": "Team list is unavailable right now."},
+            status_code=503,
+        )
+    except ValueError:
+        return JSONResponse(
+            {"success": False, "error": "Could not update that email."}, status_code=400
+        )
+    email_actor = f"email:{hashlib.sha256(email.encode('utf-8')).hexdigest()[:12]}"
+    log_admin_action(
+        actor=_audit_actor(request),
+        action="admin.staff_access.update",
+        target_type="session",
+        target_id=email_actor,
+        details={"staff_action": action},
+        request=request,
+    )
+    return {"success": True}
 
 
 # Serve Frontend — Must be last to avoid catching API routes
@@ -8636,16 +10057,18 @@ async def serve_spa(full_path: str):
     if seo_response is not None:
         return seo_response
 
-    # Serve actual files from dist if they exist (e.g., tex-icon.svg, vite.svg)
+    # Serve built assets from dist first, then fall back to frontend/public for
+    # local/test contexts that have not run a Vite build yet.
     if full_path:
-        file_path = os.path.join("frontend/dist", full_path)
-        if os.path.isfile(file_path):
-            response = FileResponse(file_path)
-            if file_path.endswith(".html"):
-                response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-                response.headers["Pragma"] = "no-cache"
-                response.headers["Expires"] = "0"
-            return response
+        for base_dir in ("frontend/dist", "frontend/public"):
+            file_path = os.path.join(base_dir, full_path)
+            if os.path.isfile(file_path):
+                response = FileResponse(file_path)
+                if file_path.endswith(".html"):
+                    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+                    response.headers["Pragma"] = "no-cache"
+                    response.headers["Expires"] = "0"
+                return response
     # Unknown route and not a dist file: real 404 with the SPA shell so
     # crawlers don't index every typo as a page (soft-404 avoidance).
     return seo_routes.render_not_found()

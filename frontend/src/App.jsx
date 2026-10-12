@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, lazy, Suspense, useCallback } from 'react';
-import { Send, Home, Menu, X, Phone, MapPin, Loader2, User, Bot, FileText, Video, Lock, ShieldCheck, CalendarDays, Users, MessageSquare, MessageCircle, RotateCcw, WifiOff, Moon, Sun, KeyRound, Fingerprint, Mail, BookOpen, Activity, Camera, Sparkles } from 'lucide-react';
+import { Send, Home, Menu, X, Phone, MapPin, Loader2, User, Bot, FileText, Video, Lock, ShieldCheck, CalendarDays, Users, MessageSquare, MessageCircle, RotateCcw, WifiOff, Moon, Sun, KeyRound, BookOpen, Activity, Camera, Sparkles, ClipboardList, Store, MoreHorizontal, LogOut } from 'lucide-react';
 import { useDarkMode } from './hooks/useDarkMode';
 import SafeMarkdown from './components/SafeMarkdown';
 import SearchFilters from './components/SearchFilters';
@@ -12,14 +12,23 @@ import ErrorBoundary from './components/ErrorBoundary';
 import ClosureBanner from './components/ClosureBanner';
 import ChatCallbackCard from './components/ChatCallbackCard';
 import InventoryBrowse from './pages/InventoryBrowse';
-import { v4 as uuidv4 } from 'uuid';
+import LegalPage from './pages/LegalPage';
+import { CHAT_SESSION_STORAGE_KEY, adoptRunSessionId, resolveChatSession } from './chatSession';
 import { captureUtmFromUrl, getUtmParams } from './utils/utm';
 import { getJourneyAttribution } from './utils/attribution';
 import { attachPhoneClickTracking, isPublicAnalyticsPath, trackEvent } from './utils/analytics';
 import { navigateDocument } from './utils/documentNavigation';
 import { getInventoryCategoryRoute, isInventoryCategoryPath } from './utils/inventoryCategoryRoutes';
+import {
+  applyDocumentHead,
+  getCityLanding,
+  isHomeListingPath,
+  isPlanPath,
+  isUniqueListingPath,
+} from './utils/listingRoutes';
 import { safeUserMessage, extractErrorMessage, describeFetchError } from './utils/apiError';
 import { adminCsrfHeaders } from './adminFetch';
+import StaffSignInPanel from './components/StaffSignInPanel';
 import {
   BUSINESS_NAME, BUSINESS_PHONE, BUSINESS_PHONE_RAW, BUSINESS_FULL_ADDRESS,
   BUSINESS_HOURS, BUSINESS_LICENSE, BUSINESS_CITY, BUSINESS_STATE
@@ -56,13 +65,15 @@ const Delivery = lazy(() => import('./pages/Delivery'));
 const PhotoManager = lazy(() => import('./pages/PhotoManager'));
 const InventoryManager = lazy(() => import('./pages/InventoryManager'));
 const HealthDashboard = lazy(() => import('./pages/HealthDashboard'));
+const StaffAccess = lazy(() => import('./pages/StaffAccess'));
+const StaffHome = lazy(() => import('./pages/StaffHome'));
 // Max characters the admin PIN box accepts. The configured backend PIN may be a
 // long alphanumeric secret, so the input must NOT strip non-digits or cap short —
 // doing so (an old 8-digit-only cap) locked everyone out of the admin UI. Cap only
 // at a generous upper bound so an over-long secret is still flagged
 // (see scripts/generate_admin_pin_hash.py).
 const ADMIN_PIN_MAXLEN = 64;
-const ADMIN_PAGE_KEYS = new Set(['analytics', 'crm', 'chat-history', 'documents', 'adstudio', 'system', 'getting-started', 'photos', 'manage-inventory', 'health']);
+const ADMIN_PAGE_KEYS = new Set(['staff-home', 'analytics', 'crm', 'chat-history', 'documents', 'adstudio', 'system', 'getting-started', 'photos', 'manage-inventory', 'copilot', 'health', 'team']);
 
 // Page loading fallback with skeleton
 const PageLoader = () => (
@@ -73,11 +84,28 @@ const PageLoader = () => (
 );
 
 // ─── Shared Navigation Component ───
+function NavItemButton({ item, activePage, onClick, className }) {
+  const Icon = item.icon;
+  const isActive = activePage === item.key;
+  return (
+    <button
+      type="button"
+      onClick={() => onClick(item.key)}
+      className={className(isActive)}
+      aria-current={isActive ? 'page' : undefined}
+    >
+      <Icon size={14} className="shrink-0" />
+      <span className="whitespace-nowrap">{item.label}</span>
+    </button>
+  );
+}
+
 function NavBar({
   activePage,
   navigateTo,
   adminAuthed,
   onAdminAccess,
+  onSignOut,
   onPasskeyRegister,
   passkeyLoading,
   isMobileMenuOpen,
@@ -88,27 +116,47 @@ function NavBar({
   darkMode,
   onToggleDarkMode,
 }) {
-  const navItems = [
-    { key: 'inventory', label: 'Inventory', icon: Home },
+  const [moreOpen, setMoreOpen] = useState(false);
+  const publicItems = [
+    { key: 'inventory', label: 'Homes for Sale', icon: Store },
     { key: 'chat', label: 'Chat', icon: MessageSquare },
     { key: 'contact', label: 'Contact', icon: Phone },
     { key: 'appointments', label: 'Book Visit', icon: CalendarDays },
   ];
-
-  const adminItems = adminAuthed ? [
-    { key: 'copilot', label: 'Ops Copilot', icon: Sparkles },
-    { key: 'documents', label: 'Documents', icon: FileText },
-    { key: 'manage-inventory', label: 'Inventory', icon: Home },
+  const staffPrimary = adminAuthed ? [
+    { key: 'manage-inventory', label: 'Manage Homes', icon: ClipboardList },
     { key: 'photos', label: 'Photos', icon: Camera },
-    { key: 'crm', label: 'CRM', icon: Users },
+    { key: 'documents', label: 'Documents', icon: FileText },
+    { key: 'crm', label: 'Leads', icon: Users },
+  ] : [];
+  const staffMore = adminAuthed ? [
+    { key: 'staff-home', label: 'Staff Home', icon: Home },
+    { key: 'copilot', label: 'Ops Copilot', icon: Sparkles },
+    { key: 'team', label: 'Team', icon: ShieldCheck },
     { key: 'system', label: 'System Hub', icon: Activity },
     { key: 'health', label: 'Health', icon: Activity },
     { key: 'getting-started', label: 'Guide', icon: BookOpen },
     { key: 'chat-history', label: 'Chat History', icon: MessageCircle },
     { key: 'adstudio', label: 'Ad Studio', icon: Video },
+    { key: 'analytics', label: 'Numbers', icon: Activity },
   ] : [];
-
-  const allItems = [...navItems, ...adminItems];
+  const desktopPrimary = adminAuthed
+    ? [publicItems[0], ...staffPrimary]
+    : publicItems;
+  const desktopMore = adminAuthed
+    ? [...publicItems.slice(1), ...staffMore]
+    : [];
+  const allItems = [...publicItems, ...staffPrimary, ...staffMore];
+  const go = (key) => {
+    setMoreOpen(false);
+    navigateTo(key);
+  };
+  const desktopBtn = (isActive) =>
+    `flex items-center gap-1.5 px-2.5 py-1.5 rounded-md transition-colors text-xs shrink-0 ${
+      isActive
+        ? 'bg-[var(--cp-accent-dim)] text-[var(--cp-accent)]'
+        : 'text-[var(--cp-muted)] hover:text-[var(--cp-text)] hover:bg-[var(--cp-surface)]'
+    }`;
 
   return (
     <>
@@ -130,44 +178,70 @@ function NavBar({
         </div>
       </div>
 
-      {/* Main NavBar */}
-      <header className="bg-[var(--cp-panel)] border-b border-[var(--cp-border)] z-30 sticky top-9 shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-14 flex items-center justify-between">
-          {/* Logo */}
+      {/* Main NavBar — never grows the page sideways from 1024–1920. Extra
+          staff tools fold into More; Sign out stays in the right cluster. */}
+      <header className="bg-[var(--cp-panel)] border-b border-[var(--cp-border)] z-30 sticky top-9 shadow-sm overflow-visible">
+        <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-6 h-14 flex items-center justify-between gap-2 min-w-0 overflow-visible">
+          {/* Logo — clip only this text, not the More menu below the bar. */}
           <div
-            className="flex items-center space-x-2.5 cursor-pointer group"
-            onClick={() => navigateTo('inventory')}
+            className="flex items-center gap-2 cursor-pointer group min-w-0 shrink overflow-hidden"
+            onClick={() => navigateTo(adminAuthed ? 'staff-home' : 'inventory')}
             role="button"
             aria-label={`${BUSINESS_NAME} — home`}
           >
-            <Home className="h-6 w-6 text-[var(--cp-accent)] group-hover:drop-shadow-[0_2px_8px_rgba(80,29,29,0.35)] transition" />
-            <h1 className="text-base font-bold tracking-tight text-[var(--cp-text)]">
+            <Home className="h-6 w-6 shrink-0 text-[var(--cp-accent)] group-hover:drop-shadow-[0_2px_8px_rgba(80,29,29,0.35)] transition" />
+            <span className="text-sm sm:text-base font-bold tracking-tight text-[var(--cp-text)] whitespace-nowrap truncate">
               {BUSINESS_NAME}
-            </h1>
+            </span>
           </div>
 
-          <div className="flex items-center gap-2">
-            {/* Desktop nav */}
-            <nav className="hidden md:flex items-center space-x-0.5 text-sm font-medium" aria-label="Main navigation">
-              {allItems.map(item => {
-                const Icon = item.icon;
-                const isActive = activePage === item.key;
-                return (
+          <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+            {/* Desktop nav (1024px+). Staff extras live in More. */}
+            <nav className="hidden lg:flex items-center gap-0.5 text-sm font-medium" aria-label="Main navigation">
+              {desktopPrimary.map((item) => (
+                <NavItemButton key={item.key} item={item} activePage={activePage} onClick={go} className={desktopBtn} />
+              ))}
+              {desktopMore.length > 0 && (
+                <div className="relative">
                   <button
-                    key={item.key}
-                    onClick={() => navigateTo(item.key)}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md transition-colors text-xs ${
-                      isActive
-                        ? 'bg-[var(--cp-accent-dim)] text-[var(--cp-accent)]'
-                        : 'text-[var(--cp-muted)] hover:text-[var(--cp-text)] hover:bg-[var(--cp-surface)]'
-                    }`}
-                    aria-current={isActive ? 'page' : undefined}
+                    type="button"
+                    onClick={() => setMoreOpen((open) => !open)}
+                    className={desktopBtn(desktopMore.some((item) => item.key === activePage))}
+                    aria-expanded={moreOpen}
+                    aria-haspopup="menu"
                   >
-                    <Icon size={14} />
-                    {item.label}
+                    <MoreHorizontal size={14} className="shrink-0" />
+                    More
                   </button>
-                );
-              })}
+                  {moreOpen && (
+                    <div
+                      role="menu"
+                      data-testid="staff-more-menu"
+                      className="absolute right-0 top-full mt-1 z-50 min-w-[12rem] rounded-lg border border-[var(--cp-border)] bg-[var(--cp-panel)] py-1 shadow-lg"
+                    >
+                      {desktopMore.map((item) => {
+                        const Icon = item.icon;
+                        return (
+                          <button
+                            key={item.key}
+                            type="button"
+                            role="menuitem"
+                            onClick={() => go(item.key)}
+                            className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm ${
+                              activePage === item.key
+                                ? 'bg-[var(--cp-accent-dim)] text-[var(--cp-accent)]'
+                                : 'text-[var(--cp-text)] hover:bg-[var(--cp-surface)]'
+                            }`}
+                          >
+                            <Icon size={14} className="shrink-0" />
+                            {item.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
             </nav>
 
             {/* Search filters — only on chat page */}
@@ -179,7 +253,7 @@ function NavBar({
             {onToggleDarkMode && (
               <button
                 onClick={onToggleDarkMode}
-                className="hidden md:flex items-center gap-1 px-2 py-1.5 text-xs text-[var(--cp-muted)] hover:text-[var(--cp-text)] hover:bg-[var(--cp-surface)] rounded-md transition-colors"
+                className="hidden lg:flex items-center gap-1 px-2 py-1.5 text-xs text-[var(--cp-muted)] hover:text-[var(--cp-text)] hover:bg-[var(--cp-surface)] rounded-md transition-colors"
                 aria-label="Toggle dark mode"
                 title="Toggle dark mode (Ctrl+D)"
               >
@@ -190,7 +264,7 @@ function NavBar({
             {/* Admin button — desktop */}
             <button
               onClick={onAdminAccess}
-              className="hidden md:flex items-center gap-1 px-2 py-1.5 text-xs text-[var(--cp-muted)] hover:text-[var(--cp-accent)] hover:bg-[var(--cp-surface)] rounded-md transition-colors"
+              className="hidden lg:flex items-center gap-1 px-2 py-1.5 text-xs text-[var(--cp-muted)] hover:text-[var(--cp-accent)] hover:bg-[var(--cp-surface)] rounded-md transition-colors"
               aria-label="Admin access"
               title="Admin access"
             >
@@ -201,7 +275,7 @@ function NavBar({
               <button
                 onClick={onPasskeyRegister}
                 disabled={passkeyLoading}
-                className="hidden md:flex items-center gap-1 px-2 py-1.5 text-xs text-[var(--cp-muted)] hover:text-[var(--cp-accent)] hover:bg-[var(--cp-surface)] rounded-md transition-colors disabled:opacity-50"
+                className="hidden lg:flex items-center gap-1 px-2 py-1.5 text-xs text-[var(--cp-muted)] hover:text-[var(--cp-accent)] hover:bg-[var(--cp-surface)] rounded-md transition-colors disabled:opacity-50"
                 aria-label="Register this device passkey"
                 title="Register this device passkey"
               >
@@ -209,9 +283,21 @@ function NavBar({
               </button>
             )}
 
-            {/* Mobile menu button */}
+            {adminAuthed && onSignOut && (
+              <button
+                type="button"
+                onClick={onSignOut}
+                className="hidden lg:inline-flex items-center gap-1 px-3 py-1.5 text-sm text-[var(--cp-text)] hover:bg-[var(--cp-surface)] rounded-md shrink-0"
+                data-testid="desktop-sign-out"
+              >
+                <LogOut size={14} />
+                Sign out
+              </button>
+            )}
+
+            {/* Phone / tablet menu (below 1024px) */}
             <button
-              className="md:hidden p-2 hover:bg-[var(--cp-surface)] rounded-lg transition text-[var(--cp-text)]"
+              className="lg:hidden p-2 hover:bg-[var(--cp-surface)] rounded-lg transition text-[var(--cp-text)]"
               onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
               aria-label={isMobileMenuOpen ? 'Close menu' : 'Open menu'}
               aria-expanded={isMobileMenuOpen}
@@ -221,10 +307,10 @@ function NavBar({
           </div>
         </div>
 
-        {/* Mobile Menu */}
+        {/* Phone / tablet Menu */}
         {isMobileMenuOpen && (
           <nav
-            className="md:hidden bg-[var(--cp-panel)] border-t border-[var(--cp-border)] py-2 px-4"
+            className="lg:hidden bg-[var(--cp-panel)] border-t border-[var(--cp-border)] py-2 px-4"
             aria-label="Mobile navigation"
             style={{ animation: 'tho-slide-up 0.15s ease' }}
           >
@@ -252,7 +338,7 @@ function NavBar({
               className="flex items-center w-full py-3 px-2 text-[var(--cp-muted)] hover:text-[var(--cp-accent)] hover:bg-[var(--cp-surface)] rounded-lg transition-colors mt-1 border-t border-[var(--cp-border)] pt-3 text-sm"
             >
               {adminAuthed ? <ShieldCheck size={18} className="mr-3 text-[var(--cp-accent)]" /> : <Lock size={18} className="mr-3" />}
-              {adminAuthed ? 'Analytics' : 'Admin'}
+              {adminAuthed ? 'Staff Home' : 'Staff sign-in'}
             </button>
             {adminAuthed && (
               <button
@@ -262,6 +348,15 @@ function NavBar({
               >
                 <KeyRound size={18} className="mr-3" />
                 Register passkey
+              </button>
+            )}
+            {adminAuthed && onSignOut && (
+              <button
+                type="button"
+                onClick={onSignOut}
+                className="flex items-center w-full py-3 px-2 text-base text-[var(--cp-text)] hover:bg-[var(--cp-surface)] rounded-lg"
+              >
+                Sign out
               </button>
             )}
           </nav>
@@ -292,6 +387,8 @@ function Footer({ adminAuthed, onAdminAccess, onNavigate }) {
           <button onClick={() => onNavigate('warranty')} className={linkClass}>Warranty</button>
           <button onClick={() => onNavigate('delivery')} className={linkClass}>Delivery & Setup</button>
           <a href="/contact" className={linkClass} onClick={(e) => { e.preventDefault(); onNavigate('contact'); }}>Contact</a>
+          <a href="/privacy" className={linkClass}>Privacy Policy</a>
+          <a href="/terms" className={linkClass}>Terms of Use</a>
         </nav>
         <div className="flex items-center justify-center">
           <button onClick={onAdminAccess} className="flex items-center hover:text-[var(--cp-accent)] transition-colors">
@@ -307,19 +404,21 @@ function Footer({ adminAuthed, onAdminAccess, onNavigate }) {
 // ─── Shared API call helper with retry logic ───
 async function sendToAgent(sessionId, text, maxRetries = 2) {
   let lastError;
+  let activeSessionId = sessionId;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       const response = await fetch(API_URL, {
         method: 'POST',
+        credentials: 'same-origin',
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json'
         },
         body: JSON.stringify({
           appName: 'root_agent',
-          userId: `web_user_${sessionId}`,
-          sessionId: sessionId,
+          userId: `web_user_${activeSessionId}`,
+          sessionId: activeSessionId,
           newMessage: {
             role: 'user',
             parts: [{ text }]
@@ -340,14 +439,16 @@ async function sendToAgent(sessionId, text, maxRetries = 2) {
       }
 
       const data = await response.json();
+      activeSessionId = adoptRunSessionId(activeSessionId, data);
 
-      if (data.error) return `System Error: ${safeUserMessage(extractErrorMessage(data))}`;
-      if (data.text) return data.text;
-      if (data.content) return typeof data.content === 'string' ? data.content : JSON.stringify(data.content);
-      if (data.candidates?.[0]?.content?.parts) {
-        return data.candidates[0].content.parts.map(p => p.text).join(' ');
-      }
-      return "I apologize, I didn't catch that. Could you rephrase?";
+      let reply;
+      if (data.error) reply = `System Error: ${safeUserMessage(extractErrorMessage(data))}`;
+      else if (data.text) reply = data.text;
+      else if (data.content) reply = typeof data.content === 'string' ? data.content : JSON.stringify(data.content);
+      else if (data.candidates?.[0]?.content?.parts) {
+        reply = data.candidates[0].content.parts.map((part) => part.text).join(' ');
+      } else reply = "I apologize, I didn't catch that. Could you rephrase?";
+      return { text: reply, sessionId: activeSessionId };
 
     } catch (error) {
       lastError = error;
@@ -376,6 +477,8 @@ function pageFromPath(path) {
   if (p.startsWith('/crm')) return 'crm';
   if (p.startsWith('/analytics')) return 'analytics';
   if (p.startsWith('/getting-started') || p.startsWith('/guide')) return 'getting-started';
+  if (p === '/privacy' || p === '/privacy/' || p === '/legal' || p === '/legal/') return 'privacy';
+  if (p === '/terms' || p === '/terms/') return 'terms';
   if (p.startsWith('/contact')) return 'contact';
   if (p.startsWith('/appointments')) return 'appointments';
   if (p.startsWith('/about')) return 'about';
@@ -385,6 +488,7 @@ function pageFromPath(path) {
   if (p.startsWith('/delivery')) return 'delivery';
   if (p.startsWith('/chat-history')) return 'chat-history';
   if (p.startsWith('/manage-inventory')) return 'manage-inventory';
+  if (p === '/photos' || p.startsWith('/photos/')) return 'photos';
   if (p.startsWith('/copilot') || p.startsWith('/ops-copilot')) return 'copilot';
   if (p.startsWith('/health')) return 'health';
   if (p.startsWith('/chat')) return 'chat';
@@ -392,9 +496,13 @@ function pageFromPath(path) {
   if (isInventoryCategoryPath(p)) return 'inventory';
   // City landing pages (/manufactured-homes-in-{city}-tx) render the inventory.
   if (p.startsWith('/manufactured-homes-in-')) return 'inventory';
+  if (p.startsWith('/homes/')) return 'inventory';
   // Legacy texashomeoutlet.com deep links resolve inside the inventory page.
-  if (p.startsWith('/plan/') || p.startsWith('/quote/')) return 'inventory';
+  if (p.startsWith('/inventory-detail/') || p.startsWith('/plan/') || p.startsWith('/quote/')) return 'inventory';
   if (p.startsWith('/hub/')) return 'hub';
+  if (p === '/staff-home' || p.startsWith('/staff-home/')) return 'staff-home';
+  if (p === '/staff' || p.startsWith('/staff/')) return 'staff-sign-in';
+  if (p === '/team' || p.startsWith('/team/')) return 'team';
   if (p.startsWith('/system')) return 'system';
   if (p === '/' || p === '') return 'inventory';
   // Unknown path: the server already responded 404 — render a friendly view.
@@ -415,14 +523,70 @@ function App() {
   ]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [sessionId] = useState(() => localStorage.getItem('tho_session_id') || uuidv4());
-  const callbackStorageKey = `tho_chat_callback_${sessionId}`;
-  const [chatCallbackCaptured, setChatCallbackCaptured] = useState(
-    () => localStorage.getItem(callbackStorageKey) === 'captured',
-  );
-  const [chatCallbackDismissed, setChatCallbackDismissed] = useState(
-    () => sessionStorage.getItem(callbackStorageKey) === 'dismissed',
-  );
+  const [sessionId, setSessionId] = useState(() => {
+    try {
+      return localStorage.getItem(CHAT_SESSION_STORAGE_KEY) || '';
+    } catch {
+      return '';
+    }
+  });
+  const callbackStorageKey = sessionId ? `tho_chat_callback_${sessionId}` : '';
+  const [chatCallbackCaptured, setChatCallbackCaptured] = useState(() => (
+    callbackStorageKey ? localStorage.getItem(callbackStorageKey) === 'captured' : false
+  ));
+  const [chatCallbackDismissed, setChatCallbackDismissed] = useState(() => (
+    callbackStorageKey ? sessionStorage.getItem(callbackStorageKey) === 'dismissed' : false
+  ));
+  const sessionRequestRef = useRef(null);
+  const resolvedSessionRef = useRef('');
+
+  useEffect(() => {
+    if (!callbackStorageKey) {
+      setChatCallbackCaptured(false);
+      setChatCallbackDismissed(false);
+      return;
+    }
+    setChatCallbackCaptured(localStorage.getItem(callbackStorageKey) === 'captured');
+    setChatCallbackDismissed(sessionStorage.getItem(callbackStorageKey) === 'dismissed');
+  }, [callbackStorageKey]);
+
+  const loadSession = useCallback(() => {
+    if (!sessionRequestRef.current) {
+      sessionRequestRef.current = resolveChatSession()
+        .then((result) => {
+          if (result?.sessionId) resolvedSessionRef.current = result.sessionId;
+          return result;
+        })
+        .finally(() => {
+          sessionRequestRef.current = null;
+        });
+    }
+    return sessionRequestRef.current;
+  }, []);
+
+  const ensureSessionId = useCallback(async () => {
+    // Wait for the in-flight history read. It sets the owner cookie before
+    // the first send, including chats that started before that cookie existed.
+    let resolved = null;
+    if (sessionRequestRef.current) {
+      resolved = await sessionRequestRef.current;
+    } else if (!resolvedSessionRef.current) {
+      resolved = await loadSession();
+    }
+    const nextId = resolved?.sessionId || resolvedSessionRef.current || sessionId || '';
+    if (nextId && nextId !== sessionId) setSessionId(nextId);
+    return nextId;
+  }, [loadSession, sessionId]);
+
+  const acceptRunResult = useCallback((result) => {
+    const nextId = result?.sessionId || '';
+    if (nextId) {
+      resolvedSessionRef.current = nextId;
+      setSessionId((current) => (current === nextId ? current : nextId));
+    }
+    return typeof result?.text === 'string' ? result.text : '';
+  }, []);
+
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [comparisonList, setComparisonList] = useState([]);
   const [darkMode, setDarkMode] = useDarkMode();
@@ -452,29 +616,32 @@ function App() {
     captureUtmFromUrl();
   }, []);
 
-  // Load chat history
+  // Load chat history for this browser, or start a fresh chat when the
+  // owner cookie is missing (including sessions started before that cookie).
   useEffect(() => {
-    localStorage.setItem('tho_session_id', sessionId);
-    fetch(`/api/chat/session/${sessionId}`)
-      .then(r => r.json())
-      .then(data => {
-        if (data.success && data.messages && data.messages.length > 0) {
-          // If we have history, keep the initial greeting and append the history
-          setMessages(prev => {
-            const initialGreeting = prev[0]; // Assuming first message is greeting
-            return [
-              initialGreeting,
-              ...data.messages.map(msg => ({
-                role: msg.role,
-                text: msg.text,
-                showQuickActions: false // Don't show quick actions for history
-              }))
-            ];
-          });
-        }
+    let cancelled = false;
+    loadSession()
+      .then((result) => {
+        if (cancelled) return;
+        if (result.sessionId) setSessionId(result.sessionId);
+        if (!result.messages.length) return;
+        setMessages((prev) => {
+          if (prev.length > 1) return prev;
+          return [
+            prev[0],
+            ...result.messages.map((msg) => ({
+              role: msg.role,
+              text: msg.text,
+              showQuickActions: false,
+            })),
+          ];
+        });
       })
-      .catch(e => console.warn('Failed to load chat history:', e));
-  }, [sessionId]);
+      .catch((error) => console.warn('Failed to load chat history:', error));
+    return () => {
+      cancelled = true;
+    };
+  }, [loadSession]);
 
 
   // Keyboard shortcuts
@@ -526,9 +693,7 @@ function App() {
   // Admin auth — token validated by backend via httpOnly cookie
   const [adminAuthed, setAdminAuthed] = useState(false);
   const [showPinModal, setShowPinModal] = useState(false);
-  const [pinInput, setPinInput] = useState('');
-  const [pinError, setPinError] = useState('');
-  const [pinLoading, setPinLoading] = useState(false);
+  const [signInNotice, setSignInNotice] = useState('');
 
   // Passkey state
   const [passkeyLoading, setPasskeyLoading] = useState(false);
@@ -543,18 +708,6 @@ function App() {
     return window.localStorage.getItem('tho_passkey_email') || '';
   });
   const [passkeyEmailError, setPasskeyEmailError] = useState('');
-
-  // Email one-time-code login (fallback alongside PIN + passkey)
-  const [showEmailCode, setShowEmailCode] = useState(false);
-  const [emailCodeAddress, setEmailCodeAddress] = useState(() => {
-    if (typeof window === 'undefined') return '';
-    return window.localStorage.getItem('tho_passkey_email') || '';
-  });
-  const [emailCodeSent, setEmailCodeSent] = useState(false);
-  const [emailCodeInput, setEmailCodeInput] = useState('');
-  const [emailCodeError, setEmailCodeError] = useState('');
-  const [emailCodeNotice, setEmailCodeNotice] = useState('');
-  const [emailCodeLoading, setEmailCodeLoading] = useState(false);
 
   const refreshPasskeyStatus = useCallback(async () => {
     try {
@@ -619,7 +772,7 @@ function App() {
       const data = await completeRes.json();
       if (data.success) {
         setAdminAuthed(true); setShowPinModal(false); setPasskeyError('');
-        navigateTo('analytics');
+        navigateTo('staff-home');
       } else {
         setPasskeyError(safeUserMessage(extractErrorMessage(data), 'Passkey login failed'));
       }
@@ -628,7 +781,7 @@ function App() {
       // Browsers use NotAllowedError for several outcomes (including timeout
       // and cancellation), so do not guess why the prompt did not finish.
       const message = err?.name === 'NotAllowedError' || err?.name === 'AbortError'
-        ? 'Passkey sign-in did not finish. Try again, or choose Email me a sign-in code below.'
+        ? 'Passkey sign-in did not finish. Try again, or use the email sign-in on this page.'
         : safeUserMessage(err?.message, describeFetchError(err, 'complete passkey sign-in'));
       setPasskeyError(message);
     } finally {
@@ -755,7 +908,7 @@ function App() {
       const timer = setTimeout(() => {
         if (mounted && !adminAuthed) {
           setShowPinModal(true);
-          setPinError('');
+          setSignInNotice('');
           setPasskeyError('');
         }
       }, 100);
@@ -766,7 +919,7 @@ function App() {
   useEffect(() => {
     if (adminAuthed) {
       setShowPinModal(false);
-      setPinError('');
+      setSignInNotice('');
     }
   }, [adminAuthed]);
 
@@ -780,9 +933,14 @@ function App() {
       }
       setAdminAuthed(false);
       setShowPinModal(true);
-      setPinError('Session expired — please sign in again');
+      setSignInNotice('Session expired — please sign in again');
     };
     window.addEventListener('admin-session-expired', handleExpired);
+
+    const handleRateLimited = () => {
+      addToast('Too many clicks, try again in a moment', 'warning', 4000);
+    };
+    window.addEventListener('admin-rate-limited', handleRateLimited);
 
     const handleTriggerRegister = (e) => {
       if (e.detail?.email) {
@@ -794,9 +952,10 @@ function App() {
 
     return () => {
       window.removeEventListener('admin-session-expired', handleExpired);
+      window.removeEventListener('admin-rate-limited', handleRateLimited);
       window.removeEventListener('trigger-passkey-register', handleTriggerRegister);
     };
-  }, [openPasskeyRegisterModal]);
+  }, [openPasskeyRegisterModal, addToast]);
 
   const messagesEndRef = useRef(null);
 
@@ -804,12 +963,12 @@ function App() {
     const params = new URLSearchParams(window.location.search);
     if (params.get('admin') === 'true') {
       if (adminAuthed) {
-        navigatePath('/analytics', { replace: true });
+        navigatePath('/staff-home', { replace: true });
       } else {
         setShowPinModal(true);
       }
     }
-    localStorage.setItem('tho_session_id', sessionId);
+    if (sessionId) localStorage.setItem('tho_session_id', sessionId);
   }, [sessionId, adminAuthed, navigatePath]);
 
   // Keyboard shortcuts
@@ -839,6 +998,10 @@ function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [addToast]);
 
+  useEffect(() => {
+    if (/^\/legal\/?$/i.test(pathname)) navigatePath('/privacy', { replace: true });
+  }, [pathname, navigatePath]);
+
   // Update page title per page. Public pages mirror the server-injected SEO
   // titles (seo_routes.py PUBLIC_ROUTES) so client-side navs stay in sync;
   // operator pages keep the short "Page | Business" pattern.
@@ -848,6 +1011,8 @@ function App() {
       chat: `Chat with Tex — ${BUSINESS_NAME} Home Finder`,
       contact: `Contact ${BUSINESS_NAME} — ${BUSINESS_CITY}, ${BUSINESS_STATE}`,
       appointments: `Book a Showroom Visit | ${BUSINESS_NAME}`,
+      privacy: `Privacy Policy | ${BUSINESS_NAME}`,
+      terms: `Terms of Use | ${BUSINESS_NAME}`,
       about: `About Us | ${BUSINESS_NAME}`,
       financing: `Financing Options | ${BUSINESS_NAME}`,
       faq: `Frequently Asked Questions | ${BUSINESS_NAME}`,
@@ -862,16 +1027,47 @@ function App() {
       crm: 'CRM Dashboard',
       system: 'THO System Hub',
       health: 'Health Dashboard',
+      team: 'Team access',
+      'staff-sign-in': 'Staff sign-in',
+      'staff-home': 'Staff Home',
       'getting-started': 'Getting Started',
       'chat-history': 'Chat History',
+      'manage-inventory': 'Manage Inventory',
+      photos: 'Photos',
     };
+    const cityLanding = getCityLanding(pathname);
+    if (cityLanding) {
+      applyDocumentHead({
+        title: cityLanding.title,
+        description:
+          `${BUSINESS_NAME} delivers manufactured & mobile homes to ${cityLanding.city}, TX — `
+          + `listed homes plus orderable floorplans. Confirm current price and availability at ${BUSINESS_PHONE}.`,
+        canonicalPath: cityLanding.path,
+      });
+      return;
+    }
     const inventoryCategory = activePage === 'inventory'
       ? getInventoryCategoryRoute(pathname)
       : null;
-    document.title = inventoryCategory
-      ? `${inventoryCategory.classification} Mobile & Manufactured Homes in ${BUSINESS_CITY}, ${BUSINESS_STATE} | ${BUSINESS_NAME}`
-      : fullTitles[activePage] ||
-        (shortTitles[activePage] ? `${shortTitles[activePage]} | ${BUSINESS_NAME}` : BUSINESS_NAME);
+    if (inventoryCategory) {
+      applyDocumentHead({
+        title: `${inventoryCategory.classification} Mobile & Manufactured Homes in ${BUSINESS_CITY}, ${BUSINESS_STATE} | ${BUSINESS_NAME}`,
+        description: inventoryCategory.description,
+        canonicalPath: inventoryCategory.path,
+      });
+      return;
+    }
+    if (isHomeListingPath(pathname) || isPlanPath(pathname) || isUniqueListingPath(pathname)) {
+      // InventoryBrowse sets the model-specific title once the listing loads.
+      // Never fall back to the generic Huffman inventory title on these URLs.
+      return;
+    }
+    const nextTitle = fullTitles[activePage]
+      || (shortTitles[activePage] ? `${shortTitles[activePage]} | ${BUSINESS_NAME}` : BUSINESS_NAME);
+    applyDocumentHead({
+      title: nextTitle,
+      canonicalPath: pathname === '/' ? '/' : pathname.replace(/\/+$/, '') || '/',
+    });
   }, [activePage, pathname]);
 
   const scrollToBottom = () => {
@@ -897,18 +1093,32 @@ function App() {
       faq: '/faq',
       warranty: '/warranty',
       delivery: '/delivery',
+      privacy: '/privacy',
+      terms: '/terms',
       documents: '/documents',
       adstudio: '/studio',
       crm: '/crm',
       analytics: '/analytics',
       'getting-started': '/getting-started',
       'chat-history': '/chat-history',
+      'manage-inventory': '/manage-inventory',
+      photos: '/photos',
+      copilot: '/copilot',
       system: '/system',
       health: '/health',
+      team: '/team',
+      'staff-sign-in': '/staff',
+      'staff-home': '/staff-home',
     };
     const targetUrl = urlMap[page] || '/';
     navigatePath(targetUrl);
   };
+
+  useEffect(() => {
+    if (adminAuthed && activePage === 'staff-sign-in') {
+      navigateTo('staff-home');
+    }
+  }, [adminAuthed, activePage]);
 
   const startAppointmentHandoff = (handoff) => {
     setAppointmentHandoff(handoff);
@@ -916,122 +1126,38 @@ function App() {
   };
 
   // Admin PIN handlers
+  const completeStaffSignIn = () => {
+    lastLoginTime.current = Date.now();
+    setAdminAuthed(true);
+    setShowPinModal(false);
+    setSignInNotice('');
+    const destination = activePage === 'staff-sign-in'
+      ? 'staff-home'
+      : (ADMIN_PAGE_KEYS.has(activePage) ? activePage : 'staff-home');
+    navigateTo(destination);
+  };
+
   const handleAdminAccess = () => {
     if (adminAuthed) {
-      navigateTo('analytics');
+      navigateTo('staff-home');
+    } else if (activePage === 'staff-sign-in') {
+      document.getElementById('staff-sign-in')?.scrollIntoView({ behavior: 'smooth' });
     } else {
       setShowPinModal(true);
-      setPinInput('');
-      setPinError('');
+      setSignInNotice('');
     }
   };
 
-  const handlePinSubmit = async (e) => {
-    e.preventDefault();
-    setPinLoading(true);
-    setPinError('');
+  const handleSignOut = async () => {
     try {
-      const res = await fetch('/api/admin/verify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'same-origin',
-        body: JSON.stringify({ pin: pinInput.trim() }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        lastLoginTime.current = Date.now();
-        setAdminAuthed(true);
-        setShowPinModal(false);
-        setPinInput('');
-        navigateTo(ADMIN_PAGE_KEYS.has(activePage) ? activePage : 'analytics');
-      } else {
-        const fallbackHint = 'If the shared PIN expired, use Email me a sign-in code below.';
-        setPinError(`${safeUserMessage(extractErrorMessage(data), 'Incorrect PIN.')} ${fallbackHint}`);
-        setPinInput('');
-      }
+      await fetch('/api/admin/logout', { method: 'POST', credentials: 'same-origin' });
     } catch {
-      setPinError('Unable to verify. Try Email me a sign-in code below.');
-    } finally {
-      setPinLoading(false);
+      // The button still leaves the screen. The cookie clear is best-effort.
     }
-  };
-
-  // --- Email one-time-code login (fallback) ---
-  const GENERIC_EMAIL_CODE_NOTICE =
-    "If that's an authorized address, a code is on its way. Check your inbox.";
-
-  const resetEmailCodeFlow = () => {
-    setShowEmailCode(false);
-    setEmailCodeSent(false);
-    setEmailCodeInput('');
-    setEmailCodeError('');
-    setEmailCodeNotice('');
-  };
-
-  const handleEmailCodeRequest = async (e) => {
-    if (e) e.preventDefault();
-    const email = emailCodeAddress.trim();
-    if (!email) {
-      setEmailCodeError('Enter your authorized email address.');
-      return;
-    }
-    setEmailCodeLoading(true);
-    setEmailCodeError('');
-    try {
-      // The backend ALWAYS returns 200 with a generic body (no account
-      // enumeration), so we show the same notice regardless of the response.
-      await fetch('/api/admin/email-code/request', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'same-origin',
-        body: JSON.stringify({ email }),
-      });
-      window.localStorage.setItem('tho_passkey_email', email);
-      setEmailCodeSent(true);
-      setEmailCodeNotice(GENERIC_EMAIL_CODE_NOTICE);
-    } catch {
-      // Even on a network error, keep the message generic and let them enter
-      // a code if they already have one.
-      setEmailCodeSent(true);
-      setEmailCodeNotice(GENERIC_EMAIL_CODE_NOTICE);
-    } finally {
-      setEmailCodeLoading(false);
-    }
-  };
-
-  const handleEmailCodeVerify = async (e) => {
-    if (e) e.preventDefault();
-    const email = emailCodeAddress.trim();
-    const code = emailCodeInput.trim();
-    if (!code) {
-      setEmailCodeError('Enter the 6-digit code from your email.');
-      return;
-    }
-    setEmailCodeLoading(true);
-    setEmailCodeError('');
-    try {
-      const res = await fetch('/api/admin/email-code/verify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'same-origin',
-        body: JSON.stringify({ email, code }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (res.ok && data.success) {
-        lastLoginTime.current = Date.now();
-        setAdminAuthed(true);
-        setShowPinModal(false);
-        resetEmailCodeFlow();
-        navigateTo(ADMIN_PAGE_KEYS.has(activePage) ? activePage : 'analytics');
-      } else {
-        setEmailCodeError(safeUserMessage(extractErrorMessage(data), 'Invalid or expired code.'));
-        setEmailCodeInput('');
-      }
-    } catch {
-      setEmailCodeError('Unable to verify. Please try again.');
-    } finally {
-      setEmailCodeLoading(false);
-    }
+    setAdminAuthed(false);
+    setShowPinModal(false);
+    setSignInNotice('');
+    navigateTo('inventory');
   };
 
   const handleSubmit = async (e) => {
@@ -1044,7 +1170,9 @@ function App() {
     setIsLoading(true);
 
     try {
-      const botText = await sendToAgent(sessionId, userMessage.text);
+      const activeSessionId = await ensureSessionId();
+      if (!activeSessionId) throw new Error('Chat session unavailable');
+      const botText = acceptRunResult(await sendToAgent(activeSessionId, userMessage.text));
       setMessages(prev => [...prev, { role: 'model', text: botText }]);
     } catch (error) {
       console.error('Error sending message:', error);
@@ -1067,7 +1195,9 @@ function App() {
   const handleRetry = useCallback(async (originalMessage) => {
     setIsLoading(true);
     try {
-      const botText = await sendToAgent(sessionId, originalMessage);
+      const activeSessionId = await ensureSessionId();
+      if (!activeSessionId) throw new Error('Chat session unavailable');
+      const botText = acceptRunResult(await sendToAgent(activeSessionId, originalMessage));
       setMessages(prev => [...prev, { role: 'model', text: botText }]);
       addToast('Message sent successfully!', 'success');
     } catch {
@@ -1075,7 +1205,7 @@ function App() {
     } finally {
       setIsLoading(false);
     }
-  }, [sessionId, addToast]);
+  }, [acceptRunResult, ensureSessionId, addToast]);
 
   const handleQuickAction = async (message) => {
     if (!isOnline) {
@@ -1085,7 +1215,9 @@ function App() {
 
     setIsLoading(true);
     try {
-      const botText = await sendToAgent(sessionId, message);
+      const activeSessionId = await ensureSessionId();
+      if (!activeSessionId) throw new Error('Chat session unavailable');
+      const botText = acceptRunResult(await sendToAgent(activeSessionId, message));
       setMessages(prev => [...prev, { role: 'model', text: botText }]);
     } catch (error) {
       console.error('Error sending quick action:', error);
@@ -1139,228 +1271,17 @@ function App() {
   // --- PIN Modal ---
   const pinModal = showPinModal && (
     <div className="fixed inset-0 bg-black/70 z-[100] flex items-center justify-center p-4 backdrop-blur-sm" style={{ animation: 'tho-fade-in 0.15s ease' }}>
-      <div className="cp-panel p-6 sm:p-8 max-w-sm w-full max-h-[calc(100dvh-2rem)] overflow-y-auto" style={{ animation: 'tho-slide-up 0.2s ease' }}>
-        <div className="flex items-center justify-center mb-4">
-          <div className="p-3 bg-[var(--cp-accent-dim)] rounded-full">
-            <Lock size={24} className="text-[var(--cp-accent)]" />
-          </div>
-        </div>
-        <h2 className="text-xl font-bold text-center text-[var(--cp-text)] mb-1 font-mono">Admin Access</h2>
-        <p className="text-xs text-[var(--cp-muted)] text-center mb-6 font-mono">Use your PIN, an existing passkey, or an email sign-in code.</p>
-
-        <form onSubmit={handlePinSubmit}>
-          <input
-            type="password"
-            inputMode="text"
-            maxLength={ADMIN_PIN_MAXLEN}
-            autoComplete="current-password"
-            value={pinInput}
-            onChange={(e) => { setPinInput(e.target.value.slice(0, ADMIN_PIN_MAXLEN)); setPinError(''); setPasskeyError(''); }}
-            placeholder="Enter admin PIN"
-            className="cp-input w-full px-4 py-3 text-center text-lg tracking-[0.15em]"
-            autoFocus
-            aria-label="Admin PIN"
-          />
-          {pinError && (
-            <p className="text-[var(--cp-danger)] text-xs text-center mt-2 font-mono">
-              {pinError}
-            </p>
-          )}
-          <button
-            type="submit"
-            disabled={!pinInput.trim() || pinLoading}
-            className="cp-btn-accent w-full mt-4 py-3 rounded-lg text-sm"
-          >
-            {pinLoading ? 'Verifying...' : 'Unlock'}
-          </button>
-        </form>
-
-        {/* Passkey divider */}
-        {passkeyAvailable && (
-          <div className="relative my-4">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-[var(--cp-border)]" />
-            </div>
-            <div className="relative flex justify-center text-[10px]">
-              <span className="px-2 bg-[var(--cp-panel)] text-[var(--cp-faint)] font-mono uppercase tracking-widest">or</span>
-            </div>
-          </div>
-        )}
-
-        {passkeyAvailable && (
-          <div className="space-y-2">
-            {passkeyStatus?.has_keys && (
-              <button
-                type="button"
-                onClick={handlePasskeyLogin}
-                disabled={passkeyLoading}
-                aria-describedby={passkeyError ? 'passkey-login-error' : undefined}
-                className="cp-btn-outline w-full py-2.5 text-sm flex items-center justify-center gap-2"
-              >
-                <Fingerprint size={16} />
-                {passkeyLoading ? 'Authenticating...' : 'Sign in with Passkey'}
-              </button>
-            )}
-
-            {!passkeyStatus?.has_keys && (
-              <div className="space-y-3">
-                <p className="text-[11px] text-[var(--cp-faint)] text-center leading-relaxed font-mono border border-[var(--cp-border)] rounded-lg px-3 py-2 bg-[var(--cp-bg-2)]">
-                  {passkeyStatus === null
-                    ? 'Checking passkey enrollment...'
-                    : passkeyStatus.store_ready === false
-                      ? 'Passkey sign-in is unavailable. Try your PIN or an email sign-in code.'
-                      : 'No approved passkeys enrolled yet. Sign in with your PIN or an email code, then register a staff passkey.'}
-                </p>
-              </div>
-            )}
-
-            {adminAuthed && (
-              <button
-                type="button"
-                onClick={openPasskeyRegisterModal}
-                className="cp-btn-accent w-full py-2.5 text-sm flex items-center justify-center gap-2 mt-2"
-              >
-                <KeyRound size={16} />
-                Register new passkey / device
-              </button>
-            )}
-          </div>
-        )}
-
-        {passkeyError && (
-          <p id="passkey-login-error" role="alert" className="text-[var(--cp-danger)] text-xs text-center mt-2 font-mono">
-            {passkeyError}
-          </p>
-        )}
-
-        {/* Email one-time-code fallback */}
-        <div className="mt-3">
-          {!showEmailCode ? (
-            <button
-              type="button"
-              onClick={() => { setShowEmailCode(true); setEmailCodeError(''); setPinError(''); setPasskeyError(''); }}
-              className="cp-btn-outline w-full py-2.5 text-sm flex items-center justify-center gap-2"
-            >
-              <Mail size={16} />
-              Email me a sign-in code
-            </button>
-          ) : (
-            <div className="border border-[var(--cp-border)] rounded-lg p-3 bg-[var(--cp-bg-2)] space-y-3">
-              <div className="flex items-center gap-2 text-[var(--cp-muted)]">
-                <Mail size={15} className="text-[var(--cp-accent)]" />
-                <span className="text-xs font-mono uppercase tracking-wide">Email sign-in code</span>
-              </div>
-
-              {!emailCodeSent ? (
-                <form onSubmit={handleEmailCodeRequest} className="space-y-2">
-                  <label className="block">
-                    <span className="sr-only">Authorized email</span>
-                    <input
-                      type="email"
-                      autoComplete="email"
-                      value={emailCodeAddress}
-                      onChange={(e) => { setEmailCodeAddress(e.target.value); setEmailCodeError(''); }}
-                      placeholder="name@texashomeoutlet.com"
-                      className="cp-input w-full px-3 py-2.5 text-sm"
-                      aria-label="Authorized email"
-                      autoFocus
-                    />
-                  </label>
-                  <button
-                    type="submit"
-                    disabled={emailCodeLoading || !emailCodeAddress.trim()}
-                    className="cp-btn-accent w-full py-2.5 text-sm flex items-center justify-center gap-2"
-                  >
-                    {emailCodeLoading ? <Loader2 size={15} className="animate-spin" /> : <Mail size={15} />}
-                    {emailCodeLoading ? 'Sending...' : 'Send code'}
-                  </button>
-                </form>
-              ) : (
-                <form onSubmit={handleEmailCodeVerify} className="space-y-2">
-                  <p className="text-xs text-[var(--cp-muted)] break-all">
-                    Address entered: <span>{emailCodeAddress.trim()}</span>
-                  </p>
-                  {emailCodeNotice && (
-                    <p className="text-[11px] text-[var(--cp-faint)] leading-relaxed font-mono">
-                      {emailCodeNotice}
-                    </p>
-                  )}
-                  <label className="block">
-                    <span className="sr-only">Sign-in code</span>
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      autoComplete="one-time-code"
-                      maxLength={6}
-                      value={emailCodeInput}
-                      onChange={(e) => { setEmailCodeInput(e.target.value.replace(/\D/g, '').slice(0, 6)); setEmailCodeError(''); }}
-                      placeholder="6-digit code"
-                      className="cp-input w-full px-3 py-2.5 text-center text-lg tracking-[0.3em]"
-                      aria-label="Sign-in code"
-                      autoFocus
-                    />
-                  </label>
-                  <button
-                    type="submit"
-                    disabled={emailCodeLoading || !emailCodeInput.trim()}
-                    className="cp-btn-accent w-full py-2.5 text-sm flex items-center justify-center gap-2"
-                  >
-                    {emailCodeLoading ? <Loader2 size={15} className="animate-spin" /> : <ShieldCheck size={15} />}
-                    {emailCodeLoading ? 'Verifying...' : 'Verify'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setEmailCodeSent(false);
-                      setEmailCodeInput('');
-                      setEmailCodeError('');
-                      setEmailCodeNotice('');
-                    }}
-                    disabled={emailCodeLoading}
-                    className="cp-btn-outline w-full py-2 text-xs"
-                  >
-                    Change email
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleEmailCodeRequest}
-                    disabled={emailCodeLoading}
-                    className="w-full py-1.5 text-[11px] text-[var(--cp-faint)] hover:text-[var(--cp-text)] transition font-mono"
-                  >
-                    Resend code
-                  </button>
-                </form>
-              )}
-
-              {emailCodeError && (
-                <p className="text-[var(--cp-danger)] text-xs text-center font-mono">{emailCodeError}</p>
-              )}
-
-              <button
-                type="button"
-                onClick={resetEmailCodeFlow}
-                className="w-full py-1 text-[10px] text-[var(--cp-faint)] hover:text-[var(--cp-text)] transition font-mono"
-              >
-                Back to other options
-              </button>
-            </div>
-          )}
-        </div>
-
-        <details className="mt-4 text-xs text-[var(--cp-muted)] leading-relaxed">
-          <summary className="cursor-pointer">Need help signing in?</summary>
-          <p className="mt-2">No fingerprint or face recognition is required: your device may offer its screen-lock PIN or password for a passkey.</p>
-          <p className="mt-2">A passkey saved for the old site may not appear here. Use your PIN or email code on this site, then register a new staff passkey from the key button after signing in.</p>
-          <p className="mt-2">For an email code, use your approved staff address and check spam. If no sign-in method works, ask your THO site administrator for help. Never share a sign-in code or PIN in a support message.</p>
-        </details>
-
-        <button
-          type="button"
-          onClick={() => { setShowPinModal(false); resetEmailCodeFlow(); }}
-          className="w-full mt-4 py-2 text-[var(--cp-faint)] text-xs hover:text-[var(--cp-text)] transition font-mono"
-        >
-          Cancel
-        </button>
+      <div className="cp-panel p-6 sm:p-8 max-w-md w-full max-h-[calc(100dvh-2rem)] overflow-y-auto" style={{ animation: 'tho-slide-up 0.2s ease' }}>
+        <StaffSignInPanel
+          onSuccess={completeStaffSignIn}
+          onCancel={() => setShowPinModal(false)}
+          passkeyAvailable={passkeyAvailable}
+          passkeyStatus={passkeyStatus}
+          passkeyLoading={passkeyLoading}
+          passkeyError={passkeyError}
+          onPasskeyLogin={handlePasskeyLogin}
+          initialNotice={signInNotice}
+        />
       </div>
     </div>
   );
@@ -1449,6 +1370,7 @@ function App() {
     navigateTo,
     adminAuthed,
     onAdminAccess: handleAdminAccess,
+    onSignOut: handleSignOut,
     onPasskeyRegister: openPasskeyRegisterModal,
     passkeyLoading,
     isMobileMenuOpen,
@@ -1458,6 +1380,69 @@ function App() {
   };
 
   // --- Page renders ---
+  if (activePage === 'staff-sign-in') {
+    return (
+      <div className="bg-[var(--cp-bg)] min-h-screen">
+        {passkeyEmailModal}
+        <NavBar {...navProps} />
+        <main className="max-w-md mx-auto px-4 py-8">
+          {adminAuthed ? (
+            <div className="text-center">
+              <h1 className="text-3xl font-bold mb-4">You are signed in</h1>
+              <p className="text-lg leading-relaxed mb-6">
+                This phone or computer stays signed in. Use the menu for photos, documents, and the customer list.
+              </p>
+              <button type="button" onClick={handleSignOut} className="cp-btn-outline px-6 py-3 text-lg">
+                Sign out
+              </button>
+            </div>
+          ) : (
+            <StaffSignInPanel
+              onSuccess={completeStaffSignIn}
+              passkeyAvailable={passkeyAvailable}
+              passkeyStatus={passkeyStatus}
+              passkeyLoading={passkeyLoading}
+              passkeyError={passkeyError}
+              onPasskeyLogin={handlePasskeyLogin}
+              initialNotice={signInNotice}
+            />
+          )}
+        </main>
+        <Footer adminAuthed={adminAuthed} onAdminAccess={handleAdminAccess} onNavigate={navigateTo} />
+      </div>
+    );
+  }
+
+  if (activePage === 'staff-home' && adminAuthed) {
+    return (
+      <div className="bg-[var(--cp-bg)] min-h-screen">
+        {appModals}
+        <NavBar {...navProps} />
+        <ErrorBoundary scope="staff-home">
+          <Suspense fallback={<PageLoader />}>
+            <StaffHome onNavigate={navigateTo} />
+          </Suspense>
+        </ErrorBoundary>
+        <Footer adminAuthed={adminAuthed} onAdminAccess={handleAdminAccess} onNavigate={navigateTo} />
+      </div>
+    );
+  }
+
+  if (activePage === 'team' && adminAuthed) {
+    return (
+      <div className="bg-[var(--cp-bg)] min-h-screen">
+        {appModals}
+        <NavBar {...navProps} />
+        <ErrorBoundary scope="team">
+          <Suspense fallback={<PageLoader />}>
+            <StaffAccess onBack={() => navigateTo('staff-home')} />
+          </Suspense>
+        </ErrorBoundary>
+        <Footer adminAuthed={adminAuthed} onAdminAccess={handleAdminAccess} onNavigate={navigateTo} />
+      </div>
+    );
+  }
+
   if (activePage === 'system' && adminAuthed) {
     return (
       <div className="bg-[var(--cp-bg)] min-h-screen">
@@ -1468,6 +1453,7 @@ function App() {
             <SystemHub onBack={() => navigateTo('inventory')} adminAuthed={adminAuthed} />
           </Suspense>
         </ErrorBoundary>
+        <Footer adminAuthed={adminAuthed} onAdminAccess={handleAdminAccess} onNavigate={navigateTo} />
       </div>
     );
   }
@@ -1482,6 +1468,7 @@ function App() {
             <HealthDashboard onBack={() => navigateTo('system')} />
           </Suspense>
         </ErrorBoundary>
+        <Footer adminAuthed={adminAuthed} onAdminAccess={handleAdminAccess} onNavigate={navigateTo} />
       </div>
     );
   }
@@ -1501,6 +1488,7 @@ function App() {
             />
           </Suspense>
         </ErrorBoundary>
+        <Footer adminAuthed={adminAuthed} onAdminAccess={handleAdminAccess} onNavigate={navigateTo} />
       </div>
     );
   }
@@ -1515,6 +1503,7 @@ function App() {
             <Analytics />
           </Suspense>
         </ErrorBoundary>
+        <Footer adminAuthed={adminAuthed} onAdminAccess={handleAdminAccess} onNavigate={navigateTo} />
       </div>
     );
   }
@@ -1529,6 +1518,7 @@ function App() {
             <CRM onBack={() => navigateTo('inventory')} />
           </Suspense>
         </ErrorBoundary>
+        <Footer adminAuthed={adminAuthed} onAdminAccess={handleAdminAccess} onNavigate={navigateTo} />
       </div>
     );
   }
@@ -1543,6 +1533,7 @@ function App() {
             <PhotoManager onBack={() => navigateTo('inventory')} />
           </Suspense>
         </ErrorBoundary>
+        <Footer adminAuthed={adminAuthed} onAdminAccess={handleAdminAccess} onNavigate={navigateTo} />
       </div>
     );
   }
@@ -1557,6 +1548,7 @@ function App() {
             <InventoryManager onBack={() => navigateTo('inventory')} onNavigate={navigateTo} />
           </Suspense>
         </ErrorBoundary>
+        <Footer adminAuthed={adminAuthed} onAdminAccess={handleAdminAccess} onNavigate={navigateTo} />
       </div>
     );
   }
@@ -1571,6 +1563,7 @@ function App() {
             <ChatHistory />
           </Suspense>
         </ErrorBoundary>
+        <Footer adminAuthed={adminAuthed} onAdminAccess={handleAdminAccess} onNavigate={navigateTo} />
       </div>
     );
   }
@@ -1585,6 +1578,7 @@ function App() {
             <OpsCopilot />
           </Suspense>
         </ErrorBoundary>
+        <Footer adminAuthed={adminAuthed} onAdminAccess={handleAdminAccess} onNavigate={navigateTo} />
       </div>
     );
   }
@@ -1610,6 +1604,7 @@ function App() {
             <DocumentCenter onBack={() => navigateTo('chat')} sessionId={sessionId} standalone={isStandaloneMode} />
           </Suspense>
         </ErrorBoundary>
+        <Footer adminAuthed={adminAuthed} onAdminAccess={handleAdminAccess} onNavigate={navigateTo} />
       </div>
     );
   }
@@ -1624,6 +1619,7 @@ function App() {
             <SecureHub dealId={activeDealId} />
           </Suspense>
         </ErrorBoundary>
+        <Footer adminAuthed={adminAuthed} onAdminAccess={handleAdminAccess} onNavigate={navigateTo} />
       </div>
     );
   }
@@ -1649,6 +1645,18 @@ function App() {
             <AdStudio onBack={() => navigateTo('chat')} standalone={isStandaloneMode} />
           </Suspense>
         </ErrorBoundary>
+        <Footer adminAuthed={adminAuthed} onAdminAccess={handleAdminAccess} onNavigate={navigateTo} />
+      </div>
+    );
+  }
+
+  if (activePage === 'privacy' || activePage === 'terms') {
+    return (
+      <div className="bg-[var(--cp-bg)] min-h-screen flex flex-col">
+        {appModals}
+        <NavBar {...navProps} />
+        <LegalPage page={activePage} />
+        <Footer adminAuthed={adminAuthed} onAdminAccess={handleAdminAccess} onNavigate={navigateTo} />
       </div>
     );
   }
@@ -1666,6 +1674,7 @@ function App() {
             />
           </Suspense>
         </ErrorBoundary>
+        <Footer adminAuthed={adminAuthed} onAdminAccess={handleAdminAccess} onNavigate={navigateTo} />
       </div>
     );
   }
@@ -1684,6 +1693,7 @@ function App() {
             />
           </Suspense>
         </ErrorBoundary>
+        <Footer adminAuthed={adminAuthed} onAdminAccess={handleAdminAccess} onNavigate={navigateTo} />
       </div>
     );
   }
@@ -1800,6 +1810,7 @@ function App() {
             </div>
           </div>
         </main>
+        <Footer adminAuthed={adminAuthed} onAdminAccess={handleAdminAccess} onNavigate={navigateTo} />
       </div>
     );
   }

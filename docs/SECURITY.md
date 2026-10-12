@@ -6,8 +6,8 @@
 
 - **Mechanism**: stateless HMAC-SHA256 JWT ([main.py:217](../main.py)–254).
 - **Token**: 24 bytes = 8-byte big-endian uint64 expiry + 16-byte HMAC tag. Base64 → ~32-char string.
-- **Secret derivation**: `SHA256(f"sapphire-jwt-{ADMIN_PIN_HASH[:16]}")` — tied to the admin PIN hash.
-- **TTL**: default 2 hours, tunable via `ADMIN_TOKEN_TTL`.
+- **Secret derivation**: `HMAC-SHA256(ADMIN_SESSION_SECRET, "tho-pin-session-v2:" + ADMIN_PIN_HASH)` — needs the server-only session secret, and rotating either value revokes PIN sessions. `main.py` and `auth/routes.py` use this same key.
+- **TTL**: staff PIN and email sessions last 30 days and slide forward on later visits (`ADMIN_TOKEN_TTL`, default 2592000 seconds). Blocking an email ends that email session on the next check. A shared PIN session has no email on it.
 - **Header**: `X-Admin-Token`. `require_admin()` dependency on protected routes.
 - **Revocation**: none (stateless). To invalidate all tokens, rotate `ADMIN_PIN_HASH`.
 
@@ -66,7 +66,7 @@ unavailable.
 |-----|-----|-----|
 | `PII_ENCRYPTION_KEY` | Secret Manager (`secretKeyRef`) | ✓ correct |
 | `ADMIN_PIN_HASH` | Secret Manager (`admin-pin-hash`) | ✓ correct |
-| `RESEND_API_KEY` | Secret Manager target: `resend-api-key` | ⚠️ bind before relying on transactional email |
+| `RESEND_API_KEY` | Secret Manager target: `resend-api-key` | ⚠️ referenced by the candidate deploy workflow; create the secret and grant the runtime service account `roles/secretmanager.secretAccessor` on that secret before merging, or the next candidate deploy fails |
 | `N8N_API_TOKEN` | plaintext env | ⚠️ move to Secret Manager + rotate (exposed in prior tooling output) |
 | `THO_API_KEY` | plaintext env | ⚠️ move to Secret Manager + rotate (exposed in prior tooling output) |
 | `GOOGLE_APPLICATION_CREDENTIALS` | not used in Cloud Run (uses metadata server) | ✓ correct |
@@ -216,7 +216,7 @@ not logged so the signal isn't drowned out). Each entry carries:
 | `actor` | `_audit_actor(request)` | SHA256-prefixed admin-token id (`admin:<12hex>`) or `partner:<8hex>` key fingerprint — never the raw token/key |
 | `action` | call site | from `ALLOWED_ACTIONS`; unknown values warn (drift detector) |
 | `target_type` / `target_id` | call site | entity kind + id (deal/customer/inventory/lead/crm_task/document/email/session) |
-| `ip` | `X-Forwarded-For` first hop | Cloud Run aware |
+| `ip` | Configured `X-Forwarded-For` hop from the right | `TRUSTED_PROXY_HOPS` (compatibility default 1); validate ingress topology before promotion |
 | `user_agent` | request header | capped to 300 chars |
 | `details` | call site | IDs / field-name deltas / counts only — `_sanitize_details` strips any PII-shaped key |
 
@@ -244,3 +244,23 @@ actor/action/target/since).
 
 - Per-key partner dashboards over the `/api/v1/*` request logs to drive rotation decisions.
 - Mirror state-change audit entries into the `activities/` Firestore collection used by PM entities for a unified activity feed.
+
+
+### PR #383 proxy topology release gate
+
+The default of one hop is **not evidence of the production topology**. Do not
+promote this change until a zero-traffic candidate has been checked through each
+supported ingress path. A chain ending in the connecting client needs one hop;
+a chain ending in `client, load-balancer` needs two. Record the revision, ingress
+path, observed chain shape (redact addresses), and expected selected client.
+Verify two independent clients get separate limiter buckets, and that changing
+an untrusted supplied prefix does not change either client's bucket. Validate
+that direct-service access cannot bypass the trusted ingress assumptions. If
+paths have different suffix shapes, one global hop count is insufficient;
+resolve ingress trust before promotion. Do not infer topology from header length.
+Malformed selected hops and chains shorter than the configured count fall back
+to the socket peer without selecting an earlier untrusted token.
+
+Distributed failed logins emit `admin_pin_global_failures` for operator alerting.
+They do not globally deny authentication. Per-IP lockout, SlowAPI limits, and
+email-code expiry, attempt limits, and single-use checks remain enforced.

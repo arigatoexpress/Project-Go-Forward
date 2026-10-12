@@ -5,8 +5,11 @@ the suite locks in real-world detection behavior.
 """
 
 import importlib.util
+import json
 import os
 import sys
+
+import pytest
 
 # Import tools.photo_classifier directly without triggering tools/__init__.py,
 # which pulls in heavy optional deps (pypdf, google-adk) we don't need here.
@@ -23,6 +26,7 @@ _spec.loader.exec_module(photo_classifier)
 apply_classifier_to_home = photo_classifier.apply_classifier_to_home
 has_real_photo = photo_classifier.has_real_photo
 is_floorplan_url = photo_classifier.is_floorplan_url
+is_manufacturer_catalog_photo_url = photo_classifier.is_manufacturer_catalog_photo_url
 reorder_for_listing = photo_classifier.reorder_for_listing
 split_photos = photo_classifier.split_photos
 
@@ -57,6 +61,61 @@ INTERIOR_URL = "https://d132mt2yijm03y.cloudfront.net/dealer/3522/inventory/3064
 
 
 # ─── is_floorplan_url ───
+
+
+def test_content_flagged_ambiguous_url_is_normalized_and_removed_from_photos(monkeypatch):
+    url = "https://cdn.example.com/inventory/9/hero.jpg"
+    monkeypatch.setattr(photo_classifier, "_CONTENT_MANIFEST", frozenset([url]))
+    assert is_floorplan_url(f"  {url}  ")
+    result = reorder_for_listing([f"  {url}  ", EXTERIOR_URL])
+    assert result["image_url"] == EXTERIOR_URL
+    assert result["floorplan_url"].strip() == url
+
+
+@pytest.mark.parametrize(
+    "payload", [{"urls": []}, {"urls": [" https://cdn.example.com/hero.jpg "]}]
+)
+def test_valid_content_manifest_loads_and_normalizes_urls(monkeypatch, payload):
+    monkeypatch.setattr(photo_classifier, "_CONTENT_MANIFEST", None)
+    monkeypatch.setattr(photo_classifier, "_CONTENT_MANIFEST_AVAILABLE", False)
+    monkeypatch.setattr(photo_classifier.Path, "read_text", lambda self: json.dumps(payload))
+    assert photo_classifier.content_manifest_available()
+    assert photo_classifier._content_flagged_floorplans() == frozenset(
+        u.strip() for u in payload["urls"]
+    )
+
+
+@pytest.mark.parametrize(
+    "payload", ["bad-json", "[]", "{}", '{"urls": "not-a-list"}', '{"urls": [null]}']
+)
+def test_invalid_content_manifest_reports_degraded_detection(monkeypatch, payload):
+    monkeypatch.setattr(photo_classifier, "_CONTENT_MANIFEST", None)
+    monkeypatch.setattr(photo_classifier, "_CONTENT_MANIFEST_AVAILABLE", True)
+    monkeypatch.setattr(photo_classifier.Path, "read_text", lambda self: payload)
+    assert not photo_classifier.content_manifest_available()
+    assert not is_floorplan_url("https://cdn.example.com/hero.jpg")
+
+
+def test_shipped_manifest_flags_seeded_hero_drawings(monkeypatch):
+    """The committed manifest is a lookup table, not a network scan."""
+    monkeypatch.setattr(photo_classifier, "_CONTENT_MANIFEST", None)
+    monkeypatch.setattr(photo_classifier, "_CONTENT_MANIFEST_AVAILABLE", False)
+    hero = "https://storage.googleapis.com/tho-inventory-assets/inventory/28527/hero.jpg"
+    assert photo_classifier.content_manifest_available() is True
+    assert is_floorplan_url(hero) is True
+    assert is_floorplan_url(EXTERIOR_URL) is False
+
+
+def test_manufacturer_catalog_photo_urls_match_the_model_gallery_namespace():
+    dealer = "https://d132mt2yijm03y.cloudfront.net/dealer/3522/inventory/43945/1.jpg"
+    real = "https://storage.googleapis.com/tho-inventory-assets/inventory/43945/hero.jpg"
+    assert is_manufacturer_catalog_photo_url(MFR_NAMESPACE_PHOTO) is True
+    assert is_manufacturer_catalog_photo_url(MFR_ROOM_PHOTO) is True
+    assert is_manufacturer_catalog_photo_url(dealer) is False
+    assert is_manufacturer_catalog_photo_url(real) is False
+    assert is_manufacturer_catalog_photo_url(MFR_FLOORPLAN_DIAGRAM) is False
+    assert is_manufacturer_catalog_photo_url("") is False
+    assert is_manufacturer_catalog_photo_url(None) is False
 
 
 def test_is_floorplan_url_detects_floor_plans_filename_token():

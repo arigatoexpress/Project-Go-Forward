@@ -103,3 +103,41 @@ it('rejects fractions smaller than a cent instead of silently rounding the adver
   await screen.findByText('Public sale price can have at most two decimal places.');
   expect(adminFetch.mock.calls.some(([, options]) => options?.method === 'PUT')).toBe(false);
 });
+
+it('shows a duplicated home once with a staff-visible hint', async () => {
+  adminFetch.mockResolvedValue({ json: async () => ({
+    success: true,
+    inventory: [
+      { ...existingHome, id: 'fs-big-blue', model_name: 'Big Blue', possible_duplicate_ids: ['44490'] },
+      { ...existingHome, id: '44490', model_name: 'PRE-OWNED / Big Blue', duplicate_of: 'fs-big-blue' },
+    ],
+  }) });
+  render(<InventoryManager />);
+  expect(await screen.findByText('Big Blue')).toBeTruthy();
+  expect(screen.getAllByText('Big Blue')).toHaveLength(1);
+  expect(screen.getByTestId('possible-duplicate').textContent).toMatch(/44490/);
+  expect(screen.queryByText('PRE-OWNED / Big Blue')).toBeNull();
+});
+
+it('asks in plain language before removing a home from the website', async () => {
+  render(<InventoryManager />);
+  fireEvent.click(await screen.findByRole('button', { name: /Remove from website/i }));
+  expect(screen.getByRole('alertdialog').textContent).toMatch(
+    /Remove this home from the website\? You can bring it back later/,
+  );
+  expect(adminFetch.mock.calls.some(([, options]) => options?.method === 'DELETE')).toBe(false);
+
+  fireEvent.click(screen.getByRole('button', { name: /Yes, remove it/i }));
+  await screen.findByText(/is off the website/);
+  expect(adminFetch.mock.calls.some(([url, options]) => (
+    options?.method === 'DELETE' && url === '/api/inventory/existing-home'
+  ))).toBe(true);
+});
+
+it('does not remove the home when staff cancel the confirmation', async () => {
+  render(<InventoryManager />);
+  fireEvent.click(await screen.findByRole('button', { name: /Remove from website/i }));
+  fireEvent.click(screen.getByRole('button', { name: /No, keep it/i }));
+  expect(screen.queryByRole('alertdialog')).toBeNull();
+  expect(adminFetch.mock.calls.some(([, options]) => options?.method === 'DELETE')).toBe(false);
+});

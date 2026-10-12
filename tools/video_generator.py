@@ -148,26 +148,26 @@ def generate_ad_video(
 
 
 def resize_clip_to_fill(clip, target_width: int, target_height: int):
-    """Resize clip to fill target dimensions."""
-    clip_ratio = clip.w / clip.h
-    target_ratio = target_width / target_height
+    """Resize/crop with current Pillow, avoiding MoviePy 1.x's removed ANTIALIAS."""
+    import math
 
-    if clip_ratio > target_ratio:
-        new_height = target_height
-        new_width = int(new_height * clip_ratio)
-        clip = clip.resize(height=new_height)
-        x_center = clip.w / 2
-        x1 = int(x_center - target_width / 2)
-        clip = clip.crop(x1=x1, y1=0, width=target_width, height=target_height)
-    else:
-        new_width = target_width
-        new_height = int(new_width / clip_ratio)
-        clip = clip.resize(width=new_width)
-        y_center = clip.h / 2
-        y1 = int(y_center - target_height / 2)
-        clip = clip.crop(x1=0, y1=y1, width=target_width, height=target_height)
+    import numpy as np
+    from PIL import Image
 
-    return clip
+    scale = max(target_width / clip.w, target_height / clip.h)
+    size = (math.ceil(clip.w * scale), math.ceil(clip.h * scale))
+
+    def resize_frame(frame):
+        return np.array(Image.fromarray(frame).resize(size, Image.Resampling.LANCZOS))
+
+    # Apply the same transform to any alpha mask as well as the RGB image.
+    clip = clip.fl_image(resize_frame, apply_to=["mask"])
+    return clip.crop(
+        x1=(clip.w - target_width) // 2,
+        y1=(clip.h - target_height) // 2,
+        width=target_width,
+        height=target_height,
+    )
 
 
 def _aspect_ratio_for_platform(platform: str) -> str:

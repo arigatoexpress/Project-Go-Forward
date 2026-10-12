@@ -85,6 +85,11 @@ class Lead:
     journey_id: str | None = None
     home_id: str | None = None
     home_model: str | None = None
+    # Home the lead asked about, resolved server-side from public inventory
+    # (stock id, staff-readable label, and this site's listing URL).
+    home_stock: str | None = None
+    home_label: str | None = None
+    home_url: str | None = None
 
     # Marketing attribution (first-party UTM carried on a reached-out lead; NOT visitor tracking)
     utm_source: str | None = None

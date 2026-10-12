@@ -14,9 +14,12 @@ Setup:
 """
 
 import html as html_mod
+import json
 import logging
 import os
 import re
+import urllib.error
+import urllib.request
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -84,6 +87,78 @@ def _extract_address(from_value: str) -> str:
 def _current_api_key() -> str:
     """Read RESEND_API_KEY at call time so env-var patches in tests are respected."""
     return os.environ.get("RESEND_API_KEY", "")
+
+
+def email_delivery_configured() -> bool:
+    """True when a Resend key is present. Does not reveal the key or call Resend."""
+    return bool(_current_api_key())
+
+
+_RESEND_LIVENESS_URL = "https://api.resend.com/domains"
+_RESEND_LIVENESS_TIMEOUT_S = 5.0
+_EMAIL_LIVENESS_STATES = frozenset({"not_configured", "invalid_key", "unreachable", "ok"})
+
+
+def _resend_error_type(exc: urllib.error.HTTPError) -> str:
+    """Return only Resend's documented error type, never its message or IDs."""
+    try:
+        payload = json.loads(exc.read(8 * 1024).decode("utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return ""
+    if not isinstance(payload, dict):
+        return ""
+    value = payload.get("name") or payload.get("type")
+    return value if isinstance(value, str) else ""
+
+
+def _probe_resend_key(
+    api_key: str,
+    *,
+    timeout: float = _RESEND_LIVENESS_TIMEOUT_S,
+    opener=urllib.request.urlopen,
+) -> str:
+    """Validate a Resend key without sending mail or returning provider data.
+
+    Resend has no read-only endpoint granted to sending-only keys. Its documented
+    response to a valid sending-only key on a read endpoint is a 401 with the
+    ``restricted_api_key`` type, which still proves that the credential is live.
+    All provider/transport failures remain distinct from rejected credentials.
+    """
+    request = urllib.request.Request(
+        _RESEND_LIVENESS_URL,
+        headers={"Authorization": f"Bearer {api_key}"},
+        method="GET",
+    )
+    try:
+        with opener(request, timeout=timeout) as response:
+            return "ok" if 200 <= int(response.status) < 300 else "unreachable"
+    except urllib.error.HTTPError as exc:
+        error_type = _resend_error_type(exc)
+        if exc.code == 401 and error_type == "restricted_api_key":
+            return "ok"
+        if exc.code == 401 or (
+            exc.code == 403 and error_type in {"restricted_api_key", "suspended_api_key"}
+        ):
+            return "invalid_key"
+        return "unreachable"
+    except (TimeoutError, urllib.error.URLError, OSError):
+        return "unreachable"
+
+
+def check_email_liveness(api_key: str | None = None, verify=None) -> dict[str, object]:
+    """Return one of four non-secret transactional-email readiness states."""
+    key = _current_api_key() if api_key is None else api_key
+    if not key:
+        return {"ok": False, "state": "not_configured"}
+
+    verifier = verify or _probe_resend_key
+    try:
+        state = verifier(key)
+    except Exception:  # The health endpoint must never expose provider details.
+        state = "unreachable"
+    if state not in _EMAIL_LIVENESS_STATES or state == "not_configured":
+        state = "unreachable"
+    return {"ok": state == "ok", "state": state}
 
 
 # Retired staff mailboxes that may still linger in a deployed NOTIFICATION_EMAIL
@@ -362,33 +437,58 @@ def _base_wrapper(content: str) -> str:
     """
 
 
-def send_admin_login_code(to: str, code: str, *, ttl_minutes: int = 10) -> dict:
-    """Send a one-time admin sign-in code to an authorized staff/owner email.
+def send_admin_login_code(
+    to: str,
+    code: str,
+    *,
+    link: str = "",
+    ttl_minutes: int = 10,
+) -> dict:
+    """Send a one-time admin sign-in link and backup code.
 
-    The code is rendered prominently in a branded email. The CALLER is
-    responsible for the allowlist check + storing the hashed code; this helper
-    only delivers. The plaintext ``code`` is NEVER logged here (send_email logs
-    only the subject + recipient).
+    The caller checks the allowlist and stores only hashes. This helper only
+    delivers. The plaintext code and link are never logged here (``send_email``
+    logs the subject and recipient only).
     """
     safe_code = html_mod.escape(str(code))
+    safe_link = html_mod.escape(str(link), quote=True)
+    button = ""
+    if link:
+        button = f"""
+        <p style="margin: 28px 0;">
+          <a href="{safe_link}" style="display: block; background: #1e3a5f; color: #ffffff; text-decoration: none; font-size: 22px; font-weight: 700; padding: 18px 24px; border-radius: 12px; text-align: center;">Sign me in</a>
+        </p>
+        <p style="font-size: 16px;">On the next page, tap <strong>Sign me in</strong>.</p>
+        <p style="font-size: 16px;">If the button does not open, type this code instead:</p>
+        """
+    else:
+        button = '<p style="font-size: 16px;">Type this code on the staff sign-in page:</p>'
     content = f"""
-    <h2 style="color: #1e3a5f; margin-top: 0;">Admin sign-in code</h2>
-    <p>Use this one-time code to finish signing in to the Texas Home Outlet admin console:</p>
-
+    <h2 style="color: #1e3a5f; margin-top: 0; font-size: 28px;">Sign in to Texas Home Outlet</h2>
+    {button}
     <div style="text-align: center; margin: 28px 0;">
       <div style="display: inline-block; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 12px; padding: 18px 32px;">
-        <span style="font-family: 'SFMono-Regular', Menlo, Consolas, monospace; font-size: 34px; font-weight: 700; letter-spacing: 0.35em; color: #1e3a5f;">{safe_code}</span>
+        <span style="font-family: 'SFMono-Regular', Menlo, Consolas, monospace; font-size: 40px; font-weight: 700; letter-spacing: 0.35em; color: #1e3a5f;">{safe_code}</span>
       </div>
     </div>
-
-    <p style="color: #6b7280; font-size: 13px; text-align: center; margin-top: 0;">
-      Expires in {ttl_minutes} minutes &bull; single use &bull; ignore if you didn't request this.
+    <p style="color: #374151; font-size: 16px; text-align: center; margin-top: 0;">
+      Ignore this message if you did not ask to sign in.
     </p>
     """
+    link_line = f"Tap Sign me in:\n{link}\n\n" if link else ""
+    text = (
+        "Your Texas Home Outlet sign-in link\n\n"
+        f"{link_line}"
+        "Or type this code on the sign-in page:\n\n"
+        f"{code}\n\n"
+        f"It works for {int(ttl_minutes)} minutes.\n\n"
+        "Ignore this message if you did not ask to sign in.\n"
+    )
     return send_email(
         to=to,
-        subject="Your Texas Home Outlet admin sign-in code",
+        subject="Your Texas Home Outlet sign-in link",
         html=_base_wrapper(content),
+        text=text,
         email_type="admin_login_code",
     )
 
@@ -694,31 +794,103 @@ def send_document_email(
 # ── Admin Notifications ─────────────────────────────────────────
 
 
+def format_lead_home_interest(home: dict | None) -> str:
+    """One plain-language line telling staff which home a lead is about.
+
+    ``home`` is the dict built by main._lead_home_summary (label, stock, url).
+    No home -> "General inquiry".
+    """
+    if not home or not (home.get("label") or home.get("stock")):
+        return "General inquiry"
+    parts = [str(home.get("label") or "Home (model not given)")]
+    if home.get("stock"):
+        parts.append(str(home["stock"]))
+    if home.get("url"):
+        parts.append(str(home["url"]))
+    return "Interested in: " + " — ".join(parts)
+
+
+def _lead_home_interest_html(home: dict | None) -> str:
+    esc = html_mod.escape
+    box = (
+        "background: #fef3c7; border-left: 4px solid #f59e0b; padding: 14px 16px; "
+        "margin: 0 0 16px; border-radius: 0 8px 8px 0; color: #1f2937; font-size: 16px;"
+    )
+    if not home or not (home.get("label") or home.get("stock")):
+        return f'<div style="{box}"><strong>General inquiry</strong> (no specific home)</div>'
+    pieces = [f"<strong>Interested in:</strong> {esc(str(home.get('label') or 'Home (model not given)'))}"]
+    if home.get("stock"):
+        pieces.append(esc(str(home["stock"])))
+    if home.get("url"):
+        url = esc(str(home["url"]), quote=True)
+        pieces.append(f'<a href="{url}" style="color: #1d4ed8;">View listing</a>')
+    note = ""
+    if home.get("note"):
+        note = (
+            '<br><span style="color: #6b7280; font-size: 13px;">'
+            f"{esc(str(home['note']))}</span>"
+        )
+    return f'<div style="{box}">{" — ".join(pieces)}{note}</div>'
+
+
 def notify_new_lead(
-    customer_name: str, phone: str, email: str = None, source: str = "website"
+    customer_name: str,
+    phone: str,
+    email: str = None,
+    source: str = "website",
+    home: dict | None = None,
 ) -> dict:
-    """Notify all THO staff when a new lead comes in."""
+    """Notify all THO staff when a new lead comes in.
+
+    ``home`` (optional) is the home the customer asked about. It is shown at
+    the very top of the email so sales can prepare before calling; leads with
+    no home say "General inquiry".
+    """
     if not NOTIFICATION_EMAILS:
         return {"success": False, "error": "No notification email configured"}
 
     esc = html_mod.escape
+    interest_line = format_lead_home_interest(home)
+    received = datetime.now(TIMEZONE).strftime("%B %d, %Y at %I:%M %p")
     content = f"""
     <h2 style="color: #1e3a5f; margin-top: 0;">New Lead Alert</h2>
+    {_lead_home_interest_html(home)}
     <div style="background: #eff6ff; border-left: 4px solid #3b82f6; padding: 16px; margin: 16px 0; border-radius: 0 8px 8px 0;">
       <p style="margin: 4px 0; color: #374151;"><strong>Name:</strong> {esc(customer_name)}</p>
       <p style="margin: 4px 0; color: #374151;"><strong>Phone:</strong> {esc(phone)}</p>
       {f'<p style="margin: 4px 0; color: #374151;"><strong>Email:</strong> {esc(email)}</p>' if email else ''}
       <p style="margin: 4px 0; color: #374151;"><strong>Source:</strong> {esc(source)}</p>
-      <p style="margin: 4px 0; color: #6b7280; font-size: 13px;">{datetime.now(TIMEZONE).strftime("%B %d, %Y at %I:%M %p")}</p>
+      <p style="margin: 4px 0; color: #6b7280; font-size: 13px;">{received}</p>
     </div>
     <p style="color: #374151;">Log into the <strong>CRM dashboard</strong> to follow up.</p>
     """
 
+    text_lines = [
+        interest_line,
+        "",
+        f"Name: {customer_name}",
+        f"Phone: {phone}",
+    ]
+    if email:
+        text_lines.append(f"Email: {email}")
+    text_lines += [f"Source: {source}", f"Received: {received}", ""]
+    if home and home.get("note"):
+        text_lines.insert(1, str(home["note"]))
+    text_lines.append("Log into the CRM dashboard to follow up.")
+
+    subject_tag = (home or {}).get("stock") or (
+        "General inquiry" if not (home and home.get("label")) else ""
+    )
+    subject = f"New Lead: {customer_name} — {phone}"
+    if subject_tag:
+        subject += f" — {subject_tag}"
+
     return send_email(
         to=NOTIFICATION_EMAILS,
-        subject=f"New Lead: {customer_name} — {phone}",
+        subject=subject,
         html=_base_wrapper(content),
         email_type="admin_lead_notification",
+        text="\n".join(text_lines),
     )
 
 

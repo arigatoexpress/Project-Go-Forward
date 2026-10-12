@@ -1,5 +1,9 @@
 # Inventory Sync Action Plan
 
+> **STALE (Feb 2026).** Do not run `sync_inventory_from_website.py --force`.
+> Use [INTEGRATION_GCP_ACTIVATION.md](INTEGRATION_GCP_ACTIVATION.md) Part A and
+> [THO_INVENTORY_CATALOG_OPERATIONS.md](THO_INVENTORY_CATALOG_OPERATIONS.md).
+
 **Objective:** Complete inventory picture sync using manufacturer and free options only.
 
 ---

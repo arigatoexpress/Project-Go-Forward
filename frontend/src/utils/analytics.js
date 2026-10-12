@@ -26,6 +26,7 @@ export function isPublicAnalyticsPath(pathname) {
     || isInventoryCategoryPath(path)
     || path.startsWith('/inventory-detail/')
     || path.startsWith('/plan/')
+    || path.startsWith('/homes/')
     || path.startsWith('/manufactured-homes-in-');
 }
 

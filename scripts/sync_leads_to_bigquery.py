@@ -419,6 +419,32 @@ VIEWS = {
 }
 
 
+DATASET_DESCRIPTION = (
+    "THO lead analytics — PII-FREE projection of the Firestore leads collection "
+    "(no names/phones/emails). Rebuilt by scripts/sync_leads_to_bigquery.py."
+)
+
+
+def ensure_dataset(bq, dsref: str, location: str):
+    """Return the analytics dataset, creating it only when it does not exist yet.
+
+    Looks the dataset up first so the scheduled Cloud Run Job can run as a
+    least-privilege service account that holds BigQuery Data Editor on this one
+    dataset only (no project-wide ``bigquery.datasets.create``). A bare
+    ``create_dataset(exists_ok=True)`` would need that project-level permission
+    on every run even though the dataset already exists.
+    """
+    from google.api_core.exceptions import NotFound
+
+    try:
+        return bq.get_dataset(dsref)
+    except NotFound:
+        ds = bigquery.Dataset(dsref)
+        ds.location = location
+        ds.description = DATASET_DESCRIPTION
+        return bq.create_dataset(ds, exists_ok=True)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--project", default="tho-ai-agent")
@@ -478,10 +504,7 @@ def main() -> int:
     bq = bigquery.Client(project=args.project)
     dsref = f"{args.project}.{args.dataset}"
 
-    ds = bigquery.Dataset(dsref)
-    ds.location = args.location
-    ds.description = "THO lead analytics — PII-FREE projection of the Firestore leads collection (no names/phones/emails). Rebuilt by scripts/sync_leads_to_bigquery.py."
-    bq.create_dataset(ds, exists_ok=True)
+    ensure_dataset(bq, dsref, args.location)
 
     table_id = f"{dsref}.leads"
     job = bq.load_table_from_json(

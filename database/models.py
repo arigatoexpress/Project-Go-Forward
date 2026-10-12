@@ -516,6 +516,9 @@ class LeadRecord(BaseModel):
     )
     home_id: str | None = Field(default=None, max_length=200)
     home_model: str | None = Field(default=None, max_length=200)
+    home_stock: str | None = Field(default=None, max_length=100)
+    home_label: str | None = Field(default=None, max_length=200)
+    home_url: str | None = Field(default=None, max_length=300)
 
     utm_source: str | None = Field(default=None, max_length=200)
     utm_medium: str | None = Field(default=None, max_length=200)
@@ -728,6 +731,36 @@ class DealStatus(str, Enum):
     COMPLETE = "complete"
     DENIED = "denied"
     ARCHIVED = "archived"
+
+
+class ESignRequestStatus(str, Enum):
+    """Lifecycle of a staff-sent DocuSeal signing request."""
+
+    PENDING = "pending"
+    COMPLETED = "completed"
+    CANCELLED = "cancelled"
+
+
+class ESignRequest(BaseModel):
+    """One DocuSeal submission sent from the CRM (Firestore ``esign_requests``).
+
+    Kept out of ``deal_notes`` because the customer portal lists every
+    deal_note for a deal; an unsigned request must not appear there.
+    """
+
+    id: str
+    deal_id: str
+    submission_id: str
+    template_name: str
+    status: ESignRequestStatus = ESignRequestStatus.PENDING
+    review_token: str | None = None
+    sent_by: str | None = None
+    trigger: str = "staff_review"
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    cancelled_by: str | None = None
+
+    model_config = ConfigDict(use_enum_values=True)
 
 
 class InventoryWrite(BaseModel):
@@ -1371,3 +1404,20 @@ DEFAULT_PM_LABELS = [
     ("debt", "#6b7280"),
     ("research", "#ec4899"),
 ]
+
+
+_DEAL_FIELD_NAMES = frozenset(Deal.model_fields)
+
+
+def unknown_deal_fields(data: object) -> list[str]:
+    """Names (never values) of payload keys that are not Deal fields.
+
+    COD-158 observation step: Deal currently ignores unknown keys on create and the
+    update route writes them through unvalidated. Before switching to extra="forbid",
+    we log which key names staff payloads actually send so a drifted form field is
+    caught before it can break deal entry.
+    """
+    if not isinstance(data, dict):
+        return []
+    return sorted(str(k) for k in data if k not in _DEAL_FIELD_NAMES)
+
