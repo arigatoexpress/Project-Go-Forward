@@ -1118,6 +1118,9 @@ function App() {
     if (adminAuthed && activePage === 'staff-sign-in') {
       navigateTo('staff-home');
     }
+    // navigateTo is recreated per render; adding it here would re-run the
+    // redirect on every render. The semantic triggers are the two deps below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [adminAuthed, activePage]);
 
   const startAppointmentHandoff = (handoff) => {
