@@ -4,6 +4,11 @@ name: Dependency audit (non-blocking)
 # reports known-vulnerable Python and npm packages. Non-blocking for now (findings are
 # reported in the job summary, the job never fails the PR). Flip `continue-on-error`
 # to false once the baseline is clean. Read-only: no secrets, no deploy, no GCP.
+#
+# Baseline verified clean 2026-10-12 (all four commands below: 0 findings), with
+# requirements.txt carrying an explicit security-floor pin section. The flip to
+# blocking is an operator decision: a freshly published advisory would then fail
+# every PR until pinned around.
 
 on:
   pull_request:
@@ -37,6 +42,14 @@ jobs:
             echo '## pip-audit: requirements.txt'
             echo '```'
             pip-audit -r requirements.txt --progress-spinner off --desc off 2>&1 || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: pip-audit (requirements-dev.txt)
+        run: |
+          {
+            echo '## pip-audit: requirements-dev.txt'
+            echo '```'
+            pip-audit -r requirements-dev.txt --progress-spinner off --desc off 2>&1 || true
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
       - name: npm audit (frontend, e2e)
