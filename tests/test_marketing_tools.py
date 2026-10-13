@@ -3,6 +3,8 @@ import sys
 import types
 from io import BytesIO
 
+import pytest
+
 from tools import marketing_tools, social_publishers
 
 
@@ -408,3 +410,261 @@ def test_schedule_post_appends_utm_cta_only_when_enabled(monkeypatch):
     cap = on.get("caption", "")
     assert "New home just listed" in cap
     assert "utm_campaign=the-oak-2860" in cap
+
+
+# ---------------------------------------------------------------------------
+# Pure helpers (deterministic, no GenAI/GCP) — coverage for the request-path
+# module's non-network surface
+# ---------------------------------------------------------------------------
+
+
+class TestSplitEnvList:
+    def test_default_used_when_env_missing(self, monkeypatch):
+        monkeypatch.delenv("THO_TEST_SPLIT_LIST", raising=False)
+        assert marketing_tools._split_env_list("THO_TEST_SPLIT_LIST", "a, b ,,c") == [
+            "a",
+            "b",
+            "c",
+        ]
+
+    def test_env_overrides_default_and_strips_blanks(self, monkeypatch):
+        monkeypatch.setenv("THO_TEST_SPLIT_LIST", " x ,, y , ")
+        assert marketing_tools._split_env_list("THO_TEST_SPLIT_LIST", "d") == ["x", "y"]
+
+
+class TestUserSafeAiError:
+    """Raw provider errors must never leak internals to clients."""
+
+    @pytest.mark.parametrize(
+        "raw,code",
+        [
+            ("403 PERMISSION_DENIED: project tho-ai-agent billing dunning decision is deny", "ai_service_unavailable"),
+            ("429 RESOURCE_EXHAUSTED quota exceeded", "ai_rate_limited"),
+            ("401 unauthenticated: credentials missing", "ai_auth_error"),
+            ("503 connection timed out, service unavailable", "ai_network_error"),
+            ("some weird stack trace with project number 12345", "ai_unknown_error"),
+        ],
+    )
+    def test_error_classes_map_to_safe_codes(self, raw, code):
+        payload = marketing_tools._user_safe_ai_error(RuntimeError(raw))
+        assert payload["error_code"] == code
+        assert payload["error"].strip()
+
+    def test_generic_fallback_never_echoes_raw_message(self):
+        raw = "vertex internal: project=5555555 billing account closed"
+        payload = marketing_tools._user_safe_ai_error(RuntimeError(raw))
+        assert payload["error_code"] == "ai_service_unavailable"
+        assert raw not in payload["error"]
+        assert "5555555" not in payload["error"]
+
+    def test_case_insensitive_matching(self):
+        assert (
+            marketing_tools._user_safe_ai_error("RESOURCE_EXHAUSTED")["error_code"]
+            == "ai_rate_limited"
+        )
+
+
+class TestGcpHelpers:
+    def test_project_and_location_defaults(self, monkeypatch):
+        monkeypatch.delenv("GOOGLE_CLOUD_PROJECT", raising=False)
+        monkeypatch.delenv("GOOGLE_CLOUD_LOCATION", raising=False)
+        assert marketing_tools._gcp_project() == "tho-ai-agent"
+        assert marketing_tools._gcp_location() == "us-central1"
+
+    def test_project_and_location_env_overrides(self, monkeypatch):
+        monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "other-project")
+        monkeypatch.setenv("GOOGLE_CLOUD_LOCATION", "us-east4")
+        assert marketing_tools._gcp_project() == "other-project"
+        assert marketing_tools._gcp_location() == "us-east4"
+
+
+class TestCreativeCanvas:
+    def test_vertical_platforms(self):
+        for platform in ("tiktok", "instagram_reels", "facebook_story"):
+            assert marketing_tools._creative_canvas(platform) == (1080, 1920)
+
+    def test_square_and_default(self):
+        assert marketing_tools._creative_canvas("instagram_post") == (1080, 1080)
+        assert marketing_tools._creative_canvas("facebook_feed") == (1600, 900)
+        assert marketing_tools._creative_canvas("unknown_future_platform") == (1600, 900)
+
+
+class TestFlyerImageHelpers:
+    def _draw(self):
+        from PIL import Image, ImageDraw
+
+        image = Image.new("RGB", (400, 400), "white")
+        return ImageDraw.Draw(image)
+
+    def test_font_returns_usable_font(self):
+        font = marketing_tools._font(18)
+        assert font is not None
+        bold = marketing_tools._font(18, bold=True)
+        assert bold is not None
+
+    def test_wrap_text_empty_and_short(self):
+        draw = self._draw()
+        assert marketing_tools._wrap_text(draw, "", marketing_tools._font(14), 300) == []
+        assert marketing_tools._wrap_text(draw, "hi", marketing_tools._font(14), 300) == ["hi"]
+
+    def test_wrap_text_truncates_with_ellipsis_at_max_lines(self):
+        draw = self._draw()
+        long_text = "word " * 60
+        lines = marketing_tools._wrap_text(draw, long_text, marketing_tools._font(14), 120, max_lines=3)
+        assert len(lines) <= 3
+        assert lines[-1].endswith("...")
+        assert " ".join(lines)[:-3] != long_text.rstrip()
+
+    def test_wrap_text_single_oversized_word_still_placed(self):
+        draw = self._draw()
+        lines = marketing_tools._wrap_text(
+            draw, "supercalifragilisticexpialidocious", marketing_tools._font(14), 20
+        )
+        assert lines == ["supercalifragilisticexpialidocious"]
+
+    def test_cover_image_crops_to_exact_size(self):
+        from PIL import Image
+
+        source = Image.new("RGB", (100, 50), "red")
+        covered = marketing_tools._cover_image(source, 40, 40)
+        assert covered.size == (40, 40)
+
+    def test_cover_image_upscales_small_source(self):
+        from PIL import Image
+
+        source = Image.new("RGB", (10, 10), "blue")
+        covered = marketing_tools._cover_image(source, 60, 30)
+        assert covered.size == (60, 30)
+
+    def test_load_source_photo_from_base64(self):
+        from PIL import Image
+
+        tiny = Image.new("RGB", (4, 4), "green")
+        buffer = BytesIO()
+        tiny.save(buffer, format="PNG")
+        data_uri = "data:image/png;base64," + base64.b64encode(buffer.getvalue()).decode()
+        image, source = marketing_tools._load_source_photo(image_base64=data_uri)
+        assert source == "generated_image"
+        assert image.size == (4, 4)
+
+    def test_load_source_photo_from_url(self, monkeypatch):
+        from PIL import Image
+
+        tiny = Image.new("RGB", (4, 4), "yellow")
+        buffer = BytesIO()
+        tiny.save(buffer, format="PNG")
+
+        class _Resp:
+            content = buffer.getvalue()
+
+            def raise_for_status(self):
+                return None
+
+        monkeypatch.setattr("requests.get", lambda url, timeout: _Resp())
+        image, source = marketing_tools._load_source_photo(home_photo_url="https://img.example/x.png")
+        assert source == "real_photo"
+        assert image.size == (4, 4)
+
+    def test_load_source_photo_fallback_when_nothing_given(self):
+        image, source = marketing_tools._load_source_photo()
+        assert image is None
+        assert source == "branded_fallback"
+
+
+class TestScriptShapeHelpers:
+    def test_coerce_script_text_variants(self):
+        coerce = marketing_tools._coerce_script_text
+        assert coerce(None) == ""
+        assert coerce("text") == "text"
+        assert coerce(42) == "42"
+        assert coerce(["a", "b"]) == "a\nb"
+        assert coerce([{"line": "x"}, "y", 0]) == "x\ny"
+        assert coerce({"k": "v", "empty": ""}) == "v"
+
+    def test_normalize_script_shape_coerces_fields(self):
+        normalized = marketing_tools._normalize_script_shape(
+            {
+                "hook": ["punchy", {"alt": "line"}],
+                "body": None,
+                "suggested_image_prompts": "a single prompt",
+                "hashtags": "#homes #forsale not-a-tag #texas",
+                "tone": {"t": "casual"},
+            }
+        )
+        assert normalized["hook"] == "punchy\nline"
+        assert normalized["body"] == ""
+        assert normalized["suggested_image_prompts"] == ["a single prompt"]
+        assert normalized["hashtags"] == ["#homes", "#forsale", "#texas"]
+        assert normalized["tone"] == "casual"
+
+    def test_normalize_script_shape_rejects_non_list_shapes(self):
+        normalized = marketing_tools._normalize_script_shape(
+            {"suggested_image_prompts": 42, "hashtags": {"not": "a list"}}
+        )
+        assert normalized["suggested_image_prompts"] == []
+        assert normalized["hashtags"] == []
+
+    def test_normalize_script_shape_non_dict_input_returns_defaulted_shape(self):
+        expected = {
+            "hook": "",
+            "body": "",
+            "cta": "",
+            "duration_estimate": "",
+            "tone": "",
+            "suggested_image_prompts": [],
+            "hashtags": [],
+        }
+        assert marketing_tools._normalize_script_shape(None) == expected
+        assert marketing_tools._normalize_script_shape("garbage") == expected
+
+
+class TestScoreScriptQuality:
+    def _strong_script(self):
+        return {
+            "hook": "$89,900 gets you 3 bed, 2 bath",
+            "body": (
+                "[SHOT: exterior] (0:00-0:03) Pull up to the covered porch.\n"
+                "[SHOT: kitchen] (0:03-0:08) The island kitchen with pantry storage.\n"
+                "[SHOT: master] (0:08-0:12) Master bedroom and laundry room."
+            ),
+            "cta": "Call 281-555-0100 or visit us in Huffman to book your tour",
+        }
+
+    def test_strong_script_passes(self):
+        result = marketing_tools._score_script_quality(
+            self._strong_script(), home_name="The Delight", platform="tiktok"
+        )
+        assert result["passed"] is True
+        assert result["banned_words_found"] == []
+        assert result["average"] >= 7.0
+
+    def test_banned_word_fails_even_with_strong_shape(self):
+        script = self._strong_script()
+        script["hook"] = "Nestled journey awaits"
+        result = marketing_tools._score_script_quality(script, platform="tiktok")
+        assert result["passed"] is False
+        assert set(result["banned_words_found"]) == {"nestled", "journey"}
+
+    def test_generic_question_hook_flagged(self):
+        script = self._strong_script()
+        script["hook"] = "are you looking for a new home"
+        result = marketing_tools._score_script_quality(script, platform="tiktok")
+        assert any("generic question" in issue for issue in result["issues"])
+
+    def test_empty_script_scores_floor_and_fails(self):
+        result = marketing_tools._score_script_quality({}, platform="tiktok")
+        assert result["passed"] is False
+        assert result["average"] < 7.0
+        assert set(result["scores"]) == {
+            "hook_strength",
+            "specificity",
+            "authenticity",
+            "cta_strength",
+            "structure",
+        }
+
+    def test_facebook_short_body_flagged(self):
+        script = self._strong_script()
+        script["body"] = "[SHOT] tiny."
+        result = marketing_tools._score_script_quality(script, platform="facebook")
+        assert any("Too short for Facebook" in issue for issue in result["issues"])
