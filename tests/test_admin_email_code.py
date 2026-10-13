@@ -80,10 +80,10 @@ class TestCodeGeneration:
 
 
 class TestInMemoryStore:
-    def _store(self):
+    def _store(self, seed=()):
         from auth.email_code import InMemoryEmailLoginCodeStore
 
-        return InMemoryEmailLoginCodeStore()
+        return InMemoryEmailLoginCodeStore(seed=seed)
 
     def test_put_get_roundtrip(self):
         from auth.email_code import hash_code
@@ -144,6 +144,216 @@ class TestInMemoryStore:
         store.put("Staff@TexasHomeOutlet.com", hash_code("123456"), time.time() + 600)
         # Lookup with different casing / whitespace resolves the same record.
         assert store.get("  staff@texashomeoutlet.com ") is not None
+
+    def test_seed_constructor_populates_records(self):
+        from auth.email_code import EmailLoginCodeRecord, hash_code
+
+        rec = EmailLoginCodeRecord(code_hash=hash_code("777777"), expires_at=time.time() + 600)
+        store = self._store(seed=[("seeded@texashomeoutlet.com", rec)])
+        fetched = store.get("Seeded@TexasHomeOutlet.com")
+        assert fetched is not None
+        assert fetched.code_hash == hash_code("777777")
+
+    def test_increment_attempts_missing_record_returns_zero(self):
+        store = self._store()
+        assert store.increment_attempts("nobody@texashomeoutlet.com") == 0
+
+
+# ---------------------------------------------------------------------------
+# Firestore backend (production store for the email OTP login path)
+# ---------------------------------------------------------------------------
+
+
+class _FakeSnap:
+    def __init__(self, data=None):
+        self._data = data
+        self.exists = data is not None
+
+    def to_dict(self):
+        return self._data
+
+
+class _FakeDocRef:
+    def __init__(self, backing, doc_id):
+        self._backing = backing
+        self._doc_id = doc_id
+
+    def set(self, data, timeout=None):
+        assert timeout is not None, "Firestore RPCs must carry the bounded timeout"
+        self._backing[self._doc_id] = dict(data)
+
+    def get(self, timeout=None):
+        assert timeout is not None, "Firestore RPCs must carry the bounded timeout"
+        return _FakeSnap(self._backing.get(self._doc_id))
+
+    def update(self, fields, timeout=None):
+        assert timeout is not None, "Firestore RPCs must carry the bounded timeout"
+        self._backing.setdefault(self._doc_id, {}).update(fields)
+
+    def delete(self, timeout=None):
+        self._backing.pop(self._doc_id, None)
+
+
+class _FakeCollection:
+    def __init__(self, backing):
+        self._backing = backing
+
+    def document(self, doc_id):
+        return _FakeDocRef(self._backing, doc_id)
+
+
+class _FakeFirestoreClient:
+    """Minimal google.cloud.firestore stand-in backed by a plain dict."""
+
+    def __init__(self):
+        self._backing = {}
+
+    def collection(self, name):
+        assert name == "tho_admin_login_codes"
+        return _FakeCollection(self._backing)
+
+
+def _firestore_store():
+    from auth.email_code import FirestoreEmailLoginCodeStore
+
+    return FirestoreEmailLoginCodeStore(client=_FakeFirestoreClient())
+
+
+def _firestore_store_on(client):
+    from auth.email_code import FirestoreEmailLoginCodeStore
+
+    return FirestoreEmailLoginCodeStore(client=client)
+
+
+def _doc_id_for(email):
+    import hashlib
+
+    return hashlib.sha256(email.strip().lower().encode("utf-8")).hexdigest()
+
+
+class TestFirestoreEmailLoginCodeStore:
+    def test_put_get_roundtrip(self):
+        from auth.email_code import hash_code
+
+        store = _firestore_store()
+        store.put("Staff@TexasHomeOutlet.com", hash_code("123456"), time.time() + 600, link_hash="lh")
+        rec = store.get("staff@texashomeoutlet.com")
+        assert rec is not None
+        assert rec.code_hash == hash_code("123456")
+        assert rec.link_hash == "lh"
+        assert rec.attempts == 0
+
+    def test_document_id_is_sha256_of_normalized_email(self):
+        from auth.email_code import hash_code
+
+        client = _FakeFirestoreClient()
+        store = _firestore_store_on(client)
+        store.put("Staff@TexasHomeOutlet.com", hash_code("123456"), time.time() + 600)
+        assert list(client._backing.keys()) == [_doc_id_for("staff@texashomeoutlet.com")]
+
+    def test_get_missing_returns_none(self):
+        store = _firestore_store()
+        assert store.get("missing@texashomeoutlet.com") is None
+
+    def test_get_expired_evicts_and_returns_none(self):
+        from auth.email_code import hash_code
+
+        client = _FakeFirestoreClient()
+        store = _firestore_store_on(client)
+        doc_id = _doc_id_for("old@texashomeoutlet.com")
+        client._backing[doc_id] = {
+            "code_hash": hash_code("000000"),
+            "link_hash": "",
+            "expires_at": time.time() - 1,
+            "attempts": 0,
+            "created_at": time.time() - 700,
+        }
+        assert store.get("old@texashomeoutlet.com") is None
+        assert doc_id not in client._backing, "expired record must be evicted"
+
+    def test_increment_attempts_and_missing_returns_zero(self):
+        from auth.email_code import hash_code
+
+        store = _firestore_store()
+        assert store.increment_attempts("missing@texashomeoutlet.com") == 0
+        store.put("lead@texashomeoutlet.com", hash_code("654321"), time.time() + 600)
+        assert store.increment_attempts("lead@texashomeoutlet.com") == 1
+        assert store.increment_attempts("lead@texashomeoutlet.com") == 2
+        rec = store.get("lead@texashomeoutlet.com")
+        assert rec is not None and rec.attempts == 2
+
+    def test_delete_removes_record(self):
+        from auth.email_code import hash_code
+
+        store = _firestore_store()
+        store.put("gone@texashomeoutlet.com", hash_code("111111"), time.time() + 600)
+        store.delete("gone@texashomeoutlet.com")
+        assert store.get("gone@texashomeoutlet.com") is None
+
+
+# ---------------------------------------------------------------------------
+# default_code_store selection + production-safety gating
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def clear_code_store_cache():
+    import auth.email_code
+
+    auth.email_code.default_code_store.cache_clear()
+    yield
+    auth.email_code.default_code_store.cache_clear()
+
+
+class TestDefaultCodeStore:
+    def test_explicit_memory_backend_in_production_raises(self, monkeypatch, clear_code_store_cache):
+        import auth.email_code
+
+        monkeypatch.setenv("K_SERVICE", "project-go-forward")
+        monkeypatch.delenv("THO_EMAIL_CODE_ALLOW_MEMORY_STORE", raising=False)
+        monkeypatch.setenv("THO_EMAIL_CODE_STORE", "memory")
+        with pytest.raises(auth.email_code.EmailLoginCodeStoreUnavailable):
+            auth.email_code.default_code_store()
+
+    def test_memory_fallback_blocked_in_production(self, monkeypatch, clear_code_store_cache):
+        """Firestore failure on Cloud Run must NOT silently fall back to memory."""
+        import auth.email_code
+
+        monkeypatch.setenv("K_SERVICE", "project-go-forward")
+        monkeypatch.delenv("THO_EMAIL_CODE_ALLOW_MEMORY_STORE", raising=False)
+        monkeypatch.setenv("THO_EMAIL_CODE_STORE", "firestore")
+
+        def _boom(project=None):
+            raise RuntimeError("no credentials")
+
+        monkeypatch.setattr(auth.email_code, "FirestoreEmailLoginCodeStore", _boom)
+        with pytest.raises(auth.email_code.EmailLoginCodeStoreUnavailable):
+            auth.email_code.default_code_store()
+
+    def test_memory_fallback_allowed_outside_production(self, monkeypatch, clear_code_store_cache):
+        import auth.email_code
+
+        monkeypatch.delenv("K_SERVICE", raising=False)
+        monkeypatch.setenv("THO_EMAIL_CODE_STORE", "firestore")
+
+        def _boom(project=None):
+            raise RuntimeError("no credentials")
+
+        monkeypatch.setattr(auth.email_code, "FirestoreEmailLoginCodeStore", _boom)
+        store = auth.email_code.default_code_store()
+        assert isinstance(store, auth.email_code.InMemoryEmailLoginCodeStore)
+
+    def test_firestore_backend_selected_by_default(self, monkeypatch, clear_code_store_cache):
+        import auth.email_code
+
+        sentinel = object()
+
+        monkeypatch.delenv("K_SERVICE", raising=False)
+        monkeypatch.delenv("THO_EMAIL_CODE_STORE", raising=False)
+        monkeypatch.setattr(
+            auth.email_code, "FirestoreEmailLoginCodeStore", lambda project=None: sentinel
+        )
+        assert auth.email_code.default_code_store() is sentinel
 
 
 # ---------------------------------------------------------------------------
