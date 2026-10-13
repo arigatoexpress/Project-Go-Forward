@@ -99,8 +99,25 @@ class AppointmentManager:
     """Manages appointment storage and retrieval via Firestore"""
 
     def __init__(self, project_id: str = None):
-        self.db = firestore.Client(project=project_id)
+        # Lazy client: constructing must not require GCP credentials so the app
+        # can boot (and answer /healthz) in environments without ADC. The
+        # Firestore client is created on first request-path use and fails
+        # closed there if credentials are missing.
+        self._project_id = project_id
+        self._db = None
         self.collection_name = "appointments"
+
+    @property
+    def db(self) -> firestore.Client:
+        """Lazy-load Firestore client"""
+        if self._db is None:
+            self._db = firestore.Client(project=self._project_id)
+        return self._db
+
+    @db.setter
+    def db(self, value) -> None:
+        """Allow direct injection of a (fake or real) client."""
+        self._db = value
 
     def _collection(self):
         return self.db.collection(self.collection_name)
