@@ -7,11 +7,20 @@ path additionally skips-and-logs any doc that still fails to construct.
 """
 
 import asyncio
+import json
 import logging
+from datetime import datetime, timedelta
 
 import pytest
 
-from lead_management import Lead, LeadManager, apply_lead_status_transition
+from lead_management import (
+    Lead,
+    LeadManager,
+    apply_lead_status_transition,
+    capture_contact_info,
+    mark_appointment_intent,
+    normalize_phone,
+)
 
 
 def test_from_dict_tolerates_unknown_keys():
@@ -378,3 +387,314 @@ def test_lead_roundtrips_explicit_contact_consent():
 
     assert restored.contact_consent_at == "2026-07-22T01:00:00+00:00"
     assert restored.contact_consent_source == "chat_callback"
+
+
+# ---------------------------------------------------------------------------
+# LeadManager data-access paths against a fake Firestore client
+# ---------------------------------------------------------------------------
+
+
+class _LMSnap:
+    def __init__(self, doc_id, data):
+        self.id = doc_id
+        self._data = data
+        self.exists = data is not None
+
+    def to_dict(self):
+        return dict(self._data) if self._data is not None else None
+
+
+class _LMDocRef:
+    def __init__(self, collection, doc_id):
+        self._collection = collection
+        self.id = doc_id
+
+    def get(self, timeout=None):
+        assert timeout is not None, "Firestore RPCs must carry the bounded timeout"
+        return _LMSnap(self.id, self._collection._docs.get(self.id))
+
+    def set(self, data, merge=False, timeout=None):
+        assert timeout is not None, "Firestore RPCs must carry the bounded timeout"
+        if merge:
+            self._collection._docs.setdefault(self.id, {}).update(data)
+        else:
+            self._collection._docs[self.id] = dict(data)
+        self._collection.ops.append(("set", self.id, merge))
+
+
+class _LMQuery:
+    """Query result carrying (doc_id, data) pairs; supports the where /
+    order_by / limit / stream chain the module uses."""
+
+    def __init__(self, pairs):
+        self._pairs = list(pairs)
+
+    def where(self, field, op, value):
+        assert op == "=="
+        return _LMQuery([(k, v) for k, v in self._pairs if v.get(field) == value])
+
+    def order_by(self, *a, **k):
+        return self
+
+    def limit(self, n):
+        return self
+
+    def stream(self, timeout=None):
+        assert timeout is not None, "Firestore RPCs must carry the bounded timeout"
+        for doc_id, data in list(self._pairs):
+            yield _LMSnap(doc_id, dict(data))
+
+
+class _LMCollection:
+    def __init__(self, docs):
+        self._docs = dict(docs)
+        self.ops = []
+
+    def document(self, doc_id):
+        return _LMDocRef(self, doc_id)
+
+    def where(self, field, op, value):
+        return _LMQuery(list(self._docs.items())).where(field, op, value)
+
+    def order_by(self, *a, **k):
+        return _LMQuery(list(self._docs.items()))
+
+    def limit(self, n):
+        return _LMQuery(list(self._docs.items()))
+
+    def stream(self, timeout=None):
+        return _LMQuery(list(self._docs.items())).stream(timeout=timeout)
+
+
+class _LMClient:
+    def __init__(self, docs=None):
+        self._coll = _LMCollection(docs or {})
+
+    def collection(self, name):
+        assert name == "leads"
+        return self._coll
+
+
+
+def _manager(docs=None) -> LeadManager:
+    lm = LeadManager("test-project")  # lazy db: no ADC needed at construction
+    lm.db = _LMClient(docs)
+    return lm
+
+
+def _lead_dict(lead_id="L1", **overrides):
+    data = {"lead_id": lead_id, "user_id": "U1", "session_id": "S1", "status": "new"}
+    data.update(overrides)
+    return data
+
+
+class TestNormalizePhone:
+    def test_ten_digits_gets_us_country_code(self):
+        assert normalize_phone("(281) 324-3020") == "+12813243020"
+        assert normalize_phone("281-324-3020") == "+12813243020"
+
+    def test_eleven_digits_with_leading_one(self):
+        assert normalize_phone("1-281-324-3020") == "+12813243020"
+
+    def test_unconfident_input_passes_through(self):
+        assert normalize_phone("12345") == "12345"
+        assert normalize_phone("") == ""
+        assert normalize_phone(None) is None
+
+
+class TestLeadModelBasics:
+    def test_post_init_stamps_defaults(self):
+        lead = Lead(lead_id="L1", user_id="U1", session_id="S1")
+        assert lead.homes_viewed == []
+        assert lead.created_at
+        assert lead.updated_at
+
+    def test_to_csv_row_formats_values(self):
+        lead = Lead(
+            lead_id="L1",
+            user_id="U1",
+            session_id="S1",
+            name="Jane",
+            budget_max=89900.0,
+            homes_viewed=["h1", "h2", "h3", "h4"],
+            appointment_requested=True,
+            gbraid="GBRAID_x",
+        )
+        row = lead.to_csv_row()
+        assert row["Lead ID"] == "L1"
+        assert row["Name"] == "Jane"
+        assert row["Max Budget"] == "$89,900"
+        assert row["Homes Viewed"] == "h1, h2, h3"  # capped at 3
+        assert row["Appointment Requested"] == "Yes"
+        assert row["Google Click ID"] == "GBRAID_x"  # gclid empty -> gbraid
+
+
+class TestLazyDbProperty:
+    def test_client_created_once_on_first_use(self, monkeypatch):
+        import lead_management
+
+        calls = []
+        monkeypatch.setattr(
+            lead_management.firestore, "Client", lambda project=None: calls.append(project) or _LMClient()
+        )
+        lm = LeadManager("my-project")
+        assert lm._db is None  # nothing constructed yet
+
+        lm.db.collection("leads")
+        lm.db.collection("leads")
+        assert calls == ["my-project"]  # lazy + cached
+
+
+class TestCreateUpdateGet:
+    def test_create_lead_normalizes_phone_and_writes(self):
+        lm = _manager()
+        lead = Lead(lead_id="L1", user_id="U1", session_id="S1", phone="(281) 324-3020")
+
+        result = asyncio.run(lm.create_lead(lead))
+
+        assert result.phone == "+12813243020"
+        stored = lm.db._coll._docs["L1"]
+        assert stored["phone"] == "+12813243020"
+        assert ("set", "L1", False) in lm.db._coll.ops
+
+    def test_update_lead_merges_and_stamps_updated_at(self):
+        lm = _manager({"L1": _lead_dict(name="Jane", updated_at="2020-01-01T00:00:00")})
+        lead = Lead.from_dict(lm.db._coll._docs["L1"])
+        lead.name = "Janet"
+
+        asyncio.run(lm.update_lead(lead))
+
+        stored = lm.db._coll._docs["L1"]
+        assert stored["name"] == "Janet"
+        assert stored["updated_at"] > "2020-01-01T00:00:00"
+        assert ("set", "L1", True) in lm.db._coll.ops
+
+    def test_get_lead_hit_and_miss(self):
+        lm = _manager({"L1": _lead_dict(name="Jane")})
+        hit = asyncio.run(lm.get_lead("L1"))
+        assert hit.name == "Jane"
+        assert asyncio.run(lm.get_lead("nope")) is None
+
+
+class TestLeadLookupQueries:
+    def test_get_by_session(self):
+        lm = _manager({"L1": _lead_dict(session_id="sess-9")})
+        hit = asyncio.run(lm.get_lead_by_session("sess-9"))
+        assert hit.lead_id == "L1"
+        assert asyncio.run(lm.get_lead_by_session("other")) is None
+
+    def test_get_by_phone_short_circuits_without_phone(self):
+        lm = _manager({"L1": _lead_dict()})
+        assert asyncio.run(lm.get_lead_by_phone(None)) is None
+        assert asyncio.run(lm.get_lead_by_phone("")) is None
+        # No query should have been issued for the short-circuit cases.
+        assert lm.db._coll.ops == []
+
+    def test_get_by_phone_hit(self):
+        lm = _manager({"L1": _lead_dict(phone="+12813243020")})
+        hit = asyncio.run(lm.get_lead_by_phone("+12813243020"))
+        assert hit.lead_id == "L1"
+
+
+class TestTriageListing:
+    def test_without_min_age_returns_all_matching_status(self):
+        lm = _manager(
+            {
+                "L1": _lead_dict(created_at="2026-01-01T00:00:00"),
+                "L2": _lead_dict(created_at="2026-01-02T00:00:00"),
+            }
+        )
+        leads = asyncio.run(lm.list_leads_needing_triage())
+        assert len(leads) == 2
+
+    def test_min_age_excludes_recent_and_malformed(self):
+        old = (datetime.utcnow() - timedelta(hours=48)).isoformat()
+        recent = datetime.utcnow().isoformat()
+        lm = _manager(
+            {
+                "L1": _lead_dict(created_at=old),
+                "L2": _lead_dict(created_at=recent),
+                "L3": _lead_dict(created_at="not-a-date"),
+                "L4": _lead_dict(created_at=None),
+            }
+        )
+        leads = asyncio.run(lm.list_leads_needing_triage(min_age_hours=24))
+        assert [lead.lead_id for lead in leads] == ["L1"]
+
+
+class TestTriageLead:
+    def test_missing_lead_returns_none(self):
+        lm = _manager()
+        assert asyncio.run(lm.triage_lead("nope", {"priority": "high"})) is None
+
+    def test_full_triage_update_persists(self):
+        lm = _manager({"L1": _lead_dict(status="new")})
+        updated = asyncio.run(
+            lm.triage_lead(
+                "L1",
+                {
+                    "status": "qualified",
+                    "priority": "high",
+                    "assigned_to": "rep-1",
+                    "triage_notes": "Hot lead",
+                    "triage_reason": "hot_lead",
+                    "hacker_field": "ignored",
+                },
+                actor="system:mira",
+            )
+        )
+        assert updated.status == "qualified"
+        assert updated.priority == "high"
+        assert updated.assigned_to == "rep-1"
+        assert updated.triage_notes == "Hot lead"
+        assert updated.triage_reason == "hot_lead"
+        assert not hasattr(updated, "hacker_field")
+        assert updated.last_triage_at is not None
+        assert updated.status_changed_by == "system:mira"
+        assert updated.first_contacted_at == updated.status_changed_at
+        # Persisted through update_lead (merge).
+        stored = lm.db._coll._docs["L1"]
+        assert stored["priority"] == "high"
+        assert ("set", "L1", True) in lm.db._coll.ops
+
+    def test_invalid_status_rejected_before_any_write(self):
+        lm = _manager({"L1": _lead_dict(status="new", priority="low")})
+        with pytest.raises(ValueError, match="Invalid lead status"):
+            asyncio.run(lm.triage_lead("L1", {"status": "bogus", "priority": "high"}))
+        stored = lm.db._coll._docs["L1"]
+        assert stored["status"] == "new"
+        assert stored["priority"] == "low"
+        assert lm.db._coll.ops == []
+
+
+class TestExportCsv:
+    def test_empty_leads_returns_none(self):
+        assert _manager().export_to_csv([]) is None
+
+    def test_writes_rows(self, tmp_path):
+        leads = [
+            Lead(lead_id="L1", user_id="U", session_id="S", name="Jane"),
+            Lead(lead_id="L2", user_id="U", session_id="S", name="John"),
+        ]
+        out = tmp_path / "export.csv"
+        result = _manager().export_to_csv(leads, str(out))
+
+        assert result == str(out)
+        lines = out.read_text().strip().splitlines()
+        assert lines[0].startswith("Lead ID,Name,Email")
+        assert lines[1].startswith("L1,Jane")
+        assert lines[2].startswith("L2,John")
+
+
+class TestAgentTools:
+    def test_capture_contact_info(self):
+        payload = json.loads(capture_contact_info("Jane", email="j@x.com", phone="281"))
+        assert payload == {
+            "action": "capture_contact",
+            "name": "Jane",
+            "email": "j@x.com",
+            "phone": "281",
+        }
+
+    def test_mark_appointment_intent(self):
+        assert json.loads(mark_appointment_intent()) == {"action": "mark_appointment_intent"}
