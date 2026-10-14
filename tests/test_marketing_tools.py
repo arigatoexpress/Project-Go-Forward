@@ -1,7 +1,9 @@
 import base64
+import json
 import sys
 import types
 from io import BytesIO
+from types import SimpleNamespace
 
 import pytest
 
@@ -668,3 +670,338 @@ class TestScoreScriptQuality:
         script["body"] = "[SHOT] tiny."
         result = marketing_tools._score_script_quality(script, platform="facebook")
         assert any("Too short for Facebook" in issue for issue in result["issues"])
+
+
+# ---------------------------------------------------------------------------
+# GenAI generation paths — client mocked, real google.genai types module
+# ---------------------------------------------------------------------------
+
+
+class _FakeGenAIClient:
+    """Stand-in for google.genai.Client: records calls, replays scripted
+    responses (or raises scripted exceptions) for generate_content /
+    generate_images."""
+
+    def __init__(self):
+        self.models = self
+        self.content_responses = []
+        self.image_responses = []
+        self.calls = []
+
+    def generate_content(self, **kwargs):
+        self.calls.append(("content", kwargs))
+        response = self.content_responses.pop(0)
+        if isinstance(response, Exception):
+            raise response
+        if not isinstance(response, str):
+            response = json.dumps(response)
+        return SimpleNamespace(text=response)
+
+    def generate_images(self, **kwargs):
+        self.calls.append(("images", kwargs))
+        response = self.image_responses.pop(0)
+        if isinstance(response, Exception):
+            raise response
+        return response
+
+
+def _strong_script_payload():
+    return {
+        "hook": "$89,900 gets you 3 bed, 2 bath",
+        "body": (
+            "[SHOT: exterior] (0:00-0:03) Pull up to the covered porch.\n"
+            "[SHOT: kitchen] (0:03-0:08) The island kitchen with pantry storage.\n"
+            "[SHOT: master] (0:08-0:12) Master bedroom and laundry room."
+        ),
+        "cta": "Call 281-555-0100 or visit us in Huffman to book your tour",
+        "hashtags": ["#manufacturedhomes", "#texashomeoutlet"],
+        "duration_estimate": "30-45 seconds",
+        "suggested_image_prompts": ["Exterior twilight shot of the home"],
+        "tone": "exciting",
+    }
+
+
+def _fake_tts_module():
+    tts = types.ModuleType("google.cloud.texttospeech")
+
+    class _TTSClient:
+        def synthesize_speech(self, input, voice, audio_config):
+            return SimpleNamespace(audio_content=b"MP3AUDIOBYTES")
+
+    tts.TextToSpeechClient = _TTSClient
+    tts.VoiceSelectionParams = lambda **kw: SimpleNamespace(**kw)
+    tts.AudioConfig = lambda **kw: SimpleNamespace(**kw)
+    tts.AudioEncoding = SimpleNamespace(MP3="MP3")
+    tts.SynthesisInput = lambda **kw: SimpleNamespace(**kw)
+    return tts
+
+
+def _patch_tts(monkeypatch, fake):
+    """Route `from google.cloud import texttospeech` to the fake. Patching
+    only sys.modules is not enough once the real submodule has been imported
+    anywhere in the session — the parent package attribute wins."""
+    import google.cloud
+
+    monkeypatch.setitem(sys.modules, "google.cloud.texttospeech", fake)
+    monkeypatch.setattr(google.cloud, "texttospeech", fake, raising=False)
+
+
+class TestGenerateAdImage:
+    def test_success_writes_file_and_returns_base64(self, monkeypatch, tmp_path):
+        client = _FakeGenAIClient()
+        client.image_responses.append(
+            SimpleNamespace(
+                generated_images=[SimpleNamespace(image=SimpleNamespace(image_bytes=b"PNGDATA"))]
+            )
+        )
+        monkeypatch.setattr(marketing_tools, "_genai_client", lambda: client)
+        monkeypatch.setattr(marketing_tools, "GENERATED_ADS_DIR", str(tmp_path))
+
+        result = marketing_tools.generate_ad_image(
+            prompt="Cozy living room", home_name="The Delight", platform="tiktok"
+        )
+
+        assert result["success"] is True
+        assert result["image_base64"] == base64.b64encode(b"PNGDATA").decode("utf-8")
+        assert result["model_used"] == "imagen-4.0-generate-001"
+        assert result["aspect_ratio"] == "9:16"  # platform default
+        assert result["home_featured"] == "The Delight"
+        assert (tmp_path / result["filename"]).read_bytes() == b"PNGDATA"
+
+    def test_falls_back_to_next_model_on_failure(self, monkeypatch, tmp_path):
+        client = _FakeGenAIClient()
+        client.image_responses.append(RuntimeError("quota exceeded"))
+        client.image_responses.append(
+            SimpleNamespace(
+                generated_images=[SimpleNamespace(image=SimpleNamespace(image_bytes=b"IMG"))]
+            )
+        )
+        monkeypatch.setattr(marketing_tools, "_genai_client", lambda: client)
+        monkeypatch.setattr(marketing_tools, "GENERATED_ADS_DIR", str(tmp_path))
+
+        result = marketing_tools.generate_ad_image(prompt="Kitchen island")
+
+        assert result["success"] is True
+        assert result["model_used"] == "imagen-3.0-generate-002"
+        assert len(client.calls) == 2
+
+    def test_all_models_fail_returns_user_safe_error(self, monkeypatch):
+        client = _FakeGenAIClient()
+        client.image_responses = [RuntimeError("boom1"), RuntimeError("boom2"), RuntimeError("boom3")]
+        monkeypatch.setattr(marketing_tools, "_genai_client", lambda: client)
+
+        result = marketing_tools.generate_ad_image(prompt="Backyard deck")
+
+        assert result["success"] is False
+        assert "error" in result
+        assert "hint" in result
+
+    def test_empty_generation_result_flagged_as_filtered(self, monkeypatch):
+        client = _FakeGenAIClient()
+        client.image_responses.append(SimpleNamespace(generated_images=[]))
+        monkeypatch.setattr(marketing_tools, "_genai_client", lambda: client)
+
+        result = marketing_tools.generate_ad_image(prompt="Front porch")
+
+        assert result["success"] is False
+        assert result["filtered"] is True
+
+
+class TestGenerateContentScript:
+    def test_single_script_success(self, monkeypatch):
+        client = _FakeGenAIClient()
+        client.content_responses.append(_strong_script_payload())
+        monkeypatch.setattr(marketing_tools, "_genai_client", lambda: client)
+
+        result = marketing_tools.generate_content_script(
+            home_name="The Delight", home_price="$89,900", platform="tiktok"
+        )
+
+        assert result["success"] is True
+        assert result["status"] == "ready_for_production"
+        assert result["variations"] == 1
+        assert result["script"]["hook"].startswith("$89,900")
+        assert result["script"]["quality_score"] >= 7.0
+        assert result["hashtags"] == ["#manufacturedhomes", "#texashomeoutlet"]
+        assert result["model_used"] == "gemini-2.5-flash"
+
+    def test_variations_return_multiple_scripts(self, monkeypatch):
+        client = _FakeGenAIClient()
+        payload = _strong_script_payload()
+        client.content_responses.append([payload, {**payload, "hook": "$1,100/month rent? Own instead"}])
+        monkeypatch.setattr(marketing_tools, "_genai_client", lambda: client)
+
+        result = marketing_tools.generate_content_script(
+            home_name="The Delight", variations=2, platform="tiktok"
+        )
+
+        assert result["success"] is True
+        assert result["variations"] == 2
+        assert len(result["scripts"]) == 2
+        assert result["scripts"][1]["hook"] == "$1,100/month rent? Own instead"
+        assert len(result["quality_scores"]) == 2
+
+    def test_low_quality_script_triggers_refinement(self, monkeypatch):
+        client = _FakeGenAIClient()
+        weak = {"hook": "Are you looking for a new home?", "body": "It is nice.", "cta": "Call us."}
+        refined = _strong_script_payload()
+        client.content_responses.append(weak)
+        client.content_responses.append(refined)  # consumed by the refinement pass
+        monkeypatch.setattr(marketing_tools, "_genai_client", lambda: client)
+
+        result = marketing_tools.generate_content_script(home_name="The Delight")
+
+        assert result["success"] is True
+        assert result["script"]["hook"].startswith("$89,900")
+        assert len(client.calls) == 2  # generation + refinement
+        assert client.calls[1][0] == "content"
+
+    def test_home_assets_add_photo_and_matterport_context(self, monkeypatch):
+        client = _FakeGenAIClient()
+        client.content_responses.append(_strong_script_payload())
+        monkeypatch.setattr(marketing_tools, "_genai_client", lambda: client)
+
+        asset_scraper = types.ModuleType("tools.asset_scraper")
+        asset_scraper.get_assets_for_home = lambda _name: {
+            "images": ["https://example.com/kitchen.jpg"],
+            "matterport_id": "tour123",
+            "image_categories": {"exterior": ["https://example.com/kitchen.jpg"]},
+        }
+        asset_scraper.get_matterport_url = (
+            lambda tour_id: f"https://my.matterport.com/show/?m={tour_id}&play=1"
+        )
+        monkeypatch.setitem(sys.modules, "tools.asset_scraper", asset_scraper)
+
+        result = marketing_tools.generate_content_script(home_name="The Delight")
+
+        assert result["success"] is True
+        assert result["real_photos"] == ["https://example.com/kitchen.jpg"]
+        assert "tour123" in result["matterport_url"]
+        assert result["matterport_id"] == "tour123"
+        # Prompt must reference the real photos and 3D tour.
+        prompt_sent = client.calls[0][1]["contents"]
+        assert "kitchen.jpg" in prompt_sent
+        assert "3D TOUR AVAILABLE" in prompt_sent
+
+    def test_all_models_fail_returns_error_status(self, monkeypatch):
+        client = _FakeGenAIClient()
+        client.content_responses = [RuntimeError("down1"), RuntimeError("down2")]
+        monkeypatch.setattr(marketing_tools, "_genai_client", lambda: client)
+
+        result = marketing_tools.generate_content_script(home_name="The Delight")
+
+        assert result["success"] is False
+        assert result["status"] == "error"
+
+
+class TestGetTrendingContentIdeas:
+    def _inventory(self):
+        return [
+            {
+                "id": "1",
+                "model_name": "The Mansion",
+                "manufacturer": "TRU",
+                "status": "Available",
+                "pricing": {"display_price": "$150,000", "price_value": 150000},
+                "specs": {"beds": 4, "baths": 3, "sq_ft": 2000},
+            },
+            {
+                "id": "2",
+                "model_name": "The Starter",
+                "manufacturer": "TRU",
+                "status": "Available",
+                "pricing": {"display_price": "$29,900", "price_value": 29900},
+                "specs": {"beds": 2, "baths": 1, "sq_ft": 700},
+            },
+            {
+                "id": "3",
+                "model_name": "Used Gem",
+                "manufacturer": "Fleetwood",
+                "status": "Pre-Owned",
+                "pricing": {"display_price": "$25,000", "price_value": 25000},
+                "specs": {"beds": 2, "baths": 2, "sq_ft": 900},
+            },
+        ]
+
+    def test_inventory_driven_ideas(self, monkeypatch):
+        monkeypatch.setattr(
+            marketing_tools, "_load_inventory_for_marketing", lambda: self._inventory()
+        )
+
+        result = marketing_tools.get_trending_content_ideas(
+            recent_sales=7, current_promotions=["Red Tag Sale"]
+        )
+
+        assert result["success"] is True
+        assert result["inventory_loaded"] is True
+        assert result["inventory_count"] == 3
+        types_seen = {idea["type"] for idea in result["content_ideas"]}
+        # Priced inventory drives home_tour + financing_tips; pre-owned drives clearance.
+        assert "home_tour" in types_seen
+        assert "financing_tips" in types_seen
+        assert "clearance_alert" in types_seen
+        assert "customer_story" in types_seen  # recent_sales social proof
+        assert "myth_busting" in types_seen  # staple content
+        # Most expensive home is the featured tour.
+        assert result["top_priority"]["home_id"] == "1"
+        # Promotion adds another clearance idea.
+        promo_ideas = [
+            idea for idea in result["content_ideas"] if "Red Tag Sale" in idea.get("title", "")
+        ]
+        assert len(promo_ideas) == 1
+
+    def test_empty_inventory_still_returns_staples(self, monkeypatch):
+        monkeypatch.setattr(marketing_tools, "_load_inventory_for_marketing", lambda: [])
+
+        result = marketing_tools.get_trending_content_ideas()
+
+        assert result["success"] is True
+        assert result["inventory_loaded"] is False
+        types_seen = {idea["type"] for idea in result["content_ideas"]}
+        assert types_seen == {"myth_busting", "comparison", "behind_scenes", "faq"}
+
+
+class TestGenerateScriptVoiceover:
+    SCRIPT = (
+        "[SHOT: exterior] (0:00-0:03) Pull up to the covered porch.\n"
+        "The island kitchen with pantry storage.\n"
+        "Call 281-555-0100 to book your tour today!"
+    )
+
+    def test_success_strips_markers_and_returns_audio(self, monkeypatch):
+        _patch_tts(monkeypatch, _fake_tts_module())
+
+        result = marketing_tools.generate_script_voiceover(self.SCRIPT, speaking_rate=1.5)
+
+        assert result["success"] is True
+        assert result["audio_base64"] == base64.b64encode(b"MP3AUDIOBYTES").decode("utf-8")
+        assert result["voice"] == "en-US-Neural2-D"
+        assert result["provider"] == "google-cloud-tts"
+        assert result["word_count"] > 0
+        assert "[SHOT" not in result["content_preview"]
+        assert "(0:00-0:03)" not in result["content_preview"]
+        # Duration estimate: slower rate inflates the estimate.
+        assert result["estimated_duration_seconds"] > 0
+
+    def test_short_script_rejected(self, monkeypatch):
+        _patch_tts(monkeypatch, _fake_tts_module())
+
+        result = marketing_tools.generate_script_voiceover("Hi")
+
+        assert result["success"] is False
+        assert "too short" in result["error"]
+
+    def test_tts_failure_returns_user_safe_error(self, monkeypatch):
+        tts = _fake_tts_module()
+
+        class _BoomClient:
+            def synthesize_speech(self, input, voice, audio_config):
+                raise RuntimeError("TTS unavailable")
+
+        tts.TextToSpeechClient = _BoomClient
+        _patch_tts(monkeypatch, tts)
+
+        result = marketing_tools.generate_script_voiceover(self.SCRIPT)
+
+        assert result["success"] is False
+        assert "setup_instructions" in result
