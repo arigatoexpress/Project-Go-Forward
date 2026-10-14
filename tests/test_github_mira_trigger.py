@@ -366,3 +366,233 @@ def test_status_endpoint(client):
     assert data["mira_group_configured"] is True
     assert data["partner_webhook_url_configured"] is False
     assert data["cutover_pr_number"] == 156
+
+
+# ---------------------------------------------------------------------------
+# Unit coverage for the remaining formatters / payload builders / gatekeeping
+# ---------------------------------------------------------------------------
+
+
+class TestVerifySignature:
+    def test_rejects_non_sha256_prefix(self):
+        assert github_mira_trigger._verify_github_signature(b"{}", "md5=abc", "secret") is False
+
+    def test_rejects_empty_secret_or_signature(self):
+        assert github_mira_trigger._verify_github_signature(b"{}", "sha256=x", "") is False
+        assert github_mira_trigger._verify_github_signature(b"{}", "", "secret") is False
+
+
+class TestFormatGithubEvent:
+    def _repo(self):
+        return {"repository": {"full_name": "tho/site", "html_url": "https://github.com/tho/site"}}
+
+    def test_issues_event(self):
+        payload = {
+            **self._repo(),
+            "action": "opened",
+            "issue": {"number": 7, "title": "Blank field", "html_url": "https://example.com/i/7"},
+        }
+        message, url = github_mira_trigger._format_github_event("issues", payload)
+        assert "tho/site" in message and "issue #7" in message and "`opened`" in message
+        assert url == "https://example.com/i/7"
+
+    def test_workflow_job_icons(self):
+        base = {**self._repo(), "workflow_job": {"name": "build", "html_url": "https://example.com/j"}}
+        ok_msg, _ = github_mira_trigger._format_github_event(
+            "workflow_job", {**base, "workflow_job": {**base["workflow_job"], "status": "completed", "conclusion": "success"}}
+        )
+        assert ok_msg.startswith("🟢")
+        fail_msg, _ = github_mira_trigger._format_github_event(
+            "workflow_job",
+            {**base, "workflow_job": {**base["workflow_job"], "status": "completed", "conclusion": "failure"}},
+        )
+        assert fail_msg.startswith("🔴")
+        neutral_msg, _ = github_mira_trigger._format_github_event(
+            "workflow_job", {**base, "workflow_job": {**base["workflow_job"], "status": "queued"}}
+        )
+        assert neutral_msg.startswith("⚙️") and "conclusion" not in neutral_msg
+
+    def test_deployment_status_event(self):
+        payload = {
+            **self._repo(),
+            "deployment": {"environment": "prod", "url": "https://example.com/deploy"},
+            "deployment_status": {"state": "success", "target_url": "https://example.com/target"},
+        }
+        message, url = github_mira_trigger._format_github_event("deployment_status", payload)
+        assert message.startswith("🟢")
+        assert "prod" in message and "success" in message
+        assert url == "https://example.com/target"
+
+    def test_release_event(self):
+        payload = {
+            **self._repo(),
+            "action": "published",
+            "release": {
+                "tag_name": "v1.2.3",
+                "name": "Launch build",
+                "html_url": "https://example.com/r",
+            },
+        }
+        message, url = github_mira_trigger._format_github_event("release", payload)
+        assert "v1.2.3" in message and "Launch build" in message
+        assert url == "https://example.com/r"
+
+    def test_unknown_event_falls_back_to_generic(self):
+        payload = self._repo()
+        message, url = github_mira_trigger._format_github_event("star", payload)
+        assert "star" in message
+        assert url == "https://github.com/tho/site"
+
+
+class TestIsNotable:
+    def test_unknown_event_type_is_not_notable(self):
+        assert github_mira_trigger._is_notable("star", {"action": "created"}) is False
+
+    def test_ignored_action_is_not_notable(self):
+        assert github_mira_trigger._is_notable("issues", {"action": "labeled"}) is False
+
+    def test_push_requires_main_branch(self):
+        assert github_mira_trigger._is_notable("push", {"ref": "refs/heads/main"}) is True
+        assert github_mira_trigger._is_notable("push", {"ref": "refs/heads/dev"}) is False
+
+    def test_pr_without_action_is_notable(self):
+        assert github_mira_trigger._is_notable("pull_request", {"pull_request": {"number": 1}}) is True
+
+
+class TestPartnerPayloadBranches:
+    def _base(self):
+        return {
+            "action": "opened",
+            "repository": {"full_name": "tho/site", "html_url": "https://github.com/tho/site"},
+            "sender": {"login": "octocat"},
+        }
+
+    def test_issues(self):
+        payload = {**self._base(), "issue": {"number": 9, "title": "T", "html_url": "u", "state": "open"}}
+        result = github_mira_trigger._build_partner_payload("issues", payload)
+        assert result["issue_number"] == 9
+        assert result["issue_state"] == "open"
+        assert result["sender"] == "octocat"
+
+    def test_workflow_job(self):
+        payload = {
+            **self._base(),
+            "workflow_job": {
+                "name": "build",
+                "html_url": "u",
+                "status": "completed",
+                "conclusion": "success",
+                "workflow_name": "CI",
+            },
+        }
+        result = github_mira_trigger._build_partner_payload("workflow_job", payload)
+        assert result["job_name"] == "build"
+        assert result["workflow_name"] == "CI"
+
+    def test_deployment_status(self):
+        payload = {
+            **self._base(),
+            "deployment": {"environment": "prod", "url": "https://d"},
+            "deployment_status": {"state": "success", "target_url": "https://t"},
+        }
+        result = github_mira_trigger._build_partner_payload("deployment_status", payload)
+        assert result["deployment_environment"] == "prod"
+        assert result["deployment_state"] == "success"
+        assert result["deployment_url"] == "https://t"
+
+    def test_release(self):
+        payload = {
+            **self._base(),
+            "release": {"tag_name": "v1", "name": "N", "html_url": "u"},
+        }
+        result = github_mira_trigger._build_partner_payload("release", payload)
+        assert result["release_tag"] == "v1"
+        assert result["release_action"] == "opened"
+
+
+class TestLogActivityFailure:
+    def test_activity_log_failure_is_swallowed(self, monkeypatch):
+        def boom():
+            raise RuntimeError("firestore down")
+
+        monkeypatch.setattr(github_mira_trigger, "get_database", boom)
+        # Must not raise.
+        github_mira_trigger._log_activity("push", {"repository": {"full_name": "tho/site"}}, True, [])
+
+
+# ---------------------------------------------------------------------------
+# Webhook-level failure paths
+# ---------------------------------------------------------------------------
+
+
+def _post_signed(client, event_type, body: bytes, secret="test-github-secret"):
+    return client.post(
+        "/api/github/mira/webhook",
+        content=body,
+        headers={
+            "X-GitHub-Event": event_type,
+            "X-Hub-Signature-256": _github_signature(body, secret),
+            "Content-Type": "application/json",
+        },
+    )
+
+
+def test_invalid_json_returns_400(client, monkeypatch):
+    monkeypatch.setattr(github_mira_trigger, "_GITHUB_WEBHOOK_SECRET", "test-github-secret")
+    body = b"{not valid json"
+    response = _post_signed(client, "push", body)
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Invalid JSON payload"
+
+
+def test_telegram_failure_still_accepts_event(
+    client, monkeypatch, fake_db, captured_partner_dispatch
+):
+    monkeypatch.setattr(github_mira_trigger, "_GITHUB_WEBHOOK_SECRET", "test-github-secret")
+
+    def failing_send(payload):
+        raise RuntimeError("telegram down")
+
+    monkeypatch.setattr(mira_notify, "send_mira_notification", failing_send)
+
+    payload = {
+        "action": "opened",
+        "pull_request": {"number": 5, "title": "T", "html_url": "u"},
+        "repository": {"full_name": "tho/site"},
+    }
+    body = json.dumps(payload).encode("utf-8")
+    response = _post_signed(client, "pull_request", body)
+
+    assert response.status_code == 200
+    body_json = response.json()
+    assert body_json["status"] == "ok"
+    assert body_json["telegram_ok"] is False
+    assert body_json["partner_ids"] == ["mira"]  # partner dispatch still ran
+    # Activity recorded the failed telegram leg.
+    (activity,) = fake_db.activities.values()
+    assert activity["metadata"]["telegram_ok"] is False
+
+
+def test_partner_dispatch_failure_still_accepts_event(
+    client, monkeypatch, fake_db, captured_telegram
+):
+    monkeypatch.setattr(github_mira_trigger, "_GITHUB_WEBHOOK_SECRET", "test-github-secret")
+
+    def failing_dispatch(event, payload, db=None, **kwargs):
+        raise RuntimeError("partner down")
+
+    monkeypatch.setattr(github_mira_trigger, "dispatch_partner_event", failing_dispatch)
+
+    payload = {
+        "action": "opened",
+        "issue": {"number": 5, "title": "T", "html_url": "u"},
+        "repository": {"full_name": "tho/site"},
+    }
+    body = json.dumps(payload).encode("utf-8")
+    response = _post_signed(client, "issues", body)
+
+    assert response.status_code == 200
+    body_json = response.json()
+    assert body_json["status"] == "ok"
+    assert body_json["telegram_ok"] is True  # telegram leg succeeded
+    assert body_json["partner_ids"] == []
