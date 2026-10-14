@@ -1354,7 +1354,9 @@ class Activity(BaseModel):
     description: str  # Human-readable summary
 
     # Where
-    project_id: str
+    # Cycles and other cross-project events have no single owning project,
+    # so project_id must be optional (pm_routes._log_activity passes None).
+    project_id: str | None = None
     task_id: str | None = None
 
     # Who

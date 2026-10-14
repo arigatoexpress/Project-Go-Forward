@@ -382,7 +382,7 @@ def _map_github_state(github_state: str) -> WorkflowState:
 def _log_activity(
     activity_type: str,
     description: str,
-    project_id: str,
+    project_id: str | None = None,
     task_id: str | None = None,
     actor: str | None = None,
     metadata: dict | None = None,
