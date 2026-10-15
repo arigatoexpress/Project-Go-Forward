@@ -443,6 +443,18 @@ class FakeTHODatabase:
         self.collections["inventory"].pop(inventory_id, None)
         return True
 
+    def get_deal(self, deal_id: str) -> dict | None:
+        deal = self.collections["deals"].get(deal_id)
+        return dict(deal) if deal else None
+
+    def update_deal(self, deal_id: str, data: dict) -> bool:
+        record = self.collections["deals"].get(deal_id)
+        if record is None:
+            return False
+        record.update(data)
+        record["updated_at"] = "2026-04-22T00:00:00"
+        return True
+
     def count_customers(self):
         by_status: dict[str, int] = {}
         for customer in self.collections["customers"].values():
