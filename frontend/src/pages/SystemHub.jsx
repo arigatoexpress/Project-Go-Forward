@@ -33,6 +33,12 @@ const PROJECTS = [
     desc: 'Reviewed THO inventory ads and campaign assets.',
     status: 'prod',
   },
+  {
+    name: 'Google Ads',
+    url: '/ad-studio',
+    desc: 'Describe a search ad, preview it, and launch it turned off. Does not spend money.',
+    status: 'prod',
+  },
 ];
 
 const ARCH_NODES = [

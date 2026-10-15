@@ -35,7 +35,7 @@ const WIKI_SECTIONS = {
       'Use CRM for leads, tasks, appointments, and customer follow-up.',
       'Use Documents for deal paperwork, contract packets, and recent PDF downloads.',
       'Use Inventory to distinguish listed homes from orderable manufacturer floorplans, then confirm current availability before sending quotes or forms.',
-      'Use Ad Studio only for reviewed public-facing inventory or approved campaign drafts.',
+      'Use Ad Studio only for reviewed public-facing inventory or approved campaign drafts. Google Ads is at /ad-studio: describe the ad, preview it, and launch it turned off. That screen cannot turn ads on or change billing.',
     ],
   },
   docs: {

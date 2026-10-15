@@ -100,6 +100,7 @@ def test_robots_txt_allows_public_blocks_admin(monkeypatch):
     assert response.status_code == 200
     body = response.text
     assert "Disallow: /crm" in body
+    assert "Disallow: /ad-studio" in body
     assert "Disallow: /staff" in body
     assert "Disallow: /team" in body
     assert "Disallow: /api/admin/" in body
@@ -444,9 +445,18 @@ def test_unknown_route_returns_real_404_not_soft_404(monkeypatch):
     assert "noindex" in response.text
 
 
+def test_ad_studio_alias_is_the_google_ads_staff_route(monkeypatch):
+    """Staff type /ad-studio. It must open the noindex staff app, not a 404."""
+    client, _ = seo_client(monkeypatch)
+    response = client.get("/ad-studio", follow_redirects=False)
+    assert response.status_code == 200
+    assert '<meta name="robots" content="noindex" />' in response.text
+    assert client.get("/this-is-not-ad-studio").status_code == 404
+
+
 def test_admin_routes_are_noindex_but_200(monkeypatch):
     client, _ = seo_client(monkeypatch)
-    for path in ("/crm", "/documents", "/studio", "/staff", "/team"):
+    for path in ("/crm", "/documents", "/studio", "/ad-studio", "/staff", "/team"):
         response = client.get(path)
         assert response.status_code == 200, path
         assert '<meta name="robots" content="noindex" />' in response.text, path
@@ -1202,6 +1212,7 @@ _NO_INLINE_STYLE_PATHS = (
     "/appointments",
     "/staff",
     "/studio",
+    "/ad-studio",
     "/homes/44490-pre-owned-big-blue",
     "/inventory-detail/43372/texas-home-outlet/huffman/premier/",
 )

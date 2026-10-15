@@ -366,7 +366,7 @@ describe('Paid Search durable API', () => {
 
   it('rejects unknown fields or relaxed authority in responses', async () => {
     adminFetch.mockResolvedValue(response({ ...SAFE_STATUS, spend_enabled: true }));
-    await expect(getGoogleAdsDeploymentReadiness()).rejects.toThrow('Paid Search status is unavailable.');
+    await expect(getGoogleAdsDeploymentReadiness()).rejects.toThrow('Google Ads is unavailable right now. Refresh the page and try again. Nothing was sent to Google.');
   });
 
   it.each([
@@ -384,7 +384,7 @@ describe('Paid Search durable API', () => {
     },
   ])('rejects broadened, operative, or extra campaign review fields', async (campaignReview) => {
     adminFetch.mockResolvedValue(response({ ...SAFE_STATUS, campaign_review: campaignReview }));
-    await expect(getGoogleAdsDeploymentReadiness()).rejects.toThrow('Paid Search status is unavailable.');
+    await expect(getGoogleAdsDeploymentReadiness()).rejects.toThrow('Google Ads is unavailable right now. Refresh the page and try again. Nothing was sent to Google.');
   });
 
   it('accepts only exact fail-closed PAUSED approval readiness', async () => {
@@ -429,35 +429,62 @@ describe('Paid Search durable API', () => {
     },
   ])('rejects impossible state/version/event evidence', async (unsafe) => {
     adminFetch.mockResolvedValue(response(unsafe));
-    await expect(getGoogleAdsDeploymentReadiness()).rejects.toThrow('Paid Search status is unavailable.');
+    await expect(getGoogleAdsDeploymentReadiness()).rejects.toThrow('Google Ads is unavailable right now. Refresh the page and try again. Nothing was sent to Google.');
   });
 });
 
 describe('GoogleAdsStatusCard', () => {
+  const brief = 'People near Huffman who want a manufactured home should see our prices and book a tour.';
+
+  function fillBrief() {
+    fireEvent.change(screen.getByRole('textbox', { name: 'Who should see this ad?' }), {
+      target: { value: brief },
+    });
+  }
+
+  function acceptBrief() {
+    fillBrief();
+    fireEvent.click(screen.getByRole('button', { name: 'Create campaign preview' }));
+  }
+
   beforeEach(() => {
     vi.restoreAllMocks();
     adminFetch.mockReset();
   });
 
-  it('shows durable state and the single offline validation action', async () => {
+  it('explains the campaign in plain language and keeps launch off until it is checked', async () => {
     adminFetch.mockResolvedValue(response());
     render(<GoogleAdsStatusCard />);
 
-    expect(await screen.findByRole('heading', { name: 'Paid Search' })).toBeInTheDocument();
-    expect(screen.getByText('Durable review state')).toBeInTheDocument();
-    expect(screen.getByText('1 recorded event')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Run offline server validation' })).toBeEnabled();
-    expect(screen.getByRole('heading', { name: 'Owner PAUSED-create approval' })).toBeInTheDocument();
-    expect(screen.getByText('Complete offline server validation first.')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Verify owner and approve PAUSED creation' })).toBeDisabled();
-    expect(screen.getByText(/PAUSED only · \$0 spend/i)).toBeInTheDocument();
-    expect(screen.queryByText(/create campaign/i)).not.toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Google Ads' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '1. Create' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '2. Preview' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '3. Launch' })).toBeInTheDocument();
+    expect(screen.getByText('Saved updates: 1')).toBeInTheDocument();
+    expect(screen.getByText(/Link the Google Ads account/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/This screen cannot turn ads on/i).length).toBeGreaterThan(0);
+    expect(screen.getByRole('button', { name: 'Create campaign preview' })).toBeEnabled();
+    expect(screen.getByText('Check the campaign before you launch it.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Launch turned off' })).toBeDisabled();
+    expect(screen.getByText(/Turned off · \$0 spend/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /activate|publish|turn ads on|spend/i })).not.toBeInTheDocument();
     expect(adminFetch).toHaveBeenCalledWith('/api/admin/google-ads/draft', {
       method: 'POST',
       retry: false,
       headers: { 'Content-Type': 'application/json' },
       body: '{}',
     });
+  });
+
+  it('tells staff to describe the ad before anything is sent', async () => {
+    adminFetch.mockResolvedValue(response());
+    render(<GoogleAdsStatusCard />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Create campaign preview' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Describe who should see this ad and what you want them to do.',
+    );
+    expect(adminFetch).toHaveBeenCalledTimes(1);
   });
 
   it('shows the exact PAUSED campaign artifact and requires review before owner approval', async () => {
@@ -468,30 +495,29 @@ describe('GoogleAdsStatusCard', () => {
     await act(async () => { render(<GoogleAdsStatusCard />); });
 
     const confirm = vi.spyOn(globalThis, 'confirm').mockReturnValue(true);
-    expect(await screen.findByRole('heading', { name: 'Exact PAUSED campaign review' })).toBeInTheDocument();
-    expect(screen.getByText('THO | Search | High Intent | Huffman | Draft')).toBeInTheDocument();
-    expect(screen.getByText(/50-mile presence-only radius/i)).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '2. Preview' })).toBeInTheDocument();
+    expect(screen.getByText(/THO \| Search \| High Intent \| Huffman \| Draft/)).toBeInTheDocument();
+    expect(screen.getByText(/within 50 miles of 10685 FM 1960 East/i)).toBeInTheDocument();
     expect(screen.getByText(/10685 FM 1960 East/i)).toBeInTheDocument();
-    expect(screen.getByText(/Maximize clicks.*\$5 maximum CPC/i)).toBeInTheDocument();
-    expect(screen.getByText('manufactured homes huffman tx')).toBeInTheDocument();
-    expect(screen.getByText('Browse Homes With Prices')).toBeInTheDocument();
-    expect(screen.getByText('https://www.texashomeoutlet.com/inventory')).toBeInTheDocument();
-    expect(screen.getByText(/conversion goals are not attached/i)).toBeInTheDocument();
-    expect(screen.getByText(/not implemented protection/i)).toBeInTheDocument();
-    expect(screen.getByText(/Exact configured account \+ USD verified by read-only probe/i)).toBeInTheDocument();
+    expect(screen.getByText(/\$5 maximum per click/i)).toBeInTheDocument();
+    expect(screen.getByText(/manufactured homes huffman tx/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/Browse Homes With Prices/).length).toBeGreaterThan(0);
+    expect(screen.getByText(/https:\/\/www\.texashomeoutlet\.com\/inventory/)).toBeInTheDocument();
+    expect(screen.getByText(/not attached yet/i)).toBeInTheDocument();
+    expect(screen.getByText(/not automatic yet/i)).toBeInTheDocument();
+    expect(screen.getByText(/Google Ads account is linked and uses US dollars/i)).toBeInTheDocument();
     expect(screen.getByText(/expires/i)).toBeInTheDocument();
-    expect(screen.getByText(/Least-privilege IAM: verified/i)).toBeInTheDocument();
-    expect(screen.getByText(/Candidate revision binding: verified/i)).toBeInTheDocument();
+    expect(screen.getByText(/Ads account permissions are in place/i)).toBeInTheDocument();
+    expect(screen.getByText(/This website version is cleared for ads/i)).toBeInTheDocument();
 
-    const approve = screen.getByRole('button', {
-      name: 'Verify owner and approve PAUSED creation',
-    });
+    const approve = screen.getByRole('button', { name: 'Launch turned off' });
     expect(approve).toBeDisabled();
     fireEvent.click(approve);
     expect(confirm).not.toHaveBeenCalled();
     expect(adminFetch).toHaveBeenCalledTimes(2);
+    acceptBrief();
     fireEvent.click(screen.getByRole('checkbox', {
-      name: /I reviewed this exact PAUSED copy, targeting, limits, and pre-activation holds/i,
+      name: /I read both ads, the Huffman area, and the budget/i,
     }));
     expect(approve).toBeEnabled();
   });
@@ -502,18 +528,19 @@ describe('GoogleAdsStatusCard', () => {
       .mockResolvedValueOnce(response())
       .mockReturnValueOnce(new Promise(resolve => { resolvePost = resolve; }));
     render(<GoogleAdsStatusCard />);
-    const button = await screen.findByRole('button', { name: 'Run offline server validation' });
+    const button = await screen.findByRole('button', { name: 'Create campaign preview' });
+    fillBrief();
 
     fireEvent.click(button);
     expect(button).toBeDisabled();
-    expect(button).toHaveTextContent('Validating offline…');
+    expect(button).toHaveTextContent('Checking the campaign…');
     fireEvent.click(button);
     expect(adminFetch).toHaveBeenCalledTimes(2);
 
     resolvePost(response(VALIDATED));
-    await waitFor(() => expect(screen.getByText('Offline server validation complete.')).toBeInTheDocument());
-    expect(screen.getByRole('button', { name: 'Run offline server validation' })).toBeDisabled();
-    expect(screen.getByText('2 recorded events')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText(/This campaign is checked/i)).toBeInTheDocument());
+    expect(screen.getByRole('button', { name: 'Create campaign preview' })).toBeDisabled();
+    expect(screen.getByText('Saved updates: 2')).toBeInTheDocument();
   });
 
   it('surfaces a safe retryable failure without automatic POST retry', async () => {
@@ -521,15 +548,19 @@ describe('GoogleAdsStatusCard', () => {
       .mockResolvedValueOnce(response())
       .mockResolvedValueOnce(response({ message: 'safe' }, 503));
     render(<GoogleAdsStatusCard />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Run offline server validation' }));
+    const button = await screen.findByRole('button', { name: 'Create campaign preview' });
+    fillBrief();
+    fireEvent.click(button);
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('Offline server validation failed. Retry when ready.');
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'We could not check this campaign. Nothing was sent to Google. Try again.',
+    );
     expect(adminFetch).toHaveBeenCalledTimes(2);
-    expect(screen.getByRole('button', { name: 'Run offline server validation' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Create campaign preview' })).toBeEnabled();
 
     adminFetch.mockResolvedValueOnce(response(VALIDATED));
-    fireEvent.click(screen.getByRole('button', { name: 'Run offline server validation' }));
-    await screen.findByText('Offline server validation complete.');
+    fireEvent.click(screen.getByRole('button', { name: 'Create campaign preview' }));
+    await screen.findByText(/This campaign is checked/i);
     const firstKey = JSON.parse(adminFetch.mock.calls[1][1].body).idempotency_key;
     const retryKey = JSON.parse(adminFetch.mock.calls[2][1].body).idempotency_key;
     expect(retryKey).toBe(firstKey);
@@ -583,24 +614,23 @@ describe('GoogleAdsStatusCard', () => {
     });
 
     await act(async () => { render(<GoogleAdsStatusCard />); });
-    const button = await screen.findByRole('button', {
-      name: 'Verify owner and approve PAUSED creation',
-    });
+    const button = await screen.findByRole('button', { name: 'Launch turned off' });
+    acceptBrief();
     fireEvent.click(screen.getByRole('checkbox', {
-      name: /I reviewed this exact PAUSED copy, targeting, limits, and pre-activation holds/i,
+      name: /I read both ads, the Huffman area, and the budget/i,
     }));
     await waitFor(() => expect(button).toBeEnabled());
     fireEvent.click(button);
 
     await waitFor(() => expect(globalThis.confirm).toHaveBeenCalledWith(expect.stringMatching(
-      /separate dispatcher is already runnable.*creation may begin after approval/i,
+      /background job is already running.*does not spend money/i,
     )));
 
     expect(await screen.findByText(
-      /PAUSED-only creation is approved; durable outbox is pending/i,
+      /waiting to be created in Google Ads. Saved status: pending/i,
     )).toBeInTheDocument();
-    expect(screen.getAllByText('PAUSED creation approved')).toHaveLength(2);
-    expect(screen.getByText('3 recorded events')).toBeInTheDocument();
+    expect(screen.getAllByText('Launch approved')).toHaveLength(2);
+    expect(screen.getByText('Saved updates: 3')).toBeInTheDocument();
     const approvalCall = adminFetch.mock.calls.find(([url]) => (
       url === '/api/admin/google-ads/paused-create-approval'
     ));
@@ -625,21 +655,18 @@ describe('GoogleAdsStatusCard', () => {
       .mockImplementationOnce(() => new Promise(resolve => { resolveReadiness = resolve; }));
 
     await act(async () => { render(<GoogleAdsStatusCard />); });
-    const approve = screen.getByRole('button', {
-      name: 'Verify owner and approve PAUSED creation',
-    });
+    const approve = screen.getByRole('button', { name: 'Launch turned off' });
     expect(approve).toBeDisabled();
     await act(async () => { resolveReadiness(response(enabledReadiness)); });
 
     expect(screen.getByText(/Storefront dispatch flag/i)).toBeInTheDocument();
     expect(screen.getByText(/^Enabled$/i)).toBeInTheDocument();
-    expect(screen.getByText(/does not prove whether the separate dispatcher job or a scheduler is runnable/i)).toBeInTheDocument();
+    expect(screen.getByText(/does not prove the separate Google job is running/i)).toBeInTheDocument();
+    acceptBrief();
     fireEvent.click(screen.getByRole('checkbox', {
-      name: /I reviewed this exact PAUSED copy, targeting, limits, and pre-activation holds/i,
+      name: /I read both ads, the Huffman area, and the budget/i,
     }));
-    expect(screen.getByRole('button', {
-      name: 'Verify owner and approve PAUSED creation',
-    })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Launch turned off' })).toBeEnabled();
     expect(adminFetch).toHaveBeenCalledTimes(2);
   });
 
@@ -653,14 +680,9 @@ describe('GoogleAdsStatusCard', () => {
       }));
 
     render(<GoogleAdsStatusCard />);
-    fireEvent.click(await screen.findByRole('checkbox', {
-      name: /I reviewed this exact PAUSED copy, targeting, limits, and pre-activation holds/i,
-    }));
 
-    expect(await screen.findByText(/reviewed contract changed.*refresh/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', {
-      name: 'Verify owner and approve PAUSED creation',
-    })).toBeDisabled();
+    expect(await screen.findByText(/does not match the one that was checked/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Launch turned off' })).toBeDisabled();
   });
 
   it('rechecks evidence before confirmation and stops when prerequisites changed', async () => {
@@ -680,11 +702,10 @@ describe('GoogleAdsStatusCard', () => {
       .mockResolvedValueOnce(response(changed));
 
     await act(async () => { render(<GoogleAdsStatusCard />); });
-    const approve = await screen.findByRole('button', {
-      name: 'Verify owner and approve PAUSED creation',
-    });
+    const approve = await screen.findByRole('button', { name: 'Launch turned off' });
+    acceptBrief();
     fireEvent.click(screen.getByRole('checkbox', {
-      name: /I reviewed this exact PAUSED copy, targeting, limits, and pre-activation holds/i,
+      name: /I read both ads, the Huffman area, and the budget/i,
     }));
     fireEvent.click(approve);
 
@@ -702,12 +723,10 @@ describe('GoogleAdsStatusCard', () => {
     render(<GoogleAdsStatusCard />);
 
     expect(await screen.findByText(
-      /PAUSED-only creation is approved; durable outbox is pending/i,
+      /waiting to be created in Google Ads. Saved status: pending/i,
     )).toBeInTheDocument();
-    expect(screen.getByRole('button', {
-      name: 'Verify owner and approve PAUSED creation',
-    })).toBeDisabled();
-    expect(screen.queryByText('Complete offline server validation first.')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Launch turned off' })).toBeDisabled();
+    expect(screen.queryByText('Check the campaign before you launch it.')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /activate|publish|spend/i })).not.toBeInTheDocument();
     expect(adminFetch).toHaveBeenCalledTimes(1);
   });
@@ -761,12 +780,11 @@ describe('GoogleAdsStatusCard', () => {
 
     // Settle initial status/effects while holding account readiness pending.
     await act(async () => { render(<GoogleAdsStatusCard />); });
-    const button = screen.getByRole('button', {
-      name: 'Verify owner and approve PAUSED creation',
-    });
+    const button = screen.getByRole('button', { name: 'Launch turned off' });
     expect(button).toBeDisabled();
+    acceptBrief();
     const acknowledgement = screen.getByRole('checkbox', {
-      name: /I reviewed this exact PAUSED copy, targeting, limits, and pre-activation holds/i,
+      name: /I read both ads, the Huffman area, and the budget/i,
     });
     fireEvent.click(acknowledgement);
     expect(acknowledgement).toBeChecked();
@@ -777,10 +795,10 @@ describe('GoogleAdsStatusCard', () => {
     fireEvent.click(button);
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
-      /approval was recorded, but durable status refresh is unavailable/i,
+      /launch was recorded, but we could not refresh the status/i,
     );
-    expect(screen.getByText(/PAUSED-only approval recorded.*no spend is enabled/i)).toBeInTheDocument();
-    expect(screen.queryByText(/PAUSED-only approval failed/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/The launch was recorded. Refresh the page before doing anything else. No money was spent./i)).toBeInTheDocument();
+    expect(screen.queryByText(/launch did not go through/i)).not.toBeInTheDocument();
   });
 
   it('shows bounded-dispatch failure remediation without enabling another control', async () => {
@@ -792,10 +810,8 @@ describe('GoogleAdsStatusCard', () => {
 
     render(<GoogleAdsStatusCard />);
 
-    expect(await screen.findByText(/bounded dispatcher attempts are exhausted/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', {
-      name: 'Verify owner and approve PAUSED creation',
-    })).toBeDisabled();
+    expect(await screen.findByText(/could not finish creating the turned-off campaign/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Launch turned off' })).toBeDisabled();
     expect(screen.queryByRole('button', { name: /retry|activate|publish|spend/i })).not.toBeInTheDocument();
   });
 
@@ -805,13 +821,44 @@ describe('GoogleAdsStatusCard', () => {
     render(<GoogleAdsStatusCard />);
 
     expect(await screen.findByText(
-      /PAUSED Google Ads resources were created and reconciled.*remain inactive/i,
+      /The campaign is in Google Ads and turned off. It is not spending money/i,
     )).toBeInTheDocument();
-    expect(screen.getByRole('button', {
-      name: 'Verify owner and approve PAUSED creation',
-    })).toBeDisabled();
-    expect(screen.queryByText('Complete offline server validation first.')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Launch turned off' })).toBeDisabled();
+    expect(screen.queryByText('Check the campaign before you launch it.')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /activate|publish|spend/i })).not.toBeInTheDocument();
     expect(adminFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('explains a missing Google Ads account in plain language', async () => {
+    adminFetch
+      .mockResolvedValueOnce(response(VALIDATED))
+      .mockResolvedValueOnce(response({
+        ...APPROVAL_READY,
+        gates: {
+          feature_enabled: false,
+          cloud_readiness_verified: false,
+          iam_verified: false,
+          revision_bound: false,
+          dispatcher_configured: false,
+        },
+        access_evidence_id: null,
+        access_evidence_fresh: false,
+        account_connection: null,
+        action_available: false,
+        remediation: [
+          'Run the read-only Google Ads account-access and USD-currency evidence job.',
+          'Verify current cloud/IAM readiness and enable owner approval config.',
+        ],
+      }));
+
+    render(<GoogleAdsStatusCard />);
+
+    expect(await screen.findByText(
+      /The owner still needs to link the Google Ads account and confirm it uses US dollars/i,
+    )).toBeInTheDocument();
+    expect(screen.getByText(/The Google Ads account is not confirmed yet/i)).toBeInTheDocument();
+    expect(screen.getByText(/still needs to grant the ads account permissions/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Launch turned off' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: /activate|publish|turn ads on/i })).not.toBeInTheDocument();
   });
 });

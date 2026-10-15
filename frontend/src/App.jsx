@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, lazy, Suspense, useCallback } from 'react';
-import { Send, Home, Menu, X, Phone, MapPin, Loader2, User, Bot, FileText, Video, Lock, ShieldCheck, CalendarDays, Users, MessageSquare, MessageCircle, RotateCcw, WifiOff, Moon, Sun, KeyRound, BookOpen, Activity, Camera, Sparkles, ClipboardList, Store, MoreHorizontal, LogOut } from 'lucide-react';
+import { Send, Home, Menu, X, Phone, MapPin, Loader2, User, Bot, FileText, Video, Lock, ShieldCheck, CalendarDays, Users, MessageSquare, MessageCircle, RotateCcw, WifiOff, Moon, Sun, KeyRound, BookOpen, Activity, Camera, Sparkles, ClipboardList, Store, MoreHorizontal, LogOut, Search } from 'lucide-react';
 import { useDarkMode } from './hooks/useDarkMode';
 import SafeMarkdown from './components/SafeMarkdown';
 import SearchFilters from './components/SearchFilters';
@@ -138,6 +138,7 @@ function NavBar({
     { key: 'getting-started', label: 'Guide', icon: BookOpen },
     { key: 'chat-history', label: 'Chat History', icon: MessageCircle },
     { key: 'adstudio', label: 'Ad Studio', icon: Video },
+    { key: 'google-ads', label: 'Google Ads', icon: Search },
     { key: 'analytics', label: 'Numbers', icon: Activity },
   ] : [];
   const desktopPrimary = adminAuthed
@@ -473,7 +474,7 @@ async function sendToAgent(sessionId, text, maxRetries = 2) {
 function pageFromPath(path) {
   const p = (path || '').toLowerCase();
   if (p.startsWith('/documents') || p.startsWith('/document-center') || p.startsWith('/app/documents')) return 'documents';
-  if (p.startsWith('/studio') || p.startsWith('/app/studio')) return 'adstudio';
+  if (p.startsWith('/ad-studio') || p.startsWith('/studio') || p.startsWith('/app/studio')) return 'adstudio';
   if (p.startsWith('/crm')) return 'crm';
   if (p.startsWith('/analytics')) return 'analytics';
   if (p.startsWith('/getting-started') || p.startsWith('/guide')) return 'getting-started';
@@ -1022,7 +1023,7 @@ function App() {
     };
     const shortTitles = {
       documents: 'Documents',
-      adstudio: 'Ad Studio',
+      adstudio: pathname.toLowerCase().startsWith('/ad-studio') ? 'Google Ads' : 'Ad Studio',
       analytics: 'Analytics',
       crm: 'CRM Dashboard',
       system: 'THO System Hub',
@@ -1097,6 +1098,7 @@ function App() {
       terms: '/terms',
       documents: '/documents',
       adstudio: '/studio',
+      'google-ads': '/ad-studio',
       crm: '/crm',
       analytics: '/analytics',
       'getting-started': '/getting-started',
@@ -1366,7 +1368,7 @@ function App() {
 
   // --- Shared nav props ---
   const navProps = {
-    activePage,
+    activePage: pathname.toLowerCase().startsWith('/ad-studio') ? 'google-ads' : activePage,
     navigateTo,
     adminAuthed,
     onAdminAccess: handleAdminAccess,
@@ -1642,7 +1644,11 @@ function App() {
         )}
         <ErrorBoundary scope="adstudio">
           <Suspense fallback={<PageLoader />}>
-            <AdStudio onBack={() => navigateTo('chat')} standalone={isStandaloneMode} />
+            <AdStudio
+              onBack={() => navigateTo('chat')}
+              standalone={isStandaloneMode}
+              initialTab={pathname.toLowerCase().startsWith('/ad-studio') ? 'paid-search' : 'create'}
+            />
           </Suspense>
         </ErrorBoundary>
         <Footer adminAuthed={adminAuthed} onAdminAccess={handleAdminAccess} onNavigate={navigateTo} />
