@@ -365,6 +365,11 @@ class TestSendDocumentEmail:
         ]
         # Customer replies still route to the shared mailbox, not the staff list.
         assert sent_payloads[0]["reply_to"] == "sales@texashomeoutlet.com"
+        assert sent_payloads[0]["subject"].startswith("New Lead: Carol Lead")
+        assert (
+            "Open the staff page, choose Leads, and answer this person." in sent_payloads[0]["text"]
+        )
+        assert "admin_lead_notification" in str(logged[0])
         # The activity log captures the joined recipient string.
         assert logged[0][0] == (
             "ben@texashomeoutlet.com, leeaswell@texashomeoutlet.com, "

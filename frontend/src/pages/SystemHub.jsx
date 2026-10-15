@@ -435,15 +435,15 @@ export default function SystemHub({ onBack }) {
               <Activity size={24} />
               System Hub
             </h1>
-            <p className="text-sm text-[var(--cp-muted)] mt-1 font-mono">
-              Standalone Texas Home Outlet operations
+            <p className="text-base text-[var(--cp-text)] mt-2 max-w-xl leading-relaxed">
+              This page is for the owner. Everyday work is on Staff Home: answer a lead, or add a home with real photos.
             </p>
           </div>
           <div className="flex items-center gap-3">
             {onBack && (
               <button onClick={onBack}
-                className="cp-btn-outline px-4 py-2 text-sm flex items-center gap-2">
-                <ChevronRight size={14} className="rotate-180" /> Back
+                className="cp-btn-outline min-h-12 px-4 py-3 text-base flex items-center gap-2">
+                <ChevronRight size={18} className="rotate-180" /> Back to the website
               </button>
             )}
             <StatusBadge status={health ? 'ok' : 'pending'} label={health ? 'Healthy' : 'Checking…'} />

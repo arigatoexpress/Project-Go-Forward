@@ -194,9 +194,11 @@ export default function StaffSignInPanel({
         </div>
       </div>
       <h2 className="text-3xl font-bold text-center text-[var(--cp-text)] mb-3">Staff sign-in</h2>
-      <p className="text-lg text-[var(--cp-text)] text-center mb-6 leading-relaxed">
-        Type your work email. We will email you a sign-in button.
-      </p>
+      <ol className="text-lg text-[var(--cp-text)] mb-6 leading-relaxed list-decimal pl-6 space-y-1">
+        <li>Type your work email.</li>
+        <li>Open that email on this phone or computer.</li>
+        <li>Tap Sign me in. The link works for 10 minutes.</li>
+      </ol>
 
       {initialNotice && (
         <p role="status" className="text-sm text-center mb-4">{initialNotice}</p>
@@ -252,8 +254,9 @@ export default function StaffSignInPanel({
         </form>
       ) : !sent ? (
         <form onSubmit={requestEmail} className="space-y-4">
-          <label className="block">
-            <span className="sr-only">Work email</span>
+          <label className="block text-lg font-semibold">
+            Work email
+            <span className="mt-1 block text-base font-normal text-[var(--cp-muted)]">Use the email the store gave you, such as name@texashomeoutlet.com.</span>
             <input
               type="email"
               autoComplete="username"
@@ -313,7 +316,7 @@ export default function StaffSignInPanel({
             className="cp-btn-accent w-full py-4 text-lg flex items-center justify-center gap-2"
           >
             {loading ? <Loader2 size={20} className="animate-spin" /> : <ShieldCheck size={20} />}
-            {loading ? 'Verifying...' : 'Verify'}
+            {loading ? 'Signing in...' : 'Sign me in'}
           </button>
           <button
             type="button"
@@ -334,7 +337,7 @@ export default function StaffSignInPanel({
       )}
 
       {error && (
-        <p role="alert" className="text-[var(--cp-danger)] text-xs text-center mt-3">{error}</p>
+        <p role="alert" className="text-[var(--cp-danger)] text-lg text-center mt-4 leading-relaxed">{error}</p>
       )}
 
       <div className="mt-4">
@@ -342,13 +345,13 @@ export default function StaffSignInPanel({
           <button
             type="button"
             onClick={() => { setShowPin(true); setError(''); }}
-            className="w-full py-2 text-sm text-[var(--cp-muted)] underline"
+            className="w-full min-h-12 py-3 text-base underline"
           >
             Use backup PIN
           </button>
         ) : (
-          <form onSubmit={submitPin} className="space-y-2 border border-[var(--cp-border)] rounded-lg p-3">
-            <p className="text-xs text-center text-[var(--cp-muted)]">Backup PIN</p>
+          <form onSubmit={submitPin} className="space-y-3 border border-[var(--cp-border)] rounded-lg p-4">
+            <p className="text-base text-center leading-relaxed">Backup PIN from the owner. Most people should use the email button above.</p>
             <input
               type="password"
               inputMode="text"
@@ -361,14 +364,14 @@ export default function StaffSignInPanel({
               aria-label="Admin PIN"
             />
             {pinError && (
-              <p className="text-[var(--cp-danger)] text-xs text-center">{pinError}</p>
+              <p role="alert" className="text-[var(--cp-danger)] text-base text-center leading-relaxed">{pinError}</p>
             )}
             <button
               type="submit"
               disabled={!pin.trim() || loading}
-              className="cp-btn-outline w-full py-3 text-sm"
+              className="cp-btn-outline w-full min-h-12 py-3 text-base"
             >
-              {loading ? 'Verifying...' : 'Unlock'}
+              {loading ? 'Checking...' : 'Unlock'}
             </button>
           </form>
         )}
@@ -403,7 +406,7 @@ export default function StaffSignInPanel({
         <button
           type="button"
           onClick={onCancel}
-          className="w-full mt-3 py-2 text-[var(--cp-faint)] text-xs"
+          className="w-full mt-3 min-h-12 py-3 text-base underline"
         >
           Cancel
         </button>
