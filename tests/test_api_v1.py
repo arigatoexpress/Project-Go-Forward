@@ -400,6 +400,14 @@ class FakeTHODatabase:
             ]
         return customers[:limit]
 
+    def update_customer(self, customer_id: str, data: dict) -> bool:
+        record = self.collections["customers"].get(customer_id)
+        if record is None:
+            return False
+        record.update(data)
+        record["updated_at"] = "2026-04-22T00:00:00"
+        return True
+
     def create_customer(self, data: dict, doc_id: str | None = None):
         doc_id = doc_id or f"cust-{len(self.collections['customers']) + 1}"
         record = dict(data)
