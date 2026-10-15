@@ -1,8 +1,17 @@
 # main.py Coverage Understatement — Investigation Log
 
-**Status (2026-10-15): root cause localized; no fix yet. This is a MEASUREMENT
-bug, not a test-coverage gap.** The suite executes the endpoint handlers; the
-coverage tracer fails to record most handler lines under `pytest --cov`.
+**Status (2026-10-15, cycle 3): WORKAROUND FOUND AND APPLIED.** The trigger is
+the shape of faked async manager methods that shadow real
+`asyncio.to_thread`-suspending implementations: mirroring the real suspension
+heals coverage attribution (applied to `FakeLeadManager` and
+`FakeAppointmentManager` in `tests/test_api_v1.py`). Full-suite A/B on
+main.py: 1,893 → 1,804 missed lines (59% → 61%). The heal is per-endpoint —
+each endpoint whose awaited fakes complete synchronously still under-records,
+and the remaining 1,804 misses need either the real mechanism (below) or the
+same treatment for other stubs. The underlying CTracer mechanism is still not
+understood — a trivial standalone FastAPI+fake repro does NOT reproduce;
+real-app context is required. This is a MEASUREMENT bug, not a test-coverage
+gap.
 
 ## Symptom
 
@@ -53,6 +62,24 @@ coverage records nothing past the handler's entry lines).
 - A CPython 3.11 trace-event quirk (RESUME/call-event accounting) interacting
   with those frames.
 
+## Breakthrough (cycle 3, 2026-10-15)
+
+- The trigger is precisely `FakeLeadManager` (not `FakeLead`): real Lead +
+  fake manager → cut; fake Lead + real manager → records.
+- The real `LeadManager.create_lead` suspends via `await asyncio.to_thread(...)`
+  (Firestore write in a worker thread); the fake completed synchronously.
+  Making the fake's `create_lead`/`update_lead` use `asyncio.to_thread` **heals
+  the entire handler** — all lines of `submit_contact_form` record (max 6890),
+  even though the apparent "cut" was earlier in the request. The CTracer's
+  failure is determined by the await-tree shape, not a clean death point.
+- A trivial standalone FastAPI repro (same fake shape) does NOT reproduce — the
+  real app's context (middleware/slowapi/imports) is required. Minimal-repro
+  shrinking for a coverage.py bug report remains open.
+- **Fix applied**: `tests/test_api_v1.py` `FakeLeadManager.create_lead` /
+  `update_lead` now mirror the real suspension. Other fake managers
+  (test_obsidian_routes.FakeLeadManager, etc.) may need the same treatment if
+  their endpoints show the same symptom.
+
 ## What does NOT work
 
 - importlib.reload-based "sabotage" theory — disproven (an empty second test
@@ -70,13 +97,12 @@ no emulator) but honest.
 
 ## Next steps
 
-1. Build a minimal repro of the CTracer silent death for a coverage.py bug
-   report: shrink from the full app (FastAPI + fake `lead_management` module +
-   one endpoint) until the cutoff survives.
-2. Alternatively, fix `load_app` to stop stubbing `lead_management` (needs a
-   Firestore-fake boundary that keeps tests hermetic — nontrivial).
-3. Re-measure main.py endpoint coverage via the proven subprocess path for the
-   launch-relevant missed blocks: `get_document_analytics` (2505),
-   `bulk_import_inventory` (4209), `docuseal_webhook` (5276),
-   `submit_chat_callback` (6624), `email_inbound_webhook` (6960),
-   `get_user_activity` (8058).
+1. Validate the fix suite-wide: `pytest tests/ -q --cov=main --cov-report=term`
+   — expect main.py coverage to jump well above the 59% / 1,893-missed
+   baseline. Remaining misses after that are REAL gaps worth writing tests for.
+2. If other endpoint groups still under-attribute, check their fake managers'
+   async methods for the same missing-suspension pattern
+   (`grep -rn "async def" tests/ | grep -v to_thread`).
+3. Long-term: minimal repro of the CTracer silent death for a coverage.py bug
+   report (needs real-app context; shrink by stripping main.py, not building
+   up from scratch).
