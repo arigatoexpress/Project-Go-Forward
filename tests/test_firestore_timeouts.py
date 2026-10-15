@@ -4,45 +4,65 @@ its enforcement in THODatabase (database/firestore_client.py).
 Run: python -m pytest tests/test_firestore_timeouts.py -v
 """
 
-import importlib
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
 from unittest.mock import MagicMock
 
-import pytest
-
-import database.rpc_timeout as rpc_timeout
 from database.firestore_client import THODatabase
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def _rpc_timeouts_in_subprocess(env_overrides: dict | None = None) -> dict:
+    """Load database.rpc_timeout constants in a fresh interpreter.
+
+    The constants are computed at import time from FIRESTORE_RPC_TIMEOUT_SECONDS,
+    so an env-config test needs a fresh module evaluation. A subprocess keeps the
+    pytest process's module state untouched — no importlib.reload / restore dance
+    (reload here was never the coverage problem; the endpoint-coverage
+    understatement tracked in this repo's cycles had a different root cause).
+    """
+    code = (
+        "import json;"
+        "import database.rpc_timeout as m;"
+        "print(json.dumps({'rpc': m.FIRESTORE_RPC_TIMEOUT,"
+        " 'txn': m.FIRESTORE_TRANSACTION_TIMEOUT}))"
+    )
+    env = {k: v for k, v in os.environ.items() if k != "FIRESTORE_RPC_TIMEOUT_SECONDS"}
+    env.update(env_overrides or {})
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        cwd=REPO_ROOT,
+        env=env,
+        timeout=60,
+    )
+    assert result.returncode == 0, result.stderr
+    return json.loads(result.stdout.strip().splitlines()[-1])
 
 
 class TestRpcTimeoutConfig:
     """The shared constant loads from env with safe fallbacks."""
 
-    def test_default_when_env_unset(self, monkeypatch):
-        monkeypatch.delenv("FIRESTORE_RPC_TIMEOUT_SECONDS", raising=False)
-        reloaded = importlib.reload(rpc_timeout)
-        assert reloaded.FIRESTORE_RPC_TIMEOUT == 10.0
+    def test_default_when_env_unset(self):
+        values = _rpc_timeouts_in_subprocess()
+        assert values["rpc"] == 10.0
 
-    def test_env_override(self, monkeypatch):
-        monkeypatch.setenv("FIRESTORE_RPC_TIMEOUT_SECONDS", "5.5")
-        reloaded = importlib.reload(rpc_timeout)
-        assert reloaded.FIRESTORE_RPC_TIMEOUT == 5.5
+    def test_env_override(self):
+        values = _rpc_timeouts_in_subprocess({"FIRESTORE_RPC_TIMEOUT_SECONDS": "5.5"})
+        assert values["rpc"] == 5.5
 
-    def test_invalid_env_falls_back(self, monkeypatch):
-        monkeypatch.setenv("FIRESTORE_RPC_TIMEOUT_SECONDS", "not-a-number")
-        reloaded = importlib.reload(rpc_timeout)
-        assert reloaded.FIRESTORE_RPC_TIMEOUT == 10.0
+    def test_invalid_env_falls_back(self):
+        values = _rpc_timeouts_in_subprocess({"FIRESTORE_RPC_TIMEOUT_SECONDS": "not-a-number"})
+        assert values["rpc"] == 10.0
 
-    def test_non_positive_env_falls_back(self, monkeypatch):
-        monkeypatch.setenv("FIRESTORE_RPC_TIMEOUT_SECONDS", "0")
-        reloaded = importlib.reload(rpc_timeout)
-        assert reloaded.FIRESTORE_RPC_TIMEOUT == 10.0
-
-    @pytest.fixture(autouse=True)
-    def _restore_module(self, monkeypatch):
-        """Reload the module once more after each test so later imports see
-        the env-independent value."""
-        yield
-        monkeypatch.delenv("FIRESTORE_RPC_TIMEOUT_SECONDS", raising=False)
-        importlib.reload(rpc_timeout)
+    def test_non_positive_env_falls_back(self):
+        values = _rpc_timeouts_in_subprocess({"FIRESTORE_RPC_TIMEOUT_SECONDS": "0"})
+        assert values["rpc"] == 10.0
 
 
 def _db_with_mock_client():
@@ -118,22 +138,15 @@ class TestTransactionWallClockBound:
     be bounded at the call site with asyncio.wait_for using
     FIRESTORE_TRANSACTION_TIMEOUT (see database/rpc_timeout.py)."""
 
-    def test_transaction_timeout_derives_from_rpc_timeout(self, monkeypatch):
-        monkeypatch.delenv("FIRESTORE_RPC_TIMEOUT_SECONDS", raising=False)
-        reloaded = importlib.reload(rpc_timeout)
-        assert reloaded.FIRESTORE_TRANSACTION_TIMEOUT == reloaded.FIRESTORE_RPC_TIMEOUT * 3
-        assert reloaded.FIRESTORE_TRANSACTION_TIMEOUT == 30.0
+    def test_transaction_timeout_derives_from_rpc_timeout(self):
+        values = _rpc_timeouts_in_subprocess()
+        assert values["txn"] == values["rpc"] * 3
+        assert values["txn"] == 30.0
 
-    def test_transaction_timeout_scales_with_env_override(self, monkeypatch):
-        monkeypatch.setenv("FIRESTORE_RPC_TIMEOUT_SECONDS", "5")
-        reloaded = importlib.reload(rpc_timeout)
-        assert reloaded.FIRESTORE_TRANSACTION_TIMEOUT == 15.0
-
-    @pytest.fixture(autouse=True)
-    def _restore_module(self, monkeypatch):
-        yield
-        monkeypatch.delenv("FIRESTORE_RPC_TIMEOUT_SECONDS", raising=False)
-        importlib.reload(rpc_timeout)
+    def test_transaction_timeout_scales_with_env_override(self):
+        values = _rpc_timeouts_in_subprocess({"FIRESTORE_RPC_TIMEOUT_SECONDS": "5"})
+        assert values["rpc"] == 5.0
+        assert values["txn"] == 15.0
 
     @staticmethod
     def _record_wait_for(monkeypatch, sink):

@@ -341,20 +341,44 @@ def test_inventory_context_uses_snapshot_before_live_crawl(monkeypatch):
     assert context["total_inventory"] == 1
 
 
-def test_legacy_base_url_is_env_configurable(monkeypatch):
+def test_legacy_base_url_is_env_configurable():
     """LEGACY_INVENTORY_BASE_URL re-points the live-refresh source so the
-    crawler can be reconnected to the current vendor feed after the cutover."""
-    import importlib
+    crawler can be reconnected to the current vendor feed after the cutover.
 
-    monkeypatch.setenv("LEGACY_INVENTORY_BASE_URL", "https://vendor.example.com/")
-    mod = importlib.reload(legacy_site_crawler)
-    try:
-        assert mod.LEGACY_BASE_URL == "https://vendor.example.com"
-        assert mod.LEGACY_INVENTORY_URL == "https://vendor.example.com/inventory/"
-        assert mod.LEGACY_FLOORPLAN_URL == "https://vendor.example.com/floor-plans/"
-    finally:
-        monkeypatch.delenv("LEGACY_INVENTORY_BASE_URL", raising=False)
-        importlib.reload(legacy_site_crawler)  # restore module-level defaults
+    Runs in a subprocess so the env var is evaluated at fresh-import time
+    without mutating module state in the pytest process (no reload/restore
+    dance needed).
+    """
+    import json
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    repo_root = Path(__file__).resolve().parents[1]
+    code = (
+        "import json, os;"
+        "os.environ['LEGACY_INVENTORY_BASE_URL'] = 'https://vendor.example.com/';"
+        "import tools.legacy_site_crawler as m;"
+        "print(json.dumps({'base': m.LEGACY_BASE_URL,"
+        " 'inventory': m.LEGACY_INVENTORY_URL,"
+        " 'floorplan': m.LEGACY_FLOORPLAN_URL}))"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        cwd=repo_root,
+        env=os.environ.copy(),
+        timeout=60,
+    )
+    assert result.returncode == 0, result.stderr
+    urls = json.loads(result.stdout.strip().splitlines()[-1])
+    assert urls == {
+        "base": "https://vendor.example.com",
+        "inventory": "https://vendor.example.com/inventory/",
+        "floorplan": "https://vendor.example.com/floor-plans/",
+    }
 
 
 def test_log_snapshot_staleness_warns_when_old(caplog):
