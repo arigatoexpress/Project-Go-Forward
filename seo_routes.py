@@ -966,39 +966,20 @@ def _listing_display_price(home: dict) -> str:
     return price if price else "Call for Price"
 
 
-def _listing_product_jsonld(home: dict, canonical_url: str) -> dict:
-    """Product JSON-LD for /homes/ pages. Never invents a price."""
+def _listing_product_jsonld(home: dict, canonical_url: str) -> dict | None:
+    """Product JSON-LD for /homes/ pages. Never invents a price.
+
+    Google requires Product rich results to carry offers/review/aggregateRating;
+    "Call for Price" homes have no offer, so they get no Product markup at all
+    (Search Console "Either offers, review, or aggregateRating" error, Oct 11).
+    """
     priced = _product_jsonld(home, canonical_url)
-    if priced:
-        images = listing_page_images(home)
-        if images:
-            priced["image"] = images[0]
-        return priced
-    specs = home.get("specs") or {}
-    bits = []
-    if specs.get("beds"):
-        bits.append(f"{specs['beds']} bed")
-    if specs.get("baths"):
-        bits.append(f"{specs['baths']} bath")
-    if specs.get("dimensions"):
-        bits.append(str(specs["dimensions"]))
-    description = home.get("description") or (
-        f"{home.get('model_name', 'Manufactured home')} ({', '.join(bits)}) at "
-        f"{business_name()} in {_CITY_STATE}."
-    )
-    data = {
-        "@context": "https://schema.org",
-        "@type": "Product",
-        "name": home.get("model_name") or "Manufactured Home",
-        "description": str(description)[:300],
-        "url": canonical_url,
-    }
-    if home.get("manufacturer"):
-        data["brand"] = {"@type": "Brand", "name": home["manufacturer"]}
+    if not priced:
+        return None
     images = listing_page_images(home)
     if images:
-        data["image"] = images[0]
-    return data
+        priced["image"] = images[0]
+    return priced
 
 
 def _crawlable_home_listing_block(home: dict) -> str:
@@ -1655,8 +1636,12 @@ def _render_spa_response(full_path: str) -> Response | None:
             canonical_url,
             og_image=images[0] if images else None,
             jsonld=[
-                _listing_product_jsonld(home, canonical_url),
-                _breadcrumb_jsonld(home.get("model_name") or "Manufactured Home", canonical_url),
+                x
+                for x in (
+                    _listing_product_jsonld(home, canonical_url),
+                    _breadcrumb_jsonld(home.get("model_name") or "Manufactured Home", canonical_url),
+                )
+                if x
             ],
         )
         return HTMLResponse(
