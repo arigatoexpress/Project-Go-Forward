@@ -46,6 +46,23 @@ describe('listingRoutes', () => {
     expect(listingPagePhotos(orderable)).toEqual([catalog]);
   });
 
+  it('drops stock photos and another unit’s photos from a used listing', () => {
+    const own = 'https://storage.googleapis.com/tho-inventory-assets/inventory/43945/hero.jpg';
+    const other = 'https://d132mt2yijm03y.cloudfront.net/dealer/3522/inventory/99999/1.jpg';
+    const stock = 'https://images.unsplash.com/photo-1500000000000';
+    const catalog = 'https://cdn.example/manufacturer/1/floorplan/x/showroom.jpg';
+    const used = {
+      id: '43945',
+      inventory_kind: 'pre_owned',
+      status: 'Pre-Owned',
+      image_url: stock,
+      real_photos: [own, other, stock, catalog],
+      gallery_images: [stock],
+      floor_plan_url: 'https://lot.example/plan.jpg',
+    };
+    expect(listingPagePhotos(used)).toEqual([own]);
+  });
+
   it('derives a unique heading from city, home, and plan URLs before inventory loads', () => {
     expect(fallbackListingHeading('/manufactured-homes-in-humble-tx')).toBe(
       'Manufactured & Mobile Homes in Humble, TX',

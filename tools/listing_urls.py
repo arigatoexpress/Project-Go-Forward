@@ -23,7 +23,7 @@ from tools.catalog_floorplans import (
     classify_inventory_kind,
 )
 from tools.inventory_dedupe import is_active_status, is_orderable_new, is_preowned
-from tools.photo_classifier import is_floorplan_url, is_manufacturer_catalog_photo_url
+from tools.photo_classifier import is_disallowed_used_photo_url, is_floorplan_url
 
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
 _HOME_PATH_RE = re.compile(r"^/homes/([^/]+)/?$", re.IGNORECASE)
@@ -144,7 +144,7 @@ def listing_page_images(home: dict | None) -> list[str]:
         url = str(raw or "").strip()
         if not url or url in seen or is_floorplan_url(url):
             continue
-        if used and is_manufacturer_catalog_photo_url(url):
+        if used and is_disallowed_used_photo_url(url, home):
             continue
         seen.add(url)
         own_photos.append(url)

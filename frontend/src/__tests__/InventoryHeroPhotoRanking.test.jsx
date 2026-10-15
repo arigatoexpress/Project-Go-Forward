@@ -78,10 +78,15 @@ describe('HomeCard hero selection', () => {
       inventory_kind: 'pre_owned',
       is_new: false,
       image_url: catalog,
-      real_photos: [catalog, EXT],
+      real_photos: [
+        catalog,
+        'https://cdn.example.com/dealer/1/inventory/43945/Nassau-ext-1.jpg',
+      ],
       gallery_images: [catalog],
     });
-    expect(container.querySelector('img').getAttribute('src')).toBe(EXT);
+    expect(container.querySelector('img').getAttribute('src')).toBe(
+      'https://cdn.example.com/dealer/1/inventory/43945/Nassau-ext-1.jpg',
+    );
   });
 
   it('leads with a photo of the house even when an unlabeled "hero" file is listed first', () => {

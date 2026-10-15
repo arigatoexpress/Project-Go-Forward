@@ -178,6 +178,7 @@ from tools.input_sanitizer import sanitize_body, sanitize_query_params
 from tools.inventory_dedupe import (
     annotate_possible_duplicates,
     collapse_duplicate_homes,
+    is_preowned,
     suppress_used_home_catalog_photos,
 )
 from tools.pii_guard import redact_pii_from_text, validate_no_pii_in_text
@@ -861,7 +862,7 @@ class ImmutableStaticFiles(StaticFiles):
 #
 # Cache-Control is applied consistently:
 #   * GET /api/marketing/inventory-context (public read-side):
-#       staff-backed reads revalidate; archived legacy reads may cache for 1h
+#       staff-backed reads cache for 60s; archived legacy reads may cache for 1h
 #   * Any other /api/* path: no-cache (CRM data must never be cached)
 #   * Non-/api paths: header is left untouched so the SPA / static asset
 #     handlers can set their own caching policy.
@@ -871,12 +872,30 @@ class ImmutableStaticFiles(StaticFiles):
 # they flow through this single envelope rather than emitting a bare detail.
 
 _PUBLIC_INVENTORY_CACHE = "max-age=3600, public, stale-while-revalidate=60"
+# Live staff inventory revalidates within a minute. no-cache forced every
+# image-page navigation to wait on the full catalog JSON.
+_STAFF_INVENTORY_CACHE = "public, max-age=60, stale-while-revalidate=300"
 _DYNAMIC_API_CACHE = "no-cache"
+_STATIC_ASSET_CACHE = "public, max-age=86400"
+_STATIC_ASSET_SUFFIXES = (
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".webp",
+    ".gif",
+    ".svg",
+    ".ico",
+    ".avif",
+    ".woff2",
+)
 
 
 def _public_inventory_cache_policy() -> str:
-    # A browser/CDN must not hide staff changes for an hour after a save.
-    return _PUBLIC_INVENTORY_CACHE if _inventory_source_pref() == "legacy" else _DYNAMIC_API_CACHE
+    # Archived legacy snapshots may sit for an hour. A live staff read must
+    # not hide a save for that long, but it can be reused for a minute.
+    return (
+        _PUBLIC_INVENTORY_CACHE if _inventory_source_pref() == "legacy" else _STAFF_INVENTORY_CACHE
+    )
 
 
 def _is_public_inventory_read(method: str, path: str) -> bool:
@@ -5827,7 +5846,7 @@ def _firestore_inventory_context(preloaded: dict | None = None) -> dict:
     # distinction explicit before and after enrichment.
     for home in firestore_homes:
         apply_classifier_to_home(home)
-        if not has_real_photo(home):
+        if not has_real_photo(home) and not is_preowned(home):
             asset = get_assets_for_home(home.get("model_name", ""))
             if asset:
                 asset_images = asset.get("images") or []
@@ -9934,6 +9953,8 @@ async def serve_spa(full_path: str):
                     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
                     response.headers["Pragma"] = "no-cache"
                     response.headers["Expires"] = "0"
+                elif file_path.lower().endswith(_STATIC_ASSET_SUFFIXES):
+                    response.headers["Cache-Control"] = _STATIC_ASSET_CACHE
                 return response
     # Unknown route and not a dist file: real 404 with the SPA shell so
     # crawlers don't index every typo as a page (soft-404 avoidance).

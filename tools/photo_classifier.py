@@ -60,6 +60,28 @@ MANUFACTURER_FLOORPLAN_NAMESPACE_RE = re.compile(
     r"/manufacturer/[^/]+/floorplan/[^/]+/",
     re.IGNORECASE,
 )
+# Unit id embedded in a photo path. More specific prefixes come first so
+# ``/api/inventory/photos/<id>/`` is not read as unit id "photos".
+_UNIT_PATH_RE = re.compile(
+    r"/(?:dealer/[^/]+/inventory/|api/inventory/photos/|inventory/)([^/?#]+)/",
+    re.IGNORECASE,
+)
+_GENERIC_STOCK_HOSTS = frozenset(
+    {
+        "images.unsplash.com",
+        "unsplash.com",
+        "images.pexels.com",
+        "pexels.com",
+        "pixabay.com",
+        "cdn.pixabay.com",
+        "placehold.co",
+        "via.placeholder.com",
+        "placeholder.com",
+        "picsum.photos",
+        "loremflickr.com",
+        "lorempixel.com",
+    }
+)
 PHOTO_FILENAME_TOKENS: tuple[str, ...] = (
     "bath",
     "bed",
@@ -187,6 +209,66 @@ def is_manufacturer_catalog_photo_url(url: str | None) -> bool:
     if is_floorplan_url(url):
         return False
     return _is_manufacturer_floorplan_namespace(url)
+
+
+def is_generic_stock_photo_url(url: str | None) -> bool:
+    """True for placeholder and free-stock hosts that are not a unit photo."""
+    if not url or not isinstance(url, str):
+        return False
+    try:
+        host = (urlparse(url).hostname or "").lower()
+    except ValueError:
+        return False
+    if host.startswith("www."):
+        host = host[4:]
+    return host in _GENERIC_STOCK_HOSTS
+
+
+def embedded_unit_id(url: str | None) -> str | None:
+    """Return the inventory id encoded in a dealer, storage, or upload path."""
+    if not url or not isinstance(url, str):
+        return None
+    match = _UNIT_PATH_RE.search(unquote(url))
+    if not match:
+        return None
+    unit = match.group(1).strip()
+    return unit or None
+
+
+def home_photo_ids(home: dict | None) -> set[str]:
+    """Identifiers that prove a photo path belongs to this home."""
+    if not isinstance(home, dict):
+        return set()
+    found: set[str] = set()
+    for key in ("id", "stock_number", "stock_id", "legacy_inventory_id", "home_id"):
+        value = str(home.get(key) or "").strip()
+        if value:
+            found.add(value)
+    return found
+
+
+def is_foreign_unit_photo_url(url: str | None, home: dict | None) -> bool:
+    """True when the URL names a different unit than ``home``.
+
+    Photos with no unit id in the path are left alone. A dealer or storage
+    URL that names another inventory id is that other home's photo.
+    """
+    unit = embedded_unit_id(url)
+    if not unit:
+        return False
+    identifiers = home_photo_ids(home)
+    if not identifiers:
+        return False
+    return unit not in identifiers
+
+
+def is_disallowed_used_photo_url(url: str | None, home: dict | None) -> bool:
+    """Catalog, free-stock, and other-unit photos are not this used home."""
+    return (
+        is_manufacturer_catalog_photo_url(url)
+        or is_generic_stock_photo_url(url)
+        or is_foreign_unit_photo_url(url, home)
+    )
 
 
 def is_floorplan_url(url: str | None) -> bool:
@@ -447,11 +529,11 @@ def apply_classifier_to_home(home: dict) -> dict:
 _CATALOG_PHOTO_LIST_FIELDS = ("real_photos", "photos", "gallery_images")
 
 
-def _without_catalog_photo_urls(values: list) -> list:
+def _without_catalog_photo_urls(values: list, home: dict) -> list:
     return [
         value
         for value in values
-        if not (isinstance(value, str) and is_manufacturer_catalog_photo_url(value))
+        if not (isinstance(value, str) and is_disallowed_used_photo_url(value, home))
     ]
 
 
@@ -479,14 +561,14 @@ def strip_manufacturer_catalog_photos(home: dict) -> dict:
         value = home.get(field)
         if not isinstance(value, list):
             continue
-        kept = _without_catalog_photo_urls(value)
+        kept = _without_catalog_photo_urls(value, home)
         if kept != value:
             home[field] = kept
             changed = True
 
     for field in ("image_url", "hero_image"):
         value = home.get(field)
-        if isinstance(value, str) and is_manufacturer_catalog_photo_url(value):
+        if isinstance(value, str) and is_disallowed_used_photo_url(value, home):
             home[field] = ""
             changed = True
 
@@ -498,7 +580,7 @@ def strip_manufacturer_catalog_photos(home: dict) -> dict:
             if not isinstance(values, list):
                 cleaned[key] = values
                 continue
-            kept = _without_catalog_photo_urls(values)
+            kept = _without_catalog_photo_urls(values, home)
             if kept != values:
                 categories_changed = True
             if kept:

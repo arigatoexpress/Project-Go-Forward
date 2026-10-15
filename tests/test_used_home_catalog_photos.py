@@ -119,6 +119,25 @@ def test_catalog_photo_urls_match_the_manufacturer_gallery_namespace():
     assert is_manufacturer_catalog_photo_url(None) is False
 
 
+def test_used_home_drops_stock_and_other_unit_photos():
+    home = suppress_used_home_catalog_photos(
+        {
+            **_mixed_used(),
+            "real_photos": [
+                REAL,
+                "https://images.unsplash.com/photo-1",
+                f"{CDN}/dealer/3522/inventory/99999/other.jpg",
+                CAT_A,
+            ],
+            "image_url": "https://images.unsplash.com/photo-1",
+        }
+    )
+    assert home["real_photos"] == [REAL]
+    assert home["image_url"] == REAL
+    assert "unsplash.com" not in " ".join(_urls(home))
+    assert "99999" not in " ".join(_urls(home))
+
+
 def test_used_home_with_mixed_photos_keeps_only_real_ones():
     home = suppress_used_home_catalog_photos(_mixed_used())
 
@@ -172,7 +191,9 @@ def test_dedupe_does_not_reintroduce_donor_catalog_photos_onto_a_used_home():
         "floorplan_url": MFR_FLOOR,
     }
     # Not a numeric lot id, so photo borrow runs. Catalog URLs must still not
-    # land on the used survivor; a real dealer photo and a missing floorplan may.
+    # land on the used survivor. A dealer or storage URL that names a different
+    # unit is that other home's photo and must not be borrowed either. A
+    # missing floorplan drawing may.
     overlay = {
         "id": "lot-overlay",
         "model_name": "PRE-OWNED / The Jackson",
@@ -214,7 +235,9 @@ def test_dedupe_does_not_reintroduce_donor_catalog_photos_onto_a_used_home():
     assert stocked["floorplan_url"] == FLOOR
 
     borrowed = by_id["lot-overlay"]
-    assert borrowed["real_photos"] == [REAL, DEALER]
+    assert borrowed["real_photos"] == []
+    assert REAL not in _urls(borrowed)
+    assert DEALER not in _urls(borrowed)
     assert CAT_DONOR not in _urls(borrowed)
     assert CAT_B not in _urls(borrowed)
     assert borrowed["floorplan_url"] == MFR_FLOOR

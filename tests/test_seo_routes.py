@@ -125,6 +125,7 @@ def test_sitemap_lists_static_and_detail_urls(monkeypatch):
     assert "/plan/235424/" not in body
     assert "/quote/floorplan/235424" not in body
     assert "/homes/44490-pre-owned-big-blue</loc>" in body
+    assert "/chat</loc>" in body
     assert "/homes/43372-premier-creole-3256h32447</loc>" in body
     assert "<lastmod>2026-10-01</lastmod>" in body
     # Google ignores priority/changefreq. lastmod is only on live /homes/ URLs.
@@ -154,13 +155,11 @@ def test_inventory_routes_preload_the_responsive_hero_image(monkeypatch):
         body = client.get(path).text
         assert '<link rel="preload" as="image"' in body
         assert 'href="https://img.example.com/creole.jpg"' in body
-        assert (
-            'imagesrcset="https://img.example.com/creole.jpg?w=400 400w, '
-            "https://img.example.com/creole.jpg?w=800 800w, "
-            'https://img.example.com/creole.jpg?w=1200 1200w"' in body
-        )
-        assert 'imagesizes="100vw"' in body
+        assert "imagesrcset=" not in body
+        assert "?w=400" not in body
         assert 'fetchpriority="high"' in body
+        assert 'name="twitter:title"' in body
+        assert 'property="og:locale" content="en_US"' in body
 
     assert '<link rel="preload" as="image"' not in client.get("/contact").text
 
@@ -1088,6 +1087,9 @@ def test_home_page_keeps_call_for_price_and_own_photos(monkeypatch):
     assert "https://img.example.com/lot-44490.jpg" in body
     assert "catalog-should-not-appear.jpg" not in body
     assert "Heritage-kitchen-1.jpg" not in body
+    assert 'href="tel:+12813243020">Call (281) 324-3020</a>' in body
+    assert "Text (281) 324-3020" in body
+    assert 'href="/financing">Apply for financing</a>' in body
     og = re.search(r'<meta property="og:image" content="([^"]+)"', body)
     assert og is not None
     assert og.group(1) == "https://img.example.com/lot-44490.jpg"

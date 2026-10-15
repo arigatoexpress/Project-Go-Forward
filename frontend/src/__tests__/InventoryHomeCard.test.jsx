@@ -94,6 +94,37 @@ describe('InventoryBrowse HomeCard — order-only / build-to-order homes', () =>
     expect(screen.getByText(/photos coming soon/i)).toBeInTheDocument();
   });
 
+  it('shows call, text, and apply, and only that used home’s photo', () => {
+    const { container } = renderCard({
+      ...baseHome,
+      id: '43945',
+      status: 'Pre-Owned',
+      inventory_kind: 'pre_owned',
+      is_orderable: false,
+      image_url: 'https://images.unsplash.com/photo-1',
+      real_photos: [
+        'https://storage.googleapis.com/tho-inventory-assets/inventory/43945/hero.jpg',
+        'https://images.unsplash.com/photo-1',
+        'https://d132mt2yijm03y.cloudfront.net/dealer/3522/inventory/99999/other.jpg',
+      ],
+      gallery_images: ['https://images.unsplash.com/photo-1'],
+    });
+
+    expect(screen.getByRole('link', { name: /Call \(281\) 324-3020/i })).toHaveAttribute(
+      'href',
+      'tel:+12813243020',
+    );
+    expect(screen.getByRole('link', { name: /Text \(281\) 324-3020/i }).getAttribute('href')).toMatch(
+      /^sms:\+12813243020/,
+    );
+    expect(screen.getByRole('button', { name: /Apply for financing/i })).toBeInTheDocument();
+    const img = container.querySelector('img');
+    expect(img).not.toBeNull();
+    expect(img.getAttribute('src')).toContain('/inventory/43945/hero.jpg');
+    expect(container.innerHTML).not.toContain('unsplash');
+    expect(container.innerHTML).not.toContain('99999');
+  });
+
   it('opens the first-party quote form instead of navigating to a legacy quote URL', () => {
     const onGetPrice = vi.fn();
     const { container } = renderCard({

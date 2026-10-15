@@ -111,6 +111,45 @@ def test_readyz_firestore_failure_is_soft(monkeypatch):
     assert body["checks"]["firestore"]["ok"] is False
 
 
+def test_readyz_live_staff_inventory_is_not_unknown(monkeypatch):
+    """A successful staff read has an observation time, so freshness is not unknown."""
+    from datetime import UTC, datetime
+
+    monkeypatch.setenv("INVENTORY_SOURCE", "firestore")
+    retrieved_at = datetime.now(UTC).isoformat()
+    monkeypatch.setattr(main, "_overlay_staff_photos", lambda homes: None)
+    monkeypatch.setattr(main, "PROPERTY_ASSETS", {})
+    monkeypatch.setattr(
+        main, "load_legacy_floorplan_catalog_context", lambda **_kwargs: {"homes": []}
+    )
+    monkeypatch.setattr(
+        main,
+        "get_inventory_for_ads",
+        lambda **_kwargs: {
+            "success": True,
+            "source": "staff_inventory_with_catalog",
+            "retrieved_at": retrieved_at,
+            "homes": [
+                {
+                    "id": "43945",
+                    "model_name": "Used Home",
+                    "status": "Pre-Owned",
+                    "inventory_kind": "pre_owned",
+                    "real_photos": [],
+                }
+            ],
+            "total_inventory": 1,
+        },
+    )
+
+    check = main._readyz_check_inventory_source()
+
+    assert check["freshness"] == "fresh"
+    assert check["ok"] is True
+    assert check["retrieved_at"] == retrieved_at
+    assert check["age_days"] == 0
+
+
 def test_readyz_reports_stale_inventory_without_flapping(monkeypatch):
     """Frozen data is visible to operators while the serving process stays ready."""
     monkeypatch.setattr(

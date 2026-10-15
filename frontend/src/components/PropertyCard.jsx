@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Home, Bed, Bath, Maximize, Plus, Check, ChevronLeft, ChevronRight, X, Images } from 'lucide-react';
 import { generateSrcSet, getImageSizes } from '../utils/imageOptimization';
+import { usedHomeMayShowPhoto } from '../utils/listingRoutes';
 
 function GalleryModal({
     allImages,
@@ -178,7 +179,10 @@ const PropertyCard = ({ property, onToggleCompare, isSelected }) => {
         ...(Array.isArray(gallery_images) ? gallery_images : []),
     ];
     const allImages = imageCandidates.filter((img, index, values) => (
-        img && values.indexOf(img) === index && !isFloorplanImage(img, floorplanUrls)
+        img
+        && values.indexOf(img) === index
+        && !isFloorplanImage(img, floorplanUrls)
+        && usedHomeMayShowPhoto(img, property)
     ));
     const hasFloorplanOnly = !allImages.length && (
         media_quality?.status === 'floorplan_only' || floorplanUrls.length > 0
