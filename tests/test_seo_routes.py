@@ -1098,8 +1098,8 @@ def test_home_page_keeps_call_for_price_and_own_photos(monkeypatch):
         )
         if '"Product"' in block
     ]
-    assert products
-    assert "offers" not in products[0]
+    # Call-for-Price: no Product markup at all (Google needs offers on Product).
+    assert not products
 
 
 def test_home_page_wrong_slug_301s_and_missing_stock_is_410(monkeypatch):
@@ -1219,3 +1219,17 @@ def test_served_html_has_no_inline_styles(monkeypatch):
         match = _INLINE_STYLE_RE.search(response.text)
         assert match is None, f"{path} contains inline style markup: {match.group(0)!r}"
         assert "'unsafe-inline'" not in response.headers["content-security-policy"]
+
+
+def test_every_homes_page_product_has_offers(monkeypatch):
+    # Search Console (Oct 11): Product without offers/review/rating is invalid.
+    # Walk every /homes/ URL in the sitemap; any Product block must carry offers.
+    client, _ = seo_client(monkeypatch)
+    sitemap = client.get("/sitemap.xml").text
+    paths = sorted({m.split("://", 1)[1].split("/", 1)[1] for m in re.findall(r"<loc>([^<]+/homes/[^<]+)</loc>", sitemap)})
+    assert paths, "sitemap should list /homes/ pages"
+    for path in paths:
+        body = client.get("/" + path).text
+        for block in _jsonld_blocks(body):
+            if block.get("@type") == "Product":
+                assert block.get("offers"), f"/{path} emits Product without offers"
