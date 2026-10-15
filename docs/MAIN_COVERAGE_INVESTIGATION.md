@@ -130,11 +130,7 @@ app's middleware/slowapi/portal context is required).
   real gaps. Treat big missing spans in portal-thread handlers with
   suspicion; the "Proven working measurement path" below (subprocess +
   ASGITransport) remains the way to get honest numbers for a specific route.
-- Options not yet tried (next cycles): (a) Python ≥ 3.12 venv with
-  `core = sysmon` — sys.monitoring replaces settrace-based line events and
-  may not have this defect; (b) async tests via `httpx.AsyncClient` in the
-  main thread instead of TestClient's blocking portal, so handlers run in a
-  traced main-thread loop; (c) minimal repro for a coverage.py report.
+- RESOLVED below: measure under Python ≥ 3.12 (see "RESOLVED (cycle 5)").
 
 ## What does NOT work
 
@@ -151,19 +147,61 @@ it with `httpx.ASGITransport`, measure with in-process
 (observed 6788–6879 on `/api/contact`). Slow (real Firestore RPC timeouts when
 no emulator) but honest.
 
+## RESOLVED (cycle 5, 2026-10-15): CPython 3.11 defect — any Python ≥ 3.12 measures correctly
+
+A/B matrix, same probe test (`create_client` + `POST /api/contact` with
+`{"name": "Synthetic Buyer", "phone": "5125550123"}`), same dump of raw
+`data.lines()` for the previously-blind span 6713–6769 of `submit_contact_form`:
+
+| Python   | coverage core | span 6713–6769        |
+|----------|---------------|-----------------------|
+| 3.11.13  | CTracer       | **DROPPED** (the bug) |
+| 3.12.8   | CTracer       | records fully ✓       |
+| 3.13.5   | CTracer       | records fully ✓       |
+| 3.14.5   | CTracer       | records fully ✓       |
+| 3.14.5   | sysmon        | records fully ✓       |
+
+Conclusion: the blind-window artifact is a **CPython 3.11 line-event delivery
+defect** — after certain coroutine suspensions 3.11 fires `py_tracefunc` (the
+pure-Python tracer) but not `c_tracefunc` (the CTracer), which is why the
+Python-level probe saw every line while the CTracer saw none. The defect is
+gone in 3.12+ (the monitoring/PEP 669 work rewrote that dispatch). coverage.py
+is blameless; no coverage upgrade and no `core = sysmon` switch is needed —
+just don't measure on 3.11.
+
+Recommendations:
+- Any coverage measurement where the number matters (launch-readiness
+  evidence, gap analysis) should run under Python ≥ 3.12. Moving the dev venv
+  is a bigger job: the full suite (3003 tests) has only been validated on
+  3.11, so validate on 3.12+ before switching. Note also that a FRESH env
+  install currently fails dependency resolution: `google-cloud-aiplatform
+  ==1.161.0` requires `google-cloud-storage>=3.10` while requirements.txt pins
+  `google-cloud-storage==2.18.0` (the existing .venv predates the conflict).
+  Both must be resolved before CI can move to a newer Python.
+- Keep the fake managers' `asyncio.to_thread` mirroring (committed cycle 3):
+  it faithfully mirrors the real managers' suspension behavior, is harmless
+  under 3.12+, and remains correct if measurement ever runs on 3.11 again.
+- Extending `to_thread` to the obsidian/mira fake managers is coverage-neutral
+  (verified: obsidian handlers have their manager await as the sole/first
+  suspension, so no inter-suspension blind window exists; mira suites run
+  pytest-asyncio in the main thread, unaffected). Not worth the churn.
+- Upstream references (coverage.py #2124, #2245) describe the same symptom on
+  3.11/3.13; our controlled A/B shows 3.13.5 is clean, so those reporters'
+  variants may differ or may have had residual 3.11-era environments. If a
+  coverage.py bug report is still wanted, the repro here is: Python 3.11.13 +
+  coverage 7.16.2 + TestClient portal + handler with code between
+  `request.json()` and a second suspension.
+
 ## Next steps
 
 1. Coverage re-measured after the to_thread fake fix: 1,893 → 1,804 missed
-   (59% → 61%). Remaining misses are a mix of this artifact (portal-thread
-   handler spans between the first and second suspension) and REAL gaps worth
-   writing tests for — distinguish them using the measurement paths above
-   before writing tests aimed at a phantom miss.
-2. If other endpoint groups still under-attribute, check their fake managers'
-   async methods for the same missing-suspension pattern
-   (`grep -rn "async def" tests/ | grep -v to_thread`).
-3. Measurement-side candidates (unproven): Python ≥ 3.12 venv with
-   `core = sysmon`; async main-thread tests via `httpx.AsyncClient` instead of
-   TestClient's blocking portal.
-4. Long-term: minimal repro of the CTracer silent death for a coverage.py bug
-   report (needs real-app context; shrink by stripping main.py, not building
-   up from scratch).
+   (59% → 61%). **Re-measure under Python ≥ 3.12 to get the honest number** —
+   expect a further jump for portal-thread handler spans; the remaining misses
+   after that are REAL gaps worth writing tests for.
+2. If other endpoint groups still under-attribute on 3.11, check their fake
+   managers' async methods for the same missing-suspension pattern
+   (`grep -rn "async def" tests/ | grep -v to_thread`) — under 3.12+
+   measurement this becomes moot.
+3. Long-term: validate the full suite under Python 3.12/3.13 and resolve the
+   requirements.txt storage-vs-aiplatform pin conflict so the measurement
+   venv can move off 3.11.
