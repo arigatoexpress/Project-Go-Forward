@@ -1226,10 +1226,44 @@ def test_every_homes_page_product_has_offers(monkeypatch):
     # Walk every /homes/ URL in the sitemap; any Product block must carry offers.
     client, _ = seo_client(monkeypatch)
     sitemap = client.get("/sitemap.xml").text
-    paths = sorted({m.split("://", 1)[1].split("/", 1)[1] for m in re.findall(r"<loc>([^<]+/homes/[^<]+)</loc>", sitemap)})
+    paths = sorted(
+        {
+            loc.split("://", 1)[1].split("/", 1)[1]
+            for loc in re.findall(r"<loc>([^<]+/homes/[^<]+)</loc>", sitemap)
+        }
+    )
     assert paths, "sitemap should list /homes/ pages"
     for path in paths:
-        body = client.get("/" + path).text
-        for block in _jsonld_blocks(body):
+        response = client.get("/" + path)
+        assert response.status_code == 200, path
+        for block in _jsonld_blocks(response.text):
             if block.get("@type") == "Product":
                 assert block.get("offers"), f"/{path} emits Product without offers"
+
+
+def test_priced_home_page_emits_one_product_and_breadcrumb(monkeypatch):
+    # Fixture home 43372 (price_value 129900) is the priced /homes/ page.
+    client, _ = seo_client(monkeypatch)
+    response = client.get("/homes/43372-premier-creole-3256h32447")
+    assert response.status_code == 200
+    blocks = _jsonld_blocks(response.text)
+    products = [block for block in blocks if block.get("@type") == "Product"]
+    assert len(products) == 1
+    offer = products[0]["offers"]
+    assert offer["price"] == "129900"
+    assert offer["priceCurrency"] == "USD"
+    assert any(block.get("@type") == "BreadcrumbList" for block in blocks)
+
+
+def test_comma_formatted_price_value_drops_product(monkeypatch):
+    # A thousands-separator string is not a real Offer price. Do not parse it
+    # into Product markup; omit the snippet the same way Call-for-Price does.
+    import seo_routes
+
+    priced = {**FAKE_HOMES[0], "price_value": "129,900"}
+    client, _ = seo_client(monkeypatch)
+    monkeypatch.setattr(seo_routes, "_get_homes", lambda: [priced, *FAKE_HOMES[1:]])
+    response = client.get("/homes/43372-premier-creole-3256h32447")
+    assert response.status_code == 200
+    products = [block for block in _jsonld_blocks(response.text) if block.get("@type") == "Product"]
+    assert not products
