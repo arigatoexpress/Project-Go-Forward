@@ -102,6 +102,30 @@ class FakeLead:
     home_stock: str | None = None
     home_label: str | None = None
     home_url: str | None = None
+    # Click IDs (mirrors lead_management.Lead; used by to_csv_row for the
+    # export endpoint).
+    gclid: str | None = None
+    gbraid: str | None = None
+    wbraid: str | None = None
+
+    def to_csv_row(self) -> dict:
+        """Mirrors lead_management.Lead.to_csv_row (used by /leads/export)."""
+        return {
+            "Lead ID": self.lead_id,
+            "Name": self.name or "",
+            "Email": self.email or "",
+            "Phone": self.phone or "",
+            "Bedrooms": self.bedrooms or "",
+            "Bathrooms": self.bathrooms or "",
+            "Max Budget": f"${int(self.budget_max):,}" if self.budget_max else "",
+            "Home Type": self.home_type or "",
+            "Homes Viewed": ", ".join(self.homes_viewed[:3]) if self.homes_viewed else "",
+            "Appointment Requested": "Yes" if self.appointment_requested else "No",
+            "Status": self.status,
+            "Created": self.created_at,
+            "Source": self.source,
+            "Google Click ID": self.gclid or self.gbraid or self.wbraid or "",
+        }
 
     # Marketing attribution (first-party UTM carried on a reached-out lead; NOT visitor tracking)
     utm_source: str | None = None
