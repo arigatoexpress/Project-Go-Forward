@@ -11,7 +11,13 @@ import {
 } from 'lucide-react';
 import adminFetch from '../adminFetch';
 import GoogleAdsStatusCard from '../components/ad-studio/GoogleAdsStatusCard';
-import { describeFetchError, extractErrorMessage, safeUserMessage } from '../utils/apiError';
+import {
+    describeFetchError,
+    extractErrorMessage,
+    NETWORK_ERROR_MESSAGE,
+    OFFLINE_ERROR_MESSAGE,
+    safeUserMessage,
+} from '../utils/apiError';
 import './AdStudio.css';
 
 /* ─────────────────── constants ─────────────────── */
@@ -85,6 +91,7 @@ const IMAGE_STYLES = [
 ];
 
 const INVENTORY_PICKER_LIMIT = 40;
+const DRAFT_NOT_SAVED = "The draft wasn't saved. Please try again.";
 
 /* ─────────────────── API helpers ─────────────────── */
 async function readJsonOrThrow(resp, fallbackMessage) {
@@ -93,6 +100,14 @@ async function readJsonOrThrow(resp, fallbackMessage) {
         throw new Error(safeUserMessage(extractErrorMessage(data), fallbackMessage));
     }
     return data;
+}
+
+function staffDraftFailureMessage(err) {
+    const described = describeFetchError(err, 'save the draft');
+    if (described === NETWORK_ERROR_MESSAGE || described === OFFLINE_ERROR_MESSAGE) {
+        return described;
+    }
+    return DRAFT_NOT_SAVED;
 }
 
 async function apiGenerateScript(params) {
@@ -115,7 +130,13 @@ async function apiPrepareDraft(params) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(params)
     });
-    return readJsonOrThrow(resp, 'Draft preparation failed');
+    const data = await readJsonOrThrow(resp, DRAFT_NOT_SAVED);
+    // Schedule is the one Ad Studio call that must not treat an error envelope
+    // as a saved draft. Script, ideas, and analytics still return `error` on HTTP 200.
+    if (data?.error || data?.success === false) {
+        throw new Error(DRAFT_NOT_SAVED);
+    }
+    return data;
 }
 
 async function apiGetAnalytics() {
@@ -263,6 +284,7 @@ export default function AdStudio({ onBack, initialTab = 'create' }) {
     // Drafts tab
     const [preparedDrafts, setPreparedDrafts] = useState([]);
     const [preparingDraft, setPreparingDraft] = useState(false);
+    const [draftError, setDraftError] = useState(null);
     const [matterportCopied, setMatterportCopied] = useState(false);
 
     // Analytics tab
@@ -340,6 +362,7 @@ export default function AdStudio({ onBack, initialTab = 'create' }) {
     const handleGenerate = async () => {
         setGenerating(true);
         setScript(null);
+        setDraftError(null);
         setShowPreview(false);
         setActiveVariation(0);
         setGeneratedImages([]);
@@ -410,8 +433,9 @@ export default function AdStudio({ onBack, initialTab = 'create' }) {
     }, []);
 
     const handlePrepareDraft = async () => {
-        if (!script) return;
+        if (!script) return false;
         setPreparingDraft(true);
+        setDraftError(null);
         try {
             const result = await apiPrepareDraft({
                 platform: script.platform,
@@ -422,8 +446,10 @@ export default function AdStudio({ onBack, initialTab = 'create' }) {
                 video_url: generatedGenAIClip?.download_url || generatedVideo?.download_url
             });
             setPreparedDrafts(prev => [result, ...prev]);
+            return true;
         } catch (err) {
-            console.error('Draft preparation failed:', err);
+            setDraftError(staffDraftFailureMessage(err));
+            return false;
         } finally {
             setPreparingDraft(false);
         }
@@ -1245,10 +1271,14 @@ export default function AdStudio({ onBack, initialTab = 'create' }) {
                         <div className="tho-readiness-note">
                             {`This adds a reviewed ${selectedPlatform?.name || 'social'} draft to the list on this screen. Nothing is sent to a social platform.`}
                         </div>
+                        {draftError && (
+                            <p className="tho-image-error" role="alert">{draftError}</p>
+                        )}
                         <button
                             className="tho-btn tho-btn-primary w-full flex items-center justify-center gap-2"
                             onClick={async () => {
-                                await handlePrepareDraft();
+                                const prepared = await handlePrepareDraft();
+                                if (!prepared) return;
                                 setShowPreview(false);
                                 setActiveTab('scheduled');
                             }}
