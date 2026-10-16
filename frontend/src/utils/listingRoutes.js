@@ -193,7 +193,9 @@ export function isForeignUnitPhoto(url, home) {
   if (!unit) return false;
   const ids = homePhotoIds(home);
   if (!ids.length) return false;
-  return !ids.includes(unit);
+  // Upload paths keep this home's id, but not always its original case.
+  const folded = unit.toLowerCase();
+  return !ids.some((id) => id.toLowerCase() === folded);
 }
 
 /** Used homes may show only that unit's photos — never catalog or stock shots. */

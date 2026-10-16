@@ -862,7 +862,7 @@ class ImmutableStaticFiles(StaticFiles):
 #
 # Cache-Control is applied consistently:
 #   * GET /api/marketing/inventory-context (public read-side):
-#       staff-backed reads cache for 60s; archived legacy reads may cache for 1h
+#       staff-backed reads cache for 30s (stale for 60s); archived legacy reads may cache for 1h
 #   * Any other /api/* path: no-cache (CRM data must never be cached)
 #   * Non-/api paths: header is left untouched so the SPA / static asset
 #     handlers can set their own caching policy.
@@ -872,9 +872,10 @@ class ImmutableStaticFiles(StaticFiles):
 # they flow through this single envelope rather than emitting a bare detail.
 
 _PUBLIC_INVENTORY_CACHE = "max-age=3600, public, stale-while-revalidate=60"
-# Live staff inventory revalidates within a minute. no-cache forced every
-# image-page navigation to wait on the full catalog JSON.
-_STAFF_INVENTORY_CACHE = "public, max-age=60, stale-while-revalidate=300"
+# Live staff inventory is fresh for 30s and may be served stale for another
+# 60s, so a save shows within about a minute and a half. no-cache forced
+# every image-page navigation to wait on the full catalog JSON.
+_STAFF_INVENTORY_CACHE = "public, max-age=30, stale-while-revalidate=60"
 _DYNAMIC_API_CACHE = "no-cache"
 _STATIC_ASSET_CACHE = "public, max-age=86400"
 _STATIC_ASSET_SUFFIXES = (
@@ -891,8 +892,8 @@ _STATIC_ASSET_SUFFIXES = (
 
 
 def _public_inventory_cache_policy() -> str:
-    # Archived legacy snapshots may sit for an hour. A live staff read must
-    # not hide a save for that long, but it can be reused for a minute.
+    # Archived legacy snapshots may sit for an hour. A live staff read is
+    # reusable for 30s and stale for 60s, so a save shows within ~1.5 minutes.
     return (
         _PUBLIC_INVENTORY_CACHE if _inventory_source_pref() == "legacy" else _STAFF_INVENTORY_CACHE
     )

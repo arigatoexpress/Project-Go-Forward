@@ -119,6 +119,60 @@ def test_catalog_photo_urls_match_the_manufacturer_gallery_namespace():
     assert is_manufacturer_catalog_photo_url(None) is False
 
 
+def test_used_home_keeps_own_upload_when_unit_id_case_differs():
+    upload = "/api/inventory/photos/Lot-Overlay/front.jpg"
+    other = f"{CDN}/dealer/3522/inventory/99999/other.jpg"
+    home = suppress_used_home_catalog_photos(
+        {
+            "id": "lot-overlay",
+            "model_name": "PRE-OWNED / Overlay",
+            "inventory_kind": "pre_owned",
+            "status": "Pre-Owned",
+            "is_new": False,
+            "image_url": upload,
+            "real_photos": [upload, other, "https://images.unsplash.com/photo-1", CAT_A],
+            "gallery_images": [upload, other],
+            "floorplan_url": MFR_FLOOR,
+            "floor_plan_url": MFR_FLOOR,
+        }
+    )
+    assert home["image_url"] == upload
+    assert home["real_photos"] == [upload]
+    assert home["gallery_images"] == [upload]
+    assert home["floorplan_url"] == MFR_FLOOR
+    assert "99999" not in " ".join(_urls(home))
+    assert "unsplash.com" not in " ".join(_urls(home))
+
+
+def test_used_home_with_only_disallowed_photos_keeps_the_floorplan():
+    home = suppress_used_home_catalog_photos(
+        {
+            "id": "28527",
+            "model_name": "PRE-OWNED / Empty",
+            "inventory_kind": "pre_owned",
+            "status": "Pre-Owned",
+            "is_new": False,
+            "image_url": "https://images.unsplash.com/photo-1",
+            "real_photos": [
+                "https://images.unsplash.com/photo-1",
+                f"{CDN}/dealer/3522/inventory/99999/other.jpg",
+                CAT_A,
+            ],
+            "gallery_images": ["https://images.unsplash.com/photo-1"],
+            "floorplan_url": HERITAGE_FLOOR,
+            "floor_plan_url": HERITAGE_FLOOR,
+        }
+    )
+    assert home["real_photos"] == []
+    assert home["gallery_images"] == []
+    assert home["image_url"] == ""
+    assert home["hero_image"] == ""
+    assert home["floorplan_url"] == HERITAGE_FLOOR
+    assert home["floor_plan_url"] == HERITAGE_FLOOR
+    assert home["media_quality"]["has_real_photo"] is False
+    assert home["media_quality"]["status"] == "floorplan_only"
+
+
 def test_used_home_drops_stock_and_other_unit_photos():
     home = suppress_used_home_catalog_photos(
         {

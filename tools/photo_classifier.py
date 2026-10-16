@@ -256,10 +256,11 @@ def is_foreign_unit_photo_url(url: str | None, home: dict | None) -> bool:
     unit = embedded_unit_id(url)
     if not unit:
         return False
-    identifiers = home_photo_ids(home)
+    identifiers = {value.casefold() for value in home_photo_ids(home)}
     if not identifiers:
         return False
-    return unit not in identifiers
+    # Staff upload paths keep the home id, but not always its original case.
+    return unit.casefold() not in identifiers
 
 
 def is_disallowed_used_photo_url(url: str | None, home: dict | None) -> bool:

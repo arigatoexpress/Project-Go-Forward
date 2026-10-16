@@ -135,7 +135,7 @@ def test_staff_edits_and_retirement_publish_without_cached_or_static_resurrectio
     main.app.dependency_overrides[main.require_admin] = lambda: True
     try:
         response = client.get("/api/marketing/inventory-context")
-        assert response.headers["Cache-Control"] == "public, max-age=60, stale-while-revalidate=300"
+        assert response.headers["Cache-Control"] == "public, max-age=30, stale-while-revalidate=60"
         before = response.json()
         assert [h["id"] for h in before["homes"]] == ["lot-1", "supplement"]
         assert before["source_status"]["reported_source"] == "staff_inventory_with_catalog"

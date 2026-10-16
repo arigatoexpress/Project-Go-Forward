@@ -46,6 +46,40 @@ describe('listingRoutes', () => {
     expect(listingPagePhotos(orderable)).toEqual([catalog]);
   });
 
+  it('keeps a used home’s own upload when the unit id case differs', () => {
+    const upload = '/api/inventory/photos/Lot-Overlay/front.jpg';
+    const used = {
+      id: 'lot-overlay',
+      inventory_kind: 'pre_owned',
+      status: 'Pre-Owned',
+      image_url: upload,
+      real_photos: [
+        upload,
+        'https://images.unsplash.com/photo-1',
+        'https://d132mt2yijm03y.cloudfront.net/dealer/3522/inventory/99999/other.jpg',
+      ],
+      floor_plan_url: 'https://lot.example/plan.jpg',
+    };
+    expect(listingPagePhotos(used)).toEqual([upload]);
+  });
+
+  it('falls back to the floor plan when a used home has only disallowed photos', () => {
+    const used = {
+      id: '28527',
+      inventory_kind: 'pre_owned',
+      status: 'Pre-Owned',
+      image_url: 'https://images.unsplash.com/photo-1',
+      real_photos: [
+        'https://images.unsplash.com/photo-1',
+        'https://d132mt2yijm03y.cloudfront.net/dealer/3522/inventory/99999/other.jpg',
+        'https://cdn.example/manufacturer/1/floorplan/x/showroom.jpg',
+      ],
+      gallery_images: ['https://images.unsplash.com/photo-1'],
+      floor_plan_url: 'https://lot.example/plan.jpg',
+    };
+    expect(listingPagePhotos(used)).toEqual(['https://lot.example/plan.jpg']);
+  });
+
   it('drops stock photos and another unit’s photos from a used listing', () => {
     const own = 'https://storage.googleapis.com/tho-inventory-assets/inventory/43945/hero.jpg';
     const other = 'https://d132mt2yijm03y.cloudfront.net/dealer/3522/inventory/99999/1.jpg';
