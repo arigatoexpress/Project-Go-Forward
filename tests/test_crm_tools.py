@@ -289,6 +289,8 @@ def test_check_slots_weekday_lists_hourly_slots():
     d = _today() + timedelta(days=1)
     if d.weekday() == 6:  # Sunday — step forward to Monday
         d += timedelta(days=1)
+    elif d.weekday() == 5:  # Saturday — step forward to Monday
+        d += timedelta(days=2)
     out = crm_tools.check_available_slots(d.isoformat())
     assert out["business_hours"] == "9:00 AM - 6:00 PM"
     assert len(out["available_slots"]) == 9
