@@ -25,6 +25,10 @@ python-dateutil>=2.8
 requests>=2.32.4
 beautifulsoup4>=4.12
 sentry-sdk[fastapi]==2.22.0
+# Required by sentry-sdk's auto-enabled Starlette integration: it imports
+# Jinja2Templates at sentry_sdk.init() time, so without jinja2 installed the
+# app crashes at import the moment SENTRY_DSN is set in production.
+jinja2>=3.1.6
 pytest==9.0.3
 numpy==1.26.4
 

@@ -316,16 +316,24 @@ if os.environ.get("SENTRY_DSN") and not os.environ.get("PYTEST_CURRENT_TEST"):
             rate = 0.05
         return min(max(rate, 0.0), 1.0)
 
-    sentry_sdk.init(
-        dsn=os.environ["SENTRY_DSN"],
-        environment=os.environ.get("K_REVISION", "local"),
-        release=os.environ.get("APP_VERSION", "local"),
-        traces_sampler=_sentry_traces_sampler,
-        profiles_sample_rate=0.0,
-        send_default_pii=False,
-        before_send=_sentry_before_send,
-    )
-    logger.info("Sentry initialized (environment=%s)", os.environ.get("K_REVISION", "local"))
+    # Error tracking must never take the site down: a Sentry misconfiguration
+    # or a missing integration dependency logs a warning and leaves the app
+    # unmonitored rather than crashing the import (the Starlette integration
+    # imports Jinja2Templates at init time — see the jinja2 pin in
+    # requirements.txt).
+    try:
+        sentry_sdk.init(
+            dsn=os.environ["SENTRY_DSN"],
+            environment=os.environ.get("K_REVISION", "local"),
+            release=os.environ.get("APP_VERSION", "local"),
+            traces_sampler=_sentry_traces_sampler,
+            profiles_sample_rate=0.0,
+            send_default_pii=False,
+            before_send=_sentry_before_send,
+        )
+        logger.info("Sentry initialized (environment=%s)", os.environ.get("K_REVISION", "local"))
+    except Exception as e:
+        logger.warning("Sentry initialization failed; running without error tracking: %s", e)
 
 # Disable FastAPI's auto-docs (/openapi.json, /docs, /redoc) in Cloud Run.
 # These endpoints expose the full API surface — every admin route, every
