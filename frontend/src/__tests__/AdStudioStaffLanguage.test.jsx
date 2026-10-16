@@ -13,7 +13,7 @@ const scriptPayload = {
   success: true,
   script_id: 'SCR-SECRET',
   platform: 'tiktok',
-  model_used: 'gemini-2.5-flash',
+  model_used: 'configured-model',
   hashtags: ['#manufacturedhomes'],
   quality: {
     average: 8,
@@ -73,7 +73,7 @@ describe('Ad Studio staff language', () => {
     expect(screen.getByText('Clear next step')).toBeInTheDocument();
     expect(screen.getAllByText(/camera note/i).length).toBeGreaterThan(0);
     expect(screen.queryByText('SCR-SECRET')).not.toBeInTheDocument();
-    expect(screen.queryByText(/Gemini/i)).not.toBeInTheDocument();
+    expect(screen.queryByText('configured-model')).not.toBeInTheDocument();
     expect(screen.queryByText(/google-genai|\/secret\/sdk|GCP AI|GenAI|Veo/i)).not.toBeInTheDocument();
     expect(screen.getByText(VOICES_UNAVAILABLE)).toBeInTheDocument();
 

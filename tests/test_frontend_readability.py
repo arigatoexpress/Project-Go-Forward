@@ -6,7 +6,9 @@ STAFF_SIGN_IN = ROOT / "frontend/src/components/StaffSignInPanel.jsx"
 INVENTORY_BROWSE = ROOT / "frontend/src/pages/InventoryBrowse.jsx"
 DOCUMENT_CENTER = ROOT / "frontend/src/pages/DocumentCenter.jsx"
 AD_STUDIO = ROOT / "frontend/src/pages/AdStudio.jsx"
+AD_STUDIO_COPY = ROOT / "frontend/src/components/ad-studio/adStudioStaffCopy.js"
 GOOGLE_ADS_STATUS_CARD = ROOT / "frontend/src/components/ad-studio/GoogleAdsStatusCard.jsx"
+GOOGLE_ADS_GUIDANCE = ROOT / "frontend/src/components/ad-studio/googleAdsGuidance.js"
 SYSTEM_HUB = ROOT / "frontend/src/pages/SystemHub.jsx"
 STATUS_BADGE = ROOT / "frontend/src/components/StatusBadge.jsx"
 PROPERTY_CARD = ROOT / "frontend/src/components/PropertyCard.jsx"
@@ -26,13 +28,17 @@ def test_ad_studio_exposes_plain_language_google_ads_tab():
     assert "id: 'paid-search', label: 'Google Ads'" in studio_source
     assert "activeTab === 'paid-search'" in studio_source
     assert "<GoogleAdsStatusCard />" in studio_source
+    guidance_source = GOOGLE_ADS_GUIDANCE.read_text()
+
     assert "aria-current" in studio_source
-    assert "Create campaign preview" in card_source
+    assert "Check this ad" in guidance_source
+    assert "checkButtonLabel" in card_source
     assert "Launch turned off" in card_source
     assert "This screen cannot turn ads on" in card_source
     assert "does not spend money" in card_source
     assert "does not change the reviewed ad text" in card_source
-    assert "recorded event" in card_source
+    assert "Nothing has been sent to Google" in guidance_source
+    assert "progressPlain" in card_source
     for forbidden in ("Connect", "Approve", "Create campaign", "Enable", "Publish", "Turn ads on"):
         assert f">{forbidden}<" not in card_source
 
@@ -160,11 +166,15 @@ def test_ad_studio_surfaces_readiness_and_image_fallbacks():
 def test_ad_studio_schedule_action_is_labeled_as_draft_only():
     source = AD_STUDIO.read_text()
 
+    copy_source = AD_STUDIO_COPY.read_text()
+
     assert "{ id: 'scheduled', label: 'Drafts'" in source
     assert "Prepare Draft" in source
     assert "Prepared Drafts" in source
-    assert "Drafts prepared while this Ad Studio screen is open" in source
-    assert "Response-only · not saved" in source
+    assert "Drafts prepared while this screen stays open" in source
+    assert "Leaving or refreshing removes them" in source
+    assert "This stays on this screen only" in copy_source
+    assert "Nothing was posted" in copy_source
     assert "Nothing is sent to a social platform" in source
     assert "Schedule Post" not in source
     assert "Posts queued for publishing" not in source
