@@ -102,15 +102,22 @@ function CopyButton({ value, label = 'Copy' }) {
 // ─── Tabs ────────────────────────────────────────────
 
 const TABS = [
-  { id: 'leads', label: 'Leads', icon: Users },
-  { id: 'deals', label: 'Pipeline', icon: DollarSign },
-  { id: 'tasks', label: 'Tasks', icon: CheckCircle },
-  { id: 'appointments', label: 'Appointments', icon: Calendar },
-  { id: 'emails', label: 'Email Log', icon: Mail },
-  { id: 'drafts', label: 'Reply Drafts', icon: Inbox },
-  { id: 'customers', label: 'Customers', icon: Users },
+  { id: 'leads', label: 'Inbox', icon: Users },
+  { id: 'deals', label: 'Sales', icon: DollarSign },
+  { id: 'tasks', label: 'To-do list', icon: CheckCircle },
+  { id: 'appointments', label: 'Visits', icon: Calendar },
+  { id: 'emails', label: 'Mail sent', icon: Mail },
+  { id: 'drafts', label: 'Reply ideas', icon: Inbox },
+  { id: 'customers', label: 'Buyers', icon: Users },
   { id: 'reviews', label: 'Reviews', icon: Star, requiresReviewLink: true },
 ];
+
+const LEAD_STATUS_LABELS = {
+  new: 'Not answered yet',
+  contacted: 'Answered',
+  qualified: 'Good fit',
+  converted: 'Bought a home',
+};
 
 // Email Templates
 export const EMAIL_TEMPLATES = [
@@ -254,16 +261,47 @@ export default function CRM({ onBack }) {
 
   const handleUpdateLeadStatus = async (leadId, newStatus) => {
     setActionError('');
+    setActionNotice('');
     try {
       const updatedLead = await submitLeadLifecycleTransition(adminFetch, leadId, newStatus);
       setLeads(prev => prev.map(l => l.lead_id === leadId ? updatedLead : l));
       if (selectedLead?.lead_id === leadId) {
         setSelectedLead(updatedLead);
       }
+      const who = updatedLead?.name || 'This person';
+      const label = LEAD_STATUS_LABELS[newStatus] || newStatus;
+      setActionNotice(`Saved. ${who} is marked “${label}”.`);
+      return true;
     } catch (err) {
       console.error('Lead status update failed:', err);
-      setActionError(safeUserMessage(err.message, 'Lead status update failed. Check connection and try again.'));
+      setActionError(safeUserMessage(err.message, 'That was not saved. Check the internet connection and try again.'));
+      return false;
     }
+  };
+
+  const handleSendLeadReply = async (lead, { subject, message }) => {
+    setActionError('');
+    const res = await adminFetch('/api/email/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        to: lead.email || '',
+        customer_name: lead.name || '',
+        subject,
+        message,
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.success === false) {
+      setActionError(safeUserMessage(
+        extractErrorMessage(data),
+        'The reply did not send. Nothing was marked answered. Try again, or call them.',
+      ));
+      return false;
+    }
+    const emailsRes = await adminFetch('/api/email/log?limit=100').then(r => r.json()).catch(() => ({}));
+    if (emailsRes.success) setEmails(emailsRes.emails || []);
+    return true;
   };
 
   const handleUpdateDealStatus = async (dealId, newStatus) => {
@@ -442,12 +480,15 @@ export default function CRM({ onBack }) {
           >
             <ArrowLeft size={20} />
           </button>
-          <h1 className="text-xl font-bold m-0">CRM Dashboard</h1>
+          <div>
+            <h1 className="text-xl font-bold m-0">Leads</h1>
+            <p className="m-0 mt-0.5 text-sm font-normal text-slate-200">People who asked about a home. Answer the names at the top first.</p>
+          </div>
         </div>
         <button
           onClick={fetchData}
           disabled={loading}
-          className="flex items-center gap-1.5 bg-white/10 hover:bg-white/20 disabled:opacity-50 disabled:cursor-not-allowed text-white px-3.5 py-2 rounded-lg text-[13px]"
+          className="flex min-h-12 items-center gap-2 bg-white/10 hover:bg-white/20 disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 rounded-lg text-base"
         >
           <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
           Refresh
@@ -520,7 +561,7 @@ export default function CRM({ onBack }) {
           <button
             key={tab.id}
             className={
-              'flex items-center gap-1.5 px-4 py-2.5 bg-transparent text-[13px] font-medium whitespace-nowrap border-b-2 transition-colors ' +
+              'flex min-h-12 items-center gap-2 px-4 py-3 bg-transparent text-base font-semibold whitespace-nowrap border-b-2 transition-colors ' +
               (activeTab === tab.id
                 ? 'text-blue-700 border-blue-500'
                 : 'text-gray-700 border-transparent hover:text-slate-800')
@@ -532,11 +573,11 @@ export default function CRM({ onBack }) {
           </button>
         ))}
         <button
-          className="hidden sm:flex items-center gap-1.5 ml-auto px-4 py-2.5 text-blue-700 font-semibold text-[13px] border-b-2 border-transparent hover:bg-blue-50 hover:rounded-t-lg whitespace-nowrap"
+          className="hidden sm:flex min-h-12 items-center gap-2 ml-auto px-4 py-3 text-blue-700 font-semibold text-base border-b-2 border-transparent hover:bg-blue-50 hover:rounded-t-lg whitespace-nowrap"
           onClick={() => setShowEmailCompose(true)}
         >
-          <Send size={16} />
-          Compose
+          <Send size={18} />
+          Write an email
         </button>
       </div>
 
@@ -548,8 +589,9 @@ export default function CRM({ onBack }) {
             type="text"
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
-            placeholder="Search by name, phone, email..."
-            className="border-0 bg-transparent outline-none flex-1 text-sm text-slate-800 min-w-0"
+            placeholder="Search by name, phone, or email"
+            aria-label="Search people"
+            className="border-0 bg-transparent outline-none flex-1 text-base text-slate-800 min-w-0 min-h-12"
           />
           {searchQuery && (
             <button
@@ -575,6 +617,7 @@ export default function CRM({ onBack }) {
                 leads={leads}
                 onOpen={setSelectedLead}
                 onMarkContacted={(leadId) => handleUpdateLeadStatus(leadId, 'contacted')}
+                onSendReply={handleSendLeadReply}
               />
             )}
             <div className="flex flex-wrap items-center gap-2 py-3">
@@ -582,7 +625,7 @@ export default function CRM({ onBack }) {
                 <button
                   key={s}
                   className={
-                    'px-3.5 py-1.5 text-xs rounded-full border transition-colors capitalize ' +
+                    'min-h-12 px-4 text-base rounded-full border transition-colors ' +
                     (statusFilter === s
                       ? 'border-blue-500 text-blue-700 bg-blue-50'
                       : 'border-gray-300 text-gray-700 bg-white hover:border-gray-400')
@@ -590,7 +633,7 @@ export default function CRM({ onBack }) {
                   onClick={() => setStatusFilter(s)}
                   style={s && statusFilter === s ? { borderColor: STATUS_COLORS[s], color: STATUS_COLORS[s] } : {}}
                 >
-                  {s || 'All'} {s ? `(${leads.filter(l => l.status === s).length})` : `(${leads.length})`}
+                  {s ? LEAD_STATUS_LABELS[s] : 'Everyone'} {s ? `(${leads.filter(l => l.status === s).length})` : `(${leads.length})`}
                 </button>
               ))}
               <button
@@ -599,9 +642,9 @@ export default function CRM({ onBack }) {
                   statusFilter ? `/leads/export?status=${encodeURIComponent(statusFilter)}` : '/leads/export',
                   'leads.csv',
                 )}
-                className="ml-auto inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs rounded-full border border-gray-300 text-gray-700 bg-white hover:border-gray-400 transition-colors"
+                className="ml-auto inline-flex min-h-12 items-center gap-2 px-4 text-base rounded-full border border-gray-300 text-gray-700 bg-white hover:border-gray-400 transition-colors"
               >
-                <Download size={12} /> Export CSV
+                <Download size={18} /> Download the list
               </button>
             </div>
 
@@ -619,13 +662,21 @@ export default function CRM({ onBack }) {
             ) : (
               <div className="flex flex-col gap-0.5">
                 {filteredLeads.length === 0 && (
-                  <div className="text-center py-12 text-gray-600 text-sm">No leads found</div>
+                  <div className="text-center py-12 text-gray-700 text-base">No one matches that search. Try a shorter name or phone number.</div>
                 )}
                 {filteredLeads.map(lead => (
                   <div
                     key={lead.lead_id}
-                    className="flex items-center gap-3 px-4 py-3.5 bg-white rounded-lg cursor-pointer transition hover:bg-white hover:shadow-sm"
+                    className="flex items-center gap-3 px-4 py-4 min-h-16 bg-white rounded-lg cursor-pointer transition hover:bg-white hover:shadow-sm"
                     onClick={() => setSelectedLead(lead)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        setSelectedLead(lead);
+                      }
+                    }}
+                    role="button"
+                    tabIndex={0}
                   >
                     <div
                       className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-base shrink-0"
@@ -634,8 +685,8 @@ export default function CRM({ onBack }) {
                       {(lead.name || '?')[0].toUpperCase()}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="font-semibold text-sm text-slate-800">{lead.name || 'Unknown'}</div>
-                      <div className="flex flex-wrap gap-3 mt-1 text-xs text-gray-700">
+                      <div className="font-semibold text-lg text-slate-800">{lead.name || 'Unknown person'}</div>
+                      <div className="flex flex-wrap gap-3 mt-1 text-base text-gray-700">
                         {lead.phone && (
                           <span className="flex items-center gap-1">
                             <Phone size={12} />
@@ -921,7 +972,7 @@ export default function CRM({ onBack }) {
             onClick={e => e.stopPropagation()}
           >
             <div className="flex justify-between items-center px-6 py-4 border-b border-gray-200">
-              <h3 className="m-0 text-[17px] font-bold text-slate-800">Compose Email</h3>
+              <h3 className="m-0 text-xl font-bold text-slate-800">Write to this person</h3>
               <button
                 onClick={() => { setShowEmailCompose(false); setEmailResult(null); }}
                 className="bg-transparent border-0 text-gray-700 hover:text-gray-700 p-1 cursor-pointer"
@@ -933,23 +984,26 @@ export default function CRM({ onBack }) {
             <form onSubmit={handleSendEmail} className="px-6 py-6 flex flex-col gap-3.5">
               {/* Template Selector */}
               <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1 uppercase tracking-wide">
-                  Template
+                <label className="block text-base font-semibold text-gray-800 mb-1" htmlFor="email-template">
+                  Start with a sample note
                 </label>
+                <p className="text-base text-gray-600 mb-2">Pick one, then change any words that do not fit.</p>
                 <select
+                  id="email-template"
                   value={selectedTemplate}
                   onChange={e => applyEmailTemplate(e.target.value)}
-                  className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm text-slate-800 bg-white outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition"
+                  className="w-full min-h-12 px-3 py-3 border border-gray-300 rounded-lg text-base text-slate-800 bg-white outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/10 transition"
                 >
-                  <option value="">Select a template...</option>
+                  <option value="">Choose a sample note</option>
                   {EMAIL_TEMPLATES.map(t => (
                     <option key={t.id} value={t.id}>{t.name}</option>
                   ))}
                 </select>
               </div>
               <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1 uppercase tracking-wide">To</label>
+                <label className="block text-base font-semibold text-gray-800 mb-1" htmlFor="email-to">Their email</label>
                 <input
+                  id="email-to"
                   type="email"
                   value={emailForm.to}
                   onChange={e => setEmailForm(f => ({ ...f, to: e.target.value }))}
@@ -959,8 +1013,9 @@ export default function CRM({ onBack }) {
                 />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1 uppercase tracking-wide">Name</label>
+                <label className="block text-base font-semibold text-gray-800 mb-1" htmlFor="email-name">Their name</label>
                 <input
+                  id="email-name"
                   type="text"
                   value={emailForm.customer_name}
                   onChange={e => setEmailForm(f => ({ ...f, customer_name: e.target.value }))}
@@ -969,8 +1024,9 @@ export default function CRM({ onBack }) {
                 />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1 uppercase tracking-wide">Subject</label>
+                <label className="block text-base font-semibold text-gray-800 mb-1" htmlFor="email-subject">Subject</label>
                 <input
+                  id="email-subject"
                   type="text"
                   value={emailForm.subject}
                   onChange={e => setEmailForm(f => ({ ...f, subject: e.target.value }))}
@@ -980,8 +1036,9 @@ export default function CRM({ onBack }) {
                 />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1 uppercase tracking-wide">Message</label>
+                <label className="block text-base font-semibold text-gray-800 mb-1" htmlFor="email-message">Message</label>
                 <textarea
+                  id="email-message"
                   value={emailForm.message}
                   onChange={e => setEmailForm(f => ({ ...f, message: e.target.value }))}
                   placeholder="Write your message..."
@@ -998,9 +1055,9 @@ export default function CRM({ onBack }) {
                   }
                 >
                   {emailResult.success ? (
-                    <><CheckCircle size={16} /> Email sent successfully</>
+                    <><CheckCircle size={18} /> Sent. They have your message.</>
                   ) : (
-                    <><AlertCircle size={16} /> {safeUserMessage(extractErrorMessage(emailResult), 'Send failed')}</>
+                    <><AlertCircle size={18} /> {safeUserMessage(extractErrorMessage(emailResult), 'The message did not send. Check the address and try again.')}</>
                   )}
                 </div>
               )}
@@ -1010,7 +1067,7 @@ export default function CRM({ onBack }) {
                 className="flex items-center justify-center gap-2 px-3 py-3 bg-blue-500 hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed text-white border-0 rounded-lg text-sm font-semibold cursor-pointer transition-colors"
               >
                 <Send size={16} />
-                {emailSending ? 'Sending...' : 'Send Email'}
+                {emailSending ? 'Sending…' : 'Send this email'}
               </button>
             </form>
           </div>
@@ -1120,7 +1177,7 @@ function LeadDetail({ lead, onClose, onUpdateStatus, onEmail, appointments, emai
         onClick={onClose}
         className="flex items-center gap-1.5 bg-transparent border-0 text-blue-700 hover:text-blue-600 text-[13px] cursor-pointer p-0 mb-5"
       >
-        <ArrowLeft size={16} /> Back to leads
+        <ArrowLeft size={18} /> Back to the list
       </button>
 
       <div className="flex items-center gap-4 mb-6">
@@ -1141,13 +1198,14 @@ function LeadDetail({ lead, onClose, onUpdateStatus, onEmail, appointments, emai
 
       {/* Status Actions */}
       <div className="mb-5 pb-5 border-b border-gray-200">
-        <h3 className="text-xs uppercase tracking-wide text-gray-700 m-0 mb-2.5 font-semibold">Status</h3>
+        <h3 className="text-base text-gray-800 m-0 mb-2 font-semibold">Where this person stands</h3>
+        <p className="text-base text-gray-600 mb-3">Tap one. You will see “Saved” at the top when it sticks.</p>
         <div className="flex flex-wrap gap-2">
           {['new', 'contacted', 'qualified', 'converted'].map(s => (
             <button
               key={s}
               className={
-                'px-4 py-1.5 rounded-lg text-[13px] cursor-pointer capitalize transition ' +
+                'min-h-12 px-4 rounded-lg text-base cursor-pointer transition ' +
                 (lead.status === s
                   ? 'border border-transparent text-white'
                   : 'border border-gray-300 bg-white hover:border-gray-400 text-gray-700')
@@ -1155,13 +1213,13 @@ function LeadDetail({ lead, onClose, onUpdateStatus, onEmail, appointments, emai
               style={lead.status === s ? { background: STATUS_COLORS[s], color: '#fff' } : {}}
               onClick={() => onUpdateStatus(lead.lead_id, s)}
             >
-              {s}
+              {LEAD_STATUS_LABELS[s]}
             </button>
           ))}
         </div>
         {lead.first_contacted_at && (
-          <div className="mt-3 text-xs text-emerald-700 font-medium">
-            First response recorded in {formatLeadResponseTime(lead.created_at, lead.first_contacted_at) || 'the CRM'}
+          <div className="mt-3 text-base text-emerald-700 font-medium">
+            First answer was {formatLeadResponseTime(lead.created_at, lead.first_contacted_at) || 'recorded'}
             {' · '}{formatDate(lead.first_contacted_at)}
           </div>
         )}
@@ -1200,22 +1258,23 @@ function LeadDetail({ lead, onClose, onUpdateStatus, onEmail, appointments, emai
 
       {/* Actions */}
       <div className="mb-5 pb-5 border-b border-gray-200">
-        <h3 className="text-xs uppercase tracking-wide text-gray-700 m-0 mb-2.5 font-semibold">Actions</h3>
+        <h3 className="text-base text-gray-800 m-0 mb-2 font-semibold">Answer them</h3>
+        <p className="text-base text-gray-600 mb-3">Call, or write a note they can read in their email.</p>
         <div className="flex flex-col sm:flex-row gap-2.5">
           {lead.phone && (
             <a
               href={`tel:${lead.phone}`}
-              className="flex items-center justify-center gap-1.5 px-5 py-2.5 rounded-lg text-sm font-medium border-0 bg-green-500 hover:bg-green-600 text-white no-underline transition-colors"
+              className="flex min-h-12 items-center justify-center gap-2 px-5 rounded-lg text-base font-semibold border-0 bg-green-600 hover:bg-green-700 text-white no-underline transition-colors"
             >
-              <Phone size={16} /> Call
+              <Phone size={18} /> Call {lead.phone}
             </a>
           )}
           {lead.email && (
             <button
               onClick={() => onEmail(lead)}
-              className="flex items-center justify-center gap-1.5 px-5 py-2.5 rounded-lg text-sm font-medium border-0 bg-blue-500 hover:bg-blue-600 text-white cursor-pointer transition-colors"
+              className="flex min-h-12 items-center justify-center gap-2 px-5 rounded-lg text-base font-semibold border-0 bg-blue-600 hover:bg-blue-700 text-white cursor-pointer transition-colors"
             >
-              <Mail size={16} /> Email
+              <Mail size={18} /> Write an email
             </button>
           )}
         </div>

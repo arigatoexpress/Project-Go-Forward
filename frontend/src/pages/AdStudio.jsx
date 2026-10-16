@@ -61,7 +61,7 @@ const TABS = [
     { id: 'ideas', label: 'Content Ideas', icon: <TrendingUp size={18} /> },
     { id: 'scheduled', label: 'Drafts', icon: <Calendar size={18} /> },
     { id: 'analytics', label: 'Analytics', icon: <BarChart3 size={18} /> },
-    { id: 'paid-search', label: 'Paid Search', icon: <Search size={18} /> }
+    { id: 'paid-search', label: 'Google Ads', icon: <Search size={18} /> }
 ];
 
 const AVATARS = [
@@ -184,9 +184,14 @@ async function apiGetVoices() {
 }
 
 /* ─────────────────── Component ─────────────────── */
-export default function AdStudio({ onBack }) {
-    // Tabs
-    const [activeTab, setActiveTab] = useState('create');
+export default function AdStudio({ onBack, initialTab = 'create' }) {
+    // Tabs. /ad-studio opens Google Ads; the social studio stays on Create.
+    const [activeTab, setActiveTab] = useState(
+        TABS.some(tab => tab.id === initialTab) ? initialTab : 'create',
+    );
+    useEffect(() => {
+        if (initialTab === 'paid-search') setActiveTab('paid-search');
+    }, [initialTab]);
 
     // Create tab state
     const [platform, setPlatform] = useState('tiktok');

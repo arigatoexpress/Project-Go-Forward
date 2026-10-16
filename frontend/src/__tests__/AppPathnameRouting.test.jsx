@@ -77,6 +77,15 @@ describe('App pathname-aware routing', () => {
     window.history.replaceState({}, '', '/');
   });
 
+  it('opens staff sign-in for /ad-studio instead of a 404', async () => {
+    window.history.replaceState({}, '', '/ad-studio');
+    render(<ToastProvider><App /></ToastProvider>);
+
+    expect(await screen.findByRole('heading', { name: 'Staff sign-in' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: /wandered off the lot/i })).not.toBeInTheDocument();
+    expect(document.title).toContain('Google Ads');
+  });
+
   it('keeps category links native and synchronizes popstate title, page views, and filters', async () => {
     render(<ToastProvider><App /></ToastProvider>);
 

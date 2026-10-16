@@ -4,6 +4,7 @@ import {
   Loader2, Search, ImageOff, Star, ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import adminFetch from '../adminFetch';
+import ConfirmDialog from '../components/ConfirmDialog';
 import {
   friendlyModelName, isActiveHome, staffVisibleHomes, statusLabel, stockLabel,
 } from '../utils/inventoryDisplay';
@@ -53,6 +54,8 @@ export default function PhotoManager({ onBack }) {
   const [dragOver, setDragOver] = useState(false);
   const [onlyNeedsPhotos, setOnlyNeedsPhotos] = useState(false);
   const [includeInactive, setIncludeInactive] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState(null);
+  const [deleting, setDeleting] = useState(false);
   const fileInputRef = useRef(null);
 
   const selectedHome = homes.find(h => String(h.id) === String(selectedId));
@@ -115,8 +118,8 @@ export default function PhotoManager({ onBack }) {
         setMessage({
           type: 'error',
           text: data?.storage_unavailable
-            ? `Durable photo storage is temporarily unavailable, so this upload could not be confirmed. Refresh the photo list before retrying.${retry}`
-            : data?.message || data?.detail || data?.error || 'Upload failed. Please try again.',
+            ? `The photo safe is busy, so nothing new was saved. Refresh this page, then try again.${retry}`
+            : 'Those photos were not added. Use a JPG or PNG of the actual home and try again.',
         });
       } else {
         const okCount = (data.uploaded || []).length;
@@ -124,10 +127,10 @@ export default function PhotoManager({ onBack }) {
         if (data.storage_unavailable && okCount > 0) {
           setMessage({
             type: 'error',
-            text: `${okCount} photo${okCount === 1 ? ' was' : 's were'} confirmed, then durable storage became unavailable. Refresh the photo list before retrying the listed files.${retry}`,
+            text: `${okCount} photo${okCount === 1 ? ' was' : 's were'} saved, then the photo safe got busy. Refresh before trying the rest.${retry}`,
           });
         } else if (okCount > 0 && errCount === 0) {
-          setMessage({ type: 'ok', text: `${okCount} photo${okCount === 1 ? '' : 's'} added. They will show on the website shortly.` });
+          setMessage({ type: 'ok', text: `${okCount} photo${okCount === 1 ? '' : 's'} added. Customers will see ${okCount === 1 ? 'it' : 'them'} on the website shortly.` });
         } else if (okCount > 0) {
           setMessage({ type: 'ok', text: `${okCount} added, ${errCount} skipped (not a valid image).` });
         } else {
@@ -151,21 +154,26 @@ export default function PhotoManager({ onBack }) {
 
   const uploadDisabled = !selectedId || uploading;
 
-  const handleDelete = async (filename) => {
-    if (!window.confirm('Remove this photo from the website?')) return;
+  const handleDelete = async () => {
+    const filename = pendingDelete;
+    if (!filename) return;
+    setDeleting(true);
     try {
       const res = await adminFetch(
         `/api/inventory/${encodeURIComponent(selectedId)}/photos/${encodeURIComponent(filename)}`,
         { method: 'DELETE' },
       );
       if (res.ok) {
-        setMessage({ type: 'ok', text: 'Photo removed.' });
+        setMessage({ type: 'ok', text: 'Photo removed. Customers will no longer see it.' });
         fetchPhotos(selectedId);
       } else {
         setMessage({ type: 'error', text: 'Could not remove that photo.' });
       }
     } catch {
-      setMessage({ type: 'error', text: 'Could not remove that photo. Try again.' });
+      setMessage({ type: 'error', text: 'That photo is still on the website. Check the connection and try again.' });
+    } finally {
+      setDeleting(false);
+      setPendingDelete(null);
     }
   };
 
@@ -231,9 +239,9 @@ export default function PhotoManager({ onBack }) {
 
       <div className="max-w-3xl mx-auto px-4 py-6">
         {/* Plain-language intro */}
-        <p className="text-gray-600 text-[15px] mb-5">
-          Add pictures to a home in 3 easy steps. The photos you add here show up
-          on the public website automatically.
+        <p className="text-gray-700 text-lg leading-relaxed mb-5">
+          Add pictures of the actual home. Floor plans and brochure pictures do not belong here.
+          The photos you add show up on the public website.
         </p>
 
         {/* Step 1 — pick a home */}
@@ -269,7 +277,7 @@ export default function PhotoManager({ onBack }) {
                   type="checkbox"
                   checked={onlyNeedsPhotos}
                   onChange={e => setOnlyNeedsPhotos(e.target.checked)}
-                  className="w-4 h-4 shrink-0"
+                  className="w-6 h-6 shrink-0"
                 />
                 Show only homes that still need photos
                 {needsCount > 0 && (
@@ -283,7 +291,7 @@ export default function PhotoManager({ onBack }) {
                   type="checkbox"
                   checked={includeInactive}
                   onChange={e => setIncludeInactive(e.target.checked)}
-                  className="w-4 h-4 shrink-0"
+                  className="w-6 h-6 shrink-0"
                 />
                 Include sold/archived homes
               </label>
@@ -312,7 +320,7 @@ export default function PhotoManager({ onBack }) {
                 return (
                   <label
                     key={h.id}
-                    className={`flex items-start gap-3 px-3 py-3 cursor-pointer ${checked ? 'bg-blue-50' : 'hover:bg-gray-50'}`}
+                    className={`flex items-start gap-3 px-3 py-4 min-h-14 cursor-pointer ${checked ? 'bg-blue-50' : 'hover:bg-gray-50'}`}
                   >
                     <input
                       type="radio"
@@ -321,7 +329,7 @@ export default function PhotoManager({ onBack }) {
                       checked={checked}
                       onChange={() => { setSelectedId(String(h.id)); setMessage(null); }}
                       aria-label={homeLabel(h)}
-                      className="mt-1 w-4 h-4 shrink-0"
+                      className="mt-1 w-6 h-6 shrink-0"
                     />
                     <span className="min-w-0 flex-1">
                       <span className="block font-semibold text-slate-800 text-[15px] break-words">{homeName(h)}</span>
@@ -453,8 +461,8 @@ export default function PhotoManager({ onBack }) {
                       </button>
                     )}
                     <button
-                      onClick={() => handleDelete(p.filename)}
-                      className="absolute top-1.5 right-1.5 bg-white/90 hover:bg-red-600 hover:text-white text-red-600 rounded-full p-1.5 shadow"
+                      onClick={() => setPendingDelete(p.filename)}
+                      className="absolute top-1.5 right-1.5 bg-white/90 hover:bg-red-600 hover:text-white text-red-600 rounded-full p-3 shadow min-h-12 min-w-12 flex items-center justify-center"
                       aria-label="Remove photo"
                       title="Remove photo"
                     >
@@ -489,6 +497,17 @@ export default function PhotoManager({ onBack }) {
           </section>
         )}
       </div>
+      <ConfirmDialog
+        open={!!pendingDelete}
+        title="Remove this photo from the website?"
+        message="Customers will stop seeing it. The home stays listed."
+        confirmLabel="Yes, remove the photo"
+        cancelLabel="No, keep the photo"
+        danger
+        busy={deleting}
+        onConfirm={handleDelete}
+        onCancel={() => { if (!deleting) setPendingDelete(null); }}
+      />
     </div>
   );
 }

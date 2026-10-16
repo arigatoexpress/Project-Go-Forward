@@ -127,8 +127,8 @@ describe('LeadResponseQueue', () => {
       />,
     );
 
-    expect(screen.getByRole('heading', { name: /Respond now/i })).toBeTruthy();
-    expect(screen.getByText(/15-minute target/i)).toBeTruthy();
+    expect(screen.getByRole('heading', { name: /Answer these people/i })).toBeTruthy();
+    expect(screen.getByText(/within 15 minutes/i)).toBeTruthy();
     const callLink = screen.getByRole('link', { name: /Call Maria Lopez/i });
     const emailLink = screen.getByRole('link', { name: /Email Maria Lopez/i });
     expect(callLink.getAttribute('href'))
@@ -139,8 +139,9 @@ describe('LeadResponseQueue', () => {
     fireEvent.click(emailLink);
     expect(onMarkContacted).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole('button', { name: /Mark Maria Lopez contacted/i }));
-    await Promise.resolve();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Mark Maria Lopez contacted/i }));
+    });
     expect(onMarkContacted).toHaveBeenCalledWith('lead-1');
   });
 
@@ -163,13 +164,13 @@ describe('LeadResponseQueue', () => {
         onMarkContacted={() => {}}
       />,
     );
-    expect(screen.getByText(/Fresh · 15m waiting/i)).toBeTruthy();
+    expect(screen.getByText(/New · 15m waiting/i)).toBeTruthy();
 
     act(() => vi.advanceTimersByTime(60_000));
     expect(screen.getByText(/Waiting · 16m waiting/i)).toBeTruthy();
   });
 
-  it('renders recent leads in Respond now and stale leads only in Recovery backlog', () => {
+  it('renders recent leads in the answer list and stale leads only in older messages', () => {
     const staleLeads = Array.from({ length: 44 }, (_, index) => lead({
       lead_id: `stale-${index}`,
       name: `Stale ${index}`,
@@ -194,7 +195,78 @@ describe('LeadResponseQueue', () => {
     expect(within(activeQueue).queryByText('Stale 0')).toBeNull();
     expect(within(recoveryQueue).getByText('Stale 0')).toBeTruthy();
     expect(within(recoveryQueue).queryByText('Fresh Regular')).toBeNull();
-    expect(screen.getByText(/1 lead needs a response now/i)).toBeTruthy();
-    expect(screen.getByText(/44 older reachable leads/i)).toBeTruthy();
+    expect(screen.getByText(/1 person is waiting for an answer/i)).toBeTruthy();
+    expect(screen.getByText(/44 older people you can still reach/i)).toBeTruthy();
+  });
+
+  it('sends a short reply from the list and marks the person answered', async () => {
+    const onSendReply = vi.fn().mockResolvedValue(true);
+    const onMarkContacted = vi.fn().mockResolvedValue(true);
+    render(
+      <LeadResponseQueue
+        leads={[lead()]}
+        onOpen={() => {}}
+        onMarkContacted={onMarkContacted}
+        onSendReply={onSendReply}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /Write Maria Lopez a reply/i }));
+    expect(screen.getByLabelText(/Your reply/i).value).toMatch(/Texas Home Outlet/);
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Send this reply/i }));
+    });
+
+    expect(onSendReply).toHaveBeenCalledWith(
+      expect.objectContaining({ lead_id: 'lead-1', email: 'maria@example.com' }),
+      expect.objectContaining({ subject: 'Following up from Texas Home Outlet' }),
+    );
+    expect(onMarkContacted).toHaveBeenCalledWith('lead-1');
+    expect(screen.getByRole('status').textContent).toMatch(/Sent\. Maria Lopez has your reply/);
+  });
+
+  it('leaves the person waiting when the reply does not send', async () => {
+    const onSendReply = vi.fn().mockResolvedValue(false);
+    const onMarkContacted = vi.fn();
+    render(
+      <LeadResponseQueue
+        leads={[lead()]}
+        onOpen={() => {}}
+        onMarkContacted={onMarkContacted}
+        onSendReply={onSendReply}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /Write Maria Lopez a reply/i }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Send this reply/i }));
+    });
+
+    expect(screen.getByRole('alert').textContent).toMatch(/did not send/i);
+    expect(onMarkContacted).not.toHaveBeenCalled();
+  });
+
+  it('keeps the saved confirmation after that person leaves the waiting list', async () => {
+    const onMarkContacted = vi.fn().mockResolvedValue(true);
+    const view = render(
+      <LeadResponseQueue
+        leads={[lead()]}
+        onOpen={() => {}}
+        onMarkContacted={onMarkContacted}
+      />,
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Mark Maria Lopez contacted/i }));
+    });
+    view.rerender(
+      <LeadResponseQueue
+        leads={[lead({ status: 'contacted' })]}
+        onOpen={() => {}}
+        onMarkContacted={onMarkContacted}
+      />,
+    );
+    expect(screen.getByRole('status').textContent).toMatch(/marked as answered/i);
+    expect(screen.getByText(/Nobody else is waiting right now/i)).toBeTruthy();
+    expect(screen.getByText(/You are caught up/i)).toBeTruthy();
   });
 });
