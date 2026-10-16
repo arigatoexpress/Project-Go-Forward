@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import InventoryBrowse from '../pages/InventoryBrowse';
 
 const homes = [
@@ -88,5 +88,22 @@ describe('unique city, floorplan, and home pages after hydration', () => {
     expect(document.querySelector('img[src="https://d132mt2yijm03y.cloudfront.net/manufacturer/1944/floorplan/1391/showroom.jpg"]')).toBeNull();
     const details = screen.getAllByRole('link', { name: /View Details|View PRE-OWNED/i });
     expect(details.some((link) => link.getAttribute('href') === '/homes/44490-pre-owned-big-blue')).toBe(true);
+  });
+
+  it('puts call, text, and apply for that home above the marketing search', async () => {
+    window.history.replaceState({}, '', '/homes/44490-pre-owned-big-blue');
+    render(<InventoryBrowse pathname="/homes/44490-pre-owned-big-blue" />);
+    const summary = await screen.findByRole('region', { name: 'Price and next steps' });
+    const call = within(summary).getByRole('link', { name: /Call \(281\) 324-3020/i });
+    const text = within(summary).getByRole('link', { name: /Text \(281\) 324-3020/i });
+    expect(call).toHaveAttribute('href', 'tel:+12813243020');
+    expect(text.getAttribute('href')).toMatch(/^sms:\+12813243020/);
+    expect(within(summary).getByRole('button', { name: /Apply for financing/i })).toBeInTheDocument();
+    expect(within(summary).getByText('Call for Price')).toBeInTheDocument();
+    const search = screen.getByRole('textbox', { name: 'Search homes' });
+    expect(summary.compareDocumentPosition(search) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const photos = [...document.querySelectorAll('article img[src="https://lot.example/44490.jpg"]')];
+    expect(photos.length).toBeGreaterThan(0);
+    expect(photos.every((photo) => summary.compareDocumentPosition(photo) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
   });
 });
