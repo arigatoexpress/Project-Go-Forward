@@ -4,8 +4,13 @@ import {
   getCityLanding,
   isInstockHome,
   listingPagePhotos,
+  listingImageAlt,
   listingPath,
+  listingPhotoSubject,
+  listingShareUrl,
   listingSlug,
+  publicCanonicalOrigin,
+  PUBLIC_CANONICAL_ORIGIN,
   resolveHomeFromPath,
   stockId,
 } from '../utils/listingRoutes';
@@ -122,6 +127,43 @@ describe('listingRoutes', () => {
     );
     expect(fallbackListingHeading('/homes/44490-pre-owned-big-blue')).toBe('Pre Owned Big Blue');
     expect(fallbackListingHeading('/plan/223034/skyliner/4732b/')).toBe('Skyliner 4732b');
+  });
+
+  it('names a listing photo from filename parts and keeps alts unique', () => {
+    const home = { model_name: 'Premier / Creole 3256H32447' };
+    const exterior = 'https://cdn.example/dealer/3522/inventory/43372/Creole%203256H32447-ext-1.jpg';
+    const kitchen = 'https://cdn.example/dealer/3522/inventory/43372/Creole%203256H32447-kit-1.jpg';
+    expect(listingPhotoSubject(exterior)).toBe('exterior');
+    expect(listingPhotoSubject(kitchen)).toBe('kitchen');
+    expect(listingPhotoSubject('https://storage.example/inventory/43372/hero.jpg')).toBe('');
+    expect(listingImageAlt(home, exterior, 1, 2)).toBe(
+      'Premier / Creole 3256H32447 — exterior photo 1 at Texas Home Outlet in Huffman, TX',
+    );
+    expect(listingImageAlt(home, kitchen, 2, 2)).toContain('kitchen photo 2');
+    expect(listingImageAlt(home, 'https://lot.example/plan.jpg', 1, 1, { floorplan: true })).toBe(
+      'Floor plan for Premier / Creole 3256H32447',
+    );
+  });
+
+  it('shares the canonical listing URL and keeps apex hosts on www', () => {
+    const home = {
+      id: '44490',
+      model_name: 'PRE-OWNED / Big Blue',
+      status: 'Pre-Owned',
+      inventory_kind: 'pre_owned',
+    };
+    expect(listingShareUrl(home)).toMatch(/\/homes\/44490-pre-owned-big-blue$/);
+    expect(listingShareUrl(home)).not.toContain('?home=');
+    expect(publicCanonicalOrigin('texashomeoutlet.com', 'https://texashomeoutlet.com')).toBe(
+      PUBLIC_CANONICAL_ORIGIN,
+    );
+    expect(publicCanonicalOrigin('tho.sapphirealpha.xyz', 'https://tho.sapphirealpha.xyz')).toBe(
+      PUBLIC_CANONICAL_ORIGIN,
+    );
+    expect(publicCanonicalOrigin('www.texashomeoutlet.com', 'https://www.texashomeoutlet.com')).toBe(
+      'https://www.texashomeoutlet.com',
+    );
+    expect(publicCanonicalOrigin('localhost', 'http://localhost:3000')).toBe('http://localhost:3000');
   });
 
   it('parses city landings and resolves a home from its listing URL', () => {

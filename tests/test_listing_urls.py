@@ -6,6 +6,7 @@ from tools.listing_urls import (
     listing_lastmod,
     listing_page_images,
     listing_path,
+    listing_photo_subject,
     listing_slug,
     match_instock_home,
     stock_id,
@@ -101,6 +102,30 @@ def test_match_instock_home_accepts_stock_id_prefix():
     assert match_instock_home("/homes/44490-pre-owned-big-blue", [home]) is home
     assert match_instock_home("/homes/44490-old-slug", [home]) is home
     assert match_instock_home("/homes/99999-missing", [home]) is None
+
+
+def test_listing_photo_subject_reads_filename_tokens_only():
+    assert (
+        listing_photo_subject(
+            "https://cdn.example/dealer/3522/inventory/43372/Creole%203256H32447-ext-1.jpg"
+        )
+        == "exterior"
+    )
+    assert (
+        listing_photo_subject(
+            "https://cdn.example/dealer/3522/inventory/43372/Creole%203256H32447-kit-1.jpg"
+        )
+        == "kitchen"
+    )
+    assert (
+        listing_photo_subject(
+            "https://storage.googleapis.com/tho-inventory-assets/inventory/43372/hero.jpg"
+        )
+        is None
+    )
+    # Letters inside a model token are not a room. Only a whole filename part counts.
+    assert listing_photo_subject("https://cdn.example/bedroomish-3256h32447.jpg") is None
+    assert listing_photo_subject("https://cdn.example/3256h32447.jpg") is None
 
 
 def test_lastmod_prefers_record_date():

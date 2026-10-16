@@ -1,4 +1,19 @@
+import { BUSINESS_CITY, BUSINESS_NAME, BUSINESS_STATE } from '../constants';
+
 const SLUG_RE = /[^a-z0-9]+/g;
+export const PUBLIC_CANONICAL_ORIGIN = 'https://www.texashomeoutlet.com';
+const CANONICAL_HOST_ALIASES = new Set(['texashomeoutlet.com', 'tho.sapphirealpha.xyz']);
+
+const PHOTO_SUBJECTS = [
+  ['exterior', ['exterior', 'ext', 'front']],
+  ['kitchen', ['kitchen', 'kit']],
+  ['living room', ['living', 'lvgrm', 'lvg']],
+  ['bathroom', ['bathroom', 'bath']],
+  ['bedroom', ['bedroom', 'bed']],
+  ['interior', ['interior', 'int']],
+  ['porch', ['porch']],
+  ['utility', ['utility']],
+];
 const CITY_PATH_RE = /^\/manufactured-homes-in-([a-z0-9-]+)-tx\/?$/i;
 const HOME_PATH_RE = /^\/homes\/([^/]+)\/?$/i;
 const PLAN_PATH_RE = /^\/plan\/(\d+)(?:\/|$)/i;
@@ -238,6 +253,56 @@ export function listingPagePhotos(home) {
   return plan ? [plan] : [];
 }
 
+export function publicCanonicalOrigin(hostname, origin) {
+  const host = String(
+    hostname ?? (typeof window !== 'undefined' ? window.location.hostname : ''),
+  ).toLowerCase();
+  const current = origin ?? (typeof window !== 'undefined' ? window.location.origin : '');
+  if (CANONICAL_HOST_ALIASES.has(host)) return PUBLIC_CANONICAL_ORIGIN;
+  return current || PUBLIC_CANONICAL_ORIGIN;
+}
+
+function photoFilename(url) {
+  const raw = String(url || '').split('/').pop()?.split('?')[0] || '';
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
+}
+
+export function listingPhotoSubject(url) {
+  const filename = photoFilename(url);
+  const stem = filename.replace(/\.[^.]+$/, '').toLowerCase();
+  const parts = new Set(stem.split(/[^a-z0-9]+/).filter(Boolean));
+  for (const [label, tokens] of PHOTO_SUBJECTS) {
+    if (tokens.some((token) => parts.has(token))) return label;
+  }
+  return '';
+}
+
+export function listingImageAlt(home, url, index, total, { floorplan = false } = {}) {
+  const name = String(home?.model_name || 'Manufactured home').trim() || 'Manufactured home';
+  if (floorplan) return `Floor plan for ${name}`;
+  const subject = listingPhotoSubject(url);
+  const count = Number(total) || 1;
+  const position = Number(index) || 1;
+  let photo;
+  if (subject && count > 1) photo = `${subject} photo ${position}`;
+  else if (subject) photo = `${subject} photo`;
+  else if (count > 1) photo = `manufactured home photo ${position}`;
+  else photo = 'manufactured home';
+  return `${name} — ${photo} at ${BUSINESS_NAME} in ${BUSINESS_CITY}, ${BUSINESS_STATE}`;
+}
+
+export function listingShareUrl(home) {
+  const origin = publicCanonicalOrigin();
+  const path = listingPath(home);
+  if (path) return `${origin}${path.startsWith('/') ? path : `/${path}`}`;
+  const id = encodeURIComponent(home?.id || '');
+  return `${origin}/inventory?home=${id}`;
+}
+
 function upsertMeta(attribute, key, content) {
   if (!content || typeof document === 'undefined') return;
   let meta = document.querySelector(`meta[${attribute}="${key}"]`);
@@ -252,7 +317,7 @@ function upsertMeta(attribute, key, content) {
 export function applyDocumentHead({ title, description, canonicalPath, image } = {}) {
   if (typeof document === 'undefined') return;
   if (title) document.title = title;
-  const origin = typeof window !== 'undefined' ? window.location.origin : '';
+  const origin = publicCanonicalOrigin();
   let canonicalHref = '';
   if (description) {
     upsertMeta('name', 'description', description);
