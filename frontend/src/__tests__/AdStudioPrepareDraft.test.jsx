@@ -86,7 +86,8 @@ describe('Ad Studio prepare draft', () => {
     expect(screen.getByRole('heading', { name: 'Ad Content Preview' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Prepare Draft' })).toBeEnabled();
     expect(screen.getByRole('button', { name: 'Drafts' })).not.toHaveAttribute('aria-current', 'page');
-    expect(screen.queryByText('Response ID: DRAFT-TT-ABC123')).not.toBeInTheDocument();
+    expect(screen.queryByText('TikTok draft')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Response ID:/)).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /publish/i })).not.toBeInTheDocument();
   });
 
@@ -113,8 +114,12 @@ describe('Ad Studio prepare draft', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Prepare Draft' }));
 
-    expect(await screen.findByText('Response ID: DRAFT-TT-ABC123')).toBeInTheDocument();
-    expect(screen.getByText('Response-only · not saved')).toBeInTheDocument();
+    expect(await screen.findByText('TikTok draft')).toBeInTheDocument();
+    expect(screen.getByText('Ready to review here')).toBeInTheDocument();
+    expect(screen.getByText(/stays on this screen only/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Response ID:/)).not.toBeInTheDocument();
+    expect(screen.queryByText('draft_ready')).not.toBeInTheDocument();
+    expect(screen.queryByText(/SCR-1/)).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Drafts' })).toHaveAttribute('aria-current', 'page');
     expect(screen.queryByRole('heading', { name: 'Ad Content Preview' })).not.toBeInTheDocument();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();

@@ -10,7 +10,9 @@ import {
   budgetPlain,
   launchResultCopy,
   locationPlain,
+  outboxPlain,
   plainRemediation,
+  progressPlain,
   readStaffBrief,
   terminalRemediation,
   writeStaffBrief,
@@ -55,7 +57,7 @@ describe('Google Ads staff guidance', () => {
     ])).toBe([
       'Check the campaign before you launch it.',
       'The owner still needs to link the Google Ads account and confirm it uses US dollars.',
-      'The owner still needs to finish ads setup: account permissions, API credentials, and the turned-off campaign job.',
+      'The owner still needs to finish ads setup: account permissions, the Google connection, and the turned-off campaign step.',
       'The owner still has a setup step to finish before this campaign can be launched turned off.',
     ].join(' '));
     expect(plainRemediation([])).toBe('');
@@ -65,8 +67,8 @@ describe('Google Ads staff guidance', () => {
     expect(OWNER_ONLY_STEPS.map(step => step.title)).toEqual([
       'Link the Google Ads account',
       'Set up billing in Google Ads',
-      'Turn on conversion tracking',
-      'Add the API credentials',
+      'Count tour bookings',
+      'Finish the Google connection',
     ]);
     expect(GATE_GUIDANCE.iam_verified.missing).toMatch(/permissions/i);
     expect(budgetPlain({
@@ -83,6 +85,21 @@ describe('Google Ads staff guidance', () => {
       state: 'PAUSED_CREATED',
       paused_create: { outbox_state: 'DISPATCHED' },
     })).toMatch(/turned off/);
+    expect(launchResultCopy({
+      state: 'PAUSED_CREATE_APPROVED',
+      paused_create: { outbox_state: 'PENDING' },
+    })).not.toMatch(/pending|dispatched|dispatching/i);
+    expect(outboxPlain('DISPATCHING')).toBe('being created in Google Ads now');
+    expect(outboxPlain('NOT_A_CODE')).toBe('saved on this website');
+    expect(progressPlain({ state: 'INTERNAL_DRAFT' })).toMatch(/nothing has been sent to google/i);
+    expect(terminalRemediation({
+      state: 'PAUSED_CREATE_APPROVED',
+      paused_create: { outbox_state: 'PENDING' },
+    })).toMatch(/waiting to be created in Google Ads/);
+    expect(terminalRemediation({
+      state: 'PAUSED_CREATE_APPROVED',
+      paused_create: { outbox_state: 'PENDING' },
+    })).not.toMatch(/saved status/i);
     expect(terminalRemediation({
       state: 'PAUSED_CREATE_APPROVED',
       paused_create: { outbox_state: 'FAILED' },
