@@ -64,12 +64,12 @@ export default function StaffAccess({ onBack }) {
 
   return (
     <div className="max-w-xl mx-auto px-4 py-8">
-      <button type="button" onClick={onBack} className="text-sm text-[var(--cp-muted)] mb-4">
+      <button type="button" onClick={onBack} className="min-h-12 text-base text-[var(--cp-muted)] mb-4">
         Back
       </button>
-      <h1 className="text-2xl font-bold text-[var(--cp-text)] mb-2">Team access</h1>
-      <p className="text-sm text-[var(--cp-muted)] leading-relaxed mb-6">
-        People with an @{domains} email can sign in unless you block them. Add anyone else by email. Removing someone stops their email sign-in. It does not change the shared backup PIN.
+      <h1 className="text-3xl font-bold text-[var(--cp-text)] mb-2">Who can sign in</h1>
+      <p className="text-lg text-[var(--cp-muted)] leading-relaxed mb-6">
+        People with an @{domains} email can sign in unless you block them. Add anyone else by typing their email and tapping Add this person. Removing someone stops their email sign-in. It does not change the shared backup PIN.
       </p>
 
       {loading && !directory ? (
@@ -89,11 +89,11 @@ export default function StaffAccess({ onBack }) {
                 onChange={(event) => setEmail(event.target.value)}
                 placeholder="name@example.com"
                 aria-label="Email to add"
-                className="cp-input w-full px-3 py-3 text-base"
+                className="cp-input w-full min-h-12 px-3 py-3 text-lg"
               />
             </label>
-            <button type="submit" disabled={saving || !email.trim()} className="cp-btn-accent px-4 py-3 text-sm flex items-center justify-center gap-2">
-              <UserPlus size={16} /> Add
+            <button type="submit" disabled={saving || !email.trim()} className="cp-btn-accent min-h-12 px-4 py-3 text-base flex items-center justify-center gap-2">
+              <UserPlus size={18} /> Add this person
             </button>
           </form>
 
@@ -109,7 +109,7 @@ export default function StaffAccess({ onBack }) {
                 {directory.added.map((address) => (
                   <li key={address} className="flex items-center justify-between gap-3 text-sm">
                     <span className="break-all">{address}</span>
-                    <button type="button" className="cp-btn-outline px-3 py-1" disabled={saving} onClick={() => update(address, 'reset')}>
+                    <button type="button" className="cp-btn-outline min-h-12 px-4 text-base" disabled={saving} onClick={() => update(address, 'reset')}>
                       Remove
                     </button>
                   </li>
@@ -127,8 +127,8 @@ export default function StaffAccess({ onBack }) {
                 {directory.blocked.map((address) => (
                   <li key={address} className="flex items-center justify-between gap-3 text-sm">
                     <span className="break-all">{address}</span>
-                    <button type="button" className="cp-btn-outline px-3 py-1" disabled={saving} onClick={() => update(address, 'reset')}>
-                      Unblock
+                    <button type="button" className="cp-btn-outline min-h-12 px-4 text-base" disabled={saving} onClick={() => update(address, 'reset')}>
+                      Let them sign in
                     </button>
                   </li>
                 ))}
@@ -146,8 +146,8 @@ export default function StaffAccess({ onBack }) {
               form.reset();
             }}
           >
-            <h2 className="font-semibold mb-2">Block an email</h2>
-            <p className="text-xs text-[var(--cp-muted)] mb-2">Use this when someone with a company email should not sign in anymore.</p>
+            <h2 className="text-lg font-semibold mb-2">Stop someone from signing in</h2>
+            <p className="text-base text-[var(--cp-muted)] mb-2 leading-relaxed">Use this when someone with a company email should not sign in anymore.</p>
             <div className="flex flex-col sm:flex-row gap-2">
               <input
                 name="blockEmail"
@@ -157,8 +157,8 @@ export default function StaffAccess({ onBack }) {
                 aria-label="Email to block"
                 className="cp-input flex-1 px-3 py-3 text-base"
               />
-              <button type="submit" disabled={saving} className="cp-btn-outline px-4 py-3 text-sm">
-                Block
+              <button type="submit" disabled={saving} className="cp-btn-outline min-h-12 px-4 py-3 text-base">
+                Stop sign-in
               </button>
             </div>
           </form>

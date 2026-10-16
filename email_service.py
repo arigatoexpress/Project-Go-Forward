@@ -818,7 +818,9 @@ def _lead_home_interest_html(home: dict | None) -> str:
     )
     if not home or not (home.get("label") or home.get("stock")):
         return f'<div style="{box}"><strong>General inquiry</strong> (no specific home)</div>'
-    pieces = [f"<strong>Interested in:</strong> {esc(str(home.get('label') or 'Home (model not given)'))}"]
+    pieces = [
+        f"<strong>Interested in:</strong> {esc(str(home.get('label') or 'Home (model not given)'))}"
+    ]
     if home.get("stock"):
         pieces.append(esc(str(home["stock"])))
     if home.get("url"):
@@ -827,8 +829,7 @@ def _lead_home_interest_html(home: dict | None) -> str:
     note = ""
     if home.get("note"):
         note = (
-            '<br><span style="color: #6b7280; font-size: 13px;">'
-            f"{esc(str(home['note']))}</span>"
+            '<br><span style="color: #6b7280; font-size: 13px;">' f"{esc(str(home['note']))}</span>"
         )
     return f'<div style="{box}">{" — ".join(pieces)}{note}</div>'
 
@@ -862,7 +863,7 @@ def notify_new_lead(
       <p style="margin: 4px 0; color: #374151;"><strong>Source:</strong> {esc(source)}</p>
       <p style="margin: 4px 0; color: #6b7280; font-size: 13px;">{received}</p>
     </div>
-    <p style="color: #374151;">Log into the <strong>CRM dashboard</strong> to follow up.</p>
+    <p style="color: #374151;">Open the staff page, choose <strong>Leads</strong>, and answer this person.</p>
     """
 
     text_lines = [
@@ -876,7 +877,7 @@ def notify_new_lead(
     text_lines += [f"Source: {source}", f"Received: {received}", ""]
     if home and home.get("note"):
         text_lines.insert(1, str(home["note"]))
-    text_lines.append("Log into the CRM dashboard to follow up.")
+    text_lines.append("Open the staff page, choose Leads, and answer this person.")
 
     subject_tag = (home or {}).get("stock") or (
         "General inquiry" if not (home and home.get("label")) else ""

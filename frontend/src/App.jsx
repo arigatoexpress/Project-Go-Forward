@@ -153,7 +153,7 @@ function NavBar({
     navigateTo(key);
   };
   const desktopBtn = (isActive) =>
-    `flex items-center gap-1.5 px-2.5 py-1.5 rounded-md transition-colors text-xs shrink-0 ${
+    `flex items-center gap-1.5 px-3 min-h-11 rounded-md transition-colors text-sm font-semibold shrink-0 ${
       isActive
         ? 'bg-[var(--cp-accent-dim)] text-[var(--cp-accent)]'
         : 'text-[var(--cp-muted)] hover:text-[var(--cp-text)] hover:bg-[var(--cp-surface)]'
@@ -228,7 +228,7 @@ function NavBar({
                             type="button"
                             role="menuitem"
                             onClick={() => go(item.key)}
-                            className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm ${
+                            className={`flex w-full items-center gap-2 px-3 py-3 min-h-12 text-left text-base ${
                               activePage === item.key
                                 ? 'bg-[var(--cp-accent-dim)] text-[var(--cp-accent)]'
                                 : 'text-[var(--cp-text)] hover:bg-[var(--cp-surface)]'
@@ -265,20 +265,21 @@ function NavBar({
             {/* Admin button — desktop */}
             <button
               onClick={onAdminAccess}
-              className="hidden lg:flex items-center gap-1 px-2 py-1.5 text-xs text-[var(--cp-muted)] hover:text-[var(--cp-accent)] hover:bg-[var(--cp-surface)] rounded-md transition-colors"
+              className="hidden lg:flex items-center gap-1.5 px-3 min-h-11 text-sm font-semibold text-[var(--cp-muted)] hover:text-[var(--cp-accent)] hover:bg-[var(--cp-surface)] rounded-md transition-colors"
               aria-label="Admin access"
-              title="Admin access"
+              title="Staff sign-in"
             >
-              {adminAuthed ? <ShieldCheck size={14} className="text-[var(--cp-accent)]" /> : <Lock size={14} />}
+              {adminAuthed ? <ShieldCheck size={16} className="text-[var(--cp-accent)]" /> : <Lock size={16} />}
+              <span className="hidden xl:inline">{adminAuthed ? 'Signed in' : 'Staff'}</span>
             </button>
 
             {adminAuthed && (
               <button
                 onClick={onPasskeyRegister}
                 disabled={passkeyLoading}
-                className="hidden lg:flex items-center gap-1 px-2 py-1.5 text-xs text-[var(--cp-muted)] hover:text-[var(--cp-accent)] hover:bg-[var(--cp-surface)] rounded-md transition-colors disabled:opacity-50"
-                aria-label="Register this device passkey"
-                title="Register this device passkey"
+                className="hidden lg:flex items-center gap-1.5 px-3 min-h-11 text-sm font-semibold text-[var(--cp-muted)] hover:text-[var(--cp-accent)] hover:bg-[var(--cp-surface)] rounded-md transition-colors disabled:opacity-50"
+                aria-label="Save sign-in on this phone"
+                title="Save sign-in on this phone"
               >
                 <KeyRound size={14} />
               </button>
@@ -288,7 +289,7 @@ function NavBar({
               <button
                 type="button"
                 onClick={onSignOut}
-                className="hidden lg:inline-flex items-center gap-1 px-3 py-1.5 text-sm text-[var(--cp-text)] hover:bg-[var(--cp-surface)] rounded-md shrink-0"
+                className="hidden lg:inline-flex items-center gap-1.5 px-3 min-h-11 text-sm font-semibold text-[var(--cp-text)] hover:bg-[var(--cp-surface)] rounded-md shrink-0"
                 data-testid="desktop-sign-out"
               >
                 <LogOut size={14} />
@@ -322,7 +323,7 @@ function NavBar({
                 <button
                   key={item.key}
                   onClick={() => navigateTo(item.key)}
-                  className={`flex items-center w-full py-3 px-2 rounded-lg transition-colors text-sm ${
+                  className={`flex items-center w-full min-h-12 py-3 px-2 rounded-lg transition-colors text-base ${
                     isActive
                       ? 'bg-[var(--cp-accent-dim)] text-[var(--cp-accent)]'
                       : 'text-[var(--cp-muted)] hover:text-[var(--cp-text)] hover:bg-[var(--cp-surface)]'
@@ -348,7 +349,7 @@ function NavBar({
                 className="flex items-center w-full py-3 px-2 text-[var(--cp-muted)] hover:text-[var(--cp-accent)] hover:bg-[var(--cp-surface)] rounded-lg transition-colors text-sm disabled:opacity-50"
               >
                 <KeyRound size={18} className="mr-3" />
-                Register passkey
+                Save sign-in on this phone
               </button>
             )}
             {adminAuthed && onSignOut && (
@@ -1296,9 +1297,9 @@ function App() {
             <KeyRound size={20} className="text-[var(--cp-accent)]" />
           </div>
           <div>
-            <h2 className="text-lg font-bold text-[var(--cp-text)] font-mono">Register Staff Passkey</h2>
-            <p className="text-xs text-[var(--cp-muted)] mt-1 leading-relaxed">
-              Passkeys are limited to Ari's approved owner email or staff accounts ending in @texashomeoutlet.com.
+            <h2 className="text-2xl font-bold text-[var(--cp-text)]">Save sign-in on this phone</h2>
+            <p className="text-base text-[var(--cp-muted)] mt-1 leading-relaxed">
+              Next time you can skip the email. Use your work email, the one that ends in @texashomeoutlet.com.
             </p>
           </div>
         </div>
@@ -1311,7 +1312,7 @@ function App() {
           className="space-y-4"
         >
           <label className="block">
-            <span className="text-xs font-semibold uppercase tracking-wide text-[var(--cp-muted)]">Authorized email</span>
+            <span className="text-base font-semibold text-[var(--cp-text)]">Work email</span>
             <input
               type="email"
               autoComplete="email"
@@ -1321,14 +1322,14 @@ function App() {
                 setPasskeyEmailError('');
               }}
               placeholder="name@texashomeoutlet.com"
-              className="cp-input w-full mt-1.5 px-3 py-2.5 text-sm"
+              className="cp-input w-full mt-1.5 px-3 py-3 text-base min-h-12"
               autoFocus
               required
             />
           </label>
 
           {(passkeyEmailError || passkeyError) && (
-            <div className="text-xs text-[var(--cp-danger)] border border-[var(--cp-danger)]/25 bg-[var(--cp-danger-dim)] rounded-md px-3 py-2">
+            <div role="alert" className="text-base text-[var(--cp-danger)] border border-[var(--cp-danger)]/25 bg-[var(--cp-danger-dim)] rounded-md px-3 py-3 leading-relaxed">
               {passkeyEmailError || passkeyError}
             </div>
           )}
@@ -1340,7 +1341,7 @@ function App() {
                 setShowPasskeyEmailModal(false);
                 setPasskeyEmailError('');
               }}
-              className="cp-btn-outline px-4 py-2 text-sm"
+              className="cp-btn-outline min-h-12 px-4 py-3 text-base"
               disabled={passkeyLoading}
             >
               Cancel
@@ -1348,10 +1349,10 @@ function App() {
             <button
               type="submit"
               disabled={passkeyLoading || !passkeyEmail.trim()}
-              className="cp-btn-accent px-4 py-2 text-sm flex items-center justify-center gap-2"
+              className="cp-btn-accent min-h-12 px-4 py-3 text-base flex items-center justify-center gap-2"
             >
               {passkeyLoading ? <Loader2 size={15} className="animate-spin" /> : <KeyRound size={15} />}
-              {passkeyLoading ? 'Registering...' : 'Register passkey'}
+              {passkeyLoading ? 'Saving...' : 'Save on this phone'}
             </button>
           </div>
         </form>
@@ -1392,9 +1393,12 @@ function App() {
             <div className="text-center">
               <h1 className="text-3xl font-bold mb-4">You are signed in</h1>
               <p className="text-lg leading-relaxed mb-6">
-                This phone or computer stays signed in. Use the menu for photos, documents, and the customer list.
+                This phone or computer stays signed in. Start with the people waiting, or a home that needs photos.
               </p>
-              <button type="button" onClick={handleSignOut} className="cp-btn-outline px-6 py-3 text-lg">
+              <button type="button" onClick={() => navigateTo('staff-home')} className="cp-btn-accent w-full min-h-12 px-6 py-4 text-lg mb-3">
+                Go to staff home
+              </button>
+              <button type="button" onClick={handleSignOut} className="cp-btn-outline w-full min-h-12 px-6 py-3 text-lg">
                 Sign out
               </button>
             </div>

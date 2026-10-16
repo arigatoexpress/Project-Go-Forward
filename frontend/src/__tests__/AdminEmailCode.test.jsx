@@ -90,7 +90,7 @@ describe('Admin email one-time-code login', () => {
 
     // Enter the code, verify.
     fireEvent.change(codeInput, { target: { value: '123456' } });
-    fireEvent.click(screen.getByRole('button', { name: /^Verify$/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^Sign me in$/i }));
 
     await waitFor(() => {
       const verifyCall = global.fetch.mock.calls.find(
@@ -150,7 +150,7 @@ describe('Admin email one-time-code login', () => {
 
     const codeInput = await screen.findByLabelText(/sign-in code/i);
     fireEvent.change(codeInput, { target: { value: '000000' } });
-    fireEvent.click(screen.getByRole('button', { name: /^Verify$/i }));
+    fireEvent.click(screen.getByRole('button', { name: /^Sign me in$/i }));
 
     // Error is shown and the code field is still present (not authed).
     await screen.findByText(/That code did not work/i);
