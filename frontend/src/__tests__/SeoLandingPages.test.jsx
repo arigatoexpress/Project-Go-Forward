@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import InventoryBrowse from '../pages/InventoryBrowse';
 
 const homes = [
@@ -89,4 +89,93 @@ describe('unique city, floorplan, and home pages after hydration', () => {
     const details = screen.getAllByRole('link', { name: /View Details|View PRE-OWNED/i });
     expect(details.some((link) => link.getAttribute('href') === '/homes/44490-pre-owned-big-blue')).toBe(true);
   });
+
+  it('puts call, text, and apply for that home above the marketing search', async () => {
+    window.history.replaceState({}, '', '/homes/44490-pre-owned-big-blue');
+    render(<InventoryBrowse pathname="/homes/44490-pre-owned-big-blue" />);
+    const summary = await screen.findByRole('region', { name: 'Price and next steps' });
+    const call = within(summary).getByRole('link', { name: /Call \(281\) 324-3020/i });
+    const text = within(summary).getByRole('link', { name: /Text \(281\) 324-3020/i });
+    expect(call).toHaveAttribute('href', 'tel:+12813243020');
+    expect(text.getAttribute('href')).toMatch(/^sms:\+12813243020/);
+    expect(within(summary).getByRole('button', { name: /Apply for financing/i })).toBeInTheDocument();
+    expect(within(summary).getByText('Call for Price')).toBeInTheDocument();
+    const search = screen.getByRole('textbox', { name: 'Search homes' });
+    expect(summary.compareDocumentPosition(search) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const photos = [...document.querySelectorAll('article img[src="https://lot.example/44490.jpg"]')];
+    expect(photos.length).toBeGreaterThan(0);
+    expect(photos.every((photo) => summary.compareDocumentPosition(photo) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
+  });
+
+  it('shows exactly one call, text, and apply set at each breakpoint', async () => {
+    window.history.replaceState({}, '', '/homes/44490-pre-owned-big-blue');
+    render(<InventoryBrowse pathname="/homes/44490-pre-owned-big-blue" />);
+    const summary = await screen.findByRole('region', { name: 'Price and next steps' });
+    const article = document.querySelector('article');
+    expect(article).not.toBeNull();
+
+    const sets = [summary, article].map((root) => {
+      const actions = root.querySelector('.tho-listing-ctas');
+      expect(actions).not.toBeNull();
+      return {
+        root,
+        actions,
+        call: within(actions).getByRole('link', { name: /Call \(281\) 324-3020/i }),
+        text: within(actions).getByRole('link', { name: /Text \(281\) 324-3020/i }),
+        apply: within(actions).getByRole('button', { name: /Apply for financing/i }),
+      };
+    });
+    expect(sets).toHaveLength(2);
+
+    for (const breakpoint of ['mobile', 'desktop']) {
+      const visible = sets.filter((set) => (
+        shownAt(set.call, breakpoint)
+        && shownAt(set.text, breakpoint)
+        && shownAt(set.apply, breakpoint)
+      ));
+      expect(visible).toHaveLength(1);
+    }
+
+    const [summarySet, articleSet] = sets;
+    expect(summary.contains(summarySet.call)).toBe(true);
+    expect(article.contains(articleSet.call)).toBe(true);
+    expect(shownAt(summarySet.call, 'mobile')).toBe(true);
+    expect(shownAt(summarySet.call, 'desktop')).toBe(false);
+    expect(shownAt(articleSet.call, 'mobile')).toBe(false);
+    expect(shownAt(articleSet.call, 'desktop')).toBe(true);
+    expect(shownAt(articleSet.text, 'desktop')).toBe(true);
+    expect(shownAt(articleSet.apply, 'desktop')).toBe(true);
+    expect(articleSet.call).toHaveAttribute('href', 'tel:+12813243020');
+    expect(articleSet.text.getAttribute('href')).toMatch(/^sms:\+12813243020/);
+
+    const summaryPrice = within(summary).getByText('Call for Price');
+    expect(shownAt(summaryPrice, 'mobile')).toBe(true);
+    expect(shownAt(summaryPrice, 'desktop')).toBe(false);
+    const articlePrice = within(article).getByText('Call for Price');
+    expect(articlePrice.className).toContain('hidden');
+    expect(articlePrice.className).toContain('lg:block');
+    expect(shownAt(articlePrice, 'mobile')).toBe(false);
+    expect(shownAt(articlePrice, 'desktop')).toBe(true);
+  });
 });
+
+const LG_SHOW_CLASSES = ['lg:block', 'lg:flex', 'lg:grid', 'lg:inline', 'lg:inline-block', 'lg:inline-flex'];
+
+function shownAt(element, breakpoint) {
+  let mobile = true;
+  let desktop = true;
+  for (let node = element; node && node.nodeType === 1; node = node.parentElement) {
+    const classes = new Set(String(node.className || '').split(/\s+/).filter(Boolean));
+    const baseHidden = classes.has('hidden');
+    const lgHidden = classes.has('lg:hidden');
+    const lgShow = LG_SHOW_CLASSES.some((name) => classes.has(name));
+    if (baseHidden && !lgShow) {
+      mobile = false;
+      desktop = false;
+    } else if (baseHidden) {
+      mobile = false;
+    }
+    if (lgHidden) desktop = false;
+  }
+  return breakpoint === 'desktop' ? desktop : mobile;
+}

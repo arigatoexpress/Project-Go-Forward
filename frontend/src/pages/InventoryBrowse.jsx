@@ -327,6 +327,29 @@ function smsHref(home) {
 const LISTING_CTA =
   'inline-flex min-h-11 items-center justify-center gap-1.5 rounded-md px-2 py-2.5 text-sm font-semibold';
 
+function ListingSummary({ home, onApply, onGetPrice }) {
+  const specs = home?.specs || {};
+  const facts = [
+    specs.beds ? `${specs.beds} bed` : null,
+    specs.baths ? `${specs.baths} bath` : null,
+    specs.sq_ft ? `${Number(specs.sq_ft).toLocaleString()} sq ft` : null,
+  ].filter(Boolean);
+  return (
+    <section
+      aria-label="Price and next steps"
+      className="tho-listing-summary mt-4 w-full min-w-0 max-w-xl rounded-lg border border-white/50 bg-[var(--cp-panel)] p-4 text-[var(--cp-text)] shadow-[0_18px_50px_rgba(0,0,0,0.32)] lg:hidden"
+    >
+      <p className="text-3xl font-bold leading-tight text-[var(--cp-accent)]">{displayPrice(home)}</p>
+      {facts.length > 0 && (
+        <p className="mt-2 text-sm text-[var(--cp-text-secondary)]">{facts.join(' · ')}</p>
+      )}
+      <div className="mt-4">
+        <ListingActions home={home} onApply={onApply} onGetPrice={onGetPrice} />
+      </div>
+    </section>
+  );
+}
+
 function ListingActions({ home, onApply, onGetPrice }) {
   return (
     <div className="tho-listing-ctas space-y-2">
@@ -1053,7 +1076,7 @@ export default function InventoryBrowse({
         )}
         <div className="absolute inset-0 -z-10 bg-[linear-gradient(90deg,rgba(5,6,8,0.96),rgba(5,6,8,0.74),rgba(5,6,8,0.9))]" />
         <div className="mx-auto grid max-w-7xl gap-8 px-4 py-8 sm:px-6 lg:grid-cols-[1.1fr_0.9fr] lg:px-8 lg:py-10">
-          <div className="flex min-h-0 flex-col justify-center lg:min-h-[520px]">
+          <div className="flex min-h-0 min-w-0 flex-col justify-center lg:min-h-[520px]">
             <div className="mb-4 inline-flex w-fit items-center gap-2 rounded-md border border-white/30 bg-black/45 px-3 py-1.5 font-mono text-xs font-semibold uppercase text-white shadow-sm">
               <span className="cp-blink h-2 w-2 rounded-full bg-white" />
               Inventory changes daily
@@ -1066,6 +1089,13 @@ export default function InventoryBrowse({
                 || routeCategory?.heading
                 || 'Mobile Homes For Sale in Huffman, TX'}
             </h1>
+            {pathListingHome && (
+              <ListingSummary
+                home={pathListingHome}
+                onGetPrice={() => openLeadForm(pathListingHome, 'price')}
+                onApply={() => openLeadForm(pathListingHome, 'apply')}
+              />
+            )}
             <p className="mt-4 max-w-2xl text-base leading-relaxed text-white/90">
               {pathListingHome
                 ? `${pathListingHome.model_name} at ${BUSINESS_NAME} in ${BUSINESS_CITY}, ${BUSINESS_STATE}. Confirm current price and availability with our team.`
@@ -1151,7 +1181,7 @@ export default function InventoryBrowse({
             </div>
           </div>
 
-          <div className="flex items-center">
+          <div className="flex min-w-0 items-center">
             <FeaturedHomeSpotlight
               home={heroHome}
               onClick={() => heroHome && openDetail(heroHome)}
@@ -1423,7 +1453,7 @@ function ListingArticle({ home, onGetPrice, onApply }) {
   return (
     <article className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
       <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
-        <div>
+        <div className="order-2 min-w-0 lg:order-1">
           {photos.length > 0 ? (
             <div className="grid gap-3 sm:grid-cols-2">
               {photos.map((url, index) => (
@@ -1451,9 +1481,9 @@ function ListingArticle({ home, onGetPrice, onApply }) {
             </div>
           )}
         </div>
-        <div>
+        <div className="order-1 min-w-0 lg:order-2">
           <p className="text-sm text-[var(--cp-muted)]">{home.manufacturer || BUSINESS_NAME}</p>
-          <p className="mt-3 text-3xl font-bold text-[var(--cp-accent)]">
+          <p className="mt-3 hidden text-3xl font-bold text-[var(--cp-accent)] lg:block">
             {home.display_price && home.display_price !== 'Call for Price' ? home.display_price : 'Call for Price'}
           </p>
           <ul className="mt-4 space-y-1 text-[var(--cp-text-secondary)]">
@@ -1464,7 +1494,9 @@ function ListingArticle({ home, onGetPrice, onApply }) {
             {home.stock_number || home.id ? <li>Stock #{home.stock_number || home.id}</li> : null}
           </ul>
           <div className="mt-6">
-            <ListingActions home={home} onApply={onApply} onGetPrice={onGetPrice} />
+            <div className="hidden lg:block">
+              <ListingActions home={home} onApply={onApply} onGetPrice={onGetPrice} />
+            </div>
             <a href="/inventory" className="mt-3 inline-flex min-h-11 items-center rounded-md border border-[var(--cp-border)] px-5 py-3 text-sm font-semibold">
               Browse all homes
             </a>
