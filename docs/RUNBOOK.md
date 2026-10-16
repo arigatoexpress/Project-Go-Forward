@@ -20,7 +20,10 @@ origin is not the canonical storefront.
    evidence. Include the exact rollback revision and failure conditions in the
    promotion approval. Obtain explicit operator approval for the exact traffic
    change, then verify the canonical storefront's serving commit and affected
-   behavior.
+   behavior. The plain-language steps, the `update-traffic` commands, the
+   post-promote checks on https://www.texashomeoutlet.com (`/healthz/`,
+   `/readyz`, key pages, and the `/ad-studio` shell), and the candidate-host
+   HTTP 308 redirect are in [RELEASE-CHECKLIST.md](RELEASE-CHECKLIST.md).
 
 Direct production deploys, traffic changes (including rollback), DNS changes,
 secret rotations, and outward messages require explicit operator approval.
@@ -29,7 +32,8 @@ Approval persists within its stated scope: an already authorized rollback plan
 may execute when its approved failure conditions occur without a second
 confirmation. Obtain approval if the required action falls outside that plan.
 
-Related: [dns-rollback.md](runbooks/dns-rollback.md) ·
+Related: [RELEASE-CHECKLIST.md](RELEASE-CHECKLIST.md) ·
+[dns-rollback.md](runbooks/dns-rollback.md) ·
 [leads-bigquery-sync.md](runbooks/leads-bigquery-sync.md) ·
 [ON_CALL.md](ON_CALL.md).
 

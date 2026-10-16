@@ -104,8 +104,10 @@ cd frontend && npm install && npm run build
 pip install -r requirements.txt
 python main.py  # Starts on port 8080
 
-# Deploy to Cloud Run
-gcloud run deploy project-go-forward --source . --region us-central1
+# Publishing is the GitHub Actions workflow on main
+# (.github/workflows/deploy.yml): --no-traffic --tag=candidate.
+# A green Deploy run leaves the candidate at 0% traffic.
+# Promote only through docs/RELEASE-CHECKLIST.md after owner approval.
 
 # Run tests
 python -m pytest tests/

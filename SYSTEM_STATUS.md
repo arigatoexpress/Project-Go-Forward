@@ -26,7 +26,7 @@ Read-only checks, recorded for orientation only:
 |---|---|
 | Is the site up, and which commit is serving? | `curl https://www.texashomeoutlet.com/healthz/` (liveness + version). Readiness: `/health`. |
 | Full read-only smoke | `python3 scripts/production_smoke.py --base-url https://www.texashomeoutlet.com` ([PRODUCTION_READINESS.md](docs/PRODUCTION_READINESS.md)) |
-| Did the latest merge build a candidate? | GitHub Actions, [Deploy to Cloud Run](https://github.com/arigatoexpress/Project-Go-Forward/actions/workflows/deploy.yml). Merges build a `--no-traffic --tag=candidate` revision; they do not move production traffic. |
+| Did the latest merge build a candidate? | GitHub Actions, [Deploy to Cloud Run](https://github.com/arigatoexpress/Project-Go-Forward/actions/workflows/deploy.yml). Merges build a `--no-traffic --tag=candidate` revision at 0% traffic. Publishing it is the promote step in [docs/RELEASE-CHECKLIST.md](docs/RELEASE-CHECKLIST.md). |
 | Which revision is serving traffic? | `gcloud run services describe project-go-forward --project tho-ai-agent --region us-central1 --format='value(status.traffic)'` (operator access required) |
 | Go-live checklist | [LAUNCH_READINESS.md](LAUNCH_READINESS.md) |
 | Incidents and rollback | [docs/RUNBOOK.md](docs/RUNBOOK.md) |
