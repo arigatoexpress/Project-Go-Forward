@@ -294,6 +294,98 @@
   to { transform: rotate(360deg); }
 }
 
+.google-ads-owner-steps {
+  margin: 0.75rem 0 0;
+  padding-left: 1.2rem;
+}
+
+.google-ads-owner-steps li + li {
+  margin-top: 0.55rem;
+}
+
+.google-ads-brief {
+  display: block;
+  margin: 0.8rem 0 0.4rem;
+  font-weight: 700;
+}
+
+.google-ads-status-panel textarea {
+  width: 100%;
+  min-height: 6.5rem;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid rgb(148 163 184 / 35%);
+  border-radius: 0.7rem;
+  color: #f8fafc;
+  background: rgb(15 23 42 / 90%);
+  resize: vertical;
+}
+
+.google-ads-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+  margin-top: 0.8rem;
+}
+
+.google-ads-text-button {
+  border: 0;
+  color: #7dd3fc;
+  background: transparent;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.google-ads-staff-note {
+  padding: 0.75rem 0.9rem;
+  border-left: 3px solid #7dd3fc;
+  color: #e2e8f0;
+  background: rgb(14 165 233 / 10%);
+}
+
+.google-ads-preview-list {
+  display: grid;
+  gap: 0.8rem;
+  margin: 0.9rem 0;
+}
+
+.google-ads-preview {
+  padding: 0.95rem 1rem 1rem;
+  border-radius: 0.8rem;
+  color: #202124;
+  background: #fff;
+}
+
+.google-ads-preview h3 {
+  margin: 0.15rem 0 0.35rem;
+  color: #1a0dab;
+  font-size: 1.15rem;
+  font-weight: 400;
+}
+
+.google-ads-preview p {
+  margin: 0.2rem 0;
+  color: #4d5156;
+}
+
+.google-ads-preview-kicker {
+  color: #70757a !important;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.google-ads-preview-url {
+  color: #202124 !important;
+  font-size: 0.85rem;
+}
+
+.google-ads-preview-meta {
+  color: #5f6368 !important;
+  font-size: 0.82rem;
+}
+
 @media (max-width: 760px) {
   .google-ads-status-grid,
   .google-ads-workflow {

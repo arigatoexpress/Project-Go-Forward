@@ -24,6 +24,7 @@ from scripts.google_ads_access_evidence import (  # noqa: E402
     build_access_evidence,
 )
 from scripts.google_ads_launch_draft import contract_sha256  # noqa: E402
+from tests.test_api_v1 import load_app  # noqa: E402
 
 NOW = datetime(2026, 8, 13, 3, 0, tzinfo=UTC)
 CSRF = "owner-step-up-csrf"
@@ -401,7 +402,14 @@ def test_nondefault_ads_owner_requires_one_consistent_canonical_passkey_allowlis
 def test_step_up_router_is_mounted_but_has_no_approval_provider_or_job_capability():
     root = Path(routes.__file__).resolve().parents[1]
     source = (root / "main.py").read_text(encoding="utf-8")
-    assert "app.include_router(google_ads_step_up_router" in source
+    assert (
+        "app.include_router(google_ads_step_up_router, dependencies=[Depends(require_admin)])"
+        in source
+    )
+    assert (
+        "app.include_router(google_ads_approval_router, dependencies=[Depends(require_admin)])"
+        in source
+    )
 
     route_source = Path(routes.__file__).read_text(encoding="utf-8")
     for forbidden in (
@@ -414,3 +422,31 @@ def test_step_up_router_is_mounted_but_has_no_approval_provider_or_job_capabilit
         "create_campaign",
     ):
         assert forbidden not in route_source
+
+
+def test_step_up_and_approval_routes_require_admin_login(monkeypatch):
+    """Unauthenticated callers never reach the owner passkey or approval handlers."""
+    main, _fake_db, _fake_logger = load_app(monkeypatch)
+    client = TestClient(main.app)
+    checks = (
+        ("post", "/api/admin/passkey/google-ads-step-up/begin"),
+        ("post", "/api/admin/passkey/google-ads-step-up/complete"),
+        ("get", "/api/admin/google-ads/paused-create-approval-readiness"),
+        ("post", "/api/admin/google-ads/paused-create-approval"),
+    )
+    for method, path in checks:
+        response = getattr(client, method)(path)
+        assert response.status_code == 401, (path, response.status_code, response.text)
+        assert response.json() == {
+            "success": False,
+            "status_code": 401,
+            "message": "Admin authentication required",
+        }
+
+    token = main._create_admin_token()
+    staff_only = client.get(
+        "/api/admin/google-ads/paused-create-approval-readiness",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert staff_only.status_code == 401
+    assert staff_only.json()["message"] == "A passkey session is required."

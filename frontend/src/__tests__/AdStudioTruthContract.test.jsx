@@ -67,4 +67,12 @@ describe('Ad Studio truth contracts', () => {
     expect(screen.queryByText('DMs Received')).not.toBeInTheDocument();
     expect(screen.queryByText('Leads Generated')).not.toBeInTheDocument();
   });
+
+  it('opens Google Ads when the staff entry is /ad-studio', async () => {
+    render(<AdStudio onBack={vi.fn()} initialTab="paid-search" />);
+
+    expect(screen.getByRole('button', { name: 'Google Ads' })).toHaveAttribute('aria-current', 'page');
+    expect(await screen.findByRole('alert')).toHaveTextContent(/Google Ads is unavailable right now/i);
+    expect(screen.queryByRole('button', { name: /turn ads on|publish/i })).not.toBeInTheDocument();
+  });
 });
