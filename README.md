@@ -119,6 +119,7 @@ to production.
 | [`docs/team/README.md`](docs/team/README.md) | Staff guides in plain language (sign-in, photos, and more) |
 | [`SYSTEM_STATUS.md`](SYSTEM_STATUS.md) | Where to find current live status |
 | [`LAUNCH_READINESS.md`](LAUNCH_READINESS.md) | Go-live checklist with evidence — the honest status board |
+| [`docs/RELEASE-CHECKLIST.md`](docs/RELEASE-CHECKLIST.md) | After a green Deploy: promote the candidate, then check the live site |
 | [`docs/RUNBOOK.md`](docs/RUNBOOK.md) | What to do when something breaks |
 | [`docs/SEO_MIGRATION.md`](docs/SEO_MIGRATION.md) | How we keep (and improve) our Google ranking at cutover |
 | [`docs/GCP_ENTERPRISE_PLAN.md`](docs/GCP_ENTERPRISE_PLAN.md) | Next phase: staff SSO, BigQuery dashboards, enterprise AI |

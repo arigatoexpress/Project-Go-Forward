@@ -26,6 +26,7 @@ guides such as staff sign-in and adding home photos.
 
 ## Operator runbooks
 
+- [RELEASE-CHECKLIST.md](RELEASE-CHECKLIST.md) — after a green Deploy, promote the 0% candidate and verify https://www.texashomeoutlet.com
 - [RUNBOOK.md](RUNBOOK.md) — incidents, rollback, operator safety, open flips
 - [ON_CALL.md](ON_CALL.md) — severity, first-five-minutes, escalation
 - [DNS_CUTOVER_RUNBOOK.md](DNS_CUTOVER_RUNBOOK.md) — completed 2026-06-14 cutover; rollback / re-cutover reference
