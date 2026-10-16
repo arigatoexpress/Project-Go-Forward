@@ -5539,9 +5539,14 @@ async def api_prepare_social_draft(request: Request):
             campaign=data.get("campaign"),
         )
         return result
+    except JSONDecodeError:
+        raise
     except Exception as e:
         struct_logger.error("Draft preparation failed", error=str(e))
-        return {"error": "Failed to prepare draft. Please try again."}
+        raise HTTPException(
+            status_code=500,
+            detail="The draft wasn't saved. Please try again.",
+        ) from e
 
 
 @app.get("/api/marketing/analytics", dependencies=[Depends(require_admin)])
