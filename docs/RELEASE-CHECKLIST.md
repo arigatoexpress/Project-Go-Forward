@@ -1,19 +1,25 @@
 # Release checklist — from a green Deploy to the live site
 
-This list is for the owner and anyone they ask to publish a change. You do
-not need to be a developer. You do need owner approval before the promote
-command, and a Google Cloud login that can change Cloud Run traffic on
-project `tho-ai-agent`.
+This checklist is for the owner or a named operator with gcloud, curl and
+Cloud Run IAM. Owner approval is required before the promote command, and
+the Google Cloud login must be able to change Cloud Run traffic on project
+`tho-ai-agent`.
 
 A green **Deploy to Cloud Run** check means the new code is built and checked
 as a **candidate** with **0% of customer traffic**. Customers on
 https://www.texashomeoutlet.com keep seeing the previous version until the
 promote step in this list.
 
-That is how revision `project-go-forward-00531-lor` (commit `4511d3f`, pull
-request #401) became the live site: Deploy finished green at 0% traffic, then
-a person ran `gcloud run services update-traffic`. This document does not
-redeploy that revision and does not change traffic.
+Operator record: on 2026-10-15 at about 7:04 PM MT, after a read-only
+candidate check, Grok Bot ran:
+
+```text
+gcloud run services update-traffic project-go-forward --project tho-ai-agent --region us-central1 --to-revisions=project-go-forward-00531-lor=100
+```
+
+That command named revision `project-go-forward-00531-lor` (commit `4511d3f`,
+pull request #401). This document does not redeploy that revision and does
+not change traffic. The promote procedure for a new release is step 5.
 
 ## Words used below
 
@@ -172,12 +178,13 @@ Key pages should return the site itself (HTTP 200):
 
 ```bash
 for path in / /inventory /contact /appointments /studio /ad-studio; do
-  code=$(curl -sI -o /dev/null -w '%{http_code}' "https://www.texashomeoutlet.com${path}")
+  code=$(curl -s -o /dev/null -w '%{http_code}' "https://www.texashomeoutlet.com${path}")
   echo "$code $path"
 done
 ```
 
-Each line should start with `200`.
+Each line should start with `200`. The command is a GET. `curl -I` is HEAD
+and can print a different code than the page a browser loads.
 
 `/ad-studio` is the Ad Studio page (Google Ads for signed-in staff). Signed-out
 visitors get the staff sign-in shell. The page should load. A "not found" page
