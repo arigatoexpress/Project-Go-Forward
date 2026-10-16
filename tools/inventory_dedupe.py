@@ -24,7 +24,7 @@ import re
 from typing import Any
 
 from tools.photo_classifier import (
-    is_manufacturer_catalog_photo_url,
+    is_disallowed_used_photo_url,
     strip_manufacturer_catalog_photos,
 )
 
@@ -210,7 +210,7 @@ def _borrow_media(survivor: dict, donor: dict) -> None:
         donor_photos = _photo_list(donor) or _photo_list(donor, "photos")
         if is_preowned(survivor):
             donor_photos = [
-                url for url in donor_photos if not is_manufacturer_catalog_photo_url(url)
+                url for url in donor_photos if not is_disallowed_used_photo_url(url, survivor)
             ]
         seen = set(survivor_photos)
         extras: list[str] = []

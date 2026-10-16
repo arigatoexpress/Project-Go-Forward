@@ -16,7 +16,7 @@ import json
 import logging
 import os
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 
 try:
     from google.adk.tools import ToolContext
@@ -24,6 +24,11 @@ except ImportError:
     ToolContext = None
 
 logger = logging.getLogger(__name__)
+
+try:
+    from tools.inventory_dedupe import is_preowned, suppress_used_home_catalog_photos
+except ImportError:  # package-relative load
+    from inventory_dedupe import is_preowned, suppress_used_home_catalog_photos
 
 
 def _split_env_list(name: str, default: str) -> list[str]:
@@ -394,7 +399,9 @@ def get_inventory_for_ads(limit: int = 5, *, staff_publication: bool = False) ->
         apply_classifier_to_home(home_data)
 
         # Try to match this inventory home to scraped website assets
-        assets = get_assets_for_home(h.get("model_name", ""))
+        # A used home keeps only its own unit photos. Manufacturer galleries
+        # and free-stock shots are not pictures of that home.
+        assets = None if is_preowned(home_data) else get_assets_for_home(h.get("model_name", ""))
         if assets:
             asset_images = assets.get("images", [])
             if asset_images and not has_real_photo(home_data):
@@ -411,6 +418,8 @@ def get_inventory_for_ads(limit: int = 5, *, staff_publication: bool = False) ->
                 home_data["matterport_url"] = get_matterport_url(assets["matterport_id"])
             apply_classifier_to_home(home_data)
 
+        if is_preowned(home_data):
+            suppress_used_home_catalog_photos(home_data)
         homes_for_ads.append(home_data)
 
     # URL-based floorplan classifier: ensure public/marketing consumers only
@@ -423,7 +432,7 @@ def get_inventory_for_ads(limit: int = 5, *, staff_publication: bool = False) ->
     new_count = sum(1 for h in inventory if h.get("status", "").lower() == "available")
     preowned_count = sum(1 for h in inventory if "pre-owned" in h.get("status", "").lower())
 
-    return {
+    payload = {
         "success": True,
         # `_load_inventory` is deliberately resilient: Firestore falls back to
         # local JSON and then sample data. Useful for drafting, but not proof of
@@ -437,6 +446,11 @@ def get_inventory_for_ads(limit: int = 5, *, staff_publication: bool = False) ->
         "preowned_homes": preowned_count,
         "message": f"Loaded {len(homes_for_ads)} homes from inventory ({total} total).",
     }
+    # A successful live staff read is an observation. Without this timestamp
+    # /readyz and source_status can only report freshness "unknown".
+    if staff_publication and homes_for_ads:
+        payload["retrieved_at"] = datetime.now(UTC).isoformat()
+    return payload
 
 
 # ─── Image Generation with Imagen ───

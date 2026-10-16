@@ -493,9 +493,26 @@ def _inventory_hero_image() -> str | None:
     return None
 
 
-def _responsive_image_srcset(url: str) -> str:
-    separator = "&" if "?" in url else "?"
-    return ", ".join(f"{url}{separator}w={width} {width}w" for width in (400, 800, 1200))
+def _phone_digits() -> str:
+    digits = re.sub(r"\D", "", business_phone() or "")
+    if len(digits) == 10:
+        digits = "1" + digits
+    return digits
+
+
+def _tel_href() -> str:
+    digits = _phone_digits()
+    return f"tel:+{digits}" if digits else "tel:"
+
+
+def _sms_href(home: dict | None = None) -> str:
+    digits = _phone_digits()
+    name = ""
+    if isinstance(home, dict) and home.get("model_name"):
+        name = f" the {home.get('model_name')}"
+    body = quote_plus(f"Hi, I'm interested in{name} at {business_name()}.")
+    base = f"sms:+{digits}" if digits else "sms:"
+    return f"{base}?&body={body}"
 
 
 def _product_jsonld(home: dict, canonical_url: str) -> dict | None:
@@ -779,11 +796,11 @@ def _head_block(
     else:
         parts.append(f'<link rel="canonical" href="{e(canonical_url)}" />')
         if preload_image:
+            # Preload the file once. Width query params are not honored by the
+            # image host, and a fake srcset makes the browser fetch it again.
             parts.append(
                 '<link rel="preload" as="image" '
-                f'href="{e(preload_image)}" '
-                f'imagesrcset="{e(_responsive_image_srcset(preload_image))}" '
-                'imagesizes="100vw" fetchpriority="high" />'
+                f'href="{e(preload_image)}" fetchpriority="high" />'
             )
         parts.extend(
             [
@@ -791,8 +808,11 @@ def _head_block(
                 f'<meta property="og:description" content="{e(description)}" />',
                 f'<meta property="og:url" content="{e(canonical_url)}" />',
                 '<meta property="og:type" content="website" />',
+                '<meta property="og:locale" content="en_US" />',
                 f'<meta property="og:site_name" content="{e(business_name())}" />',
                 '<meta name="twitter:card" content="summary_large_image" />',
+                f'<meta name="twitter:title" content="{e(title)}" />',
+                f'<meta name="twitter:description" content="{e(description)}" />',
             ]
         )
         if og_image is None:
@@ -1028,6 +1048,9 @@ def _crawlable_home_listing_block(home: dict) -> str:
         f"<p>{e(str(description)[:500])}</p>"
         f"{''.join(figures)}"
         f"<ul>{''.join(rows)}</ul>"
+        f'<p><a href="{e(_tel_href())}">Call {e(business_phone())}</a>'
+        f' · <a href="{e(_sms_href(home))}">Text {e(business_phone())}</a>'
+        f' · <a href="/financing">Apply for financing</a></p>'
         f'<p><a href="/inventory">All homes for sale at {e(business_name())}</a> — '
         f"{e(business_address())} · {e(business_phone())}</p>"
         f"</article>"
@@ -1864,6 +1887,7 @@ def sitemap_xml() -> Response:
             "/inventory",
             "/contact",
             "/appointments",
+            "/chat",
             "/about",
             "/financing",
             "/faq",

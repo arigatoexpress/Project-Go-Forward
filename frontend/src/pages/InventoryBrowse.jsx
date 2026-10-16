@@ -31,6 +31,7 @@ import {
   listingPath,
   resolveHomeFromPath,
   stockId,
+  usedHomeMayShowPhoto,
 } from '../utils/listingRoutes';
 import {
   BUSINESS_NAME,
@@ -198,16 +199,24 @@ function getListingPhotos(home, { ranked = false } = {}) {
   if (!home) return [];
   const floorplanUrls = getFloorplanUrls(home);
   const used = isPreownedHome(home);
-  const candidates = [
-    home.image_url,
-    ...(Array.isArray(home.real_photos) ? home.real_photos : []),
-    ...(Array.isArray(home.gallery_images) ? home.gallery_images : []),
-  ];
+  // Used homes ignore gallery_images: that list is where catalog and other
+  // units' shots get mixed in. Only this home's own photo fields count.
+  const candidates = used
+    ? [
+      home.image_url,
+      home.hero_image,
+      ...(Array.isArray(home.real_photos) ? home.real_photos : []),
+    ]
+    : [
+      home.image_url,
+      ...(Array.isArray(home.real_photos) ? home.real_photos : []),
+      ...(Array.isArray(home.gallery_images) ? home.gallery_images : []),
+    ];
   const photos = candidates.filter((photo, index, values) => (
     photo
     && values.indexOf(photo) === index
     && !isFloorplanImage(photo, floorplanUrls)
-    && !(used && isManufacturerFloorplanNamespace(photo))
+    && usedHomeMayShowPhoto(photo, home)
   ));
   // Other surfaces keep curated order until they support candidate fallback.
   if (!ranked) return photos;
@@ -309,7 +318,56 @@ function listingHref(home) {
   return listingPath(home) || '';
 }
 
-function FeaturedHomeSpotlight({ home, onClick, onGetPrice }) {
+function smsHref(home) {
+  const name = home?.model_name ? ` the ${home.model_name}` : ' a home';
+  const body = `Hi, I'm interested in${name} at ${BUSINESS_NAME}.`;
+  return `sms:${BUSINESS_PHONE_RAW}?&body=${encodeURIComponent(body)}`;
+}
+
+const LISTING_CTA =
+  'inline-flex min-h-11 items-center justify-center gap-1.5 rounded-md px-2 py-2.5 text-sm font-semibold';
+
+function ListingActions({ home, onApply, onGetPrice }) {
+  return (
+    <div className="tho-listing-ctas space-y-2">
+      <div className="grid grid-cols-3 gap-2">
+        <a
+          href={`tel:${BUSINESS_PHONE_RAW}`}
+          className={`${LISTING_CTA} bg-[var(--cp-secondary)] text-white no-underline`}
+          aria-label={`Call ${BUSINESS_PHONE}`}
+        >
+          <Phone size={16} aria-hidden="true" /> Call
+        </a>
+        <a
+          href={smsHref(home)}
+          className={`${LISTING_CTA} border border-[var(--cp-border)] bg-white text-[var(--cp-text)] no-underline`}
+          aria-label={`Text ${BUSINESS_PHONE}`}
+        >
+          <MessageCircle size={16} aria-hidden="true" /> Text
+        </a>
+        <button
+          type="button"
+          onClick={(event) => { event.stopPropagation(); onApply?.(); }}
+          className={`${LISTING_CTA} bg-[var(--cp-cta-green)] text-white`}
+          aria-label="Apply for financing"
+        >
+          <DollarSign size={16} aria-hidden="true" /> Apply
+        </button>
+      </div>
+      {onGetPrice && (
+        <button
+          type="button"
+          onClick={(event) => { event.stopPropagation(); onGetPrice(); }}
+          className="inline-flex min-h-11 w-full items-center justify-center gap-1.5 rounded-md bg-[var(--cp-accent)] px-3 py-2.5 text-center text-sm font-semibold text-[var(--cp-bg)]"
+        >
+          Check Price & Availability
+        </button>
+      )}
+    </div>
+  );
+}
+
+function FeaturedHomeSpotlight({ home, onClick, onGetPrice, onApply }) {
   if (!home) return null;
   const specs = home.specs || {};
   const image = getHomeImage(home);
@@ -332,7 +390,10 @@ function FeaturedHomeSpotlight({ home, onClick, onGetPrice }) {
               sizes={getImageSizes('featured-spotlight')}
               alt={home.model_name}
               className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
-              loading="lazy"
+              width={1200}
+              height={800}
+              loading="eager"
+              fetchPriority="high"
               decoding="async"
             />
           ) : (
@@ -372,27 +433,18 @@ function FeaturedHomeSpotlight({ home, onClick, onGetPrice }) {
             {specs.sq_ft ? specs.sq_ft.toLocaleString() : '-'} sqft
           </div>
         </div>
-        <div className="grid grid-cols-2 gap-2">
-          <a
-            href={href || undefined}
-            onClick={(event) => {
-              if (!href) event.preventDefault();
-              onClick?.(event);
-            }}
-            className="inline-flex items-center justify-center gap-2 rounded-md border border-[var(--cp-border-light)] px-3 py-2 text-sm font-semibold text-[var(--cp-text)] transition hover:border-[var(--cp-secondary)] hover:text-[var(--cp-secondary)]"
-          >
-            <Eye size={15} />
-            Details
-          </a>
-          <button
-            type="button"
-            onClick={onGetPrice}
-            className="inline-flex items-center justify-center gap-2 rounded-md bg-[var(--cp-accent)] px-3 py-2 text-sm font-semibold text-[var(--cp-bg)] transition hover:bg-[var(--cp-accent-hot)]"
-          >
-            <DollarSign size={15} />
-            Check Price & Availability
-          </button>
-        </div>
+        <a
+          href={href || undefined}
+          onClick={(event) => {
+            if (!href) event.preventDefault();
+            onClick?.(event);
+          }}
+          className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-md border border-[var(--cp-border-light)] px-3 py-2 text-sm font-semibold text-[var(--cp-text)] no-underline transition hover:border-[var(--cp-secondary)] hover:text-[var(--cp-secondary)]"
+        >
+          <Eye size={15} />
+          Details
+        </a>
+        <ListingActions home={home} onApply={onApply} onGetPrice={onGetPrice} />
       </div>
     </div>
   );
@@ -754,7 +806,11 @@ export default function InventoryBrowse({
       if (f.startsWith('http')) return f;
       const match = allPhotos.find(url => url.includes(f));
       return match || f;
-    });
+    }).filter((url) => (
+      url
+      && usedHomeMayShowPhoto(url, home)
+      && !isFloorplanImage(url, getFloorplanUrls(home))
+    ));
   }, [activeCategory]);
 
   const openDetail = useCallback((home) => {
@@ -840,10 +896,14 @@ export default function InventoryBrowse({
       specs.dimensions,
       pathListingHome.manufacturer,
     ].filter(Boolean).join(', ');
+    const sharePhotos = listingPagePhotos(pathListingHome);
+    const floorplan = pathListingHome.floorplan_url || pathListingHome.floor_plan_url || '';
+    const shareImage = sharePhotos.find((url) => url && url !== floorplan) || '';
     applyDocumentHead({
       title: `${pathListingHome.model_name || 'Manufactured Home'} — ${BUSINESS_NAME}, ${BUSINESS_CITY}, ${BUSINESS_STATE}`,
       description: `${pathListingHome.model_name || 'Manufactured home'}${descBits ? ` (${descBits})` : ''} at ${BUSINESS_NAME} in ${BUSINESS_CITY}, ${BUSINESS_STATE}. Call ${BUSINESS_PHONE}.`.slice(0, 300),
       canonicalPath: listingPath(pathListingHome) || currentPath,
+      image: shareImage || undefined,
     });
   }, [pathListingHome, currentPath]);
 
@@ -889,7 +949,7 @@ export default function InventoryBrowse({
             never flashes the generic Huffman inventory title. */}
         <section className="border-b border-[var(--cp-border)] bg-[var(--cp-bg-2)]">
           <div className="mx-auto grid max-w-7xl gap-8 px-4 py-8 sm:px-6 lg:grid-cols-[1.1fr_0.9fr] lg:px-8 lg:py-10">
-            <div className="flex min-h-[520px] flex-col justify-center">
+            <div className="flex min-h-0 flex-col justify-center lg:min-h-[520px]">
               {uniqueHeading ? (
                 <h1 className="mb-4 max-w-3xl text-4xl font-extrabold text-[var(--cp-text)]">
                   {uniqueHeading}
@@ -993,12 +1053,12 @@ export default function InventoryBrowse({
         )}
         <div className="absolute inset-0 -z-10 bg-[linear-gradient(90deg,rgba(5,6,8,0.96),rgba(5,6,8,0.74),rgba(5,6,8,0.9))]" />
         <div className="mx-auto grid max-w-7xl gap-8 px-4 py-8 sm:px-6 lg:grid-cols-[1.1fr_0.9fr] lg:px-8 lg:py-10">
-          <div className="flex min-h-[520px] flex-col justify-center">
+          <div className="flex min-h-0 flex-col justify-center lg:min-h-[520px]">
             <div className="mb-4 inline-flex w-fit items-center gap-2 rounded-md border border-white/30 bg-black/45 px-3 py-1.5 font-mono text-xs font-semibold uppercase text-white shadow-sm">
               <span className="cp-blink h-2 w-2 rounded-full bg-white" />
               Inventory changes daily
             </div>
-            <h1 className="max-w-3xl text-4xl font-extrabold leading-tight tracking-normal text-white sm:text-5xl">
+            <h1 className="max-w-3xl text-3xl font-extrabold leading-tight tracking-normal text-white break-words sm:text-5xl">
               {pathListingHome?.model_name
                 || (onHomeListing && !loading && !pathListingHome ? 'This home is no longer listed' : null)
                 || cityLanding?.heading
@@ -1052,20 +1112,34 @@ export default function InventoryBrowse({
               </div>
             </div>
 
-            <div className="mt-5 flex flex-wrap gap-3">
+            <div className="mt-5 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:gap-3">
               {onAskTex && (
                 <button
                   onClick={() => onAskTex("I'm looking for a new home. What do you recommend?")}
-                  className="inline-flex items-center gap-2 rounded-md bg-[var(--cp-accent)] px-5 py-3 text-sm font-bold text-[var(--cp-bg)] transition hover:bg-[var(--cp-accent-hot)]"
+                  className="col-span-2 inline-flex min-h-11 items-center justify-center gap-2 rounded-md bg-[var(--cp-accent)] px-5 py-3 text-sm font-bold text-[var(--cp-bg)] transition hover:bg-[var(--cp-accent-hot)] sm:col-span-1"
                 >
                   <MessageCircle size={18} /> Talk to Tex
                 </button>
               )}
               <a
                 href={`tel:${BUSINESS_PHONE_RAW}`}
-                className="inline-flex items-center gap-2 rounded-md border border-[var(--cp-border-light)] bg-[var(--cp-panel)] px-5 py-3 text-sm font-semibold text-[var(--cp-text)] transition hover:border-[var(--cp-secondary)] hover:text-[var(--cp-secondary)]"
+                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md border border-[var(--cp-border-light)] bg-[var(--cp-panel)] px-4 py-3 text-sm font-semibold text-[var(--cp-text)] no-underline transition hover:border-[var(--cp-secondary)] hover:text-[var(--cp-secondary)]"
+                aria-label={`Call ${BUSINESS_PHONE}`}
               >
-                <Phone size={18} /> Call {BUSINESS_PHONE}
+                <Phone size={18} /> Call
+              </a>
+              <a
+                href={smsHref(null)}
+                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md border border-[var(--cp-border-light)] bg-[var(--cp-panel)] px-4 py-3 text-sm font-semibold text-[var(--cp-text)] no-underline transition hover:border-[var(--cp-secondary)] hover:text-[var(--cp-secondary)]"
+                aria-label={`Text ${BUSINESS_PHONE}`}
+              >
+                <MessageCircle size={18} /> Text
+              </a>
+              <a
+                href="/financing"
+                className="col-span-2 inline-flex min-h-11 items-center justify-center gap-2 rounded-md bg-[var(--cp-cta-green)] px-4 py-3 text-sm font-semibold text-white no-underline sm:col-span-1"
+              >
+                <DollarSign size={18} /> Apply for financing
               </a>
             </div>
             <div className="mt-6 flex flex-wrap items-center gap-3 text-xs font-medium text-white/80">
@@ -1082,6 +1156,7 @@ export default function InventoryBrowse({
               home={heroHome}
               onClick={() => heroHome && openDetail(heroHome)}
               onGetPrice={() => heroHome && openLeadForm(heroHome, 'price')}
+              onApply={() => heroHome && openLeadForm(heroHome, 'apply')}
             />
           </div>
         </div>
@@ -1102,7 +1177,11 @@ export default function InventoryBrowse({
       )}
 
       {pathListingHome && (
-        <ListingArticle home={pathListingHome} onGetPrice={() => openLeadForm(pathListingHome, 'price')} />
+        <ListingArticle
+          home={pathListingHome}
+          onGetPrice={() => openLeadForm(pathListingHome, 'price')}
+          onApply={() => openLeadForm(pathListingHome, 'apply')}
+        />
       )}
 
       {/* Toolbar */}
@@ -1243,14 +1322,14 @@ export default function InventoryBrowse({
       )}
 
       {/* Home Cards Grid */}
-      <div className="grid gap-6 px-4 pb-12 pt-6 sm:px-6 max-w-7xl mx-auto"
-           style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))' }}>
+      <div className="mx-auto grid max-w-7xl grid-cols-1 gap-6 px-4 pb-12 pt-6 sm:grid-cols-2 sm:px-6 xl:grid-cols-3">
         {visibleHomes.map((home, idx) => (
           <HomeCard
             key={home.id || idx}
             home={home}
             onClick={() => openDetail(home)}
             onGetPrice={() => openLeadForm(home, 'price')}
+            onApply={() => openLeadForm(home, 'apply')}
             isFavorite={favorites.has(home.id)}
             onToggleFavorite={() => toggleFavorite(home.id)}
           />
@@ -1314,6 +1393,7 @@ export default function InventoryBrowse({
           onAskTex={onAskTex}
           onScheduleTour={() => openLeadForm(selectedHome, 'tour')}
           onGetPrice={() => openLeadForm(selectedHome, 'price')}
+          onApply={() => openLeadForm(selectedHome, 'apply')}
           onCreateAd={onCreateAd}
           allHomes={homes}
           onSelectSimilar={setSelectedHome}
@@ -1335,7 +1415,7 @@ export default function InventoryBrowse({
 
 
 // ─── Home Card Component ───
-function ListingArticle({ home, onGetPrice }) {
+function ListingArticle({ home, onGetPrice, onApply }) {
   const specs = home?.specs || {};
   const photos = listingPagePhotos(home);
   const planUrl = home.floorplan_url || home.floor_plan_url || '';
@@ -1346,12 +1426,18 @@ function ListingArticle({ home, onGetPrice }) {
         <div>
           {photos.length > 0 ? (
             <div className="grid gap-3 sm:grid-cols-2">
-              {photos.map((url) => (
+              {photos.map((url, index) => (
                 <figure key={url} className="overflow-hidden rounded-lg border border-[var(--cp-border)] bg-[var(--cp-panel)]">
                   <img
                     src={url}
                     alt={onlyFloorplan ? 'Floor plan' : home.model_name}
-                    className="h-64 w-full object-cover"
+                    className="h-56 w-full object-cover sm:h-64"
+                    width={960}
+                    height={640}
+                    sizes={getImageSizes('listing-page')}
+                    loading={index === 0 ? 'eager' : 'lazy'}
+                    fetchPriority={index === 0 ? 'high' : 'auto'}
+                    decoding="async"
                   />
                   {onlyFloorplan && (
                     <figcaption className="px-3 py-2 text-sm text-[var(--cp-muted)]">Floor plan</figcaption>
@@ -1377,15 +1463,9 @@ function ListingArticle({ home, onGetPrice }) {
             {specs.dimensions ? <li>Dimensions: {specs.dimensions}</li> : null}
             {home.stock_number || home.id ? <li>Stock #{home.stock_number || home.id}</li> : null}
           </ul>
-          <div className="mt-6 flex flex-wrap gap-3">
-            <button
-              type="button"
-              onClick={onGetPrice}
-              className="inline-flex items-center gap-2 rounded-md bg-[var(--cp-accent)] px-5 py-3 text-sm font-bold text-[var(--cp-bg)]"
-            >
-              <DollarSign size={16} /> Check Price & Availability
-            </button>
-            <a href="/inventory" className="inline-flex items-center rounded-md border border-[var(--cp-border)] px-5 py-3 text-sm font-semibold">
+          <div className="mt-6">
+            <ListingActions home={home} onApply={onApply} onGetPrice={onGetPrice} />
+            <a href="/inventory" className="mt-3 inline-flex min-h-11 items-center rounded-md border border-[var(--cp-border)] px-5 py-3 text-sm font-semibold">
               Browse all homes
             </a>
           </div>
@@ -1396,7 +1476,7 @@ function ListingArticle({ home, onGetPrice }) {
 }
 
 
-export function HomeCard({ home, onClick, onGetPrice, isFavorite = false, onToggleFavorite }) {
+export function HomeCard({ home, onClick, onGetPrice, onApply, isFavorite = false, onToggleFavorite }) {
   // image_url is guaranteed non-floorplan after PR #43's classifier;
   // real_photos[0] is also non-floorplan (exteriors are listed first).
   // We deliberately do NOT fall back to floor_plan_url here — floorplans
@@ -1655,30 +1735,23 @@ export function HomeCard({ home, onClick, onGetPrice, isFavorite = false, onTogg
           )}
         </div>
 
-        {/* Dual action buttons */}
-        <div className="flex gap-2">
+        <div className="space-y-2">
           {cardHref ? (
             <a
               href={cardHref}
-              className="flex-1 inline-flex items-center justify-center gap-1.5 py-2.5 rounded-md text-sm font-medium bg-[var(--cp-bg-2)] text-[var(--cp-text-secondary)] border border-[var(--cp-border)] hover:border-[var(--cp-secondary)] hover:text-[var(--cp-secondary)] transition"
+              className="inline-flex min-h-11 w-full items-center justify-center gap-1.5 rounded-md border border-[var(--cp-border)] bg-[var(--cp-bg-2)] py-2.5 text-sm font-medium text-[var(--cp-text-secondary)] no-underline transition hover:border-[var(--cp-secondary)] hover:text-[var(--cp-secondary)]"
             >
               <Eye size={16} /> View Details
             </a>
           ) : (
             <button
-              className="flex-1 inline-flex items-center justify-center gap-1.5 py-2.5 rounded-md text-sm font-medium bg-[var(--cp-bg-2)] text-[var(--cp-text-secondary)] border border-[var(--cp-border)] hover:border-[var(--cp-secondary)] hover:text-[var(--cp-secondary)] transition"
+              className="inline-flex min-h-11 w-full items-center justify-center gap-1.5 rounded-md border border-[var(--cp-border)] bg-[var(--cp-bg-2)] py-2.5 text-sm font-medium text-[var(--cp-text-secondary)] transition hover:border-[var(--cp-secondary)] hover:text-[var(--cp-secondary)]"
               onClick={onClick}
             >
               <Eye size={16} /> View Details
             </button>
           )}
-          <button
-            type="button"
-            className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-md bg-[var(--cp-accent)] py-2.5 text-sm font-medium text-[var(--cp-bg)] transition hover:bg-[var(--cp-accent-hot)]"
-            onClick={(e) => { e.stopPropagation(); onGetPrice?.(); }}
-          >
-            <DollarSign size={16} /> Check Price & Availability
-          </button>
+          <ListingActions home={home} onApply={onApply} onGetPrice={onGetPrice} />
         </div>
       </div>
     </Card>
@@ -1690,7 +1763,7 @@ export function HomeCard({ home, onClick, onGetPrice, isFavorite = false, onTogg
 function HomeDetailModal({
   home, photos, activePhotoIndex, activeCategory, showTour,
   onClose, onPrevPhoto, onNextPhoto, onSetPhotoIndex, onSetCategory,
-  onToggleTour, onAskTex, onScheduleTour, onGetPrice, onCreateAd,
+  onToggleTour, onAskTex, onScheduleTour, onGetPrice, onApply, onCreateAd,
   allHomes, onSelectSimilar
 }) {
   const specs = home.specs || {};
@@ -1756,12 +1829,12 @@ function HomeDetailModal({
 
   return (
     <div
-      className="fixed inset-0 z-[100] bg-black/75 flex items-center justify-center p-4"
+      className="fixed inset-0 z-[100] flex items-end justify-center bg-black/75 sm:items-center sm:p-4"
       onClick={onClose}
     >
       <div
         ref={modalRef}
-        className="relative bg-white rounded-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden"
+        className="relative flex h-[100dvh] w-full max-w-4xl flex-col overflow-hidden bg-white sm:h-auto sm:max-h-[90vh] sm:rounded-2xl"
         onClick={e => e.stopPropagation()}
       >
         {/* Header actions — share + close */}
@@ -1790,7 +1863,7 @@ function HomeDetailModal({
         {/* Photo Gallery Section */}
         <div className="bg-slate-800 relative">
           {showTour && hasTour ? (
-            <div className="h-[400px]">
+            <div className="tho-listing-gallery">
               <iframe
                 src={`${MATTERPORT_BASE}${home.matterport_id}&play=1`}
                 title={`${home.model_name} 3D Tour`}
@@ -1799,7 +1872,7 @@ function HomeDetailModal({
               />
             </div>
           ) : showFloorplan ? (
-            <div className="relative h-[400px] bg-slate-50 flex items-center justify-center overflow-hidden">
+            <div className="tho-listing-gallery relative flex items-center justify-center overflow-hidden bg-slate-50">
               {floorplan ? (
                 <>
                   <img
@@ -1830,7 +1903,7 @@ function HomeDetailModal({
             </div>
           ) : photos.length > 0 ? (
             <div
-              className="relative h-[400px] flex items-center justify-center"
+              className="tho-listing-gallery relative flex items-center justify-center"
               onTouchStart={handleTouchStart}
               onTouchEnd={handleTouchEnd}
             >
@@ -1839,8 +1912,11 @@ function HomeDetailModal({
                 srcSet={generateSrcSet(photos[activePhotoIndex])}
                 sizes={getImageSizes('modal')}
                 alt={`${home.model_name} photo ${activePhotoIndex + 1}`}
-                className="max-w-full max-h-full object-contain"
-                loading="lazy"
+                className="max-h-full max-w-full object-contain"
+                width={1200}
+                height={800}
+                loading="eager"
+                fetchPriority="high"
                 decoding="async"
                 onError={(e) => { e.target.classList.add('opacity-0'); }}
               />
@@ -1867,7 +1943,7 @@ function HomeDetailModal({
               )}
             </div>
           ) : (
-            <div className="h-[400px] flex flex-col items-center justify-center gap-4 text-gray-400">
+            <div className="tho-listing-gallery flex flex-col items-center justify-center gap-4 text-gray-400">
               <Home size={48} className="text-gray-300" />
               <p>No photos available</p>
             </div>
@@ -2024,8 +2100,12 @@ function HomeDetailModal({
             </div>
           )}
 
+          <div className="sticky bottom-0 z-10 -mx-6 mb-4 border-t border-gray-200 bg-white px-4 py-3 sm:static sm:mx-0 sm:border-0 sm:bg-transparent sm:px-0 sm:py-0">
+            <ListingActions home={home} onApply={onApply} onGetPrice={onGetPrice} />
+          </div>
+
           {/* Action Buttons */}
-          <div className="flex gap-3 mb-4 flex-col sm:flex-row">
+          <div className="mb-4 flex flex-col gap-3 sm:flex-row">
             <button
               className="flex-1 inline-flex items-center justify-center gap-2 py-3.5 rounded-lg font-semibold text-sm bg-blue-600 text-white hover:bg-blue-700 transition"
               onClick={() => {
@@ -2225,7 +2305,12 @@ export function LeadCaptureForm({ home, type, onClose, onBookAppointment }) {
     }
     setSubmitting(true);
     setError('');
-    const intent = type === 'tour' ? 'tour' : 'quote';
+    const intent = type === 'tour' ? 'tour' : type === 'apply' ? 'apply' : 'quote';
+    const requestLabel = type === 'tour'
+      ? 'Tour Request'
+      : type === 'apply'
+        ? 'Financing Application'
+        : 'Price Quote Request';
     try {
       const resp = await fetch('/api/contact', {
         method: 'POST',
@@ -2239,7 +2324,7 @@ export function LeadCaptureForm({ home, type, onClose, onBookAppointment }) {
           // Shown to staff in the new-lead email ("Interested in: ...").
           home_stock: stockId(home) || undefined,
           home_url: listingPath(home) || undefined,
-          message: `${type === 'tour' ? 'Tour Request' : 'Price Quote Request'} — ${home.model_name}. ${formData.message}`.trim(),
+          message: `${requestLabel} — ${home.model_name}. ${formData.message}`.trim(),
           source: `inventory_${intent}`,
           ...getUtmParams(),
           ...getJourneyAttribution(),
@@ -2263,7 +2348,7 @@ export function LeadCaptureForm({ home, type, onClose, onBookAppointment }) {
   };
 
   const handleBookAppointment = () => {
-    const intent = type === 'tour' ? 'tour' : 'quote';
+    const intent = type === 'tour' ? 'tour' : type === 'apply' ? 'apply' : 'quote';
     const details = formData.message.trim();
     trackEvent('appointment_handoff_started', {
       source: `inventory_${intent}_handoff`,
@@ -2286,12 +2371,12 @@ export function LeadCaptureForm({ home, type, onClose, onBookAppointment }) {
 
   return (
     <div
-      className="fixed inset-0 z-[110] bg-black/75 flex items-center justify-center p-4"
+      className="fixed inset-0 z-[110] flex items-end justify-center bg-black/75 p-0 sm:items-center sm:p-4"
       onClick={onClose}
     >
       <div
         ref={modalRef}
-        className="relative bg-white rounded-2xl w-full max-w-md p-6"
+        className="relative max-h-[100dvh] w-full max-w-md overflow-y-auto rounded-t-2xl bg-white p-6 sm:rounded-2xl"
         onClick={e => e.stopPropagation()}
       >
         <button
@@ -2305,7 +2390,7 @@ export function LeadCaptureForm({ home, type, onClose, onBookAppointment }) {
         {submitted ? (
           <AppointmentHandoffCard
             title="Thank You!"
-            description={`We received your ${type === 'tour' ? 'tour request' : 'price quote request'} for the ${home.model_name}. Reserve a showroom time now or keep browsing.`}
+            description={`We received your ${type === 'tour' ? 'tour request' : type === 'apply' ? 'financing application' : 'price quote request'} for the ${home.model_name}. Reserve a showroom time now or keep browsing.`}
             onStart={handleBookAppointment}
             onContinue={onClose}
           />
@@ -2313,10 +2398,10 @@ export function LeadCaptureForm({ home, type, onClose, onBookAppointment }) {
           <>
             <div className="text-center mb-6">
               <h3 className="text-xl font-bold text-slate-800 mb-2">
-                {type === 'tour' ? 'Schedule a Tour' : 'Get a Price Quote'}
+                {type === 'tour' ? 'Schedule a Tour' : type === 'apply' ? 'Apply for Financing' : 'Get a Price Quote'}
               </h3>
               <p className="text-sm text-gray-500">
-                {type === 'tour' ? 'Visit' : 'Get pricing for'} the <strong>{home.model_name}</strong>
+                {type === 'tour' ? 'Visit' : type === 'apply' ? 'Start financing for' : 'Get pricing for'} the <strong>{home.model_name}</strong>
                 {home.specs?.beds && ` — ${home.specs.beds} Bed, ${home.specs.baths} Bath`}
                 {home.specs?.sq_ft && `, ${home.specs.sq_ft.toLocaleString()} sqft`}
               </p>
@@ -2385,6 +2470,8 @@ export function LeadCaptureForm({ home, type, onClose, onBookAppointment }) {
                   <><Loader2 size={16} className="animate-spin" /> Submitting...</>
                 ) : type === 'tour' ? (
                   <><Calendar size={16} /> Request Tour</>
+                ) : type === 'apply' ? (
+                  <><DollarSign size={16} /> Submit Application</>
                 ) : (
                   <><DollarSign size={16} /> Get Quote</>
                 )}

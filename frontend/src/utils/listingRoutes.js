@@ -140,6 +140,21 @@ export function resolveHomeFromPath(homes, pathname) {
   }) || null;
 }
 
+const STOCK_PHOTO_HOSTS = new Set([
+  'images.unsplash.com',
+  'unsplash.com',
+  'images.pexels.com',
+  'pexels.com',
+  'pixabay.com',
+  'cdn.pixabay.com',
+  'placehold.co',
+  'via.placeholder.com',
+  'placeholder.com',
+  'picsum.photos',
+  'loremflickr.com',
+  'lorempixel.com',
+]);
+
 function isManufacturerCatalogPhotoUrl(url) {
   if (!url) return false;
   try {
@@ -147,6 +162,49 @@ function isManufacturerCatalogPhotoUrl(url) {
   } catch {
     return /\/manufacturer\/[^/]+\/floorplan\/[^/]+\//i.test(String(url));
   }
+}
+
+function photoHost(url) {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '').toLowerCase();
+  } catch {
+    return '';
+  }
+}
+
+export function isGenericStockPhotoUrl(url) {
+  return STOCK_PHOTO_HOSTS.has(photoHost(url));
+}
+
+function embeddedUnitId(url) {
+  const decoded = decodeURIComponent(String(url || ''));
+  const match = decoded.match(/\/(?:dealer\/[^/]+\/inventory\/|api\/inventory\/photos\/|inventory\/)([^/?#]+)\//i);
+  return match ? match[1] : '';
+}
+
+function homePhotoIds(home) {
+  return [home?.id, home?.stock_number, home?.stock_id, home?.legacy_inventory_id, home?.home_id]
+    .map((value) => String(value || '').trim())
+    .filter(Boolean);
+}
+
+export function isForeignUnitPhoto(url, home) {
+  const unit = embeddedUnitId(url);
+  if (!unit) return false;
+  const ids = homePhotoIds(home);
+  if (!ids.length) return false;
+  // Upload paths keep this home's id, but not always its original case.
+  const folded = unit.toLowerCase();
+  return !ids.some((id) => id.toLowerCase() === folded);
+}
+
+/** Used homes may show only that unit's photos — never catalog or stock shots. */
+export function usedHomeMayShowPhoto(url, home) {
+  if (!url || !isPreownedHome(home)) return Boolean(url);
+  if (isManufacturerCatalogPhotoUrl(url)) return false;
+  if (isGenericStockPhotoUrl(url)) return false;
+  if (isForeignUnitPhoto(url, home)) return false;
+  return true;
 }
 
 export function listingPagePhotos(home) {
@@ -171,7 +229,7 @@ export function listingPagePhotos(home) {
   for (const raw of candidates) {
     const url = String(raw || '').trim();
     if (!url || seen.has(url) || isFloorplan(url)) continue;
-    if (used && isManufacturerCatalogPhotoUrl(url)) continue;
+    if (used && !usedHomeMayShowPhoto(url, home)) continue;
     seen.add(url);
     photos.push(url);
   }
@@ -180,17 +238,24 @@ export function listingPagePhotos(home) {
   return plan ? [plan] : [];
 }
 
-export function applyDocumentHead({ title, description, canonicalPath } = {}) {
+function upsertMeta(attribute, key, content) {
+  if (!content || typeof document === 'undefined') return;
+  let meta = document.querySelector(`meta[${attribute}="${key}"]`);
+  if (!meta) {
+    meta = document.createElement('meta');
+    meta.setAttribute(attribute, key);
+    document.head.appendChild(meta);
+  }
+  meta.setAttribute('content', content);
+}
+
+export function applyDocumentHead({ title, description, canonicalPath, image } = {}) {
   if (typeof document === 'undefined') return;
   if (title) document.title = title;
+  const origin = typeof window !== 'undefined' ? window.location.origin : '';
+  let canonicalHref = '';
   if (description) {
-    let meta = document.querySelector('meta[name="description"]');
-    if (!meta) {
-      meta = document.createElement('meta');
-      meta.setAttribute('name', 'description');
-      document.head.appendChild(meta);
-    }
-    meta.setAttribute('content', description);
+    upsertMeta('name', 'description', description);
   }
   if (canonicalPath) {
     let link = document.querySelector('link[rel="canonical"]');
@@ -199,8 +264,20 @@ export function applyDocumentHead({ title, description, canonicalPath } = {}) {
       link.setAttribute('rel', 'canonical');
       document.head.appendChild(link);
     }
-    const origin = typeof window !== 'undefined' ? window.location.origin : '';
-    const href = canonicalPath.startsWith('http') ? canonicalPath : `${origin}${canonicalPath}`;
-    link.setAttribute('href', href);
+    canonicalHref = canonicalPath.startsWith('http') ? canonicalPath : `${origin}${canonicalPath}`;
+    link.setAttribute('href', canonicalHref);
+  }
+  if (title) upsertMeta('property', 'og:title', title);
+  if (description) upsertMeta('property', 'og:description', description);
+  if (canonicalHref) upsertMeta('property', 'og:url', canonicalHref);
+  upsertMeta('property', 'og:type', 'website');
+  upsertMeta('property', 'og:locale', 'en_US');
+  upsertMeta('name', 'twitter:card', 'summary_large_image');
+  if (title) upsertMeta('name', 'twitter:title', title);
+  if (description) upsertMeta('name', 'twitter:description', description);
+  if (image) {
+    const absolute = String(image).startsWith('http') ? image : `${origin}${image}`;
+    upsertMeta('property', 'og:image', absolute);
+    upsertMeta('name', 'twitter:image', absolute);
   }
 }
