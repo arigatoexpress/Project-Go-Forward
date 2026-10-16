@@ -26,7 +26,7 @@ import uuid
 from collections import defaultdict, deque
 from datetime import UTC, datetime, timedelta
 from json import JSONDecodeError
-from urllib.parse import quote, urlsplit, urlunsplit
+from urllib.parse import quote, urlencode, urlsplit, urlunsplit
 
 import uvicorn
 from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
@@ -9930,11 +9930,37 @@ async def update_admin_staff(request: Request):
 app.mount("/assets", ImmutableStaticFiles(directory="frontend/dist/assets"), name="assets")
 
 
+def _shared_home_query_target(request: Request) -> str | None:
+    """Send /inventory?home=<id> to that home's canonical listing URL.
+
+    The query form is the old share link. It renders the catalog, so a
+    social scraper never sees the listing photo or title. Extra query
+    parameters (campaign tags) stay on the listing URL.
+    """
+    if request.method.upper() not in {"GET", "HEAD"}:
+        return None
+    home_id = str(request.query_params.get("home") or "").strip()
+    if not home_id:
+        return None
+    if _normalized_path(request.url.path) not in {"/", "/inventory"}:
+        return None
+    target = seo_routes.canonical_listing_path_for_id(home_id)
+    if not target:
+        return None
+    extra = [(key, value) for key, value in request.query_params.multi_items() if key != "home"]
+    if extra:
+        return f"{target}?{urlencode(extra)}"
+    return target
+
+
 # HEAD is included because uptime monitors default to HEAD on "/" and the
 # Cloud Run service should not answer the probe with 405.
 @app.get("/{full_path:path}")
 @app.head("/{full_path:path}")
-async def serve_spa(full_path: str):
+async def serve_spa(full_path: str, request: Request):
+    shared_home = _shared_home_query_target(request)
+    if shared_home:
+        return RedirectResponse(shared_home, status_code=301)
     if full_path == "api" or full_path.startswith("api/"):
         # Funnel unknown /api/* paths through the resilient HTTPException
         # handler so they get the {success, status_code, message} envelope and

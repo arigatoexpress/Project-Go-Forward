@@ -27,8 +27,10 @@ import {
   isInventoryDetailPath,
   isPlanPath,
   isPreownedHome,
+  listingImageAlt,
   listingPagePhotos,
   listingPath,
+  listingShareUrl,
   resolveHomeFromPath,
   stockId,
   usedHomeMayShowPhoto,
@@ -958,10 +960,12 @@ export default function InventoryBrowse({
 
   // --- RENDER ---
 
+  const onInventoryHub = /^\/inventory\/?$/i.test(currentPath);
+  const inventoryHubHeading = `Home Inventory — Mobile & Manufactured Homes in ${BUSINESS_CITY}, ${BUSINESS_STATE}`;
   const uniqueHeading = cityLanding?.heading
     || fallbackListingHeading(currentPath)
     || routeCategory?.heading
-    || null;
+    || (onInventoryHub ? inventoryHubHeading : null);
 
   if (loading) {
     return (
@@ -1087,6 +1091,7 @@ export default function InventoryBrowse({
                 || cityLanding?.heading
                 || fallbackListingHeading(currentPath)
                 || routeCategory?.heading
+                || (onInventoryHub ? inventoryHubHeading : null)
                 || 'Mobile Homes For Sale in Huffman, TX'}
             </h1>
             {pathListingHome && (
@@ -1101,7 +1106,9 @@ export default function InventoryBrowse({
                 ? `${pathListingHome.model_name} at ${BUSINESS_NAME} in ${BUSINESS_CITY}, ${BUSINESS_STATE}. Confirm current price and availability with our team.`
                 : cityLanding
                   ? `${BUSINESS_NAME} delivers new manufactured and mobile homes to ${cityLanding.city}, TX and the surrounding Houston area — single and double-section homes plus orderable factory floorplans. Visit our showroom at ${BUSINESS_FULL_ADDRESS} or call ${BUSINESS_PHONE}.`
-                : routeCategory?.description || 'Browse current listed homes plus manufacturer floorplans Texas Home Outlet can custom order. Confirm price and availability with our team before planning a visit.'}
+                  : onInventoryHub
+                    ? `Current manufactured and mobile home inventory at ${BUSINESS_NAME} in ${BUSINESS_CITY}, ${BUSINESS_STATE}. Compare listed homes, pre-owned homes, and orderable floorplans, then call or text to confirm price and availability.`
+                    : routeCategory?.description || 'Browse current listed homes plus manufacturer floorplans Texas Home Outlet can custom order. Confirm price and availability with our team before planning a visit.'}
             </p>
             <nav className="mt-4 flex flex-wrap gap-2" aria-label="Browse by home type">
               {Object.values(INVENTORY_CATEGORY_ROUTES).map(category => (
@@ -1460,7 +1467,7 @@ function ListingArticle({ home, onGetPrice, onApply }) {
                 <figure key={url} className="overflow-hidden rounded-lg border border-[var(--cp-border)] bg-[var(--cp-panel)]">
                   <img
                     src={url}
-                    alt={onlyFloorplan ? 'Floor plan' : home.model_name}
+                    alt={listingImageAlt(home, url, index + 1, photos.length, { floorplan: onlyFloorplan })}
                     className="h-56 w-full object-cover sm:h-64"
                     width={960}
                     height={640}
@@ -1815,8 +1822,7 @@ function HomeDetailModal({
   // copies the link and shows a transient confirmation (no toast context here).
   const [shareCopied, setShareCopied] = useState(false);
   const handleShare = useCallback(async () => {
-    const origin = typeof window !== 'undefined' ? window.location.origin : '';
-    const url = `${origin}/inventory?home=${encodeURIComponent(home.id)}`;
+    const url = listingShareUrl(home);
     try {
       if (typeof navigator !== 'undefined' && navigator.share) {
         await navigator.share({ title: home.model_name, url });
@@ -1830,7 +1836,7 @@ function HomeDetailModal({
     } catch {
       // User dismissed the share sheet or clipboard was blocked — no-op.
     }
-  }, [home.id, home.model_name]);
+  }, [home]);
 
   // Floorplan view is a peer of the Photos / 3D Tour view inside the
   // gallery area. State is local to the modal because the parent already
@@ -1911,7 +1917,7 @@ function HomeDetailModal({
                     src={floorplan}
                     srcSet={generateSrcSet(floorplan)}
                     sizes={getImageSizes('modal')}
-                    alt={`${home.model_name} floorplan`}
+                    alt={listingImageAlt(home, floorplan, 1, 1, { floorplan: true })}
                     className="max-w-full max-h-full object-contain bg-white"
                     loading="lazy"
                     decoding="async"
@@ -1943,7 +1949,7 @@ function HomeDetailModal({
                 src={photos[activePhotoIndex]}
                 srcSet={generateSrcSet(photos[activePhotoIndex])}
                 sizes={getImageSizes('modal')}
-                alt={`${home.model_name} photo ${activePhotoIndex + 1}`}
+                alt={listingImageAlt(home, photos[activePhotoIndex], activePhotoIndex + 1, photos.length)}
                 className="max-h-full max-w-full object-contain"
                 width={1200}
                 height={800}
@@ -2039,7 +2045,7 @@ function HomeDetailModal({
                       src={photo}
                       srcSet={generateSrcSet(photo)}
                       sizes={getImageSizes('modal-thumbnail')}
-                      alt={`Thumb ${idx + 1}`}
+                      alt={listingImageAlt(home, photo, idx + 1, photos.length)}
                       className="w-full h-full object-cover"
                       loading="lazy"
                       decoding="async"

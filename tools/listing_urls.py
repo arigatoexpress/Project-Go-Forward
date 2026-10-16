@@ -14,7 +14,7 @@ from __future__ import annotations
 import re
 from datetime import UTC, datetime
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 from tools.catalog_floorplans import (
     AVAILABLE_KIND,
@@ -204,6 +204,34 @@ def _url_list(value: object) -> list[str]:
     if isinstance(value, list):
         return [str(item).strip() for item in value if str(item or "").strip()]
     return []
+
+
+# Discrete filename parts already used to tell listing photos apart
+# (tools/photo_classifier.py). Only an exact part counts, so "bedroom"
+# is not guessed from a model number that happens to contain those letters.
+_PHOTO_SUBJECTS: tuple[tuple[str, frozenset[str]], ...] = (
+    ("exterior", frozenset({"exterior", "ext", "front"})),
+    ("kitchen", frozenset({"kitchen", "kit"})),
+    ("living room", frozenset({"living", "lvgrm", "lvg"})),
+    ("bathroom", frozenset({"bathroom", "bath"})),
+    ("bedroom", frozenset({"bedroom", "bed"})),
+    ("interior", frozenset({"interior", "int"})),
+    ("porch", frozenset({"porch"})),
+    ("utility", frozenset({"utility"})),
+)
+
+
+def listing_photo_subject(url: str | None) -> str | None:
+    """Room or view named by the photo filename, or None when it is not."""
+    filename = unquote(str(url or "")).rsplit("/", 1)[-1].split("?", 1)[0]
+    stem = filename.rsplit(".", 1)[0].lower()
+    parts = {part for part in re.split(r"[^a-z0-9]+", stem) if part}
+    if not parts:
+        return None
+    for label, tokens in _PHOTO_SUBJECTS:
+        if parts & tokens:
+            return label
+    return None
 
 
 def path_from_url(url: str | None) -> str | None:

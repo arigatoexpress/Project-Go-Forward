@@ -1016,7 +1016,7 @@ function App() {
       privacy: `Privacy Policy | ${BUSINESS_NAME}`,
       terms: `Terms of Use | ${BUSINESS_NAME}`,
       about: `About Us | ${BUSINESS_NAME}`,
-      financing: `Financing Options | ${BUSINESS_NAME}`,
+      financing: `Manufactured Home Financing in ${BUSINESS_CITY}, ${BUSINESS_STATE} | ${BUSINESS_NAME}`,
       faq: `Frequently Asked Questions | ${BUSINESS_NAME}`,
       warranty: `Warranty & Service | ${BUSINESS_NAME}`,
       delivery: `Delivery & Setup | ${BUSINESS_NAME}`,
@@ -1064,10 +1064,37 @@ function App() {
       // Never fall back to the generic Huffman inventory title on these URLs.
       return;
     }
+    const normalizedPath = pathname.replace(/\/+$/, '') || '/';
+    if (normalizedPath === '/') {
+      applyDocumentHead({
+        title: `Mobile & Manufactured Homes for Sale in ${BUSINESS_CITY}, ${BUSINESS_STATE} | ${BUSINESS_NAME}`,
+        description:
+          `Browse manufactured & mobile homes for sale at ${BUSINESS_NAME} in ${BUSINESS_CITY}, ${BUSINESS_STATE} — `
+          + 'listed homes and orderable factory floorplans. Confirm current price and availability directly with our team.',
+        canonicalPath: '/',
+      });
+      return;
+    }
+    if (normalizedPath === '/inventory') {
+      applyDocumentHead({
+        title: `Home Inventory — Mobile & Manufactured Homes in ${BUSINESS_CITY}, ${BUSINESS_STATE} | ${BUSINESS_NAME}`,
+        description:
+          `Browse manufactured homes at ${BUSINESS_NAME} in ${BUSINESS_CITY}, ${BUSINESS_STATE}: `
+          + 'single and double section homes, 3D tours, photos, and orderable floorplans. Request current price and availability.',
+        canonicalPath: '/inventory',
+      });
+      return;
+    }
     const nextTitle = fullTitles[activePage]
       || (shortTitles[activePage] ? `${shortTitles[activePage]} | ${BUSINESS_NAME}` : BUSINESS_NAME);
+    const publicDescriptions = {
+      financing:
+        `Manufactured home financing options at ${BUSINESS_NAME} in ${BUSINESS_CITY}, ${BUSINESS_STATE}: `
+        + 'chattel loans, land-and-home loans, FHA/VA/USDA, and lender partners.',
+    };
     applyDocumentHead({
       title: nextTitle,
+      description: publicDescriptions[activePage],
       canonicalPath: pathname === '/' ? '/' : pathname.replace(/\/+$/, '') || '/',
     });
   }, [activePage, pathname]);
