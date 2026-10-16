@@ -337,7 +337,7 @@ function ListingSummary({ home, onApply, onGetPrice }) {
   return (
     <section
       aria-label="Price and next steps"
-      className="tho-listing-summary mt-4 w-full min-w-0 max-w-xl rounded-lg border border-white/50 bg-[var(--cp-panel)] p-4 text-[var(--cp-text)] shadow-[0_18px_50px_rgba(0,0,0,0.32)]"
+      className="tho-listing-summary mt-4 w-full min-w-0 max-w-xl rounded-lg border border-white/50 bg-[var(--cp-panel)] p-4 text-[var(--cp-text)] shadow-[0_18px_50px_rgba(0,0,0,0.32)] lg:hidden"
     >
       <p className="text-3xl font-bold leading-tight text-[var(--cp-accent)]">{displayPrice(home)}</p>
       {facts.length > 0 && (
@@ -1483,7 +1483,7 @@ function ListingArticle({ home, onGetPrice, onApply }) {
         </div>
         <div className="order-1 min-w-0 lg:order-2">
           <p className="text-sm text-[var(--cp-muted)]">{home.manufacturer || BUSINESS_NAME}</p>
-          <p className="mt-3 text-3xl font-bold text-[var(--cp-accent)]">
+          <p className="mt-3 hidden text-3xl font-bold text-[var(--cp-accent)] lg:block">
             {home.display_price && home.display_price !== 'Call for Price' ? home.display_price : 'Call for Price'}
           </p>
           <ul className="mt-4 space-y-1 text-[var(--cp-text-secondary)]">
@@ -1494,7 +1494,9 @@ function ListingArticle({ home, onGetPrice, onApply }) {
             {home.stock_number || home.id ? <li>Stock #{home.stock_number || home.id}</li> : null}
           </ul>
           <div className="mt-6">
-            <ListingActions home={home} onApply={onApply} onGetPrice={onGetPrice} />
+            <div className="hidden lg:block">
+              <ListingActions home={home} onApply={onApply} onGetPrice={onGetPrice} />
+            </div>
             <a href="/inventory" className="mt-3 inline-flex min-h-11 items-center rounded-md border border-[var(--cp-border)] px-5 py-3 text-sm font-semibold">
               Browse all homes
             </a>
