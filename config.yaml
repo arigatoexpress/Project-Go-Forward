@@ -85,6 +85,17 @@ business:
       opens: "10:00"
       closes: "15:00"
 
+# Creditor/lender contact blocks auto-filled on closing documents when the deal's
+# creditor name starts with one of `match_names`. Only blank creditor fields are
+# filled; blank values here leave the PDF line blank for manual entry.
+lenders:
+  21st_mortgage:
+    match_names: ["21st Mortgage"]
+    # OWNER TO FILL IN from 21st Mortgage's own paperwork (not found in repo).
+    creditor_address: ""
+    creditor_city_state_zip: ""
+    creditor_phone: ""
+
 agent:
   # The name your AI assistant goes by
   assistant_name: "AI Assistant"
@@ -167,7 +178,7 @@ deployment:
   # Google Cloud
   project_id: "tho-ai-agent"
   region: "us-central1"
-  service_name: "tho-agent"
+  service_name: "project-go-forward"
   
 scraper:
   # Website to scrape inventory from
@@ -198,6 +209,20 @@ feature_flags:
   EMAIL_AUTO_ACK: false       # fixed ack template, the ONLY unsupervised send (also needs EMAIL_REPLY_SEND)
   EMAIL_DRAFT_PIPELINE: false # create review drafts for substantive inbound email (no sends)
   EMAIL_TG_GATE: false        # Telegram approve/reject cards for pending drafts (no sends by itself)
+
+  # Staff sign-in page (/staff). Email link is the only obvious path.
+  # Leave false. Set true only if the owner wants "Sign in with Passkey"
+  # back on that page (still a small link under the backup PIN).
+  # Env override: FF_STAFF_PASSKEY_SIGN_IN=1. Does not disable passkey APIs.
+  STAFF_PASSKEY_SIGN_IN: false
+
+  # E-sign automatic sends. Leave false. When false, moving a deal to Contract
+  # or Pending only creates a CRM task, and closing-packet generation sends
+  # nothing; staff send from the deal after reviewing the preview. When true,
+  # those events send only if every money line is filled in, else they queue a
+  # task. New leads never get a Credit Authorization automatically either way.
+  # Env override: FF_ESIGN_AUTO_SEND=1.
+  ESIGN_AUTO_SEND: false
 
 # Notion "Command Center" integration. DB ids are identifiers, NOT secrets — the
 # only secret is NOTION_TOKEN (Secret Manager). The Ops Copilot reads these

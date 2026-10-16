@@ -1,25 +1,44 @@
 /**
- * Image optimization utilities for CloudFront-hosted images.
+ * Image optimization utilities for listing photos.
  *
- * The backend serves images from CloudFront (https://d132mt2yijm03y.cloudfront.net).
- * While the CDN currently serves JPEGs without dynamic width/format transformation,
- * these helpers generate forward-looking srcset/sizes attributes. If the CDN
- * ever adds support for width params, the browser will automatically pick the
- * optimal resolution.
+ * The public image host (CloudFront and staff photo URLs) serves the file as
+ * stored. It does not honor a width query, so inventing `?w=` variants makes
+ * the browser download the full image once per width and splits the CDN cache.
+ * `generateSrcSet` stays empty until a host actually resizes.
  */
 
 const DEFAULT_WIDTHS = [400, 800, 1200];
 
 /**
+ * Hosts that honor a `w` query and return a smaller file.
+ * Empty on purpose: the current CDN does not.
+ */
+const RESIZABLE_HOSTS = new Set();
+
+/**
+ * @param {string} url
+ * @returns {boolean}
+ */
+export function supportsWidthVariants(url) {
+  if (!url) return false;
+  try {
+    const parsed = new URL(url, 'https://www.texashomeoutlet.com');
+    return RESIZABLE_HOSTS.has(parsed.hostname);
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Generate a srcset string with width descriptors for a given image URL.
- * Appends ?w=<width> query params for future CDN support.
+ * Returns '' when the host would ignore the width parameter.
  *
  * @param {string} url - The original image URL.
  * @param {number[]} [widths=[400, 800, 1200]] - Width descriptors to generate.
- * @returns {string} A srcset string like "url?w=400 400w, url?w=800 800w, ...".
+ * @returns {string} A srcset string, or '' when variants would not be smaller.
  */
 export function generateSrcSet(url, widths = DEFAULT_WIDTHS) {
-  if (!url) return '';
+  if (!url || !supportsWidthVariants(url)) return '';
   const separator = url.includes('?') ? '&' : '?';
   return widths
     .map((w) => `${url}${separator}w=${w} ${w}w`)
@@ -61,6 +80,8 @@ export function getImageSizes(container) {
     case 'analytics-table':
       // Tiny thumbnail in a table row
       return '40px';
+    case 'listing-page':
+      return '(max-width: 640px) 100vw, 640px';
     default:
       return '100vw';
   }

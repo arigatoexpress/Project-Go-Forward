@@ -35,7 +35,7 @@ const WIKI_SECTIONS = {
       'Use CRM for leads, tasks, appointments, and customer follow-up.',
       'Use Documents for deal paperwork, contract packets, and recent PDF downloads.',
       'Use Inventory to distinguish listed homes from orderable manufacturer floorplans, then confirm current availability before sending quotes or forms.',
-      'Use Ad Studio only for reviewed public-facing inventory or approved campaign drafts.',
+      'Use Ad Studio only for reviewed public-facing inventory or approved campaign drafts. Google Ads is at /ad-studio: describe the ad, preview it, and launch it turned off. That screen cannot turn ads on or change billing.',
     ],
   },
   docs: {
@@ -67,7 +67,7 @@ const WIKI_SECTIONS = {
     items: [
       'Existing actual on-lot photos stay attached to their current listings; use Photos to add or replace dealer pictures.',
       'Orderable floorplans are manufacturer plans, not homes sitting on the lot. They may show a floorplan diagram instead of actual-home photos.',
-      'Open the Photos tab in the top menu (you must be logged in with the PIN or a passkey).',
+      'Open the Photos tab in the top menu (sign in first at www.texashomeoutlet.com/staff).',
       'Step 1 — pick the home: type part of its name, then click it in the list.',
       'Step 2 — add pictures: click the dashed box to choose photos, or drag them in. You can add several at once.',
       'Step 3 — review: the first photo (marked "Main") is what customers see first; click "Make main" on any photo to feature it.',
@@ -82,7 +82,7 @@ const WIKI_SECTIONS = {
     items: [
       'If a form looks wrong, check the highlighted missing fields first.',
       'If a generated PDF is missing data, confirm the field exists in the Document Center form and the source inventory record.',
-      'If the app asks for admin access, unlock with PIN once and then register a passkey on trusted devices.',
+      'If the app asks for admin access, open www.texashomeoutlet.com/staff and sign in with your work email.',
       'Future Notion pages can link here as the staff handbook once the workflows are final.',
     ],
   },

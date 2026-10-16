@@ -1,8 +1,9 @@
 # DNS Cutover & Post-Launch Runbook
 
-> **Status:** DRAFT — awaiting human review and execution.  
+> **Status:** Completed 2026-06-14 (see [CUTOVER_GUIDE.md](CUTOVER_GUIDE.md)). Kept as the DNS rollback / re-cutover reference.  
 > **Do NOT execute any steps marked 🔒 without explicit Ari approval.**  
-> **Fenced actions:** DNS changes, secret deployment, Search Console verification, and email cutover are all human-gated.
+> **Fenced actions:** DNS changes, secret deployment, Search Console verification, and email cutover are all human-gated.  
+> **Emergency rollback:** [runbooks/dns-rollback.md](runbooks/dns-rollback.md) (owner / Mark only).
 
 ---
 
@@ -111,6 +112,15 @@ Rollback time: ≤ 5 minutes (TTL = 300). Old site stays up the whole time.
 **Known accepted risks (pre-launch):**
 1. `starlette` PYSEC-2026-161 — blocked by `google-adk<2.0`, tracked for adk-2 upgrade
 2. Firestore event-loop wedge — Cloud Run probes recycle instances; full timeout fix is post-launch
+
+### Monthly SEO health (standing)
+
+Run this list each month. It is not a one-time cutover checkbox.
+
+- Search Console → **Page Indexing**: Soft 404, "Google chose different canonical", unexpected noindex.
+- Legacy and marketing URLs must return **200 or 301**, never 404.
+- **Action trigger:** clicks drop more than 20–25% for 3+ weeks.
+- Sold-home URLs that still have backlinks → **301** to `/inventory`.
 
 ---
 

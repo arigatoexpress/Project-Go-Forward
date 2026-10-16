@@ -3,7 +3,7 @@
 **Domain:** `texashomeoutlet.com`  
 **Resend domain ID:** `cab685a4-93c6-4d3d-a4e5-a8db742ad1ff`  
 **Resend region:** `us-east-1`  
-**Status:** `not_started` until the records below propagate and Resend verifies them.
+**Status:** DNS records (DKIM `resend._domainkey`, `send` MX, `send` SPF, `_dmarc`) were found live in June 2026. Confirm the current verified / unverified state in the [Resend dashboard](https://resend.com/domains) — this file is not live verification.
 
 > These records are required for Resend to send email from `noreply@texashomeoutlet.com`.
 > **Apex Yahoo inbound MX is NOT touched** — every record lives on a subdomain (`send`,
@@ -44,9 +44,10 @@ curl -X POST https://api.resend.com/domains/cab685a4-93c6-4d3d-a4e5-a8db742ad1ff
   -H "Authorization: Bearer $RESEND_ADMIN_KEY"
 ```
 
-Or click **Verify** in the Resend dashboard. Once status flips to `verified`, the
-next Cloud Run deploy automatically uses the validated sending key (`resend-api-key`
-version 3 / latest).
+Or click **Verify** in the Resend dashboard. Treat the dashboard as the source of
+truth for verified state. After a confirmed verification, the next approved
+Cloud Run revision that binds `RESEND_API_KEY` can send from this domain. Do
+not record Secret Manager version numbers in this public repo.
 
 ---
 

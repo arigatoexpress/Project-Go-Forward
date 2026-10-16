@@ -15,8 +15,7 @@ automatically — usually within a minute.
 - A computer, phone, or tablet.
 - The photos saved on that device (from your camera roll, Photos app, or a
   folder). JPG, PNG, WebP, and GIF pictures all work.
-- The admin **PIN** (the same number you use to get into Documents and CRM). If
-  you don't have it, ask Ari.
+- Your work email, so you can sign in. See [How to sign in](staff-sign-in.md).
 
 ---
 
@@ -35,14 +34,14 @@ you'll see.
 
 ### 1. Open the website and log in
 
-1. Go to **https://www.texashomeoutlet.com** in your web browser (Safari, Chrome,
-   or Edge are all fine).
-2. Click the **lock icon (🔒)** in the top-right corner.
-3. Type the **admin PIN** and press enter. (Or use your passkey/fingerprint if
-   you've set one up.)
+1. Go to **https://www.texashomeoutlet.com/staff** in your web browser (Safari, Chrome,
+   or Edge are all fine). Bookmark that page.
+2. Type your work email and tap **Email me a sign-in link**.
+3. Open the email and tap **Sign me in**.
 
-> **Tip:** If your PIN doesn't work, double-check the value with Ari — it can
-> be changed and you may have an old one.
+> **Tip:** If the email does not arrive, check spam, then use **Use backup PIN**
+> or ask a teammate to add your email on the Team page. See
+> [staff sign-in](staff-sign-in.md).
 
 ### 2. Open the Photos screen
 
@@ -50,6 +49,9 @@ After you log in, a few extra buttons appear in the top menu. Click the one with
 the **camera icon** that says **Photos**.
 
 On a phone, tap the **menu (☰)** first, then tap **Photos**.
+
+You can also go straight to **https://www.texashomeoutlet.com/photos**. If you
+are not signed in yet, it asks you to sign in first, then opens the Photos screen.
 
 ### 3. Pick the home
 

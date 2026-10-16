@@ -3,7 +3,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import App from '../App';
 import { ToastProvider } from '../components/Toast';
 
-const GUIDANCE = 'Passkey sign-in did not finish. Try again, or choose Email me a sign-in code below.';
+const GUIDANCE = 'Passkey sign-in did not finish. Try again, or use the email sign-in on this page.';
 let getCredential;
 
 async function openPasskeyLogin() {
@@ -26,6 +26,9 @@ describe('Admin passkey sign-in recovery', () => {
       }
       if (url === '/api/admin/passkey/status') {
         return { ok: true, json: async () => ({ enabled: true, has_keys: true, store_ready: true }) };
+      }
+      if (url === '/api/admin/sign-in/options') {
+        return { ok: true, json: async () => ({ email_ready: true, passkey_sign_in: true }) };
       }
       if (url === '/api/admin/passkey/login/begin') {
         return { ok: true, json: async () => ({ challenge: 'dGVzdA', allowCredentials: [] }) };
@@ -54,14 +57,13 @@ describe('Admin passkey sign-in recovery', () => {
     expect(button).toHaveAccessibleDescription(GUIDANCE);
     expect(button.parentElement.nextElementSibling).toBe(alert);
     expect(screen.queryByText('Raw browser prompt detail')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Use backup PIN/i }));
     expect(screen.getByLabelText('Admin PIN')).toBeInTheDocument();
     expect(button).toBeEnabled();
     expect(fetch.mock.calls.some(([url]) => url === '/api/admin/passkey/login/complete')).toBe(false);
 
-    // Opening the existing fallback does not itself send a code or grant access.
-    fireEvent.click(screen.getByRole('button', { name: /Email me a sign-in code/i }));
-    expect(screen.getByLabelText('Authorized email')).toBeInTheDocument();
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    // The email form is already on screen and has not sent a code or granted access.
+    expect(screen.getByLabelText('Work email')).toBeInTheDocument();
     expect(fetch.mock.calls.some(([url]) => url.includes('/email-code/'))).toBe(false);
   });
 
@@ -91,6 +93,7 @@ describe('Admin passkey sign-in recovery', () => {
     fireEvent.click(await openPasskeyLogin());
     expect(await screen.findByRole('alert')).toHaveTextContent('Sign-in is temporarily unavailable.');
     expect(getCredential).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: /Use backup PIN/i }));
     expect(screen.getByLabelText('Admin PIN')).toBeInTheDocument();
   });
 });

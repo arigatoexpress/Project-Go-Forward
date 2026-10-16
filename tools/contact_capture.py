@@ -244,7 +244,7 @@ async def capture_contact_from_message(
         # event loop and bound it, so a slow/hung send never freezes the chat
         # worker. A failure/timeout must never break the chat.
         try:
-            await asyncio.wait_for(
+            result = await asyncio.wait_for(
                 asyncio.to_thread(
                     notify,
                     customer_name=lead.name or "Website chat visitor",
@@ -254,7 +254,17 @@ async def capture_contact_from_message(
                 ),
                 timeout=notify_timeout,
             )
+            notify_ok = (
+                isinstance(result, dict)
+                and result.get("success") is True
+                and not result.get("dry_run")
+            )
+            if not notify_ok:
+                logger.error("Chat lead staff-alert failed event=chat_lead_notify_failed")
         except Exception as exc:  # timeout or send error — never break the chat
-            logger.warning("Chat lead staff-alert failed or timed out: %s", exc)
+            logger.error(
+                "Chat lead staff-alert failed or timed out event=chat_lead_notify_failed: %s",
+                type(exc).__name__,
+            )
 
     return lead

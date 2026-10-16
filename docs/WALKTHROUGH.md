@@ -25,8 +25,8 @@ Open these in order — they're production, not a mockup:
    politely declines and offers an appointment (that's deliberate).
 3. **Book Visit** — real open slots; bookings notify staff instantly and land
    in the CRM.
-4. **The lock** — go to `/documents`. PIN + passkey gate. Customer-facing and
-   staff-facing live in one app, but staff surfaces are sealed.
+4. **The lock** — go to `/staff`. Email sign-in, with a small backup PIN.
+   Customer-facing and staff-facing live in one app, but staff surfaces are sealed.
 5. **On your phone** — same URL. The whole storefront is mobile-first because
    that's where buyers are.
 
@@ -48,9 +48,10 @@ Walk the repo top to bottom — each stop makes a business point:
 **"Is customer data safe?"**
 Yes — and the protections are layered. Sensitive data (SSNs, financial info)
 is stripped before anything reaches logs or the AI (`tools/pii_guard.py`);
-Tex is instructed to refuse it in chat; staff areas need PIN + passkey; the
-database has daily backups; and secrets live in Google's Secret Manager, not
-in code (a full-history scan verified zero leaked credentials).
+Tex is instructed to refuse it in chat; staff areas need the email sign-in
+(backup PIN if email is down); the database has daily backups; and secrets
+live in Google's Secret Manager, not in code (a full-history scan verified
+zero leaked credentials).
 
 **"What if the AI says something wrong?"**
 Three answers: (1) Tex only quotes inventory returned by our own systems — it

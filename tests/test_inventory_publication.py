@@ -135,11 +135,13 @@ def test_staff_edits_and_retirement_publish_without_cached_or_static_resurrectio
     main.app.dependency_overrides[main.require_admin] = lambda: True
     try:
         response = client.get("/api/marketing/inventory-context")
-        assert response.headers["Cache-Control"] == "no-cache"
+        assert response.headers["Cache-Control"] == "public, max-age=30, stale-while-revalidate=60"
         before = response.json()
         assert [h["id"] for h in before["homes"]] == ["lot-1", "supplement"]
         assert before["source_status"]["reported_source"] == "staff_inventory_with_catalog"
-        assert before["source_status"]["freshness"] == "unknown"
+        assert before["source_status"]["freshness"] == "fresh"
+        assert before["source_status"]["age_days"] == 0
+        assert before["source_status"]["retrieved_at"]
         assert "PRIVATE-IDENTITY" not in str(before)
         assert client.put("/api/inventory/lot-1", json={"model_name": "Changed model"}).json()[
             "success"
@@ -206,6 +208,43 @@ def test_failed_staff_read_can_keep_orderable_catalog_without_claiming_current_h
     assert all(home["inventory_kind"] == "orderable_floorplan" for home in data["homes"])
     assert "inventory_source_unavailable" in data["warnings"]
     assert data["source_status"]["freshness"] == "unknown"
+
+
+def test_staff_publication_stamps_freshness_and_keeps_only_that_units_photos(monkeypatch):
+    monkeypatch.setattr(
+        inventory_tools,
+        "_load_inventory_for_publication",
+        lambda: [
+            {
+                "id": "43945",
+                "model_name": "PRE-OWNED / Heritage",
+                "status": "Pre-Owned",
+                "pricing": {"price_value": 1000, "display_price": "$1,000"},
+                "specs": {},
+                "image_url": "https://images.unsplash.com/photo-1",
+                "real_photos": [
+                    "https://storage.googleapis.com/tho-inventory-assets/inventory/43945/hero.jpg",
+                    "https://images.unsplash.com/photo-1",
+                    "https://d132mt2yijm03y.cloudfront.net/dealer/3522/inventory/99999/other.jpg",
+                    "https://d132mt2yijm03y.cloudfront.net/manufacturer/1944/floorplan/1391/showroom.jpg",
+                ],
+                "gallery_images": ["https://images.unsplash.com/photo-1"],
+            }
+        ],
+    )
+
+    result = marketing_tools.get_inventory_for_ads(limit=10, staff_publication=True)
+
+    assert result["source"] == "staff_inventory_with_catalog"
+    assert result["retrieved_at"]
+    home = result["homes"][0]
+    assert home["real_photos"] == [
+        "https://storage.googleapis.com/tho-inventory-assets/inventory/43945/hero.jpg"
+    ]
+    assert home["image_url"] == home["real_photos"][0]
+    assert "unsplash.com" not in str(home)
+    assert "99999" not in str(home)
+    assert "showroom.jpg" not in str(home)
 
 
 def test_admin_edit_form_retains_classification_and_features(monkeypatch):

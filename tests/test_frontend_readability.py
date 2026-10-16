@@ -2,6 +2,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 APP = ROOT / "frontend/src/App.jsx"
+STAFF_SIGN_IN = ROOT / "frontend/src/components/StaffSignInPanel.jsx"
 INVENTORY_BROWSE = ROOT / "frontend/src/pages/InventoryBrowse.jsx"
 DOCUMENT_CENTER = ROOT / "frontend/src/pages/DocumentCenter.jsx"
 AD_STUDIO = ROOT / "frontend/src/pages/AdStudio.jsx"
@@ -18,17 +19,21 @@ CONTENT_PAGE = ROOT / "frontend/src/components/ContentPage.jsx"
 IMAGE_RESEARCH = ROOT / "docs/MANUFACTURER_IMAGE_SOURCES_RESEARCH.md"
 
 
-def test_ad_studio_exposes_offline_review_paid_search_tab():
+def test_ad_studio_exposes_plain_language_google_ads_tab():
     studio_source = AD_STUDIO.read_text()
     card_source = GOOGLE_ADS_STATUS_CARD.read_text()
 
-    assert "id: 'paid-search', label: 'Paid Search'" in studio_source
+    assert "id: 'paid-search', label: 'Google Ads'" in studio_source
     assert "activeTab === 'paid-search'" in studio_source
     assert "<GoogleAdsStatusCard />" in studio_source
     assert "aria-current" in studio_source
-    assert "Run offline server validation" in card_source
-    assert "Campaign and spend operations remain unavailable." in card_source
-    for forbidden in ("Connect", "Approve", "Create campaign", "Enable", "Publish"):
+    assert "Create campaign preview" in card_source
+    assert "Launch turned off" in card_source
+    assert "This screen cannot turn ads on" in card_source
+    assert "does not spend money" in card_source
+    assert "does not change the reviewed ad text" in card_source
+    assert "recorded event" in card_source
+    for forbidden in ("Connect", "Approve", "Create campaign", "Enable", "Publish", "Turn ads on"):
         assert f">{forbidden}<" not in card_source
 
 
@@ -126,10 +131,12 @@ def test_document_center_inactive_navigation_remains_readable():
 
 def test_admin_cookie_verification_closes_pin_overlay_on_admin_routes():
     source = APP.read_text()
+    panel = STAFF_SIGN_IN.read_text()
 
     assert "if (adminAuthed)" in source
     assert "setShowPinModal(false)" in source
-    assert "setPinError('')" in source
+    # The backup PIN lives in the sign-in panel. Editing it clears a stale error.
+    assert "setPinError('')" in panel
 
 
 def test_web_media_source_policy_blocks_unapproved_free_image_imports():

@@ -150,6 +150,14 @@ button:focus:not(:focus-visible), a:focus:not(:focus-visible) { outline: none; }
 @keyframes tho-fade-in   { from { opacity: 0; } to { opacity: 1; } }
 @keyframes tho-slide-up  { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes tho-toast-in  { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
+/* Toast.jsx uses this class. Kept in the stylesheet so CSP style-src needs no 'unsafe-inline'. */
+@keyframes slide-in {
+  from { transform: translateX(100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+.animate-slide-in {
+  animation: slide-in 0.3s ease-out;
+}
 
 @keyframes cp-pulse-glow {
   0%, 100% { box-shadow: 0 0 0 rgba(80, 29, 29, 0); }
@@ -269,6 +277,20 @@ button:focus:not(:focus-visible), a:focus:not(:focus-visible) { outline: none; }
     rgba(0, 0, 0, 0.03) 4px
   );
   z-index: 1;
+}
+
+/* Listing gallery: short on a phone so call / text / apply stay on screen. */
+.tho-listing-gallery {
+  height: 42vh;
+  min-height: 11rem;
+  max-height: 16.5rem;
+}
+@media (min-width: 640px) {
+  .tho-listing-gallery {
+    height: 400px;
+    min-height: 400px;
+    max-height: 400px;
+  }
 }
 
 /* ─── Respect prefers-reduced-motion ─── */

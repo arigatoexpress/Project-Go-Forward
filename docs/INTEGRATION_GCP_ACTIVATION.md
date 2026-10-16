@@ -29,10 +29,9 @@ this just makes the activation push-button.
 > `docs/THO_INVENTORY_CATALOG_OPERATIONS.md` are satisfied. `auto` now fails
 > closed when provenance or freshness is unverified.
 
-1. **Rebase + merge.** That branch was cut from main `6098a91` (#192); main is now
-   ≥ #198. Rebase onto current main (changes are additive — new files + targeted
-   edits, should be clean), then merge the PR. Default `INVENTORY_SOURCE=legacy`
-   → **the merge deploys with zero behavior change.**
+1. **Rebase + merge — ✅ DONE.** `feat/in-app-inventory` is already on `main`
+   (#200). Default `INVENTORY_SOURCE=legacy` → **the merge deployed with zero
+   behavior change.** Do not re-rebase or re-merge this branch.
 
 2. **Reconcile a current, operator-approved source.** Put the reviewed current
    `House Orders.xlsx` in `data/` and preview it. Do not apply a historical copy:
@@ -68,9 +67,9 @@ this just makes the activation push-button.
 
 The 7 ops-DB ids are already in `config.yaml`; the only secret is the token.
 
-1. **Token secret — ✅ DONE.** Stored as Secret Manager secret **`notion-id`**
-   (version 1 enabled). To rotate later:
-   `printf '%s' 'ntn_NEW' | gcloud secrets versions add notion-id --data-file=- --project=tho-ai-agent`.
+1. **Token secret — ✅ DONE.** Stored as Secret Manager secret **`notion-id`**.
+   To rotate later, add a new secret version in Secret Manager (owner-gated);
+   do not record version numbers in this public repo.
 
 2. **SA read access — ✅ DONE.** The run-as SA
    `691674245427-compute@developer.gserviceaccount.com` was granted
@@ -81,7 +80,8 @@ The 7 ops-DB ids are already in `config.yaml`; the only secret is the token.
    ids the app uses: Delivery Tracker, Customer-satisfaction surveys, Service &
    Warranty, Title processing, Collections, Insurance/KIP, Lead Pipeline.
 
-4. **Merge `feat/notion-ops-bridge`**, then wire + flip on (gated deploy):
+4. **Merge — ✅ DONE.** `feat/notion-ops-bridge` is already on `main` (#201).
+   Wire + flip remain a gated deploy:
    ```bash
    gcloud run services update project-go-forward --region=us-central1 --project=tho-ai-agent \
      --update-secrets NOTION_TOKEN=notion-id:latest \

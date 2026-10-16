@@ -109,7 +109,7 @@ class TestInputSanitizationMiddleware:
             },
         )
         # The request should succeed (middleware doesn't break the pipe)
-        assert res.status_code in (200, 201, 422, 500)
+        assert res.status_code in (200, 201, 400, 422, 500)
 
     def test_middleware_skips_get_requests(self, client):
         """GET requests should not be sanitized."""

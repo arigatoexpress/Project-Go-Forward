@@ -240,3 +240,62 @@ def test_share_document_requires_admin_auth(monkeypatch):
     resp = client.get("/api/documents/share/sales_contract.pdf")
 
     assert resp.status_code == 401
+
+
+def test_share_document_writes_audit_entry(monkeypatch):
+    """Regression: every share must persist a documents.share audit entry.
+
+    The share route previously passed unknown kwargs (``actor_ip``/``target``)
+    to ``log_admin_action``; the TypeError was swallowed and the entry lost
+    while the signed link was still returned.
+    """
+    _stub_storage_module(monkeypatch, blob_exists=True)
+    client, _main, token = _make_admin_client(monkeypatch)
+
+    import audit_log
+    from tests.test_audit_log import FakeFirestore
+
+    store = FakeFirestore()
+    monkeypatch.setattr(audit_log, "_get_db", lambda: store)
+
+    resp = client.get(
+        "/api/documents/share/sales_contract_123.pdf?ttl_hours=12",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200, resp.text
+
+    coll = store.collections.get("audit_log")
+    entries = [e for e in (coll._docs if coll else []) if e.get("action") == "documents.share"]
+    assert len(entries) == 1, f"expected one documents.share audit entry, got {entries}"
+    entry = entries[0]
+    assert entry["target_type"] == "document"
+    assert entry["target_id"] == "generated_docs/sales_contract_123.pdf"
+    assert entry["details"]["ttl_hours"] == 12
+    assert entry["actor"]
+
+
+def test_all_log_admin_action_calls_use_supported_kwargs():
+    """Static guard: no call site in main.py may pass a kwarg the helper rejects.
+
+    ``log_admin_action`` failures are swallowed by design, so a bad kwarg
+    silently drops the audit entry instead of failing loudly.
+    """
+    import ast
+    import inspect
+
+    import audit_log
+
+    allowed = set(inspect.signature(audit_log.log_admin_action).parameters)
+    tree = ast.parse((REPO_ROOT / "main.py").read_text(encoding="utf-8"))
+    bad: list[str] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        name = getattr(func, "id", None) or getattr(func, "attr", None)
+        if name != "log_admin_action":
+            continue
+        for kw in node.keywords:
+            if kw.arg is not None and kw.arg not in allowed:
+                bad.append(f"line {node.lineno}: {kw.arg}")
+    assert not bad, f"log_admin_action called with unsupported kwargs: {bad}"

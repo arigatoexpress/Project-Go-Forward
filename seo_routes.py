@@ -26,6 +26,7 @@ import os
 import re
 import threading
 import time
+from pathlib import Path
 from urllib.parse import quote_plus, unquote, urlparse
 
 from fastapi import APIRouter
@@ -43,6 +44,16 @@ from config_loader import (
     get_business,
 )
 from inventory_classification import normalize_inventory_classification
+from tools.inventory_dedupe import is_preowned
+from tools.listing_urls import (
+    attach_listing_urls,
+    listing_lastmod,
+    listing_page_images,
+    listing_path,
+    match_instock_home,
+    parse_home_path,
+    stock_id,
+)
 
 router = APIRouter()
 
@@ -126,6 +137,35 @@ PUBLIC_ROUTES = {
     ),
 }
 
+# Shared copy keeps server-rendered and React legal pages identical.
+LEGAL_PAGES = json.loads(
+    (Path(__file__).parent / "frontend/src/content/legalPages.json").read_text(encoding="utf-8")
+)
+for _page, _content in LEGAL_PAGES.items():
+    PUBLIC_ROUTES[f"/{_page}"] = (
+        f"{_content['title']} | {business_name()}",
+        _content["description"],
+    )
+
+# Common legal URLs people and crawlers guess. Keys are lowercase, no trailing slash.
+_LEGAL_REDIRECTS: dict[str, str] = {
+    "/legal": "/privacy",
+    "/privacy-policy": "/privacy",
+    "/terms-of-use": "/terms",
+    "/terms-of-service": "/terms",
+    "/terms-and-conditions": "/terms",
+}
+
+
+def _crawlable_legal_block(page: str) -> str:
+    content = LEGAL_PAGES[page]
+    sections = "".join(
+        f"<section><h2>{html.escape(heading)}</h2><p>{html.escape(text)}</p></section>"
+        for heading, text in content["sections"]
+    )
+    return f"<main><h1>{html.escape(content['title'])}</h1>{sections}</main>"
+
+
 # High-intent legacy category URLs that now resolve to real, inventory-backed
 # landing pages instead of collapsing into the generic /inventory hub.
 HOME_CATEGORY_PAGES = {
@@ -158,10 +198,17 @@ NOINDEX_PREFIXES = (
     "/document-center",
     "/analytics",
     "/studio",
+    "/ad-studio",
     "/system",
     "/getting-started",
+    "/staff",
+    "/team",
     "/guide",
     "/chat-history",
+    "/manage-inventory",
+    "/photos",
+    "/copilot",
+    "/ops-copilot",
     "/hub/",
     "/app/",
 )
@@ -263,6 +310,15 @@ def _build_registry() -> dict:
     quote_redirects: dict[str, str] = {}
     quote_alias_redirects: dict[str, str] = {}
     homes, inventory_ok = _load_homes()
+    attach_listing_urls(homes)
+    instock_by_stock: dict[str, dict] = {}
+    instock_path_by_stock: dict[str, str] = {}
+    for home in homes:
+        path_value = listing_path(home)
+        identifier = stock_id(home)
+        if path_value and identifier:
+            instock_by_stock[identifier] = home
+            instock_path_by_stock[identifier] = path_value
     for home in homes:
         dpath = _legacy_path(home.get("detail_url"))
         if not dpath:
@@ -309,6 +365,8 @@ def _build_registry() -> dict:
         "detail_alias_redirects": detail_alias_redirects,
         "quote_redirects": quote_redirects,
         "quote_alias_redirects": quote_alias_redirects,
+        "instock_by_stock": instock_by_stock,
+        "instock_path_by_stock": instock_path_by_stock,
     }
 
 
@@ -400,6 +458,15 @@ def _local_business_jsonld() -> dict:
 
 
 def _first_image(home: dict) -> str | None:
+    """Return the first public photo for OG / JSON-LD.
+
+    Used homes use the same own-photo picker as ``/homes/`` pages so social
+    cards never show a manufacturer catalog shot. New homes keep catalog
+    heroes.
+    """
+    if is_preowned(home):
+        images = listing_page_images(home)
+        return images[0] if images else None
     for key in ("hero_image", "image_url"):
         if home.get(key):
             return str(home[key])
@@ -426,9 +493,26 @@ def _inventory_hero_image() -> str | None:
     return None
 
 
-def _responsive_image_srcset(url: str) -> str:
-    separator = "&" if "?" in url else "?"
-    return ", ".join(f"{url}{separator}w={width} {width}w" for width in (400, 800, 1200))
+def _phone_digits() -> str:
+    digits = re.sub(r"\D", "", business_phone() or "")
+    if len(digits) == 10:
+        digits = "1" + digits
+    return digits
+
+
+def _tel_href() -> str:
+    digits = _phone_digits()
+    return f"tel:+{digits}" if digits else "tel:"
+
+
+def _sms_href(home: dict | None = None) -> str:
+    digits = _phone_digits()
+    name = ""
+    if isinstance(home, dict) and home.get("model_name"):
+        name = f" the {home.get('model_name')}"
+    body = quote_plus(f"Hi, I'm interested in{name} at {business_name()}.")
+    base = f"sms:+{digits}" if digits else "sms:"
+    return f"{base}?&body={body}"
 
 
 def _product_jsonld(home: dict, canonical_url: str) -> dict | None:
@@ -606,22 +690,18 @@ def analytics_csp_sources() -> dict:
     return {k: sorted(v) for k, v in extra.items()}
 
 
-def _analytics_head() -> str:
-    """Consent-gated loader for whichever analytics IDs are validly set.
+# First-party consent-gated analytics bootstrap, served as an EXTERNAL script
+# from /tho-analytics.js so the CSP can drop 'unsafe-inline' from script-src
+# (COD-153). The per-deploy config (validated IDs only) rides in an inert
+# <script type="application/json"> data block, which CSP does not execute.
+# Behavior is unchanged: consent defaults to denied and no vendor JavaScript
+# is fetched until tho_analytics_consent_v1 is explicitly "granted".
+ANALYTICS_BOOTSTRAP_PATH = "/tho-analytics.js"
+_ANALYTICS_BOOTSTRAP_JS = """(function(w,d){
+var el=d.getElementById('tho-analytics-config');if(!el)return;
+var c;try{c=JSON.parse(el.textContent||'{}')}catch(e){return;}
+if(!c||typeof c!=='object')return;
 
-    The inline first-party bootstrap is the only code emitted initially. It
-    defaults Google's consent signals to denied and does not fetch Google,
-    Meta, or TikTok JavaScript until ``tho_analytics_consent_v1`` is explicitly
-    ``granted``. This is intentionally stricter than cookieless/advanced mode.
-    """
-    ids = _analytics_ids()
-    if not ids:
-        return ""
-    # Values have already passed strict alphanumeric ID regexes. JSON encoding
-    # is still used so this object can never become an inline-script breakout.
-    config = json.dumps(ids, separators=(",", ":")).replace("<", "\\u003c")
-    return (
-        """<script>(function(w,d,c){
 var KEY='tho_analytics_consent_v1',loaded=false;
 w.__THO_ANALYTICS_CONFIGURED__=true;
 w.dataLayer=w.dataLayer||[];
@@ -654,9 +734,30 @@ w.__THO_DISABLE_ANALYTICS__=function(){w.__THO_ANALYTICS_CONSENT__='denied';w.gt
 var pref=null;try{pref=w.localStorage.getItem(KEY)}catch(e){}
 w.__THO_ANALYTICS_CONSENT__=pref==='granted'?'granted':pref==='denied'?'denied':null;
 if(pref==='granted')w.__THO_ENABLE_ANALYTICS__();
-})(window,document,"""
+})(window,document);
+"""
+
+
+def _analytics_head() -> str:
+    """Consent-gated loader for whichever analytics IDs are validly set.
+
+    Emits an inert JSON config block plus a first-party external bootstrap
+    (``/tho-analytics.js``); no inline executable script. The bootstrap
+    defaults Google's consent signals to denied and does not fetch Google,
+    Meta, or TikTok JavaScript until ``tho_analytics_consent_v1`` is explicitly
+    ``granted``. This is intentionally stricter than cookieless/advanced mode.
+    """
+    ids = _analytics_ids()
+    if not ids:
+        return ""
+    # Values have already passed strict alphanumeric ID regexes. JSON encoding
+    # with "<" escaped means the data block can never break out of <script>.
+    config = json.dumps(ids, separators=(",", ":")).replace("<", "\\u003c")
+    return (
+        '<script type="application/json" id="tho-analytics-config">'
         + config
-        + ");</script>"
+        + "</script>\n    "
+        + f'<script src="{ANALYTICS_BOOTSTRAP_PATH}"></script>'
     )
 
 
@@ -695,11 +796,11 @@ def _head_block(
     else:
         parts.append(f'<link rel="canonical" href="{e(canonical_url)}" />')
         if preload_image:
+            # Preload the file once. Width query params are not honored by the
+            # image host, and a fake srcset makes the browser fetch it again.
             parts.append(
                 '<link rel="preload" as="image" '
-                f'href="{e(preload_image)}" '
-                f'imagesrcset="{e(_responsive_image_srcset(preload_image))}" '
-                'imagesizes="100vw" fetchpriority="high" />'
+                f'href="{e(preload_image)}" fetchpriority="high" />'
             )
         parts.extend(
             [
@@ -707,8 +808,11 @@ def _head_block(
                 f'<meta property="og:description" content="{e(description)}" />',
                 f'<meta property="og:url" content="{e(canonical_url)}" />',
                 '<meta property="og:type" content="website" />',
+                '<meta property="og:locale" content="en_US" />',
                 f'<meta property="og:site_name" content="{e(business_name())}" />',
                 '<meta name="twitter:card" content="summary_large_image" />',
+                f'<meta name="twitter:title" content="{e(title)}" />',
+                f'<meta name="twitter:description" content="{e(description)}" />',
             ]
         )
         if og_image is None:
@@ -737,6 +841,26 @@ def _crawlable_inventory_block() -> str:
     items = []
     for route_key, home in list(reg["detail_by_route"].items()):
         path = reg["detail_path_by_route"][route_key]
+        specs = home.get("specs") or {}
+        label = home.get("model_name") or "Manufactured home"
+        extra = " · ".join(
+            str(x)
+            for x in (
+                f"{specs.get('beds')} bed" if specs.get("beds") else None,
+                f"{specs.get('baths')} bath" if specs.get("baths") else None,
+                home.get("manufacturer"),
+            )
+            if x
+        )
+        items.append(
+            f'<li><a href="{e(path)}">{e(label)}</a>{" — " + e(extra) if extra else ""}</li>'
+        )
+    seen_listing_paths = {reg["detail_path_by_route"].get(key) for key in reg["detail_by_route"]}
+    for home in reg["homes"]:
+        path = listing_path(home)
+        if not path or path in seen_listing_paths:
+            continue
+        seen_listing_paths.add(path)
         specs = home.get("specs") or {}
         label = home.get("model_name") or "Manufactured home"
         extra = " · ".join(
@@ -804,7 +928,7 @@ def _crawlable_category_block(category: dict) -> str:
         path = (
             reg["detail_path_by_route"].get(route_key)
             if route_key and reg["detail_by_route"].get(route_key) is home
-            else None
+            else listing_path(home)
         )
         specs = home.get("specs") or {}
         label = home.get("model_name") or f"{classification} manufactured home"
@@ -855,6 +979,92 @@ def _crawlable_detail_block(home: dict) -> str:
         f"<ul>{''.join(rows)}</ul>"
         f'<p><a href="/inventory">All homes for sale at {e(business_name())}</a> — '
         f"{e(business_address())} · {e(business_phone())}</p>"
+    )
+
+
+def _listing_display_price(home: dict) -> str:
+    price = str(home.get("display_price") or "").strip()
+    return price if price else "Call for Price"
+
+
+def _listing_product_jsonld(home: dict, canonical_url: str) -> dict | None:
+    """Product JSON-LD for /homes/ pages. Never invents a price.
+
+    Google requires Product rich results to carry offers/review/aggregateRating;
+    "Call for Price" homes have no offer, so they get no Product markup at all
+    (Search Console "Either offers, review, or aggregateRating" error, Oct 11).
+    """
+    priced = _product_jsonld(home, canonical_url)
+    if not priced:
+        return None
+    images = listing_page_images(home)
+    if images:
+        priced["image"] = images[0]
+    return priced
+
+
+def _crawlable_home_listing_block(home: dict) -> str:
+    e = html.escape
+    specs = home.get("specs") or {}
+    rows = []
+    identifier = stock_id(home)
+    if identifier:
+        rows.append(f"<li>Stock #{e(identifier)}</li>")
+    for label, key in (
+        ("Beds", "beds"),
+        ("Baths", "baths"),
+        ("Dimensions", "dimensions"),
+        ("Square feet", "sqft"),
+        ("Square feet", "sq_ft"),
+    ):
+        if specs.get(key) and f"{label}:" not in "".join(rows):
+            rows.append(f"<li>{label}: {e(str(specs[key]))}</li>")
+    if home.get("manufacturer"):
+        rows.append(f"<li>Manufacturer: {e(str(home['manufacturer']))}</li>")
+    rows.append(f"<li>Price: {e(_listing_display_price(home))}</li>")
+    images = listing_page_images(home)
+    plan_urls = {
+        str(home.get("floorplan_url") or "").strip(),
+        str(home.get("floor_plan_url") or "").strip(),
+        *[str(u).strip() for u in (home.get("floorplan_urls") or []) if u],
+    }
+    figures = []
+    for url in images:
+        if url in plan_urls or (len(images) == 1 and not any(u not in plan_urls for u in images)):
+            figures.append(
+                f'<figure><img src="{e(url)}" alt="Floor plan" />'
+                f"<figcaption>Floor plan</figcaption></figure>"
+            )
+        else:
+            figures.append(
+                f'<img src="{e(url)}" alt="{e(home.get("model_name") or "Manufactured home")}" />'
+            )
+    description = home.get("description") or (
+        f"{home.get('model_name') or 'Manufactured home'} at {business_name()} in {_CITY_STATE}."
+    )
+    return (
+        f"<article>"
+        f"<h1>{e(home.get('model_name') or 'Manufactured Home')}</h1>"
+        f"<p>{e(str(description)[:500])}</p>"
+        f"{''.join(figures)}"
+        f"<ul>{''.join(rows)}</ul>"
+        f'<p><a href="{e(_tel_href())}">Call {e(business_phone())}</a>'
+        f' · <a href="{e(_sms_href(home))}">Text {e(business_phone())}</a>'
+        f' · <a href="/financing">Apply for financing</a></p>'
+        f'<p><a href="/inventory">All homes for sale at {e(business_name())}</a> — '
+        f"{e(business_address())} · {e(business_phone())}</p>"
+        f"</article>"
+    )
+
+
+def _crawlable_home_gone_block() -> str:
+    e = html.escape
+    return (
+        f"<h1>This home is no longer listed</h1>"
+        f"<p>The manufactured home you requested is sold or has been removed from "
+        f"{e(business_name())} inventory.</p>"
+        f'<p><a href="/inventory">Browse current homes for sale</a> · '
+        f'<a href="/contact">Contact us</a></p>'
     )
 
 
@@ -1197,6 +1407,28 @@ def _inventory_itemlist_jsonld(limit: int = 25, classification: str | None = Non
         )
         if len(elements) >= limit:
             break
+    if len(elements) < limit:
+        seen_urls = {item["url"] for item in elements}
+        for home in reg["homes"]:
+            if not _home_matches_classification(home, classification):
+                continue
+            path = listing_path(home)
+            if not path:
+                continue
+            url = base + path
+            if url in seen_urls:
+                continue
+            elements.append(
+                {
+                    "@type": "ListItem",
+                    "position": len(elements) + 1,
+                    "url": url,
+                    "name": home.get("model_name") or "Manufactured home",
+                }
+            )
+            seen_urls.add(url)
+            if len(elements) >= limit:
+                break
     if not elements:
         return None
     return {
@@ -1287,7 +1519,7 @@ def _render_spa_response(full_path: str) -> Response | None:
 
     # 2b. Legacy vendor marketing/brand/city pages -> closest relevant page (301).
     #     Preserves the old site's search equity instead of hard-404ing on cutover.
-    vendor_target = _LEGACY_VENDOR_REDIRECTS.get(path.lower())
+    vendor_target = _LEGACY_VENDOR_REDIRECTS.get(path.lower()) or _LEGAL_REDIRECTS.get(path.lower())
     if vendor_target:
         return RedirectResponse(vendor_target, status_code=301)
 
@@ -1367,6 +1599,79 @@ def _render_spa_response(full_path: str) -> Response | None:
             _inject(_shell(), head, _crawlable_category_block(category)), headers=no_cache
         )
 
+    # 3d. In-stock listing pages: /homes/<stock-id>-<slug> for special deals
+    #     and pre-owned units. Sold or removed stock ids return 410.
+    if parse_home_path(path):
+        if raw_path != path:
+            return RedirectResponse(path, status_code=301)
+        reg = _registry()
+        if not reg["inventory_ok"]:
+            head = _head_block(
+                f"Inventory temporarily unavailable | {business_name()}",
+                "Browse all manufactured homes or contact our team for current options.",
+                base + "/inventory",
+                noindex=True,
+            )
+            return HTMLResponse(
+                _inject(_shell(), head, _crawlable_home_gone_block()),
+                status_code=503,
+                headers=no_cache,
+            )
+        home = match_instock_home(path, reg["homes"])
+        if home is None:
+            head = _head_block(
+                f"Home no longer listed | {business_name()}",
+                "This home is sold or has been removed from inventory.",
+                base + "/inventory",
+                noindex=True,
+            )
+            return HTMLResponse(
+                _inject(_shell(), head, _crawlable_home_gone_block()),
+                status_code=410,
+                headers=no_cache,
+            )
+        canonical_path = listing_path(home)
+        if canonical_path and unquote(path) != unquote(canonical_path):
+            return RedirectResponse(canonical_path, status_code=301)
+        canonical_url = base + (canonical_path or path)
+        title = (
+            f"{home.get('model_name') or 'Manufactured Home'} — {business_name()}, {_CITY_STATE}"
+        )
+        specs = home.get("specs") or {}
+        desc_bits = ", ".join(
+            str(x)
+            for x in (
+                f"{specs.get('beds')} bed" if specs.get("beds") else None,
+                f"{specs.get('baths')} bath" if specs.get("baths") else None,
+                specs.get("dimensions"),
+                home.get("manufacturer"),
+                _listing_display_price(home),
+            )
+            if x
+        )
+        description = (
+            f"{home.get('model_name', 'Manufactured home')} ({desc_bits}) at "
+            f"{business_name()} in {_CITY_STATE}. Call {business_phone()}."
+        )[:300]
+        images = listing_page_images(home)
+        head = _head_block(
+            title,
+            description,
+            canonical_url,
+            og_image=images[0] if images else None,
+            jsonld=[
+                x
+                for x in (
+                    _listing_product_jsonld(home, canonical_url),
+                    _breadcrumb_jsonld(home.get("model_name") or "Manufactured Home", canonical_url),
+                )
+                if x
+            ],
+        )
+        return HTMLResponse(
+            _inject(_shell(), head, _crawlable_home_listing_block(home)), headers=no_cache
+        )
+
     # 4. Live legacy detail/plan URLs: 200 + per-home head + crawlable body.
     m = _DETAIL_RE.match(path)
     if m:
@@ -1381,6 +1686,21 @@ def _render_spa_response(full_path: str) -> Response | None:
                     status_code=302,
                     headers={"Cache-Control": "no-store"},
                 )
+            # Lot homes (special deals / pre-owned) have no legacy detail_url;
+            # their canonical page is /homes/<stock>-<slug>. A bare
+            # /inventory-detail/<stock id> deep link (old shares, the SPA's
+            # legacy-intent route) must reach that page instead of 404ing.
+            # Only the inventory-detail family maps to stock ids; /plan/ ids
+            # are catalog plan ids and must never resolve to a lot home.
+            # Temporary + no-store because lot stock sells and disappears.
+            if route_key[0] == "inventory-detail":
+                stock_target = reg["instock_path_by_stock"].get(route_key[1])
+                if stock_target:
+                    return RedirectResponse(
+                        stock_target,
+                        status_code=302,
+                        headers={"Cache-Control": "no-store"},
+                    )
             head = _head_block(
                 "Home not found | " + business_name(),
                 "This home is no longer listed.",
@@ -1477,6 +1797,8 @@ def _render_spa_response(full_path: str) -> Response | None:
             body = _crawlable_warranty_block()
         elif path == "/delivery":
             body = _crawlable_delivery_block()
+        elif path in ("/privacy", "/terms"):
+            body = _crawlable_legal_block(path.lstrip("/"))
         else:
             body = None
         return HTMLResponse(_inject(_shell(), head, body), headers=no_cache)
@@ -1509,6 +1831,17 @@ def render_not_found() -> Response:
 # ── robots.txt and sitemap.xml ──────────────────────────────────────────────
 
 
+@router.get(ANALYTICS_BOOTSTRAP_PATH)
+def analytics_bootstrap_js() -> Response:
+    """Static first-party analytics bootstrap (no secrets, no IDs inside; it
+    reads the inert JSON config block and no-ops when that block is absent)."""
+    return Response(
+        content=_ANALYTICS_BOOTSTRAP_JS,
+        media_type="application/javascript; charset=utf-8",
+        headers={"Cache-Control": "public, max-age=300"},
+    )
+
+
 @router.get("/robots.txt", response_class=PlainTextResponse)
 def robots_txt() -> PlainTextResponse:
     # Crawling policy, not access control (auth covers that). Assets and the
@@ -1522,8 +1855,15 @@ def robots_txt() -> PlainTextResponse:
             "/document-center",
             "/analytics",
             "/studio",
+            "/ad-studio",
             "/system",
+            "/staff",
+            "/team",
             "/chat-history",
+            "/manage-inventory",
+            "/photos",
+            "/copilot",
+            "/ops-copilot",
             "/hub/",
             "/app/",
             "/api/admin/",
@@ -1547,11 +1887,14 @@ def sitemap_xml() -> Response:
             "/inventory",
             "/contact",
             "/appointments",
+            "/chat",
             "/about",
             "/financing",
             "/faq",
             "/warranty",
             "/delivery",
+            "/privacy",
+            "/terms",
         )
     ]
     urls += [base + p for p in sorted(_city_pages())]
@@ -1563,9 +1906,25 @@ def sitemap_xml() -> Response:
             if _category_homes(category, reg)
         ]
     urls += [base + p for p in sorted(reg["detail_path_by_route"].values())]
-    # lastmod intentionally omitted: Google only trusts it when verifiably
-    # accurate, and inventory records carry no reliable update timestamps.
-    entries = "\n".join(f"  <url><loc>{html.escape(u)}</loc></url>" for u in urls)
+    home_entries: list[tuple[str, str]] = []
+    if reg["inventory_ok"]:
+        seen_home_paths: set[str] = set()
+        for home in reg["homes"]:
+            path_value = listing_path(home)
+            if not path_value or path_value in seen_home_paths:
+                continue
+            seen_home_paths.add(path_value)
+            home_entries.append((base + path_value, listing_lastmod(home)))
+        home_entries.sort(key=lambda item: item[0])
+    # lastmod is omitted on static/plan URLs (no reliable timestamps). In-stock
+    # /homes/ listings include lastmod from the record date, or today when the
+    # home is still in the live public feed.
+    static_entries = [f"  <url><loc>{html.escape(u)}</loc></url>" for u in urls]
+    listing_entries = [
+        f"  <url><loc>{html.escape(loc)}</loc><lastmod>{html.escape(lastmod)}</lastmod></url>"
+        for loc, lastmod in home_entries
+    ]
+    entries = "\n".join(static_entries + listing_entries)
     xml = (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
         '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'

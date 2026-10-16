@@ -35,6 +35,22 @@ describe('adminFetch retry safety', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it('announces 429 without signing staff out', async () => {
+    const expired = vi.fn();
+    const limited = vi.fn();
+    window.addEventListener('admin-session-expired', expired);
+    window.addEventListener('admin-rate-limited', limited);
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 429 });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await adminFetch('/api/inventory?status=');
+    expect(response.status).toBe(429);
+    expect(limited).toHaveBeenCalledTimes(1);
+    expect(expired).not.toHaveBeenCalled();
+    window.removeEventListener('admin-session-expired', expired);
+    window.removeEventListener('admin-rate-limited', limited);
+  });
+
   it('allows an explicitly idempotent POST to opt into bounded retries', async () => {
     vi.useFakeTimers();
     const fetchMock = vi.fn()

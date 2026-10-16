@@ -44,6 +44,11 @@ def get_deployment_config():
     return get_config().get("deployment", {})
 
 
+def get_lender_profiles():
+    """Get lender/creditor profiles used to auto-fill closing documents."""
+    return get_config().get("lenders", {}) or {}
+
+
 def get_model_config():
     """Get model generation config (temperature, max_output_tokens, etc.)."""
     return get_agent_config().get("model_config", {})

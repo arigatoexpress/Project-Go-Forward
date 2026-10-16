@@ -36,6 +36,7 @@ function mockFetch() {
 
 function openPinModal() {
   fireEvent.click(screen.getByRole('button', { name: /Admin access/i }));
+  fireEvent.click(screen.getByRole('button', { name: /Use backup PIN/i }));
   return screen.getByLabelText('Admin PIN');
 }
 
@@ -138,6 +139,6 @@ describe('Admin PIN field', () => {
     fireEvent.change(input, { target: { value: ALPHANUMERIC_PIN } });
     fireEvent.click(screen.getByRole('button', { name: /Unlock/i }));
 
-    expect(await screen.findByText(/If the shared PIN expired, use Email me a sign-in code below/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Use the email sign-in above/i)).toBeInTheDocument();
   });
 });

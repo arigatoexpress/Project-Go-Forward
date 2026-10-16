@@ -1,6 +1,6 @@
 import adminFetch from '../adminFetch';
 
-const STATUS_UNAVAILABLE = 'Paid Search status is unavailable.';
+const STATUS_UNAVAILABLE = 'Google Ads is unavailable right now. Refresh the page and try again. Nothing was sent to Google.';
 const STATES = ['INTERNAL_DRAFT', 'SERVER_VALIDATED', 'PAUSED_CREATE_APPROVED', 'PAUSED_CREATED'];
 
 function hasExactKeys(value, keys) {
@@ -288,7 +288,7 @@ export async function runGoogleAdsServerValidation(status, idempotencyKey) {
     });
     return await parseResponse(response);
   } catch (_error) {
-    throw new Error('Offline server validation failed. Retry when ready.');
+    throw new Error('We could not check this campaign. Nothing was sent to Google. Try again.');
   }
 }
 
@@ -365,7 +365,7 @@ export async function getGoogleAdsPausedCreateApprovalReadiness() {
     if (!response.ok) throw new Error();
     return normalizeApprovalReadiness(await response.json());
   } catch (_error) {
-    throw new Error('Sign in with Ari’s owner passkey to review PAUSED creation.');
+    throw new Error('Only the owner can launch this campaign. Sign in with the owner passkey, then try again.');
   }
 }
 
@@ -410,7 +410,7 @@ export async function verifyGoogleAdsPausedCreateOwner(readiness) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(context),
   });
-  if (!begin.ok) throw new Error('Owner passkey verification could not start.');
+  if (!begin.ok) throw new Error('The owner passkey check could not start. Ask the owner to try again.');
   const options = await begin.json();
   options.challenge = base64urlToBuffer(options.challenge);
   options.allowCredentials = (options.allowCredentials || []).map(item => ({
@@ -424,7 +424,7 @@ export async function verifyGoogleAdsPausedCreateOwner(readiness) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ context, credential: assertionPayload(credential) }),
   });
-  if (!complete.ok) throw new Error('Owner passkey verification failed.');
+  if (!complete.ok) throw new Error('The owner passkey check failed. Ask the owner to try again.');
   const proof = await complete.json();
   if (proof?.verified !== true
     || typeof proof?.proof_reference !== 'string'
@@ -433,7 +433,7 @@ export async function verifyGoogleAdsPausedCreateOwner(readiness) {
     || !/^sha256:[a-f0-9]{64}$/.test(proof?.proof_id)
     || !/^sha256:[a-f0-9]{64}$/.test(proof?.access_evidence_id)
     || proof.access_evidence_id !== readiness.access_evidence_id) {
-    throw new Error('Owner passkey proof is unavailable.');
+    throw new Error('The owner passkey proof is not available. Refresh and try again.');
   }
   return {
     proof_reference: proof.proof_reference,
@@ -455,7 +455,7 @@ export async function approveGoogleAdsPausedCreate(readiness, proof) {
       access_evidence_id: proof.access_evidence_id,
     }),
   });
-  if (!response.ok) throw new Error('PAUSED-only approval failed. Refresh and retry.');
+  if (!response.ok) throw new Error('The launch did not go through. Refresh the page and try again. No money was spent.');
   const payload = await response.json();
   if (payload?.state !== 'PAUSED_CREATE_APPROVED'
     || payload?.deployment_id !== readiness.deployment_id
@@ -467,7 +467,7 @@ export async function approveGoogleAdsPausedCreate(readiness, proof) {
     || payload?.paused_only !== true
     || payload?.activation_authorized !== false
     || payload?.spend_enabled !== false) {
-    throw new Error('PAUSED-only approval response is unavailable.');
+    throw new Error('The launch response was not usable. Refresh before trying again. No money was spent.');
   }
   return payload;
 }

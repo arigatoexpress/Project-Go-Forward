@@ -167,21 +167,28 @@ Content-Type: application/json
 X-THO-Event: deal.funded
 X-THO-Partner: etai
 X-THO-Delivery: <delivery uuid>
-X-THO-Signature: sha256=<hmac-sha256 hex of the raw body using PARTNER_WEBHOOK_SIGNING_KEY>
+X-THO-Timestamp: <unix seconds>
+X-THO-Signature-V2: v2=<hmac-sha256 hex, see below>
+X-THO-Signature: sha256=<hmac-sha256 hex of the raw body>   (legacy, kept for existing receivers)
 ```
 
-**Signature verification** (Python):
+**Signature verification** (Python). Verify v2: it binds the timestamp, event, partner and delivery id to the body, so a captured delivery can't be replayed later or relabelled as a different event.
 
 ```python
-import hmac, hashlib
-expected = "sha256=" + hmac.new(
-    signing_key.encode(),
-    raw_body,
-    hashlib.sha256,
-).hexdigest()
-if not hmac.compare_digest(expected, request.headers["X-THO-Signature"]):
+import hmac, hashlib, time
+h = {k.lower(): v for k, v in request.headers.items()}
+ts = h["x-tho-timestamp"]
+if not ts.isdigit() or abs(time.time() - int(ts)) > 300:
+    reject()                      # outside the 5-minute window
+msg = "\n".join(["v2", ts, h["x-tho-event"], h["x-tho-partner"], h["x-tho-delivery"]]).encode() + b"\n" + raw_body
+expected = "v2=" + hmac.new(signing_key.encode(), msg, hashlib.sha256).hexdigest()
+if not hmac.compare_digest(expected, h["x-tho-signature-v2"]):
+    reject()
+if seen_before(h["x-tho-delivery"]):   # keep delivery ids for at least the window
     reject()
 ```
+
+Python receivers can call `tools.partner_webhooks.verify_partner_webhook(headers, raw_body, key, replay_guard=ReplayGuard(300))`, which does all of the above. The body-only `X-THO-Signature` is still sent for backward compatibility; it doesn't protect against replays, so move off it.
 
 **Delivery semantics**:
 

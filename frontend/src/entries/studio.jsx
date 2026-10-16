@@ -54,7 +54,7 @@ function StudioApp() {
 
   if (showPin && !adminAuthed) {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex flex-col items-center justify-center">
         <form onSubmit={verifyPin} className="bg-white dark:bg-gray-800 p-8 rounded-2xl shadow-xl w-80">
           <div className="flex items-center gap-3 mb-6">
             <Video className="h-8 w-8 text-blue-600" />
@@ -75,6 +75,12 @@ function StudioApp() {
             Unlock
           </button>
         </form>
+      <footer className="py-6 text-center text-sm text-gray-600 dark:text-gray-300">
+        <nav aria-label="Footer" className="flex justify-center gap-6">
+          <a href="/privacy" className="hover:underline">Privacy Policy</a>
+          <a href="/terms" className="hover:underline">Terms of Use</a>
+        </nav>
+      </footer>
       </div>
     );
   }
@@ -107,6 +113,12 @@ function StudioApp() {
       }>
         <AdStudio standalone={true} />
       </Suspense>
+      <footer className="py-6 text-center text-sm text-gray-600 dark:text-gray-300">
+        <nav aria-label="Footer" className="flex justify-center gap-6">
+          <a href="/privacy" className="hover:underline">Privacy Policy</a>
+          <a href="/terms" className="hover:underline">Terms of Use</a>
+        </nav>
+      </footer>
     </div>
   );
 }

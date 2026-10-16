@@ -1,0 +1,52 @@
+name: Dependency audit (non-blocking)
+
+# COD-125 / THO security roadmap R9. Free replacement for paid container scanning:
+# reports known-vulnerable Python and npm packages. Non-blocking for now (findings are
+# reported in the job summary, the job never fails the PR). Flip `continue-on-error`
+# to false once the baseline is clean. Read-only: no secrets, no deploy, no GCP.
+
+on:
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '17 13 * * 1'   # Mondays 07:17 MT
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '20'
+      - name: pip-audit (requirements.txt)
+        run: |
+          python -m pip install --quiet pip-audit==2.9.0
+          {
+            echo '## pip-audit: requirements.txt'
+            echo '```'
+            pip-audit -r requirements.txt --progress-spinner off --desc off 2>&1 || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: npm audit (frontend, e2e)
+        run: |
+          for d in frontend e2e; do
+            [ -f "$d/package-lock.json" ] || continue
+            {
+              echo "## npm audit: $d (high and above)"
+              echo '```'
+              (cd "$d" && npm audit --package-lock-only --audit-level=high 2>&1) || true
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          done

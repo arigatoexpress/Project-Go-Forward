@@ -43,6 +43,11 @@ def generate_code() -> str:
     return str(secrets.randbelow(10**CODE_LENGTH)).zfill(CODE_LENGTH)
 
 
+def generate_link_token() -> str:
+    """Return a high-entropy single-use token for the email sign-in button."""
+    return secrets.token_urlsafe(32)
+
+
 def hash_code(code: str) -> str:
     """Return the SHA-256 hex digest of a code. Never store the plaintext."""
     return hashlib.sha256(code.encode("utf-8")).hexdigest()
@@ -58,12 +63,17 @@ def _email_doc_id(email: str) -> str:
 
 @dataclass
 class EmailLoginCodeRecord:
-    """One outstanding email login code (hashed)."""
+    """One outstanding email login code (hashed).
+
+    ``link_hash`` is the SHA-256 of the single-use sign-in link token. The
+    plaintext code and token are never stored.
+    """
 
     code_hash: str
     expires_at: float
     attempts: int = 0
     created_at: float = field(default_factory=time)
+    link_hash: str = ""
 
     @property
     def is_expired(self) -> bool:
@@ -73,7 +83,7 @@ class EmailLoginCodeRecord:
 class EmailLoginCodeStore(Protocol):
     """Pluggable persistence for outstanding email login codes."""
 
-    def put(self, email: str, code_hash: str, expires_at: float) -> None: ...
+    def put(self, email: str, code_hash: str, expires_at: float, link_hash: str = "") -> None: ...
     def get(self, email: str) -> EmailLoginCodeRecord | None: ...
     def increment_attempts(self, email: str) -> int: ...
     def delete(self, email: str) -> None: ...
@@ -90,11 +100,11 @@ class InMemoryEmailLoginCodeStore:
         for email, rec in seed:
             self._records[_normalize_email(email)] = rec
 
-    def put(self, email: str, code_hash: str, expires_at: float) -> None:
+    def put(self, email: str, code_hash: str, expires_at: float, link_hash: str = "") -> None:
         # Overwrite any prior record (resets the attempt counter) so a fresh
         # request always supersedes a stale code.
         self._records[_normalize_email(email)] = EmailLoginCodeRecord(
-            code_hash=code_hash, expires_at=expires_at
+            code_hash=code_hash, expires_at=expires_at, link_hash=link_hash
         )
 
     def get(self, email: str) -> EmailLoginCodeRecord | None:
@@ -139,10 +149,11 @@ class FirestoreEmailLoginCodeStore:
         self._client = client
         self._collection = client.collection(self.COLLECTION)
 
-    def put(self, email: str, code_hash: str, expires_at: float) -> None:
+    def put(self, email: str, code_hash: str, expires_at: float, link_hash: str = "") -> None:
         self._collection.document(_email_doc_id(email)).set(
             {
                 "code_hash": code_hash,
+                "link_hash": link_hash,
                 "expires_at": float(expires_at),
                 "attempts": 0,
                 "created_at": datetime.now(UTC).timestamp(),
@@ -160,6 +171,7 @@ class FirestoreEmailLoginCodeStore:
             expires_at=float(data.get("expires_at", 0.0)),
             attempts=int(data.get("attempts", 0)),
             created_at=float(data.get("created_at", 0.0)),
+            link_hash=str(data.get("link_hash", "")),
         )
         if rec.is_expired:
             # Best-effort cleanup; never serve an expired code.

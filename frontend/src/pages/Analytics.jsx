@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, PieChart, Pie, Cell, LineChart, Line, AreaChart, Area } from 'recharts';
-import { Users, Search, MessageSquare, TrendingUp, ArrowUp, ArrowDown, Phone, Calendar, DollarSign, Loader2, RefreshCw, AlertCircle, FileText, Home, Clock, Target, Zap } from 'lucide-react';
+import { Users, Search, MessageSquare, TrendingUp, ArrowUp, ArrowDown, Phone, Calendar, DollarSign, RefreshCw, AlertCircle, FileText, Home, Clock, Target, Zap } from 'lucide-react';
 import adminFetch from '../adminFetch';
 import { generateSrcSet, getImageSizes } from '../utils/imageOptimization';
 
@@ -180,10 +180,17 @@ export default function Analytics() {
 
     if (loading) {
         return (
-            <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-                <div className="text-center">
-                    <Loader2 className="h-10 w-10 animate-spin text-blue-600 mx-auto mb-3" />
-                    <p className="text-gray-700">Loading analytics...</p>
+            <div className="min-h-screen bg-gray-50 p-8">
+                <div className="max-w-7xl mx-auto space-y-6">
+                    <div>
+                        <h1 className="text-3xl font-bold text-gray-900">Numbers</h1>
+                        <p className="text-sm text-gray-600 mt-1">Charts are loading — you can still use the menu.</p>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4" data-testid="analytics-skeleton">
+                        {[1, 2, 3, 4, 5, 6].map((n) => (
+                            <div key={n} className="h-28 animate-pulse rounded-xl bg-gray-200" />
+                        ))}
+                    </div>
                 </div>
             </div>
         );
@@ -191,15 +198,17 @@ export default function Analytics() {
 
     if (error) {
         return (
-            <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-                <div className="text-center">
-                    <AlertCircle size={48} className="text-red-400 mx-auto mb-4" />
-                    <p className="text-red-600 mb-4">{error}</p>
+            <div className="min-h-screen bg-gray-50 p-8">
+                <div className="max-w-xl">
+                    <h1 className="text-3xl font-bold text-gray-900 mb-3">Numbers</h1>
+                    <p className="text-gray-700 mb-4 leading-relaxed">
+                        These numbers could not load. Your menu still works — try again in a moment.
+                    </p>
                     <button
                         onClick={fetchData}
                         className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition"
                     >
-                        Retry
+                        Try again
                     </button>
                 </div>
             </div>

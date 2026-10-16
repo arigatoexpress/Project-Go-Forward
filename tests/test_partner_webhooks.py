@@ -59,6 +59,7 @@ class FakeDB:
 @pytest.fixture
 def clean_env(monkeypatch):
     """Strip any PARTNER_WEBHOOK_* env the test process inherited."""
+    partner_webhooks._reset_unsigned_guard_for_tests()
     for name in list(os.environ):
         if name.startswith("PARTNER_WEBHOOK_"):
             monkeypatch.delenv(name, raising=False)
@@ -175,6 +176,7 @@ def test_dispatch_to_single_partner(monkeypatch, clean_env, fake_post):
 def test_dispatch_to_multiple_partners(monkeypatch, clean_env, fake_post):
     monkeypatch.setenv("PARTNER_WEBHOOK_URL_ETAI", "https://a")
     monkeypatch.setenv("PARTNER_WEBHOOK_URL_N8N", "https://b")
+    monkeypatch.setenv("PARTNER_WEBHOOK_SIGNING_KEY", "signing-secret")
 
     partners = partner_webhooks.dispatch_partner_event(
         "deal.status_changed", {"deal_id": "d"}, blocking=True
@@ -188,6 +190,7 @@ def test_dispatch_to_multiple_partners(monkeypatch, clean_env, fake_post):
 
 def test_non_2xx_response_logged_as_failure(monkeypatch, clean_env):
     monkeypatch.setenv("PARTNER_WEBHOOK_URL_ETAI", "https://example.com/etai")
+    monkeypatch.setenv("PARTNER_WEBHOOK_SIGNING_KEY", "signing-secret")
     monkeypatch.setattr(
         partner_webhooks.requests,
         "post",
@@ -205,6 +208,7 @@ def test_non_2xx_response_logged_as_failure(monkeypatch, clean_env):
 
 def test_network_error_logged_as_failure(monkeypatch, clean_env):
     monkeypatch.setenv("PARTNER_WEBHOOK_URL_ETAI", "https://example.com/etai")
+    monkeypatch.setenv("PARTNER_WEBHOOK_SIGNING_KEY", "signing-secret")
 
     def _raise(*a, **kw):
         raise partner_webhooks.requests.exceptions.ConnectionError("unreachable")
@@ -220,15 +224,24 @@ def test_network_error_logged_as_failure(monkeypatch, clean_env):
     assert "ConnectionError" in activity["metadata"]["error"]
 
 
-def test_missing_signing_key_still_delivers_but_no_signature(monkeypatch, clean_env, fake_post):
-    """If signing key unset, still deliver (so dev isn't blocked) — but omit signature header."""
+def test_missing_signing_key_refuses_unsigned_dispatch(monkeypatch, clean_env, fake_post, caplog):
+    """If URLs are configured but the signing key is unset, do not dispatch."""
     monkeypatch.setenv("PARTNER_WEBHOOK_URL_ETAI", "https://example.com/etai")
     # PARTNER_WEBHOOK_SIGNING_KEY intentionally unset
 
-    partner_webhooks.dispatch_partner_event("deal.funded", {"deal_id": "d1"}, blocking=True)
+    with caplog.at_level("ERROR"):
+        first = partner_webhooks.dispatch_partner_event(
+            "deal.funded", {"deal_id": "d1"}, blocking=True
+        )
+        second = partner_webhooks.dispatch_partner_event(
+            "deal.funded", {"deal_id": "d1"}, blocking=True
+        )
 
-    assert len(fake_post) == 1
-    assert "X-THO-Signature" not in fake_post[0]["headers"]
+    assert first == []
+    assert second == []
+    assert fake_post == []
+    messages = [r.getMessage() for r in caplog.records if r.levelname == "ERROR"]
+    assert sum("refusing unsigned dispatch" in m for m in messages) == 1
 
 
 def test_body_pii_is_caller_responsibility(monkeypatch, clean_env, fake_post):
@@ -238,6 +251,7 @@ def test_body_pii_is_caller_responsibility(monkeypatch, clean_env, fake_post):
     stripping fields the caller intended to include.
     """
     monkeypatch.setenv("PARTNER_WEBHOOK_URL_ETAI", "https://example.com/etai")
+    monkeypatch.setenv("PARTNER_WEBHOOK_SIGNING_KEY", "signing-secret")
 
     partner_webhooks.dispatch_partner_event(
         "test.event",

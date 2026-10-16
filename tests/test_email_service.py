@@ -39,6 +39,35 @@ def _fresh_email_service(monkeypatch):
     return importlib.import_module("email_service")
 
 
+def test_admin_sign_in_email_has_a_button_large_code_and_plain_text(monkeypatch):
+    email_service = _fresh_email_service(monkeypatch)
+    captured: dict = {}
+
+    def _capture_send(**kwargs):
+        captured.update(kwargs)
+        return {"success": True}
+
+    monkeypatch.setattr(email_service, "send_email", _capture_send)
+    link = "https://www.texashomeoutlet.com/staff#t=one-time&e=staff%40texashomeoutlet.com"
+    result = email_service.send_admin_login_code(
+        "staff@texashomeoutlet.com",
+        "123456",
+        link=link,
+        ttl_minutes=10,
+    )
+    assert result["success"] is True
+    assert captured["subject"] == "Your Texas Home Outlet sign-in link"
+    assert "Sign me in" in captured["html"]
+    assert "123456" in captured["html"]
+    assert "Ignore this message if you did not ask to sign in." in captured["html"]
+    assert "font-size: 40px" in captured["html"]
+    text = captured["text"]
+    assert link in text
+    assert "123456" in text
+    assert "Ignore this message if you did not ask to sign in." in text
+    assert "It works for 10 minutes." in text
+
+
 class TestSendDocumentEmail:
     def test_default_staff_alerts_reach_the_current_team(self, monkeypatch):
         """Lead and appointment alerts must reach every current staff recipient."""
@@ -336,6 +365,11 @@ class TestSendDocumentEmail:
         ]
         # Customer replies still route to the shared mailbox, not the staff list.
         assert sent_payloads[0]["reply_to"] == "sales@texashomeoutlet.com"
+        assert sent_payloads[0]["subject"].startswith("New Lead: Carol Lead")
+        assert (
+            "Open the staff page, choose Leads, and answer this person." in sent_payloads[0]["text"]
+        )
+        assert "admin_lead_notification" in str(logged[0])
         # The activity log captures the joined recipient string.
         assert logged[0][0] == (
             "ben@texashomeoutlet.com, leeaswell@texashomeoutlet.com, "

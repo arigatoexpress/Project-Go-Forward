@@ -8,14 +8,32 @@ Checks:
 - Frontend build status
 """
 
+import os
 import sys
 from datetime import datetime
 
 import requests
 
+from config_loader import get_deployment_config
 from database.rpc_timeout import FIRESTORE_RPC_TIMEOUT
 
-BASE_URL = "https://tho-agent-s77j6bxyra-uc.a.run.app"
+DEFAULT_PROJECT_ID = "tho-ai-agent"
+DEFAULT_BASE_URL = "https://www.texashomeoutlet.com"
+
+BASE_URL = os.environ.get("HEALTH_CHECK_BASE_URL", DEFAULT_BASE_URL).rstrip("/")
+
+
+def firestore_project_id() -> str:
+    """Firestore project: env (same precedence as THODatabase), then config.yaml."""
+    for var in ("GCP_PROJECT_ID", "GOOGLE_CLOUD_PROJECT"):
+        value = (os.environ.get(var) or "").strip()
+        if value:
+            return value
+    try:
+        configured = str(get_deployment_config().get("project_id") or "").strip()
+    except Exception:
+        configured = ""
+    return configured or DEFAULT_PROJECT_ID
 
 
 def check_endpoint(method, path, expected_status=200, description=""):
@@ -77,7 +95,7 @@ def run_health_check():
     try:
         from google.cloud import firestore
 
-        db = firestore.Client(project="sapphire-479610")
+        db = firestore.Client(project=firestore_project_id())
         count = len(list(db.collection("inventory").stream(timeout=FIRESTORE_RPC_TIMEOUT)))
         print(f"✅ Inventory documents: {count}")
 

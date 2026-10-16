@@ -7,7 +7,7 @@ revision.
 ## Production URLs
 
 ```bash
-export THO_PROD_URL="https://tho.sapphirealpha.xyz"
+export THO_PROD_URL="https://www.texashomeoutlet.com"
 export THO_CLOUD_RUN_URL="https://project-go-forward-trgi34bxuq-uc.a.run.app"
 export THO_PROJECT="tho-ai-agent"
 export THO_REGION="us-central1"
@@ -31,8 +31,22 @@ The default smoke sends GET requests only and checks:
 - `/health` and `/healthz/`
 - public SPA routes for the main app, documents, studio, CRM, and analytics
 - `/api/marketing/inventory-context` has a healthy inventory payload
+- listing heroes in that payload are photos, not floorplan drawings
 - admin GET routes reject unauthenticated traffic
 - `/healthz/` exposes only the public liveness/deployed-version envelope
+
+Hero image reachability is a separate opt-in. It HEADs sampled hero URLs
+(a one-byte GET only if the host rejects HEAD):
+
+```bash
+python3 scripts/production_smoke.py --base-url "$THO_PROD_URL" --check-hero-reachability
+```
+
+The deploy workflow does not pass that flag. On 2026-10-16 the live catalog
+still had 25 hero URLs answering HTTP 403, so enabling it on the deploy gate
+would fail candidate verification until those images are replaced or
+`--max-dead-heroes` is set on purpose. `--hero-sample` defaults to 40
+(`0` checks every hero).
 
 POST checks require explicit opt-in: `--check-public-validation` sends invalid
 contact, appointment, and feedback payloads; `--check-admin-post-protection`

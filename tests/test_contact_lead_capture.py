@@ -23,7 +23,9 @@ def _post(client, **body):
 
 def test_contact_requires_name_and_phone(monkeypatch):
     client, *_ = create_client(monkeypatch)
-    assert _post(client, name="", phone="2813243020").json() == {
+    response = _post(client, name="", phone="2813243020")
+    assert response.status_code == 400
+    assert response.json() == {
         "success": False,
         "error": "Name and phone are required",
     }
@@ -31,7 +33,9 @@ def test_contact_requires_name_and_phone(monkeypatch):
 
 def test_contact_rejects_sub_10_digit_phone(monkeypatch):
     client, *_ = create_client(monkeypatch)
-    body = _post(client, name="Alice", phone="123").json()
+    response = _post(client, name="Alice", phone="123")
+    assert response.status_code == 400
+    body = response.json()
     assert body["success"] is False
     assert "10-digit" in body["error"]
 
@@ -98,8 +102,31 @@ def test_contact_invalid_phone_rejected_and_creates_no_lead(monkeypatch):
     client, main, *_ = create_client(monkeypatch)
     before = len(main.lead_manager.leads)
 
-    body = _post(client, name="Eve", phone="55512").json()
+    response = _post(client, name="Eve", phone="55512")
+    assert response.status_code == 400
+    body = response.json()
     assert body["success"] is False
     assert "error" in body
     # Rejection happens before lead creation, so nothing is persisted.
     assert len(main.lead_manager.leads) == before
+
+
+def test_contact_rejects_invalid_optional_email(monkeypatch):
+    client, *_ = create_client(monkeypatch)
+    response = _post(client, name="Alice", phone="2813243020", email="alice@")
+    assert response.status_code == 400
+    assert response.json() == {"success": False, "error": "Enter a valid email address."}
+
+
+def test_contact_rejects_non_object_payload(monkeypatch):
+    client, *_ = create_client(monkeypatch)
+    response = client.post("/api/contact", json=["not", "an", "object"])
+    assert response.status_code == 400
+    assert response.json() == {"success": False, "error": "Invalid request."}
+
+
+def test_contact_rejects_non_string_message(monkeypatch):
+    client, *_ = create_client(monkeypatch)
+    response = _post(client, name="Alice", phone="2813243020", message={"oops": "not-a-string"})
+    assert response.status_code == 400
+    assert response.json() == {"success": False, "error": "Invalid request."}
