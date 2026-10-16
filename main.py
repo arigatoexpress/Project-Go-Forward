@@ -9460,8 +9460,8 @@ from pm_routes import router as pm_router
 
 app.include_router(pm_router, dependencies=[Depends(require_admin)])
 app.include_router(passkey_router)
-app.include_router(google_ads_step_up_router)
-app.include_router(google_ads_approval_router)
+app.include_router(google_ads_step_up_router, dependencies=[Depends(require_admin)])
+app.include_router(google_ads_approval_router, dependencies=[Depends(require_admin)])
 app.include_router(google_ads_admin_router, dependencies=[Depends(require_admin)])
 
 

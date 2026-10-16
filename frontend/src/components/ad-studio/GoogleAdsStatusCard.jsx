@@ -21,7 +21,9 @@ import {
   launchResultCopy,
   locationPlain,
   plainRemediation,
+  readStaffBrief,
   terminalRemediation,
+  writeStaffBrief,
 } from './googleAdsGuidance';
 import './GoogleAdsStatusCard.css';
 
@@ -45,7 +47,7 @@ export default function GoogleAdsStatusCard() {
   const [approvalResult, setApprovalResult] = useState(null);
   const [approvalError, setApprovalError] = useState('');
   const [reviewAcknowledged, setReviewAcknowledged] = useState(false);
-  const [brief, setBrief] = useState('');
+  const [brief, setBrief] = useState(readStaffBrief);
   const [briefAccepted, setBriefAccepted] = useState(false);
   const [briefNotice, setBriefNotice] = useState('');
 
@@ -105,6 +107,10 @@ export default function GoogleAdsStatusCard() {
     setReviewAcknowledged(false);
     setBriefAccepted(false);
   }, [status?.contract_hash]);
+
+  useEffect(() => {
+    writeStaffBrief(brief);
+  }, [brief]);
 
   useEffect(() => {
     const expires = Date.parse(approvalReadiness?.account_connection?.expires_at);
@@ -209,6 +215,7 @@ export default function GoogleAdsStatusCard() {
 
   const review = status.campaign_review;
   const connection = approvalReadiness?.account_connection;
+  const eventLabel = `${status.events.count} recorded event${status.events.count === 1 ? '' : 's'}`;
   const checked = status.state !== 'INTERNAL_DRAFT';
   const launchDisabled = !approvalReadiness?.action_available
     || !reviewAcknowledged
@@ -235,7 +242,7 @@ export default function GoogleAdsStatusCard() {
         <ShieldCheck aria-hidden="true" size={19} />
         <div>
           <strong>{STATE_LABELS[status.state]}</strong>
-          <p>Saved updates: {status.events.count}</p>
+          <p>{eventLabel}</p>
         </div>
       </div>
 
@@ -258,7 +265,8 @@ export default function GoogleAdsStatusCard() {
         <h2 id="create-heading">1. Create</h2>
         <p>
           In a sentence or two, say who should see this ad and what you want them to do.
-          Your words stay on this screen. Google receives only the reviewed ad in the preview.
+          Your description does not change the reviewed ad text. Google receives only
+          the reviewed headlines and descriptions in the preview.
         </p>
         {approvalTerminal ? (
           <p className="google-ads-status-note">
@@ -462,7 +470,7 @@ export default function GoogleAdsStatusCard() {
           <summary>Technical details for the owner</summary>
           <dl className="google-ads-status-details">
             <div><dt>Campaign id</dt><dd>{status.deployment_key}</dd></div>
-            <div><dt>Saved updates</dt><dd>{status.events.count}</dd></div>
+            <div><dt>Recorded events</dt><dd>{status.events.count}</dd></div>
             <div><dt>Ledger version</dt><dd>{status.version}</dd></div>
             <div><dt>Content hash</dt><dd>{status.contract_hash}</dd></div>
             <div><dt>Creation mode</dt><dd>Turned off · $0 spend</dd></div>

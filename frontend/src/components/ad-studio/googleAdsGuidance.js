@@ -69,6 +69,27 @@ const REMEDIATION_PLAIN = {
 const SAFE_REMEDIATION_FALLBACK =
   'The owner still has a setup step to finish before this campaign can be launched turned off.';
 
+export const STAFF_BRIEF_STORAGE_KEY = 'tho-google-ads-staff-brief';
+
+export function readStaffBrief(storage = globalThis.localStorage) {
+  try {
+    return String(storage?.getItem(STAFF_BRIEF_STORAGE_KEY) || '');
+  } catch {
+    return '';
+  }
+}
+
+export function writeStaffBrief(text, storage = globalThis.localStorage) {
+  try {
+    if (!storage) return;
+    const value = String(text ?? '');
+    if (value) storage.setItem(STAFF_BRIEF_STORAGE_KEY, value);
+    else storage.removeItem(STAFF_BRIEF_STORAGE_KEY);
+  } catch {
+    // Private browsing can reject storage. The description still works for this visit.
+  }
+}
+
 export function briefProblem(text) {
   const trimmed = String(text || '').trim();
   if (!trimmed) {

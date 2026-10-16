@@ -31,6 +31,8 @@ def test_ad_studio_exposes_plain_language_google_ads_tab():
     assert "Launch turned off" in card_source
     assert "This screen cannot turn ads on" in card_source
     assert "does not spend money" in card_source
+    assert "does not change the reviewed ad text" in card_source
+    assert "recorded event" in card_source
     for forbidden in ("Connect", "Approve", "Create campaign", "Enable", "Publish", "Turn ads on"):
         assert f">{forbidden}<" not in card_source
 

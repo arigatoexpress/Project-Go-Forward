@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 
 import adminFetch from '../adminFetch';
 import GoogleAdsStatusCard from '../components/ad-studio/GoogleAdsStatusCard';
+import { STAFF_BRIEF_STORAGE_KEY } from '../components/ad-studio/googleAdsGuidance';
 import {
   ensureGoogleAdsInternalDraft,
   getGoogleAdsDeploymentReadiness,
@@ -450,6 +451,7 @@ describe('GoogleAdsStatusCard', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     adminFetch.mockReset();
+    window.localStorage.removeItem(STAFF_BRIEF_STORAGE_KEY);
   });
 
   it('explains the campaign in plain language and keeps launch off until it is checked', async () => {
@@ -460,7 +462,8 @@ describe('GoogleAdsStatusCard', () => {
     expect(screen.getByRole('heading', { name: '1. Create' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '2. Preview' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '3. Launch' })).toBeInTheDocument();
-    expect(screen.getByText('Saved updates: 1')).toBeInTheDocument();
+    expect(screen.getByText('1 recorded event')).toBeInTheDocument();
+    expect(screen.getByText(/does not change the reviewed ad text/i)).toBeInTheDocument();
     expect(screen.getByText(/Link the Google Ads account/i)).toBeInTheDocument();
     expect(screen.getAllByText(/This screen cannot turn ads on/i).length).toBeGreaterThan(0);
     expect(screen.getByRole('button', { name: 'Create campaign preview' })).toBeEnabled();
@@ -485,6 +488,28 @@ describe('GoogleAdsStatusCard', () => {
       'Describe who should see this ad and what you want them to do.',
     );
     expect(adminFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the staff description across reloads without treating it as accepted', async () => {
+    window.localStorage.setItem(STAFF_BRIEF_STORAGE_KEY, brief);
+    adminFetch.mockResolvedValue(response());
+    const first = render(<GoogleAdsStatusCard />);
+    const box = await screen.findByRole('textbox', { name: 'Who should see this ad?' });
+
+    expect(box).toHaveValue(brief);
+    expect(screen.getByText(/does not change the reviewed ad text/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Your note, not sent to Google/i)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Launch turned off' })).toBeDisabled();
+
+    const edited = `${brief} Ask for a tour.`;
+    fireEvent.change(box, { target: { value: edited } });
+    expect(window.localStorage.getItem(STAFF_BRIEF_STORAGE_KEY)).toBe(edited);
+    first.unmount();
+
+    adminFetch.mockResolvedValue(response());
+    render(<GoogleAdsStatusCard />);
+    expect(await screen.findByRole('textbox', { name: 'Who should see this ad?' })).toHaveValue(edited);
+    expect(screen.queryByText(/Your note, not sent to Google/i)).not.toBeInTheDocument();
   });
 
   it('shows the exact PAUSED campaign artifact and requires review before owner approval', async () => {
@@ -540,7 +565,7 @@ describe('GoogleAdsStatusCard', () => {
     resolvePost(response(VALIDATED));
     await waitFor(() => expect(screen.getByText(/This campaign is checked/i)).toBeInTheDocument());
     expect(screen.getByRole('button', { name: 'Create campaign preview' })).toBeDisabled();
-    expect(screen.getByText('Saved updates: 2')).toBeInTheDocument();
+    expect(screen.getByText('2 recorded events')).toBeInTheDocument();
   });
 
   it('surfaces a safe retryable failure without automatic POST retry', async () => {
@@ -630,7 +655,7 @@ describe('GoogleAdsStatusCard', () => {
       /waiting to be created in Google Ads. Saved status: pending/i,
     )).toBeInTheDocument();
     expect(screen.getAllByText('Launch approved')).toHaveLength(2);
-    expect(screen.getByText('Saved updates: 3')).toBeInTheDocument();
+    expect(screen.getByText('3 recorded events')).toBeInTheDocument();
     const approvalCall = adminFetch.mock.calls.find(([url]) => (
       url === '/api/admin/google-ads/paused-create-approval'
     ));

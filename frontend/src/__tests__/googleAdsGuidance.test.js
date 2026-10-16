@@ -4,16 +4,42 @@ import {
   EXAMPLE_BRIEF,
   GATE_GUIDANCE,
   OWNER_ONLY_STEPS,
+  STAFF_BRIEF_STORAGE_KEY,
   adPreview,
   briefProblem,
   budgetPlain,
   launchResultCopy,
   locationPlain,
   plainRemediation,
+  readStaffBrief,
   terminalRemediation,
+  writeStaffBrief,
 } from '../components/ad-studio/googleAdsGuidance';
 
 describe('Google Ads staff guidance', () => {
+  it('keeps the staff description in local storage and ignores storage failures', () => {
+    const storage = {
+      value: null,
+      getItem() { return this.value; },
+      setItem(_key, value) { this.value = value; },
+      removeItem() { this.value = null; },
+    };
+    writeStaffBrief('People near Huffman should see prices.', storage);
+    expect(storage.value).toBe('People near Huffman should see prices.');
+    expect(readStaffBrief(storage)).toBe('People near Huffman should see prices.');
+    writeStaffBrief('', storage);
+    expect(readStaffBrief(storage)).toBe('');
+
+    const blocked = {
+      getItem() { throw new Error('blocked'); },
+      setItem() { throw new Error('blocked'); },
+      removeItem() { throw new Error('blocked'); },
+    };
+    expect(readStaffBrief(blocked)).toBe('');
+    expect(() => writeStaffBrief('still here', blocked)).not.toThrow();
+    expect(STAFF_BRIEF_STORAGE_KEY).toBe('tho-google-ads-staff-brief');
+  });
+
   it('asks for a plain-language description before a blank launch', () => {
     expect(briefProblem('')).toMatch(/who should see this ad/i);
     expect(briefProblem('too short')).toMatch(/one or two sentences/i);
