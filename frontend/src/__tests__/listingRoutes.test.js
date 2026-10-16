@@ -46,6 +46,25 @@ describe('listingRoutes', () => {
     expect(listingPagePhotos(orderable)).toEqual([catalog]);
   });
 
+  it('keeps the staff upload URL the homes editor produces', () => {
+    const upload = '/api/inventory/photos/43945/lot-front-0123456789abcdef01234567.jpg';
+    const used = {
+      id: '43945',
+      inventory_kind: 'pre_owned',
+      status: 'Pre-Owned',
+      image_url: upload,
+      real_photos: [
+        upload,
+        'https://images.unsplash.com/photo-1',
+        'https://d132mt2yijm03y.cloudfront.net/dealer/3522/inventory/99999/other.jpg',
+        'https://cdn.example/manufacturer/1/floorplan/x/showroom.jpg',
+      ],
+      gallery_images: ['https://images.unsplash.com/photo-1'],
+      floor_plan_url: 'https://lot.example/plan.jpg',
+    };
+    expect(listingPagePhotos(used)).toEqual([upload]);
+  });
+
   it('keeps a used home’s own upload when the unit id case differs', () => {
     const upload = '/api/inventory/photos/Lot-Overlay/front.jpg';
     const used = {
