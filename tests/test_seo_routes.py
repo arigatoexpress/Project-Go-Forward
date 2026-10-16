@@ -488,7 +488,7 @@ def test_trust_content_pages_have_crawlable_blocks(monkeypatch):
     client, _ = seo_client(monkeypatch)
     cases = {
         "/about": "About Texas Home Outlet",
-        "/financing": "Financing Options at Texas Home Outlet",
+        "/financing": "Manufactured Home Financing in Huffman, TX",
         "/faq": "Frequently Asked Questions",
         "/warranty": "Warranty &amp; Service",
         "/delivery": "Delivery &amp; Setup",
@@ -1090,6 +1090,63 @@ def test_city_floorplan_and_home_pages_have_unique_title_h1_canonical(monkeypatc
     assert "Mobile &amp; Manufactured Homes for Sale in Huffman, TX" not in home_t
 
 
+def test_inventory_hub_heading_differs_from_homepage(monkeypatch):
+    client, _ = seo_client(monkeypatch)
+    home = client.get("/").text
+    inventory = client.get("/inventory").text
+    assert "<h1>Mobile &amp; Manufactured Homes for Sale in Huffman, TX</h1>" in home
+    assert "<h1>Home Inventory — Mobile &amp; Manufactured Homes in Huffman, TX</h1>" in inventory
+    assert "<h1>Mobile &amp; Manufactured Homes for Sale in Huffman, TX</h1>" not in inventory
+    assert "Current manufactured and mobile home inventory" in inventory
+    assert 'href="/plan/223034/skyliner/4732b/"' in home
+    assert 'href="/plan/223034/skyliner/4732b/"' in inventory
+    assert "<title>Manufactured Home Financing in Huffman, TX | Texas Home Outlet</title>" in (
+        client.get("/financing").text
+    )
+
+
+def test_inventory_home_query_redirects_to_the_listing(monkeypatch):
+    client, _ = seo_client(monkeypatch)
+    instock = client.get("/inventory?home=44490&utm_source=share", follow_redirects=False)
+    assert instock.status_code == 301
+    assert instock.headers["location"] == ("/homes/44490-pre-owned-big-blue?utm_source=share")
+    homepage = client.get("/?home=44490", follow_redirects=False)
+    assert homepage.status_code == 301
+    assert homepage.headers["location"] == "/homes/44490-pre-owned-big-blue"
+    plan = client.get("/inventory?home=floorplan-223034", follow_redirects=False)
+    assert plan.status_code == 301
+    assert plan.headers["location"] == "/plan/223034/skyliner/4732b/"
+    unknown = client.get("/inventory?home=not-a-home", follow_redirects=False)
+    assert unknown.status_code == 200
+    assert (
+        "<h1>Home Inventory — Mobile &amp; Manufactured Homes in Huffman, TX</h1>" in unknown.text
+    )
+
+
+def test_listing_photo_alts_use_filename_subjects(monkeypatch):
+    import seo_routes
+
+    home = {
+        **FAKE_HOMES[2],
+        "image_url": "https://img.example.com/lot-44490-ext-1.jpg",
+        "real_photos": [
+            "https://img.example.com/lot-44490-ext-1.jpg",
+            "https://img.example.com/lot-44490-ext-2.jpg",
+            "https://img.example.com/lot-44490-kit-1.jpg",
+        ],
+    }
+    client, _ = seo_client(monkeypatch)
+    monkeypatch.setattr(seo_routes, "_get_homes", lambda: [home])
+    body = client.get("/homes/44490-pre-owned-big-blue").text
+    assert (
+        'alt="PRE-OWNED / Big Blue — exterior photo 1 at Texas Home Outlet in Huffman, TX"' in body
+    )
+    assert "exterior photo 2 at Texas Home Outlet in Huffman, TX" in body
+    assert "kitchen photo 3 at Texas Home Outlet in Huffman, TX" in body
+    assert 'alt="PRE-OWNED / Big Blue"' not in body
+    assert '"offers"' not in body and '"aggregateRating"' not in body
+
+
 def test_home_page_keeps_call_for_price_and_own_photos(monkeypatch):
     client, _ = seo_client(monkeypatch)
     body = client.get("/homes/44490-pre-owned-big-blue").text
@@ -1103,6 +1160,13 @@ def test_home_page_keeps_call_for_price_and_own_photos(monkeypatch):
     og = re.search(r'<meta property="og:image" content="([^"]+)"', body)
     assert og is not None
     assert og.group(1) == "https://img.example.com/lot-44490.jpg"
+    assert (
+        'alt="PRE-OWNED / Big Blue — manufactured home at Texas Home Outlet in Huffman, TX"' in body
+    )
+    assert (
+        'property="og:image:alt" content="PRE-OWNED / Big Blue — manufactured home '
+        'at Texas Home Outlet in Huffman, TX"'
+    ) in body
     products = [
         json.loads(block)
         for block in re.findall(
