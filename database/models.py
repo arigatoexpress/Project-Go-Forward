@@ -11,7 +11,7 @@ from datetime import UTC, date, datetime
 from enum import Enum
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from scripts.google_ads_access_evidence import (
     MAX_EVIDENCE_TTL,
@@ -1410,16 +1410,87 @@ DEFAULT_PM_LABELS = [
 
 _DEAL_FIELD_NAMES = frozenset(Deal.model_fields)
 
+# Echoed by a deal read, but owned by the server. An edit form may send them
+# back; update drops them so the save still works and the client cannot rewrite
+# the id or the timestamps.
+_SERVER_MANAGED_DEAL_FIELDS = frozenset({"id", "created_at", "updated_at"})
+
+
+class DealCreate(Deal):
+    """Create body. Same fields as Deal; keys outside that set are rejected."""
+
+    model_config = ConfigDict(extra="forbid", use_enum_values=True)
+
+
+class DealUpdate(Deal):
+    """Partial update body. Omitted fields stay unset; unknown keys are rejected."""
+
+    model_config = ConfigDict(extra="forbid", use_enum_values=True)
+
+
+class DealPayloadError(Exception):
+    """A deal write was rejected. ``field_names`` are names only, never values."""
+
+    def __init__(self, field_names: list[str], *, kind: str) -> None:
+        self.field_names = tuple(field_names)
+        self.kind = kind
+        super().__init__(kind)
+
 
 def unknown_deal_fields(data: object) -> list[str]:
     """Names (never values) of payload keys that are not Deal fields.
 
-    COD-158 observation step: Deal currently ignores unknown keys on create and the
-    update route writes them through unvalidated. Before switching to extra="forbid",
-    we log which key names staff payloads actually send so a drifted form field is
-    caught before it can break deal entry.
+    The allow-list is ``Deal.model_fields``. Create and update reject these
+    names with a 422; this helper is the same set, for logs and tests.
     """
     if not isinstance(data, dict):
         return []
     return sorted(str(k) for k in data if k not in _DEAL_FIELD_NAMES)
 
+
+def _payload_error(exc: ValidationError) -> DealPayloadError:
+    """Field names from a validation error. The error's input values are dropped."""
+    unknown: list[str] = []
+    invalid: list[str] = []
+    for err in exc.errors():
+        loc = err.get("loc") or ()
+        if not loc:
+            continue
+        name = str(loc[0])
+        if err.get("type") == "extra_forbidden":
+            unknown.append(name)
+        else:
+            invalid.append(name)
+    if unknown:
+        return DealPayloadError(sorted(set(unknown)), kind="unknown")
+    return DealPayloadError(sorted(set(invalid)), kind="invalid")
+
+
+def parse_deal_create(data: object) -> DealCreate:
+    """Validate a full create payload. Unknown keys raise ``DealPayloadError``."""
+    if not isinstance(data, dict):
+        raise DealPayloadError([], kind="shape")
+    try:
+        return DealCreate.model_validate(data)
+    except ValidationError as exc:
+        raise _payload_error(exc) from None
+
+
+def parse_deal_update(data: object) -> dict:
+    """Validate a partial update and return only the fields to write.
+
+    ``id``, ``created_at``, and ``updated_at`` are ignored when present so a
+    form that sends the record back can still save. Every other unknown key
+    is rejected and nothing is returned for the caller to persist.
+    """
+    if not isinstance(data, dict):
+        raise DealPayloadError([], kind="shape")
+    payload = {key: value for key, value in data.items() if key not in _SERVER_MANAGED_DEAL_FIELDS}
+    try:
+        parsed = DealUpdate.model_validate(payload)
+    except ValidationError as exc:
+        raise _payload_error(exc) from None
+    changes = parsed.model_dump(exclude_unset=True)
+    for key in _SERVER_MANAGED_DEAL_FIELDS:
+        changes.pop(key, None)
+    return changes
