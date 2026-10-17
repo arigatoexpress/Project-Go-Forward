@@ -13,14 +13,17 @@ import {
   EXAMPLE_BRIEF,
   GATE_GUIDANCE,
   OWNER_ONLY_STEPS,
+  STAFF_CAMPAIGN_NAME,
   STATE_LABELS,
   STATUS_LABELS,
   adPreview,
   briefProblem,
   budgetPlain,
+  checkButtonLabel,
   launchResultCopy,
   locationPlain,
   plainRemediation,
+  progressPlain,
   readStaffBrief,
   terminalRemediation,
   writeStaffBrief,
@@ -215,7 +218,6 @@ export default function GoogleAdsStatusCard() {
 
   const review = status.campaign_review;
   const connection = approvalReadiness?.account_connection;
-  const eventLabel = `${status.events.count} recorded event${status.events.count === 1 ? '' : 's'}`;
   const checked = status.state !== 'INTERNAL_DRAFT';
   const launchDisabled = !approvalReadiness?.action_available
     || !reviewAcknowledged
@@ -242,7 +244,7 @@ export default function GoogleAdsStatusCard() {
         <ShieldCheck aria-hidden="true" size={19} />
         <div>
           <strong>{STATE_LABELS[status.state]}</strong>
-          <p>{eventLabel}</p>
+          <p>{progressPlain(status)}</p>
         </div>
       </div>
 
@@ -309,9 +311,13 @@ export default function GoogleAdsStatusCard() {
                 disabled={validating || (briefAccepted && !status.actions.server_validation)}
                 onClick={createPreview}
               >
-                {validating ? 'Checking the campaign…' : 'Create campaign preview'}
+                {validating ? 'Checking the campaign…' : checkButtonLabel(status.actions.server_validation)}
               </button>
             </div>
+            <p className="google-ads-status-note">
+              Checking confirms the ad on this website. Your description stays here.
+              Nothing is sent to Google, and this does not spend money.
+            </p>
             {briefNotice && <p className="google-ads-validation-error" role="alert">{briefNotice}</p>}
             {briefAccepted && !validating && (
               <p className="google-ads-validation-success" role="status">
@@ -328,7 +334,7 @@ export default function GoogleAdsStatusCard() {
       <article className="google-ads-status-panel" aria-labelledby="preview-heading">
         <h2 id="preview-heading">2. Preview</h2>
         <p className="google-ads-status-note">
-          Campaign: {review.campaign_name}. This is a preview of the reviewed ad, not a live ad.
+          These are the {STAFF_CAMPAIGN_NAME}, still turned off. This is a preview, not a live ad.
           Google may rearrange the lines.
         </p>
         <p>{locationPlain(review.geo)}</p>
@@ -359,7 +365,8 @@ export default function GoogleAdsStatusCard() {
           })}
         </div>
         <details className="google-ads-review-detail">
-          <summary>Phrases we do not want · {review.negative_keywords.length}</summary>
+          <summary>Searches that should not show this ad · {review.negative_keywords.length}</summary>
+          <p>If someone searches one of these phrases, this ad stays hidden.</p>
           <ul>
             {review.negative_keywords.map(keyword => (
               <li key={`${keyword.text}-${keyword.match_type}`}>{keyword.text}</li>
@@ -375,13 +382,13 @@ export default function GoogleAdsStatusCard() {
           <p>
             If the owner turns ads on later, the plan is to pause them after 7 days when spend
             reaches ${review.stop_loss.zero_reachable_leads_spend_usd} or clicks reach {review.stop_loss.zero_reachable_leads_clicks} with
-            no reachable leads, or when a reachable lead costs more than ${review.stop_loss.max_reachable_lead_cpa_usd}.
+            no leads we can contact, or when a lead we can contact costs more than ${review.stop_loss.max_reachable_lead_cpa_usd}.
             That pause is not automatic yet.
           </p>
           <p>
-            The ad is allowed for every age, gender, and parental-status group. It does not
-            target marital status, ZIP codes, or customer lists. The owner still has to acknowledge
-            Google’s housing-ad rules before ads can be turned on.
+            The ad is allowed for every age, every gender, and people with or without children.
+            It does not single out marital status, ZIP codes, or existing customer lists.
+            The owner still has to accept Google’s rules for housing ads before ads can be turned on.
           </p>
         </div>
         {!approvalTerminal && (
@@ -417,7 +424,7 @@ export default function GoogleAdsStatusCard() {
         )}
         {connection && (
           <p className="google-ads-status-note">
-            Account check observed {new Date(connection.observed_at).toLocaleString()}; expires {new Date(connection.expires_at).toLocaleString()}.
+            This account check is good until {new Date(connection.expires_at).toLocaleString()}.
           </p>
         )}
         <button
@@ -445,10 +452,13 @@ export default function GoogleAdsStatusCard() {
               <p className="google-ads-actions-locked">Read the preview and check the box before launching.</p>
             )}
             <p className="google-ads-status-note">
-              Background job on this website: {approvalReadiness.dispatch_enabled ? 'turned on' : 'not turned on'}.
-              This does not prove the separate Google job is running. The owner should confirm that
-              before launching. If it is already running, Google may create the turned-off campaign
-              right after the owner confirms.
+              {approvalReadiness.dispatch_enabled
+                ? 'This website is ready to create the campaign turned off after the owner confirms.'
+                : 'This website is not ready to create the campaign yet. Ask the owner before launching.'}
+              {' '}
+              That only describes this website. It does not prove the separate Google step is running.
+              The owner should confirm that before launching. If that step is already running, Google
+              may create the turned-off campaign right after the owner confirms. The ads stay off.
             </p>
           </>
         )}
@@ -469,6 +479,7 @@ export default function GoogleAdsStatusCard() {
         <details className="google-ads-review-detail">
           <summary>Technical details for the owner</summary>
           <dl className="google-ads-status-details">
+            <div><dt>Campaign name</dt><dd>{review.campaign_name}</dd></div>
             <div><dt>Campaign id</dt><dd>{status.deployment_key}</dd></div>
             <div><dt>Recorded events</dt><dd>{status.events.count}</dd></div>
             <div><dt>Ledger version</dt><dd>{status.version}</dd></div>

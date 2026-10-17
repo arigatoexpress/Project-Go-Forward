@@ -445,7 +445,8 @@ describe('GoogleAdsStatusCard', () => {
 
   function acceptBrief() {
     fillBrief();
-    fireEvent.click(screen.getByRole('button', { name: 'Create campaign preview' }));
+    const check = screen.queryByRole('button', { name: 'Check this ad' });
+    fireEvent.click(check || screen.getByRole('button', { name: 'Use this description' }));
   }
 
   beforeEach(() => {
@@ -462,11 +463,11 @@ describe('GoogleAdsStatusCard', () => {
     expect(screen.getByRole('heading', { name: '1. Create' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '2. Preview' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '3. Launch' })).toBeInTheDocument();
-    expect(screen.getByText('1 recorded event')).toBeInTheDocument();
+    expect(screen.getByText('Start here. Nothing has been sent to Google.')).toBeInTheDocument();
     expect(screen.getByText(/does not change the reviewed ad text/i)).toBeInTheDocument();
     expect(screen.getByText(/Link the Google Ads account/i)).toBeInTheDocument();
     expect(screen.getAllByText(/This screen cannot turn ads on/i).length).toBeGreaterThan(0);
-    expect(screen.getByRole('button', { name: 'Create campaign preview' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Check this ad' })).toBeEnabled();
     expect(screen.getByText('Check the campaign before you launch it.')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Launch turned off' })).toBeDisabled();
     expect(screen.getByText(/Turned off · \$0 spend/i)).toBeInTheDocument();
@@ -482,7 +483,7 @@ describe('GoogleAdsStatusCard', () => {
   it('tells staff to describe the ad before anything is sent', async () => {
     adminFetch.mockResolvedValue(response());
     render(<GoogleAdsStatusCard />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Create campaign preview' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Check this ad' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'Describe who should see this ad and what you want them to do.',
@@ -531,7 +532,7 @@ describe('GoogleAdsStatusCard', () => {
     expect(screen.getByText(/not attached yet/i)).toBeInTheDocument();
     expect(screen.getByText(/not automatic yet/i)).toBeInTheDocument();
     expect(screen.getByText(/Google Ads account is linked and uses US dollars/i)).toBeInTheDocument();
-    expect(screen.getByText(/expires/i)).toBeInTheDocument();
+    expect(screen.getByText(/good until/i)).toBeInTheDocument();
     expect(screen.getByText(/Ads account permissions are in place/i)).toBeInTheDocument();
     expect(screen.getByText(/This website version is cleared for ads/i)).toBeInTheDocument();
 
@@ -553,7 +554,7 @@ describe('GoogleAdsStatusCard', () => {
       .mockResolvedValueOnce(response())
       .mockReturnValueOnce(new Promise(resolve => { resolvePost = resolve; }));
     render(<GoogleAdsStatusCard />);
-    const button = await screen.findByRole('button', { name: 'Create campaign preview' });
+    const button = await screen.findByRole('button', { name: 'Check this ad' });
     fillBrief();
 
     fireEvent.click(button);
@@ -564,8 +565,8 @@ describe('GoogleAdsStatusCard', () => {
 
     resolvePost(response(VALIDATED));
     await waitFor(() => expect(screen.getByText(/This campaign is checked/i)).toBeInTheDocument());
-    expect(screen.getByRole('button', { name: 'Create campaign preview' })).toBeDisabled();
-    expect(screen.getByText('2 recorded events')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Use this description' })).toBeDisabled();
+    expect(screen.getByText('The ad is checked. It is still turned off, and nothing has been spent.')).toBeInTheDocument();
   });
 
   it('surfaces a safe retryable failure without automatic POST retry', async () => {
@@ -573,7 +574,7 @@ describe('GoogleAdsStatusCard', () => {
       .mockResolvedValueOnce(response())
       .mockResolvedValueOnce(response({ message: 'safe' }, 503));
     render(<GoogleAdsStatusCard />);
-    const button = await screen.findByRole('button', { name: 'Create campaign preview' });
+    const button = await screen.findByRole('button', { name: 'Check this ad' });
     fillBrief();
     fireEvent.click(button);
 
@@ -581,10 +582,10 @@ describe('GoogleAdsStatusCard', () => {
       'We could not check this campaign. Nothing was sent to Google. Try again.',
     );
     expect(adminFetch).toHaveBeenCalledTimes(2);
-    expect(screen.getByRole('button', { name: 'Create campaign preview' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Check this ad' })).toBeEnabled();
 
     adminFetch.mockResolvedValueOnce(response(VALIDATED));
-    fireEvent.click(screen.getByRole('button', { name: 'Create campaign preview' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Check this ad' }));
     await screen.findByText(/This campaign is checked/i);
     const firstKey = JSON.parse(adminFetch.mock.calls[1][1].body).idempotency_key;
     const retryKey = JSON.parse(adminFetch.mock.calls[2][1].body).idempotency_key;
@@ -652,10 +653,11 @@ describe('GoogleAdsStatusCard', () => {
     )));
 
     expect(await screen.findByText(
-      /waiting to be created in Google Ads. Saved status: pending/i,
+      /waiting to be created in Google Ads/i,
     )).toBeInTheDocument();
+    expect(screen.queryByText(/saved status/i)).not.toBeInTheDocument();
     expect(screen.getAllByText('Launch approved')).toHaveLength(2);
-    expect(screen.getByText('3 recorded events')).toBeInTheDocument();
+    expect(screen.getByText('Approved, and still turned off.')).toBeInTheDocument();
     const approvalCall = adminFetch.mock.calls.find(([url]) => (
       url === '/api/admin/google-ads/paused-create-approval'
     ));
@@ -686,7 +688,7 @@ describe('GoogleAdsStatusCard', () => {
 
     expect(screen.getByText(/Storefront dispatch flag/i)).toBeInTheDocument();
     expect(screen.getByText(/^Enabled$/i)).toBeInTheDocument();
-    expect(screen.getByText(/does not prove the separate Google job is running/i)).toBeInTheDocument();
+    expect(screen.getByText(/does not prove the separate Google step is running/i)).toBeInTheDocument();
     acceptBrief();
     fireEvent.click(screen.getByRole('checkbox', {
       name: /I read both ads, the Huffman area, and the budget/i,
@@ -748,8 +750,9 @@ describe('GoogleAdsStatusCard', () => {
     render(<GoogleAdsStatusCard />);
 
     expect(await screen.findByText(
-      /waiting to be created in Google Ads. Saved status: pending/i,
+      /waiting to be created in Google Ads/i,
     )).toBeInTheDocument();
+    expect(screen.queryByText(/saved status/i)).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Launch turned off' })).toBeDisabled();
     expect(screen.queryByText('Check the campaign before you launch it.')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /activate|publish|spend/i })).not.toBeInTheDocument();

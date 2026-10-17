@@ -19,19 +19,19 @@ export const STATUS_LABELS = {
 export const OWNER_ONLY_STEPS = [
   {
     title: 'Link the Google Ads account',
-    detail: 'The owner adds the ads service account as a user on the Texas Home Outlet Google Ads account. This screen cannot link accounts.',
+    detail: 'The owner connects the Texas Home Outlet Google Ads account. This screen cannot link accounts.',
   },
   {
     title: 'Set up billing in Google Ads',
-    detail: 'The owner confirms a billing profile and that the account uses US dollars. This screen never changes billing and never spends money.',
+    detail: 'The owner confirms billing and that the account uses US dollars. This screen never changes billing and never spends money.',
   },
   {
-    title: 'Turn on conversion tracking',
-    detail: 'The owner imports tour bookings and lead form fills into Google Ads and checks that they record. This screen cannot turn ads on.',
+    title: 'Count tour bookings',
+    detail: 'The owner connects tour bookings and lead form fills so Google can tell a useful visit from a click. This screen cannot turn ads on.',
   },
   {
-    title: 'Add the API credentials',
-    detail: 'The owner stores the Google Ads developer token and customer ID in Secret Manager. Do not paste them into this screen.',
+    title: 'Finish the Google connection',
+    detail: 'The owner connects this website to the Google Ads account. Do not paste codes, tokens, or passwords on this screen.',
   },
 ];
 
@@ -53,8 +53,8 @@ export const GATE_GUIDANCE = {
     missing: 'This website version is not the one cleared to create the campaign.',
   },
   dispatcher_configured: {
-    ok: 'The job that creates the turned-off campaign is set up.',
-    missing: 'The owner still needs to set up the job that creates the turned-off campaign.',
+    ok: 'The step that creates the turned-off campaign is set up.',
+    missing: 'The owner still needs to set up the step that creates the turned-off campaign.',
   },
 };
 
@@ -63,13 +63,43 @@ const REMEDIATION_PLAIN = {
   'Run the read-only Google Ads account-access and USD-currency evidence job.':
     'The owner still needs to link the Google Ads account and confirm it uses US dollars.',
   'Verify current cloud/IAM readiness and enable owner approval config.':
-    'The owner still needs to finish ads setup: account permissions, API credentials, and the turned-off campaign job.',
+    'The owner still needs to finish ads setup: account permissions, the Google connection, and the turned-off campaign step.',
 };
 
 const SAFE_REMEDIATION_FALLBACK =
   'The owner still has a setup step to finish before this campaign can be launched turned off.';
 
 export const STAFF_BRIEF_STORAGE_KEY = 'tho-google-ads-staff-brief';
+
+export const STAFF_CAMPAIGN_NAME = 'Huffman search ads';
+
+const OUTBOX_PLAIN = {
+  PENDING: 'waiting to be created in Google Ads',
+  DISPATCHING: 'being created in Google Ads now',
+  DISPATCHED: 'created in Google Ads and turned off',
+  FAILED: 'not created',
+};
+
+export function outboxPlain(state) {
+  return OUTBOX_PLAIN[String(state || '').toUpperCase()] || 'saved on this website';
+}
+
+export function progressPlain(status) {
+  if (status?.state === 'SERVER_VALIDATED') {
+    return 'The ad is checked. It is still turned off, and nothing has been spent.';
+  }
+  if (status?.state === 'PAUSED_CREATE_APPROVED') {
+    return 'Approved, and still turned off.';
+  }
+  if (status?.state === 'PAUSED_CREATED') {
+    return 'In Google Ads, and still turned off.';
+  }
+  return 'Start here. Nothing has been sent to Google.';
+}
+
+export function checkButtonLabel(canValidate) {
+  return canValidate ? 'Check this ad' : 'Use this description';
+}
 
 export function readStaffBrief(storage = globalThis.localStorage) {
   try {
@@ -136,19 +166,17 @@ export function launchResultCopy(status) {
     return 'The campaign is in Google Ads and turned off. It is not spending money.';
   }
   if (status?.state === 'PAUSED_CREATE_APPROVED') {
-    const outbox = String(status.paused_create?.outbox_state || 'recorded').toLowerCase();
-    return `The turned-off campaign is approved. Saved status: ${outbox}. No money is being spent.`;
+    return 'The owner confirmed it. The campaign stays turned off and no money is being spent.';
   }
   return 'The launch was recorded. Refresh the page before doing anything else. No money was spent.';
 }
 
 export function terminalRemediation(status) {
   if (status?.state === 'PAUSED_CREATED') {
-    return 'The campaign is in Google Ads and turned off. It is not spending money. The owner still has to finish billing and conversion tracking before ads can run. This screen cannot turn ads on.';
+    return 'The campaign is in Google Ads and turned off. It is not spending money. The owner still has to finish billing and lead counting before ads can run. This screen cannot turn ads on.';
   }
   if (status?.paused_create?.outbox_state === 'FAILED') {
     return 'We could not finish creating the turned-off campaign. It stays off and no money was spent. Ask the owner to review the ads setup. Do not try again from this screen.';
   }
-  const outbox = String(status?.paused_create?.outbox_state || 'recorded').toLowerCase();
-  return `The turned-off campaign is approved and waiting to be created in Google Ads. Saved status: ${outbox}. No money is being spent.`;
+  return `The turned-off campaign is approved and ${outboxPlain(status?.paused_create?.outbox_state)}. No money is being spent. This screen cannot turn ads on.`;
 }

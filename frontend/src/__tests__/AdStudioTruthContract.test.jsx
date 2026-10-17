@@ -43,8 +43,17 @@ describe('Ad Studio truth contracts', () => {
             inventory_count: 17,
             photo_ready_homes: 8,
           },
-          top_performing_content: [],
-          recommendations: [],
+          top_performing_content: [{
+            type: 'inventory_backed_ideas',
+            views: 17,
+            views_label: '17 homes available',
+            engagement_rate: 'ready',
+            engagement_label: '8 with photos',
+          }],
+          recommendations: [
+            'Connect TikTok or Meta analytics before treating reach, follower, or DM metrics as live.',
+            'Use the inventory-backed idea lane for 17 current homes.',
+          ],
         }));
       }
       throw new Error(`Unexpected request: ${url}`);
@@ -54,9 +63,18 @@ describe('Ad Studio truth contracts', () => {
   it('shows local readiness and does not render unavailable platform KPIs as zero', async () => {
     render(<AdStudio onBack={vi.fn()} />);
 
+    expect(await screen.findByText('Not available yet')).toBeInTheDocument();
+    expect(screen.getByText('AI pictures & video')).toBeInTheDocument();
+    expect(screen.queryByText('GCP AI')).not.toBeInTheDocument();
+
     fireEvent.click(screen.getByRole('button', { name: 'Analytics' }));
 
-    expect(await screen.findByText('Platform analytics unavailable')).toBeInTheDocument();
+    expect(await screen.findByText('Live social numbers are not connected')).toBeInTheDocument();
+    expect(screen.getByText(/Do not treat the numbers here as real ad results/i)).toBeInTheDocument();
+    expect(screen.getByText(/Start from Content Ideas/i)).toBeInTheDocument();
+    expect(screen.getByText('Homes ready to feature')).toBeInTheDocument();
+    expect(screen.queryByText(/inventory-backed idea lane/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Meta analytics/i)).not.toBeInTheDocument();
     expect(screen.getByText('Generated Images')).toBeInTheDocument();
     expect(screen.getByText('Generated Videos')).toBeInTheDocument();
     expect(screen.getByText('Inventory Homes')).toBeInTheDocument();
