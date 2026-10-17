@@ -25,12 +25,35 @@ python-dateutil>=2.8
 requests>=2.32.4
 beautifulsoup4>=4.12
 sentry-sdk[fastapi]==2.22.0
+# Required by sentry-sdk's auto-enabled Starlette integration: it imports
+# Jinja2Templates at sentry_sdk.init() time, so without jinja2 installed the
+# app crashes at import the moment SENTRY_DSN is set in production.
+jinja2>=3.1.6
 pytest==9.0.3
 numpy==1.26.4
 
 # Drive floorplan sync (tools/drive_floorplan_sync.py)
 google-api-python-client>=2.140
 google-auth>=2.34
+
+# Security floor (pip-audit 2026-08): minimum versions clearing known advisories
+# in transitive deps. Dockerfile builds float above these; regenerate with
+# `.venv/bin/python -m pip_audit` after any dependency change.
+aiohttp>=3.14.3
+anyio>=4.14.2
+cryptography>=48.0.1
+httpcore2>=2.10.0
+httplib2>=0.32.0
+httpx2>=2.12.0
+joserfc>=1.6.8
+mcp>=1.28.1
+multidict>=6.9.1,<7.0
+pyasn1>=0.6.4
+pydantic-settings>=2.14.2
+PyJWT>=2.15.0
+soupsieve>=2.9.0
+sqlparse>=0.6.0
+urllib3>=2.7.0
 
 # Runtime Ad Studio MP4 generation (MoviePy 1.x API).
 moviepy==1.0.3

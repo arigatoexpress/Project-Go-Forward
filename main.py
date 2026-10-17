@@ -317,16 +317,24 @@ if os.environ.get("SENTRY_DSN") and not os.environ.get("PYTEST_CURRENT_TEST"):
             rate = 0.05
         return min(max(rate, 0.0), 1.0)
 
-    sentry_sdk.init(
-        dsn=os.environ["SENTRY_DSN"],
-        environment=os.environ.get("K_REVISION", "local"),
-        release=os.environ.get("APP_VERSION", "local"),
-        traces_sampler=_sentry_traces_sampler,
-        profiles_sample_rate=0.0,
-        send_default_pii=False,
-        before_send=_sentry_before_send,
-    )
-    logger.info("Sentry initialized (environment=%s)", os.environ.get("K_REVISION", "local"))
+    # Error tracking must never take the site down: a Sentry misconfiguration
+    # or a missing integration dependency logs a warning and leaves the app
+    # unmonitored rather than crashing the import (the Starlette integration
+    # imports Jinja2Templates at init time — see the jinja2 pin in
+    # requirements.txt).
+    try:
+        sentry_sdk.init(
+            dsn=os.environ["SENTRY_DSN"],
+            environment=os.environ.get("K_REVISION", "local"),
+            release=os.environ.get("APP_VERSION", "local"),
+            traces_sampler=_sentry_traces_sampler,
+            profiles_sample_rate=0.0,
+            send_default_pii=False,
+            before_send=_sentry_before_send,
+        )
+        logger.info("Sentry initialized (environment=%s)", os.environ.get("K_REVISION", "local"))
+    except Exception as e:
+        logger.warning("Sentry initialization failed; running without error tracking: %s", e)
 
 # Disable FastAPI's auto-docs (/openapi.json, /docs, /redoc) in Cloud Run.
 # These endpoints expose the full API surface — every admin route, every
@@ -2861,8 +2869,10 @@ def _readyz_check_inventory_source() -> dict:
     return status
 
 
-@app.api_route("/readyz", methods=["GET", "HEAD"], response_class=JSONResponse)
-@app.api_route("/readyz/", methods=["GET", "HEAD"], response_class=JSONResponse)
+@app.get("/readyz", response_class=JSONResponse)
+@app.head("/readyz", response_class=JSONResponse)
+@app.get("/readyz/", response_class=JSONResponse)
+@app.head("/readyz/", response_class=JSONResponse)
 @limiter.exempt
 def readyz() -> JSONResponse:
     """Real readiness probe — exercises runtime deps a working request needs.
@@ -5483,6 +5493,14 @@ from tools.photo_classifier import apply_classifier_to_home, has_real_photo
 from tools.video_generator import GENERATED_VIDEOS_DIR
 
 
+def _marketing_error_response(message: str, *, status_code: int, error_code: str) -> JSONResponse:
+    """Return the stable, user-safe failure envelope used by Ad Studio."""
+    return JSONResponse(
+        {"success": False, "error": message, "error_code": error_code},
+        status_code=status_code,
+    )
+
+
 @app.post("/api/marketing/generate-script", dependencies=[Depends(require_admin)])
 async def api_generate_script(request: Request):
     """Generate viral-ready video scripts for social media with optional A/B variations."""
@@ -5527,6 +5545,12 @@ async def api_prepare_social_draft(request: Request):
     """Prepare a non-persisted reviewed draft without calling a social platform API."""
     try:
         data = await request.json()
+        if not isinstance(data, dict):
+            return _marketing_error_response(
+                "The draft request must be a JSON object.",
+                status_code=400,
+                error_code="invalid_request",
+            )
         result = schedule_social_post(
             platform=data.get("platform", "tiktok"),
             content_type=data.get("content_type", "video"),
@@ -5538,6 +5562,12 @@ async def api_prepare_social_draft(request: Request):
             home_name=data.get("home_name"),
             campaign=data.get("campaign"),
         )
+        if not isinstance(result, dict) or result.get("success") is False:
+            return _marketing_error_response(
+                "The draft could not be prepared. Please try again.",
+                status_code=500,
+                error_code="draft_preparation_failed",
+            )
         return result
     except JSONDecodeError:
         raise

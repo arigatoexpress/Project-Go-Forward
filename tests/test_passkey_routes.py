@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import importlib
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from dataclasses import asdict
@@ -357,7 +356,9 @@ def test_concurrent_usage_writes_are_cas_monotonic(backend, monkeypatch):
 
 @pytest.fixture
 def passkey_client():
-    routes = importlib.reload(passkey_routes)
+    # Module state is per-test isolated via dependency_overrides +
+    # monkeypatch, so the plain import is sufficient — no reload needed.
+    routes = passkey_routes
     store = InMemoryCredentialStore(
         [
             CredentialRecord(

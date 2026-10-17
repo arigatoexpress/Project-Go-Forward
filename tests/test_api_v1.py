@@ -5,6 +5,7 @@ Run: python -m pytest tests/test_api_v1.py -v
 
 from __future__ import annotations
 
+import asyncio
 import importlib
 import os
 import sys
@@ -101,6 +102,30 @@ class FakeLead:
     home_stock: str | None = None
     home_label: str | None = None
     home_url: str | None = None
+    # Click IDs (mirrors lead_management.Lead; used by to_csv_row for the
+    # export endpoint).
+    gclid: str | None = None
+    gbraid: str | None = None
+    wbraid: str | None = None
+
+    def to_csv_row(self) -> dict:
+        """Mirrors lead_management.Lead.to_csv_row (used by /leads/export)."""
+        return {
+            "Lead ID": self.lead_id,
+            "Name": self.name or "",
+            "Email": self.email or "",
+            "Phone": self.phone or "",
+            "Bedrooms": self.bedrooms or "",
+            "Bathrooms": self.bathrooms or "",
+            "Max Budget": f"${int(self.budget_max):,}" if self.budget_max else "",
+            "Home Type": self.home_type or "",
+            "Homes Viewed": ", ".join(self.homes_viewed[:3]) if self.homes_viewed else "",
+            "Appointment Requested": "Yes" if self.appointment_requested else "No",
+            "Status": self.status,
+            "Created": self.created_at,
+            "Source": self.source,
+            "Google Click ID": self.gclid or self.gbraid or self.wbraid or "",
+        }
 
     # Marketing attribution (first-party UTM carried on a reached-out lead; NOT visitor tracking)
     utm_source: str | None = None
@@ -375,6 +400,14 @@ class FakeTHODatabase:
             ]
         return customers[:limit]
 
+    def update_customer(self, customer_id: str, data: dict) -> bool:
+        record = self.collections["customers"].get(customer_id)
+        if record is None:
+            return False
+        record.update(data)
+        record["updated_at"] = "2026-04-22T00:00:00"
+        return True
+
     def create_customer(self, data: dict, doc_id: str | None = None):
         doc_id = doc_id or f"cust-{len(self.collections['customers']) + 1}"
         record = dict(data)
@@ -408,6 +441,18 @@ class FakeTHODatabase:
 
     def delete_inventory(self, inventory_id: str) -> bool:
         self.collections["inventory"].pop(inventory_id, None)
+        return True
+
+    def get_deal(self, deal_id: str) -> dict | None:
+        deal = self.collections["deals"].get(deal_id)
+        return dict(deal) if deal else None
+
+    def update_deal(self, deal_id: str, data: dict) -> bool:
+        record = self.collections["deals"].get(deal_id)
+        if record is None:
+            return False
+        record.update(data)
+        record["updated_at"] = "2026-04-22T00:00:00"
         return True
 
     def count_customers(self):
@@ -444,16 +489,26 @@ class FakeLeadManager:
         ]
 
     async def create_lead(self, lead):
-        self.leads.append(lead)
+        # Mirror the real implementation's executor suspension (see
+        # lead_management.LeadManager.create_lead, which uses
+        # asyncio.to_thread for the Firestore write). A purely in-memory
+        # async method here empirically makes coverage's CTracer attribute
+        # NOTHING for endpoint handler bodies in suites using load_app —
+        # with the suspension, handlers record fully. See
+        # docs/MAIN_COVERAGE_INVESTIGATION.md.
+        await asyncio.to_thread(self.leads.append, lead)
         return lead
 
     async def update_lead(self, lead):
-        for idx, existing in enumerate(self.leads):
-            if existing.lead_id == lead.lead_id:
-                self.leads[idx] = lead
-                return lead
-        self.leads.append(lead)
-        return lead
+        def _update():
+            for idx, existing in enumerate(self.leads):
+                if existing.lead_id == lead.lead_id:
+                    self.leads[idx] = lead
+                    return lead
+            self.leads.append(lead)
+            return lead
+
+        return await asyncio.to_thread(_update)
 
     async def transition_lead_status(self, lead_id: str, new_status: str, *, actor: str):
         allowed = {"new", "contacted", "qualified", "converted", "archived"}
@@ -475,32 +530,44 @@ class FakeLeadManager:
         return lead, previous, True
 
     async def get_lead(self, lead_id: str):
-        for lead in self.leads:
-            if lead.lead_id == lead_id:
-                return lead
-        return None
+        def _get():
+            for lead in self.leads:
+                if lead.lead_id == lead_id:
+                    return lead
+            return None
+
+        return await asyncio.to_thread(_get)
 
     async def get_lead_by_session(self, session_id: str):
-        for lead in self.leads:
-            if lead.session_id == session_id:
-                return lead
-        return None
+        def _get():
+            for lead in self.leads:
+                if lead.session_id == session_id:
+                    return lead
+            return None
+
+        return await asyncio.to_thread(_get)
 
     async def get_lead_by_phone(self, phone: str | None):
-        wanted = "".join(character for character in str(phone or "") if character.isdigit())[-10:]
-        for lead in self.leads:
-            current = "".join(
-                character for character in str(lead.phone or "") if character.isdigit()
-            )[-10:]
-            if wanted and current == wanted:
-                return lead
-        return None
+        def _get():
+            wanted = "".join(character for character in str(phone or "") if character.isdigit())[-10:]
+            for lead in self.leads:
+                current = "".join(
+                    character for character in str(lead.phone or "") if character.isdigit()
+                )[-10:]
+                if wanted and current == wanted:
+                    return lead
+            return None
+
+        return await asyncio.to_thread(_get)
 
     async def list_leads(self, status=None, limit=100):
-        leads = list(self.leads)
-        if status:
-            leads = [lead for lead in leads if lead.status == status]
-        return leads[:limit]
+        def _list():
+            leads = list(self.leads)
+            if status:
+                leads = [lead for lead in leads if lead.status == status]
+            return leads[:limit]
+
+        return await asyncio.to_thread(_list)
 
     async def list_leads_needing_triage(self, status="new", min_age_hours=None, limit=100):
         leads = await self.list_leads(status=status, limit=limit)
@@ -539,14 +606,17 @@ class FakeAppointmentManager:
     def __init__(self, project_id=None):
         self.project_id = project_id
 
+    # NOTE: async methods mirror the real AppointmentManager's asyncio.to_thread
+    # suspension (see FakeLeadManager.create_lead for why this matters —
+    # docs/MAIN_COVERAGE_INVESTIGATION.md).
     async def list_appointments(self, status=None, limit=100):
-        return []
+        return await asyncio.to_thread(lambda: [])
 
     async def get_appointment(self, appointment_id: str):
-        return FakeAppointment(appointment_id=appointment_id)
+        return await asyncio.to_thread(FakeAppointment, appointment_id=appointment_id)
 
     async def cancel_appointment(self, appointment_id: str):
-        return FakeAppointment(appointment_id=appointment_id)
+        return await asyncio.to_thread(FakeAppointment, appointment_id=appointment_id)
 
 
 class FakeConversationMemory:

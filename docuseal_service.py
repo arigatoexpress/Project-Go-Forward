@@ -34,7 +34,7 @@ _PHONE_RE = re.compile(
 # Conservative "full name" heuristic to scrub common buyer-name patterns in
 # vendor echoes (e.g., "name": "Alice Buyer", "submitter_name=John Doe").
 _NAME_VALUE_RE = re.compile(
-    r'(?P<prefix>\b(?:name|full_name|submitter_name)\b\s*[:=]\s*[\'"]?)'
+    r'(?P<prefix>\b(?:name|full_name|submitter_name)\b[\'"]?\s*[:=]\s*[\'"]?)'
     r"(?P<value>[A-Za-z]+(?:\s+[A-Za-z]+){1,3})",
     re.IGNORECASE,
 )

@@ -104,9 +104,25 @@ class ChatHistory:
     """Manages chat history using Firestore"""
 
     def __init__(self, project_id: str = None):
-        """Initialize Firestore client"""
-        self.db = firestore.Client(project=project_id)
+        # Lazy client: constructing must not require GCP credentials so the app
+        # can boot (and answer /healthz) in environments without ADC. The
+        # Firestore client is created on first request-path use and fails
+        # closed there if credentials are missing.
+        self._project_id = project_id
+        self._db = None
         self.collection_name = "chat_sessions"
+
+    @property
+    def db(self) -> firestore.Client:
+        """Lazy-load Firestore client"""
+        if self._db is None:
+            self._db = firestore.Client(project=self._project_id)
+        return self._db
+
+    @db.setter
+    def db(self, value) -> None:
+        """Allow direct injection of a (fake or real) client."""
+        self._db = value
 
     async def get_or_create_session(
         self, session_id: str, user_id: str, metadata: dict = None

@@ -195,3 +195,45 @@ def test_successful_admin_login_clears_failed_attempts(monkeypatch):
     success = client.post("/api/admin/verify", json={"pin": "4832"})
     assert success.status_code == 200
     assert main._pin_attempts_fallback == {}
+
+
+def test_health_probes_bypass_performance_metrics_store(monkeypatch):
+    """IMPROVEMENTS §1 (health check occasionally times out): the probe paths
+    must never reach the metrics store. The middleware exempts them, so a
+    wedged/slow dependency in metrics recording can't stall liveness probes."""
+    client, main, _db, _logger = create_client(monkeypatch)
+    recorded = []
+    monkeypatch.setattr(main._metrics_store, "record", lambda *a, **k: recorded.append(a))
+
+    probes = [
+        ("GET", "/health"),
+        ("GET", "/healthz"),
+        ("HEAD", "/healthz"),
+        ("GET", "/healthz/"),
+        ("HEAD", "/healthz/"),
+        ("GET", "/readyz"),
+        ("HEAD", "/readyz"),
+        ("GET", "/readyz/"),
+    ]
+    for method, path in probes:
+        response = client.request(method, path)
+        assert response.status_code == 200, (method, path, response.text)
+
+    assert recorded == []
+
+
+def test_public_healthz_never_checks_email_liveness(monkeypatch):
+    """Email liveness is a /healthz/detailed concern; the public probe must not
+    touch it (or any provider I/O) so it answers instantly even when the
+    email provider is down."""
+    client, main, _db, _logger = create_client(monkeypatch)
+
+    def _boom():
+        raise RuntimeError("public /healthz must not call _cached_email_liveness")
+
+    monkeypatch.setattr(main, "_cached_email_liveness", _boom)
+
+    for path in ("/healthz", "/healthz/", "/health"):
+        response = client.get(path)
+        assert response.status_code == 200, path
+        assert response.json()["status"] == "ok", path

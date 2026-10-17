@@ -41,7 +41,7 @@ WORKDIR /app
 # Copy installed Python packages from builder
 COPY --from=python-builder /root/.local /home/appuser/.local
 ENV PATH=/home/appuser/.local/bin:$PATH
-ENV PYTHONPATH=/home/appuser/.local/lib/python3.11/site-packages:$PYTHONPATH
+ENV PYTHONPATH=/home/appuser/.local/lib/python3.11/site-packages
 
 # Copy application code
 COPY . .
