@@ -11,6 +11,8 @@ These tests guard two things:
        python scripts/generate_api_reference.py
 """
 
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -85,6 +87,39 @@ def test_committed_doc_exists_and_has_marker():
         "docs/API_REFERENCE.md lacks the generator marker; "
         "regenerate: python scripts/generate_api_reference.py"
     )
+
+
+def test_committed_doc_omits_unregistered_publish_route():
+    text = DOC_PATH.read_text(encoding="utf-8")
+    assert "| POST | `/api/marketing/publish` |" not in text
+
+
+def test_committed_doc_counts_match_clean_app():
+    """Path/operation totals must match a clean import of the app.
+
+    A fresh interpreter avoids the stubbed ``main`` module other tests install
+    in-process. That stub is not the surface ``generate_api_reference.py`` documents.
+    """
+    probe = (
+        "import scripts.generate_api_reference as gen\n"
+        "gen._prepare_environment()\n"
+        "app = gen._load_app()\n"
+        "spec = app.openapi()\n"
+        "paths = spec.get('paths', {})\n"
+        "ops = sum(\n"
+        "    1 for item in paths.values() for method in gen._HTTP_METHODS if method in item\n"
+        ")\n"
+        "print(f'Covers {len(paths)} paths / {ops} operations.')\n"
+    )
+    completed = subprocess.run(
+        [sys.executable, "-c", probe],
+        check=True,
+        capture_output=True,
+        text=True,
+        cwd=REPO_ROOT,
+    )
+    counts_line = next(line for line in completed.stdout.splitlines() if line.startswith("Covers "))
+    assert counts_line in DOC_PATH.read_text(encoding="utf-8")
 
 
 def test_committed_doc_covers_current_paths(openapi_paths):
