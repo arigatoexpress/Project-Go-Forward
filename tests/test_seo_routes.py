@@ -10,6 +10,8 @@ import re
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).parent))
 
 from test_api_v1 import create_client
@@ -83,6 +85,18 @@ FAKE_HOMES = [
 ]
 
 
+@pytest.fixture(autouse=True)
+def isolated_seo_shell(monkeypatch, tmp_path):
+    """Use a fresh SPA shell, independent of builds and other test suites."""
+    import seo_routes
+
+    shell = tmp_path / "index.html"
+    source = Path(__file__).resolve().parent.parent / "frontend" / "index.html"
+    shell.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+    monkeypatch.setattr(seo_routes, "_index_html_path", str(shell))
+    monkeypatch.setattr(seo_routes, "_shell_cache", None)
+
+
 def seo_client(monkeypatch):
     client, main, db, logger = create_client(monkeypatch)
     import seo_routes
@@ -100,6 +114,7 @@ def test_robots_txt_allows_public_blocks_admin(monkeypatch):
     assert response.status_code == 200
     body = response.text
     assert "Disallow: /crm" in body
+    assert "Disallow: /ad-studio" in body
     assert "Disallow: /staff" in body
     assert "Disallow: /team" in body
     assert "Disallow: /api/admin/" in body
@@ -125,6 +140,7 @@ def test_sitemap_lists_static_and_detail_urls(monkeypatch):
     assert "/plan/235424/" not in body
     assert "/quote/floorplan/235424" not in body
     assert "/homes/44490-pre-owned-big-blue</loc>" in body
+    assert "/chat</loc>" in body
     assert "/homes/43372-premier-creole-3256h32447</loc>" in body
     assert "<lastmod>2026-10-01</lastmod>" in body
     # Google ignores priority/changefreq. lastmod is only on live /homes/ URLs.
@@ -154,13 +170,11 @@ def test_inventory_routes_preload_the_responsive_hero_image(monkeypatch):
         body = client.get(path).text
         assert '<link rel="preload" as="image"' in body
         assert 'href="https://img.example.com/creole.jpg"' in body
-        assert (
-            'imagesrcset="https://img.example.com/creole.jpg?w=400 400w, '
-            "https://img.example.com/creole.jpg?w=800 800w, "
-            'https://img.example.com/creole.jpg?w=1200 1200w"' in body
-        )
-        assert 'imagesizes="100vw"' in body
+        assert "imagesrcset=" not in body
+        assert "?w=400" not in body
         assert 'fetchpriority="high"' in body
+        assert 'name="twitter:title"' in body
+        assert 'property="og:locale" content="en_US"' in body
 
     assert '<link rel="preload" as="image"' not in client.get("/contact").text
 
@@ -444,9 +458,18 @@ def test_unknown_route_returns_real_404_not_soft_404(monkeypatch):
     assert "noindex" in response.text
 
 
+def test_ad_studio_alias_is_the_google_ads_staff_route(monkeypatch):
+    """Staff type /ad-studio. It must open the noindex staff app, not a 404."""
+    client, _ = seo_client(monkeypatch)
+    response = client.get("/ad-studio", follow_redirects=False)
+    assert response.status_code == 200
+    assert '<meta name="robots" content="noindex" />' in response.text
+    assert client.get("/this-is-not-ad-studio").status_code == 404
+
+
 def test_admin_routes_are_noindex_but_200(monkeypatch):
     client, _ = seo_client(monkeypatch)
-    for path in ("/crm", "/documents", "/studio", "/staff", "/team"):
+    for path in ("/crm", "/documents", "/studio", "/ad-studio", "/staff", "/team"):
         response = client.get(path)
         assert response.status_code == 200, path
         assert '<meta name="robots" content="noindex" />' in response.text, path
@@ -479,7 +502,7 @@ def test_trust_content_pages_have_crawlable_blocks(monkeypatch):
     client, _ = seo_client(monkeypatch)
     cases = {
         "/about": "About Texas Home Outlet",
-        "/financing": "Financing Options at Texas Home Outlet",
+        "/financing": "Manufactured Home Financing in Huffman, TX",
         "/faq": "Frequently Asked Questions",
         "/warranty": "Warranty &amp; Service",
         "/delivery": "Delivery &amp; Setup",
@@ -1081,6 +1104,63 @@ def test_city_floorplan_and_home_pages_have_unique_title_h1_canonical(monkeypatc
     assert "Mobile &amp; Manufactured Homes for Sale in Huffman, TX" not in home_t
 
 
+def test_inventory_hub_heading_differs_from_homepage(monkeypatch):
+    client, _ = seo_client(monkeypatch)
+    home = client.get("/").text
+    inventory = client.get("/inventory").text
+    assert "<h1>Mobile &amp; Manufactured Homes for Sale in Huffman, TX</h1>" in home
+    assert "<h1>Home Inventory — Mobile &amp; Manufactured Homes in Huffman, TX</h1>" in inventory
+    assert "<h1>Mobile &amp; Manufactured Homes for Sale in Huffman, TX</h1>" not in inventory
+    assert "Current manufactured and mobile home inventory" in inventory
+    assert 'href="/plan/223034/skyliner/4732b/"' in home
+    assert 'href="/plan/223034/skyliner/4732b/"' in inventory
+    assert "<title>Manufactured Home Financing in Huffman, TX | Texas Home Outlet</title>" in (
+        client.get("/financing").text
+    )
+
+
+def test_inventory_home_query_redirects_to_the_listing(monkeypatch):
+    client, _ = seo_client(monkeypatch)
+    instock = client.get("/inventory?home=44490&utm_source=share", follow_redirects=False)
+    assert instock.status_code == 301
+    assert instock.headers["location"] == ("/homes/44490-pre-owned-big-blue?utm_source=share")
+    homepage = client.get("/?home=44490", follow_redirects=False)
+    assert homepage.status_code == 301
+    assert homepage.headers["location"] == "/homes/44490-pre-owned-big-blue"
+    plan = client.get("/inventory?home=floorplan-223034", follow_redirects=False)
+    assert plan.status_code == 301
+    assert plan.headers["location"] == "/plan/223034/skyliner/4732b/"
+    unknown = client.get("/inventory?home=not-a-home", follow_redirects=False)
+    assert unknown.status_code == 200
+    assert (
+        "<h1>Home Inventory — Mobile &amp; Manufactured Homes in Huffman, TX</h1>" in unknown.text
+    )
+
+
+def test_listing_photo_alts_use_filename_subjects(monkeypatch):
+    import seo_routes
+
+    home = {
+        **FAKE_HOMES[2],
+        "image_url": "https://img.example.com/lot-44490-ext-1.jpg",
+        "real_photos": [
+            "https://img.example.com/lot-44490-ext-1.jpg",
+            "https://img.example.com/lot-44490-ext-2.jpg",
+            "https://img.example.com/lot-44490-kit-1.jpg",
+        ],
+    }
+    client, _ = seo_client(monkeypatch)
+    monkeypatch.setattr(seo_routes, "_get_homes", lambda: [home])
+    body = client.get("/homes/44490-pre-owned-big-blue").text
+    assert (
+        'alt="PRE-OWNED / Big Blue — exterior photo 1 at Texas Home Outlet in Huffman, TX"' in body
+    )
+    assert "exterior photo 2 at Texas Home Outlet in Huffman, TX" in body
+    assert "kitchen photo 3 at Texas Home Outlet in Huffman, TX" in body
+    assert 'alt="PRE-OWNED / Big Blue"' not in body
+    assert '"offers"' not in body and '"aggregateRating"' not in body
+
+
 def test_home_page_keeps_call_for_price_and_own_photos(monkeypatch):
     client, _ = seo_client(monkeypatch)
     body = client.get("/homes/44490-pre-owned-big-blue").text
@@ -1088,9 +1168,19 @@ def test_home_page_keeps_call_for_price_and_own_photos(monkeypatch):
     assert "https://img.example.com/lot-44490.jpg" in body
     assert "catalog-should-not-appear.jpg" not in body
     assert "Heritage-kitchen-1.jpg" not in body
+    assert 'href="tel:+12813243020">Call (281) 324-3020</a>' in body
+    assert "Text (281) 324-3020" in body
+    assert 'href="/financing">Apply for financing</a>' in body
     og = re.search(r'<meta property="og:image" content="([^"]+)"', body)
     assert og is not None
     assert og.group(1) == "https://img.example.com/lot-44490.jpg"
+    assert (
+        'alt="PRE-OWNED / Big Blue — manufactured home at Texas Home Outlet in Huffman, TX"' in body
+    )
+    assert (
+        'property="og:image:alt" content="PRE-OWNED / Big Blue — manufactured home '
+        'at Texas Home Outlet in Huffman, TX"'
+    ) in body
     products = [
         json.loads(block)
         for block in re.findall(
@@ -1098,8 +1188,8 @@ def test_home_page_keeps_call_for_price_and_own_photos(monkeypatch):
         )
         if '"Product"' in block
     ]
-    assert products
-    assert "offers" not in products[0]
+    # Call-for-Price: no Product markup at all (Google needs offers on Product).
+    assert not products
 
 
 def test_home_page_wrong_slug_301s_and_missing_stock_is_410(monkeypatch):
@@ -1202,6 +1292,7 @@ _NO_INLINE_STYLE_PATHS = (
     "/appointments",
     "/staff",
     "/studio",
+    "/ad-studio",
     "/homes/44490-pre-owned-big-blue",
     "/inventory-detail/43372/texas-home-outlet/huffman/premier/",
 )
@@ -1219,3 +1310,51 @@ def test_served_html_has_no_inline_styles(monkeypatch):
         match = _INLINE_STYLE_RE.search(response.text)
         assert match is None, f"{path} contains inline style markup: {match.group(0)!r}"
         assert "'unsafe-inline'" not in response.headers["content-security-policy"]
+
+
+def test_every_homes_page_product_has_offers(monkeypatch):
+    # Search Console (Oct 11): Product without offers/review/rating is invalid.
+    # Walk every /homes/ URL in the sitemap; any Product block must carry offers.
+    client, _ = seo_client(monkeypatch)
+    sitemap = client.get("/sitemap.xml").text
+    paths = sorted(
+        {
+            loc.split("://", 1)[1].split("/", 1)[1]
+            for loc in re.findall(r"<loc>([^<]+/homes/[^<]+)</loc>", sitemap)
+        }
+    )
+    assert paths, "sitemap should list /homes/ pages"
+    for path in paths:
+        response = client.get("/" + path)
+        assert response.status_code == 200, path
+        for block in _jsonld_blocks(response.text):
+            if block.get("@type") == "Product":
+                assert block.get("offers"), f"/{path} emits Product without offers"
+
+
+def test_priced_home_page_emits_one_product_and_breadcrumb(monkeypatch):
+    # Fixture home 43372 (price_value 129900) is the priced /homes/ page.
+    client, _ = seo_client(monkeypatch)
+    response = client.get("/homes/43372-premier-creole-3256h32447")
+    assert response.status_code == 200
+    blocks = _jsonld_blocks(response.text)
+    products = [block for block in blocks if block.get("@type") == "Product"]
+    assert len(products) == 1
+    offer = products[0]["offers"]
+    assert offer["price"] == "129900"
+    assert offer["priceCurrency"] == "USD"
+    assert any(block.get("@type") == "BreadcrumbList" for block in blocks)
+
+
+def test_comma_formatted_price_value_drops_product(monkeypatch):
+    # A thousands-separator string is not a real Offer price. Do not parse it
+    # into Product markup; omit the snippet the same way Call-for-Price does.
+    import seo_routes
+
+    priced = {**FAKE_HOMES[0], "price_value": "129,900"}
+    client, _ = seo_client(monkeypatch)
+    monkeypatch.setattr(seo_routes, "_get_homes", lambda: [priced, *FAKE_HOMES[1:]])
+    response = client.get("/homes/43372-premier-creole-3256h32447")
+    assert response.status_code == 200
+    products = [block for block in _jsonld_blocks(response.text) if block.get("@type") == "Product"]
+    assert not products

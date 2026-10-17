@@ -2,7 +2,7 @@
 
 ## What this repo does
 
-Texas Home Outlet's live business system. FastAPI + React app serving the public storefront, internal CRM, document generation, marketing studio, and partner API. The `main` workflow builds and verifies a Cloud Run candidate with `--no-traffic --tag=candidate`. Production traffic stays pinned to an explicitly selected revision until an approved promotion.
+Texas Home Outlet's live business system. FastAPI + React app serving the public storefront, internal CRM, document generation, marketing studio, and partner API. The `main` workflow builds and verifies a Cloud Run candidate with `--no-traffic --tag=candidate`. A green Deploy run leaves that candidate at 0% traffic. Production traffic stays pinned to an explicitly selected revision until an approved promotion. The operator steps are `docs/RELEASE-CHECKLIST.md`.
 
 ## Key directories and files
 

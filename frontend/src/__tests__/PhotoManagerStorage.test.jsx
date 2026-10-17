@@ -82,7 +82,7 @@ describe('Photo Manager storage safety', () => {
     fireEvent.change(input, { target: { files } });
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
-      /1 photo was confirmed, then durable storage became unavailable/i,
+      /1 photo was saved, then the photo safe got busy/i,
     );
     expect(screen.getByRole('alert')).toHaveTextContent(/rear\.png/i);
     expect(screen.getByRole('alert')).toHaveTextContent(/side\.png/i);
@@ -119,7 +119,7 @@ describe('Photo Manager storage safety', () => {
       new File(['second'], 'side.png', { type: 'image/png' }),
     ] } });
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(/durable photo storage/i);
+    expect(await screen.findByRole('alert')).toHaveTextContent(/photo safe is busy/i);
     expect(screen.getByRole('alert')).toHaveTextContent(/front\.png/i);
     expect(screen.getByRole('alert')).toHaveTextContent(/side\.png/i);
   });

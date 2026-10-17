@@ -13,7 +13,7 @@ if str(REPO_ROOT) not in sys.path:
 from tests.test_api_v1 import create_client  # noqa: E402
 
 
-def test_draft_and_live_publish_routes_are_separate(monkeypatch):
+def test_direct_social_publish_routes_are_not_registered(monkeypatch):
     _client, main, _db, _logger = create_client(monkeypatch)
     methods_by_path = {
         route.path: set(getattr(route, "methods", None) or ())
@@ -21,7 +21,7 @@ def test_draft_and_live_publish_routes_are_separate(monkeypatch):
         if getattr(route, "path", None)
     }
 
-    assert "POST" in methods_by_path["/api/marketing/publish"]
+    assert "/api/marketing/publish" not in methods_by_path
     assert "/api/marketing/social-readiness" not in methods_by_path
     assert "POST" in methods_by_path["/api/marketing/schedule"]
 

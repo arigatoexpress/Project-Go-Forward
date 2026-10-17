@@ -1,20 +1,21 @@
-"""Tests for two endpoints with zero prior coverage.
+"""Tests for the secure document download endpoint.
 
-Targets flagged by the Python-3.12 honest coverage re-measurement (see
+Target flagged by the Python-3.12 honest coverage re-measurement (see
 docs/MAIN_COVERAGE_INVESTIGATION.md):
 
-- ``POST /api/marketing/publish``                    — Ad Studio live social publish
 - ``GET /api/v1/customer/deal/{id}/download/{note}`` — signed URL minting for
   secure closing documents (phone-last-4 verified)
 
-Marketing-publish dependencies (``social_publish_readiness``,
-``publish_video_asset``, ``publish_social_post``) are monkeypatched on the
-``main`` module globals. ``google.cloud.storage`` is stubbed in both
-``sys.modules`` and as an attribute of the already-imported ``google.cloud``
-package (``from google.cloud import storage`` resolves the package attribute
-first, so a sys.modules-only stub is shadowed — same ordering trap as
-``tools.image_storage``). Firestore is the shared in-memory fake; audit
-helpers are no-op-patched (emulator absent; covered elsewhere).
+Note: ``POST /api/marketing/publish`` was removed from this file — main went
+draft-only via PR #317 and the live-publish endpoint no longer exists. The
+draft-only contract is pinned by tests/test_social_safety_surface.py.
+
+``google.cloud.storage`` is stubbed in both ``sys.modules`` and as an attribute
+of the already-imported ``google.cloud`` package (``from google.cloud import
+storage`` resolves the package attribute first, so a sys.modules-only stub is
+shadowed — same ordering trap as ``tools.image_storage``). Firestore is the
+shared in-memory fake; audit helpers are no-op-patched (emulator absent;
+covered elsewhere).
 
 Run: python -m pytest tests/test_marketing_publish_doc_download.py -v
 """
@@ -35,246 +36,6 @@ from test_api_v1 import create_client  # noqa: E402
 
 def _admin_headers(main) -> dict:
     return {"X-Admin-Token": main._create_admin_token()}
-
-
-# ─── POST /api/marketing/publish ──────────────────────────────────────────
-
-
-def _patch_publish_deps(monkeypatch, main, calls: dict, **overrides):
-    """Replace the live-publish toolchain with recorders/overrides."""
-
-    def social_publish_readiness(platform):
-        calls.setdefault("readiness", []).append(platform)
-        return overrides.get(
-            "readiness",
-            {"configured": True, "publish_enabled": True},
-        )
-
-    def publish_video_asset(filename):
-        calls.setdefault("assets", []).append(filename)
-        return overrides.get(
-            "asset",
-            {"success": True, "public_url": "https://cdn.example.com/video.mp4"},
-        )
-
-    def publish_social_post(platform, asset_url, caption, hashtags):
-        calls.setdefault("posts", []).append(
-            {"platform": platform, "asset_url": asset_url, "caption": caption, "hashtags": hashtags}
-        )
-        return overrides.get(
-            "post",
-            {"success": True, "post_id": "tt-123", "platform": platform},
-        )
-
-    monkeypatch.setattr(main, "social_publish_readiness", social_publish_readiness)
-    monkeypatch.setattr(main, "publish_video_asset", publish_video_asset)
-    monkeypatch.setattr(main, "publish_social_post", publish_social_post)
-
-
-class TestApiMarketingPublish:
-    def test_success_publishes_configured_platform(self, monkeypatch):
-        client, main, _db, _logger = create_client(monkeypatch)
-        monkeypatch.setattr(main, "log_admin_action", lambda **kwargs: None)
-        monkeypatch.setattr(main, "log_user_action", lambda **kwargs: None)
-        calls: dict = {}
-        _patch_publish_deps(monkeypatch, main, calls)
-
-        resp = client.post(
-            "/api/marketing/publish",
-            json={
-                "platform": "tiktok",
-                "filename": "video.mp4",
-                "caption": "Tour this home!",
-                "hashtags": ["#texas", "#mobilehomes"],
-            },
-            headers=_admin_headers(main),
-        )
-
-        assert resp.status_code == 200
-        body = resp.json()
-        assert body["success"] is True
-        assert body["post_id"] == "tt-123"
-        assert calls["readiness"] == ["tiktok"]
-        assert calls["assets"] == ["video.mp4"]
-        assert calls["posts"] == [
-            {
-                "platform": "tiktok",
-                "asset_url": "https://cdn.example.com/video.mp4",
-                "caption": "Tour this home!",
-                "hashtags": ["#texas", "#mobilehomes"],
-            }
-        ]
-
-    def test_rejects_non_object_body(self, monkeypatch):
-        client, main, _db, _logger = create_client(monkeypatch)
-        calls: dict = {}
-        _patch_publish_deps(monkeypatch, main, calls)
-
-        resp = client.post(
-            "/api/marketing/publish",
-            json=["not", "an", "object"],
-            headers=_admin_headers(main),
-        )
-
-        assert resp.status_code == 400
-        assert resp.json()["error_code"] == "invalid_request"
-        assert calls == {}  # rejected before touching the toolchain
-
-    def test_rejects_unsupported_platform(self, monkeypatch):
-        client, main, _db, _logger = create_client(monkeypatch)
-        calls: dict = {}
-        _patch_publish_deps(monkeypatch, main, calls)
-
-        resp = client.post(
-            "/api/marketing/publish",
-            json={"platform": "facebook", "filename": "video.mp4"},
-            headers=_admin_headers(main),
-        )
-
-        assert resp.status_code == 400
-        assert resp.json()["error_code"] == "unsupported_platform"
-
-    def test_platform_not_configured_returns_503(self, monkeypatch):
-        client, main, _db, _logger = create_client(monkeypatch)
-        calls: dict = {}
-        _patch_publish_deps(
-            monkeypatch, main, calls, readiness={"configured": False, "publish_enabled": False}
-        )
-
-        resp = client.post(
-            "/api/marketing/publish",
-            json={"platform": "tiktok", "filename": "video.mp4"},
-            headers=_admin_headers(main),
-        )
-
-        assert resp.status_code == 503
-        assert resp.json()["error_code"] == "platform_not_configured"
-
-    def test_publishing_disabled_returns_503(self, monkeypatch):
-        client, main, _db, _logger = create_client(monkeypatch)
-        calls: dict = {}
-        _patch_publish_deps(
-            monkeypatch, main, calls, readiness={"configured": True, "publish_enabled": False}
-        )
-
-        resp = client.post(
-            "/api/marketing/publish",
-            json={"platform": "instagram_reels", "filename": "video.mp4"},
-            headers=_admin_headers(main),
-        )
-
-        assert resp.status_code == 503
-        assert resp.json()["error_code"] == "publishing_disabled"
-
-    def test_missing_video_rejected(self, monkeypatch):
-        client, main, _db, _logger = create_client(monkeypatch)
-        calls: dict = {}
-        _patch_publish_deps(monkeypatch, main, calls)
-
-        resp = client.post(
-            "/api/marketing/publish",
-            json={"platform": "tiktok", "caption": "hi"},
-            headers=_admin_headers(main),
-        )
-
-        assert resp.status_code == 400
-        assert resp.json()["error_code"] == "missing_video"
-
-    def test_invalid_caption_or_hashtags_rejected(self, monkeypatch):
-        client, main, _db, _logger = create_client(monkeypatch)
-        calls: dict = {}
-        _patch_publish_deps(monkeypatch, main, calls)
-
-        resp = client.post(
-            "/api/marketing/publish",
-            json={"platform": "tiktok", "filename": "v.mp4", "caption": 7, "hashtags": ["ok"]},
-            headers=_admin_headers(main),
-        )
-
-        assert resp.status_code == 400
-        assert resp.json()["error_code"] == "invalid_content"
-
-    def test_unknown_local_video_returns_404(self, monkeypatch):
-        client, main, _db, _logger = create_client(monkeypatch)
-        calls: dict = {}
-        _patch_publish_deps(
-            monkeypatch, main, calls, asset={"success": False, "error_code": "local_file_not_found"}
-        )
-
-        resp = client.post(
-            "/api/marketing/publish",
-            json={"platform": "tiktok", "filename": "ghost.mp4"},
-            headers=_admin_headers(main),
-        )
-
-        assert resp.status_code == 404
-        assert resp.json()["error_code"] == "video_not_found"
-
-    def test_asset_preparation_failure_returns_503(self, monkeypatch):
-        client, main, _db, _logger = create_client(monkeypatch)
-        calls: dict = {}
-        _patch_publish_deps(
-            monkeypatch, main, calls, asset={"success": False, "error_code": "gcs_unreachable"}
-        )
-
-        resp = client.post(
-            "/api/marketing/publish",
-            json={"platform": "tiktok", "filename": "video.mp4"},
-            headers=_admin_headers(main),
-        )
-
-        assert resp.status_code == 503
-        assert resp.json()["error_code"] == "asset_publish_failed"
-
-    def test_social_platform_failure_returns_502(self, monkeypatch):
-        client, main, _db, _logger = create_client(monkeypatch)
-        calls: dict = {}
-        _patch_publish_deps(
-            monkeypatch, main, calls, post={"success": False, "error": "token expired"}
-        )
-
-        resp = client.post(
-            "/api/marketing/publish",
-            json={"platform": "tiktok", "filename": "video.mp4"},
-            headers=_admin_headers(main),
-        )
-
-        assert resp.status_code == 502
-        assert resp.json()["error_code"] == "social_publish_failed"
-
-    def test_invalid_json_body_returns_400(self, monkeypatch):
-        client, main, _db, _logger = create_client(monkeypatch)
-        calls: dict = {}
-        _patch_publish_deps(monkeypatch, main, calls)
-
-        resp = client.post(
-            "/api/marketing/publish",
-            content="{not json",
-            headers={**_admin_headers(main), "Content-Type": "application/json"},
-        )
-
-        assert resp.status_code == 400
-        assert resp.json()["error_code"] == "invalid_json"
-
-    def test_unexpected_error_returns_500(self, monkeypatch):
-        client, main, _db, _logger = create_client(monkeypatch)
-        monkeypatch.setattr(main, "log_admin_action", lambda **kwargs: None)
-
-        def _boom(**kwargs):
-            raise RuntimeError("unforeseen")
-
-        monkeypatch.setattr(main, "social_publish_readiness", _boom)
-        monkeypatch.setattr(main, "publish_video_asset", lambda filename: {"success": True})
-        monkeypatch.setattr(main, "publish_social_post", lambda **kwargs: {"success": True})
-
-        resp = client.post(
-            "/api/marketing/publish",
-            json={"platform": "tiktok", "filename": "video.mp4"},
-            headers=_admin_headers(main),
-        )
-
-        assert resp.status_code == 500
-        assert resp.json()["error_code"] == "publish_failed"
 
 
 # ─── GET /api/v1/customer/deal/{deal_id}/download/{note_id} ───────────────

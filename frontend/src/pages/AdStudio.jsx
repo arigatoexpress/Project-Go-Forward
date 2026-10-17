@@ -11,7 +11,29 @@ import {
 } from 'lucide-react';
 import adminFetch from '../adminFetch';
 import GoogleAdsStatusCard from '../components/ad-studio/GoogleAdsStatusCard';
-import { describeFetchError, extractErrorMessage, safeUserMessage } from '../utils/apiError';
+import {
+    AI_MEDIA_UNAVAILABLE,
+    CLIP_CONFIRM,
+    IMAGE_CONFIRM,
+    VOICE_CONFIRM,
+    VOICES_EMPTY,
+    VOICES_UNAVAILABLE,
+    draftCardCopy,
+    plainQualityIssue,
+    plainRecommendation,
+    platformLabel,
+    qualityScoreLabel,
+    readinessItemLabel,
+    readinessMetric,
+    themeLabel,
+} from '../components/ad-studio/adStudioStaffCopy';
+import {
+    describeFetchError,
+    extractErrorMessage,
+    NETWORK_ERROR_MESSAGE,
+    OFFLINE_ERROR_MESSAGE,
+    safeUserMessage,
+} from '../utils/apiError';
 import './AdStudio.css';
 
 /* ─────────────────── constants ─────────────────── */
@@ -61,13 +83,13 @@ const TABS = [
     { id: 'ideas', label: 'Content Ideas', icon: <TrendingUp size={18} /> },
     { id: 'scheduled', label: 'Drafts', icon: <Calendar size={18} /> },
     { id: 'analytics', label: 'Analytics', icon: <BarChart3 size={18} /> },
-    { id: 'paid-search', label: 'Paid Search', icon: <Search size={18} /> }
+    { id: 'paid-search', label: 'Google Ads', icon: <Search size={18} /> }
 ];
 
 const AVATARS = [
     { id: 'tex_classic', name: 'Classic Tex', icon: '🤠', description: 'Friendly & Traditional' },
     { id: 'tex_modern', name: 'Modern Tex', icon: '✨', description: 'Sleek & Professional' },
-    { id: 'tex_custom', name: 'Custom Avatar', icon: '🎨', description: 'Prompt your own style' }
+    { id: 'tex_custom', name: 'Custom look', icon: '🎨', description: 'Describe the look' }
 ];
 
 const LANGUAGES = [
@@ -85,14 +107,23 @@ const IMAGE_STYLES = [
 ];
 
 const INVENTORY_PICKER_LIMIT = 40;
+const DRAFT_NOT_SAVED = "The draft wasn't saved. Please try again.";
 
 /* ─────────────────── API helpers ─────────────────── */
-export async function readJsonOrThrow(resp, fallbackMessage) {
+async function readJsonOrThrow(resp, fallbackMessage) {
     const data = await resp.json().catch(() => ({}));
-    if (!resp.ok || data?.success === false || data?.error) {
+    if (!resp.ok) {
         throw new Error(safeUserMessage(extractErrorMessage(data), fallbackMessage));
     }
     return data;
+}
+
+function staffDraftFailureMessage(err) {
+    const described = describeFetchError(err, 'save the draft');
+    if (described === NETWORK_ERROR_MESSAGE || described === OFFLINE_ERROR_MESSAGE) {
+        return described;
+    }
+    return DRAFT_NOT_SAVED;
 }
 
 async function apiGenerateScript(params) {
@@ -101,12 +132,12 @@ async function apiGenerateScript(params) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(params)
     });
-    return readJsonOrThrow(resp, 'Script generation failed');
+    return readJsonOrThrow(resp, 'The script was not written. Nothing was posted. Please try again.');
 }
 
 async function apiGetIdeas() {
     const resp = await adminFetch('/api/marketing/trending-ideas');
-    return readJsonOrThrow(resp, 'Failed to load ideas');
+    return readJsonOrThrow(resp, 'Content ideas did not load. Please try again.');
 }
 
 async function apiPrepareDraft(params) {
@@ -115,31 +146,28 @@ async function apiPrepareDraft(params) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(params)
     });
-    return readJsonOrThrow(resp, 'Draft preparation failed');
-}
-
-async function apiPublishPost(params) {
-    const resp = await adminFetch('/api/marketing/publish', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(params)
-    });
-    return readJsonOrThrow(resp, 'Publish failed');
+    const data = await readJsonOrThrow(resp, DRAFT_NOT_SAVED);
+    // Schedule is the one Ad Studio call that must not treat an error envelope
+    // as a saved draft. Script, ideas, and analytics still return `error` on HTTP 200.
+    if (data?.error || data?.success === false) {
+        throw new Error(DRAFT_NOT_SAVED);
+    }
+    return data;
 }
 
 async function apiGetAnalytics() {
     const resp = await adminFetch('/api/marketing/analytics');
-    return readJsonOrThrow(resp, 'Analytics load failed');
+    return readJsonOrThrow(resp, 'Performance numbers did not load. Please try again.');
 }
 
 async function apiGetGcpReadiness() {
     const resp = await adminFetch('/api/marketing/gcp-readiness');
-    return readJsonOrThrow(resp, 'GCP readiness load failed');
+    return readJsonOrThrow(resp, 'We could not check AI pictures and video. You can still write a script.');
 }
 
 async function apiGetInventory() {
-    const resp = await adminFetch('/api/marketing/inventory-context');
-    return readJsonOrThrow(resp, 'Failed to load inventory');
+    const resp = await adminFetch('/api/marketing/inventory-context', { cache: 'no-cache' });
+    return readJsonOrThrow(resp, 'Homes did not load. Please try again.');
 }
 
 async function apiGenerateImage(params) {
@@ -148,7 +176,7 @@ async function apiGenerateImage(params) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(params)
     });
-    return readJsonOrThrow(resp, 'Image generation failed');
+    return readJsonOrThrow(resp, 'The picture was not created. Nothing was posted. Try again.');
 }
 
 async function apiGenerateFlyer(params) {
@@ -157,7 +185,7 @@ async function apiGenerateFlyer(params) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(params)
     });
-    return readJsonOrThrow(resp, 'Flyer generation failed');
+    return readJsonOrThrow(resp, 'The flyer was not created. Nothing was posted. Try again.');
 }
 
 async function apiGenerateVideo(params) {
@@ -166,7 +194,7 @@ async function apiGenerateVideo(params) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(params)
     });
-    return readJsonOrThrow(resp, 'Video generation failed');
+    return readJsonOrThrow(resp, 'The slideshow was not created. Nothing was posted. Try again.');
 }
 
 async function apiGenerateGenAIClip(params) {
@@ -175,7 +203,7 @@ async function apiGenerateGenAIClip(params) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(params)
     });
-    return readJsonOrThrow(resp, 'GenAI clip generation failed');
+    return readJsonOrThrow(resp, 'The AI video was not created. Nothing was posted. Try again.');
 }
 
 async function apiGenerateVoiceover(params) {
@@ -184,18 +212,23 @@ async function apiGenerateVoiceover(params) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(params)
     });
-    return readJsonOrThrow(resp, 'Voiceover generation failed');
+    return readJsonOrThrow(resp, 'The spoken version was not created. Nothing was posted. Try again.');
 }
 
 async function apiGetVoices() {
     const resp = await adminFetch('/api/marketing/voiceover-voices');
-    return readJsonOrThrow(resp, 'Failed to load voices');
+    return readJsonOrThrow(resp, 'Spoken voices did not load. You can still copy the script.');
 }
 
 /* ─────────────────── Component ─────────────────── */
-export default function AdStudio({ onBack }) {
-    // Tabs
-    const [activeTab, setActiveTab] = useState('create');
+export default function AdStudio({ onBack, initialTab = 'create' }) {
+    // Tabs. /ad-studio opens Google Ads; the social studio stays on Create.
+    const [activeTab, setActiveTab] = useState(
+        TABS.some(tab => tab.id === initialTab) ? initialTab : 'create',
+    );
+    useEffect(() => {
+        if (initialTab === 'paid-search') setActiveTab('paid-search');
+    }, [initialTab]);
 
     // Create tab state
     const [platform, setPlatform] = useState('tiktok');
@@ -245,7 +278,10 @@ export default function AdStudio({ onBack }) {
 
     // Voiceover generation
     const [voices, setVoices] = useState([]);
+    const [voicesStatus, setVoicesStatus] = useState('loading');
     const [selectedVoice, setSelectedVoice] = useState('en-US-Neural2-D');
+    const [copyNotice, setCopyNotice] = useState('');
+    const [videoErrorAction, setVideoErrorAction] = useState(null);
     const [generatingVoiceover, setGeneratingVoiceover] = useState(false);
     const [voiceover, setVoiceover] = useState(null);
     const [voiceoverError, setVoiceoverError] = useState(null);
@@ -267,9 +303,7 @@ export default function AdStudio({ onBack }) {
     // Drafts tab
     const [preparedDrafts, setPreparedDrafts] = useState([]);
     const [preparingDraft, setPreparingDraft] = useState(false);
-    const [publishing, setPublishing] = useState(false);
-    const [postActionError, setPostActionError] = useState(null);
-    const [publicationReceipt, setPublicationReceipt] = useState(null);
+    const [draftError, setDraftError] = useState(null);
     const [matterportCopied, setMatterportCopied] = useState(false);
 
     // Analytics tab
@@ -346,9 +380,8 @@ export default function AdStudio({ onBack }) {
     /* ─── handlers ─── */
     const handleGenerate = async () => {
         setGenerating(true);
-        setPublicationReceipt(null);
-        setPostActionError(null);
         setScript(null);
+        setDraftError(null);
         setShowPreview(false);
         setActiveVariation(0);
         setGeneratedImages([]);
@@ -367,7 +400,7 @@ export default function AdStudio({ onBack }) {
                 variations
             });
             if (result.error || result.success === false) {
-                setScript({ error: safeUserMessage(extractErrorMessage(result), 'Script generation failed. Please try again.') });
+                setScript({ error: safeUserMessage(extractErrorMessage(result), 'The script was not written. Nothing was posted. Please try again.') });
             } else {
                 setScript(result);
                 setShowPreview(true);
@@ -391,28 +424,40 @@ export default function AdStudio({ onBack }) {
                 }
             }
         } catch (err) {
-            setScript({ error: safeUserMessage(err?.message, describeFetchError(err, 'generate the script')) });
+            setScript({ error: safeUserMessage(err?.message, 'The script was not written. Nothing was posted. Please try again.') });
         } finally {
             setGenerating(false);
         }
     };
 
-    const handleCopyScript = () => {
+    const handleCopyScript = async () => {
         const s = getCurrentScript();
         if (!s) return;
         const text = `${s.hook}\n\n${s.body}\n\n${s.cta}\n\n${(script?.hashtags || []).join(' ')}`;
-        navigator.clipboard.writeText(text);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
+        try {
+            await navigator.clipboard.writeText(text);
+            setCopyNotice('');
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+        } catch {
+            setCopied(false);
+            setCopyNotice('The script was not copied. Select the text and copy it yourself.');
+        }
     };
 
     const handleLoadIdeas = useCallback(async () => {
         setLoadingIdeas(true);
         try {
             const result = await apiGetIdeas();
+            if (result?.error || result?.success === false) {
+                setIdeas({
+                    error: safeUserMessage(extractErrorMessage(result), 'Content ideas did not load. Please try again.'),
+                });
+                return;
+            }
             setIdeas(result);
         } catch (err) {
-            setIdeas({ error: safeUserMessage(err?.message, describeFetchError(err, 'load content ideas')) });
+            setIdeas({ error: safeUserMessage(err?.message, 'Content ideas did not load. Please try again.') });
         } finally {
             setLoadingIdeas(false);
         }
@@ -421,7 +466,7 @@ export default function AdStudio({ onBack }) {
     const handlePrepareDraft = async () => {
         if (!script) return false;
         setPreparingDraft(true);
-        setPostActionError(null);
+        setDraftError(null);
         try {
             const result = await apiPrepareDraft({
                 platform: script.platform,
@@ -434,37 +479,10 @@ export default function AdStudio({ onBack }) {
             setPreparedDrafts(prev => [result, ...prev]);
             return true;
         } catch (err) {
-            setPostActionError(safeUserMessage(err?.message, describeFetchError(err, 'prepare the draft')));
+            setDraftError(staffDraftFailureMessage(err));
             return false;
         } finally {
             setPreparingDraft(false);
-        }
-    };
-
-    const handlePublish = async () => {
-        if (!script) return false;
-        const platformName = PLATFORMS.find(item => item.id === platform)?.name || platform;
-        if (!window.confirm(`Publish this video live to ${platformName} now?`)) return false;
-
-        setPublishing(true);
-        setPostActionError(null);
-        setPublicationReceipt(null);
-        try {
-            const result = await apiPublishPost({
-                platform,
-                filename: generatedGenAIClip?.filename || generatedVideo?.filename,
-                caption: getCurrentScript()?.cta,
-                hashtags: script.hashtags,
-                home_name: homeName,
-                campaign: script.campaign
-            });
-            setPublicationReceipt({ platformName, postId: result.post_id });
-            return true;
-        } catch (err) {
-            setPostActionError(safeUserMessage(err?.message, describeFetchError(err, 'publish the post')));
-            return false;
-        } finally {
-            setPublishing(false);
         }
     };
 
@@ -472,9 +490,15 @@ export default function AdStudio({ onBack }) {
         setLoadingAnalytics(true);
         try {
             const result = await apiGetAnalytics();
+            if (result?.error || result?.success === false) {
+                setAnalytics({
+                    error: safeUserMessage(extractErrorMessage(result), 'Performance numbers did not load. Please try again.'),
+                });
+                return;
+            }
             setAnalytics(result);
         } catch (err) {
-            setAnalytics({ error: safeUserMessage(err?.message, describeFetchError(err, 'load analytics')) });
+            setAnalytics({ error: safeUserMessage(err?.message, 'Performance numbers did not load. Please try again.') });
         } finally {
             setLoadingAnalytics(false);
         }
@@ -485,8 +509,8 @@ export default function AdStudio({ onBack }) {
         try {
             const gcp = await apiGetGcpReadiness();
             setAiReadiness(gcp);
-        } catch (err) {
-            setReadinessError(safeUserMessage(err?.message, describeFetchError(err, 'load GCP AI readiness')));
+        } catch {
+            setReadinessError('We could not check AI pictures and video. You can still write a script.');
         }
     }, []);
 
@@ -500,10 +524,10 @@ export default function AdStudio({ onBack }) {
                 setInventoryQuery('');
                 setShowInventoryPicker(true);
             } else {
-                setInventoryError(safeUserMessage(extractErrorMessage(result), 'Inventory did not return any homes.'));
+                setInventoryError(safeUserMessage(extractErrorMessage(result), 'No homes came back. Try Browse Inventory again.'));
             }
         } catch (err) {
-            setInventoryError(safeUserMessage(err?.message, describeFetchError(err, 'load inventory')));
+            setInventoryError(safeUserMessage(err?.message, 'Homes did not load. Please try again.'));
         } finally {
             setLoadingInventory(false);
         }
@@ -527,6 +551,7 @@ export default function AdStudio({ onBack }) {
 
     const handleGenerateImage = async () => {
         if (!imagePrompt.trim()) return;
+        if (!globalThis.confirm(IMAGE_CONFIRM)) return;
         setGeneratingImage(true);
         setImageError(null);
         try {
@@ -539,10 +564,10 @@ export default function AdStudio({ onBack }) {
             if (result.success) {
                 setGeneratedImages(prev => [result, ...prev]);
             } else {
-                setImageError(safeUserMessage(extractErrorMessage(result), 'Image generation failed. Try a different prompt.'));
+                setImageError(safeUserMessage(extractErrorMessage(result), 'The picture was not created. Nothing was posted. Try a different description.'));
             }
         } catch (err) {
-            setImageError(safeUserMessage(err?.message, describeFetchError(err, 'generate the image')));
+            setImageError(safeUserMessage(err?.message, 'The picture was not created. Nothing was posted. Try again.'));
         } finally {
             setGeneratingImage(false);
         }
@@ -558,7 +583,7 @@ export default function AdStudio({ onBack }) {
     const handleGenerateFlyer = async () => {
         const s = getCurrentScript();
         if (!s && !homeName) {
-            setFlyerError('Generate a script or select a home first.');
+            setFlyerError('Write a script or pick a home first. Nothing was posted.');
             return;
         }
         const cleanBody = (s?.body || '')
@@ -584,10 +609,10 @@ export default function AdStudio({ onBack }) {
             if (result.success) {
                 setGeneratedFlyers(prev => [result, ...prev]);
             } else {
-                setFlyerError(safeUserMessage(extractErrorMessage(result), 'Flyer generation failed'));
+                setFlyerError(safeUserMessage(extractErrorMessage(result), 'The flyer was not created. Nothing was posted. Try again.'));
             }
         } catch (err) {
-            setFlyerError(safeUserMessage(err?.message, describeFetchError(err, 'generate the flyer')));
+            setFlyerError(safeUserMessage(err?.message, 'The flyer was not created. Nothing was posted. Try again.'));
         } finally {
             setGeneratingFlyer(false);
         }
@@ -595,13 +620,19 @@ export default function AdStudio({ onBack }) {
 
     // Voiceover handlers
     const handleLoadVoices = useCallback(async () => {
+        setVoicesStatus('loading');
         try {
             const result = await apiGetVoices();
-            if (result.success) {
-                setVoices(result.voices);
+            if (result?.error || result?.success === false || !Array.isArray(result?.voices)) {
+                setVoices([]);
+                setVoicesStatus('unavailable');
+                return;
             }
-        } catch (err) {
-            console.error('Failed to load voices:', err);
+            setVoices(result.voices);
+            setVoicesStatus('ready');
+        } catch {
+            setVoices([]);
+            setVoicesStatus('unavailable');
         }
     }, []);
 
@@ -610,6 +641,7 @@ export default function AdStudio({ onBack }) {
         if (!s) return;
         
         const fullScript = `${s.hook}\n\n${s.body}\n\n${s.cta}`;
+        if (!globalThis.confirm(VOICE_CONFIRM)) return;
         setGeneratingVoiceover(true);
         setVoiceoverError(null);
         
@@ -630,10 +662,10 @@ export default function AdStudio({ onBack }) {
                     }
                 }, 100);
             } else {
-                setVoiceoverError(safeUserMessage(extractErrorMessage(result), 'Voiceover generation failed'));
+                setVoiceoverError(safeUserMessage(extractErrorMessage(result), 'The spoken version was not created. Nothing was posted. Try again.'));
             }
         } catch (err) {
-            setVoiceoverError(safeUserMessage(err?.message, describeFetchError(err, 'generate the voiceover')));
+            setVoiceoverError(safeUserMessage(err?.message, 'The spoken version was not created. Nothing was posted. Try again.'));
         } finally {
             setGeneratingVoiceover(false);
         }
@@ -659,7 +691,8 @@ export default function AdStudio({ onBack }) {
 
     const handleGenerateVideo = async () => {
         if (!voiceover?.audio_base64 || !availableRealPhotos.length) {
-            setVideoError('Need voiceover and photos to generate video');
+            setVideoErrorAction('slideshow');
+            setVideoError('Make the spoken audio and pick a home with photos first.');
             return;
         }
         
@@ -668,6 +701,7 @@ export default function AdStudio({ onBack }) {
         
         setGeneratingVideo(true);
         setVideoError(null);
+        setVideoErrorAction('slideshow');
         setGeneratedVideo(null);
         
         try {
@@ -683,10 +717,10 @@ export default function AdStudio({ onBack }) {
             if (result.success) {
                 setGeneratedVideo(result);
             } else {
-                setVideoError(safeUserMessage(extractErrorMessage(result), 'Video generation failed'));
+                setVideoError(safeUserMessage(extractErrorMessage(result), 'The slideshow was not created. Nothing was posted. Try again.'));
             }
         } catch (err) {
-            setVideoError(safeUserMessage(err?.message, describeFetchError(err, 'generate the video')));
+            setVideoError(safeUserMessage(err?.message, 'The slideshow was not created. Nothing was posted. Try again.'));
         } finally {
             setGeneratingVideo(false);
         }
@@ -699,10 +733,17 @@ export default function AdStudio({ onBack }) {
             .replace(/\(\d+:\d+[^)]*\)/g, '')
             .replace(/\s+/g, ' ')
             .trim();
+        if (aiReadiness && !aiReadiness.ready) {
+            setVideoErrorAction('clip');
+            setVideoError(AI_MEDIA_UNAVAILABLE);
+            return;
+        }
+        if (!globalThis.confirm(CLIP_CONFIRM)) return;
         const prompt = imagePrompt || cleanBody || s?.hook || `Create a social home-tour clip for ${homeName || 'Texas Home Outlet'}`;
         const selectedRealPhoto = selectedPhotoUrl || availableRealPhotos[0] || '';
         setGeneratingGenAIClip(true);
         setVideoError(null);
+        setVideoErrorAction('clip');
         setGeneratedGenAIClip(null);
         try {
             const result = await apiGenerateGenAIClip({
@@ -718,10 +759,10 @@ export default function AdStudio({ onBack }) {
             if (result.success) {
                 setGeneratedGenAIClip(result);
             } else {
-                setVideoError(safeUserMessage(extractErrorMessage(result), 'GenAI clip generation failed'));
+                setVideoError(safeUserMessage(extractErrorMessage(result), 'The AI video was not created. Nothing was posted. Try again.'));
             }
         } catch (err) {
-            setVideoError(safeUserMessage(err?.message, describeFetchError(err, 'generate the AI clip')));
+            setVideoError(safeUserMessage(err?.message, 'The AI video was not created. Nothing was posted. Try again.'));
         } finally {
             setGeneratingGenAIClip(false);
         }
@@ -755,8 +796,6 @@ export default function AdStudio({ onBack }) {
     /* ─── render helpers ─── */
     const selectedPlatform = PLATFORMS.find(p => p.id === platform);
     const currentScript = getCurrentScript();
-    const livePublishSupported = platform === 'tiktok' || platform === 'instagram_reels';
-    const publishFilename = generatedGenAIClip?.filename || generatedVideo?.filename;
 
     const renderPreview = () => (
         <div className="tho-preview-layer animate-in fade-in zoom-in duration-300">
@@ -844,7 +883,7 @@ export default function AdStudio({ onBack }) {
 
                             {/* Script Overlay */}
                             <div className="tho-preview-text-overlay">
-                                <div className="tho-hook-badge">HOOK</div>
+                                <div className="tho-hook-badge">Opening</div>
                                 <p className="tho-preview-hook">{currentScript?.hook}</p>
                                 <div className="tho-body-scroll">
                                     <p className="tho-preview-body-text">{currentScript?.body}</p>
@@ -889,7 +928,7 @@ export default function AdStudio({ onBack }) {
                             {generatingFlyer ? (
                                 <><Loader2 size={14} className="spin" /> Creating Flyer...</>
                             ) : (
-                                <><Download size={14} /> Generate Downloadable Flyer</>
+                                <><Download size={14} /> Make a flyer to download</>
                             )}
                         </button>
                         {flyerError && (
@@ -930,7 +969,7 @@ export default function AdStudio({ onBack }) {
                     {/* Image Generation Section */}
                     <div className="tho-ai-feedback-box mt-4" style={{borderTop: '1px solid #374151', paddingTop: '1rem'}}>
                         <h4><Image size={16} /> Generate Ad Image</h4>
-                        <p className="text-xs text-gray-500 mb-2">Create a visual for your ad with AI (Imagen)</p>
+                        <p className="text-xs text-gray-500 mb-2">Create a picture for this ad. It stays on this screen until you download it. It is not posted.</p>
 
                         {/* Image style selector */}
                         <div className="tho-image-styles">
@@ -1019,15 +1058,20 @@ export default function AdStudio({ onBack }) {
 
                     {/* Voiceover Generation Section */}
                     <div className="tho-ai-feedback-box mt-4" style={{borderTop: '1px solid #374151', paddingTop: '1rem'}}>
-                        <h4><Volume2 size={16} /> Generate Voiceover</h4>
-                        <p className="text-xs text-gray-500 mb-2">Create AI voiceover audio from your script (Google Cloud TTS)</p>
+                        <h4><Volume2 size={16} /> Spoken version</h4>
+                        <p className="text-xs text-gray-500 mb-2">Turn the script into spoken audio. It stays on this screen. It is not posted.</p>
                         
                         {/* Voice selector - grouped by tier */}
-                        {voices.length === 0 ? (
-                            <div className="tho-readiness-note">
-                                No voiceover voices are available right now. Check your Google Cloud TTS configuration and retry.
-                            </div>
-                        ) : (
+                        {voicesStatus === 'loading' && (
+                            <div className="tho-readiness-note" role="status">Loading voices…</div>
+                        )}
+                        {voicesStatus === 'unavailable' && (
+                            <div className="tho-readiness-note" role="alert">{VOICES_UNAVAILABLE}</div>
+                        )}
+                        {voicesStatus === 'ready' && voices.length === 0 && (
+                            <div className="tho-readiness-note" role="status">{VOICES_EMPTY}</div>
+                        )}
+                        {voices.length > 0 && (
                             <div className="tho-voice-selector">
                                 <span className="text-xs text-gray-500">Voice:</span>
                                 <select
@@ -1057,7 +1101,7 @@ export default function AdStudio({ onBack }) {
                             {generatingVoiceover ? (
                                 <><Loader2 size={14} className="spin" /> Generating Voice...</>
                             ) : (
-                                <><Volume2 size={14} /> Generate Voiceover</>
+                                <><Volume2 size={14} /> Make the spoken version</>
                             )}
                         </button>
                         
@@ -1088,7 +1132,9 @@ export default function AdStudio({ onBack }) {
                                         {isPlaying ? <Pause size={16} /> : <Play size={16} />}
                                     </button>
                                     <div className="tho-voiceover-info">
-                                        <span className="tho-voiceover-voice">{voiceover.voice}</span>
+                                        <span className="tho-voiceover-voice">
+                                            {voices.find(voice => voice.id === voiceover.voice)?.name || 'Spoken version'}
+                                        </span>
                                         <span className="tho-voiceover-duration">~{voiceover.estimated_duration_seconds}s</span>
                                     </div>
                                     <button 
@@ -1105,9 +1151,10 @@ export default function AdStudio({ onBack }) {
 
                     {/* Video Generation Section */}
                     <div className="tho-ai-feedback-box mt-4" style={{borderTop: '1px solid #374151', paddingTop: '1rem'}}>
-                        <h4><Film size={16} /> Generate Video</h4>
+                        <h4><Film size={16} /> Make a video</h4>
                         <p className="text-xs text-gray-500 mb-2">
-                            Create MP4 slideshow from photos + voiceover, or generate a true Google Veo clip.
+                            Make a slideshow from the home’s photos and the spoken audio, or try a short AI video.
+                            Neither one is posted.
                         </p>
                         
                         <div className="tho-video-info text-xs text-gray-500 mb-2">
@@ -1119,7 +1166,7 @@ export default function AdStudio({ onBack }) {
                             {voiceover?.success ? (
                                 <span className="ml-3">✓ Voiceover ready (~{voiceover.estimated_duration_seconds}s)</span>
                             ) : (
-                                <span className="ml-3">⚠ Generate voiceover first</span>
+                                <span className="ml-3">Make the spoken version first</span>
                             )}
                         </div>
 
@@ -1129,7 +1176,7 @@ export default function AdStudio({ onBack }) {
                                 checked={includeVirtualPresenter}
                                 onChange={e => setIncludeVirtualPresenter(e.target.checked)}
                             />
-                            <span>Include synthetic presenter</span>
+                            <span>Add a computer-made presenter (not a real person)</span>
                         </label>
                         
                         <button
@@ -1138,9 +1185,9 @@ export default function AdStudio({ onBack }) {
                             disabled={generatingVideo || !voiceover?.success || availableRealPhotos.length === 0}
                         >
                             {generatingVideo ? (
-                                <><Loader2 size={14} className="spin" /> Creating Video...</>
+                                <><Loader2 size={14} className="spin" /> Making the slideshow…</>
                             ) : (
-                                <><Film size={14} /> Generate MP4 Video</>
+                                <><Film size={14} /> Make a slideshow</>
                             )}
                         </button>
 
@@ -1150,14 +1197,14 @@ export default function AdStudio({ onBack }) {
                             disabled={generatingGenAIClip || Boolean(aiReadiness && !aiReadiness.ready)}
                         >
                             {generatingGenAIClip ? (
-                                <><Loader2 size={14} className="spin" /> Generating Veo Clip...</>
+                                <><Loader2 size={14} className="spin" /> Making the AI video…</>
                             ) : (
-                                <><Sparkles size={14} /> Generate GenAI Clip</>
+                                <><Sparkles size={14} /> Make an AI video</>
                             )}
                         </button>
                         {aiReadiness && !aiReadiness.ready && (
                             <div className="tho-readiness-note">
-                                GenAI Clip is disabled until GCP AI is ready: {(aiReadiness.requirements || []).join(', ') || 'check project and SDK configuration'}
+                                {AI_MEDIA_UNAVAILABLE}
                             </div>
                         )}
                         
@@ -1165,7 +1212,13 @@ export default function AdStudio({ onBack }) {
                             <div className="tho-image-error">
                                 <AlertTriangle size={12} />
                                 <span>{videoError}</span>
-                                <button onClick={handleGenerateVideo} className="tho-btn tho-btn-primary" style={{padding: '3px 8px', fontSize: '10px', height: 'auto', minHeight: '0'}}>Retry</button>
+                                <button
+                                    onClick={videoErrorAction === 'clip' ? handleGenerateGenAIClip : handleGenerateVideo}
+                                    className="tho-btn tho-btn-primary"
+                                    style={{padding: '3px 8px', fontSize: '10px', height: 'auto', minHeight: '0'}}
+                                >
+                                    Retry
+                                </button>
                                 <button onClick={() => setVideoError(null)} className="tho-error-dismiss"><X size={12} /></button>
                             </div>
                         )}
@@ -1193,9 +1246,9 @@ export default function AdStudio({ onBack }) {
                             <div className="tho-video-result mt-3 p-3 bg-green-900/20 border border-green-700/30 rounded-lg">
                                 <div className="flex items-center justify-between">
                                     <div>
-                                        <div className="text-sm font-medium text-green-400">GenAI Clip Created</div>
+                                        <div className="text-sm font-medium text-green-400">AI video is ready</div>
                                         <div className="text-xs text-gray-500">
-                                            {generatedGenAIClip.provider} • {generatedGenAIClip.duration_seconds}s • {generatedGenAIClip.file_size_mb}MB
+                                            {generatedGenAIClip.duration_seconds}s • {generatedGenAIClip.file_size_mb}MB • not posted
                                         </div>
                                     </div>
                                     <button
@@ -1212,19 +1265,19 @@ export default function AdStudio({ onBack }) {
                     {/* Quality Score Display */}
                     {script?.quality && (
                         <div className="tho-quality-panel">
-                            <h4><Star size={16} /> Script Quality Score</h4>
+                            <h4><Star size={16} /> How strong is this script?</h4>
                             <div className="tho-quality-overall">
                                 <span className={`tho-quality-number ${script.quality.average >= 7 ? 'good' : script.quality.average >= 5 ? 'fair' : 'poor'}`}>
                                     {script.quality.average}/10
                                 </span>
                                 <span className="tho-quality-status">
-                                    {script.quality.passed ? '✅ Passed' : '⚠️ Refined'}
+                                    {script.quality.passed ? 'Ready to use' : 'Needs a rewrite'}
                                 </span>
                             </div>
                             <div className="tho-quality-breakdown">
                                 {Object.entries(script.quality.scores || {}).map(([key, val]) => (
                                     <div key={key} className="tho-quality-row">
-                                        <span className="tho-quality-label">{key.replace('_', ' ')}</span>
+                                        <span className="tho-quality-label">{qualityScoreLabel(key)}</span>
                                         <div className="tho-quality-bar-bg">
                                             <div
                                                 className={`tho-quality-bar-fill ${val >= 7 ? 'good' : val >= 5 ? 'fair' : 'poor'}`}
@@ -1238,7 +1291,7 @@ export default function AdStudio({ onBack }) {
                             {script.quality.issues?.length > 0 && (
                                 <div className="tho-quality-issues">
                                     {script.quality.issues.map((issue, i) => (
-                                        <span key={i} className="tho-quality-issue">⚠ {issue}</span>
+                                        <span key={i} className="tho-quality-issue">⚠ {plainQualityIssue(issue)}</span>
                                     ))}
                                 </div>
                             )}
@@ -1249,7 +1302,7 @@ export default function AdStudio({ onBack }) {
                     {matterportUrl && (
                         <div className="tho-ai-feedback-box mt-4">
                             <h4><Box size={16} /> 3D Tour Available</h4>
-                            <p className="text-xs text-gray-500 mb-2">This home has a Matterport 3D tour. Include the link in your CTA!</p>
+                            <p className="text-xs text-gray-500 mb-2">This home has a 3D tour. You can paste the link into the last line of the post.</p>
                             <div className="tho-matterport-link-row">
                                 <input
                                     type="text"
@@ -1286,50 +1339,23 @@ export default function AdStudio({ onBack }) {
                         <div className="tho-readiness-note">
                             {`This adds a reviewed ${selectedPlatform?.name || 'social'} draft to the list on this screen. Nothing is sent to a social platform.`}
                         </div>
-                        {postActionError && (
-                            <div className="tho-error-state" role="alert">
-                                <AlertTriangle size={18} />
-                                <p>{postActionError}</p>
-                            </div>
-                        )}
-                        {publicationReceipt && (
-                            <div className="tho-readiness-note" role="status">
-                                Publish request accepted by {publicationReceipt.platformName}.
-                                {' '}Reference: {publicationReceipt.postId}. Check the platform for final availability.
-                            </div>
+                        {draftError && (
+                            <p className="tho-image-error" role="alert">{draftError}</p>
                         )}
                         <button
                             className="tho-btn tho-btn-primary w-full flex items-center justify-center gap-2"
                             onClick={async () => {
-                                if (await handlePrepareDraft()) {
-                                    setShowPreview(false);
-                                    setActiveTab('scheduled');
-                                }
+                                const prepared = await handlePrepareDraft();
+                                if (!prepared) return;
+                                setShowPreview(false);
+                                setActiveTab('scheduled');
                             }}
-                            disabled={preparingDraft || publishing}
+                            disabled={preparingDraft}
                         >
                             {preparingDraft ? (
                                 <><Loader2 size={18} className="spin" /> Preparing...</>
                             ) : (
                                 <><Send size={18} /> Prepare Draft</>
-                            )}
-                        </button>
-                        <button
-                            className="tho-btn tho-btn-secondary w-full flex items-center justify-center gap-2 mt-2"
-                            onClick={handlePublish}
-                            disabled={preparingDraft || publishing || !livePublishSupported || !publishFilename}
-                            title={
-                                !livePublishSupported
-                                    ? 'Live publishing is supported only for TikTok and Instagram Reels'
-                                    : !publishFilename
-                                        ? 'Generate a video before publishing'
-                                        : `Publish live to ${selectedPlatform?.name}`
-                            }
-                        >
-                            {publishing ? (
-                                <><Loader2 size={18} className="spin" /> Publishing...</>
-                            ) : (
-                                <><Flame size={18} /> Publish Now to {selectedPlatform?.name}</>
                             )}
                         </button>
                     </div>
@@ -1467,23 +1493,27 @@ export default function AdStudio({ onBack }) {
                 <div className="tho-readiness-row">
                     <div className={`tho-readiness-chip ${aiReadiness?.ready ? 'ready' : 'blocked'}`}>
                         <Sparkles size={14} />
-                        <span>GCP AI</span>
-                        <strong>{aiReadiness?.ready ? 'Ready' : 'Needs setup'}</strong>
+                        <span>AI pictures & video</span>
+                        <strong>{aiReadiness?.ready ? 'Ready' : aiReadiness ? 'Not available yet' : 'Checking…'}</strong>
                     </div>
                     <div className="tho-readiness-chip draft">
                         <Send size={14} />
                         <span>{selectedPlatform?.name || 'Social'}</span>
                         <strong>Draft only</strong>
                     </div>
-                    <button className="tho-readiness-refresh" onClick={handleLoadReadiness} title="Refresh GCP AI readiness">
+                    <button className="tho-readiness-refresh" onClick={handleLoadReadiness} title="Check AI pictures and video again">
                         <RefreshCw size={13} />
                     </button>
                 </div>
                 {readinessError && (
-                    <div className="tho-readiness-note">
-                        Readiness check failed: {readinessError}
+                    <div className="tho-readiness-note" role="alert">
+                        {readinessError}
                     </div>
                 )}
+                <p className="tho-readiness-note">
+                    Write a social post for TikTok, Instagram, or Facebook, then review it.
+                    Nothing is posted from this screen. Public prices stay Call for Price unless the owner approved a number.
+                </p>
                 {/* Step 0: Avatar & Language */}
                 <div className="flex gap-4 mb-6">
                     <div className="tho-card flex-1">
@@ -1729,7 +1759,7 @@ export default function AdStudio({ onBack }) {
                         />
                         <input
                             type="text"
-                            placeholder="Price (e.g. $89,900)"
+                            placeholder="Call for Price, unless the owner approved a number"
                             value={homePrice}
                             onChange={e => { setHomePrice(e.target.value); setSelectedHome(null); }}
                             className="tho-input"
@@ -1740,16 +1770,17 @@ export default function AdStudio({ onBack }) {
                 {/* Step 4: Custom hook + Variations */}
                 <div className="tho-card">
                     <div className="tho-step-label">STEP 4</div>
-                    <h3 className="tho-card-title">Custom Hook & Variations</h3>
+                    <h3 className="tho-card-title">Opening line</h3>
+                    <p className="tho-preview-hint">The first line people hear. Leave it blank and we will write one.</p>
                     <textarea
-                        placeholder="Write a custom opening hook, or leave blank for Tex to generate one..."
+                        placeholder="Write the first line yourself, or leave this blank."
                         value={customHook}
                         onChange={e => setCustomHook(e.target.value)}
                         className="tho-textarea"
                         rows={2}
                     />
                     <div className="tho-variations-row">
-                        <span className="tho-variations-label"><Layers size={14} /> Script Variations:</span>
+                        <span className="tho-variations-label"><Layers size={14} /> How many versions:</span>
                         <div className="tho-variations-btns">
                             {[1, 2, 3].map(n => (
                                 <button
@@ -1762,7 +1793,7 @@ export default function AdStudio({ onBack }) {
                             ))}
                         </div>
                         {variations > 1 && (
-                            <span className="tho-variations-hint">A/B test {variations} different hooks</span>
+                            <span className="tho-variations-hint">You will get {variations} different opening lines to compare.</span>
                         )}
                     </div>
                 </div>
@@ -1802,11 +1833,6 @@ export default function AdStudio({ onBack }) {
                                 )}
                                 {/* Model + quality badges */}
                                 <div className="tho-preview-badges">
-                                    {script?.model_used && (
-                                        <div className="tho-model-badge">
-                                            <Sparkles size={10} /> {script.model_used.includes('2.5') ? 'Gemini 2.5 Flash' : 'Gemini 2.0 Flash'}
-                                        </div>
-                                    )}
                                     {(currentScript?.quality_score || script?.quality?.average) && (
                                         <div className={`tho-quality-badge ${(currentScript?.quality_score || script?.quality?.average) >= 7 ? 'good' : 'fair'}`}>
                                             <Star size={10} /> {currentScript?.quality_score || script?.quality?.average}/10
@@ -1836,21 +1862,24 @@ export default function AdStudio({ onBack }) {
 
                                 <div className="tho-script-section">
                                     <div className="tho-script-label">
-                                        <Flame size={12} /> HOOK
+                                        <Flame size={12} /> Opening
                                     </div>
                                     <p className="tho-script-hook">{currentScript?.hook}</p>
                                 </div>
 
                                 <div className="tho-script-section">
                                     <div className="tho-script-label">
-                                        <Play size={12} /> SCRIPT
+                                        <Play size={12} /> What to say
                                     </div>
                                     <pre className="tho-script-body">{currentScript?.body}</pre>
+                                    {String(currentScript?.body || '').includes('[') && (
+                                        <p className="tho-preview-hint">Words in [brackets] are camera notes. Do not read them out loud.</p>
+                                    )}
                                 </div>
 
                                 <div className="tho-script-section">
                                     <div className="tho-script-label">
-                                        <Send size={12} /> CTA
+                                        <Send size={12} /> Ask them to
                                     </div>
                                     <p className="tho-script-cta">{currentScript?.cta}</p>
                                 </div>
@@ -1867,8 +1896,7 @@ export default function AdStudio({ onBack }) {
                                 </div>
 
                                 <div className="tho-script-meta">
-                                    <span><Clock size={12} /> {currentScript?.duration_estimate}</span>
-                                    <span className="tho-script-id">{script?.script_id}</span>
+                                    <span><Clock size={12} /> About {currentScript?.duration_estimate}</span>
                                 </div>
                             </div>
                         ) : script?.error ? (
@@ -1894,6 +1922,7 @@ export default function AdStudio({ onBack }) {
                         <button className="tho-action-btn" onClick={handleCopyScript}>
                             {copied ? <><Check size={14} /> Copied!</> : <><Copy size={14} /> Copy Script</>}
                         </button>
+                        {copyNotice && <p className="tho-preview-hint" role="alert">{copyNotice}</p>}
                         <button
                             className="tho-action-btn tho-action-primary"
                             onClick={() => setShowPreview(true)}
@@ -1915,7 +1944,8 @@ export default function AdStudio({ onBack }) {
                 <div>
                     <h2 className="tho-page-title">🔥 Trending Content Ideas</h2>
                     <p className="tho-page-subtitle">
-                        AI-generated ideas based on your {ideas?.inventory_count > 0 ? `${ideas.inventory_count} catalog homes` : 'inventory and trends'}
+                        Ideas from the homes on the lot. Choosing one opens Create Ad. Nothing is posted.
+                        {ideas?.inventory_count > 0 ? ` ${ideas.inventory_count} homes are in the catalog.` : ''}
                     </p>
                 </div>
                 <button className="tho-refresh-btn" onClick={handleLoadIdeas} disabled={loadingIdeas}>
@@ -1939,8 +1969,8 @@ export default function AdStudio({ onBack }) {
                             <div>
                                 <strong>Recommended Posting:</strong>
                                 <span> TikTok: {ideas.recommended_posting_schedule.tiktok}</span>
-                                <span> • IG: {ideas.recommended_posting_schedule.instagram_reels}</span>
-                                <span> • FB: {ideas.recommended_posting_schedule.facebook}</span>
+                                <span> • Instagram: {ideas.recommended_posting_schedule.instagram_reels}</span>
+                                <span> • Facebook: {ideas.recommended_posting_schedule.facebook}</span>
                             </div>
                         </div>
                     )}
@@ -1952,13 +1982,13 @@ export default function AdStudio({ onBack }) {
                                     <span className={`tho-idea-badge ${idea.trending_potential?.replace(/\s/g, '-')}`}>
                                         {idea.trending_potential === 'very high' ? '🔥' : idea.trending_potential === 'high' ? '⬆️' : '•'} {idea.trending_potential}
                                     </span>
-                                    <span className="tho-idea-type">{idea.type}</span>
+                                    <span className="tho-idea-type">{themeLabel(idea.type)}</span>
                                 </div>
                                 <h4 className="tho-idea-title">{idea.title}</h4>
                                 <p className="tho-idea-notes">{idea.notes}</p>
                                 <div className="tho-idea-platforms">
                                     {(idea.platform_priority || []).map(p => (
-                                        <span key={p} className="tho-idea-platform">{p}</span>
+                                        <span key={p} className="tho-idea-platform">{platformLabel(p)}</span>
                                     ))}
                                 </div>
                                 <button
@@ -1979,10 +2009,18 @@ export default function AdStudio({ onBack }) {
                 </>
             )}
 
+            {ideas && !ideas.error && (ideas.content_ideas || []).length === 0 && (
+                <div className="tho-empty-state">
+                    <p>No ideas came back.</p>
+                    <p className="tho-preview-hint">Refresh, or go to Create Ad and write one yourself. Nothing is posted from this page.</p>
+                </div>
+            )}
+
             {ideas?.error && (
-                <div className="tho-error-state">
+                <div className="tho-error-state" role="alert">
                     <AlertTriangle size={24} />
                     <p>{ideas.error}</p>
+                    <p className="tho-preview-hint">Nothing was posted. Use Refresh to try again.</p>
                 </div>
             )}
         </div>
@@ -1991,35 +2029,31 @@ export default function AdStudio({ onBack }) {
     const renderScheduled = () => (
         <div className="tho-scheduled-page">
             <h2 className="tho-page-title">📋 Prepared Drafts</h2>
-            <p className="tho-page-subtitle">Drafts prepared while this Ad Studio screen is open</p>
+            <p className="tho-page-subtitle">Drafts prepared while this screen stays open. Leaving or refreshing removes them. Nothing is posted.</p>
 
             {preparedDrafts.length === 0 ? (
                 <div className="tho-empty-state">
                     <Calendar size={48} />
                     <p>No drafts prepared yet</p>
-                    <p className="tho-preview-hint">Generate a script and choose "Prepare Draft"</p>
+                    <p className="tho-preview-hint">Write a script, open the full preview, then choose Prepare Draft. Nothing is posted.</p>
                 </div>
             ) : (
                 <div className="tho-scheduled-list">
-                    {preparedDrafts.map((post, i) => (
+                    {preparedDrafts.map((post, i) => {
+                        const card = draftCardCopy(post);
+                        return (
                         <div key={i} className="tho-scheduled-card">
                             <div className="tho-scheduled-left">
-                                <span className="tho-scheduled-platform">{post.platform}</span>
-                                <span className="tho-scheduled-type">{post.content_type}</span>
-                            </div>
-                            <div className="tho-scheduled-center">
-                                <span className="tho-scheduled-id">Response ID: {post.post_id}</span>
-                                <span className="tho-scheduled-ref">Script: {post.script_reference}</span>
+                                <span className="tho-scheduled-platform">{card.title}</span>
+                                <span className="tho-scheduled-type">{card.kind}</span>
                             </div>
                             <div className="tho-scheduled-right">
-                                <span className={`tho-scheduled-status status-${post.status}`}>{post.status}</span>
-                                {post.persisted === false && (
-                                    <span className="tho-scheduled-tip">Response-only · not saved</span>
-                                )}
-                                <span className="tho-scheduled-tip">{post.publish_blocked_reason || post.tip}</span>
+                                <span className={`tho-scheduled-status status-${post.status}`}>{card.status}</span>
+                                <span className="tho-scheduled-tip">{card.notice}</span>
                             </div>
                         </div>
-                    ))}
+                        );
+                    })}
                 </div>
             )}
         </div>
@@ -2030,7 +2064,7 @@ export default function AdStudio({ onBack }) {
             <div className="tho-ideas-header">
                 <div>
                     <h2 className="tho-page-title">📊 Content Performance</h2>
-                    <p className="tho-page-subtitle">How your Tex content is performing</p>
+                    <p className="tho-page-subtitle">What this screen can make. These are not live ad results.</p>
                 </div>
                 <button className="tho-refresh-btn" onClick={handleLoadAnalytics} disabled={loadingAnalytics}>
                     {loadingAnalytics ? <Loader2 size={16} className="spin" /> : <RefreshCw size={16} />}
@@ -2051,8 +2085,8 @@ export default function AdStudio({ onBack }) {
                         <div className="tho-analytics-notice">
                             <AlertTriangle size={16} />
                             <span>
-                                <strong>Platform analytics unavailable</strong>
-                                {analytics.disclaimer ? ` — ${analytics.disclaimer}` : ''}
+                                <strong>Live social numbers are not connected</strong>
+                                {' — The counts below are only what this screen can make. They are not views, followers, or messages.'}
                             </span>
                         </div>
                     )}
@@ -2087,7 +2121,7 @@ export default function AdStudio({ onBack }) {
                         </div>
                     ) : (
                         <>
-                            <h3 className="tho-card-title">Local Creative Readiness</h3>
+                            <h3 className="tho-card-title">What you can make right now</h3>
                             <div className="tho-kpi-grid">
                                 <div className="tho-kpi-card">
                                     <Image size={20} />
@@ -2117,15 +2151,28 @@ export default function AdStudio({ onBack }) {
                         <h3 className="tho-card-title">
                             {analytics.social_analytics_connected === true
                                 ? 'Top Performing Content'
-                                : 'Local Content Readiness'}
+                                : 'Ready on this screen'}
                         </h3>
                         <div className="tho-top-content-list">
+                            {(analytics.top_performing_content || []).length === 0 && (
+                                <p className="tho-preview-hint">Nothing is listed yet.</p>
+                            )}
                             {(analytics.top_performing_content || []).map((item, i) => (
                                 <div key={i} className="tho-top-content-row">
                                     <span className="tho-top-rank">#{i + 1}</span>
-                                    <span className="tho-top-type">{item.type.replace(/_/g, ' ')}</span>
-                                    <span className="tho-top-views">{item.views_label || `${item.views} views`}</span>
-                                    <span className="tho-top-rate">{item.engagement_label || `${item.engagement_rate} engagement`}</span>
+                                    <span className="tho-top-type">
+                                        {analytics.social_analytics_connected === true
+                                            ? themeLabel(item.type)
+                                            : readinessItemLabel(item.type)}
+                                    </span>
+                                    <span className="tho-top-views">
+                                        {item.views_label || (analytics.social_analytics_connected === true ? `${item.views} views` : 'On this screen')}
+                                    </span>
+                                    <span className="tho-top-rate">
+                                        {analytics.social_analytics_connected === true
+                                            ? (item.engagement_label || `${item.engagement_rate} engagement`)
+                                            : readinessMetric(item)}
+                                    </span>
                                 </div>
                             ))}
                         </div>
@@ -2134,18 +2181,28 @@ export default function AdStudio({ onBack }) {
                     <div className="tho-card" style={{ marginTop: '1rem' }}>
                         <h3 className="tho-card-title">💡 Recommendations</h3>
                         <ul className="tho-recs-list">
+                            {(analytics.recommendations || []).length === 0 && (
+                                <li>No suggestions right now.</li>
+                            )}
                             {(analytics.recommendations || []).map((rec, i) => (
-                                <li key={i}>{rec}</li>
+                                <li key={i}>{plainRecommendation(rec)}</li>
                             ))}
                         </ul>
                     </div>
                 </>
             )}
 
+            {analytics && !analytics.error && !analytics.summary && (
+                <div className="tho-empty-state" role="alert">
+                    <p>We could not read the numbers. Refresh and try again.</p>
+                </div>
+            )}
+
             {analytics?.error && (
-                <div className="tho-error-state">
+                <div className="tho-error-state" role="alert">
                     <AlertTriangle size={24} />
                     <p>{analytics.error}</p>
+                    <p className="tho-preview-hint">Nothing was posted. Use Refresh to try again.</p>
                 </div>
             )}
         </div>
@@ -2185,10 +2242,12 @@ export default function AdStudio({ onBack }) {
                     ))}
                 </nav>
 
-                <button className="tho-back-btn" onClick={onBack}>
-                    <ArrowLeft size={16} />
-                    <span>Back to Chat</span>
-                </button>
+                {typeof onBack === 'function' && (
+                    <button className="tho-back-btn" onClick={onBack}>
+                        <ArrowLeft size={16} />
+                        <span>Back to Chat</span>
+                    </button>
+                )}
             </aside>
 
             {/* Main content */}

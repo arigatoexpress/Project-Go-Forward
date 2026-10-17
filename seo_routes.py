@@ -50,6 +50,7 @@ from tools.listing_urls import (
     listing_lastmod,
     listing_page_images,
     listing_path,
+    listing_photo_subject,
     match_instock_home,
     parse_home_path,
     stock_id,
@@ -116,7 +117,7 @@ PUBLIC_ROUTES = {
         f"dealership in {_CITY_STATE} serving the Houston area.",
     ),
     "/financing": (
-        f"Financing Options | {business_name()}",
+        f"Manufactured Home Financing in {_CITY_STATE} | {business_name()}",
         f"Manufactured home financing options at {business_name()} in {_CITY_STATE}: "
         f"chattel loans, land-and-home loans, FHA/VA/USDA, and lender partners.",
     ),
@@ -198,6 +199,7 @@ NOINDEX_PREFIXES = (
     "/document-center",
     "/analytics",
     "/studio",
+    "/ad-studio",
     "/system",
     "/getting-started",
     "/staff",
@@ -294,6 +296,29 @@ def _legacy_path(url: str | None) -> str | None:
         return None
     path = urlparse(str(url)).path
     return path if path and path != "/" else None
+
+
+def canonical_listing_path_for_id(home_id: str) -> str | None:
+    """Public path for an inventory ``?home=`` id, when that home is listed.
+
+    Shared links used to point at ``/inventory?home=<id>``, which serves the
+    catalog page. The id matches the home's ``id`` field (the value the
+    share button copies), then prefers the in-stock ``/homes/`` path.
+    """
+    token = str(home_id or "").strip()
+    if not token or len(token) > 80 or any(char in token for char in "/\\?#&"):
+        return None
+    registry = _registry()
+    if not registry.get("inventory_ok"):
+        return None
+    for home in registry["homes"]:
+        if str(home.get("id") or "").strip() != token:
+            continue
+        for candidate in (listing_path(home), _legacy_path(home.get("detail_url"))):
+            if candidate and candidate.startswith("/") and not candidate.startswith("//"):
+                return candidate
+        return None
+    return None
 
 
 def _detail_route_key(path: str | None) -> tuple[str, str] | None:
@@ -492,9 +517,26 @@ def _inventory_hero_image() -> str | None:
     return None
 
 
-def _responsive_image_srcset(url: str) -> str:
-    separator = "&" if "?" in url else "?"
-    return ", ".join(f"{url}{separator}w={width} {width}w" for width in (400, 800, 1200))
+def _phone_digits() -> str:
+    digits = re.sub(r"\D", "", business_phone() or "")
+    if len(digits) == 10:
+        digits = "1" + digits
+    return digits
+
+
+def _tel_href() -> str:
+    digits = _phone_digits()
+    return f"tel:+{digits}" if digits else "tel:"
+
+
+def _sms_href(home: dict | None = None) -> str:
+    digits = _phone_digits()
+    name = ""
+    if isinstance(home, dict) and home.get("model_name"):
+        name = f" the {home.get('model_name')}"
+    body = quote_plus(f"Hi, I'm interested in{name} at {business_name()}.")
+    base = f"sms:+{digits}" if digits else "sms:"
+    return f"{base}?&body={body}"
 
 
 def _product_jsonld(home: dict, canonical_url: str) -> dict | None:
@@ -767,6 +809,7 @@ def _head_block(
     jsonld=None,
     noindex=False,
     preload_image=None,
+    og_image_alt=None,
 ):
     e = html.escape
     parts = [
@@ -778,11 +821,11 @@ def _head_block(
     else:
         parts.append(f'<link rel="canonical" href="{e(canonical_url)}" />')
         if preload_image:
+            # Preload the file once. Width query params are not honored by the
+            # image host, and a fake srcset makes the browser fetch it again.
             parts.append(
                 '<link rel="preload" as="image" '
-                f'href="{e(preload_image)}" '
-                f'imagesrcset="{e(_responsive_image_srcset(preload_image))}" '
-                'imagesizes="100vw" fetchpriority="high" />'
+                f'href="{e(preload_image)}" fetchpriority="high" />'
             )
         parts.extend(
             [
@@ -790,8 +833,11 @@ def _head_block(
                 f'<meta property="og:description" content="{e(description)}" />',
                 f'<meta property="og:url" content="{e(canonical_url)}" />',
                 '<meta property="og:type" content="website" />',
+                '<meta property="og:locale" content="en_US" />',
                 f'<meta property="og:site_name" content="{e(business_name())}" />',
                 '<meta name="twitter:card" content="summary_large_image" />',
+                f'<meta name="twitter:title" content="{e(title)}" />',
+                f'<meta name="twitter:description" content="{e(description)}" />',
             ]
         )
         if og_image is None:
@@ -799,6 +845,8 @@ def _head_block(
         if og_image:
             parts.append(f'<meta property="og:image" content="{e(og_image)}" />')
             parts.append(f'<meta name="twitter:image" content="{e(og_image)}" />')
+            if og_image_alt:
+                parts.append(f'<meta property="og:image:alt" content="{e(og_image_alt)}" />')
     for block in jsonld or []:
         # Escape "<" so crawled values containing "</script>" cannot break
         # out of the JSON-LD block (< is valid JSON, inert in HTML).
@@ -812,9 +860,13 @@ def _head_block(
     return "\n    ".join(parts)
 
 
-def _crawlable_inventory_block() -> str:
+def _crawlable_inventory_block(*, hub: bool = False) -> str:
     """Semantic HTML (replaced by React on mount) so non-JS crawlers see
-    the inventory and have <a href> paths to every detail page."""
+    the inventory and have <a href> paths to every detail page.
+
+    ``hub=True`` is the /inventory catalog. The homepage keeps its own
+    heading so the two URLs are not copies of each other.
+    """
     e = html.escape
     reg = _registry()
     items = []
@@ -854,10 +906,22 @@ def _crawlable_inventory_block() -> str:
         items.append(
             f'<li><a href="{e(path)}">{e(label)}</a>{" — " + e(extra) if extra else ""}</li>'
         )
+    if hub:
+        heading = f"Home Inventory — Mobile &amp; Manufactured Homes in {e(_CITY_STATE)}"
+        intro = (
+            f"<p>Current manufactured and mobile home inventory at {e(business_name())} "
+            f"in {e(_CITY_STATE)}. Listed homes, pre-owned homes, and orderable floorplans "
+            f"are linked below. Confirm current price and availability with our team.</p>"
+        )
+    else:
+        heading = f"Mobile &amp; Manufactured Homes for Sale in {e(_CITY_STATE)}"
+        intro = (
+            f"<p>{e(business_name())} — {e(business_address())} · "
+            f"{e(business_phone())} · {e(business_hours())}</p>"
+        )
     return (
-        f"<h1>Mobile &amp; Manufactured Homes for Sale in {html.escape(_CITY_STATE)}</h1>"
-        f"<p>{html.escape(business_name())} — {html.escape(business_address())} · "
-        f"{html.escape(business_phone())} · {html.escape(business_hours())}</p>"
+        f"<h1>{heading}</h1>"
+        f"{intro}"
         '<p>Browse by home type: <a href="/single-wide">Single Wide Homes</a> · '
         '<a href="/double-wide">Double Wide Homes</a></p>'
         f"<ul>{''.join(items)}</ul>"
@@ -961,44 +1025,45 @@ def _crawlable_detail_block(home: dict) -> str:
     )
 
 
+def _listing_image_alt(
+    home: dict, url: str, index: int, total: int, *, floorplan: bool = False
+) -> str:
+    """Alt text for one listing photo. Filename subjects are used only when
+    the file already names the view (ext, kit, kitchen, ...)."""
+    name = str(home.get("model_name") or "Manufactured home").strip() or "Manufactured home"
+    if floorplan:
+        return f"Floor plan for {name}"
+    subject = listing_photo_subject(url)
+    if subject and total > 1:
+        photo = f"{subject} photo {index}"
+    elif subject:
+        photo = f"{subject} photo"
+    elif total > 1:
+        photo = f"manufactured home photo {index}"
+    else:
+        photo = "manufactured home"
+    return f"{name} — {photo} at {business_name()} in {_CITY_STATE}"
+
+
 def _listing_display_price(home: dict) -> str:
     price = str(home.get("display_price") or "").strip()
     return price if price else "Call for Price"
 
 
-def _listing_product_jsonld(home: dict, canonical_url: str) -> dict:
-    """Product JSON-LD for /homes/ pages. Never invents a price."""
+def _listing_product_jsonld(home: dict, canonical_url: str) -> dict | None:
+    """Product JSON-LD for /homes/ pages. Never invents a price.
+
+    Google requires Product rich results to carry offers/review/aggregateRating;
+    "Call for Price" homes have no offer, so they get no Product markup at all
+    (Search Console "Either offers, review, or aggregateRating" error, Oct 11).
+    """
     priced = _product_jsonld(home, canonical_url)
-    if priced:
-        images = listing_page_images(home)
-        if images:
-            priced["image"] = images[0]
-        return priced
-    specs = home.get("specs") or {}
-    bits = []
-    if specs.get("beds"):
-        bits.append(f"{specs['beds']} bed")
-    if specs.get("baths"):
-        bits.append(f"{specs['baths']} bath")
-    if specs.get("dimensions"):
-        bits.append(str(specs["dimensions"]))
-    description = home.get("description") or (
-        f"{home.get('model_name', 'Manufactured home')} ({', '.join(bits)}) at "
-        f"{business_name()} in {_CITY_STATE}."
-    )
-    data = {
-        "@context": "https://schema.org",
-        "@type": "Product",
-        "name": home.get("model_name") or "Manufactured Home",
-        "description": str(description)[:300],
-        "url": canonical_url,
-    }
-    if home.get("manufacturer"):
-        data["brand"] = {"@type": "Brand", "name": home["manufacturer"]}
+    if not priced:
+        return None
     images = listing_page_images(home)
     if images:
-        data["image"] = images[0]
-    return data
+        priced["image"] = images[0]
+    return priced
 
 
 def _crawlable_home_listing_block(home: dict) -> str:
@@ -1027,16 +1092,18 @@ def _crawlable_home_listing_block(home: dict) -> str:
         *[str(u).strip() for u in (home.get("floorplan_urls") or []) if u],
     }
     figures = []
-    for url in images:
-        if url in plan_urls or (len(images) == 1 and not any(u not in plan_urls for u in images)):
+    for index, url in enumerate(images, start=1):
+        is_plan = url in plan_urls or (
+            len(images) == 1 and not any(item not in plan_urls for item in images)
+        )
+        alt = _listing_image_alt(home, url, index, len(images), floorplan=is_plan)
+        if is_plan:
             figures.append(
-                f'<figure><img src="{e(url)}" alt="Floor plan" />'
+                f'<figure><img src="{e(url)}" alt="{e(alt)}" />'
                 f"<figcaption>Floor plan</figcaption></figure>"
             )
         else:
-            figures.append(
-                f'<img src="{e(url)}" alt="{e(home.get("model_name") or "Manufactured home")}" />'
-            )
+            figures.append(f'<img src="{e(url)}" alt="{e(alt)}" />')
     description = home.get("description") or (
         f"{home.get('model_name') or 'Manufactured home'} at {business_name()} in {_CITY_STATE}."
     )
@@ -1046,6 +1113,9 @@ def _crawlable_home_listing_block(home: dict) -> str:
         f"<p>{e(str(description)[:500])}</p>"
         f"{''.join(figures)}"
         f"<ul>{''.join(rows)}</ul>"
+        f'<p><a href="{e(_tel_href())}">Call {e(business_phone())}</a>'
+        f' · <a href="{e(_sms_href(home))}">Text {e(business_phone())}</a>'
+        f' · <a href="/financing">Apply for financing</a></p>'
         f'<p><a href="/inventory">All homes for sale at {e(business_name())}</a> — '
         f"{e(business_address())} · {e(business_phone())}</p>"
         f"</article>"
@@ -1118,7 +1188,7 @@ def _crawlable_about_block() -> str:
 def _crawlable_financing_block() -> str:
     e = html.escape
     return (
-        f"<h1>Financing Options at {e(business_name())}</h1>"
+        f"<h1>Manufactured Home Financing in {e(_CITY_STATE)}</h1>"
         f"<p>We work with buyers across a range of credit profiles and land situations to "
         f"find the right manufactured home financing option in {e(_CITY_STATE)}.</p>"
         "<ul>"
@@ -1649,14 +1719,22 @@ def _render_spa_response(full_path: str) -> Response | None:
             f"{business_name()} in {_CITY_STATE}. Call {business_phone()}."
         )[:300]
         images = listing_page_images(home)
+        image_alt = _listing_image_alt(home, images[0], 1, len(images)) if images else None
         head = _head_block(
             title,
             description,
             canonical_url,
             og_image=images[0] if images else None,
+            og_image_alt=image_alt,
             jsonld=[
-                _listing_product_jsonld(home, canonical_url),
-                _breadcrumb_jsonld(home.get("model_name") or "Manufactured Home", canonical_url),
+                x
+                for x in (
+                    _listing_product_jsonld(home, canonical_url),
+                    _breadcrumb_jsonld(
+                        home.get("model_name") or "Manufactured Home", canonical_url
+                    ),
+                )
+                if x
             ],
         )
         return HTMLResponse(
@@ -1773,7 +1851,7 @@ def _render_spa_response(full_path: str) -> Response | None:
             preload_image=_inventory_hero_image() if path in ("/", "/inventory") else None,
         )
         if path in ("/", "/inventory"):
-            body = _crawlable_inventory_block()
+            body = _crawlable_inventory_block(hub=path == "/inventory")
         elif path == "/contact":
             body = _crawlable_contact_block()
         elif path == "/appointments":
@@ -1846,6 +1924,7 @@ def robots_txt() -> PlainTextResponse:
             "/document-center",
             "/analytics",
             "/studio",
+            "/ad-studio",
             "/system",
             "/staff",
             "/team",
@@ -1877,6 +1956,7 @@ def sitemap_xml() -> Response:
             "/inventory",
             "/contact",
             "/appointments",
+            "/chat",
             "/about",
             "/financing",
             "/faq",

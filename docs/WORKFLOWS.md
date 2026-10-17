@@ -140,19 +140,24 @@ sequenceDiagram
 
 ## 6. Deployment (CI/CD)
 
+A green **Deploy to Cloud Run** run builds a candidate with
+`--no-traffic --tag=candidate` and smokes that candidate's health and API
+routes. Customer traffic stays on the current revision. The promote commands
+and the live-site checks are in [RELEASE-CHECKLIST.md](RELEASE-CHECKLIST.md).
+The canonical site is https://www.texashomeoutlet.com.
+
 ```mermaid
 flowchart LR
-    A[Push to main] --> B[GitHub Actions]
+    A[Merge to main] --> B[GitHub Actions: Deploy to Cloud Run]
     B --> C{Tests pass?}
-    C -->|No| D[Fail build, notify]
-    C -->|Yes| E[Docker build<br/>multi-stage]
-    E --> F[Preflight:<br/>check_document_templates.py]
-    F --> G{All 63 templates<br/>present?}
-    G -->|No| D
-    G -->|Yes| H[Auth via WIF<br/>no service account keys]
-    H --> I[gcloud run deploy<br/>region us-central1]
-    I --> J[Cloud Run health check]
-    J --> K[Live on tho.sapphirealpha.xyz]
+    C -->|No| D[Stop. No new revision]
+    C -->|Yes| E["gcloud run deploy --no-traffic --tag=candidate"]
+    E --> F[Smoke candidate health and API]
+    F --> G[Candidate ready at 0% traffic]
+    G --> H{Owner approves this revision?}
+    H -->|Wait| I[Public site stays on the current revision]
+    H -->|Yes| J["update-traffic to that revision at 100%"]
+    J --> K[Verify www.texashomeoutlet.com]
 ```
 
 ## 7. Inventory sync

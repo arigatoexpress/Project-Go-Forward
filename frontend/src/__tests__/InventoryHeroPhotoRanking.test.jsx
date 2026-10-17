@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import InventoryBrowse, { HomeCard, listingPhotoRank } from '../pages/InventoryBrowse';
+import { listingImageAlt } from '../utils/listingRoutes';
 
 // Regression: staff reported after the 2026-08-31 inventory cutover that
 // "some listings still have floor plans first or no pictures of houses".
@@ -60,7 +61,9 @@ describe('HomeCard hero selection', () => {
         const images = screen.getAllByAltText(baseHome.model_name);
         expect(images.map(image => image.getAttribute('src'))).toEqual([SEEDED_HERO, EXT]);
       });
-      expect(await screen.findByAltText(`${baseHome.model_name} photo 1`)).toHaveAttribute('src', SEEDED_HERO);
+      const detailPhotos = await screen.findAllByAltText(listingImageAlt(baseHome, SEEDED_HERO, 1, 2));
+      expect(detailPhotos.length).toBeGreaterThan(0);
+      expect(detailPhotos.every((image) => image.getAttribute('src') === SEEDED_HERO)).toBe(true);
     } finally {
       vi.unstubAllGlobals();
       window.localStorage.clear();
@@ -78,10 +81,15 @@ describe('HomeCard hero selection', () => {
       inventory_kind: 'pre_owned',
       is_new: false,
       image_url: catalog,
-      real_photos: [catalog, EXT],
+      real_photos: [
+        catalog,
+        'https://cdn.example.com/dealer/1/inventory/43945/Nassau-ext-1.jpg',
+      ],
       gallery_images: [catalog],
     });
-    expect(container.querySelector('img').getAttribute('src')).toBe(EXT);
+    expect(container.querySelector('img').getAttribute('src')).toBe(
+      'https://cdn.example.com/dealer/1/inventory/43945/Nassau-ext-1.jpg',
+    );
   });
 
   it('leads with a photo of the house even when an unlabeled "hero" file is listed first', () => {

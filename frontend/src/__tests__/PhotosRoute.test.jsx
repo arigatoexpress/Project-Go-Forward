@@ -88,7 +88,7 @@ describe('/photos staff route', () => {
 
     fireEvent.click(screen.getAllByRole('button', { name: /^Manage Homes$/ })[0]);
     expect(window.location.pathname).toBe('/manage-inventory');
-    expect(await screen.findByRole('heading', { name: /Manage Homes/ })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /Homes on the website/ })).toBeInTheDocument();
     expect(screen.queryByRole('textbox', { name: 'Search homes' })).toBeNull();
 
     fireEvent.click(screen.getAllByRole('button', { name: /^More$/ })[0]);
@@ -106,7 +106,7 @@ describe('/photos staff route', () => {
     window.history.replaceState({}, '', '/manage-inventory');
     render(<ToastProvider><App /></ToastProvider>);
 
-    expect(await screen.findByRole('heading', { name: /Manage Homes/ })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /Homes on the website/ })).toBeInTheDocument();
     expect(window.location.pathname).toBe('/manage-inventory');
   });
 });

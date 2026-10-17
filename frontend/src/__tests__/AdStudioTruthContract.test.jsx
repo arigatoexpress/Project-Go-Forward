@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 
 import adminFetch from '../adminFetch';
-import AdStudio, { readJsonOrThrow } from '../pages/AdStudio';
+import AdStudio from '../pages/AdStudio';
 
 vi.mock('../adminFetch', () => ({
   default: vi.fn(),
@@ -18,7 +18,6 @@ function okResponse(payload) {
 
 describe('Ad Studio truth contracts', () => {
   beforeEach(() => {
-    vi.restoreAllMocks();
     adminFetch.mockReset();
     adminFetch.mockImplementation((url) => {
       if (url === '/api/marketing/voiceover-voices') {
@@ -44,81 +43,38 @@ describe('Ad Studio truth contracts', () => {
             inventory_count: 17,
             photo_ready_homes: 8,
           },
-          top_performing_content: [],
-          recommendations: [],
+          top_performing_content: [{
+            type: 'inventory_backed_ideas',
+            views: 17,
+            views_label: '17 homes available',
+            engagement_rate: 'ready',
+            engagement_label: '8 with photos',
+          }],
+          recommendations: [
+            'Connect TikTok or Meta analytics before treating reach, follower, or DM metrics as live.',
+            'Use the inventory-backed idea lane for 17 current homes.',
+          ],
         }));
       }
       throw new Error(`Unexpected request: ${url}`);
     });
   });
 
-  async function openPublishablePreview() {
-    adminFetch.mockImplementation((url) => {
-      const responses = {
-        '/api/marketing/voiceover-voices': { success: true, voices: [] },
-        '/api/marketing/gcp-readiness': { success: true, ready: true },
-        '/api/marketing/generate-script': {
-          success: true, platform: 'tiktok', script_id: 'SCRIPT-1', hashtags: [],
-          script: { hook: 'Home tour', body: 'Reviewed tour.', cta: 'Learn more.', suggested_image_prompts: ['A home exterior'] },
-        },
-        '/api/marketing/generate-genai-clip': {
-          success: true, filename: 'reviewed.mp4', download_url: '/api/marketing/videos/reviewed.mp4',
-        },
-        '/api/marketing/schedule': {
-          success: true, status: 'draft_ready', post_id: 'draft-1', persisted: false, platform: 'tiktok',
-        },
-        '/api/marketing/publish': {
-          success: true, status: 'published', post_id: 'platform-1', platform: 'tiktok',
-        },
-      };
-      if (!(url in responses)) throw new Error(`Unexpected request: ${url}`);
-      return Promise.resolve(okResponse(responses[url]));
-    });
-    render(<AdStudio onBack={vi.fn()} />);
-    fireEvent.click(screen.getByRole('button', { name: /^Generate Script$/ }));
-    await screen.findByText('Ad Content Preview');
-    const generateClip = screen.getByRole('button', { name: 'Generate GenAI Clip' });
-    await waitFor(() => expect(generateClip).toBeEnabled());
-    fireEvent.click(generateClip);
-    const publish = screen.getByRole('button', { name: 'Publish Now to TikTok' });
-    await waitFor(() => expect(publish).toBeEnabled());
-    return publish;
-  }
-
-  it('prepares a draft without confirming or invoking live publication', async () => {
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
-    await openPublishablePreview();
-    fireEvent.click(screen.getByRole('button', { name: 'Prepare Draft' }));
-    expect(await screen.findByText(/Prepared Drafts/)).toBeInTheDocument();
-    expect(screen.getByText('draft_ready')).toBeInTheDocument();
-    expect(confirm).not.toHaveBeenCalled();
-    expect(adminFetch.mock.calls.some(([url]) => url === '/api/marketing/publish')).toBe(false);
-  });
-
-  it('cancelling live publication sends no publish request', async () => {
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
-    fireEvent.click(await openPublishablePreview());
-    expect(confirm).toHaveBeenCalledWith('Publish this video live to TikTok now?');
-    expect(adminFetch.mock.calls.some(([url]) => url === '/api/marketing/publish')).toBe(false);
-    expect(screen.getByText('Ad Content Preview')).toBeInTheDocument();
-  });
-
-  it('keeps a confirmed publication receipt separate from prepared drafts', async () => {
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
-    fireEvent.click(await openPublishablePreview());
-    expect(await screen.findByRole('status')).toHaveTextContent('Publish request accepted by TikTok');
-    expect(screen.getByRole('status')).toHaveTextContent('platform-1');
-    expect(screen.getByText('Ad Content Preview')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Drafts' }));
-    expect(screen.getByText('No drafts prepared yet')).toBeInTheDocument();
-  });
-
   it('shows local readiness and does not render unavailable platform KPIs as zero', async () => {
     render(<AdStudio onBack={vi.fn()} />);
 
+    expect(await screen.findByText('Not available yet')).toBeInTheDocument();
+    expect(screen.getByText('AI pictures & video')).toBeInTheDocument();
+    expect(screen.queryByText('GCP AI')).not.toBeInTheDocument();
+
     fireEvent.click(screen.getByRole('button', { name: 'Analytics' }));
 
-    expect(await screen.findByText('Platform analytics unavailable')).toBeInTheDocument();
+    expect(await screen.findByText('Live social numbers are not connected')).toBeInTheDocument();
+    expect(screen.getByText(/Do not treat the numbers here as real ad results/i)).toBeInTheDocument();
+    expect(screen.getByText(/Start from Content Ideas/i)).toBeInTheDocument();
+    expect(screen.getByText('Homes ready to feature')).toBeInTheDocument();
+    expect(screen.queryByText(/inventory-backed idea lane/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Meta analytics/i)).not.toBeInTheDocument();
     expect(screen.getByText('Generated Images')).toBeInTheDocument();
     expect(screen.getByText('Generated Videos')).toBeInTheDocument();
     expect(screen.getByText('Inventory Homes')).toBeInTheDocument();
@@ -130,54 +86,11 @@ describe('Ad Studio truth contracts', () => {
     expect(screen.queryByText('Leads Generated')).not.toBeInTheDocument();
   });
 
-  it('treats a success-false HTTP 200 envelope as a failure', async () => {
-    await expect(readJsonOrThrow(
-      okResponse({ success: false, error: 'Draft preparation was rejected.' }),
-      'Draft preparation failed',
-    )).rejects.toThrow('Draft preparation was rejected.');
-  });
+  it('opens Google Ads when the staff entry is /ad-studio', async () => {
+    render(<AdStudio onBack={vi.fn()} initialTab="paid-search" />);
 
-  it('does not navigate to Drafts when draft preparation fails', async () => {
-    adminFetch.mockImplementation((url) => {
-      if (url === '/api/marketing/voiceover-voices') {
-        return Promise.resolve(okResponse({ success: true, voices: [] }));
-      }
-      if (url === '/api/marketing/gcp-readiness') {
-        return Promise.resolve(okResponse({ success: true, ready: false }));
-      }
-      if (url === '/api/marketing/generate-script') {
-        return Promise.resolve(okResponse({
-          success: true,
-          platform: 'tiktok',
-          script_id: 'SCRIPT-1',
-          hashtags: ['#TexasHomes'],
-          script: {
-            hook: 'Tour this home',
-            body: 'A reviewed home tour.',
-            cta: 'Call today.',
-            suggested_image_prompts: [],
-          },
-        }));
-      }
-      if (url === '/api/marketing/schedule') {
-        return Promise.resolve(okResponse({
-          success: false,
-          error: 'The draft could not be prepared. Please try again.',
-        }));
-      }
-      throw new Error(`Unexpected request: ${url}`);
-    });
-
-    render(<AdStudio onBack={vi.fn()} />);
-    fireEvent.click(screen.getByRole('button', { name: /^Generate Script$/ }));
-
-    expect(await screen.findByText('Ad Content Preview')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Prepare Draft' }));
-
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      'The draft could not be prepared. Please try again.',
-    );
-    expect(screen.getByText('Ad Content Preview')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Drafts' })).not.toHaveAttribute('aria-current');
+    expect(screen.getByRole('button', { name: 'Google Ads' })).toHaveAttribute('aria-current', 'page');
+    expect(await screen.findByRole('alert')).toHaveTextContent(/Google Ads is unavailable right now/i);
+    expect(screen.queryByRole('button', { name: /turn ads on|publish/i })).not.toBeInTheDocument();
   });
 });

@@ -14,7 +14,7 @@ from __future__ import annotations
 import re
 from datetime import UTC, datetime
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 from tools.catalog_floorplans import (
     AVAILABLE_KIND,
@@ -23,7 +23,7 @@ from tools.catalog_floorplans import (
     classify_inventory_kind,
 )
 from tools.inventory_dedupe import is_active_status, is_orderable_new, is_preowned
-from tools.photo_classifier import is_floorplan_url, is_manufacturer_catalog_photo_url
+from tools.photo_classifier import is_disallowed_used_photo_url, is_floorplan_url
 
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
 _HOME_PATH_RE = re.compile(r"^/homes/([^/]+)/?$", re.IGNORECASE)
@@ -144,7 +144,7 @@ def listing_page_images(home: dict | None) -> list[str]:
         url = str(raw or "").strip()
         if not url or url in seen or is_floorplan_url(url):
             continue
-        if used and is_manufacturer_catalog_photo_url(url):
+        if used and is_disallowed_used_photo_url(url, home):
             continue
         seen.add(url)
         own_photos.append(url)
@@ -204,6 +204,34 @@ def _url_list(value: object) -> list[str]:
     if isinstance(value, list):
         return [str(item).strip() for item in value if str(item or "").strip()]
     return []
+
+
+# Discrete filename parts already used to tell listing photos apart
+# (tools/photo_classifier.py). Only an exact part counts, so "bedroom"
+# is not guessed from a model number that happens to contain those letters.
+_PHOTO_SUBJECTS: tuple[tuple[str, frozenset[str]], ...] = (
+    ("exterior", frozenset({"exterior", "ext", "front"})),
+    ("kitchen", frozenset({"kitchen", "kit"})),
+    ("living room", frozenset({"living", "lvgrm", "lvg"})),
+    ("bathroom", frozenset({"bathroom", "bath"})),
+    ("bedroom", frozenset({"bedroom", "bed"})),
+    ("interior", frozenset({"interior", "int"})),
+    ("porch", frozenset({"porch"})),
+    ("utility", frozenset({"utility"})),
+)
+
+
+def listing_photo_subject(url: str | None) -> str | None:
+    """Room or view named by the photo filename, or None when it is not."""
+    filename = unquote(str(url or "")).rsplit("/", 1)[-1].split("?", 1)[0]
+    stem = filename.rsplit(".", 1)[0].lower()
+    parts = {part for part in re.split(r"[^a-z0-9]+", stem) if part}
+    if not parts:
+        return None
+    for label, tokens in _PHOTO_SUBJECTS:
+        if parts & tokens:
+            return label
+    return None
 
 
 def path_from_url(url: str | None) -> str | None:

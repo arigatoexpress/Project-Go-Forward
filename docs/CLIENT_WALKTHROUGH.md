@@ -264,8 +264,9 @@ See `docs/DEV_SETUP.md` for the fuller local setup.
 Use a feature branch and PR. Observe every applicable check finish green before
 merging. Standing operator policy authorizes PR merges; never push directly to
 `main`. The workflow deploys a **candidate with no production traffic** and verifies
-its exact commit. Production promotion or rollback requires explicit operator
-approval and an exact revision plan; follow [RUNBOOK.md](RUNBOOK.md).
+its exact commit. A green Deploy leaves that candidate at 0% traffic. Follow
+[RELEASE-CHECKLIST.md](RELEASE-CHECKLIST.md) to promote it and then check
+https://www.texashomeoutlet.com. Rollback stays in [RUNBOOK.md](RUNBOOK.md).
 
 ### Health & smoke (read-only, safe to run anytime)
 

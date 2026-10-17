@@ -16,12 +16,12 @@ export default defineConfig({
       manifest: {
         name: 'Texas Home Outlet',
         short_name: 'THO',
-        description: 'Texas Home Outlet - AI-Powered Manufactured Home Sales & Service',
+        description: 'Manufactured and mobile homes for sale at Texas Home Outlet in Huffman, TX. Call, text, or apply.',
         start_url: '/',
         scope: '/',
         display: 'standalone',
-        background_color: '#1e3a5f',
-        theme_color: '#1e3a5f',
+        background_color: '#fffaf3',
+        theme_color: '#501d1d',
         icons: [
           {
             src: '/apple-touch-icon-120x120.png',
@@ -86,8 +86,8 @@ export default defineConfig({
         ],
 
         runtimeCaching: [
-          // Inventory context powers the customer Inventory page — cache 24 h,
-          // network-first so fresh data wins whenever online.
+          // Inventory context powers the customer Inventory page. Network-first
+          // so a live catalog wins; the cached copy only covers a short outage.
           {
             urlPattern: ({ url }) => url.pathname === '/api/marketing/inventory-context',
             handler: 'NetworkFirst',
@@ -95,9 +95,27 @@ export default defineConfig({
               cacheName: 'inventory-api-cache',
               expiration: {
                 maxEntries: 1,
-                maxAgeSeconds: 86400, // 24 h
+                maxAgeSeconds: 3600,
               },
               networkTimeoutSeconds: 10,
+              cacheableResponse: { statuses: [0, 200] },
+            },
+          },
+          // Listing photos are immutable bytes. Cache-first avoids re-downloading
+          // the same JPEG on every card and listing visit.
+          {
+            urlPattern: ({ url, request }) => request.destination === 'image' && (
+              url.hostname.endsWith('cloudfront.net')
+              || url.hostname === 'storage.googleapis.com'
+              || url.pathname.startsWith('/api/inventory/photos/')
+            ),
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'listing-images',
+              expiration: {
+                maxEntries: 120,
+                maxAgeSeconds: 60 * 60 * 24 * 7,
+              },
               cacheableResponse: { statuses: [0, 200] },
             },
           },

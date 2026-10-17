@@ -2,7 +2,10 @@
 """Production smoke checks for the public THO app.
 
 The default run sends GET requests only: public health, public SPA routes,
-inventory payload shape, and protection of admin GET routes. Every POST
+inventory payload shape, a check that listing heroes are not floorplan
+drawings, and protection of admin GET routes. Hero reachability (HEAD, with
+a one-byte GET only when HEAD is rejected) is opt-in via
+``--check-hero-reachability`` because it contacts image hosts. Every POST
 probe requires an explicit opt-in flag. Rejection probes expect validation
 or authentication to block writes; a server regression could allow side effects.
 
@@ -30,16 +33,30 @@ import json
 import re
 import sys
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, timedelta
+from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import unquote, urljoin, urlsplit
 from urllib.request import Request, urlopen
 
+# Make the repo root importable when this file is run directly
+# (`python scripts/production_smoke.py`). Without it the import below fails
+# and the smoke falls back to a filename-only classifier that cannot see
+# content-flagged floorplans. A degraded check that stays green is worse
+# than no check.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+CLASSIFIER_FULL = True
 try:
-    from tools.photo_classifier import is_floorplan_url
+    from tools.photo_classifier import content_manifest_available, is_floorplan_url
 except Exception:  # pragma: no cover - smoke fallback for minimal runtimes
+    CLASSIFIER_FULL = False
+
+    def content_manifest_available() -> bool:
+        return False
 
     def is_floorplan_url(url: str | None) -> bool:
         if not url or not isinstance(url, str):
@@ -363,6 +380,137 @@ def check_inventory_media_depth(base_url: str, *, timeout: float) -> Probe:
         evidence=evidence,
         elapsed_ms=elapsed_ms,
     )
+
+
+def _head_status(url: str, *, timeout: float = 15.0) -> int:
+    """Check reachability, using a bounded GET when HEAD is unsupported."""
+    try:
+        request = Request(url, method="HEAD")
+        with urlopen(request, timeout=timeout) as response:  # nosec B310 - operator image URL.
+            return int(response.status)
+    except HTTPError as exc:
+        if exc.code != 405:
+            return int(exc.code)
+        # FastAPI's staff-photo GET route does not register HEAD. Ask for one
+        # byte and close without reading if the server ignores the Range.
+        try:
+            request = Request(url, method="GET", headers={"Range": "bytes=0-0"})
+            with urlopen(request, timeout=timeout) as response:  # nosec B310 - operator image URL.
+                return 200 if response.status == 206 else int(response.status)
+        except HTTPError as fallback_exc:
+            return int(fallback_exc.code)
+        except Exception:
+            return 0
+    except Exception:
+        return 0
+
+
+def evaluate_floorplan_heroes(
+    homes: list[dict[str, Any]], *, status: int, elapsed_ms: int
+) -> Probe:
+    """Fail when any listing leads with a floorplan drawing.
+
+    ``check_inventory_media_depth`` counts photo URLs, so a floorplan counted
+    as a photo and the probe stayed green while the site's featured home was
+    a floorplan drawing (2026-08-31). This asks the classifier what the hero
+    actually is. It fails closed when the content manifest did not load,
+    because a filename-only classifier cannot see those drawings.
+    """
+    offenders: list[str] = []
+    for home in homes:
+        hero = home.get("image_url")
+        if not hero or not isinstance(hero, str) or not hero.strip():
+            continue  # photo-less homes render a branded placeholder by design
+        if is_floorplan_url(hero):
+            offenders.append(str(home.get("id") or home.get("model_name") or "?"))
+    classifier_full = CLASSIFIER_FULL and content_manifest_available()
+    return Probe(
+        name="inventory heroes are photos, not floorplans",
+        ok=status == 200 and not offenders and classifier_full,
+        status=status,
+        evidence=(
+            f"floorplan_heroes={len(offenders)}; ids={','.join(offenders[:8]) or 'none'}; "
+            f"classifier={'full' if classifier_full else 'DEGRADED-filename-only'}"
+        ),
+        elapsed_ms=elapsed_ms,
+    )
+
+
+def evaluate_hero_reachability(
+    homes: list[dict[str, Any]],
+    *,
+    status: int,
+    elapsed_ms: int,
+    fetch_status: Callable[[str], int],
+    max_dead: int = 0,
+    sample: int | None = None,
+) -> Probe:
+    """Fail when hero images do not actually load.
+
+    A URL in a JSON array is not a picture. Hero URLs have answered 403 from
+    the vendor CDN while every payload-shape probe stayed green, because
+    nothing fetched them. Evidence keeps the filename only, never the query
+    string.
+    """
+    heroes = [
+        (str(home.get("id") or "?"), home["image_url"])
+        for home in homes
+        if isinstance(home.get("image_url"), str) and home["image_url"].strip()
+    ]
+    if sample:
+        heroes = heroes[:sample]
+    dead: list[str] = []
+    for home_id, url in heroes:
+        code = fetch_status(url)
+        if code != 200:
+            filename = unquote(urlsplit(url).path.rsplit("/", 1)[-1])[:40]
+            dead.append(f"{home_id}:{code}:{filename}")
+    return Probe(
+        name="inventory hero images are reachable",
+        ok=status == 200 and len(dead) <= max_dead,
+        status=status,
+        evidence=(
+            f"checked={len(heroes)}; dead={len(dead)}; allowed={max_dead}; "
+            f"{'; '.join(dead[:6]) or 'all reachable'}"
+        ),
+        elapsed_ms=elapsed_ms,
+    )
+
+
+def check_inventory_media_reality(
+    base_url: str,
+    *,
+    timeout: float,
+    hero_sample: int,
+    max_dead_heroes: int,
+    include_reachability: bool = False,
+) -> list[Probe]:
+    """Classify heroes from the inventory payload, and optionally fetch them.
+
+    The floorplan check is part of the default GET smoke. Reachability contacts
+    image hosts, so the deploy workflow does not run it: on 2026-10-16 the live
+    catalog still had hero URLs answering HTTP 403.
+    """
+    status, payload, elapsed_ms = _json_probe(
+        base_url, "/api/marketing/inventory-context", timeout=timeout
+    )
+    homes = [home for home in _as_list(payload.get("homes")) if isinstance(home, dict)]
+    probes = [evaluate_floorplan_heroes(homes, status=status, elapsed_ms=elapsed_ms)]
+    if include_reachability:
+        probes.append(
+            evaluate_hero_reachability(
+                homes,
+                status=status,
+                elapsed_ms=elapsed_ms,
+                fetch_status=lambda url: _head_status(
+                    urljoin(base_url.rstrip("/") + "/", url.strip()),
+                    timeout=timeout,
+                ),
+                max_dead=max_dead_heroes,
+                sample=hero_sample or None,
+            )
+        )
+    return probes
 
 
 def check_canonical_authority(
@@ -750,6 +898,9 @@ def run_smoke(
     admin_token: str | None = None,
     canonical_origin: str | None = None,
     expect_commit: str | None = None,
+    hero_sample: int = 40,
+    max_dead_heroes: int = 0,
+    check_hero_reachability: bool = False,
 ) -> dict[str, Any]:
     probes: list[Probe] = []
     probes.extend(check_health(base_url, timeout=timeout))
@@ -757,6 +908,15 @@ def run_smoke(
         probes.append(check_served_commit(base_url, timeout=timeout, expected=expect_commit))
     probes.append(check_inventory(base_url, timeout=timeout, min_homes=min_homes))
     probes.append(check_inventory_media_depth(base_url, timeout=timeout))
+    probes.extend(
+        check_inventory_media_reality(
+            base_url,
+            timeout=timeout,
+            hero_sample=hero_sample,
+            max_dead_heroes=max_dead_heroes,
+            include_reachability=check_hero_reachability,
+        )
+    )
     probes.append(
         check_canonical_authority(base_url, timeout=timeout, canonical_origin=canonical_origin)
     )
@@ -786,6 +946,27 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--base-url", default=DEFAULT_BASE_URL)
     parser.add_argument("--timeout", type=float, default=10.0)
     parser.add_argument("--min-homes", type=int, default=DEFAULT_MIN_HOMES)
+    parser.add_argument(
+        "--check-hero-reachability",
+        action="store_true",
+        help=(
+            "Opt-in: HEAD sampled hero image URLs and fail when too many do not "
+            "load. Uses a one-byte GET only if the host rejects HEAD. Not part of "
+            "the deploy smoke, because some live heroes still return HTTP 403."
+        ),
+    )
+    parser.add_argument(
+        "--hero-sample",
+        type=int,
+        default=40,
+        help="With --check-hero-reachability, how many heroes to fetch (0 = all).",
+    )
+    parser.add_argument(
+        "--max-dead-heroes",
+        type=int,
+        default=0,
+        help="With --check-hero-reachability, dead heroes tolerated before failure.",
+    )
     parser.add_argument(
         "--expect-commit",
         default=None,
@@ -848,7 +1029,10 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         default=None,
         help="Admin token used by --check-empty-doc-rejection. Optional.",
     )
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    if args.hero_sample < 0 or args.max_dead_heroes < 0:
+        parser.error("--hero-sample and --max-dead-heroes must be non-negative")
+    return args
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -865,6 +1049,9 @@ def main(argv: list[str] | None = None) -> int:
         admin_token=args.admin_token,
         canonical_origin=args.canonical_origin,
         expect_commit=args.expect_commit,
+        hero_sample=args.hero_sample,
+        max_dead_heroes=args.max_dead_heroes,
+        check_hero_reachability=args.check_hero_reachability,
     )
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0 if result["ok"] else 1

@@ -77,6 +77,44 @@ describe('App pathname-aware routing', () => {
     window.history.replaceState({}, '', '/');
   });
 
+  it('keeps the homepage and inventory hub titles distinct', async () => {
+    window.history.replaceState({}, '', '/');
+    const first = render(<ToastProvider><App /></ToastProvider>);
+    expect(await screen.findByRole('heading', { level: 1, name: 'Mobile Homes For Sale in Huffman, TX' })).toBeVisible();
+    expect(document.title).toContain('Mobile & Manufactured Homes for Sale in Huffman, TX');
+    expect(document.title).not.toContain('Home Inventory');
+    first.unmount();
+
+    window.history.replaceState({}, '', '/inventory');
+    render(<ToastProvider><App /></ToastProvider>);
+    expect(await screen.findByRole('textbox', { name: 'Search homes' })).toBeVisible();
+    expect(screen.getByRole('heading', {
+      level: 1,
+      name: 'Home Inventory — Mobile & Manufactured Homes in Huffman, TX',
+    })).toBeVisible();
+    expect(document.title).toContain('Home Inventory — Mobile & Manufactured Homes in Huffman, TX');
+    expect(document.title).not.toContain('for Sale');
+  });
+
+  it('uses a Huffman financing title', async () => {
+    window.history.replaceState({}, '', '/financing');
+    render(<ToastProvider><App /></ToastProvider>);
+    expect(await screen.findByRole('heading', {
+      level: 1,
+      name: 'Manufactured Home Financing in Huffman, TX',
+    })).toBeVisible();
+    expect(document.title).toBe('Manufactured Home Financing in Huffman, TX | Texas Home Outlet');
+  });
+
+  it('opens staff sign-in for /ad-studio instead of a 404', async () => {
+    window.history.replaceState({}, '', '/ad-studio');
+    render(<ToastProvider><App /></ToastProvider>);
+
+    expect(await screen.findByRole('heading', { name: 'Staff sign-in' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: /wandered off the lot/i })).not.toBeInTheDocument();
+    expect(document.title).toContain('Google Ads');
+  });
+
   it('keeps category links native and synchronizes popstate title, page views, and filters', async () => {
     render(<ToastProvider><App /></ToastProvider>);
 

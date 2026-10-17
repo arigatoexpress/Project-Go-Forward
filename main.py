@@ -26,7 +26,7 @@ import uuid
 from collections import defaultdict, deque
 from datetime import UTC, datetime, timedelta
 from json import JSONDecodeError
-from urllib.parse import quote, urlsplit, urlunsplit
+from urllib.parse import quote, urlencode, urlsplit, urlunsplit
 
 import uvicorn
 from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
@@ -178,6 +178,7 @@ from tools.input_sanitizer import sanitize_body, sanitize_query_params
 from tools.inventory_dedupe import (
     annotate_possible_duplicates,
     collapse_duplicate_homes,
+    is_preowned,
     suppress_used_home_catalog_photos,
 )
 from tools.pii_guard import redact_pii_from_text, validate_no_pii_in_text
@@ -869,7 +870,7 @@ class ImmutableStaticFiles(StaticFiles):
 #
 # Cache-Control is applied consistently:
 #   * GET /api/marketing/inventory-context (public read-side):
-#       staff-backed reads revalidate; archived legacy reads may cache for 1h
+#       staff-backed reads cache for 30s (stale for 60s); archived legacy reads may cache for 1h
 #   * Any other /api/* path: no-cache (CRM data must never be cached)
 #   * Non-/api paths: header is left untouched so the SPA / static asset
 #     handlers can set their own caching policy.
@@ -879,12 +880,31 @@ class ImmutableStaticFiles(StaticFiles):
 # they flow through this single envelope rather than emitting a bare detail.
 
 _PUBLIC_INVENTORY_CACHE = "max-age=3600, public, stale-while-revalidate=60"
+# Live staff inventory is fresh for 30s and may be served stale for another
+# 60s, so a save shows within about a minute and a half. no-cache forced
+# every image-page navigation to wait on the full catalog JSON.
+_STAFF_INVENTORY_CACHE = "public, max-age=30, stale-while-revalidate=60"
 _DYNAMIC_API_CACHE = "no-cache"
+_STATIC_ASSET_CACHE = "public, max-age=86400"
+_STATIC_ASSET_SUFFIXES = (
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".webp",
+    ".gif",
+    ".svg",
+    ".ico",
+    ".avif",
+    ".woff2",
+)
 
 
 def _public_inventory_cache_policy() -> str:
-    # A browser/CDN must not hide staff changes for an hour after a save.
-    return _PUBLIC_INVENTORY_CACHE if _inventory_source_pref() == "legacy" else _DYNAMIC_API_CACHE
+    # Archived legacy snapshots may sit for an hour. A live staff read is
+    # reusable for 30s and stale for 60s, so a save shows within ~1.5 minutes.
+    return (
+        _PUBLIC_INVENTORY_CACHE if _inventory_source_pref() == "legacy" else _STAFF_INVENTORY_CACHE
+    )
 
 
 def _is_public_inventory_read(method: str, path: str) -> bool:
@@ -5470,11 +5490,6 @@ from tools.marketing_tools import (
     schedule_social_post,
 )
 from tools.photo_classifier import apply_classifier_to_home, has_real_photo
-from tools.social_live_publishers import (
-    SUPPORTED_PLATFORMS as SUPPORTED_SOCIAL_PUBLISH_PLATFORMS,
-)
-from tools.social_live_publishers import publish_social_post, social_publish_readiness
-from tools.social_publish_assets import publish_video_asset
 from tools.video_generator import GENERATED_VIDEOS_DIR
 
 
@@ -5555,115 +5570,13 @@ async def api_prepare_social_draft(request: Request):
             )
         return result
     except JSONDecodeError:
-        return _marketing_error_response(
-            "The draft request contains invalid JSON.",
-            status_code=400,
-            error_code="invalid_json",
-        )
-    except Exception as exc:
-        struct_logger.error("Draft preparation failed", error=str(exc))
-        return _marketing_error_response(
-            "The draft could not be prepared. Please try again.",
+        raise
+    except Exception as e:
+        struct_logger.error("Draft preparation failed", error=str(e))
+        raise HTTPException(
             status_code=500,
-            error_code="draft_preparation_failed",
-        )
-
-
-@app.post("/api/marketing/publish", dependencies=[Depends(require_admin)])
-async def api_marketing_publish(request: Request):
-    """Publish one approved generated video immediately to the chosen platform."""
-    try:
-        data = await request.json()
-        if not isinstance(data, dict):
-            return _marketing_error_response(
-                "The publish request must be a JSON object.",
-                status_code=400,
-                error_code="invalid_request",
-            )
-
-        platform = data.get("platform")
-        if not isinstance(platform, str) or platform not in SUPPORTED_SOCIAL_PUBLISH_PLATFORMS:
-            return _marketing_error_response(
-                "Live publishing is supported only for TikTok and Instagram Reels.",
-                status_code=400,
-                error_code="unsupported_platform",
-            )
-
-        readiness = social_publish_readiness(platform)
-        if not readiness.get("configured"):
-            platform_name = "TikTok" if platform == "tiktok" else "Instagram Reels"
-            return _marketing_error_response(
-                f"{platform_name} publishing is not configured.",
-                status_code=503,
-                error_code="platform_not_configured",
-            )
-        if not readiness.get("publish_enabled"):
-            return _marketing_error_response(
-                "Live social publishing is disabled.",
-                status_code=503,
-                error_code="publishing_disabled",
-            )
-
-        filename = data.get("filename") or data.get("video_url")
-        if not isinstance(filename, str) or not filename.strip():
-            return _marketing_error_response(
-                "A generated video is required before publishing.",
-                status_code=400,
-                error_code="missing_video",
-            )
-
-        caption = data.get("caption") or ""
-        hashtags = data.get("hashtags") or []
-        if not isinstance(caption, str) or not (
-            isinstance(hashtags, list) and all(isinstance(tag, str) for tag in hashtags)
-        ):
-            return _marketing_error_response(
-                "The caption or hashtags are invalid.",
-                status_code=400,
-                error_code="invalid_content",
-            )
-
-        asset = publish_video_asset(filename)
-        if not asset.get("success"):
-            error_code = asset.get("error_code")
-            if error_code in {"local_file_not_found", "invalid_filename"}:
-                return _marketing_error_response(
-                    "The selected generated video could not be found.",
-                    status_code=404,
-                    error_code="video_not_found",
-                )
-            return _marketing_error_response(
-                "The video could not be prepared for publishing. Please try again.",
-                status_code=503,
-                error_code="asset_publish_failed",
-            )
-
-        result = publish_social_post(
-            platform=platform,
-            asset_url=asset["public_url"],
-            caption=caption,
-            hashtags=hashtags,
-        )
-        if not result.get("success"):
-            return _marketing_error_response(
-                "The social platform could not publish this post. Please try again.",
-                status_code=502,
-                error_code="social_publish_failed",
-            )
-        return result
-    except JSONDecodeError:
-        return _marketing_error_response(
-            "The publish request contains invalid JSON.",
-            status_code=400,
-            error_code="invalid_json",
-        )
-    except Exception as exc:
-        struct_logger.error("Marketing publish failed", error=str(exc))
-        return _marketing_error_response(
-            "The post could not be published. Please try again.",
-            status_code=500,
-            error_code="publish_failed",
-        )
+            detail="The draft wasn't saved. Please try again.",
+        ) from e
 
 
 @app.get("/api/marketing/analytics", dependencies=[Depends(require_admin)])
@@ -5969,7 +5882,7 @@ def _firestore_inventory_context(preloaded: dict | None = None) -> dict:
     # distinction explicit before and after enrichment.
     for home in firestore_homes:
         apply_classifier_to_home(home)
-        if not has_real_photo(home):
+        if not has_real_photo(home) and not is_preowned(home):
             asset = get_assets_for_home(home.get("model_name", ""))
             if asset:
                 asset_images = asset.get("images") or []
@@ -9602,8 +9515,8 @@ from pm_routes import router as pm_router
 
 app.include_router(pm_router, dependencies=[Depends(require_admin)])
 app.include_router(passkey_router)
-app.include_router(google_ads_step_up_router)
-app.include_router(google_ads_approval_router)
+app.include_router(google_ads_step_up_router, dependencies=[Depends(require_admin)])
+app.include_router(google_ads_approval_router, dependencies=[Depends(require_admin)])
 app.include_router(google_ads_admin_router, dependencies=[Depends(require_admin)])
 
 
@@ -10047,11 +9960,37 @@ async def update_admin_staff(request: Request):
 app.mount("/assets", ImmutableStaticFiles(directory="frontend/dist/assets"), name="assets")
 
 
+def _shared_home_query_target(request: Request) -> str | None:
+    """Send /inventory?home=<id> to that home's canonical listing URL.
+
+    The query form is the old share link. It renders the catalog, so a
+    social scraper never sees the listing photo or title. Extra query
+    parameters (campaign tags) stay on the listing URL.
+    """
+    if request.method.upper() not in {"GET", "HEAD"}:
+        return None
+    home_id = str(request.query_params.get("home") or "").strip()
+    if not home_id:
+        return None
+    if _normalized_path(request.url.path) not in {"/", "/inventory"}:
+        return None
+    target = seo_routes.canonical_listing_path_for_id(home_id)
+    if not target:
+        return None
+    extra = [(key, value) for key, value in request.query_params.multi_items() if key != "home"]
+    if extra:
+        return f"{target}?{urlencode(extra)}"
+    return target
+
+
 # HEAD is included because uptime monitors default to HEAD on "/" and the
 # Cloud Run service should not answer the probe with 405.
 @app.get("/{full_path:path}")
 @app.head("/{full_path:path}")
-async def serve_spa(full_path: str):
+async def serve_spa(full_path: str, request: Request):
+    shared_home = _shared_home_query_target(request)
+    if shared_home:
+        return RedirectResponse(shared_home, status_code=301)
     if full_path == "api" or full_path.startswith("api/"):
         # Funnel unknown /api/* paths through the resilient HTTPException
         # handler so they get the {success, status_code, message} envelope and
@@ -10076,6 +10015,8 @@ async def serve_spa(full_path: str):
                     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
                     response.headers["Pragma"] = "no-cache"
                     response.headers["Expires"] = "0"
+                elif file_path.lower().endswith(_STATIC_ASSET_SUFFIXES):
+                    response.headers["Cache-Control"] = _STATIC_ASSET_CACHE
                 return response
     # Unknown route and not a dist file: real 404 with the SPA shell so
     # crawlers don't index every typo as a page (soft-404 avoidance).

@@ -6,7 +6,9 @@ STAFF_SIGN_IN = ROOT / "frontend/src/components/StaffSignInPanel.jsx"
 INVENTORY_BROWSE = ROOT / "frontend/src/pages/InventoryBrowse.jsx"
 DOCUMENT_CENTER = ROOT / "frontend/src/pages/DocumentCenter.jsx"
 AD_STUDIO = ROOT / "frontend/src/pages/AdStudio.jsx"
+AD_STUDIO_COPY = ROOT / "frontend/src/components/ad-studio/adStudioStaffCopy.js"
 GOOGLE_ADS_STATUS_CARD = ROOT / "frontend/src/components/ad-studio/GoogleAdsStatusCard.jsx"
+GOOGLE_ADS_GUIDANCE = ROOT / "frontend/src/components/ad-studio/googleAdsGuidance.js"
 SYSTEM_HUB = ROOT / "frontend/src/pages/SystemHub.jsx"
 STATUS_BADGE = ROOT / "frontend/src/components/StatusBadge.jsx"
 PROPERTY_CARD = ROOT / "frontend/src/components/PropertyCard.jsx"
@@ -19,17 +21,25 @@ CONTENT_PAGE = ROOT / "frontend/src/components/ContentPage.jsx"
 IMAGE_RESEARCH = ROOT / "docs/MANUFACTURER_IMAGE_SOURCES_RESEARCH.md"
 
 
-def test_ad_studio_exposes_offline_review_paid_search_tab():
+def test_ad_studio_exposes_plain_language_google_ads_tab():
     studio_source = AD_STUDIO.read_text()
     card_source = GOOGLE_ADS_STATUS_CARD.read_text()
 
-    assert "id: 'paid-search', label: 'Paid Search'" in studio_source
+    assert "id: 'paid-search', label: 'Google Ads'" in studio_source
     assert "activeTab === 'paid-search'" in studio_source
     assert "<GoogleAdsStatusCard />" in studio_source
+    guidance_source = GOOGLE_ADS_GUIDANCE.read_text()
+
     assert "aria-current" in studio_source
-    assert "Run offline server validation" in card_source
-    assert "Campaign and spend operations remain unavailable." in card_source
-    for forbidden in ("Connect", "Approve", "Create campaign", "Enable", "Publish"):
+    assert "Check this ad" in guidance_source
+    assert "checkButtonLabel" in card_source
+    assert "Launch turned off" in card_source
+    assert "This screen cannot turn ads on" in card_source
+    assert "does not spend money" in card_source
+    assert "does not change the reviewed ad text" in card_source
+    assert "Nothing has been sent to Google" in guidance_source
+    assert "progressPlain" in card_source
+    for forbidden in ("Connect", "Approve", "Create campaign", "Enable", "Publish", "Turn ads on"):
         assert f">{forbidden}<" not in card_source
 
 
@@ -156,28 +166,22 @@ def test_ad_studio_surfaces_readiness_and_image_fallbacks():
 def test_ad_studio_schedule_action_is_labeled_as_draft_only():
     source = AD_STUDIO.read_text()
 
+    copy_source = AD_STUDIO_COPY.read_text()
+
     assert "{ id: 'scheduled', label: 'Drafts'" in source
     assert "Prepare Draft" in source
     assert "Prepared Drafts" in source
-    assert "Drafts prepared while this Ad Studio screen is open" in source
-    assert "Response-only · not saved" in source
+    assert "Drafts prepared while this screen stays open" in source
+    assert "Leaving or refreshing removes them" in source
+    assert "This stays on this screen only" in copy_source
+    assert "Nothing was posted" in copy_source
     assert "Nothing is sent to a social platform" in source
     assert "Schedule Post" not in source
     assert "Posts queued for publishing" not in source
     assert "Live Publishing Locked" not in source
     assert "Live enabled" not in source
     assert "Approve & Publish" not in source
-    # Draft preparation stays transport-free even when a separate, explicitly
-    # confirmed live-publish action is available on the same screen.
-    draft_api = source.split("async function apiPrepareDraft", 1)[1].split("async function ", 1)[0]
-    draft_handler = source.split("const handlePrepareDraft =", 1)[1].split(
-        "const handlePublish =", 1
-    )[0]
-    assert "/api/marketing/schedule" in draft_api
-    assert "/api/marketing/publish" not in draft_api
-    assert "apiPublishPost" not in draft_handler
-    assert "Publish Now to" in source
-    assert "if (!window.confirm(" in source
+    assert "/api/marketing/publish" not in source
     assert "/api/marketing/social-readiness" not in source
 
 
