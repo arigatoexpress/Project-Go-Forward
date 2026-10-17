@@ -1494,4 +1494,3 @@ def parse_deal_update(data: object) -> dict:
     for key in _SERVER_MANAGED_DEAL_FIELDS:
         changes.pop(key, None)
     return changes
-
