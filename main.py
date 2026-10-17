@@ -3583,11 +3583,13 @@ from database.deal_validation import validate_for_documents
 from database.firestore_client import get_database
 from database.models import (
     Deal,
+    DealPayloadError,
     DealStatus,
     ESignRequest,
     Inventory,
     InventoryWrite,
-    unknown_deal_fields,
+    parse_deal_create,
+    parse_deal_update,
 )
 from database.rpc_timeout import FIRESTORE_RPC_TIMEOUT
 
@@ -4373,26 +4375,43 @@ async def list_deals(status: str = None, salesrep: str = None, q: str = None, li
         return {"success": False, "error": "Failed to load deals. Please try again."}
 
 
-def _log_unknown_deal_fields(route: str, data: object) -> None:
-    """COD-158: record unknown deal key NAMES only (never values; deals hold PII)."""
-    ignored = unknown_deal_fields(data)
-    if ignored:
+def _deal_payload_error(route: str, exc: DealPayloadError) -> HTTPException:
+    """422 that names rejected deal fields and never includes their values."""
+    if exc.kind == "unknown" and exc.field_names:
         struct_logger.warning(
             "Deal payload has unknown fields",
             route=route,
-            unknown_fields=ignored[:50],
-            unknown_count=len(ignored),
+            unknown_fields=list(exc.field_names[:50]),
+            unknown_count=len(exc.field_names),
         )
+        label = "field" if len(exc.field_names) == 1 else "fields"
+        detail = (
+            f"Could not save this deal. Unexpected {label}: {', '.join(exc.field_names)}. "
+            "Remove them and try again."
+        )
+    elif exc.kind == "invalid" and exc.field_names:
+        label = "field" if len(exc.field_names) == 1 else "fields"
+        detail = f"Could not save this deal. Check the {label}: {', '.join(exc.field_names)}."
+    else:
+        detail = "Could not save this deal. Send the deal fields as a JSON object."
+    return HTTPException(status_code=422, detail=detail)
 
 
 @app.post("/api/deals", dependencies=[Depends(require_admin)])
 async def create_deal(request: Request):
-    """Create a new deal/application."""
+    """Create a new deal/application. Keys outside the Deal model are rejected."""
     try:
         data = await request.json()
-        _log_unknown_deal_fields("create", data)
-        # Generate ID if not provided
-        deal = Deal(**data)
+    except Exception as e:
+        struct_logger.error("Deal creation failed", error=str(e))
+        return {"success": False, "error": "Failed to create deal. Please try again."}
+
+    try:
+        deal = parse_deal_create(data)
+    except DealPayloadError as exc:
+        raise _deal_payload_error("create", exc) from None
+
+    try:
         deal_data = deal.model_dump()
         # Convert datetime to string for Firestore
         for key in ["created_at", "updated_at"]:
@@ -4577,20 +4596,26 @@ async def get_deal(deal_id: str):
 
 @app.put("/api/deals/{deal_id}", dependencies=[Depends(require_admin)])
 async def update_deal(deal_id: str, request: Request):
-    """Update deal data."""
+    """Update deal data. Unknown keys are rejected and nothing is written."""
     try:
         data = await request.json()
-        # Don't allow overwriting id or timestamps
-        data.pop("id", None)
-        data.pop("created_at", None)
-        _log_unknown_deal_fields("update", data)
-        _deal_db.update_deal(deal_id, data)
+    except Exception as e:
+        struct_logger.error("Deal update failed", error=str(e))
+        return {"success": False, "error": "Failed to update deal. Please try again."}
+
+    try:
+        changes = parse_deal_update(data)
+    except DealPayloadError as exc:
+        raise _deal_payload_error("update", exc) from None
+
+    try:
+        _deal_db.update_deal(deal_id, changes)
         log_admin_action(
             actor=_audit_actor(request),
             action="deal.update",
             target_type="deal",
             target_id=str(deal_id),
-            details={"fields": sorted(k for k in data.keys() if isinstance(k, str))},
+            details={"fields": sorted(changes)},
             request=request,
         )
         return {"success": True, "message": "Deal updated successfully"}
