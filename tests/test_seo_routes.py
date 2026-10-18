@@ -774,6 +774,8 @@ def test_city_landing_page_serves_200_with_local_content(monkeypatch):
     assert r.status_code == 200
     body = r.text
     assert "<h1>Manufactured &amp; Mobile Homes in Humble, TX</h1>" in body
+    assert "Homes and floorplans offered by our Huffman showroom:" in body
+    assert "listed at that showroom" not in body
     assert 'rel="canonical"' in body and "/manufactured-homes-in-humble-tx" in body
     assert '"@type": "LocalBusiness"' in body
     assert "tel:" in body and "/inventory" in body  # NAP + CTA

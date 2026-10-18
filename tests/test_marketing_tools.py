@@ -808,6 +808,13 @@ class TestGenerateAdImage:
 
 
 class TestGenerateContentScript:
+    @pytest.fixture(autouse=True)
+    def _no_live_inventory_lookup(self, monkeypatch):
+        # Featured-home prompts look up owner_approved_ad_price. These tests
+        # do not load inventory, and the suite points Firestore at a closed
+        # emulator, so leave the lookup empty.
+        monkeypatch.setattr(marketing_tools, "_load_inventory_for_marketing", lambda: [])
+
     def test_single_script_success(self, monkeypatch):
         client = _FakeGenAIClient()
         client.content_responses.append(_strong_script_payload())

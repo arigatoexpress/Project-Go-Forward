@@ -15,6 +15,7 @@ import base64
 import json
 import logging
 import os
+import re
 import uuid
 from datetime import UTC, datetime
 
@@ -26,6 +27,12 @@ except ImportError:
     ToolContext = None
 
 logger = logging.getLogger(__name__)
+
+# Beds, baths, square feet, and compact forms such as 3BR/2BA.
+_LISTING_DETAIL_RE = re.compile(
+    r"\b(?:bed(?:room)?s?|bath(?:room)?s?|sqft|square feet)\b|\d+\s*BR|\d+\s*BA",
+    re.IGNORECASE,
+)
 
 try:
     from tools.inventory_dedupe import is_preowned, suppress_used_home_catalog_photos
@@ -301,6 +308,30 @@ def _load_inventory_for_marketing():
         return []
 
 
+def _owner_approved_ad_price_label(pricing: dict | None) -> str:
+    """A dollar amount belongs in ad copy only when the owner set the flag."""
+    pricing = pricing if isinstance(pricing, dict) else {}
+    approved = str(pricing.get("display_price") or "").strip()
+    if (
+        pricing.get("owner_approved_ad_price") is True
+        and approved
+        and approved.lower() != "call for price"
+    ):
+        return approved
+    return "Call for price"
+
+
+def _ad_price_for_named_home(home_name: str | None) -> str:
+    """Price for a featured home, or Call for price when the flag is not set."""
+    name = (home_name or "").strip().lower()
+    if not name:
+        return "Call for price"
+    for home in _load_inventory_for_marketing():
+        if (home.get("model_name") or "").strip().lower() == name:
+            return _owner_approved_ad_price_label(home.get("pricing"))
+    return "Call for price"
+
+
 def get_inventory_for_ads(limit: int = 5, *, staff_publication: bool = False) -> dict:
     """
     Get current inventory highlights for ad creation context.
@@ -373,14 +404,26 @@ def get_inventory_for_ads(limit: int = 5, *, staff_publication: bool = False) ->
         if matterport_id and not matterport_url:
             matterport_url = get_matterport_url(matterport_id)
 
+        pricing = h.get("pricing") or {}
+        # Ad drafts quote a dollar amount only when the owner flagged that home.
+        # The staff publication read is the sale price the editor published on
+        # the storefront, so that path keeps the published display price.
+        if staff_publication:
+            display_price = pricing.get("display_price", "Call for Price")
+            price_value = pricing.get("price_value", 0)
+        else:
+            display_price = _owner_approved_ad_price_label(pricing)
+            price_value = (
+                pricing.get("price_value", 0) if display_price.lower() != "call for price" else 0
+            )
         home_data = {
             "id": h.get("id", ""),
             "model_name": h.get("model_name", "Unknown"),
             "manufacturer": h.get("manufacturer", ""),
             "classification": h.get("classification", ""),
             "status": h.get("status", "Available"),
-            "display_price": h.get("pricing", {}).get("display_price", "Call for Price"),
-            "price_value": h.get("pricing", {}).get("price_value", 0),
+            "display_price": display_price,
+            "price_value": price_value,
             "specs": h.get("specs", {}),
             "features": h.get("features", [])[:5],
             "image_url": h.get("image_url", ""),
@@ -1042,7 +1085,7 @@ def _score_script_quality(
     elif hook_words > 20:
         hook_score -= 2
         issues.append("Hook too long — should be under 12 words")
-    if _re.search(r"\b(?:beds?|baths?|sqft|square feet)\b", hook):
+    if _LISTING_DETAIL_RE.search(hook):
         hook_score += 2  # Real listing details, not a dollar amount
     if (
         hook.startswith("are you")
@@ -1060,7 +1103,7 @@ def _score_script_quality(
 
     # 2. Specificity (1-10)
     spec_score = 2
-    numbers_found = _re.findall(r"\b(?:beds?|baths?|sqft|square feet)\b", full_text)
+    numbers_found = _LISTING_DETAIL_RE.findall(full_text)
     spec_score += min(4, len(numbers_found))
     if not numbers_found:
         issues.append("No real listing details. Add beds, baths, or square feet.")
@@ -1342,7 +1385,7 @@ the viewer will see the REAL kitchen from these photos, not a stock image.
                         f"- {h.get('model_name', 'Home')} by {h.get('manufacturer', 'THO')}: "
                         f"{specs.get('beds', '?')}BR/{specs.get('baths', '?')}BA, "
                         f"{specs.get('sq_ft', '?')} sqft, "
-                        f"{h.get('pricing', {}).get('display_price', 'Call for Price')}"
+                        f"{_owner_approved_ad_price_label(h.get('pricing'))}"
                     )
                 inventory_context = f"""
 CURRENT INVENTORY HIGHLIGHTS (use these real details in the script):
@@ -1351,10 +1394,12 @@ CURRENT INVENTORY HIGHLIGHTS (use these real details in the script):
 Pick the most compelling home for this {content_theme} theme, or reference multiple homes for comparison content.
 """
     else:
+        # Ignore a caller-supplied home_price unless this home's flag is set.
+        featured_price = _ad_price_for_named_home(home_name)
         inventory_context = f"""
 FEATURED HOME:
 - Name: {home_name}
-- Price: {home_price or 'Call for Price'}
+- Price: {featured_price}
 - Specs: {json.dumps(home_specs or {})}
 {photo_context}
 {matterport_context}
@@ -1623,16 +1668,7 @@ def get_trending_content_ideas(
             specs = top_home.get("specs", {})
             model_name = top_home.get("model_name") or "Featured Home"
             # A dollar amount belongs in this title only when the owner set the flag.
-            pricing = top_home.get("pricing") or {}
-            approved = str(pricing.get("display_price") or "").strip()
-            if (
-                pricing.get("owner_approved_ad_price") is True
-                and approved
-                and approved.lower() != "call for price"
-            ):
-                price_label = approved
-            else:
-                price_label = "Call for price"
+            price_label = _owner_approved_ad_price_label(top_home.get("pricing"))
             ideas.append(
                 {
                     "type": "home_tour",
