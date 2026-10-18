@@ -43,7 +43,9 @@ import {
   BUSINESS_HOURS,
   BUSINESS_CITY,
   BUSINESS_STATE,
+  SERVICE_AREA_CITIES,
 } from '../constants';
+import { HOME_H1, INVENTORY_H1 } from '../seoCopy';
 import AppointmentHandoffCard from '../components/AppointmentHandoffCard';
 import { describeFetchError, extractErrorMessage, responseErrorMessage, safeUserMessage } from '../utils/apiError';
 
@@ -320,6 +322,34 @@ function listingHref(home) {
   return listingPath(home) || '';
 }
 
+function serviceAreaPath(city) {
+  const slug = String(city || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  return `/manufactured-homes-in-${slug}-tx`;
+}
+
+function StorefrontLinks({ currentPath, tone = 'light' }) {
+  const path = String(currentPath || '/').replace(/\/+$/, '') || '/';
+  const linkClass = tone === 'light'
+    ? 'font-semibold text-white underline'
+    : 'font-semibold text-[var(--cp-accent)] underline';
+  const currentClass = tone === 'light'
+    ? 'font-semibold text-white'
+    : 'font-semibold text-[var(--cp-text)]';
+  return (
+    <nav aria-label="Home, inventory, and areas we serve" className="mt-4 flex flex-wrap gap-x-3 gap-y-2 text-sm">
+      {path !== '/' && <a href="/" className={linkClass}>Home</a>}
+      {path !== '/inventory' && <a href="/inventory" className={linkClass}>All homes</a>}
+      {SERVICE_AREA_CITIES.map((city) => {
+        const href = serviceAreaPath(city);
+        if (path === href) {
+          return <span key={city} aria-current="page" className={currentClass}>Homes in {city}, TX</span>;
+        }
+        return <a key={city} href={href} className={linkClass}>Homes in {city}, TX</a>;
+      })}
+    </nav>
+  );
+}
+
 function smsHref(home) {
   const name = home?.model_name ? ` the ${home.model_name}` : ' a home';
   const body = `Hi, I'm interested in${name} at ${BUSINESS_NAME}.`;
@@ -413,7 +443,7 @@ function FeaturedHomeSpotlight({ home, onClick, onGetPrice, onApply }) {
               src={image}
               srcSet={generateSrcSet(image)}
               sizes={getImageSizes('featured-spotlight')}
-              alt={home.model_name}
+              alt={listingImageAlt(home, image, 1, 1)}
               className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
               width={1200}
               height={800}
@@ -936,9 +966,7 @@ export default function InventoryBrowse({
     if (!cityLanding) return;
     applyDocumentHead({
       title: cityLanding.title,
-      description:
-        `${BUSINESS_NAME} delivers manufactured & mobile homes to ${cityLanding.city}, TX — `
-        + `listed homes plus orderable floorplans. Confirm current price and availability at ${BUSINESS_PHONE}.`,
+      description: cityLanding.description,
       canonicalPath: cityLanding.path,
     });
   }, [cityLanding]);
@@ -961,7 +989,7 @@ export default function InventoryBrowse({
   // --- RENDER ---
 
   const onInventoryHub = /^\/inventory\/?$/i.test(currentPath);
-  const inventoryHubHeading = `Home Inventory — Mobile & Manufactured Homes in ${BUSINESS_CITY}, ${BUSINESS_STATE}`;
+  const inventoryHubHeading = INVENTORY_H1;
   const uniqueHeading = cityLanding?.heading
     || fallbackListingHeading(currentPath)
     || routeCategory?.heading
@@ -1092,7 +1120,7 @@ export default function InventoryBrowse({
                 || fallbackListingHeading(currentPath)
                 || routeCategory?.heading
                 || (onInventoryHub ? inventoryHubHeading : null)
-                || 'Mobile Homes For Sale in Huffman, TX'}
+                || HOME_H1}
             </h1>
             {pathListingHome && (
               <ListingSummary
@@ -1105,7 +1133,7 @@ export default function InventoryBrowse({
               {pathListingHome
                 ? `${pathListingHome.model_name} at ${BUSINESS_NAME} in ${BUSINESS_CITY}, ${BUSINESS_STATE}. Confirm current price and availability with our team.`
                 : cityLanding
-                  ? `${BUSINESS_NAME} delivers new manufactured and mobile homes to ${cityLanding.city}, TX and the surrounding Houston area — single and double-section homes plus orderable factory floorplans. Visit our showroom at ${BUSINESS_FULL_ADDRESS} or call ${BUSINESS_PHONE}.`
+                  ? `${BUSINESS_NAME} delivers manufactured and mobile homes to ${cityLanding.city}, TX from the ${BUSINESS_CITY} showroom at ${BUSINESS_FULL_ADDRESS}. Call ${BUSINESS_PHONE} for the current price.`
                   : onInventoryHub
                     ? `Current manufactured and mobile home inventory at ${BUSINESS_NAME} in ${BUSINESS_CITY}, ${BUSINESS_STATE}. Compare listed homes, pre-owned homes, and orderable floorplans, then call or text to confirm price and availability.`
                     : routeCategory?.description || 'Browse current listed homes plus manufacturer floorplans Texas Home Outlet can custom order. Confirm price and availability with our team before planning a visit.'}
@@ -1122,6 +1150,7 @@ export default function InventoryBrowse({
                 </a>
               ))}
             </nav>
+            {!pathListingHome && <StorefrontLinks currentPath={currentPath} />}
 
             <div className="mt-6 grid gap-3 sm:grid-cols-3">
               <InventoryMetric icon={Home} label="Houses" value={housesCount} tone="blue" />
@@ -1507,6 +1536,7 @@ function ListingArticle({ home, onGetPrice, onApply }) {
             <a href="/inventory" className="mt-3 inline-flex min-h-11 items-center rounded-md border border-[var(--cp-border)] px-5 py-3 text-sm font-semibold">
               Browse all homes
             </a>
+            <StorefrontLinks currentPath={listingPath(home) || '/homes'} tone="dark" />
           </div>
         </div>
       </div>
@@ -1623,7 +1653,7 @@ export function HomeCard({ home, onClick, onGetPrice, onApply, isFavorite = fals
             src={heroImage}
             srcSet={generateSrcSet(heroImage)}
             sizes={getImageSizes('card-grid')}
-            alt={home.model_name}
+            alt={listingImageAlt(home, heroImage, heroIndex + 1, Math.max(photoCount, 1))}
             className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
             loading="lazy"
             decoding="async"
@@ -2281,19 +2311,17 @@ function SimilarHomes({ currentHome, allHomes, onSelectHome }) {
            style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))' }}>
         {scored.map(({ home }) => {
           const image = getHomeImage(home);
-          return (
-            <button
-              key={home.id}
-              className="flex flex-col p-3 bg-slate-50 border-2 border-transparent rounded-xl text-left transition hover:border-blue-500 hover:bg-white hover:shadow-md"
-              onClick={() => onSelectHome(home)}
-            >
+          const href = listingPath(home);
+          const className = 'flex flex-col p-3 bg-slate-50 border-2 border-transparent rounded-xl text-left transition hover:border-blue-500 hover:bg-white hover:shadow-md no-underline';
+          const body = (
+            <>
               <div className="h-[100px] rounded-lg overflow-hidden bg-slate-200 flex items-center justify-center mb-3">
                 {image ? (
                   <img
                     src={image}
                     srcSet={generateSrcSet(image)}
                     sizes={getImageSizes('similar-homes')}
-                    alt={home.model_name}
+                    alt={listingImageAlt(home, image, 1, 1)}
                     className="w-full h-full object-cover"
                     loading="lazy"
                     decoding="async"
@@ -2311,6 +2339,18 @@ function SimilarHomes({ currentHome, allHomes, onSelectHome }) {
               <div className="font-bold text-green-600 text-sm">
                 {home.display_price || 'Call for Price'}
               </div>
+            </>
+          );
+          if (href) {
+            return (
+              <a key={home.id} href={href} className={className}>
+                {body}
+              </a>
+            );
+          }
+          return (
+            <button key={home.id} type="button" className={className} onClick={() => onSelectHome(home)}>
+              {body}
             </button>
           );
         })}

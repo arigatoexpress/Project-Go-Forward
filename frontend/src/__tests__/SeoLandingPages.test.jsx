@@ -66,7 +66,9 @@ describe('unique city, floorplan, and home pages after hydration', () => {
     expect(document.title).toContain('Humble, TX');
     expect(document.title).not.toContain('Homes for Sale in Huffman, TX');
     expect(document.querySelector('link[rel="canonical"]')?.getAttribute('href')).toContain('/manufactured-homes-in-humble-tx');
-    expect(screen.getByText(/delivers new manufactured and mobile homes to Humble, TX/i)).toBeInTheDocument();
+    expect(screen.getByText(/delivers manufactured and mobile homes to Humble, TX/i)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Home' })).toHaveAttribute('href', '/');
+    expect(screen.getByRole('link', { name: 'All homes' })).toHaveAttribute('href', '/inventory');
   });
 
   it('keeps the floorplan title and H1 on a plan URL', async () => {

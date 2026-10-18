@@ -126,6 +126,15 @@ def test_robots_txt_allows_public_blocks_admin(monkeypatch):
     assert "GPTBot" not in body and "ClaudeBot" not in body
 
 
+def _sitemap_entries(body):
+    entries = []
+    for chunk in re.findall(r"<url>(.*?)</url>", body, re.DOTALL):
+        loc = re.search(r"<loc>([^<]+)</loc>", chunk).group(1)
+        lastmod = re.search(r"<lastmod>([^<]+)</lastmod>", chunk)
+        entries.append((loc, lastmod.group(1) if lastmod else None))
+    return entries
+
+
 def test_sitemap_lists_static_and_detail_urls(monkeypatch):
     client, _ = seo_client(monkeypatch)
     response = client.get("/sitemap.xml")
@@ -142,11 +151,14 @@ def test_sitemap_lists_static_and_detail_urls(monkeypatch):
     assert "/homes/44490-pre-owned-big-blue</loc>" in body
     assert "/chat</loc>" in body
     assert "/homes/43372-premier-creole-3256h32447</loc>" in body
-    assert "<lastmod>2026-10-01</lastmod>" in body
-    # Google ignores priority/changefreq. lastmod is only on live /homes/ URLs.
+    assert "<lastmod>2026-10-18</lastmod>" in body
+    # Google ignores priority/changefreq. Unchanged pages omit lastmod.
     assert "<priority>" not in body and "<changefreq>" not in body
-    static_block = body.split("/homes/")[0]
-    assert "<lastmod>" not in static_block
+    entries = _sitemap_entries(body)
+    chat = next(entry for entry in entries if entry[0].endswith("/chat"))
+    assert chat[1] is None
+    home = next(entry for entry in entries if entry[0].rstrip("/").endswith("texashomeoutlet.com"))
+    assert home[1] == "2026-10-18"
 
 
 def test_homepage_head_is_injected(monkeypatch):
@@ -154,7 +166,7 @@ def test_homepage_head_is_injected(monkeypatch):
     response = client.get("/")
     assert response.status_code == 200
     body = response.text
-    assert "Mobile &amp; Manufactured Homes for Sale in Huffman, TX" in body
+    assert "Manufactured Homes for Sale in Huffman, TX" in body
     assert 'rel="canonical"' in body
     assert '<link rel="canonical" href="https://www.texashomeoutlet.com/"' in body
     assert "sapphirealpha.xyz" not in body
@@ -1099,18 +1111,18 @@ def test_city_floorplan_and_home_pages_have_unique_title_h1_canonical(monkeypatc
     assert len({city_t, plan_t, home_t}) == 3
     assert len({city_h, plan_h, home_h}) == 3
     assert len({city_c, plan_c, home_c}) == 3
-    assert "Mobile &amp; Manufactured Homes for Sale in Huffman, TX" not in city_t
-    assert "Mobile &amp; Manufactured Homes for Sale in Huffman, TX" not in plan_t
-    assert "Mobile &amp; Manufactured Homes for Sale in Huffman, TX" not in home_t
+    assert "Manufactured Homes for Sale in Huffman, TX" not in city_t
+    assert "Manufactured Homes for Sale in Huffman, TX" not in plan_t
+    assert "Manufactured Homes for Sale in Huffman, TX" not in home_t
 
 
 def test_inventory_hub_heading_differs_from_homepage(monkeypatch):
     client, _ = seo_client(monkeypatch)
     home = client.get("/").text
     inventory = client.get("/inventory").text
-    assert "<h1>Mobile &amp; Manufactured Homes for Sale in Huffman, TX</h1>" in home
-    assert "<h1>Home Inventory — Mobile &amp; Manufactured Homes in Huffman, TX</h1>" in inventory
-    assert "<h1>Mobile &amp; Manufactured Homes for Sale in Huffman, TX</h1>" not in inventory
+    assert "<h1>Manufactured and Mobile Homes for Sale in Huffman, TX</h1>" in home
+    assert "<h1>Home Inventory in Huffman, TX</h1>" in inventory
+    assert "<h1>Manufactured and Mobile Homes for Sale in Huffman, TX</h1>" not in inventory
     assert "Current manufactured and mobile home inventory" in inventory
     assert 'href="/plan/223034/skyliner/4732b/"' in home
     assert 'href="/plan/223034/skyliner/4732b/"' in inventory
@@ -1132,9 +1144,7 @@ def test_inventory_home_query_redirects_to_the_listing(monkeypatch):
     assert plan.headers["location"] == "/plan/223034/skyliner/4732b/"
     unknown = client.get("/inventory?home=not-a-home", follow_redirects=False)
     assert unknown.status_code == 200
-    assert (
-        "<h1>Home Inventory — Mobile &amp; Manufactured Homes in Huffman, TX</h1>" in unknown.text
-    )
+    assert "<h1>Home Inventory in Huffman, TX</h1>" in unknown.text
 
 
 def test_listing_photo_alts_use_filename_subjects(monkeypatch):
@@ -1215,7 +1225,7 @@ def test_sitemap_includes_home_urls_with_lastmod(monkeypatch):
     body = client.get("/sitemap.xml").text
     assert body.count("https://www.texashomeoutlet.com/homes/44490-pre-owned-big-blue</loc>") == 1
     home_entry = body[body.index("/homes/44490-pre-owned-big-blue") :]
-    assert "<lastmod>2026-10-01</lastmod>" in home_entry[:200]
+    assert "<lastmod>2026-10-18</lastmod>" in home_entry[:240]
 
 
 # ── COD-153: no inline executable script (CSP script-src without 'unsafe-inline')
@@ -1358,3 +1368,254 @@ def test_comma_formatted_price_value_drops_product(monkeypatch):
     assert response.status_code == 200
     products = [block for block in _jsonld_blocks(response.text) if block.get("@type") == "Product"]
     assert not products
+
+
+_NONFINITE_PRICE_VALUES = (
+    "NaN",
+    "nan",
+    "NAN",
+    " NaN ",
+    float("nan"),
+    "inf",
+    "+inf",
+    "-inf",
+    "Infinity",
+    "+Infinity",
+    "-Infinity",
+    " inf ",
+    float("inf"),
+    float("-inf"),
+)
+
+
+def test_nonfinite_price_value_emits_no_product_offer_or_price(monkeypatch):
+    """A visible dollar price plus NaN or an infinity is not an Offer.
+
+    float("NaN") is not <= 0, and abs(NaN - shown) > 0.5 is also false, so a
+    comparison-only guard lets the Offer serializer emit "price": "nan".
+    The crawlable price line still shows the visible dollar amount.
+    """
+    import seo_routes
+
+    visible = {**FAKE_HOMES[0], "display_price": "$100,000", "price_value": 100000}
+    assert seo_routes._shown_offer_price(visible) == 100000
+    assert seo_routes._product_jsonld(visible, "https://x/p")["offers"]["price"] == "100000"
+
+    for raw in _NONFINITE_PRICE_VALUES:
+        home = {**FAKE_HOMES[0], "display_price": "$100,000", "price_value": raw}
+        assert seo_routes._shown_offer_price(home) is None, raw
+        assert seo_routes._product_jsonld(home, "https://x/p") is None, raw
+
+    client, _ = seo_client(monkeypatch)
+    for raw in _NONFINITE_PRICE_VALUES:
+        poisoned = {**FAKE_HOMES[0], "display_price": "$100,000", "price_value": raw}
+        monkeypatch.setattr(
+            seo_routes,
+            "_get_homes",
+            lambda poisoned=poisoned: [poisoned, *FAKE_HOMES[1:]],
+        )
+        monkeypatch.setattr(seo_routes, "_registry_cache", None)
+        monkeypatch.setattr(seo_routes, "_registry_built_at", 0.0)
+        for path in (
+            "/homes/43372-premier-creole-3256h32447",
+            "/inventory-detail/43372/texas-home-outlet/huffman/premier/",
+        ):
+            response = client.get(path)
+            assert response.status_code == 200, (raw, path)
+            assert "Price: $100,000" in response.text
+            assert re.search(r"\b(?:nan|inf|infinity)\b", response.text, re.I) is None, (
+                raw,
+                path,
+            )
+            blocks = _jsonld_blocks(response.text)
+            assert blocks, (raw, path)
+            for block in blocks:
+                assert not _jsonld_has_price_markup(block), (raw, path, block)
+            jsonld = "\n".join(
+                re.findall(
+                    r'<script type="application/ld\+json">(.*?)</script>',
+                    response.text,
+                    re.DOTALL,
+                )
+            ).lower()
+            assert '"price"' not in jsonld
+            assert "product" not in jsonld
+            assert "offer" not in jsonld
+            assert "nan" not in jsonld
+            assert "infinity" not in jsonld
+
+
+def test_offer_serializer_rejects_nonfinite_price_from_the_guard(monkeypatch):
+    """The Offer formatter must not emit nan/inf even if the guard returns one."""
+    import seo_routes
+
+    home = {**FAKE_HOMES[0], "display_price": "$100,000", "price_value": 100000}
+    for raw in (float("nan"), float("inf"), float("-inf"), "nan", "inf"):
+        monkeypatch.setattr(seo_routes, "_shown_offer_price", lambda home, raw=raw: raw)
+        assert seo_routes._product_jsonld(home, "https://x/p") is None, raw
+        assert seo_routes._offer_price_text(raw) is None, raw
+
+
+_PRICE_MARKUP_TYPES = {"Product", "Offer", "AggregateOffer", "AggregateRating"}
+_PRICE_MARKUP_KEYS = {
+    "price",
+    "lowPrice",
+    "highPrice",
+    "offers",
+    "review",
+    "aggregateRating",
+    "ratingValue",
+}
+
+
+def _jsonld_has_price_markup(node):
+    if isinstance(node, dict):
+        if node.get("@type") in _PRICE_MARKUP_TYPES:
+            return True
+        if any(key in node for key in _PRICE_MARKUP_KEYS):
+            return True
+        return any(_jsonld_has_price_markup(value) for value in node.values())
+    if isinstance(node, list):
+        return any(_jsonld_has_price_markup(value) for value in node)
+    return False
+
+
+def test_call_for_price_pages_emit_no_price_or_offer_markup(monkeypatch):
+    """A page that shows Call for Price must not emit Product or Offer prices.
+
+    A hidden price_value is not a public price (issue #398). This walks every
+    sitemap URL whose visible price line is Call for Price, including a home
+    whose record still carries a number.
+    """
+    import seo_routes
+
+    leaked = {**FAKE_HOMES[2], "display_price": "Call for Price", "price_value": 88000}
+    assert seo_routes._product_jsonld(leaked, "https://x/hidden") is None
+
+    client, _ = seo_client(monkeypatch)
+    monkeypatch.setattr(seo_routes, "_get_homes", lambda: [FAKE_HOMES[0], FAKE_HOMES[1], leaked])
+    monkeypatch.setattr(seo_routes, "_registry_cache", None)
+    monkeypatch.setattr(seo_routes, "_registry_built_at", 0.0)
+
+    checked = []
+    for loc, _lastmod in _sitemap_entries(client.get("/sitemap.xml").text):
+        path = "/" + loc.split("://", 1)[1].split("/", 1)[1]
+        response = client.get(path)
+        if response.status_code != 200:
+            continue
+        body = response.text
+        if re.search(r"Price:\s*\$\s*[0-9]", body) or "Call for Price" not in body:
+            continue
+        checked.append(path)
+        for block in _jsonld_blocks(body):
+            assert not _jsonld_has_price_markup(block), path
+        assert "88000" not in body
+    assert any("44490" in path for path in checked)
+    assert any(path.startswith("/plan/") for path in checked)
+
+
+def test_home_inventory_and_location_structured_data(monkeypatch):
+    client, _ = seo_client(monkeypatch)
+
+    home_blocks = _jsonld_blocks(client.get("/").text)
+    home_types = {block.get("@type") for block in home_blocks}
+    assert {"LocalBusiness", "WebSite", "CollectionPage", "ItemList"} <= home_types
+    business = next(block for block in home_blocks if block.get("@type") == "LocalBusiness")
+    assert business["@id"].endswith("/#dealership")
+    assert business["address"]["streetAddress"] == "10685 FM 1960 East"
+    assert business["address"]["addressLocality"] == "Huffman"
+    assert business["address"]["postalCode"] == "77336"
+    assert "aggregateRating" not in business
+    assert "review" not in business
+    home_items = next(
+        block["itemListElement"] for block in home_blocks if block.get("@type") == "ItemList"
+    )
+    assert home_items
+    assert all("price" not in item and "offers" not in item for item in home_items)
+
+    inventory_blocks = _jsonld_blocks(client.get("/inventory").text)
+    crumbs = next(block for block in inventory_blocks if block.get("@type") == "BreadcrumbList")
+    assert [item["name"] for item in crumbs["itemListElement"]] == ["Home", "Inventory"]
+    assert not any(block.get("@type") == "Product" for block in inventory_blocks)
+
+    city_blocks = _jsonld_blocks(client.get("/manufactured-homes-in-humble-tx").text)
+    city_business = next(block for block in city_blocks if block.get("@type") == "LocalBusiness")
+    assert city_business["address"]["addressLocality"] == "Huffman"
+    service = next(block for block in city_blocks if block.get("@type") == "Service")
+    assert service["areaServed"] == {"@type": "City", "name": "Humble"}
+    assert service["provider"]["@id"] == city_business["@id"]
+    assert not any(block.get("@type") == "Product" for block in city_blocks)
+    assert not any(_jsonld_has_price_markup(block) for block in city_blocks)
+
+
+def test_storefront_pages_link_home_inventory_listings_and_locations(monkeypatch):
+    client, _ = seo_client(monkeypatch)
+    home = client.get("/").text
+    inventory = client.get("/inventory").text
+    city = client.get("/manufactured-homes-in-humble-tx").text
+    listing = client.get("/homes/44490-pre-owned-big-blue").text
+
+    assert 'href="/inventory"' in home
+    assert 'href="/manufactured-homes-in-humble-tx"' in home
+    assert 'href="/homes/44490-pre-owned-big-blue"' in home or 'href="/plan/' in home
+    assert 'href="/"' in inventory
+    assert 'href="/manufactured-homes-in-huffman-tx"' in inventory
+    assert 'href="/"' in city and 'href="/inventory"' in city
+    assert 'href="/homes/44490-pre-owned-big-blue"' in city or 'href="/plan/' in city
+    assert 'href="/"' in listing and 'href="/inventory"' in listing
+    assert 'href="/manufactured-homes-in-huffman-tx"' in listing
+
+
+def test_public_titles_and_descriptions_fit_and_stay_unique(monkeypatch):
+    client, _ = seo_client(monkeypatch)
+    pages = (
+        "/",
+        "/inventory",
+        "/contact",
+        "/about",
+        "/financing",
+        "/faq",
+        "/single-wide",
+        "/double-wide",
+        "/manufactured-homes-in-humble-tx",
+        "/manufactured-homes-in-atascocita-tx",
+        "/manufactured-homes-in-livingston-tx",
+        "/homes/44490-pre-owned-big-blue",
+    )
+    titles = []
+    descriptions = []
+    for path in pages:
+        body = client.get(path).text
+        title = re.search(r"<title>(.*?)</title>", body, re.DOTALL).group(1)
+        description = re.search(r'<meta name="description" content="([^"]*)"', body).group(1)
+        assert 25 <= len(title) <= 65, (path, len(title), title)
+        assert 70 <= len(description) <= 165, (path, len(description), description)
+        titles.append(title)
+        descriptions.append(description)
+    assert len(set(titles)) == len(titles)
+    assert len(set(descriptions)) == len(descriptions)
+
+
+def test_contact_description_contains_configured_hours(monkeypatch):
+    """The contact description must include the hours from config.yaml."""
+    import yaml
+
+    config = yaml.safe_load(Path("config.yaml").read_text(encoding="utf-8"))
+    hours = config["business"]["hours"]
+    configured = f"{hours['weekday']}, {hours['saturday']}, {hours['sunday']}"
+    client, _ = seo_client(monkeypatch)
+    description = re.search(
+        r'<meta name="description" content="([^"]*)"',
+        client.get("/contact").text,
+    ).group(1)
+    assert configured in description
+    assert len(description) <= 165
+
+
+def test_service_area_cities_match_config():
+    from config_loader import get_business
+
+    text = Path("frontend/src/constants.js").read_text(encoding="utf-8")
+    block = re.search(r"export const SERVICE_AREA_CITIES = \[(.*?)\];", text, re.DOTALL)
+    cities = re.findall(r'"([^"]+)"', block.group(1))
+    assert cities == list(get_business()["area_served"])

@@ -1,4 +1,5 @@
 import { BUSINESS_CITY, BUSINESS_NAME, BUSINESS_STATE } from '../constants';
+import { cityDescription, cityTitle } from '../seoCopy';
 
 const SLUG_RE = /[^a-z0-9]+/g;
 export const PUBLIC_CANONICAL_ORIGIN = 'https://www.texashomeoutlet.com';
@@ -87,7 +88,8 @@ export function getCityLanding(pathname) {
     slug,
     path: `/manufactured-homes-in-${slug}-tx`,
     heading: `Manufactured & Mobile Homes in ${city}, TX`,
-    title: `Manufactured & Mobile Homes in ${city}, TX | Texas Home Outlet`,
+    title: cityTitle(city),
+    description: cityDescription(city),
   };
 }
 
