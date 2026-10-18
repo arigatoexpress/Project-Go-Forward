@@ -22,6 +22,7 @@ from __future__ import annotations
 import html
 import json
 import logging
+import math
 import os
 import re
 import threading
@@ -616,17 +617,41 @@ def _visible_dollar_amount(display: str) -> float | None:
         return None
 
 
+_NONFINITE_PRICE_TEXT = frozenset({"nan", "inf", "-inf", "+inf", "infinity", "-infinity"})
+
+
+def _is_finite_positive(price: float | None) -> bool:
+    """True only for a real number greater than zero.
+
+    NaN and infinities must be rejected before ``<=`` or ``abs`` comparisons.
+    ``float("NaN") <= 0`` and ``abs(float("NaN") - shown) > 0.5`` are both
+    false, so a comparison-only guard treats NaN as a valid Offer price.
+    """
+    return isinstance(price, int | float) and math.isfinite(price) and price > 0
+
+
+def _offer_price_text(price: float | None) -> str | None:
+    """Whole-dollar Offer price text, or None when it is not a real price."""
+    if isinstance(price, bool) or not _is_finite_positive(price):
+        return None
+    text = f"{price:.0f}"
+    if text.lower() in _NONFINITE_PRICE_TEXT or not text.isdecimal():
+        return None
+    return text
+
+
 def _shown_offer_price(home: dict) -> float | None:
     """Numeric Offer price only when the page shows that same dollar amount.
 
-    Call for Price, a blank price, or a price_value that does not match the
-    visible price never becomes Product or Offer markup (issue #398).
+    Call for Price, a blank price, a non-finite price (NaN or infinity,
+    including the strings "nan" and "inf"), or a price_value that does not
+    match the visible price never becomes Product or Offer markup (issue #398).
     """
     visible = str(home.get("display_price") or "").strip()
     if _is_call_for_price_label(visible):
         return None
     shown = _visible_dollar_amount(visible)
-    if shown is None or shown <= 0:
+    if not _is_finite_positive(shown):
         return None
     raw = home.get("price_value")
     try:
@@ -636,7 +661,12 @@ def _shown_offer_price(home: dict) -> float | None:
             f"SEO _product_jsonld: unparseable price_value {raw!r}, omitting Product JSON-LD: {e}"
         )
         return None
-    if price is None or price <= 0 or abs(price - shown) > 0.5:
+    if price is not None and not math.isfinite(price):
+        logger.warning(
+            f"SEO _product_jsonld: non-finite price_value {raw!r}, omitting Product JSON-LD"
+        )
+        return None
+    if not _is_finite_positive(price) or abs(price - shown) > 0.5:
         return None
     return price
 
@@ -647,7 +677,8 @@ def _product_jsonld(home: dict, canonical_url: str) -> dict | None:
     # price and no per-home ratings, so it gets no Product markup. A hidden
     # price_value must not leak into an Offer the page does not show.
     price = _shown_offer_price(home)
-    if price is None:
+    price_text = _offer_price_text(price)
+    if price_text is None:
         return None
 
     specs = home.get("specs") or {}
@@ -676,7 +707,7 @@ def _product_jsonld(home: dict, canonical_url: str) -> dict | None:
         data["image"] = image
     offer = {
         "@type": "Offer",
-        "price": f"{price:.0f}",
+        "price": price_text,
         "priceCurrency": "USD",
         "url": canonical_url,
     }

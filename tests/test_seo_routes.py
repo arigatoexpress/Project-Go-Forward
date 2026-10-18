@@ -1370,6 +1370,92 @@ def test_comma_formatted_price_value_drops_product(monkeypatch):
     assert not products
 
 
+_NONFINITE_PRICE_VALUES = (
+    "NaN",
+    "nan",
+    "NAN",
+    " NaN ",
+    float("nan"),
+    "inf",
+    "+inf",
+    "-inf",
+    "Infinity",
+    "+Infinity",
+    "-Infinity",
+    " inf ",
+    float("inf"),
+    float("-inf"),
+)
+
+
+def test_nonfinite_price_value_emits_no_product_offer_or_price(monkeypatch):
+    """A visible dollar price plus NaN or an infinity is not an Offer.
+
+    float("NaN") is not <= 0, and abs(NaN - shown) > 0.5 is also false, so a
+    comparison-only guard lets the Offer serializer emit "price": "nan".
+    The crawlable price line still shows the visible dollar amount.
+    """
+    import seo_routes
+
+    visible = {**FAKE_HOMES[0], "display_price": "$100,000", "price_value": 100000}
+    assert seo_routes._shown_offer_price(visible) == 100000
+    assert seo_routes._product_jsonld(visible, "https://x/p")["offers"]["price"] == "100000"
+
+    for raw in _NONFINITE_PRICE_VALUES:
+        home = {**FAKE_HOMES[0], "display_price": "$100,000", "price_value": raw}
+        assert seo_routes._shown_offer_price(home) is None, raw
+        assert seo_routes._product_jsonld(home, "https://x/p") is None, raw
+
+    client, _ = seo_client(monkeypatch)
+    for raw in _NONFINITE_PRICE_VALUES:
+        poisoned = {**FAKE_HOMES[0], "display_price": "$100,000", "price_value": raw}
+        monkeypatch.setattr(
+            seo_routes,
+            "_get_homes",
+            lambda poisoned=poisoned: [poisoned, *FAKE_HOMES[1:]],
+        )
+        monkeypatch.setattr(seo_routes, "_registry_cache", None)
+        monkeypatch.setattr(seo_routes, "_registry_built_at", 0.0)
+        for path in (
+            "/homes/43372-premier-creole-3256h32447",
+            "/inventory-detail/43372/texas-home-outlet/huffman/premier/",
+        ):
+            response = client.get(path)
+            assert response.status_code == 200, (raw, path)
+            assert "Price: $100,000" in response.text
+            assert re.search(r"\b(?:nan|inf|infinity)\b", response.text, re.I) is None, (
+                raw,
+                path,
+            )
+            blocks = _jsonld_blocks(response.text)
+            assert blocks, (raw, path)
+            for block in blocks:
+                assert not _jsonld_has_price_markup(block), (raw, path, block)
+            jsonld = "\n".join(
+                re.findall(
+                    r'<script type="application/ld\+json">(.*?)</script>',
+                    response.text,
+                    re.DOTALL,
+                )
+            ).lower()
+            assert '"price"' not in jsonld
+            assert "product" not in jsonld
+            assert "offer" not in jsonld
+            assert "nan" not in jsonld
+            assert "infinity" not in jsonld
+
+
+def test_offer_serializer_rejects_nonfinite_price_from_the_guard(monkeypatch):
+    """The Offer formatter must not emit nan/inf even if the guard returns one."""
+    import seo_routes
+
+    home = {**FAKE_HOMES[0], "display_price": "$100,000", "price_value": 100000}
+    for raw in (float("nan"), float("inf"), float("-inf"), "nan", "inf"):
+        monkeypatch.setattr(seo_routes, "_shown_offer_price", lambda home, raw=raw: raw)
+        assert seo_routes._product_jsonld(home, "https://x/p") is None, raw
+        assert seo_routes._offer_price_text(raw) is None, raw
+
+
 _PRICE_MARKUP_TYPES = {"Product", "Offer", "AggregateOffer", "AggregateRating"}
 _PRICE_MARKUP_KEYS = {
     "price",
