@@ -172,7 +172,7 @@ or liveness response alone does not prove delivery.
 
 - Operator: Ari (`arigatoexpress`) — repo admin, GCP owner.
 - Client-facing: treat any customer-visible outage during business hours
-  (Mon–Fri 9–6, Sat 9–5 CT; closed Sunday) as P1; the storefront is the business.
+  (Mon-Fri 9:00 AM - 6:00 PM, Sat 10:00 AM - 3:00 PM, Sun Closed, Central Time) as P1; the storefront is the business.
 - Post-incident: record the timeline, root cause, serving revision, and rollback
   evidence. Fix or revert the source through a PR; keep production traffic pinned
   until the replacement candidate is verified and its promotion approved.

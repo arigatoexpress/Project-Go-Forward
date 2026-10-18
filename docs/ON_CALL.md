@@ -45,9 +45,9 @@ This guide assumes the **Ops bootstrap workflow** (`.github/workflows/ops-bootst
 | **P2 — High** | Major feature degraded; workaround exists | Respond within 30 min | Admin CRM unavailable, inventory API slow (>2 s p95), email alerts silent, lead capture failing silently |
 | **P3 — Normal** | Non-urgent bug, observability gap, cleanup | Next business day | Analytics dashboard shows mock data, a 404 on a secondary page, missing docs, certificate expiring in >14 days |
 
-**Business hours** (from `config.yaml`):
-- Mon–Fri 9:00 AM – 6:00 PM CT
-- Sat 9:00 AM – 5:00 PM CT
+**Business hours** (from `config.yaml`, Central Time):
+- Mon-Fri 9:00 AM - 6:00 PM
+- Sat 10:00 AM - 3:00 PM
 - Sun Closed
 
 A P1 outside business hours still pages because the storefront is 24/7 online revenue.
