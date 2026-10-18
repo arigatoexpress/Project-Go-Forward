@@ -2,6 +2,7 @@ import {
   BUSINESS_ADDRESS,
   BUSINESS_CITY,
   BUSINESS_FULL_ADDRESS,
+  BUSINESS_HOURS,
   BUSINESS_NAME,
   BUSINESS_PHONE,
   BUSINESS_STATE,
@@ -50,7 +51,7 @@ export function categoryDescription(classification) {
 export const PUBLIC_DESCRIPTIONS = {
   contact:
     `Visit ${BUSINESS_NAME} at ${BUSINESS_FULL_ADDRESS}, or call ${BUSINESS_PHONE}. `
-    + 'Open Mon-Fri 9:00 AM-6:00 PM, Sat 10:00 AM-3:00 PM, Sun closed.',
+    + `Hours: ${BUSINESS_HOURS}.`,
   appointments:
     `Schedule a visit to the ${BUSINESS_NAME} showroom in ${BUSINESS_CITY}, ${BUSINESS_STATE} `
     + 'to tour manufactured homes in person.',

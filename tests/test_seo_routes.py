@@ -1510,6 +1510,22 @@ def test_public_titles_and_descriptions_fit_and_stay_unique(monkeypatch):
     assert len(set(descriptions)) == len(descriptions)
 
 
+def test_contact_description_contains_configured_hours(monkeypatch):
+    """The contact description must include the hours from config.yaml."""
+    import yaml
+
+    config = yaml.safe_load(Path("config.yaml").read_text(encoding="utf-8"))
+    hours = config["business"]["hours"]
+    configured = f"{hours['weekday']}, {hours['saturday']}, {hours['sunday']}"
+    client, _ = seo_client(monkeypatch)
+    description = re.search(
+        r'<meta name="description" content="([^"]*)"',
+        client.get("/contact").text,
+    ).group(1)
+    assert configured in description
+    assert len(description) <= 165
+
+
 def test_service_area_cities_match_config():
     from config_loader import get_business
 

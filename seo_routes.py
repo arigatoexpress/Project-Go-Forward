@@ -97,8 +97,8 @@ PUBLIC_ROUTES = {
     ),
     "/contact": (
         f"Contact {business_name()} — {_CITY_STATE}",
-        f"Visit {business_name()} at {business_address()}, or call {business_phone()}. "
-        f"Open Mon-Fri 9:00 AM-6:00 PM, Sat 10:00 AM-3:00 PM, Sun closed.",
+        f"Visit {business_name()} at {business_address()}. Call {business_phone()}. "
+        f"Hours: {business_hours()}.",
     ),
     "/appointments": (
         f"Book a Showroom Visit | {business_name()}",
