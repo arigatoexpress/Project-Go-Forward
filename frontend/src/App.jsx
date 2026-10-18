@@ -26,6 +26,14 @@ import {
   isPlanPath,
   isUniqueListingPath,
 } from './utils/listingRoutes';
+import {
+  HOME_DESCRIPTION,
+  HOME_TITLE,
+  INVENTORY_DESCRIPTION,
+  INVENTORY_TITLE,
+  PUBLIC_DESCRIPTIONS,
+  categoryTitle,
+} from './seoCopy';
 import { safeUserMessage, extractErrorMessage, describeFetchError } from './utils/apiError';
 import { adminCsrfHeaders } from './adminFetch';
 import StaffSignInPanel from './components/StaffSignInPanel';
@@ -383,6 +391,8 @@ function Footer({ adminAuthed, onAdminAccess, onNavigate }) {
           <span className="flex items-center"><ShieldCheck size={12} className="mr-1 text-green-600" /> License #{BUSINESS_LICENSE}</span>
         </div>
         <nav aria-label="Footer" className="flex flex-wrap items-center justify-center gap-4 md:gap-6 mb-4">
+          <a href="/" className={linkClass}>Home</a>
+          <a href="/inventory" className={linkClass}>Inventory</a>
           <button onClick={() => onNavigate('about')} className={linkClass}>About</button>
           <button onClick={() => onNavigate('financing')} className={linkClass}>Financing</button>
           <button onClick={() => onNavigate('faq')} className={linkClass}>FAQ</button>
@@ -1009,7 +1019,7 @@ function App() {
   // operator pages keep the short "Page | Business" pattern.
   useEffect(() => {
     const fullTitles = {
-      inventory: `Mobile & Manufactured Homes for Sale in ${BUSINESS_CITY}, ${BUSINESS_STATE} | ${BUSINESS_NAME}`,
+      inventory: HOME_TITLE,
       chat: `Chat with Tex — ${BUSINESS_NAME} Home Finder`,
       contact: `Contact ${BUSINESS_NAME} — ${BUSINESS_CITY}, ${BUSINESS_STATE}`,
       appointments: `Book a Showroom Visit | ${BUSINESS_NAME}`,
@@ -1041,9 +1051,7 @@ function App() {
     if (cityLanding) {
       applyDocumentHead({
         title: cityLanding.title,
-        description:
-          `${BUSINESS_NAME} delivers manufactured & mobile homes to ${cityLanding.city}, TX — `
-          + `listed homes plus orderable floorplans. Confirm current price and availability at ${BUSINESS_PHONE}.`,
+        description: cityLanding.description,
         canonicalPath: cityLanding.path,
       });
       return;
@@ -1053,7 +1061,7 @@ function App() {
       : null;
     if (inventoryCategory) {
       applyDocumentHead({
-        title: `${inventoryCategory.classification} Mobile & Manufactured Homes in ${BUSINESS_CITY}, ${BUSINESS_STATE} | ${BUSINESS_NAME}`,
+        title: categoryTitle(inventoryCategory.classification),
         description: inventoryCategory.description,
         canonicalPath: inventoryCategory.path,
       });
@@ -1067,34 +1075,25 @@ function App() {
     const normalizedPath = pathname.replace(/\/+$/, '') || '/';
     if (normalizedPath === '/') {
       applyDocumentHead({
-        title: `Mobile & Manufactured Homes for Sale in ${BUSINESS_CITY}, ${BUSINESS_STATE} | ${BUSINESS_NAME}`,
-        description:
-          `Browse manufactured & mobile homes for sale at ${BUSINESS_NAME} in ${BUSINESS_CITY}, ${BUSINESS_STATE} — `
-          + 'listed homes and orderable factory floorplans. Confirm current price and availability directly with our team.',
+        title: HOME_TITLE,
+        description: HOME_DESCRIPTION,
         canonicalPath: '/',
       });
       return;
     }
     if (normalizedPath === '/inventory') {
       applyDocumentHead({
-        title: `Home Inventory — Mobile & Manufactured Homes in ${BUSINESS_CITY}, ${BUSINESS_STATE} | ${BUSINESS_NAME}`,
-        description:
-          `Browse manufactured homes at ${BUSINESS_NAME} in ${BUSINESS_CITY}, ${BUSINESS_STATE}: `
-          + 'single and double section homes, 3D tours, photos, and orderable floorplans. Request current price and availability.',
+        title: INVENTORY_TITLE,
+        description: INVENTORY_DESCRIPTION,
         canonicalPath: '/inventory',
       });
       return;
     }
     const nextTitle = fullTitles[activePage]
       || (shortTitles[activePage] ? `${shortTitles[activePage]} | ${BUSINESS_NAME}` : BUSINESS_NAME);
-    const publicDescriptions = {
-      financing:
-        `Manufactured home financing options at ${BUSINESS_NAME} in ${BUSINESS_CITY}, ${BUSINESS_STATE}: `
-        + 'chattel loans, land-and-home loans, FHA/VA/USDA, and lender partners.',
-    };
     applyDocumentHead({
       title: nextTitle,
-      description: publicDescriptions[activePage],
+      description: PUBLIC_DESCRIPTIONS[activePage] || `${BUSINESS_NAME} staff tools.`,
       canonicalPath: pathname === '/' ? '/' : pathname.replace(/\/+$/, '') || '/',
     });
   }, [activePage, pathname]);

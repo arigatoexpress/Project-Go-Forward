@@ -168,9 +168,7 @@ def test_sanitizer_patch_plan_covers_id_match_no_changes_and_to_dict():
     row_changed = _row(
         {"inventory_id": "100", "model_name": "Bourbon", "msrp": 55000.0}, row_number=2
     )
-    row_same = _row(
-        {"inventory_id": "200", "model_name": "Creole", "msrp": 50000.0}, row_number=3
-    )
+    row_same = _row({"inventory_id": "200", "model_name": "Creole", "msrp": 50000.0}, row_number=3)
     db = _FakeInventoryDB(
         existing_by_id={
             "100": {"id": "100", "model_name": "Bourbon", "msrp": "50000"},
@@ -306,9 +304,7 @@ def test_sanitizer_reconcile_notes_for_no_match_and_close_race():
         {"id": "a", "model_name": "Bourbon 3276"},
         {"id": "b", "model_name": "Bourbon 3276"},
     ]
-    record = sanitizer._reconcile_one_row(
-        _row({"model_name": "Bourbon 3276"}), inventory, 3
-    )
+    record = sanitizer._reconcile_one_row(_row({"model_name": "Bourbon 3276"}), inventory, 3)
     assert record.confidence == "review"
     assert any("close" in note for note in record.notes)
 
@@ -371,9 +367,7 @@ def test_sanitizer_main_dry_run_writes_report(tmp_path, monkeypatch, capsys):
     _write_house_orders_xlsx(xlsx)
     out = tmp_path / "report.json"
     with pytest.raises(SystemExit) as exc:
-        _run_sanitizer_main(
-            monkeypatch, ["--xlsx", str(xlsx), "--dry-run", "--output", str(out)]
-        )
+        _run_sanitizer_main(monkeypatch, ["--xlsx", str(xlsx), "--dry-run", "--output", str(out)])
     assert exc.value.code == 0
     report = json.loads(out.read_text())
     assert report["success"] is True
@@ -389,7 +383,17 @@ def test_sanitizer_main_sheet_by_name(tmp_path, monkeypatch):
     with pytest.raises(SystemExit) as exc:
         _run_sanitizer_main(
             monkeypatch,
-            ["--xlsx", str(xlsx), "--sheet", "Sheet", "--header-row", "1", "--dry-run", "--output", str(out)],
+            [
+                "--xlsx",
+                str(xlsx),
+                "--sheet",
+                "Sheet",
+                "--header-row",
+                "1",
+                "--dry-run",
+                "--output",
+                str(out),
+            ],
         )
     assert exc.value.code == 0
     assert json.loads(out.read_text())["success"] is True
@@ -470,7 +474,8 @@ def test_sanitizer_main_apply_returns_one_when_updates_fail(tmp_path, monkeypatc
 
     with pytest.raises(SystemExit) as exc:
         _run_sanitizer_main(
-            monkeypatch, ["--xlsx", str(xlsx), "--apply", "--output", str(out)],
+            monkeypatch,
+            ["--xlsx", str(xlsx), "--apply", "--output", str(out)],
             fake_db=FailingDB(),
         )
     assert exc.value.code == 1
@@ -683,7 +688,10 @@ def test_seo_first_image_preowned_and_photo_dict_branches(monkeypatch):
     import seo_routes
 
     # pre-owned home returns its own lot photo (never a catalog hero)
-    home = {"inventory_kind": "pre_owned", "real_photos": ["https://img.example.com/own-lot-photo.jpg"]}
+    home = {
+        "inventory_kind": "pre_owned",
+        "real_photos": ["https://img.example.com/own-lot-photo.jpg"],
+    }
     assert seo_routes._first_image(home) == "https://img.example.com/own-lot-photo.jpg"
 
     # pre-owned home with no usable own photos -> None
@@ -742,7 +750,9 @@ def test_seo_local_business_jsonld_prefixes_relative_image(monkeypatch):
 
     monkeypatch.setattr(seo_routes, "get_business", lambda: {"image": "/og-card.png"})
     monkeypatch.setenv("OG_IMAGE_URL", "")
-    monkeypatch.setattr(seo_routes, "_get_canonical_base", lambda: "https://www.texashomeoutlet.com")
+    monkeypatch.setattr(
+        seo_routes, "_get_canonical_base", lambda: "https://www.texashomeoutlet.com"
+    )
     data = seo_routes._local_business_jsonld()
     assert data["image"] == "https://www.texashomeoutlet.com/og-card.png"
 
@@ -750,7 +760,7 @@ def test_seo_local_business_jsonld_prefixes_relative_image(monkeypatch):
 def test_seo_product_jsonld_availability_branches(monkeypatch):
     import seo_routes
 
-    base = {"price_value": 100000, "model_name": "Bourbon"}
+    base = {"price_value": 100000, "display_price": "$100,000", "model_name": "Bourbon"}
     pre_order = seo_routes._product_jsonld({**base, "status": "Orderable"}, "https://x/p")
     assert pre_order["offers"]["availability"] == "https://schema.org/PreOrder"
     sold = seo_routes._product_jsonld({**base, "status": "Sold"}, "https://x/p")
@@ -790,7 +800,9 @@ def test_seo_listing_image_alt_all_subject_branches():
 def test_seo_inject_handles_shell_without_root_div():
     import seo_routes
 
-    out = seo_routes._inject("<html><head></head><body></body></html>", "<title>x</title>", "<p>body</p>")
+    out = seo_routes._inject(
+        "<html><head></head><body></body></html>", "<title>x</title>", "<p>body</p>"
+    )
     assert "<p>body</p>" not in out  # no-op replacement keeps shell intact
 
 
@@ -1208,9 +1220,7 @@ def _access_evidence_payload(**overrides):
 def test_models_access_evidence_raise_branches():
     GoogleAdsAccessEvidenceRecord.model_validate(_access_evidence_payload())
     with pytest.raises(ValidationError, match="expiry must follow observation"):
-        GoogleAdsAccessEvidenceRecord.model_validate(
-            _access_evidence_payload(expires_at=NOW)
-        )
+        GoogleAdsAccessEvidenceRecord.model_validate(_access_evidence_payload(expires_at=NOW))
 
     # defensive branch: digest computation blowing up maps to a validation error
     import database.models as models_module
@@ -1271,13 +1281,9 @@ def test_models_step_up_evidence_raise_branches():
             _step_up_payload(deployment_id=f"{DEPLOYMENT_KEY}-other--{'c' * 64}")
         )
     with pytest.raises(ValidationError, match="context digest mismatch"):
-        GoogleAdsOwnerStepUpEvidenceRecord.model_validate(
-            _step_up_payload(context_digest=HASH_B)
-        )
+        GoogleAdsOwnerStepUpEvidenceRecord.model_validate(_step_up_payload(context_digest=HASH_B))
     with pytest.raises(ValidationError, match="evidence identity mismatch"):
-        GoogleAdsOwnerStepUpEvidenceRecord.model_validate(
-            _step_up_payload(evidence_id=HASH_B)
-        )
+        GoogleAdsOwnerStepUpEvidenceRecord.model_validate(_step_up_payload(evidence_id=HASH_B))
 
 
 def _proof_payload(**overrides):
@@ -1359,14 +1365,21 @@ def test_models_outbox_happy_paths():
             "requires one live claim",
         ),
         (
-            {"state": "DISPATCHED", "dispatcher_claim_hash": HASH_A,
-             "claim_expires_at": NOW + FIVE_MIN},
+            {
+                "state": "DISPATCHED",
+                "dispatcher_claim_hash": HASH_A,
+                "claim_expires_at": NOW + FIVE_MIN,
+            },
             "only dispatching outbox may retain a claim",
         ),
         ({"state": "DISPATCHED"}, "requires a clean dispatch timestamp"),
         (
-            {"state": "DISPATCHED", "attempt_count": 1, "dispatched_at": NOW,
-             "error_code": "job_invocation_failed"},
+            {
+                "state": "DISPATCHED",
+                "attempt_count": 1,
+                "dispatched_at": NOW,
+                "error_code": "job_invocation_failed",
+            },
             "requires a clean dispatch timestamp",
         ),
         ({"dispatched_at": NOW}, "cannot have a dispatch timestamp"),

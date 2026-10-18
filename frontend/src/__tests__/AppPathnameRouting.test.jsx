@@ -80,8 +80,8 @@ describe('App pathname-aware routing', () => {
   it('keeps the homepage and inventory hub titles distinct', async () => {
     window.history.replaceState({}, '', '/');
     const first = render(<ToastProvider><App /></ToastProvider>);
-    expect(await screen.findByRole('heading', { level: 1, name: 'Mobile Homes For Sale in Huffman, TX' })).toBeVisible();
-    expect(document.title).toContain('Mobile & Manufactured Homes for Sale in Huffman, TX');
+    expect(await screen.findByRole('heading', { level: 1, name: 'Manufactured and Mobile Homes for Sale in Huffman, TX' })).toBeVisible();
+    expect(document.title).toContain('Manufactured Homes for Sale in Huffman, TX');
     expect(document.title).not.toContain('Home Inventory');
     first.unmount();
 
@@ -90,9 +90,9 @@ describe('App pathname-aware routing', () => {
     expect(await screen.findByRole('textbox', { name: 'Search homes' })).toBeVisible();
     expect(screen.getByRole('heading', {
       level: 1,
-      name: 'Home Inventory — Mobile & Manufactured Homes in Huffman, TX',
+      name: 'Home Inventory in Huffman, TX',
     })).toBeVisible();
-    expect(document.title).toContain('Home Inventory — Mobile & Manufactured Homes in Huffman, TX');
+    expect(document.title).toContain('Home Inventory in Huffman, TX');
     expect(document.title).not.toContain('for Sale');
   });
 
@@ -120,7 +120,7 @@ describe('App pathname-aware routing', () => {
 
     expect((await screen.findAllByText('App Single')).length).toBeGreaterThan(0);
     expect(screen.queryAllByText('App Double')).toHaveLength(0);
-    expect(document.title).toContain('Single Wide Mobile & Manufactured Homes');
+    expect(document.title).toContain('Single Wide Homes in Huffman, TX');
     expect(trackEvent).toHaveBeenCalledWith('page_viewed', {
       page: 'inventory',
       page_path: '/single-wide',
@@ -143,7 +143,7 @@ describe('App pathname-aware routing', () => {
     expect((await screen.findAllByText('App Double')).length).toBeGreaterThan(0);
     expect(screen.queryAllByText('App Single')).toHaveLength(0);
     expect(screen.getByRole('textbox', { name: 'Search homes' })).toHaveValue('');
-    expect(document.title).toContain('Double Wide Mobile & Manufactured Homes');
+    expect(document.title).toContain('Double Wide Homes in Huffman, TX');
     expect(trackEvent).toHaveBeenCalledWith('page_viewed', {
       page: 'inventory',
       page_path: '/double-wide',
@@ -153,7 +153,7 @@ describe('App pathname-aware routing', () => {
     window.dispatchEvent(new PopStateEvent('popstate'));
     expect((await screen.findAllByText('App Single')).length).toBeGreaterThan(0);
     expect(screen.queryAllByText('App Double')).toHaveLength(0);
-    expect(document.title).toContain('Single Wide Mobile & Manufactured Homes');
+    expect(document.title).toContain('Single Wide Homes in Huffman, TX');
     expect(trackEvent).toHaveBeenLastCalledWith('page_viewed', {
       page: 'inventory',
       page_path: '/single-wide',
