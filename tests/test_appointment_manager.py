@@ -275,6 +275,12 @@ class TestCreateAppointmentValidation:
     def _manager(self):
         with patch("google.cloud.firestore.Client"):
             mgr = AppointmentManager()
+        # The db property lazily constructs a REAL firestore client on first
+        # access — after the patch above has exited. Always inject a stub so
+        # no test in this class depends on local ADC state or on leaked
+        # google.auth fakes from other test files (observed: ValueError from
+        # google-cloud-client when a fake AnonymousCredentials leaked).
+        mgr._db = MagicMock()
         return mgr
 
     def _appt(self, date_str, time_slot="10:00 AM"):
