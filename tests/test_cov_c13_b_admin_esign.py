@@ -561,6 +561,15 @@ class TestDispatcherTails:
             SimpleNamespace(scopes=scopes),
             "tho-ai-agent",
         )
+        # Bind the REAL credentials submodule onto the fake: any code that
+        # resolves `google.auth.credentials.Credentials` while the fake is
+        # installed (e.g. a concurrent lazy firestore client construction in
+        # another test's process path) must see the real class hierarchy —
+        # a missing/mismatched attribute here once leaked a fake Credentials
+        # base class and made real client construction raise ValueError.
+        import importlib
+
+        fake_google_auth.credentials = importlib.import_module("google.auth.credentials")
         fake_transport = types.ModuleType("google.auth.transport")
         fake_transport.__path__ = []
         fake_requests = types.ModuleType("google.auth.transport.requests")
