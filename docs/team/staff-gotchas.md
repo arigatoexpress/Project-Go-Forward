@@ -18,7 +18,7 @@ Homes show **Call for Price** until someone types a sale price.
 
 **Don't:** Leave that box blank and expect a dollar amount to show. A blank price shows Call for Price.
 
-As of the 2026-10-15 check, no sale prices had been entered since May. Ari still has to decide which prices can show. That ask is PGF-25.
+Ari still has to decide which prices can show.
 
 ### Ad Studio: if Prepare Draft fails
 
@@ -33,6 +33,8 @@ Google Ads is the paid search tab. It is off on purpose.
 **Do:** Leave the Google Ads tab alone.
 
 **Don't:** Press the buttons on that tab. Those ads cost money when they run, and they are meant to stay off.
+
+This tab cannot turn the ads on by itself.
 
 ### Signing in
 
@@ -85,9 +87,11 @@ Photo upload on a used home has not been tested on the live site yet.
 
 ### Contracts
 
-**Do:** Print the papers and sign them in person.
+**Do:** On a deal, press **Review & Send for Signature** to see a preview. That button only shows a preview.
 
-Signing on the screen is turned off. When it is turned on, nothing goes to a buyer until a staff member reviews the papers and presses **Review & Send for Signature**.
+If the panel says **E-signing isn't turned on yet, so nothing can be sent.**, print the packet and sign in person.
+
+**Don't:** Send anything to a buyer on your own. Nothing goes to a buyer unless you tick the hand-check box and press **Send to** the buyer's email. Ask Ari before you send anything.
 
 **Do:** Read the contract packet before you print it.
 
@@ -116,9 +120,3 @@ A link that contains `?home=` opens that home's page. A link that contains `/inv
 On a phone, **Call**, **Text**, and **Apply** show under the home name.
 
 The same page also shows **Call**, **Text**, and **Apply for financing** again further down. That extra set is still there.
-
-## Where this came from
-
-Pull requests: #369, #370, #374, #376, #379, #380, #385, #388, #389, #390, #399, #404, #405, #406, #407, #416.
-
-Three notes have no pull request number: the 2026-10-15 price check (open ask PGF-25), the 2026-10-09 sign-out, and the 2026-10-15 open item on used-home photo upload.
