@@ -18,6 +18,8 @@ import os
 import uuid
 from datetime import UTC, datetime
 
+from config_loader import business_phone
+
 try:
     from google.adk.tools import ToolContext
 except ImportError:
@@ -235,6 +237,7 @@ BANNED_WORDS = [
     "not your grandfather's",
 ]
 
+# TODO(owner): confirm which homes have an approved public ad price before any script states a dollar amount.
 THO_BRAND_VOICE = (
     """
 TEXAS HOME OUTLET BRAND VOICE — MANDATORY:
@@ -242,13 +245,12 @@ TEXAS HOME OUTLET BRAND VOICE — MANDATORY:
 TONE: Casual, warm, specific, Texas-friendly. Talk like a real person on camera, not a marketing department.
 
 DO:
-- Use exact numbers: "$89,900", "1,680 sqft", "3 bed/2 bath"
+- Use real details from the listing (beds, baths, size). Use a price only if the owner approved it for that home. Otherwise say Call for Price.
 - Reference specific rooms: "granite countertops in the kitchen", "walk-in closet in the master"
 - Write like you're literally walking through the home, pointing at things
 - Use short, punchy sentences. One thought per line.
 - Be enthusiastic because the VALUE is real, not because you're selling
 - Ground every claim in a specific detail (don't say "spacious" — say "this living room is 18 feet across")
-- Include at least one moment of genuine surprise or contrast ("and THIS is only $74k")
 - Reference local context: Houston, FM 1960, Texas heat, the lot
 
 DON'T:
@@ -264,14 +266,9 @@ DON'T:
 - Write long flowing paragraphs — this is VIDEO, write in short visual beats
 
 EXAMPLES OF GOOD HOOKS:
-- "This 3 bed/2 bath just hit the lot at $89,900. Yeah, you read that right."
-- "Your apartment rent could literally buy you THIS house. Let me show you."
-- "I'm standing inside a $65,000 home and people keep thinking it's $200K."
-- "POV: You stopped paying rent and bought a whole house instead."
+- "Here's what a 3 bed, 2 bath manufactured home on our Huffman lot looks like inside."
 - "Everyone told me manufactured homes were ugly. Then I walked into this one."
-- "$1,200/month rent. Or $650/month mortgage on THIS. You pick."
-- "They quoted me $350K for a stick-built. I got the same thing for $89K."
-- "3 bedrooms, 2 baths, and a kitchen bigger than my first apartment. Under $75K."
+- "3 bedrooms, 2 baths, and a full-size kitchen. Call for price."
 
 EXAMPLES OF BAD HOOKS (never write anything like these):
 - "Are you looking for your dream home?" (generic, boring, no specifics)
@@ -839,7 +836,7 @@ CONTENT_THEMES = [
 THEME_EXAMPLES = {
     "home_tour": """EXAMPLE SCRIPT (home_tour):
 [SHOT: exterior wide, golden hour] (0:00-0:03)
-"$74,900. Three bedrooms, two baths. Let me show you what that buys."
+"Three bedrooms, two baths. Let me show you what that buys."
 
 [SHOT: front door opens into living room] (0:03-0:06)
 "Open floor plan. Ceilings feel tall because they are — vaulted throughout."
@@ -860,7 +857,7 @@ CTA: "Come see it — link in bio. We're on FM 1960 in Huffman."
 "People say manufactured homes look cheap. Okay, walk with me."
 
 [SHOT: cut to kitchen with pendant lights, island] (0:02-0:06)
-"This kitchen has quartz countertops and soft-close cabinets. The same stuff in a $300K stick-built."
+"This kitchen has quartz countertops and soft-close cabinets."
 
 [SHOT: bathroom with tiled shower] (0:06-0:09)
 "Tiled walk-in shower. Not a plastic insert — actual tile."
@@ -868,58 +865,24 @@ CTA: "Come see it — link in bio. We're on FM 1960 in Huffman."
 [SHOT: exterior curb view] (0:09-0:13)
 "From the street, tell me this looks 'cheap.' I'll wait."
 
-[SHOT: price tag graphic overlay] (0:13-0:16)
-"$82,000. That's the whole home. Not a down payment — the whole thing."
-
 CTA: "Still think they're cheap? Come see for yourself. Appointments in bio."
 """,
     "financing_tips": """EXAMPLE SCRIPT (financing_tips):
-[SHOT: sitting at desk, calculator visible] (0:00-0:03)
-"$1,400 a month rent. That's $16,800 a year you'll never see again."
-
-[SHOT: home exterior with price overlay] (0:03-0:07)
-"This 3 bed/2 bath? $69,900. With FHA, your monthly payment is around $650."
-
 [SHOT: interior living room] (0:07-0:10)
 "You keep the equity. You paint the walls. You own it."
 
-[SHOT: close-up, talking directly to camera] (0:10-0:14)
-"We have homes starting under $50K. Your credit doesn't have to be perfect — we work with you."
-
-CTA: "DM me 'PAYMENT' and I'll run your numbers for free."
+CTA: "Call [store phone] to talk through financing options with our team."
 """,
     "clearance_alert": """EXAMPLE SCRIPT (clearance_alert):
-[SHOT: lot wide shot, multiple homes visible] (0:00-0:02)
-"Three homes just got marked down and nobody's talking about it."
-
-[SHOT: first home exterior] (0:02-0:05)
-"This 2 bed/1 bath was $45K. It's $34,900 now."
-
 [SHOT: second home interior, kitchen] (0:05-0:08)
-"3 bed/2 bath, full kitchen, pre-owned but clean. $52,000."
-
-[SHOT: walking through third home] (0:08-0:12)
-"And this one — just got its price cut today. First person to call gets it."
-
-CTA: "These don't last. Call (281) 324-3020 or link in bio."
+"3 bed/2 bath, full kitchen, pre-owned but clean."
 """,
     "comparison": """EXAMPLE SCRIPT (comparison):
-[SPLIT SCREEN: apartment on left, home on right] (0:00-0:03)
-"Left: 2 bed apartment, Houston. $1,400/month. Right: 3 bed home, yours. $680/month."
-
 [SHOT: apartment parking lot] (0:03-0:06)
 "Shared parking. Noise upstairs. Can't paint the walls."
 
 [SHOT: home's backyard] (0:06-0:09)
 "Your own yard. Your own driveway. Grill whenever you want."
-
-[SHOT: apartment lease paper] (0:09-0:12)
-"In 5 years, the apartment costs you $84,000 and you own nothing."
-
-[SHOT: home exterior, proud pose] (0:12-0:15)
-"In 5 years, this home? You've built $30K in equity AND your payment went down."
-
-CTA: "Run your numbers — DM me or hit the link."
 """,
     "behind_scenes": """EXAMPLE SCRIPT (behind_scenes):
 [SHOT: truck arriving with home on flatbed] (0:00-0:03)
@@ -929,37 +892,24 @@ CTA: "Run your numbers — DM me or hit the link."
 "Built in a factory — climate controlled, no rain delays. Then delivered to your lot."
 
 [SHOT: crew connecting utilities] (0:07-0:10)
-"Hook up water, electric, AC. Inspection day is next week."
+"Hook up water, electric, AC. Timing depends on the factory, your site work, and financing. We'll give you an estimate when you order."
 
-[SHOT: finished home, family walking in] (0:10-0:14)
-"From order to move-in: about 6-8 weeks. Try that with a stick-built."
+Use real photos of the home. Show people only with written permission. If the post shows people, show a range of buyers and never present AI-made people as customers.
 
 CTA: "Want to see the process? Come visit the lot. We walk you through everything."
 """,
     "customer_story": """EXAMPLE SCRIPT (customer_story):
-[SHOT: customer standing in front of their new home] (0:00-0:03)
-"Maria was paying $1,500/month rent for a 1-bedroom. Now she owns this."
+Use real photos of the home. Show people only with written permission. If the post shows people, show a range of buyers and never present AI-made people as customers.
 
-[SHOT: interior, kids playing in living room] (0:03-0:07)
-"3 bedrooms. Her kids each have their own room for the first time."
-
-[SHOT: kitchen, Maria cooking] (0:07-0:10)
-"Her mortgage? $720 a month. Less than half her old rent."
-
-[SHOT: Maria smiling at camera] (0:10-0:14)
-"She said the hardest part was believing it was real. We hear that a lot."
-
-CTA: "Your story could be next. Let's talk — link in bio."
+[SHOT: interior living room] (0:03-0:07)
+"3 bedrooms."
 """,
     "faq": """EXAMPLE SCRIPT (faq):
 [SHOT: reading phone, DM visible] (0:00-0:02)
 "Number one question in my DMs: 'Do manufactured homes hold value?'"
 
-[SHOT: chart/graphic overlay showing appreciation] (0:02-0:06)
-"Short answer: yes. Especially on owned land. Texas manufactured homes appreciated 5-7% last year."
-
 [SHOT: home exterior] (0:06-0:09)
-"This isn't 1985. Modern manufactured homes are built to HUD federal code. Same inspections. Real foundations."
+"This isn't 1985. Modern manufactured homes are built to the federal HUD Code and inspected during construction."
 
 [SHOT: close-up, direct to camera] (0:09-0:13)
 "The stigma is outdated. The value is real. Come see one in person and tell me I'm wrong."
@@ -1015,8 +965,7 @@ PLATFORM_PROMPTS = {
 - Longer storytelling format (30-60 seconds)
 - Lead with the VALUE PROPOSITION in first 3 seconds
 - More informational/educational tone (Facebook audience skews older)
-- Include specific pricing, financing details, and location info
-- Strong social proof elements (reviews, sales numbers)
+- Include location info and real home details.
 - End with clear CTA to call, visit, or message
 - Can be more detailed than TikTok/IG""",
 }
@@ -1424,6 +1373,9 @@ Use these EXACT details in the script. Do not make up specifications.
     theme_example = THEME_EXAMPLES.get(content_theme, "")
     theme_example_section = ""
     if theme_example:
+        # Static examples cannot read config.yaml. Fill [store phone] at prompt build.
+        store_phone = business_phone() or "[store phone]"
+        theme_example = theme_example.replace("[store phone]", store_phone)
         theme_example_section = f"""
 HERE IS AN EXAMPLE OF A HIGH-QUALITY {content_theme.upper().replace('_', ' ')} SCRIPT.
 Study its structure, pacing, shot direction, and tone. Match this quality level.

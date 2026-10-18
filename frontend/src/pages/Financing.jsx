@@ -12,9 +12,7 @@ const Financing = ({ onBack }) => (
     <div className="space-y-8 text-gray-700 leading-relaxed">
       <section>
         <p className="text-lg">
-          Buying a manufactured home does not have to be complicated. At {BUSINESS_NAME}
-          in {BUSINESS_CITY}, {BUSINESS_STATE}, we work with buyers across a range of
-          credit profiles and land situations to find the financing option that fits.
+          Buying a manufactured home does not have to be complicated. Lenders look at your credit, income, and land situation. We can help you find out which loan types may fit.
         </p>
       </section>
 
@@ -26,8 +24,7 @@ const Financing = ({ onBack }) => (
           </div>
           <p>
             Financing for the home itself when it will sit on leased land, in a
-            manufactured-home community, or on family property. Chattel loans typically
-            close faster and require less paperwork than traditional mortgages.
+            manufactured-home community, or on family property. Chattel loans can close faster than a mortgage, but rates and terms are often different. Compare both.
           </p>
         </div>
 
@@ -49,21 +46,19 @@ const Financing = ({ onBack }) => (
             <h3 className="text-lg font-bold text-gray-900">FHA / VA / USDA Programs</h3>
           </div>
           <p>
-            Depending on your situation, you may qualify for FHA Title I or Title II,
-            VA, or USDA Rural Development programs. These can offer competitive down
-            payments and terms for eligible buyers.
+            Some buyers qualify for FHA, VA, or USDA loans through approved lenders.
+            Each program has its own down payment and eligibility rules. A lender can tell you if you qualify.
           </p>
         </div>
 
         <div className="bg-gray-50 rounded-xl p-6 border border-gray-100">
           <div className="flex items-center gap-2 mb-3">
             <DollarSign size={22} className="text-blue-600" />
-            <h3 className="text-lg font-bold text-gray-900">In-House & Partner Programs</h3>
+            <h3 className="text-lg font-bold text-gray-900">Loans through lenders that finance manufactured homes</h3>
           </div>
+          {/* TODO(owner): confirm which lenders finance manufactured homes, and whether any in-house program exists, before naming a lender or program. */}
           <p>
-            We maintain relationships with manufactured-home lenders and in-house
-            programs designed for a range of credit profiles. Ask us which partners
-            currently serve your scenario.
+            Loans through lenders that finance manufactured homes.
           </p>
         </div>
       </section>

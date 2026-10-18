@@ -1186,16 +1186,17 @@ def _crawlable_about_block() -> str:
 
 
 def _crawlable_financing_block() -> str:
+    # TODO(owner): confirm which lenders finance manufactured homes, and whether any in-house program exists, before naming a lender or program.
     e = html.escape
     return (
         f"<h1>Manufactured Home Financing in {e(_CITY_STATE)}</h1>"
-        f"<p>We work with buyers across a range of credit profiles and land situations to "
-        f"find the right manufactured home financing option in {e(_CITY_STATE)}.</p>"
+        "<p>Lenders look at your credit, income, and land situation. "
+        "We can help you find out which loan types may fit.</p>"
         "<ul>"
         "<li>Chattel (home-only) loans</li>"
         "<li>Land-and-home / mortgage loans</li>"
-        "<li>FHA Title I/II, VA, and USDA programs</li>"
-        "<li>In-house and lender-partner programs</li>"
+        "<li>Some buyers qualify for FHA, VA, or USDA loans through approved lenders.</li>"
+        "<li>Loans through lenders that finance manufactured homes</li>"
         "</ul>"
         f'<p>Call <a href="tel:{e(business_phone())}">{e(business_phone())}</a> or '
         '<a href="/appointments">book a showroom visit</a> to discuss your options.</p>'
@@ -1245,8 +1246,7 @@ def _faqpage_jsonld() -> dict:
                     "@type": "Answer",
                     "text": (
                         "Options include chattel (home-only) loans, land-and-home loans, FHA Title I/II, "
-                        "VA, USDA programs, and in-house or lender-partner programs depending on your "
-                        "credit profile and land situation."
+                        "VA, USDA programs. Loans through lenders that finance manufactured homes."
                     ),
                 },
             },

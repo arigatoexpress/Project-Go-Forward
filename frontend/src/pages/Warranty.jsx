@@ -3,6 +3,7 @@ import { ShieldCheck, Wrench, FileText, Phone, Clock, AlertTriangle } from 'luci
 import ContentPage from '../components/ContentPage';
 import { BUSINESS_NAME, BUSINESS_PHONE, BUSINESS_PHONE_RAW } from '../constants';
 
+// TODO(owner): confirm statutory warranty wording and a TDHCA link before changing the warranty claims on this page.
 const Warranty = ({ onBack }) => (
   <ContentPage
     title="Warranty & Service"

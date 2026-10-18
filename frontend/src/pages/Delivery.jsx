@@ -9,6 +9,7 @@ import {
   BUSINESS_HOURS,
 } from '../constants';
 
+// TODO(owner): confirm what delivery includes (walkthrough, who handles each utility hookup, and typical lead time) before changing the delivery claims on this page.
 const Delivery = ({ onBack }) => (
   <ContentPage
     title="Delivery & Setup"
