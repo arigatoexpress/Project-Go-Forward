@@ -2,11 +2,17 @@
 
 This module is intentionally separate from ``tools.social_publishers``, which
 is the transport-free draft builder used by ``/api/marketing/schedule``.
-Nothing in the scheduling path imports this module.
+Nothing in the scheduling path imports this module, and no route calls it.
+
+``publish_social_post`` performs blocking HTTP I/O (``requests``) and
+``time.sleep`` polling. Async callers must run it via ``asyncio.to_thread``
+or ``starlette.concurrency.run_in_threadpool``. ``publish_social_post_async``
+is the async entry point.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import time
@@ -20,7 +26,15 @@ logger = logging.getLogger(__name__)
 TRUTHY = {"1", "true", "yes", "on", "enabled"}
 SUPPORTED_PLATFORMS = frozenset({"tiktok", "instagram_reels"})
 TIKTOK_PUBLISH_URL = "https://open.tiktokapis.com/v2/post/publish/video/init/"
+TIKTOK_STATUS_URL = "https://open.tiktokapis.com/v2/post/publish/status/fetch/"
 META_GRAPH_BASE = "https://graph.facebook.com"
+
+# Stay under TikTok's 30 status reads/minute and cap worst-case sleep so a
+# caller cannot poll for the provider's full moderation window.
+_DEFAULT_TIKTOK_POLL_ATTEMPTS = 20
+_MAX_TIKTOK_POLL_ATTEMPTS = 30
+_DEFAULT_TIKTOK_POLL_INTERVAL_SECONDS = 3.0
+_MAX_TIKTOK_POLL_INTERVAL_SECONDS = 5.0
 
 
 def _enabled(name: str) -> bool:
@@ -51,13 +65,73 @@ def social_publish_readiness(platform: str) -> dict[str, Any]:
     }
 
 
-def _publish_tiktok_video(asset_url: str, caption: str) -> str | None:
+def _bounded_int(name: str, default: int, *, minimum: int, maximum: int) -> int:
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        return default
+    return max(minimum, min(value, maximum))
+
+
+def _bounded_float(name: str, default: float, *, minimum: float, maximum: float) -> float:
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        value = float(raw)
+    except ValueError:
+        return default
+    return max(minimum, min(value, maximum))
+
+
+def _tiktok_headers() -> dict[str, str]:
+    return {
+        "Authorization": f"Bearer {os.environ['TIKTOK_ACCESS_TOKEN']}",
+        "Content-Type": "application/json; charset=UTF-8",
+    }
+
+
+def _tiktok_data(response: requests.Response) -> dict[str, Any]:
+    response.raise_for_status()
+    payload = response.json() or {}
+    if not isinstance(payload, dict):
+        raise RuntimeError("TikTok publish response was not an object")
+    error = payload.get("error") or {}
+    code = str(error.get("code") or "ok").lower()
+    if code != "ok":
+        raise RuntimeError("TikTok publish request was rejected")
+    data = payload.get("data") or {}
+    if not isinstance(data, dict):
+        raise RuntimeError("TikTok publish response was missing data")
+    return data
+
+
+def _tiktok_post_id(status_data: dict[str, Any], publish_id: str) -> str:
+    # TikTok's documented field name is misspelled; accept the corrected
+    # spelling if they ever fix the response.
+    public_ids = (
+        status_data.get("publicaly_available_post_id")
+        or status_data.get("publicly_available_post_id")
+        or []
+    )
+    if isinstance(public_ids, list) and public_ids:
+        return str(public_ids[0])
+    return str(publish_id)
+
+
+def _publish_tiktok_video(asset_url: str, caption: str) -> dict[str, Any]:
+    """Init a pull-from-URL post and poll until TikTok reports a terminal status.
+
+    ``publish_id`` from init is not a published post. A receipt is returned
+    only after ``PUBLISH_COMPLETE``. ``FAILED`` and an exhausted poll return
+    an error code and no publish timestamp.
+    """
     response = requests.post(
         TIKTOK_PUBLISH_URL,
-        headers={
-            "Authorization": f"Bearer {os.environ['TIKTOK_ACCESS_TOKEN']}",
-            "Content-Type": "application/json; charset=UTF-8",
-        },
+        headers=_tiktok_headers(),
         json={
             "post_info": {
                 "title": caption[:2200],
@@ -71,8 +145,38 @@ def _publish_tiktok_video(asset_url: str, caption: str) -> str | None:
         },
         timeout=30,
     )
-    response.raise_for_status()
-    return ((response.json() or {}).get("data") or {}).get("publish_id")
+    publish_id = _tiktok_data(response).get("publish_id")
+    if not publish_id:
+        return {"error_code": "provider_invalid_response"}
+
+    attempts = _bounded_int(
+        "TIKTOK_STATUS_POLL_ATTEMPTS",
+        _DEFAULT_TIKTOK_POLL_ATTEMPTS,
+        minimum=1,
+        maximum=_MAX_TIKTOK_POLL_ATTEMPTS,
+    )
+    interval = _bounded_float(
+        "TIKTOK_STATUS_POLL_INTERVAL_SECONDS",
+        _DEFAULT_TIKTOK_POLL_INTERVAL_SECONDS,
+        minimum=0,
+        maximum=_MAX_TIKTOK_POLL_INTERVAL_SECONDS,
+    )
+    for attempt in range(attempts):
+        status_response = requests.post(
+            TIKTOK_STATUS_URL,
+            headers=_tiktok_headers(),
+            json={"publish_id": publish_id},
+            timeout=30,
+        )
+        status_data = _tiktok_data(status_response)
+        status = status_data.get("status")
+        if status == "PUBLISH_COMPLETE":
+            return {"post_id": _tiktok_post_id(status_data, publish_id)}
+        if status == "FAILED":
+            return {"error_code": "provider_publish_failed"}
+        if attempt + 1 < attempts and interval > 0:
+            time.sleep(interval)
+    return {"error_code": "provider_publish_timeout"}
 
 
 def _publish_instagram_reel(asset_url: str, caption: str) -> str | None:
@@ -131,7 +235,12 @@ def publish_social_post(
     caption: str = "",
     hashtags: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Publish immediately to exactly the requested configured platform."""
+    """Publish immediately to exactly the requested configured platform.
+
+    Blocking HTTP and sleep. Async callers must use ``publish_social_post_async``.
+    TikTok is reported as published only after status fetch returns
+    ``PUBLISH_COMPLETE``.
+    """
     readiness = social_publish_readiness(platform)
     if not readiness["supported"]:
         return {"success": False, "error_code": "unsupported_platform"}
@@ -148,15 +257,20 @@ def publish_social_post(
 
     try:
         if platform == "tiktok":
-            post_id = _publish_tiktok_video(asset_url, full_caption)
+            outcome = _publish_tiktok_video(asset_url, full_caption)
+            post_id = outcome.get("post_id")
+            if not post_id:
+                return {
+                    "success": False,
+                    "error_code": outcome.get("error_code") or "provider_invalid_response",
+                }
         else:
             post_id = _publish_instagram_reel(asset_url, full_caption)
+            if not post_id:
+                return {"success": False, "error_code": "provider_invalid_response"}
     except Exception as exc:  # provider exceptions may contain secrets/details
         logger.exception("Live social publish failed for %s", platform, exc_info=exc)
         return {"success": False, "error_code": "provider_request_failed"}
-
-    if not post_id:
-        return {"success": False, "error_code": "provider_invalid_response"}
 
     return {
         "success": True,
@@ -169,3 +283,20 @@ def publish_social_post(
         "live_integration": True,
         "published_at": datetime.now(UTC).isoformat(),
     }
+
+
+async def publish_social_post_async(
+    *,
+    platform: str,
+    asset_url: str,
+    caption: str = "",
+    hashtags: list[str] | None = None,
+) -> dict[str, Any]:
+    """Run :func:`publish_social_post` off the event loop."""
+    return await asyncio.to_thread(
+        publish_social_post,
+        platform=platform,
+        asset_url=asset_url,
+        caption=caption,
+        hashtags=hashtags,
+    )
