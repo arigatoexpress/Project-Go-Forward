@@ -279,6 +279,10 @@ def test_check_slots_sunday_is_closed():
 
 def test_check_slots_saturday_uses_short_hours():
     delta = (5 - _today().weekday()) % 7  # days until next Saturday
+    if delta == 0:
+        delta = 7  # never test against "today": the tool filters same-day
+        # past slots by the America/Chicago wall clock, so on Saturdays this
+        # assertion would flap between 4 and 5 slots depending on the hour.
     saturday = (_today() + timedelta(days=delta)).isoformat()
     out = crm_tools.check_available_slots(saturday)
     assert out["business_hours"] == "10:00 AM - 3:00 PM"
