@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Home, Bed, Bath, Maximize, Plus, Check, ChevronLeft, ChevronRight, X, Images } from 'lucide-react';
 import { generateSrcSet, getImageSizes } from '../utils/imageOptimization';
-import { usedHomeMayShowPhoto } from '../utils/listingRoutes';
+import { listingImageAlt, usedHomeMayShowPhoto } from '../utils/listingRoutes';
 
 function GalleryModal({
     allImages,
@@ -222,7 +222,12 @@ const PropertyCard = ({ property, onToggleCompare, isSelected }) => {
                                 src={allImages[currentImageIndex]}
                                 srcSet={generateSrcSet(allImages[currentImageIndex])}
                                 sizes={getImageSizes('card-hero')}
-                                alt={model_name}
+                                alt={listingImageAlt(
+                                    { model_name },
+                                    allImages[currentImageIndex],
+                                    currentImageIndex + 1,
+                                    allImages.length,
+                                )}
                                 loading="lazy"
                                 decoding="async"
                                 className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"

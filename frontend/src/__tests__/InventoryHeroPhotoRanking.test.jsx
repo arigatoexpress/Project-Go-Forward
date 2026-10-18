@@ -58,8 +58,9 @@ describe('HomeCard hero selection', () => {
     try {
       render(<InventoryBrowse />);
       await waitFor(() => {
-        const images = screen.getAllByAltText(baseHome.model_name);
-        expect(images.map(image => image.getAttribute('src'))).toEqual([SEEDED_HERO, EXT]);
+        const featured = screen.getByAltText(listingImageAlt(baseHome, SEEDED_HERO, 1, 1));
+        const card = screen.getByAltText(listingImageAlt(baseHome, EXT, 1, 2));
+        expect([featured, card].map(image => image.getAttribute('src'))).toEqual([SEEDED_HERO, EXT]);
       });
       const detailPhotos = await screen.findAllByAltText(listingImageAlt(baseHome, SEEDED_HERO, 1, 2));
       expect(detailPhotos.length).toBeGreaterThan(0);

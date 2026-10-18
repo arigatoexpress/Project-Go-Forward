@@ -1,15 +1,17 @@
+import { categoryDescription } from '../seoCopy';
+
 export const INVENTORY_CATEGORY_ROUTES = Object.freeze({
   '/single-wide': Object.freeze({
     path: '/single-wide',
     classification: 'Single Wide',
     heading: 'Single Wide Manufactured Homes in Huffman, TX',
-    description: 'Browse single wide listed homes plus manufacturer floorplans Texas Home Outlet can custom order. Confirm current price and availability with our team.',
+    description: categoryDescription('Single Wide'),
   }),
   '/double-wide': Object.freeze({
     path: '/double-wide',
     classification: 'Double Wide',
     heading: 'Double Wide Manufactured Homes in Huffman, TX',
-    description: 'Browse double wide listed homes plus manufacturer floorplans Texas Home Outlet can custom order. Confirm current price and availability with our team.',
+    description: categoryDescription('Double Wide'),
   }),
 });
 

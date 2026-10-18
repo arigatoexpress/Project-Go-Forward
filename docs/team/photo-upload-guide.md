@@ -126,6 +126,9 @@ refresh the page** (pull down on a phone, or press the circular refresh arrow).
 - **A handful is plenty.** 5–10 strong photos beat 30 blurry ones.
 - **No floor plans here.** This tool is for real on-lot photos. (Floor plans are
   handled separately by the office.)
+- **You do not need to rename photos.** If the file name already includes a plain
+  word such as exterior, kitchen, or bath, the website can describe that picture.
+  A name like IMG_1234 is fine.
 
 ---
 

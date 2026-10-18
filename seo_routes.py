@@ -22,6 +22,7 @@ from __future__ import annotations
 import html
 import json
 import logging
+import math
 import os
 import re
 import threading
@@ -85,21 +86,20 @@ def _base() -> str:
 _CITY_STATE = f"{business_city()}, {business_state()}"
 PUBLIC_ROUTES = {
     "/": (
-        f"Mobile & Manufactured Homes for Sale in {_CITY_STATE} | {business_name()}",
-        f"Browse manufactured & mobile homes for sale at {business_name()} in "
-        f"{_CITY_STATE} — listed homes and orderable factory floorplans. "
-        f"Confirm current price and availability directly with our team.",
+        f"Manufactured Homes for Sale in {_CITY_STATE} | {business_name()}",
+        f"Browse manufactured and mobile homes for sale at {business_name()} in "
+        f"{_CITY_STATE}. Call or text {business_phone()} to confirm price, financing, "
+        f"and availability.",
     ),
     "/inventory": (
-        f"Home Inventory — Mobile & Manufactured Homes in {_CITY_STATE} | {business_name()}",
-        f"Browse manufactured homes at {business_name()} in {_CITY_STATE}: single and "
-        f"double section homes, 3D tours, photos, and orderable floorplans. "
-        f"Request current price and availability.",
+        f"Home Inventory in {_CITY_STATE} | {business_name()}",
+        f"See the current manufactured and mobile home inventory at {business_name()} "
+        f"in {_CITY_STATE}, including listed homes, pre-owned homes, and floorplans.",
     ),
     "/contact": (
         f"Contact {business_name()} — {_CITY_STATE}",
-        f"Visit {business_name()} at {business_address()}, call {business_phone()}, "
-        f"or send us a message. Hours: {business_hours()}.",
+        f"Visit {business_name()} at {business_address()}. Call {business_phone()}. "
+        f"Hours: {business_hours()}.",
     ),
     "/appointments": (
         f"Book a Showroom Visit | {business_name()}",
@@ -113,7 +113,7 @@ PUBLIC_ROUTES = {
     ),
     "/about": (
         f"About Us | {business_name()}",
-        f"Learn about {business_name()} — a licensed manufactured & mobile home "
+        f"Learn about {business_name()}, a licensed manufactured and mobile home "
         f"dealership in {_CITY_STATE} serving the Houston area.",
     ),
     "/financing": (
@@ -173,21 +173,21 @@ HOME_CATEGORY_PAGES = {
     "/single-wide": {
         "classification": "Single Wide",
         "heading": "Single Wide Manufactured Homes",
-        "title": f"Single Wide Mobile & Manufactured Homes in {_CITY_STATE} | {business_name()}",
+        "title": f"Single Wide Homes in {_CITY_STATE} | {business_name()}",
         "description": (
             f"Browse single wide manufactured and mobile homes at {business_name()} in "
-            f"{_CITY_STATE} — listed homes plus orderable floorplans. Confirm current "
-            "price and availability."
+            f"{_CITY_STATE}. Listed homes and orderable floorplans. Call {business_phone()} "
+            "for price."
         ),
     },
     "/double-wide": {
         "classification": "Double Wide",
         "heading": "Double Wide Manufactured Homes",
-        "title": f"Double Wide Mobile & Manufactured Homes in {_CITY_STATE} | {business_name()}",
+        "title": f"Double Wide Homes in {_CITY_STATE} | {business_name()}",
         "description": (
             f"Browse double wide manufactured and mobile homes at {business_name()} in "
-            f"{_CITY_STATE} — listed homes plus orderable floorplans. Confirm current "
-            "price and availability."
+            f"{_CITY_STATE}. Listed homes and orderable floorplans. Call {business_phone()} "
+            "for price."
         ),
     },
 }
@@ -409,10 +409,19 @@ def _registry() -> dict:
 # ── JSON-LD builders ────────────────────────────────────────────────────────
 
 
+def _business_id() -> str:
+    return _base() + "/#dealership"
+
+
+def _website_id() -> str:
+    return _base() + "/#website"
+
+
 def _local_business_jsonld() -> dict:
     data = {
         "@context": "https://schema.org",
         "@type": "LocalBusiness",
+        "@id": _business_id(),
         "name": business_name(),
         "description": "Manufactured and mobile home dealership",
         "url": _base() + "/",
@@ -481,6 +490,56 @@ def _local_business_jsonld() -> dict:
     return data
 
 
+def _website_jsonld() -> dict:
+    """One site entity. Search is on-page, so there is no SearchAction URL."""
+    return {
+        "@context": "https://schema.org",
+        "@type": "WebSite",
+        "@id": _website_id(),
+        "name": business_name(),
+        "url": _base() + "/",
+        "publisher": {"@id": _business_id()},
+    }
+
+
+def _webpage_jsonld(name: str, description: str, path: str, *, page_type: str = "WebPage") -> dict:
+    url = _base() + (path if path != "/" else "/")
+    return {
+        "@context": "https://schema.org",
+        "@type": page_type,
+        "@id": url + "#webpage",
+        "url": url,
+        "name": name,
+        "description": description,
+        "isPartOf": {"@id": _website_id()},
+        "about": {"@id": _business_id()},
+    }
+
+
+def _service_area_jsonld(city: str, path: str) -> dict:
+    """The page is about delivery to this city. The showroom stays in Huffman."""
+    return {
+        "@context": "https://schema.org",
+        "@type": "Service",
+        "name": f"Manufactured and mobile home sales in {city}, TX",
+        "serviceType": "Manufactured home sales",
+        "url": _base() + path,
+        "provider": {"@id": _business_id()},
+        "areaServed": {"@type": "City", "name": city},
+    }
+
+
+def _breadcrumb_trail(items: list[tuple[str, str]]) -> dict:
+    return {
+        "@context": "https://schema.org",
+        "@type": "BreadcrumbList",
+        "itemListElement": [
+            {"@type": "ListItem", "position": index, "name": name, "item": url}
+            for index, (name, url) in enumerate(items, start=1)
+        ],
+    }
+
+
 def _first_image(home: dict) -> str | None:
     """Return the first public photo for OG / JSON-LD.
 
@@ -539,26 +598,87 @@ def _sms_href(home: dict | None = None) -> str:
     return f"{base}?&body={body}"
 
 
-def _product_jsonld(home: dict, canonical_url: str) -> dict | None:
-    # Google's Product snippet requires one of offers/review/aggregateRating, and
-    # a valid Offer REQUIRES a real price. THO lists every home "call for price"
-    # (no online price) with no per-home ratings/reviews, so a Product snippet
-    # cannot be made valid honestly: a $0/placeholder price violates Google's
-    # "data must match the page" policy, and fabricating ratings/reviews is barred.
-    # So emit Product structured data ONLY when a real positive price exists (a
-    # priced home then becomes rich-result eligible with a valid Product+Offer);
-    # otherwise return None, so Search Console is not flagged for an
-    # unsatisfiable Product. Price-less pages still rank on their
-    # title/description/OG tags/crawlable body.
-    price = home.get("price_value")
+_CALL_FOR_PRICE_RE = re.compile(r"^call\s+for\s+pric(?:e|ing)$", re.IGNORECASE)
+_DOLLAR_AMOUNT_RE = re.compile(r"\$\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)")
+
+
+def _is_call_for_price_label(value) -> bool:
+    text = re.sub(r"\s+", " ", str(value or "").strip())
+    return not text or bool(_CALL_FOR_PRICE_RE.match(text))
+
+
+def _visible_dollar_amount(display: str) -> float | None:
+    match = _DOLLAR_AMOUNT_RE.search(str(display or ""))
+    if not match:
+        return None
     try:
-        price = float(price) if price is not None else None
+        return float(match.group(1).replace(",", ""))
+    except ValueError:
+        return None
+
+
+_NONFINITE_PRICE_TEXT = frozenset({"nan", "inf", "-inf", "+inf", "infinity", "-infinity"})
+
+
+def _is_finite_positive(price: float | None) -> bool:
+    """True only for a real number greater than zero.
+
+    NaN and infinities must be rejected before ``<=`` or ``abs`` comparisons.
+    ``float("NaN") <= 0`` and ``abs(float("NaN") - shown) > 0.5`` are both
+    false, so a comparison-only guard treats NaN as a valid Offer price.
+    """
+    return isinstance(price, int | float) and math.isfinite(price) and price > 0
+
+
+def _offer_price_text(price: float | None) -> str | None:
+    """Whole-dollar Offer price text, or None when it is not a real price."""
+    if isinstance(price, bool) or not _is_finite_positive(price):
+        return None
+    text = f"{price:.0f}"
+    if text.lower() in _NONFINITE_PRICE_TEXT or not text.isdecimal():
+        return None
+    return text
+
+
+def _shown_offer_price(home: dict) -> float | None:
+    """Numeric Offer price only when the page shows that same dollar amount.
+
+    Call for Price, a blank price, a non-finite price (NaN or infinity,
+    including the strings "nan" and "inf"), or a price_value that does not
+    match the visible price never becomes Product or Offer markup (issue #398).
+    """
+    visible = str(home.get("display_price") or "").strip()
+    if _is_call_for_price_label(visible):
+        return None
+    shown = _visible_dollar_amount(visible)
+    if not _is_finite_positive(shown):
+        return None
+    raw = home.get("price_value")
+    try:
+        price = float(raw) if raw is not None else None
     except (TypeError, ValueError) as e:
         logger.warning(
-            f"SEO _product_jsonld: unparseable price_value {price!r}, omitting Product JSON-LD: {e}"
+            f"SEO _product_jsonld: unparseable price_value {raw!r}, omitting Product JSON-LD: {e}"
         )
-        price = None
-    if not (price and price > 0):
+        return None
+    if price is not None and not math.isfinite(price):
+        logger.warning(
+            f"SEO _product_jsonld: non-finite price_value {raw!r}, omitting Product JSON-LD"
+        )
+        return None
+    if not _is_finite_positive(price) or abs(price - shown) > 0.5:
+        return None
+    return price
+
+
+def _product_jsonld(home: dict, canonical_url: str) -> dict | None:
+    # Google's Product snippet requires one of offers/review/aggregateRating, and
+    # a valid Offer REQUIRES a real price. A Call for Price page has no public
+    # price and no per-home ratings, so it gets no Product markup. A hidden
+    # price_value must not leak into an Offer the page does not show.
+    price = _shown_offer_price(home)
+    price_text = _offer_price_text(price)
+    if price_text is None:
         return None
 
     specs = home.get("specs") or {}
@@ -587,7 +707,7 @@ def _product_jsonld(home: dict, canonical_url: str) -> dict | None:
         data["image"] = image
     offer = {
         "@type": "Offer",
-        "price": f"{price:.0f}",
+        "price": price_text,
         "priceCurrency": "USD",
         "url": canonical_url,
     }
@@ -860,6 +980,31 @@ def _head_block(
     return "\n    ".join(parts)
 
 
+def _storefront_links(current_path: str) -> str:
+    """Real links among the home page, inventory, listings' neighbors, and cities.
+
+    City names come from config.yaml area_served. The current page is named,
+    not linked to itself.
+    """
+    e = html.escape
+    parts = []
+    if current_path != "/":
+        parts.append('<a href="/">Home</a>')
+    if current_path != "/inventory":
+        parts.append('<a href="/inventory">All homes</a>')
+    for path, city in _city_pages().items():
+        label = f"Homes in {city}, TX"
+        if path == current_path:
+            parts.append(f'<span aria-current="page">{e(label)}</span>')
+        else:
+            parts.append(f'<a href="{e(path)}">{e(label)}</a>')
+    return (
+        '<nav aria-label="Home, inventory, and areas we serve"><p>'
+        + " · ".join(parts)
+        + "</p></nav>"
+    )
+
+
 def _crawlable_inventory_block(*, hub: bool = False) -> str:
     """Semantic HTML (replaced by React on mount) so non-JS crawlers see
     the inventory and have <a href> paths to every detail page.
@@ -907,23 +1052,26 @@ def _crawlable_inventory_block(*, hub: bool = False) -> str:
             f'<li><a href="{e(path)}">{e(label)}</a>{" — " + e(extra) if extra else ""}</li>'
         )
     if hub:
-        heading = f"Home Inventory — Mobile &amp; Manufactured Homes in {e(_CITY_STATE)}"
+        heading = f"Home Inventory in {e(_CITY_STATE)}"
         intro = (
             f"<p>Current manufactured and mobile home inventory at {e(business_name())} "
             f"in {e(_CITY_STATE)}. Listed homes, pre-owned homes, and orderable floorplans "
             f"are linked below. Confirm current price and availability with our team.</p>"
         )
+        current = "/inventory"
     else:
-        heading = f"Mobile &amp; Manufactured Homes for Sale in {e(_CITY_STATE)}"
+        heading = f"Manufactured and Mobile Homes for Sale in {e(_CITY_STATE)}"
         intro = (
-            f"<p>{e(business_name())} — {e(business_address())} · "
-            f"{e(business_phone())} · {e(business_hours())}</p>"
+            f"<p>{e(business_name())}, {e(business_address())}. "
+            f"{e(business_phone())}. {e(business_hours())}.</p>"
         )
+        current = "/"
     return (
         f"<h1>{heading}</h1>"
         f"{intro}"
         '<p>Browse by home type: <a href="/single-wide">Single Wide Homes</a> · '
         '<a href="/double-wide">Double Wide Homes</a></p>'
+        f"{_storefront_links(current)}"
         f"<ul>{''.join(items)}</ul>"
     )
 
@@ -995,8 +1143,20 @@ def _crawlable_category_block(category: dict) -> str:
         f'<p><a href="/inventory">Browse all manufactured homes</a> · '
         f'<a href="/appointments">Book a showroom visit</a> · '
         f'<a href="tel:{e(business_phone())}">Call {e(business_phone())}</a></p>'
+        f"{_storefront_links(_category_path(category))}"
         f"<p>{e(business_name())} · {e(business_address())} · {e(business_hours())}</p>"
     )
+
+
+def _public_home_path(home: dict) -> str:
+    return listing_path(home) or _legacy_path(home.get("detail_url")) or "/inventory"
+
+
+def _category_path(category: dict) -> str:
+    for path, item in HOME_CATEGORY_PAGES.items():
+        if item["heading"] == category.get("heading"):
+            return path
+    return "/inventory"
 
 
 def _crawlable_detail_block(home: dict) -> str:
@@ -1013,15 +1173,15 @@ def _crawlable_detail_block(home: dict) -> str:
             rows.append(f"<li>{label}: {e(str(specs[key]))}</li>")
     if home.get("manufacturer"):
         rows.append(f"<li>Manufacturer: {e(str(home['manufacturer']))}</li>")
-    if home.get("display_price"):
-        rows.append(f"<li>Price: {e(str(home['display_price']))}</li>")
+    rows.append(f"<li>Price: {e(_listing_display_price(home))}</li>")
     description = home.get("description") or ""
     return (
         f"<h1>{e(home.get('model_name') or 'Manufactured Home')}</h1>"
         f"<p>{e(str(description)[:500])}</p>"
         f"<ul>{''.join(rows)}</ul>"
-        f'<p><a href="/inventory">All homes for sale at {e(business_name())}</a> — '
-        f"{e(business_address())} · {e(business_phone())}</p>"
+        f'<p><a href="/inventory">All homes for sale at {e(business_name())}</a>. '
+        f"{e(business_address())}. {e(business_phone())}.</p>"
+        f"{_storefront_links(_public_home_path(home))}"
     )
 
 
@@ -1116,8 +1276,10 @@ def _crawlable_home_listing_block(home: dict) -> str:
         f'<p><a href="{e(_tel_href())}">Call {e(business_phone())}</a>'
         f' · <a href="{e(_sms_href(home))}">Text {e(business_phone())}</a>'
         f' · <a href="/financing">Apply for financing</a></p>'
-        f'<p><a href="/inventory">All homes for sale at {e(business_name())}</a> — '
-        f"{e(business_address())} · {e(business_phone())}</p>"
+        f'<p><a href="/">Home</a> · '
+        f'<a href="/inventory">All homes for sale at {e(business_name())}</a>. '
+        f"{e(business_address())}. {e(business_phone())}.</p>"
+        f"{_storefront_links(_public_home_path(home))}"
         f"</article>"
     )
 
@@ -1443,15 +1605,13 @@ def _crawlable_delivery_block() -> str:
 
 def _breadcrumb_jsonld(name: str, canonical_url: str) -> dict:
     b = _base()
-    return {
-        "@context": "https://schema.org",
-        "@type": "BreadcrumbList",
-        "itemListElement": [
-            {"@type": "ListItem", "position": 1, "name": "Home", "item": b + "/"},
-            {"@type": "ListItem", "position": 2, "name": "Inventory", "item": b + "/inventory"},
-            {"@type": "ListItem", "position": 3, "name": name, "item": canonical_url},
-        ],
-    }
+    return _breadcrumb_trail(
+        [
+            ("Home", b + "/"),
+            ("Inventory", b + "/inventory"),
+            (name, canonical_url),
+        ]
+    )
 
 
 def _inventory_itemlist_jsonld(limit: int = 25, classification: str | None = None) -> dict | None:
@@ -1536,16 +1696,37 @@ def _city_pages() -> dict[str, str]:
 
 def _crawlable_city_block(city: str) -> str:
     e = html.escape
+    reg = _registry()
+    path = next((item for item, name in _city_pages().items() if name == city), "")
+    # Reuse the same home links as the inventory page so this city page points
+    # at real listings. The homes are at the Huffman showroom, not in this city.
+    items = []
+    seen: set[str] = set()
+    for route_key, home in list(reg["detail_by_route"].items()):
+        home_path = reg["detail_path_by_route"].get(route_key)
+        if not home_path or home_path in seen:
+            continue
+        seen.add(home_path)
+        label = home.get("model_name") or "Manufactured home"
+        items.append(f'<li><a href="{e(home_path)}">{e(label)}</a></li>')
+    for home in reg["homes"]:
+        home_path = listing_path(home)
+        if not home_path or home_path in seen:
+            continue
+        seen.add(home_path)
+        label = home.get("model_name") or "Manufactured home"
+        items.append(f'<li><a href="{e(home_path)}">{e(label)}</a></li>')
     return (
         f"<h1>Manufactured &amp; Mobile Homes in {e(city)}, TX</h1>"
-        f"<p>{e(business_name())} delivers new manufactured and mobile homes to "
-        f"{e(city)}, TX and the surrounding Houston area — single and double-section "
-        f"homes plus orderable factory floorplans. Visit our showroom at "
-        f"{e(business_address())} or call "
-        f'<a href="tel:{e(business_phone())}">{e(business_phone())}</a>.</p>'
-        f'<p><a href="/inventory">Browse all homes for sale at {e(business_name())}</a>'
-        f' · <a href="/appointments">Book a showroom visit</a></p>'
-        f"<p>{e(business_name())} · {e(business_address())} · {e(business_hours())}</p>"
+        f"<p>{e(business_name())} delivers manufactured and mobile homes to "
+        f"{e(city)}, TX from the {e(business_city())} showroom at "
+        f"{e(business_address())}. Call "
+        f'<a href="tel:{e(business_phone())}">{e(business_phone())}</a> '
+        f"for the current price. The homes below are listed at that showroom.</p>"
+        f"{_storefront_links(path)}"
+        f"<ul>{''.join(items)}</ul>"
+        f'<p><a href="/appointments">Book a showroom visit</a></p>'
+        f"<p>{e(business_name())}. {e(business_address())}. {e(business_hours())}.</p>"
     )
 
 
@@ -1615,13 +1796,26 @@ def _render_spa_response(full_path: str) -> Response | None:
     if city:
         if raw_path != path:
             return RedirectResponse(path, status_code=301)
-        title = f"Manufactured & Mobile Homes in {city}, TX | {business_name()}"
+        title = f"Manufactured Homes in {city}, TX | {business_name()}"
         desc = (
-            f"{business_name()} delivers manufactured & mobile homes to {city}, TX — "
-            f"listed homes plus orderable floorplans. Confirm current price and availability at "
-            f"{business_phone()}."
+            f"{business_name()} delivers manufactured and mobile homes to {city}, TX from the "
+            f"{business_city()} showroom at {business_street()}. Call {business_phone()} for price."
         )
-        head = _head_block(title, desc, base + path, jsonld=[_local_business_jsonld()])
+        jsonld = [
+            _local_business_jsonld(),
+            _webpage_jsonld(title, desc, path),
+            _service_area_jsonld(city, path),
+            _breadcrumb_trail(
+                [
+                    ("Home", base + "/"),
+                    (f"Homes in {city}, TX", base + path),
+                ]
+            ),
+        ]
+        itemlist = _inventory_itemlist_jsonld()
+        if itemlist:
+            jsonld.append(itemlist)
+        head = _head_block(title, desc, base + path, jsonld=jsonld)
         return HTMLResponse(_inject(_shell(), head, _crawlable_city_block(city)), headers=no_cache)
 
     # 3c. High-intent home-type pages: preserve the legacy category URLs while
@@ -1657,7 +1851,17 @@ def _render_spa_response(full_path: str) -> Response | None:
                 headers=no_cache,
             )
         itemlist = _inventory_itemlist_jsonld(classification=category["classification"])
-        jsonld = [_local_business_jsonld()]
+        jsonld = [
+            _local_business_jsonld(),
+            _webpage_jsonld(category["title"], category["description"], category_path),
+            _breadcrumb_trail(
+                [
+                    ("Home", base + "/"),
+                    ("Inventory", base + "/inventory"),
+                    (category["heading"], base + category_path),
+                ]
+            ),
+        ]
         if itemlist:
             jsonld.append(itemlist)
         head = _head_block(
@@ -1843,6 +2047,19 @@ def _render_spa_response(full_path: str) -> Response | None:
             )
             else []
         )
+        if path == "/":
+            jsonld.append(_website_jsonld())
+            jsonld.append(_webpage_jsonld(title, description, path, page_type="CollectionPage"))
+        elif path == "/inventory":
+            jsonld.append(_webpage_jsonld(title, description, path, page_type="CollectionPage"))
+            jsonld.append(
+                _breadcrumb_trail(
+                    [
+                        ("Home", base + "/"),
+                        ("Inventory", base + "/inventory"),
+                    ]
+                )
+            )
         if path in ("/", "/inventory"):
             itemlist = _inventory_itemlist_jsonld()
             if itemlist:
@@ -1903,6 +2120,29 @@ def render_not_found() -> Response:
     )
 
 
+# Date the public home, inventory, location, and listing templates last changed.
+# Listing records keep a later timestamp when the home itself was updated after this.
+_SEO_TEMPLATE_LASTMOD = "2026-10-18"
+
+
+def _template_lastmod_paths() -> set[str]:
+    return {"/", "/inventory", "/contact", "/about", *HOME_CATEGORY_PAGES, *_city_pages()}
+
+
+def _url_entry(loc: str, lastmod: str | None = None) -> str:
+    loc_xml = f"  <url><loc>{html.escape(loc)}</loc>"
+    if lastmod:
+        return loc_xml + f"<lastmod>{html.escape(lastmod)}</lastmod></url>"
+    return loc_xml + "</url>"
+
+
+def _listing_sitemap_lastmod(home: dict) -> str:
+    recorded = listing_lastmod(home)
+    if recorded >= _SEO_TEMPLATE_LASTMOD:
+        return recorded
+    return _SEO_TEMPLATE_LASTMOD
+
+
 # ── robots.txt and sitemap.xml ──────────────────────────────────────────────
 
 
@@ -1955,32 +2195,40 @@ def robots_txt() -> PlainTextResponse:
 @router.get("/sitemap.xml")
 def sitemap_xml() -> Response:
     base = _base()
-    urls = [
-        base + p
-        for p in (
-            "/",
-            "/inventory",
-            "/contact",
-            "/appointments",
-            "/chat",
-            "/about",
-            "/financing",
-            "/faq",
-            "/warranty",
-            "/delivery",
-            "/privacy",
-            "/terms",
-        )
+    static_paths = [
+        "/",
+        "/inventory",
+        "/contact",
+        "/appointments",
+        "/chat",
+        "/about",
+        "/financing",
+        "/faq",
+        "/warranty",
+        "/delivery",
+        "/privacy",
+        "/terms",
     ]
-    urls += [base + p for p in sorted(_city_pages())]
+    dated = _template_lastmod_paths()
+    entries_xml = [
+        _url_entry(base + path, _SEO_TEMPLATE_LASTMOD if path in dated else None)
+        for path in static_paths
+    ]
+    entries_xml += [
+        _url_entry(base + path, _SEO_TEMPLATE_LASTMOD) for path in sorted(_city_pages())
+    ]
     reg = _registry()
     if reg["inventory_ok"]:
-        urls += [
-            base + path
+        entries_xml += [
+            _url_entry(base + path, _SEO_TEMPLATE_LASTMOD)
             for path, category in sorted(HOME_CATEGORY_PAGES.items())
             if _category_homes(category, reg)
         ]
-    urls += [base + p for p in sorted(reg["detail_path_by_route"].values())]
+    # Legacy detail and plan pages changed with this template (links and price line).
+    entries_xml += [
+        _url_entry(base + path, _SEO_TEMPLATE_LASTMOD)
+        for path in sorted(reg["detail_path_by_route"].values())
+    ]
     home_entries: list[tuple[str, str]] = []
     if reg["inventory_ok"]:
         seen_home_paths: set[str] = set()
@@ -1989,17 +2237,10 @@ def sitemap_xml() -> Response:
             if not path_value or path_value in seen_home_paths:
                 continue
             seen_home_paths.add(path_value)
-            home_entries.append((base + path_value, listing_lastmod(home)))
+            home_entries.append((base + path_value, _listing_sitemap_lastmod(home)))
         home_entries.sort(key=lambda item: item[0])
-    # lastmod is omitted on static/plan URLs (no reliable timestamps). In-stock
-    # /homes/ listings include lastmod from the record date, or today when the
-    # home is still in the live public feed.
-    static_entries = [f"  <url><loc>{html.escape(u)}</loc></url>" for u in urls]
-    listing_entries = [
-        f"  <url><loc>{html.escape(loc)}</loc><lastmod>{html.escape(lastmod)}</lastmod></url>"
-        for loc, lastmod in home_entries
-    ]
-    entries = "\n".join(static_entries + listing_entries)
+    entries_xml += [_url_entry(loc, lastmod) for loc, lastmod in home_entries]
+    entries = "\n".join(entries_xml)
     xml = (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
         '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'

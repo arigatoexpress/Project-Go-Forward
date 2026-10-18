@@ -47,7 +47,7 @@ def test_inventory_hero_uses_readable_text_on_dark_photo_overlay():
     source = INVENTORY_BROWSE.read_text()
 
     assert "Inventory changes daily" in source
-    assert "Mobile Homes For Sale in Huffman, TX" in source
+    assert "HOME_H1" in source
     assert "bg-black/45" in source
     assert "text-white/90" in source
     assert "text-white/80" in source

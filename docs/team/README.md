@@ -29,6 +29,14 @@ These guides are not written yet. Until they are, ask the owner.
 | Contracts and e-sign | How to fill out the sales contract packet and send it for e-signature. |
 | Where things live in Notion | Which Notion pages hold deliveries, tasks, and customer notes. |
 
+## Search listings
+
+You do not set up Google, and you do not edit code.
+
+- Homes you add, and photos you upload, show on the public site by themselves.
+- Leave the website price blank to show **Call for Price**. Those pages do not publish a dollar amount.
+- Town pages (Humble, Baytown, and the other towns we already serve) update on their own.
+
 ## Quick safety rules
 
 - Never text or email your sign-in code or the backup PIN to anyone.
