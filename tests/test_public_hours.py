@@ -89,3 +89,34 @@ def test_saturday_hours_match_staff_confirmed_schedule():
     slots = _crm_tools().check_available_slots(next_saturday.isoformat())
     assert slots["available_slots"] == ["10:00 AM", "11:00 AM", "12:00 PM", "1:00 PM", "2:00 PM"]
     assert "Sat: 10am-3pm" in _crm_tools().get_business_hours()["hours"]
+
+
+def test_faq_doc_hours_match_config():
+    """docs/content/FAQ.md must repeat the config.yaml hours lines."""
+    config = yaml.safe_load((REPO / "config.yaml").read_text(encoding="utf-8"))
+    hours = config["business"]["hours"]
+    faq = (REPO / "docs/content/FAQ.md").read_text(encoding="utf-8")
+
+    assert hours["weekday"] in faq
+    assert hours["saturday"] in faq
+    assert hours["sunday"] in faq
+
+
+_STALE_SATURDAY_HOURS = (
+    "Sat 9–5",
+    "Sat 9-5",
+    "Sat 9am–5pm",
+    "Sat 9am-5pm",
+    "Sat 9:00 AM – 5:00 PM",
+    "Sat 9:00 AM - 5:00 PM",
+)
+
+
+def test_docs_do_not_state_stale_saturday_hours():
+    offenders = []
+    for path in (REPO / "docs").rglob("*.md"):
+        text = path.read_text(encoding="utf-8")
+        for phrase in _STALE_SATURDAY_HOURS:
+            if phrase in text:
+                offenders.append(f"{path.relative_to(REPO)} contains {phrase!r}")
+    assert offenders == []
