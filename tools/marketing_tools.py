@@ -1445,13 +1445,11 @@ CUSTOM HOOK: {custom_hook or "Generate your own viral hook"}
 
 VIRAL CONTENT PRINCIPLES FOR MANUFACTURED HOMES:
 1. Address the #1 objection: "Manufactured homes are cheap/ugly" — PROVE them wrong
-2. Lead with the surprising value prop: "Own for less than rent"
-3. Show specific numbers: listing prices, sqft, bedrooms
-4. Use comparison framing: apartment vs. home ownership
-5. Create FOMO: "This home won't last at this price"
-6. End with engagement hooks: questions, polls, "comment if..."
-7. NEVER start with "Are you looking for..." or "Have you ever dreamed of..."
-8. EVERY script MUST include at least one specific number (price, sqft, beds/baths)
+2. Show specific numbers: listing prices, sqft, bedrooms
+3. Use comparison framing: apartment vs. home ownership
+4. End with engagement hooks: questions, polls, "comment if..."
+5. NEVER start with "Are you looking for..." or "Have you ever dreamed of..."
+6. Every script must include at least one real detail from the listing, such as beds, baths, or square feet. Use a price only if the owner approved it.
 
 Output as JSON format:
 {json_format}
@@ -1634,7 +1632,7 @@ def get_trending_content_ideas(
                     "title": f"Home Tour: {top_home.get('model_name', 'Featured Home')} — {top_home.get('pricing', {}).get('display_price', '')}",
                     "platform_priority": ["tiktok", "instagram_reels", "facebook"],
                     "trending_potential": "very high",
-                    "notes": f"{specs.get('beds', '?')}BR/{specs.get('baths', '?')}BA, {specs.get('sq_ft', '?')} sqft by {top_home.get('manufacturer', 'THO')}. Tour the best-looking model on the lot!",
+                    "notes": f"{specs.get('beds', '?')}BR/{specs.get('baths', '?')}BA, {specs.get('sq_ft', '?')} sqft by {top_home.get('manufacturer', 'THO')}. Tour the {top_home.get('model_name') or 'Featured Home'} on the lot.",
                     "home_id": top_home.get("id"),
                     "home_name": top_home.get("model_name"),
                 }
@@ -1646,26 +1644,12 @@ def get_trending_content_ideas(
             ideas.append(
                 {
                     "type": "financing_tips",
-                    "title": f"Own a Home for {cheapest.get('pricing', {}).get('display_price', '')}!",
+                    "title": f"{cheapest.get('model_name') or 'Featured Home'} on our Huffman lot. Call for price.",
                     "platform_priority": ["tiktok", "facebook"],
                     "trending_potential": "high",
                     "notes": f"Show the {cheapest.get('model_name', '')} and highlight the affordable price point. Apartment vs ownership comparison.",
                     "home_id": cheapest.get("id"),
                     "home_name": cheapest.get("model_name"),
-                }
-            )
-
-        # Pre-owned deals
-        preowned = [h for h in inventory if "pre-owned" in h.get("status", "").lower()]
-        if preowned:
-            ideas.append(
-                {
-                    "type": "clearance_alert",
-                    "title": f"Pre-Owned Homes Starting Under $30K! ({len(preowned)} Available)",
-                    "platform_priority": ["tiktok", "facebook"],
-                    "trending_potential": "very high",
-                    "notes": "Budget homes are VIRAL. Show the value — home ownership for less than a used car.",
-                    "home_count": len(preowned),
                 }
             )
 
@@ -1677,13 +1661,6 @@ def get_trending_content_ideas(
             "platform_priority": ["tiktok", "instagram_reels"],
             "trending_potential": "high",
             "notes": "These always perform well — people love being proven wrong. Show modern interiors.",
-        },
-        {
-            "type": "comparison",
-            "title": "Apartment vs Own This Home (Same Price!)",
-            "platform_priority": ["tiktok"],
-            "trending_potential": "very high",
-            "notes": "Side-by-side comparisons are VIRAL. Use split-screen format with real numbers.",
         },
         {
             "type": "behind_scenes",

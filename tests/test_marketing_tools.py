@@ -936,7 +936,8 @@ class TestGetTrendingContentIdeas:
         assert result["inventory_loaded"] is True
         assert result["inventory_count"] == 3
         types_seen = {idea["type"] for idea in result["content_ideas"]}
-        # Priced inventory drives home_tour + financing_tips; pre-owned drives clearance.
+        # Priced inventory drives the home tour and the financing idea.
+        # A current promotion still adds a clearance idea.
         assert "home_tour" in types_seen
         assert "financing_tips" in types_seen
         assert "clearance_alert" in types_seen
@@ -958,7 +959,7 @@ class TestGetTrendingContentIdeas:
         assert result["success"] is True
         assert result["inventory_loaded"] is False
         types_seen = {idea["type"] for idea in result["content_ideas"]}
-        assert types_seen == {"myth_busting", "comparison", "behind_scenes", "faq"}
+        assert types_seen == {"myth_busting", "behind_scenes", "faq"}
 
 
 class TestGenerateScriptVoiceover:
