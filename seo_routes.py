@@ -1245,8 +1245,11 @@ def _faqpage_jsonld() -> dict:
                 "acceptedAnswer": {
                     "@type": "Answer",
                     "text": (
-                        "Options include chattel (home-only) loans, land-and-home loans, FHA Title I/II, "
-                        "VA, USDA programs. Loans through lenders that finance manufactured homes."
+                        "Several options are commonly available depending on whether you own or are buying land. "
+                        "Chattel (home-only) loans are for the home itself when it's on leased land or in a community. "
+                        "Land-and-home loans, when the home and land are financed together, may qualify for "
+                        "FHA Title I/II, VA, or USDA programs. "
+                        "Ask us about lenders that finance manufactured homes."
                     ),
                 },
             },
@@ -1352,8 +1355,11 @@ def _crawlable_faq_block() -> str:
         ),
         (
             "How does financing work for a manufactured home?",
-            "Options include chattel loans, land-and-home loans, FHA/VA/USDA programs, and "
-            "lender-partner programs depending on your situation.",
+            "Several options are commonly available depending on whether you own or are buying land. "
+            "Chattel (home-only) loans are for the home itself when it's on leased land or in a community. "
+            "Land-and-home loans, when the home and land are financed together, may qualify for "
+            "FHA Title I/II, VA, or USDA programs. "
+            "Ask us about lenders that finance manufactured homes.",
         ),
         (
             "Do I need land to buy a home from you?",

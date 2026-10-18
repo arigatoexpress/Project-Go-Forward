@@ -49,7 +49,7 @@ const FAQ_ITEMS = [
           </li>
           <li>
             {/* TODO(owner): confirm which lenders finance manufactured homes, and whether any in-house program exists, before naming a lender or program. */}
-            <strong>Loans through lenders that finance manufactured homes</strong>
+            <strong>Ask us about lenders that finance manufactured homes.</strong>
           </li>
         </ul>
         <p className="mt-2">

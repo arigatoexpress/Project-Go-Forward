@@ -448,12 +448,18 @@ def test_scorer_flags_overlong_hook():
     assert any("Hook too long" in issue for issue in result["issues"])
 
 
-def test_scorer_awards_bare_dollar_sign_hook():
-    """L1099: a '$' without a numeric amount still earns the specificity bump."""
-    result = marketing_tools._score_script_quality(
-        _scorable(hook="cheap $ deal here now"), platform="tiktok"
+def test_scorer_rewards_listing_details_not_dollar_amounts():
+    """A dollar amount does not raise the hook score. Beds and baths do."""
+    priced = marketing_tools._score_script_quality(
+        _scorable(hook="cheap $899 deal here now"), platform="tiktok"
     )
-    assert result["scores"]["hook_strength"] == 8  # 5 + 2 short + 1 dollar-sign
+    detailed = marketing_tools._score_script_quality(
+        _scorable(hook="3 bed 2 bath home"), platform="tiktok"
+    )
+    assert priced["scores"]["hook_strength"] == 7  # 5 + 2 short, no price bonus
+    assert detailed["scores"]["hook_strength"] == 9  # 5 + 2 short + 2 listing details
+    assert any("real listing details" in issue for issue in priced["issues"])
+    assert not any("real listing details" in issue for issue in detailed["issues"])
 
 
 def test_scorer_flags_boring_preamble_hook():

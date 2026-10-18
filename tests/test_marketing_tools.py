@@ -841,6 +841,25 @@ class TestGenerateContentScript:
         assert result["scripts"][1]["hook"] == "$1,100/month rent? Own instead"
         assert len(result["quality_scores"]) == 2
 
+    def test_built_prompts_omit_unapproved_price_and_urgency(self, monkeypatch):
+        client = _FakeGenAIClient()
+        payload = _strong_script_payload()
+        client.content_responses.append(payload)
+        client.content_responses.append([payload, payload])
+        monkeypatch.setattr(marketing_tools, "_genai_client", lambda: client)
+
+        marketing_tools.generate_content_script(home_name="The Delight", variations=1)
+        marketing_tools.generate_content_script(home_name="The Delight", variations=2)
+
+        assert len(client.calls) == 2
+        for _kind, kwargs in client.calls:
+            text = kwargs["contents"].lower()
+            assert "listing prices" not in text
+            assert "apartment vs" not in text
+            assert "limited time" not in text
+            assert "families this month" not in text
+            assert "bold price claim" not in text
+
     def test_low_quality_script_triggers_refinement(self, monkeypatch):
         client = _FakeGenAIClient()
         weak = {"hook": "Are you looking for a new home?", "body": "It is nice.", "cta": "Call us."}
@@ -941,15 +960,31 @@ class TestGetTrendingContentIdeas:
         assert "home_tour" in types_seen
         assert "financing_tips" in types_seen
         assert "clearance_alert" in types_seen
-        assert "customer_story" in types_seen  # recent_sales social proof
+        assert "customer_story" not in types_seen
         assert "myth_busting" in types_seen  # staple content
-        # Most expensive home is the featured tour.
+        # Most expensive home is the featured tour, without an unapproved price.
         assert result["top_priority"]["home_id"] == "1"
+        assert result["top_priority"]["title"] == "Home Tour: The Mansion. Call for price."
+        assert "$150,000" not in result["top_priority"]["title"]
+        idea_text = " ".join(
+            f"{idea.get('title', '')} {idea.get('notes', '')}" for idea in result["content_ideas"]
+        ).lower()
+        assert "limited time" not in idea_text
+        assert "families this month" not in idea_text
+        assert "apartment vs" not in idea_text
+        assert "affordable price" not in idea_text
         # Promotion adds another clearance idea.
         promo_ideas = [
             idea for idea in result["content_ideas"] if "Red Tag Sale" in idea.get("title", "")
         ]
         assert len(promo_ideas) == 1
+        approved = self._inventory()
+        approved[0]["pricing"]["owner_approved_ad_price"] = True
+        monkeypatch.setattr(
+            marketing_tools, "_load_inventory_for_marketing", lambda: approved
+        )
+        approved_result = marketing_tools.get_trending_content_ideas()
+        assert approved_result["top_priority"]["title"] == "Home Tour: The Mansion. $150,000."
 
     def test_empty_inventory_still_returns_staples(self, monkeypatch):
         monkeypatch.setattr(marketing_tools, "_load_inventory_for_marketing", lambda: [])

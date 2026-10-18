@@ -527,6 +527,12 @@ def test_faq_page_emits_faqpage_jsonld(monkeypatch):
     assert len(entities) >= 5, "expected at least 5 FAQ entries"
     assert all(e.get("@type") == "Question" for e in entities)
     assert all(e.get("acceptedAnswer", {}).get("@type") == "Answer" for e in entities)
+    financing = next(
+        e for e in entities if e.get("name") == "How does financing work for a manufactured home?"
+    )
+    financing_text = financing["acceptedAnswer"]["text"]
+    assert "may qualify for FHA Title I/II, VA, or USDA programs." in financing_text
+    assert "Ask us about lenders that finance manufactured homes." in financing_text
 
 
 def test_legacy_about_us_redirects_to_new_about_page(monkeypatch):

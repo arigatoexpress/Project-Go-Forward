@@ -1042,10 +1042,8 @@ def _score_script_quality(
     elif hook_words > 20:
         hook_score -= 2
         issues.append("Hook too long — should be under 12 words")
-    if _re.search(r"\$[\d,]+", hook):
-        hook_score += 2  # Dollar amount in hook = great
-    elif any(w in hook for w in ["$", "sqft", "bed", "bath", "%"]):
-        hook_score += 1
+    if _re.search(r"\b(?:beds?|baths?|sqft|square feet)\b", hook):
+        hook_score += 2  # Real listing details, not a dollar amount
     if (
         hook.startswith("are you")
         or hook.startswith("have you ever")
@@ -1062,12 +1060,10 @@ def _score_script_quality(
 
     # 2. Specificity (1-10)
     spec_score = 2
-    numbers_found = _re.findall(
-        r"\$[\d,]+|\d{3,}[\s]?sq|[\d]+\s?bed|[\d]+\s?bath|\d{3,}\s?sqft", full_text
-    )
+    numbers_found = _re.findall(r"\b(?:beds?|baths?|sqft|square feet)\b", full_text)
     spec_score += min(4, len(numbers_found))
     if not numbers_found:
-        issues.append("No specific numbers — add price, sqft, or bed/bath count")
+        issues.append("No real listing details. Add beds, baths, or square feet.")
     if home_name and home_name.lower() in full_text:
         spec_score += 2
     room_words = [
@@ -1215,7 +1211,7 @@ RULES FOR IMPROVEMENT:
 - Remove ALL banned words and replace with natural alternatives
 - Keep the same general structure and intent
 - Make it sound like a real person talking, not AI
-- Maintain specific numbers and home details
+- Keep real home details
 - Keep the hook under 10 words
 
 Return ONLY the improved script as JSON:
@@ -1388,11 +1384,11 @@ Do NOT copy it — write something original using the FEATURED HOME details abov
     if variations > 1:
         variation_instruction = f"""
 Generate {variations} COMPLETELY DIFFERENT script variations. Rules:
-- Each MUST use a different hook style (e.g., V1: bold price claim, V2: "POV:" format, V3: myth-busting question)
+- Each MUST use a different hook style (e.g., V1: bold detail claim, V2: "POV:" format, V3: myth-busting question)
 - Each MUST take a different emotional angle (e.g., V1: logical/numbers-driven, V2: aspirational/emotional, V3: funny/relatable)
 - Each should feel like it was written by a different creator, not just the same script reworded
 - Vary sentence length and pacing across variations
-- ALL variations must still include specific numbers and home details
+- ALL variations must still include real home details
 
 Return them as a JSON array of {variations} script objects.
 """
@@ -1445,11 +1441,10 @@ CUSTOM HOOK: {custom_hook or "Generate your own viral hook"}
 
 VIRAL CONTENT PRINCIPLES FOR MANUFACTURED HOMES:
 1. Address the #1 objection: "Manufactured homes are cheap/ugly" — PROVE them wrong
-2. Show specific numbers: listing prices, sqft, bedrooms
-3. Use comparison framing: apartment vs. home ownership
-4. End with engagement hooks: questions, polls, "comment if..."
-5. NEVER start with "Are you looking for..." or "Have you ever dreamed of..."
-6. Every script must include at least one real detail from the listing, such as beds, baths, or square feet. Use a price only if the owner approved it.
+2. Use real details (beds, baths, square feet). Do not use a dollar amount unless the owner approved it.
+3. End with engagement hooks: questions, polls, "comment if..."
+4. NEVER start with "Are you looking for..." or "Have you ever dreamed of..."
+5. Every script must include at least one real detail from the listing, such as beds, baths, or square feet. Use a price only if the owner approved it.
 
 Output as JSON format:
 {json_format}
@@ -1606,7 +1601,7 @@ def get_trending_content_ideas(
 
     Args:
         inventory_highlights: List of featured homes to promote
-        recent_sales: Number of recent sales for social proof content
+        recent_sales: Accepted for callers. Not used. A sales count is not a public claim until the owner verifies it.
         current_promotions: Active promotions (Red Tag, Year End, etc.)
         tool_context: ADK tool context
 
@@ -1626,10 +1621,22 @@ def get_trending_content_ideas(
         if priced:
             top_home = priced[0]
             specs = top_home.get("specs", {})
+            model_name = top_home.get("model_name") or "Featured Home"
+            # A dollar amount belongs in this title only when the owner set the flag.
+            pricing = top_home.get("pricing") or {}
+            approved = str(pricing.get("display_price") or "").strip()
+            if (
+                pricing.get("owner_approved_ad_price") is True
+                and approved
+                and approved.lower() != "call for price"
+            ):
+                price_label = approved
+            else:
+                price_label = "Call for price"
             ideas.append(
                 {
                     "type": "home_tour",
-                    "title": f"Home Tour: {top_home.get('model_name', 'Featured Home')} — {top_home.get('pricing', {}).get('display_price', '')}",
+                    "title": f"Home Tour: {model_name}. {price_label}.",
                     "platform_priority": ["tiktok", "instagram_reels", "facebook"],
                     "trending_potential": "very high",
                     "notes": f"{specs.get('beds', '?')}BR/{specs.get('baths', '?')}BA, {specs.get('sq_ft', '?')} sqft by {top_home.get('manufacturer', 'THO')}. Tour the {top_home.get('model_name') or 'Featured Home'} on the lot.",
@@ -1647,7 +1654,7 @@ def get_trending_content_ideas(
                     "title": f"{cheapest.get('model_name') or 'Featured Home'} on our Huffman lot. Call for price.",
                     "platform_priority": ["tiktok", "facebook"],
                     "trending_potential": "high",
-                    "notes": f"Show the {cheapest.get('model_name', '')} and highlight the affordable price point. Apartment vs ownership comparison.",
+                    "notes": f"Show the {cheapest.get('model_name') or 'Featured Home'} on our Huffman lot.",
                     "home_id": cheapest.get("id"),
                     "home_name": cheapest.get("model_name"),
                 }
@@ -1685,24 +1692,12 @@ def get_trending_content_ideas(
             ideas.append(
                 {
                     "type": "clearance_alert",
-                    "title": f"{promo} — Limited Time",
+                    "title": f"{promo}",
                     "platform_priority": ["tiktok", "facebook"],
                     "trending_potential": "high",
-                    "notes": "Urgency content drives immediate engagement and DMs.",
+                    "notes": "Use the promotion name the owner supplied.",
                 }
             )
-
-    # Social proof
-    if recent_sales and recent_sales > 0:
-        ideas.append(
-            {
-                "type": "customer_story",
-                "title": f"We helped {recent_sales} families this month!",
-                "platform_priority": ["facebook", "instagram_reels"],
-                "trending_potential": "medium",
-                "notes": "Social proof builds trust — ask for customer video testimonials.",
-            }
-        )
 
     return {
         "success": True,

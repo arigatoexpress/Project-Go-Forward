@@ -74,7 +74,7 @@ export function plainQualityIssue(issue) {
   if (/hook too long/i.test(text)) return 'The opening line is too long. Aim for about 12 words.';
   if (/generic question/i.test(text)) return 'The opening line sounds generic. Lead with a specific claim.';
   if (/boring preamble/i.test(text)) return 'Start with the point. Skip “in this video.”';
-  if (/no specific numbers/i.test(text)) return 'Add a real detail, such as bedrooms, size, or Call for Price.';
+  if (/no specific numbers|no real listing details/i.test(text)) return 'Add a real detail, such as bedrooms, size, or Call for Price.';
   if (/no rooms or features/i.test(text)) return 'Mention a real room or feature, such as the kitchen.';
   if (/banned words/i.test(text)) return 'Some words sound too salesy. Regenerate or rewrite those lines.';
   if (/exclamation marks/i.test(text)) return 'Use at most two exclamation marks.';
