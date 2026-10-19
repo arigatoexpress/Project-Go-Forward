@@ -33,7 +33,7 @@ it.each([
   vi.stubGlobal('fetch', fetchMock);
 
   render(createElement(Component));
-  if (openPicker) fireEvent.click(screen.getByRole('button', { name: 'Browse Inventory' }));
+  if (openPicker) fireEvent.click(screen.getByRole('button', { name: 'Choose a home' }));
 
   expect((await screen.findAllByText(/Updated staff listing/)).length).toBeGreaterThan(0);
   expect(screen.queryByText(/Retired cached listing/)).not.toBeInTheDocument();

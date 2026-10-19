@@ -5547,7 +5547,7 @@ async def api_generate_script(request: Request):
         return result
     except Exception as e:
         struct_logger.error("Script generation failed", error=str(e))
-        return {"error": "Script generation failed. Please try again."}
+        return {"error": "The script was not written. Nothing was posted. Please try again."}
 
 
 @app.get("/api/marketing/trending-ideas", dependencies=[Depends(require_admin)])
@@ -5558,7 +5558,7 @@ async def api_trending_ideas():
         return result
     except Exception as e:
         struct_logger.error("Trending ideas failed", error=str(e))
-        return {"error": "Failed to load trending ideas. Please try again."}
+        return {"error": "Content ideas did not load. Please try again."}
 
 
 @app.post(
@@ -5612,7 +5612,7 @@ async def api_content_analytics():
         return result
     except Exception as e:
         struct_logger.error("Analytics load failed", error=str(e))
-        return {"error": "Failed to load analytics. Please try again."}
+        return {"error": "Performance numbers did not load. Please try again."}
 
 
 @app.get("/api/marketing/gcp-readiness", dependencies=[Depends(require_admin)])
@@ -5635,7 +5635,7 @@ async def api_generate_voiceover(request: Request):
 
         script_text = data.get("script_text", "")
         if not script_text:
-            return {"success": False, "error": "script_text is required"}
+            return {"success": False, "error": "Write the words first. Nothing was posted."}
 
         result = generate_script_voiceover(
             script_text=script_text,
@@ -5645,7 +5645,7 @@ async def api_generate_voiceover(request: Request):
         return result
     except Exception as e:
         struct_logger.error("Voiceover generation failed", error=str(e))
-        return {"success": False, "error": "Voiceover generation failed. Please try again."}
+        return {"success": False, "error": "The spoken version was not created. Nothing was posted. Try again."}
 
 
 @app.get("/api/marketing/voiceover-voices", dependencies=[Depends(require_admin)])
@@ -5657,7 +5657,7 @@ async def api_get_voiceover_voices():
         return {"success": True, "voices": TTS_VOICES}
     except Exception as e:
         struct_logger.error("Voice list failed", error=str(e))
-        return {"success": False, "error": "Failed to load voices"}
+        return {"success": False, "error": "Spoken voices did not load. You can still copy the script."}
 
 
 @app.post("/api/marketing/generate-image", dependencies=[Depends(require_admin)])
@@ -5667,7 +5667,7 @@ async def api_generate_image(request: Request):
         data = await request.json()
         prompt = data.get("prompt", "").strip()
         if not prompt:
-            return {"success": False, "error": "A prompt is required to generate an image."}
+            return {"success": False, "error": "Describe the picture first. Nothing was posted."}
 
         result = generate_ad_image(
             prompt=prompt,
@@ -5679,7 +5679,7 @@ async def api_generate_image(request: Request):
         return result
     except Exception as e:
         struct_logger.error("Image generation failed", error=str(e))
-        return {"success": False, "error": "Image generation failed. Please try again."}
+        return {"success": False, "error": "The picture was not created. Nothing was posted. Try again."}
 
 
 @app.post("/api/marketing/generate-flyer", dependencies=[Depends(require_admin)])
@@ -5703,7 +5703,7 @@ async def api_generate_flyer(request: Request):
         return result
     except Exception as e:
         struct_logger.error("Flyer generation failed", error=str(e))
-        return {"success": False, "error": "Flyer generation failed. Please try again."}
+        return {"success": False, "error": "The flyer was not created. Nothing was posted. Try again."}
 
 
 @app.post("/api/marketing/generate-video", dependencies=[Depends(require_admin)])
@@ -5720,9 +5720,9 @@ async def api_generate_video(request: Request):
         home_name = data.get("home_name", "ad")
 
         if not photos:
-            return {"success": False, "error": "At least one photo is required"}
+            return {"success": False, "error": "Pick a home with photos first. Nothing was posted."}
         if not voiceover_base64:
-            return {"success": False, "error": "Voiceover audio is required"}
+            return {"success": False, "error": "Make the spoken version first. Nothing was posted."}
 
         result = generate_ad_video(
             photos=photos,
@@ -5735,7 +5735,7 @@ async def api_generate_video(request: Request):
         return result
     except Exception as e:
         struct_logger.error("Video generation failed", error=str(e))
-        return {"success": False, "error": f"Video generation failed: {str(e)}"}
+        return {"success": False, "error": "The slideshow was not created. Nothing was posted. Try again."}
 
 
 @app.post("/api/marketing/generate-genai-clip", dependencies=[Depends(require_admin)])
@@ -5747,7 +5747,7 @@ async def api_generate_genai_clip(request: Request):
         data = await request.json()
         prompt = (data.get("prompt") or "").strip()
         if not prompt:
-            return {"success": False, "error": "A prompt is required for GenAI clip generation"}
+            return {"success": False, "error": "Describe the video first. Nothing was posted."}
         result = generate_genai_ad_clip(
             prompt=prompt,
             home_name=data.get("home_name", "ad"),
@@ -5761,7 +5761,7 @@ async def api_generate_genai_clip(request: Request):
         return result
     except Exception as e:
         struct_logger.error("GenAI clip generation failed", error=str(e))
-        return {"success": False, "error": f"GenAI clip generation failed: {str(e)}"}
+        return {"success": False, "error": "The AI video was not created. Nothing was posted. Try again."}
 
 
 @app.get("/api/marketing/videos/{filename}", dependencies=[Depends(require_admin)])
@@ -6108,7 +6108,7 @@ async def api_inventory_context(request: Request):
         return _resolve_public_inventory_context()
     except Exception as e:
         struct_logger.error("Inventory context failed", error=str(e))
-        return {"success": False, "error": "Failed to load inventory context. Please try again."}
+        return {"success": False, "error": "Homes did not load. Please try again."}
 
 
 @app.get("/api/marketing/images/{filename}", dependencies=[Depends(require_admin)])

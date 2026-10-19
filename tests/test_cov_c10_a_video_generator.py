@@ -193,7 +193,7 @@ def test_generate_ad_video_returns_error_when_moviepy_missing(monkeypatch):
     )
 
     assert result["success"] is False
-    assert "requires moviepy" in result["error"]
+    assert result["error"] == "The slideshow was not created. Nothing was posted. Try again."
 
 
 def test_generate_ad_video_returns_error_when_all_photos_fail(monkeypatch, tmp_path):
@@ -209,7 +209,9 @@ def test_generate_ad_video_returns_error_when_all_photos_fail(monkeypatch, tmp_p
     )
 
     assert result["success"] is False
-    assert result["error"] == "No valid photos could be processed"
+    assert result["error"] == (
+        "Those photos could not be used. Pick another photo and try again. Nothing was posted."
+    )
 
 
 def test_generate_ad_video_catches_unexpected_pipeline_error(monkeypatch, tmp_path):
@@ -459,7 +461,7 @@ def test_generate_genai_ad_clip_times_out_while_processing(monkeypatch, tmp_path
     )
 
     assert result["success"] is False
-    assert "still processing" in result["error"]
+    assert "still being made" in result["error"]
     assert result["operation_name"] == "op-timeout"
     assert result["model_used"] == os.environ.get(
         "THO_VEO_MODEL", "veo-3.0-fast-generate-001"
@@ -478,7 +480,8 @@ def test_generate_genai_ad_clip_returns_operation_error_message(monkeypatch, tmp
     result = vg.generate_genai_ad_clip(prompt="p", home_name="h")
 
     assert result["success"] is False
-    assert result["error"] == "render failed"
+    assert result["error"] == "The AI video was not created. Nothing was posted. Try again."
+    assert "render failed" not in result["error"]
 
 
 def test_generate_genai_ad_clip_stringifies_non_dict_operation_error(monkeypatch, tmp_path):
@@ -493,7 +496,8 @@ def test_generate_genai_ad_clip_stringifies_non_dict_operation_error(monkeypatch
     result = vg.generate_genai_ad_clip(prompt="p", home_name="h")
 
     assert result["success"] is False
-    assert "quota exceeded" in result["error"]
+    assert result["error"] == "The AI video was not created. Nothing was posted. Try again."
+    assert "quota exceeded" not in result["error"]
 
 
 def test_generate_genai_ad_clip_reports_missing_videos(monkeypatch, tmp_path):
@@ -506,7 +510,7 @@ def test_generate_genai_ad_clip_reports_missing_videos(monkeypatch, tmp_path):
     result = vg.generate_genai_ad_clip(prompt="p", home_name="h")
 
     assert result["success"] is False
-    assert "no video results" in result["error"]
+    assert result["error"] == "The AI video was not created. Nothing was posted. Try again."
 
 
 def test_generate_genai_ad_clip_download_failure_is_ignored(monkeypatch, tmp_path):
@@ -540,7 +544,8 @@ def test_generate_genai_ad_clip_wraps_client_failures(monkeypatch, tmp_path):
     result = vg.generate_genai_ad_clip(prompt="p", home_name="h")
 
     assert result["success"] is False
-    assert "Veo generation failed" in result["error"]
+    assert result["error"] == "The AI video was not created. Nothing was posted. Try again."
+    assert "Veo" not in result["error"]
     assert "hint" in result
 
 
@@ -550,5 +555,6 @@ def test_generate_genai_ad_clip_returns_error_when_sdk_unavailable(monkeypatch):
     result = vg.generate_genai_ad_clip(prompt="p", home_name="h")
 
     assert result["success"] is False
-    assert "Google GenAI SDK unavailable" in result["error"]
+    assert "not available right now" in result["error"]
+    assert "GenAI" not in result["error"]
     assert result["provider"] == "google-veo"

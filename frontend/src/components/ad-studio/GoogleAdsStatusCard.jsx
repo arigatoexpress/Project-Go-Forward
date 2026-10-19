@@ -478,6 +478,7 @@ export default function GoogleAdsStatusCard() {
 
         <details className="google-ads-review-detail">
           <summary>Technical details for the owner</summary>
+          <p>You can skip this. These notes are for the owner.</p>
           <dl className="google-ads-status-details">
             <div><dt>Campaign name</dt><dd>{review.campaign_name}</dd></div>
             <div><dt>Campaign id</dt><dd>{status.deployment_key}</dd></div>

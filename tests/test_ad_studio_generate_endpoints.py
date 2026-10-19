@@ -76,7 +76,7 @@ class TestGenerateVoiceover:
             headers=_admin_headers(main),
         )
 
-        assert resp.json() == {"success": False, "error": "script_text is required"}
+        assert resp.json() == {"success": False, "error": "Write the words first. Nothing was posted."}
 
     def test_success_passes_args_and_result(self, monkeypatch):
         client, main, _db, _logger = create_client(monkeypatch)
@@ -118,7 +118,7 @@ class TestGenerateVoiceover:
 
         assert resp.json() == {
             "success": False,
-            "error": "Voiceover generation failed. Please try again.",
+            "error": "The spoken version was not created. Nothing was posted. Try again.",
         }
 
 
@@ -149,7 +149,10 @@ class TestVoiceoverVoices:
 
         resp = client.get("/api/marketing/voiceover-voices", headers=_admin_headers(main))
 
-        assert resp.json() == {"success": False, "error": "Failed to load voices"}
+        assert resp.json() == {
+            "success": False,
+            "error": "Spoken voices did not load. You can still copy the script.",
+        }
 
 
 # ─── POST /api/marketing/generate-image ───────────────────────────────────
@@ -168,7 +171,7 @@ class TestGenerateImage:
 
         assert resp.json() == {
             "success": False,
-            "error": "A prompt is required to generate an image.",
+            "error": "Describe the picture first. Nothing was posted.",
         }
 
     def test_success_passes_args_and_result(self, monkeypatch):
@@ -221,7 +224,7 @@ class TestGenerateImage:
 
         assert resp.json() == {
             "success": False,
-            "error": "Image generation failed. Please try again.",
+            "error": "The picture was not created. Nothing was posted. Try again.",
         }
 
 
@@ -259,7 +262,10 @@ class TestGenerateVideo:
             headers=_admin_headers(main),
         )
 
-        assert resp.json() == {"success": False, "error": "At least one photo is required"}
+        assert resp.json() == {
+            "success": False,
+            "error": "Pick a home with photos first. Nothing was posted.",
+        }
 
     def test_requires_voiceover(self, monkeypatch):
         client, main, _db, _l = self._client(monkeypatch)
@@ -270,7 +276,10 @@ class TestGenerateVideo:
             headers=_admin_headers(main),
         )
 
-        assert resp.json() == {"success": False, "error": "Voiceover audio is required"}
+        assert resp.json() == {
+            "success": False,
+            "error": "Make the spoken version first. Nothing was posted.",
+        }
 
     def test_success_passes_args_and_result(self, monkeypatch):
         client, main, _db, _l = self._client(monkeypatch)
@@ -323,7 +332,7 @@ class TestGenerateVideo:
 
         assert resp.json() == {
             "success": False,
-            "error": "Video generation failed: ffmpeg missing",
+            "error": "The slideshow was not created. Nothing was posted. Try again.",
         }
 
 
@@ -357,7 +366,7 @@ class TestGenerateGenaiClip:
 
         assert resp.json() == {
             "success": False,
-            "error": "A prompt is required for GenAI clip generation",
+            "error": "Describe the video first. Nothing was posted.",
         }
 
     def test_success_casts_presenter_flag_and_passes_args(self, monkeypatch):
@@ -413,7 +422,7 @@ class TestGenerateGenaiClip:
 
         assert resp.json() == {
             "success": False,
-            "error": "GenAI clip generation failed: veo quota",
+            "error": "The AI video was not created. Nothing was posted. Try again.",
         }
 
 

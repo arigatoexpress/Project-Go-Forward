@@ -18,6 +18,14 @@ import uuid
 
 logger = logging.getLogger(__name__)
 
+SLIDESHOW_FAILED = "The slideshow was not created. Nothing was posted. Try again."
+PHOTOS_FAILED = "Those photos could not be used. Pick another photo and try again. Nothing was posted."
+AI_VIDEO_UNAVAILABLE = (
+    "The AI video is not available right now. You can still make a slideshow. Nothing was posted."
+)
+AI_VIDEO_WAIT = "The AI video is still being made. Wait a minute and try again. Nothing was posted."
+AI_VIDEO_FAILED = "The AI video was not created. Nothing was posted. Try again."
+
 # Output directory for generated videos
 GENERATED_VIDEOS_DIR = os.path.join(
     os.path.dirname(os.path.dirname(__file__)), "data", "generated_videos"
@@ -46,9 +54,10 @@ def generate_ad_video(
         )
         from moviepy.video.fx.all import fadein, fadeout
     except ImportError as e:
+        logger.error("Slideshow tool is unavailable: %s", e)
         return {
             "success": False,
-            "error": f"Video generation requires moviepy: {e}. Please ensure FFmpeg is installed.",
+            "error": SLIDESHOW_FAILED,
         }
 
     temp_dir = None
@@ -88,7 +97,7 @@ def generate_ad_video(
                 continue
 
         if not image_clips:
-            return {"success": False, "error": "No valid photos could be processed"}
+            return {"success": False, "error": PHOTOS_FAILED}
 
         # Concatenate and loop to match audio
         video = concatenate_videoclips(image_clips, method="compose")
@@ -138,8 +147,8 @@ def generate_ad_video(
         }
 
     except Exception as e:
-        logger.error(f"Video generation failed: {e}")
-        return {"success": False, "error": str(e)}
+        logger.error("Video generation failed: %s", e)
+        return {"success": False, "error": SLIDESHOW_FAILED}
     finally:
         if temp_dir and os.path.exists(temp_dir):
             import shutil
@@ -223,9 +232,10 @@ def generate_genai_ad_clip(
         from google import genai
         from google.genai import types
     except Exception as exc:
+        logger.error("AI video tool is unavailable: %s", exc)
         return {
             "success": False,
-            "error": f"Google GenAI SDK unavailable: {exc}",
+            "error": AI_VIDEO_UNAVAILABLE,
             "provider": "google-veo",
         }
 
@@ -283,7 +293,7 @@ def generate_genai_ad_clip(
         if not getattr(operation, "done", False):
             return {
                 "success": False,
-                "error": "Veo generation is still processing. Try again shortly or increase wait_seconds.",
+                "error": AI_VIDEO_WAIT,
                 "provider": "google-veo",
                 "model_used": model,
                 "operation_name": getattr(operation, "name", None),
@@ -296,9 +306,10 @@ def generate_genai_ad_clip(
                 if isinstance(operation_error, dict)
                 else str(operation_error)
             )
+            logger.error("AI video operation failed: %s", message)
             return {
                 "success": False,
-                "error": message or "Veo operation failed.",
+                "error": AI_VIDEO_FAILED,
                 "provider": "google-veo",
                 "model_used": model,
                 "operation_name": getattr(operation, "name", None),
@@ -308,7 +319,7 @@ def generate_genai_ad_clip(
         if not videos:
             return {
                 "success": False,
-                "error": "Veo returned no video results.",
+                "error": AI_VIDEO_FAILED,
                 "provider": "google-veo",
                 "model_used": model,
                 "operation_name": getattr(operation, "name", None),
@@ -344,7 +355,7 @@ def generate_genai_ad_clip(
         logger.error("Veo generation failed: %s", exc)
         return {
             "success": False,
-            "error": f"Veo generation failed: {exc}",
+            "error": AI_VIDEO_FAILED,
             "provider": "google-veo",
             "model_used": model,
             "hint": "Confirm Vertex AI, Veo access, billing, and THO_VEO_MODEL in the tho-ai-agent project.",

@@ -10,6 +10,7 @@ import {
     Pause
 } from 'lucide-react';
 import adminFetch from '../adminFetch';
+import { BUSINESS_CITY } from '../constants';
 import GoogleAdsStatusCard from '../components/ad-studio/GoogleAdsStatusCard';
 import {
     AI_MEDIA_UNAVAILABLE,
@@ -105,6 +106,13 @@ const IMAGE_STYLES = [
     { id: 'aerial', label: 'Aerial', icon: '🚁' },
     { id: 'twilight', label: 'Twilight', icon: '🌅' }
 ];
+
+const VOICE_GROUP_LABELS = {
+    Studio: 'Broadcast',
+    Neural2: 'Recommended',
+    News: 'News style',
+    Wavenet: 'More voices',
+};
 
 const INVENTORY_PICKER_LIMIT = 40;
 const DRAFT_NOT_SAVED = "The draft wasn't saved. Please try again.";
@@ -524,7 +532,7 @@ export default function AdStudio({ onBack, initialTab = 'create' }) {
                 setInventoryQuery('');
                 setShowInventoryPicker(true);
             } else {
-                setInventoryError(safeUserMessage(extractErrorMessage(result), 'No homes came back. Try Browse Inventory again.'));
+                setInventoryError(safeUserMessage(extractErrorMessage(result), 'No homes came back. Press Choose a home again.'));
             }
         } catch (err) {
             setInventoryError(safeUserMessage(err?.message, 'Homes did not load. Please try again.'));
@@ -601,7 +609,7 @@ export default function AdStudio({ onBack, initialTab = 'create' }) {
                 home_price: homePrice || undefined,
                 home_specs: homeSpecs || selectedHome?.specs,
                 headline: s?.hook || homeName || 'Featured THO Home',
-                body: cleanBody || 'Tour this home at Texas Home Outlet in Houston.',
+                body: cleanBody || `Tour this home at Texas Home Outlet in ${BUSINESS_CITY}.`,
                 cta: s?.cta || 'Call or visit to tour it today',
                 platform,
                 home_photo_url: selectedRealPhoto || undefined,
@@ -802,7 +810,7 @@ export default function AdStudio({ onBack, initialTab = 'create' }) {
         <div className="tho-preview-layer animate-in fade-in zoom-in duration-300">
             <div className="tho-preview-header">
                 <h3 className="tho-preview-title">Ad Content Preview</h3>
-                <button className="tho-close-preview" onClick={() => setShowPreview(false)}>
+                <button className="tho-close-preview" onClick={() => setShowPreview(false)} aria-label="Close preview">
                     <X size={20} />
                 </button>
             </div>
@@ -879,7 +887,7 @@ export default function AdStudio({ onBack, initialTab = 'create' }) {
                                         {avatar === 'tex_classic' ? '🤠' : avatar === 'tex_modern' ? '✨' : '🎨'}
                                     </span>
                                 </div>
-                                <div className="tho-preview-avatar-badge">Tex's AI</div>
+                                <div className="tho-preview-avatar-badge">Preview only</div>
                             </div>
 
                             {/* Script Overlay */}
@@ -918,7 +926,7 @@ export default function AdStudio({ onBack, initialTab = 'create' }) {
                             ) : generatedImages.length > 0 ? (
                                 <span>Using latest AI image</span>
                             ) : (
-                                <span>No image selected - branded fallback will be used</span>
+                                <span>No photo selected. The flyer will use the store colors instead.</span>
                             )}
                         </div>
                         <button
@@ -927,7 +935,7 @@ export default function AdStudio({ onBack, initialTab = 'create' }) {
                             disabled={generatingFlyer}
                         >
                             {generatingFlyer ? (
-                                <><Loader2 size={14} className="spin" /> Creating Flyer...</>
+                                <><Loader2 size={14} className="spin" /> Making the flyer...</>
                             ) : (
                                 <><Download size={14} /> Make a flyer to download</>
                             )}
@@ -958,6 +966,7 @@ export default function AdStudio({ onBack, initialTab = 'create' }) {
                                             className="tho-gallery-download"
                                             onClick={() => handleDownloadImage(img)}
                                             title="Download flyer"
+                                            aria-label="Download flyer"
                                         >
                                             <Download size={12} />
                                         </button>
@@ -1016,7 +1025,7 @@ export default function AdStudio({ onBack, initialTab = 'create' }) {
                             disabled={generatingImage || !imagePrompt.trim()}
                         >
                             {generatingImage ? (
-                                <><Loader2 size={14} className="spin" /> Generating Image...</>
+                                <><Loader2 size={14} className="spin" /> Making the picture...</>
                             ) : (
                                 <><Image size={14} /> Generate Image</>
                             )}
@@ -1080,11 +1089,11 @@ export default function AdStudio({ onBack, initialTab = 'create' }) {
                                     value={selectedVoice}
                                     onChange={e => setSelectedVoice(e.target.value)}
                                 >
-                                    {['Studio', 'Neural2', 'News', 'Wavenet'].map(tier => (
-                                        <optgroup key={tier} label={tier === 'Neural2' ? 'Neural2 (Recommended)' : tier}>
+                                    {['Neural2', 'Studio', 'News', 'Wavenet'].map(tier => (
+                                        <optgroup key={tier} label={VOICE_GROUP_LABELS[tier] || 'Voice'}>
                                             {voices.filter(v => v.tier === tier).map(v => (
                                                 <option key={v.id} value={v.id}>
-                                                    {v.name} — {v.description} ({v.style})
+                                                    {v.description} ({v.style})
                                                 </option>
                                             ))}
                                         </optgroup>
@@ -1100,7 +1109,7 @@ export default function AdStudio({ onBack, initialTab = 'create' }) {
                             disabled={generatingVoiceover || !currentScript}
                         >
                             {generatingVoiceover ? (
-                                <><Loader2 size={14} className="spin" /> Generating Voice...</>
+                                <><Loader2 size={14} className="spin" /> Making the spoken version...</>
                             ) : (
                                 <><Volume2 size={14} /> Make the spoken version</>
                             )}
@@ -1141,7 +1150,8 @@ export default function AdStudio({ onBack, initialTab = 'create' }) {
                                     <button 
                                         className="tho-download-btn"
                                         onClick={handleDownloadVoiceover}
-                                        title="Download MP3"
+                                        title="Download the audio"
+                                        aria-label="Download the audio"
                                     >
                                         <Download size={14} />
                                     </button>
@@ -1390,8 +1400,8 @@ export default function AdStudio({ onBack, initialTab = 'create' }) {
         <div className="tho-inventory-modal" onClick={() => setShowInventoryPicker(false)}>
             <div className="tho-inventory-panel" onClick={e => e.stopPropagation()}>
                 <div className="tho-inventory-header">
-                    <h3>Select a Home from Inventory</h3>
-                    <button className="tho-close-preview" onClick={() => setShowInventoryPicker(false)}>
+                    <h3>Choose a home</h3>
+                    <button className="tho-close-preview" onClick={() => setShowInventoryPicker(false)} aria-label="Close">
                         <X size={18} />
                     </button>
                 </div>
@@ -1401,7 +1411,7 @@ export default function AdStudio({ onBack, initialTab = 'create' }) {
                         type="search"
                         value={inventoryQuery}
                         onChange={e => setInventoryQuery(e.target.value)}
-                        placeholder="Search model, maker, bedrooms, status..."
+                        placeholder="Search by name, maker, or bedrooms"
                     />
                 </div>
                 {inventoryHomes.length > 0 && (
@@ -1473,7 +1483,7 @@ export default function AdStudio({ onBack, initialTab = 'create' }) {
                     ))}
                     {inventoryHomes.length === 0 && (
                         <div className="tho-empty-state" style={{ padding: '2rem' }}>
-                            <p>{inventoryError || 'No inventory loaded'}</p>
+                            <p>{inventoryError || 'No homes loaded yet.'}</p>
                         </div>
                     )}
                     {inventoryHomes.length > 0 && filteredInventoryHomes.length === 0 && (
@@ -1518,7 +1528,7 @@ export default function AdStudio({ onBack, initialTab = 'create' }) {
                 {/* Step 0: Avatar & Language */}
                 <div className="flex gap-4 mb-6">
                     <div className="tho-card flex-1">
-                        <div className="tho-step-label">AVATAR</div>
+                        <div className="tho-step-label">PRESENTER</div>
                         <h3 className="tho-card-title">Select Presenter</h3>
                         <div className="tho-avatar-grid">
                             {AVATARS.map(a => (
@@ -1734,12 +1744,12 @@ export default function AdStudio({ onBack, initialTab = 'create' }) {
                             disabled={loadingInventory}
                         >
                             {loadingInventory ? (
-                                <><Loader2 size={14} className="spin" /> Loading...</>
+                                <><Loader2 size={14} className="spin" /> Loading homes...</>
                             ) : (
-                                <><Search size={14} /> Browse Inventory</>
+                                <><Search size={14} /> Choose a home</>
                             )}
                         </button>
-                        <span className="tho-or-divider">or enter manually:</span>
+                        <span className="tho-or-divider">or type a home here:</span>
                     </div>
                     {inventoryError && (
                         <div className="tho-image-error mt-3">
@@ -1753,6 +1763,7 @@ export default function AdStudio({ onBack, initialTab = 'create' }) {
                     <div className="tho-input-group">
                         <input
                             type="text"
+                            aria-label="Home name"
                             placeholder="Home model name (e.g. The Nassau)"
                             value={homeName}
                             onChange={e => { setHomeName(e.target.value); setSelectedHome(null); }}
@@ -1760,12 +1771,14 @@ export default function AdStudio({ onBack, initialTab = 'create' }) {
                         />
                         <input
                             type="text"
+                            aria-label="Price"
                             placeholder="Call for Price, unless the owner approved a number"
                             value={homePrice}
                             onChange={e => { setHomePrice(e.target.value); setSelectedHome(null); }}
                             className="tho-input"
                         />
                     </div>
+                    <p className="tho-preview-hint">The price box starts empty. Leave it blank unless the owner approved a number.</p>
                 </div>
 
                 {/* Step 4: Custom hook + Variations */}
@@ -1904,7 +1917,7 @@ export default function AdStudio({ onBack, initialTab = 'create' }) {
                             <div className="tho-preview-empty tho-preview-error">
                                 <AlertTriangle size={32} />
                                 <p>{script.error}</p>
-                                <p className="tho-preview-hint">Check your connection and try again</p>
+                                <p className="tho-preview-hint">Nothing was posted. Press Retry to try the same step again.</p>
                                 <button onClick={handleGenerate} className="tho-btn tho-btn-primary mt-2">Retry</button>
                             </div>
                         ) : (
@@ -1946,7 +1959,7 @@ export default function AdStudio({ onBack, initialTab = 'create' }) {
                     <h2 className="tho-page-title">🔥 Trending Content Ideas</h2>
                     <p className="tho-page-subtitle">
                         Ideas from the homes on the lot. Choosing one opens Create Ad. Nothing is posted.
-                        {ideas?.inventory_count > 0 ? ` ${ideas.inventory_count} homes are in the catalog.` : ''}
+                        {ideas?.inventory_count > 0 ? ` ${ideas.inventory_count} homes are on the lot.` : ''}
                     </p>
                 </div>
                 <button className="tho-refresh-btn" onClick={handleLoadIdeas} disabled={loadingIdeas}>
@@ -1958,7 +1971,7 @@ export default function AdStudio({ onBack, initialTab = 'create' }) {
             {loadingIdeas && !ideas && (
                 <div className="tho-loading">
                     <Loader2 size={32} className="spin" />
-                    <p>Tex is analyzing your inventory and trends...</p>
+                    <p>Loading content ideas...</p>
                 </div>
             )}
 
@@ -2226,7 +2239,7 @@ export default function AdStudio({ onBack, initialTab = 'create' }) {
                         <span className="tho-avatar-emoji">🤠</span>
                     </div>
                     <h2 className="tho-sidebar-brand">Tex's Ad Studio</h2>
-                    <p className="tho-sidebar-sub">AI-Powered Content Creator</p>
+                    <p className="tho-sidebar-sub">Nothing is posted from here.</p>
                 </div>
 
                 <nav className="tho-nav">

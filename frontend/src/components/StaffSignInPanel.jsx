@@ -359,9 +359,9 @@ export default function StaffSignInPanel({
               autoComplete="current-password"
               value={pin}
               onChange={(event) => { setPin(event.target.value.slice(0, PIN_MAX)); setPinError(''); }}
-              placeholder="Enter admin PIN"
+              placeholder="Backup PIN"
               className="cp-input w-full px-4 py-3 text-center text-lg tracking-[0.15em]"
-              aria-label="Admin PIN"
+              aria-label="Backup PIN"
             />
             {pinError && (
               <p role="alert" className="text-[var(--cp-danger)] text-base text-center leading-relaxed">{pinError}</p>
@@ -387,7 +387,7 @@ export default function StaffSignInPanel({
               aria-describedby={passkeyError ? 'passkey-login-error' : undefined}
               className="py-1 text-xs text-[var(--cp-faint)] underline"
             >
-              {passkeyLoading ? 'Authenticating...' : 'Sign in with Passkey'}
+              {passkeyLoading ? 'Signing in...' : 'Sign in with Passkey'}
             </button>
           </div>
           {passkeyError && (

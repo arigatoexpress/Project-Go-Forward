@@ -139,13 +139,13 @@ describe('indexable inventory category routes', () => {
       ok: true,
       json: async () => ({
         success: false,
-        error: 'Failed to load inventory context. Please try again.',
+        error: 'Homes did not load. Please try again.',
       }),
     }));
     render(<InventoryBrowse />);
 
     expect(await screen.findByText('Unable to load inventory')).toBeInTheDocument();
-    expect(screen.getByText('Failed to load inventory context. Please try again.')).toBeInTheDocument();
+    expect(screen.getByText('Homes did not load. Please try again.')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Try Again' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /call us at/i }).getAttribute('href')).toMatch(/^tel:\+\d+$/);
     expect(screen.queryByText('No Single Wide homes are listed right now')).not.toBeInTheDocument();

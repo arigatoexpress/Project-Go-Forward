@@ -136,7 +136,7 @@ describe('Ad Studio prepare draft', () => {
       }
       if (url === '/api/marketing/generate-script') {
         return Promise.resolve(jsonResponse({
-          error: 'Script generation failed. Please try again.',
+          error: 'The script was not written. Nothing was posted. Please try again.',
         }));
       }
       throw new Error(`Unexpected request: ${url}`);
@@ -145,7 +145,7 @@ describe('Ad Studio prepare draft', () => {
     render(<AdStudio onBack={vi.fn()} />);
     fireEvent.click(screen.getByRole('button', { name: 'Generate Script' }));
 
-    expect(await screen.findByText('Script generation failed. Please try again.')).toBeInTheDocument();
+    expect(await screen.findByText('The script was not written. Nothing was posted. Please try again.')).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Ad Content Preview' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Prepare Draft' })).not.toBeInTheDocument();
   });

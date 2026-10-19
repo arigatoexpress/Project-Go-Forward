@@ -380,7 +380,7 @@ class TestApiGenerateFlyer:
 
         assert result == {
             "success": False,
-            "error": "Flyer generation failed. Please try again.",
+            "error": "The flyer was not created. Nothing was posted. Try again.",
         }
 
     def test_invalid_json_envelope(self, monkeypatch):
@@ -391,5 +391,5 @@ class TestApiGenerateFlyer:
 
         assert result == {
             "success": False,
-            "error": "Flyer generation failed. Please try again.",
+            "error": "The flyer was not created. Nothing was posted. Try again.",
         }
