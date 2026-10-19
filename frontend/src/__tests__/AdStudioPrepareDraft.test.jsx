@@ -232,7 +232,7 @@ describe('Ad Studio prepare draft', () => {
     installFetch({ schedule: jsonResponse(preparedDraft) });
     await generateAndOpenPreview();
     fireEvent.click(screen.getByRole('button', { name: 'Prepare Draft' }));
-    expect(await screen.findByText(/Look at this home/)).toBeInTheDocument();
+    expect(await screen.findByText('TikTok draft')).toBeInTheDocument();
     expect(readStaffDrafts()).toHaveLength(1);
 
     cleanup();

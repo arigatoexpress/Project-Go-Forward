@@ -75,16 +75,16 @@ Copy only. No workflow, config, or secret changes.
 
 ## Follow-up fixes
 
-Addressed in the staff UX follow-up stacked on #428. No backend storage, API, or auth change.
+Addressed in #429, stacked on #428. No backend storage, API, or auth change.
 
 - **Cancel** on signed-out `/ad-studio` closes the sign-in panel onto a locked page. It says the page stays locked until you sign in. **Staff sign-in** opens the panel again. **Back to home** leaves the page.
-- A prepared draft stays in this browser until sign-out. The saved list is keyed to the staff session already on this device (the staff cookie, plus the work email when that email is already saved here). Sign-out clears it. A signed-out visit does not keep it.
+- A prepared draft stays in this browser until sign-out. The saved list is keyed to the staff session cookie already on this device. Sign-out clears it. A signed-out visit does not keep it. A new sign-in does not keep the previous session's drafts.
 - The draft card shows the script. Long text is shortened on the card. **Copy** uses the clipboard and then says **Copied**.
 - Campaign id, content hash, ledger version, recorded events, and evidence lines are not shown on the staff screen. Campaign name, creation mode, and the dispatch flag stay in the closed owner notes. The hidden values remain on the campaign record.
 
 ## Planned follow-ups
 
-None from the list above. Those four are addressed in the follow-up stacked on #428.
+None from the list above. Those four are addressed in #429, stacked on #428.
 
 ## Left
 

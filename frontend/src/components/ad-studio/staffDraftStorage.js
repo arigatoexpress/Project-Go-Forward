@@ -1,7 +1,6 @@
 /** Browser-only Ad Studio drafts. Scoped to the signed-in staff session. */
 
 const STORAGE_PREFIX = 'tho-ad-studio-drafts';
-const EMAIL_STORAGE_KEY = 'tho_passkey_email';
 
 function readCookie(cookieString, name) {
   const match = String(cookieString || '').match(new RegExp(`(?:^|;\\s*)${name}=([^;]*)`));
@@ -22,20 +21,13 @@ function hashText(value) {
   return (hash >>> 0).toString(16);
 }
 
-export function readStaffSessionScope(
-  doc = globalThis.document,
-  storage = globalThis.localStorage,
-) {
+export function readStaffSessionScope(doc = globalThis.document) {
+  // The readable staff session cookie is the identifier already on the client.
+  // It changes when someone else signs in. The saved work email is not used:
+  // it can be typed before sign-in and can change during one session.
   const csrf = readCookie(doc?.cookie, 'tho_csrf_token');
   if (!csrf) return '';
-  let email = '';
-  try {
-    email = String(storage?.getItem(EMAIL_STORAGE_KEY) || '').trim().toLowerCase();
-  } catch {
-    email = '';
-  }
-  const who = email || 'session';
-  return `${who}:${hashText(csrf)}`;
+  return hashText(csrf);
 }
 
 function storageKey(scope) {
@@ -55,7 +47,7 @@ export function readStaffDrafts(
   storage = globalThis.localStorage,
   doc = globalThis.document,
 ) {
-  const scope = readStaffSessionScope(doc, storage);
+  const scope = readStaffSessionScope(doc);
   if (!scope || !storage) return [];
   try {
     const parsed = JSON.parse(storage.getItem(storageKey(scope)) || '[]');
@@ -71,7 +63,7 @@ export function writeStaffDrafts(
   storage = globalThis.localStorage,
   doc = globalThis.document,
 ) {
-  const scope = readStaffSessionScope(doc, storage);
+  const scope = readStaffSessionScope(doc);
   if (!scope || !storage) return;
   try {
     const key = storageKey(scope);
@@ -87,7 +79,7 @@ export function keepOnlyCurrentStaffDrafts(
   storage = globalThis.localStorage,
   doc = globalThis.document,
 ) {
-  const scope = readStaffSessionScope(doc, storage);
+  const scope = readStaffSessionScope(doc);
   if (!scope || !storage) return;
   try {
     removeDraftKeys(storage, storageKey(scope));

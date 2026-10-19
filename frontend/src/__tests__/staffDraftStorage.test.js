@@ -28,14 +28,13 @@ describe('staff draft storage', () => {
     writeStaffDrafts([{ script_text: 'Pat draft' }]);
     expect(readStaffDrafts()).toEqual([{ script_text: 'Pat draft' }]);
 
+    window.localStorage.setItem('tho_passkey_email', 'sam@texashomeoutlet.com');
+    expect(readStaffDrafts()).toEqual([{ script_text: 'Pat draft' }]);
+
     document.cookie = 'tho_csrf_token=session-b; path=/';
     expect(readStaffDrafts()).toEqual([]);
 
     document.cookie = 'tho_csrf_token=session-a; path=/';
-    window.localStorage.setItem('tho_passkey_email', 'sam@texashomeoutlet.com');
-    expect(readStaffDrafts()).toEqual([]);
-
-    window.localStorage.setItem('tho_passkey_email', 'pat@texashomeoutlet.com');
     expect(readStaffDrafts()).toEqual([{ script_text: 'Pat draft' }]);
   });
 
