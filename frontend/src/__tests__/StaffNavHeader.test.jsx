@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import App from '../App';
+import { clearStaffDrafts, readStaffDrafts, writeStaffDrafts } from '../components/ad-studio/staffDraftStorage';
 import { ToastProvider } from '../components/Toast';
 
 vi.mock('../utils/analytics', async () => {
@@ -69,6 +70,26 @@ describe('staff header at laptop widths', () => {
     expect(screen.getByRole('menuitem', { name: 'Ops Copilot' })).toBeInTheDocument();
     expect(screen.getByRole('menuitem', { name: 'Numbers' })).toBeInTheDocument();
     expect(screen.queryByRole('menuitem', { name: 'Sign out' })).toBeNull();
+  });
+
+  it('clears saved Ad Studio drafts when staff sign out', async () => {
+    document.cookie = 'tho_csrf_token=staff-session; path=/';
+    window.localStorage.setItem('tho_passkey_email', 'pat@texashomeoutlet.com');
+    writeStaffDrafts([{ script_text: 'Look at this home' }]);
+    expect(readStaffDrafts()).toHaveLength(1);
+
+    render(<ToastProvider><App /></ToastProvider>);
+    fireEvent.click(await screen.findByTestId('desktop-sign-out'));
+
+    expect(readStaffDrafts()).toEqual([]);
+    const leftover = [];
+    for (let i = 0; i < window.localStorage.length; i += 1) {
+      const key = window.localStorage.key(i);
+      if (key && key.startsWith('tho-ad-studio-drafts:')) leftover.push(key);
+    }
+    expect(leftover).toEqual([]);
+    document.cookie = 'tho_csrf_token=; Max-Age=0; path=/';
+    clearStaffDrafts();
   });
 
   it('lands staff on the simple home instead of a loading analytics screen', async () => {

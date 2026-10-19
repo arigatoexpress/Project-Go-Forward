@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 
 import {
   draftCardCopy,
+  draftScriptPreview,
+  draftScriptText,
   plainQualityIssue,
   plainRecommendation,
   platformLabel,
@@ -57,7 +59,25 @@ describe('Ad Studio staff copy', () => {
     });
     expect(card.title).toBe('TikTok draft');
     expect(card.status).toBe('Ready to review here');
+    expect(card.notice).toMatch(/until you sign out/i);
     expect(card.notice).toMatch(/nothing was posted/i);
     expect(JSON.stringify(card)).not.toMatch(/DRAFT-TT|SCR-1|draft_ready/);
+  });
+
+  it('shows the script words and shortens a long script', () => {
+    const post = {
+      script_text: 'Look at this home\n\nThree bedrooms on a quiet lot.',
+      caption: 'Come see it.',
+    };
+    expect(draftScriptText(post)).toBe(post.script_text);
+    expect(draftScriptPreview(post)).toBe(post.script_text);
+
+    const longScript = `${'Bedroom '.repeat(40)}ENDMARKER`;
+    expect(longScript.length).toBeGreaterThan(280);
+    const preview = draftScriptPreview({ script_text: longScript });
+    expect(preview.endsWith('...')).toBe(true);
+    expect(preview.length).toBeLessThan(longScript.length);
+    expect(preview).not.toContain('ENDMARKER');
+    expect(draftScriptText({ caption: 'Come see it.' })).toBe('Come see it.');
   });
 });

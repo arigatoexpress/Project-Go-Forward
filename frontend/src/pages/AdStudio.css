@@ -924,12 +924,29 @@
 
 .tho-scheduled-card {
   display: flex;
-  align-items: center;
+  flex-wrap: wrap;
+  align-items: flex-start;
   gap: 1.5rem;
   padding: 1rem 1.25rem;
   background: rgba(30, 41, 59, 0.6);
   border: 1px solid rgba(71, 85, 105, 0.3);
   border-radius: 12px;
+}
+
+.tho-scheduled-script {
+  flex: 1 1 100%;
+  margin: 0;
+  white-space: pre-wrap;
+  font-size: 0.85rem;
+  line-height: 1.45;
+  color: #e2e8f0;
+}
+
+.tho-scheduled-actions {
+  flex: 1 1 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
 }
 
 .tho-scheduled-left {

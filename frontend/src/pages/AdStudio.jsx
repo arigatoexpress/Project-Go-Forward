@@ -20,6 +20,8 @@ import {
     VOICES_EMPTY,
     VOICES_UNAVAILABLE,
     draftCardCopy,
+    draftScriptPreview,
+    draftScriptText,
     plainQualityIssue,
     plainRecommendation,
     platformLabel,
@@ -28,6 +30,7 @@ import {
     readinessMetric,
     themeLabel,
 } from '../components/ad-studio/adStudioStaffCopy';
+import { readStaffDrafts, writeStaffDrafts } from '../components/ad-studio/staffDraftStorage';
 import {
     describeFetchError,
     extractErrorMessage,
@@ -308,11 +311,18 @@ export default function AdStudio({ onBack, initialTab = 'create' }) {
     const [ideas, setIdeas] = useState(null);
     const [loadingIdeas, setLoadingIdeas] = useState(false);
 
-    // Drafts tab
-    const [preparedDrafts, setPreparedDrafts] = useState([]);
+    // Drafts tab. Saved in this browser for the signed-in staff session only.
+    const [preparedDrafts, setPreparedDrafts] = useState(readStaffDrafts);
     const [preparingDraft, setPreparingDraft] = useState(false);
     const [draftError, setDraftError] = useState(null);
+    const [copiedDraftId, setCopiedDraftId] = useState('');
+    const [draftCopyNotice, setDraftCopyNotice] = useState('');
+    const [failedDraftId, setFailedDraftId] = useState('');
     const [matterportCopied, setMatterportCopied] = useState(false);
+
+    useEffect(() => {
+        writeStaffDrafts(preparedDrafts);
+    }, [preparedDrafts]);
 
     // Analytics tab
     const [analytics, setAnalytics] = useState(null);
@@ -476,15 +486,22 @@ export default function AdStudio({ onBack, initialTab = 'create' }) {
         setPreparingDraft(true);
         setDraftError(null);
         try {
+            const current = getCurrentScript();
+            const scriptText = current
+                ? [current.hook, current.body, current.cta].filter(Boolean).join('\n\n')
+                : '';
             const result = await apiPrepareDraft({
                 platform: script.platform,
                 content_type: 'video',
                 script_id: script.script_id,
-                caption: getCurrentScript()?.cta,
+                caption: current?.cta,
                 hashtags: script.hashtags,
                 video_url: generatedGenAIClip?.download_url || generatedVideo?.download_url
             });
-            setPreparedDrafts(prev => [result, ...prev]);
+            setPreparedDrafts(prev => [{
+                ...result,
+                script_text: scriptText || result.caption || '',
+            }, ...prev]);
             return true;
         } catch (err) {
             setDraftError(staffDraftFailureMessage(err));
@@ -2040,10 +2057,27 @@ export default function AdStudio({ onBack, initialTab = 'create' }) {
         </div>
     );
 
+    const handleCopyDraft = async (text, draftKey) => {
+        if (!text) return;
+        try {
+            await navigator.clipboard.writeText(text);
+            setDraftCopyNotice('');
+            setFailedDraftId('');
+            setCopiedDraftId(draftKey);
+            setTimeout(() => {
+                setCopiedDraftId(current => (current === draftKey ? '' : current));
+            }, 2000);
+        } catch {
+            setCopiedDraftId('');
+            setFailedDraftId(draftKey);
+            setDraftCopyNotice('The script was not copied. Select the text and copy it yourself.');
+        }
+    };
+
     const renderScheduled = () => (
         <div className="tho-scheduled-page">
             <h2 className="tho-page-title">📋 Prepared Drafts</h2>
-            <p className="tho-page-subtitle">Drafts prepared while this screen stays open. Leaving or refreshing removes them. Nothing is posted.</p>
+            <p className="tho-page-subtitle">Saved on this browser until you sign out. Nothing is posted.</p>
 
             {preparedDrafts.length === 0 ? (
                 <div className="tho-empty-state">
@@ -2055,8 +2089,11 @@ export default function AdStudio({ onBack, initialTab = 'create' }) {
                 <div className="tho-scheduled-list">
                     {preparedDrafts.map((post, i) => {
                         const card = draftCardCopy(post);
+                        const fullText = draftScriptText(post);
+                        const preview = draftScriptPreview(post);
+                        const draftKey = post.post_id || `draft-${i}`;
                         return (
-                        <div key={i} className="tho-scheduled-card">
+                        <div key={draftKey} className="tho-scheduled-card">
                             <div className="tho-scheduled-left">
                                 <span className="tho-scheduled-platform">{card.title}</span>
                                 <span className="tho-scheduled-type">{card.kind}</span>
@@ -2064,6 +2101,21 @@ export default function AdStudio({ onBack, initialTab = 'create' }) {
                             <div className="tho-scheduled-right">
                                 <span className={`tho-scheduled-status status-${post.status}`}>{card.status}</span>
                                 <span className="tho-scheduled-tip">{card.notice}</span>
+                            </div>
+                            {preview && <p className="tho-scheduled-script">{preview}</p>}
+                            <div className="tho-scheduled-actions">
+                                <button
+                                    type="button"
+                                    className="tho-btn tho-btn-secondary"
+                                    onClick={() => handleCopyDraft(fullText, draftKey)}
+                                    disabled={!fullText}
+                                >
+                                    Copy
+                                </button>
+                                {copiedDraftId === draftKey && <span role="status">Copied</span>}
+                                {failedDraftId === draftKey && draftCopyNotice && (
+                                    <span className="tho-scheduled-tip" role="alert">{draftCopyNotice}</span>
+                                )}
                             </div>
                         </div>
                         );

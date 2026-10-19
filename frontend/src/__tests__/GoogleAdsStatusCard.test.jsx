@@ -471,6 +471,12 @@ describe('GoogleAdsStatusCard', () => {
     expect(screen.getByText('Check the campaign before you launch it.')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Launch turned off' })).toBeDisabled();
     expect(screen.getByText(/Turned off · \$0 spend/i)).toBeInTheDocument();
+    expect(screen.queryByText('Campaign id')).not.toBeInTheDocument();
+    expect(screen.queryByText('Ledger version')).not.toBeInTheDocument();
+    expect(screen.queryByText('Content hash')).not.toBeInTheDocument();
+    expect(screen.queryByText('Recorded events')).not.toBeInTheDocument();
+    expect(screen.queryByText(SAFE_STATUS.deployment_key)).not.toBeInTheDocument();
+    expect(screen.queryByText(SAFE_STATUS.contract_hash)).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /activate|publish|turn ads on|spend/i })).not.toBeInTheDocument();
     expect(adminFetch).toHaveBeenCalledWith('/api/admin/google-ads/draft', {
       method: 'POST',
@@ -523,6 +529,13 @@ describe('GoogleAdsStatusCard', () => {
     const confirm = vi.spyOn(globalThis, 'confirm').mockReturnValue(true);
     expect(await screen.findByRole('heading', { name: '2. Preview' })).toBeInTheDocument();
     expect(screen.getByText(/THO \| Search \| High Intent \| Huffman \| Draft/)).toBeInTheDocument();
+    expect(screen.queryByText('Campaign id')).not.toBeInTheDocument();
+    expect(screen.queryByText('Ledger version')).not.toBeInTheDocument();
+    expect(screen.queryByText('Content hash')).not.toBeInTheDocument();
+    expect(screen.queryByText('Evidence digest')).not.toBeInTheDocument();
+    expect(screen.queryByText('Evidence revision')).not.toBeInTheDocument();
+    expect(screen.queryByText(APPROVAL_READY.account_connection.evidence_digest)).not.toBeInTheDocument();
+    expect(screen.queryByText(APPROVAL_READY.account_connection.source_revision)).not.toBeInTheDocument();
     expect(screen.getByText(/within 50 miles of 10685 FM 1960 East/i)).toBeInTheDocument();
     expect(screen.getByText(/10685 FM 1960 East/i)).toBeInTheDocument();
     expect(screen.getByText(/\$5 maximum per click/i)).toBeInTheDocument();
