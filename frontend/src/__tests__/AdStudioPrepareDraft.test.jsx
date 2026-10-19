@@ -1,7 +1,8 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 
 import adminFetch from '../adminFetch';
+import { clearStaffDrafts, readStaffDrafts, writeStaffDrafts } from '../components/ad-studio/staffDraftStorage';
 import AdStudio from '../pages/AdStudio';
 
 vi.mock('../adminFetch', () => ({
@@ -69,9 +70,34 @@ async function generateAndOpenPreview() {
   expect(await screen.findByRole('heading', { name: 'Ad Content Preview' })).toBeInTheDocument();
 }
 
+function setStaffSession(token) {
+  document.cookie = `tho_csrf_token=${token}; path=/`;
+}
+
+function clearStaffSession() {
+  document.cookie = 'tho_csrf_token=; Max-Age=0; path=/';
+  window.localStorage.removeItem('tho_passkey_email');
+  clearStaffDrafts();
+}
+
+function storedDraftKeys() {
+  const keys = [];
+  for (let i = 0; i < window.localStorage.length; i += 1) {
+    const key = window.localStorage.key(i);
+    if (key && key.startsWith('tho-ad-studio-drafts:')) keys.push(key);
+  }
+  return keys;
+}
+
 describe('Ad Studio prepare draft', () => {
   beforeEach(() => {
     adminFetch.mockReset();
+    clearStaffSession();
+  });
+
+  afterEach(() => {
+    cleanup();
+    clearStaffSession();
   });
 
   it('keeps the preview open when preparation returns an error field on HTTP 200', async () => {
@@ -116,7 +142,10 @@ describe('Ad Studio prepare draft', () => {
 
     expect(await screen.findByText('TikTok draft')).toBeInTheDocument();
     expect(screen.getByText('Ready to review here')).toBeInTheDocument();
-    expect(screen.getByText(/stays on this screen only/i)).toBeInTheDocument();
+    expect(screen.getByText('Saved on this browser until you sign out. Nothing was posted.')).toBeInTheDocument();
+    expect(screen.getByText(/Look at this home/)).toBeInTheDocument();
+    expect(screen.getByText(/Three bedrooms on a quiet lot/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Copy' })).toBeEnabled();
     expect(screen.queryByText(/Response ID:/)).not.toBeInTheDocument();
     expect(screen.queryByText('draft_ready')).not.toBeInTheDocument();
     expect(screen.queryByText(/SCR-1/)).not.toBeInTheDocument();
@@ -148,5 +177,89 @@ describe('Ad Studio prepare draft', () => {
     expect(await screen.findByText('The script was not written. Nothing was posted. Please try again.')).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Ad Content Preview' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Prepare Draft' })).not.toBeInTheDocument();
+  });
+
+  it('copies the full script and says Copied', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    });
+    installFetch({ schedule: jsonResponse(preparedDraft) });
+    await generateAndOpenPreview();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Prepare Draft' }));
+    expect(await screen.findByRole('button', { name: 'Copy' })).toBeEnabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Copy' }));
+
+    expect(await screen.findByRole('status')).toHaveTextContent('Copied');
+    expect(writeText).toHaveBeenCalledWith(
+      'Look at this home\n\nThree bedrooms on a quiet lot.\n\nCome see it at Texas Home Outlet.',
+    );
+  });
+
+  it('shortens a long script on the card and still copies every word', async () => {
+    const scriptText = `${'Look at this home. '.repeat(30)}ENDMARKER`;
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    });
+    setStaffSession('session-a');
+    writeStaffDrafts([{
+      post_id: 'DRAFT-LONG',
+      platform: 'tiktok',
+      content_type: 'video',
+      status: 'draft_ready',
+      persisted: false,
+      script_text: scriptText,
+    }]);
+
+    render(<AdStudio onBack={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Drafts' }));
+
+    const shown = await screen.findByText(/Look at this home\./);
+    expect(shown.textContent.endsWith('...')).toBe(true);
+    expect(shown.textContent).not.toContain('ENDMARKER');
+    fireEvent.click(screen.getByRole('button', { name: 'Copy' }));
+    expect(await screen.findByRole('status')).toHaveTextContent('Copied');
+    expect(writeText).toHaveBeenCalledWith(scriptText);
+  });
+
+  it('keeps the draft after a refresh for this staff session only', async () => {
+    setStaffSession('session-a');
+    window.localStorage.setItem('tho_passkey_email', 'pat@texashomeoutlet.com');
+    installFetch({ schedule: jsonResponse(preparedDraft) });
+    await generateAndOpenPreview();
+    fireEvent.click(screen.getByRole('button', { name: 'Prepare Draft' }));
+    expect(await screen.findByText('TikTok draft')).toBeInTheDocument();
+    expect(readStaffDrafts()).toHaveLength(1);
+
+    cleanup();
+    installFetch({ schedule: jsonResponse(preparedDraft) });
+    render(<AdStudio onBack={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Drafts' }));
+    expect(await screen.findByText(/Three bedrooms on a quiet lot/)).toBeInTheDocument();
+
+    cleanup();
+    setStaffSession('session-b');
+    render(<AdStudio onBack={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Drafts' }));
+    expect(await screen.findByText('No drafts prepared yet')).toBeInTheDocument();
+    expect(screen.queryByText(/Look at this home/)).not.toBeInTheDocument();
+  });
+
+  it('does not keep a draft when there is no staff session', async () => {
+    installFetch({ schedule: jsonResponse(preparedDraft) });
+    await generateAndOpenPreview();
+    fireEvent.click(screen.getByRole('button', { name: 'Prepare Draft' }));
+    expect(await screen.findByText('TikTok draft')).toBeInTheDocument();
+    expect(readStaffDrafts()).toEqual([]);
+    expect(storedDraftKeys()).toEqual([]);
+
+    cleanup();
+    render(<AdStudio onBack={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Drafts' }));
+    expect(await screen.findByText('No drafts prepared yet')).toBeInTheDocument();
   });
 });

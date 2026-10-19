@@ -120,6 +120,18 @@ export function readinessMetric(item) {
   return item?.engagement_label || 'On this screen';
 }
 
+export const DRAFT_SCRIPT_PREVIEW_LIMIT = 280;
+
+export function draftScriptText(post) {
+  return String(post?.script_text || post?.caption || '').trim();
+}
+
+export function draftScriptPreview(post, limit = DRAFT_SCRIPT_PREVIEW_LIMIT) {
+  const text = draftScriptText(post);
+  if (text.length <= limit) return text;
+  return `${text.slice(0, limit).trimEnd()}...`;
+}
+
 export function draftCardCopy(post) {
   const platform = platformLabel(post?.platform);
   const ready = post?.status === 'draft_ready';
@@ -128,7 +140,7 @@ export function draftCardCopy(post) {
     kind: contentTypeLabel(post?.content_type),
     status: ready ? 'Ready to review here' : 'Saved on this screen',
     notice: post?.persisted === false
-      ? 'This stays on this screen only. Refreshing or leaving removes it. Nothing was posted.'
+      ? 'Saved on this browser until you sign out. Nothing was posted.'
       : 'Nothing was posted to TikTok, Instagram, or Facebook.',
   };
 }

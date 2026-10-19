@@ -10,13 +10,13 @@ Reviewed from source at main `c73af0b`. This is a reading of the code, not a sig
 
 | Step | What staff see | Issue | Severity |
 | --- | --- | --- | --- |
-| 1. Open `/ad-studio` while signed out | The browser title says Google Ads. A panel titled **Staff sign-in** opens over the public chat. Steps: type your work email, open that email, tap **Sign me in**. Buttons: **Email me a sign-in link**, **Use backup PIN**, **Cancel**. Backup box label: **Backup PIN**. Button: **Unlock**. Helper: "Backup PIN from the owner. Most people should use the email button above." | **Cancel** closes the panel and leaves the public chat while the address is still `/ad-studio`. There is no sentence that says the ad page is locked. | Medium |
+| 1. Open `/ad-studio` while signed out | The browser title says Google Ads. A panel titled **Staff sign-in** opens over a locked page. Steps: type your work email, open that email, tap **Sign me in**. Buttons: **Email me a sign-in link**, **Use backup PIN**, **Cancel**. Backup box label: **Backup PIN**. Button: **Unlock**. Helper: "Backup PIN from the owner. Most people should use the email button above." | **Addressed.** **Cancel** closes the panel onto a locked page. It says this page stays locked until you sign in. Buttons: **Staff sign-in** and **Back to home**. Staff do not land on the public chat. | Fixed |
 | 2. Signed-in open | Not observed. The code then shows Ad Studio. | Signed-in click-through is UNKNOWN. | UNKNOWN |
 | 3. Page load | First line: **Loading...** Then the Google Ads card says **Loading Google Ads…** If that load fails: "Google Ads is unavailable right now. Nothing was sent to Google." Button: **Load again**. | None. The failure tells them to try again and that nothing was sent. | Low |
 | 4. Google Ads, create | Heading **1. Create**. Label: **Who should see this ad?** Helper: the note stays on this screen and is not the ad text. Example button: **Use the example**. Main button: **Check this ad** (or **Use this description** when a check is not available). While it works: **Checking the campaign…** Helper under the button: "Checking confirms the ad on this website. Your description stays here. Nothing is sent to Google, and this does not spend money." Empty note: "Describe who should see this ad and what you want them to do." Short note: "Add a little more detail. One or two sentences is enough." | The word "campaign" is still on the checking line. The next step is on the same screen. | Low |
 | 5. Google Ads, preview | Heading **2. Preview**. Name on the card: **Huffman search ads**, "still turned off." Location line uses 10685 FM 1960 East, Huffman, TX, within 50 miles. Budget line is on the card. Checkbox: "I read both ads, the Huffman area, and the budget. Launching leaves the ads off and does not spend money." | Budget amounts are waiting on the owner. See below. The address matches `config.yaml`. | Owner-pending |
 | 6. Google Ads, launch | Heading **3. Launch**. Button: **Launch turned off**. While it runs: **Asking the owner to confirm…** Confirm box says the campaign is created turned off and does not spend money. If the person is not the owner: "Only the owner can launch this campaign. Sign in with the owner passkey, then try again." | **Launch** can sound like the ad will run. The rest of the sentence says turned off and no spend. Left as written. | Low |
-| 7. Owner notes on that screen | A closed section titled **Technical details for the owner**. First line: "You can skip this. These notes are for the owner." Inside: Campaign name, Campaign id, Recorded events, Ledger version, Content hash, Creation mode, and sometimes Storefront dispatch flag, Evidence digest, Evidence revision. | Campaign id, hash, ledger, and evidence words are still there if someone opens the section. | Medium |
+| 7. Owner notes on that screen | A closed section titled **Technical details for the owner**. First line: "You can skip this. These notes are for the owner." Inside: Campaign name and Creation mode. | **Addressed.** Campaign id, content hash, ledger version, recorded events, and evidence lines are not shown to staff. Those values stay on the campaign record. The dispatch flag stays, in plain words. | Fixed |
 | 8. Create Ad | Sidebar brand: **Tex's Ad Studio**. Subtitle: "Nothing is posted from here." Tab: **Create Ad**. Intro: "Write a social post for TikTok, Instagram, or Facebook, then review it. Nothing is posted from this screen. Public prices stay Call for Price unless the owner approved a number." Empty phone: "Your script will appear here." Helper: "Choose your settings and hit Generate." | `/ad-studio` does not land here. Staff use **Create Ad** or open `/studio`. | Low |
 | 9. Choose a home | Button: **Choose a home**. While it loads: **Loading homes...** Or the line "or type a home here:" Panel title: **Choose a home**. Search box: "Search by name, maker, or bedrooms." Empty list: "No homes loaded yet." No match: "No homes match that search." A failed load says "Homes did not load. Please try again." with **Retry**. Each home still shows its on-screen price. | That price can be a listed amount even though the price box below stays blank. Hiding it is waiting on the owner: how staff enter prices. | Owner-pending |
 | 10. Price box | The box starts empty. It is not filled from the home. Label for screen readers: **Price**. Placeholder: "Call for Price, unless the owner approved a number." Helper that stays visible: "The price box starts empty. Leave it blank unless the owner approved a number." | Typing in the box drops the selected-home card. The flyer does not print a number staff type unless the owner already approved that home. Both are waiting on the owner: how staff enter prices. | Owner-pending |
@@ -25,7 +25,7 @@ Reviewed from source at main `c73af0b`. This is a reading of the code, not a sig
 | 13. Flyer | Heading: **Create Finished Flyer**. Button: **Make a flyer to download**. While it works: **Making the flyer...** No photo: "No photo selected. The flyer will use the store colors instead." No script and no home: "Write a script or pick a home first. Nothing was posted." Other failure: "The flyer was not created. Nothing was posted. Try again." Buttons: **Retry** and a small X. Success: **Finished Flyers**, then **Download flyer**. | The flyer price and the flyer phone are waiting on the owner. See below. A flyer with no script uses the business city from config. | Owner-pending |
 | 14. Prepare Draft | Helper: "This adds a reviewed [TikTok, Instagram Reels, or Facebook] draft to the list on this screen. Nothing is sent to a social platform." Button: **Prepare Draft**. While it works: **Preparing...** The button is disabled until the save finishes. | None. It does not post. | Low |
 | 15. Prepare Draft failure | The preview stays open. Message: **The draft wasn't saved. Please try again.** Offline: "You appear to be offline. Check your connection and try again." No connection: "We couldn’t reach the server. Check your connection and try again." The same **Prepare Draft** button is the retry. A failed save stays on the preview and no longer looks successful. | None. The old failure that closed the preview is already fixed in this source. | Low |
-| 16. Draft success | The preview closes and the **Drafts** tab opens. Card title example: **TikTok draft**. Kind: **Video**. Status: **Ready to review here**. Notice: "This stays on this screen only. Refreshing or leaving removes it. Nothing was posted." Empty tab, before any draft: "No drafts prepared yet." Helper: "Write a script, open the full preview, then choose Prepare Draft. Nothing is posted." | The draft card does not show the words and has no Copy button. The words are still on Create Ad until the page is refreshed. After a refresh they are gone. | Medium |
+| 16. Draft success | The preview closes and the **Drafts** tab opens. Card title example: **TikTok draft**. Kind: **Video**. Status: **Ready to review here**. The card shows the script, shortened when it is long, and a **Copy** button. Confirmation: **Copied**. Notice: "Saved on this browser until you sign out. Nothing was posted." Empty tab, before any draft: "No drafts prepared yet." Helper: "Write a script, open the full preview, then choose Prepare Draft. Nothing is posted." | **Addressed.** Drafts stay in this browser for the signed-in staff session. Sign-out clears them. They are not kept when signed out. | Fixed |
 
 ## Other errors on the same page
 
@@ -73,18 +73,22 @@ Copy only. No workflow, config, or secret changes.
 - A script failure no longer tells staff to check the connection when the failure was something else.
 - Flyer fallback city comes from the business city in config.
 
+## Follow-up fixes
+
+Addressed in #429, stacked on #428. No backend storage, API, or auth change.
+
+- **Cancel** on signed-out `/ad-studio` closes the sign-in panel onto a locked page. It says the page stays locked until you sign in. **Staff sign-in** opens the panel again. **Back to home** leaves the page.
+- A prepared draft stays in this browser until sign-out. The saved list is keyed to the staff session cookie already on this device. Sign-out clears it. A signed-out visit does not keep it. A new sign-in does not keep the previous session's drafts.
+- The draft card shows the script. Long text is shortened on the card. **Copy** uses the clipboard and then says **Copied**.
+- Campaign id, content hash, ledger version, recorded events, and evidence lines are not shown on the staff screen. Campaign name, creation mode, and the dispatch flag stay in the closed owner notes. The hidden values remain on the campaign record.
+
 ## Planned follow-ups
 
-These were not changed in this pass.
-
-- **Cancel** on the staff sign-in panel closes the panel and leaves the public chat while the address is still `/ad-studio`. There is no sentence that says the ad page is locked.
-- A prepared draft is lost on refresh or when staff leave the page. The draft card does not show the words and has no Copy button.
-- The notes behind "You can skip this" still show a campaign id and other codes when someone opens that section.
+None from the list above. Those four are addressed in #429, stacked on #428.
 
 ## Left
 
 - Signed-in click-through: UNKNOWN.
-- The planned follow-ups above.
 - The word **Launch** remains on **Launch turned off**.
 - Which phone the flyer shows, how staff enter prices, and the ad budget, as listed above. Budget amounts are waiting on the owner.
 - Typing a price still clears the selected-home card. That is behavior, not a wording change, so it was left.

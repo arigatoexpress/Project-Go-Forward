@@ -481,22 +481,12 @@ export default function GoogleAdsStatusCard() {
           <p>You can skip this. These notes are for the owner.</p>
           <dl className="google-ads-status-details">
             <div><dt>Campaign name</dt><dd>{review.campaign_name}</dd></div>
-            <div><dt>Campaign id</dt><dd>{status.deployment_key}</dd></div>
-            <div><dt>Recorded events</dt><dd>{status.events.count}</dd></div>
-            <div><dt>Ledger version</dt><dd>{status.version}</dd></div>
-            <div><dt>Content hash</dt><dd>{status.contract_hash}</dd></div>
             <div><dt>Creation mode</dt><dd>Turned off · $0 spend</dd></div>
             {approvalReadiness && (
               <div>
                 <dt>Storefront dispatch flag</dt>
                 <dd>{approvalReadiness.dispatch_enabled ? 'Enabled' : 'Disabled'}</dd>
               </div>
-            )}
-            {connection && (
-              <>
-                <div><dt>Evidence digest</dt><dd>{connection.evidence_digest}</dd></div>
-                <div><dt>Evidence revision</dt><dd>{connection.source_revision}</dd></div>
-              </>
             )}
           </dl>
         </details>

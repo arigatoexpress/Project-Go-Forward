@@ -115,6 +115,40 @@ describe('App pathname-aware routing', () => {
     expect(document.title).toContain('Google Ads');
   });
 
+  it('gives a way out when Cancel is pressed on signed-out /ad-studio', async () => {
+    window.history.replaceState({}, '', '/ad-studio');
+    render(<ToastProvider><App /></ToastProvider>);
+
+    expect(await screen.findByRole('heading', { name: 'Staff sign-in' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    expect(screen.getByRole('heading', { name: 'Ad Studio is for staff' })).toBeInTheDocument();
+    expect(screen.getByText(/stays locked until you sign in/i)).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Staff sign-in' })).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText(/Ask about homes/i)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Staff sign-in' }));
+    expect(await screen.findByRole('heading', { name: 'Staff sign-in' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Back to home' }));
+    expect(window.location.pathname).toBe('/');
+    expect(screen.queryByRole('heading', { name: 'Ad Studio is for staff' })).not.toBeInTheDocument();
+  });
+
+  it('drops saved Ad Studio drafts when the staff session is gone', async () => {
+    window.localStorage.setItem('tho-ad-studio-drafts:session:old', JSON.stringify([
+      { script_text: 'Look at this home' },
+    ]));
+    window.history.replaceState({}, '', '/');
+    render(<ToastProvider><App /></ToastProvider>);
+
+    await screen.findByRole('heading', { level: 1, name: 'Manufactured and Mobile Homes for Sale in Huffman, TX' });
+    await waitFor(() => {
+      expect(window.localStorage.getItem('tho-ad-studio-drafts:session:old')).toBeNull();
+    });
+  });
+
   it('keeps category links native and synchronizes popstate title, page views, and filters', async () => {
     render(<ToastProvider><App /></ToastProvider>);
 

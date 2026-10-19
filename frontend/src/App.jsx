@@ -37,6 +37,7 @@ import {
 import { safeUserMessage, extractErrorMessage, describeFetchError } from './utils/apiError';
 import { adminCsrfHeaders } from './adminFetch';
 import StaffSignInPanel from './components/StaffSignInPanel';
+import { clearStaffDrafts, keepOnlyCurrentStaffDrafts } from './components/ad-studio/staffDraftStorage';
 import {
   BUSINESS_NAME, BUSINESS_PHONE, BUSINESS_PHONE_RAW, BUSINESS_FULL_ADDRESS,
   BUSINESS_HOURS, BUSINESS_LICENSE, BUSINESS_CITY, BUSINESS_STATE
@@ -907,7 +908,12 @@ function App() {
   useEffect(() => {
     fetch('/api/admin/check', { headers: { Accept: 'application/json' }, credentials: 'same-origin' })
       .then(r => r.ok ? r.json() : null)
-      .then(data => { if (data?.valid) setAdminAuthed(true); })
+      .then(data => {
+        if (data?.valid) {
+          setAdminAuthed(true);
+          keepOnlyCurrentStaffDrafts();
+        } else if (data && data.valid === false) clearStaffDrafts();
+      })
       .catch(() => {});
   }, []);
 
@@ -943,6 +949,7 @@ function App() {
         console.warn('[App] Ignoring session-expired event triggered immediately after login.');
         return;
       }
+      clearStaffDrafts();
       setAdminAuthed(false);
       setShowPinModal(true);
       setSignInNotice('Session expired — please sign in again');
@@ -1181,6 +1188,7 @@ function App() {
   };
 
   const handleSignOut = async () => {
+    clearStaffDrafts();
     try {
       await fetch('/api/admin/logout', { method: 'POST', credentials: 'same-origin' });
     } catch {
@@ -1684,6 +1692,39 @@ function App() {
             />
           </Suspense>
         </ErrorBoundary>
+        <Footer adminAuthed={adminAuthed} onAdminAccess={handleAdminAccess} onNavigate={navigateTo} />
+      </div>
+    );
+  }
+
+  if (activePage === 'adstudio' && !adminAuthed) {
+    return (
+      <div className="bg-[var(--cp-bg)] min-h-screen">
+        {appModals}
+        <NavBar {...navProps} />
+        <main className="max-w-md mx-auto px-4 py-16 text-center">
+          <h1 className="text-3xl font-bold mb-3">Ad Studio is for staff</h1>
+          <p className="text-lg leading-relaxed mb-6">
+            This page stays locked until you sign in. You can sign in, or go back to the home page.
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              setShowPinModal(true);
+              setSignInNotice('');
+            }}
+            className="cp-btn-accent w-full min-h-12 px-6 py-4 text-lg mb-3"
+          >
+            Staff sign-in
+          </button>
+          <button
+            type="button"
+            onClick={() => navigateTo('inventory')}
+            className="cp-btn-outline w-full min-h-12 px-6 py-3 text-lg"
+          >
+            Back to home
+          </button>
+        </main>
         <Footer adminAuthed={adminAuthed} onAdminAccess={handleAdminAccess} onNavigate={navigateTo} />
       </div>
     );

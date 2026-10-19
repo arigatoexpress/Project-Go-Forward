@@ -171,9 +171,10 @@ def test_ad_studio_schedule_action_is_labeled_as_draft_only():
     assert "{ id: 'scheduled', label: 'Drafts'" in source
     assert "Prepare Draft" in source
     assert "Prepared Drafts" in source
-    assert "Drafts prepared while this screen stays open" in source
-    assert "Leaving or refreshing removes them" in source
-    assert "This stays on this screen only" in copy_source
+    assert "Saved on this browser until you sign out" in source
+    assert "Saved on this browser until you sign out" in copy_source
+    assert "Leaving or refreshing removes them" not in source
+    assert "This stays on this screen only" not in copy_source
     assert "Nothing was posted" in copy_source
     assert "Nothing is sent to a social platform" in source
     assert "Schedule Post" not in source
