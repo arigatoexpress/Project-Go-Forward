@@ -594,6 +594,21 @@ def test_generate_ad_flyer_strips_dash_ranges(monkeypatch, tmp_path):
     assert "$89,900" in rendered
 
 
+def test_generate_ad_flyer_fallback_body_uses_business_city(monkeypatch, tmp_path):
+    """An empty flyer body names the city from config_loader.business_city()."""
+    drawn = _spy_flyer_text(monkeypatch)
+    monkeypatch.setattr(marketing_tools, "GENERATED_ADS_DIR", str(tmp_path))
+    monkeypatch.setattr(marketing_tools, "_load_inventory_for_marketing", lambda: [])
+    monkeypatch.setattr(marketing_tools, "business_city", lambda: "Cedar Bayou")
+
+    result = marketing_tools.generate_ad_flyer(home_name="The Oak", body="")
+
+    assert result["success"] is True
+    rendered = " ".join(drawn)
+    assert "Cedar Bayou" in rendered
+    assert "Huffman" not in rendered
+
+
 def test_generate_ad_flyer_footer_uses_business_phone(monkeypatch, tmp_path):
     """The footer phone comes from config_loader.business_phone()."""
     drawn = _spy_flyer_text(monkeypatch)

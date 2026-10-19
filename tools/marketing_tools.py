@@ -19,7 +19,7 @@ import re
 import uuid
 from datetime import UTC, datetime
 
-from config_loader import business_phone
+from config_loader import business_city, business_phone
 
 try:
     from google.adk.tools import ToolContext
@@ -883,7 +883,7 @@ def generate_ad_flyer(
             draw.text((margin, y + 8), spec_line, font=meta_font, fill=gold)
 
         body_text = _strip_unapproved_dollar_amounts(
-            body or "Tour this home at Texas Home Outlet in Huffman.",
+            body or f"Tour this home at Texas Home Outlet in {business_city()}.",
             approved_label,
         )
         body_lines = _wrap_text(draw, body_text, body_font, width - margin * 2, max_lines=4)

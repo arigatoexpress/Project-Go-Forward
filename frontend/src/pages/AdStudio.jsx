@@ -10,6 +10,7 @@ import {
     Pause
 } from 'lucide-react';
 import adminFetch from '../adminFetch';
+import { BUSINESS_CITY } from '../constants';
 import GoogleAdsStatusCard from '../components/ad-studio/GoogleAdsStatusCard';
 import {
     AI_MEDIA_UNAVAILABLE,
@@ -608,7 +609,7 @@ export default function AdStudio({ onBack, initialTab = 'create' }) {
                 home_price: homePrice || undefined,
                 home_specs: homeSpecs || selectedHome?.specs,
                 headline: s?.hook || homeName || 'Featured THO Home',
-                body: cleanBody || 'Tour this home at Texas Home Outlet in Huffman.',
+                body: cleanBody || `Tour this home at Texas Home Outlet in ${BUSINESS_CITY}.`,
                 cta: s?.cta || 'Call or visit to tour it today',
                 platform,
                 home_photo_url: selectedRealPhoto || undefined,
