@@ -332,6 +332,43 @@ def _ad_price_for_named_home(home_name: str | None) -> str:
     return "Call for price"
 
 
+# $89,900, $89K, $650/month, and "under $75K" are prices. Listing words are not.
+_DOLLAR_AMOUNT_RE = re.compile(
+    r"\$\s*(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?"
+    r"(?:\s*[KkMm]\b)?"
+    r"(?:\s*/\s*(?:monthly|weekly|yearly|months?|weeks?|years?|mos?|wks?|yrs?)\b)?"
+    r"(?!\w)",
+    re.IGNORECASE,
+)
+
+
+def _dollar_amount_value(token: str) -> int | None:
+    """Whole dollars in a token such as $89,900, $89K, or $650/month."""
+    match = re.search(r"(\d[\d,]*(?:\.\d+)?)\s*([KkMm])?", token or "")
+    if not match:
+        return None
+    raw = match.group(1).replace(",", "")
+    suffix = (match.group(2) or "").lower()
+    multiplier = {"k": 1_000, "m": 1_000_000}.get(suffix, 1)
+    if "." in raw:
+        whole, frac = raw.split(".", 1)
+        cents = int(whole or "0") * 100 + int((frac + "00")[:2])
+    else:
+        cents = int(raw) * 100
+    return (cents * multiplier) // 100
+
+
+def _strip_unapproved_dollar_amounts(text: str, allowed_dollars: int | None) -> str:
+    """Keep only the owner-approved dollar amount. Replace every other price."""
+
+    def _replace(match: re.Match[str]) -> str:
+        if allowed_dollars is not None and _dollar_amount_value(match.group(0)) == allowed_dollars:
+            return match.group(0)
+        return "Call for price"
+
+    return _DOLLAR_AMOUNT_RE.sub(_replace, text)
+
+
 def get_inventory_for_ads(limit: int = 5, *, staff_publication: bool = False) -> dict:
     """
     Get current inventory highlights for ad creation context.
@@ -775,6 +812,9 @@ def generate_ad_flyer(
 
         # Ignore a caller-supplied home_price. The inventory flag decides the label.
         price = _ad_price_for_named_home(home_name)
+        allowed_dollars = (
+            None if price.strip().lower() == "call for price" else _dollar_amount_value(price)
+        )
         price_text = str(price)
         price_bbox = draw.textbbox((0, 0), price_text, font=meta_font)
         pill_w = price_bbox[2] - price_bbox[0] + 44
@@ -786,7 +826,10 @@ def generate_ad_flyer(
         )
         draw.text((pill_x + 22, pill_y + 12), price_text, font=meta_font, fill=burgundy)
 
-        title = headline or home_name or "Featured Home"
+        title = _strip_unapproved_dollar_amounts(
+            headline or home_name or "Featured Home",
+            allowed_dollars,
+        )
         title_lines = _wrap_text(draw, title, headline_font, width - margin * 2, max_lines=3)
         y = int(height * 0.12)
         for line in title_lines:
@@ -809,7 +852,10 @@ def generate_ad_flyer(
             draw.text((margin + 2, y + 10), spec_line, font=meta_font, fill=text_shadow)
             draw.text((margin, y + 8), spec_line, font=meta_font, fill=gold)
 
-        body_text = body or "Tour this home at Texas Home Outlet in Houston."
+        body_text = _strip_unapproved_dollar_amounts(
+            body or "Tour this home at Texas Home Outlet in Houston.",
+            allowed_dollars,
+        )
         body_lines = _wrap_text(draw, body_text, body_font, width - margin * 2, max_lines=4)
         y = int(height * 0.68)
         for line in body_lines:
@@ -817,7 +863,10 @@ def generate_ad_flyer(
             draw.text((margin, y), line, font=body_font, fill=cream)
             y += int(body_font.size * 1.22)
 
-        cta_text = cta or "Call or visit to tour it today"
+        cta_text = _strip_unapproved_dollar_amounts(
+            cta or "Call or visit to tour it today",
+            allowed_dollars,
+        )
         footer_top = height - margin - int(cta_font.size * 2.6)
         draw.rounded_rectangle(
             (margin, footer_top, width - margin, height - margin),
@@ -827,9 +876,10 @@ def generate_ad_flyer(
             width=max(3, width // 360),
         )
         draw.text((margin + 28, footer_top + 22), cta_text, font=cta_font, fill=cream)
+        # TODO(owner): confirm the correct business phone; config.yaml and the old flyer footer disagree
         draw.text(
             (margin + 28, footer_top + 22 + int(cta_font.size * 1.25)),
-            "281-657-7366  |  texashomeoutlet.com",
+            f"{business_phone()}  |  texashomeoutlet.com",
             font=small_font,
             fill=gold,
         )

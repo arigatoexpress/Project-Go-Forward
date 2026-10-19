@@ -6,6 +6,7 @@ from io import BytesIO
 from types import SimpleNamespace
 
 import pytest
+from PIL import ImageDraw
 
 from tools import marketing_tools, social_publishers
 
@@ -317,6 +318,115 @@ def test_generate_ad_flyer_ignores_unapproved_caller_price(monkeypatch, tmp_path
     assert "$89,900" in " ".join(drawn)
 
 
+def _spy_flyer_text(monkeypatch) -> list[str]:
+    drawn: list[str] = []
+    real_text = ImageDraw.ImageDraw.text
+
+    def _spy(self, xy, text, *args, **kwargs):
+        drawn.append(str(text))
+        return real_text(self, xy, text, *args, **kwargs)
+
+    monkeypatch.setattr(ImageDraw.ImageDraw, "text", _spy)
+    return drawn
+
+
+def test_generate_ad_flyer_strips_dollar_amounts_when_unapproved(monkeypatch, tmp_path):
+    """Headline, body, and CTA cannot carry a price the owner has not approved."""
+    drawn = _spy_flyer_text(monkeypatch)
+    monkeypatch.setattr(marketing_tools, "GENERATED_ADS_DIR", str(tmp_path))
+    monkeypatch.setattr(
+        marketing_tools,
+        "_load_inventory_for_marketing",
+        lambda: [
+            {
+                "model_name": "The Delight",
+                "pricing": {"display_price": "$89,900", "price_value": 89900},
+            }
+        ],
+    )
+
+    result = marketing_tools.generate_ad_flyer(
+        home_name="The Delight",
+        headline="Only $89,900!",
+        body="Payments from $650/month or under $75K.",
+        cta="Ask about $89K today",
+    )
+
+    assert result["success"] is True
+    rendered = "\n".join(drawn)
+    assert "Only $89,900!" not in rendered
+    assert "$" not in rendered
+    assert "Only Call for price!" in rendered
+    assert "Ask about Call for price today" in drawn
+    assert marketing_tools._strip_unapproved_dollar_amounts("Only $89,900!", None) == (
+        "Only Call for price!"
+    )
+    assert (
+        marketing_tools._strip_unapproved_dollar_amounts(
+            "Payments from $650/month or under $75K.",
+            None,
+        )
+        == "Payments from Call for price or under Call for price."
+    )
+
+
+def test_generate_ad_flyer_keeps_only_the_approved_price(monkeypatch, tmp_path):
+    """An approved home may show that price, and no other dollar amount."""
+    drawn = _spy_flyer_text(monkeypatch)
+    monkeypatch.setattr(marketing_tools, "GENERATED_ADS_DIR", str(tmp_path))
+    monkeypatch.setattr(
+        marketing_tools,
+        "_load_inventory_for_marketing",
+        lambda: [
+            {
+                "model_name": "The Delight",
+                "pricing": {
+                    "display_price": "$89,900",
+                    "price_value": 89900,
+                    "owner_approved_ad_price": True,
+                },
+            }
+        ],
+    )
+
+    result = marketing_tools.generate_ad_flyer(
+        home_name="The Delight",
+        headline="Only $89,900!",
+        body="Not $75,000 and not $650/month or under $75K.",
+        cta="Skip the $89K teaser",
+    )
+
+    assert result["success"] is True
+    rendered = "\n".join(drawn)
+    assert "Only $89,900!" in rendered
+    assert "$75,000" not in rendered
+    assert "$650/month" not in rendered
+    assert "$75K" not in rendered
+    assert "$89K" not in rendered
+    assert "Skip the Call for price teaser" in drawn
+    assert (
+        marketing_tools._strip_unapproved_dollar_amounts(
+            "Not $75,000 and not $650/month or under $75K.",
+            89900,
+        )
+        == "Not Call for price and not Call for price or under Call for price."
+    )
+
+
+def test_generate_ad_flyer_footer_uses_business_phone(monkeypatch, tmp_path):
+    """The footer phone comes from config_loader.business_phone()."""
+    drawn = _spy_flyer_text(monkeypatch)
+    monkeypatch.setattr(marketing_tools, "GENERATED_ADS_DIR", str(tmp_path))
+    monkeypatch.setattr(marketing_tools, "_load_inventory_for_marketing", lambda: [])
+    monkeypatch.setattr(marketing_tools, "business_phone", lambda: "TEST-PHONE")
+
+    result = marketing_tools.generate_ad_flyer(home_name="The Oak")
+
+    assert result["success"] is True
+    assert "TEST-PHONE  |  texashomeoutlet.com" in drawn
+    assert not any("281-657-7366" in line for line in drawn)
+
+
 def test_schedule_social_post_prepares_local_draft(monkeypatch):
     monkeypatch.setenv("PUBLIC_SITE_URL", "https://tho.example.com")
 
@@ -481,7 +591,10 @@ class TestUserSafeAiError:
     @pytest.mark.parametrize(
         "raw,code",
         [
-            ("403 PERMISSION_DENIED: project tho-ai-agent billing dunning decision is deny", "ai_service_unavailable"),
+            (
+                "403 PERMISSION_DENIED: project tho-ai-agent billing dunning decision is deny",
+                "ai_service_unavailable",
+            ),
             ("429 RESOURCE_EXHAUSTED quota exceeded", "ai_rate_limited"),
             ("401 unauthenticated: credentials missing", "ai_auth_error"),
             ("503 connection timed out, service unavailable", "ai_network_error"),
@@ -553,7 +666,9 @@ class TestFlyerImageHelpers:
     def test_wrap_text_truncates_with_ellipsis_at_max_lines(self):
         draw = self._draw()
         long_text = "word " * 60
-        lines = marketing_tools._wrap_text(draw, long_text, marketing_tools._font(14), 120, max_lines=3)
+        lines = marketing_tools._wrap_text(
+            draw, long_text, marketing_tools._font(14), 120, max_lines=3
+        )
         assert len(lines) <= 3
         assert lines[-1].endswith("...")
         assert " ".join(lines)[:-3] != long_text.rstrip()
@@ -604,7 +719,9 @@ class TestFlyerImageHelpers:
                 return None
 
         monkeypatch.setattr("requests.get", lambda url, timeout: _Resp())
-        image, source = marketing_tools._load_source_photo(home_photo_url="https://img.example/x.png")
+        image, source = marketing_tools._load_source_photo(
+            home_photo_url="https://img.example/x.png"
+        )
         assert source == "real_photo"
         assert image.size == (4, 4)
 
@@ -828,7 +945,11 @@ class TestGenerateAdImage:
 
     def test_all_models_fail_returns_user_safe_error(self, monkeypatch):
         client = _FakeGenAIClient()
-        client.image_responses = [RuntimeError("boom1"), RuntimeError("boom2"), RuntimeError("boom3")]
+        client.image_responses = [
+            RuntimeError("boom1"),
+            RuntimeError("boom2"),
+            RuntimeError("boom3"),
+        ]
         monkeypatch.setattr(marketing_tools, "_genai_client", lambda: client)
 
         result = marketing_tools.generate_ad_image(prompt="Backyard deck")
@@ -876,7 +997,9 @@ class TestGenerateContentScript:
     def test_variations_return_multiple_scripts(self, monkeypatch):
         client = _FakeGenAIClient()
         payload = _strong_script_payload()
-        client.content_responses.append([payload, {**payload, "hook": "$1,100/month rent? Own instead"}])
+        client.content_responses.append(
+            [payload, {**payload, "hook": "$1,100/month rent? Own instead"}]
+        )
         monkeypatch.setattr(marketing_tools, "_genai_client", lambda: client)
 
         result = marketing_tools.generate_content_script(
@@ -1028,9 +1151,7 @@ class TestGetTrendingContentIdeas:
         assert len(promo_ideas) == 1
         approved = self._inventory()
         approved[0]["pricing"]["owner_approved_ad_price"] = True
-        monkeypatch.setattr(
-            marketing_tools, "_load_inventory_for_marketing", lambda: approved
-        )
+        monkeypatch.setattr(marketing_tools, "_load_inventory_for_marketing", lambda: approved)
         approved_result = marketing_tools.get_trending_content_ideas()
         assert approved_result["top_priority"]["title"] == "Home Tour: The Mansion. $150,000."
 

@@ -536,7 +536,8 @@ export default function AdStudio({ onBack, initialTab = 'create' }) {
     const handleSelectHome = (home) => {
         setSelectedHome(home);
         setHomeName(home.model_name);
-        setHomePrice(home.display_price);
+        // Leave the price blank. Staff type a price; do not copy display_price.
+        setHomePrice('');
         setHomeSpecs(home.specs);
         setShowInventoryPicker(false);
         // Set real photos and Matterport from inventory data
