@@ -17,6 +17,7 @@ Bookmark the staff page on your phone and on the office computer.
 | [How to use Ad Studio](ad-studio-guide.md) | Write a social post or check the Google search ad. Nothing is posted, and it does not spend money. |
 | [Passkeys (optional)](passkey-setup-guide.md) | Background on passkeys. You do not need one. The sign-in page uses email. |
 | [Turn on email sign-in (owner only)](owner-setup-email-sign-in.md) | One-time setup steps for the owner. Most staff can skip this. |
+| [Things that trip up staff](staff-gotchas.md) | Check the mistakes that come up on prices, photos, sign-in, Ad Studio, and contracts, and the step to take for each. |
 
 ## Coming soon
 
