@@ -29,7 +29,15 @@ from scripts.google_ads_paused_worker_job import main, run_paused_create_job
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACT = json.loads((ROOT / "config" / "google_ads_launch_draft.json").read_text())
 SOURCE_REVISION = "a" * 40
-NOW = datetime.now(UTC)
+# Fixed instant. USD evidence in this module expires five minutes after NOW.
+# Capturing datetime.now() at import made that deadline a suite-runtime race:
+# a slow runner reached the job more than five minutes later and the default
+# wall clock rejected still-intended evidence.
+NOW = datetime(2026, 8, 12, 12, 0, tzinfo=UTC)
+
+
+def _clock() -> datetime:
+    return NOW
 
 
 class _Provider:
@@ -59,7 +67,7 @@ class _Provider:
 
 
 def _ledger(state=DeploymentState.PAUSED_CREATE_APPROVED):
-    ledger = InMemoryAuthorityLedger()
+    ledger = InMemoryAuthorityLedger(clock=_clock)
     source = StaticContractSource(CONTRACT)
     draft = DraftReviewControlPlane(ledger, source).ensure_internal_draft()
     validated = DraftReviewControlPlane(ledger, source).server_validate(draft.deployment_id)
@@ -107,6 +115,7 @@ def test_fixed_job_consumes_only_existing_approval_and_server_owned_contract():
         contract_loader=lambda: CONTRACT,
         provider_factory=lambda **kwargs: captured.append(set(kwargs)) or provider,
         environ=_environ(),
+        clock=_clock,
     )
 
     assert result.state is DeploymentState.PAUSED_CREATED
@@ -133,6 +142,7 @@ def test_unapproved_authority_is_inert_and_never_touches_provider():
         contract_loader=lambda: CONTRACT,
         provider_factory=lambda **_kwargs: called.append(True),
         environ=_environ(),
+        clock=_clock,
     )
 
     assert result.state is DeploymentState.SERVER_VALIDATED
@@ -153,6 +163,7 @@ def test_direct_worker_invocation_is_inert_while_outbox_is_pending():
         contract_loader=lambda: CONTRACT,
         provider_factory=lambda **_kwargs: called.append(True),
         environ=_environ(),
+        clock=_clock,
     )
 
     assert result.state is DeploymentState.PAUSED_CREATE_APPROVED
@@ -197,7 +208,7 @@ def test_worker_requires_fresh_revision_bound_usd_evidence_before_provider(evide
         contract_loader=lambda: CONTRACT,
         provider_factory=lambda **_kwargs: called.append(True),
         environ=_environ(),
-        clock=lambda: NOW,
+        clock=_clock,
     )
 
     assert result.error_code == "worker_currency_evidence_unavailable"
@@ -221,11 +232,29 @@ def test_provider_failure_rearms_accepted_dispatch_without_marking_success():
         contract_loader=lambda: CONTRACT,
         provider_factory=lambda **_kwargs: FailingProvider(),
         environ=_environ(),
+        clock=_clock,
     )
 
     assert result.state is DeploymentState.PAUSED_CREATE_APPROVED
     assert result.error_code == "provider_validation_failed"
     assert settled == [(deployment_id(CONTRACT), "sha256:" + "d" * 64)]
+
+
+def test_five_minute_evidence_survives_wall_clock_past_module_load(monkeypatch):
+    """The slow-runner failure: default job clock is 5m07s after evidence was stamped.
+
+    These two cases previously omitted ``clock`` and inherited ``_utc_now``.
+    Their fixtures expire five minutes after ``NOW``. A wall clock past that
+    deadline must not turn a fresh injected clock into
+    ``worker_currency_evidence_unavailable``.
+    """
+    monkeypatch.setattr(
+        "scripts.google_ads_paused_worker_job._utc_now",
+        lambda: NOW + timedelta(minutes=5, seconds=7),
+    )
+
+    test_fixed_job_consumes_only_existing_approval_and_server_owned_contract()
+    test_provider_failure_rearms_accepted_dispatch_without_marking_success()
 
 
 @pytest.mark.parametrize(
@@ -252,6 +281,7 @@ def test_invalid_fixed_runtime_configuration_fails_before_provider(changed):
             contract_loader=lambda: CONTRACT,
             provider_factory=lambda **_kwargs: called.append(True),
             environ=environment,
+            clock=_clock,
         )
 
     assert called == []
@@ -275,6 +305,7 @@ def test_job_rejects_corrupt_authority_identity_before_provider(corrupt):
             contract_loader=lambda: CONTRACT,
             provider_factory=lambda **_kwargs: called.append(True),
             environ=_environ(),
+            clock=_clock,
         )
 
     assert called == []
