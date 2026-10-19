@@ -100,7 +100,7 @@ describe('Ad Studio flyer price', () => {
     }];
 
     render(<AdStudio onBack={vi.fn()} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Browse Inventory' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Choose a home' }));
     fireEvent.click(await screen.findByRole('button', { name: /The Delight/ }));
 
     const priceField = screen.getByPlaceholderText(/Call for Price/);

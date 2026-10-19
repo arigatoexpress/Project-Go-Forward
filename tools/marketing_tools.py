@@ -618,9 +618,10 @@ def generate_ad_image(
     try:
         from google.genai import types
     except Exception as exc:
+        logger.error("Picture tool is unavailable: %s", exc)
         return {
             "success": False,
-            "error": f"Google GenAI SDK unavailable: {exc}",
+            "error": "The picture was not created. Nothing was posted. Try again.",
             "hint": "Install google-genai and deploy with Vertex AI credentials.",
         }
 
@@ -671,7 +672,7 @@ def generate_ad_image(
         if not response.generated_images:
             return {
                 "success": False,
-                "error": "Image generation returned no results. The prompt may have been filtered for safety. Try adjusting your description.",
+                "error": "The picture was not created. Try a different description. Nothing was posted.",
                 "filtered": True,
             }
 
@@ -882,7 +883,7 @@ def generate_ad_flyer(
             draw.text((margin, y + 8), spec_line, font=meta_font, fill=gold)
 
         body_text = _strip_unapproved_dollar_amounts(
-            body or "Tour this home at Texas Home Outlet in Houston.",
+            body or "Tour this home at Texas Home Outlet in Huffman.",
             approved_label,
         )
         body_lines = _wrap_text(draw, body_text, body_font, width - margin * 2, max_lines=4)
@@ -937,7 +938,12 @@ def generate_ad_flyer(
         }
     except Exception as e:
         logger.error(f"Flyer generation failed: {e}")
-        return {"success": False, **_user_safe_ai_error(e)}
+        safe_error = _user_safe_ai_error(e)
+        return {
+            "success": False,
+            "error": "The flyer was not created. Nothing was posted. Try again.",
+            "error_code": safe_error.get("error_code", "ai_unknown_error"),
+        }
 
 
 # ─── Content Script Generation ───
@@ -1404,9 +1410,10 @@ def generate_content_script(
     try:
         from google.genai import types
     except Exception as exc:
+        logger.error("Script tool is unavailable: %s", exc)
         return {
             "success": False,
-            "error": f"Google GenAI SDK unavailable: {exc}",
+            "error": "The script was not written. Nothing was posted. Please try again.",
             "status": "gcp_not_ready",
         }
 
@@ -1822,7 +1829,7 @@ def get_trending_content_ideas(
         "recommended_posting_schedule": {
             "tiktok": "1-2x daily for maximum reach",
             "instagram_reels": "1x daily",
-            "facebook": "1x daily, boost top performers",
+            "facebook": "1x daily",
         },
         "inventory_loaded": len(inventory) > 0,
         "inventory_count": len(inventory),
@@ -2023,7 +2030,7 @@ def generate_script_voiceover(
         if len(clean_text) < 10:
             return {
                 "success": False,
-                "error": "Script text too short for voiceover (need at least 10 characters)",
+                "error": "The script is too short to read aloud. Add a little more, then try again.",
             }
 
         # Set up the voice and audio config

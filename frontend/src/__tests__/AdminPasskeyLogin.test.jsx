@@ -58,7 +58,7 @@ describe('Admin passkey sign-in recovery', () => {
     expect(button.parentElement.nextElementSibling).toBe(alert);
     expect(screen.queryByText('Raw browser prompt detail')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /Use backup PIN/i }));
-    expect(screen.getByLabelText('Admin PIN')).toBeInTheDocument();
+    expect(screen.getByLabelText('Backup PIN')).toBeInTheDocument();
     expect(button).toBeEnabled();
     expect(fetch.mock.calls.some(([url]) => url === '/api/admin/passkey/login/complete')).toBe(false);
 
@@ -94,6 +94,6 @@ describe('Admin passkey sign-in recovery', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Sign-in is temporarily unavailable.');
     expect(getCredential).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: /Use backup PIN/i }));
-    expect(screen.getByLabelText('Admin PIN')).toBeInTheDocument();
+    expect(screen.getByLabelText('Backup PIN')).toBeInTheDocument();
   });
 });

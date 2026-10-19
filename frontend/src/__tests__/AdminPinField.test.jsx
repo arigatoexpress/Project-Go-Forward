@@ -37,7 +37,7 @@ function mockFetch() {
 function openPinModal() {
   fireEvent.click(screen.getByRole('button', { name: /Admin access/i }));
   fireEvent.click(screen.getByRole('button', { name: /Use backup PIN/i }));
-  return screen.getByLabelText('Admin PIN');
+  return screen.getByLabelText('Backup PIN');
 }
 
 describe('Admin PIN field', () => {

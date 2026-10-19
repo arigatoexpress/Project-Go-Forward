@@ -37,10 +37,10 @@ function StudioApp() {
           setShowPin(false);
         }
       } else {
-        setPinError('Invalid PIN');
+        setPinError('That PIN did not work. Ask the owner if you need a new one.');
       }
     } catch {
-      setPinError('Connection error');
+      setPinError('We could not reach the server. Check your connection and try again.');
     }
   };
 
@@ -60,13 +60,14 @@ function StudioApp() {
             <Video className="h-8 w-8 text-blue-600" />
             <h1 className="text-xl font-bold dark:text-white">Ad Studio</h1>
           </div>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">Enter admin PIN to access</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">Use the backup PIN from the owner.</p>
           <input
             type="password"
             autoComplete="current-password"
             value={pin}
             onChange={e => { setPin(e.target.value); setPinError(''); }}
-            placeholder="Admin PIN"
+            placeholder="Backup PIN"
+            aria-label="Backup PIN"
             className="w-full px-4 py-3 border rounded-lg mb-3 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
             autoFocus
           />

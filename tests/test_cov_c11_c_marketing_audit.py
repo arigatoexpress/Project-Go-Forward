@@ -423,7 +423,8 @@ def test_generate_ad_image_reports_missing_genai_types(monkeypatch):
     result = marketing_tools.generate_ad_image(prompt="Front porch")
 
     assert result["success"] is False
-    assert "Google GenAI SDK unavailable" in result["error"]
+    assert result["error"] == "The picture was not created. Nothing was posted. Try again."
+    assert "GenAI" not in result["error"]
     assert "hint" in result
 
 
@@ -660,7 +661,8 @@ def test_generate_content_script_reports_missing_genai_types(monkeypatch):
 
     assert result["success"] is False
     assert result["status"] == "gcp_not_ready"
-    assert "Google GenAI SDK unavailable" in result["error"]
+    assert result["error"] == "The script was not written. Nothing was posted. Please try again."
+    assert "GenAI" not in result["error"]
 
 
 def test_generate_content_script_asset_import_failure_propagates(monkeypatch):

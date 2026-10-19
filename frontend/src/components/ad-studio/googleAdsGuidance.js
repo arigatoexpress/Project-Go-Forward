@@ -41,8 +41,8 @@ export const GATE_GUIDANCE = {
     missing: 'The owner has not allowed a turned-off campaign to be created yet.',
   },
   cloud_readiness_verified: {
-    ok: 'Google Cloud setup for ads is finished.',
-    missing: 'The owner still needs to finish the Google Cloud setup for ads.',
+    ok: 'The owner finished the Google setup for ads.',
+    missing: 'The owner still needs to finish the Google setup for ads.',
   },
   iam_verified: {
     ok: 'Ads account permissions are in place.',
