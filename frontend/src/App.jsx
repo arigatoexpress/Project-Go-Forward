@@ -44,6 +44,7 @@ import {
 } from './constants';
 
 const API_URL = '/run'; // Relative path for single-container deployment
+const ADMIN_SIGN_IN_CHECK_TIMEOUT_MS = 8000;
 
 function chatMessageIncludesContact(text) {
   const value = String(text || '');
@@ -907,13 +908,27 @@ function App() {
   }
   const lastLoginTime = useRef(0);
 
-  // Verify stored cookie on mount
+  // Verify stored cookie on mount. A hung check must not leave staff on the
+  // checking screen. The timeout fails closed: locked page, and saved staff
+  // drafts are cleared the same way an invalid check clears them.
   useEffect(() => {
     let active = true;
-    fetch('/api/admin/check', { headers: { Accept: 'application/json' }, credentials: 'same-origin' })
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      if (!active) return;
+      clearStaffDrafts();
+      setAdminSignInCheck('signed-out');
+      controller.abort();
+    }, ADMIN_SIGN_IN_CHECK_TIMEOUT_MS);
+    fetch('/api/admin/check', {
+      headers: { Accept: 'application/json' },
+      credentials: 'same-origin',
+      signal: controller.signal,
+    })
       .then(r => r.ok ? r.json() : null)
       .then(data => {
-        if (!active) return;
+        if (!active || controller.signal.aborted) return;
+        clearTimeout(timer);
         if (data?.valid) {
           setAdminAuthed(true);
           setAdminSignInCheck('signed-in');
@@ -924,9 +939,15 @@ function App() {
         }
       })
       .catch(() => {
-        if (active) setAdminSignInCheck('signed-out');
+        if (!active || controller.signal.aborted) return;
+        clearTimeout(timer);
+        setAdminSignInCheck('signed-out');
       });
-    return () => { active = false; };
+    return () => {
+      active = false;
+      clearTimeout(timer);
+      controller.abort();
+    };
   }, []);
 
   // Direct links to admin-only pages should ask for PIN instead of silently
