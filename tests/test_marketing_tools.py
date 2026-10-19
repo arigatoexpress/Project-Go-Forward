@@ -1,5 +1,6 @@
 import base64
 import json
+import re
 import sys
 import types
 from io import BytesIO
@@ -407,10 +408,114 @@ def test_generate_ad_flyer_keeps_only_the_approved_price(monkeypatch, tmp_path):
     assert (
         marketing_tools._strip_unapproved_dollar_amounts(
             "Not $75,000 and not $650/month or under $75K.",
-            89900,
+            "$89,900",
         )
         == "Not Call for price and not Call for price or under Call for price."
     )
+
+
+_DANGLING_CALL_FOR_PRICE = re.compile(
+    r"Call for price(?:"
+    r"-|\s*/|\s*[KkMm]\b"
+    r"|\s+(?:a|per)\s+(?:month|week|year)\b"
+    r"|\s+(?:monthly|down|dollars|bucks|USD)\b"
+    r")",
+    re.IGNORECASE,
+)
+
+
+@pytest.mark.parametrize(
+    "phrase",
+    [
+        "12,345 dollars",
+        "89900 USD",
+        "USD 89,900",
+        "US$ 89,900",
+        "500 bucks",
+        "$650 a month",
+        "$650 per month",
+        "$650 monthly",
+        "$650/mo",
+        "$12-15K",
+        "$12K-$15K",
+        "$12 to $15K",
+        "$0 down",
+        "$5,000 down",
+        "Save $5,000",
+        "$89,900/month",
+    ],
+)
+def test_strip_disguised_prices_even_when_the_amount_matches_approved(phrase):
+    """A suffix, currency word, range, or savings pitch is not the bare sticker."""
+    stripped = marketing_tools._strip_unapproved_dollar_amounts(phrase, "$89,900")
+    assert stripped == "Call for price"
+    assert _DANGLING_CALL_FOR_PRICE.search(stripped) is None
+
+
+def test_strip_keeps_only_the_bare_approved_price():
+    assert marketing_tools._strip_unapproved_dollar_amounts("Only $89,900!", "$89,900") == (
+        "Only $89,900!"
+    )
+    assert marketing_tools._strip_unapproved_dollar_amounts("$89,900", "$89,900") == "$89,900"
+
+
+def test_generate_ad_flyer_strips_disguised_prices_and_keeps_bare_approved(monkeypatch, tmp_path):
+    """Approved $89,900 stays bare. Payment, word, and range forms do not render."""
+    drawn = _spy_flyer_text(monkeypatch)
+    monkeypatch.setattr(marketing_tools, "GENERATED_ADS_DIR", str(tmp_path))
+    monkeypatch.setattr(
+        marketing_tools,
+        "_load_inventory_for_marketing",
+        lambda: [
+            {
+                "model_name": "The Delight",
+                "pricing": {
+                    "display_price": "$89,900",
+                    "price_value": 89900,
+                    "owner_approved_ad_price": True,
+                },
+            }
+        ],
+    )
+    hidden = (
+        "12,345 dollars. 89900 USD. USD 89,900. US$ 89,900. 500 bucks. "
+        "$650 a month. $650/mo. $12-15K. $12K-$15K. $12 to $15K. "
+        "$0 down. $5,000 down. Save $5,000. $89,900/month."
+    )
+
+    result = marketing_tools.generate_ad_flyer(
+        home_name="The Delight",
+        headline="Only $89,900!",
+        body="The sticker is $89,900.",
+        cta=hidden,
+    )
+
+    assert result["success"] is True
+    rendered = "\n".join(drawn)
+    assert "Only $89,900!" in rendered
+    assert "The sticker is $89,900." in rendered
+    assert hidden not in rendered
+    for fragment in (
+        "12,345",
+        "89900",
+        "USD 89,900",
+        "US$ 89,900",
+        "500 bucks",
+        "$650",
+        "a month",
+        "$12-15K",
+        "-15K",
+        "$12K",
+        "$15K",
+        "$0 down",
+        "$5,000",
+        "Save",
+        "$89,900/month",
+        "/month",
+    ):
+        assert fragment not in rendered
+    assert _DANGLING_CALL_FOR_PRICE.search(rendered) is None
+    assert "Call for price. Call for price." in rendered
 
 
 def test_generate_ad_flyer_footer_uses_business_phone(monkeypatch, tmp_path):
