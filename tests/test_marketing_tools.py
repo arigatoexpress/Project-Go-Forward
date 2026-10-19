@@ -416,9 +416,9 @@ def test_generate_ad_flyer_keeps_only_the_approved_price(monkeypatch, tmp_path):
 
 _DANGLING_CALL_FOR_PRICE = re.compile(
     r"Call for price(?:"
-    r"-|\s*/|\s*[KkMm]\b"
+    r"[-+\u2013\u2014]|\s*/|\s*[KkMm]\b"
     r"|\s+(?:a|per)\s+(?:month|week|year)\b"
-    r"|\s+(?:monthly|down|dollars|bucks|USD)\b"
+    r"|\s+(?:monthly|months?|mos?|down|dollars|bucks|USD)\b"
     r")",
     re.IGNORECASE,
 )
@@ -443,6 +443,13 @@ _DANGLING_CALL_FOR_PRICE = re.compile(
         "$5,000 down",
         "Save $5,000",
         "$89,900/month",
+        "$12\u201315K",
+        "$12\u201415K",
+        "$89,900\u2013$95,000",
+        "$89,900\u2014$95,000",
+        "$650 mo",
+        "$75k+",
+        "USD89,900",
     ],
 )
 def test_strip_disguised_prices_even_when_the_amount_matches_approved(phrase):
@@ -457,6 +464,24 @@ def test_strip_keeps_only_the_bare_approved_price():
         "Only $89,900!"
     )
     assert marketing_tools._strip_unapproved_dollar_amounts("$89,900", "$89,900") == "$89,900"
+
+
+def test_strip_leaves_counts_phones_years_and_model_numbers():
+    """Plain counts, sizes, phones, years, and model numbers are not prices."""
+    samples = (
+        "65k",
+        "Only 2 left",
+        "10 down",
+        "1,280 sq ft",
+        "1,464 sqft",
+        "(281) 324-3020",
+        "281-657-7366",
+        "Built in 2024",
+        "Model 2840",
+        "The Delight 16x80",
+    )
+    for sample in samples:
+        assert marketing_tools._strip_unapproved_dollar_amounts(sample, "$89,900") == sample
 
 
 def test_generate_ad_flyer_strips_disguised_prices_and_keeps_bare_approved(monkeypatch, tmp_path):
@@ -516,6 +541,57 @@ def test_generate_ad_flyer_strips_disguised_prices_and_keeps_bare_approved(monke
         assert fragment not in rendered
     assert _DANGLING_CALL_FOR_PRICE.search(rendered) is None
     assert "Call for price. Call for price." in rendered
+
+
+def test_generate_ad_flyer_strips_dash_ranges(monkeypatch, tmp_path):
+    """An en dash or em dash range is one price, never a bare approved sticker."""
+    drawn = _spy_flyer_text(monkeypatch)
+    monkeypatch.setattr(marketing_tools, "GENERATED_ADS_DIR", str(tmp_path))
+    monkeypatch.setattr(
+        marketing_tools,
+        "_load_inventory_for_marketing",
+        lambda: [
+            {
+                "model_name": "The Delight",
+                "pricing": {
+                    "display_price": "$89,900",
+                    "price_value": 89900,
+                    "owner_approved_ad_price": True,
+                },
+            }
+        ],
+    )
+    headline = "$12\u201315K"
+    body = "$89,900\u2013$95,000"
+    cta = "$12\u201415K. $89,900\u2014$95,000. $650 mo. $75k+. USD89,900."
+
+    result = marketing_tools.generate_ad_flyer(
+        home_name="The Delight",
+        headline=headline,
+        body=body,
+        cta=cta,
+    )
+
+    assert result["success"] is True
+    rendered = "\n".join(drawn)
+    for phrase in (
+        headline,
+        body,
+        "$12\u201415K",
+        "$89,900\u2014$95,000",
+        "$650 mo",
+        "$75k+",
+        "USD89,900",
+    ):
+        assert phrase not in rendered
+    assert "\u2013" not in rendered
+    assert "\u2014" not in rendered
+    assert "15K" not in rendered
+    assert "95,000" not in rendered
+    assert "Call for price+" not in rendered
+    assert "Call for price mo" not in rendered
+    assert _DANGLING_CALL_FOR_PRICE.search(rendered) is None
+    assert "$89,900" in rendered
 
 
 def test_generate_ad_flyer_footer_uses_business_phone(monkeypatch, tmp_path):

@@ -333,6 +333,7 @@ def _ad_price_for_named_home(home_name: str | None) -> str:
 
 
 # A price token includes the amount, a K suffix, a payment phrase, and a range.
+# Hyphen, en dash (\u2013), and em dash (\u2014) are the same range separator.
 # Listing words such as 3BR are not prices. Only a bare approved sticker may stay.
 _PRICE_NUMBER = r"(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?"
 _PRICE_MAGNITUDE = r"(?:\s*[KkMm]\b)?"
@@ -340,22 +341,25 @@ _PRICE_PAYMENT = (
     r"(?:"
     r"\s*/\s*(?:monthly|weekly|yearly|months?|weeks?|years?|mos?|wks?|yrs?)\b"
     r"|\s+(?:per|a)\s+(?:month|week|year)\b"
-    r"|\s+monthly\b"
+    r"|\s+(?:monthly|months?|weeks?|years?|mos?|wks?|yrs?)\b"
     r"|\s+down\b"
     r")"
 )
+_RANGE_DASH = "-\u2013\u2014"
 _PRICE_RANGE = (
     r"(?:"
-    r"\s*-\s*(?:US\$|USD\b|\$)?\s*"
+    r"\s*["
+    + _RANGE_DASH
+    + r"]\s*(?:US\$|USD(?=\s|\d)|\$)?\s*"
     + _PRICE_NUMBER
     + _PRICE_MAGNITUDE
-    + r"|\s+to\s+(?:US\$|USD\b|\$)\s*"
+    + r"|\s+to\s+(?:US\$|USD(?=\s|\d)|\$)\s*"
     + _PRICE_NUMBER
     + _PRICE_MAGNITUDE
     + r")"
 )
 _PREFIXED_PRICE = (
-    r"(?:US\$|USD\b|\$)\s*"
+    r"(?:US\$|USD(?=\s|\d)|\$)\s*"
     + _PRICE_NUMBER
     + _PRICE_MAGNITUDE
     + r"(?:"
@@ -369,7 +373,7 @@ _WORDED_PRICE = (
 )
 _SAVINGS_PHRASE = r"(?:\b(?:savings\s+of|saving|save)(?:\s+up\s+to)?\s+)?"
 _DOLLAR_AMOUNT_RE = re.compile(
-    _SAVINGS_PHRASE + r"(?:" + _PREFIXED_PRICE + r"|" + _WORDED_PRICE + r")(?!\w)",
+    _SAVINGS_PHRASE + r"(?:" + _PREFIXED_PRICE + r"|" + _WORDED_PRICE + r")\+?(?!\w)",
     re.IGNORECASE,
 )
 _BARE_APPROVED_PRICE_RE = re.compile(r"\$(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?\Z")
