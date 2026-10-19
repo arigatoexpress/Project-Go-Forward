@@ -437,6 +437,7 @@ def test_font_falls_back_to_pillow_default(monkeypatch):
 def test_generate_ad_flyer_without_photo_uses_branded_fallback(monkeypatch, tmp_path):
     """L709: no source photo -> solid branded canvas."""
     monkeypatch.setattr(marketing_tools, "GENERATED_ADS_DIR", str(tmp_path))
+    monkeypatch.setattr(marketing_tools, "_load_inventory_for_marketing", lambda: [])
     result = marketing_tools.generate_ad_flyer(home_name="The Oak", platform="tiktok")
     assert result["success"] is True
     assert result["source"] == "branded_fallback"
@@ -501,10 +502,23 @@ def test_scorer_matches_bedroom_bathroom_and_br_ba_forms():
     compact = marketing_tools._score_script_quality(
         _scorable(hook="3BR/2BA on the lot"), platform="tiktok"
     )
+    sq_ft = marketing_tools._score_script_quality(
+        _scorable(hook="1,200 sq ft ready"), platform="tiktok"
+    )
+    brand = marketing_tools._score_script_quality(
+        _scorable(hook="2 brand new"), platform="tiktok"
+    )
     assert bedroom["scores"]["hook_strength"] == 9
     assert compact["scores"]["hook_strength"] == 9
+    assert sq_ft["scores"]["hook_strength"] == 9
+    assert brand["scores"]["hook_strength"] == 7
     assert not any("real listing details" in issue for issue in bedroom["issues"])
     assert not any("real listing details" in issue for issue in compact["issues"])
+    assert not any("real listing details" in issue for issue in sq_ft["issues"])
+    assert any("real listing details" in issue for issue in brand["issues"])
+    assert marketing_tools._LISTING_DETAIL_RE.search("2 brand new") is None
+    assert marketing_tools._LISTING_DETAIL_RE.search("3BR/2BA")
+    assert marketing_tools._LISTING_DETAIL_RE.search("1,200 sq ft")
 
 
 def test_scorer_flags_boring_preamble_hook():

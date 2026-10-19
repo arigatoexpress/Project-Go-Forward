@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 # Beds, baths, square feet, and compact forms such as 3BR/2BA.
 _LISTING_DETAIL_RE = re.compile(
-    r"\b(?:bed(?:room)?s?|bath(?:room)?s?|sqft|square feet)\b|\d+\s*BR|\d+\s*BA",
+    r"\b(?:bed(?:room)?s?|bath(?:room)?s?|sqft|sq\.? ?ft|square feet)\b|\b\d+\s*(?:BR|BA)\b",
     re.IGNORECASE,
 )
 
@@ -405,9 +405,10 @@ def get_inventory_for_ads(limit: int = 5, *, staff_publication: bool = False) ->
             matterport_url = get_matterport_url(matterport_id)
 
         pricing = h.get("pricing") or {}
-        # Ad drafts quote a dollar amount only when the owner flagged that home.
-        # The staff publication read is the sale price the editor published on
-        # the storefront, so that path keeps the published display price.
+        # staff_publication is the storefront published-price read behind
+        # public GET /api/marketing/inventory-context. It keeps the sale price
+        # the editor published. Ad features that reuse this payload must apply
+        # the owner-approval gate before quoting a dollar amount.
         if staff_publication:
             display_price = pricing.get("display_price", "Call for Price")
             price_value = pricing.get("price_value", 0)
@@ -772,7 +773,8 @@ def generate_ad_flyer(
         draw.text((margin + 2, margin + 2), brand, font=brand_font, fill=text_shadow)
         draw.text((margin, margin), brand, font=brand_font, fill=gold)
 
-        price = home_price or "Call for Price"
+        # Ignore a caller-supplied home_price. The inventory flag decides the label.
+        price = _ad_price_for_named_home(home_name)
         price_text = str(price)
         price_bbox = draw.textbbox((0, 0), price_text, font=meta_font)
         pill_w = price_bbox[2] - price_bbox[0] + 44

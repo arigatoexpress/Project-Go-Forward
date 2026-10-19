@@ -1722,7 +1722,7 @@ def _crawlable_city_block(city: str) -> str:
         f"{e(city)}, TX from the {e(business_city())} showroom at "
         f"{e(business_address())}. Call "
         f'<a href="tel:{e(business_phone())}">{e(business_phone())}</a> '
-        f"for the current price. Homes and floorplans offered by our Huffman showroom:</p>"
+        f"for the current price. Homes and floorplans offered by our {e(business_city())} showroom:</p>"
         f"{_storefront_links(path)}"
         f"<ul>{''.join(items)}</ul>"
         f'<p><a href="/appointments">Book a showroom visit</a></p>'
