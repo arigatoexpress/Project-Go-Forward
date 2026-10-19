@@ -140,7 +140,7 @@ export function draftCardCopy(post) {
     kind: contentTypeLabel(post?.content_type),
     status: ready ? 'Ready to review here' : 'Saved on this screen',
     notice: post?.persisted === false
-      ? 'Saved on this browser until you sign out. Nothing was posted.'
+      ? 'Saved on this browser until you sign out or your session times out. Nothing was posted.'
       : 'Nothing was posted to TikTok, Instagram, or Facebook.',
   };
 }

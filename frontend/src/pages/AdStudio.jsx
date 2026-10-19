@@ -2077,7 +2077,7 @@ export default function AdStudio({ onBack, initialTab = 'create' }) {
     const renderScheduled = () => (
         <div className="tho-scheduled-page">
             <h2 className="tho-page-title">📋 Prepared Drafts</h2>
-            <p className="tho-page-subtitle">Saved on this browser until you sign out. Nothing is posted.</p>
+            <p className="tho-page-subtitle">Saved on this browser until you sign out or your session times out. Nothing is posted.</p>
 
             {preparedDrafts.length === 0 ? (
                 <div className="tho-empty-state">

@@ -59,7 +59,9 @@ describe('Ad Studio staff copy', () => {
     });
     expect(card.title).toBe('TikTok draft');
     expect(card.status).toBe('Ready to review here');
-    expect(card.notice).toMatch(/until you sign out/i);
+    expect(card.notice).toBe(
+      'Saved on this browser until you sign out or your session times out. Nothing was posted.',
+    );
     expect(card.notice).toMatch(/nothing was posted/i);
     expect(JSON.stringify(card)).not.toMatch(/DRAFT-TT|SCR-1|draft_ready/);
   });

@@ -46,4 +46,6 @@ You do not set up Google, and you do not edit code.
 
 ## Need help?
 
+See [Things that trip up staff](staff-gotchas.md) for the usual mistakes and the one step to try.
+
 If something does not work, take a screenshot and send it to the owner.

@@ -142,7 +142,7 @@ describe('Ad Studio prepare draft', () => {
 
     expect(await screen.findByText('TikTok draft')).toBeInTheDocument();
     expect(screen.getByText('Ready to review here')).toBeInTheDocument();
-    expect(screen.getByText('Saved on this browser until you sign out. Nothing was posted.')).toBeInTheDocument();
+    expect(screen.getByText('Saved on this browser until you sign out or your session times out. Nothing was posted.')).toBeInTheDocument();
     expect(screen.getByText(/Look at this home/)).toBeInTheDocument();
     expect(screen.getByText(/Three bedrooms on a quiet lot/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Copy' })).toBeEnabled();

@@ -703,8 +703,11 @@ function App() {
   }, []);
 
 
-  // Admin auth — token validated by backend via httpOnly cookie
+  // Admin auth. The token is validated by the backend via an httpOnly cookie.
+  // adminSignInCheck stays "checking" until that first response, so a refresh
+  // of /ad-studio does not flash the locked page.
   const [adminAuthed, setAdminAuthed] = useState(false);
+  const [adminSignInCheck, setAdminSignInCheck] = useState('checking');
   const [showPinModal, setShowPinModal] = useState(false);
   const [signInNotice, setSignInNotice] = useState('');
 
@@ -784,7 +787,7 @@ function App() {
       });
       const data = await completeRes.json();
       if (data.success) {
-        setAdminAuthed(true); setShowPinModal(false); setPasskeyError('');
+        setAdminAuthed(true); setAdminSignInCheck('signed-in'); setShowPinModal(false); setPasskeyError('');
         navigateTo('staff-home');
       } else {
         setPasskeyError(safeUserMessage(extractErrorMessage(data), 'Passkey login failed'));
@@ -866,7 +869,7 @@ function App() {
       });
       const data = await completeRes.json();
       if (data.success) {
-        setAdminAuthed(true); setShowPinModal(false); setPasskeyError('');
+        setAdminAuthed(true); setAdminSignInCheck('signed-in'); setShowPinModal(false); setPasskeyError('');
         setShowPasskeyEmailModal(false);
         setPasskeyEmail(data.email || normalizedEmail);
         window.localStorage.setItem('tho_passkey_email', data.email || normalizedEmail);
@@ -906,21 +909,34 @@ function App() {
 
   // Verify stored cookie on mount
   useEffect(() => {
+    let active = true;
     fetch('/api/admin/check', { headers: { Accept: 'application/json' }, credentials: 'same-origin' })
       .then(r => r.ok ? r.json() : null)
       .then(data => {
+        if (!active) return;
         if (data?.valid) {
           setAdminAuthed(true);
+          setAdminSignInCheck('signed-in');
           keepOnlyCurrentStaffDrafts();
-        } else if (data && data.valid === false) clearStaffDrafts();
+        } else {
+          if (data && data.valid === false) clearStaffDrafts();
+          setAdminSignInCheck('signed-out');
+        }
       })
-      .catch(() => {});
+      .catch(() => {
+        if (active) setAdminSignInCheck('signed-out');
+      });
+    return () => { active = false; };
   }, []);
 
   // Direct links to admin-only pages should ask for PIN instead of silently
-  // falling back to the public shell.
+  // falling back to the public shell. /ad-studio waits for the session check
+  // so a refresh does not open the sign-in panel over a still-valid session.
   useEffect(() => {
     let mounted = true;
+    if (activePage === 'adstudio' && adminSignInCheck === 'checking') {
+      return undefined;
+    }
     if (ADMIN_PAGE_KEYS.has(activePage) && !adminAuthed) {
       // Small delay to allow mounted check or session verify to finish
       const timer = setTimeout(() => {
@@ -932,7 +948,8 @@ function App() {
       }, 100);
       return () => { mounted = false; clearTimeout(timer); };
     }
-  }, [activePage, adminAuthed]);
+    return undefined;
+  }, [activePage, adminAuthed, adminSignInCheck]);
 
   useEffect(() => {
     if (adminAuthed) {
@@ -951,6 +968,7 @@ function App() {
       }
       clearStaffDrafts();
       setAdminAuthed(false);
+      setAdminSignInCheck('signed-out');
       setShowPinModal(true);
       setSignInNotice('Session expired — please sign in again');
     };
@@ -1168,6 +1186,7 @@ function App() {
   const completeStaffSignIn = () => {
     lastLoginTime.current = Date.now();
     setAdminAuthed(true);
+    setAdminSignInCheck('signed-in');
     setShowPinModal(false);
     setSignInNotice('');
     const destination = activePage === 'staff-sign-in'
@@ -1195,6 +1214,7 @@ function App() {
       // The button still leaves the screen. The cookie clear is best-effort.
     }
     setAdminAuthed(false);
+    setAdminSignInCheck('signed-out');
     setShowPinModal(false);
     setSignInNotice('');
     navigateTo('inventory');
@@ -1662,6 +1682,21 @@ function App() {
             <SecureHub dealId={activeDealId} />
           </Suspense>
         </ErrorBoundary>
+        <Footer adminAuthed={adminAuthed} onAdminAccess={handleAdminAccess} onNavigate={navigateTo} />
+      </div>
+    );
+  }
+
+  if (activePage === 'adstudio' && adminSignInCheck === 'checking') {
+    return (
+      <div className="bg-[var(--cp-bg)] min-h-screen">
+        <NavBar {...navProps} />
+        <main className="max-w-md mx-auto px-4 py-16 text-center">
+          <h1 className="text-3xl font-bold mb-3">Checking your sign-in...</h1>
+          <p className="text-lg leading-relaxed">
+            One moment while we check whether this browser is signed in.
+          </p>
+        </main>
         <Footer adminAuthed={adminAuthed} onAdminAccess={handleAdminAccess} onNavigate={navigateTo} />
       </div>
     );
