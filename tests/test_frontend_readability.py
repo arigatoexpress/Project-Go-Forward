@@ -171,8 +171,11 @@ def test_ad_studio_schedule_action_is_labeled_as_draft_only():
     assert "{ id: 'scheduled', label: 'Drafts'" in source
     assert "Prepare Draft" in source
     assert "Prepared Drafts" in source
-    assert "Saved on this browser until you sign out" in source
-    assert "Saved on this browser until you sign out" in copy_source
+    saved = "Saved on this browser until you sign out or your session times out"
+    assert saved in source
+    assert saved in copy_source
+    assert "Saved on this browser until you sign out." not in source
+    assert "Saved on this browser until you sign out." not in copy_source
     assert "Leaving or refreshing removes them" not in source
     assert "This stays on this screen only" not in copy_source
     assert "Nothing was posted" in copy_source
