@@ -332,6 +332,74 @@ def _ad_price_for_named_home(home_name: str | None) -> str:
     return "Call for price"
 
 
+# A price token includes the amount, a K suffix, a payment phrase, and a range.
+# Hyphen, en dash (\u2013), and em dash (\u2014) are the same range separator.
+# Listing words such as 3BR are not prices. Only a bare approved sticker may stay.
+_PRICE_NUMBER = r"(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?"
+_PRICE_MAGNITUDE = r"(?:\s*[KkMm]\b)?"
+_PRICE_PAYMENT = (
+    r"(?:"
+    r"\s*/\s*(?:monthly|weekly|yearly|months?|weeks?|years?|mos?|wks?|yrs?)\b"
+    r"|\s+(?:per|a)\s+(?:month|week|year)\b"
+    r"|\s+(?:monthly|months?|weeks?|years?|mos?|wks?|yrs?)\b"
+    r"|\s+down\b"
+    r")"
+)
+_RANGE_DASH = "-\u2013\u2014"
+_PRICE_RANGE = (
+    r"(?:"
+    r"\s*["
+    + _RANGE_DASH
+    + r"]\s*(?:US\$|USD(?=\s|\d)|\$)?\s*"
+    + _PRICE_NUMBER
+    + _PRICE_MAGNITUDE
+    + r"|\s+to\s+(?:US\$|USD(?=\s|\d)|\$)\s*"
+    + _PRICE_NUMBER
+    + _PRICE_MAGNITUDE
+    + r")"
+)
+_PREFIXED_PRICE = (
+    r"(?:US\$|USD(?=\s|\d)|\$)\s*"
+    + _PRICE_NUMBER
+    + _PRICE_MAGNITUDE
+    + r"(?:"
+    + _PRICE_RANGE
+    + r")?(?:"
+    + _PRICE_PAYMENT
+    + r")?"
+)
+_WORDED_PRICE = (
+    _PRICE_NUMBER + _PRICE_MAGNITUDE + r"\s+(?:dollars|bucks|USD)\b(?:" + _PRICE_PAYMENT + r")?"
+)
+_SAVINGS_PHRASE = r"(?:\b(?:savings\s+of|saving|save)(?:\s+up\s+to)?\s+)?"
+_DOLLAR_AMOUNT_RE = re.compile(
+    _SAVINGS_PHRASE + r"(?:" + _PREFIXED_PRICE + r"|" + _WORDED_PRICE + r")\+?(?!\w)",
+    re.IGNORECASE,
+)
+_BARE_APPROVED_PRICE_RE = re.compile(r"\$(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?\Z")
+
+
+def _bare_approved_price(label: str | None) -> str | None:
+    """The approved sticker, when it is a bare dollar amount with no suffix."""
+    text = (label or "").strip()
+    if _BARE_APPROVED_PRICE_RE.fullmatch(text):
+        return text
+    return None
+
+
+def _strip_unapproved_dollar_amounts(text: str, approved_label: str | None) -> str:
+    """Replace every price except the bare approved sticker for this home."""
+    allowed = _bare_approved_price(approved_label)
+
+    def _replace(match: re.Match[str]) -> str:
+        token = match.group(0).strip()
+        if allowed is not None and token == allowed:
+            return match.group(0)
+        return "Call for price"
+
+    return _DOLLAR_AMOUNT_RE.sub(_replace, text)
+
+
 def get_inventory_for_ads(limit: int = 5, *, staff_publication: bool = False) -> dict:
     """
     Get current inventory highlights for ad creation context.
@@ -773,9 +841,10 @@ def generate_ad_flyer(
         draw.text((margin + 2, margin + 2), brand, font=brand_font, fill=text_shadow)
         draw.text((margin, margin), brand, font=brand_font, fill=gold)
 
-        # Ignore a caller-supplied home_price. The inventory flag decides the label.
+        # Ignore a caller-supplied home_price. Only a bare approved sticker is drawn.
         price = _ad_price_for_named_home(home_name)
-        price_text = str(price)
+        approved_label = _bare_approved_price(price)
+        price_text = approved_label or "Call for price"
         price_bbox = draw.textbbox((0, 0), price_text, font=meta_font)
         pill_w = price_bbox[2] - price_bbox[0] + 44
         pill_h = price_bbox[3] - price_bbox[1] + 26
@@ -786,7 +855,10 @@ def generate_ad_flyer(
         )
         draw.text((pill_x + 22, pill_y + 12), price_text, font=meta_font, fill=burgundy)
 
-        title = headline or home_name or "Featured Home"
+        title = _strip_unapproved_dollar_amounts(
+            headline or home_name or "Featured Home",
+            approved_label,
+        )
         title_lines = _wrap_text(draw, title, headline_font, width - margin * 2, max_lines=3)
         y = int(height * 0.12)
         for line in title_lines:
@@ -809,7 +881,10 @@ def generate_ad_flyer(
             draw.text((margin + 2, y + 10), spec_line, font=meta_font, fill=text_shadow)
             draw.text((margin, y + 8), spec_line, font=meta_font, fill=gold)
 
-        body_text = body or "Tour this home at Texas Home Outlet in Houston."
+        body_text = _strip_unapproved_dollar_amounts(
+            body or "Tour this home at Texas Home Outlet in Houston.",
+            approved_label,
+        )
         body_lines = _wrap_text(draw, body_text, body_font, width - margin * 2, max_lines=4)
         y = int(height * 0.68)
         for line in body_lines:
@@ -817,7 +892,10 @@ def generate_ad_flyer(
             draw.text((margin, y), line, font=body_font, fill=cream)
             y += int(body_font.size * 1.22)
 
-        cta_text = cta or "Call or visit to tour it today"
+        cta_text = _strip_unapproved_dollar_amounts(
+            cta or "Call or visit to tour it today",
+            approved_label,
+        )
         footer_top = height - margin - int(cta_font.size * 2.6)
         draw.rounded_rectangle(
             (margin, footer_top, width - margin, height - margin),
@@ -827,9 +905,10 @@ def generate_ad_flyer(
             width=max(3, width // 360),
         )
         draw.text((margin + 28, footer_top + 22), cta_text, font=cta_font, fill=cream)
+        # TODO(owner): confirm the correct business phone; config.yaml and the old flyer footer disagree
         draw.text(
             (margin + 28, footer_top + 22 + int(cta_font.size * 1.25)),
-            "281-657-7366  |  texashomeoutlet.com",
+            f"{business_phone()}  |  texashomeoutlet.com",
             font=small_font,
             fill=gold,
         )
