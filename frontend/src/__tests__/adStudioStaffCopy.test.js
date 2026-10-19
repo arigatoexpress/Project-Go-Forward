@@ -30,6 +30,8 @@ describe('Ad Studio staff copy', () => {
       .toMatch(/book a tour/i);
     expect(plainQualityIssue('Traceback (most recent call last)')).toMatch(/another pass/i);
     expect(plainQualityIssue('Hook too long — should be under 12 words')).not.toMatch(/hook/i);
+    expect(plainQualityIssue('No real listing details. Add beds, baths, or square feet.'))
+      .toMatch(/bedrooms, size, or Call for Price/i);
   });
 
   it('rewrites analytics codes and does not echo an internal draft id', () => {

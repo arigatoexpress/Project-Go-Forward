@@ -597,7 +597,7 @@ export default function AdStudio({ onBack, initialTab = 'create' }) {
         try {
             const result = await apiGenerateFlyer({
                 home_name: homeName || selectedHome?.model_name || 'Featured Home',
-                home_price: homePrice || selectedHome?.display_price,
+                home_price: homePrice || undefined,
                 home_specs: homeSpecs || selectedHome?.specs,
                 headline: s?.hook || homeName || 'Featured THO Home',
                 body: cleanBody || 'Tour this home at Texas Home Outlet in Houston.',

@@ -1084,7 +1084,7 @@ export default function InventoryBrowse({
   const orderableCount = routeHomes.filter(h => getAvailabilityKind(h) === 'orderable_floorplan').length;
   const tourCount = routeHomes.filter(h => h.matterport_id).length;
   // Total houses the customer can get = on-lot homes + orderable floorplans.
-  // The on-lot homes (lot models) are surfaced as "Special Deals".
+  // The on-lot homes (lot models) use the label "On the Lot".
   const housesCount = newCount + orderableCount;
   const heroHome = routeHomes.find(home => getHomeImage(home) && getAvailabilityKind(home) !== 'orderable_floorplan') || routeHomes.find(home => getHomeImage(home)) || routeHomes[0];
   const heroImage = getHomeImage(heroHome);
@@ -1154,7 +1154,7 @@ export default function InventoryBrowse({
 
             <div className="mt-6 grid gap-3 sm:grid-cols-3">
               <InventoryMetric icon={Home} label="Houses" value={housesCount} tone="blue" />
-              <InventoryMetric icon={Tag} label="Special Deals" value={newCount} />
+              <InventoryMetric icon={Tag} label="On the Lot" value={newCount} />
               <InventoryMetric icon={Box} label="3D Tours" value={tourCount} tone="warn" />
             </div>
 
@@ -1266,7 +1266,7 @@ export default function InventoryBrowse({
             <button
               onClick={() => setFilters(f => ({ ...f, status: 'available_now' }))}
               className={`${PILL_BTN} ${filters.status === 'available_now' ? 'bg-[var(--cp-accent)] text-[var(--cp-bg)]' : 'bg-[var(--cp-panel)] text-[var(--cp-muted)] hover:text-[var(--cp-text)] hover:border-[var(--cp-border-light)]'}`}
-            >Special Deals ({newCount})</button>
+            >On the Lot ({newCount})</button>
             <button
               onClick={() => setFilters(f => ({ ...f, status: 'orderable_floorplan' }))}
               className={`${PILL_BTN} ${filters.status === 'orderable_floorplan' ? 'bg-[var(--cp-accent)] text-[var(--cp-bg)]' : 'bg-[var(--cp-panel)] text-[var(--cp-muted)] hover:text-[var(--cp-text)] hover:border-[var(--cp-border-light)]'}`}

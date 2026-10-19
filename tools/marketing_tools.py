@@ -15,8 +15,11 @@ import base64
 import json
 import logging
 import os
+import re
 import uuid
 from datetime import UTC, datetime
+
+from config_loader import business_phone
 
 try:
     from google.adk.tools import ToolContext
@@ -24,6 +27,12 @@ except ImportError:
     ToolContext = None
 
 logger = logging.getLogger(__name__)
+
+# Beds, baths, square feet, and compact forms such as 3BR/2BA.
+_LISTING_DETAIL_RE = re.compile(
+    r"\b(?:bed(?:room)?s?|bath(?:room)?s?|sqft|sq\.? ?ft|square feet)\b|\b\d+\s*(?:BR|BA)\b",
+    re.IGNORECASE,
+)
 
 try:
     from tools.inventory_dedupe import is_preowned, suppress_used_home_catalog_photos
@@ -235,6 +244,7 @@ BANNED_WORDS = [
     "not your grandfather's",
 ]
 
+# TODO(owner): confirm which homes have an approved public ad price before any script states a dollar amount.
 THO_BRAND_VOICE = (
     """
 TEXAS HOME OUTLET BRAND VOICE — MANDATORY:
@@ -242,13 +252,12 @@ TEXAS HOME OUTLET BRAND VOICE — MANDATORY:
 TONE: Casual, warm, specific, Texas-friendly. Talk like a real person on camera, not a marketing department.
 
 DO:
-- Use exact numbers: "$89,900", "1,680 sqft", "3 bed/2 bath"
+- Use real details from the listing (beds, baths, size). Use a price only if the owner approved it for that home. Otherwise say Call for Price.
 - Reference specific rooms: "granite countertops in the kitchen", "walk-in closet in the master"
 - Write like you're literally walking through the home, pointing at things
 - Use short, punchy sentences. One thought per line.
 - Be enthusiastic because the VALUE is real, not because you're selling
 - Ground every claim in a specific detail (don't say "spacious" — say "this living room is 18 feet across")
-- Include at least one moment of genuine surprise or contrast ("and THIS is only $74k")
 - Reference local context: Houston, FM 1960, Texas heat, the lot
 
 DON'T:
@@ -264,14 +273,9 @@ DON'T:
 - Write long flowing paragraphs — this is VIDEO, write in short visual beats
 
 EXAMPLES OF GOOD HOOKS:
-- "This 3 bed/2 bath just hit the lot at $89,900. Yeah, you read that right."
-- "Your apartment rent could literally buy you THIS house. Let me show you."
-- "I'm standing inside a $65,000 home and people keep thinking it's $200K."
-- "POV: You stopped paying rent and bought a whole house instead."
+- "Here's what a 3 bed, 2 bath manufactured home on our Huffman lot looks like inside."
 - "Everyone told me manufactured homes were ugly. Then I walked into this one."
-- "$1,200/month rent. Or $650/month mortgage on THIS. You pick."
-- "They quoted me $350K for a stick-built. I got the same thing for $89K."
-- "3 bedrooms, 2 baths, and a kitchen bigger than my first apartment. Under $75K."
+- "3 bedrooms, 2 baths, and a full-size kitchen. Call for price."
 
 EXAMPLES OF BAD HOOKS (never write anything like these):
 - "Are you looking for your dream home?" (generic, boring, no specifics)
@@ -302,6 +306,30 @@ def _load_inventory_for_marketing():
     except Exception as e:
         logger.warning(f"Failed to load inventory for marketing: {e}")
         return []
+
+
+def _owner_approved_ad_price_label(pricing: dict | None) -> str:
+    """A dollar amount belongs in ad copy only when the owner set the flag."""
+    pricing = pricing if isinstance(pricing, dict) else {}
+    approved = str(pricing.get("display_price") or "").strip()
+    if (
+        pricing.get("owner_approved_ad_price") is True
+        and approved
+        and approved.lower() != "call for price"
+    ):
+        return approved
+    return "Call for price"
+
+
+def _ad_price_for_named_home(home_name: str | None) -> str:
+    """Price for a featured home, or Call for price when the flag is not set."""
+    name = (home_name or "").strip().lower()
+    if not name:
+        return "Call for price"
+    for home in _load_inventory_for_marketing():
+        if (home.get("model_name") or "").strip().lower() == name:
+            return _owner_approved_ad_price_label(home.get("pricing"))
+    return "Call for price"
 
 
 def get_inventory_for_ads(limit: int = 5, *, staff_publication: bool = False) -> dict:
@@ -376,14 +404,27 @@ def get_inventory_for_ads(limit: int = 5, *, staff_publication: bool = False) ->
         if matterport_id and not matterport_url:
             matterport_url = get_matterport_url(matterport_id)
 
+        pricing = h.get("pricing") or {}
+        # staff_publication is the storefront published-price read behind
+        # public GET /api/marketing/inventory-context. It keeps the sale price
+        # the editor published. Ad features that reuse this payload must apply
+        # the owner-approval gate before quoting a dollar amount.
+        if staff_publication:
+            display_price = pricing.get("display_price", "Call for Price")
+            price_value = pricing.get("price_value", 0)
+        else:
+            display_price = _owner_approved_ad_price_label(pricing)
+            price_value = (
+                pricing.get("price_value", 0) if display_price.lower() != "call for price" else 0
+            )
         home_data = {
             "id": h.get("id", ""),
             "model_name": h.get("model_name", "Unknown"),
             "manufacturer": h.get("manufacturer", ""),
             "classification": h.get("classification", ""),
             "status": h.get("status", "Available"),
-            "display_price": h.get("pricing", {}).get("display_price", "Call for Price"),
-            "price_value": h.get("pricing", {}).get("price_value", 0),
+            "display_price": display_price,
+            "price_value": price_value,
             "specs": h.get("specs", {}),
             "features": h.get("features", [])[:5],
             "image_url": h.get("image_url", ""),
@@ -732,7 +773,8 @@ def generate_ad_flyer(
         draw.text((margin + 2, margin + 2), brand, font=brand_font, fill=text_shadow)
         draw.text((margin, margin), brand, font=brand_font, fill=gold)
 
-        price = home_price or "Call for Price"
+        # Ignore a caller-supplied home_price. The inventory flag decides the label.
+        price = _ad_price_for_named_home(home_name)
         price_text = str(price)
         price_bbox = draw.textbbox((0, 0), price_text, font=meta_font)
         pill_w = price_bbox[2] - price_bbox[0] + 44
@@ -839,7 +881,7 @@ CONTENT_THEMES = [
 THEME_EXAMPLES = {
     "home_tour": """EXAMPLE SCRIPT (home_tour):
 [SHOT: exterior wide, golden hour] (0:00-0:03)
-"$74,900. Three bedrooms, two baths. Let me show you what that buys."
+"Three bedrooms, two baths. Let me show you what that buys."
 
 [SHOT: front door opens into living room] (0:03-0:06)
 "Open floor plan. Ceilings feel tall because they are — vaulted throughout."
@@ -860,7 +902,7 @@ CTA: "Come see it — link in bio. We're on FM 1960 in Huffman."
 "People say manufactured homes look cheap. Okay, walk with me."
 
 [SHOT: cut to kitchen with pendant lights, island] (0:02-0:06)
-"This kitchen has quartz countertops and soft-close cabinets. The same stuff in a $300K stick-built."
+"This kitchen has quartz countertops and soft-close cabinets."
 
 [SHOT: bathroom with tiled shower] (0:06-0:09)
 "Tiled walk-in shower. Not a plastic insert — actual tile."
@@ -868,58 +910,24 @@ CTA: "Come see it — link in bio. We're on FM 1960 in Huffman."
 [SHOT: exterior curb view] (0:09-0:13)
 "From the street, tell me this looks 'cheap.' I'll wait."
 
-[SHOT: price tag graphic overlay] (0:13-0:16)
-"$82,000. That's the whole home. Not a down payment — the whole thing."
-
 CTA: "Still think they're cheap? Come see for yourself. Appointments in bio."
 """,
     "financing_tips": """EXAMPLE SCRIPT (financing_tips):
-[SHOT: sitting at desk, calculator visible] (0:00-0:03)
-"$1,400 a month rent. That's $16,800 a year you'll never see again."
-
-[SHOT: home exterior with price overlay] (0:03-0:07)
-"This 3 bed/2 bath? $69,900. With FHA, your monthly payment is around $650."
-
 [SHOT: interior living room] (0:07-0:10)
 "You keep the equity. You paint the walls. You own it."
 
-[SHOT: close-up, talking directly to camera] (0:10-0:14)
-"We have homes starting under $50K. Your credit doesn't have to be perfect — we work with you."
-
-CTA: "DM me 'PAYMENT' and I'll run your numbers for free."
+CTA: "Call [store phone] to talk through financing options with our team."
 """,
     "clearance_alert": """EXAMPLE SCRIPT (clearance_alert):
-[SHOT: lot wide shot, multiple homes visible] (0:00-0:02)
-"Three homes just got marked down and nobody's talking about it."
-
-[SHOT: first home exterior] (0:02-0:05)
-"This 2 bed/1 bath was $45K. It's $34,900 now."
-
 [SHOT: second home interior, kitchen] (0:05-0:08)
-"3 bed/2 bath, full kitchen, pre-owned but clean. $52,000."
-
-[SHOT: walking through third home] (0:08-0:12)
-"And this one — just got its price cut today. First person to call gets it."
-
-CTA: "These don't last. Call (281) 324-3020 or link in bio."
+"3 bed/2 bath, full kitchen, pre-owned but clean."
 """,
     "comparison": """EXAMPLE SCRIPT (comparison):
-[SPLIT SCREEN: apartment on left, home on right] (0:00-0:03)
-"Left: 2 bed apartment, Houston. $1,400/month. Right: 3 bed home, yours. $680/month."
-
 [SHOT: apartment parking lot] (0:03-0:06)
 "Shared parking. Noise upstairs. Can't paint the walls."
 
 [SHOT: home's backyard] (0:06-0:09)
 "Your own yard. Your own driveway. Grill whenever you want."
-
-[SHOT: apartment lease paper] (0:09-0:12)
-"In 5 years, the apartment costs you $84,000 and you own nothing."
-
-[SHOT: home exterior, proud pose] (0:12-0:15)
-"In 5 years, this home? You've built $30K in equity AND your payment went down."
-
-CTA: "Run your numbers — DM me or hit the link."
 """,
     "behind_scenes": """EXAMPLE SCRIPT (behind_scenes):
 [SHOT: truck arriving with home on flatbed] (0:00-0:03)
@@ -929,37 +937,24 @@ CTA: "Run your numbers — DM me or hit the link."
 "Built in a factory — climate controlled, no rain delays. Then delivered to your lot."
 
 [SHOT: crew connecting utilities] (0:07-0:10)
-"Hook up water, electric, AC. Inspection day is next week."
+"Hook up water, electric, AC. Timing depends on the factory, your site work, and financing. We'll give you an estimate when you order."
 
-[SHOT: finished home, family walking in] (0:10-0:14)
-"From order to move-in: about 6-8 weeks. Try that with a stick-built."
+Use real photos of the home. Show people only with written permission. If the post shows people, show a range of buyers and never present AI-made people as customers.
 
 CTA: "Want to see the process? Come visit the lot. We walk you through everything."
 """,
     "customer_story": """EXAMPLE SCRIPT (customer_story):
-[SHOT: customer standing in front of their new home] (0:00-0:03)
-"Maria was paying $1,500/month rent for a 1-bedroom. Now she owns this."
+Use real photos of the home. Show people only with written permission. If the post shows people, show a range of buyers and never present AI-made people as customers.
 
-[SHOT: interior, kids playing in living room] (0:03-0:07)
-"3 bedrooms. Her kids each have their own room for the first time."
-
-[SHOT: kitchen, Maria cooking] (0:07-0:10)
-"Her mortgage? $720 a month. Less than half her old rent."
-
-[SHOT: Maria smiling at camera] (0:10-0:14)
-"She said the hardest part was believing it was real. We hear that a lot."
-
-CTA: "Your story could be next. Let's talk — link in bio."
+[SHOT: interior living room] (0:03-0:07)
+"3 bedrooms."
 """,
     "faq": """EXAMPLE SCRIPT (faq):
 [SHOT: reading phone, DM visible] (0:00-0:02)
 "Number one question in my DMs: 'Do manufactured homes hold value?'"
 
-[SHOT: chart/graphic overlay showing appreciation] (0:02-0:06)
-"Short answer: yes. Especially on owned land. Texas manufactured homes appreciated 5-7% last year."
-
 [SHOT: home exterior] (0:06-0:09)
-"This isn't 1985. Modern manufactured homes are built to HUD federal code. Same inspections. Real foundations."
+"This isn't 1985. Modern manufactured homes are built to the federal HUD Code and inspected during construction."
 
 [SHOT: close-up, direct to camera] (0:09-0:13)
 "The stigma is outdated. The value is real. Come see one in person and tell me I'm wrong."
@@ -1015,8 +1010,7 @@ PLATFORM_PROMPTS = {
 - Longer storytelling format (30-60 seconds)
 - Lead with the VALUE PROPOSITION in first 3 seconds
 - More informational/educational tone (Facebook audience skews older)
-- Include specific pricing, financing details, and location info
-- Strong social proof elements (reviews, sales numbers)
+- Include location info and real home details.
 - End with clear CTA to call, visit, or message
 - Can be more detailed than TikTok/IG""",
 }
@@ -1093,10 +1087,8 @@ def _score_script_quality(
     elif hook_words > 20:
         hook_score -= 2
         issues.append("Hook too long — should be under 12 words")
-    if _re.search(r"\$[\d,]+", hook):
-        hook_score += 2  # Dollar amount in hook = great
-    elif any(w in hook for w in ["$", "sqft", "bed", "bath", "%"]):
-        hook_score += 1
+    if _LISTING_DETAIL_RE.search(hook):
+        hook_score += 2  # Real listing details, not a dollar amount
     if (
         hook.startswith("are you")
         or hook.startswith("have you ever")
@@ -1113,12 +1105,10 @@ def _score_script_quality(
 
     # 2. Specificity (1-10)
     spec_score = 2
-    numbers_found = _re.findall(
-        r"\$[\d,]+|\d{3,}[\s]?sq|[\d]+\s?bed|[\d]+\s?bath|\d{3,}\s?sqft", full_text
-    )
+    numbers_found = _LISTING_DETAIL_RE.findall(full_text)
     spec_score += min(4, len(numbers_found))
     if not numbers_found:
-        issues.append("No specific numbers — add price, sqft, or bed/bath count")
+        issues.append("No real listing details. Add beds, baths, or square feet.")
     if home_name and home_name.lower() in full_text:
         spec_score += 2
     room_words = [
@@ -1266,7 +1256,7 @@ RULES FOR IMPROVEMENT:
 - Remove ALL banned words and replace with natural alternatives
 - Keep the same general structure and intent
 - Make it sound like a real person talking, not AI
-- Maintain specific numbers and home details
+- Keep real home details
 - Keep the hook under 10 words
 
 Return ONLY the improved script as JSON:
@@ -1397,7 +1387,7 @@ the viewer will see the REAL kitchen from these photos, not a stock image.
                         f"- {h.get('model_name', 'Home')} by {h.get('manufacturer', 'THO')}: "
                         f"{specs.get('beds', '?')}BR/{specs.get('baths', '?')}BA, "
                         f"{specs.get('sq_ft', '?')} sqft, "
-                        f"{h.get('pricing', {}).get('display_price', 'Call for Price')}"
+                        f"{_owner_approved_ad_price_label(h.get('pricing'))}"
                     )
                 inventory_context = f"""
 CURRENT INVENTORY HIGHLIGHTS (use these real details in the script):
@@ -1406,10 +1396,12 @@ CURRENT INVENTORY HIGHLIGHTS (use these real details in the script):
 Pick the most compelling home for this {content_theme} theme, or reference multiple homes for comparison content.
 """
     else:
+        # Ignore a caller-supplied home_price unless this home's flag is set.
+        featured_price = _ad_price_for_named_home(home_name)
         inventory_context = f"""
 FEATURED HOME:
 - Name: {home_name}
-- Price: {home_price or 'Call for Price'}
+- Price: {featured_price}
 - Specs: {json.dumps(home_specs or {})}
 {photo_context}
 {matterport_context}
@@ -1424,6 +1416,9 @@ Use these EXACT details in the script. Do not make up specifications.
     theme_example = THEME_EXAMPLES.get(content_theme, "")
     theme_example_section = ""
     if theme_example:
+        # Static examples cannot read config.yaml. Fill [store phone] at prompt build.
+        store_phone = business_phone() or "[store phone]"
+        theme_example = theme_example.replace("[store phone]", store_phone)
         theme_example_section = f"""
 HERE IS AN EXAMPLE OF A HIGH-QUALITY {content_theme.upper().replace('_', ' ')} SCRIPT.
 Study its structure, pacing, shot direction, and tone. Match this quality level.
@@ -1436,11 +1431,11 @@ Do NOT copy it — write something original using the FEATURED HOME details abov
     if variations > 1:
         variation_instruction = f"""
 Generate {variations} COMPLETELY DIFFERENT script variations. Rules:
-- Each MUST use a different hook style (e.g., V1: bold price claim, V2: "POV:" format, V3: myth-busting question)
+- Each MUST use a different hook style (e.g., V1: bold detail claim, V2: "POV:" format, V3: myth-busting question)
 - Each MUST take a different emotional angle (e.g., V1: logical/numbers-driven, V2: aspirational/emotional, V3: funny/relatable)
 - Each should feel like it was written by a different creator, not just the same script reworded
 - Vary sentence length and pacing across variations
-- ALL variations must still include specific numbers and home details
+- ALL variations must still include real home details
 
 Return them as a JSON array of {variations} script objects.
 """
@@ -1493,13 +1488,10 @@ CUSTOM HOOK: {custom_hook or "Generate your own viral hook"}
 
 VIRAL CONTENT PRINCIPLES FOR MANUFACTURED HOMES:
 1. Address the #1 objection: "Manufactured homes are cheap/ugly" — PROVE them wrong
-2. Lead with the surprising value prop: "Own for less than rent"
-3. Show specific numbers: listing prices, sqft, bedrooms
-4. Use comparison framing: apartment vs. home ownership
-5. Create FOMO: "This home won't last at this price"
-6. End with engagement hooks: questions, polls, "comment if..."
-7. NEVER start with "Are you looking for..." or "Have you ever dreamed of..."
-8. EVERY script MUST include at least one specific number (price, sqft, beds/baths)
+2. Use real details (beds, baths, square feet). Do not use a dollar amount unless the owner approved it.
+3. End with engagement hooks: questions, polls, "comment if..."
+4. NEVER start with "Are you looking for..." or "Have you ever dreamed of..."
+5. Every script must include at least one real detail from the listing, such as beds, baths, or square feet. Use a price only if the owner approved it.
 
 Output as JSON format:
 {json_format}
@@ -1656,7 +1648,7 @@ def get_trending_content_ideas(
 
     Args:
         inventory_highlights: List of featured homes to promote
-        recent_sales: Number of recent sales for social proof content
+        recent_sales: Accepted for callers. Not used. A sales count is not a public claim until the owner verifies it.
         current_promotions: Active promotions (Red Tag, Year End, etc.)
         tool_context: ADK tool context
 
@@ -1676,13 +1668,16 @@ def get_trending_content_ideas(
         if priced:
             top_home = priced[0]
             specs = top_home.get("specs", {})
+            model_name = top_home.get("model_name") or "Featured Home"
+            # A dollar amount belongs in this title only when the owner set the flag.
+            price_label = _owner_approved_ad_price_label(top_home.get("pricing"))
             ideas.append(
                 {
                     "type": "home_tour",
-                    "title": f"Home Tour: {top_home.get('model_name', 'Featured Home')} — {top_home.get('pricing', {}).get('display_price', '')}",
+                    "title": f"Home Tour: {model_name}. {price_label}.",
                     "platform_priority": ["tiktok", "instagram_reels", "facebook"],
                     "trending_potential": "very high",
-                    "notes": f"{specs.get('beds', '?')}BR/{specs.get('baths', '?')}BA, {specs.get('sq_ft', '?')} sqft by {top_home.get('manufacturer', 'THO')}. Tour the best-looking model on the lot!",
+                    "notes": f"{specs.get('beds', '?')}BR/{specs.get('baths', '?')}BA, {specs.get('sq_ft', '?')} sqft by {top_home.get('manufacturer', 'THO')}. Tour the {top_home.get('model_name') or 'Featured Home'} on the lot.",
                     "home_id": top_home.get("id"),
                     "home_name": top_home.get("model_name"),
                 }
@@ -1694,26 +1689,12 @@ def get_trending_content_ideas(
             ideas.append(
                 {
                     "type": "financing_tips",
-                    "title": f"Own a Home for {cheapest.get('pricing', {}).get('display_price', '')}!",
+                    "title": f"{cheapest.get('model_name') or 'Featured Home'} on our Huffman lot. Call for price.",
                     "platform_priority": ["tiktok", "facebook"],
                     "trending_potential": "high",
-                    "notes": f"Show the {cheapest.get('model_name', '')} and highlight the affordable price point. Apartment vs ownership comparison.",
+                    "notes": f"Show the {cheapest.get('model_name') or 'Featured Home'} on our Huffman lot.",
                     "home_id": cheapest.get("id"),
                     "home_name": cheapest.get("model_name"),
-                }
-            )
-
-        # Pre-owned deals
-        preowned = [h for h in inventory if "pre-owned" in h.get("status", "").lower()]
-        if preowned:
-            ideas.append(
-                {
-                    "type": "clearance_alert",
-                    "title": f"Pre-Owned Homes Starting Under $30K! ({len(preowned)} Available)",
-                    "platform_priority": ["tiktok", "facebook"],
-                    "trending_potential": "very high",
-                    "notes": "Budget homes are VIRAL. Show the value — home ownership for less than a used car.",
-                    "home_count": len(preowned),
                 }
             )
 
@@ -1725,13 +1706,6 @@ def get_trending_content_ideas(
             "platform_priority": ["tiktok", "instagram_reels"],
             "trending_potential": "high",
             "notes": "These always perform well — people love being proven wrong. Show modern interiors.",
-        },
-        {
-            "type": "comparison",
-            "title": "Apartment vs Own This Home (Same Price!)",
-            "platform_priority": ["tiktok"],
-            "trending_potential": "very high",
-            "notes": "Side-by-side comparisons are VIRAL. Use split-screen format with real numbers.",
         },
         {
             "type": "behind_scenes",
@@ -1756,24 +1730,12 @@ def get_trending_content_ideas(
             ideas.append(
                 {
                     "type": "clearance_alert",
-                    "title": f"{promo} — Limited Time",
+                    "title": f"{promo}",
                     "platform_priority": ["tiktok", "facebook"],
                     "trending_potential": "high",
-                    "notes": "Urgency content drives immediate engagement and DMs.",
+                    "notes": "Use the promotion name the owner supplied.",
                 }
             )
-
-    # Social proof
-    if recent_sales and recent_sales > 0:
-        ideas.append(
-            {
-                "type": "customer_story",
-                "title": f"We helped {recent_sales} families this month!",
-                "platform_priority": ["facebook", "instagram_reels"],
-                "trending_potential": "medium",
-                "notes": "Social proof builds trust — ask for customer video testimonials.",
-            }
-        )
 
     return {
         "success": True,

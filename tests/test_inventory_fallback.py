@@ -29,6 +29,13 @@ def _patch(monkeypatch, firestore_homes, website_homes=()):
     return calls
 
 
+def test_sample_inventory_does_not_advertise_a_price():
+    home = inv._get_sample_inventory()[0]
+    assert home["pricing"]["display_price"] == "Call for price"
+    assert home["pricing"]["price_value"] == 0
+    assert "$" not in str(home["pricing"])
+
+
 def test_degraded_sample_fallback_is_not_cached(monkeypatch):
     calls = _patch(monkeypatch, firestore_homes=[])  # firestore + json empty -> sample
     result = inv._load_inventory()

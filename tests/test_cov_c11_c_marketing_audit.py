@@ -36,6 +36,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 import audit_log  # noqa: E402
+import tools.inventory_tools as inventory_tools  # noqa: E402
 from tools import marketing_tools, ops_copilot  # noqa: E402
 
 # Stash the real _get_db at IMPORT time: test_audit_log.py::_swap_main_audit_db
@@ -339,6 +340,36 @@ def test_get_inventory_for_ads_classifier_fallback_raises_after_scraper_ok(monke
         marketing_tools.get_inventory_for_ads()
 
 
+def test_get_inventory_for_ads_gates_unapproved_prices(monkeypatch):
+    """Ad drafts show a dollar amount only when owner_approved_ad_price is set."""
+    monkeypatch.setattr(marketing_tools, "_load_inventory_for_marketing", lambda: [_ad_home()])
+    _stub_asset_scraper(monkeypatch)
+
+    hidden = marketing_tools.get_inventory_for_ads()
+    assert hidden["homes"][0]["display_price"] == "Call for price"
+    assert hidden["homes"][0]["price_value"] == 0
+
+    approved = _ad_home()
+    approved["pricing"]["owner_approved_ad_price"] = True
+    monkeypatch.setattr(
+        marketing_tools, "_load_inventory_for_marketing", lambda: [approved]
+    )
+    shown = marketing_tools.get_inventory_for_ads()
+    assert shown["homes"][0]["display_price"] == "$89,900"
+    assert shown["homes"][0]["price_value"] == 89900
+
+
+def test_staff_publication_keeps_published_sale_price(monkeypatch):
+    """The storefront read keeps the sale price the editor published."""
+    monkeypatch.setattr(
+        inventory_tools, "_load_inventory_for_publication", lambda: [_ad_home()]
+    )
+    _stub_asset_scraper(monkeypatch)
+    result = marketing_tools.get_inventory_for_ads(staff_publication=True)
+    assert result["homes"][0]["display_price"] == "$89,900"
+    assert result["homes"][0]["price_value"] == 89900
+
+
 def test_get_inventory_for_ads_applies_asset_categories_and_matterport(monkeypatch):
     """L412 (image_categories backfill) and L417-418 (asset matterport merge)."""
     home = _ad_home()  # no matterport fields, no image_categories
@@ -406,6 +437,7 @@ def test_font_falls_back_to_pillow_default(monkeypatch):
 def test_generate_ad_flyer_without_photo_uses_branded_fallback(monkeypatch, tmp_path):
     """L709: no source photo -> solid branded canvas."""
     monkeypatch.setattr(marketing_tools, "GENERATED_ADS_DIR", str(tmp_path))
+    monkeypatch.setattr(marketing_tools, "_load_inventory_for_marketing", lambda: [])
     result = marketing_tools.generate_ad_flyer(home_name="The Oak", platform="tiktok")
     assert result["success"] is True
     assert result["source"] == "branded_fallback"
@@ -448,12 +480,45 @@ def test_scorer_flags_overlong_hook():
     assert any("Hook too long" in issue for issue in result["issues"])
 
 
-def test_scorer_awards_bare_dollar_sign_hook():
-    """L1099: a '$' without a numeric amount still earns the specificity bump."""
-    result = marketing_tools._score_script_quality(
-        _scorable(hook="cheap $ deal here now"), platform="tiktok"
+def test_scorer_rewards_listing_details_not_dollar_amounts():
+    """A dollar amount does not raise the hook score. Beds and baths do."""
+    priced = marketing_tools._score_script_quality(
+        _scorable(hook="cheap $899 deal here now"), platform="tiktok"
     )
-    assert result["scores"]["hook_strength"] == 8  # 5 + 2 short + 1 dollar-sign
+    detailed = marketing_tools._score_script_quality(
+        _scorable(hook="3 bed 2 bath home"), platform="tiktok"
+    )
+    assert priced["scores"]["hook_strength"] == 7  # 5 + 2 short, no price bonus
+    assert detailed["scores"]["hook_strength"] == 9  # 5 + 2 short + 2 listing details
+    assert any("real listing details" in issue for issue in priced["issues"])
+    assert not any("real listing details" in issue for issue in detailed["issues"])
+
+
+def test_scorer_matches_bedroom_bathroom_and_br_ba_forms():
+    """bedroom(s), bathroom(s), and 3BR/2BA count as listing details."""
+    bedroom = marketing_tools._score_script_quality(
+        _scorable(hook="three bedroom two bathroom home"), platform="tiktok"
+    )
+    compact = marketing_tools._score_script_quality(
+        _scorable(hook="3BR/2BA on the lot"), platform="tiktok"
+    )
+    sq_ft = marketing_tools._score_script_quality(
+        _scorable(hook="1,200 sq ft ready"), platform="tiktok"
+    )
+    brand = marketing_tools._score_script_quality(
+        _scorable(hook="2 brand new"), platform="tiktok"
+    )
+    assert bedroom["scores"]["hook_strength"] == 9
+    assert compact["scores"]["hook_strength"] == 9
+    assert sq_ft["scores"]["hook_strength"] == 9
+    assert brand["scores"]["hook_strength"] == 7
+    assert not any("real listing details" in issue for issue in bedroom["issues"])
+    assert not any("real listing details" in issue for issue in compact["issues"])
+    assert not any("real listing details" in issue for issue in sq_ft["issues"])
+    assert any("real listing details" in issue for issue in brand["issues"])
+    assert marketing_tools._LISTING_DETAIL_RE.search("2 brand new") is None
+    assert marketing_tools._LISTING_DETAIL_RE.search("3BR/2BA")
+    assert marketing_tools._LISTING_DETAIL_RE.search("1,200 sq ft")
 
 
 def test_scorer_flags_boring_preamble_hook():
@@ -632,7 +697,63 @@ def test_generate_content_script_auto_loads_inventory_context(monkeypatch):
     prompt_sent = client.calls[0][1]["contents"]
     assert "CURRENT INVENTORY HIGHLIGHTS" in prompt_sent
     assert "The Mansion" in prompt_sent
-    assert "$150,000" in prompt_sent
+    assert "$150,000" not in prompt_sent
+    assert "$29,900" not in prompt_sent
+    assert "Call for price" in prompt_sent
+
+    approved = [
+        _ad_home(
+            "a",
+            model_name="The Mansion",
+            pricing={
+                "display_price": "$150,000",
+                "price_value": 150000,
+                "owner_approved_ad_price": True,
+            },
+        ),
+        _ad_home(
+            "b",
+            model_name="The Starter",
+            pricing={"display_price": "$29,900", "price_value": 29900},
+        ),
+    ]
+    client.content_responses.append(_strong_script_payload())
+    monkeypatch.setattr(marketing_tools, "_load_inventory_for_marketing", lambda: approved)
+    marketing_tools.generate_content_script(platform="tiktok")
+    approved_prompt = client.calls[1][1]["contents"]
+    assert "$150,000" in approved_prompt
+    assert "$29,900" not in approved_prompt
+
+
+def test_generate_content_script_gates_featured_home_price(monkeypatch):
+    """A caller-supplied home_price stays out of the prompt unless the flag is set."""
+    client = _FakeGenAIClient()
+    client.content_responses.append(_strong_script_payload())
+    client.content_responses.append(_strong_script_payload())
+    monkeypatch.setattr(marketing_tools, "_genai_client", lambda: client)
+    monkeypatch.setattr(
+        marketing_tools,
+        "_load_inventory_for_marketing",
+        lambda: [_ad_home(model_name="The Delight")],
+    )
+
+    marketing_tools.generate_content_script(
+        home_name="The Delight", home_price="$89,900", platform="tiktok"
+    )
+    hidden = client.calls[0][1]["contents"]
+    assert "Price: Call for price" in hidden
+    assert "$89,900" not in hidden
+
+    approved = _ad_home(model_name="The Delight")
+    approved["pricing"]["owner_approved_ad_price"] = True
+    monkeypatch.setattr(
+        marketing_tools, "_load_inventory_for_marketing", lambda: [approved]
+    )
+    marketing_tools.generate_content_script(
+        home_name="The Delight", home_price="$89,900", platform="tiktok"
+    )
+    shown = client.calls[1][1]["contents"]
+    assert "Price: $89,900" in shown
 
 
 def test_generate_content_script_accepts_single_item_list_response(monkeypatch):
@@ -640,6 +761,7 @@ def test_generate_content_script_accepts_single_item_list_response(monkeypatch):
     client = _FakeGenAIClient()
     client.content_responses.append([_strong_script_payload()])
     monkeypatch.setattr(marketing_tools, "_genai_client", lambda: client)
+    monkeypatch.setattr(marketing_tools, "_load_inventory_for_marketing", lambda: [])
 
     result = marketing_tools.generate_content_script(home_name="The Delight")
 

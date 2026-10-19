@@ -359,9 +359,9 @@ def _get_sample_inventory():
             "status": "Available",
             "specs": {"beds": 3, "baths": 2, "sq_ft": 1264},
             "pricing": {
-                "price_value": 89900,
-                "display_price": "$89,900",
-                "price_tier": "$75k-$100k",
+                "price_value": 0,
+                "display_price": "Call for price",
+                "price_tier": "Call for price",
             },
             "features": ["Island Kitchen", "Walk-in Closet"],
             "marketing_tags": ["Featured"],

@@ -1348,16 +1348,17 @@ def _crawlable_about_block() -> str:
 
 
 def _crawlable_financing_block() -> str:
+    # TODO(owner): confirm which lenders finance manufactured homes, and whether any in-house program exists, before naming a lender or program.
     e = html.escape
     return (
         f"<h1>Manufactured Home Financing in {e(_CITY_STATE)}</h1>"
-        f"<p>We work with buyers across a range of credit profiles and land situations to "
-        f"find the right manufactured home financing option in {e(_CITY_STATE)}.</p>"
+        "<p>Lenders look at your credit, income, and land situation. "
+        "We can help you find out which loan types may fit.</p>"
         "<ul>"
         "<li>Chattel (home-only) loans</li>"
         "<li>Land-and-home / mortgage loans</li>"
-        "<li>FHA Title I/II, VA, and USDA programs</li>"
-        "<li>In-house and lender-partner programs</li>"
+        "<li>Some buyers qualify for FHA, VA, or USDA loans through approved lenders.</li>"
+        "<li>Loans through lenders that finance manufactured homes</li>"
         "</ul>"
         f'<p>Call <a href="tel:{e(business_phone())}">{e(business_phone())}</a> or '
         '<a href="/appointments">book a showroom visit</a> to discuss your options.</p>'
@@ -1406,9 +1407,11 @@ def _faqpage_jsonld() -> dict:
                 "acceptedAnswer": {
                     "@type": "Answer",
                     "text": (
-                        "Options include chattel (home-only) loans, land-and-home loans, FHA Title I/II, "
-                        "VA, USDA programs, and in-house or lender-partner programs depending on your "
-                        "credit profile and land situation."
+                        "Several options are commonly available depending on whether you own or are buying land. "
+                        "Chattel (home-only) loans are for the home itself when it's on leased land or in a community. "
+                        "Land-and-home loans, when the home and land are financed together, may qualify for "
+                        "FHA Title I/II, VA, or USDA programs. "
+                        "Ask us about lenders that finance manufactured homes."
                     ),
                 },
             },
@@ -1514,8 +1517,11 @@ def _crawlable_faq_block() -> str:
         ),
         (
             "How does financing work for a manufactured home?",
-            "Options include chattel loans, land-and-home loans, FHA/VA/USDA programs, and "
-            "lender-partner programs depending on your situation.",
+            "Several options are commonly available depending on whether you own or are buying land. "
+            "Chattel (home-only) loans are for the home itself when it's on leased land or in a community. "
+            "Land-and-home loans, when the home and land are financed together, may qualify for "
+            "FHA Title I/II, VA, or USDA programs. "
+            "Ask us about lenders that finance manufactured homes.",
         ),
         (
             "Do I need land to buy a home from you?",
@@ -1716,7 +1722,7 @@ def _crawlable_city_block(city: str) -> str:
         f"{e(city)}, TX from the {e(business_city())} showroom at "
         f"{e(business_address())}. Call "
         f'<a href="tel:{e(business_phone())}">{e(business_phone())}</a> '
-        f"for the current price. The homes below are listed at that showroom.</p>"
+        f"for the current price. Homes and floorplans offered by our {e(business_city())} showroom:</p>"
         f"{_storefront_links(path)}"
         f"<ul>{''.join(items)}</ul>"
         f'<p><a href="/appointments">Book a showroom visit</a></p>'

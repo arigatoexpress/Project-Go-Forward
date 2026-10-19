@@ -48,7 +48,8 @@ const FAQ_ITEMS = [
             for FHA Title I/II, VA, or USDA programs.
           </li>
           <li>
-            <strong>In-house / lender-partner programs</strong> for a range of credit profiles.
+            {/* TODO(owner): confirm which lenders finance manufactured homes, and whether any in-house program exists, before naming a lender or program. */}
+            <strong>Ask us about lenders that finance manufactured homes.</strong>
           </li>
         </ul>
         <p className="mt-2">

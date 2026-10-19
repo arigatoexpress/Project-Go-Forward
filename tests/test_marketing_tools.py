@@ -252,6 +252,7 @@ def test_generate_ad_flyer_creates_downloadable_social_creative(monkeypatch, tmp
     from PIL import Image
 
     monkeypatch.setattr(marketing_tools, "GENERATED_ADS_DIR", str(tmp_path))
+    monkeypatch.setattr(marketing_tools, "_load_inventory_for_marketing", lambda: [])
     source = Image.new("RGB", (640, 480), "#8aa0a8")
     buf = BytesIO()
     source.save(buf, format="PNG")
@@ -274,6 +275,46 @@ def test_generate_ad_flyer_creates_downloadable_social_creative(monkeypatch, tmp
     assert result["download_url"].startswith("/api/marketing/images/")
     assert (tmp_path / result["filename"]).is_file()
     assert len(base64.b64decode(result["image_base64"])) > 1000
+
+
+def test_generate_ad_flyer_ignores_unapproved_caller_price(monkeypatch, tmp_path):
+    """A sent dollar amount is drawn only when owner_approved_ad_price is set."""
+    from PIL import ImageDraw
+
+    drawn: list[str] = []
+    real_text = ImageDraw.ImageDraw.text
+
+    def _spy(self, xy, text, *args, **kwargs):
+        drawn.append(str(text))
+        return real_text(self, xy, text, *args, **kwargs)
+
+    monkeypatch.setattr(ImageDraw.ImageDraw, "text", _spy)
+    monkeypatch.setattr(marketing_tools, "GENERATED_ADS_DIR", str(tmp_path))
+    unapproved = {
+        "model_name": "The Delight",
+        "pricing": {"display_price": "$89,900", "price_value": 89900},
+    }
+    monkeypatch.setattr(marketing_tools, "_load_inventory_for_marketing", lambda: [unapproved])
+
+    hidden = marketing_tools.generate_ad_flyer(home_name="The Delight", home_price="$89,900")
+    assert hidden["success"] is True
+    hidden_text = " ".join(drawn)
+    assert "$89,900" not in hidden_text
+    assert "Call for price" in hidden_text
+
+    drawn.clear()
+    approved = {
+        "model_name": "The Delight",
+        "pricing": {
+            "display_price": "$89,900",
+            "price_value": 89900,
+            "owner_approved_ad_price": True,
+        },
+    }
+    monkeypatch.setattr(marketing_tools, "_load_inventory_for_marketing", lambda: [approved])
+    shown = marketing_tools.generate_ad_flyer(home_name="The Delight", home_price="$89,900")
+    assert shown["success"] is True
+    assert "$89,900" in " ".join(drawn)
 
 
 def test_schedule_social_post_prepares_local_draft(monkeypatch):
@@ -808,6 +849,13 @@ class TestGenerateAdImage:
 
 
 class TestGenerateContentScript:
+    @pytest.fixture(autouse=True)
+    def _no_live_inventory_lookup(self, monkeypatch):
+        # Featured-home prompts look up owner_approved_ad_price. These tests
+        # do not load inventory, and the suite points Firestore at a closed
+        # emulator, so leave the lookup empty.
+        monkeypatch.setattr(marketing_tools, "_load_inventory_for_marketing", lambda: [])
+
     def test_single_script_success(self, monkeypatch):
         client = _FakeGenAIClient()
         client.content_responses.append(_strong_script_payload())
@@ -840,6 +888,25 @@ class TestGenerateContentScript:
         assert len(result["scripts"]) == 2
         assert result["scripts"][1]["hook"] == "$1,100/month rent? Own instead"
         assert len(result["quality_scores"]) == 2
+
+    def test_built_prompts_omit_unapproved_price_and_urgency(self, monkeypatch):
+        client = _FakeGenAIClient()
+        payload = _strong_script_payload()
+        client.content_responses.append(payload)
+        client.content_responses.append([payload, payload])
+        monkeypatch.setattr(marketing_tools, "_genai_client", lambda: client)
+
+        marketing_tools.generate_content_script(home_name="The Delight", variations=1)
+        marketing_tools.generate_content_script(home_name="The Delight", variations=2)
+
+        assert len(client.calls) == 2
+        for _kind, kwargs in client.calls:
+            text = kwargs["contents"].lower()
+            assert "listing prices" not in text
+            assert "apartment vs" not in text
+            assert "limited time" not in text
+            assert "families this month" not in text
+            assert "bold price claim" not in text
 
     def test_low_quality_script_triggers_refinement(self, monkeypatch):
         client = _FakeGenAIClient()
@@ -936,19 +1003,36 @@ class TestGetTrendingContentIdeas:
         assert result["inventory_loaded"] is True
         assert result["inventory_count"] == 3
         types_seen = {idea["type"] for idea in result["content_ideas"]}
-        # Priced inventory drives home_tour + financing_tips; pre-owned drives clearance.
+        # Priced inventory drives the home tour and the financing idea.
+        # A current promotion still adds a clearance idea.
         assert "home_tour" in types_seen
         assert "financing_tips" in types_seen
         assert "clearance_alert" in types_seen
-        assert "customer_story" in types_seen  # recent_sales social proof
+        assert "customer_story" not in types_seen
         assert "myth_busting" in types_seen  # staple content
-        # Most expensive home is the featured tour.
+        # Most expensive home is the featured tour, without an unapproved price.
         assert result["top_priority"]["home_id"] == "1"
+        assert result["top_priority"]["title"] == "Home Tour: The Mansion. Call for price."
+        assert "$150,000" not in result["top_priority"]["title"]
+        idea_text = " ".join(
+            f"{idea.get('title', '')} {idea.get('notes', '')}" for idea in result["content_ideas"]
+        ).lower()
+        assert "limited time" not in idea_text
+        assert "families this month" not in idea_text
+        assert "apartment vs" not in idea_text
+        assert "affordable price" not in idea_text
         # Promotion adds another clearance idea.
         promo_ideas = [
             idea for idea in result["content_ideas"] if "Red Tag Sale" in idea.get("title", "")
         ]
         assert len(promo_ideas) == 1
+        approved = self._inventory()
+        approved[0]["pricing"]["owner_approved_ad_price"] = True
+        monkeypatch.setattr(
+            marketing_tools, "_load_inventory_for_marketing", lambda: approved
+        )
+        approved_result = marketing_tools.get_trending_content_ideas()
+        assert approved_result["top_priority"]["title"] == "Home Tour: The Mansion. $150,000."
 
     def test_empty_inventory_still_returns_staples(self, monkeypatch):
         monkeypatch.setattr(marketing_tools, "_load_inventory_for_marketing", lambda: [])
@@ -958,7 +1042,7 @@ class TestGetTrendingContentIdeas:
         assert result["success"] is True
         assert result["inventory_loaded"] is False
         types_seen = {idea["type"] for idea in result["content_ideas"]}
-        assert types_seen == {"myth_busting", "comparison", "behind_scenes", "faq"}
+        assert types_seen == {"myth_busting", "behind_scenes", "faq"}
 
 
 class TestGenerateScriptVoiceover:
