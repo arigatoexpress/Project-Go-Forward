@@ -107,6 +107,7 @@ def test_fixed_job_consumes_only_existing_approval_and_server_owned_contract():
         contract_loader=lambda: CONTRACT,
         provider_factory=lambda **kwargs: captured.append(set(kwargs)) or provider,
         environ=_environ(),
+        clock=lambda: NOW,
     )
 
     assert result.state is DeploymentState.PAUSED_CREATED
@@ -221,6 +222,7 @@ def test_provider_failure_rearms_accepted_dispatch_without_marking_success():
         contract_loader=lambda: CONTRACT,
         provider_factory=lambda **_kwargs: FailingProvider(),
         environ=_environ(),
+        clock=lambda: NOW,
     )
 
     assert result.state is DeploymentState.PAUSED_CREATE_APPROVED
