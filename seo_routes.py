@@ -27,6 +27,7 @@ import os
 import re
 import threading
 import time
+from datetime import date
 from pathlib import Path
 from urllib.parse import quote_plus, unquote, urlparse
 
@@ -1707,14 +1708,63 @@ _CITY_FACTS_PATH = (
     Path(__file__).resolve().parent / "frontend" / "src" / "content" / "cityLocalFacts.json"
 )
 _city_facts_cache: dict | None = None
+# Identity marks a failed read of cityLocalFacts.json. Do not mutate.
+_CITY_FACTS_FAILED: dict = {}
+_CITY_LASTMOD_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _INTERNAL_LINK_RE = re.compile(r"\[([^\]\n]+)\]\((/[^)\s]+)\)")
 
 
+def _load_city_facts() -> dict | None:
+    """Read town-page copy. None means the file is missing or invalid."""
+    try:
+        loaded = json.loads(_CITY_FACTS_PATH.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        logger.warning(
+            f"SEO city facts: could not read {_CITY_FACTS_PATH}; "
+            f"rendering without the local section: {exc}"
+        )
+        return None
+    if not isinstance(loaded, dict):
+        logger.warning(
+            f"SEO city facts: {_CITY_FACTS_PATH} did not contain an object; "
+            "rendering without the local section"
+        )
+        return None
+    return loaded
+
+
 def _city_copy() -> dict:
+    """Town-page copy. A failed read is cached so later requests still render."""
     global _city_facts_cache
     if _city_facts_cache is None:
-        _city_facts_cache = json.loads(_CITY_FACTS_PATH.read_text(encoding="utf-8"))
+        loaded = _load_city_facts()
+        _city_facts_cache = loaded if loaded is not None else _CITY_FACTS_FAILED
     return _city_facts_cache
+
+
+def _city_content_lastmod() -> str | None:
+    """Sitemap lastmod for town pages and /locations.
+
+    The date is content_lastmod in cityLocalFacts.json, beside the copy it
+    dates. A missing file or a bad date omits lastmod instead of keeping a
+    second hardcoded date that can drift from the copy.
+    """
+    copy = _city_copy()
+    if copy is _CITY_FACTS_FAILED:
+        return None
+    raw = copy.get("content_lastmod")
+    text = raw.strip() if isinstance(raw, str) else ""
+    if _CITY_LASTMOD_RE.fullmatch(text):
+        try:
+            date.fromisoformat(text)
+        except ValueError:
+            text = ""
+        else:
+            return text
+    logger.warning(
+        "SEO city facts: content_lastmod is missing or invalid; omitting city sitemap lastmod"
+    )
+    return None
 
 
 def _paragraph_with_links(text: str) -> str:
@@ -2248,12 +2298,10 @@ def render_not_found() -> Response:
     )
 
 
-# Date the public home, inventory, location, and listing templates last changed.
+# Date the public home, inventory, and listing templates last changed.
 # Listing records keep a later timestamp when the home itself was updated after this.
+# Town pages and /locations use content_lastmod from cityLocalFacts.json.
 _SEO_TEMPLATE_LASTMOD = "2026-10-18"
-# Town pages and the locations index changed on this date. Home and inventory
-# keep the earlier template date.
-_CITY_CONTENT_LASTMOD = "2026-10-20"
 
 
 def _template_lastmod_paths() -> set[str]:
@@ -2342,18 +2390,17 @@ def sitemap_xml() -> Response:
         "/locations",
     ]
     dated = _template_lastmod_paths()
+    city_lastmod = _city_content_lastmod()
 
     def _static_lastmod(static_path: str) -> str | None:
         if static_path == "/locations":
-            return _CITY_CONTENT_LASTMOD
+            return city_lastmod
         if static_path in dated:
             return _SEO_TEMPLATE_LASTMOD
         return None
 
     entries_xml = [_url_entry(base + path, _static_lastmod(path)) for path in static_paths]
-    entries_xml += [
-        _url_entry(base + path, _CITY_CONTENT_LASTMOD) for path in sorted(_city_pages())
-    ]
+    entries_xml += [_url_entry(base + path, city_lastmod) for path in sorted(_city_pages())]
     reg = _registry()
     if reg["inventory_ok"]:
         entries_xml += [
