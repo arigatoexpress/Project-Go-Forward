@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
 import { ToastProvider } from '../components/Toast';
 import App from '../App';
+import CityLanding from '../pages/CityLanding';
 import InventoryBrowse from '../pages/InventoryBrowse';
 import Locations from '../pages/Locations';
 import {
@@ -71,6 +72,37 @@ describe('city pages and the locations index', () => {
     expect(crumbs.querySelector('a[href="/locations"]')).not.toBeNull();
     expect(screen.getByRole('link', { name: 'All homes' })).toHaveAttribute('href', '/inventory');
     expect(await screen.findByRole('link', { name: 'PRE-OWNED / Big Blue' })).toHaveAttribute('href', '/homes/44490-pre-owned-big-blue');
+  });
+
+  it('renders at most 8 home links when the catalog has more than 8 homes', () => {
+    const homes = Array.from({ length: 12 }, (_, index) => {
+      const stock = String(50000 + index);
+      return {
+        id: stock,
+        stock_number: stock,
+        model_name: `Model ${String(index).padStart(2, '0')}`,
+        status: 'Pre-Owned',
+        inventory_kind: 'pre_owned',
+      };
+    });
+    render(
+      <CityLanding
+        cityLanding={{
+          city: 'Humble',
+          slug: 'humble',
+          path: '/manufactured-homes-in-humble-tx',
+          heading: 'Manufactured & Mobile Homes in Humble, TX',
+        }}
+        homes={homes}
+      />,
+    );
+    const homeLinks = screen.getAllByRole('link').filter((link) => (
+      String(link.getAttribute('href') || '').startsWith('/homes/')
+    ));
+    expect(homes.length).toBeGreaterThan(8);
+    expect(homeLinks.map((link) => link.getAttribute('href'))).toEqual(
+      Array.from({ length: 8 }, (_, index) => `/homes/${50000 + index}-model-${String(index).padStart(2, '0')}`),
+    );
   });
 
   it('links every served town from the locations page', async () => {

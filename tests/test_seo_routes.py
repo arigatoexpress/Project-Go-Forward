@@ -7,6 +7,7 @@ OG/JSON-LD), legacy detail URLs served 200 with crawlable content, quote-URL
 
 import html
 import json
+import logging
 import re
 import sys
 from pathlib import Path
@@ -819,6 +820,143 @@ def test_city_pages_listed_in_sitemap(monkeypatch):
     assert "/manufactured-homes-in-humble-tx</loc>" in body
     assert "/manufactured-homes-in-baytown-tx</loc>" in body
     assert "/locations</loc>" in body
+
+
+def _visible_home_hrefs(body: str) -> list[str]:
+    visible = re.sub(r"(?is)<script[^>]*>.*?</script>", " ", body)
+    return re.findall(r'href="(/homes/[^"]+)"', visible)
+
+
+def test_city_page_renders_at_most_eight_home_links(monkeypatch):
+    """A catalog larger than the cap still publishes only 8 home links."""
+    import seo_routes
+
+    client, _ = seo_client(monkeypatch)
+    homes = []
+    for index in range(12):
+        stock = str(50000 + index)
+        homes.append(
+            {
+                "id": stock,
+                "stock_number": stock,
+                "model_name": f"Model {index:02d}",
+                "status": "Pre-Owned",
+                "inventory_kind": "pre_owned",
+                "display_price": "Call for Price",
+            }
+        )
+    monkeypatch.setattr(seo_routes, "_get_homes", lambda: homes)
+    monkeypatch.setattr(seo_routes, "_registry_cache", None)
+    monkeypatch.setattr(seo_routes, "_registry_built_at", 0.0)
+    body = client.get("/manufactured-homes-in-humble-tx").text
+    assert len(homes) > 8
+    assert _visible_home_hrefs(body) == [
+        f"/homes/{50000 + index}-model-{index:02d}" for index in range(8)
+    ]
+
+
+def test_city_sitemap_lastmod_follows_facts_file(monkeypatch, tmp_path):
+    import seo_routes
+
+    client, _ = seo_client(monkeypatch)
+    facts_path = (
+        Path(__file__).resolve().parent.parent
+        / "frontend"
+        / "src"
+        / "content"
+        / "cityLocalFacts.json"
+    )
+    facts = json.loads(facts_path.read_text(encoding="utf-8"))
+    monkeypatch.setattr(seo_routes, "_city_facts_cache", None)
+    entries = _sitemap_entries(client.get("/sitemap.xml").text)
+    city = next(item for item in entries if item[0].endswith("/manufactured-homes-in-humble-tx"))
+    locations = next(item for item in entries if item[0].endswith("/locations"))
+    assert city[1] == facts["content_lastmod"]
+    assert locations[1] == facts["content_lastmod"]
+
+    facts["content_lastmod"] = "2026-10-19"
+    rewritten = tmp_path / "cityLocalFacts.json"
+    rewritten.write_text(json.dumps(facts), encoding="utf-8")
+    monkeypatch.setattr(seo_routes, "_CITY_FACTS_PATH", rewritten)
+    monkeypatch.setattr(seo_routes, "_city_facts_cache", None)
+    moved = _sitemap_entries(client.get("/sitemap.xml").text)
+    city = next(item for item in moved if item[0].endswith("/manufactured-homes-in-humble-tx"))
+    locations = next(item for item in moved if item[0].endswith("/locations"))
+    home = next(item for item in moved if item[0].rstrip("/").endswith("texashomeoutlet.com"))
+    assert city[1] == "2026-10-19"
+    assert locations[1] == "2026-10-19"
+    assert home[1] == "2026-10-18"
+
+
+def test_invalid_city_content_lastmod_omits_the_date(monkeypatch, tmp_path, caplog):
+    import seo_routes
+
+    client, _ = seo_client(monkeypatch)
+    facts_path = (
+        Path(__file__).resolve().parent.parent
+        / "frontend"
+        / "src"
+        / "content"
+        / "cityLocalFacts.json"
+    )
+    facts = json.loads(facts_path.read_text(encoding="utf-8"))
+    facts["content_lastmod"] = "2026-13-40"
+    rewritten = tmp_path / "cityLocalFacts.json"
+    rewritten.write_text(json.dumps(facts), encoding="utf-8")
+    monkeypatch.setattr(seo_routes, "_CITY_FACTS_PATH", rewritten)
+    monkeypatch.setattr(seo_routes, "_city_facts_cache", None)
+    with caplog.at_level(logging.WARNING, logger="seo_routes"):
+        response = client.get("/sitemap.xml")
+    assert response.status_code == 200
+    entries = _sitemap_entries(response.text)
+    city = next(item for item in entries if item[0].endswith("/manufactured-homes-in-humble-tx"))
+    assert city[1] is None
+    assert "content_lastmod" in caplog.text
+    page = client.get("/manufactured-homes-in-humble-tx")
+    assert page.status_code == 200
+    assert "<h2>Humble beside U.S. Highway 59</h2>" in page.text
+
+
+@pytest.mark.parametrize(
+    "contents",
+    [None, "{", "[]"],
+    ids=["missing", "invalid-json", "not-an-object"],
+)
+def test_city_facts_file_failure_still_renders_page_and_sitemap(
+    monkeypatch, caplog, tmp_path, contents
+):
+    import seo_routes
+
+    client, _ = seo_client(monkeypatch)
+    facts_path = tmp_path / "cityLocalFacts.json"
+    if contents is not None:
+        facts_path.write_text(contents, encoding="utf-8")
+    monkeypatch.setattr(seo_routes, "_CITY_FACTS_PATH", facts_path)
+    monkeypatch.setattr(seo_routes, "_city_facts_cache", None)
+    with caplog.at_level(logging.WARNING, logger="seo_routes"):
+        page = client.get("/manufactured-homes-in-humble-tx")
+        sitemap = client.get("/sitemap.xml")
+    assert page.status_code == 200
+    plain = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", page.text))
+    held = (
+        f"{business_name()} delivers manufactured and mobile homes to Humble, TX "
+        f"from the {business_city()} showroom at {business_address()}. "
+        f"Call {business_phone()} for the current price."
+    )
+    assert "<h1>Manufactured &amp; Mobile Homes in Humble, TX</h1>" in page.text
+    assert held in plain
+    assert "Humble beside U.S. Highway 59" not in page.text
+    assert "<h2>" not in page.text
+    assert sitemap.status_code == 200
+    assert "/manufactured-homes-in-humble-tx</loc>" in sitemap.text
+    entries = _sitemap_entries(sitemap.text)
+    city = next(item for item in entries if item[0].endswith("/manufactured-homes-in-humble-tx"))
+    locations = next(item for item in entries if item[0].endswith("/locations"))
+    home = next(item for item in entries if item[0].rstrip("/").endswith("texashomeoutlet.com"))
+    assert city[1] is None
+    assert locations[1] is None
+    assert home[1] == "2026-10-18"
+    assert "local section" in caplog.text
 
 
 def _shingles(body: str, k: int = 5) -> set[tuple[str, ...]]:

@@ -68,6 +68,8 @@ Same method on `data/legacy_site/legacy_inventory_context.json`. Inventory words
 
 County, highways, and place facts come from the Handbook of Texas page named below. Pages were read on 2026-10-20. Compass direction is a 16-point bearing from the showroom point in `config.yaml` `business.geo` (latitude 30.018056, longitude -95.115729) to the latitude and longitude printed on that handbook page. The config comment says those showroom coordinates are a US Census geocoder match for the showroom street address. The street address is `business.address`: 10685 FM 1960 East, Huffman, TX 77336. No drive times are stated. No miles were estimated.
 
+Humble is rounded to 'west' at the WSW/W boundary (bearing 258.70 deg; WSW ends at 258.75).
+
 | Town | Handbook page | Handbook coordinates | Bearing from the showroom |
 |---|---|---|---|
 | Huffman | https://www.tshaonline.org/handbook/entries/huffman-tx | 30.02716260, -95.08576270 | Showroom town. The page does not treat Huffman as a direction away from the lot. |
