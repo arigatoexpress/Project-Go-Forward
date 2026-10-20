@@ -15,7 +15,7 @@ const PII_KEYS = new Set([
 ]);
 
 const PUBLIC_EXACT_PATHS = new Set([
-  '/', '/inventory', '/chat', '/contact', '/appointments', '/about',
+  '/', '/inventory', '/locations', '/chat', '/contact', '/appointments', '/about',
   '/financing', '/faq', '/warranty', '/delivery',
 ]);
 

@@ -29,6 +29,10 @@ export function cityTitle(city) {
   return `Manufactured Homes in ${city}, TX | ${BUSINESS_NAME}`;
 }
 
+export const LOCATIONS_TITLE = `Locations | ${BUSINESS_NAME}`;
+export const LOCATIONS_DESCRIPTION =
+  'Town pages around the Huffman showroom, each with its county and direction from that lot, plus links to the other towns and the home inventory.';
+
 export function cityDescription(city) {
   return (
     `${BUSINESS_NAME} delivers manufactured and mobile homes to ${city}, TX from the ${BUSINESS_CITY} showroom `
@@ -76,4 +80,5 @@ export const PUBLIC_DESCRIPTIONS = {
   privacy: legalPages.privacy.description,
   terms: legalPages.terms.description,
   'not-found': `The page you requested does not exist. Browse homes for sale at ${BUSINESS_NAME}.`,
+  locations: LOCATIONS_DESCRIPTION,
 };

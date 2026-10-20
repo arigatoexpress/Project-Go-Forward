@@ -31,6 +31,7 @@ import {
   HOME_TITLE,
   INVENTORY_DESCRIPTION,
   INVENTORY_TITLE,
+  LOCATIONS_TITLE,
   PUBLIC_DESCRIPTIONS,
   categoryTitle,
 } from './seoCopy';
@@ -68,6 +69,7 @@ const SystemHub = lazy(() => import('./pages/SystemHub'));
 const GettingStarted = lazy(() => import('./pages/GettingStarted'));
 const SecureHub = lazy(() => import('./pages/SecureHub'));
 const About = lazy(() => import('./pages/About'));
+const Locations = lazy(() => import('./pages/Locations'));
 const Financing = lazy(() => import('./pages/Financing'));
 const FAQ = lazy(() => import('./pages/FAQ'));
 const Warranty = lazy(() => import('./pages/Warranty'));
@@ -395,6 +397,7 @@ function Footer({ adminAuthed, onAdminAccess, onNavigate }) {
         <nav aria-label="Footer" className="flex flex-wrap items-center justify-center gap-4 md:gap-6 mb-4">
           <a href="/" className={linkClass}>Home</a>
           <a href="/inventory" className={linkClass}>Inventory</a>
+          <a href="/locations" className={linkClass}>Locations</a>
           <button onClick={() => onNavigate('about')} className={linkClass}>About</button>
           <button onClick={() => onNavigate('financing')} className={linkClass}>Financing</button>
           <button onClick={() => onNavigate('faq')} className={linkClass}>FAQ</button>
@@ -506,6 +509,7 @@ function pageFromPath(path) {
   if (p.startsWith('/copilot') || p.startsWith('/ops-copilot')) return 'copilot';
   if (p.startsWith('/health')) return 'health';
   if (p.startsWith('/chat')) return 'chat';
+  if (p === '/locations' || p === '/locations/') return 'locations';
   if (p.startsWith('/inventory')) return 'inventory';
   if (isInventoryCategoryPath(p)) return 'inventory';
   // City landing pages (/manufactured-homes-in-{city}-tx) render the inventory.
@@ -1076,6 +1080,7 @@ function App() {
       faq: `Frequently Asked Questions | ${BUSINESS_NAME}`,
       warranty: `Warranty & Service | ${BUSINESS_NAME}`,
       delivery: `Delivery & Setup | ${BUSINESS_NAME}`,
+      locations: LOCATIONS_TITLE,
       'not-found': `Page not found | ${BUSINESS_NAME}`,
     };
     const shortTitles = {
@@ -1167,6 +1172,7 @@ function App() {
       faq: '/faq',
       warranty: '/warranty',
       delivery: '/delivery',
+      locations: '/locations',
       privacy: '/privacy',
       terms: '/terms',
       documents: '/documents',
@@ -1827,6 +1833,21 @@ function App() {
               prefill={appointmentHandoff}
               onHandoffComplete={() => setAppointmentHandoff(null)}
             />
+          </Suspense>
+        </ErrorBoundary>
+        <Footer adminAuthed={adminAuthed} onAdminAccess={handleAdminAccess} onNavigate={navigateTo} />
+      </div>
+    );
+  }
+
+  if (activePage === 'locations') {
+    return (
+      <div className="bg-[var(--cp-bg)] min-h-screen">
+        {appModals}
+        <NavBar {...navProps} />
+        <ErrorBoundary scope="locations">
+          <Suspense fallback={<PageLoader />}>
+            <Locations />
           </Suspense>
         </ErrorBoundary>
         <Footer adminAuthed={adminAuthed} onAdminAccess={handleAdminAccess} onNavigate={navigateTo} />

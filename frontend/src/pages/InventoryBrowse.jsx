@@ -43,8 +43,9 @@ import {
   BUSINESS_HOURS,
   BUSINESS_CITY,
   BUSINESS_STATE,
-  SERVICE_AREA_CITIES,
 } from '../constants';
+import StorefrontLinks from '../components/StorefrontLinks';
+import CityLanding from './CityLanding';
 import { HOME_H1, INVENTORY_H1 } from '../seoCopy';
 import AppointmentHandoffCard from '../components/AppointmentHandoffCard';
 import { describeFetchError, extractErrorMessage, responseErrorMessage, safeUserMessage } from '../utils/apiError';
@@ -320,34 +321,6 @@ function InventoryMetric({ icon, label, value, tone = 'accent' }) {
 
 function listingHref(home) {
   return listingPath(home) || '';
-}
-
-function serviceAreaPath(city) {
-  const slug = String(city || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
-  return `/manufactured-homes-in-${slug}-tx`;
-}
-
-function StorefrontLinks({ currentPath, tone = 'light' }) {
-  const path = String(currentPath || '/').replace(/\/+$/, '') || '/';
-  const linkClass = tone === 'light'
-    ? 'font-semibold text-white underline'
-    : 'font-semibold text-[var(--cp-accent)] underline';
-  const currentClass = tone === 'light'
-    ? 'font-semibold text-white'
-    : 'font-semibold text-[var(--cp-text)]';
-  return (
-    <nav aria-label="Home, inventory, and areas we serve" className="mt-4 flex flex-wrap gap-x-3 gap-y-2 text-sm">
-      {path !== '/' && <a href="/" className={linkClass}>Home</a>}
-      {path !== '/inventory' && <a href="/inventory" className={linkClass}>All homes</a>}
-      {SERVICE_AREA_CITIES.map((city) => {
-        const href = serviceAreaPath(city);
-        if (path === href) {
-          return <span key={city} aria-current="page" className={currentClass}>Homes in {city}, TX</span>;
-        }
-        return <a key={city} href={href} className={linkClass}>Homes in {city}, TX</a>;
-      })}
-    </nav>
-  );
 }
 
 function smsHref(home) {
@@ -994,6 +967,10 @@ export default function InventoryBrowse({
     || fallbackListingHeading(currentPath)
     || routeCategory?.heading
     || (onInventoryHub ? inventoryHubHeading : null);
+
+  if (cityLanding && !error) {
+    return <CityLanding cityLanding={cityLanding} homes={loading ? [] : homes} />;
+  }
 
   if (loading) {
     return (

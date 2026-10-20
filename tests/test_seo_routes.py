@@ -5,12 +5,21 @@ OG/JSON-LD), legacy detail URLs served 200 with crawlable content, quote-URL
 301s, soft-404 avoidance, and noindex on admin routes.
 """
 
+import html
 import json
 import re
 import sys
 from pathlib import Path
 
 import pytest
+
+from config_loader import (
+    business_address,
+    business_city,
+    business_name,
+    business_phone,
+    get_business,
+)
 
 sys.path.insert(0, str(Path(__file__).parent))
 
@@ -809,6 +818,77 @@ def test_city_pages_listed_in_sitemap(monkeypatch):
     body = client.get("/sitemap.xml").text
     assert "/manufactured-homes-in-humble-tx</loc>" in body
     assert "/manufactured-homes-in-baytown-tx</loc>" in body
+    assert "/locations</loc>" in body
+
+
+def _shingles(body: str, k: int = 5) -> set[tuple[str, ...]]:
+    text = re.sub(r"(?is)<(script|style|noscript)[^>]*>.*?</\1>", " ", body)
+    text = re.sub(r"(?s)<[^>]+>", " ", text)
+    words = re.findall(r"[a-z0-9$']+", html.unescape(text).lower())
+    return set(tuple(words[i : i + k]) for i in range(len(words) - k + 1))
+
+
+def test_city_pages_keep_the_delivery_sentence_and_add_local_facts(monkeypatch):
+    """The owner-held delivery sentence stays verbatim. Each town page adds a
+    distinct local section and a breadcrumb through /locations."""
+    client, _ = seo_client(monkeypatch)
+    cities = list(get_business()["area_served"])
+    humble = client.get("/manufactured-homes-in-humble-tx").text
+    plain = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", humble))
+    held = (
+        f"{business_name()} delivers manufactured and mobile homes to Humble, TX "
+        f"from the {business_city()} showroom at {business_address()}. "
+        f"Call {business_phone()} for the current price."
+    )
+    assert held in plain
+    crumbs = next(
+        block for block in _jsonld_blocks(humble) if block.get("@type") == "BreadcrumbList"
+    )
+    assert [item["name"] for item in crumbs["itemListElement"]] == [
+        "Home",
+        "Locations",
+        "Homes in Humble, TX",
+    ]
+    assert 'aria-label="Breadcrumb"' in humble
+    assert 'href="/locations"' in humble
+    assert "<h2>Humble beside U.S. Highway 59</h2>" in humble
+    assert not any(block.get("@type") == "Product" for block in _jsonld_blocks(humble))
+
+    baytown = _shingles(client.get("/manufactured-homes-in-baytown-tx").text)
+    for city in cities:
+        slug = city.lower().replace(" ", "-")
+        body = client.get(f"/manufactured-homes-in-{slug}-tx").text
+        assert f"<h1>Manufactured &amp; Mobile Homes in {city}, TX</h1>" in body
+        assert "<h2>" in body
+        assert 'href="/inventory"' in body
+        assert 'href="/locations"' in body
+        if city != "Baytown":
+            page = _shingles(body)
+            union = page | baytown
+            assert union
+            assert len(page & baytown) / len(union) < 0.6
+
+
+def test_locations_index_links_every_city_page(monkeypatch):
+    client, _ = seo_client(monkeypatch)
+    response = client.get("/locations")
+    assert response.status_code == 200
+    body = response.text
+    assert "<h1>Locations</h1>" in body
+    assert 'rel="canonical" href="https://www.texashomeoutlet.com/locations"' in body
+    crumbs = next(block for block in _jsonld_blocks(body) if block.get("@type") == "BreadcrumbList")
+    assert [item["name"] for item in crumbs["itemListElement"]] == ["Home", "Locations"]
+    listed = next(block for block in _jsonld_blocks(body) if block.get("@type") == "ItemList")
+    names = [item["name"] for item in listed["itemListElement"]]
+    assert names == [f"Homes in {city}, TX" for city in get_business()["area_served"]]
+    for city in get_business()["area_served"]:
+        slug = city.lower().replace(" ", "-")
+        assert f'href="/manufactured-homes-in-{slug}-tx"' in body
+    assert not any(block.get("@type") == "Product" for block in _jsonld_blocks(body))
+    assert not any(_jsonld_has_price_markup(block) for block in _jsonld_blocks(body))
+    trailing = client.get("/locations/", follow_redirects=False)
+    assert trailing.status_code == 301
+    assert trailing.headers["location"] == "/locations"
 
 
 def test_home_category_pages_are_indexable_and_filter_inventory(monkeypatch):
