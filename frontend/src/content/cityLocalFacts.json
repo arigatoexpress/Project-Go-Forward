@@ -1,0 +1,146 @@
+{
+  "listing_limit": 8,
+  "index": {
+    "heading": "Locations",
+    "intro": "These pages are the towns around the Texas Home Outlet showroom in Huffman, Harris County. The lot is on FM 1960 East. A town page names the county, the compass direction from that lot, and the highways named in the Handbook of Texas entry. The houses themselves are on the home inventory.",
+    "inventory_href": "/inventory",
+    "inventory_label": "Home inventory",
+    "contact_href": "/contact",
+    "contact_label": "Showroom contact page"
+  },
+  "cities": {
+    "huffman": {
+      "city": "Huffman",
+      "heading": "Huffman, the showroom community",
+      "index_blurb": "Harris County community where the showroom stands, on FM 1960 and FM 2100.",
+      "paragraphs": [
+        "Huffman remains an unincorporated place in the piney woods of eastern Harris County. The handbook places Huffman on Farm roads 2100 and 1960, about thirty miles northeast of Houston. The showroom address published for Texas Home Outlet is 10685 FM 1960 East, which is in Huffman. The other town pages describe where they sit relative to this lot.",
+        "This is the Huffman entry on the [locations index](/locations). Houses and floorplans offered here are browsed in the [inventory](/inventory). Those pages group [single wide models](/single-wide) apart from [double wide models](/double-wide)."
+      ],
+      "sources": [
+        "https://www.tshaonline.org/handbook/entries/huffman-tx",
+        "config.yaml business.address and business.geo"
+      ]
+    },
+    "humble": {
+      "city": "Humble",
+      "heading": "Humble beside U.S. Highway 59",
+      "index_blurb": "Harris County city to the west, beside U.S. Highway 59, with Old Humble south of FM 1960.",
+      "paragraphs": [
+        "Humble is an incorporated city in northern Harris County. The handbook locates Humble on the Texas and New Orleans Railroad and U.S. Highway 59, eighteen miles northeast of Houston, and says Old Humble lies south of Farm Road 1960. Humble's handbook coordinates are west from the showroom.",
+        "The handbook account of Humble includes the Humble oil field and Lake Houston nearby. Current houses for that lot are on the [inventory](/inventory). Humble is linked from the [locations index](/locations) like the rest of the towns. You can also open [single wides only](/single-wide) or [double wides only](/double-wide)."
+      ],
+      "sources": [
+        "https://www.tshaonline.org/handbook/entries/humble-tx-harris-county"
+      ]
+    },
+    "atascocita": {
+      "city": "Atascocita",
+      "heading": "Atascocita along FM 1960",
+      "index_blurb": "Harris County community beside Lake Houston, west-southwest along FM 1960.",
+      "paragraphs": [
+        "Atascocita is an unincorporated community in northeastern Harris County. The Handbook of Texas places it on both sides of Farm Road 1960, about six miles east of Humble, with Lake Houston along the east side. The historic Atascosito Road followed what is now FM 1960, and that is the name the community uses. The showroom point in the site config sits east-northeast of Atascocita's handbook coordinates, so Atascocita lies west-southwest from that point.",
+        "Shoppers who want houses at that Huffman lot should open the [home inventory](/inventory). Atascocita is one stop on the [locations index](/locations). Category pages list [single wides](/single-wide) and [double wides](/double-wide) separately."
+      ],
+      "sources": [
+        "https://www.tshaonline.org/handbook/entries/atascocita-tx"
+      ]
+    },
+    "crosby": {
+      "city": "Crosby",
+      "heading": "Crosby on Farm Road 2100",
+      "index_blurb": "Harris County town to the south-southeast, on FM 2100 near State Highway 90.",
+      "paragraphs": [
+        "Crosby is an unincorporated town in eastern Harris County, just outside the Houston city limits. The handbook places Crosby on Farm Road 2100 about two miles north of State Highway 90. That farm road also runs through Huffman, which the handbook also places on Farm Road 1960. Crosby's handbook coordinates lie south-southeast from the showroom.",
+        "The catalog of houses is the [inventory](/inventory), not a Crosby lot. Open [Locations](/locations) to pick a different town page. Type filters are the [single wide route](/single-wide) and the [double wide route](/double-wide)."
+      ],
+      "sources": [
+        "https://www.tshaonline.org/handbook/entries/crosby-tx"
+      ]
+    },
+    "kingwood": {
+      "city": "Kingwood",
+      "heading": "Kingwood and the East Fork of the San Jacinto",
+      "index_blurb": "Harris County community to the west, along the East Fork of the San Jacinto River.",
+      "paragraphs": [
+        "Kingwood is a residential community on a 14,000-acre tract along the East Fork of the San Jacinto River in extreme northeastern Harris County. That entry calls it a project of Friendswood Development Company and King Ranch, and records that the city of Houston had annexed Kingwood by 2000. The place record on that handbook page also lists Montgomery County. Kingwood's handbook coordinates sit west from the showroom.",
+        "Kingwood schools are part of the Humble school district, the same entry says. Homes to walk through are in the [inventory](/inventory). Find every town, Kingwood included, on the [locations index](/locations). The type split is [single wide inventory](/single-wide) versus [double wide inventory](/double-wide)."
+      ],
+      "sources": [
+        "https://www.tshaonline.org/handbook/entries/kingwood-tx"
+      ]
+    },
+    "new-caney": {
+      "city": "New Caney",
+      "heading": "New Caney at Loop 494",
+      "index_blurb": "Montgomery County community to the north-northwest, at FM 1485 and Loop 494.",
+      "paragraphs": [
+        "New Caney, once called Presswood, is unincorporated and sits in southeastern Montgomery County. The handbook places it at the junction of Farm Road 1485 and State Highway Loop 494, seventeen miles southeast of Conroe. New Caney's handbook coordinates lie north-northwest of the Huffman lot on FM 1960.",
+        "The handbook traces the name to Caney Station on the Houston, East and West Texas Railway, after the canebrakes on Caney Creek. The [inventory](/inventory) is where Huffman keeps the houses shoppers compare. New Caney is grouped with the other towns on the [locations index](/locations). Separate type pages cover [single wide floorplans](/single-wide) and [double wide floorplans](/double-wide)."
+      ],
+      "sources": [
+        "https://www.tshaonline.org/handbook/entries/new-caney-tx"
+      ]
+    },
+    "baytown": {
+      "city": "Baytown",
+      "heading": "Baytown on Interstate 10",
+      "index_blurb": "City in Harris and Chambers counties, south-southeast, on Interstate 10 and State Highway 146.",
+      "paragraphs": [
+        "Baytown is a city in southeastern Harris County and western Chambers County. Handbook of Texas Online locates it on Interstate Highway 10 and State Highway 146, about thirty miles east of downtown Houston. Baytown's handbook coordinates fall south-southeast of the lot at 10685 FM 1960 East.",
+        "The Huffman handbook entry places that community on Farm Road 2100 as well as Farm Road 1960. Crosby is the other town page tied to Farm Road 2100. Baytown's own entry names Interstate Highway 10 and State Highway 146. The [inventory](/inventory) holds the homes offered from Huffman. For another town, start at the [locations index](/locations). Width categories live on the [single wide page](/single-wide) and the [double wide page](/double-wide)."
+      ],
+      "sources": [
+        "https://www.tshaonline.org/handbook/entries/baytown-tx"
+      ]
+    },
+    "beaumont": {
+      "city": "Beaumont",
+      "heading": "Beaumont, seat of Jefferson County",
+      "index_blurb": "Jefferson County seat to the east, on Interstate 10 beside the Neches River.",
+      "paragraphs": [
+        "Beaumont is the county seat of Jefferson County. A Handbook of Texas entry puts the city in the northeast part of that county, on the west bank of the Neches River and on Interstate Highway 10, eighty-five miles east of Houston. Published coordinates for Beaumont sit east of the Huffman lot.",
+        "With Port Arthur and Orange, the handbook describes Beaumont as part of the Golden Triangle. The houses to compare are the ones on the [inventory page](/inventory). This city is one of the town links on the [locations index](/locations). See also [single section homes](/single-wide) and [double section homes](/double-wide)."
+      ],
+      "sources": [
+        "https://www.tshaonline.org/handbook/entries/beaumont-tx"
+      ]
+    },
+    "cleveland": {
+      "city": "Cleveland",
+      "heading": "Cleveland on U.S. Highway 59",
+      "index_blurb": "Liberty County town to the north, on U.S. 59, with Sam Houston National Forest just beyond it.",
+      "paragraphs": [
+        "Cleveland stands on U.S. Highway 59 in northwestern Liberty County. The handbook says it is forty miles northeast of Houston. Cleveland's handbook coordinates are north of the Huffman address.",
+        "The handbook also notes Sam Houston National Forest just to Cleveland's north. See the [inventory](/inventory) for homes kept at the Huffman lot, and use [Locations](/locations) when you want the full town list. Shop [single wide houses](/single-wide) or [double wide houses](/double-wide) on their own URLs."
+      ],
+      "sources": [
+        "https://www.tshaonline.org/handbook/entries/cleveland-tx-liberty-county"
+      ]
+    },
+    "conroe": {
+      "city": "Conroe",
+      "heading": "Conroe, seat of Montgomery County",
+      "index_blurb": "Montgomery County seat to the northwest, on Interstate 45 near Lake Conroe.",
+      "paragraphs": [
+        "Conroe is the Montgomery County seat. The handbook puts this city on Interstate Highway 45, seven miles southeast of Lake Conroe, in the central part of the county. From the configured Huffman coordinates, Conroe's handbook point lies to the northwest.",
+        "The county seat is on Interstate 45. The lot people visit is still the one on FM 1960 in Huffman, and the [inventory](/inventory) is where those houses are shown. Conroe's page is reached from the [locations index](/locations). Home types are separated into [single wide homes](/single-wide) and [double wide homes](/double-wide)."
+      ],
+      "sources": [
+        "https://www.tshaonline.org/handbook/entries/conroe-tx"
+      ]
+    },
+    "livingston": {
+      "city": "Livingston",
+      "heading": "Livingston, seat of Polk County",
+      "index_blurb": "Polk County seat to the north-northeast, where U.S. 59 meets U.S. 190.",
+      "paragraphs": [
+        "Livingston is the Polk County seat. The handbook places Livingston at the junction of U.S. Highways 190 and 59, State Highway 146, and Farm Road 1316, about seventy-five miles north of Houston in the southern part of the county. Those coordinates fall north-northeast from the showroom.",
+        "Cleveland and Livingston are both on U.S. Highway 59, the handbook entries say. The handbook ties Lake Livingston, an 83,000-acre reservoir completed in 1968, to the town. Houses from the Huffman lot are listed in the [inventory](/inventory). The [locations index](/locations) is the list that includes Livingston. Browse [single wide choices](/single-wide) or [double wide choices](/double-wide) from there."
+      ],
+      "sources": [
+        "https://www.tshaonline.org/handbook/entries/livingston-tx"
+      ]
+    }
+  }
+}

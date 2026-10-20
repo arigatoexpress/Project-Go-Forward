@@ -136,6 +136,11 @@ PUBLIC_ROUTES = {
         f"Delivery, placement, utility connections, and site-prep guidance for "
         f"manufactured homes from {business_name()} in {_CITY_STATE}.",
     ),
+    "/locations": (
+        f"Locations | {business_name()}",
+        "Town pages around the Huffman showroom, each with its county and direction "
+        "from that lot, plus links to the other towns and the home inventory.",
+    ),
 }
 
 # Shared copy keeps server-rendered and React legal pages identical.
@@ -992,6 +997,10 @@ def _storefront_links(current_path: str) -> str:
         parts.append('<a href="/">Home</a>')
     if current_path != "/inventory":
         parts.append('<a href="/inventory">All homes</a>')
+    if current_path != "/locations":
+        parts.append('<a href="/locations">Locations</a>')
+    else:
+        parts.append('<span aria-current="page">Locations</span>')
     for path, city in _city_pages().items():
         label = f"Homes in {city}, TX"
         if path == current_path:
@@ -1694,35 +1703,139 @@ def _city_pages() -> dict[str, str]:
     }
 
 
-def _crawlable_city_block(city: str) -> str:
+_CITY_FACTS_PATH = (
+    Path(__file__).resolve().parent / "frontend" / "src" / "content" / "cityLocalFacts.json"
+)
+_city_facts_cache: dict | None = None
+_INTERNAL_LINK_RE = re.compile(r"\[([^\]\n]+)\]\((/[^)\s]+)\)")
+
+
+def _city_copy() -> dict:
+    global _city_facts_cache
+    if _city_facts_cache is None:
+        _city_facts_cache = json.loads(_CITY_FACTS_PATH.read_text(encoding="utf-8"))
+    return _city_facts_cache
+
+
+def _paragraph_with_links(text: str) -> str:
+    """Turn [label](/path) marks into anchors. Only same-site paths are linked."""
     e = html.escape
-    reg = _registry()
-    path = next((item for item, name in _city_pages().items() if name == city), "")
-    # Reuse the same home links as the inventory page so this city page points
-    # at real listings. The homes are at the Huffman showroom, not in this city.
-    items = []
+    parts: list[str] = []
+    pos = 0
+    for match in _INTERNAL_LINK_RE.finditer(text):
+        parts.append(e(text[pos : match.start()]))
+        label, href = match.group(1), match.group(2)
+        if href.startswith("//") or any(char in href for char in "\"'<>"):
+            parts.append(e(match.group(0)))
+        else:
+            parts.append(f'<a href="{e(href)}">{e(label)}</a>')
+        pos = match.end()
+    parts.append(e(text[pos:]))
+    return "<p>" + "".join(parts) + "</p>"
+
+
+def _breadcrumb_nav(items: list[tuple[str, str]]) -> str:
+    """Visible breadcrumb. The last item is the current page. Names match JSON-LD."""
+    e = html.escape
+    last = len(items) - 1
+    parts = []
+    for index, (name, path) in enumerate(items):
+        if index == last:
+            parts.append(f'<li><span aria-current="page">{e(name)}</span></li>')
+        else:
+            parts.append(f'<li><a href="{e(path)}">{e(name)}</a></li>')
+    return '<nav aria-label="Breadcrumb"><ol>' + "".join(parts) + "</ol></nav>"
+
+
+def _capped_city_listings() -> list[tuple[str, str]]:
+    """A short, stable set of real listing links.
+
+    The full catalog stays on /inventory. Repeating every home on each town
+    page made those pages copies of one another.
+    """
+    limit = int(_city_copy().get("listing_limit") or 8)
+    rows: list[tuple[str, str]] = []
     seen: set[str] = set()
-    for route_key, home in list(reg["detail_by_route"].items()):
-        home_path = reg["detail_path_by_route"].get(route_key)
-        if not home_path or home_path in seen:
-            continue
-        seen.add(home_path)
-        label = home.get("model_name") or "Manufactured home"
-        items.append(f'<li><a href="{e(home_path)}">{e(label)}</a></li>')
-    for home in reg["homes"]:
+    for home in _registry()["homes"]:
         home_path = listing_path(home)
         if not home_path or home_path in seen:
             continue
         seen.add(home_path)
-        label = home.get("model_name") or "Manufactured home"
-        items.append(f'<li><a href="{e(home_path)}">{e(label)}</a></li>')
+        rows.append((home_path, home.get("model_name") or "Manufactured home"))
+    rows.sort(key=lambda item: item[0])
+    return rows[:limit]
+
+
+def _city_local_section(city: str) -> str:
+    e = html.escape
+    facts = (_city_copy().get("cities") or {}).get(_city_slug(city)) or {}
+    heading = str(facts.get("heading") or "")
+    paragraphs = facts.get("paragraphs") or []
+    if not heading or not paragraphs:
+        return ""
+    body = "".join(_paragraph_with_links(str(paragraph)) for paragraph in paragraphs)
+    return f'<section aria-label="{e(heading)}"><h2>{e(heading)}</h2>{body}</section>'
+
+
+def _crawlable_locations_block() -> str:
+    e = html.escape
+    copy = _city_copy()
+    index = copy.get("index") or {}
+    facts = copy.get("cities") or {}
+    items = []
+    for path, city in _city_pages().items():
+        blurb = str((facts.get(_city_slug(city)) or {}).get("index_blurb") or "")
+        blurb_html = f" {e(blurb)}" if blurb else ""
+        items.append(f'<li><a href="{e(path)}">Homes in {e(city)}, TX</a>.{blurb_html}</li>')
+    inventory_href = str(index.get("inventory_href") or "/inventory")
+    inventory_label = str(index.get("inventory_label") or "Home inventory")
+    contact_href = str(index.get("contact_href") or "/contact")
+    contact_label = str(index.get("contact_label") or "Showroom contact page")
     return (
+        f"{_breadcrumb_nav([('Home', '/'), ('Locations', '/locations')])}"
+        f"<h1>{e(str(index.get('heading') or 'Locations'))}</h1>"
+        f"<p>{e(str(index.get('intro') or ''))}</p>"
+        f"<ul>{''.join(items)}</ul>"
+        f'<p><a href="{e(inventory_href)}">{e(inventory_label)}</a>. '
+        f'<a href="{e(contact_href)}">{e(contact_label)}</a>.</p>'
+        f"{_storefront_links('/locations')}"
+    )
+
+
+def _locations_itemlist() -> dict:
+    return {
+        "@context": "https://schema.org",
+        "@type": "ItemList",
+        "name": "Town pages",
+        "itemListElement": [
+            {
+                "@type": "ListItem",
+                "position": index,
+                "name": f"Homes in {city}, TX",
+                "url": _base() + path,
+            }
+            for index, (path, city) in enumerate(_city_pages().items(), start=1)
+        ],
+    }
+
+
+def _crawlable_city_block(city: str) -> str:
+    e = html.escape
+    path = next((item for item, name in _city_pages().items() if name == city), "")
+    # Listing links point at real homes. The homes are at the Huffman showroom,
+    # not parked in this city. The full catalog is /inventory.
+    items = [
+        f'<li><a href="{e(href)}">{e(label)}</a></li>' for href, label in _capped_city_listings()
+    ]
+    return (
+        f"{_breadcrumb_nav([('Home', '/'), ('Locations', '/locations'), (f'Homes in {city}, TX', path)])}"
         f"<h1>Manufactured &amp; Mobile Homes in {e(city)}, TX</h1>"
         f"<p>{e(business_name())} delivers manufactured and mobile homes to "
         f"{e(city)}, TX from the {e(business_city())} showroom at "
         f"{e(business_address())}. Call "
         f'<a href="tel:{e(business_phone())}">{e(business_phone())}</a> '
         f"for the current price. Homes and floorplans offered by our {e(business_city())} showroom:</p>"
+        f"{_city_local_section(city)}"
         f"{_storefront_links(path)}"
         f"<ul>{''.join(items)}</ul>"
         f'<p><a href="/appointments">Book a showroom visit</a></p>'
@@ -1808,6 +1921,7 @@ def _render_spa_response(full_path: str) -> Response | None:
             _breadcrumb_trail(
                 [
                     ("Home", base + "/"),
+                    ("Locations", base + "/locations"),
                     (f"Homes in {city}, TX", base + path),
                 ]
             ),
@@ -2038,6 +2152,7 @@ def _render_spa_response(full_path: str) -> Response | None:
             in (
                 "/",
                 "/inventory",
+                "/locations",
                 "/contact",
                 "/about",
                 "/financing",
@@ -2064,6 +2179,17 @@ def _render_spa_response(full_path: str) -> Response | None:
             itemlist = _inventory_itemlist_jsonld()
             if itemlist:
                 jsonld.append(itemlist)
+        if path == "/locations":
+            jsonld.append(_webpage_jsonld(title, description, path))
+            jsonld.append(
+                _breadcrumb_trail(
+                    [
+                        ("Home", base + "/"),
+                        ("Locations", base + "/locations"),
+                    ]
+                )
+            )
+            jsonld.append(_locations_itemlist())
         if path == "/faq":
             jsonld.append(_faqpage_jsonld())
         head = _head_block(
@@ -2075,6 +2201,8 @@ def _render_spa_response(full_path: str) -> Response | None:
         )
         if path in ("/", "/inventory"):
             body = _crawlable_inventory_block(hub=path == "/inventory")
+        elif path == "/locations":
+            body = _crawlable_locations_block()
         elif path == "/contact":
             body = _crawlable_contact_block()
         elif path == "/appointments":
@@ -2123,6 +2251,9 @@ def render_not_found() -> Response:
 # Date the public home, inventory, location, and listing templates last changed.
 # Listing records keep a later timestamp when the home itself was updated after this.
 _SEO_TEMPLATE_LASTMOD = "2026-10-18"
+# Town pages and the locations index changed on this date. Home and inventory
+# keep the earlier template date.
+_CITY_CONTENT_LASTMOD = "2026-10-20"
 
 
 def _template_lastmod_paths() -> set[str]:
@@ -2208,14 +2339,20 @@ def sitemap_xml() -> Response:
         "/delivery",
         "/privacy",
         "/terms",
+        "/locations",
     ]
     dated = _template_lastmod_paths()
-    entries_xml = [
-        _url_entry(base + path, _SEO_TEMPLATE_LASTMOD if path in dated else None)
-        for path in static_paths
-    ]
+
+    def _static_lastmod(static_path: str) -> str | None:
+        if static_path == "/locations":
+            return _CITY_CONTENT_LASTMOD
+        if static_path in dated:
+            return _SEO_TEMPLATE_LASTMOD
+        return None
+
+    entries_xml = [_url_entry(base + path, _static_lastmod(path)) for path in static_paths]
     entries_xml += [
-        _url_entry(base + path, _SEO_TEMPLATE_LASTMOD) for path in sorted(_city_pages())
+        _url_entry(base + path, _CITY_CONTENT_LASTMOD) for path in sorted(_city_pages())
     ]
     reg = _registry()
     if reg["inventory_ok"]:
