@@ -35,16 +35,16 @@ This is the comparison that uses one catalog before the copy change and after it
 | atascocita | 1252 | 98.2% | 248 | 29.2% | 1.6% | 2.5% | 3.6% | 18.1% |
 | baytown | 1252 | 100.0% | 258 | 100.0% | 1.6% | 2.5% | 3.6% | 17.6% |
 | beaumont | 1252 | 98.2% | 243 | 29.6% | 1.6% | 2.5% | 3.6% | 18.5% |
-| cleveland | 1252 | 98.2% | 248 | 29.3% | 1.6% | 2.5% | 3.6% | 18.1% |
-| conroe | 1252 | 98.2% | 235 | 30.3% | 1.6% | 2.5% | 3.6% | 19.1% |
-| crosby | 1252 | 98.2% | 230 | 30.8% | 1.6% | 2.5% | 3.6% | 19.6% |
+| cleveland | 1252 | 98.2% | 219 | 31.8% | 1.6% | 2.5% | 3.6% | 20.7% |
+| conroe | 1252 | 98.2% | 233 | 30.4% | 1.6% | 2.5% | 3.6% | 19.3% |
+| crosby | 1252 | 98.2% | 231 | 30.7% | 1.6% | 2.5% | 3.6% | 19.5% |
 | huffman | 1252 | 98.2% | 231 | 30.7% | 1.7% | 2.7% | 3.8% | 20.9% |
 | humble | 1252 | 98.2% | 240 | 29.9% | 1.6% | 2.5% | 3.6% | 18.7% |
-| kingwood | 1252 | 98.2% | 257 | 28.8% | 1.6% | 2.5% | 3.6% | 17.6% |
-| livingston | 1252 | 98.2% | 251 | 29.0% | 1.6% | 2.5% | 3.6% | 17.8% |
+| kingwood | 1252 | 98.2% | 258 | 28.7% | 1.6% | 2.5% | 3.6% | 17.6% |
+| livingston | 1252 | 98.2% | 252 | 28.9% | 1.6% | 2.5% | 3.6% | 17.8% |
 | new-caney | 1255 | 98.2% | 251 | 29.2% | 1.6% | 2.5% | 3.6% | 18.1% |
 
-The contained share rises because the page is shorter. The shared piece is a short list of real homes, not a copied catalog. Jaccard versus Baytown falls from 98.2 percent to about 29 to 31 percent.
+The contained share rises because the page is shorter. The shared piece is a short list of real homes, not a copied catalog. Jaccard versus Baytown falls from 98.2 percent to about 29 to 32 percent.
 
 ## Repo inventory snapshot (19 homes)
 
@@ -55,13 +55,13 @@ Same method on `data/legacy_site/legacy_inventory_context.json`. Inventory words
 | atascocita | 326 | 90.6% | 293 | 36.8% | 14.9% | 10.7% | 30.0% | 19.8% |
 | baytown | 326 | 100.0% | 303 | 100.0% | 14.9% | 10.6% | 30.0% | 19.4% |
 | beaumont | 326 | 90.6% | 288 | 37.3% | 14.9% | 10.8% | 30.0% | 20.1% |
-| cleveland | 326 | 90.6% | 293 | 36.9% | 14.9% | 10.7% | 30.0% | 19.9% |
-| conroe | 326 | 90.6% | 280 | 38.0% | 14.9% | 11.0% | 30.0% | 20.7% |
-| crosby | 326 | 90.6% | 275 | 38.6% | 14.9% | 11.1% | 30.0% | 21.2% |
+| cleveland | 326 | 90.6% | 264 | 39.7% | 14.9% | 11.4% | 30.0% | 22.1% |
+| conroe | 326 | 90.6% | 278 | 38.2% | 14.9% | 11.0% | 30.0% | 20.9% |
+| crosby | 326 | 90.6% | 276 | 38.5% | 14.9% | 11.1% | 30.0% | 21.1% |
 | huffman | 326 | 90.6% | 276 | 38.5% | 15.4% | 11.8% | 30.9% | 22.3% |
 | humble | 326 | 90.6% | 285 | 37.6% | 14.9% | 10.9% | 30.0% | 20.4% |
-| kingwood | 326 | 90.6% | 302 | 36.3% | 14.9% | 10.6% | 30.0% | 19.4% |
-| livingston | 326 | 90.6% | 296 | 36.6% | 14.9% | 10.6% | 30.0% | 19.6% |
+| kingwood | 326 | 90.6% | 303 | 36.2% | 14.9% | 10.6% | 30.0% | 19.3% |
+| livingston | 326 | 90.6% | 297 | 36.5% | 14.9% | 10.6% | 30.0% | 19.5% |
 | new-caney | 329 | 90.2% | 296 | 36.8% | 14.8% | 10.7% | 29.9% | 19.8% |
 
 ## What each page is allowed to say
@@ -71,7 +71,7 @@ County, highways, and place facts come from the Handbook of Texas page named bel
 | Town | Handbook page | Handbook coordinates | Bearing from the showroom |
 |---|---|---|---|
 | Huffman | https://www.tshaonline.org/handbook/entries/huffman-tx | 30.02716260, -95.08576270 | Showroom town. The page does not treat Huffman as a direction away from the lot. |
-| Humble | https://www.tshaonline.org/handbook/entries/humble-tx-harris-county | 29.99199250, -95.26579700 | west-southwest |
+| Humble | https://www.tshaonline.org/handbook/entries/humble-tx-harris-county | 29.99199250, -95.26579700 | west |
 | Atascocita | https://www.tshaonline.org/handbook/entries/atascocita-tx | 29.99883060, -95.17659780 | west-southwest |
 | Crosby | https://www.tshaonline.org/handbook/entries/crosby-tx | 29.91188850, -95.06215120 | south-southeast |
 | Kingwood | https://www.tshaonline.org/handbook/entries/kingwood-tx | 30.03355260, -95.26104440 | west |

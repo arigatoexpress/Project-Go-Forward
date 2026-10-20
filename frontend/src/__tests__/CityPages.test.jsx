@@ -60,6 +60,8 @@ describe('city pages and the locations index', () => {
     expect(screen.getByRole('heading', { level: 1, name: 'Manufactured & Mobile Homes in Humble, TX' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 2, name: 'Humble beside U.S. Highway 59' })).toBeInTheDocument();
     expect(screen.getByText(/northern Harris County/)).toBeInTheDocument();
+    expect(screen.getByText(/west from the showroom/)).toBeInTheDocument();
+    expect(screen.queryByText(/west-southwest/)).not.toBeInTheDocument();
     const held = `${BUSINESS_NAME} delivers manufactured and mobile homes to Humble, TX from the ${BUSINESS_CITY} showroom at ${BUSINESS_FULL_ADDRESS}. Call ${BUSINESS_PHONE} for the current price.`;
     expect(screen.getByText(held)).toBeInTheDocument();
     const crumbs = screen.getByRole('navigation', { name: 'Breadcrumb' });

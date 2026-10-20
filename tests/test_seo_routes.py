@@ -852,7 +852,34 @@ def test_city_pages_keep_the_delivery_sentence_and_add_local_facts(monkeypatch):
     assert 'aria-label="Breadcrumb"' in humble
     assert 'href="/locations"' in humble
     assert "<h2>Humble beside U.S. Highway 59</h2>" in humble
+    assert "west-southwest" not in plain
+    assert "west from the showroom" in plain
     assert not any(block.get("@type") == "Product" for block in _jsonld_blocks(humble))
+
+    def visible(path: str) -> str:
+        raw = client.get(path).text
+        return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", raw))
+
+    cleveland = visible("/manufactured-homes-in-cleveland-tx")
+    assert "through the Humble area" not in cleveland
+    assert "farther up that highway" not in cleveland
+    crosby = visible("/manufactured-homes-in-crosby-tx")
+    assert "meets FM 1960" not in crosby
+    assert "which the handbook also places on Farm Road 1960." in crosby
+    assert "south-southeast from the showroom" in crosby
+    kingwood = visible("/manufactured-homes-in-kingwood-tx")
+    assert "west from the showroom" in kingwood
+    assert "of Huffman" not in kingwood
+    livingston = visible("/manufactured-homes-in-livingston-tx")
+    assert (
+        "Cleveland and Livingston are both on U.S. Highway 59, the handbook entries say."
+        in livingston
+    )
+    assert "north-northeast from the showroom" in livingston
+    assert "continues north from the Cleveland area" not in livingston
+    conroe = visible("/manufactured-homes-in-conroe-tx")
+    assert "The county seat is on Interstate 45." in conroe
+    assert "the highway into the county seat" not in conroe
 
     baytown = _shingles(client.get("/manufactured-homes-in-baytown-tx").text)
     for city in cities:
