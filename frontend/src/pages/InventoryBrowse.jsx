@@ -187,6 +187,26 @@ function photoFilename(url) {
   return decodeURIComponent(String(url).split('/').pop()?.split('?')[0] || '').toLowerCase();
 }
 
+function photoStem(filename) {
+  return filename.replace(/\.[^.]+$/i, '');
+}
+
+// Category labels still store the filename the feed originally published.
+// An exact filename wins. A different extension is accepted only when one
+// gallery photo has that stem, so 5.jpg can resolve to the repaired 5.png
+// and cannot land on 15.png, 10.jpg, or an ambiguous pair.
+export function matchCategoryPhoto(label, photos) {
+  const rewritten = rewriteMediaUrl(label);
+  const wantedFile = photoFilename(rewritten);
+  const wantedStem = photoStem(wantedFile);
+  const list = Array.isArray(photos) ? photos : [];
+  const exact = list.find((url) => photoFilename(url) === wantedFile);
+  if (exact) return exact;
+  if (!wantedStem) return '';
+  const stemMatches = list.filter((url) => photoStem(photoFilename(url)) === wantedStem);
+  return stemMatches.length === 1 ? stemMatches[0] : '';
+}
+
 function hasToken(filename, tokens) {
   const parts = filename.replace(/\.[a-z0-9]+$/i, '').split(/[^a-z0-9]+/).filter(Boolean);
   return tokens.some(token => parts.includes(token) || filename.includes(token));
@@ -401,7 +421,7 @@ function ListingActions({ home, onApply, onGetPrice }) {
 function FeaturedHomeSpotlight({ home, onClick, onGetPrice, onApply }) {
   if (!home) return null;
   const specs = home.specs || {};
-  const images = getListingPhotos(home);
+  const image = getHomeImage(home);
   const href = listingHref(home);
   return (
     <div className="overflow-hidden rounded-lg border border-[var(--cp-border-light)] bg-[var(--cp-panel)] shadow-[0_20px_60px_rgba(0,0,0,0.35)]">
@@ -414,9 +434,9 @@ function FeaturedHomeSpotlight({ home, onClick, onGetPrice, onApply }) {
         className="group block w-full text-left"
       >
         <div className="relative h-[260px] overflow-hidden bg-[var(--cp-bg-2)]">
-          <SequentialPhoto
-            urls={images}
-            alt={listingImageAlt(home, images[0] || '', 1, Math.max(images.length, 1))}
+          <SinglePhoto
+            url={image}
+            alt={listingImageAlt(home, image, 1, 1)}
             className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
             imgProps={{
               width: 1200,
@@ -836,16 +856,7 @@ export default function InventoryBrowse({
     return catFiles.map((f) => {
       const rewritten = rewriteMediaUrl(f);
       if (rewritten.startsWith('http')) return rewritten;
-      const wantedFile = photoFilename(rewritten);
-      const wantedStem = wantedFile.replace(/\.[^.]+$/i, '');
-      const match = allPhotos.find((url) => {
-        const file = photoFilename(url);
-        if (file === wantedFile) return true;
-        // A repaired CDN sibling keeps the stem and changes only the extension
-        // (5.jpg -> 5.png). Category labels still store the original filename.
-        return file.replace(/\.[^.]+$/i, '') === wantedStem;
-      });
-      return match || rewritten;
+      return matchCategoryPhoto(rewritten, allPhotos) || rewritten;
     }).filter((url) => (
       url
       && usedHomeMayShowPhoto(url, home)
@@ -1082,18 +1093,20 @@ export default function InventoryBrowse({
     <div className="min-h-screen bg-[var(--cp-bg)] text-[var(--cp-text)]">
       {/* Hero Section */}
       <section className="relative isolate overflow-hidden border-b border-[var(--cp-border)] bg-[var(--cp-bg)]">
-        <SequentialPhoto
-          urls={heroImage ? getListingPhotos(heroHome) : []}
-          alt=""
-          className="absolute inset-0 -z-10 h-full w-full object-cover opacity-35"
-          imgProps={{
-            'aria-hidden': 'true',
-            sizes: getImageSizes('hero-background'),
-            loading: 'eager',
-            decoding: 'async',
-            fetchPriority: 'high',
-          }}
-        />
+        {heroImage ? (
+          <SinglePhoto
+            url={heroImage}
+            alt=""
+            className="absolute inset-0 -z-10 h-full w-full object-cover opacity-35"
+            imgProps={{
+              'aria-hidden': 'true',
+              sizes: getImageSizes('hero-background'),
+              loading: 'eager',
+              decoding: 'async',
+              fetchPriority: 'high',
+            }}
+          />
+        ) : null}
         <div className="absolute inset-0 -z-10 bg-[linear-gradient(90deg,rgba(5,6,8,0.96),rgba(5,6,8,0.74),rgba(5,6,8,0.9))]" />
         <div className="mx-auto grid max-w-7xl gap-8 px-4 py-8 sm:px-6 lg:grid-cols-[1.1fr_0.9fr] lg:px-8 lg:py-10">
           <div className="flex min-h-0 min-w-0 flex-col justify-center lg:min-h-[520px]">
@@ -1503,30 +1516,9 @@ function PhotosComingSoon({ className = 'flex h-64 items-center justify-center r
   );
 }
 
-// Try each URL in order. A 403 unmounts the image before the next one, so
-// shoppers never sit on a broken icon. An empty list, or a list that all
-// fail, renders the fallback.
-function SequentialPhoto({ urls, alt, className, imgProps = {}, fallback = null }) {
-  const list = (Array.isArray(urls) ? urls : []).filter(Boolean);
-  const listKey = list.join('\n');
-  const [attempt, setAttempt] = useState({ listKey, index: 0 });
-  if (attempt.listKey !== listKey) {
-    setAttempt({ listKey, index: 0 });
-  }
-  const index = attempt.listKey === listKey ? attempt.index : 0;
-  const url = list[index];
-  if (!url) return fallback;
-  return (
-    <img
-      src={url}
-      alt={alt}
-      className={className}
-      onError={() => setAttempt({ listKey, index: index + 1 })}
-      {...imgProps}
-    />
-  );
-}
-
+// One curated URL. A 403 unmounts the image so shoppers never sit on a broken
+// icon. Featured, detail, hero, and similar surfaces stay on this photo
+// instead of walking to the next file.
 function SinglePhoto({ url, alt, className, imgProps = {}, fallback = null }) {
   const [failed, setFailed] = useState(false);
   const [seenUrl, setSeenUrl] = useState(url);
@@ -1542,6 +1534,7 @@ function SinglePhoto({ url, alt, className, imgProps = {}, fallback = null }) {
       className={className}
       onError={() => setFailed(true)}
       {...imgProps}
+      srcSet={generateSrcSet(url)}
     />
   );
 }
@@ -2396,8 +2389,8 @@ function SimilarHomes({ currentHome, allHomes, onSelectHome }) {
           const body = (
             <>
               <div className="h-[100px] rounded-lg overflow-hidden bg-slate-200 flex items-center justify-center mb-3">
-                <SequentialPhoto
-                  urls={getListingPhotos(home)}
+                <SinglePhoto
+                  url={image}
                   alt={listingImageAlt(home, image, 1, 1)}
                   className="w-full h-full object-cover"
                   imgProps={{

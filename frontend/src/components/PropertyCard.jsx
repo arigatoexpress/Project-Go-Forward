@@ -115,6 +115,7 @@ function HideablePhoto({ src, alt, className, imgProps = {}, fallback = null }) 
             className={className}
             onError={() => setFailed(true)}
             {...imgProps}
+            srcSet={generateSrcSet(src)}
         />
     );
 }

@@ -136,12 +136,6 @@ export default defineConfig({
         })]
       : []),
   ],
-  server: {
-    fs: {
-      // The storefront and the API share the manufacturer CDN repair table.
-      allow: [resolve(__dirname, '..')],
-    },
-  },
   build: {
     // Source maps are only generated when uploading to Sentry (saves bundle size otherwise).
     sourcemap: !!process.env.SENTRY_AUTH_TOKEN,
