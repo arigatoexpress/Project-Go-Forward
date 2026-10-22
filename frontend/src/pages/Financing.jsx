@@ -58,7 +58,7 @@ const Financing = ({ onBack }) => (
           </div>
           {/* TODO(owner): confirm which lenders finance manufactured homes, and whether any in-house program exists, before naming a lender or program. */}
           <p>
-            Ask our team which loan types fit your situation.
+            Ask our team for current lender options.
           </p>
         </div>
       </section>

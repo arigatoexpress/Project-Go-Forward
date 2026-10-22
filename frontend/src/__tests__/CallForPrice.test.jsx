@@ -1,10 +1,10 @@
-import { readFileSync } from 'node:fs';
-import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
 import InventoryBrowse from '../pages/InventoryBrowse';
 import Contact from '../pages/Contact';
+import Delivery from '../pages/Delivery';
 import Financing from '../pages/Financing';
+import Warranty from '../pages/Warranty';
 
 const zeroHome = {
   id: '43372',
@@ -64,17 +64,22 @@ describe('call for price and public page headings', () => {
     );
   });
 
-  it('keeps financing headings in order and leaves the lender TODO in the source', async () => {
+  it('keeps financing headings in order and shows neutral lender copy', () => {
     render(<Financing onBack={() => {}} />);
     expect(screen.getByRole('heading', { level: 1, name: /Manufactured Home Financing/ })).toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 2, name: 'Chattel (Home-Only) Loan' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { level: 3 })).not.toBeInTheDocument();
-    const pagesDir = path.resolve(process.cwd(), 'src/pages');
-    const source = readFileSync(path.join(pagesDir, 'Financing.jsx'), 'utf8');
-    expect(source).toMatch(/TODO\(owner\): confirm which lenders/);
-    for (const page of ['Warranty.jsx', 'Delivery.jsx', 'FAQ.jsx']) {
-      const text = readFileSync(path.join(pagesDir, page), 'utf8');
-      expect(text).toMatch(/TODO\(owner\)/);
-    }
+    expect(screen.getByText('Ask our team for current lender options.')).toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/TODO\(owner\)|TODO_/);
+    cleanup();
+
+    render(<Warranty onBack={() => {}} />);
+    expect(screen.getByRole('heading', { level: 1, name: /Warranty & Service/ })).toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/TODO\(owner\)|TODO_/);
+    cleanup();
+
+    render(<Delivery onBack={() => {}} />);
+    expect(screen.getByRole('heading', { level: 1, name: /Delivery & Setup/ })).toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/TODO\(owner\)|TODO_/);
   });
 });

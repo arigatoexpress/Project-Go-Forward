@@ -1879,6 +1879,8 @@ def test_service_area_cities_match_config():
     ["/", "/inventory", "/financing", "/faq", "/warranty", "/delivery", "/contact"],
 )
 def test_named_public_pages_have_canonical_social_and_verification_slots(monkeypatch, path):
+    monkeypatch.delenv("GOOGLE_SITE_VERIFICATION", raising=False)
+    monkeypatch.delenv("BING_SITE_VERIFICATION", raising=False)
     client, _ = seo_client(monkeypatch)
     sitemap = client.get("/sitemap.xml").text
     assert f"https://www.texashomeoutlet.com{path}</loc>" in sitemap
@@ -1890,11 +1892,67 @@ def test_named_public_pages_have_canonical_social_and_verification_slots(monkeyp
     assert 'name="twitter:card" content="summary_large_image"' in body
     assert 'name="twitter:title"' in body
     assert 'name="twitter:description"' in body
-    assert "TODO(owner): replace TODO_GOOGLE_SEARCH_CONSOLE_TOKEN" in body
-    assert 'name="google-site-verification" content="TODO_GOOGLE_SEARCH_CONSOLE_TOKEN"' in body
-    assert "TODO(owner): replace TODO_BING_WEBMASTER_TOKEN" in body
-    assert 'name="msvalidate.01" content="TODO_BING_WEBMASTER_TOKEN"' in body
+    assert "google-site-verification" not in body
+    assert "msvalidate.01" not in body
+    assert "TODO_GOOGLE_SEARCH_CONSOLE_TOKEN" not in body
+    assert "TODO_BING_WEBMASTER_TOKEN" not in body
+    assert "TODO(owner)" not in body
     assert "abc123" not in body
+    if path == "/financing":
+        assert "Ask our team for current lender options." in body
+        assert "lender partners" not in body.lower()
+
+
+def test_site_verification_meta_absent_until_real_tokens_are_set(monkeypatch):
+    monkeypatch.delenv("GOOGLE_SITE_VERIFICATION", raising=False)
+    monkeypatch.setenv("BING_SITE_VERIFICATION", "TODO_BING_WEBMASTER_TOKEN")
+    client, _ = seo_client(monkeypatch)
+    body = client.get("/").text
+    assert "google-site-verification" not in body
+    assert "msvalidate.01" not in body
+    assert "TODO" not in body
+
+    monkeypatch.setenv("GOOGLE_SITE_VERIFICATION", '"><script>')
+    monkeypatch.setenv("BING_SITE_VERIFICATION", "short")
+    client, _ = seo_client(monkeypatch)
+    rejected = client.get("/contact").text
+    assert "google-site-verification" not in rejected
+    assert "msvalidate.01" not in rejected
+    assert '"><script>' not in rejected
+
+
+def test_site_verification_meta_present_when_tokens_are_configured(monkeypatch):
+    monkeypatch.setenv("GOOGLE_SITE_VERIFICATION", "googleToken1234abcd")
+    monkeypatch.setenv("BING_SITE_VERIFICATION", "bingToken1234abcd")
+    client, _ = seo_client(monkeypatch)
+    body = client.get("/financing").text
+    assert 'name="google-site-verification" content="googleToken1234abcd"' in body
+    assert 'name="msvalidate.01" content="bingToken1234abcd"' in body
+    assert "TODO_GOOGLE_SEARCH_CONSOLE_TOKEN" not in body
+    assert "TODO_BING_WEBMASTER_TOKEN" not in body
+
+
+def test_placeholder_verification_tags_in_the_shell_are_stripped(monkeypatch, tmp_path):
+    import seo_routes
+
+    shell = tmp_path / "index.html"
+    shell.write_text(
+        "<!doctype html><html><head>\n"
+        "<!-- TODO(owner): replace TODO_GOOGLE_SEARCH_CONSOLE_TOKEN -->\n"
+        '<meta name="google-site-verification" content="TODO_GOOGLE_SEARCH_CONSOLE_TOKEN" />\n'
+        '<meta name="msvalidate.01" content="TODO_BING_WEBMASTER_TOKEN" />\n'
+        "<title>Old</title></head><body><div id=\"root\"></div></body></html>\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(seo_routes, "_index_html_path", str(shell))
+    monkeypatch.setattr(seo_routes, "_shell_cache", None)
+    monkeypatch.delenv("GOOGLE_SITE_VERIFICATION", raising=False)
+    monkeypatch.delenv("BING_SITE_VERIFICATION", raising=False)
+    client, _ = seo_client(monkeypatch)
+    body = client.get("/warranty").text
+    assert "google-site-verification" not in body
+    assert "msvalidate.01" not in body
+    assert "TODO" not in body
 
 
 def test_apex_host_301s_to_www_and_other_methods_stay(monkeypatch):
