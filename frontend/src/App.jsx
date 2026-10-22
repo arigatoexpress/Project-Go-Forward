@@ -1104,6 +1104,7 @@ function App() {
         title: cityLanding.title,
         description: cityLanding.description,
         canonicalPath: cityLanding.path,
+        image: '/og-card.png',
       });
       return;
     }
@@ -1115,6 +1116,7 @@ function App() {
         title: categoryTitle(inventoryCategory.classification),
         description: inventoryCategory.description,
         canonicalPath: inventoryCategory.path,
+        image: '/og-card.png',
       });
       return;
     }
@@ -1129,6 +1131,7 @@ function App() {
         title: HOME_TITLE,
         description: HOME_DESCRIPTION,
         canonicalPath: '/',
+        image: '/og-card.png',
       });
       return;
     }
@@ -1137,6 +1140,7 @@ function App() {
         title: INVENTORY_TITLE,
         description: INVENTORY_DESCRIPTION,
         canonicalPath: '/inventory',
+        image: '/og-card.png',
       });
       return;
     }
@@ -1146,6 +1150,7 @@ function App() {
       title: nextTitle,
       description: PUBLIC_DESCRIPTIONS[activePage] || `${BUSINESS_NAME} staff tools.`,
       canonicalPath: pathname === '/' ? '/' : pathname.replace(/\/+$/, '') || '/',
+      image: fullTitles[activePage] ? '/og-card.png' : undefined,
     });
   }, [activePage, pathname]);
 

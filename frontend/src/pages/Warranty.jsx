@@ -23,7 +23,7 @@ const Warranty = ({ onBack }) => (
         <div className="bg-gray-50 rounded-xl p-6 border border-gray-100">
           <div className="flex items-center gap-2 mb-3">
             <ShieldCheck size={22} className="text-blue-600" />
-            <h3 className="text-lg font-bold text-gray-900">Manufacturer's Warranty</h3>
+            <h2 className="text-lg font-bold text-gray-900">Manufacturer's Warranty</h2>
           </div>
           <p>
             New manufactured homes include a manufacturer's warranty covering the structure and major
@@ -35,7 +35,7 @@ const Warranty = ({ onBack }) => (
         <div className="bg-gray-50 rounded-xl p-6 border border-gray-100">
           <div className="flex items-center gap-2 mb-3">
             <Wrench size={22} className="text-blue-600" />
-            <h3 className="text-lg font-bold text-gray-900">Component Warranties</h3>
+            <h2 className="text-lg font-bold text-gray-900">Component Warranties</h2>
           </div>
           <p>
             Appliances, HVAC, roofing materials, and other components often carry their own
@@ -47,7 +47,7 @@ const Warranty = ({ onBack }) => (
         <div className="bg-gray-50 rounded-xl p-6 border border-gray-100">
           <div className="flex items-center gap-2 mb-3">
             <FileText size={22} className="text-blue-600" />
-            <h3 className="text-lg font-bold text-gray-900">Texas TDHCA Oversight</h3>
+            <h2 className="text-lg font-bold text-gray-900">Texas TDHCA Oversight</h2>
           </div>
           <p>
             Manufactured housing in Texas is regulated by the Texas Department of Housing and
@@ -59,7 +59,7 @@ const Warranty = ({ onBack }) => (
         <div className="bg-gray-50 rounded-xl p-6 border border-gray-100">
           <div className="flex items-center gap-2 mb-3">
             <Clock size={22} className="text-blue-600" />
-            <h3 className="text-lg font-bold text-gray-900">Service Timeline</h3>
+            <h2 className="text-lg font-bold text-gray-900">Service Timeline</h2>
           </div>
           <p>
             Warranty service requests are typically handled by the home manufacturer or an authorized

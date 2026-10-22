@@ -1134,6 +1134,37 @@ def _is_staff_entry_path(path: str) -> bool:
     return _normalized_path(path) in _STAFF_ENTRY_PATHS
 
 
+def _alternate_public_host_target(request: Request) -> str | None:
+    """301 the non-canonical twin of the public host onto CANONICAL_PUBLIC_URL.
+
+    The live canonical origin is https://www.texashomeoutlet.com, so the bare
+    apex (texashomeoutlet.com) permanently redirects there. If the canonical
+    host is ever the apex, www redirects to it instead. Staff entry paths are
+    handled first by staff_front_door_target. Local hosts and *.run.app keep
+    their existing rules.
+    """
+    if request.method.upper() not in {"GET", "HEAD"}:
+        return None
+    host = _request_hostname(request)
+    if not host or host in _LOCAL_STAFF_HOSTS or host == _CANONICAL_PUBLIC_HOST:
+        return None
+    if host.endswith(".run.app"):
+        return None
+    canonical = _CANONICAL_PUBLIC_HOST
+    alternate = canonical[4:] if canonical.startswith("www.") else f"www.{canonical}"
+    if host != alternate:
+        return None
+    return urlunsplit(
+        (
+            _CANONICAL_PUBLIC_SCHEME,
+            _CANONICAL_PUBLIC_HOST,
+            request.url.path,
+            request.url.query,
+            "",
+        )
+    )
+
+
 def staff_front_door_target(request: Request) -> str | None:
     """Send old staff entry URLs to the one sign-in page.
 
@@ -1163,6 +1194,9 @@ class CanonicalHostMiddleware(BaseHTTPMiddleware):
         staff_target = staff_front_door_target(request)
         if staff_target:
             return RedirectResponse(staff_target, status_code=308)
+        alternate_target = _alternate_public_host_target(request)
+        if alternate_target:
+            return RedirectResponse(alternate_target, status_code=301)
         if _should_redirect_to_canonical_host(request):
             target = urlunsplit(
                 (

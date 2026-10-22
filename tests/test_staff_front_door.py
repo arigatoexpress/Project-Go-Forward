@@ -1,4 +1,7 @@
-"""Old staff URLs land on one sign-in page. Public pages stay put."""
+"""Old staff URLs land on one sign-in page.
+
+The bare apex 301s to www. Public pages do not go to the staff door.
+"""
 
 from __future__ import annotations
 
@@ -39,8 +42,8 @@ def test_old_staff_entries_redirect_and_public_pages_do_not(monkeypatch):
     assert target is None
 
     status, target = location("/inventory", "texashomeoutlet.com")
-    assert status != 308
-    assert target != DOOR
+    assert status == 301
+    assert target == "https://www.texashomeoutlet.com/inventory"
 
     status, target = location("/contact", "tho.sapphirealpha.xyz")
     assert status != 308

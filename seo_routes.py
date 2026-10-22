@@ -119,8 +119,8 @@ PUBLIC_ROUTES = {
     ),
     "/financing": (
         f"Manufactured Home Financing in {_CITY_STATE} | {business_name()}",
-        f"Manufactured home financing options at {business_name()} in {_CITY_STATE}: "
-        f"chattel loans, land-and-home loans, FHA/VA/USDA, and lender partners.",
+        f"Chattel, land-and-home, and FHA, VA, or USDA loans at {business_name()} in "
+        f"{_CITY_STATE}. Ask our team for current lender options.",
     ),
     "/faq": (
         f"Frequently Asked Questions | {business_name()}",
@@ -736,6 +736,26 @@ _DESC_RE = re.compile(r'<meta\s+name="description"[^>]*/?>')
 _shell_cache: tuple[float, str] | None = None
 
 
+def _without_shell_verification(shell: str) -> str:
+    """Drop verification tags and placeholder comments baked into the SPA shell.
+
+    Real tokens are added per request by _site_verification_meta_tags(). A
+    leftover TODO token in dist/index.html must not reach a crawler.
+    """
+    kept = []
+    for line in shell.splitlines(keepends=True):
+        lowered = line.lower()
+        if (
+            "google-site-verification" in lowered
+            or "msvalidate.01" in lowered
+            or "todo_google_search_console_token" in lowered
+            or "todo_bing_webmaster_token" in lowered
+        ):
+            continue
+        kept.append(line)
+    return "".join(kept)
+
+
 def _shell() -> str:
     """dist/index.html, cached on mtime so deploys pick up new bundles."""
     global _shell_cache
@@ -744,7 +764,7 @@ def _shell() -> str:
         if _shell_cache and _shell_cache[0] == mtime:
             return _shell_cache[1]
         with open(_index_html_path, encoding="utf-8") as f:
-            content = f.read()
+            content = _without_shell_verification(f.read())
         _shell_cache = (mtime, content)
         return content
     except OSError as e:
@@ -927,6 +947,42 @@ def _default_og_image() -> str | None:
     return _base() + raw if raw.startswith("/") else raw
 
 
+# HTML-tag verification is runtime configuration. Do not hardcode or invent a
+# token. GOOGLE_SITE_VERIFICATION fills google-site-verification;
+# BING_SITE_VERIFICATION fills msvalidate.01. Unset, blank, placeholder, and
+# unsafe values emit no tag.
+_SITE_VERIFICATION_METAS = (
+    ("GOOGLE_SITE_VERIFICATION", "google-site-verification"),
+    ("BING_SITE_VERIFICATION", "msvalidate.01"),
+)
+_VERIFICATION_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{8,200}$")
+_VERIFICATION_PLACEHOLDER_RE = re.compile(
+    r"TODO|PLACEHOLDER|CHANGEME|REPLACE_ME",
+    re.IGNORECASE,
+)
+
+
+def _site_verification_token(env_name: str) -> str | None:
+    raw = (os.environ.get(env_name) or "").strip()
+    if not raw or _VERIFICATION_PLACEHOLDER_RE.search(raw):
+        return None
+    if not _VERIFICATION_TOKEN_RE.fullmatch(raw):
+        return None
+    return raw
+
+
+def _site_verification_meta_tags() -> list[str]:
+    tags = []
+    for env_name, meta_name in _SITE_VERIFICATION_METAS:
+        token = _site_verification_token(env_name)
+        if not token:
+            continue
+        tags.append(
+            f'<meta name="{meta_name}" content="{html.escape(token, quote=True)}" />'
+        )
+    return tags
+
+
 def _head_block(
     title,
     description,
@@ -941,6 +997,7 @@ def _head_block(
     parts = [
         f"<title>{e(title)}</title>",
         f'<meta name="description" content="{e(description)}" />',
+        *_site_verification_meta_tags(),
     ]
     if noindex:
         parts.append('<meta name="robots" content="noindex" />')
@@ -1183,7 +1240,7 @@ def _crawlable_detail_block(home: dict) -> str:
             rows.append(f"<li>{label}: {e(str(specs[key]))}</li>")
     if home.get("manufacturer"):
         rows.append(f"<li>Manufacturer: {e(str(home['manufacturer']))}</li>")
-    rows.append(f"<li>Price: {e(_listing_display_price(home))}</li>")
+    rows.append(_price_list_item(home))
     description = home.get("description") or ""
     return (
         f"<h1>{e(home.get('model_name') or 'Manufactured Home')}</h1>"
@@ -1216,8 +1273,33 @@ def _listing_image_alt(
 
 
 def _listing_display_price(home: dict) -> str:
-    price = str(home.get("display_price") or "").strip()
-    return price if price else "Call for Price"
+    """Public price label. Blank and $0 stay Call for Price.
+
+    The visible display_price field decides this. A hidden price_value is
+    never promoted into the label.
+    """
+    visible = str(home.get("display_price") or "").strip()
+    if _is_call_for_price_label(visible):
+        return "Call for Price"
+    shown = _visible_dollar_amount(visible)
+    if shown is not None and not _is_finite_positive(shown):
+        return "Call for Price"
+    compact = re.sub(r"[\s$,]", "", visible)
+    if re.fullmatch(r"0+(?:\.0+)?", compact):
+        return "Call for Price"
+    return visible
+
+
+def _price_list_item(home: dict) -> str:
+    """Crawlable price line. Unpriced homes include the showroom phone."""
+    e = html.escape
+    label = _listing_display_price(home)
+    if label == "Call for Price":
+        return (
+            "<li>Price: Call for Price. "
+            f'<a href="{e(_tel_href())}">Call {e(business_phone())}</a>.</li>'
+        )
+    return f"<li>Price: {e(label)}</li>"
 
 
 def _listing_product_jsonld(home: dict, canonical_url: str) -> dict | None:
@@ -1254,7 +1336,7 @@ def _crawlable_home_listing_block(home: dict) -> str:
             rows.append(f"<li>{label}: {e(str(specs[key]))}</li>")
     if home.get("manufacturer"):
         rows.append(f"<li>Manufacturer: {e(str(home['manufacturer']))}</li>")
-    rows.append(f"<li>Price: {e(_listing_display_price(home))}</li>")
+    rows.append(_price_list_item(home))
     images = listing_page_images(home)
     plan_urls = {
         str(home.get("floorplan_url") or "").strip(),
@@ -1368,7 +1450,8 @@ def _crawlable_financing_block() -> str:
         "<li>Chattel (home-only) loans</li>"
         "<li>Land-and-home / mortgage loans</li>"
         "<li>Some buyers qualify for FHA, VA, or USDA loans through approved lenders.</li>"
-        "<li>Loans through lenders that finance manufactured homes</li>"
+        "<li>Loans through lenders that finance manufactured homes. "
+        "Ask our team for current lender options.</li>"
         "</ul>"
         f'<p>Call <a href="tel:{e(business_phone())}">{e(business_phone())}</a> or '
         '<a href="/appointments">book a showroom visit</a> to discuss your options.</p>'
@@ -2174,6 +2257,7 @@ def _render_spa_response(full_path: str) -> Response | None:
                 f"{specs.get('baths')} bath" if specs.get("baths") else None,
                 specs.get("dimensions"),
                 home.get("manufacturer"),
+                _listing_display_price(home),
             )
             if x
         )
