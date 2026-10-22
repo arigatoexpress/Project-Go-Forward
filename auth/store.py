@@ -42,6 +42,7 @@ class CredentialRecord:
     aaguid: str = ""
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     last_used_at: datetime | None = None
+    label: str = ""
 
     @property
     def credential_id_b64(self) -> str:
@@ -103,6 +104,7 @@ class CredentialStore(Protocol):
     def delete_preserving_user_minimum(
         self, credential_id: bytes, *, user_id: str, minimum_remaining: int = 1
     ) -> bool: ...
+    def update_label(self, credential_id: bytes, *, user_id: str, label: str) -> bool: ...
     def count(self) -> int: ...
 
 
@@ -199,6 +201,14 @@ class InMemoryCredentialStore:
             del self._rows[credential_id]
             return True
 
+    def update_label(self, credential_id: bytes, *, user_id: str, label: str) -> bool:
+        with self._lock:
+            record = self._rows.get(credential_id)
+            if record is None or record.user_id.strip().lower() != user_id.strip().lower():
+                return False
+            record.label = label
+            return True
+
     def count(self) -> int:
         with self._lock:
             return len(self._rows)
@@ -250,6 +260,7 @@ class FirestoreCredentialStore:
             aaguid=str(data.get("aaguid", "")),
             created_at=data.get("created_at") or datetime.now(UTC),
             last_used_at=data.get("last_used_at"),
+            label=str(data.get("label") or ""),
         )
 
     def add(self, record: CredentialRecord) -> None:
@@ -263,6 +274,7 @@ class FirestoreCredentialStore:
                     "aaguid": record.aaguid,
                     "created_at": record.created_at,
                     "last_used_at": record.last_used_at,
+                    "label": record.label,
                 },
                 timeout=FIRESTORE_RPC_TIMEOUT,
             )
@@ -358,6 +370,16 @@ class FirestoreCredentialStore:
             return True
 
         return operation(transaction)
+
+    def update_label(self, credential_id: bytes, *, user_id: str, label: str) -> bool:
+        record = self.get(credential_id)
+        if record is None or record.user_id.strip().lower() != user_id.strip().lower():
+            return False
+        self._collection.document(self._doc_id(credential_id)).update(
+            {"label": label},
+            timeout=FIRESTORE_RPC_TIMEOUT,
+        )
+        return True
 
     def count(self) -> int:
         return sum(1 for _ in self._collection.stream(timeout=FIRESTORE_RPC_TIMEOUT))

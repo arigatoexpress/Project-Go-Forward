@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Loader2, Lock, Mail, ShieldCheck } from 'lucide-react';
+import { cancelConditionalSignIn, detectPasskeySupport, signInWithPasskey } from '../auth/passkey';
 import { extractErrorMessage, safeUserMessage } from '../utils/apiError';
 
 const SENT_NOTICE =
@@ -30,7 +31,6 @@ export default function StaffSignInPanel({
   onSuccess,
   onCancel,
   passkeyAvailable = false,
-  passkeyStatus = null,
   passkeyLoading = false,
   passkeyError = '',
   onPasskeyLogin,
@@ -46,7 +46,6 @@ export default function StaffSignInPanel({
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [emailReady, setEmailReady] = useState(true);
-  const [passkeySignIn, setPasskeySignIn] = useState(false);
   const [showPin, setShowPin] = useState(false);
   const [pin, setPin] = useState('');
   const [pinError, setPinError] = useState('');
@@ -58,7 +57,6 @@ export default function StaffSignInPanel({
       .then((response) => (response.ok ? response.json() : null))
       .then((data) => {
         if (cancelled || !data) return;
-        if (data.passkey_sign_in === true) setPasskeySignIn(true);
         if (data.email_ready === false) {
           setEmailReady(false);
           setShowPin(true);
@@ -70,10 +68,12 @@ export default function StaffSignInPanel({
     };
   }, []);
 
-  const finish = () => {
+  const finish = (method) => {
     clearSignInHash();
-    onSuccess?.();
+    onSuccess?.({ method });
   };
+  const onSuccessRef = useRef(onSuccess);
+  onSuccessRef.current = onSuccess;
 
   const requestEmail = async (event) => {
     event?.preventDefault();
@@ -98,7 +98,6 @@ export default function StaffSignInPanel({
         setError(safeUserMessage(extractErrorMessage(data), 'Email sign-in is not turned on yet. Use the backup PIN or ask the owner.'));
         return;
       }
-      window.localStorage.setItem('tho_passkey_email', address);
       setSent(true);
       setShowCode(false);
       setLinkExpired(false);
@@ -137,7 +136,7 @@ export default function StaffSignInPanel({
       });
       const data = await response.json().catch(() => ({}));
       if (response.ok && data.success) {
-        finish();
+        finish('email');
         return;
       }
       if (token) {
@@ -168,7 +167,7 @@ export default function StaffSignInPanel({
       });
       const data = await response.json().catch(() => ({}));
       if (data.success) {
-        finish();
+        finish('pin');
         return;
       }
       setPinError(`${safeUserMessage(extractErrorMessage(data), 'That PIN did not work.')} Use the email sign-in above, or ask a teammate for help.`);
@@ -180,9 +179,29 @@ export default function StaffSignInPanel({
     }
   };
 
-  // Hidden unless the owner flag is on. Browser support and an enrolled key
-  // are still required so a turned-on flag does not offer a dead control.
-  const showPasskey = passkeySignIn && passkeyAvailable && passkeyStatus?.has_keys;
+  // Offer passkey sign-in whenever this browser can use one. Devices without
+  // WebAuthn simply omit the button. The "can't save a passkey" note lives
+  // on Your passkeys, not on this page.
+  const showPasskey = passkeyAvailable;
+
+  useEffect(() => {
+    if (!showPasskey) return undefined;
+    let cancelled = false;
+    (async () => {
+      const support = await detectPasskeySupport();
+      if (cancelled || !support.conditional) return;
+      try {
+        const result = await signInWithPasskey({ mediation: 'conditional' });
+        if (!cancelled && result?.success) onSuccessRef.current?.({ method: 'passkey' });
+      } catch {
+        // Conditional UI stays quiet. The button reports errors.
+      }
+    })();
+    return () => {
+      cancelled = true;
+      cancelConditionalSignIn();
+    };
+  }, [showPasskey]);
   const offCanonical = typeof window !== 'undefined'
     && !['www.texashomeoutlet.com', 'localhost', '127.0.0.1'].includes(window.location.hostname);
 
@@ -259,7 +278,7 @@ export default function StaffSignInPanel({
             <span className="mt-1 block text-base font-normal text-[var(--cp-muted)]">Use the email the store gave you, such as name@texashomeoutlet.com.</span>
             <input
               type="email"
-              autoComplete="username"
+              autoComplete="username webauthn"
               inputMode="email"
               value={email}
               onChange={(event) => { setEmail(event.target.value); setError(''); }}
@@ -340,6 +359,27 @@ export default function StaffSignInPanel({
         <p role="alert" className="text-[var(--cp-danger)] text-lg text-center mt-4 leading-relaxed">{error}</p>
       )}
 
+      {showPasskey && (
+        <>
+          <div className="mt-4">
+            <button
+              type="button"
+              onClick={onPasskeyLogin}
+              disabled={passkeyLoading}
+              aria-describedby={passkeyError ? 'passkey-login-error' : undefined}
+              className="cp-btn-outline w-full min-h-12 py-3 text-base"
+            >
+              {passkeyLoading ? 'Signing in...' : 'Sign in with a passkey'}
+            </button>
+          </div>
+          {passkeyError && (
+            <p id="passkey-login-error" role="alert" className="text-[var(--cp-danger)] text-base text-center mt-2 leading-relaxed">
+              {passkeyError}
+            </p>
+          )}
+        </>
+      )}
+
       <div className="mt-4">
         {!showPin ? (
           <button
@@ -376,27 +416,6 @@ export default function StaffSignInPanel({
           </form>
         )}
       </div>
-
-      {showPasskey && (
-        <>
-          <div className="mt-2 text-center">
-            <button
-              type="button"
-              onClick={onPasskeyLogin}
-              disabled={passkeyLoading}
-              aria-describedby={passkeyError ? 'passkey-login-error' : undefined}
-              className="py-1 text-xs text-[var(--cp-faint)] underline"
-            >
-              {passkeyLoading ? 'Signing in...' : 'Sign in with Passkey'}
-            </button>
-          </div>
-          {passkeyError && (
-            <p id="passkey-login-error" role="alert" className="text-[var(--cp-danger)] text-xs text-center mt-2">
-              {passkeyError}
-            </p>
-          )}
-        </>
-      )}
 
       <p className="mt-6 text-base text-[var(--cp-muted)] leading-relaxed text-center">
         Nothing arrived? Check spam, then tap the button again. If it still does not come, ask a teammate to add your email. Do not send a code or PIN to anyone.

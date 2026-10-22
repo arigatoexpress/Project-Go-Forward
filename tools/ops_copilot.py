@@ -244,11 +244,11 @@ HELP_TOPICS: list[dict[str, Any]] = [
         "title": "Logging into the back office",
         "keywords": ["login", "log in", "sign in", "back office", "admin", "pin", "passkey", "lock", "access"],
         "body": (
-            "Open the website and click the small lock icon (bottom of the page). "
-            "Enter your team PIN, or use your saved passkey (Face ID / Touch ID / "
-            "fingerprint) if you have one set up. Once you're in, the menu shows the "
-            "admin tools: CRM, Appointments, Analytics, Document Center, and more. "
-            "Never share your PIN; each person should use their own passkey."
+            "Open https://www.texashomeoutlet.com/staff, type your work email, and use "
+            "the email link. If this device can use a passkey, Sign in with a passkey "
+            "is under that button. After you are in, Add a passkey saves the next "
+            "sign-in for the email you used. The backup PIN is only if email is down. "
+            "Never share a code or PIN."
         ),
     },
     {

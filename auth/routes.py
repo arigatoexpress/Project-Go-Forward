@@ -8,9 +8,13 @@ Endpoints (mounted under /api/admin/passkey):
     POST /register/complete
     POST /login/begin
     POST /login/complete
-    GET  /credentials
+    GET  /credentials                 owner recovery list
     DELETE /credentials/{credential_id_b64}
+    GET  /credentials/mine            signed-in user's own keys
+    PATCH /credentials/mine/{credential_id_b64}
+    DELETE /credentials/mine/{credential_id_b64}
     GET  /status
+    GET  /whoami
     POST /logout
 """
 
@@ -38,6 +42,7 @@ from .session import (
 from .staff_directory import override_status
 from .store import (
     CredentialAlreadyExists,
+    CredentialRecord,
     CredentialStore,
     CredentialStoreUnavailable,
     MinimumCredentialError,
@@ -320,28 +325,57 @@ def _pin_token_key(admin_pin_hash: str) -> bytes | None:
     ).digest()
 
 
-def _verify_admin_pin_token(token: str) -> bool:
+_EMAIL_TOKEN_VERSION = 2
+
+
+def _decode_staff_admin_token(token: str) -> tuple[int, str | None] | None:
+    """Return ``(expires, email)`` for a staff cookie, matching ``main.py``.
+
+    PIN sessions are the original 8-byte payload and carry no email. Email
+    sign-in uses version 2 and embeds the address so a passkey can be saved
+    for that person without asking them to type it again.
+    """
     admin_pin_hash = os.environ.get("ADMIN_PIN_HASH", "")
     if not token or not admin_pin_hash:
-        return False
+        return None
     secret = _pin_token_key(admin_pin_hash)
     if secret is None:
-        return False
+        return None
     try:
-        padding = 4 - len(token) % 4
-        if padding != 4:
-            token += "=" * padding
-        raw = urlsafe_b64decode(token)
-        if len(raw) != 24:
-            return False
-        payload, sig = raw[:8], raw[8:]
+        padding = "=" * (-len(token) % 4)
+        raw = urlsafe_b64decode(token + padding)
+        if len(raw) < 24:
+            return None
+        payload, sig = raw[:-16], raw[-16:]
         expected_sig = hmac.new(secret, payload, hashlib.sha256).digest()[:16]
         if not hmac.compare_digest(sig, expected_sig):
-            return False
-        expires = struct.unpack(">Q", payload)[0]
-        return time.time() < expires
+            return None
+        if len(payload) == 8:
+            return struct.unpack(">Q", payload)[0], None
+        if len(payload) < 11 or payload[0] != _EMAIL_TOKEN_VERSION:
+            return None
+        expires = struct.unpack(">Q", payload[1:9])[0]
+        email_len = struct.unpack(">H", payload[9:11])[0]
+        if email_len <= 0 or email_len > 200 or len(payload) != 11 + email_len:
+            return None
+        email = payload[11:].decode("utf-8")
+        if email != email.strip().lower() or "@" not in email:
+            return None
+        return expires, email
     except Exception:
+        return None
+
+
+def _verify_admin_pin_token(token: str) -> bool:
+    decoded = _decode_staff_admin_token(token)
+    if decoded is None:
         return False
+    expires, email = decoded
+    if time.time() >= expires:
+        return False
+    if email is not None and not _passkey_email_allowed(email):
+        return False
+    return True
 
 
 def _request_is_admin(request: Request, manager: SessionManager) -> bool:
@@ -377,6 +411,132 @@ def _require_same_owner_passkey_for_registration(
             status_code=403,
             detail="Owner passkeys can only be added from the same owner's passkey session.",
         )
+
+
+def _session_profile(request: Request, manager: SessionManager) -> dict[str, Any] | None:
+    """Identity of the signed-in staff member, when the session names one.
+
+    A passkey cookie wins over a PIN or email cookie so owner rules stay tied
+    to the passkey that proved the address. A shared PIN has no email.
+    """
+    payload = manager.verify_session(request.cookies.get(PASSKEY_COOKIE_NAME))
+    if payload and payload.get("user_id") == "admin":
+        email = _normalize_email(payload.get("email"))
+        if email and not _passkey_email_allowed(email):
+            email = ""
+        return {
+            "email": email,
+            "auth_method": str(payload.get("auth_method") or "passkey"),
+        }
+    decoded = _decode_staff_admin_token(_admin_token_from_request(request))
+    if decoded is None or time.time() >= decoded[0]:
+        return None
+    email = _normalize_email(decoded[1])
+    if email and not _passkey_email_allowed(email):
+        return None
+    return {
+        "email": email,
+        "auth_method": "email" if email else "pin",
+    }
+
+
+def _session_email(request: Request, manager: SessionManager) -> str:
+    profile = _session_profile(request, manager) or {}
+    return _normalize_email(profile.get("email"))
+
+
+def _registration_email(request: Request, manager: SessionManager, payload: dict | None) -> str:
+    """Bind a new passkey to the signed-in email.
+
+    Staff cannot type a different address from a shared PIN session. A body
+    email that does not match the session is rejected. Owner addresses still
+    go through the same-owner passkey rule after this returns.
+    """
+    requested = _normalize_email((payload or {}).get("email"))
+    session_email = _session_email(request, manager)
+    if session_email:
+        if requested and requested != session_email:
+            raise HTTPException(
+                status_code=403,
+                detail="This passkey is saved for the signed-in email.",
+            )
+        email = session_email
+    elif requested:
+        email = requested
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail="Sign in with the email link before adding a passkey.",
+        )
+    email = _require_allowed_passkey_email(email)
+    if not session_email and email not in _protected_owner_emails():
+        raise HTTPException(
+            status_code=400,
+            detail="Sign in with the email link before adding a passkey.",
+        )
+    return email
+
+
+def _require_staff_identity(
+    request: Request,
+    manager: SessionManager = Depends(get_session_manager),
+) -> None:
+    """A signed-in staff session: passkey cookie, email cookie, or shared PIN."""
+    if not _request_is_admin(request, manager):
+        raise HTTPException(status_code=401, detail="Admin authentication required")
+
+
+def _require_named_staff(request: Request, manager: SessionManager) -> str:
+    """Staff session that names an allowlisted email."""
+    _require_admin_request(request, manager)
+    email = _session_email(request, manager)
+    if not email:
+        raise HTTPException(
+            status_code=400,
+            detail="Sign in with the email link before managing passkeys.",
+        )
+    return _require_allowed_passkey_email(email)
+
+
+def _require_recovery_owner(request: Request, manager: SessionManager) -> str:
+    """Owner recovery list. A shared PIN is not an owner identity."""
+    _require_admin_request(request, manager)
+    email = _session_email(request, manager)
+    if email not in _passkey_allowed_owner_emails():
+        raise HTTPException(status_code=403, detail="Passkey recovery is limited to the owner.")
+    return email
+
+
+# Provider names for well-known authenticator AAGUIDs. Unknown ids stay
+# "Passkey" so a staff member can rename the key on Your passkeys.
+_AAGUID_PROVIDERS = {
+    "ea9b8d66-4d01-1d21-3ce4-b6b48cb575d4": "Google Password Manager",
+    "fbfc3007-154e-4ecc-8c0a-6ef5e7a3e3c4": "iCloud Keychain",
+    "dd4ec289-e01d-41c9-bb89-70fa845d8bf2": "iCloud Keychain",
+    "08987058-cadc-4b81-b6e1-30de50dcbe96": "Windows Hello",
+    "9ddd1817-af5a-4672-a2b9-3e3dd95000a9": "Windows Hello",
+    "6028b017-b1d4-4c02-b4b3-afcdafc96bb2": "Windows Hello",
+    "bada5566-a7aa-401f-bd96-45619a55120d": "1Password",
+    "d548826e-79b4-db40-a3d8-11116f7e8349": "Bitwarden",
+    "531126d6-e717-415c-9320-3d9aa6981239": "Dashlane",
+}
+
+
+def _provider_name(aaguid: str) -> str:
+    key = str(aaguid or "").strip().lower()
+    if not key or key == "00000000-0000-0000-0000-000000000000":
+        return "Passkey"
+    return _AAGUID_PROVIDERS.get(key, "Passkey")
+
+
+def _clean_label(value: Any) -> str:
+    label = " ".join(str(value or "").split())
+    if not label or len(label) > 60 or any(ord(char) < 32 for char in label):
+        raise HTTPException(
+            status_code=400,
+            detail="Name the passkey in 60 characters or fewer.",
+        )
+    return label
 
 
 def _credential_descriptors(
@@ -426,6 +586,8 @@ def _serialize_credential(rec: Any) -> dict[str, Any]:
         "user_id": rec.user_id,
         "authorized": _credential_allowed(rec),
         "aaguid": rec.aaguid or "",
+        "label": getattr(rec, "label", "") or "",
+        "provider": _provider_name(getattr(rec, "aaguid", "")),
         "created_at": _dt(rec.created_at),
         "last_used_at": _dt(rec.last_used_at),
         "sign_count": rec.sign_count,
@@ -456,7 +618,7 @@ def register_begin(
     if not _HAS_WEBAUTHN:
         raise HTTPException(status_code=503, detail="WebAuthn library not available")
     _require_admin_request(request, manager)
-    admin_email = _require_allowed_passkey_email((payload or {}).get("email"))
+    admin_email = _registration_email(request, manager, payload)
     _require_same_owner_passkey_for_registration(request, manager, admin_email)
 
     challenge = manager.new_challenge_bytes()
@@ -473,7 +635,10 @@ def register_begin(
         challenge=challenge,
         attestation=AttestationConveyancePreference.NONE,
         authenticator_selection=AuthenticatorSelectionCriteria(
-            resident_key=ResidentKeyRequirement.PREFERRED,
+            # Required resident key so the passkey can sync and be offered
+            # by conditional UI. Attachment is left unset so a phone or
+            # security key can still be used.
+            resident_key=ResidentKeyRequirement.REQUIRED,
             user_verification=UserVerificationRequirement.PREFERRED,
         ),
         exclude_credentials=exclude_credentials,
@@ -526,14 +691,14 @@ def register_complete(
         log.warning("passkey register verify failed: %s", exc)
         raise HTTPException(status_code=400, detail="Registration verification failed")
 
-    from .store import CredentialRecord
-
+    aaguid = str(verified.aaguid) if verified.aaguid else ""
     record = CredentialRecord(
         credential_id=verified.credential_id,
         public_key=verified.credential_public_key,
         sign_count=verified.sign_count,
         user_id=admin_email,
-        aaguid=str(verified.aaguid) if verified.aaguid else "",
+        aaguid=aaguid,
+        label=_provider_name(aaguid),
     )
     try:
         store.add(record)
@@ -729,7 +894,7 @@ def list_credentials(
     store: CredentialStore = Depends(get_credential_store),
 ) -> JSONResponse:
     """List registered admin passkeys without exposing public key material."""
-    _require_admin_request(request, manager)
+    _require_recovery_owner(request, manager)
     try:
         records = store.list_all()
         rows = [_serialize_credential(rec) for rec in records]
@@ -758,7 +923,7 @@ def delete_credential(
     store: CredentialStore = Depends(get_credential_store),
 ) -> JSONResponse:
     """Revoke a lost or deprecated admin passkey by credential id."""
-    _require_admin_request(request, manager)
+    _require_recovery_owner(request, manager)
     credential_id = _decode_credential_id(credential_id_b64)
     try:
         target = store.get(credential_id)
@@ -830,11 +995,136 @@ def passkey_status(
     )
 
 
-@router.get("/whoami")
-def whoami(user: dict = Depends(_require_passkey_user)) -> JSONResponse:
+def _owned_credential(store: CredentialStore, credential_id: bytes, email: str) -> Any:
+    try:
+        record = store.get(credential_id)
+    except Exception as exc:
+        log.warning("passkey credential read failed: %s", exc)
+        raise HTTPException(status_code=503, detail="Passkey credential store unavailable")
+    if record is None or _normalize_email(record.user_id) != email:
+        raise HTTPException(status_code=404, detail="Passkey credential not found")
+    return record
+
+
+@router.get("/credentials/mine", dependencies=[Depends(_require_staff_identity)])
+def list_my_credentials(
+    request: Request,
+    manager: SessionManager = Depends(get_session_manager),
+    store: CredentialStore = Depends(get_credential_store),
+) -> JSONResponse:
+    """List the signed-in user's passkeys. Does not include anyone else's."""
+    email = _require_named_staff(request, manager)
+    try:
+        records = [
+            rec
+            for rec in store.list_for_user(email)
+            if _normalize_email(rec.user_id) == email
+        ]
+    except Exception as exc:
+        log.warning("passkey credential list failed: %s", exc)
+        raise HTTPException(status_code=503, detail="Passkey credential store unavailable")
     return JSONResponse(
-        {"user_id": user.get("user_id"), "email": user.get("email"), "authed": True}
+        {
+            "success": True,
+            "email": email,
+            "credentials": [_serialize_credential(rec) for rec in records],
+        }
     )
+
+
+@router.patch(
+    "/credentials/mine/{credential_id_b64}",
+    dependencies=[Depends(_require_staff_identity)],
+)
+def rename_my_credential(
+    credential_id_b64: str,
+    request: Request,
+    payload: dict[str, Any] | None = Body(default=None),
+    manager: SessionManager = Depends(get_session_manager),
+    store: CredentialStore = Depends(get_credential_store),
+) -> JSONResponse:
+    """Rename one of the signed-in user's passkeys."""
+    email = _require_named_staff(request, manager)
+    label = _clean_label((payload or {}).get("label"))
+    credential_id = _decode_credential_id(credential_id_b64)
+    _owned_credential(store, credential_id, email)
+    try:
+        updated = store.update_label(credential_id, user_id=email, label=label)
+        record = store.get(credential_id) if updated else None
+    except HTTPException:
+        raise
+    except Exception as exc:
+        log.warning("passkey rename failed: %s", exc)
+        raise HTTPException(status_code=503, detail="Passkey credential store unavailable")
+    if not updated or record is None:
+        raise HTTPException(status_code=404, detail="Passkey credential not found")
+    return JSONResponse({"success": True, "credential": _serialize_credential(record)})
+
+
+@router.delete(
+    "/credentials/mine/{credential_id_b64}",
+    dependencies=[Depends(_require_staff_identity)],
+)
+def delete_my_credential(
+    credential_id_b64: str,
+    request: Request,
+    manager: SessionManager = Depends(get_session_manager),
+    store: CredentialStore = Depends(get_credential_store),
+) -> JSONResponse:
+    """Remove one of the signed-in user's passkeys.
+
+    An owner's last recovery key stays, and removing an owner key still
+    requires that owner's passkey session.
+    """
+    email = _require_named_staff(request, manager)
+    credential_id = _decode_credential_id(credential_id_b64)
+    _owned_credential(store, credential_id, email)
+    try:
+        if email in _protected_owner_emails():
+            _require_same_owner_passkey_for_registration(request, manager, email)
+            deleted = store.delete_preserving_user_minimum(
+                credential_id,
+                user_id=email,
+                minimum_remaining=1,
+            )
+        else:
+            deleted = store.delete(credential_id)
+    except HTTPException:
+        raise
+    except MinimumCredentialError:
+        raise HTTPException(
+            status_code=409,
+            detail="Add a replacement owner passkey before revoking this recovery key.",
+        ) from None
+    except Exception as exc:
+        log.warning("passkey credential delete failed: %s", exc)
+        raise HTTPException(status_code=503, detail="Passkey credential store unavailable")
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Passkey credential not found")
+    return JSONResponse({"success": True, "deleted": True})
+
+
+@router.get("/whoami", dependencies=[Depends(_require_staff_identity)])
+def whoami(
+    request: Request,
+    manager: SessionManager = Depends(get_session_manager),
+) -> JSONResponse:
+    if not _request_is_admin(request, manager):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    profile = _session_profile(request, manager) or {}
+    email = _normalize_email(profile.get("email"))
+    owners = _passkey_allowed_owner_emails()
+    is_owner = bool(email) and email in owners
+    body: dict[str, Any] = {
+        "user_id": "admin",
+        "email": email or None,
+        "authed": True,
+        "owner": is_owner,
+        "auth_method": profile.get("auth_method") or "",
+    }
+    if is_owner:
+        body["owner_emails"] = sorted(owners)
+    return JSONResponse(body)
 
 
 @router.post("/logout")

@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
+import struct
+import time
+from base64 import urlsafe_b64encode
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from dataclasses import asdict
@@ -160,6 +165,31 @@ def _csrf_headers(client, token="passkey-route-csrf"):
 def _fixture_dependencies(client, routes):
     overrides = client.app.dependency_overrides
     return overrides[routes.get_session_manager](), overrides[routes.get_credential_store]()
+
+
+def _sign_in_as(client, routes, email, *, auth_method="passkey"):
+    manager, _store = _fixture_dependencies(client, routes)
+    client.cookies.set(
+        PASSKEY_COOKIE_NAME,
+        manager.issue_session("admin", email=email, auth_method=auth_method),
+    )
+
+
+def _email_admin_token(email, *, secret, pin_hash, expires_in=3600):
+    key = hmac.new(
+        secret.encode(),
+        f"tho-pin-session-v2:{pin_hash}".encode(),
+        hashlib.sha256,
+    ).digest()
+    email_bytes = email.encode("utf-8")
+    payload = (
+        bytes([2])
+        + struct.pack(">Q", int(time.time()) + expires_in)
+        + struct.pack(">H", len(email_bytes))
+        + email_bytes
+    )
+    sig = hmac.new(key, payload, hashlib.sha256).digest()[:16]
+    return urlsafe_b64encode(payload + sig).decode().rstrip("=")
 
 
 def test_memory_store_create_only_rejects_collision_without_mutating_owner_record():
@@ -502,9 +532,9 @@ def test_register_begin_requires_existing_admin_session(passkey_client):
     assert response.status_code == 401
 
 
-def test_register_begin_returns_browser_json_after_admin_auth(passkey_client, monkeypatch):
+def test_register_begin_returns_browser_json_after_admin_auth(passkey_client):
     client, routes = passkey_client
-    monkeypatch.setattr(routes, "_request_is_admin", lambda request, manager: True)
+    _sign_in_as(client, routes, "mark@texashomeoutlet.com")
 
     response = client.post(
         "/api/admin/passkey/register/begin",
@@ -518,6 +548,10 @@ def test_register_begin_returns_browser_json_after_admin_auth(passkey_client, mo
     assert body["user"]["name"] == "mark@texashomeoutlet.com"
     assert body["user"]["displayName"] == "mark@texashomeoutlet.com"
     assert len(body["user"]["id"]) > 20
+    selection = body["authenticatorSelection"]
+    assert selection["residentKey"] == "required"
+    assert selection["requireResidentKey"] is True
+    assert "authenticatorAttachment" not in selection
     assert {cred["id"] for cred in body["excludeCredentials"]} == {
         "Y3JlZGVudGlhbC0x",
         "Y3JlZGVudGlhbC0y",
@@ -591,9 +625,9 @@ def test_register_begin_rejects_owner_email_from_shared_admin_or_staff_session(
     assert staff.status_code == 403
 
 
-def test_register_begin_uses_sapphire_xyz_cutover_context(passkey_client, monkeypatch):
+def test_register_begin_uses_sapphire_xyz_cutover_context(passkey_client):
     client, routes = passkey_client
-    monkeypatch.setattr(routes, "_request_is_admin", lambda request, manager: True)
+    _sign_in_as(client, routes, "mark@texashomeoutlet.com")
 
     response = client.post(
         "/api/admin/passkey/register/begin",
@@ -649,9 +683,9 @@ def test_credentials_management_requires_admin(passkey_client):
     assert response.status_code == 401
 
 
-def test_credentials_management_lists_and_deletes_deprecated_key(passkey_client, monkeypatch):
+def test_credentials_management_lists_and_deletes_deprecated_key(passkey_client):
     client, routes = passkey_client
-    monkeypatch.setattr(routes, "_request_is_admin", lambda request, manager: True)
+    _sign_in_as(client, routes, "aribspector@gmail.com")
 
     listed = client.get("/api/admin/passkey/credentials")
 
@@ -1064,3 +1098,145 @@ def test_register_complete_rejects_owner_challenge_from_shared_admin_before_veri
 
     assert response.status_code == 403
     assert verifier.called is False
+
+
+def test_register_begin_requires_an_email_session_for_staff(passkey_client, monkeypatch):
+    client, routes = passkey_client
+    monkeypatch.setattr(routes, "_request_is_admin", lambda request, manager: True)
+
+    response = client.post(
+        "/api/admin/passkey/register/begin",
+        json={"email": "mark@texashomeoutlet.com"},
+        headers=_csrf_headers(client),
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Sign in with the email link before adding a passkey."
+
+
+def test_register_begin_rejects_a_different_email_than_the_session(passkey_client):
+    client, routes = passkey_client
+    _sign_in_as(client, routes, "mark@texashomeoutlet.com")
+
+    response = client.post(
+        "/api/admin/passkey/register/begin",
+        json={"email": "other@texashomeoutlet.com"},
+        headers=_csrf_headers(client),
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "This passkey is saved for the signed-in email."
+
+
+def test_register_begin_accepts_email_sign_in_and_requests_a_resident_key(
+    passkey_client, monkeypatch
+):
+    client, _routes = passkey_client
+    secret = "email-session-secret"
+    pin_hash = "email-pin-hash"
+    monkeypatch.setenv("ADMIN_SESSION_SECRET", secret)
+    monkeypatch.setenv("ADMIN_PIN_HASH", pin_hash)
+    client.cookies.set(
+        "tho_admin_token",
+        _email_admin_token("mark@texashomeoutlet.com", secret=secret, pin_hash=pin_hash),
+    )
+
+    response = client.post(
+        "/api/admin/passkey/register/begin",
+        json={},
+        headers=_csrf_headers(client),
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["user"]["name"] == "mark@texashomeoutlet.com"
+    assert body["authenticatorSelection"]["residentKey"] == "required"
+    assert body["authenticatorSelection"]["requireResidentKey"] is True
+    assert "authenticatorAttachment" not in body["authenticatorSelection"]
+
+    whoami = client.get("/api/admin/passkey/whoami")
+    assert whoami.status_code == 200
+    profile = whoami.json()
+    assert profile["email"] == "mark@texashomeoutlet.com"
+    assert profile["owner"] is False
+    assert profile["auth_method"] == "email"
+    assert "owner_emails" not in profile
+
+
+def test_staff_cannot_open_the_owner_recovery_list(passkey_client):
+    client, routes = passkey_client
+    _sign_in_as(client, routes, "mark@texashomeoutlet.com")
+
+    response = client.get("/api/admin/passkey/credentials")
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Passkey recovery is limited to the owner."
+
+
+def test_my_credentials_list_rename_and_refuse_someone_elses_key(passkey_client):
+    client, routes = passkey_client
+    _manager, store = _fixture_dependencies(client, routes)
+    _sign_in_as(client, routes, "mark@texashomeoutlet.com")
+
+    listed = client.get("/api/admin/passkey/credentials/mine")
+
+    assert listed.status_code == 200, listed.text
+    body = listed.json()
+    assert body["email"] == "mark@texashomeoutlet.com"
+    assert [row["credential_id"] for row in body["credentials"]] == ["Y3JlZGVudGlhbC0y"]
+    assert body["credentials"][0]["provider"] == "Passkey"
+
+    renamed = client.patch(
+        "/api/admin/passkey/credentials/mine/Y3JlZGVudGlhbC0y",
+        json={"label": "Front desk phone"},
+        headers=_csrf_headers(client),
+    )
+    assert renamed.status_code == 200, renamed.text
+    assert renamed.json()["credential"]["label"] == "Front desk phone"
+    assert store.get(b"credential-2").label == "Front desk phone"
+
+    blank = client.patch(
+        "/api/admin/passkey/credentials/mine/Y3JlZGVudGlhbC0y",
+        json={"label": "   "},
+        headers=_csrf_headers(client),
+    )
+    assert blank.status_code == 400
+
+    other = client.delete(
+        "/api/admin/passkey/credentials/mine/Y3JlZGVudGlhbC0x",
+        headers=_csrf_headers(client),
+    )
+    assert other.status_code == 404
+    assert store.get(b"credential-1") is not None
+
+    removed = client.delete(
+        "/api/admin/passkey/credentials/mine/Y3JlZGVudGlhbC0y",
+        headers=_csrf_headers(client),
+    )
+    assert removed.status_code == 200, removed.text
+    assert store.get(b"credential-2") is None
+
+
+def test_owner_cannot_delete_the_last_recovery_key_from_their_own_list(
+    passkey_client,
+):
+    client, routes = passkey_client
+    _manager, store = _fixture_dependencies(client, routes)
+    owner = "aribspector@gmail.com"
+    record = CredentialRecord(
+        credential_id=b"owner-only",
+        public_key=b"owner-only-public",
+        sign_count=0,
+        user_id=owner,
+    )
+    store.add(record)
+    _sign_in_as(client, routes, owner)
+
+    response = client.delete(
+        f"/api/admin/passkey/credentials/mine/{record.credential_id_b64}",
+        headers=_csrf_headers(client),
+    )
+
+    assert response.status_code == 409
+    assert "replacement owner passkey" in response.json()["detail"]
+    assert store.get(record.credential_id) is not None
