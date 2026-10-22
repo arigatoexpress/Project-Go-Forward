@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Home, Bed, Bath, Maximize, Plus, Check, ChevronLeft, ChevronRight, X, Images } from 'lucide-react';
 import { generateSrcSet, getImageSizes } from '../utils/imageOptimization';
-import { listingImageAlt, usedHomeMayShowPhoto } from '../utils/listingRoutes';
+import { listingImageAlt, rewriteMediaUrl, usedHomeMayShowPhoto } from '../utils/listingRoutes';
 
 function GalleryModal({
     allImages,
@@ -52,6 +52,7 @@ function GalleryModal({
                     className="max-w-full max-h-[85vh] object-contain rounded-lg"
                     loading="lazy"
                     decoding="async"
+                    onError={(e) => { e.target.classList.add('hidden'); }}
                 />
 
                 {hasMultipleImages && (
@@ -83,6 +84,7 @@ function GalleryModal({
                                     className="w-full h-full object-cover"
                                     loading="lazy"
                                     decoding="async"
+                                    onError={(e) => { e.target.classList.add('hidden'); }}
                                 />
                             </button>
                         ))}
@@ -178,12 +180,14 @@ const PropertyCard = ({ property, onToggleCompare, isSelected }) => {
         ...(Array.isArray(real_photos) ? real_photos : []),
         ...(Array.isArray(gallery_images) ? gallery_images : []),
     ];
-    const allImages = imageCandidates.filter((img, index, values) => (
-        img
-        && values.indexOf(img) === index
-        && !isFloorplanImage(img, floorplanUrls)
-        && usedHomeMayShowPhoto(img, property)
-    ));
+    const allImages = imageCandidates
+        .map((img) => rewriteMediaUrl(img))
+        .filter((img, index, values) => (
+            img
+            && values.indexOf(img) === index
+            && !isFloorplanImage(img, floorplanUrls)
+            && usedHomeMayShowPhoto(img, property)
+        ));
     const hasFloorplanOnly = !allImages.length && (
         media_quality?.status === 'floorplan_only' || floorplanUrls.length > 0
     );

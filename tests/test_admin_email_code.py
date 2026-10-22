@@ -236,7 +236,9 @@ class TestFirestoreEmailLoginCodeStore:
         from auth.email_code import hash_code
 
         store = _firestore_store()
-        store.put("Staff@TexasHomeOutlet.com", hash_code("123456"), time.time() + 600, link_hash="lh")
+        store.put(
+            "Staff@TexasHomeOutlet.com", hash_code("123456"), time.time() + 600, link_hash="lh"
+        )
         rec = store.get("staff@texashomeoutlet.com")
         assert rec is not None
         assert rec.code_hash == hash_code("123456")
@@ -306,7 +308,9 @@ def clear_code_store_cache():
 
 
 class TestDefaultCodeStore:
-    def test_explicit_memory_backend_in_production_raises(self, monkeypatch, clear_code_store_cache):
+    def test_explicit_memory_backend_in_production_raises(
+        self, monkeypatch, clear_code_store_cache
+    ):
         import auth.email_code
 
         monkeypatch.setenv("K_SERVICE", "project-go-forward")
@@ -868,6 +872,10 @@ class TestStaffSessionLifetime:
         old = main._create_admin_token(ALLOWED_EMAIL)
         old_expires = main._decode_admin_token(old)[0]
         monkeypatch.setattr(main.time, "time", lambda: now)
+        # cookies.set(name, value) stores a domain="" cookie and does not
+        # replace the host-only sign-in cookie. Both would be sent, and the
+        # fresh one wins, so the session would not slide.
+        client.cookies.delete("tho_admin_token")
         client.cookies.set("tho_admin_token", old)
         slid = client.get("/api/admin/check")
         assert slid.json() == {"valid": True}

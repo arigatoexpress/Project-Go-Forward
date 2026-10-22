@@ -123,4 +123,23 @@ describe('Photo Manager storage safety', () => {
     expect(screen.getByRole('alert')).toHaveTextContent(/front\.png/i);
     expect(screen.getByRole('alert')).toHaveTextContent(/side\.png/i);
   });
+
+  it('replaces a staff photo that fails to load with a placeholder', async () => {
+    adminFetch.mockImplementation((url) => {
+      if (String(url).startsWith('/api/inventory?')) {
+        return Promise.resolve(jsonResponse({ success: true, inventory: [home] }));
+      }
+      return Promise.resolve(jsonResponse({
+        photos: [{ filename: 'lot.jpg', url: 'https://cdn.example/dead.jpg' }],
+      }));
+    });
+
+    render(<PhotoManager onBack={vi.fn()} />);
+    await pickStarterHome();
+    const img = await screen.findByRole('img', { name: /Starter Home photo 1/i });
+    expect(img).toHaveAttribute('src', 'https://cdn.example/dead.jpg');
+    fireEvent.error(img);
+    expect(screen.queryByRole('img', { name: /Starter Home photo 1/i })).toBeNull();
+    expect(screen.getByText(/Photo unavailable/i)).toBeInTheDocument();
+  });
 });

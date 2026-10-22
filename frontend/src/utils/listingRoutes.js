@@ -224,6 +224,18 @@ export function usedHomeMayShowPhoto(url, home) {
   return true;
 }
 
+// Jessup Housing The Rosewood FAC28644A (plan 232969). Numbered lowercase
+// `.jpg` objects in this folder return HTTP 403; the same photos still
+// exist as `.JPG`. Verified 2026-10-22.
+const DEAD_NUMBERED_JPG_RE = /^(https:\/\/d132mt2yijm03y\.cloudfront\.net\/manufacturer\/3328\/floorplan\/232969\/)(\d+)\.jpg(\?.*)?$/;
+
+export function rewriteMediaUrl(url) {
+  const value = String(url || '').trim();
+  const match = value.match(DEAD_NUMBERED_JPG_RE);
+  if (!match) return value;
+  return `${match[1]}${match[2]}.JPG${match[3] || ''}`;
+}
+
 export function listingPagePhotos(home) {
   const floorplanUrls = [
     home?.floorplan_url,
@@ -244,7 +256,7 @@ export function listingPagePhotos(home) {
   const photos = [];
   const seen = new Set();
   for (const raw of candidates) {
-    const url = String(raw || '').trim();
+    const url = rewriteMediaUrl(raw);
     if (!url || seen.has(url) || isFloorplan(url)) continue;
     if (used && !usedHomeMayShowPhoto(url, home)) continue;
     seen.add(url);

@@ -297,11 +297,37 @@ def is_floorplan_url(url: str | None) -> bool:
     return _looks_like_bare_model_floorplan(url, filename)
 
 
+# Jessup Housing The Rosewood FAC28644A (plan 232969). Numbered lowercase
+# ``.jpg`` objects in this folder return HTTP 403; the same photos still
+# exist as ``.JPG``. Verified 2026-10-22: ``1.jpg``/``2.jpg``/``3.jpg``
+# are 403, ``1.JPG``/``2.JPG``/``3.JPG`` are 200.
+_DEAD_NUMBERED_JPG_RE = re.compile(
+    r"^(https://d132mt2yijm03y\.cloudfront\.net/manufacturer/3328/floorplan/232969/)"
+    r"(\d+)\.jpg((?:\?.*)?)$"
+)
+
+
+def rewrite_media_url(url: str | None) -> str:
+    """Return a working sibling for a known-dead manufacturer CDN URL.
+
+    Only rewrites URLs that have been confirmed dead against the public
+    CDN. Does not invent floorplans or guess other models.
+    """
+    if not url or not isinstance(url, str):
+        return ""
+    value = url.strip()
+    match = _DEAD_NUMBERED_JPG_RE.match(value)
+    if match:
+        return f"{match.group(1)}{match.group(2)}.JPG{match.group(3)}"
+    return value
+
+
 def _normalize_url(value: str | None) -> str:
     """Return a comparison-safe URL key while preserving CDN path casing."""
-    if not value or not isinstance(value, str):
+    rewritten = rewrite_media_url(value)
+    if not rewritten:
         return ""
-    return value.strip().rstrip("/")
+    return rewritten.rstrip("/")
 
 
 def split_photos(
@@ -339,7 +365,8 @@ def _dedupe_preserve_order(items: Iterable[str | None]) -> list[str]:
     for item in items or []:
         if not item or not isinstance(item, str):
             continue
-        if item in seen:
+        item = rewrite_media_url(item)
+        if not item or item in seen:
             continue
         seen.add(item)
         out.append(item)
@@ -379,7 +406,8 @@ def _normalize_image_categories(categories: dict | None, photo_urls: Iterable[st
         for value in values:
             if not value or not isinstance(value, str):
                 continue
-            if is_floorplan_url(value):
+            value = rewrite_media_url(value)
+            if not value or is_floorplan_url(value):
                 continue
             if value.startswith("http"):
                 if _normalize_url(value) in allowed_urls:
@@ -509,6 +537,8 @@ def apply_classifier_to_home(home: dict) -> dict:
     home["image_url"] = cleaned["image_url"] or ""
     home["real_photos"] = cleaned["real_photos"]
     home["gallery_images"] = cleaned["gallery_images"]
+    if home.get("hero_image"):
+        home["hero_image"] = rewrite_media_url(home.get("hero_image")) or ""
 
     # Preserve any pre-existing floorplan URL the home already had if the
     # classifier didn't find one in the photo list (e.g. a Firestore doc

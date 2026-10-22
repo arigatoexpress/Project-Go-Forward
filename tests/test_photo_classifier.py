@@ -28,6 +28,7 @@ has_real_photo = photo_classifier.has_real_photo
 is_floorplan_url = photo_classifier.is_floorplan_url
 is_manufacturer_catalog_photo_url = photo_classifier.is_manufacturer_catalog_photo_url
 reorder_for_listing = photo_classifier.reorder_for_listing
+rewrite_media_url = photo_classifier.rewrite_media_url
 split_photos = photo_classifier.split_photos
 
 
@@ -422,3 +423,33 @@ def test_module_exports_filename_token_constants():
     assert "floorplan" in photo_classifier.FLOORPLAN_FILENAME_TOKENS
     assert "floor-plan" in photo_classifier.FLOORPLAN_FILENAME_TOKENS
     assert ".pdf" in photo_classifier.FLOORPLAN_FILE_EXTS
+
+
+ROSEWOOD_DEAD = "https://d132mt2yijm03y.cloudfront.net/manufacturer/3328/floorplan/232969/1.jpg"
+ROSEWOOD_LIVE = "https://d132mt2yijm03y.cloudfront.net/manufacturer/3328/floorplan/232969/1.JPG"
+ROSEWOOD_DEAD_2 = "https://d132mt2yijm03y.cloudfront.net/manufacturer/3328/floorplan/232969/2.jpg"
+ROSEWOOD_LIVE_2 = "https://d132mt2yijm03y.cloudfront.net/manufacturer/3328/floorplan/232969/2.JPG"
+
+
+def test_rewrite_media_url_points_rosewood_numbered_jpg_at_working_jpg():
+    assert rewrite_media_url(ROSEWOOD_DEAD) == ROSEWOOD_LIVE
+    assert rewrite_media_url(ROSEWOOD_DEAD_2) == ROSEWOOD_LIVE_2
+    assert rewrite_media_url(ROSEWOOD_LIVE) == ROSEWOOD_LIVE
+    assert rewrite_media_url(EXTERIOR_URL) == EXTERIOR_URL
+    assert rewrite_media_url("") == ""
+    assert rewrite_media_url(None) == ""
+
+
+def test_apply_classifier_rewrites_dead_rosewood_url_and_dedupes_sibling():
+    home = {
+        "image_url": ROSEWOOD_DEAD,
+        "hero_image": ROSEWOOD_DEAD,
+        "real_photos": [ROSEWOOD_LIVE, ROSEWOOD_DEAD, ROSEWOOD_LIVE_2],
+        "image_categories": {"interior": [ROSEWOOD_DEAD, ROSEWOOD_LIVE_2]},
+    }
+    apply_classifier_to_home(home)
+    assert home["image_url"] == ROSEWOOD_LIVE
+    assert home["hero_image"] == ROSEWOOD_LIVE
+    assert home["real_photos"] == [ROSEWOOD_LIVE, ROSEWOOD_LIVE_2]
+    assert ROSEWOOD_DEAD not in home["real_photos"]
+    assert home["image_categories"]["interior"] == [ROSEWOOD_LIVE, ROSEWOOD_LIVE_2]

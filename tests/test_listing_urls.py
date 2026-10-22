@@ -92,6 +92,24 @@ def test_used_home_photos_are_own_only_and_floorplan_fallback():
     assert listing_page_images(new) == [catalog]
 
 
+def test_listing_page_images_rewrites_dead_rosewood_jpg():
+    dead = "https://d132mt2yijm03y.cloudfront.net/manufacturer/3328/floorplan/232969/1.jpg"
+    live = "https://d132mt2yijm03y.cloudfront.net/manufacturer/3328/floorplan/232969/1.JPG"
+    home = {
+        "id": "41976",
+        "model_name": "The Promotional Series / The Rosewood FAC28644A",
+        "status": "Available",
+        "inventory_kind": "available_now",
+        "image_url": "/api/inventory/photos/41976/lot.jpg",
+        "real_photos": [
+            "/api/inventory/photos/41976/lot.jpg",
+            live,
+            dead,
+        ],
+    }
+    assert listing_page_images(home) == ["/api/inventory/photos/41976/lot.jpg", live]
+
+
 def test_match_instock_home_accepts_stock_id_prefix():
     home = {
         "id": "44490",

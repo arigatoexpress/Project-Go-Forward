@@ -40,6 +40,27 @@ function homeLabel(home) {
   return details ? `${homeName(home)} (${details})` : homeName(home);
 }
 
+function StaffPhotoPreview({ url, alt }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) {
+    return (
+      <div className="w-full h-32 flex flex-col items-center justify-center gap-1 text-gray-400 bg-gray-100">
+        <ImageOff size={22} />
+        <span className="text-xs">Photo unavailable</span>
+      </div>
+    );
+  }
+  return (
+    <img
+      src={url}
+      alt={alt}
+      loading="lazy"
+      className="w-full h-32 object-cover"
+      onError={() => setFailed(true)}
+    />
+  );
+}
+
 export default function PhotoManager({ onBack }) {
   const [homes, setHomes] = useState([]);
   const [loadingHomes, setLoadingHomes] = useState(true);
@@ -441,11 +462,9 @@ export default function PhotoManager({ onBack }) {
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                 {photos.map((p, idx) => (
                   <div key={p.filename} className={`relative group rounded-lg overflow-hidden border bg-gray-100 ${idx === 0 ? 'border-blue-500 ring-2 ring-blue-200' : 'border-gray-200'}`}>
-                    <img
-                      src={p.url}
+                    <StaffPhotoPreview
+                      url={p.url}
                       alt={`${selectedHome ? homeName(selectedHome) : 'Home'} photo ${idx + 1}`}
-                      loading="lazy"
-                      className="w-full h-32 object-cover"
                     />
                     {idx === 0 ? (
                       <span className="absolute top-1.5 left-1.5 inline-flex items-center gap-1 bg-blue-600 text-white text-xs font-semibold rounded-full px-2 py-0.5 shadow">
