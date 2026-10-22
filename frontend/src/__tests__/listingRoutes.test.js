@@ -5,6 +5,7 @@ import {
   isInstockHome,
   listingPagePhotos,
   listingImageAlt,
+  rewriteMediaUrl,
   listingPath,
   listingPhotoSubject,
   listingShareUrl,
@@ -102,6 +103,21 @@ describe('listingRoutes', () => {
       floor_plan_url: 'https://lot.example/plan.jpg',
     };
     expect(listingPagePhotos(used)).toEqual(['https://lot.example/plan.jpg']);
+  });
+
+  it('rewrites the dead Rosewood numbered jpg to the working .JPG sibling', () => {
+    const dead = 'https://d132mt2yijm03y.cloudfront.net/manufacturer/3328/floorplan/232969/1.jpg';
+    const live = 'https://d132mt2yijm03y.cloudfront.net/manufacturer/3328/floorplan/232969/1.JPG';
+    expect(rewriteMediaUrl(dead)).toBe(live);
+    expect(rewriteMediaUrl(live)).toBe(live);
+    const home = {
+      id: '41976',
+      status: 'Available',
+      inventory_kind: 'available_now',
+      image_url: '/api/inventory/photos/41976/lot.jpg',
+      real_photos: ['/api/inventory/photos/41976/lot.jpg', live, dead],
+    };
+    expect(listingPagePhotos(home)).toEqual(['/api/inventory/photos/41976/lot.jpg', live]);
   });
 
   it('drops stock photos and another unit’s photos from a used listing', () => {

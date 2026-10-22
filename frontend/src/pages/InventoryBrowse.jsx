@@ -32,6 +32,7 @@ import {
   listingPath,
   listingShareUrl,
   resolveHomeFromPath,
+  rewriteMediaUrl,
   stockId,
   usedHomeMayShowPhoto,
 } from '../utils/listingRoutes';
@@ -217,12 +218,14 @@ function getListingPhotos(home, { ranked = false } = {}) {
       ...(Array.isArray(home.real_photos) ? home.real_photos : []),
       ...(Array.isArray(home.gallery_images) ? home.gallery_images : []),
     ];
-  const photos = candidates.filter((photo, index, values) => (
-    photo
-    && values.indexOf(photo) === index
-    && !isFloorplanImage(photo, floorplanUrls)
-    && usedHomeMayShowPhoto(photo, home)
-  ));
+  const photos = candidates
+    .map((photo) => rewriteMediaUrl(photo))
+    .filter((photo, index, values) => (
+      photo
+      && values.indexOf(photo) === index
+      && !isFloorplanImage(photo, floorplanUrls)
+      && usedHomeMayShowPhoto(photo, home)
+    ));
   // Other surfaces keep curated order until they support candidate fallback.
   if (!ranked) return photos;
   // Stable sort: ordering within a rank is preserved, so a curated gallery
@@ -831,9 +834,10 @@ export default function InventoryBrowse({
     if (catFiles.length === 0) return allPhotos;
 
     return catFiles.map(f => {
-      if (f.startsWith('http')) return f;
-      const match = allPhotos.find(url => url.includes(f));
-      return match || f;
+      const rewritten = rewriteMediaUrl(f);
+      if (rewritten.startsWith('http')) return rewritten;
+      const match = allPhotos.find(url => url.includes(rewritten));
+      return match || rewritten;
     }).filter((url) => (
       url
       && usedHomeMayShowPhoto(url, home)
@@ -1457,8 +1461,32 @@ export default function InventoryBrowse({
 }
 
 
+function ListingPhoto({ url, alt, caption, priority = false }) {
+  const [failed, setFailed] = useState(false);
+  if (!url || failed) return null;
+  return (
+    <figure className="overflow-hidden rounded-lg border border-[var(--cp-border)] bg-[var(--cp-panel)]">
+      <img
+        src={url}
+        alt={alt}
+        className="h-56 w-full object-cover sm:h-64"
+        width={960}
+        height={640}
+        sizes={getImageSizes('listing-page')}
+        loading={priority ? 'eager' : 'lazy'}
+        fetchPriority={priority ? 'high' : 'auto'}
+        decoding="async"
+        onError={() => setFailed(true)}
+      />
+      {caption ? (
+        <figcaption className="px-3 py-2 text-sm text-[var(--cp-muted)]">{caption}</figcaption>
+      ) : null}
+    </figure>
+  );
+}
+
 // ─── Home Card Component ───
-function ListingArticle({ home, onGetPrice, onApply }) {
+export function ListingArticle({ home, onGetPrice, onApply }) {
   const specs = home?.specs || {};
   const photos = listingPagePhotos(home);
   const planUrl = home.floorplan_url || home.floor_plan_url || '';
@@ -1470,22 +1498,13 @@ function ListingArticle({ home, onGetPrice, onApply }) {
           {photos.length > 0 ? (
             <div className="grid gap-3 sm:grid-cols-2">
               {photos.map((url, index) => (
-                <figure key={url} className="overflow-hidden rounded-lg border border-[var(--cp-border)] bg-[var(--cp-panel)]">
-                  <img
-                    src={url}
-                    alt={listingImageAlt(home, url, index + 1, photos.length, { floorplan: onlyFloorplan })}
-                    className="h-56 w-full object-cover sm:h-64"
-                    width={960}
-                    height={640}
-                    sizes={getImageSizes('listing-page')}
-                    loading={index === 0 ? 'eager' : 'lazy'}
-                    fetchPriority={index === 0 ? 'high' : 'auto'}
-                    decoding="async"
-                  />
-                  {onlyFloorplan && (
-                    <figcaption className="px-3 py-2 text-sm text-[var(--cp-muted)]">Floor plan</figcaption>
-                  )}
-                </figure>
+                <ListingPhoto
+                  key={url}
+                  url={url}
+                  alt={listingImageAlt(home, url, index + 1, photos.length, { floorplan: onlyFloorplan })}
+                  caption={onlyFloorplan ? 'Floor plan' : ''}
+                  priority={index === 0}
+                />
               ))}
             </div>
           ) : (
@@ -1963,7 +1982,7 @@ function HomeDetailModal({
                 loading="eager"
                 fetchPriority="high"
                 decoding="async"
-                onError={(e) => { e.target.classList.add('opacity-0'); }}
+                onError={(e) => { e.target.classList.add('hidden'); }}
               />
               {photos.length > 1 && (
                 <>
@@ -2056,6 +2075,7 @@ function HomeDetailModal({
                       className="w-full h-full object-cover"
                       loading="lazy"
                       decoding="async"
+                      onError={(e) => { e.target.classList.add('hidden'); }}
                     />
                   </button>
                 ))}
