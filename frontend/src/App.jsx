@@ -35,9 +35,22 @@ import {
   PUBLIC_DESCRIPTIONS,
   categoryTitle,
 } from './seoCopy';
-import { safeUserMessage, extractErrorMessage, describeFetchError } from './utils/apiError';
-import { adminCsrfHeaders } from './adminFetch';
+import { safeUserMessage, extractErrorMessage } from './utils/apiError';
 import StaffSignInPanel from './components/StaffSignInPanel';
+import AddPasskeyDialog from './components/AddPasskeyDialog';
+import PasskeyNudge from './components/PasskeyNudge';
+import {
+  describePasskeyError,
+  dismissPasskeyNudge,
+  fetchPasskeyProfile,
+  passkeyNudgeSuppressed,
+  PASSKEY_EMAIL_FALLBACK,
+  PASSKEY_UNSUPPORTED_DEVICE,
+  registerPasskey,
+  shouldOfferPasskeyNudge,
+  signInWithPasskey,
+  detectPasskeySupport,
+} from './auth/passkey';
 import { clearStaffDrafts, keepOnlyCurrentStaffDrafts } from './components/ad-studio/staffDraftStorage';
 import {
   BUSINESS_NAME, BUSINESS_PHONE, BUSINESS_PHONE_RAW, BUSINESS_FULL_ADDRESS,
@@ -79,13 +92,14 @@ const InventoryManager = lazy(() => import('./pages/InventoryManager'));
 const HealthDashboard = lazy(() => import('./pages/HealthDashboard'));
 const StaffAccess = lazy(() => import('./pages/StaffAccess'));
 const StaffHome = lazy(() => import('./pages/StaffHome'));
+const YourPasskeys = lazy(() => import('./pages/YourPasskeys'));
 // Max characters the admin PIN box accepts. The configured backend PIN may be a
 // long alphanumeric secret, so the input must NOT strip non-digits or cap short —
 // doing so (an old 8-digit-only cap) locked everyone out of the admin UI. Cap only
 // at a generous upper bound so an over-long secret is still flagged
 // (see scripts/generate_admin_pin_hash.py).
 const ADMIN_PIN_MAXLEN = 64;
-const ADMIN_PAGE_KEYS = new Set(['staff-home', 'analytics', 'crm', 'chat-history', 'documents', 'adstudio', 'system', 'getting-started', 'photos', 'manage-inventory', 'copilot', 'health', 'team']);
+const ADMIN_PAGE_KEYS = new Set(['staff-home', 'analytics', 'crm', 'chat-history', 'documents', 'adstudio', 'system', 'getting-started', 'photos', 'manage-inventory', 'copilot', 'health', 'team', 'passkeys']);
 
 // Page loading fallback with skeleton
 const PageLoader = () => (
@@ -120,6 +134,7 @@ function NavBar({
   onSignOut,
   onPasskeyRegister,
   passkeyLoading,
+  passkeyPlatform = false,
   isMobileMenuOpen,
   setIsMobileMenuOpen,
   showSearchFilters,
@@ -144,6 +159,7 @@ function NavBar({
   const staffMore = adminAuthed ? [
     { key: 'staff-home', label: 'Staff Home', icon: Home },
     { key: 'copilot', label: 'Ops Copilot', icon: Sparkles },
+    { key: 'passkeys', label: 'Your passkeys', icon: KeyRound },
     { key: 'team', label: 'Team', icon: ShieldCheck },
     { key: 'system', label: 'System Hub', icon: Activity },
     { key: 'health', label: 'Health', icon: Activity },
@@ -285,15 +301,16 @@ function NavBar({
               <span className="hidden xl:inline">{adminAuthed ? 'Signed in' : 'Staff'}</span>
             </button>
 
-            {adminAuthed && (
+            {adminAuthed && passkeyPlatform && (
               <button
                 onClick={onPasskeyRegister}
                 disabled={passkeyLoading}
                 className="hidden lg:flex items-center gap-1.5 px-3 min-h-11 text-sm font-semibold text-[var(--cp-muted)] hover:text-[var(--cp-accent)] hover:bg-[var(--cp-surface)] rounded-md transition-colors disabled:opacity-50"
-                aria-label="Save sign-in on this phone"
-                title="Save sign-in on this phone"
+                aria-label="Add a passkey"
+                title="Add a passkey"
               >
                 <KeyRound size={14} />
+                <span className="hidden xl:inline">Add a passkey</span>
               </button>
             )}
 
@@ -354,14 +371,14 @@ function NavBar({
               {adminAuthed ? <ShieldCheck size={18} className="mr-3 text-[var(--cp-accent)]" /> : <Lock size={18} className="mr-3" />}
               {adminAuthed ? 'Staff Home' : 'Staff sign-in'}
             </button>
-            {adminAuthed && (
+            {adminAuthed && passkeyPlatform && (
               <button
                 onClick={onPasskeyRegister}
                 disabled={passkeyLoading}
                 className="flex items-center w-full py-3 px-2 text-[var(--cp-muted)] hover:text-[var(--cp-accent)] hover:bg-[var(--cp-surface)] rounded-lg transition-colors text-sm disabled:opacity-50"
               >
                 <KeyRound size={18} className="mr-3" />
-                Save sign-in on this phone
+                Add a passkey
               </button>
             )}
             {adminAuthed && onSignOut && (
@@ -518,6 +535,7 @@ function pageFromPath(path) {
   // Legacy texashomeoutlet.com deep links resolve inside the inventory page.
   if (p.startsWith('/inventory-detail/') || p.startsWith('/plan/') || p.startsWith('/quote/')) return 'inventory';
   if (p.startsWith('/hub/')) return 'hub';
+  if (p === '/passkeys' || p.startsWith('/passkeys/')) return 'passkeys';
   if (p === '/staff-home' || p.startsWith('/staff-home/')) return 'staff-home';
   if (p === '/staff' || p.startsWith('/staff/')) return 'staff-sign-in';
   if (p === '/team' || p.startsWith('/team/')) return 'team';
@@ -716,201 +734,133 @@ function App() {
   const [showPinModal, setShowPinModal] = useState(false);
   const [signInNotice, setSignInNotice] = useState('');
 
-  // Passkey state
+  // Passkey state. Support is detected once; the sign-in button uses WebAuthn
+  // support, and Add a passkey waits for a platform authenticator.
   const [passkeyLoading, setPasskeyLoading] = useState(false);
   const [passkeyError, setPasskeyError] = useState('');
-  const [passkeyStatus, setPasskeyStatus] = useState(null);
-  const [passkeyAvailable] = useState(
-    typeof window !== 'undefined' && !!window.PublicKeyCredential
-  );
-  const [showPasskeyEmailModal, setShowPasskeyEmailModal] = useState(false);
-  const [passkeyEmail, setPasskeyEmail] = useState(() => {
-    if (typeof window === 'undefined') return '';
-    return window.localStorage.getItem('tho_passkey_email') || '';
-  });
-  const [passkeyEmailError, setPasskeyEmailError] = useState('');
+  const [passkeySupport, setPasskeySupport] = useState({ webauthn: false, platform: false, conditional: false });
+  const [passkeyDialog, setPasskeyDialog] = useState(null);
+  const [showPasskeyNudge, setShowPasskeyNudge] = useState(false);
+  const passkeySupportRef = useRef(passkeySupport);
+  passkeySupportRef.current = passkeySupport;
 
-  const refreshPasskeyStatus = useCallback(async () => {
+  useEffect(() => {
+    let active = true;
+    detectPasskeySupport().then((support) => {
+      if (active) setPasskeySupport(support);
+    });
+    return () => { active = false; };
+  }, []);
+
+  const runPasskeyRegister = useCallback(async (email) => {
+    setPasskeyDialog({ phase: 'working', email, error: '', tried: false });
+    setPasskeyLoading(true);
     try {
-      const response = await fetch('/api/admin/passkey/status', {
-        headers: { Accept: 'application/json' },
-        credentials: 'same-origin',
+      const data = await registerPasskey({ email });
+      setAdminAuthed(true);
+      setAdminSignInCheck('signed-in');
+      setShowPinModal(false);
+      setPasskeyError('');
+      setPasskeyDialog({
+        phase: 'saved',
+        email: data?.email || email,
+        error: '',
+        tried: false,
       });
-      if (!response.ok) throw new Error('Passkey status unavailable');
-      const data = await response.json();
-      setPasskeyStatus(data);
-      return data;
-    } catch {
-      setPasskeyStatus({ enabled: false, store_ready: false, has_keys: false });
-      return null;
+    } catch (err) {
+      console.warn('Passkey register error:', err);
+      setPasskeyDialog({
+        phase: 'error',
+        email,
+        error: err?.message || describePasskeyError(err, { flow: 'register' }),
+        tried: false,
+      });
+    } finally {
+      setPasskeyLoading(false);
     }
   }, []);
 
-  useEffect(() => {
-    refreshPasskeyStatus();
-  }, [refreshPasskeyStatus, adminAuthed]); // Refresh when auth state changes
-
-  const handlePasskeyLogin = async () => {
-    if (!window.PublicKeyCredential) { setPasskeyError('Passkeys not supported in this browser'); return; }
-    if (passkeyStatus && !passkeyStatus.has_keys) {
-      setPasskeyError('No passkeys are enrolled yet. Sign in with your PIN or an email code, then register this device.');
-      return;
-    }
-    setPasskeyLoading(true); setPasskeyError('');
-    try {
-      const beginRes = await fetch('/api/admin/passkey/login/begin', { method: 'POST', credentials: 'same-origin' });
-      if (!beginRes.ok) {
-        const data = await beginRes.json().catch(() => ({}));
-        throw new Error(safeUserMessage(extractErrorMessage(data), 'Server error starting passkey login'));
-      }
-      const options = await beginRes.json();
-      // Convert base64url challenge / ids back to ArrayBuffer
-      options.challenge = base64urlToBuffer(options.challenge);
-      if (options.allowCredentials) {
-        options.allowCredentials = options.allowCredentials.map(c => ({
-          ...c,
-          id: base64urlToBuffer(c.id),
-        }));
-      }
-      const credential = await navigator.credentials.get({ publicKey: options });
-      if (!credential) throw new Error('Passkey login cancelled');
-      const payload = {
-        id: credential.id,
-        rawId: bufferToBase64url(credential.rawId),
-        response: {
-          authenticatorData: bufferToBase64url(credential.response.authenticatorData),
-          clientDataJSON: bufferToBase64url(credential.response.clientDataJSON),
-          signature: bufferToBase64url(credential.response.signature),
-          userHandle: credential.response.userHandle ? bufferToBase64url(credential.response.userHandle) : null,
-        },
-        type: credential.type,
-      };
-      const completeRes = await fetch('/api/admin/passkey/login/complete', {
-        method: 'POST', credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      const data = await completeRes.json();
-      if (data.success) {
-        setAdminAuthed(true); setAdminSignInCheck('signed-in'); setShowPinModal(false); setPasskeyError('');
-        navigateTo('staff-home');
-      } else {
-        setPasskeyError(safeUserMessage(extractErrorMessage(data), 'Passkey login failed'));
-      }
-    } catch (err) {
-      console.warn('Passkey login error:', err);
-      // Browsers use NotAllowedError for several outcomes (including timeout
-      // and cancellation), so do not guess why the prompt did not finish.
-      const message = err?.name === 'NotAllowedError' || err?.name === 'AbortError'
-        ? 'Passkey sign-in did not finish. Try again, or use the email sign-in on this page.'
-        : safeUserMessage(err?.message, describeFetchError(err, 'complete passkey sign-in'));
-      setPasskeyError(message);
-    } finally {
-      setPasskeyLoading(false);
-    }
-  };
-
-  const openPasskeyRegisterModal = useCallback(() => {
-    if (!window.PublicKeyCredential) {
-      setPasskeyError('Passkeys not supported in this browser');
+  const startAddPasskey = useCallback(async () => {
+    setShowPasskeyNudge(false);
+    setIsMobileMenuOpen(false);
+    if (!passkeySupportRef.current.platform) {
+      setPasskeyDialog({ phase: 'error', error: PASSKEY_UNSUPPORTED_DEVICE, tried: false });
       return;
     }
     if (!adminAuthed) {
-      setPasskeyError('Sign in with your PIN or an email code before registering a staff passkey.');
+      setPasskeyError(`${PASSKEY_EMAIL_FALLBACK} Sign in with it before adding a passkey.`);
       setShowPinModal(true);
       return;
     }
-    setPasskeyError('');
-    setPasskeyEmailError('');
-    setShowPasskeyEmailModal(true);
-    setIsMobileMenuOpen(false);
-  }, [adminAuthed]);
-
-  const handlePasskeyRegister = async (emailValue) => {
-    if (!window.PublicKeyCredential) { setPasskeyError('Passkeys not supported in this browser'); return; }
-    const normalizedEmail = String(emailValue || '').trim().toLowerCase();
-    if (!normalizedEmail || !normalizedEmail.includes('@')) {
-      setPasskeyEmailError('Enter the approved owner email or a @texashomeoutlet.com staff email.');
+    let profile = null;
+    try {
+      profile = await fetchPasskeyProfile();
+    } catch {
+      profile = null;
+    }
+    const email = String(profile?.email || '').trim().toLowerCase();
+    if (!email) {
+      setPasskeyDialog({
+        phase: 'error',
+        error: 'Use the email link on this page. Sign in with it before adding a passkey.',
+        tried: false,
+      });
       return;
     }
-    setPasskeyLoading(true); setPasskeyError('');
-    setPasskeyEmailError('');
+    const owners = Array.isArray(profile?.owner_emails) ? profile.owner_emails : [];
+    if (profile?.owner && owners.length > 1) {
+      setPasskeyDialog({
+        phase: 'confirm',
+        email,
+        otherOwnerEmails: owners.filter((item) => item !== email),
+        error: '',
+        tried: false,
+      });
+      return;
+    }
+    await runPasskeyRegister(email);
+  }, [adminAuthed, runPasskeyRegister]);
+
+  const trySavedPasskey = useCallback(async () => {
+    setPasskeyLoading(true);
     try {
-      const beginRes = await fetch('/api/admin/passkey/register/begin', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: adminCsrfHeaders({ 'Content-Type': 'application/json' }),
-        body: JSON.stringify({ email: normalizedEmail }),
-      });
-      if (!beginRes.ok) {
-        const data = await beginRes.json().catch(() => ({}));
-        throw new Error(safeUserMessage(extractErrorMessage(data), 'Sign in before registering a staff passkey'));
-      }
-      const options = await beginRes.json();
-      options.user.id = base64urlToBuffer(options.user.id);
-      options.challenge = base64urlToBuffer(options.challenge);
-      if (options.excludeCredentials) {
-        options.excludeCredentials = options.excludeCredentials.map(c => ({
-          ...c,
-          id: base64urlToBuffer(c.id),
-        }));
-      }
-      const credential = await navigator.credentials.create({ publicKey: options });
-      if (!credential) throw new Error('Passkey registration cancelled');
-      const payload = {
-        id: credential.id,
-        rawId: bufferToBase64url(credential.rawId),
-        response: {
-          clientDataJSON: bufferToBase64url(credential.response.clientDataJSON),
-          attestationObject: bufferToBase64url(credential.response.attestationObject),
-        },
-        type: credential.type,
-        clientExtensionResults: credential.getClientExtensionResults(),
-      };
-      const completeRes = await fetch('/api/admin/passkey/register/complete', {
-        method: 'POST', credentials: 'same-origin',
-        headers: adminCsrfHeaders({ 'Content-Type': 'application/json' }),
-        body: JSON.stringify(payload),
-      });
-      const data = await completeRes.json();
-      if (data.success) {
-        setAdminAuthed(true); setAdminSignInCheck('signed-in'); setShowPinModal(false); setPasskeyError('');
-        setShowPasskeyEmailModal(false);
-        setPasskeyEmail(data.email || normalizedEmail);
-        window.localStorage.setItem('tho_passkey_email', data.email || normalizedEmail);
-        await refreshPasskeyStatus();
-        addToast('Passkey registered for this staff email.', 'success');
-        navigateTo('system');
-      } else {
-        setPasskeyEmailError(safeUserMessage(extractErrorMessage(data), 'Passkey registration failed'));
+      const data = await signInWithPasskey();
+      if (data?.success) {
+        setAdminAuthed(true);
+        setAdminSignInCheck('signed-in');
+        setPasskeyDialog((prev) => ({ ...(prev || {}), phase: 'saved', tried: true, error: '' }));
       }
     } catch (err) {
-      console.warn('Passkey register error:', err);
-      const message = err.name === 'InvalidStateError'
-        ? 'That passkey provider already has a THO key. Try signing in with it, or choose another provider or device. Confirm another working sign-in method before revoking a key in System Hub.'
-        : safeUserMessage(err?.message, describeFetchError(err, 'register your passkey'));
-      setPasskeyEmailError(message);
+      setPasskeyDialog((prev) => ({
+        ...(prev || {}),
+        phase: 'saved',
+        error: err?.message || describePasskeyError(err, { flow: 'login' }),
+      }));
+    } finally {
+      setPasskeyLoading(false);
+    }
+  }, []);
+
+  const handlePasskeyLogin = async () => {
+    if (!passkeySupportRef.current.webauthn) return;
+    setPasskeyLoading(true);
+    setPasskeyError('');
+    try {
+      const data = await signInWithPasskey();
+      if (data?.success) {
+        setPasskeyError('');
+        completeStaffSignInRef.current({ method: 'passkey' });
+      }
+    } catch (err) {
+      console.warn('Passkey login error:', err);
+      setPasskeyError(err?.message || describePasskeyError(err, { flow: 'login' }));
     } finally {
       setPasskeyLoading(false);
     }
   };
 
-  // base64url helpers
-  function base64urlToBuffer(str) {
-    const padding = '='.repeat((4 - (str.length % 4)) % 4);
-    const base64 = str.replace(/-/g, '+').replace(/_/g, '/') + padding;
-    const raw = atob(base64);
-    const buf = new Uint8Array(raw.length);
-    for (let i = 0; i < raw.length; i++) buf[i] = raw.charCodeAt(i);
-    return buf.buffer;
-  }
-  function bufferToBase64url(buffer) {
-    const bytes = new Uint8Array(buffer);
-    let binary = '';
-    for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
-    return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-  }
   const lastLoginTime = useRef(0);
+  const completeStaffSignInRef = useRef(() => {});
 
   // Verify stored cookie on mount. A hung check must not leave staff on the
   // checking screen. The timeout fails closed: locked page, and saved staff
@@ -1004,20 +954,11 @@ function App() {
     };
     window.addEventListener('admin-rate-limited', handleRateLimited);
 
-    const handleTriggerRegister = (e) => {
-      if (e.detail?.email) {
-        setPasskeyEmail(e.detail.email);
-      }
-      openPasskeyRegisterModal();
-    };
-    window.addEventListener('trigger-passkey-register', handleTriggerRegister);
-
     return () => {
       window.removeEventListener('admin-session-expired', handleExpired);
       window.removeEventListener('admin-rate-limited', handleRateLimited);
-      window.removeEventListener('trigger-passkey-register', handleTriggerRegister);
     };
-  }, [openPasskeyRegisterModal, addToast]);
+  }, [addToast]);
 
   const messagesEndRef = useRef(null);
 
@@ -1046,7 +987,8 @@ function App() {
       if (e.key === 'Escape') {
         setIsMobileMenuOpen(false);
         setShowPinModal(false);
-        setShowPasskeyEmailModal(false);
+        setPasskeyDialog(null);
+        setShowPasskeyNudge(false);
       }
 
       // Ctrl/Cmd + / to show keyboard shortcuts
@@ -1093,6 +1035,7 @@ function App() {
       team: 'Team access',
       'staff-sign-in': 'Staff sign-in',
       'staff-home': 'Staff Home',
+      passkeys: 'Your passkeys',
       'getting-started': 'Getting Started',
       'chat-history': 'Chat History',
       'manage-inventory': 'Manage Inventory',
@@ -1190,6 +1133,7 @@ function App() {
       team: '/team',
       'staff-sign-in': '/staff',
       'staff-home': '/staff-home',
+      passkeys: '/passkeys',
     };
     const targetUrl = urlMap[page] || '/';
     navigatePath(targetUrl);
@@ -1210,17 +1154,27 @@ function App() {
   };
 
   // Admin PIN handlers
-  const completeStaffSignIn = () => {
+  const completeStaffSignIn = (detail) => {
     lastLoginTime.current = Date.now();
     setAdminAuthed(true);
     setAdminSignInCheck('signed-in');
     setShowPinModal(false);
     setSignInNotice('');
+    setPasskeyError('');
+    const method = detail?.method || '';
+    if (shouldOfferPasskeyNudge({
+      method,
+      platform: passkeySupportRef.current.platform,
+      suppressed: passkeyNudgeSuppressed(),
+    })) {
+      setShowPasskeyNudge(true);
+    }
     const destination = activePage === 'staff-sign-in'
       ? 'staff-home'
       : (ADMIN_PAGE_KEYS.has(activePage) ? activePage : 'staff-home');
     navigateTo(destination);
   };
+  completeStaffSignInRef.current = completeStaffSignIn;
 
   const handleAdminAccess = () => {
     if (adminAuthed) {
@@ -1362,8 +1316,7 @@ function App() {
         <StaffSignInPanel
           onSuccess={completeStaffSignIn}
           onCancel={() => setShowPinModal(false)}
-          passkeyAvailable={passkeyAvailable}
-          passkeyStatus={passkeyStatus}
+          passkeyAvailable={passkeySupport.webauthn}
           passkeyLoading={passkeyLoading}
           passkeyError={passkeyError}
           onPasskeyLogin={handlePasskeyLogin}
@@ -1373,81 +1326,34 @@ function App() {
     </div>
   );
 
-  const passkeyEmailModal = showPasskeyEmailModal && (
-    <div className="fixed inset-0 bg-black/70 z-[110] flex items-center justify-center p-4 backdrop-blur-sm" style={{ animation: 'tho-fade-in 0.15s ease' }}>
-      <div className="cp-panel p-6 sm:p-7 max-w-md w-full" style={{ animation: 'tho-slide-up 0.2s ease' }}>
-        <div className="flex items-start gap-3 mb-5">
-          <div className="p-2.5 bg-[var(--cp-accent-dim)] rounded-lg">
-            <KeyRound size={20} className="text-[var(--cp-accent)]" />
-          </div>
-          <div>
-            <h2 className="text-2xl font-bold text-[var(--cp-text)]">Save sign-in on this phone</h2>
-            <p className="text-base text-[var(--cp-muted)] mt-1 leading-relaxed">
-              Next time you can skip the email. Use your work email, the one that ends in @texashomeoutlet.com.
-            </p>
-          </div>
-        </div>
+  const passkeyDialogModal = (
+    <AddPasskeyDialog
+      open={Boolean(passkeyDialog)}
+      phase={passkeyDialog?.phase}
+      email={passkeyDialog?.email || ''}
+      otherOwnerEmails={passkeyDialog?.otherOwnerEmails || []}
+      error={passkeyDialog?.error || ''}
+      tried={Boolean(passkeyDialog?.tried)}
+      loading={passkeyLoading}
+      onAdd={() => runPasskeyRegister(passkeyDialog?.email)}
+      onTry={trySavedPasskey}
+      onClose={() => { if (passkeyDialog?.phase !== 'working') setPasskeyDialog(null); }}
+    />
+  );
 
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            handlePasskeyRegister(passkeyEmail);
-          }}
-          className="space-y-4"
-        >
-          <label className="block">
-            <span className="text-base font-semibold text-[var(--cp-text)]">Work email</span>
-            <input
-              type="email"
-              autoComplete="email"
-              value={passkeyEmail}
-              onChange={(event) => {
-                setPasskeyEmail(event.target.value);
-                setPasskeyEmailError('');
-              }}
-              placeholder="name@texashomeoutlet.com"
-              className="cp-input w-full mt-1.5 px-3 py-3 text-base min-h-12"
-              autoFocus
-              required
-            />
-          </label>
-
-          {(passkeyEmailError || passkeyError) && (
-            <div role="alert" className="text-base text-[var(--cp-danger)] border border-[var(--cp-danger)]/25 bg-[var(--cp-danger-dim)] rounded-md px-3 py-3 leading-relaxed">
-              {passkeyEmailError || passkeyError}
-            </div>
-          )}
-
-          <div className="flex flex-col sm:flex-row gap-2 sm:justify-end">
-            <button
-              type="button"
-              onClick={() => {
-                setShowPasskeyEmailModal(false);
-                setPasskeyEmailError('');
-              }}
-              className="cp-btn-outline min-h-12 px-4 py-3 text-base"
-              disabled={passkeyLoading}
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={passkeyLoading || !passkeyEmail.trim()}
-              className="cp-btn-accent min-h-12 px-4 py-3 text-base flex items-center justify-center gap-2"
-            >
-              {passkeyLoading ? <Loader2 size={15} className="animate-spin" /> : <KeyRound size={15} />}
-              {passkeyLoading ? 'Saving...' : 'Save on this phone'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+  const passkeyNudge = showPasskeyNudge && (
+    <PasskeyNudge
+      onAdd={startAddPasskey}
+      onLater={() => { dismissPasskeyNudge('later'); setShowPasskeyNudge(false); }}
+      onNever={() => { dismissPasskeyNudge('never'); setShowPasskeyNudge(false); }}
+    />
   );
 
   const appModals = (
     <>
       {pinModal}
-      {passkeyEmailModal}
+      {passkeyDialogModal}
+      {passkeyNudge}
     </>
   );
 
@@ -1458,8 +1364,9 @@ function App() {
     adminAuthed,
     onAdminAccess: handleAdminAccess,
     onSignOut: handleSignOut,
-    onPasskeyRegister: openPasskeyRegisterModal,
+    onPasskeyRegister: startAddPasskey,
     passkeyLoading,
+    passkeyPlatform: passkeySupport.platform,
     isMobileMenuOpen,
     setIsMobileMenuOpen,
     darkMode,
@@ -1470,7 +1377,8 @@ function App() {
   if (activePage === 'staff-sign-in') {
     return (
       <div className="bg-[var(--cp-bg)] min-h-screen">
-        {passkeyEmailModal}
+        {passkeyDialogModal}
+        {passkeyNudge}
         <NavBar {...navProps} />
         <main className="max-w-md mx-auto px-4 py-8">
           {adminAuthed ? (
@@ -1489,8 +1397,7 @@ function App() {
           ) : (
             <StaffSignInPanel
               onSuccess={completeStaffSignIn}
-              passkeyAvailable={passkeyAvailable}
-              passkeyStatus={passkeyStatus}
+              passkeyAvailable={passkeySupport.webauthn}
               passkeyLoading={passkeyLoading}
               passkeyError={passkeyError}
               onPasskeyLogin={handlePasskeyLogin}
@@ -1511,6 +1418,21 @@ function App() {
         <ErrorBoundary scope="staff-home">
           <Suspense fallback={<PageLoader />}>
             <StaffHome onNavigate={navigateTo} />
+          </Suspense>
+        </ErrorBoundary>
+        <Footer adminAuthed={adminAuthed} onAdminAccess={handleAdminAccess} onNavigate={navigateTo} />
+      </div>
+    );
+  }
+
+  if (activePage === 'passkeys' && adminAuthed) {
+    return (
+      <div className="bg-[var(--cp-bg)] min-h-screen">
+        {appModals}
+        <NavBar {...navProps} />
+        <ErrorBoundary scope="passkeys">
+          <Suspense fallback={<PageLoader />}>
+            <YourPasskeys onAdd={startAddPasskey} onBack={() => navigateTo('staff-home')} />
           </Suspense>
         </ErrorBoundary>
         <Footer adminAuthed={adminAuthed} onAdminAccess={handleAdminAccess} onNavigate={navigateTo} />

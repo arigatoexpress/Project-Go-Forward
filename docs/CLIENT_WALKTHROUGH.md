@@ -29,8 +29,11 @@ Staff sign in with email. Open **https://www.texashomeoutlet.com/staff**
 The short guide is [docs/team/staff-sign-in.md](team/staff-sign-in.md).
 
 A shared backup PIN is the small link under the email box if email is down.
-The staff page does not show a passkey button. Do not start with a passkey
-or the old temporary website.
+When this browser can use a passkey, **Sign in with a passkey** is under the
+email button. It is optional. The email link is the fallback, including for a
+passkey saved on the old temporary website. After email sign-in, **Add a
+passkey** saves one for this device and stays on the current page. **Your
+passkeys** lists, renames, and removes that person’s own keys.
 
 This phone or computer stays signed in for 30 days. Tap **Sign out** on a shared computer.
 
@@ -180,8 +183,9 @@ anything.
   inventory analytics (including most-viewed homes).
 - **System Hub** — the operator's map of the whole platform: quick links to
   every admin surface, an architecture diagram, security posture checklist,
-  keyboard shortcuts, and **Passkey Recovery** (revoke lost/deprecated
-  passkeys).
+  keyboard shortcuts, and owner-only **Passkey Recovery** (revoke lost or
+  deprecated passkeys, including the raw credential id). Staff manage their
+  own keys on **Your passkeys**.
 - **Health Dashboard** — live service metrics from `/api/metrics`: total
   requests, p95 latency, error rate, uptime, plus recent staff user activity.
 
@@ -286,8 +290,11 @@ python3 scripts/production_smoke.py --base-url https://www.texashomeoutlet.com
 | `NOTIFICATION_EMAIL` | Comma-separated staff alert recipients | For email |
 | `DOCUSEAL_API_URL` / `DOCUSEAL_API_TOKEN` / `DOCUSEAL_WEBHOOK_SECRET` | E-signature | For e-sign (not yet set — see deploy runbook) |
 
-Passkeys are stored in Firestore and gated to the approved owner email and
-`@texashomeoutlet.com` staff accounts; no extra env vars are needed beyond the
+Passkeys are stored in Firestore and gated to the approved owner emails and
+`@texashomeoutlet.com` staff accounts. Registration is locked to the signed-in
+email. Owner enrollment and owner recovery stay on that owner’s passkey
+session, and the last owner recovery key cannot be deleted. There is no
+feature flag for the sign-in button. No extra env vars are needed beyond the
 admin session secret.
 
 Runbooks live in `docs/PRODUCTION_READINESS.md` (deploy/email/PIN),

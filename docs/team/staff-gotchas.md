@@ -42,7 +42,9 @@ This tab cannot turn the ads on by itself.
 
 **Don't:** Tap **Resend code** over and over. Extra taps will not make the email arrive faster. Use the newest code if you asked more than once.
 
-**Don't:** Tap **Save sign-in on this phone**. That button saves a passkey, which is a sign-in stored on one phone. Passkey sign-in is turned off for staff. Use the email link.
+**Do:** After the email link signs you in, you can tap **Add a passkey** if you want a faster sign-in next time. **Not now** and **Don’t ask again** are both fine.
+
+**Don't:** Start with a passkey from the old site. Those keys do not carry over. Use the email link, then add a new passkey if you want one.
 
 ### Homes and photos: real photos only
 

@@ -60,11 +60,12 @@ appointment lands in the CRM.
 
 Staff surfaces (Document Center, CRM, Ad Studio, analytics) sit behind staff
 sign-in at [`/staff`](https://www.texashomeoutlet.com/staff). Staff type their
-work email and get a sign-in link, with a 6-digit code as a fallback. Passkeys
-are hidden from the sign-in page, and a backup PIN exists for emergencies only
-(see [`docs/team/staff-sign-in.md`](docs/team/staff-sign-in.md), PRs
-[#369](https://github.com/arigatoexpress/Project-Go-Forward/pull/369) and
-[#370](https://github.com/arigatoexpress/Project-Go-Forward/pull/370)). The
+work email and get a sign-in link, with a 6-digit code as a fallback. A
+passkey is optional when the device can save one: **Sign in with a passkey**
+on the sign-in page, and **Add a passkey** after the email link. The email
+link stays the fallback. A backup PIN exists for emergencies only
+(see [`docs/team/staff-sign-in.md`](docs/team/staff-sign-in.md) and
+[`docs/team/passkey-setup-guide.md`](docs/team/passkey-setup-guide.md)). The
 Document Center fills the complete Texas manufactured-housing closing packet
 (TMHA/TDHCA forms) from deal data and sends it for e-signature with the
 federally required consent step.

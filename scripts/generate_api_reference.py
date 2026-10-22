@@ -44,6 +44,7 @@ _AUTH_LABELS = {
     "require_admin": "Admin session (PIN or email code)",
     "require_partner_api_key": "Partner API key",  # pragma: allowlist secret
     "_require_passkey_user": "Passkey session",
+    "_require_staff_identity": "Admin session (PIN, email, or passkey)",
     "require_owner_step_up": "Exact owner passkey session + CSRF",
 }
 
