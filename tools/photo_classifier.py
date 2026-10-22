@@ -300,7 +300,7 @@ def is_floorplan_url(url: str | None) -> bool:
 # Jessup Housing The Rosewood FAC28644A (plan 232969). Numbered lowercase
 # ``.jpg`` objects in this folder return HTTP 403; the same photos still
 # exist as ``.JPG``. Verified 2026-10-22: ``1.jpg``/``2.jpg``/``3.jpg``
-# are 403, ``1.JPG``/``2.JPG``/``3.JPG`` are 206.
+# are 403, ``1.JPG``/``2.JPG``/``3.JPG`` are 200.
 _DEAD_NUMBERED_JPG_RE = re.compile(
     r"^(https://d132mt2yijm03y\.cloudfront\.net/manufacturer/3328/floorplan/232969/)"
     r"(\d+)\.jpg((?:\?.*)?)$"
