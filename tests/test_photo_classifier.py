@@ -425,18 +425,10 @@ def test_module_exports_filename_token_constants():
     assert ".pdf" in photo_classifier.FLOORPLAN_FILE_EXTS
 
 
-ROSEWOOD_DEAD = (
-    "https://d132mt2yijm03y.cloudfront.net/manufacturer/3328/floorplan/232969/1.jpg"
-)
-ROSEWOOD_LIVE = (
-    "https://d132mt2yijm03y.cloudfront.net/manufacturer/3328/floorplan/232969/1.JPG"
-)
-ROSEWOOD_DEAD_2 = (
-    "https://d132mt2yijm03y.cloudfront.net/manufacturer/3328/floorplan/232969/2.jpg"
-)
-ROSEWOOD_LIVE_2 = (
-    "https://d132mt2yijm03y.cloudfront.net/manufacturer/3328/floorplan/232969/2.JPG"
-)
+ROSEWOOD_DEAD = "https://d132mt2yijm03y.cloudfront.net/manufacturer/3328/floorplan/232969/1.jpg"
+ROSEWOOD_LIVE = "https://d132mt2yijm03y.cloudfront.net/manufacturer/3328/floorplan/232969/1.JPG"
+ROSEWOOD_DEAD_2 = "https://d132mt2yijm03y.cloudfront.net/manufacturer/3328/floorplan/232969/2.jpg"
+ROSEWOOD_LIVE_2 = "https://d132mt2yijm03y.cloudfront.net/manufacturer/3328/floorplan/232969/2.JPG"
 
 
 def test_rewrite_media_url_points_rosewood_numbered_jpg_at_working_jpg():

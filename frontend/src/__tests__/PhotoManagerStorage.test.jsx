@@ -134,12 +134,12 @@ describe('Photo Manager storage safety', () => {
       }));
     });
 
-    const { container } = render(<PhotoManager onBack={vi.fn()} />);
+    render(<PhotoManager onBack={vi.fn()} />);
     await pickStarterHome();
-    const img = await waitFor(() => container.querySelector('img'));
+    const img = await screen.findByRole('img', { name: /Starter Home photo 1/i });
     expect(img).toHaveAttribute('src', 'https://cdn.example/dead.jpg');
     fireEvent.error(img);
-    expect(container.querySelector('img')).toBeNull();
+    expect(screen.queryByRole('img', { name: /Starter Home photo 1/i })).toBeNull();
     expect(screen.getByText(/Photo unavailable/i)).toBeInTheDocument();
   });
 });

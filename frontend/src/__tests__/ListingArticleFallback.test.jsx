@@ -1,3 +1,4 @@
+import { describe, expect, it } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { ListingArticle } from '../pages/InventoryBrowse';
 
@@ -29,7 +30,11 @@ describe('ListingArticle photo fallback', () => {
   it('hides a listing photo that fails to load', () => {
     const { container } = render(
       <ListingArticle
-        home={{ ...home, real_photos: ['https://cdn.example/ok.jpg', 'https://cdn.example/dead.jpg'] }}
+        home={{
+          ...home,
+          image_url: 'https://cdn.example/ok.jpg',
+          real_photos: ['https://cdn.example/ok.jpg', 'https://cdn.example/dead.jpg'],
+        }}
         onGetPrice={() => {}}
         onApply={() => {}}
       />,
