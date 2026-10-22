@@ -40,7 +40,7 @@ import json
 import re
 from collections.abc import Iterable
 from pathlib import Path
-from urllib.parse import unquote, urlparse
+from urllib.parse import quote, unquote, urlparse, urlunparse
 
 # Filename tokens that mark an actual floorplan diagram (not just any
 # asset under a model's CDN namespace). Case-insensitive substring on
@@ -297,29 +297,56 @@ def is_floorplan_url(url: str | None) -> bool:
     return _looks_like_bare_model_floorplan(url, filename)
 
 
-# Jessup Housing The Rosewood FAC28644A (plan 232969). Numbered lowercase
-# ``.jpg`` objects in this folder return HTTP 403; the same photos still
-# exist as ``.JPG``. Verified 2026-10-22: ``1.jpg``/``2.jpg``/``3.jpg``
-# are 403, ``1.JPG``/``2.JPG``/``3.JPG`` are 200.
-_DEAD_NUMBERED_JPG_RE = re.compile(
-    r"^(https://d132mt2yijm03y\.cloudfront\.net/manufacturer/3328/floorplan/232969/)"
-    r"(\d+)\.jpg((?:\?.*)?)$"
+# Manufacturer CDN (CloudFront in front of S3) is case-sensitive and does
+# not treat ``.jpg`` / ``.JPG`` / ``.jpeg`` / ``.png`` / ``.webp`` as the
+# same object. A HEAD of every image URL on the public inventory feed
+# (2026-10-22: 697 URLs, 71 HTTP 403) found same-folder siblings whose
+# only difference is the extension. The table is the verified subset —
+# one object key to its working filename — not a single listing.
+_MANUFACTURER_CDN_HOST = "d132mt2yijm03y.cloudfront.net"
+_CDN_REPAIRS_PATH = (
+    Path(__file__).resolve().parent.parent / "data" / "manufacturer_cdn_extension_repairs.json"
 )
 
 
-def rewrite_media_url(url: str | None) -> str:
-    """Return a working sibling for a known-dead manufacturer CDN URL.
+def _load_cdn_extension_repairs() -> dict[str, str]:
+    raw = json.loads(_CDN_REPAIRS_PATH.read_text(encoding="utf-8"))
+    if not isinstance(raw, dict):
+        return {}
+    return {str(key): str(value) for key, value in raw.items() if key and value}
 
-    Only rewrites URLs that have been confirmed dead against the public
-    CDN. Does not invent floorplans or guess other models.
+
+_WORKING_CDN_FILENAMES = _load_cdn_extension_repairs()
+
+
+def _manufacturer_object_key(url: str) -> str:
+    parsed = urlparse(url)
+    if parsed.netloc != _MANUFACTURER_CDN_HOST or parsed.scheme not in {"http", "https"}:
+        return ""
+    return unquote(parsed.path).lstrip("/")
+
+
+def rewrite_media_url(url: str | None) -> str:
+    """Return a working sibling for a dead manufacturer CDN URL.
+
+    Rewrites only object keys whose same-stem extension sibling was
+    confirmed live (HTTP 200) while the stored key returns HTTP 403.
+    Every other URL, including lowercase ``.jpg`` files that already
+    load, is returned unchanged.
     """
     if not url or not isinstance(url, str):
         return ""
     value = url.strip()
-    match = _DEAD_NUMBERED_JPG_RE.match(value)
-    if match:
-        return f"{match.group(1)}{match.group(2)}.JPG{match.group(3)}"
-    return value
+    key = _manufacturer_object_key(value)
+    filename = _WORKING_CDN_FILENAMES.get(key)
+    if not key or not filename:
+        return value
+    folder = key.rsplit("/", 1)[0]
+    parsed = urlparse(value)
+    new_path = f"/{folder}/{quote(filename, safe='')}"
+    return urlunparse(
+        (parsed.scheme, parsed.netloc, new_path, parsed.params, parsed.query, parsed.fragment)
+    )
 
 
 def _normalize_url(value: str | None) -> str:
@@ -544,10 +571,15 @@ def apply_classifier_to_home(home: dict) -> dict:
     # classifier didn't find one in the photo list (e.g. a Firestore doc
     # with floorplan_url set but no floorplan in real_photos).
     existing_floorplan = home.get("floorplan_url") or home.get("floor_plan_url") or ""
-    home["floorplan_url"] = cleaned["floorplan_url"] or existing_floorplan
+    home["floorplan_url"] = rewrite_media_url(cleaned["floorplan_url"] or existing_floorplan) or ""
     # Keep both spellings in sync — existing callers read either name.
     home["floor_plan_url"] = home["floorplan_url"]
-    home["floorplan_urls"] = cleaned["floorplan_urls"]
+    home["floorplan_urls"] = _dedupe_preserve_order(cleaned["floorplan_urls"])
+    # ``photos`` is served alongside ``real_photos`` and is not rewritten
+    # by the classifier output above. Repair it in place so the public
+    # feed does not keep a dead duplicate of a URL we just fixed.
+    if isinstance(home.get("photos"), list):
+        home["photos"] = _dedupe_preserve_order(home["photos"])
     home["media_quality"] = cleaned["media_quality"]
     home["image_categories"] = _normalize_image_categories(
         home.get("image_categories"),

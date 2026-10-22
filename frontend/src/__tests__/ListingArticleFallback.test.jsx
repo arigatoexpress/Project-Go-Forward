@@ -45,4 +45,24 @@ describe('ListingArticle photo fallback', () => {
     expect(container.querySelectorAll('img')).toHaveLength(1);
     expect(screen.getByAltText(/The Promotional Series/i)).toBeInTheDocument();
   });
+
+  it('shows photos coming soon when every listing photo fails to load', () => {
+    const { container } = render(
+      <ListingArticle
+        home={{
+          ...home,
+          image_url: 'https://cdn.example/dead-a.jpg',
+          real_photos: ['https://cdn.example/dead-a.jpg', 'https://cdn.example/dead-b.jpg'],
+        }}
+        onGetPrice={() => {}}
+        onApply={() => {}}
+      />,
+    );
+    const images = () => [...container.querySelectorAll('img')];
+    expect(images()).toHaveLength(2);
+    fireEvent.error(images()[0]);
+    fireEvent.error(images()[0]);
+    expect(container.querySelector('img')).toBeNull();
+    expect(screen.getByText(/photos coming soon/i)).toBeInTheDocument();
+  });
 });
