@@ -29,6 +29,7 @@ import {
   isInventoryDetailPath,
   isPlanPath,
   isPreownedHome,
+  listingFloorplanImages,
   listingImageAlt,
   listingPagePhotos,
   listingPath,
@@ -55,6 +56,12 @@ import { describeFetchError, extractErrorMessage, responseErrorMessage, safeUser
 
 const MATTERPORT_BASE = "https://my.matterport.com/show/?m=";
 export const INVENTORY_PAGE_SIZE = 18;
+
+export function matterportTourUrl(home) {
+  const id = String(home?.matterport_id || '').trim();
+  if (!/^[A-Za-z0-9]+$/.test(id)) return '';
+  return `${MATTERPORT_BASE}${id}&play=1`;
+}
 
 export function getHomeIdentifier(home) {
   const explicitId = String(home?.home_id ?? '').trim();
@@ -259,7 +266,11 @@ function getListingPhotos(home, { ranked = false } = {}) {
 }
 
 function getHomeImage(home) {
-  return getListingPhotos(home)[0] || '';
+  return getListingPhotos(home)[0] || listingFloorplanImages(home)[0] || '';
+}
+
+function cardImageIsFloorplan(home) {
+  return !getListingPhotos(home)[0] && Boolean(listingFloorplanImages(home)[0]);
 }
 
 function displayPrice(home) {
@@ -436,8 +447,10 @@ function FeaturedHomeSpotlight({ home, onClick, onGetPrice, onApply }) {
         <div className="relative h-[260px] overflow-hidden bg-[var(--cp-bg-2)]">
           <SinglePhoto
             url={image}
-            alt={listingImageAlt(home, image, 1, 1)}
-            className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
+            alt={listingImageAlt(home, image, 1, 1, { floorplan: cardImageIsFloorplan(home) })}
+            className={cardImageIsFloorplan(home)
+              ? 'h-full w-full object-contain bg-white'
+              : 'h-full w-full object-cover transition duration-500 group-hover:scale-105'}
             imgProps={{
               width: 1200,
               height: 800,
@@ -624,6 +637,7 @@ export default function InventoryBrowse({
     minPrice: '',
     maxPrice: '',
     classification: routeCategory?.classification || '',
+    hasTour: false,
   });
   const [showFilters, setShowFilters] = useState(false);
 
@@ -737,6 +751,7 @@ export default function InventoryBrowse({
     if (showFavoritesOnly && !favorites.has(home.id)) return false;
     if (searchQuery && !matchesSearch(home, searchQuery)) return false;
     if (filters.status && getAvailabilityKind(home) !== filters.status) return false;
+    if (filters.hasTour && !home.matterport_id) return false;
     if (filters.beds) {
       const beds = home.specs?.beds || 0;
       if (beds < parseInt(filters.beds)) return false;
@@ -810,6 +825,7 @@ export default function InventoryBrowse({
     filters.minPrice,
     filters.maxPrice,
     filters.classification,
+    filters.hasTour,
     showFavoritesOnly,
   ]);
 
@@ -821,6 +837,7 @@ export default function InventoryBrowse({
       minPrice: '',
       maxPrice: '',
       classification: routeCategory?.classification || '',
+      hasTour: false,
     });
     setSearchQuery('');
     setSortBy('default');
@@ -828,6 +845,7 @@ export default function InventoryBrowse({
 
   const activeFilterCount = Object.entries(filters).filter(([key, value]) => (
     value !== ''
+      && value !== false
       && !(key === 'classification' && routeCategory && value === routeCategory.classification)
   )).length + (searchQuery ? 1 : 0);
   const hasActiveFilters = activeFilterCount > 0;
@@ -864,12 +882,14 @@ export default function InventoryBrowse({
     ));
   }, [activeCategory]);
 
-  const openDetail = useCallback((home) => {
+  const openDetail = useCallback((home, options = {}) => {
+    const tour = options.tour === true && !!home?.matterport_id;
     setSelectedHome(home);
     setActivePhotoIndex(0);
     setActiveCategory('all');
-    setShowTour(false);
+    setShowTour(tour);
     trackEvent('home_viewed', { home: home.model_name, home_id: getHomeIdentifier(home), status: home.status });
+    if (tour) trackEvent('tour_opened', { home: home.model_name, home_id: getHomeIdentifier(home) });
   }, []);
 
   const closeDetail = useCallback(() => {
@@ -1277,6 +1297,14 @@ export default function InventoryBrowse({
               onClick={() => setFilters(f => ({ ...f, status: 'pre_owned' }))}
               className={`${PILL_BTN} ${filters.status === 'pre_owned' ? 'bg-[var(--cp-accent)] text-[var(--cp-bg)]' : 'bg-[var(--cp-panel)] text-[var(--cp-muted)] hover:text-[var(--cp-text)] hover:border-[var(--cp-border-light)]'}`}
             >Pre-Owned ({preOwnedCount})</button>
+            <button
+              type="button"
+              aria-pressed={filters.hasTour}
+              onClick={() => setFilters(f => ({ ...f, hasTour: !f.hasTour }))}
+              className={`inline-flex items-center gap-1.5 ${PILL_BTN} ${filters.hasTour ? 'bg-[var(--cp-accent)] text-[var(--cp-bg)]' : 'bg-[var(--cp-panel)] text-[var(--cp-muted)] hover:text-[var(--cp-text)] hover:border-[var(--cp-border-light)]'}`}
+            >
+              <Box size={14} /> 3D tour ({tourCount})
+            </button>
             {favorites.size > 0 && (
               <button
                 onClick={() => setShowFavoritesOnly(v => !v)}
@@ -1399,6 +1427,7 @@ export default function InventoryBrowse({
             key={home.id || idx}
             home={home}
             onClick={() => openDetail(home)}
+            onWatchTour={() => openDetail(home, { tour: true })}
             onGetPrice={() => openLeadForm(home, 'price')}
             onApply={() => openLeadForm(home, 'apply')}
             isFavorite={favorites.has(home.id)}
@@ -1485,15 +1514,16 @@ export default function InventoryBrowse({
 }
 
 
-function ListingPhoto({ url, alt, caption, priority = false, onFailed }) {
+function ListingPhoto({ url, alt, caption, priority = false, onFailed, fit = 'cover' }) {
   const [failed, setFailed] = useState(false);
   if (!url || failed) return null;
+  const fitClass = fit === 'contain' ? 'object-contain bg-white' : 'object-cover';
   return (
     <figure className="overflow-hidden rounded-lg border border-[var(--cp-border)] bg-[var(--cp-panel)]">
       <img
         src={url}
         alt={alt}
-        className="h-56 w-full object-cover sm:h-64"
+        className={`h-56 w-full sm:h-64 ${fitClass}`}
         width={960}
         height={640}
         sizes={getImageSizes('listing-page')}
@@ -1546,16 +1576,24 @@ function SinglePhoto({ url, alt, className, imgProps = {}, fallback = null }) {
 // ─── Home Card Component ───
 export function ListingArticle({ home, onGetPrice, onApply }) {
   const specs = home?.specs || {};
-  const photos = listingPagePhotos(home);
-  const galleryKey = photos.join('\n');
-  const [galleryState, setGalleryState] = useState({ galleryKey, failed: 0 });
+  const pagePhotos = listingPagePhotos(home);
+  const planPhotos = listingFloorplanImages(home);
+  const planSet = new Set(planPhotos);
+  const realPhotos = pagePhotos.filter((url) => url && !planSet.has(url));
+  const galleryKey = `${realPhotos.join('\n')}\n--\n${planPhotos.join('\n')}`;
+  const [galleryState, setGalleryState] = useState({ galleryKey, failedReal: 0, failedPlan: 0 });
+  const [watchTour, setWatchTour] = useState(false);
   if (galleryState.galleryKey !== galleryKey) {
-    setGalleryState({ galleryKey, failed: 0 });
+    setGalleryState({ galleryKey, failedReal: 0, failedPlan: 0 });
   }
-  const failedCount = galleryState.galleryKey === galleryKey ? galleryState.failed : 0;
-  const planUrl = home.floorplan_url || home.floor_plan_url || '';
-  const onlyFloorplan = photos.length === 1 && planUrl && photos[0] === planUrl;
-  const allPhotosFailed = photos.length > 0 && failedCount >= photos.length;
+  const failedReal = galleryState.galleryKey === galleryKey ? galleryState.failedReal : 0;
+  const failedPlan = galleryState.galleryKey === galleryKey ? galleryState.failedPlan : 0;
+  const usePlans = realPhotos.length === 0 || failedReal >= realPhotos.length;
+  const photos = usePlans ? planPhotos : realPhotos;
+  const failedCount = usePlans ? failedPlan : failedReal;
+  const onlyFloorplan = usePlans && photos.length > 0;
+  const allPhotosFailed = photos.length === 0 || failedCount >= photos.length;
+  const tourUrl = matterportTourUrl(home);
   return (
     <article className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
       <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
@@ -1568,12 +1606,18 @@ export function ListingArticle({ home, onGetPrice, onApply }) {
                   url={url}
                   alt={listingImageAlt(home, url, index + 1, photos.length, { floorplan: onlyFloorplan })}
                   caption={onlyFloorplan ? 'Floor plan' : ''}
+                  fit={onlyFloorplan ? 'contain' : 'cover'}
                   priority={index === 0}
-                  onFailed={() => setGalleryState((state) => (
-                    state.galleryKey === galleryKey
-                      ? { galleryKey, failed: state.failed + 1 }
-                      : { galleryKey, failed: 1 }
-                  ))}
+                  onFailed={() => setGalleryState((state) => {
+                    if (state.galleryKey !== galleryKey) {
+                      return usePlans
+                        ? { galleryKey, failedReal: 0, failedPlan: 1 }
+                        : { galleryKey, failedReal: 1, failedPlan: 0 };
+                    }
+                    return usePlans
+                      ? { galleryKey, failedReal: state.failedReal, failedPlan: state.failedPlan + 1 }
+                      : { galleryKey, failedReal: state.failedReal + 1, failedPlan: state.failedPlan };
+                  })}
                 />
               ))}
             </div>
@@ -1594,6 +1638,26 @@ export function ListingArticle({ home, onGetPrice, onApply }) {
             {home.stock_number || home.id ? <li>Stock #{home.stock_number || home.id}</li> : null}
           </ul>
           <div className="mt-6">
+            {tourUrl && (
+              <div className="mb-3">
+                <button
+                  type="button"
+                  aria-pressed={watchTour}
+                  onClick={() => setWatchTour((open) => !open)}
+                  className="inline-flex min-h-11 w-full items-center justify-center gap-1.5 rounded-md border border-[var(--cp-secondary)] bg-white py-2.5 text-sm font-semibold text-[var(--cp-secondary)]"
+                >
+                  <Box size={16} aria-hidden="true" /> {watchTour ? 'Hide 3D tour' : 'Watch 3D tour'}
+                </button>
+                {watchTour && (
+                  <iframe
+                    src={tourUrl}
+                    title={`${home.model_name} 3D Tour`}
+                    className="mt-3 h-72 w-full rounded-lg border border-[var(--cp-border)]"
+                    allowFullScreen
+                  />
+                )}
+              </div>
+            )}
             <div className="hidden lg:block">
               <ListingActions home={home} onApply={onApply} onGetPrice={onGetPrice} />
             </div>
@@ -1609,23 +1673,31 @@ export function ListingArticle({ home, onGetPrice, onApply }) {
 }
 
 
-export function HomeCard({ home, onClick, onGetPrice, onApply, isFavorite = false, onToggleFavorite }) {
-  // image_url is guaranteed non-floorplan after PR #43's classifier;
-  // real_photos[0] is also non-floorplan (exteriors are listed first).
-  // We deliberately do NOT fall back to floor_plan_url here — floorplans
-  // belong in the dedicated Floorplan tab, not as the card hero.
+export function HomeCard({ home, onClick, onGetPrice, onApply, isFavorite = false, onToggleFavorite, onWatchTour }) {
+  // Real photos stay the hero. When a listing has none — or every photo URL
+  // fails — the floor-plan drawing is the card image so the tile is never blank.
   const floorplanUrls = getFloorplanUrls(home);
+  const floorplanImages = listingFloorplanImages(home);
   const galleryPhotos = getListingPhotos(home, { ranked: true });
   const photoCount = galleryPhotos.length;
-  const galleryKey = JSON.stringify([home.id, galleryPhotos]);
-  const [heroAttempt, setHeroAttempt] = useState({ galleryKey, index: 0 });
+  const galleryKey = JSON.stringify([home.id, galleryPhotos, floorplanImages]);
+  const initialAttempt = {
+    galleryKey,
+    index: 0,
+    planIndex: 0,
+    usePlan: galleryPhotos.length === 0 && floorplanImages.length > 0,
+  };
+  const [heroAttempt, setHeroAttempt] = useState(initialAttempt);
   // Failures belong to this ordered gallery, not to a later home or refresh.
   // Reset before rendering children so a refreshed gallery starts at its hero.
   if (heroAttempt.galleryKey !== galleryKey) {
-    setHeroAttempt({ galleryKey, index: 0 });
+    setHeroAttempt(initialAttempt);
   }
-  const heroIndex = heroAttempt.galleryKey === galleryKey ? heroAttempt.index : 0;
-  const heroImage = galleryPhotos[heroIndex] || '';
+  const attempt = heroAttempt.galleryKey === galleryKey ? heroAttempt : initialAttempt;
+  const heroIndex = attempt.index;
+  const planIndex = attempt.planIndex;
+  const usePlan = attempt.usePlan;
+  const heroImage = usePlan ? (floorplanImages[planIndex] || '') : (galleryPhotos[heroIndex] || '');
   // 'loading' → 'loaded' | 'slow' | 'failed'.
   //
   // 'slow' and 'failed' are deliberately DIFFERENT states. 'failed' means the
@@ -1650,7 +1722,8 @@ export function HomeCard({ home, onClick, onGetPrice, onApply, isFavorite = fals
   const showOrderOnlyPlaceholder = isOrderOnly && (
     !heroImage || heroLoadState === 'failed'
   );
-  const hasTour = !!home.matterport_id;
+  const tourUrl = matterportTourUrl(home);
+  const hasTour = !!tourUrl;
   const specs = home.specs || {};
   const categories = home.image_categories || {};
 
@@ -1717,19 +1790,42 @@ export function HomeCard({ home, onClick, onGetPrice, onApply, isFavorite = fals
             src={heroImage}
             srcSet={generateSrcSet(heroImage)}
             sizes={getImageSizes('card-grid')}
-            alt={listingImageAlt(home, heroImage, heroIndex + 1, Math.max(photoCount, 1))}
-            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+            alt={listingImageAlt(
+              home,
+              heroImage,
+              usePlan ? 1 : heroIndex + 1,
+              usePlan ? 1 : Math.max(photoCount, 1),
+              { floorplan: usePlan },
+            )}
+            className={usePlan
+              ? 'w-full h-full object-contain bg-white'
+              : 'w-full h-full object-cover transition-transform duration-300 group-hover:scale-105'}
             loading="lazy"
             decoding="async"
             onLoad={() => setHeroLoadState('loaded')}
             onError={() => {
-              if (heroIndex + 1 < galleryPhotos.length) {
-                setHeroAttempt({ galleryKey, index: heroIndex + 1 });
-              } else {
-                setHeroLoadState('failed');
+              if (!usePlan && heroIndex + 1 < galleryPhotos.length) {
+                setHeroAttempt({ galleryKey, index: heroIndex + 1, planIndex: 0, usePlan: false });
+                return;
               }
+              if (!usePlan && floorplanImages.length > 0) {
+                setHeroAttempt({ galleryKey, index: heroIndex, planIndex: 0, usePlan: true });
+                setHeroLoadState('loading');
+                return;
+              }
+              if (usePlan && planIndex + 1 < floorplanImages.length) {
+                setHeroAttempt({ galleryKey, index: heroIndex, planIndex: planIndex + 1, usePlan: true });
+                setHeroLoadState('loading');
+                return;
+              }
+              setHeroLoadState('failed');
             }}
           />
+          {usePlan && (
+            <span className="pointer-events-none absolute bottom-3 left-3 z-[2] rounded-md bg-white/95 px-2 py-1 text-xs font-semibold text-slate-700 shadow">
+              Floor plan
+            </span>
+          )}
           {/* Slow, not broken: a quiet shimmer over the still-loading <img>.
               It clears itself the moment onLoad fires. */}
           {heroLoadState === 'slow' && (
@@ -1871,6 +1967,30 @@ export function HomeCard({ home, onClick, onGetPrice, onApply, isFavorite = fals
         </div>
 
         <div className="space-y-2">
+          {tourUrl && (
+            onWatchTour ? (
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  onWatchTour();
+                }}
+                className="inline-flex min-h-11 w-full items-center justify-center gap-1.5 rounded-md border border-[var(--cp-secondary)] bg-white py-2.5 text-sm font-semibold text-[var(--cp-secondary)]"
+              >
+                <Box size={16} aria-hidden="true" /> Watch 3D tour
+              </button>
+            ) : (
+              <a
+                href={tourUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex min-h-11 w-full items-center justify-center gap-1.5 rounded-md border border-[var(--cp-secondary)] bg-white py-2.5 text-sm font-semibold text-[var(--cp-secondary)] no-underline"
+              >
+                <Box size={16} aria-hidden="true" /> Watch 3D tour
+              </a>
+            )
+          )}
           {cardHref ? (
             <a
               href={cardHref}
@@ -1904,7 +2024,8 @@ function HomeDetailModal({
   const specs = home.specs || {};
   const categories = home.image_categories || {};
   const categoryKeys = Object.keys(categories);
-  const hasTour = !!home.matterport_id;
+  const tourUrl = matterportTourUrl(home);
+  const hasTour = !!tourUrl;
   // After PR #43 the canonical field is `floorplan_url`. Fall back to the
   // legacy `floor_plan_url` spelling for older Firestore docs.
   const floorplan = rewriteMediaUrl(home.floorplan_url || home.floor_plan_url || '');
@@ -1999,7 +2120,7 @@ function HomeDetailModal({
           {showTour && hasTour ? (
             <div className="tho-listing-gallery">
               <iframe
-                src={`${MATTERPORT_BASE}${home.matterport_id}&play=1`}
+                src={tourUrl}
                 title={`${home.model_name} 3D Tour`}
                 className="w-full h-full border-0"
                 allowFullScreen
@@ -2059,7 +2180,27 @@ function HomeDetailModal({
                   fetchPriority: 'high',
                   decoding: 'async',
                 }}
-                fallback={(
+                fallback={floorplan ? (
+                  <div className="flex h-full w-full flex-col items-center justify-center bg-white">
+                    <SinglePhoto
+                      url={floorplan}
+                      alt={listingImageAlt(home, floorplan, 1, 1, { floorplan: true })}
+                      className="max-h-full max-w-full object-contain bg-white"
+                      imgProps={{
+                        sizes: getImageSizes('modal'),
+                        loading: 'eager',
+                        decoding: 'async',
+                      }}
+                      fallback={(
+                        <div className="flex flex-col items-center justify-center gap-3 text-slate-300">
+                          <Camera size={48} className="text-slate-500" />
+                          <p>Photo unavailable</p>
+                        </div>
+                      )}
+                    />
+                    <span className="mt-2 text-sm font-semibold text-slate-600">Floor plan</span>
+                  </div>
+                ) : (
                   <div className="flex flex-col items-center justify-center gap-3 text-slate-300">
                     <Camera size={48} className="text-slate-500" />
                     <p>Photo unavailable</p>
@@ -2255,6 +2396,19 @@ function HomeDetailModal({
 
           {/* Action Buttons */}
           <div className="mb-4 flex flex-col gap-3 sm:flex-row">
+            {hasTour && (
+              <button
+                type="button"
+                aria-pressed={showTour}
+                className={`flex-1 inline-flex items-center justify-center gap-2 rounded-lg py-3.5 text-sm font-semibold transition ${showTour ? 'bg-blue-600 text-white' : 'border-2 border-blue-600 bg-white text-blue-700 hover:bg-blue-50'}`}
+                onClick={() => {
+                  setShowFloorplan(false);
+                  if (!showTour) onToggleTour();
+                }}
+              >
+                <Box size={18} aria-hidden="true" /> Watch 3D tour
+              </button>
+            )}
             <button
               className="flex-1 inline-flex items-center justify-center gap-2 py-3.5 rounded-lg font-semibold text-sm bg-blue-600 text-white hover:bg-blue-700 transition"
               onClick={() => {
@@ -2392,6 +2546,7 @@ function SimilarHomes({ currentHome, allHomes, onSelectHome }) {
            style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))' }}>
         {scored.map(({ home }) => {
           const image = getHomeImage(home);
+          const imageIsPlan = cardImageIsFloorplan(home);
           const href = listingPath(home);
           const className = 'flex flex-col p-3 bg-slate-50 border-2 border-transparent rounded-xl text-left transition hover:border-blue-500 hover:bg-white hover:shadow-md no-underline';
           const body = (
@@ -2399,8 +2554,8 @@ function SimilarHomes({ currentHome, allHomes, onSelectHome }) {
               <div className="h-[100px] rounded-lg overflow-hidden bg-slate-200 flex items-center justify-center mb-3">
                 <SinglePhoto
                   url={image}
-                  alt={listingImageAlt(home, image, 1, 1)}
-                  className="w-full h-full object-cover"
+                  alt={listingImageAlt(home, image, 1, 1, { floorplan: imageIsPlan })}
+                  className={imageIsPlan ? 'h-full w-full object-contain bg-white' : 'h-full w-full object-cover'}
                   imgProps={{
                     sizes: getImageSizes('similar-homes'),
                     loading: 'lazy',

@@ -289,8 +289,30 @@ export function listingPagePhotos(home) {
     photos.push(url);
   }
   if (photos.length) return photos;
-  const plan = home?.floorplan_url || home?.floor_plan_url || floorplanUrls[0] || '';
-  return plan ? [plan] : [];
+  const plans = listingFloorplanImages(home);
+  return plans.length ? [plans[0]] : [];
+}
+
+const RASTER_IMAGE_RE = /\.(png|jpe?g|webp|gif|avif)$/i;
+
+/** Floor-plan drawings a card may show when the home has no real photo. */
+export function listingFloorplanImages(home) {
+  const raw = [
+    home?.floorplan_url,
+    home?.floor_plan_url,
+    ...(Array.isArray(home?.floorplan_urls) ? home.floorplan_urls : []),
+  ];
+  const images = [];
+  const seen = new Set();
+  for (const value of raw) {
+    const url = rewriteMediaUrl(value);
+    if (!url || seen.has(url)) continue;
+    const path = url.split(/[?#]/)[0];
+    if (!RASTER_IMAGE_RE.test(path)) continue;
+    seen.add(url);
+    images.push(url);
+  }
+  return images;
 }
 
 export function publicCanonicalOrigin(hostname, origin) {
