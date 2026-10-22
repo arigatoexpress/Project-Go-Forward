@@ -19,6 +19,13 @@ WORKDIR /frontend
 COPY frontend/package*.json ./
 RUN npm ci
 
+# listingRoutes.js imports the repo-root CDN repair table with a relative
+# path that leaves frontend/ (../../../data/...). From this WORKDIR that
+# resolves to /data/. The test job builds against a full checkout, so CI
+# never hits the missing file; the image build only copies frontend/
+# unless the table is placed where that import looks.
+COPY data/manufacturer_cdn_extension_repairs.json /data/manufacturer_cdn_extension_repairs.json
+
 COPY frontend/ ./
 RUN npm run build
 
