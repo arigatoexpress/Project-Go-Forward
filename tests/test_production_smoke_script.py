@@ -1,3 +1,4 @@
+import http.client
 import io
 from urllib.error import HTTPError
 from urllib.parse import urlsplit
@@ -669,12 +670,15 @@ def test_json_probe_does_not_retry_json_rate_limit(monkeypatch):
     assert payload["error"] == "Rate limit exceeded"
 
 
-def test_json_probe_does_not_retry_non_object_json(monkeypatch):
+@pytest.mark.parametrize("status_code", [200, 400])
+def test_json_probe_does_not_retry_non_object_json(monkeypatch, status_code):
     calls = {"n": 0}
 
     def fake_urlopen(request, timeout):
         calls["n"] += 1
-        return _BytesResponse(200, b"[1]", "application/json")
+        if status_code >= 400:
+            raise _http_error(status_code, b"[]", "application/json")
+        return _BytesResponse(status_code, b"[]", "application/json")
 
     monkeypatch.setattr(production_smoke, "urlopen", fake_urlopen)
     monkeypatch.setattr(production_smoke, "_pause", lambda _seconds: None)
@@ -686,6 +690,120 @@ def test_json_probe_does_not_retry_non_object_json(monkeypatch):
     else:
         raise AssertionError("non-object JSON must fail immediately")
     assert calls["n"] == 1
+
+
+def test_json_probe_retries_5xx_non_object_json(monkeypatch, capsys):
+    calls = {"n": 0}
+
+    def fake_urlopen(request, timeout):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise _http_error(502, b"[]", "application/json")
+        return _BytesResponse(200, b'{"status":"ok"}', "application/json")
+
+    monkeypatch.setattr(production_smoke, "urlopen", fake_urlopen)
+    monkeypatch.setattr(production_smoke, "_pause", lambda _seconds: None)
+
+    status, payload, _elapsed = production_smoke._json_probe(
+        "https://example.test", "/health", timeout=1.0
+    )
+
+    assert calls["n"] == 2
+    assert status == 200
+    assert payload == {"status": "ok"}
+    assert "status=502" in capsys.readouterr().err
+
+
+def test_json_probe_persistent_5xx_non_object_json_retries_then_fails(monkeypatch):
+    calls = {"n": 0}
+
+    def fake_urlopen(request, timeout):
+        calls["n"] += 1
+        raise _http_error(503, b"[]", "application/json")
+
+    monkeypatch.setattr(production_smoke, "urlopen", fake_urlopen)
+    monkeypatch.setattr(production_smoke, "_pause", lambda _seconds: None)
+
+    try:
+        production_smoke._json_probe("https://example.test", "/healthz/", timeout=1.0)
+    except RuntimeError as exc:
+        message = str(exc)
+    else:
+        raise AssertionError("persistent 5xx non-object JSON must fail after retries")
+
+    assert calls["n"] == production_smoke.TRANSIENT_ATTEMPTS
+    assert "returned non-object JSON" not in message
+    assert "did not return JSON after 3 attempts" in message
+    assert "status=503" in message
+
+
+class _ReadFailure:
+    """urlopen succeeded; the body read then failed."""
+
+    def __init__(self, error: BaseException):
+        self.status = 200
+        self.headers = {"content-type": "application/json"}
+        self._error = error
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+    def read(self, limit):
+        raise self._error
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        ConnectionResetError("Connection reset by peer"),
+        http.client.IncompleteRead(b'{"sta', 40),
+    ],
+)
+def test_read_url_retries_read_side_transport_error(monkeypatch, error):
+    calls = {"n": 0}
+
+    def fake_urlopen(request, timeout):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return _ReadFailure(error)
+        return _BytesResponse(200, b'<html><div id="root"></div></html>', "text/html")
+
+    monkeypatch.setattr(production_smoke, "urlopen", fake_urlopen)
+    monkeypatch.setattr(production_smoke, "_pause", lambda _seconds: None)
+
+    status, body, content_type, _elapsed = production_smoke._read_url(
+        "https://example.test", "/inventory", timeout=1.0
+    )
+
+    assert calls["n"] == 2
+    assert status == 200
+    assert b"root" in body
+    assert content_type == "text/html"
+
+
+def test_read_url_read_side_reset_fails_after_bounded_retries(monkeypatch):
+    calls = {"n": 0}
+
+    def fake_urlopen(request, timeout):
+        calls["n"] += 1
+        return _ReadFailure(http.client.IncompleteRead(b"", 12))
+
+    monkeypatch.setattr(production_smoke, "urlopen", fake_urlopen)
+    monkeypatch.setattr(production_smoke, "_pause", lambda _seconds: None)
+
+    try:
+        production_smoke._read_url("https://example.test", "/health", timeout=1.0)
+    except RuntimeError as exc:
+        message = str(exc)
+    else:
+        raise AssertionError("a truncated read must surface as a transport error")
+
+    assert calls["n"] == production_smoke.TRANSIENT_ATTEMPTS
+    assert message.startswith("/health network error:")
+    assert "IncompleteRead" in message
 
 
 def test_read_url_does_not_retry_client_error_html(monkeypatch):
