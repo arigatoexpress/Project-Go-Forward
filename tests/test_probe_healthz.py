@@ -1,3 +1,4 @@
+import http.client
 import io
 from urllib.error import HTTPError, URLError
 
@@ -119,3 +120,58 @@ def test_probe_retries_transport_error_then_fails(monkeypatch, probe_url):
     assert calls["n"] == probe_healthz.TRANSIENT_ATTEMPTS
     assert message is not None
     assert "connection reset" in message
+
+
+class _ReadFailure:
+    """urlopen succeeded; the body read then failed."""
+
+    def __init__(self, error: BaseException):
+        self.status = 200
+        self.headers = {"Cache-Control": "no-store", "content-type": "application/json"}
+        self._error = error
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+    def read(self, limit):
+        raise self._error
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        ConnectionResetError("Connection reset by peer"),
+        http.client.IncompleteRead(b'{"sta', 40),
+    ],
+)
+def test_probe_retries_read_side_transport_error(monkeypatch, probe_url, error):
+    calls = {"n": 0}
+
+    def fake_urlopen(request, timeout):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return _ReadFailure(error)
+        return _Response(
+            200,
+            _OK_BODY,
+            {"Cache-Control": "no-store", "content-type": "application/json"},
+        )
+
+    monkeypatch.setattr(probe_healthz.urllib.request, "urlopen", fake_urlopen)
+
+    assert probe_healthz.probe(7) is None
+    assert calls["n"] == 2
+
+
+def test_parallel_probes_collect_read_resets_instead_of_aborting(monkeypatch, probe_url):
+    monkeypatch.setattr(probe_healthz, "PROBE_COUNT", 4)
+
+    def fake_urlopen(request, timeout):
+        return _ReadFailure(ConnectionResetError("Connection reset by peer"))
+
+    monkeypatch.setattr(probe_healthz.urllib.request, "urlopen", fake_urlopen)
+
+    assert probe_healthz.main() == 1

@@ -15,8 +15,11 @@ A single non-JSON body is not treated as a final verdict. Google's frontend
 occasionally replaces one response with its stock HTML 502 (the body starts
 with a newline, so ``json.loads`` reports line 2 column 1) while the app
 itself is still returning JSON for that path. Transport errors and HTTP 5xx
-are retried with a short backoff. A path that is still non-JSON or 5xx after
-those attempts fails the run.
+are retried with a short backoff. A connection reset or truncated body during
+``response.read()`` counts as a transport error. A 5xx whose body is JSON but
+not an object (for example ``[]``) is still a server error and is retried;
+only a non-object body with a non-5xx status fails immediately. A path that
+is still non-JSON or 5xx after those attempts fails the run.
 
 Smoke-deal id convention
 ------------------------
@@ -38,6 +41,7 @@ this script (or a related smoke harness) and is safe to delete.
 from __future__ import annotations
 
 import argparse
+import http.client
 import json
 import re
 import sys
@@ -184,21 +188,31 @@ def _content_type_of(headers: Any) -> str:
 
 
 def _open_once(request: Request, path: str, timeout: float) -> tuple[int, bytes, str, int]:
-    """One HTTP round trip. Timeouts and network errors become RuntimeError."""
+    """One HTTP round trip. Timeouts and network errors become RuntimeError.
+
+    ``urlopen`` can succeed and then raise ``ConnectionResetError`` or
+    ``http.client.IncompleteRead`` while the body is read. Those are the same
+    class of transient transport fault as ``URLError`` and are retried.
+    """
     started = time.perf_counter()
     try:
-        with urlopen(request, timeout=timeout) as response:  # nosec B310 - operator-provided HTTPS URL.
-            body = response.read(8 * 1024 * 1024)
-            elapsed_ms = int((time.perf_counter() - started) * 1000)
-            return response.status, body, _content_type_of(response.headers), elapsed_ms
-    except HTTPError as exc:
-        body = exc.read(1024 * 1024)
-        elapsed_ms = int((time.perf_counter() - started) * 1000)
-        return exc.code, body, _content_type_of(exc.headers), elapsed_ms
+        try:
+            with urlopen(request, timeout=timeout) as response:  # nosec B310 - operator-provided HTTPS URL.
+                body = response.read(8 * 1024 * 1024)
+                status = response.status
+                content_type = _content_type_of(response.headers)
+        except HTTPError as exc:
+            body = exc.read(1024 * 1024)
+            status = exc.code
+            content_type = _content_type_of(exc.headers)
     except TimeoutError as exc:
         raise RuntimeError(f"{path} timed out after {timeout:g}s") from exc
     except URLError as exc:
         raise RuntimeError(f"{path} network error: {exc}") from exc
+    except (ConnectionResetError, http.client.IncompleteRead) as exc:
+        raise RuntimeError(f"{path} network error: {exc}") from exc
+    elapsed_ms = int((time.perf_counter() - started) * 1000)
+    return status, body, content_type, elapsed_ms
 
 
 def _retry_server_error(status: int, body: bytes, content_type: str) -> bool:
@@ -298,7 +312,10 @@ def _json_probe(base_url: str, path: str, *, timeout: float) -> tuple[int, dict[
     def retry_response(status: int, body: bytes, content_type: str) -> bool:
         del content_type
         _payload, problem = _decode_json_object(body)
-        if problem == "not-object":
+        # A non-object body is a final schema failure only for a non-5xx status.
+        # A transient 5xx can carry valid JSON that is not an object (``[]``);
+        # that still has to reach the status check below and be retried.
+        if problem == "not-object" and status < 500:
             raise RuntimeError(f"{path} returned non-object JSON")
         # A JSON 4xx (including 429) is the server's answer. A JSON 5xx, or
         # any non-JSON body, is the gateway blip this probe is allowed to retry.

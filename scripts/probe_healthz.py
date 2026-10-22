@@ -6,9 +6,11 @@ Fails (exit 1) if any probe detects:
   - missing Cache-Control: no-store header
   - schema-text placeholder values ("string", "int", "bool", "float") in the body
 
-A transport error or HTTP 5xx is retried a bounded number of times. Google's
-frontend occasionally substitutes its HTML 502 for one sample while the app
-is healthy. A sample that is still failing after those attempts fails the run.
+A transport error or HTTP 5xx is retried a bounded number of times. A
+connection reset or truncated body during ``response.read()`` is a transport
+error, the same as a failure from ``urlopen`` itself. Google's frontend
+occasionally substitutes its HTML 502 for one sample while the app is
+healthy. A sample that is still failing after those attempts fails the run.
 A 200 that is missing no-store, or that contains a schema placeholder, is not
 retried.
 """
@@ -16,6 +18,7 @@ retried.
 from __future__ import annotations
 
 import concurrent.futures
+import http.client
 import os
 import re
 import sys
@@ -64,7 +67,12 @@ def probe(i: int) -> str | None:
     for attempt in range(1, TRANSIENT_ATTEMPTS + 1):
         try:
             status, cache_control, content_type, body = _once(url)
-        except (TimeoutError, urllib.error.URLError) as exc:
+        except (
+            TimeoutError,
+            urllib.error.URLError,
+            ConnectionResetError,
+            http.client.IncompleteRead,
+        ) as exc:
             detail = f"PROBE[{i:02d}] FAIL: {exc}"
             if attempt >= TRANSIENT_ATTEMPTS:
                 return detail
