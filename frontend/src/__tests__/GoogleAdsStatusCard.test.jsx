@@ -528,7 +528,7 @@ describe('GoogleAdsStatusCard', () => {
 
     const confirm = vi.spyOn(globalThis, 'confirm').mockReturnValue(true);
     expect(await screen.findByRole('heading', { name: '2. Preview' })).toBeInTheDocument();
-    expect(screen.getByText(/THO \| Search \| High Intent \| Huffman \| Draft/)).toBeInTheDocument();
+    expect(screen.getAllByText(/THO \| Search \| High Intent \| Huffman \| Draft/).length).toBeGreaterThan(0);
     expect(screen.queryByText('Campaign id')).not.toBeInTheDocument();
     expect(screen.queryByText('Ledger version')).not.toBeInTheDocument();
     expect(screen.queryByText('Content hash')).not.toBeInTheDocument();
@@ -901,5 +901,86 @@ describe('GoogleAdsStatusCard', () => {
     expect(screen.getByText(/still needs to grant the ads account permissions/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Launch turned off' })).toBeDisabled();
     expect(screen.queryByRole('button', { name: /activate|publish|turn ads on/i })).not.toBeInTheDocument();
+  });
+
+  it('shows saved campaign details and copies the headlines and descriptions', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    });
+    adminFetch.mockResolvedValue(response());
+    render(<GoogleAdsStatusCard />);
+
+    expect(await screen.findByRole('heading', { name: 'Campaign details' })).toBeInTheDocument();
+    expect(screen.getByText('Daily budget')).toBeInTheDocument();
+    expect(screen.getByText('$20')).toBeInTheDocument();
+    expect(screen.getByText('Most in one day')).toBeInTheDocument();
+    expect(screen.getByText('$40')).toBeInTheDocument();
+    expect(screen.getByText('Monthly limit')).toBeInTheDocument();
+    expect(screen.getByText('$608')).toBeInTheDocument();
+    expect(screen.getByText('Most per click')).toBeInTheDocument();
+    expect(screen.getByText('$5')).toBeInTheDocument();
+    expect(screen.getByText('Last updated')).toBeInTheDocument();
+    expect(screen.getByText('Started')).toBeInTheDocument();
+    expect(screen.getAllByText('Aug 12, 2026 at 12:00 UTC').length).toBeGreaterThan(0);
+    expect(screen.getByText('Write the campaign. Turned off. No money is being spent.')).toBeInTheDocument();
+    expect(screen.getByText('Texas Home Outlet')).toBeInTheDocument();
+    expect(screen.getAllByText(/Browse manufactured home models with prices/).length).toBeGreaterThan(0);
+    expect(screen.queryByText('Campaign id')).not.toBeInTheDocument();
+    expect(screen.queryByText('Recorded events')).not.toBeInTheDocument();
+    expect(screen.queryByText('Ledger version')).not.toBeInTheDocument();
+    expect(screen.queryByText(SAFE_STATUS.deployment_key)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /activate|publish|turn ads on|spend/i })).not.toBeInTheDocument();
+
+    const copyButtons = screen.getAllByRole('button', {
+      name: 'Copy headlines and descriptions for Local Inventory',
+    });
+    expect(navigator.clipboard.writeText).toBe(writeText);
+    fireEvent.click(copyButtons[0]);
+    await waitFor(() => expect(writeText).toHaveBeenCalled());
+    await waitFor(() => {
+      expect(screen.getAllByRole('status').map(el => el.textContent)).toContain('Copied');
+    });
+    const copied = writeText.mock.calls[0][0];
+    expect(copied).toContain('Headlines:\nTexas Home Outlet');
+    expect(copied).toContain('Browse Homes With Prices');
+    expect(copied).toContain('Descriptions:');
+    expect(copied).toContain('Browse manufactured home models with prices, photos and floor plans near Huffman.');
+    expect(adminFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('cancels an in-progress description without sending it to Google', async () => {
+    vi.spyOn(globalThis, 'confirm').mockReturnValue(true);
+    adminFetch.mockResolvedValue(response());
+    render(<GoogleAdsStatusCard />);
+    const box = await screen.findByRole('textbox', { name: 'Who should see this ad?' });
+
+    expect(screen.queryByRole('button', { name: 'Cancel' })).not.toBeInTheDocument();
+    fireEvent.change(box, { target: { value: brief } });
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    expect(globalThis.confirm).toHaveBeenCalledWith(expect.stringMatching(/nothing is sent to Google/i));
+    expect(box).toHaveValue('');
+    await waitFor(() => {
+      expect(window.localStorage.getItem(STAFF_BRIEF_STORAGE_KEY)).toBeNull();
+    });
+    expect(adminFetch).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('button', { name: 'Launch turned off' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Cancel' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /activate|publish|turn ads on|spend/i })).not.toBeInTheDocument();
+  });
+
+  it('keeps the description when cancel is declined', async () => {
+    vi.spyOn(globalThis, 'confirm').mockReturnValue(false);
+    adminFetch.mockResolvedValue(response());
+    render(<GoogleAdsStatusCard />);
+    const box = await screen.findByRole('textbox', { name: 'Who should see this ad?' });
+    fireEvent.change(box, { target: { value: brief } });
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    expect(box).toHaveValue(brief);
+    expect(window.localStorage.getItem(STAFF_BRIEF_STORAGE_KEY)).toBe(brief);
+    expect(adminFetch).toHaveBeenCalledTimes(1);
   });
 });

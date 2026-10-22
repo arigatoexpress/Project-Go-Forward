@@ -189,6 +189,26 @@ function photoFilename(url) {
   return decodeURIComponent(String(url).split('/').pop()?.split('?')[0] || '').toLowerCase();
 }
 
+function photoStem(filename) {
+  return filename.replace(/\.[^.]+$/i, '');
+}
+
+// Category labels still store the filename the feed originally published.
+// An exact filename wins. A different extension is accepted only when one
+// gallery photo has that stem, so 5.jpg can resolve to the repaired 5.png
+// and cannot land on 15.png, 10.jpg, or an ambiguous pair.
+export function matchCategoryPhoto(label, photos) {
+  const rewritten = rewriteMediaUrl(label);
+  const wantedFile = photoFilename(rewritten);
+  const wantedStem = photoStem(wantedFile);
+  const list = Array.isArray(photos) ? photos : [];
+  const exact = list.find((url) => photoFilename(url) === wantedFile);
+  if (exact) return exact;
+  if (!wantedStem) return '';
+  const stemMatches = list.filter((url) => photoStem(photoFilename(url)) === wantedStem);
+  return stemMatches.length === 1 ? stemMatches[0] : '';
+}
+
 function hasToken(filename, tokens) {
   const parts = filename.replace(/\.[a-z0-9]+$/i, '').split(/[^a-z0-9]+/).filter(Boolean);
   return tokens.some(token => parts.includes(token) || filename.includes(token));
@@ -414,25 +434,25 @@ function FeaturedHomeSpotlight({ home, onClick, onGetPrice, onApply }) {
         className="group block w-full text-left"
       >
         <div className="relative h-[260px] overflow-hidden bg-[var(--cp-bg-2)]">
-          {image ? (
-            <img
-              src={image}
-              srcSet={generateSrcSet(image)}
-              sizes={getImageSizes('featured-spotlight')}
-              alt={listingImageAlt(home, image, 1, 1)}
-              className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
-              width={1200}
-              height={800}
-              loading="eager"
-              fetchPriority="high"
-              decoding="async"
-            />
-          ) : (
-            <div className="flex flex-col h-full items-center justify-center gap-3 bg-[var(--cp-bg-2)]">
-              <Camera size={48} className="text-[var(--cp-faint)]" />
-              <span className="text-sm font-semibold text-[var(--cp-muted)] uppercase tracking-wider">Photos Coming Soon</span>
-            </div>
-          )}
+          <SinglePhoto
+            url={image}
+            alt={listingImageAlt(home, image, 1, 1)}
+            className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
+            imgProps={{
+              width: 1200,
+              height: 800,
+              loading: 'eager',
+              fetchPriority: 'high',
+              decoding: 'async',
+              sizes: getImageSizes('featured-spotlight'),
+            }}
+            fallback={(
+              <div className="flex flex-col h-full items-center justify-center gap-3 bg-[var(--cp-bg-2)]">
+                <Camera size={48} className="text-[var(--cp-faint)]" />
+                <span className="text-sm font-semibold text-[var(--cp-muted)] uppercase tracking-wider">Photos Coming Soon</span>
+              </div>
+            )}
+          />
           <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent p-4">
             <div className="mb-2 inline-flex items-center gap-1.5 rounded-md bg-[var(--cp-accent)] px-2.5 py-1 text-[11px] font-bold uppercase text-[var(--cp-bg)]">
               <CheckCircle2 size={12} />
@@ -833,11 +853,10 @@ export default function InventoryBrowse({
     const catFiles = home.image_categories[activeCategory] || [];
     if (catFiles.length === 0) return allPhotos;
 
-    return catFiles.map(f => {
+    return catFiles.map((f) => {
       const rewritten = rewriteMediaUrl(f);
       if (rewritten.startsWith('http')) return rewritten;
-      const match = allPhotos.find(url => url.includes(rewritten));
-      return match || rewritten;
+      return matchCategoryPhoto(rewritten, allPhotos) || rewritten;
     }).filter((url) => (
       url
       && usedHomeMayShowPhoto(url, home)
@@ -1075,19 +1094,20 @@ export default function InventoryBrowse({
     <div className="min-h-screen bg-[var(--cp-bg)] text-[var(--cp-text)]">
       {/* Hero Section */}
       <section className="relative isolate overflow-hidden border-b border-[var(--cp-border)] bg-[var(--cp-bg)]">
-        {heroImage && (
-          <img
-            src={heroImage}
-            srcSet={generateSrcSet(heroImage)}
-            sizes={getImageSizes('hero-background')}
+        {heroImage ? (
+          <SinglePhoto
+            url={heroImage}
             alt=""
-            aria-hidden="true"
             className="absolute inset-0 -z-10 h-full w-full object-cover opacity-35"
-            loading="eager"
-            decoding="async"
-            fetchPriority="high"
+            imgProps={{
+              'aria-hidden': 'true',
+              sizes: getImageSizes('hero-background'),
+              loading: 'eager',
+              decoding: 'async',
+              fetchPriority: 'high',
+            }}
           />
-        )}
+        ) : null}
         <div className="absolute inset-0 -z-10 bg-[linear-gradient(90deg,rgba(5,6,8,0.96),rgba(5,6,8,0.74),rgba(5,6,8,0.9))]" />
         <div className="mx-auto grid max-w-7xl gap-8 px-4 py-8 sm:px-6 lg:grid-cols-[1.1fr_0.9fr] lg:px-8 lg:py-10">
           <div className="flex min-h-0 min-w-0 flex-col justify-center lg:min-h-[520px]">
@@ -1465,7 +1485,7 @@ export default function InventoryBrowse({
 }
 
 
-function ListingPhoto({ url, alt, caption, priority = false }) {
+function ListingPhoto({ url, alt, caption, priority = false, onFailed }) {
   const [failed, setFailed] = useState(false);
   if (!url || failed) return null;
   return (
@@ -1480,7 +1500,10 @@ function ListingPhoto({ url, alt, caption, priority = false }) {
         loading={priority ? 'eager' : 'lazy'}
         fetchPriority={priority ? 'high' : 'auto'}
         decoding="async"
-        onError={() => setFailed(true)}
+        onError={() => {
+          setFailed(true);
+          onFailed?.();
+        }}
       />
       {caption ? (
         <figcaption className="px-3 py-2 text-sm text-[var(--cp-muted)]">{caption}</figcaption>
@@ -1489,17 +1512,55 @@ function ListingPhoto({ url, alt, caption, priority = false }) {
   );
 }
 
+function PhotosComingSoon({ className = 'flex h-64 items-center justify-center rounded-lg border border-dashed border-[var(--cp-border)] text-sm text-[var(--cp-muted)]' }) {
+  return (
+    <div className={className}>
+      Photos coming soon
+    </div>
+  );
+}
+
+// One curated URL. A 403 unmounts the image so shoppers never sit on a broken
+// icon. Featured, detail, hero, and similar surfaces stay on this photo
+// instead of walking to the next file.
+function SinglePhoto({ url, alt, className, imgProps = {}, fallback = null }) {
+  const [failed, setFailed] = useState(false);
+  const [seenUrl, setSeenUrl] = useState(url);
+  if (url !== seenUrl) {
+    setSeenUrl(url);
+    setFailed(false);
+  }
+  if (!url || failed) return fallback;
+  return (
+    <img
+      src={url}
+      alt={alt}
+      className={className}
+      onError={() => setFailed(true)}
+      {...imgProps}
+      srcSet={generateSrcSet(url)}
+    />
+  );
+}
+
 // ─── Home Card Component ───
 export function ListingArticle({ home, onGetPrice, onApply }) {
   const specs = home?.specs || {};
   const photos = listingPagePhotos(home);
+  const galleryKey = photos.join('\n');
+  const [galleryState, setGalleryState] = useState({ galleryKey, failed: 0 });
+  if (galleryState.galleryKey !== galleryKey) {
+    setGalleryState({ galleryKey, failed: 0 });
+  }
+  const failedCount = galleryState.galleryKey === galleryKey ? galleryState.failed : 0;
   const planUrl = home.floorplan_url || home.floor_plan_url || '';
   const onlyFloorplan = photos.length === 1 && planUrl && photos[0] === planUrl;
+  const allPhotosFailed = photos.length > 0 && failedCount >= photos.length;
   return (
     <article className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
       <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
         <div className="order-2 min-w-0 lg:order-1">
-          {photos.length > 0 ? (
+          {photos.length > 0 && !allPhotosFailed ? (
             <div className="grid gap-3 sm:grid-cols-2">
               {photos.map((url, index) => (
                 <ListingPhoto
@@ -1508,13 +1569,16 @@ export function ListingArticle({ home, onGetPrice, onApply }) {
                   alt={listingImageAlt(home, url, index + 1, photos.length, { floorplan: onlyFloorplan })}
                   caption={onlyFloorplan ? 'Floor plan' : ''}
                   priority={index === 0}
+                  onFailed={() => setGalleryState((state) => (
+                    state.galleryKey === galleryKey
+                      ? { galleryKey, failed: state.failed + 1 }
+                      : { galleryKey, failed: 1 }
+                  ))}
                 />
               ))}
             </div>
           ) : (
-            <div className="flex h-64 items-center justify-center rounded-lg border border-dashed border-[var(--cp-border)] text-sm text-[var(--cp-muted)]">
-              Photos coming soon
-            </div>
+            <PhotosComingSoon />
           )}
         </div>
         <div className="order-1 min-w-0 lg:order-2">
@@ -1843,7 +1907,7 @@ function HomeDetailModal({
   const hasTour = !!home.matterport_id;
   // After PR #43 the canonical field is `floorplan_url`. Fall back to the
   // legacy `floor_plan_url` spelling for older Firestore docs.
-  const floorplan = home.floorplan_url || home.floor_plan_url || '';
+  const floorplan = rewriteMediaUrl(home.floorplan_url || home.floor_plan_url || '');
   const isCallForPrice = isUnpricedListing(home);
   const isOrderableFloorplan = getAvailabilityKind(home) === 'orderable_floorplan';
 
@@ -1945,15 +2009,21 @@ function HomeDetailModal({
             <div className="tho-listing-gallery relative flex items-center justify-center overflow-hidden bg-slate-50">
               {floorplan ? (
                 <>
-                  <img
-                    src={floorplan}
-                    srcSet={generateSrcSet(floorplan)}
-                    sizes={getImageSizes('modal')}
+                  <SinglePhoto
+                    url={floorplan}
                     alt={listingImageAlt(home, floorplan, 1, 1, { floorplan: true })}
                     className="max-w-full max-h-full object-contain bg-white"
-                    loading="lazy"
-                    decoding="async"
-                    onError={(e) => { e.target.classList.add('hidden'); }}
+                    imgProps={{
+                      sizes: getImageSizes('modal'),
+                      loading: 'lazy',
+                      decoding: 'async',
+                    }}
+                    fallback={(
+                      <div className="flex flex-col items-center justify-center gap-3 text-slate-400">
+                        <Grid3X3 size={48} className="text-slate-200" />
+                        <p>Floorplan unavailable</p>
+                      </div>
+                    )}
                   />
                   <a
                     href={floorplan}
@@ -1977,18 +2047,24 @@ function HomeDetailModal({
               onTouchStart={handleTouchStart}
               onTouchEnd={handleTouchEnd}
             >
-              <img
-                src={photos[activePhotoIndex]}
-                srcSet={generateSrcSet(photos[activePhotoIndex])}
-                sizes={getImageSizes('modal')}
+              <SinglePhoto
+                url={photos[activePhotoIndex]}
                 alt={listingImageAlt(home, photos[activePhotoIndex], activePhotoIndex + 1, photos.length)}
                 className="max-h-full max-w-full object-contain"
-                width={1200}
-                height={800}
-                loading="eager"
-                fetchPriority="high"
-                decoding="async"
-                onError={(e) => { e.target.classList.add('hidden'); }}
+                imgProps={{
+                  width: 1200,
+                  height: 800,
+                  sizes: getImageSizes('modal'),
+                  loading: 'eager',
+                  fetchPriority: 'high',
+                  decoding: 'async',
+                }}
+                fallback={(
+                  <div className="flex flex-col items-center justify-center gap-3 text-slate-300">
+                    <Camera size={48} className="text-slate-500" />
+                    <p>Photo unavailable</p>
+                  </div>
+                )}
               />
               {photos.length > 1 && (
                 <>
@@ -2073,15 +2149,15 @@ function HomeDetailModal({
                     className={`flex-shrink-0 w-20 h-[60px] rounded-md overflow-hidden border-2 transition ${idx === activePhotoIndex ? 'border-blue-500 opacity-100' : 'border-transparent opacity-70 hover:opacity-100 hover:border-blue-500'}`}
                     onClick={() => onSetPhotoIndex(idx)}
                   >
-                    <img
-                      src={photo}
-                      srcSet={generateSrcSet(photo)}
-                      sizes={getImageSizes('modal-thumbnail')}
+                    <SinglePhoto
+                      url={photo}
                       alt={listingImageAlt(home, photo, idx + 1, photos.length)}
                       className="w-full h-full object-cover"
-                      loading="lazy"
-                      decoding="async"
-                      onError={(e) => { e.target.classList.add('hidden'); }}
+                      imgProps={{
+                        sizes: getImageSizes('modal-thumbnail'),
+                        loading: 'lazy',
+                        decoding: 'async',
+                      }}
                     />
                   </button>
                 ))}
@@ -2321,19 +2397,17 @@ function SimilarHomes({ currentHome, allHomes, onSelectHome }) {
           const body = (
             <>
               <div className="h-[100px] rounded-lg overflow-hidden bg-slate-200 flex items-center justify-center mb-3">
-                {image ? (
-                  <img
-                    src={image}
-                    srcSet={generateSrcSet(image)}
-                    sizes={getImageSizes('similar-homes')}
-                    alt={listingImageAlt(home, image, 1, 1)}
-                    className="w-full h-full object-cover"
-                    loading="lazy"
-                    decoding="async"
-                  />
-                ) : (
-                  <Home size={24} className="text-gray-300" />
-                )}
+                <SinglePhoto
+                  url={image}
+                  alt={listingImageAlt(home, image, 1, 1)}
+                  className="w-full h-full object-cover"
+                  imgProps={{
+                    sizes: getImageSizes('similar-homes'),
+                    loading: 'lazy',
+                    decoding: 'async',
+                  }}
+                  fallback={<Home size={24} className="text-gray-300" />}
+                />
               </div>
               <div className="font-semibold text-slate-800 text-sm leading-tight mb-1">
                 {home.model_name}
