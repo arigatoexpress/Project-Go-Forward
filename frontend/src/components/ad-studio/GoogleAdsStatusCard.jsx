@@ -9,6 +9,7 @@ import {
   runGoogleAdsServerValidation,
   verifyGoogleAdsPausedCreateOwner,
 } from '../../api/googleAdsAdmin';
+import CampaignDetails, { CopyAdTextButton } from './CampaignDetails';
 import {
   EXAMPLE_BRIEF,
   GATE_GUIDANCE,
@@ -130,6 +131,10 @@ export default function GoogleAdsStatusCard() {
   }, [approvalReadiness?.account_connection?.expires_at, approvalReadiness?.evaluated_at]);
 
   const approvalTerminal = ['PAUSED_CREATE_APPROVED', 'PAUSED_CREATED'].includes(status?.state);
+  const canCancelBrief = !approvalTerminal
+    && !validating
+    && !approving
+    && (brief.trim() || briefAccepted || reviewAcknowledged);
 
   async function createPreview() {
     if (!status || validating || approvalTerminal) return;
@@ -159,6 +164,18 @@ export default function GoogleAdsStatusCard() {
     } finally {
       setValidating(false);
     }
+  }
+
+  function cancelBrief() {
+    const confirmed = globalThis.confirm(
+      'Cancel this description? It will be cleared from this screen. The campaign stays turned off and nothing is sent to Google.',
+    );
+    if (!confirmed) return;
+    setBrief('');
+    setBriefAccepted(false);
+    setReviewAcknowledged(false);
+    setBriefNotice('');
+    setValidationError('');
   }
 
   async function approvePausedCreate() {
@@ -248,6 +265,8 @@ export default function GoogleAdsStatusCard() {
         </div>
       </div>
 
+      <CampaignDetails status={status} />
+
       <article className="google-ads-status-panel" aria-labelledby="owner-setup-heading">
         <h2 id="owner-setup-heading">Before ads can actually run</h2>
         <p>
@@ -313,6 +332,11 @@ export default function GoogleAdsStatusCard() {
               >
                 {validating ? 'Checking the campaign…' : checkButtonLabel(status.actions.server_validation)}
               </button>
+              {canCancelBrief && (
+                <button className="google-ads-text-button" type="button" onClick={cancelBrief}>
+                  Cancel
+                </button>
+              )}
             </div>
             <p className="google-ads-status-note">
               Checking confirms the ad on this website. Your description stays here.
@@ -358,6 +382,7 @@ export default function GoogleAdsStatusCard() {
                 <p>{preview.description}</p>
                 <p className="google-ads-preview-meta">Other lines Google may use: {preview.headlines.join(' · ')}</p>
                 <p className="google-ads-preview-meta">More description: {preview.descriptions.join(' ')}</p>
+                <CopyAdTextButton group={group} />
                 <p className="google-ads-preview-meta">Sends people to {preview.finalUrl}</p>
                 <p className="google-ads-preview-meta">Shows for searches such as {preview.keywords.join(', ')}.</p>
               </article>

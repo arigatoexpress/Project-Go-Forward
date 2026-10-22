@@ -7,7 +7,11 @@ import {
   STAFF_BRIEF_STORAGE_KEY,
   adPreview,
   briefProblem,
+  budgetFieldRows,
   budgetPlain,
+  campaignStatusPlain,
+  formatStaffDate,
+  groupCopyText,
   launchResultCopy,
   locationPlain,
   outboxPlain,
@@ -123,5 +127,42 @@ describe('Google Ads staff guidance', () => {
     expect(preview.displayUrl).toBe('www.texashomeoutlet.com/homes/huffman');
     expect(preview.finalUrl).toBe('https://www.texashomeoutlet.com/inventory');
     expect(preview.keywords).toEqual(['manufactured homes huffman tx']);
+  });
+
+  it('lists saved budget fields and ad text without changing the amounts', () => {
+    expect(formatStaffDate('2026-08-12T12:00:00Z')).toBe('Aug 12, 2026 at 12:00 UTC');
+    expect(formatStaffDate('not-a-date')).toBe('');
+    expect(budgetFieldRows({
+      average_daily_usd: 20,
+      max_single_day_charge_usd: 40,
+      monthly_charge_limit_usd: 608,
+      max_cpc_usd: 5,
+    })).toEqual([
+      ['Daily budget', '$20'],
+      ['Most in one day', '$40'],
+      ['Monthly limit', '$608'],
+      ['Most per click', '$5'],
+    ]);
+    expect(campaignStatusPlain({ state: 'INTERNAL_DRAFT' })).toBe(
+      'Write the campaign. Turned off. No money is being spent.',
+    );
+    expect(groupCopyText({
+      name: 'Local Inventory',
+      responsive_search_ad: {
+        headlines: ['Texas Home Outlet', 'Browse Homes With Prices'],
+        descriptions: ['Browse homes near Huffman.'],
+        path1: 'homes',
+        path2: 'huffman',
+        final_url: 'https://www.texashomeoutlet.com/inventory',
+      },
+      keywords: [],
+    })).toBe([
+      'Local Inventory',
+      'Headlines:',
+      'Texas Home Outlet',
+      'Browse Homes With Prices',
+      'Descriptions:',
+      'Browse homes near Huffman.',
+    ].join('\n'));
   });
 });

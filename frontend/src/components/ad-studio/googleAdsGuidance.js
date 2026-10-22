@@ -161,6 +161,50 @@ export function adPreview(group) {
   };
 }
 
+const STAFF_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+export function formatStaffDate(value) {
+  const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+  if (!match) return '';
+  const month = Number(match[2]);
+  if (month < 1 || month > 12) return '';
+  return `${STAFF_MONTHS[month - 1]} ${Number(match[3])}, ${match[1]} at ${match[4]}:${match[5]} UTC`;
+}
+
+export function campaignStartedAt(status) {
+  const stamps = (status?.events?.items || [])
+    .map(event => event?.occurred_at)
+    .filter(stamp => formatStaffDate(stamp))
+    .sort();
+  return stamps[0] || '';
+}
+
+export function campaignStatusPlain(status) {
+  const step = STATE_LABELS[status?.state] || 'Not started';
+  return `${step}. Turned off. No money is being spent.`;
+}
+
+export function budgetFieldRows(budget) {
+  const amount = (value) => (Number.isFinite(Number(value)) ? `$${value}` : '');
+  return [
+    ['Daily budget', amount(budget?.average_daily_usd)],
+    ['Most in one day', amount(budget?.max_single_day_charge_usd)],
+    ['Monthly limit', amount(budget?.monthly_charge_limit_usd)],
+    ['Most per click', amount(budget?.max_cpc_usd)],
+  ].filter(([, value]) => value);
+}
+
+export function groupCopyText(group) {
+  const preview = adPreview(group);
+  return [
+    preview.name,
+    'Headlines:',
+    ...preview.headlines,
+    'Descriptions:',
+    ...preview.descriptions,
+  ].join('\n');
+}
+
 export function launchResultCopy(status) {
   if (status?.state === 'PAUSED_CREATED') {
     return 'The campaign is in Google Ads and turned off. It is not spending money.';
