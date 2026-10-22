@@ -15,8 +15,9 @@ const ContentPage = ({ title, subtitle, children, onBack }) => (
       </div>
       {onBack && (
         <button
+          type="button"
           onClick={onBack}
-          className="shrink-0 text-sm font-medium text-blue-600 hover:text-blue-800 inline-flex items-center gap-1"
+          className="shrink-0 inline-flex items-center gap-1 rounded-md text-sm font-medium text-blue-600 hover:text-blue-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--cp-accent)]"
         >
           <ArrowLeft size={16} />
           Back

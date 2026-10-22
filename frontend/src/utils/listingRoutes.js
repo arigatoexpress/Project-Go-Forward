@@ -351,6 +351,7 @@ export function applyDocumentHead({ title, description, canonicalPath, image } =
   if (canonicalHref) upsertMeta('property', 'og:url', canonicalHref);
   upsertMeta('property', 'og:type', 'website');
   upsertMeta('property', 'og:locale', 'en_US');
+  upsertMeta('property', 'og:site_name', BUSINESS_NAME);
   upsertMeta('name', 'twitter:card', 'summary_large_image');
   if (title) upsertMeta('name', 'twitter:title', title);
   if (description) upsertMeta('name', 'twitter:description', description);

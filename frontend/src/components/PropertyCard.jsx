@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Home, Bed, Bath, Maximize, Plus, Check, ChevronLeft, ChevronRight, X, Images } from 'lucide-react';
 import { generateSrcSet, getImageSizes } from '../utils/imageOptimization';
+import PublicPrice from './PublicPrice';
 import { listingImageAlt, rewriteMediaUrl, usedHomeMayShowPhoto } from '../utils/listingRoutes';
 
 function GalleryModal({
@@ -334,7 +335,7 @@ const PropertyCard = ({ property, onToggleCompare, isSelected }) => {
                         </div>
                         <div className="text-right flex-shrink-0">
                             <div className="font-bold text-blue-600 text-base whitespace-nowrap">
-                                {pricing?.display_price || 'Call for Price'}
+                                <PublicPrice home={{ ...property, display_price: pricing?.display_price }} />
                             </div>
                         </div>
                     </div>

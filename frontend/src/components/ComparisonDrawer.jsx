@@ -1,5 +1,6 @@
 import React from 'react';
 import { X, Check, Trash2 } from 'lucide-react';
+import PublicPrice from './PublicPrice';
 
 const ComparisonDrawer = ({ isOpen, onClose, properties, onRemove }) => {
     if (!isOpen || properties.length === 0) return null;
@@ -15,10 +16,12 @@ const ComparisonDrawer = ({ isOpen, onClose, properties, onRemove }) => {
                     </span>
                 </div>
                 <button
+                    type="button"
                     onClick={onClose}
-                    className="p-1 rounded-full hover:bg-gray-100 text-gray-500 transition-colors"
+                    aria-label="Close comparison"
+                    className="p-1 rounded-full hover:bg-gray-100 text-gray-700 transition-colors"
                 >
-                    <X size={20} />
+                    <X size={20} aria-hidden="true" />
                 </button>
             </div>
 
@@ -33,11 +36,12 @@ const ComparisonDrawer = ({ isOpen, onClose, properties, onRemove }) => {
                                     <div className="font-bold text-gray-900">{p.model_name}</div>
                                     <div className="text-xs text-gray-500 font-normal">{p.classification}</div>
                                     <button
+                                        type="button"
                                         onClick={() => onRemove(p.id)}
-                                        className="absolute top-1 right-1 p-1 text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
-                                        title="Remove from comparison"
+                                        className="absolute top-1 right-1 p-1 text-gray-700 hover:text-red-700 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
+                                        aria-label={`Remove ${p.model_name || 'home'} from comparison`}
                                     >
-                                        <Trash2 size={14} />
+                                        <Trash2 size={14} aria-hidden="true" />
                                     </button>
                                 </th>
                             ))}
@@ -55,7 +59,7 @@ const ComparisonDrawer = ({ isOpen, onClose, properties, onRemove }) => {
                             <td className="p-3 font-medium text-gray-600">Price</td>
                             {properties.map(p => (
                                 <td key={p.id} className="p-3 text-center font-bold text-blue-600 bg-blue-50/30">
-                                    {p.pricing.display_price}
+                                    <PublicPrice home={p} />
                                 </td>
                             ))}
                             {[...Array(3 - properties.length)].map((_, i) => <td key={i}></td>)}

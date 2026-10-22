@@ -29,7 +29,7 @@ const Delivery = ({ onBack }) => (
         <div className="bg-gray-50 rounded-xl p-6 border border-gray-100">
           <div className="flex items-center gap-2 mb-3">
             <Truck size={22} className="text-blue-600" />
-            <h3 className="text-lg font-bold text-gray-900">Transport & Placement</h3>
+            <h2 className="text-lg font-bold text-gray-900">Transport & Placement</h2>
           </div>
           <p>
             We arrange transport from the factory or our lot to your prepared site. Once on site, the
@@ -41,7 +41,7 @@ const Delivery = ({ onBack }) => (
         <div className="bg-gray-50 rounded-xl p-6 border border-gray-100">
           <div className="flex items-center gap-2 mb-3">
             <HardHat size={22} className="text-blue-600" />
-            <h3 className="text-lg font-bold text-gray-900">Site Prep (Buyer-Side)</h3>
+            <h2 className="text-lg font-bold text-gray-900">Site Prep (Buyer-Side)</h2>
           </div>
           <p>
             Site prep — including the pad or piers, footings, utility runs, drive/access path, and
@@ -53,7 +53,7 @@ const Delivery = ({ onBack }) => (
         <div className="bg-gray-50 rounded-xl p-6 border border-gray-100">
           <div className="flex items-center gap-2 mb-3">
             <ClipboardList size={22} className="text-blue-600" />
-            <h3 className="text-lg font-bold text-gray-900">Utility Connections</h3>
+            <h2 className="text-lg font-bold text-gray-900">Utility Connections</h2>
           </div>
           <p>
             We connect the home to on-site utilities (water, sewer/septic, electric, gas) according
@@ -65,7 +65,7 @@ const Delivery = ({ onBack }) => (
         <div className="bg-gray-50 rounded-xl p-6 border border-gray-100">
           <div className="flex items-center gap-2 mb-3">
             <CalendarCheck size={22} className="text-blue-600" />
-            <h3 className="text-lg font-bold text-gray-900">Final Walkthrough</h3>
+            <h2 className="text-lg font-bold text-gray-900">Final Walkthrough</h2>
           </div>
           <p>
             Before we hand over the keys, we do a final walkthrough with you to confirm everything

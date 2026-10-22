@@ -7,9 +7,11 @@ import {
 } from 'lucide-react';
 import Card from '../components/Card';
 import EmptyState from '../components/EmptyState';
+import PublicPrice from '../components/PublicPrice';
 import StatusBadge from '../components/StatusBadge';
 import { Skeleton, SkeletonCard } from '../components/Skeleton';
 import { generateSrcSet, getImageSizes } from '../utils/imageOptimization';
+import { isUnpricedListing, publicPriceText } from '../utils/publicPrice';
 import { getUtmParams } from '../utils/utm';
 import { trackEvent } from '../utils/analytics';
 import { normalizeOptionalEmail } from '../utils/contactValidation';
@@ -113,7 +115,7 @@ const SORT_OPTIONS = [
 const PILL_BTN =
   'px-4 py-2.5 rounded-md text-sm font-medium transition border border-transparent';
 const CHIP_INPUT =
-  'px-3 py-2 rounded-md border border-[var(--cp-border)] text-sm bg-[var(--cp-bg-2)] text-[var(--cp-text)] focus:outline-none focus:border-[var(--cp-accent)] transition';
+  'px-3 py-2 rounded-md border border-[var(--cp-border)] text-sm bg-[var(--cp-bg-2)] text-[var(--cp-text)] focus:outline-none focus:border-[var(--cp-accent)] focus-visible:ring-2 focus-visible:ring-[var(--cp-accent)] transition';
 const FLOORPLAN_TOKENS = ['floorplan', 'floor-plan', 'floor_plan', 'floor-plans', 'floor_plans', 'floor plans'];
 const PHOTO_FILENAME_TOKENS = ['bath', 'bed', 'coffee', 'exterior', 'front', 'interior', 'island', 'kitchen', 'living', 'porch', 'room', 'utility'];
 const SHORT_PHOTO_FILENAME_TOKENS = ['3d', 'ext', 'int', 'kit'];
@@ -241,9 +243,7 @@ function getHomeImage(home) {
 }
 
 function displayPrice(home) {
-  return home?.display_price && home.display_price !== 'Call for Price'
-    ? home.display_price
-    : 'Call for Price';
+  return publicPriceText(home);
 }
 
 // Price per square foot, formatted as "$NN/sqft" (rounded to nearest dollar).
@@ -347,7 +347,7 @@ function ListingSummary({ home, onApply, onGetPrice }) {
       aria-label="Price and next steps"
       className="tho-listing-summary mt-4 w-full min-w-0 max-w-xl rounded-lg border border-white/50 bg-[var(--cp-panel)] p-4 text-[var(--cp-text)] shadow-[0_18px_50px_rgba(0,0,0,0.32)] lg:hidden"
     >
-      <p className="text-3xl font-bold leading-tight text-[var(--cp-accent)]">{displayPrice(home)}</p>
+      <p className="text-3xl font-bold leading-tight text-[var(--cp-accent)]"><PublicPrice home={home} /></p>
       {facts.length > 0 && (
         <p className="mt-2 text-sm text-[var(--cp-text-secondary)]">{facts.join(' · ')}</p>
       )}
@@ -927,6 +927,7 @@ export default function InventoryBrowse({
       specs.baths ? `${specs.baths} bath` : null,
       specs.dimensions,
       pathListingHome.manufacturer,
+      publicPriceText(pathListingHome),
     ].filter(Boolean).join(', ');
     const sharePhotos = listingPagePhotos(pathListingHome);
     const floorplan = pathListingHome.floorplan_url || pathListingHome.floor_plan_url || '';
@@ -935,7 +936,7 @@ export default function InventoryBrowse({
       title: `${pathListingHome.model_name || 'Manufactured Home'} — ${BUSINESS_NAME}, ${BUSINESS_CITY}, ${BUSINESS_STATE}`,
       description: `${pathListingHome.model_name || 'Manufactured home'}${descBits ? ` (${descBits})` : ''} at ${BUSINESS_NAME} in ${BUSINESS_CITY}, ${BUSINESS_STATE}. Call ${BUSINESS_PHONE}.`.slice(0, 300),
       canonicalPath: listingPath(pathListingHome) || currentPath,
-      image: shareImage || undefined,
+      image: shareImage || '/og-card.png',
     });
   }, [pathListingHome, currentPath]);
 
@@ -1149,11 +1150,11 @@ export default function InventoryBrowse({
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder="Search by model, manufacturer, beds, baths, type..."
-                  className="min-w-0 flex-1 bg-transparent text-base text-[var(--cp-text)] outline-none placeholder:text-[var(--cp-faint)]"
+                  className="min-w-0 flex-1 bg-transparent text-base text-[var(--cp-text)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--cp-accent)] placeholder:text-[var(--cp-muted)]"
                 />
                 {searchQuery && (
-                  <button onClick={() => setSearchQuery('')} className="flex-shrink-0 text-[var(--cp-muted)] hover:text-[var(--cp-accent)]">
-                    <X size={18} />
+                  <button type="button" onClick={() => setSearchQuery('')} aria-label="Clear search" className="flex-shrink-0 rounded-md text-[var(--cp-text)] hover:text-[var(--cp-accent)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--cp-accent)]">
+                    <X size={18} aria-hidden="true" />
                   </button>
                 )}
               </div>
@@ -1285,6 +1286,7 @@ export default function InventoryBrowse({
           </div>
 
           <button
+            type="button"
             onClick={() => setShowFilters(!showFilters)}
             className={`inline-flex items-center gap-2 ${PILL_BTN} ${hasActiveFilters || showFilters ? 'bg-[var(--cp-secondary)] text-[var(--cp-bg)]' : 'bg-[var(--cp-panel)] text-[var(--cp-muted)] border-[var(--cp-border)] hover:border-[var(--cp-secondary)] hover:text-[var(--cp-secondary)]'}`}
           >
@@ -1297,7 +1299,7 @@ export default function InventoryBrowse({
             )}
           </button>
           {hasActiveFilters && (
-            <button onClick={clearFilters} className="rounded-md border border-[var(--cp-border)] bg-[var(--cp-panel)] px-4 py-2 text-sm text-[var(--cp-muted)] transition hover:text-[var(--cp-text)]">
+            <button type="button" onClick={clearFilters} className="rounded-md border border-[var(--cp-border)] bg-[var(--cp-panel)] px-4 py-2 text-sm text-[var(--cp-muted)] transition hover:text-[var(--cp-text)]">
               Clear All
             </button>
           )}
@@ -1311,10 +1313,10 @@ export default function InventoryBrowse({
             <div className="grid gap-4"
                  style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))' }}>
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-[var(--cp-muted)] uppercase tracking-wide flex items-center gap-1">
-                  <Bed size={14} /> Bedrooms
+                <label htmlFor="filter-beds" className="text-xs font-semibold text-[var(--cp-muted)] uppercase tracking-wide flex items-center gap-1">
+                  <Bed size={14} aria-hidden="true" /> Bedrooms
                 </label>
-                <select aria-label="Bedrooms" className={CHIP_INPUT} value={filters.beds} onChange={e => setFilters(f => ({ ...f, beds: e.target.value }))}>
+                <select id="filter-beds" className={CHIP_INPUT} value={filters.beds} onChange={e => setFilters(f => ({ ...f, beds: e.target.value }))}>
                   <option value="">Any</option>
                   <option value="1">1+</option>
                   <option value="2">2+</option>
@@ -1323,10 +1325,10 @@ export default function InventoryBrowse({
                 </select>
               </div>
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-[var(--cp-muted)] uppercase tracking-wide flex items-center gap-1">
-                  <Bath size={14} /> Bathrooms
+                <label htmlFor="filter-baths" className="text-xs font-semibold text-[var(--cp-muted)] uppercase tracking-wide flex items-center gap-1">
+                  <Bath size={14} aria-hidden="true" /> Bathrooms
                 </label>
-                <select aria-label="Bathrooms" className={CHIP_INPUT} value={filters.baths} onChange={e => setFilters(f => ({ ...f, baths: e.target.value }))}>
+                <select id="filter-baths" className={CHIP_INPUT} value={filters.baths} onChange={e => setFilters(f => ({ ...f, baths: e.target.value }))}>
                   <option value="">Any</option>
                   <option value="1">1+</option>
                   <option value="2">2+</option>
@@ -1334,28 +1336,30 @@ export default function InventoryBrowse({
                 </select>
               </div>
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-[var(--cp-muted)] uppercase tracking-wide flex items-center gap-1">
-                  <Home size={14} /> Type
+                <label htmlFor="filter-home-type" className="text-xs font-semibold text-[var(--cp-muted)] uppercase tracking-wide flex items-center gap-1">
+                  <Home size={14} aria-hidden="true" /> Type
                 </label>
-                <select aria-label="Home type" className={CHIP_INPUT} value={filters.classification} disabled={Boolean(routeCategory)} onChange={e => setFilters(f => ({ ...f, classification: e.target.value }))}>
+                <select id="filter-home-type" aria-label="Home type" className={CHIP_INPUT} value={filters.classification} disabled={Boolean(routeCategory)} onChange={e => setFilters(f => ({ ...f, classification: e.target.value }))}>
                   <option value="">Any</option>
                   <option value="Single Wide">Single Wide</option>
                   <option value="Double Wide">Double Wide</option>
                 </select>
               </div>
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-[var(--cp-muted)] uppercase tracking-wide">Min Price</label>
+                <label htmlFor="filter-min-price" className="text-xs font-semibold text-[var(--cp-muted)] uppercase tracking-wide">Min Price</label>
                 <input
+                  id="filter-min-price"
                   className={CHIP_INPUT}
                   type="number"
-                  placeholder="$0"
+                  placeholder="No min"
                   value={filters.minPrice}
                   onChange={e => setFilters(f => ({ ...f, minPrice: e.target.value }))}
                 />
               </div>
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-[var(--cp-muted)] uppercase tracking-wide">Max Price</label>
+                <label htmlFor="filter-max-price" className="text-xs font-semibold text-[var(--cp-muted)] uppercase tracking-wide">Max Price</label>
                 <input
+                  id="filter-max-price"
                   className={CHIP_INPUT}
                   type="number"
                   placeholder="No max"
@@ -1516,7 +1520,7 @@ export function ListingArticle({ home, onGetPrice, onApply }) {
         <div className="order-1 min-w-0 lg:order-2">
           <p className="text-sm text-[var(--cp-muted)]">{home.manufacturer || BUSINESS_NAME}</p>
           <p className="mt-3 hidden text-3xl font-bold text-[var(--cp-accent)] lg:block">
-            {home.display_price && home.display_price !== 'Call for Price' ? home.display_price : 'Call for Price'}
+            <PublicPrice home={home} className="hidden lg:block" />
           </p>
           <ul className="mt-4 space-y-1 text-[var(--cp-text-secondary)]">
             {specs.beds ? <li>Beds: {specs.beds}</li> : null}
@@ -1753,7 +1757,9 @@ export function HomeCard({ home, onClick, onGetPrice, onApply, isFavorite = fals
             <button type="button" className="text-left" onClick={onClick}>{home.model_name}</button>
           )}
         </h3>
-        <p className="text-sm text-[var(--cp-muted)] mt-1">{home.manufacturer || 'New Vision Manufacturing'}</p>
+        {home.manufacturer ? (
+          <p className="text-sm text-[var(--cp-text-secondary)] mt-1">{home.manufacturer}</p>
+        ) : null}
 
         <div className="flex gap-4 my-4 py-3 border-t border-b border-[var(--cp-border)] text-sm text-[var(--cp-text-secondary)]">
           {specs.beds && (
@@ -1789,11 +1795,11 @@ export function HomeCard({ home, onClick, onGetPrice, onApply, isFavorite = fals
         )}
 
         <div className="text-xl font-bold text-[var(--cp-accent)] mb-3">
-          {home.display_price && home.display_price !== 'Call for Price'
-            ? home.display_price
-            : <span className="text-[var(--cp-muted)] text-base font-medium">Call for Price</span>
+          {isUnpricedListing(home)
+            ? <PublicPrice home={home} className="text-[var(--cp-muted)] text-base font-medium" />
+            : displayPrice(home)
           }
-          {home.display_price && home.display_price !== 'Call for Price' && pricePerSqft(home.price_value, specs.sq_ft) && (
+          {!isUnpricedListing(home) && pricePerSqft(home.price_value, specs.sq_ft) && (
             <span className="block text-xs font-medium text-[var(--cp-muted)]">
               {pricePerSqft(home.price_value, specs.sq_ft)}
             </span>
@@ -1838,7 +1844,7 @@ function HomeDetailModal({
   // After PR #43 the canonical field is `floorplan_url`. Fall back to the
   // legacy `floor_plan_url` spelling for older Firestore docs.
   const floorplan = home.floorplan_url || home.floor_plan_url || '';
-  const isCallForPrice = !home.display_price || home.display_price === 'Call for Price';
+  const isCallForPrice = isUnpricedListing(home);
   const isOrderableFloorplan = getAvailabilityKind(home) === 'orderable_floorplan';
 
   const modalRef = useRef(null);
@@ -2089,7 +2095,9 @@ function HomeDetailModal({
           <div className="flex items-start justify-between gap-4 mb-5">
             <div>
               <h2 className="text-2xl font-bold text-slate-800">{home.model_name}</h2>
-              <p className="text-sm text-gray-500 mt-0.5">{home.manufacturer || 'New Vision Manufacturing'}</p>
+              {home.manufacturer ? (
+                <p className="text-sm text-gray-700 mt-0.5">{home.manufacturer}</p>
+              ) : null}
             </div>
             <StatusBadge status={home.status} kind="home" size="md" />
           </div>
@@ -2129,8 +2137,8 @@ function HomeDetailModal({
           {/* Price */}
           <div className="flex items-center gap-4 mb-5 flex-wrap">
             <div className="flex flex-col">
-              <span className="text-3xl font-bold text-green-600">
-                {!isCallForPrice ? home.display_price : 'Call for Price'}
+              <span className="text-3xl font-bold text-green-900">
+                {isCallForPrice ? <PublicPrice home={home} /> : displayPrice(home)}
               </span>
               {!isCallForPrice && pricePerSqft(home.price_value, specs.sq_ft) && (
                 <span className="text-sm font-medium text-gray-500">
@@ -2141,7 +2149,7 @@ function HomeDetailModal({
             {isCallForPrice && (
               <button
                 type="button"
-                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg font-medium text-white bg-amber-500 hover:bg-amber-600 transition"
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg font-medium text-white bg-[var(--cp-secondary)] hover:bg-[var(--tho-primary-dark)] transition"
                 onClick={onGetPrice}
               >
                 <DollarSign size={16} /> Check Price
@@ -2152,7 +2160,7 @@ function HomeDetailModal({
           {/* Features */}
           {home.features && home.features.length > 0 && (
             <div className="mb-5">
-              <h4 className="text-base font-semibold text-slate-800 mb-3">Features</h4>
+              <h3 className="text-base font-semibold text-slate-800 mb-3">Features</h3>
               <ul className="grid gap-2 list-none"
                   style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))' }}>
                 {home.features.map((f, i) => (
@@ -2301,9 +2309,9 @@ function SimilarHomes({ currentHome, allHomes, onSelectHome }) {
 
   return (
     <div className="mt-6 pt-6 border-t border-gray-200">
-      <h4 className="flex items-center gap-2 text-base font-semibold text-slate-800 mb-4">
-        <Box size={16} /> Similar Homes
-      </h4>
+      <h3 className="flex items-center gap-2 text-base font-semibold text-slate-800 mb-4">
+        <Box size={16} aria-hidden="true" /> Similar Homes
+      </h3>
       <div className="grid gap-3"
            style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))' }}>
         {scored.map(({ home }) => {
@@ -2333,8 +2341,8 @@ function SimilarHomes({ currentHome, allHomes, onSelectHome }) {
               <div className="text-xs text-gray-500 mb-1">
                 {home.specs?.beds}BR · {home.specs?.baths}BA · {home.specs?.sq_ft?.toLocaleString()} sqft
               </div>
-              <div className="font-bold text-green-600 text-sm">
-                {home.display_price || 'Call for Price'}
+              <div className="font-bold text-green-900 text-sm">
+                <PublicPrice home={home} />
               </div>
             </>
           );
@@ -2457,7 +2465,7 @@ export function LeadCaptureForm({ home, type, onClose, onBookAppointment }) {
         <button
           onClick={onClose}
           aria-label="Close"
-          className="absolute top-3 right-3 w-8 h-8 rounded-full text-gray-400 hover:bg-slate-100 hover:text-gray-700 flex items-center justify-center transition"
+          className="absolute top-3 right-3 w-8 h-8 rounded-full text-gray-700 hover:bg-slate-100 hover:text-gray-900 flex items-center justify-center transition"
         >
           <X size={20} />
         </button>
@@ -2484,10 +2492,12 @@ export function LeadCaptureForm({ home, type, onClose, onBookAppointment }) {
 
             <form onSubmit={handleSubmit} className="flex flex-col gap-4">
               <div className="flex flex-col gap-1.5">
-                <label className="text-sm font-medium text-gray-700">Name *</label>
+                <label htmlFor="lead-name" className="text-sm font-medium text-gray-700">Name *</label>
                 <input
-                  className="px-3 py-2.5 rounded-lg border-2 border-gray-200 text-sm focus:outline-none focus:border-blue-500 transition"
+                  id="lead-name"
+                  className="px-3 py-2.5 rounded-lg border-2 border-gray-200 text-sm focus:border-blue-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--cp-accent)] transition"
                   type="text"
+                  autoComplete="name"
                   value={formData.name}
                   onChange={e => setFormData(f => ({ ...f, name: e.target.value }))}
                   placeholder="Your full name"
@@ -2495,10 +2505,12 @@ export function LeadCaptureForm({ home, type, onClose, onBookAppointment }) {
                 />
               </div>
               <div className="flex flex-col gap-1.5">
-                <label className="text-sm font-medium text-gray-700">Phone *</label>
+                <label htmlFor="lead-phone" className="text-sm font-medium text-gray-700">Phone *</label>
                 <input
-                  className="px-3 py-2.5 rounded-lg border-2 border-gray-200 text-sm focus:outline-none focus:border-blue-500 transition"
+                  id="lead-phone"
+                  className="px-3 py-2.5 rounded-lg border-2 border-gray-200 text-sm focus:border-blue-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--cp-accent)] transition"
                   type="tel"
+                  autoComplete="tel"
                   value={formData.phone}
                   onChange={e => setFormData(f => ({ ...f, phone: e.target.value }))}
                   placeholder="(281) 000-0000"
@@ -2506,9 +2518,10 @@ export function LeadCaptureForm({ home, type, onClose, onBookAppointment }) {
                 />
               </div>
               <div className="flex flex-col gap-1.5">
-                <label className="text-sm font-medium text-gray-700">Email</label>
+                <label htmlFor="lead-email" className="text-sm font-medium text-gray-700">Email</label>
                 <input
-                  className="px-3 py-2.5 rounded-lg border-2 border-gray-200 text-sm focus:outline-none focus:border-blue-500 transition"
+                  id="lead-email"
+                  className="px-3 py-2.5 rounded-lg border-2 border-gray-200 text-sm focus:border-blue-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--cp-accent)] transition"
                   type="text"
                   inputMode="email"
                   autoComplete="email"
@@ -2518,11 +2531,12 @@ export function LeadCaptureForm({ home, type, onClose, onBookAppointment }) {
                 />
               </div>
               <div className="flex flex-col gap-1.5">
-                <label className="text-sm font-medium text-gray-700">
+                <label htmlFor="lead-details" className="text-sm font-medium text-gray-700">
                   {type === 'tour' ? 'Preferred date/time' : 'Additional details'}
                 </label>
                 <textarea
-                  className="px-3 py-2.5 rounded-lg border-2 border-gray-200 text-sm focus:outline-none focus:border-blue-500 transition"
+                  id="lead-details"
+                  className="px-3 py-2.5 rounded-lg border-2 border-gray-200 text-sm focus:border-blue-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--cp-accent)] transition"
                   value={formData.message}
                   onChange={e => setFormData(f => ({ ...f, message: e.target.value }))}
                   placeholder={type === 'tour' ? 'e.g., Saturday morning, weekday after 5pm...' : 'Any questions or preferences...'}
@@ -2531,7 +2545,7 @@ export function LeadCaptureForm({ home, type, onClose, onBookAppointment }) {
               </div>
 
               {error && (
-                <div className="flex items-center gap-2 text-sm text-red-600 bg-red-50 px-3 py-2 rounded-lg">
+                <div role="alert" className="flex items-center gap-2 text-sm text-red-700 bg-red-50 px-3 py-2 rounded-lg">
                   <AlertCircle size={14} /> {error}
                 </div>
               )}

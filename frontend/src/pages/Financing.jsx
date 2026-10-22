@@ -20,7 +20,7 @@ const Financing = ({ onBack }) => (
         <div className="bg-gray-50 rounded-xl p-6 border border-gray-100">
           <div className="flex items-center gap-2 mb-3">
             <Home size={22} className="text-blue-600" />
-            <h3 className="text-lg font-bold text-gray-900">Chattel (Home-Only) Loan</h3>
+            <h2 className="text-lg font-bold text-gray-900">Chattel (Home-Only) Loan</h2>
           </div>
           <p>
             Financing for the home itself when it will sit on leased land, in a
@@ -31,7 +31,7 @@ const Financing = ({ onBack }) => (
         <div className="bg-gray-50 rounded-xl p-6 border border-gray-100">
           <div className="flex items-center gap-2 mb-3">
             <LandPlot size={22} className="text-blue-600" />
-            <h3 className="text-lg font-bold text-gray-900">Land & Home Loan</h3>
+            <h2 className="text-lg font-bold text-gray-900">Land & Home Loan</h2>
           </div>
           <p>
             If you own or are buying land together with the home, a land-and-home loan
@@ -43,7 +43,7 @@ const Financing = ({ onBack }) => (
         <div className="bg-gray-50 rounded-xl p-6 border border-gray-100">
           <div className="flex items-center gap-2 mb-3">
             <FileText size={22} className="text-blue-600" />
-            <h3 className="text-lg font-bold text-gray-900">FHA / VA / USDA Programs</h3>
+            <h2 className="text-lg font-bold text-gray-900">FHA / VA / USDA Programs</h2>
           </div>
           <p>
             Some buyers qualify for FHA, VA, or USDA loans through approved lenders.
@@ -54,7 +54,7 @@ const Financing = ({ onBack }) => (
         <div className="bg-gray-50 rounded-xl p-6 border border-gray-100">
           <div className="flex items-center gap-2 mb-3">
             <DollarSign size={22} className="text-blue-600" />
-            <h3 className="text-lg font-bold text-gray-900">Loans through lenders that finance manufactured homes</h3>
+            <h2 className="text-lg font-bold text-gray-900">Loans through lenders that finance manufactured homes</h2>
           </div>
           {/* TODO(owner): confirm which lenders finance manufactured homes, and whether any in-house program exists, before naming a lender or program. */}
           <p>

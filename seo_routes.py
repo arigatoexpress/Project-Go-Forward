@@ -1183,7 +1183,7 @@ def _crawlable_detail_block(home: dict) -> str:
             rows.append(f"<li>{label}: {e(str(specs[key]))}</li>")
     if home.get("manufacturer"):
         rows.append(f"<li>Manufacturer: {e(str(home['manufacturer']))}</li>")
-    rows.append(f"<li>Price: {e(_listing_display_price(home))}</li>")
+    rows.append(_price_list_item(home))
     description = home.get("description") or ""
     return (
         f"<h1>{e(home.get('model_name') or 'Manufactured Home')}</h1>"
@@ -1216,8 +1216,33 @@ def _listing_image_alt(
 
 
 def _listing_display_price(home: dict) -> str:
-    price = str(home.get("display_price") or "").strip()
-    return price if price else "Call for Price"
+    """Public price label. Blank and $0 stay Call for Price.
+
+    The visible display_price field decides this. A hidden price_value is
+    never promoted into the label.
+    """
+    visible = str(home.get("display_price") or "").strip()
+    if _is_call_for_price_label(visible):
+        return "Call for Price"
+    shown = _visible_dollar_amount(visible)
+    if shown is not None and not _is_finite_positive(shown):
+        return "Call for Price"
+    compact = re.sub(r"[\s$,]", "", visible)
+    if re.fullmatch(r"0+(?:\.0+)?", compact):
+        return "Call for Price"
+    return visible
+
+
+def _price_list_item(home: dict) -> str:
+    """Crawlable price line. Unpriced homes include the showroom phone."""
+    e = html.escape
+    label = _listing_display_price(home)
+    if label == "Call for Price":
+        return (
+            "<li>Price: Call for Price. "
+            f'<a href="{e(_tel_href())}">Call {e(business_phone())}</a>.</li>'
+        )
+    return f"<li>Price: {e(label)}</li>"
 
 
 def _listing_product_jsonld(home: dict, canonical_url: str) -> dict | None:
@@ -1254,7 +1279,7 @@ def _crawlable_home_listing_block(home: dict) -> str:
             rows.append(f"<li>{label}: {e(str(specs[key]))}</li>")
     if home.get("manufacturer"):
         rows.append(f"<li>Manufacturer: {e(str(home['manufacturer']))}</li>")
-    rows.append(f"<li>Price: {e(_listing_display_price(home))}</li>")
+    rows.append(_price_list_item(home))
     images = listing_page_images(home)
     plan_urls = {
         str(home.get("floorplan_url") or "").strip(),
@@ -2174,6 +2199,7 @@ def _render_spa_response(full_path: str) -> Response | None:
                 f"{specs.get('baths')} bath" if specs.get("baths") else None,
                 specs.get("dimensions"),
                 home.get("manufacturer"),
+                _listing_display_price(home),
             )
             if x
         )
