@@ -465,6 +465,17 @@ def test_rewrite_media_url_repairs_extension_siblings_only():
     assert rewrite_media_url(webp_dead) == webp_live
     assert rewrite_media_url(live_jpg) == live_jpg
     assert rewrite_media_url(still_dead) == still_dead
+    # Probed 2026-10-22: these orderable photos 403 and have no live sibling.
+    absolute_value = (
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/2025/floorplan/226545/"
+        "Absolute%20Value-1.jpg"
+    )
+    dogwood = (
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/2007/floorplan/236876/"
+        "TRT14602DH_Dogwood_Exterior%20%281%29.jpg"
+    )
+    assert rewrite_media_url(absolute_value) == absolute_value
+    assert rewrite_media_url(dogwood) == dogwood
     assert rewrite_media_url("https://storage.googleapis.com/tho/inventory/1.jpg") == (
         "https://storage.googleapis.com/tho/inventory/1.jpg"
     )

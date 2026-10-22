@@ -3,6 +3,7 @@ import {
   fallbackListingHeading,
   getCityLanding,
   isInstockHome,
+  listingFloorplanImages,
   listingPagePhotos,
   listingImageAlt,
   rewriteMediaUrl,
@@ -119,6 +120,27 @@ describe('listingRoutes', () => {
       real_photos: ['/api/inventory/photos/41976/lot.jpg', live, dead],
     };
     expect(listingPagePhotos(home)).toEqual(['/api/inventory/photos/41976/lot.jpg', live]);
+  });
+
+  it('lists each floor-plan drawing once, repairs its extension, and skips pdfs', () => {
+    const png = 'https://cdn.example/plan.png';
+    const dead = 'https://d132mt2yijm03y.cloudfront.net/manufacturer/3311/floorplan/222038/2306P.jpg';
+    const live = 'https://d132mt2yijm03y.cloudfront.net/manufacturer/3311/floorplan/222038/2306P.png';
+    expect(listingFloorplanImages({
+      floorplan_url: dead,
+      floor_plan_url: dead,
+      floorplan_urls: [dead, png, 'https://cdn.example/plan.pdf'],
+    })).toEqual([live, png]);
+  });
+
+  it('does not invent a sibling for a manufacturer photo that still returns 403', () => {
+    const dead = 'https://d132mt2yijm03y.cloudfront.net/manufacturer/2025/floorplan/226545/Absolute%20Value-1.jpg';
+    expect(rewriteMediaUrl(dead)).toBe(dead);
+    expect(rewriteMediaUrl(
+      'https://d132mt2yijm03y.cloudfront.net/manufacturer/2007/floorplan/236876/TRT14602DH_Dogwood_Exterior%20%281%29.jpg',
+    )).toBe(
+      'https://d132mt2yijm03y.cloudfront.net/manufacturer/2007/floorplan/236876/TRT14602DH_Dogwood_Exterior%20%281%29.jpg',
+    );
   });
 
   it('repairs a confirmed extension sibling and leaves a live jpg alone', () => {
