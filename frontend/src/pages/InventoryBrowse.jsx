@@ -2416,7 +2416,7 @@ function SimilarHomes({ currentHome, allHomes, onSelectHome }) {
                 {home.specs?.beds}BR · {home.specs?.baths}BA · {home.specs?.sq_ft?.toLocaleString()} sqft
               </div>
               <div className="font-bold text-green-900 text-sm">
-                <PublicPrice home={home} />
+                <PublicPrice home={home} linkPhone={false} />
               </div>
             </>
           );
