@@ -1,5 +1,6 @@
 import { BUSINESS_CITY, BUSINESS_NAME, BUSINESS_STATE } from '../constants';
 import { cityDescription, cityTitle } from '../seoCopy';
+import cdnExtensionRepairs from '../../../data/manufacturer_cdn_extension_repairs.json';
 
 const SLUG_RE = /[^a-z0-9]+/g;
 export const PUBLIC_CANONICAL_ORIGIN = 'https://www.texashomeoutlet.com';
@@ -224,16 +225,41 @@ export function usedHomeMayShowPhoto(url, home) {
   return true;
 }
 
-// Jessup Housing The Rosewood FAC28644A (plan 232969). Numbered lowercase
-// `.jpg` objects in this folder return HTTP 403; the same photos still
-// exist as `.JPG`. Verified 2026-10-22.
-const DEAD_NUMBERED_JPG_RE = /^(https:\/\/d132mt2yijm03y\.cloudfront\.net\/manufacturer\/3328\/floorplan\/232969\/)(\d+)\.jpg(\?.*)?$/;
+// Same-stem extension siblings confirmed live on the manufacturer CDN.
+// The public inventory feed (2026-10-22) had 71 of 697 image URLs return
+// HTTP 403 because CloudFront/S3 keeps `.jpg`, `.JPG`, `.jpeg`, `.png`,
+// and `.webp` as different objects. This table is every dead key that
+// has a working sibling — not one listing.
+const MANUFACTURER_CDN_HOST = 'd132mt2yijm03y.cloudfront.net';
+
+function encodeCdnFilename(filename) {
+  // Match Python urllib.parse.quote(filename, safe=""): encode the
+  // characters encodeURIComponent leaves alone, using uppercase hex.
+  return encodeURIComponent(filename).replace(/[!'()*]/g, (ch) => (
+    `%${ch.charCodeAt(0).toString(16).toUpperCase()}`
+  ));
+}
 
 export function rewriteMediaUrl(url) {
   const value = String(url || '').trim();
-  const match = value.match(DEAD_NUMBERED_JPG_RE);
-  if (!match) return value;
-  return `${match[1]}${match[2]}.JPG${match[3] || ''}`;
+  if (!value) return '';
+  let parsed;
+  try {
+    parsed = new URL(value);
+  } catch {
+    return value;
+  }
+  if (parsed.hostname !== MANUFACTURER_CDN_HOST) return value;
+  let key = '';
+  try {
+    key = decodeURIComponent(parsed.pathname).replace(/^\/+/, '');
+  } catch {
+    return value;
+  }
+  const filename = cdnExtensionRepairs[key];
+  if (!filename) return value;
+  const folder = key.slice(0, key.lastIndexOf('/'));
+  return `${parsed.origin}/${folder}/${encodeCdnFilename(filename)}${parsed.search}${parsed.hash}`;
 }
 
 export function listingPagePhotos(home) {

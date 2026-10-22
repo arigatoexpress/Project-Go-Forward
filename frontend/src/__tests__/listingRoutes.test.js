@@ -109,6 +109,7 @@ describe('listingRoutes', () => {
     const dead = 'https://d132mt2yijm03y.cloudfront.net/manufacturer/3328/floorplan/232969/1.jpg';
     const live = 'https://d132mt2yijm03y.cloudfront.net/manufacturer/3328/floorplan/232969/1.JPG';
     expect(rewriteMediaUrl(dead)).toBe(live);
+    expect(rewriteMediaUrl(`${dead}?v=1`)).toBe(`${live}?v=1`);
     expect(rewriteMediaUrl(live)).toBe(live);
     const home = {
       id: '41976',
@@ -118,6 +119,21 @@ describe('listingRoutes', () => {
       real_photos: ['/api/inventory/photos/41976/lot.jpg', live, dead],
     };
     expect(listingPagePhotos(home)).toEqual(['/api/inventory/photos/41976/lot.jpg', live]);
+  });
+
+  it('repairs a confirmed extension sibling and leaves a live jpg alone', () => {
+    const dead = 'https://d132mt2yijm03y.cloudfront.net/manufacturer/3335/floorplan/227079/5.jpg';
+    const live = 'https://d132mt2yijm03y.cloudfront.net/manufacturer/3335/floorplan/227079/5.png';
+    const alreadyLive = 'https://d132mt2yijm03y.cloudfront.net/manufacturer/3335/floorplan/232844/anderson-1.jpg';
+    const noSibling = 'https://d132mt2yijm03y.cloudfront.net/manufacturer/3335/floorplan/232175/1.jpg';
+    expect(rewriteMediaUrl(dead)).toBe(live);
+    expect(rewriteMediaUrl(alreadyLive)).toBe(alreadyLive);
+    expect(rewriteMediaUrl(noSibling)).toBe(noSibling);
+    expect(rewriteMediaUrl(
+      'https://d132mt2yijm03y.cloudfront.net/manufacturer/3373/floorplan/236155/Toledo%20Living%20Room%20%287%29rfw.jpg',
+    )).toBe(
+      'https://d132mt2yijm03y.cloudfront.net/manufacturer/3373/floorplan/236155/Toledo%20Living%20Room%20%287%29rfw.webp',
+    );
   });
 
   it('drops stock photos and another unit’s photos from a used listing', () => {
