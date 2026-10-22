@@ -1,3 +1,5 @@
+import io
+from urllib.error import HTTPError
 from urllib.parse import urlsplit
 
 import pytest
@@ -167,10 +169,14 @@ def test_spa_route_probe_reports_root_marker(monkeypatch):
 
 
 def test_read_probe_reports_timeout_with_path_context(monkeypatch):
+    calls = {"n": 0}
+
     def fake_urlopen(request, timeout):
+        calls["n"] += 1
         return _TimeoutContext()
 
     monkeypatch.setattr(production_smoke, "urlopen", fake_urlopen)
+    monkeypatch.setattr(production_smoke, "_pause", lambda _seconds: None)
 
     try:
         production_smoke._read_url("https://example.test", "/slow", timeout=2.0)
@@ -178,13 +184,18 @@ def test_read_probe_reports_timeout_with_path_context(monkeypatch):
         assert str(exc) == "/slow timed out after 2s"
     else:
         raise AssertionError("expected timeout to be wrapped")
+    assert calls["n"] == production_smoke.TRANSIENT_ATTEMPTS
 
 
 def test_post_probe_reports_timeout_with_path_context(monkeypatch):
+    calls = {"n": 0}
+
     def fake_urlopen(request, timeout):
+        calls["n"] += 1
         return _TimeoutContext()
 
     monkeypatch.setattr(production_smoke, "urlopen", fake_urlopen)
+    monkeypatch.setattr(production_smoke, "_pause", lambda _seconds: None)
 
     try:
         production_smoke._post_json(
@@ -198,6 +209,7 @@ def test_post_probe_reports_timeout_with_path_context(monkeypatch):
         assert str(exc) == "/api/slow timed out after 3s"
     else:
         raise AssertionError("expected timeout to be wrapped")
+    assert calls["n"] == production_smoke.TRANSIENT_ATTEMPTS
 
 
 def test_media_depth_probe_requires_real_gallery_and_tours(monkeypatch):
@@ -533,3 +545,179 @@ def test_health_probe_surfaces_dependency_warnings(monkeypatch):
         "deps=db:configured,drive:configured,email:missing,secrets:configured" in healthz.evidence
     )
     assert "warnings=email_not_configured" in healthz.evidence
+
+
+# Google's frontend 502 page: a leading newline, then HTML. json.loads reports
+# this as "Expecting value: line 2 column 1 (char 1)".
+_GFE_502_BODY = (
+    b"\n<html><head>\n<title>502 Server Error</title>\n</head>\n"
+    b"<body><h2>The server encountered a temporary error and could not "
+    b"complete your request.<p>Please try again in 30 seconds.</h2></body></html>\n"
+)
+
+
+class _BytesResponse:
+    def __init__(self, status: int, body: bytes, content_type: str):
+        self.status = status
+        self.headers = {"content-type": content_type}
+        self._body = body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+    def read(self, limit):
+        return self._body[:limit]
+
+
+def _http_error(code: int, body: bytes, content_type: str) -> HTTPError:
+    return HTTPError(
+        "https://example.test/probe",
+        code,
+        "error",
+        {"content-type": content_type},
+        io.BytesIO(body),
+    )
+
+
+def test_json_probe_retries_gateway_html_then_accepts_json(monkeypatch, capsys):
+    calls = {"n": 0}
+
+    def fake_urlopen(request, timeout):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise _http_error(502, _GFE_502_BODY, "text/html; charset=UTF-8")
+        return _BytesResponse(200, b'{"status":"ok"}', "application/json")
+
+    monkeypatch.setattr(production_smoke, "urlopen", fake_urlopen)
+    monkeypatch.setattr(production_smoke, "_pause", lambda _seconds: None)
+
+    status, payload, _elapsed = production_smoke._json_probe(
+        "https://example.test", "/api/appointments/slots?date=2026-10-23", timeout=1.0
+    )
+
+    assert status == 200
+    assert payload == {"status": "ok"}
+    assert calls["n"] == 2
+    logged = capsys.readouterr().err
+    assert "status=502" in logged
+    assert "text/html; charset=UTF-8" in logged
+    assert "502 Server Error" in logged
+    assert "smoke recovered" in logged
+
+
+def test_json_probe_persistent_gateway_html_fails_with_response_detail(monkeypatch, capsys):
+    calls = {"n": 0}
+
+    def fake_urlopen(request, timeout):
+        calls["n"] += 1
+        raise _http_error(502, _GFE_502_BODY, "text/html; charset=UTF-8")
+
+    monkeypatch.setattr(production_smoke, "urlopen", fake_urlopen)
+    monkeypatch.setattr(production_smoke, "_pause", lambda _seconds: None)
+
+    try:
+        production_smoke._json_probe("https://example.test", "/health", timeout=1.0)
+    except RuntimeError as exc:
+        message = str(exc)
+    else:
+        raise AssertionError("persistent non-JSON must fail the probe")
+
+    assert calls["n"] == production_smoke.TRANSIENT_ATTEMPTS
+    assert "did not return JSON after 3 attempts" in message
+    assert "status=502" in message
+    assert "text/html; charset=UTF-8" in message
+    assert "502 Server Error" in message
+    assert "persistent failure" in capsys.readouterr().err
+
+
+def test_json_probe_returns_persistent_json_server_error(monkeypatch):
+    calls = {"n": 0}
+
+    def fake_urlopen(request, timeout):
+        calls["n"] += 1
+        raise _http_error(500, b'{"status":"error"}', "application/json")
+
+    monkeypatch.setattr(production_smoke, "urlopen", fake_urlopen)
+    monkeypatch.setattr(production_smoke, "_pause", lambda _seconds: None)
+
+    probes = production_smoke.check_health("https://example.test", timeout=1.0)
+
+    assert calls["n"] == production_smoke.TRANSIENT_ATTEMPTS * 2
+    assert probes
+    assert all(probe.status == 500 and not probe.ok for probe in probes)
+
+
+def test_json_probe_does_not_retry_json_rate_limit(monkeypatch):
+    calls = {"n": 0}
+
+    def fake_urlopen(request, timeout):
+        calls["n"] += 1
+        raise _http_error(429, b'{"error":"Rate limit exceeded"}', "application/json")
+
+    monkeypatch.setattr(production_smoke, "urlopen", fake_urlopen)
+    monkeypatch.setattr(production_smoke, "_pause", lambda _seconds: None)
+
+    status, payload, _elapsed = production_smoke._json_probe(
+        "https://example.test", "/api/appointments/slots", timeout=1.0
+    )
+
+    assert calls["n"] == 1
+    assert status == 429
+    assert payload["error"] == "Rate limit exceeded"
+
+
+def test_json_probe_does_not_retry_non_object_json(monkeypatch):
+    calls = {"n": 0}
+
+    def fake_urlopen(request, timeout):
+        calls["n"] += 1
+        return _BytesResponse(200, b"[1]", "application/json")
+
+    monkeypatch.setattr(production_smoke, "urlopen", fake_urlopen)
+    monkeypatch.setattr(production_smoke, "_pause", lambda _seconds: None)
+
+    try:
+        production_smoke._json_probe("https://example.test", "/health", timeout=1.0)
+    except RuntimeError as exc:
+        assert str(exc) == "/health returned non-object JSON"
+    else:
+        raise AssertionError("non-object JSON must fail immediately")
+    assert calls["n"] == 1
+
+
+def test_read_url_does_not_retry_client_error_html(monkeypatch):
+    calls = {"n": 0}
+
+    def fake_urlopen(request, timeout):
+        calls["n"] += 1
+        raise _http_error(404, b"\n<html>missing</html>", "text/html")
+
+    monkeypatch.setattr(production_smoke, "urlopen", fake_urlopen)
+    monkeypatch.setattr(production_smoke, "_pause", lambda _seconds: None)
+
+    status, body, content_type, _elapsed = production_smoke._read_url(
+        "https://example.test", "/missing", timeout=1.0
+    )
+
+    assert calls["n"] == 1
+    assert status == 404
+    assert b"<html>" in body
+    assert content_type == "text/html"
+
+
+def test_spa_route_records_body_prefix_when_gateway_html_persists(monkeypatch):
+    def fake_urlopen(request, timeout):
+        raise _http_error(502, _GFE_502_BODY, "text/html; charset=UTF-8")
+
+    monkeypatch.setattr(production_smoke, "urlopen", fake_urlopen)
+    monkeypatch.setattr(production_smoke, "_pause", lambda _seconds: None)
+
+    probes = production_smoke.check_spa_routes("https://example.test", timeout=1.0)
+
+    assert probes
+    assert all(not probe.ok and probe.status == 502 for probe in probes)
+    assert "body_prefix=" in probes[0].evidence
+    assert "502 Server Error" in probes[0].evidence
