@@ -158,7 +158,8 @@ def test_candidate_canonical_probe_uses_machine_paths_and_expected_origin(monkey
 
 def test_spa_route_probe_reports_root_marker(monkeypatch):
     def fake_read_url(base_url, path, *, timeout):
-        return 200, b'<html><body><div id="root"></div></body></html>', "text/html", 12
+        elapsed = 420 if path == "/" else 12
+        return 200, b'<html><body><div id="root"></div></body></html>', "text/html", elapsed
 
     monkeypatch.setattr(production_smoke, "_read_url", fake_read_url)
 
@@ -167,6 +168,10 @@ def test_spa_route_probe_reports_root_marker(monkeypatch):
     assert len(probes) == len(production_smoke.PUBLIC_ROUTES)
     assert all(probe.ok for probe in probes)
     assert all("root=yes" in probe.evidence for probe in probes)
+    root = next(probe for probe in probes if probe.name == "/")
+    assert root.elapsed_ms == 420
+    assert "latency_ms=420" in root.evidence
+    assert all("latency_ms=" not in probe.evidence for probe in probes if probe.name != "/")
 
 
 def test_read_probe_reports_timeout_with_path_context(monkeypatch):

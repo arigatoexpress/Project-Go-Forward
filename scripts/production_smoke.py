@@ -780,6 +780,11 @@ def check_spa_routes(base_url: str, *, timeout: float) -> list[Probe]:
         has_root = 'id="root"' in text
         ok = status == 200 and "text/html" in content_type and has_root
         evidence = f"content_type={content_type}; root={'yes' if has_root else 'no'}"
+        # Record GET / timing for the deploy log. This client follows
+        # redirects, so on a candidate host the number includes the public
+        # site. It is not a pass/fail limit.
+        if path == "/":
+            evidence += f"; latency_ms={elapsed_ms}"
         if not ok:
             evidence += f"; body_prefix={_body_prefix(body)}"
         probes.append(
@@ -1075,11 +1080,13 @@ def run_smoke(
         probes.append(_run_reply_probe(base_url, timeout=timeout))
     if check_admin_auth:
         probes.append(_admin_auth_probe(base_url, timeout=timeout))
+    root_probe = next((probe for probe in probes if probe.name == "/"), None)
     return {
         "ok": all(probe.ok for probe in probes),
         "base_url": base_url.rstrip("/"),
         "probe_count": len(probes),
         "probes": [probe.__dict__ for probe in probes],
+        "root_latency_ms": None if root_probe is None else root_probe.elapsed_ms,
     }
 
 
@@ -1195,6 +1202,9 @@ def main(argv: list[str] | None = None) -> int:
         max_dead_heroes=args.max_dead_heroes,
         check_hero_reachability=args.check_hero_reachability,
     )
+    root_latency_ms = result.get("root_latency_ms")
+    if root_latency_ms is not None:
+        print(f"GET / latency_ms={root_latency_ms}", file=sys.stderr)
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0 if result["ok"] else 1
 
