@@ -3,7 +3,7 @@
 All heavy media deps are faked — no real video processing, no network:
 - moviepy is replaced by fake modules injected into sys.modules
 - google.genai is replaced by a fake module injected into sys.modules
-- requests.get is monkeypatched to return canned bytes
+- the public photo fetch is monkeypatched to return canned bytes
 - vg.GENERATED_VIDEOS_DIR is redirected to tmp_path (no repo writes)
 """
 
@@ -113,11 +113,9 @@ class FakeResponse:
 
 
 def _install_fake_requests(monkeypatch, fail_urls=()):
-    import requests as real_requests
-
     import tools.outbound_url as outbound_url
 
-    def fake_get(url, timeout=None, **kwargs):
+    def fake_get(url, timeout=None):
         if url in fail_urls:
             raise RuntimeError(f"download failed: {url}")
         return FakeResponse(content=b"jpeg-bytes")
@@ -125,7 +123,7 @@ def _install_fake_requests(monkeypatch, fail_urls=()):
     def fake_resolve(host, port, *args, **kwargs):
         return [(2, 1, 6, "", ("93.184.216.34", 0))]
 
-    monkeypatch.setattr(real_requests, "get", fake_get)
+    monkeypatch.setattr(outbound_url, "_http_get", fake_get)
     # Fake photo hosts must not touch the network. The SSRF guard still runs.
     monkeypatch.setattr(outbound_url.socket, "getaddrinfo", fake_resolve)
 
@@ -146,14 +144,13 @@ def test_generate_ad_video_refuses_link_local_photo(monkeypatch, tmp_path):
     """A metadata address is not downloaded, even when requests.get is stubbed."""
     _install_fake_moviepy(monkeypatch)
     calls = []
-    _install_fake_requests(monkeypatch)
-    import requests as real_requests
+    import tools.outbound_url as outbound_url
 
-    def tracking_get(url, timeout=None, **kwargs):
+    def tracking_get(url, timeout=None):
         calls.append(url)
         return FakeResponse(content=b"jpeg-bytes")
 
-    monkeypatch.setattr(real_requests, "get", tracking_get)
+    monkeypatch.setattr(outbound_url, "_http_get", tracking_get)
     _redirect_output_dir(monkeypatch, tmp_path)
     monkeypatch.setattr(vg, "resize_clip_to_fill", lambda clip, w, h: clip)
 
@@ -279,16 +276,13 @@ def test_save_source_image_prefers_base64(tmp_path):
 
 
 def test_save_source_image_fetches_url(monkeypatch, tmp_path):
-    import requests as real_requests
-
     import tools.outbound_url as outbound_url
 
-    def fake_get(url, timeout=None, **kwargs):
+    def fake_get(url, timeout=None):
         assert timeout == 20
-        assert kwargs.get("allow_redirects") is False
         return FakeResponse(content=b"jpg-bytes")
 
-    monkeypatch.setattr(real_requests, "get", fake_get)
+    monkeypatch.setattr(outbound_url, "_http_get", fake_get)
     monkeypatch.setattr(
         outbound_url.socket,
         "getaddrinfo",

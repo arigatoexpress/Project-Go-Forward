@@ -16,9 +16,7 @@ import tempfile
 import time
 import uuid
 
-import requests
-
-from tools.outbound_url import is_public_fetch_url
+from tools.outbound_url import fetch_public_url
 
 logger = logging.getLogger(__name__)
 
@@ -86,9 +84,7 @@ def generate_ad_video(
 
         for i, photo_url in enumerate(photos[:6]):
             try:
-                if not is_public_fetch_url(photo_url):
-                    raise ValueError("refused non-public photo URL")
-                response = requests.get(photo_url, timeout=30, allow_redirects=False)
+                response = fetch_public_url(photo_url, timeout=30)
                 if 300 <= getattr(response, "status_code", 200) < 400:
                     raise ValueError("refused photo URL redirect")
                 response.raise_for_status()
@@ -210,9 +206,10 @@ def _save_source_image(
             handle.write(base64.b64decode(raw))
         return path
     if home_photo_url:
-        if not is_public_fetch_url(home_photo_url):
+        try:
+            response = fetch_public_url(home_photo_url, timeout=20)
+        except ValueError:
             return None
-        response = requests.get(home_photo_url, timeout=20, allow_redirects=False)
         if 300 <= getattr(response, "status_code", 200) < 400:
             return None
         response.raise_for_status()

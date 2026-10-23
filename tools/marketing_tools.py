@@ -19,10 +19,8 @@ import re
 import uuid
 from datetime import UTC, datetime
 
-import requests
-
 from config_loader import business_city, business_phone
-from tools.outbound_url import is_public_fetch_url
+from tools.outbound_url import fetch_public_url
 
 try:
     from google.adk.tools import ToolContext
@@ -786,10 +784,11 @@ def _load_source_photo(home_photo_url: str | None = None, image_base64: str | No
         raw = image_base64.split(",", 1)[-1]
         return Image.open(BytesIO(base64.b64decode(raw))).convert("RGB"), "generated_image"
     if home_photo_url:
-        if not is_public_fetch_url(home_photo_url):
+        try:
+            response = fetch_public_url(home_photo_url, timeout=20)
+        except ValueError:
             logger.warning("Refused non-public flyer photo URL")
             return None, "refused_url"
-        response = requests.get(home_photo_url, timeout=20, allow_redirects=False)
         if 300 <= getattr(response, "status_code", 200) < 400:
             logger.warning("Refused flyer photo redirect")
             return None, "refused_url"
