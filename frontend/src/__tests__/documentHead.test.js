@@ -13,6 +13,7 @@ describe('applyDocumentHead', () => {
       description: 'Manufactured home financing options at Texas Home Outlet.',
       canonicalPath: '/financing',
       image: '/og-card.png',
+      robots: 'index,follow',
     });
 
     expect(document.title).toContain('Financing');
@@ -38,5 +39,28 @@ describe('applyDocumentHead', () => {
     expect(document.querySelector('meta[name="twitter:image"]').getAttribute('content')).toBe(
       `${origin}/og-card.png`,
     );
+    expect(document.querySelector('meta[name="robots"]').getAttribute('content')).toBe(
+      'index,follow',
+    );
+  });
+
+  it('removes canonical and og:url when robots is noindex', () => {
+    applyDocumentHead({
+      title: 'Home Inventory',
+      description: 'Public inventory.',
+      canonicalPath: '/inventory',
+      robots: 'index,follow',
+    });
+    expect(document.querySelector('link[rel="canonical"]')).not.toBeNull();
+
+    applyDocumentHead({
+      title: 'Checkout',
+      description: 'Not a public page.',
+      canonicalPath: '/checkout',
+      robots: 'noindex',
+    });
+    expect(document.querySelector('meta[name="robots"]').getAttribute('content')).toBe('noindex');
+    expect(document.querySelector('link[rel="canonical"]')).toBeNull();
+    expect(document.querySelector('meta[property="og:url"]')).toBeNull();
   });
 });

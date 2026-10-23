@@ -976,6 +976,7 @@ export default function InventoryBrowse({
       description: `${pathListingHome.model_name || 'Manufactured home'}${descBits ? ` (${descBits})` : ''} at ${BUSINESS_NAME} in ${BUSINESS_CITY}, ${BUSINESS_STATE}. Call ${BUSINESS_PHONE}.`.slice(0, 300),
       canonicalPath: listingPath(pathListingHome) || currentPath,
       image: shareImage || '/og-card.png',
+      robots: 'index,follow',
     });
   }, [pathListingHome, currentPath]);
 
@@ -985,6 +986,7 @@ export default function InventoryBrowse({
       title: cityLanding.title,
       description: cityLanding.description,
       canonicalPath: cityLanding.path,
+      robots: 'index,follow',
     });
   }, [cityLanding]);
 

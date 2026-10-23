@@ -176,7 +176,7 @@ def test_homepage_head_is_injected(monkeypatch):
     response = client.get("/")
     assert response.status_code == 200
     body = response.text
-    assert "Manufactured Homes for Sale in Huffman, TX" in body
+    assert "<title>Manufactured Homes for Sale in Huffman | Texas Home Outlet</title>" in body
     assert 'rel="canonical"' in body
     assert '<link rel="canonical" href="https://www.texashomeoutlet.com/"' in body
     assert "sapphirealpha.xyz" not in body
@@ -480,6 +480,20 @@ def test_unknown_route_returns_real_404_not_soft_404(monkeypatch):
     assert "noindex" in response.text
 
 
+@pytest.mark.parametrize(
+    "path",
+    ["/cart", "/checkout", "/search", "/search-results", "/test"],
+)
+def test_cart_checkout_search_and_test_paths_404_with_noindex(monkeypatch, path):
+    """These are not public pages. A full load stays a real 404 with noindex."""
+    client, _ = seo_client(monkeypatch)
+    response = client.get(path)
+    assert response.status_code == 404, path
+    assert '<meta name="robots" content="noindex" />' in response.text, path
+    assert 'content="index,follow"' not in response.text, path
+    assert 'rel="canonical"' not in response.text, path
+
+
 def test_ad_studio_alias_is_the_google_ads_staff_route(monkeypatch):
     """Staff type /ad-studio. It must open the noindex staff app, not a 404."""
     client, _ = seo_client(monkeypatch)
@@ -501,23 +515,39 @@ def test_admin_routes_are_noindex_but_200(monkeypatch):
 def test_public_routes_have_unique_titles_and_canonicals(monkeypatch):
     client, _ = seo_client(monkeypatch)
     titles = {}
+    descriptions = {}
     for path in (
         "/",
         "/inventory",
         "/contact",
         "/appointments",
+        "/chat",
         "/about",
         "/financing",
         "/faq",
         "/warranty",
         "/delivery",
+        "/locations",
+        "/privacy",
+        "/terms",
+        "/single-wide",
+        "/double-wide",
     ):
         body = client.get(path).text
-        title = re.search(r"<title>(.*?)</title>", body, re.DOTALL).group(1)
+        title = html.unescape(re.search(r"<title>(.*?)</title>", body, re.DOTALL).group(1))
+        description = html.unescape(
+            re.search(r'<meta name="description" content="([^"]*)"', body).group(1)
+        )
         titles[path] = title
+        descriptions[path] = description
+        assert 1 <= len(title) <= 60, (path, len(title), title)
+        assert 1 <= len(description) <= 155, (path, len(description), description)
+        assert '<meta name="robots" content="index,follow" />' in body, path
+        assert "noindex" not in body, path
         canonical = re.search(r'rel="canonical" href="([^"]+)"', body).group(1)
         assert canonical.endswith(path if path != "/" else "/"), path
     assert len(set(titles.values())) == len(titles), "titles must be unique per route"
+    assert len(set(descriptions.values())) == len(descriptions), "descriptions must be unique"
 
 
 def test_trust_content_pages_have_crawlable_blocks(monkeypatch):
@@ -1364,9 +1394,10 @@ def test_city_floorplan_and_home_pages_have_unique_title_h1_canonical(monkeypatc
     assert len({city_t, plan_t, home_t}) == 3
     assert len({city_h, plan_h, home_h}) == 3
     assert len({city_c, plan_c, home_c}) == 3
-    assert "Manufactured Homes for Sale in Huffman, TX" not in city_t
-    assert "Manufactured Homes for Sale in Huffman, TX" not in plan_t
-    assert "Manufactured Homes for Sale in Huffman, TX" not in home_t
+    homepage_title = "Manufactured Homes for Sale in Huffman | Texas Home Outlet"
+    assert homepage_title not in city_t
+    assert homepage_title not in plan_t
+    assert homepage_title not in home_t
 
 
 def test_inventory_hub_heading_differs_from_homepage(monkeypatch):
@@ -1379,7 +1410,7 @@ def test_inventory_hub_heading_differs_from_homepage(monkeypatch):
     assert "Current manufactured and mobile home inventory" in inventory
     assert 'href="/plan/223034/skyliner/4732b/"' in home
     assert 'href="/plan/223034/skyliner/4732b/"' in inventory
-    assert "<title>Manufactured Home Financing in Huffman, TX | Texas Home Outlet</title>" in (
+    assert "<title>Manufactured Home Financing in Huffman | Texas Home Outlet</title>" in (
         client.get("/financing").text
     )
 
@@ -1839,10 +1870,13 @@ def test_public_titles_and_descriptions_fit_and_stay_unique(monkeypatch):
     descriptions = []
     for path in pages:
         body = client.get(path).text
-        title = re.search(r"<title>(.*?)</title>", body, re.DOTALL).group(1)
-        description = re.search(r'<meta name="description" content="([^"]*)"', body).group(1)
-        assert 25 <= len(title) <= 65, (path, len(title), title)
-        assert 70 <= len(description) <= 165, (path, len(description), description)
+        title = html.unescape(re.search(r"<title>(.*?)</title>", body, re.DOTALL).group(1))
+        description = html.unescape(
+            re.search(r'<meta name="description" content="([^"]*)"', body).group(1)
+        )
+        assert '<meta name="robots" content="index,follow" />' in body, path
+        assert 25 <= len(title) <= 60, (path, len(title), title)
+        assert 70 <= len(description) <= 155, (path, len(description), description)
         titles.append(title)
         descriptions.append(description)
     assert len(set(titles)) == len(titles)
@@ -1862,7 +1896,7 @@ def test_contact_description_contains_configured_hours(monkeypatch):
         client.get("/contact").text,
     ).group(1)
     assert configured in description
-    assert len(description) <= 165
+    assert len(description) <= 155
 
 
 def test_service_area_cities_match_config():
