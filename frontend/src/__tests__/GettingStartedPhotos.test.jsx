@@ -19,7 +19,8 @@ describe('Staff photo quick reference', () => {
 
     expect(screen.getByText(/actual on-lot photos/i)).toBeInTheDocument();
     expect(screen.getByText(/orderable floorplans/i)).toBeInTheDocument();
-    expect(screen.getByText(/show only homes that still need photos/i)).toBeInTheDocument();
+    expect(screen.getByText(/Needs photos is already selected/i)).toBeInTheDocument();
+    expect(screen.getByText(/Choose photos or Take a photo/i)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: /Open Photos/i }));
     expect(onOpenPhotos).toHaveBeenCalledTimes(1);
