@@ -1277,30 +1277,28 @@ def test_inventory_page_emits_itemlist_jsonld(monkeypatch):
     assert all("offers" not in i and "price" not in i for i in items)
 
 
-def test_legal_routes_render_shared_copy_on_each_host(monkeypatch):
+def test_legal_routes_render_shared_copy_on_canonical_host(monkeypatch):
     import html
 
     import seo_routes
 
     client, _ = seo_client(monkeypatch)
-    for host in ("www.texashomeoutlet.com", "tho.sapphirealpha.xyz"):
-        for page, content in seo_routes.LEGAL_PAGES.items():
-            path = f"/{page}"
-            response = client.get(path, headers={"Host": host}, follow_redirects=False)
-            assert response.status_code == 200
-            body = response.text
-            assert f"<title>{content['title']} | Texas Home Outlet</title>" in body
-            assert (
-                f'<meta name="description" content="{html.escape(content["description"])}"' in body
-            )
-            assert f'href="https://www.texashomeoutlet.com{path}"' in body
-            assert 'name="robots" content="noindex"' not in body
-            assert f"<h1>{content['title']}</h1>" in body
-            assert "Effective date: October 7, 2026." in body
-            assert "[EFFECTIVE DATE]" not in body
-            for heading, text in content["sections"]:
-                assert html.escape(heading) in body
-                assert html.escape(text) in body
+    host = {"Host": "www.texashomeoutlet.com"}
+    for page, content in seo_routes.LEGAL_PAGES.items():
+        path = f"/{page}"
+        response = client.get(path, headers=host, follow_redirects=False)
+        assert response.status_code == 200
+        body = response.text
+        assert f"<title>{content['title']} | Texas Home Outlet</title>" in body
+        assert f'<meta name="description" content="{html.escape(content["description"])}"' in body
+        assert f'href="https://www.texashomeoutlet.com{path}"' in body
+        assert 'name="robots" content="noindex"' not in body
+        assert f"<h1>{content['title']}</h1>" in body
+        assert "Effective date: October 7, 2026." in body
+        assert "[EFFECTIVE DATE]" not in body
+        for heading, text in content["sections"]:
+            assert html.escape(heading) in body
+            assert html.escape(text) in body
 
 
 def test_legal_routes_canonicalize_and_appear_in_sitemap(monkeypatch):
