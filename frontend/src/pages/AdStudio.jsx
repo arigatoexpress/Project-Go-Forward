@@ -246,7 +246,12 @@ export default function AdStudio({ onBack, initialTab = 'create' }) {
         TABS.some(tab => tab.id === initialTab) ? initialTab : 'create',
     );
     useEffect(() => {
-        if (initialTab === 'paid-search') setActiveTab('paid-search');
+        // /ad-studio and /studio share this screen. Follow the address when
+        // staff move between Ads and Create Ad. An in-page tab click does
+        // not change initialTab, so it stays put.
+        if (initialTab === 'paid-search' || initialTab === 'create') {
+            setActiveTab(initialTab);
+        }
     }, [initialTab]);
 
     const [composerSeed] = useState(() => readComposerDraft() || emptyComposerDraft());
