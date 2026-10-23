@@ -18,6 +18,13 @@ img#tho-lcp {
   pointer-events: none;
 }
 
+/* A failed or stalled derived hero must not keep its broken icon on screen
+   after the page falls back to the original photo. The hidden attribute is
+   not enough: route changes clear it when the inventory hero should show. */
+img#tho-lcp[data-lcp-failed] {
+  display: none !important;
+}
+
 #root {
   position: relative;
   z-index: 1;

@@ -39,6 +39,7 @@ import {
   stockId,
   usedHomeMayShowPhoto,
 } from '../utils/listingRoutes';
+import { staticLcpCoversHero, useStaticLcpCoversHero } from '../utils/staticLcp';
 import {
   BUSINESS_NAME,
   BUSINESS_PHONE,
@@ -354,7 +355,7 @@ function InventoryMetric({ icon, label, value, tone = 'accent' }) {
 }
 
 function hasStaticLcpImage() {
-  return typeof document !== 'undefined' && Boolean(document.getElementById('tho-lcp'));
+  return staticLcpCoversHero();
 }
 
 function listingHref(home) {
@@ -617,6 +618,9 @@ export default function InventoryBrowse({
   onBookAppointment,
   pathname,
 }) {
+  // False once the server hero errors or never loads, so the original
+  // photo can paint instead of leaving the page on a broken image.
+  const staticLcp = useStaticLcpCoversHero();
   const currentPath = pathname ?? (typeof window !== 'undefined' ? window.location.pathname : '/');
   const routeCategory = getInventoryCategoryRoute(currentPath);
   const cityLanding = getCityLanding(currentPath);
@@ -1020,8 +1024,6 @@ export default function InventoryBrowse({
   if (cityLanding && !error) {
     return <CityLanding cityLanding={cityLanding} homes={loading ? [] : homes} />;
   }
-
-  const staticLcp = hasStaticLcpImage();
 
   if (loading) {
     return (

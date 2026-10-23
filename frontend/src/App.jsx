@@ -16,6 +16,7 @@ import { CHAT_SESSION_STORAGE_KEY, adoptRunSessionId, resolveChatSession } from 
 import { captureUtmFromUrl, getUtmParams } from './utils/utm';
 import { getJourneyAttribution } from './utils/attribution';
 import { attachPhoneClickTracking, isPublicAnalyticsPath, trackEvent } from './utils/analytics';
+import { staticLcpElement, staticLcpHiddenForRoute } from './utils/staticLcp';
 import { navigateDocument } from './utils/documentNavigation';
 import { getInventoryCategoryRoute, isInventoryCategoryPath } from './utils/inventoryCategoryRoutes';
 import {
@@ -700,7 +701,7 @@ function App() {
   // The hero image is painted by the server and lives outside #root. Hide it
   // on routes that do not use the inventory hero so it cannot cover them.
   useEffect(() => {
-    const image = document.getElementById('tho-lcp');
+    const image = staticLcpElement();
     if (!image) return undefined;
     const path = String(pathname || '/').replace(/\/+$/, '') || '/';
     const showHero = path === '/'
@@ -708,7 +709,7 @@ function App() {
       || path.startsWith('/homes/')
       || path.startsWith('/inventory-detail/')
       || path.startsWith('/plan/');
-    image.hidden = !showHero;
+    image.hidden = staticLcpHiddenForRoute(image, showHero);
     return undefined;
   }, [pathname]);
 
