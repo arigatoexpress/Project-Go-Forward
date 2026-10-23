@@ -159,7 +159,7 @@ website stays fast — you don't need to resize anything yourself.)
 
 ### "I added the photo but it's not on the website"
 Wait one minute and refresh the Inventory page. Photos appear within about a
-minute. If it's been longer, tell Ari.
+minute. If it's been longer, ask your manager.
 
 ---
 
@@ -179,4 +179,4 @@ minute. If it's been longer, tell Ari.
 
 ---
 
-*Questions? Ping Ari. Companion to `docs/team/passkey-setup-guide.md`.*
+*Questions? Ask your manager. Companion to `docs/team/passkey-setup-guide.md`.*

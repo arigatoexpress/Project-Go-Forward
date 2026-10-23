@@ -1,7 +1,7 @@
 # Competitive Local-Pack Research — Texas Home Outlet
 
-> **Owner:** Mira (research/ops lane) · **Status:** Draft for Ari review
-> **Last updated:** 2026-06-15
+> **Author:** Mira (research/ops lane) · **Status:** Internal research note. Competitor details below are not Texas Home Outlet policy.
+> **Last updated:** 2026-10-23
 
 ## Methodology
 

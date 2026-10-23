@@ -22,7 +22,7 @@ Bookmark the staff page on your phone and on the office computer.
 
 ## Coming soon
 
-These guides are not written yet. Until they are, ask the owner.
+These guides are not written yet. Until they are, ask your manager.
 
 | Guide | What it will cover |
 |---|---|
@@ -49,4 +49,4 @@ You do not set up Google, and you do not edit code.
 
 See [Things that trip up staff](staff-gotchas.md) for the usual mistakes and the one step to try.
 
-If something does not work, take a screenshot and send it to the owner.
+If something does not work, take a screenshot and ask your manager.
