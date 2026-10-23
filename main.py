@@ -361,47 +361,117 @@ lead_manager = LeadManager(project_id=project_id)
 appointment_manager = AppointmentManager(project_id=project_id)
 
 
+# Permissions-Policy keeps the existing empty allowlists for camera,
+# microphone, and geolocation. Additional unused features are disabled.
+# First-party passkeys (publickey-credentials-get) and the share button
+# (web-share) stay allowed on this origin. Fullscreen, autoplay, and
+# encrypted-media stay at the browser default so Matterport tours can play.
+_PERMISSIONS_POLICY = ", ".join(
+    (
+        "accelerometer=()",
+        "ambient-light-sensor=()",
+        "bluetooth=()",
+        "camera=()",
+        "clipboard-read=()",
+        "display-capture=()",
+        "document-domain=()",
+        "gamepad=()",
+        "geolocation=()",
+        "gyroscope=()",
+        "hid=()",
+        "idle-detection=()",
+        "interest-cohort=()",
+        "magnetometer=()",
+        "microphone=()",
+        "midi=()",
+        "otp-credentials=()",
+        "payment=()",
+        "publickey-credentials-get=(self)",
+        "screen-wake-lock=()",
+        "serial=()",
+        "usb=()",
+        "web-share=(self)",
+        "xr-spatial-tracking=()",
+    )
+)
+# Two years, includeSubDomains, and the preload token. Browsers ignore this
+# on plain HTTP. The token does not submit the domain to the preload list.
+_HSTS_VALUE = "max-age=63072000; includeSubDomains; preload"
+_BASE_CSP = [
+    ("default-src", ["'self'"]),
+    ("script-src", ["'self'"]),
+    ("style-src", ["'self'", "https://fonts.googleapis.com"]),
+    ("img-src", ["'self'", "https://d132mt2yijm03y.cloudfront.net", "https:", "data:"]),
+    ("frame-src", ["https://my.matterport.com"]),
+    ("connect-src", ["'self'"]),
+    ("font-src", ["'self'", "https://fonts.gstatic.com", "data:"]),
+    ("frame-ancestors", ["'none'"]),
+    ("object-src", ["'none'"]),
+    ("base-uri", ["'self'"]),
+    ("form-action", ["'self'"]),
+    ("script-src-attr", ["'none'"]),
+    ("worker-src", ["'self'"]),
+    ("manifest-src", ["'self'"]),
+]
+
+
+def _request_is_https(request: Request) -> bool:
+    """True for a direct HTTPS URL or Cloud Run's X-Forwarded-Proto."""
+    if request.url.scheme == "https":
+        return True
+    forwarded = request.headers.get("x-forwarded-proto", "")
+    return forwarded.split(",")[0].strip().lower() == "https"
+
+
+def _content_security_policy(request: Request) -> str:
+    """CSP for this response.
+
+    script-src and style-src have no 'unsafe-inline' (COD-153). Vendor
+    analytics hosts are appended only for IDs that pass the same format gate
+    as the snippet. upgrade-insecure-requests is added for HTTPS and for
+    Cloud Run so local HTTP dev can still load same-origin assets.
+    ``import seo_routes`` stays inside the function: seo_routes is wired
+    later in this module, and a module-top import would cycle.
+    """
+    import seo_routes
+
+    csp = [(name, list(hosts)) for name, hosts in _BASE_CSP]
+    extra = seo_routes.analytics_csp_sources()
+    if extra:
+        for name, hosts in csp:
+            for host in extra.get(name, []):
+                if host not in hosts:
+                    hosts.append(host)
+    policy = "; ".join(f"{name} {' '.join(hosts)}" for name, hosts in csp)
+    if (not IS_LOCAL) or _request_is_https(request):
+        policy += "; upgrade-insecure-requests"
+    return policy
+
+
 # Security headers middleware
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
         response = await call_next(request)
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
-        response.headers["X-XSS-Protection"] = "1; mode=block"
+        # Retired header. "1; mode=block" enables the legacy XSS auditor, which
+        # can introduce XSS in old browsers. Current guidance is to disable it.
+        response.headers["X-XSS-Protection"] = "0"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-        response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
-        # CSP: self, Google Fonts stylesheets, Matterport iframes, CloudFront
-        # CDN images. script-src and style-src have NO 'unsafe-inline'
-        # (COD-153). Scripts are first-party external (Vite bundle,
-        # /tho-analytics.js); JSON-LD and the analytics config are inert data
-        # blocks. Styles ship in bundled CSS — server HTML has no <style> blocks
-        # or style attributes, and the toast keyframes live in App.css. Vendor
-        # analytics/pixel script+connect hosts are appended ONLY for IDs that
-        # are validly set (see seo_routes.analytics_csp_sources, same _clean_id
-        # gate as the snippet).
-        import seo_routes
-
-        _csp = [
-            ("default-src", ["'self'"]),
-            ("script-src", ["'self'"]),
-            ("style-src", ["'self'", "https://fonts.googleapis.com"]),
-            ("img-src", ["'self'", "https://d132mt2yijm03y.cloudfront.net", "https:", "data:"]),
-            ("frame-src", ["https://my.matterport.com"]),
-            ("connect-src", ["'self'"]),
-            ("font-src", ["'self'", "https://fonts.gstatic.com", "data:"]),
-            ("frame-ancestors", ["'none'"]),
-        ]
-        _extra = seo_routes.analytics_csp_sources()
-        if _extra:
-            for _name, _hosts in _csp:
-                for _h in _extra.get(_name, []):
-                    if _h not in _hosts:
-                        _hosts.append(_h)
-        response.headers["Content-Security-Policy"] = "; ".join(
-            f"{_name} {' '.join(_hosts)}" for _name, _hosts in _csp
-        )
-        # HSTS: enforce HTTPS for 1 year (only effective on HTTPS connections)
-        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        response.headers["Permissions-Policy"] = _PERMISSIONS_POLICY
+        response.headers["Content-Security-Policy"] = _content_security_policy(request)
+        response.headers["Strict-Transport-Security"] = _HSTS_VALUE
+        # Isolates the storefront from cross-origin windows. Popups this page
+        # opens (document download, full tour) keep their opener.
+        response.headers["Cross-Origin-Opener-Policy"] = "same-origin-allow-popups"
+        response.headers["X-Permitted-Cross-Domain-Policies"] = "none"
+        response.headers["X-DNS-Prefetch-Control"] = "off"
+        # Drop framework disclosure if an inner app set it. uvicorn's own
+        # Server header is suppressed via server_header=False at startup;
+        # that header is added outside the ASGI app.
+        for header_name in ("server", "x-powered-by"):
+            if header_name in response.headers:
+                del response.headers[header_name]
         return response
 
 
@@ -566,6 +636,11 @@ def _route_rate_limit(env_var: str, default: str):
 # double-clicks while throttling an email-flood bot on the fresh Resend domain.
 CONTACT_RATE_LIMIT = _route_rate_limit("CONTACT_RATE_LIMIT", "10/minute")
 APPOINTMENTS_RATE_LIMIT = _route_rate_limit("APPOINTMENTS_RATE_LIMIT", "10/minute")
+# Public writes that are not sign-in. Same env-override pattern as contact:
+# absent or malformed values keep the conservative default.
+FEEDBACK_RATE_LIMIT = _route_rate_limit("FEEDBACK_RATE_LIMIT", "10/minute")
+APPOINTMENT_CANCEL_RATE_LIMIT = _route_rate_limit("APPOINTMENT_CANCEL_RATE_LIMIT", "10/minute")
+PUBLIC_SESSION_RATE_LIMIT = _route_rate_limit("PUBLIC_SESSION_RATE_LIMIT", "30/minute")
 
 # Rate limiting middleware — per-IP sliding window
 MAX_REQUESTS_PER_MINUTE = int(os.environ.get("RATE_LIMIT_RPM", "60"))
@@ -2957,7 +3032,8 @@ def readyz() -> JSONResponse:
 
 
 @app.post("/apps/{app_name}/users/{user_id}/sessions/{session_id}")
-async def create_session(app_name: str, user_id: str, session_id: str):
+@limiter.limit(PUBLIC_SESSION_RATE_LIMIT)
+async def create_session(request: Request, app_name: str, user_id: str, session_id: str):
     logger.info(f"Creating session: {session_id} for user: {user_id}")
     try:
         runner = _get_runner()
@@ -5679,7 +5755,10 @@ async def api_generate_voiceover(request: Request):
         return result
     except Exception as e:
         struct_logger.error("Voiceover generation failed", error=str(e))
-        return {"success": False, "error": "The spoken version was not created. Nothing was posted. Try again."}
+        return {
+            "success": False,
+            "error": "The spoken version was not created. Nothing was posted. Try again.",
+        }
 
 
 @app.get("/api/marketing/voiceover-voices", dependencies=[Depends(require_admin)])
@@ -5691,7 +5770,10 @@ async def api_get_voiceover_voices():
         return {"success": True, "voices": TTS_VOICES}
     except Exception as e:
         struct_logger.error("Voice list failed", error=str(e))
-        return {"success": False, "error": "Spoken voices did not load. You can still copy the script."}
+        return {
+            "success": False,
+            "error": "Spoken voices did not load. You can still copy the script.",
+        }
 
 
 @app.post("/api/marketing/generate-image", dependencies=[Depends(require_admin)])
@@ -5713,7 +5795,10 @@ async def api_generate_image(request: Request):
         return result
     except Exception as e:
         struct_logger.error("Image generation failed", error=str(e))
-        return {"success": False, "error": "The picture was not created. Nothing was posted. Try again."}
+        return {
+            "success": False,
+            "error": "The picture was not created. Nothing was posted. Try again.",
+        }
 
 
 @app.post("/api/marketing/generate-flyer", dependencies=[Depends(require_admin)])
@@ -5737,7 +5822,10 @@ async def api_generate_flyer(request: Request):
         return result
     except Exception as e:
         struct_logger.error("Flyer generation failed", error=str(e))
-        return {"success": False, "error": "The flyer was not created. Nothing was posted. Try again."}
+        return {
+            "success": False,
+            "error": "The flyer was not created. Nothing was posted. Try again.",
+        }
 
 
 @app.post("/api/marketing/generate-video", dependencies=[Depends(require_admin)])
@@ -5769,7 +5857,10 @@ async def api_generate_video(request: Request):
         return result
     except Exception as e:
         struct_logger.error("Video generation failed", error=str(e))
-        return {"success": False, "error": "The slideshow was not created. Nothing was posted. Try again."}
+        return {
+            "success": False,
+            "error": "The slideshow was not created. Nothing was posted. Try again.",
+        }
 
 
 @app.post("/api/marketing/generate-genai-clip", dependencies=[Depends(require_admin)])
@@ -5795,7 +5886,10 @@ async def api_generate_genai_clip(request: Request):
         return result
     except Exception as e:
         struct_logger.error("GenAI clip generation failed", error=str(e))
-        return {"success": False, "error": "The AI video was not created. Nothing was posted. Try again."}
+        return {
+            "success": False,
+            "error": "The AI video was not created. Nothing was posted. Try again.",
+        }
 
 
 @app.get("/api/marketing/videos/{filename}", dependencies=[Depends(require_admin)])
@@ -7323,6 +7417,7 @@ async def get_appointment(appointment_id: str, request: Request, phone: str = ""
 
 
 @app.post("/api/appointments/{appointment_id}/cancel")
+@limiter.limit(APPOINTMENT_CANCEL_RATE_LIMIT)
 async def cancel_appointment(appointment_id: str, request: Request):
     """Cancel an appointment."""
     try:
@@ -8577,6 +8672,7 @@ async def update_customer(customer_id: str, request: Request):
 
 
 @app.post("/api/feedback")
+@limiter.limit(FEEDBACK_RATE_LIMIT)
 async def submit_feedback(request: Request):
     """Receive issue reports from the Report Issue button."""
     data = await request.json()
@@ -10084,4 +10180,6 @@ async def serve_spa(full_path: str, request: Request):
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    # server_header=False keeps "uvicorn" off the response. The ASGI middleware
+    # cannot strip it: uvicorn appends Server after the app returns.
+    uvicorn.run(app, host="0.0.0.0", port=port, server_header=False)
