@@ -1135,6 +1135,59 @@ def _is_staff_entry_path(path: str) -> bool:
     return _normalized_path(path) in _STAFF_ENTRY_PATHS
 
 
+def _ascii_scope_bytes(value: object) -> str | None:
+    """Decode an ASGI byte string when it is plain ASCII, else give up.
+
+    Percent-encoded request targets are ASCII. Non-ASCII bytes fall back to
+    Starlette's decoded URL so a raw UTF-8 path is not latin-1-mangled.
+    """
+    if not isinstance(value, bytes | bytearray) or not value:
+        return None
+    try:
+        return bytes(value).decode("ascii")
+    except UnicodeDecodeError:
+        return None
+
+
+def _original_target_parts(request: Request) -> tuple[str, str]:
+    """Path and query exactly as the client sent them.
+
+    ``scope["path"]`` (and therefore ``request.url.path``) is percent-decoded
+    by the ASGI server. Rebuilding a redirect from that decoded string turns
+    ``%2F`` into a path separator. Starlette re-encodes ``?`` inside
+    ``request.url.path``, but that does not cover the other reserved bytes,
+    and it is not the original path. ``raw_path`` and ``query_string`` are
+    the encoded bytes from the request line.
+    """
+    raw_path = _ascii_scope_bytes(request.scope.get("raw_path"))
+    if raw_path is not None:
+        path = raw_path.split("?", 1)[0]
+    else:
+        path = ""
+    if not path:
+        path = request.url.path or "/"
+    # A literal reserved character must stay inside the path component.
+    path = path.replace("?", "%3F").replace("#", "%23").replace("\\", "%5C")
+
+    query = _ascii_scope_bytes(request.scope.get("query_string"))
+    if query is None:
+        query = request.url.query
+    return path, query
+
+
+def _canonical_redirect_url(request: Request) -> str:
+    path, query = _original_target_parts(request)
+    return urlunsplit(
+        (
+            _CANONICAL_PUBLIC_SCHEME,
+            _CANONICAL_PUBLIC_HOST,
+            path,
+            query,
+            "",
+        )
+    )
+
+
 def _alternate_public_host_target(request: Request) -> str | None:
     """301 the non-canonical twin of the public host onto CANONICAL_PUBLIC_URL.
 
@@ -1156,36 +1209,20 @@ def _alternate_public_host_target(request: Request) -> str | None:
     alternate = canonical[4:] if canonical.startswith("www.") else f"www.{canonical}"
     if host != alternate:
         return None
-    return urlunsplit(
-        (
-            _CANONICAL_PUBLIC_SCHEME,
-            _CANONICAL_PUBLIC_HOST,
-            request.url.path,
-            request.url.query,
-            "",
-        )
-    )
+    return _canonical_redirect_url(request)
 
 
 def _legacy_public_host_target(request: Request) -> str | None:
     """301 every request on the retired sapphire host to the canonical origin.
 
     ``tho.sapphirealpha.xyz`` matches case-insensitively, with or without a
-    port. Path and query stay intact for every method. www, the apex twin,
-    and *.run.app are left to the other host rules.
+    port. The original percent-encoded path and query stay intact for every
+    method. www, the apex twin, and *.run.app are left to the other host rules.
     """
     host = _request_hostname(request)
     if host != _LEGACY_PUBLIC_HOST or host == _CANONICAL_PUBLIC_HOST:
         return None
-    return urlunsplit(
-        (
-            _CANONICAL_PUBLIC_SCHEME,
-            _CANONICAL_PUBLIC_HOST,
-            request.url.path,
-            request.url.query,
-            "",
-        )
-    )
+    return _canonical_redirect_url(request)
 
 
 def staff_front_door_target(request: Request) -> str | None:
@@ -1227,16 +1264,7 @@ class CanonicalHostMiddleware(BaseHTTPMiddleware):
         if alternate_target:
             return RedirectResponse(alternate_target, status_code=301)
         if _should_redirect_to_canonical_host(request):
-            target = urlunsplit(
-                (
-                    _CANONICAL_PUBLIC_SCHEME,
-                    _CANONICAL_PUBLIC_HOST,
-                    request.url.path,
-                    request.url.query,
-                    "",
-                )
-            )
-            return RedirectResponse(target, status_code=308)
+            return RedirectResponse(_canonical_redirect_url(request), status_code=308)
         return await call_next(request)
 
 
