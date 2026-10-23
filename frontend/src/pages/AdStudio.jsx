@@ -246,7 +246,12 @@ export default function AdStudio({ onBack, initialTab = 'create' }) {
         TABS.some(tab => tab.id === initialTab) ? initialTab : 'create',
     );
     useEffect(() => {
-        if (initialTab === 'paid-search') setActiveTab('paid-search');
+        // /ad-studio and /studio share this screen. Follow the address when
+        // staff move between Ads and Create Ad. An in-page tab click does
+        // not change initialTab, so it stays put.
+        if (initialTab === 'paid-search' || initialTab === 'create') {
+            setActiveTab(initialTab);
+        }
     }, [initialTab]);
 
     const [composerSeed] = useState(() => readComposerDraft() || emptyComposerDraft());
@@ -1469,7 +1474,10 @@ export default function AdStudio({ onBack, initialTab = 'create' }) {
                             {`This adds a reviewed ${selectedPlatform?.name || 'social'} draft to the list on this screen. Nothing is sent to a social platform.`}
                         </div>
                         {draftError && (
-                            <p className="tho-image-error" role="alert">{draftError}</p>
+                            <>
+                                <p className="tho-image-error" role="alert">{draftError}</p>
+                                <p className="tho-preview-hint">The preview stays open, so your words are still here. Press Prepare Draft one more time.</p>
+                            </>
                         )}
                         <button
                             className="tho-btn tho-btn-primary w-full flex items-center justify-center gap-2"

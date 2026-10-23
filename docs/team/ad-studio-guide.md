@@ -32,10 +32,10 @@ Use this when you want words, a picture, or a slideshow for TikTok, Instagram, o
 6. If you want a picture, a spoken version, or an AI video, the screen asks you to confirm first. Those can use a paid AI tool. They still do not post the ad.
 7. Press **Prepare Draft** only after you have read the preview. That saves the draft on this screen. It does not send it to TikTok, Instagram, or Facebook.
 
-### Drafts disappear
+### Drafts on this browser
 
-A prepared draft stays on the **Drafts** tab only while this screen stays open.
-Refreshing the page or leaving removes it. Copy the words or download the picture before you go.
+A prepared draft stays on this browser while you stay signed in.
+Signing out removes it. Copy the words or download the picture before you sign out.
 
 To put the post on TikTok, Instagram, or Facebook, a person still has to post it there by hand.
 

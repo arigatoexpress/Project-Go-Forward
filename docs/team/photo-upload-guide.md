@@ -2,181 +2,191 @@
 
 **For everyone on the team — no tech skills required. About 2 minutes per home.**
 
-This guide shows you how to put pictures on a home so customers can see them on
-the website. If you can text a photo, you can do this.
+This guide matches the Photos screen. If you can text a photo, you can do this.
 
-The photos you add show up on the **Inventory** page of the website
-automatically — usually within a minute.
+The photos you add show up on the **Inventory** page of the website, usually within a minute.
+
+Use a picture you took of that home. Do not use a floor plan, and do not use a picture from the internet or from another dealer’s website. Those pictures are not ours to put on a home.
 
 ---
 
 ## What you need
 
 - A computer, phone, or tablet.
-- The photos saved on that device (from your camera roll, Photos app, or a
-  folder). JPG, PNG, WebP, and GIF pictures all work.
+- The photos on that device (camera roll, Photos app, or a folder). JPG, PNG, WebP, and GIF all work.
 - Your work email, so you can sign in. See [How to sign in](staff-sign-in.md).
 
 ---
 
-## The 3 steps (short version)
+## The short version
 
-1. Log in → click the **Camera** button labeled **Photos**.
-2. **Pick the home**, then **drag in or choose your pictures**.
-3. Wait for the green **"photos added"** message. Done.
-
-That's it. The rest of this page just shows each step with pictures of what
-you'll see.
+1. Sign in, then open **Photos**.
+2. **Needs photos** is already selected. Tap the home.
+3. Tap **Choose photos** or **Take a photo**.
+4. Wait for the green message that the photos were added.
 
 ---
 
 ## Step-by-step
 
-### 1. Open the website and log in
+### 1. Open the website and sign in
 
-1. Go to **https://www.texashomeoutlet.com/staff** in your web browser (Safari, Chrome,
-   or Edge are all fine). Bookmark that page.
+1. Go to **https://www.texashomeoutlet.com/staff** (Safari, Chrome, or Edge). Bookmark it.
 2. Type your work email and tap **Email me a sign-in link**.
 3. Open the email and tap **Sign me in**.
 
-> **Tip:** If the email does not arrive, check spam, then use **Use backup PIN**
-> or ask a teammate to add your email on the Team page. See
-> [staff sign-in](staff-sign-in.md).
+If the email does not arrive, check spam. **Use backup PIN** is only for when email is down and someone gave you the PIN. See [How to sign in](staff-sign-in.md).
 
-### 2. Open the Photos screen
+### 2. Open Photos
 
-After you log in, a few extra buttons appear in the top menu. Click the one with
-the **camera icon** that says **Photos**.
+After you sign in, the top menu shows **Photos** (a camera icon).
 
-On a phone, tap the **menu (☰)** first, then tap **Photos**.
+On a phone, tap **Open menu** (the button with three lines), then tap **Photos**.
 
-You can also go straight to **https://www.texashomeoutlet.com/photos**. If you
-are not signed in yet, it asks you to sign in first, then opens the Photos screen.
+You can also go straight to **https://www.texashomeoutlet.com/photos**. If you are not signed in, it asks you to sign in, then opens Photos.
 
-### 3. Pick the home
+The page title is **Add Photos to Homes**. Under it:
 
-1. In the **"Search homes…"** box, start typing part of the home's name
-   (for example, *Glory* or *Creole*).
-2. Click the home you want in the list below the search box.
+> Add a real photo of the home. Customers will see it on the website. Use a picture you took. Do not use a floor plan or a picture from the internet.
 
-> You'll see the home's name appear under **"Add the photos."** That's how you
-> know you picked the right one.
+### 3. Pick a home that still needs a photo
+
+**Needs photos** is already selected. The number on that button is how many homes are left. The line under **Pick the home** says:
+
+> These homes show a floor plan, or their picture did not load. Pick one and add a photo.
+
+Each home shows why it is on the list:
+
+| What you see on the home | What the page says after you tap it |
+|---|---|
+| **Only a floor plan** | Customers see a floor plan for this home, not a photo. Add a picture you took. |
+| **No photo yet** | This home has no photo yet. Add a picture you took. |
+| **Picture did not load** | The picture on the website did not load, so customers cannot see it. Add a picture you took. |
+| **Orderable plan** | This name is on the home because a customer can order it. It may not be sitting on the lot. |
+
+A line may say **Checking a few website pictures…** while the page looks for pictures that did not load. Wait a moment and those homes join the list.
+
+To find a home, type part of its name in **Search homes…** (for example, *Glory* or *Skyliner*).
+
+Tap the home. Its name stays at the top of step 1, and **Add the photos** is the next box. You do not have to scroll past a long list.
+
+**All homes** shows every home, including ones that already have a photo. **Include sold/archived homes** adds homes that are no longer for sale.
+
+Wrong home? Tap **Choose a different home**.
 
 ### 4. Add the photos
 
-You have two easy ways:
+Step 2 is **Add the photos**. Two big buttons:
 
-- **Easiest:** click the big dashed box that says
-  **"Tap here to choose photos."** Your device opens its photo picker. Select
-  one or several pictures, then press **Open** / **Choose** / **Add**.
-- **Or drag and drop** (on a computer): open the folder with your pictures,
-  then drag them onto the dashed box and let go.
+- **Choose photos** — **From this phone or computer**. Pick one or several pictures.
+- **Take a photo** — **Opens the camera**. Take one picture. You can tap it again for another.
 
-You can add several photos at once (up to 20 at a time).
+On a computer you can also drop photos on that box. The line under the buttons says:
 
-### 5. Wait for the green check
+> or drop photos here · up to 20 at a time · JPG, PNG, WebP, or GIF · up to 15 MB each
 
-A spinner shows while it works. When it's done you'll see a **green message**
-like *"3 photos added. They will show on the website shortly."*
+And:
 
-Scroll down to **"Photos on this home"** to see everything you've added.
+> Use a photo you took. Do not use a picture from the internet.
 
-### 6. Choose the main photo (optional)
+For a pre-owned home the page also says: **This is a pre-owned home. Add pictures of this home, taken on the lot.**
 
-The **first** photo, marked with a blue **★ Main** badge, is the big picture
-customers see first on the website. To feature a different one, hover over (or
-tap) any other photo and click **"★ Make main."** It jumps to the front.
+While it works, the page says **Uploading… please wait**.
 
-To fine-tune the gallery order, use the **‹ ›** arrows in the bottom-right of
-each photo to nudge it earlier or later.
+### 5. Wait for the green message
 
-### 7. (Optional) Remove a photo
+When it works, a green box says how many photos were added, for example:
 
-Under **"Photos on this home,"** hover over (or tap) a picture and click the
-small **trash-can icon** in its corner. Confirm, and it's removed from the
-website.
+> 3 photos added. Customers will see them on the website shortly.
 
----
+A red box means they were not added. Read the words in the box. The usual ones are in [If something goes wrong](#if-something-goes-wrong).
 
-## Find the homes that still need pictures
+### 6. Photos on this home
 
-On the **Pick the home** step there's a checkbox: **"Show only homes that still
-need photos."** Tick it to see just the homes with no real photos yet — a
-ready-made to-do list for your next photo run. The amber **"N need photos"**
-badge tells you how many are left.
+**Photos on this home** shows what you added.
+
+The first photo has a blue **Main** badge. That is the picture customers see first. On any other photo, tap **Make main**.
+
+The **‹ ›** buttons move a photo earlier or later.
+
+To remove one, tap the trash can (**Remove photo**). The question is **Remove this photo from the website?** Tap **Yes, remove the photo** or **No, keep the photo**.
 
 ---
 
-## See your photos on the live site
+## See the photo on the website
 
-1. Click **Inventory** in the top menu (or open the site in another tab).
-2. Find your home. Your new pictures should be there.
+1. Open **Homes for Sale** (on a phone: **Open menu**, then **Homes for Sale**).
+2. Find the home.
 
-If you just added them and don't see them yet, **wait about a minute and
-refresh the page** (pull down on a phone, or press the circular refresh arrow).
+If you just added the photo, wait about a minute and refresh (pull down on a phone, or press the refresh button).
 
 ---
 
-## Good photo tips (so homes look great)
+## Good photo tips
 
-- **Hold the phone sideways (landscape).** Wide photos fill the website best.
-- **Take the first/best photo of the front of the home** — that one becomes the
-  main picture customers see first.
-- **Good light helps.** Daytime, blinds open, lights on.
-- **A handful is plenty.** 5–10 strong photos beat 30 blurry ones.
-- **No floor plans here.** This tool is for real on-lot photos. (Floor plans are
-  handled separately by the office.)
-- **You do not need to rename photos.** If the file name already includes a plain
-  word such as exterior, kitchen, or bath, the website can describe that picture.
-  A name like IMG_1234 is fine.
+- Hold the phone sideways. Wide photos fill the page better.
+- Take the front of the home first. You can tap **Make main** if a later picture is better.
+- Daytime, blinds open, lights on.
+- A handful is plenty. 5–10 clear photos are better than 30 blurry ones.
+- You do not need to rename the file. A name like IMG_1234 is fine.
 
 ---
 
 ## If something goes wrong
 
-### "I don't see the Photos button"
-You're probably not logged in. Click the **🔒 lock icon** (top-right) and enter
-the PIN. The admin buttons only appear after you log in.
+### “I don’t see Photos”
+You are not signed in. Open **https://www.texashomeoutlet.com/staff** and use **Email me a sign-in link**. On a phone, tap **Open menu** to see **Photos**.
 
-### "It says 'Pick a home first'"
-Choose a home from the list in Step 3 before adding pictures.
+### “Pick a home first, then add photos.”
+Tap a home under **Pick the home** before you add pictures.
 
-### "Some photos were skipped"
-The file wasn't a picture, or it was bigger than 15 MB. Re-save it as a JPG or
-take a fresh photo and try again. Screenshots and HEIC photos from very old
-phones can sometimes be skipped — sharing the photo to yourself first usually
-converts it to a normal JPG.
+### “Those files were not photos. Use JPG, PNG, WebP, or GIF.”
+The file was not a picture. Take a new one, or use **Choose photos** on a JPG.
 
-### "Nothing happens when I click the box"
-Make sure you picked a home first (the box is greyed out until you do). If it's
-still stuck, refresh the page and log in again.
+### “That photo is in HEIC format. Tap Take a photo, or choose a JPG.”
+The phone saved a HEIC picture. Tap **Take a photo**, or send the picture to yourself in Messages (that usually makes a JPG) and use **Choose photos**.
 
-### "My photo is sideways on the website"
-Photos are **auto-rotated** when you upload them, so this is rare. If one still
-looks sideways, rotate it in your phone's Photos app, then add it again and
-delete the sideways one. (Big photos are also automatically shrunk so the
-website stays fast — you don't need to resize anything yourself.)
+### “No photos were added. Make sure they are JPG, PNG, WebP, or GIF under 15 MB.”
+The picture was too big or not a kind the page can save. Take a fresh photo with the camera button, or send the picture to yourself in Messages first (that usually makes a normal JPG) and choose it again.
 
-### "I added the photo but it's not on the website"
-Wait one minute and refresh the Inventory page. Photos appear within about a
-minute. If it's been longer, tell Ari.
+### “The photo safe is busy…”
+Nothing new was saved, or only some pictures were saved. The box names any files to retry. Refresh the page, then add those pictures again.
+
+### “Something went wrong uploading. Check your connection and try again.”
+The internet dropped. Wait until you have a signal, then try the same photos again.
+
+### “Could not load the list of homes. Please refresh.”
+Pull to refresh, or reload the page. If it stays empty, tell the office.
+
+### “Every home already has a photo customers can see.”
+The **Needs photos** list is empty. You are done, unless you meant to add more pictures to a home that already has one. Tap **All homes** for that.
+
+### “No homes match. Try fewer letters.”
+The search is too specific. Delete some letters.
+
+### The photo looks sideways
+The page turns photos upright when you add them. If one is still sideways, rotate it in the phone’s Photos app, add it again, and remove the sideways one.
+
+### The photo is not on the Inventory page
+Wait one minute and refresh. If it is still missing, tell the office the home’s name.
 
 ---
 
-## Quick reference card (print this)
+## Quick reference
 
 | To do this | Where |
 |---|---|
-| **Log in** | Click 🔒 (top-right) → type PIN |
-| **Open uploader** | Click **Photos** (camera icon) in the top menu |
-| **Pick a home** | Type in the search box → click the home |
-| **Add pictures** | Click the dashed box → choose photos (or drag them in) |
-| **Check it worked** | Look for the green "photos added" message |
-| **Set the main photo** | "★ Make main" button on a picture |
-| **Find homes needing photos** | Tick "Show only homes that still need photos" |
-| **Remove a photo** | Trash-can icon on the picture |
-| **See it live** | Open the **Inventory** page and refresh |
+| **Sign in** | www.texashomeoutlet.com/staff → **Email me a sign-in link** |
+| **Open Photos** | **Photos** in the top menu. On a phone: **Open menu**, then **Photos** |
+| **See homes that need pictures** | **Needs photos** (already selected) |
+| **See every home** | **All homes** |
+| **Pick a home** | Tap it in the list. Search with **Search homes…** |
+| **Add pictures** | **Choose photos** or **Take a photo** |
+| **Check it worked** | Green message: the photos were added |
+| **Set the main photo** | **Make main** |
+| **Remove a photo** | Trash can, then **Yes, remove the photo** |
+| **See it on the website** | **Homes for Sale**, then refresh |
 
 ---
 
-*Questions? Ping Ari. Companion to `docs/team/passkey-setup-guide.md`.*
+*Questions? Ask in the office. Sign-in details: `docs/team/staff-sign-in.md`.*
