@@ -16,10 +16,14 @@ import tempfile
 import time
 import uuid
 
+from tools.outbound_url import fetch_public_url
+
 logger = logging.getLogger(__name__)
 
 SLIDESHOW_FAILED = "The slideshow was not created. Nothing was posted. Try again."
-PHOTOS_FAILED = "Those photos could not be used. Pick another photo and try again. Nothing was posted."
+PHOTOS_FAILED = (
+    "Those photos could not be used. Pick another photo and try again. Nothing was posted."
+)
 AI_VIDEO_UNAVAILABLE = (
     "The AI video is not available right now. You can still make a slideshow. Nothing was posted."
 )
@@ -46,7 +50,7 @@ def generate_ad_video(
     Generate an MP4 video from photos, voiceover, and script.
     """
     try:
-        import requests
+        # moviepy is optional at import so a missing binary fails this tool only.
         from moviepy.editor import (
             AudioFileClip,
             ImageClip,
@@ -80,7 +84,9 @@ def generate_ad_video(
 
         for i, photo_url in enumerate(photos[:6]):
             try:
-                response = requests.get(photo_url, timeout=30)
+                response = fetch_public_url(photo_url, timeout=30)
+                if 300 <= getattr(response, "status_code", 200) < 400:
+                    raise ValueError("refused photo URL redirect")
                 response.raise_for_status()
 
                 img_path = os.path.join(temp_dir, f"photo_{i}.jpg")
@@ -200,9 +206,12 @@ def _save_source_image(
             handle.write(base64.b64decode(raw))
         return path
     if home_photo_url:
-        import requests
-
-        response = requests.get(home_photo_url, timeout=20)
+        try:
+            response = fetch_public_url(home_photo_url, timeout=20)
+        except ValueError:
+            return None
+        if 300 <= getattr(response, "status_code", 200) < 400:
+            return None
         response.raise_for_status()
         path = os.path.join(temp_dir, "source.jpg")
         with open(path, "wb") as handle:

@@ -217,28 +217,34 @@ class TestCreateSession:
         return runner
 
     def test_session_created(self, monkeypatch):
-        _client, main, _db, _logger = create_client(monkeypatch)
+        client, main, _db, _logger = create_client(monkeypatch)
         self._runner_with(monkeypatch, main)
 
-        result = asyncio.run(main.create_session("tho-app", "user-1", "sess-1"))
+        result = client.post("/apps/tho-app/users/user-1/sessions/sess-1")
 
-        assert result == {"status": "created", "session_id": "sess-1"}
+        assert result.status_code == 200
+        assert result.json() == {"status": "created", "session_id": "sess-1"}
 
     def test_runtime_error_is_service_unavailable(self, monkeypatch):
-        _client, main, _db, _logger = create_client(monkeypatch)
+        client, main, _db, _logger = create_client(monkeypatch)
         self._runner_with(monkeypatch, main, error=RuntimeError("runner wedged"))
 
-        result = asyncio.run(main.create_session("tho-app", "user-1", "sess-1"))
+        result = client.post("/apps/tho-app/users/user-1/sessions/sess-1")
 
-        assert result == {"status": "error", "message": "AI service temporarily unavailable."}
+        assert result.status_code == 200
+        assert result.json() == {
+            "status": "error",
+            "message": "AI service temporarily unavailable.",
+        }
 
     def test_generic_error_is_retry_message(self, monkeypatch):
-        _client, main, _db, _logger = create_client(monkeypatch)
+        client, main, _db, _logger = create_client(monkeypatch)
         self._runner_with(monkeypatch, main, error=ValueError("bad app name"))
 
-        result = asyncio.run(main.create_session("tho-app", "user-1", "sess-1"))
+        result = client.post("/apps/tho-app/users/user-1/sessions/sess-1")
 
-        assert result == {
+        assert result.status_code == 200
+        assert result.json() == {
             "status": "error",
             "message": "Failed to create session. Please try again.",
         }

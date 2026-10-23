@@ -122,6 +122,26 @@ jobs:
             --no-traffic --tag=candidate \
             --quiet
 
+      - name: Warm candidate
+        # The candidate tag has no traffic, so the first GET / pays container
+        # startup and the smoke timings jump around. This step requests GET /
+        # on the candidate tag URL until one response is under 1.5s. The
+        # attempt budget lives in scripts/warm_candidate.py: 20s, then 8s,
+        # then 5s, with 1s between attempts. Worst case is 35s. A dead
+        # candidate fails in that window instead of hanging smoke.
+        run: |
+          set -euo pipefail
+          URL=$(gcloud run services describe ${{ env.SERVICE }} \
+            --region ${{ env.REGION }} \
+            --project ${{ env.PROJECT_ID }} \
+            --format='value(status.traffic.filter(tag:candidate).extract(url).flatten())')
+          if [ -z "$URL" ]; then
+            echo "ERROR: could not resolve candidate-tagged URL before warm-up"
+            exit 1
+          fi
+          echo "Candidate URL: $URL"
+          python scripts/warm_candidate.py --base-url "$URL"
+
       - name: Verify deployment
         env:
           GITHUB_TOKEN: ${{ github.token }}
