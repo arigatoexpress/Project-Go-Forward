@@ -3,7 +3,9 @@
 import base64
 import importlib.util
 import io
+import sys
 import tempfile
+import types
 import wave
 from pathlib import Path
 from types import SimpleNamespace
@@ -12,12 +14,39 @@ from unittest.mock import patch
 from PIL import Image
 
 
-def main():
-    # Load the real runtime module without initializing unrelated tools/agents.
-    source = Path(__file__).resolve().parents[1] / "tools" / "video_generator.py"
+def load_video_generator():
+    """Load video_generator.py without running tools/__init__.py.
+
+    This file is executed by path from a venv that does not have the repo
+    root on sys.path. Preload the SSRF helper under its package name so
+    ``from tools.outbound_url import ...`` succeeds. Putting the repo root
+    on sys.path would import tools/__init__.py and the document stack.
+    """
+    tools_dir = Path(__file__).resolve().parents[1] / "tools"
+    if "tools.outbound_url" not in sys.modules:
+        pkg = sys.modules.get("tools")
+        if pkg is None:
+            pkg = types.ModuleType("tools")
+            pkg.__path__ = [str(tools_dir)]
+            pkg.__package__ = "tools"
+            sys.modules["tools"] = pkg
+        outbound_spec = importlib.util.spec_from_file_location(
+            "tools.outbound_url", tools_dir / "outbound_url.py"
+        )
+        outbound = importlib.util.module_from_spec(outbound_spec)
+        sys.modules["tools.outbound_url"] = outbound
+        outbound_spec.loader.exec_module(outbound)
+
+    source = tools_dir / "video_generator.py"
     spec = importlib.util.spec_from_file_location("production_video_smoke", source)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
+    return module
+
+
+def main():
+    # Load the real runtime module without initializing unrelated tools/agents.
+    module = load_video_generator()
 
     photo = io.BytesIO()
     Image.new("RGB", (64, 48), "navy").save(photo, format="JPEG")
@@ -33,7 +62,7 @@ def main():
         # composition, and FFmpeg audio/video encoding with synthetic fixtures.
         with (
             patch.object(module, "GENERATED_VIDEOS_DIR", directory),
-            patch("requests.get", return_value=response),
+            patch.object(module, "fetch_public_url", return_value=response),
         ):
             result = module.generate_ad_video(
                 photos=["https://example.invalid/synthetic.jpg"],

@@ -9,6 +9,21 @@ sys.path.insert(0, str(Path(__file__).parent))
 from test_api_v1 import create_client  # noqa: E402
 
 
+def test_feedback_is_rate_limited(monkeypatch, tmp_path):
+    client, main, _db, _logger = create_client(monkeypatch)
+    monkeypatch.setattr(main, "__file__", str(tmp_path / "main.py"))
+    main.limiter.reset()
+    try:
+        statuses = [
+            client.post("/api/feedback", json={"description": f"note {i}"}).status_code
+            for i in range(11)
+        ]
+    finally:
+        main.limiter.reset()
+    assert statuses[:10] == [200] * 10
+    assert statuses[10] == 429
+
+
 def test_feedback_requires_description(monkeypatch):
     client, _main, _db, _logger = create_client(monkeypatch)
 
