@@ -324,7 +324,7 @@ export default function PhotoManager({ onBack }) {
               <Loader2 className="animate-spin" size={18} /> Loading homes…
             </div>
           ) : filteredHomes.length === 0 ? (
-            <p className="text-sm text-gray-500 py-3">
+            <p role="status" className="text-sm text-gray-500 py-3">
               {listedHomes.length === 0 && !loadError
                 ? 'No homes for sale right now. Tick “Include sold/archived homes” to see the rest.'
                 : 'No homes match. Try fewer letters.'}
@@ -372,6 +372,11 @@ export default function PhotoManager({ onBack }) {
           <p className="text-sm text-gray-500 mb-3 ml-8">
             {selectedHome ? `For: ${homeName(selectedHome)}${stockLabel(selectedHome) ? ` (${stockLabel(selectedHome)})` : ''}` : 'Pick a home above first.'}
           </p>
+          {selectedHome && selectedHome.is_new === false && (
+            <p className="text-sm text-slate-700 mb-3 ml-8 leading-relaxed">
+              This is a pre-owned home. Upload real photos taken on the lot. A floor plan shows as a floor plan, not as a photo of the home. If a photo does not show on the website, tell the owner. Photo upload on a pre-owned home has not been checked on the live site yet.
+            </p>
+          )}
 
           <div
             role="button"
@@ -454,9 +459,9 @@ export default function PhotoManager({ onBack }) {
                 <Loader2 className="animate-spin" size={18} /> Loading…
               </div>
             ) : photos.length === 0 ? (
-              <div className="flex flex-col items-center gap-2 text-gray-500 py-6">
-                <ImageOff size={32} />
-                <span className="text-sm">No photos added yet. Add some above.</span>
+              <div role="status" className="flex flex-col items-center gap-2 text-gray-500 py-6">
+                <ImageOff size={32} aria-hidden="true" />
+                <span className="text-sm">No photos added yet. Add real photos of the home on the lot above.</span>
               </div>
             ) : (
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">

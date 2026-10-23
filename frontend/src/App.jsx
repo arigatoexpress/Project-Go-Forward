@@ -120,6 +120,7 @@ function NavBar({
   onSignOut,
   onPasskeyRegister,
   passkeyLoading,
+  showPasskeySave = false,
   isMobileMenuOpen,
   setIsMobileMenuOpen,
   showSearchFilters,
@@ -285,7 +286,7 @@ function NavBar({
               <span className="hidden xl:inline">{adminAuthed ? 'Signed in' : 'Staff'}</span>
             </button>
 
-            {adminAuthed && (
+            {adminAuthed && showPasskeySave && (
               <button
                 onClick={onPasskeyRegister}
                 disabled={passkeyLoading}
@@ -293,7 +294,7 @@ function NavBar({
                 aria-label="Save sign-in on this phone"
                 title="Save sign-in on this phone"
               >
-                <KeyRound size={14} />
+                <KeyRound size={14} aria-hidden="true" />
               </button>
             )}
 
@@ -354,13 +355,13 @@ function NavBar({
               {adminAuthed ? <ShieldCheck size={18} className="mr-3 text-[var(--cp-accent)]" /> : <Lock size={18} className="mr-3" />}
               {adminAuthed ? 'Staff Home' : 'Staff sign-in'}
             </button>
-            {adminAuthed && (
+            {adminAuthed && showPasskeySave && (
               <button
                 onClick={onPasskeyRegister}
                 disabled={passkeyLoading}
                 className="flex items-center w-full py-3 px-2 text-[var(--cp-muted)] hover:text-[var(--cp-accent)] hover:bg-[var(--cp-surface)] rounded-lg transition-colors text-sm disabled:opacity-50"
               >
-                <KeyRound size={18} className="mr-3" />
+                <KeyRound size={18} className="mr-3" aria-hidden="true" />
                 Save sign-in on this phone
               </button>
             )}
@@ -729,6 +730,7 @@ function App() {
     return window.localStorage.getItem('tho_passkey_email') || '';
   });
   const [passkeyEmailError, setPasskeyEmailError] = useState('');
+  const [passkeySignInEnabled, setPasskeySignInEnabled] = useState(false);
 
   const refreshPasskeyStatus = useCallback(async () => {
     try {
@@ -749,6 +751,24 @@ function App() {
   useEffect(() => {
     refreshPasskeyStatus();
   }, [refreshPasskeyStatus, adminAuthed]); // Refresh when auth state changes
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/admin/sign-in/options', {
+      headers: { Accept: 'application/json' },
+      credentials: 'same-origin',
+    })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data) => {
+        if (!cancelled) setPasskeySignInEnabled(data?.passkey_sign_in === true);
+      })
+      .catch(() => {
+        if (!cancelled) setPasskeySignInEnabled(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [adminAuthed]);
 
   const handlePasskeyLogin = async () => {
     if (!window.PublicKeyCredential) { setPasskeyError('Passkeys not supported in this browser'); return; }
@@ -820,11 +840,12 @@ function App() {
       setShowPinModal(true);
       return;
     }
+    if (!passkeySignInEnabled) return;
     setPasskeyError('');
     setPasskeyEmailError('');
     setShowPasskeyEmailModal(true);
     setIsMobileMenuOpen(false);
-  }, [adminAuthed]);
+  }, [adminAuthed, passkeySignInEnabled]);
 
   const handlePasskeyRegister = async (emailValue) => {
     if (!window.PublicKeyCredential) { setPasskeyError('Passkeys not supported in this browser'); return; }
@@ -1465,6 +1486,7 @@ function App() {
     onSignOut: handleSignOut,
     onPasskeyRegister: openPasskeyRegisterModal,
     passkeyLoading,
+    showPasskeySave: passkeySignInEnabled,
     isMobileMenuOpen,
     setIsMobileMenuOpen,
     darkMode,

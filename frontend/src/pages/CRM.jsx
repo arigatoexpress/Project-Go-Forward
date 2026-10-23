@@ -8,6 +8,8 @@ import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip } 
 import adminFetch from '../adminFetch';
 import downloadAdminFile from '../downloadAdminFile';
 import { describeFetchError, extractErrorMessage, responseErrorMessage, safeUserMessage } from '../utils/apiError';
+import { dealSaveMessage } from '../utils/dealSaveMessage';
+import { leadHomeHref, leadInterestLine } from '../utils/leadInterest';
 import StatusBadge, { STATUS_COLORS, DEAL_STATUS_COLORS } from '../components/StatusBadge';
 import ReviewRequestCard from '../components/ReviewRequestCard';
 import EmailDraftsPanel from '../components/EmailDraftsPanel';
@@ -686,6 +688,7 @@ export default function CRM({ onBack }) {
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="font-semibold text-lg text-slate-800">{lead.name || 'Unknown person'}</div>
+                      <div className="text-base text-slate-700">{leadInterestLine(lead)}</div>
                       <div className="flex flex-wrap gap-3 mt-1 text-base text-gray-700">
                         {lead.phone && (
                           <span className="flex items-center gap-1">
@@ -771,7 +774,7 @@ export default function CRM({ onBack }) {
                       />
                     ))}
                     {statusDeals.length === 0 && (
-                      <div className="text-center text-gray-600 text-[13px] py-6">No deals</div>
+                      <div role="status" className="text-center text-gray-600 text-base py-6">No deals in this step.</div>
                     )}
                   </div>
                 </div>
@@ -1189,6 +1192,10 @@ function LeadDetail({ lead, onClose, onUpdateStatus, onEmail, appointments, emai
         </div>
         <div>
           <h2 className="text-xl font-bold text-slate-800 m-0">{lead.name || 'Unknown'}</h2>
+          <p className="text-base text-slate-700 mt-1 mb-0">{leadInterestLine(lead)}</p>
+          {leadHomeHref(lead) && (
+            <a className="text-base text-blue-700 underline" href={leadHomeHref(lead)}>Open the home they asked about</a>
+          )}
           <div className="flex flex-wrap gap-4 mt-1 text-[13px] text-gray-700">
             {lead.phone && <span className="flex items-center gap-1"><Phone size={14} /> {lead.phone}</span>}
             {lead.email && <span className="flex items-center gap-1"><Mail size={14} /> {lead.email}</span>}
@@ -1380,10 +1387,10 @@ function NewDealForm({ onCreated }) {
         onCreated();
         setTimeout(() => { setOpen(false); setResult(null); }, 2000);
       } else {
-        setResult({ ok: false, msg: safeUserMessage(extractErrorMessage(d), 'Failed to create deal') });
+        setResult({ ok: false, msg: dealSaveMessage(d) });
       }
     } catch {
-      setResult({ ok: false, msg: 'Network error' });
+      setResult({ ok: false, msg: dealSaveMessage(null) });
     }
     setSaving(false);
   };
@@ -1400,21 +1407,34 @@ function NewDealForm({ onCreated }) {
     );
   }
 
-  const field = (label, name, opts = {}) => (
-    <div style={{ flex: opts.half ? '1 1 45%' : '1 1 100%' }}>
-      <label style={{ fontSize: 10, color: '#888', textTransform: 'uppercase', letterSpacing: 1 }}>{label}</label>
-      <input name={name} type={opts.type || 'text'} required={opts.req} placeholder={opts.ph || ''}
-        style={{ width: '100%', padding: '8px 10px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
-                 borderRadius: 6, color: '#fff', fontSize: 13, marginTop: 2 }} />
-    </div>
-  );
+  const field = (label, name, opts = {}) => {
+    const inputId = `new-deal-${name}`;
+    const helpId = opts.help ? `${inputId}-help` : undefined;
+    return (
+      <div style={{ flex: opts.half ? '1 1 45%' : '1 1 100%' }}>
+        <label htmlFor={inputId} style={{ fontSize: 16, color: '#e5e7eb', fontWeight: 600 }}>
+          {label}{opts.req ? ' (required)' : ''}
+        </label>
+        {opts.help && (
+          <p id={helpId} style={{ fontSize: 14, color: '#cbd5e1', margin: '4px 0 0', lineHeight: 1.4 }}>{opts.help}</p>
+        )}
+        <input id={inputId} name={name} type={opts.type || 'text'} required={opts.req} placeholder={opts.ph || ''}
+          aria-describedby={helpId}
+          style={{ width: '100%', padding: '10px 12px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.2)',
+                   borderRadius: 6, color: '#fff', fontSize: 16, marginTop: 4, minHeight: 44 }} />
+      </div>
+    );
+  };
 
   return (
     <div style={{ background: '#111118', border: '1px solid #22c55e33', borderRadius: 10, padding: 16, marginBottom: 14 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
-        <span style={{ fontSize: 14, fontWeight: 700, color: '#22c55e' }}>New Deal</span>
-        <button onClick={() => setOpen(false)} style={{ background: 'none', border: 'none', color: '#666', cursor: 'pointer', fontSize: 18 }}>×</button>
+        <span style={{ fontSize: 18, fontWeight: 700, color: '#22c55e' }}>New Deal</span>
+        <button type="button" onClick={() => setOpen(false)} aria-label="Close the new deal form" style={{ background: 'none', border: 'none', color: '#e5e7eb', cursor: 'pointer', fontSize: 18, minHeight: 44, minWidth: 44 }}>Close</button>
       </div>
+      <p style={{ fontSize: 16, color: '#cbd5e1', marginTop: 0, lineHeight: 1.45 }}>
+        If the message names a field, tell the owner. Nothing is saved until you see Deal created.
+      </p>
       <form onSubmit={handleSubmit}>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginBottom: 10 }}>
           {field('First Name', 'buyer_first_name', { half: true, req: true, ph: 'John' })}
@@ -1434,8 +1454,8 @@ function NewDealForm({ onCreated }) {
           {field('Model', 'model', { half: true, ph: 'The Breeze' })}
           {field('Serial #', 'serial_number_1', { half: true, ph: 'CLT-2026-001' })}
           {field('Sales Rep', 'salesrep', { half: true, ph: 'Adriana Squyres' })}
-          {field('Sales Price', 'sales_price', { half: true, type: 'number', ph: '72000' })}
-          {field('Down Payment', 'down_payment', { half: true, type: 'number', ph: '8000' })}
+          {field('Sales price', 'sales_price', { half: true, type: 'number', ph: '72000', help: 'Use the price written on the deal sheet.' })}
+          {field('Down payment', 'down_payment', { half: true, type: 'number', ph: '8000', help: 'Use the down payment written on the deal sheet.' })}
         </div>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
           <button type="submit" disabled={saving}
@@ -1444,9 +1464,9 @@ function NewDealForm({ onCreated }) {
             {saving ? 'Creating...' : 'Create Deal'}
           </button>
           {result && (
-            <span style={{ fontSize: 12, color: result.ok ? '#22c55e' : '#ef4444' }}>
-              {result.ok ? '✅' : '❌'} {result.msg}
-            </span>
+            <p role={result.ok ? 'status' : 'alert'} style={{ fontSize: 16, color: result.ok ? '#22c55e' : '#fecaca', margin: 0, lineHeight: 1.4 }}>
+              {result.msg}
+            </p>
           )}
         </div>
       </form>

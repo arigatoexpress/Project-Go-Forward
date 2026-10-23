@@ -42,7 +42,7 @@ This tab cannot turn the ads on by itself.
 
 **Don't:** Tap **Resend code** over and over. Extra taps will not make the email arrive faster. Use the newest code if you asked more than once.
 
-**Don't:** Tap **Save sign-in on this phone**. That button saves a passkey, which is a sign-in stored on one phone. Passkey sign-in is turned off for staff. Use the email link.
+**Don't:** Look for **Save sign-in on this phone**. Passkey sign-in is turned off, so that button stays hidden. If you ever see it, leave it alone and use the email link.
 
 ### Homes and photos: real photos only
 
@@ -60,9 +60,9 @@ Used homes show only real photos of that home on the lot. Factory catalog pictur
 
 Ad Studio never posts by itself. The screen says **Nothing is posted.** A draft is only a draft. TikTok, Instagram, and Facebook do not get it until a person posts it there by hand.
 
-**Do:** Copy the words, or download the picture, before you close the page.
+**Do:** Copy the words, or download the picture, before you sign out.
 
-A prepared draft stays only while this screen stays open. Refreshing the page or leaving removes it. Nothing is saved for the next visit.
+A prepared draft stays on this browser while you stay signed in. Signing out removes it. Nothing is posted.
 
 ### Signing in
 
@@ -120,3 +120,5 @@ A link that contains `?home=` opens that home's page. A link that contains `/inv
 On a phone, **Call**, **Text**, and **Apply** show under the home name.
 
 The same page also shows **Call**, **Text**, and **Apply for financing** again further down. That extra set is still there.
+
+Other notes: [Weekly note for the team](weekly-staff-note.md).
