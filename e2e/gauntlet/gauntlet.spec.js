@@ -1,5 +1,6 @@
 import { expect, test } from 'playwright/test';
 
+import { clickEnabledAppointmentDay } from './appointmentDay.mjs';
 import { isLiveHost } from './target.mjs';
 
 // Journeys stay on the candidate tag host. Cloud Run answers /, /inventory,
@@ -197,12 +198,13 @@ test.describe('candidate storefront journeys', () => {
   test('appointment slots are read and not booked', async () => {
     await showPath(page, '/appointments');
     await expect(page.getByRole('heading', { name: 'Book an Appointment' })).toBeVisible();
-    const day = page.getByRole('button', { name: /^\d{1,2}$/, disabled: false }).first();
     const slotsResponse = page.waitForResponse((response) => {
       const url = new URL(response.url());
       return url.pathname === '/api/appointments/slots' && response.request().method() === 'GET';
     });
-    await day.click();
+    // The open month has no enabled date when today is a Sunday and the last
+    // day of that month. Advance, then read slots. Do not book.
+    await clickEnabledAppointmentDay(page);
     const response = await slotsResponse;
     expect(isLiveHost(hostOf(response.url()))).toBeFalsy();
     expect(response.status(), 'slots read stays below 500').toBeLessThan(500);
