@@ -230,6 +230,11 @@ These candidate paths stay on the candidate. Use them in step 3:
 - `/robots.txt`, `/sitemap.xml`, and `/llms.txt`
 - `/staff` (the sign-in page stays on the candidate host)
 
+The Deploy workflow requests three of these paths on the tag address before
+smoke: `/healthz/`, `/api/marketing/inventory-context`, and `/staff`. It does
+not follow redirects. A 308 does not count as warm. `GET /` is not in that
+list, because the tag host sends `/` to the live site.
+
 Check website pages, including the `/ad-studio` shell, on
 https://www.texashomeoutlet.com after promotion (step 6).
 
