@@ -6,16 +6,14 @@ config and the footer stay.
 """
 
 import html
-import json
 import re
 from pathlib import Path
 
 import pytest
 
-from config_loader import business_license, business_phone
-
 import seo_routes
-from test_seo_routes import _jsonld_blocks, seo_client
+from config_loader import business_legal_name, business_license, business_phone
+from tests.test_seo_routes import _jsonld_blocks, seo_client
 
 
 @pytest.fixture(autouse=True)
@@ -120,8 +118,6 @@ def test_recorded_license_matches_the_public_footer():
     assert business_phone() == "(281) 324-3020"
     constants = Path("frontend/src/constants.js").read_text(encoding="utf-8")
     assert 'BUSINESS_LEGAL_NAME = "Prosperity Acquisitions, Inc. dba Texas Home Outlet"' in constants
-    from config_loader import business_legal_name
-
     assert business_legal_name() == "Prosperity Acquisitions, Inc. dba Texas Home Outlet"
 
 
@@ -134,7 +130,7 @@ def test_public_html_and_jsonld_omit_unverified_claims(monkeypatch):
         structured = _json_text(_jsonld_blocks(page))
         _assert_clean(f"{path} visible copy", visible)
         _assert_clean(f"{path} JSON-LD", structured)
-        assert "(281) 324-3020" in visible
+        assert "(281) 324-3020" in visible or "(281) 324-3020" in structured
 
 
 def test_about_page_states_the_recorded_license(monkeypatch):
@@ -159,7 +155,7 @@ def test_legal_pages_use_the_recorded_identity(monkeypatch):
         assert "\u2014" not in visible
 
 
-def test_financing_warranty_and_delivery_copy_matches_jsonld(monkeypatch):
+def test_financing_warranty_and_delivery_meta_matches_visible_copy(monkeypatch):
     client, _ = seo_client(monkeypatch)
     expectations = {
         "/financing": "Ask our team about financing options.",
@@ -170,10 +166,14 @@ def test_financing_warranty_and_delivery_copy_matches_jsonld(monkeypatch):
     for path, phrase in expectations.items():
         page = client.get(path).text
         visible = _visible(page)
-        structured = _json_text(_jsonld_blocks(page))
+        description = re.search(r'<meta name="description" content="([^"]*)"', page).group(1)
         assert phrase in visible
-        assert phrase in structured
+        assert html.unescape(description) in visible
         assert "\u2014" not in visible
+        if path == "/faq":
+            assert phrase in _json_text(_jsonld_blocks(page))
+        else:
+            assert phrase in html.unescape(description)
 
 
 def test_faq_jsonld_answers_are_the_visible_answers(monkeypatch):

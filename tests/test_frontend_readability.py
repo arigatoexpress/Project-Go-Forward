@@ -243,7 +243,9 @@ def test_warranty_page_prioritizes_safety_escalation():
 
 def test_delivery_page_lists_service_area():
     source = DELIVERY_PAGE.read_text()
-    assert "Delivery available, ask for details" in source
+    shared = Path("frontend/src/seoCopy.js").read_text(encoding="utf-8")
+    assert "Delivery available, ask for details" in shared
+    assert "DELIVERY_LINE" in source
     assert "SERVICE_AREA_CITIES" in source
     assert "within weeks" not in source
     assert "free delivery" not in source.lower()

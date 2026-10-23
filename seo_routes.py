@@ -128,7 +128,7 @@ PUBLIC_ROUTES = {
     ),
     "/financing": (
         f"Manufactured Home Financing in {_CITY_STATE} | {business_name()}",
-        f"{_FINANCING_LINE} {business_name()} in {_CITY_STATE}.",
+        _FINANCING_LINE,
     ),
     "/faq": (
         f"Frequently Asked Questions | {business_name()}",
@@ -137,11 +137,13 @@ PUBLIC_ROUTES = {
     ),
     "/warranty": (
         f"Warranty & Service | {business_name()}",
-        f"{_WARRANTY_LINE} {business_name()} in {_CITY_STATE}.",
+        f"{_WARRANTY_LINE} {business_name()} can walk through the paperwork "
+        f"for the home you are considering.",
     ),
     "/delivery": (
         f"Delivery & Setup | {business_name()}",
-        f"{_DELIVERY_LINE} {business_name()} in {_CITY_STATE}.",
+        f"{_DELIVERY_LINE} {business_name()} can talk through transport, placement, "
+        f"and site preparation for a specific address.",
     ),
     "/locations": (
         f"Locations | {business_name()}",
@@ -1845,9 +1847,8 @@ def _locations_itemlist() -> dict:
 def _city_shopper_sentence(city: str) -> str:
     """Town-page intro. Same words as the React cityShopperSentence."""
     return (
-        f"{business_name()} lists manufactured and mobile homes for shoppers in {city}, TX "
-        f"from the {business_city()} showroom at {business_address()}. "
-        f"{_DELIVERY_LINE} Call {business_phone()} for the current price."
+        f"Homes for shoppers in {city}, TX at {business_name()}, {business_address()}. "
+        f"{_DELIVERY_LINE} Call {business_phone()}."
     )
 
 
@@ -1868,7 +1869,8 @@ def _crawlable_city_block(city: str) -> str:
         f"{_storefront_links(path)}"
         f"<ul>{''.join(items)}</ul>"
         f'<p><a href="/appointments">Book a showroom visit</a></p>'
-        f"<p>{e(business_name())}. {e(business_address())}. {e(business_hours())}.</p>"
+        f'<p>Call <a href="{_tel_href()}">{e(business_phone())}</a>. '
+        f"{e(business_address())}. {e(business_hours())}.</p>"
     )
 
 

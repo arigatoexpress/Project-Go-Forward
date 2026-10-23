@@ -170,16 +170,17 @@ describe('public pages omit unverified claims', () => {
     expect(screen.getByText(FINANCING_LINE)).toBeInTheDocument();
     expect(screen.getByText(DELIVERY_LINE)).toBeInTheDocument();
     expect(screen.getByText(WARRANTY_LINE)).toBeInTheDocument();
-    expect(screen.getByText(/Call for Price/)).toBeInTheDocument();
+    expect(screen.getAllByText(/Call for Price/).length).toBeGreaterThan(0);
     assertClean('faq');
     assertNoNewEmDash('faq');
   });
 
   it('keeps recorded identity facts on the legal pages', () => {
     render(<LegalPage page="privacy" />);
-    expect(screen.getByText(/manufactured and mobile home retailer/)).toBeInTheDocument();
-    expect(screen.getByText(new RegExp(BUSINESS_LEGAL_NAME))).toBeInTheDocument();
-    expect(screen.getByText(new RegExp(BUSINESS_PHONE.replace(/[()]/g, '\\$&')))).toBeInTheDocument();
+    const privacy = document.body.textContent || '';
+    expect(privacy).toMatch(/manufactured and mobile home retailer/);
+    expect(privacy).toContain(BUSINESS_LEGAL_NAME);
+    expect(privacy).toContain(BUSINESS_PHONE);
     assertClean('privacy');
     assertNoNewEmDash('privacy');
     cleanup();

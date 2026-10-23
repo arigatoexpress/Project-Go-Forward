@@ -40,9 +40,8 @@ export const LOCATIONS_DESCRIPTION =
 
 export function cityShopperSentence(city) {
   return (
-    `${BUSINESS_NAME} lists manufactured and mobile homes for shoppers in ${city}, TX `
-    + `from the ${BUSINESS_CITY} showroom at ${BUSINESS_FULL_ADDRESS}. `
-    + `${DELIVERY_LINE} Call ${BUSINESS_PHONE} for the current price.`
+    `Homes for shoppers in ${city}, TX at ${BUSINESS_NAME}, ${BUSINESS_FULL_ADDRESS}. `
+    + `${DELIVERY_LINE} Call ${BUSINESS_PHONE}.`
   );
 }
 
@@ -75,15 +74,14 @@ export const PUBLIC_DESCRIPTIONS = {
   about:
     `Learn about ${BUSINESS_NAME}, a licensed manufactured and mobile home dealership in `
     + `${BUSINESS_CITY}, ${BUSINESS_STATE} serving the Houston area.`,
-  financing:
-    `${FINANCING_LINE} ${BUSINESS_NAME} in ${BUSINESS_CITY}, ${BUSINESS_STATE}.`,
+  financing: FINANCING_LINE,
   faq:
     `Answers about manufactured homes, financing, delivery, warranty, and buying from `
     + `${BUSINESS_NAME} in ${BUSINESS_CITY}, ${BUSINESS_STATE}.`,
   warranty:
-    `${WARRANTY_LINE} ${BUSINESS_NAME} in ${BUSINESS_CITY}, ${BUSINESS_STATE}.`,
+    `${WARRANTY_LINE} ${BUSINESS_NAME} can walk through the paperwork for the home you are considering.`,
   delivery:
-    `${DELIVERY_LINE} ${BUSINESS_NAME} in ${BUSINESS_CITY}, ${BUSINESS_STATE}.`,
+    `${DELIVERY_LINE} ${BUSINESS_NAME} can talk through transport, placement, and site preparation for a specific address.`,
   privacy: legalPages.privacy.description,
   terms: legalPages.terms.description,
   'not-found': `The page you requested does not exist. Browse homes for sale at ${BUSINESS_NAME}.`,

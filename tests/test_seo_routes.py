@@ -16,7 +16,6 @@ import pytest
 
 from config_loader import (
     business_address,
-    business_city,
     business_name,
     business_phone,
     get_business,
@@ -940,10 +939,9 @@ def test_city_facts_file_failure_still_renders_page_and_sitemap(
     assert page.status_code == 200
     plain = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", page.text))
     held = (
-        f"{business_name()} lists manufactured and mobile homes for shoppers in Humble, TX "
-        f"from the {business_city()} showroom at {business_address()}. "
+        f"Homes for shoppers in Humble, TX at {business_name()}, {business_address()}. "
         "Delivery available, ask for details. "
-        f"Call {business_phone()} for the current price."
+        f"Call {business_phone()}."
     )
     assert "<h1>Manufactured &amp; Mobile Homes in Humble, TX</h1>" in page.text
     assert held in plain
@@ -976,10 +974,9 @@ def test_city_pages_keep_the_delivery_sentence_and_add_local_facts(monkeypatch):
     humble = client.get("/manufactured-homes-in-humble-tx").text
     plain = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", humble))
     held = (
-        f"{business_name()} lists manufactured and mobile homes for shoppers in Humble, TX "
-        f"from the {business_city()} showroom at {business_address()}. "
+        f"Homes for shoppers in Humble, TX at {business_name()}, {business_address()}. "
         "Delivery available, ask for details. "
-        f"Call {business_phone()} for the current price."
+        f"Call {business_phone()}."
     )
     assert held in plain
     crumbs = next(
