@@ -329,10 +329,14 @@ export default function StaffSignInPanel({
             type="button"
             onClick={requestEmail}
             disabled={loading}
+            aria-describedby="resend-code-help"
             className="w-full py-2 text-base underline"
           >
             Resend code
           </button>
+          <p id="resend-code-help" className="text-base text-center leading-relaxed text-[var(--cp-muted)]">
+            Extra taps will not make the email arrive faster. If you asked more than once, use the newest code.
+          </p>
         </form>
       )}
 
@@ -399,7 +403,7 @@ export default function StaffSignInPanel({
       )}
 
       <p className="mt-6 text-base text-[var(--cp-muted)] leading-relaxed text-center">
-        Nothing arrived? Check spam, then tap the button again. If it still does not come, ask a teammate to add your email. Do not send a code or PIN to anyone.
+        Nothing arrived? Check spam. You can ask for the email again, but extra taps will not make it arrive faster. Use the newest code. If it still does not come, ask a teammate to add your email. Do not send a code or PIN to anyone.
       </p>
 
       {onCancel && (

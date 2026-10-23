@@ -18,6 +18,7 @@ Bookmark the staff page on your phone and on the office computer.
 | [Passkeys (optional)](passkey-setup-guide.md) | Background on passkeys. You do not need one. The sign-in page uses email. |
 | [Turn on email sign-in (owner only)](owner-setup-email-sign-in.md) | One-time setup steps for the owner. Most staff can skip this. |
 | [Things that trip up staff](staff-gotchas.md) | Check the mistakes that come up on prices, photos, sign-in, Ad Studio, and contracts, and the step to take for each. |
+| [Weekly note for the team](weekly-staff-note.md) | Copy this each week, fill in the blanks, and send it to the team. |
 
 ## Coming soon
 

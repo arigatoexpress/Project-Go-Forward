@@ -254,6 +254,10 @@ export default function GoogleAdsStatusCard() {
             Describe the ad in everyday words, preview how it can look on Google, then launch it
             turned off. Launching does not spend money, and this screen cannot turn ads on.
           </p>
+          <p>
+            Leave the buttons on this page alone unless the owner asked you to prepare a turned-off campaign.
+            Those buttons cannot turn the ads on, and this page does not spend money.
+          </p>
         </div>
       </header>
 

@@ -1469,7 +1469,10 @@ export default function AdStudio({ onBack, initialTab = 'create' }) {
                             {`This adds a reviewed ${selectedPlatform?.name || 'social'} draft to the list on this screen. Nothing is sent to a social platform.`}
                         </div>
                         {draftError && (
-                            <p className="tho-image-error" role="alert">{draftError}</p>
+                            <>
+                                <p className="tho-image-error" role="alert">{draftError}</p>
+                                <p className="tho-preview-hint">The preview stays open, so your words are still here. Press Prepare Draft one more time.</p>
+                            </>
                         )}
                         <button
                             className="tho-btn tho-btn-primary w-full flex items-center justify-center gap-2"
