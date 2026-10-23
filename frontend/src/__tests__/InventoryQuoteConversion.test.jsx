@@ -146,7 +146,7 @@ describe('InventoryBrowse quote conversion path', () => {
   it('never describes the inventory snapshot as live or available now', async () => {
     render(<InventoryBrowse />);
 
-    expect(await screen.findByText('Inventory changes daily')).toBeInTheDocument();
+    expect(await screen.findByText('Confirm availability with our team')).toBeInTheDocument();
     expect(screen.queryByText(/Live Inventory/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/Featured Live Listing/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/Available now/i)).not.toBeInTheDocument();

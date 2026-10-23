@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Mail, Phone, MapPin, Send, Loader2 } from 'lucide-react';
-import { BUSINESS_NAME, BUSINESS_URL, BUSINESS_PHONE, BUSINESS_PHONE_RAW, BUSINESS_FULL_ADDRESS, BUSINESS_HOURS } from '../constants';
+import { BUSINESS_URL, BUSINESS_PHONE, BUSINESS_PHONE_RAW, BUSINESS_FULL_ADDRESS, BUSINESS_HOURS } from '../constants';
 import { getUtmParams } from '../utils/utm';
 import { trackEvent } from '../utils/analytics';
 import { normalizeOptionalEmail } from '../utils/contactValidation';
@@ -77,7 +77,7 @@ const Contact = ({ onBack, onBookAppointment }) => {
                 <div className="flex justify-center rounded-2xl border border-[var(--cp-border)] bg-[var(--cp-panel)] p-6 shadow-xl sm:p-8">
                     <AppointmentHandoffCard
                         title="Message received"
-                        description={`A member of the ${BUSINESS_NAME} family will contact you shortly. You can also reserve a showroom time now while your plans are fresh.`}
+                        description={`We received your message. You can also reserve a showroom time now.`}
                         onStart={handleBookAppointment}
                         onContinue={onBack}
                         continueLabel="Return home"
@@ -92,7 +92,7 @@ const Contact = ({ onBack, onBookAppointment }) => {
             <div className="mb-8 flex items-center justify-between">
                 <div>
                     <h1 className="text-3xl font-bold text-blue-900">Contact Us</h1>
-                    <p className="text-gray-700">We're here to help you find your dream home.</p>
+                    <p className="text-gray-700">Call, visit the showroom, or send a message.</p>
                 </div>
                 <button
                     type="button"

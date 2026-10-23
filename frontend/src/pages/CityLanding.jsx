@@ -4,12 +4,8 @@ import {
   paragraphParts,
 } from '../content/cityLocal';
 import StorefrontLinks from '../components/StorefrontLinks';
-import {
-  BUSINESS_CITY,
-  BUSINESS_FULL_ADDRESS,
-  BUSINESS_NAME,
-  BUSINESS_PHONE,
-} from '../constants';
+import { BUSINESS_CITY } from '../constants';
+import { cityShopperSentence } from '../seoCopy';
 
 function LinkedParagraph({ text }) {
   return (
@@ -42,7 +38,7 @@ export default function CityLanding({ cityLanding, homes }) {
           {cityLanding.heading}
         </h1>
         <p className="mt-4 text-base leading-relaxed text-[var(--cp-text-secondary)]">
-          {`${BUSINESS_NAME} delivers manufactured and mobile homes to ${cityLanding.city}, TX from the ${BUSINESS_CITY} showroom at ${BUSINESS_FULL_ADDRESS}. Call ${BUSINESS_PHONE} for the current price.`}
+          {cityShopperSentence(cityLanding.city)}
         </p>
         {facts && (
           <section aria-label={facts.heading} className="mt-8">

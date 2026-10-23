@@ -1,5 +1,4 @@
 import {
-  BUSINESS_ADDRESS,
   BUSINESS_CITY,
   BUSINESS_FULL_ADDRESS,
   BUSINESS_HOURS,
@@ -8,6 +7,12 @@ import {
   BUSINESS_STATE,
 } from './constants';
 import legalPages from './content/legalPages.json';
+
+// Neutral lines for facts the owner has not confirmed. Keep these exact.
+export const FINANCING_LINE =
+  'Ask our team about financing options. A lender reviews credit, income, and the land situation, and the lender decides whether a loan is approved.';
+export const DELIVERY_LINE = 'Delivery available, ask for details.';
+export const WARRANTY_LINE = 'Warranty coverage varies by manufacturer, ask a manager.';
 
 // Public titles and descriptions. Keep these in step with seo_routes.py.
 // Titles stay within a normal search-result length. Descriptions say what the
@@ -33,11 +38,15 @@ export const LOCATIONS_TITLE = `Locations | ${BUSINESS_NAME}`;
 export const LOCATIONS_DESCRIPTION =
   'Town pages around the Huffman showroom, each with its county and direction from that lot, plus links to the other towns and the home inventory.';
 
-export function cityDescription(city) {
+export function cityShopperSentence(city) {
   return (
-    `${BUSINESS_NAME} delivers manufactured and mobile homes to ${city}, TX from the ${BUSINESS_CITY} showroom `
-    + `at ${BUSINESS_ADDRESS}. Call ${BUSINESS_PHONE} for price.`
+    `Homes for shoppers in ${city}, TX at ${BUSINESS_NAME}, ${BUSINESS_FULL_ADDRESS}. `
+    + `${DELIVERY_LINE} Call ${BUSINESS_PHONE}.`
   );
+}
+
+export function cityDescription(city) {
+  return cityShopperSentence(city);
 }
 
 export function categoryTitle(classification) {
@@ -65,18 +74,14 @@ export const PUBLIC_DESCRIPTIONS = {
   about:
     `Learn about ${BUSINESS_NAME}, a licensed manufactured and mobile home dealership in `
     + `${BUSINESS_CITY}, ${BUSINESS_STATE} serving the Houston area.`,
-  financing:
-    `Chattel, land-and-home, and FHA, VA, or USDA loans at ${BUSINESS_NAME} in `
-    + `${BUSINESS_CITY}, ${BUSINESS_STATE}. Ask our team for current lender options.`,
+  financing: FINANCING_LINE,
   faq:
     `Answers about manufactured homes, financing, delivery, warranty, and buying from `
     + `${BUSINESS_NAME} in ${BUSINESS_CITY}, ${BUSINESS_STATE}.`,
   warranty:
-    `Manufacturer warranties, component coverage, and service support for homes purchased from `
-    + `${BUSINESS_NAME} in ${BUSINESS_CITY}, ${BUSINESS_STATE}.`,
+    `${WARRANTY_LINE} ${BUSINESS_NAME} can walk through the paperwork for the home you are considering.`,
   delivery:
-    `Delivery, placement, utility connections, and site-prep guidance for manufactured homes from `
-    + `${BUSINESS_NAME} in ${BUSINESS_CITY}, ${BUSINESS_STATE}.`,
+    `${DELIVERY_LINE} ${BUSINESS_NAME} can talk through transport, placement, and site preparation for a specific address.`,
   privacy: legalPages.privacy.description,
   terms: legalPages.terms.description,
   'not-found': `The page you requested does not exist. Browse homes for sale at ${BUSINESS_NAME}.`,

@@ -38,6 +38,8 @@ from config_loader import (
     business_address,
     business_city,
     business_hours,
+    business_legal_name,
+    business_license,
     business_name,
     business_phone,
     business_state,
@@ -85,6 +87,13 @@ def _base() -> str:
 
 # Public, indexable static routes: path -> (title, description)
 _CITY_STATE = f"{business_city()}, {business_state()}"
+# Neutral lines for facts the owner has not confirmed. Keep these exact.
+_FINANCING_LINE = (
+    "Ask our team about financing options. A lender reviews credit, income, and the "
+    "land situation, and the lender decides whether a loan is approved."
+)
+_DELIVERY_LINE = "Delivery available, ask for details."
+_WARRANTY_LINE = "Warranty coverage varies by manufacturer, ask a manager."
 PUBLIC_ROUTES = {
     "/": (
         f"Manufactured Homes for Sale in {_CITY_STATE} | {business_name()}",
@@ -119,8 +128,7 @@ PUBLIC_ROUTES = {
     ),
     "/financing": (
         f"Manufactured Home Financing in {_CITY_STATE} | {business_name()}",
-        f"Chattel, land-and-home, and FHA, VA, or USDA loans at {business_name()} in "
-        f"{_CITY_STATE}. Ask our team for current lender options.",
+        _FINANCING_LINE,
     ),
     "/faq": (
         f"Frequently Asked Questions | {business_name()}",
@@ -129,13 +137,13 @@ PUBLIC_ROUTES = {
     ),
     "/warranty": (
         f"Warranty & Service | {business_name()}",
-        f"Manufacturer warranties, component coverage, and service support for homes "
-        f"purchased from {business_name()} in {_CITY_STATE}.",
+        f"{_WARRANTY_LINE} {business_name()} can walk through the paperwork "
+        f"for the home you are considering.",
     ),
     "/delivery": (
         f"Delivery & Setup | {business_name()}",
-        f"Delivery, placement, utility connections, and site-prep guidance for "
-        f"manufactured homes from {business_name()} in {_CITY_STATE}.",
+        f"{_DELIVERY_LINE} {business_name()} can talk through transport, placement, "
+        f"and site preparation for a specific address.",
     ),
     "/locations": (
         f"Locations | {business_name()}",
@@ -490,8 +498,6 @@ def _local_business_jsonld() -> dict:
     data["knowsAbout"] = [
         "Manufactured homes",
         "Mobile homes",
-        "Modular homes",
-        "Manufactured home financing",
     ]
     return data
 
@@ -523,11 +529,11 @@ def _webpage_jsonld(name: str, description: str, path: str, *, page_type: str = 
 
 
 def _service_area_jsonld(city: str, path: str) -> dict:
-    """The page is about delivery to this city. The showroom stays in Huffman."""
+    """Town page for shoppers in this city. The showroom stays in Huffman."""
     return {
         "@context": "https://schema.org",
         "@type": "Service",
-        "name": f"Manufactured and mobile home sales in {city}, TX",
+        "name": f"Manufactured and mobile homes in {city}, TX",
         "serviceType": "Manufactured home sales",
         "url": _base() + path,
         "provider": {"@id": _business_id()},
@@ -1367,7 +1373,7 @@ def _crawlable_home_listing_block(home: dict) -> str:
         f"<ul>{''.join(rows)}</ul>"
         f'<p><a href="{e(_tel_href())}">Call {e(business_phone())}</a>'
         f' · <a href="{e(_sms_href(home))}">Text {e(business_phone())}</a>'
-        f' · <a href="/financing">Apply for financing</a></p>'
+        f' · <a href="/financing">Ask about financing</a></p>'
         f'<p><a href="/">Home</a> · '
         f'<a href="/inventory">All homes for sale at {e(business_name())}</a>. '
         f"{e(business_address())}. {e(business_phone())}.</p>"
@@ -1425,44 +1431,104 @@ def _crawlable_appointments_block() -> str:
 
 def _crawlable_about_block() -> str:
     e = html.escape
+    license_no = business_license()
+    license_line = (
+        f"<p>{e(business_name())} is a licensed Texas retailer (License #{e(license_no)}). "
+        "Manufactured housing in Texas is regulated by the Texas Department of Housing "
+        "and Community Affairs (TDHCA).</p>"
+        if license_no
+        else ""
+    )
+    legal = business_legal_name()
+    legal_line = f"<p>The legal name is {e(legal)}.</p>" if legal else ""
     return (
         f"<h1>About {e(business_name())}</h1>"
-        f"<p>{e(business_name())} is a licensed manufactured and mobile home dealership "
-        f"in {e(_CITY_STATE)}. We help buyers find quality factory-built homes, from "
-        f"budget-friendly pre-owned units to new single-section and multi-section floorplans.</p>"
+        f"<p>{e(business_name())} is a manufactured and mobile home dealership "
+        f"in {e(_CITY_STATE)}. The showroom is at {e(business_address())}. "
+        f"Hours: {e(business_hours())}.</p>"
+        f"{legal_line}"
+        f"{license_line}"
         "<ul>"
-        f"<li>Showroom: {e(business_address())}</li>"
-        f'<li>Phone: <a href="tel:{e(business_phone())}">{e(business_phone())}</a></li>'
-        f"<li>Hours: {e(business_hours())}</li>"
+        f"<li>{e(_FINANCING_LINE)}</li>"
+        f"<li>{e(_DELIVERY_LINE)}</li>"
+        f"<li>{e(_WARRANTY_LINE)}</li>"
         "</ul>"
+        f'<p>Phone: <a href="tel:{e(business_phone())}">{e(business_phone())}</a></p>'
         '<p><a href="/inventory">Browse homes for sale</a> · <a href="/contact">Contact us</a></p>'
     )
 
 
 def _crawlable_financing_block() -> str:
-    # TODO(owner): confirm which lenders finance manufactured homes, and whether any in-house program exists, before naming a lender or program.
     e = html.escape
     return (
         f"<h1>Manufactured Home Financing in {e(_CITY_STATE)}</h1>"
-        "<p>Lenders look at your credit, income, and land situation. "
-        "We can help you find out which loan types may fit.</p>"
-        "<ul>"
-        "<li>Chattel (home-only) loans</li>"
-        "<li>Land-and-home / mortgage loans</li>"
-        "<li>Some buyers qualify for FHA, VA, or USDA loans through approved lenders.</li>"
-        "<li>Loans through lenders that finance manufactured homes. "
-        "Ask our team for current lender options.</li>"
-        "</ul>"
+        f"<p>{e(_FINANCING_LINE)}</p>"
+        "<p>Exact requirements vary by lender. Financing paperwork is handled in person "
+        "or through a secure lender portal.</p>"
         f'<p>Call <a href="tel:{e(business_phone())}">{e(business_phone())}</a> or '
-        '<a href="/appointments">book a showroom visit</a> to discuss your options.</p>'
+        '<a href="/appointments">book a showroom visit</a>.</p>'
     )
+
+
+def _faq_pairs() -> list[tuple[str, str]]:
+    """Visible FAQ copy. JSON-LD answers are these same strings."""
+    towns = ", ".join(get_business().get("area_served") or [])
+    return [
+        (
+            "What's the difference between a manufactured home, a mobile home, and a modular home?",
+            '"Mobile home" is the older term for factory-built homes made before June 15, 1976. '
+            "Homes built after that date to the federal HUD Code are called manufactured homes. "
+            "They meet national standards for construction, strength, energy efficiency, and fire safety. "
+            "Modular homes are also factory-built but assembled to local or state building codes, like a site-built home. "
+            f"{business_name()} sells manufactured homes in single-section and multi-section floor plans, "
+            "including listed homes and orderable floorplans.",
+        ),
+        (
+            'Why do the listings say "Call for Price"?',
+            "If a home's price is Call for Price, the price is not posted online because the total depends "
+            "on the options, delivery distance, and site setup for that home. "
+            f"Call {business_phone()} or request a quote on any home.",
+        ),
+        (
+            "How does financing work for a manufactured home?",
+            _FINANCING_LINE,
+        ),
+        (
+            "Do I need land to buy a home from you?",
+            "Ask our team whether a home can go on land you own, family land, or a leased lot.",
+        ),
+        (
+            "What does delivery and setup include?",
+            _DELIVERY_LINE,
+        ),
+        (
+            "What areas do you serve / deliver to?",
+            f"{business_name()} is located at {business_address()}. Town pages cover {towns}. {_DELIVERY_LINE}",
+        ),
+        (
+            "What warranty comes with a new manufactured home?",
+            _WARRANTY_LINE,
+        ),
+        (
+            "How long does the whole process take?",
+            "Ask our team for a timeline for the home you are considering.",
+        ),
+        (
+            "Can I tour homes in person?",
+            "Yes. Visit the Huffman showroom during posted showroom hours, or book a showroom visit. "
+            "Some listings include photos and 3D tours.",
+        ),
+        (
+            "How do I get started?",
+            f"Call or text {business_phone()}, request a price quote on any home, or book a showroom visit.",
+        ),
+    ]
 
 
 def _faqpage_jsonld() -> dict:
     """FAQPage structured data for /faq.
 
-    The questions and answers match the visible content on the FAQ page so the
-    schema complies with Google's requirement that FAQPage markup reflect
+    The questions and answers match the visible FAQ copy so the schema reflects
     page-visible Q&A.
     """
     return {
@@ -1471,187 +1537,22 @@ def _faqpage_jsonld() -> dict:
         "mainEntity": [
             {
                 "@type": "Question",
-                "name": "What's the difference between a manufactured home, a mobile home, and a modular home?",
-                "acceptedAnswer": {
-                    "@type": "Answer",
-                    "text": (
-                        '"Mobile home" is the older term for factory-built homes made before June 15, 1976. '
-                        "Homes built after that date to the federal HUD Code are called manufactured homes. "
-                        "Modular homes are also factory-built but assembled to local/state building codes. "
-                        f"{business_name()} sells new manufactured homes in single- and multi-section floor plans."
-                    ),
-                },
-            },
-            {
-                "@type": "Question",
-                "name": 'Why do the listings say "Call for Price"?',
-                "acceptedAnswer": {
-                    "@type": "Answer",
-                    "text": (
-                        "Manufactured-home pricing depends on options, delivery distance, site prep, and "
-                        "current factory promotions, so we provide real, itemized quotes rather than a "
-                        f"misleading sticker number. Call {business_phone()} or request a quote on any home."
-                    ),
-                },
-            },
-            {
-                "@type": "Question",
-                "name": "How does financing work for a manufactured home?",
-                "acceptedAnswer": {
-                    "@type": "Answer",
-                    "text": (
-                        "Several options are commonly available depending on whether you own or are buying land. "
-                        "Chattel (home-only) loans are for the home itself when it's on leased land or in a community. "
-                        "Land-and-home loans, when the home and land are financed together, may qualify for "
-                        "FHA Title I/II, VA, or USDA programs. "
-                        "Ask us about lenders that finance manufactured homes."
-                    ),
-                },
-            },
-            {
-                "@type": "Question",
-                "name": "Do I need land to buy a home from you?",
-                "acceptedAnswer": {
-                    "@type": "Answer",
-                    "text": (
-                        "No. You can place a home on land you own, on family land, or in a manufactured-home "
-                        "community or leased lot. We can discuss the trade-offs of each option."
-                    ),
-                },
-            },
-            {
-                "@type": "Question",
-                "name": "What does delivery and setup include?",
-                "acceptedAnswer": {
-                    "@type": "Answer",
-                    "text": (
-                        "A typical new-home delivery includes transport, placement and leveling on your "
-                        "prepared site, joining multi-section homes, and connecting to utilities per local "
-                        "code. Site prep is usually arranged separately."
-                    ),
-                },
-            },
-            {
-                "@type": "Question",
-                "name": "What areas do you serve / deliver to?",
-                "acceptedAnswer": {
-                    "@type": "Answer",
-                    "text": (
-                        f"{business_name()} is located at {business_address()} and serves the greater "
-                        "Houston area including Huffman, Humble, Atascocita, Crosby, Kingwood, New Caney, "
-                        "Baytown, Beaumont, Cleveland, Conroe, and Livingston."
-                    ),
-                },
-            },
-            {
-                "@type": "Question",
-                "name": "What warranty comes with a new manufactured home?",
-                "acceptedAnswer": {
-                    "@type": "Answer",
-                    "text": (
-                        "New manufactured homes carry a manufacturer's warranty on the home and major "
-                        "systems, and many components carry their own manufacturer warranties. Texas "
-                        "manufactured housing is regulated by the Texas Department of Housing and Community "
-                        "Affairs (TDHCA)."
-                    ),
-                },
-            },
-            {
-                "@type": "Question",
-                "name": "How long does the whole process take?",
-                "acceptedAnswer": {
-                    "@type": "Answer",
-                    "text": (
-                        "After on-lot availability is confirmed, delivery can often happen within weeks once "
-                        "financing and site prep are in place. Factory-ordered floor plans vary by "
-                        "manufacturer and season."
-                    ),
-                },
-            },
-            {
-                "@type": "Question",
-                "name": "Can I tour homes in person?",
-                "acceptedAnswer": {
-                    "@type": "Answer",
-                    "text": (
-                        f"Yes. Visit our Huffman showroom during business hours ({business_hours()}) or "
-                        "book a showroom visit online. Many listings also include photos and 3D virtual tours."
-                    ),
-                },
-            },
-            {
-                "@type": "Question",
-                "name": "How do I get started?",
-                "acceptedAnswer": {
-                    "@type": "Answer",
-                    "text": (
-                        f"Call or text {business_phone()}, request a price quote on any home, or book a "
-                        "showroom visit. Tell us your budget, land situation, and size needs."
-                    ),
-                },
-            },
+                "name": question,
+                "acceptedAnswer": {"@type": "Answer", "text": answer},
+            }
+            for question, answer in _faq_pairs()
         ],
     }
 
 
 def _crawlable_faq_block() -> str:
     e = html.escape
-    questions = [
-        (
-            "What's the difference between a manufactured home, a mobile home, and a modular home?",
-            '"Mobile home" is the older term for factory-built homes made before June 15, 1976. '
-            "Homes built after that date to the federal HUD Code are called manufactured homes. "
-            "Modular homes are also factory-built but assembled to local/state building codes.",
-        ),
-        (
-            'Why do the listings say "Call for Price"?',
-            "Manufactured-home pricing depends on options, delivery distance, site prep, and current "
-            "factory promotions, so we provide itemized quotes rather than misleading sticker numbers.",
-        ),
-        (
-            "How does financing work for a manufactured home?",
-            "Several options are commonly available depending on whether you own or are buying land. "
-            "Chattel (home-only) loans are for the home itself when it's on leased land or in a community. "
-            "Land-and-home loans, when the home and land are financed together, may qualify for "
-            "FHA Title I/II, VA, or USDA programs. "
-            "Ask us about lenders that finance manufactured homes.",
-        ),
-        (
-            "Do I need land to buy a home from you?",
-            "No. You can place a home on land you own, family land, or in a manufactured-home community.",
-        ),
-        (
-            "What does delivery and setup include?",
-            "Transport, placement and leveling, joining multi-section homes, and utility connections "
-            "per local code. Site prep is usually arranged separately.",
-        ),
-        (
-            "What areas do you serve / deliver to?",
-            f"{business_name()} serves the greater Houston area from {business_address()}.",
-        ),
-        (
-            "What warranty comes with a new manufactured home?",
-            "A manufacturer's warranty on the home and major systems, plus component warranties. "
-            "Texas manufactured housing is regulated by TDHCA.",
-        ),
-        (
-            "How long does the whole process take?",
-            "After on-lot availability is confirmed, delivery can often happen within weeks once "
-            "financing and site prep are in place. Factory-ordered floor plans vary by manufacturer "
-            "and season.",
-        ),
-        (
-            "Can I tour homes in person?",
-            f"Yes — visit our showroom during business hours ({business_hours()}) or book a visit online.",
-        ),
-        (
-            "How do I get started?",
-            f"Call {business_phone()}, request a quote, or book a showroom visit.",
-        ),
-    ]
-    items = "".join(f"<li><h3>{e(q)}</h3><p>{e(a)}</p></li>" for q, a in questions)
+    items = "".join(
+        f"<li><h3>{e(question)}</h3><p>{e(answer)}</p></li>"
+        for question, answer in _faq_pairs()
+    )
     return (
-        f"<h1>Frequently Asked Questions — {e(business_name())}</h1>"
+        f"<h1>Frequently Asked Questions</h1>"
         f"<p>Answers about manufactured homes, financing, delivery, warranty, and buying from "
         f"{e(business_name())} in {e(_CITY_STATE)}.</p>"
         f"<ul>{items}</ul>"
@@ -1663,36 +1564,27 @@ def _crawlable_faq_block() -> str:
 def _crawlable_warranty_block() -> str:
     e = html.escape
     return (
-        f"<h1>Warranty &amp; Service — {e(business_name())}</h1>"
-        f"<p>Every new manufactured home we sell is backed by warranties designed to protect your "
-        f"investment in {e(_CITY_STATE)}.</p>"
-        "<ul>"
-        "<li>Manufacturer's warranty on the home and major systems</li>"
-        "<li>Component warranties for appliances, HVAC, roofing, and other items</li>"
-        "<li>Texas TDHCA oversight for installation and safety requirements</li>"
-        "<li>Service coordination through our team</li>"
-        "</ul>"
-        f'<p>For warranty questions, call <a href="tel:{e(business_phone())}">{e(business_phone())}</a> '
-        'or <a href="/contact">contact us</a>.</p>'
+        f"<h1>Warranty &amp; Service</h1>"
+        f"<p>{e(_WARRANTY_LINE)} {e(business_name())} can walk through the paperwork "
+        f"for the home you are considering.</p>"
+        "<p>If you smell gas, see electrical sparking or burning, have an active fire, or your "
+        "carbon monoxide alarm is sounding, get everyone out and call 911 or your gas or utility "
+        "provider first.</p>"
+        f'<p>For warranty questions, call <a href="tel:{e(business_phone())}">{e(business_phone())}</a>.</p>'
     )
 
 
 def _crawlable_delivery_block() -> str:
     e = html.escape
+    towns = ", ".join(get_business().get("area_served") or [])
     return (
-        f"<h1>Delivery &amp; Setup — {e(business_name())}</h1>"
-        f"<p>{e(business_name())} coordinates transport, placement, and setup for manufactured "
-        f"homes delivered throughout the greater Houston area from {e(_CITY_STATE)}.</p>"
-        "<ul>"
-        "<li>Transport from the factory or lot to your prepared site</li>"
-        "<li>Placement, leveling, and joining of multi-section homes</li>"
-        "<li>Utility connections per local code</li>"
-        "<li>Final walkthrough before handover</li>"
-        "</ul>"
-        f"<p>Service area includes Huffman, Humble, Atascocita, Crosby, Kingwood, New Caney, "
-        f"Baytown, Beaumont, Cleveland, Conroe, and Livingston.</p>"
-        f'<p>Call <a href="tel:{e(business_phone())}">{e(business_phone())}</a> to confirm delivery '
-        "to your address.</p>"
+        f"<h1>Delivery &amp; Setup</h1>"
+        f"<p>{e(_DELIVERY_LINE)} {e(business_name())} can talk through transport, placement, and "
+        f"site preparation for a specific address.</p>"
+        f"<p>The showroom is at {e(business_address())}. Town pages cover {e(towns)}.</p>"
+        f"<p>{e(_DELIVERY_LINE)}</p>"
+        f'<p>Call <a href="tel:{e(business_phone())}">{e(business_phone())}</a>. '
+        f"Hours: {e(business_hours())}.</p>"
     )
 
 
@@ -1952,6 +1844,14 @@ def _locations_itemlist() -> dict:
     }
 
 
+def _city_shopper_sentence(city: str) -> str:
+    """Town-page intro. Same words as the React cityShopperSentence."""
+    return (
+        f"Homes for shoppers in {city}, TX at {business_name()}, {business_address()}. "
+        f"{_DELIVERY_LINE} Call {business_phone()}."
+    )
+
+
 def _crawlable_city_block(city: str) -> str:
     e = html.escape
     path = next((item for item, name in _city_pages().items() if name == city), "")
@@ -1963,16 +1863,14 @@ def _crawlable_city_block(city: str) -> str:
     return (
         f"{_breadcrumb_nav([('Home', '/'), ('Locations', '/locations'), (f'Homes in {city}, TX', path)])}"
         f"<h1>Manufactured &amp; Mobile Homes in {e(city)}, TX</h1>"
-        f"<p>{e(business_name())} delivers manufactured and mobile homes to "
-        f"{e(city)}, TX from the {e(business_city())} showroom at "
-        f"{e(business_address())}. Call "
-        f'<a href="tel:{e(business_phone())}">{e(business_phone())}</a> '
-        f"for the current price. Homes and floorplans offered by our {e(business_city())} showroom:</p>"
+        f"<p>{e(_city_shopper_sentence(city))} Homes and floorplans offered by our "
+        f"{e(business_city())} showroom:</p>"
         f"{_city_local_section(city)}"
         f"{_storefront_links(path)}"
         f"<ul>{''.join(items)}</ul>"
         f'<p><a href="/appointments">Book a showroom visit</a></p>'
-        f"<p>{e(business_name())}. {e(business_address())}. {e(business_hours())}.</p>"
+        f'<p>Call <a href="{_tel_href()}">{e(business_phone())}</a>. '
+        f"{e(business_address())}. {e(business_hours())}.</p>"
     )
 
 
@@ -2043,10 +1941,7 @@ def _render_spa_response(full_path: str) -> Response | None:
         if raw_path != path:
             return RedirectResponse(path, status_code=301)
         title = f"Manufactured Homes in {city}, TX | {business_name()}"
-        desc = (
-            f"{business_name()} delivers manufactured and mobile homes to {city}, TX from the "
-            f"{business_city()} showroom at {business_street()}. Call {business_phone()} for price."
-        )
+        desc = _city_shopper_sentence(city)
         jsonld = [
             _local_business_jsonld(),
             _webpage_jsonld(title, desc, path),

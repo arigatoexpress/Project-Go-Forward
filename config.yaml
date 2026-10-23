@@ -6,6 +6,8 @@
 
 business:
   name: "Texas Home Outlet"
+  # Legal entity on the About page, privacy policy, terms, and closing documents.
+  legal_name: "Prosperity Acquisitions, Inc. dba Texas Home Outlet"
   tagline: "Your Dream Home, Our Mission"
   industry: "real_estate"
   
@@ -20,6 +22,9 @@ business:
   zip: "77336"
   phone: "(281) 324-3020"
   email: "sales@texashomeoutlet.com"
+  # Texas retailer license (RBI). Same number as the public footer, the About
+  # page, and the seller RBI printed on closing documents.
+  license: "35248"
   # Staff who receive new-lead / new-appointment alerts. Fans out to the whole
   # team so no lead is missed. Operative value is the NOTIFICATION_EMAIL env var
   # (comma-separated) read by email_service.py; this line documents the intent.

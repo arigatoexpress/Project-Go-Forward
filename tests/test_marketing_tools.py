@@ -609,6 +609,21 @@ def test_generate_ad_flyer_fallback_body_uses_business_city(monkeypatch, tmp_pat
     assert "Huffman" not in rendered
 
 
+def test_generate_ad_flyer_footer_prints_the_recorded_showroom_phone(monkeypatch, tmp_path):
+    """Print pages use the same phone as the public footer, not an old flyer number."""
+    drawn = _spy_flyer_text(monkeypatch)
+    monkeypatch.setattr(marketing_tools, "GENERATED_ADS_DIR", str(tmp_path))
+    monkeypatch.setattr(marketing_tools, "_load_inventory_for_marketing", lambda: [])
+
+    result = marketing_tools.generate_ad_flyer(home_name="The Oak")
+
+    assert result["success"] is True
+    rendered = "\n".join(drawn)
+    assert "(281) 324-3020  |  texashomeoutlet.com" in rendered
+    assert "281-657-7366" not in rendered
+    assert "(281) 555-0199" not in rendered
+
+
 def test_generate_ad_flyer_footer_uses_business_phone(monkeypatch, tmp_path):
     """The footer phone comes from config_loader.business_phone()."""
     drawn = _spy_flyer_text(monkeypatch)

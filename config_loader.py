@@ -72,6 +72,16 @@ def business_phone():
     return get_business().get("phone", "")
 
 
+def business_license():
+    """Retailer license shown on the public footer and About page."""
+    return str(get_business().get("license") or "").strip()
+
+
+def business_legal_name():
+    """Legal entity shown on the About page and the legal pages."""
+    return str(get_business().get("legal_name") or "").strip()
+
+
 def business_email():
     return get_business().get("email", "")
 
