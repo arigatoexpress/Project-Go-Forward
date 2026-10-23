@@ -5,10 +5,13 @@ import subprocess
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import pytest
 import yaml
+from starlette.requests import Request
 
+import main
 from scripts import production_smoke, warm_candidate
 
 WORKFLOW = Path(__file__).resolve().parents[1] / ".github/workflows/deploy.yml"
@@ -21,13 +24,103 @@ def test_worst_case_is_thirty_five_seconds():
     assert warm_candidate.worst_case_seconds() == 35
 
 
-def test_fast_redirect_warms_on_the_first_attempt(monkeypatch):
+def test_warm_paths_are_the_candidate_local_responses():
+    assert warm_candidate.WARM_PATHS == (
+        "/healthz/",
+        "/api/marketing/inventory-context",
+        "/staff",
+    )
+    assert "/" not in warm_candidate.WARM_PATHS
+    assert warm_candidate.SUCCESS_STATUS == 200
+
+
+def _candidate_request(path: str) -> Request:
+    host = "candidate---project-go-forward-example.a.run.app"
+    return Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": path,
+            "headers": [(b"host", host.encode())],
+            "query_string": b"",
+            "scheme": "https",
+            "server": (host, 443),
+        }
+    )
+
+
+def test_warm_paths_do_not_redirect_on_a_candidate_host():
+    """Lock the middleware exemptions the warmer depends on.
+
+    CanonicalHostMiddleware redirects GET / on *.run.app before the app
+    renders. The warm paths are the ones that skip that redirect and the
+    staff front door.
+    """
+    for path in warm_candidate.WARM_PATHS:
+        request = _candidate_request(path)
+        assert main._legacy_public_host_target(request) is None
+        assert main.staff_front_door_target(request) is None
+        assert main._alternate_public_host_target(request) is None
+        assert main._should_redirect_to_canonical_host(request) is False
+
+    root = _candidate_request("/")
+    assert main.staff_front_door_target(root) is None
+    assert main._should_redirect_to_canonical_host(root) is True
+    assert main._canonical_redirect_url(root) == "https://www.texashomeoutlet.com/"
+
+
+@pytest.mark.parametrize("status", [300, 301, 302, 307, 308])
+def test_fast_redirect_is_not_warm(monkeypatch, status):
     calls = []
     pauses = []
 
     def fake_fetch(url, timeout):
         calls.append((url, timeout))
-        return 308, 80
+        return status, 80
+
+    monkeypatch.setattr(warm_candidate, "_fetch", fake_fetch)
+    monkeypatch.setattr(warm_candidate, "_pause", lambda seconds: pauses.append(seconds))
+
+    result = warm_candidate.warm("https://candidate.example.test/ignored")
+
+    assert result["ok"] is False
+    assert result["status"] == status
+    assert result["latency_ms"] == 80
+    assert result["attempts"] == 1
+    assert calls == [("https://candidate.example.test/healthz/", 20.0)]
+    assert pauses == []
+    assert "a redirect is not warm" in result["error"]
+
+
+def test_redirect_on_a_later_path_stops_without_retrying(monkeypatch):
+    calls = []
+
+    def fake_fetch(url, timeout):
+        path = urlsplit(url).path
+        calls.append(path)
+        if path == "/api/marketing/inventory-context":
+            return 308, 40
+        return 200, 30
+
+    monkeypatch.setattr(warm_candidate, "_fetch", fake_fetch)
+    monkeypatch.setattr(warm_candidate, "_pause", lambda _seconds: None)
+
+    result = warm_candidate.warm("https://candidate.example.test")
+
+    assert result["ok"] is False
+    assert result["status"] == 308
+    assert result["attempts"] == 1
+    assert calls == ["/healthz/", "/api/marketing/inventory-context"]
+    assert "a redirect is not warm" in result["error"]
+
+
+def test_fast_direct_responses_warm_on_the_first_attempt(monkeypatch):
+    calls = []
+    pauses = []
+
+    def fake_fetch(url, timeout):
+        calls.append((urlsplit(url).path, timeout))
+        return 200, 90
 
     monkeypatch.setattr(warm_candidate, "_fetch", fake_fetch)
     monkeypatch.setattr(warm_candidate, "_pause", lambda seconds: pauses.append(seconds))
@@ -35,21 +128,25 @@ def test_fast_redirect_warms_on_the_first_attempt(monkeypatch):
     result = warm_candidate.warm("https://candidate.example.test/ignored")
 
     assert result["ok"] is True
-    assert result["status"] == 308
-    assert result["latency_ms"] == 80
+    assert result["status"] == 200
+    assert result["latency_ms"] == 90
     assert result["attempts"] == 1
-    assert calls == [("https://candidate.example.test/", 20.0)]
+    assert [path for path, _timeout in calls] == list(warm_candidate.WARM_PATHS)
+    assert calls[0][1] == 20.0
     assert pauses == []
+    assert [item["path"] for item in result["paths"]] == list(warm_candidate.WARM_PATHS)
 
 
 def test_slow_cold_start_then_fast_response_is_warm(monkeypatch):
     calls = []
     pauses = []
-    responses = [(308, 9000), (308, 120)]
 
     def fake_fetch(url, timeout):
-        calls.append(timeout)
-        return responses.pop(0)
+        path = urlsplit(url).path
+        calls.append(path)
+        if path == "/api/marketing/inventory-context" and calls.count(path) == 1:
+            return 200, 9000
+        return 200, 120
 
     monkeypatch.setattr(warm_candidate, "_fetch", fake_fetch)
     monkeypatch.setattr(warm_candidate, "_pause", lambda seconds: pauses.append(seconds))
@@ -59,12 +156,12 @@ def test_slow_cold_start_then_fast_response_is_warm(monkeypatch):
     assert result["ok"] is True
     assert result["latency_ms"] == 120
     assert result["attempts"] == 2
-    assert calls == [20.0, 8.0]
+    assert calls == list(warm_candidate.WARM_PATHS) * 2
     assert pauses == [1.0]
 
 
 def test_server_error_is_retried_until_a_fast_success(monkeypatch):
-    responses = [(503, 40), (200, 90)]
+    responses = [(503, 40), (200, 90), (200, 80), (200, 70)]
 
     def fake_fetch(url, timeout):
         return responses.pop(0)
@@ -78,6 +175,7 @@ def test_server_error_is_retried_until_a_fast_success(monkeypatch):
     assert result["status"] == 200
     assert result["latency_ms"] == 90
     assert result["attempts"] == 2
+    assert responses == []
 
 
 def test_dead_candidate_stops_at_the_attempt_budget(monkeypatch):
@@ -126,7 +224,7 @@ def test_responses_that_stay_slow_fail_when_the_budget_ends(monkeypatch):
 
     def fake_fetch(url, timeout):
         calls.append(timeout)
-        return 308, 4000
+        return 200, 4000
 
     monkeypatch.setattr(warm_candidate, "_fetch", fake_fetch)
     monkeypatch.setattr(warm_candidate, "_pause", lambda _seconds: None)
@@ -134,8 +232,13 @@ def test_responses_that_stay_slow_fail_when_the_budget_ends(monkeypatch):
     result = warm_candidate.warm("https://candidate.example.test")
 
     assert result["ok"] is False
-    assert calls == [20.0, 8.0, 5.0]
+    assert result["attempts"] == 3
+    assert calls[0] == 20.0
+    assert calls[len(warm_candidate.WARM_PATHS)] == 8.0
+    assert calls[len(warm_candidate.WARM_PATHS) * 2] == 5.0
+    assert len(calls) == len(warm_candidate.WARM_PATHS) * 3
     assert "elapsed_ms=4000" in result["error"]
+    assert str(warm_candidate.TARGET_MS) in result["error"]
 
 
 @pytest.mark.parametrize("base_url", ["", "file:///etc/passwd", "ftp://example.test/", "not a url"])
@@ -171,10 +274,12 @@ def test_fetch_does_not_follow_a_redirect():
         server.shutdown()
         thread.join(timeout=2)
 
-    assert result["ok"] is True
+    assert result["ok"] is False
     assert result["status"] == 308
+    assert result["attempts"] == 1
     assert result["latency_ms"] < warm_candidate.TARGET_MS
-    assert seen == ["/"]
+    assert "a redirect is not warm" in result["error"]
+    assert seen == ["/healthz/"]
 
 
 def test_main_exits_zero_only_when_warm(monkeypatch, capsys):
@@ -183,7 +288,7 @@ def test_main_exits_zero_only_when_warm(monkeypatch, capsys):
         "warm",
         lambda _url: {
             "ok": True,
-            "status": 308,
+            "status": 200,
             "latency_ms": 90,
             "attempts": 2,
             "error": None,
@@ -228,6 +333,8 @@ def test_warmup_step_runs_before_verify_without_changing_permissions():
     verify = next(step for step in steps if step.get("name") == "Verify deployment")
     assert "permissions" not in warm
     assert "scripts/warm_candidate.py" in warm["run"]
+    assert "set -euo pipefail" in warm["run"]
+    assert "continue-on-error" not in warm
     assert "tag:candidate" in warm["run"]
     assert "update-traffic" not in warm["run"]
     assert "update-traffic" not in verify["run"]
