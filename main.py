@@ -1117,6 +1117,7 @@ def _should_redirect_to_canonical_host(request: Request) -> bool:
 
 _STAFF_ENTRY_PATHS = {"/admin", "/login", "/admin/login", "/staff"}
 _LOCAL_STAFF_HOSTS = {"localhost", "127.0.0.1", "testserver"}
+_LEGACY_PUBLIC_HOST = "tho.sapphirealpha.xyz"
 STAFF_FRONT_DOOR = f"{CANONICAL_PUBLIC_URL}/staff"
 
 
@@ -1141,7 +1142,8 @@ def _alternate_public_host_target(request: Request) -> str | None:
     apex (texashomeoutlet.com) permanently redirects there. If the canonical
     host is ever the apex, www redirects to it instead. Staff entry paths are
     handled first by staff_front_door_target. Local hosts and *.run.app keep
-    their existing rules.
+    their existing rules. The retired tho.sapphirealpha.xyz host is handled
+    by _legacy_public_host_target.
     """
     if request.method.upper() not in {"GET", "HEAD"}:
         return None
@@ -1165,12 +1167,34 @@ def _alternate_public_host_target(request: Request) -> str | None:
     )
 
 
+def _legacy_public_host_target(request: Request) -> str | None:
+    """301 every request on the retired sapphire host to the canonical origin.
+
+    ``tho.sapphirealpha.xyz`` matches case-insensitively, with or without a
+    port. Path and query stay intact for every method. www, the apex twin,
+    and *.run.app are left to the other host rules.
+    """
+    host = _request_hostname(request)
+    if host != _LEGACY_PUBLIC_HOST or host == _CANONICAL_PUBLIC_HOST:
+        return None
+    return urlunsplit(
+        (
+            _CANONICAL_PUBLIC_SCHEME,
+            _CANONICAL_PUBLIC_HOST,
+            request.url.path,
+            request.url.query,
+            "",
+        )
+    )
+
+
 def staff_front_door_target(request: Request) -> str | None:
     """Send old staff entry URLs to the one sign-in page.
 
     Local tests and the Cloud Run candidate stay on their own host so a
-    no-traffic revision can be opened. Apex, www aliases, and the old
-    sapphire host always land on https://www.texashomeoutlet.com/staff.
+    no-traffic revision can be opened. Apex and www aliases land on
+    https://www.texashomeoutlet.com/staff. Requests on tho.sapphirealpha.xyz
+    are redirected first, with their original path preserved.
     """
     if request.method.upper() not in {"GET", "HEAD"}:
         return None
@@ -1191,6 +1215,11 @@ def staff_front_door_target(request: Request) -> str | None:
 
 class CanonicalHostMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
+        # Before the staff door, so /admin on the retired host keeps its path
+        # instead of being rewritten to /staff on the first hop.
+        legacy_target = _legacy_public_host_target(request)
+        if legacy_target:
+            return RedirectResponse(legacy_target, status_code=301)
         staff_target = staff_front_door_target(request)
         if staff_target:
             return RedirectResponse(staff_target, status_code=308)
