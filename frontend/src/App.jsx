@@ -10,6 +10,7 @@ import { useNetworkStatus } from './components/NetworkStatus';
 import ReportIssue from './components/ReportIssue';
 import ErrorBoundary from './components/ErrorBoundary';
 import ClosureBanner from './components/ClosureBanner';
+import SkipLink from './components/SkipLink';
 import ChatCallbackCard from './components/ChatCallbackCard';
 import InventoryBrowse from './pages/InventoryBrowse';
 import LegalPage from './pages/LegalPage';
@@ -173,12 +174,12 @@ function NavBar({
     }`;
 
   return (
-    <>
+    <header className="sticky top-0 z-40 overflow-visible">
       {/* Site-wide store-closure / holiday banner (auto-hides after end date) */}
       <ClosureBanner />
 
       {/* Legacy THO contact strip */}
-      <div className="bg-[var(--cp-accent)] text-[var(--cp-bg)] border-b border-[var(--cp-accent-hot)] z-40 sticky top-0">
+      <div className="tho-contact-strip bg-[var(--cp-accent)] text-[var(--cp-bg)] border-b border-[var(--cp-accent-hot)]">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 min-h-9 flex items-center justify-between gap-3 py-1.5 text-[11px] sm:text-xs font-semibold">
           <a href={`tel:${BUSINESS_PHONE_RAW}`} className="inline-flex items-center gap-1.5 hover:underline">
             <Phone size={13} />
@@ -194,20 +195,20 @@ function NavBar({
 
       {/* Main NavBar — never grows the page sideways from 1024–1920. Extra
           staff tools fold into More; Sign out stays in the right cluster. */}
-      <header className="bg-[var(--cp-panel)] border-b border-[var(--cp-border)] z-30 sticky top-9 shadow-sm overflow-visible">
+      <div className="bg-[var(--cp-panel)] border-b border-[var(--cp-border)] shadow-sm overflow-visible">
         <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-6 h-14 flex items-center justify-between gap-2 min-w-0 overflow-visible">
           {/* Logo — clip only this text, not the More menu below the bar. */}
-          <div
-            className="flex items-center gap-2 cursor-pointer group min-w-0 shrink overflow-hidden"
+          <button
+            type="button"
+            className="flex items-center gap-2 group min-w-0 shrink overflow-hidden border-0 bg-transparent p-0 text-left cursor-pointer"
             onClick={() => navigateTo(adminAuthed ? 'staff-home' : 'inventory')}
-            role="button"
             aria-label={`${BUSINESS_NAME} — home`}
           >
             <Home className="h-6 w-6 shrink-0 text-[var(--cp-accent)] group-hover:drop-shadow-[0_2px_8px_rgba(80,29,29,0.35)] transition" />
             <span className="text-sm sm:text-base font-bold tracking-tight text-[var(--cp-text)] whitespace-nowrap truncate">
               {BUSINESS_NAME}
             </span>
-          </div>
+          </button>
 
           <div className="flex items-center gap-1 sm:gap-2 shrink-0">
             {/* Desktop nav (1024px+). Staff extras live in More. */}
@@ -376,8 +377,8 @@ function NavBar({
             )}
           </nav>
         )}
-      </header>
-    </>
+      </div>
+    </header>
   );
 }
 
@@ -1497,9 +1498,10 @@ function App() {
   if (activePage === 'staff-sign-in') {
     return (
       <div className="bg-[var(--cp-bg)] min-h-screen">
+        <SkipLink />
         {passkeyEmailModal}
         <NavBar {...navProps} />
-        <main className="max-w-md mx-auto px-4 py-8">
+        <main id="main-content" tabIndex={-1} className="max-w-md mx-auto px-4 py-8 focus:outline-none">
           {adminAuthed ? (
             <div className="text-center">
               <h1 className="text-3xl font-bold mb-4">You are signed in</h1>
@@ -1833,6 +1835,7 @@ function App() {
   if (activePage === 'contact') {
     return (
       <div className="bg-[var(--cp-bg)] min-h-screen">
+        <SkipLink />
         {appModals}
         <NavBar {...navProps} />
         <ErrorBoundary scope="contact">
@@ -2002,6 +2005,7 @@ function App() {
   if (activePage === 'inventory') {
     return (
       <div className="bg-[var(--cp-bg)] min-h-screen flex flex-col">
+        <SkipLink />
         {appModals}
         <NavBar {...navProps} />
 
