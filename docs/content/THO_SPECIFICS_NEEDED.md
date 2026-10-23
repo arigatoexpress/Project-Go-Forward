@@ -38,7 +38,7 @@ Ask your manager. Do not state a warranty length.
 ## 5. Manufacturers and inventory
 
 - **Which names to give a customer:** not recorded as a full approved list. `frontend/src/constants.js` says `FACTORY_OPTIONS` is a seed list for the document form and that the dealership has not supplied the full list. Ask your manager.
-- **Dollar price range:** not recorded. `config.yaml` `business.price_range` is the schema.org symbol `$$`, not a dollar range. Public ads stay **Call for Price** unless your manager has approved a number (`docs/team/ad-studio-guide.md`).
+- **Dollar price range:** not recorded. `config.yaml` `business.price_range` is the schema.org symbol `$$`, not a dollar range. Public ads stay **Call for Price** unless the owner or operator has approved a number (`docs/team/ad-studio-guide.md`). A manager who is not the owner or operator cannot approve that number.
 - **Pre-owned homes:** the site has a used-home closing packet (`docs/CLIENT_WALKTHROUGH.md`) and a used-home photo rule (`docs/team/staff-gotchas.md`). How many are usually in stock is not recorded. Ask your manager.
 - **Floor-plan customization:** not recorded. Ask your manager.
 

@@ -14,11 +14,11 @@ Other guides: [How to sign in](staff-sign-in.md), [How to add photos](photo-uplo
 
 Homes show **Call for Price** until someone types a sale price.
 
-**Do:** If your manager says a price can go on the site, sign in, tap **Manage Homes**, pick the home, and type the number in **Price on the website**. Then save.
+**Do:** If the owner or operator says a price can go on the site, sign in, tap **Manage Homes**, pick the home, and type the number in **Price on the website**. Then save.
 
 **Don't:** Leave that box blank and expect a dollar amount to show. A blank price shows Call for Price.
 
-Ask your manager which prices can show.
+Ask the owner or operator which prices can show. A manager who is not the owner or operator cannot approve a public sale price.
 
 ### Ad Studio: if Prepare Draft fails
 
@@ -91,7 +91,7 @@ Photo upload on a used home has not been tested on the live site yet.
 
 If the panel says **E-signing isn't turned on yet, so nothing can be sent.**, print the packet and sign in person.
 
-**Don't:** Send anything to a buyer on your own. Nothing goes to a buyer unless you tick the hand-check box and press **Send to** the buyer's email. Ask your manager before you send anything.
+**Don't:** Send anything to a buyer on your own. Nothing goes to a buyer unless you tick the hand-check box and press **Send to** the buyer's email. Ask the owner or operator before you send anything. A manager who is not the owner or operator cannot approve that send.
 
 **Do:** Read the contract packet before you print it.
 

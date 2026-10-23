@@ -16,7 +16,7 @@ Week of: ________
 
 ## Homes and prices
 
-Homes that still say Call for Price. Only list a home here if your manager said that price can go on the site. Then sign in, tap Manage Homes, and type the number in Price on the website.
+Homes that still say Call for Price. Only list a home here if the owner or operator said that price can go on the site. Then sign in, tap Manage Homes, and type the number in Price on the website. A manager who is not the owner or operator cannot approve a public sale price.
 
 -
 
@@ -36,7 +36,7 @@ Visits on the calendar:
 
 -
 
-Deals waiting on paperwork. Review & Send for Signature only opens a preview. Nothing goes to a buyer unless your manager says to send it.
+Deals waiting on paperwork. Review & Send for Signature only opens a preview. Nothing goes to a buyer unless the owner or operator says to send it. A manager who is not the owner or operator cannot approve that send.
 
 -
 

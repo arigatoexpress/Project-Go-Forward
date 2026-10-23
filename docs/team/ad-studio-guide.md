@@ -25,7 +25,7 @@ You can also use the **Google Ads** button inside Ad Studio.
 Use this when you want words, a picture, or a slideshow for TikTok, Instagram, or Facebook.
 
 1. Pick the presenter, the language, where the post will go, and the topic.
-2. Optional: choose a home from inventory. Leave the price as **Call for Price** unless your manager has approved a number.
+2. Optional: choose a home from inventory. Leave the price as **Call for Price** unless the owner or operator has approved a number. A manager who is not the owner or operator cannot approve a public sale price.
 3. Optional: write the opening line yourself. Leave it blank and the screen will write one.
 4. Press **Generate Script**. The words show on the phone preview. Nothing is posted.
 5. Read it. Words in **[brackets]** are camera notes. Do not read them out loud.
@@ -74,5 +74,5 @@ Before ads can actually run, the Google Ads account has to be linked, billing ha
 
 ## Prices
 
-Public ads stay **Call for Price** unless your manager has approved a number for that home.
+Public ads stay **Call for Price** unless the owner or operator has approved a number for that home. A manager who is not the owner or operator cannot approve a public sale price.
 Do not type a dollar price into an ad on your own.
