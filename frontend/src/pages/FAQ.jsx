@@ -6,153 +6,79 @@ import {
   BUSINESS_PHONE,
   BUSINESS_PHONE_RAW,
   BUSINESS_FULL_ADDRESS,
-  BUSINESS_HOURS,
+  SERVICE_AREA_CITIES,
 } from '../constants';
+import { DELIVERY_LINE, FINANCING_LINE, WARRANTY_LINE } from '../seoCopy';
+
+const TOWN_LIST = SERVICE_AREA_CITIES.join(', ');
 
 const FAQ_ITEMS = [
   {
     question: "What's the difference between a manufactured home, a mobile home, and a modular home?",
-    answer: (
-      <>
-        "Mobile home" is the older term for factory-built homes made <strong>before June 15, 1976</strong>.
-        Homes built after that date to the federal <strong>HUD Code</strong> are called
-        <strong> manufactured homes</strong> — they meet national standards for construction, strength,
-        energy efficiency, and fire safety. <strong>Modular homes</strong> are also factory-built but
-        assembled to local/state building codes (like a site-built home). {BUSINESS_NAME} sells new
-        <strong> manufactured homes</strong> in single- and multi-section floor plans.
-      </>
-    ),
+    answer:
+      '"Mobile home" is the older term for factory-built homes made before June 15, 1976. '
+      + 'Homes built after that date to the federal HUD Code are called manufactured homes. '
+      + 'They meet national standards for construction, strength, energy efficiency, and fire safety. '
+      + 'Modular homes are also factory-built but assembled to local or state building codes, like a site-built home. '
+      + `${BUSINESS_NAME} sells manufactured homes in single-section and multi-section floor plans, including listed homes and orderable floorplans.`,
   },
   {
     question: 'Why do the listings say "Call for Price"?',
-    answer: (
-      <>
-        Manufactured-home pricing depends on options, delivery distance, site prep, and current
-        factory promotions, so we give you a real, itemized quote rather than a misleading sticker
-        number. <a href={`tel:${BUSINESS_PHONE_RAW}`} className="text-blue-700 hover:underline font-semibold">Call {BUSINESS_PHONE}</a> or
-        request a quote on any home and we'll walk you through the all-in cost.
-      </>
-    ),
+    answer:
+      'If a home\'s price is Call for Price, the price is not posted online because the total depends on the options, delivery distance, and site setup for that home. '
+      + `Call ${BUSINESS_PHONE} or request a quote on any home.`,
   },
   {
     question: 'How does financing work for a manufactured home?',
-    answer: (
-      <>
-        Several options are commonly available depending on whether you own or are buying land:
-        <ul className="list-disc pl-6 mt-2 space-y-1">
-          <li>
-            <strong>Chattel (home-only) loans</strong> — for the home itself when it's on leased land or in a community.
-          </li>
-          <li>
-            <strong>Land-and-home / mortgage loans</strong> — when the home and land are financed together; may qualify
-            for FHA Title I/II, VA, or USDA programs.
-          </li>
-          <li>
-            {/* TODO(owner): confirm which lenders finance manufactured homes, and whether any in-house program exists, before naming a lender or program. */}
-            <strong>Ask us about lenders that finance manufactured homes.</strong>
-          </li>
-        </ul>
-        <p className="mt-2">
-          We'll help you compare monthly payment, down payment, and term. Financing paperwork is
-          handled in person or through a secure lender portal — never over chat.
-        </p>
-      </>
-    ),
+    answer: FINANCING_LINE,
   },
   {
     question: 'Do I need land to buy a home from you?',
-    answer: (
-      <>
-        No. You can place a home on <strong>land you own</strong>, on <strong>family land</strong>, or in a
-        <strong> manufactured-home community / leased lot</strong>. We can talk through the trade-offs
-        of each and what site prep each requires.
-      </>
-    ),
+    answer: 'Ask our team whether a home can go on land you own, family land, or a leased lot.',
   },
   {
     question: 'What does delivery and setup include?',
-    answer: (
-      <>
-        A typical new-home delivery includes transport from the factory/lot, placement and leveling on
-        your prepared site, joining multi-section homes, and connecting to utilities per local code.
-        Site prep (pad, footings/piers, utility runs, permits) is usually arranged separately. We
-        coordinate the schedule and walk you through each step.
-      </>
-    ),
+    answer: DELIVERY_LINE,
   },
   {
     question: 'What areas do you serve / deliver to?',
-    answer: (
-      <>
-        We're located at <strong>{BUSINESS_FULL_ADDRESS}</strong>, and serve the greater Houston area —
-        including <strong>Huffman, Humble, Atascocita, Crosby, Kingwood, New Caney, Baytown, Beaumont,
-        Cleveland, Conroe, and Livingston</strong>. Call us to confirm delivery options for your specific
-        address.
-      </>
-    ),
+    answer:
+      `${BUSINESS_NAME} is located at ${BUSINESS_FULL_ADDRESS}. Town pages cover ${TOWN_LIST}. ${DELIVERY_LINE}`,
   },
   {
     question: 'What warranty comes with a new manufactured home?',
-    answer: (
-      <>
-        New manufactured homes carry a <strong>manufacturer's warranty</strong> on the home and its major
-        systems, and many components (appliances, HVAC, roofing) carry their own manufacturer
-        warranties. In Texas, manufactured housing is regulated by the <strong>Texas Department of Housing
-        and Community Affairs (TDHCA)</strong>. We'll provide the specific warranty documents for the home
-        you choose.
-      </>
-    ),
+    answer: WARRANTY_LINE,
   },
   {
     question: 'How long does the whole process take?',
-    answer: (
-      <>
-        For a <strong>confirmed on-lot home</strong>, it can be weeks once availability, financing, and site
-        prep are in place. For an <strong>ordered (factory) floor plan</strong>, build + delivery lead times
-        vary by manufacturer and season. We'll give you a realistic timeline up front.
-      </>
-    ),
+    answer: 'Ask our team for a timeline for the home you are considering.',
   },
   {
     question: 'Can I tour homes in person?',
-    answer: (
-      <>
-        Yes — visit our Huffman showroom/lot during business hours ({BUSINESS_HOURS}), or
-        <a href="/appointments" className="text-blue-700 hover:underline font-semibold"> book a showroom visit</a> online
-        and we'll have a home finder ready for you. Many listings also include photos and 3D virtual
-        tours you can explore from home.
-      </>
-    ),
+    answer:
+      'Yes. Visit the Huffman showroom during posted showroom hours, or book a showroom visit. Some listings include photos and 3D tours.',
   },
   {
     question: 'How do I get started?',
-    answer: (
-      <>
-        Three easy ways: <a href={`tel:${BUSINESS_PHONE_RAW}`} className="text-blue-700 hover:underline font-semibold">call or text {BUSINESS_PHONE}</a>,
-        <a href="/inventory" className="text-blue-700 hover:underline font-semibold"> request a price quote</a> on any home,
-        or <a href="/appointments" className="text-blue-700 hover:underline font-semibold">book a showroom visit</a>.
-        Tell us your budget, whether you have land, and the size you need, and we'll match you to the
-        right homes.
-      </>
-    ),
+    answer: `Call or text ${BUSINESS_PHONE}, request a price quote on any home, or book a showroom visit.`,
   },
 ];
 
 const FAQ = ({ onBack }) => (
   <ContentPage
     title="Frequently Asked Questions"
-    subtitle={`Everything you need to know about buying a manufactured home with ${BUSINESS_NAME}.`}
+    subtitle={`Questions about buying a manufactured home from ${BUSINESS_NAME}.`}
     onBack={onBack}
   >
     <div className="space-y-8">
-      {FAQ_ITEMS.map((item, index) => (
-        <section key={index} className="border-b border-gray-100 last:border-0 pb-6 last:pb-0">
+      {FAQ_ITEMS.map((item) => (
+        <section key={item.question} className="border-b border-gray-100 last:border-0 pb-6 last:pb-0">
           <h2 className="text-lg font-bold text-gray-900 mb-3 flex items-start gap-3">
             <HelpCircle size={22} className="text-blue-600 shrink-0 mt-0.5" />
             <span>{item.question}</span>
           </h2>
           <div className="pl-9 text-gray-700 leading-relaxed space-y-2">
-            {item.answer}
+            <p>{item.answer}</p>
           </div>
         </section>
       ))}
@@ -160,7 +86,7 @@ const FAQ = ({ onBack }) => (
       <section className="bg-blue-50 rounded-xl p-6 border border-blue-100 mt-8">
         <h2 className="text-lg font-bold text-gray-900 mb-2">Still have questions?</h2>
         <p className="text-gray-700 mb-4">
-          Our team is happy to help. Call, text, book a visit, or start a chat.
+          Call, book a visit, or start a chat.
         </p>
         <div className="flex flex-wrap items-center gap-3">
           <a

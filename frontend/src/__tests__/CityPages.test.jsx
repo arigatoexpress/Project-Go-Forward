@@ -5,13 +5,8 @@ import App from '../App';
 import CityLanding from '../pages/CityLanding';
 import InventoryBrowse from '../pages/InventoryBrowse';
 import Locations from '../pages/Locations';
-import {
-  BUSINESS_CITY,
-  BUSINESS_FULL_ADDRESS,
-  BUSINESS_NAME,
-  BUSINESS_PHONE,
-  SERVICE_AREA_CITIES,
-} from '../constants';
+import { SERVICE_AREA_CITIES } from '../constants';
+import { cityShopperSentence } from '../seoCopy';
 
 function response(data) {
   return Promise.resolve({ ok: true, json: async () => data });
@@ -63,8 +58,8 @@ describe('city pages and the locations index', () => {
     expect(screen.getByText(/northern Harris County/)).toBeInTheDocument();
     expect(screen.getByText(/west from the showroom/)).toBeInTheDocument();
     expect(screen.queryByText(/west-southwest/)).not.toBeInTheDocument();
-    const held = `${BUSINESS_NAME} delivers manufactured and mobile homes to Humble, TX from the ${BUSINESS_CITY} showroom at ${BUSINESS_FULL_ADDRESS}. Call ${BUSINESS_PHONE} for the current price.`;
-    expect(screen.getByText(held)).toBeInTheDocument();
+    expect(screen.getByText(cityShopperSentence('Humble'))).toBeInTheDocument();
+    expect(screen.queryByText(/delivers manufactured/i)).not.toBeInTheDocument();
     const crumbs = screen.getByRole('navigation', { name: 'Breadcrumb' });
     expect(crumbs).toHaveTextContent('Home');
     expect(crumbs).toHaveTextContent('Locations');

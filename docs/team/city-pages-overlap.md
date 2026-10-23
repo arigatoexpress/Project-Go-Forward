@@ -88,13 +88,13 @@ Kingwood's handbook place record lists Harris County and Montgomery County. Atas
 
 ## Held for the owner (PGF-33)
 
-The existing "delivers manufactured and mobile homes to {city}" sentence is unchanged, including the call-for-price close. It is waiting on [[OWNER: delivery area/fees per city]].
+The old "delivers manufactured and mobile homes to {city}" sentence is no longer on the page. Each town page now says the Huffman showroom lists homes for shoppers in that town, then "Delivery available, ask for details." The call-for-price close stays.
 
-Also held, and not added here:
+Still not stated, until the owner confirms them:
 
-- delivery claims, delivery fees, or delivery areas beyond that existing sentence
+- delivery fees, included setup, or a promised delivery area
 - customer quotes or testimonials
-- financing, land-home, used or repo homes, TDHCA
+- named lenders, approval promises, or specific warranty lengths
 - prices
 
 No drive time was added.

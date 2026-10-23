@@ -46,7 +46,7 @@ def test_ad_studio_exposes_plain_language_google_ads_tab():
 def test_inventory_hero_uses_readable_text_on_dark_photo_overlay():
     source = INVENTORY_BROWSE.read_text()
 
-    assert "Inventory changes daily" in source
+    assert "Confirm availability with our team" in source
     assert "HOME_H1" in source
     assert "bg-black/45" in source
     assert "text-white/90" in source
@@ -54,7 +54,7 @@ def test_inventory_hero_uses_readable_text_on_dark_photo_overlay():
     assert (
         "text-[var(--cp-text-secondary)]"
         not in source[
-            source.index("Inventory changes daily") : source.index("FeaturedHomeSpotlight")
+            source.index("Confirm availability with our team") : source.index("FeaturedHomeSpotlight")
         ]
     )
 
@@ -226,13 +226,12 @@ def test_faq_page_has_visible_qa_pairs():
 
 def test_financing_page_avoids_specific_rate_claims():
     source = FINANCING_PAGE.read_text()
-    assert "Chattel" in source
-    assert "FHA" in source
-    assert "VA" in source
-    assert "monthly payment" in source
-    # The page must not invent specific rates or guarantees.
+    assert "Ask our team about financing options" in source
+    # The page must not invent specific rates, lender names, or approval promises.
     assert "interest rate" not in source.lower()
     assert "%" not in source
+    for claim in ("FHA", "VA", "USDA", "Chattel", "21st Mortgage", "guaranteed approval"):
+        assert claim not in source
 
 
 def test_warranty_page_prioritizes_safety_escalation():
@@ -244,7 +243,7 @@ def test_warranty_page_prioritizes_safety_escalation():
 
 def test_delivery_page_lists_service_area():
     source = DELIVERY_PAGE.read_text()
-    assert "Huffman" in source
-    assert "Humble" in source
-    assert "Baytown" in source
-    assert "Site Prep" in source
+    assert "Delivery available, ask for details" in source
+    assert "SERVICE_AREA_CITIES" in source
+    assert "within weeks" not in source
+    assert "free delivery" not in source.lower()

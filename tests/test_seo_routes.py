@@ -553,8 +553,9 @@ def test_faq_page_emits_faqpage_jsonld(monkeypatch):
         e for e in entities if e.get("name") == "How does financing work for a manufactured home?"
     )
     financing_text = financing["acceptedAnswer"]["text"]
-    assert "may qualify for FHA Title I/II, VA, or USDA programs." in financing_text
-    assert "Ask us about lenders that finance manufactured homes." in financing_text
+    assert financing_text.startswith("Ask our team about financing options.")
+    assert "FHA" not in financing_text
+    assert "21st Mortgage" not in financing_text
 
 
 def test_legacy_about_us_redirects_to_new_about_page(monkeypatch):
@@ -939,8 +940,9 @@ def test_city_facts_file_failure_still_renders_page_and_sitemap(
     assert page.status_code == 200
     plain = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", page.text))
     held = (
-        f"{business_name()} delivers manufactured and mobile homes to Humble, TX "
+        f"{business_name()} lists manufactured and mobile homes for shoppers in Humble, TX "
         f"from the {business_city()} showroom at {business_address()}. "
+        "Delivery available, ask for details. "
         f"Call {business_phone()} for the current price."
     )
     assert "<h1>Manufactured &amp; Mobile Homes in Humble, TX</h1>" in page.text
@@ -967,15 +969,16 @@ def _shingles(body: str, k: int = 5) -> set[tuple[str, ...]]:
 
 
 def test_city_pages_keep_the_delivery_sentence_and_add_local_facts(monkeypatch):
-    """The owner-held delivery sentence stays verbatim. Each town page adds a
-    distinct local section and a breadcrumb through /locations."""
+    """Town pages name the Huffman showroom and do not promise delivery to the
+    town. Each page adds a distinct local section and a breadcrumb through /locations."""
     client, _ = seo_client(monkeypatch)
     cities = list(get_business()["area_served"])
     humble = client.get("/manufactured-homes-in-humble-tx").text
     plain = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", humble))
     held = (
-        f"{business_name()} delivers manufactured and mobile homes to Humble, TX "
+        f"{business_name()} lists manufactured and mobile homes for shoppers in Humble, TX "
         f"from the {business_city()} showroom at {business_address()}. "
+        "Delivery available, ask for details. "
         f"Call {business_phone()} for the current price."
     )
     assert held in plain
@@ -1433,7 +1436,7 @@ def test_home_page_keeps_call_for_price_and_own_photos(monkeypatch):
     assert "Heritage-kitchen-1.jpg" not in body
     assert 'href="tel:+12813243020">Call (281) 324-3020</a>' in body
     assert "Text (281) 324-3020" in body
-    assert 'href="/financing">Apply for financing</a>' in body
+    assert 'href="/financing">Ask about financing</a>' in body
     og = re.search(r'<meta property="og:image" content="([^"]+)"', body)
     assert og is not None
     assert og.group(1) == "https://img.example.com/lot-44490.jpg"
@@ -1899,7 +1902,7 @@ def test_named_public_pages_have_canonical_social_and_verification_slots(monkeyp
     assert "TODO(owner)" not in body
     assert "abc123" not in body
     if path == "/financing":
-        assert "Ask our team for current lender options." in body
+        assert "Ask our team about financing options." in body
         assert "lender partners" not in body.lower()
 
 

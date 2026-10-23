@@ -117,6 +117,6 @@ The email has a line that starts with **Interested in**. If they did not name a 
 
 A link that contains `?home=` opens that home's page. A link that contains `/inventory-detail/` opens that home too.
 
-On a phone, **Call**, **Text**, and **Apply** show under the home name.
+On a phone, **Call**, **Text**, and **Ask** show under the home name.
 
-The same page also shows **Call**, **Text**, and **Apply for financing** again further down. That extra set is still there.
+The same page also shows **Call**, **Text**, and **Ask about financing** again further down. That extra set is still there.

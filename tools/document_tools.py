@@ -851,7 +851,7 @@ WORK_ORDER_TEMPLATE = """
     <div class="header">
         <div>
             <div class="logo">🏠 Texas Home Outlet</div>
-            <div class="tagline">Family Owned • Veteran Owned • Since 2010</div>
+            <div class="tagline">Manufactured and mobile homes in Huffman, TX</div>
         </div>
         <div class="doc-type">
             <h2>{doc_type}</h2>
@@ -957,9 +957,9 @@ def generate_work_order_pdf(
     customer_phone: str,
     work_description: str,
     issue_type: str = "General",
-    contractor_name: str = "Local Home Services",
-    contractor_email: str = "dispatch@localhomeservices.com",
-    contractor_phone: str = "(281) 555-0199",
+    contractor_name: str = "",
+    contractor_email: str = "",
+    contractor_phone: str = "",
     is_warranty: bool = True,
     estimated_cost: float | None = None,
     tool_context: ToolContext = None,
@@ -1034,7 +1034,7 @@ def generate_work_order_pdf(
             "email_customer": "Customer copy ready",
             "print": "PDF ready for printing",
         },
-        "next_steps": "Contractor will contact customer within 24-48 hours to schedule service.",
+        "next_steps": "Warranty coverage varies by manufacturer, ask a manager.",
     }
 
 
@@ -1133,29 +1133,33 @@ def generate_customer_email(
     """
     first_name = customer_name.split()[0] if customer_name else "Valued Customer"
 
+    visit_date = appointment_details.get("date") if appointment_details else None
+    visit_time = appointment_details.get("time") if appointment_details else None
+    if visit_date and visit_time:
+        schedule = f"Date: {visit_date}\nTime: {visit_time}\n"
+        appointment_subject = "Your Texas Home Outlet appointment is Confirmed"
+    else:
+        schedule = "Our team will confirm the date and time.\n"
+        appointment_subject = "Your Texas Home Outlet showroom visit"
+
     templates = {
         "appointment_confirmation": {
-            "subject": "Your Texas Home Outlet Appointment is Confirmed! 🏠",
+            "subject": appointment_subject,
             "body": f"""
 Hi {first_name},
 
-Great news! Your appointment at Texas Home Outlet is confirmed.
+{schedule}Location: 10685 FM 1960 East, Huffman, TX 77336
 
-📅 Date: {appointment_details.get('date', 'TBD') if appointment_details else 'TBD'}
-🕐 Time: {appointment_details.get('time', 'TBD') if appointment_details else 'TBD'}
-📍 Location: 10685 FM 1960 East, Huffman, TX 77336
-
-When you arrive, ask for Ben or Mark - they're excited to meet you!
+Our team will meet you at the showroom.
 
 What to bring:
-• Valid ID
-• Proof of land ownership (if applicable)
-• Any financing pre-approval letters
+- Valid ID
+- Proof of land ownership, if you have it
+- Any financing paperwork a lender already gave you
 
-We can't wait to help you find your dream home!
+Call (281) 324-3020 if you need to change the time.
 
-Warm regards,
-The Texas Home Outlet Family
+Texas Home Outlet
 (281) 324-3020
 """,
         },
@@ -1166,59 +1170,40 @@ Hi {first_name},
 
 We wanted to update you on your service request{f' ({ticket_id})' if ticket_id else ''}.
 
-{custom_content or 'Your request is being processed. A contractor will reach out within 24-48 hours to schedule your service visit.'}
+{custom_content or 'Your request is with our team. Warranty coverage varies by manufacturer, ask a manager.'}
 
-If you have any questions, don't hesitate to reach out!
+Call (281) 324-3020 if you have questions.
 
-Best regards,
-Texas Home Outlet Service Team
+Texas Home Outlet
 (281) 324-3020
 """,
         },
         "welcome": {
-            "subject": "Welcome to the Texas Home Outlet Family! 🎉",
+            "subject": "Welcome to Texas Home Outlet",
             "body": f"""
 Hi {first_name},
 
-Congratulations on your new home! Welcome to the Texas Home Outlet family.
+Welcome to Texas Home Outlet.
 
-Here are some important things to know:
+Warranty coverage varies by manufacturer, ask a manager.
 
-📋 YOUR WARRANTY COVERAGE:
-• Structural (HUD): 1 year from delivery
-• Cosmetic: 30 days from delivery
-• Appliances: Contact manufacturer directly
+For service questions, call (281) 324-3020.
 
-🔧 NEED SERVICE?
-Chat with our AI assistant anytime, or call us at (281) 324-3020
-
-📚 HOME CARE TIPS:
-• Keep your home's skirting ventilated
-• Check caulking around windows seasonally
-• Test smoke detectors monthly
-
-Thank you for choosing Texas Home Outlet. We're honored to be part of your journey!
-
-God bless,
-The Texas Home Outlet Family
+Texas Home Outlet
+(281) 324-3020
 """,
         },
         "follow_up": {
-            "subject": "How's Everything Going? 🏠",
+            "subject": "How's Everything Going?",
             "body": f"""
 Hi {first_name},
 
 We wanted to check in and see how everything is going{' since your recent service visit' if ticket_id else ''}.
 
-{custom_content or 'Is there anything else we can help you with?'}
+{custom_content or 'Call (281) 324-3020 if you have questions.'}
 
-Your satisfaction is our top priority. If you have any concerns or just want to say hi, we're always here!
-
-Warm regards,
 Texas Home Outlet
 (281) 324-3020
-
-P.S. If you're happy with your experience, we'd love a Google review! ⭐
 """,
         },
     }

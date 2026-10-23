@@ -47,7 +47,7 @@ Raw tool names, stack traces, HTTP codes, and JSON bodies are no longer the text
 
 These were not decided here.
 
-- **Which phone number the flyer shows.** Waiting on the owner. The flyer footer calls `business_phone()` in `config_loader`, which reads `config.yaml`. That phone is (281) 324-3020. A note in the flyer code still says the owner should confirm it, because an older footer did not match. The number was not changed.
+- **Which phone number the flyer shows.** Kept as (281) 324-3020. That is `business.phone` in `config.yaml`, and the same number on the public footer, contact page, legal pages, and LocalBusiness telephone. The older flyer number 281-657-7366 is not printed.
 - **How staff enter prices.** Waiting on the owner. The price box is blank on purpose. The placeholder still says Call for Price. The home list can still show a listed price from the public home list. The flyer ignores a typed price and prints "Call for price" unless that home is already marked owner-approved. Nothing here hides the list price or turns the typed box into the flyer price.
 - **Ad budget.** Budget amounts are waiting on the owner. The Google Ads preview shows those amounts, and the screen says this launch leaves the ads off. The budget was not changed, and this screen cannot change it.
 
@@ -55,7 +55,7 @@ These were not decided here.
 
 - Showroom address on the Google Ads preview is 10685 FM 1960 East, Huffman, TX. That is the address in `config.yaml`.
 - Store hours are not typed onto this screen.
-- The flyer phone comes from `config.yaml` through `business_phone()`. Which number the flyer shows is waiting on the owner.
+- The flyer phone comes from `config.yaml` through `business_phone()`. It is (281) 324-3020, the same number as the public site.
 - A flyer with no script uses the business city from config for the body line.
 
 ## Fixes made
@@ -99,7 +99,7 @@ None from the list above. Those four are addressed in #429, stacked on #428.
 
 - Signed-in click-through: UNKNOWN.
 - The word **Launch** remains on **Launch turned off**.
-- Which phone the flyer shows, how staff enter prices, and the ad budget, as listed above. Budget amounts are waiting on the owner.
+- How staff enter prices, and the ad budget, as listed above. Budget amounts are waiting on the owner. The flyer phone is the public showroom number.
 - Typing a price still clears the selected-home card. That is behavior, not a wording change, so it was left.
 - The writing guide inside the tool still mentions Houston. Staff do not see that guide.
 - Some buttons still say **Generate Script** and **Generate Image**. The guide already uses Generate Script.

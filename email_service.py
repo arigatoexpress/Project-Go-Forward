@@ -422,7 +422,7 @@ def _base_wrapper(content: str) -> str:
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff;">
       <div style="background: #1e3a5f; padding: 24px; text-align: center;">
         <h1 style="color: #ffffff; margin: 0; font-size: 24px;">Texas Home Outlet</h1>
-        <p style="color: #93c5fd; margin: 4px 0 0; font-size: 13px;">Your Dream Home Starts Here</p>
+        <p style="color: #93c5fd; margin: 4px 0 0; font-size: 13px;">Manufactured and mobile homes in Huffman, TX</p>
       </div>
       <div style="padding: 32px 24px;">
         {content}
@@ -524,7 +524,7 @@ def send_appointment_confirmation(
       <li>Any financing pre-approval letters</li>
     </ul>
 
-    <p>When you arrive, ask for <strong>Ben or Mark</strong> — they're ready to help!</p>
+    <p>When you arrive, ask for our team.</p>
 
     <p style="margin-top: 24px;">
       <a href="tel:+12813243020" style="display: inline-block; background: #3b82f6; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: 600;">
@@ -553,18 +553,18 @@ def send_lead_welcome(to: str, customer_name: str, lead_id: str = None) -> dict:
     content = f"""
     <h2 style="color: #1e3a5f; margin-top: 0;">Thanks for Reaching Out!</h2>
     <p>Hi {first_name},</p>
-    <p>We received your inquiry and one of our team members will be in touch shortly — usually within a few hours during business hours.</p>
+    <p>We received your inquiry. Our team will follow up during showroom hours.</p>
 
     <p>In the meantime, here are some ways to explore:</p>
 
     <div style="background: #f0fdf4; border-left: 4px solid #22c55e; padding: 16px; margin: 20px 0; border-radius: 0 8px 8px 0;">
       <p style="margin: 0 0 8px; font-weight: 600; color: #166534;">While You Wait</p>
       <p style="margin: 4px 0; color: #374151;">🏠 Browse our full inventory online</p>
-      <p style="margin: 4px 0; color: #374151;">📱 Chat with Tex, our AI assistant, 24/7</p>
+      <p style="margin: 4px 0; color: #374151;">📱 Chat with Tex on the website</p>
       <p style="margin: 4px 0; color: #374151;">📅 Book a showroom visit if you haven't already</p>
     </div>
 
-    <p>We have over 40 homes to choose from — new and pre-owned — starting under $50k.</p>
+    <p>Prices on the website stay Call for Price until the team confirms the total for the home you want.</p>
 
     <p style="color: #6b7280; font-size: 13px; margin-top: 20px;">
       Texas Home Outlet &bull; {BUSINESS_PHONE}
@@ -768,7 +768,7 @@ def send_document_email(
     {cta_block}
 
     <p style="color: #6b7280; font-size: 13px; margin-top: 20px;">
-      Questions? Reply to this email or call {BUSINESS_PHONE} and ask for Ben or Mark.
+      Questions? Reply to this email or call {BUSINESS_PHONE} and ask for our team.
     </p>
     """
 
@@ -777,7 +777,7 @@ def send_document_email(
         f"Your {pretty_type} ({doc_filename}) is ready.\n"
         f"Open it here: {link or '(link unavailable — please contact us)'}\n\n"
         f"You may need to sign in to your Texas Home Outlet account to view it.\n\n"
-        f"Questions? Call {BUSINESS_PHONE} and ask for Ben or Mark.\n\n"
+        f"Questions? Call {BUSINESS_PHONE} and ask for our team.\n\n"
         f"— Texas Home Outlet"
     )
 
