@@ -181,6 +181,7 @@ from tools.inventory_dedupe import (
     is_preowned,
     suppress_used_home_catalog_photos,
 )
+from tools.lcp_image import LCP_IMAGE_PATH, hero_url_is_resizable, lcp_jpeg_for_url
 from tools.pii_guard import redact_pii_from_text, validate_no_pii_in_text
 from tools.user_activity_log import log_user_action, query_user_activity
 from tools.webhook_replay import ReplayGuard, docuseal_event_key
@@ -6318,6 +6319,23 @@ async def download_ad_image(filename: str):
 
 # Max photos accepted in a single upload request (keeps requests bounded).
 _MAX_PHOTOS_PER_UPLOAD = 20
+
+
+@app.get(LCP_IMAGE_PATH, summary="Inventory hero image")
+@limiter.limit("120/minute")
+def api_inventory_lcp_image(request: Request):
+    """Small JPEG of the public inventory hero. No visitor-supplied URL."""
+    hero = seo_routes._inventory_hero_image()
+    if not hero or not hero_url_is_resizable(hero):
+        return Response(status_code=404)
+    jpeg = lcp_jpeg_for_url(hero)
+    if not jpeg:
+        return Response(status_code=404)
+    return Response(
+        content=jpeg,
+        media_type="image/jpeg",
+        headers={"Cache-Control": "public, max-age=600, stale-while-revalidate=86400"},
+    )
 
 
 @app.get("/api/inventory/photos/{home_id}/{filename}")

@@ -48,6 +48,13 @@ const rootTree = (
   </ErrorBoundary>
 )
 
+// Keep the server-painted hero in the document. createRoot replaces #root,
+// and this image has to stay so its paint time remains Largest Contentful Paint.
+const staticLcpImage = document.getElementById('tho-lcp');
+if (staticLcpImage) {
+  document.body.insertBefore(staticLcpImage, document.body.firstChild);
+}
+
 createRoot(document.getElementById('root')).render(
   <StrictMode>
     {import.meta.env.VITE_SENTRY_DSN ? (

@@ -201,6 +201,59 @@ def test_inventory_routes_preload_the_responsive_hero_image(monkeypatch):
     assert '<link rel="preload" as="image"' not in client.get("/contact").text
 
 
+def test_resizable_hero_preloads_the_same_origin_lcp_image(monkeypatch):
+    """Staff and catalog heroes preload one small same-origin JPEG.
+
+    The original file stays out of the head so a phone does not spend its
+    first bytes on a full-size photo. Category pages keep their own hero.
+    """
+    import seo_routes
+    from tools.lcp_image import LCP_IMAGE_PATH
+
+    staff = "/api/inventory/photos/43372/lot.jpg"
+    home = {
+        **FAKE_HOMES[0],
+        "classification": "Single Wide",
+        "hero_image": staff,
+    }
+    client, _ = seo_client(monkeypatch)
+    monkeypatch.setattr(seo_routes, "_get_homes", lambda: [home, FAKE_HOMES[2]])
+
+    for path in ("/", "/inventory"):
+        body = client.get(path).text
+        assert f'href="{LCP_IMAGE_PATH}"' in body
+        assert 'id="tho-lcp"' in body
+        assert 'class="tho-lcp"' in body
+        assert "style=" not in body.split('id="tho-lcp"', 1)[1].split(">", 1)[0]
+        assert staff not in body
+        assert "imagesrcset=" not in body
+        assert "?w=" not in body
+
+    contact = client.get("/contact").text
+    assert "tho-lcp" not in contact
+    assert '<link rel="preload" as="image"' not in contact
+
+    category = client.get("/single-wide").text
+    assert "tho-lcp" not in category
+    assert LCP_IMAGE_PATH not in category
+
+    listing = client.get("/homes/44490-pre-owned-big-blue").text
+    assert 'id="tho-lcp"' in listing
+    assert f'href="{LCP_IMAGE_PATH}"' in listing
+    assert 'loading="lazy"' in listing
+    assert 'fetchpriority="low"' in listing
+    assert "https://img.example.com/lot-44490.jpg" in listing
+
+    cdn = "https://d132mt2yijm03y.cloudfront.net/dealer/3522/inventory/43372/home-ext-1.jpg"
+    cdn_home = {**FAKE_HOMES[0], "hero_image": cdn}
+    monkeypatch.setattr(seo_routes, "_get_homes", lambda: [cdn_home])
+    monkeypatch.setattr(seo_routes, "_registry_cache", None)
+    cdn_page = client.get("/inventory").text
+    assert f'href="{LCP_IMAGE_PATH}"' in cdn_page
+    assert 'id="tho-lcp"' in cdn_page
+    assert f'href="{cdn}"' not in cdn_page
+
+
 def test_inventory_hero_preload_prefers_an_available_home(monkeypatch):
     import seo_routes
 
@@ -1939,7 +1992,7 @@ def test_placeholder_verification_tags_in_the_shell_are_stripped(monkeypatch, tm
         "<!-- TODO(owner): replace TODO_GOOGLE_SEARCH_CONSOLE_TOKEN -->\n"
         '<meta name="google-site-verification" content="TODO_GOOGLE_SEARCH_CONSOLE_TOKEN" />\n'
         '<meta name="msvalidate.01" content="TODO_BING_WEBMASTER_TOKEN" />\n'
-        "<title>Old</title></head><body><div id=\"root\"></div></body></html>\n",
+        '<title>Old</title></head><body><div id="root"></div></body></html>\n',
         encoding="utf-8",
     )
     monkeypatch.setattr(seo_routes, "_index_html_path", str(shell))

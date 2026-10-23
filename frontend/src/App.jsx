@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef, lazy, Suspense, useCallback } from 'react';
 import { Send, Home, Menu, X, Phone, MapPin, Loader2, User, Bot, FileText, Video, Lock, ShieldCheck, CalendarDays, Users, MessageSquare, MessageCircle, RotateCcw, WifiOff, Moon, Sun, KeyRound, BookOpen, Activity, Camera, Sparkles, ClipboardList, Store, MoreHorizontal, LogOut, Search } from 'lucide-react';
 import { useDarkMode } from './hooks/useDarkMode';
-import SafeMarkdown from './components/SafeMarkdown';
 import SearchFilters from './components/SearchFilters';
 import QuickActions from './components/QuickActions';
 import ComparisonDrawer from './components/ComparisonDrawer';
@@ -56,7 +55,9 @@ function chatMessageIncludesContact(text) {
     || /\b(call|text|phone|cell|reach|contact|number)\b/i.test(value);
 }
 
-// Lazy-load heavy page components for code-splitting
+// Lazy-load heavy page components for code-splitting.
+// SafeMarkdown pulls in the markdown parser, which the inventory route does not paint.
+const SafeMarkdown = lazy(() => import('./components/SafeMarkdown'));
 const Analytics = lazy(() => import('./pages/Analytics'));
 const DocumentCenter = lazy(() => import('./pages/DocumentCenter'));
 const AdStudio = lazy(() => import('./pages/AdStudio'));
@@ -695,6 +696,21 @@ function App() {
       trackEvent('page_viewed', { page: activePage, page_path: pathname });
     }
   }, [activePage, pathname]);
+
+  // The hero image is painted by the server and lives outside #root. Hide it
+  // on routes that do not use the inventory hero so it cannot cover them.
+  useEffect(() => {
+    const image = document.getElementById('tho-lcp');
+    if (!image) return undefined;
+    const path = String(pathname || '/').replace(/\/+$/, '') || '/';
+    const showHero = path === '/'
+      || path === '/inventory'
+      || path.startsWith('/homes/')
+      || path.startsWith('/inventory-detail/')
+      || path.startsWith('/plan/');
+    image.hidden = !showHero;
+    return undefined;
+  }, [pathname]);
 
   // Keep activePage in sync with browser back/forward navigation
   useEffect(() => {
@@ -2001,7 +2017,7 @@ function App() {
 
   if (activePage === 'inventory') {
     return (
-      <div className="bg-[var(--cp-bg)] min-h-screen flex flex-col">
+      <div className="min-h-screen flex flex-col">
         {appModals}
         <NavBar {...navProps} />
 
@@ -2095,11 +2111,13 @@ function App() {
                         ? 'bg-[var(--cp-danger-dim)] text-[var(--cp-danger)] rounded-tl-none border border-[var(--cp-danger)]/20'
                         : 'bg-[var(--cp-surface)] text-[var(--cp-text)] rounded-tl-none border border-[var(--cp-border)]'
                     }`}>
-                    <SafeMarkdown
-                      content={msg.text}
-                      comparisonList={comparisonList}
-                      onToggleCompare={handleToggleCompare}
-                    />
+                    <Suspense fallback={<span className="whitespace-pre-wrap">{msg.text}</span>}>
+                      <SafeMarkdown
+                        content={msg.text}
+                        comparisonList={comparisonList}
+                        onToggleCompare={handleToggleCompare}
+                      />
+                    </Suspense>
                     {/* Retry button for failed messages */}
                     {msg.isError && msg.originalMessage && (
                       <button

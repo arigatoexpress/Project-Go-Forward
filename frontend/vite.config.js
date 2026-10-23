@@ -156,7 +156,7 @@ export default defineConfig({
           if (id.includes('node_modules/recharts') || id.includes('node_modules/d3-') || id.includes('node_modules/victory-vendor')) {
             return 'vendor-recharts';
           }
-          // Markdown renderer used by SafeMarkdown (eagerly imported in main)
+          // Markdown renderer used by SafeMarkdown (loaded with the chat route)
           if (id.includes('node_modules/react-markdown') || id.includes('node_modules/remark') || id.includes('node_modules/rehype') || id.includes('node_modules/unified') || id.includes('node_modules/micromark') || id.includes('node_modules/mdast') || id.includes('node_modules/hast') || id.includes('node_modules/vfile')) {
             return 'vendor-markdown';
           }

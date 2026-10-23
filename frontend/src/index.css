@@ -4,6 +4,25 @@ body {
   background-color: #f3f4f6;
 }
 
+/* Server-painted inventory hero. The rule lives in this stylesheet because
+   the CSP style-src does not allow a style attribute. Fixed, so it never
+   reserves flow space and cannot shift #root when the file arrives. */
+img#tho-lcp {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0.35;
+  z-index: 0;
+  pointer-events: none;
+}
+
+#root {
+  position: relative;
+  z-index: 1;
+}
+
 @layer components {
   /* Shared button variants — apply Tailwind utility chains so consumers
      (InventoryBrowse, EmptyState actions, future pages) don't repeat the
