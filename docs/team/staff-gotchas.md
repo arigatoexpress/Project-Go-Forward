@@ -4,7 +4,7 @@ This page is for people who work at Texas Home Outlet. You do not need tech skil
 
 The website is https://www.texashomeoutlet.com
 
-Each note has one clear step. If something still looks wrong, take a screenshot and tell Ari.
+Each note has one clear step. If something still looks wrong, take a screenshot and ask your manager.
 
 Other guides: [How to sign in](staff-sign-in.md), [How to add photos](photo-upload-guide.md), [How to use Ad Studio](ad-studio-guide.md).
 
@@ -14,11 +14,11 @@ Other guides: [How to sign in](staff-sign-in.md), [How to add photos](photo-uplo
 
 Homes show **Call for Price** until someone types a sale price.
 
-**Do:** If Ari says a price can go on the site, sign in, tap **Manage Homes**, pick the home, and type the number in **Price on the website**. Then save.
+**Do:** If the owner or operator says a price can go on the site, sign in, tap **Manage Homes**, pick the home, and type the number in **Price on the website**. Then save.
 
 **Don't:** Leave that box blank and expect a dollar amount to show. A blank price shows Call for Price.
 
-Ari still has to decide which prices can show.
+Ask the owner or operator which prices can show. A manager who is not the owner or operator cannot approve a public sale price.
 
 ### Ad Studio: if Prepare Draft fails
 
@@ -81,7 +81,7 @@ You can also open these pages directly:
 - https://www.texashomeoutlet.com/manage-inventory
 - https://www.texashomeoutlet.com/photos
 
-**Do:** If you upload a photo on a used home and it does not show, tell Ari.
+**Do:** If you upload a photo on a used home and it does not show, ask your manager.
 
 Photo upload on a used home has not been tested on the live site yet.
 
@@ -91,17 +91,17 @@ Photo upload on a used home has not been tested on the live site yet.
 
 If the panel says **E-signing isn't turned on yet, so nothing can be sent.**, print the packet and sign in person.
 
-**Don't:** Send anything to a buyer on your own. Nothing goes to a buyer unless you tick the hand-check box and press **Send to** the buyer's email. Ask Ari before you send anything.
+**Don't:** Send anything to a buyer on your own. Nothing goes to a buyer unless you tick the hand-check box and press **Send to** the buyer's email. Ask the owner or operator before you send anything. A manager who is not the owner or operator cannot approve that send.
 
 **Do:** Read the contract packet before you print it.
 
 The escrow payment prints on the papers. The Insurance Escrow box ticks itself when insurance is part of that escrow.
 
-**Don't:** Hand the papers over if any line does not match the deal sheet. Stop and tell Ari.
+**Don't:** Hand the papers over if any line does not match the deal sheet. Stop and ask your manager.
 
 ### New Deal form
 
-**Do:** If the New Deal form shows an error that names a field, tell Ari.
+**Do:** If the New Deal form shows an error that names a field, ask your manager.
 
 The message starts with "Could not save this deal" and names the field the site does not know. Nothing was saved. The deal is not in the list.
 
