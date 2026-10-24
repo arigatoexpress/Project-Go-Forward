@@ -376,7 +376,7 @@ function upsertMeta(attribute, key, content) {
   meta.setAttribute('content', content);
 }
 
-export function applyDocumentHead({ title, description, canonicalPath, image } = {}) {
+export function applyDocumentHead({ title, description, canonicalPath, image, robots } = {}) {
   if (typeof document === 'undefined') return;
   if (title) document.title = title;
   const origin = publicCanonicalOrigin();
@@ -384,7 +384,12 @@ export function applyDocumentHead({ title, description, canonicalPath, image } =
   if (description) {
     upsertMeta('name', 'description', description);
   }
-  if (canonicalPath) {
+  if (robots) upsertMeta('name', 'robots', robots);
+  const noindex = String(robots || '').toLowerCase().includes('noindex');
+  if (noindex) {
+    document.querySelector('link[rel="canonical"]')?.remove();
+    document.querySelector('meta[property="og:url"]')?.remove();
+  } else if (canonicalPath) {
     let link = document.querySelector('link[rel="canonical"]');
     if (!link) {
       link = document.createElement('link');
