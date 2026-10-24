@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import InventoryBrowse from '../pages/InventoryBrowse';
 import { STATIC_LCP_STALL_MS } from '../utils/staticLcp';
 
@@ -95,7 +95,11 @@ describe('inventory hero when the server already painted LCP', () => {
     expect(backgroundHero()).toBeNull();
     fireEvent.error(painted);
 
-    const hero = backgroundHero();
+    const hero = await waitFor(() => {
+      const found = backgroundHero();
+      expect(found).not.toBeNull();
+      return found;
+    });
     expect(hero).not.toBeNull();
     expect(hero.getAttribute('src')).toBe(HERO);
     expect(hero.getAttribute('fetchpriority')).toBe('high');
@@ -108,8 +112,13 @@ describe('inventory hero when the server already painted LCP', () => {
     render(<InventoryBrowse pathname="/inventory" />);
 
     expect(await screen.findByRole('heading', { name: /Home Inventory in / })).toBeTruthy();
-    const hero = backgroundHero();
-    expect(hero).not.toBeNull();
+    // The heading can render before the mocked inventory fetch resolves, and
+    // the hero needs the loaded homes. Wait for it instead of reading once.
+    const hero = await waitFor(() => {
+      const found = backgroundHero();
+      expect(found).not.toBeNull();
+      return found;
+    });
     expect(hero.getAttribute('src')).toBe(HERO);
     expect(painted.hidden).toBe(true);
     expect(painted.getAttribute('data-lcp-failed')).toBe('1');
@@ -174,7 +183,11 @@ describe('inventory hero when the server already painted LCP', () => {
 
     fireEvent.error(painted);
 
-    const hero = backgroundHero();
+    const hero = await waitFor(() => {
+      const found = backgroundHero();
+      expect(found).not.toBeNull();
+      return found;
+    });
     expect(hero).not.toBeNull();
     expect(hero.getAttribute('src')).toBe(HERO);
     expect(hero.getAttribute('fetchpriority')).toBe('high');
