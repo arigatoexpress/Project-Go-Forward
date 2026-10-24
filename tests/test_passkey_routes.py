@@ -45,12 +45,13 @@ class _CredentialSnapshot:
             return {}
         return {
             "credential_id": self._record.credential_id_b64,
-            "public_key": "cHVibGlj",
+            "public_key": urlsafe_b64encode(self._record.public_key).rstrip(b"=").decode("ascii"),
             "sign_count": self._record.sign_count,
             "user_id": self._record.user_id,
             "aaguid": self._record.aaguid,
             "created_at": self._record.created_at,
             "last_used_at": self._record.last_used_at,
+            "label": self._record.label,
         }
 
 
@@ -82,6 +83,13 @@ class _CredentialDocument:
             raise AlreadyExists("credential already exists")
         record = FirestoreCredentialStore._to_record(self.credential_id_b64, data)
         self.store.rows[record.credential_id] = record
+
+    def update(self, data, timeout=None):
+        del timeout
+        record = self.snapshot()._record
+        if record is None or "label" not in data:
+            return
+        record.label = data["label"]
 
 
 class _CredentialQuery:
@@ -241,6 +249,44 @@ def test_memory_store_concurrent_same_id_registration_has_exactly_one_winner():
     assert outcomes.count("created") == 1
     assert outcomes.count("duplicate") == 1
     assert store.count() == 1
+
+
+def test_firestore_store_persists_label_and_loads_credentials_without_one():
+    created = datetime(2026, 10, 1, 15, 0, tzinfo=UTC)
+    record = CredentialRecord(
+        credential_id=b"credential-label",
+        public_key=b"public-key-bytes",
+        sign_count=3,
+        user_id="mark@texashomeoutlet.com",
+        aaguid="fbfc3007-154e-4ecc-8c0a-6ef5e7a3e3c4",
+        created_at=created,
+        label="Front desk iPhone",
+    )
+    store = FirestoreCredentialStore(client=_FakeCredentialFirestore({}))
+
+    store.add(record)
+
+    stored = store.get(record.credential_id)
+    assert stored is not None
+    assert stored.label == "Front desk iPhone"
+    assert stored.public_key == b"public-key-bytes"
+    assert stored.user_id == "mark@texashomeoutlet.com"
+    assert stored.sign_count == 3
+    assert stored.created_at == created
+
+    legacy = {
+        "public_key": b"legacy-public-key",
+        "sign_count": 1,
+        "user_id": "owner@texashomeoutlet.com",
+        "aaguid": "",
+        "created_at": created,
+        "last_used_at": None,
+    }
+    loaded = FirestoreCredentialStore._to_record(record.credential_id_b64, legacy)
+    assert loaded.label == ""
+    assert loaded.credential_id == record.credential_id
+    assert loaded.public_key == b"legacy-public-key"
+    assert loaded.user_id == "owner@texashomeoutlet.com"
 
 
 def test_firestore_store_create_only_maps_collision_without_mutating_owner_record():

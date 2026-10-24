@@ -47,6 +47,34 @@ describe('Your passkeys', () => {
     expect(screen.queryByRole('button', { name: /Add a passkey/i })).not.toBeInTheDocument();
   });
 
+  it('reloads the list after a passkey is registered', async () => {
+    const added = {
+      credential_id: 'new-key',
+      label: 'This phone',
+      provider: 'iCloud Keychain',
+      created_at: '2026-10-24T12:00:00Z',
+      last_used_at: null,
+    };
+    let listCalls = 0;
+    window.fetch = vi.fn(async (url, options = {}) => {
+      if (String(url).includes('/credentials/mine') && (!options.method || options.method === 'GET')) {
+        listCalls += 1;
+        const credentials = listCalls === 1 ? [] : [added];
+        return { ok: true, json: async () => ({ email: 'pat@texashomeoutlet.com', credentials }) };
+      }
+      return { ok: true, json: async () => ({ success: true }) };
+    });
+
+    const view = render(<YourPasskeys onAdd={() => {}} refreshToken={0} />);
+    expect(await screen.findByText('You don’t have a passkey yet.')).toBeInTheDocument();
+    expect(listCalls).toBe(1);
+
+    view.rerender(<YourPasskeys onAdd={() => {}} refreshToken={1} />);
+    expect(await screen.findByText('This phone')).toBeInTheDocument();
+    expect(listCalls).toBe(2);
+    expect(screen.queryByText('You don’t have a passkey yet.')).not.toBeInTheDocument();
+  });
+
   it('renames a key from the page', async () => {
     render(<YourPasskeys onAdd={() => {}} />);
     fireEvent.click(await screen.findByRole('button', { name: /Rename/i }));

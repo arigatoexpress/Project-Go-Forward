@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { KeyRound, Loader2, Pencil, Trash2 } from 'lucide-react';
 import adminFetch from '../adminFetch';
 import { detectPasskeySupport, PASSKEY_UNSUPPORTED_DEVICE } from '../auth/passkey';
@@ -17,7 +17,7 @@ function when(value, empty) {
   return date.toLocaleDateString();
 }
 
-export default function YourPasskeys({ onAdd, onBack }) {
+export default function YourPasskeys({ onAdd, onBack, refreshToken = 0 }) {
   const [credentials, setCredentials] = useState([]);
   const [email, setEmail] = useState('');
   const [error, setError] = useState('');
@@ -27,6 +27,7 @@ export default function YourPasskeys({ onAdd, onBack }) {
   const [busyId, setBusyId] = useState('');
   const [renameId, setRenameId] = useState('');
   const [renameValue, setRenameValue] = useState('');
+  const loadGeneration = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -39,6 +40,8 @@ export default function YourPasskeys({ onAdd, onBack }) {
   }, []);
 
   const load = useCallback(async () => {
+    const generation = loadGeneration.current + 1;
+    loadGeneration.current = generation;
     setError('');
     try {
       const response = await adminFetch('/api/admin/passkey/credentials/mine', { credentials: 'same-origin' });
@@ -46,16 +49,18 @@ export default function YourPasskeys({ onAdd, onBack }) {
       if (!response.ok) {
         throw new Error(safeUserMessage(extractErrorMessage(data), 'Your passkeys could not be loaded.'));
       }
+      if (generation !== loadGeneration.current) return;
       setEmail(data.email || '');
       setCredentials(Array.isArray(data.credentials) ? data.credentials : []);
     } catch (err) {
+      if (generation !== loadGeneration.current) return;
       setError(safeUserMessage(err?.message, describeFetchError(err, 'load your passkeys')));
     } finally {
-      setLoading(false);
+      if (generation === loadGeneration.current) setLoading(false);
     }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load(); }, [load, refreshToken]);
 
   const rename = async (credentialId) => {
     const label = renameValue.trim();

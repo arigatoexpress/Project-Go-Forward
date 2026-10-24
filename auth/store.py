@@ -17,6 +17,7 @@ from typing import Any, Protocol
 
 from google.api_core.exceptions import Conflict
 
+from database.models import AdminPasskeyCredential
 from database.rpc_timeout import FIRESTORE_RPC_TIMEOUT
 
 log = logging.getLogger(__name__)
@@ -242,40 +243,74 @@ class FirestoreCredentialStore:
         return _b64url_encode(credential_id)
 
     @classmethod
-    def _to_record(cls, doc_id: str, data: dict) -> CredentialRecord:
-        cid = data.get("credential_id")
-        if isinstance(cid, str):
-            cid_bytes = _b64url_decode(cid)
-        elif cid is None:
-            cid_bytes = _b64url_decode(doc_id)
+    def _canonical_document(cls, doc_id: str, data: dict | None) -> AdminPasskeyCredential:
+        """Map a stored document onto the canonical credential schema.
+
+        Older documents omit ``label``. ``credential_id`` and ``public_key``
+        may be raw bytes from an earlier writer; both become the urlsafe
+        strings the schema stores.
+        """
+        payload = dict(data or {})
+        credential_id = payload.get("credential_id")
+        if isinstance(credential_id, str):
+            payload["credential_id"] = credential_id
+        elif credential_id is None:
+            payload["credential_id"] = doc_id
         else:
-            cid_bytes = bytes(cid)
-        pk = data.get("public_key", b"")
-        pk_bytes = _b64url_decode(pk) if isinstance(pk, str) else bytes(pk)
+            payload["credential_id"] = _b64url_encode(bytes(credential_id))
+
+        public_key = payload.get("public_key", b"")
+        if isinstance(public_key, str):
+            payload["public_key"] = public_key
+        else:
+            payload["public_key"] = _b64url_encode(bytes(public_key))
+
+        if "user_id" not in payload:
+            payload["user_id"] = "admin"
+        else:
+            payload["user_id"] = str(payload.get("user_id"))
+        if "aaguid" not in payload:
+            payload["aaguid"] = ""
+        else:
+            payload["aaguid"] = str(payload.get("aaguid"))
+        if "sign_count" not in payload:
+            payload["sign_count"] = 0
+        else:
+            payload["sign_count"] = int(payload.get("sign_count"))
+        return AdminPasskeyCredential.from_document(doc_id, payload)
+
+    @classmethod
+    def _to_record(cls, doc_id: str, data: dict) -> CredentialRecord:
+        document = cls._canonical_document(doc_id, data)
         return CredentialRecord(
-            credential_id=cid_bytes,
-            public_key=pk_bytes,
-            sign_count=int(data.get("sign_count", 0)),
-            user_id=str(data.get("user_id", "admin")),
-            aaguid=str(data.get("aaguid", "")),
-            created_at=data.get("created_at") or datetime.now(UTC),
-            last_used_at=data.get("last_used_at"),
-            label=str(data.get("label") or ""),
+            credential_id=_b64url_decode(document.credential_id),
+            public_key=_b64url_decode(document.public_key) if document.public_key else b"",
+            sign_count=document.sign_count,
+            user_id=document.user_id,
+            aaguid=document.aaguid,
+            created_at=document.created_at,
+            last_used_at=document.last_used_at,
+            label=document.label,
         )
+
+    @staticmethod
+    def _document_body(record: CredentialRecord) -> dict:
+        document = AdminPasskeyCredential(
+            credential_id=record.credential_id_b64,
+            public_key=_b64url_encode(record.public_key),
+            sign_count=record.sign_count,
+            user_id=record.user_id,
+            aaguid=record.aaguid,
+            created_at=record.created_at,
+            last_used_at=record.last_used_at,
+            label=record.label or "",
+        )
+        return document.model_dump()
 
     def add(self, record: CredentialRecord) -> None:
         try:
             self._collection.document(self._doc_id(record.credential_id)).create(
-                {
-                    "credential_id": record.credential_id_b64,
-                    "public_key": _b64url_encode(record.public_key),
-                    "sign_count": record.sign_count,
-                    "user_id": record.user_id,
-                    "aaguid": record.aaguid,
-                    "created_at": record.created_at,
-                    "last_used_at": record.last_used_at,
-                    "label": record.label,
-                },
+                self._document_body(record),
                 timeout=FIRESTORE_RPC_TIMEOUT,
             )
         except Conflict:
@@ -375,8 +410,12 @@ class FirestoreCredentialStore:
         record = self.get(credential_id)
         if record is None or record.user_id.strip().lower() != user_id.strip().lower():
             return False
+        stored = AdminPasskeyCredential(
+            credential_id=record.credential_id_b64,
+            label=label,
+        )
         self._collection.document(self._doc_id(credential_id)).update(
-            {"label": label},
+            {"label": stored.label},
             timeout=FIRESTORE_RPC_TIMEOUT,
         )
         return True

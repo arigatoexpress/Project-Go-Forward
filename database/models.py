@@ -459,6 +459,44 @@ class GoogleAdsPausedCreateOutboxRecord(BaseModel):
         return self
 
 
+class AdminPasskeyCredential(BaseModel):
+    """Canonical Firestore document in ``tho_admin_credentials``.
+
+    The document id is the urlsafe-base64 credential id with no padding.
+    ``label`` is the name staff see on Your passkeys. The rename API accepts
+    at most 60 characters. Credentials saved before names existed omit
+    ``label``; those documents still load with an empty label.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    credential_id: str
+    public_key: str = ""
+    sign_count: int = 0
+    user_id: str = "admin"
+    aaguid: str = ""
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    last_used_at: datetime | None = None
+    label: str = ""
+
+    @field_validator("label", mode="before")
+    @classmethod
+    def empty_label_when_absent(cls, value: object) -> str:
+        if value is None:
+            return ""
+        return value if isinstance(value, str) else str(value)
+
+    @classmethod
+    def from_document(cls, doc_id: str, data: dict | None) -> "AdminPasskeyCredential":
+        """Load a stored document. A missing ``label`` stays blank."""
+        payload = dict(data or {})
+        if payload.get("credential_id") is None:
+            payload["credential_id"] = doc_id
+        if payload.get("created_at") is None:
+            payload.pop("created_at", None)
+        return cls.model_validate(payload)
+
+
 class CustomerStatus(str, Enum):
     ENROLLED = "ENROLLED"
     NON_ENROLLED = "NON_ENROLLED"

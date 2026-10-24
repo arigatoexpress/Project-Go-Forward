@@ -759,6 +759,7 @@ function App() {
   const [passkeyError, setPasskeyError] = useState('');
   const [passkeySupport, setPasskeySupport] = useState({ webauthn: false, platform: false, conditional: false });
   const [passkeyDialog, setPasskeyDialog] = useState(null);
+  const [passkeyListVersion, setPasskeyListVersion] = useState(0);
   const [showPasskeyNudge, setShowPasskeyNudge] = useState(false);
   const passkeySupportRef = useRef(passkeySupport);
   passkeySupportRef.current = passkeySupport;
@@ -786,6 +787,7 @@ function App() {
         error: '',
         tried: false,
       });
+      setPasskeyListVersion((version) => version + 1);
     } catch (err) {
       console.warn('Passkey register error:', err);
       setPasskeyDialog({
@@ -1464,7 +1466,11 @@ function App() {
         <NavBar {...navProps} />
         <ErrorBoundary scope="passkeys">
           <Suspense fallback={<PageLoader />}>
-            <YourPasskeys onAdd={startAddPasskey} onBack={() => navigateTo('staff-home')} />
+            <YourPasskeys
+              onAdd={startAddPasskey}
+              onBack={() => navigateTo('staff-home')}
+              refreshToken={passkeyListVersion}
+            />
           </Suspense>
         </ErrorBoundary>
         <Footer adminAuthed={adminAuthed} onAdminAccess={handleAdminAccess} onNavigate={navigateTo} />
