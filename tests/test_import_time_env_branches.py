@@ -70,12 +70,15 @@ def test_main_entrypoint_runs_uvicorn_on_configured_port():
         "import runpy, sys, types\n"
         "calls = {}\n"
         "fake = types.ModuleType('uvicorn')\n"
-        "fake.run = lambda app, host, port: calls.update(app=app, host=host, port=port)\n"
+        "def run(app, host, port, **kwargs):\n"
+        "    calls.update(app=app, host=host, port=port, kwargs=kwargs)\n"
+        "fake.run = run\n"
         "sys.modules['uvicorn'] = fake\n"
         "runpy.run_path('main.py', run_name='__main__')\n"
         "assert calls['host'] == '0.0.0.0', calls\n"
         "assert calls['port'] == 8123, calls\n"
         "assert calls['app'] is not None, calls\n"
+        "assert calls['kwargs'].get('server_header') is False, calls\n"
         "print('ENTRYPOINT_OK')\n"
     )
     result = _run_python(code, _clean_env(ADMIN_PIN_HASH=PIN_HASH, PORT="8123"))
