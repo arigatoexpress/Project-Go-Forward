@@ -2,7 +2,6 @@ import {
   BUSINESS_ADDRESS,
   BUSINESS_CITY,
   BUSINESS_FULL_ADDRESS,
-  BUSINESS_HOURS,
   BUSINESS_NAME,
   BUSINESS_PHONE,
   BUSINESS_STATE,
@@ -10,14 +9,14 @@ import {
 import legalPages from './content/legalPages.json';
 
 // Public titles and descriptions. Keep these in step with seo_routes.py.
-// Titles stay within a normal search-result length. Descriptions say what the
-// page is, using the phone, address, and hours already shown on the site.
+// Titles are at most 60 characters. Descriptions are at most 155.
+// Copy stays on the phone, address, and hours already shown on the site.
 
-export const HOME_TITLE = `Manufactured Homes for Sale in ${BUSINESS_CITY}, ${BUSINESS_STATE} | ${BUSINESS_NAME}`;
+export const HOME_TITLE = `Manufactured Homes for Sale in ${BUSINESS_CITY} | ${BUSINESS_NAME}`;
 export const HOME_H1 = `Manufactured and Mobile Homes for Sale in ${BUSINESS_CITY}, ${BUSINESS_STATE}`;
 export const HOME_DESCRIPTION =
   `Browse manufactured and mobile homes for sale at ${BUSINESS_NAME} in ${BUSINESS_CITY}, ${BUSINESS_STATE}. `
-  + `Call or text ${BUSINESS_PHONE} to confirm price, financing, and availability.`;
+  + `Call or text ${BUSINESS_PHONE} to confirm price, financing, availability.`;
 
 export const INVENTORY_TITLE = `Home Inventory in ${BUSINESS_CITY}, ${BUSINESS_STATE} | ${BUSINESS_NAME}`;
 export const INVENTORY_H1 = `Home Inventory in ${BUSINESS_CITY}, ${BUSINESS_STATE}`;
@@ -54,8 +53,8 @@ export function categoryDescription(classification) {
 
 export const PUBLIC_DESCRIPTIONS = {
   contact:
-    `Visit ${BUSINESS_NAME} at ${BUSINESS_FULL_ADDRESS}, or call ${BUSINESS_PHONE}. `
-    + `Hours: ${BUSINESS_HOURS}.`,
+    `Visit ${BUSINESS_NAME}, ${BUSINESS_FULL_ADDRESS}. Call ${BUSINESS_PHONE}. `
+    + 'Hours: Mon-Fri 9:00 AM - 6:00 PM, Sat 10:00 AM - 3:00 PM, Sun Closed.',
   appointments:
     `Schedule a visit to the ${BUSINESS_NAME} showroom in ${BUSINESS_CITY}, ${BUSINESS_STATE} `
     + 'to tour manufactured homes in person.',
