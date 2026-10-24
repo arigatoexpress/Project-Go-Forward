@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef, lazy, Suspense, useCallback } from 'react';
 import { Send, Home, Menu, X, Phone, MapPin, Loader2, User, Bot, FileText, Video, Lock, ShieldCheck, CalendarDays, Users, MessageSquare, MessageCircle, RotateCcw, WifiOff, Moon, Sun, KeyRound, BookOpen, Activity, Camera, Sparkles, ClipboardList, Store, MoreHorizontal, LogOut, Search } from 'lucide-react';
 import { useDarkMode } from './hooks/useDarkMode';
-import SafeMarkdown from './components/SafeMarkdown';
 import SearchFilters from './components/SearchFilters';
 import QuickActions from './components/QuickActions';
 import ComparisonDrawer from './components/ComparisonDrawer';
@@ -10,6 +9,7 @@ import { useNetworkStatus } from './components/NetworkStatus';
 import ReportIssue from './components/ReportIssue';
 import ErrorBoundary from './components/ErrorBoundary';
 import ClosureBanner from './components/ClosureBanner';
+import SkipLink from './components/SkipLink';
 import ChatCallbackCard from './components/ChatCallbackCard';
 import InventoryBrowse from './pages/InventoryBrowse';
 import LegalPage from './pages/LegalPage';
@@ -17,6 +17,7 @@ import { CHAT_SESSION_STORAGE_KEY, adoptRunSessionId, resolveChatSession } from 
 import { captureUtmFromUrl, getUtmParams } from './utils/utm';
 import { getJourneyAttribution } from './utils/attribution';
 import { attachPhoneClickTracking, isPublicAnalyticsPath, trackEvent } from './utils/analytics';
+import { staticLcpElement, staticLcpHiddenForRoute } from './utils/staticLcp';
 import { navigateDocument } from './utils/documentNavigation';
 import { getInventoryCategoryRoute, isInventoryCategoryPath } from './utils/inventoryCategoryRoutes';
 import {
@@ -69,7 +70,9 @@ function chatMessageIncludesContact(text) {
     || /\b(call|text|phone|cell|reach|contact|number)\b/i.test(value);
 }
 
-// Lazy-load heavy page components for code-splitting
+// Lazy-load heavy page components for code-splitting.
+// SafeMarkdown pulls in the markdown parser, which the inventory route does not paint.
+const SafeMarkdown = lazy(() => import('./components/SafeMarkdown'));
 const Analytics = lazy(() => import('./pages/Analytics'));
 const DocumentCenter = lazy(() => import('./pages/DocumentCenter'));
 const AdStudio = lazy(() => import('./pages/AdStudio'));
@@ -188,12 +191,12 @@ function NavBar({
     }`;
 
   return (
-    <>
+    <header className="sticky top-0 z-40 overflow-visible">
       {/* Site-wide store-closure / holiday banner (auto-hides after end date) */}
       <ClosureBanner />
 
       {/* Legacy THO contact strip */}
-      <div className="bg-[var(--cp-accent)] text-[var(--cp-bg)] border-b border-[var(--cp-accent-hot)] z-40 sticky top-0">
+      <div className="tho-contact-strip bg-[var(--cp-accent)] text-[var(--cp-bg)] border-b border-[var(--cp-accent-hot)]">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 min-h-9 flex items-center justify-between gap-3 py-1.5 text-[11px] sm:text-xs font-semibold">
           <a href={`tel:${BUSINESS_PHONE_RAW}`} className="inline-flex items-center gap-1.5 hover:underline">
             <Phone size={13} />
@@ -209,20 +212,20 @@ function NavBar({
 
       {/* Main NavBar — never grows the page sideways from 1024–1920. Extra
           staff tools fold into More; Sign out stays in the right cluster. */}
-      <header className="bg-[var(--cp-panel)] border-b border-[var(--cp-border)] z-30 sticky top-9 shadow-sm overflow-visible">
+      <div className="bg-[var(--cp-panel)] border-b border-[var(--cp-border)] shadow-sm overflow-visible">
         <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-6 h-14 flex items-center justify-between gap-2 min-w-0 overflow-visible">
           {/* Logo — clip only this text, not the More menu below the bar. */}
-          <div
-            className="flex items-center gap-2 cursor-pointer group min-w-0 shrink overflow-hidden"
+          <button
+            type="button"
+            className="flex items-center gap-2 group min-w-0 shrink overflow-hidden border-0 bg-transparent p-0 text-left cursor-pointer"
             onClick={() => navigateTo(adminAuthed ? 'staff-home' : 'inventory')}
-            role="button"
             aria-label={`${BUSINESS_NAME} — home`}
           >
             <Home className="h-6 w-6 shrink-0 text-[var(--cp-accent)] group-hover:drop-shadow-[0_2px_8px_rgba(80,29,29,0.35)] transition" />
             <span className="text-sm sm:text-base font-bold tracking-tight text-[var(--cp-text)] whitespace-nowrap truncate">
               {BUSINESS_NAME}
             </span>
-          </div>
+          </button>
 
           <div className="flex items-center gap-1 sm:gap-2 shrink-0">
             {/* Desktop nav (1024px+). Staff extras live in More. */}
@@ -309,7 +312,7 @@ function NavBar({
                 aria-label="Add a passkey"
                 title="Add a passkey"
               >
-                <KeyRound size={14} />
+                <KeyRound size={14} aria-hidden="true" />
                 <span className="hidden xl:inline">Add a passkey</span>
               </button>
             )}
@@ -377,7 +380,7 @@ function NavBar({
                 disabled={passkeyLoading}
                 className="flex items-center w-full py-3 px-2 text-[var(--cp-muted)] hover:text-[var(--cp-accent)] hover:bg-[var(--cp-surface)] rounded-lg transition-colors text-sm disabled:opacity-50"
               >
-                <KeyRound size={18} className="mr-3" />
+                <KeyRound size={18} className="mr-3" aria-hidden="true" />
                 Add a passkey
               </button>
             )}
@@ -392,8 +395,8 @@ function NavBar({
             )}
           </nav>
         )}
-      </header>
-    </>
+      </div>
+    </header>
   );
 }
 
@@ -712,6 +715,21 @@ function App() {
       trackEvent('page_viewed', { page: activePage, page_path: pathname });
     }
   }, [activePage, pathname]);
+
+  // The hero image is painted by the server and lives outside #root. Hide it
+  // on routes that do not use the inventory hero so it cannot cover them.
+  useEffect(() => {
+    const image = staticLcpElement();
+    if (!image) return undefined;
+    const path = String(pathname || '/').replace(/\/+$/, '') || '/';
+    const showHero = path === '/'
+      || path === '/inventory'
+      || path.startsWith('/homes/')
+      || path.startsWith('/inventory-detail/')
+      || path.startsWith('/plan/');
+    image.hidden = staticLcpHiddenForRoute(image, showHero);
+    return undefined;
+  }, [pathname]);
 
   // Keep activePage in sync with browser back/forward navigation
   useEffect(() => {
@@ -1047,6 +1065,7 @@ function App() {
         title: cityLanding.title,
         description: cityLanding.description,
         canonicalPath: cityLanding.path,
+        image: '/og-card.png',
       });
       return;
     }
@@ -1058,6 +1077,7 @@ function App() {
         title: categoryTitle(inventoryCategory.classification),
         description: inventoryCategory.description,
         canonicalPath: inventoryCategory.path,
+        image: '/og-card.png',
       });
       return;
     }
@@ -1072,6 +1092,7 @@ function App() {
         title: HOME_TITLE,
         description: HOME_DESCRIPTION,
         canonicalPath: '/',
+        image: '/og-card.png',
       });
       return;
     }
@@ -1080,6 +1101,7 @@ function App() {
         title: INVENTORY_TITLE,
         description: INVENTORY_DESCRIPTION,
         canonicalPath: '/inventory',
+        image: '/og-card.png',
       });
       return;
     }
@@ -1089,6 +1111,7 @@ function App() {
       title: nextTitle,
       description: PUBLIC_DESCRIPTIONS[activePage] || `${BUSINESS_NAME} staff tools.`,
       canonicalPath: pathname === '/' ? '/' : pathname.replace(/\/+$/, '') || '/',
+      image: fullTitles[activePage] ? '/og-card.png' : undefined,
     });
   }, [activePage, pathname]);
 
@@ -1377,10 +1400,11 @@ function App() {
   if (activePage === 'staff-sign-in') {
     return (
       <div className="bg-[var(--cp-bg)] min-h-screen">
+        <SkipLink />
         {passkeyDialogModal}
         {passkeyNudge}
         <NavBar {...navProps} />
-        <main className="max-w-md mx-auto px-4 py-8">
+        <main id="main-content" tabIndex={-1} className="max-w-md mx-auto px-4 py-8 focus:outline-none">
           {adminAuthed ? (
             <div className="text-center">
               <h1 className="text-3xl font-bold mb-4">You are signed in</h1>
@@ -1728,6 +1752,7 @@ function App() {
   if (activePage === 'contact') {
     return (
       <div className="bg-[var(--cp-bg)] min-h-screen">
+        <SkipLink />
         {appModals}
         <NavBar {...navProps} />
         <ErrorBoundary scope="contact">
@@ -1896,7 +1921,8 @@ function App() {
 
   if (activePage === 'inventory') {
     return (
-      <div className="bg-[var(--cp-bg)] min-h-screen flex flex-col">
+      <div className="min-h-screen flex flex-col">
+        <SkipLink />
         {appModals}
         <NavBar {...navProps} />
 
@@ -1990,11 +2016,13 @@ function App() {
                         ? 'bg-[var(--cp-danger-dim)] text-[var(--cp-danger)] rounded-tl-none border border-[var(--cp-danger)]/20'
                         : 'bg-[var(--cp-surface)] text-[var(--cp-text)] rounded-tl-none border border-[var(--cp-border)]'
                     }`}>
-                    <SafeMarkdown
-                      content={msg.text}
-                      comparisonList={comparisonList}
-                      onToggleCompare={handleToggleCompare}
-                    />
+                    <Suspense fallback={<span className="whitespace-pre-wrap">{msg.text}</span>}>
+                      <SafeMarkdown
+                        content={msg.text}
+                        comparisonList={comparisonList}
+                        onToggleCompare={handleToggleCompare}
+                      />
+                    </Suspense>
                     {/* Retry button for failed messages */}
                     {msg.isError && msg.originalMessage && (
                       <button

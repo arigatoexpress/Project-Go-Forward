@@ -45,4 +45,62 @@ describe('ListingArticle photo fallback', () => {
     expect(container.querySelectorAll('img')).toHaveLength(1);
     expect(screen.getByAltText(/The Promotional Series/i)).toBeInTheDocument();
   });
+
+  it('shows photos coming soon when every listing photo fails to load', () => {
+    const { container } = render(
+      <ListingArticle
+        home={{
+          ...home,
+          image_url: 'https://cdn.example/dead-a.jpg',
+          real_photos: ['https://cdn.example/dead-a.jpg', 'https://cdn.example/dead-b.jpg'],
+        }}
+        onGetPrice={() => {}}
+        onApply={() => {}}
+      />,
+    );
+    const images = () => [...container.querySelectorAll('img')];
+    expect(images()).toHaveLength(2);
+    fireEvent.error(images()[0]);
+    fireEvent.error(images()[0]);
+    expect(container.querySelector('img')).toBeNull();
+    expect(screen.getByText(/photos coming soon/i)).toBeInTheDocument();
+  });
+
+  it('shows the floor plan, contained, after every real photo fails', () => {
+    const plan = 'https://cdn.example/ocampo-plan.png';
+    const { container } = render(
+      <ListingArticle
+        home={{
+          ...home,
+          model_name: 'Compass / Ocampo 2306P',
+          image_url: 'https://cdn.example/dead-photo.jpg',
+          real_photos: ['https://cdn.example/dead-photo.jpg'],
+          floorplan_url: plan,
+        }}
+        onGetPrice={() => {}}
+        onApply={() => {}}
+      />,
+    );
+    fireEvent.error(container.querySelector('img'));
+    const img = container.querySelector('img');
+    expect(img).toHaveAttribute('src', plan);
+    expect(img.className).toContain('object-contain');
+    expect(screen.getByText('Floor plan')).toBeInTheDocument();
+  });
+
+  it('plays the Matterport tour from the detail page', () => {
+    render(
+      <ListingArticle
+        home={{ ...home, matterport_id: 'SvVRKXdXUQq' }}
+        onGetPrice={() => {}}
+        onApply={() => {}}
+      />,
+    );
+    expect(document.querySelector('iframe')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /watch 3d tour/i }));
+    const frame = document.querySelector('iframe');
+    expect(frame).not.toBeNull();
+    expect(frame.getAttribute('src')).toBe('https://my.matterport.com/show/?m=SvVRKXdXUQq&play=1');
+    expect(frame.getAttribute('title')).toMatch(/3D Tour/);
+  });
 });

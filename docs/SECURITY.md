@@ -114,15 +114,22 @@ gcloud run services update project-go-forward \
 ## 4. Transport security
 
 - **HTTPS-only**: Cloud Run enforces TLS; HTTP redirects to HTTPS (301).
-- **HSTS**: 1-year enforcement header.
-- **CSP**: self + inline styles (Tailwind) + Matterport 3D iframe + CDN image hosts.
+- **HSTS**: `max-age=63072000; includeSubDomains; preload` (two years). The preload token does not submit the domain to the HSTS preload list.
+- **CSP**: `'self'` for scripts and styles (no `'unsafe-inline'`), Google Fonts stylesheets, Matterport `frame-src`, CDN images, `frame-ancestors 'none'`, `object-src 'none'`, `base-uri 'self'`, `form-action 'self'`. `upgrade-insecure-requests` on HTTPS and on Cloud Run.
 - **X-Frame-Options**: `DENY` (no embedding).
 - **X-Content-Type-Options**: `nosniff`.
+- **X-XSS-Protection**: `0` (legacy auditor disabled).
+- **Referrer-Policy**: `strict-origin-when-cross-origin`.
+- **Permissions-Policy**: camera, microphone, geolocation, and other unused features disabled. First-party passkeys and `navigator.share` stay allowed.
+- **Server disclosure**: uvicorn `server_header=False`. App responses drop `Server` and `X-Powered-By`.
 
 ## 5. Rate limiting
 
-- Per-IP in-memory counter, default 60 RPM (`RATE_LIMIT_RPM`).
+- Per-IP in-memory counter, default 60 RPM (`RATE_LIMIT_RPM`), plus slowapi's default.
 - `/health` and `/healthz` exempt.
+- Public contact, appointments, feedback, and appointment cancel: 10/minute.
+- Unauthenticated ADK session create: 30/minute.
+- Chat sends: 10/minute.
 - 429 on exceed.
 - Max request body: 1 MB (`MAX_REQUEST_BODY_BYTES`).
 

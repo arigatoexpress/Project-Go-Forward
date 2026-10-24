@@ -44,6 +44,9 @@ export default function SignatureReview({ deal, templateName = 'TMHA_SalesContra
   const [cancelling, setCancelling] = useState(null);
 
   const label = TEMPLATE_LABELS[templateName] || templateName;
+  const reviewDomId = String(deal.id || 'deal').replace(/[^A-Za-z0-9_-]/g, '');
+  const reviewHelpId = `signature-review-help-${reviewDomId}`;
+  const sendHelpId = `signature-send-help-${reviewDomId}`;
 
   const loadRequests = useCallback(async () => {
     try {
@@ -142,11 +145,15 @@ export default function SignatureReview({ deal, templateName = 'TMHA_SalesContra
           type="button"
           onClick={handleReview}
           disabled={disabled || loading || sending}
+          aria-describedby={reviewHelpId}
           className="flex items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-md border border-indigo-500 text-indigo-600 bg-white cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          {loading ? <Loader size={12} className="animate-spin" /> : <Send size={12} />}
+          {loading ? <Loader size={12} className="animate-spin" aria-hidden="true" /> : <Send size={12} aria-hidden="true" />}
           Review &amp; Send for Signature
         </button>
+        <p id={reviewHelpId} className="mt-1 text-xs leading-relaxed text-slate-600">
+          This only opens a preview. Nothing goes to the buyer until you tick the hand-check box and press Send to their email. If e-signing is not turned on, print the packet and sign in person. Ask the owner before you send anything.
+        </p>
       </div>
 
       {preview && (
@@ -154,14 +161,14 @@ export default function SignatureReview({ deal, templateName = 'TMHA_SalesContra
           <div className="flex items-center justify-between font-semibold">
             <span>Review {preview.document_label || label} before sending</span>
             <button type="button" aria-label="Close review" onClick={() => setPreview(null)} className="bg-transparent border-0 cursor-pointer text-gray-600">
-              <X size={14} />
+              <X size={14} aria-hidden="true" />
             </button>
           </div>
 
           {problems.length > 0 && (
-            <div className="mt-1.5 p-2 rounded border border-red-400 bg-red-50 text-red-800">
+            <div role="alert" className="mt-1.5 p-2 rounded border border-red-400 bg-red-50 text-red-800">
               <div className="flex items-center gap-1 font-semibold">
-                <AlertCircle size={13} /> Can&apos;t send yet. Fix these on the deal first:
+                <AlertCircle size={13} aria-hidden="true" /> Can&apos;t send yet. Fix these on the deal first:
               </div>
               <ul className="mt-1 ml-4 list-disc">
                 {problems.map((p, i) => (
@@ -183,33 +190,42 @@ export default function SignatureReview({ deal, templateName = 'TMHA_SalesContra
           </table>
 
           {preview.download_url && (
-            <button
-              type="button"
-              onClick={() => downloadAdminFile(preview.download_url, preview.filename).catch(() => {})}
-              className="mt-1.5 flex items-center gap-1 px-2 py-1 text-[11px] rounded border border-gray-400 bg-white cursor-pointer"
-            >
-              <Download size={12} /> Open the filled {preview.document_label || label}
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={() => downloadAdminFile(preview.download_url, preview.filename).catch(() => {})}
+                className="mt-1.5 flex items-center gap-1 px-2 py-1 text-[11px] rounded border border-gray-400 bg-white cursor-pointer"
+              >
+                <Download size={12} aria-hidden="true" /> Open the filled {preview.document_label || label}
+              </button>
+              <p className="mt-1 text-[11px] leading-relaxed text-slate-600">
+                Read the packet before you print it. Stop if any line does not match the deal sheet, and tell the owner.
+              </p>
+            </>
           )}
 
           {preview.ready && (
             <>
               {!preview.esign_configured && (
-                <div className="mt-1.5 text-indigo-700">
+                <div role="status" className="mt-1.5 text-indigo-700">
                   E-signing isn&apos;t turned on yet, so nothing can be sent.
                 </div>
               )}
               <label className="mt-1.5 flex items-start gap-1.5">
-                <input type="checkbox" checked={checked} onChange={(e) => setChecked(e.target.checked)} />
+                <input className="mt-0.5 h-5 w-5 shrink-0" type="checkbox" checked={checked} onChange={(e) => setChecked(e.target.checked)} />
                 <span>I hand-checked the payment lines above and on the filled document.</span>
               </label>
+              <p id={sendHelpId} className="mt-1 text-[11px] leading-relaxed text-slate-600">
+                Nothing is sent until this box is ticked. Ask the owner before you send anything to a buyer.
+              </p>
               <button
                 type="button"
                 onClick={handleSend}
                 disabled={!canSend}
+                aria-describedby={sendHelpId}
                 className="mt-1.5 flex items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-md border-0 bg-indigo-600 text-white cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {sending ? <Loader size={12} className="animate-spin" /> : <Send size={12} />}
+                {sending ? <Loader size={12} className="animate-spin" aria-hidden="true" /> : <Send size={12} aria-hidden="true" />}
                 Send to {preview.signer_email}
               </button>
             </>
@@ -219,13 +235,13 @@ export default function SignatureReview({ deal, templateName = 'TMHA_SalesContra
 
       {message && (
         <div
-          role="status"
+          role={message.ok ? 'status' : 'alert'}
           className={
             'p-2 rounded-md text-xs border flex items-center gap-1.5 ' +
             (message.ok ? 'bg-green-500/10 border-green-500 text-green-800' : 'bg-red-500/10 border-red-500 text-red-800')
           }
         >
-          {message.ok ? <CheckCircle size={13} /> : <AlertCircle size={13} />}
+          {message.ok ? <CheckCircle size={13} aria-hidden="true" /> : <AlertCircle size={13} aria-hidden="true" />}
           <span>{message.text}</span>
         </div>
       )}

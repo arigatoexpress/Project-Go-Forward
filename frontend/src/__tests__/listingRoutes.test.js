@@ -3,6 +3,7 @@ import {
   fallbackListingHeading,
   getCityLanding,
   isInstockHome,
+  listingFloorplanImages,
   listingPagePhotos,
   listingImageAlt,
   rewriteMediaUrl,
@@ -109,6 +110,7 @@ describe('listingRoutes', () => {
     const dead = 'https://d132mt2yijm03y.cloudfront.net/manufacturer/3328/floorplan/232969/1.jpg';
     const live = 'https://d132mt2yijm03y.cloudfront.net/manufacturer/3328/floorplan/232969/1.JPG';
     expect(rewriteMediaUrl(dead)).toBe(live);
+    expect(rewriteMediaUrl(`${dead}?v=1`)).toBe(`${live}?v=1`);
     expect(rewriteMediaUrl(live)).toBe(live);
     const home = {
       id: '41976',
@@ -118,6 +120,42 @@ describe('listingRoutes', () => {
       real_photos: ['/api/inventory/photos/41976/lot.jpg', live, dead],
     };
     expect(listingPagePhotos(home)).toEqual(['/api/inventory/photos/41976/lot.jpg', live]);
+  });
+
+  it('lists each floor-plan drawing once, repairs its extension, and skips pdfs', () => {
+    const png = 'https://cdn.example/plan.png';
+    const dead = 'https://d132mt2yijm03y.cloudfront.net/manufacturer/3311/floorplan/222038/2306P.jpg';
+    const live = 'https://d132mt2yijm03y.cloudfront.net/manufacturer/3311/floorplan/222038/2306P.png';
+    expect(listingFloorplanImages({
+      floorplan_url: dead,
+      floor_plan_url: dead,
+      floorplan_urls: [dead, png, 'https://cdn.example/plan.pdf'],
+    })).toEqual([live, png]);
+  });
+
+  it('does not invent a sibling for a manufacturer photo that still returns 403', () => {
+    const dead = 'https://d132mt2yijm03y.cloudfront.net/manufacturer/2025/floorplan/226545/Absolute%20Value-1.jpg';
+    expect(rewriteMediaUrl(dead)).toBe(dead);
+    expect(rewriteMediaUrl(
+      'https://d132mt2yijm03y.cloudfront.net/manufacturer/2007/floorplan/236876/TRT14602DH_Dogwood_Exterior%20%281%29.jpg',
+    )).toBe(
+      'https://d132mt2yijm03y.cloudfront.net/manufacturer/2007/floorplan/236876/TRT14602DH_Dogwood_Exterior%20%281%29.jpg',
+    );
+  });
+
+  it('repairs a confirmed extension sibling and leaves a live jpg alone', () => {
+    const dead = 'https://d132mt2yijm03y.cloudfront.net/manufacturer/3335/floorplan/227079/5.jpg';
+    const live = 'https://d132mt2yijm03y.cloudfront.net/manufacturer/3335/floorplan/227079/5.png';
+    const alreadyLive = 'https://d132mt2yijm03y.cloudfront.net/manufacturer/3335/floorplan/232844/anderson-1.jpg';
+    const noSibling = 'https://d132mt2yijm03y.cloudfront.net/manufacturer/3335/floorplan/232175/1.jpg';
+    expect(rewriteMediaUrl(dead)).toBe(live);
+    expect(rewriteMediaUrl(alreadyLive)).toBe(alreadyLive);
+    expect(rewriteMediaUrl(noSibling)).toBe(noSibling);
+    expect(rewriteMediaUrl(
+      'https://d132mt2yijm03y.cloudfront.net/manufacturer/3373/floorplan/236155/Toledo%20Living%20Room%20%287%29rfw.jpg',
+    )).toBe(
+      'https://d132mt2yijm03y.cloudfront.net/manufacturer/3373/floorplan/236155/Toledo%20Living%20Room%20%287%29rfw.webp',
+    );
   });
 
   it('drops stock photos and another unit’s photos from a used listing', () => {

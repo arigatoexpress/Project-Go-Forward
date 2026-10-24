@@ -7,9 +7,11 @@ import {
 } from 'lucide-react';
 import Card from '../components/Card';
 import EmptyState from '../components/EmptyState';
+import PublicPrice from '../components/PublicPrice';
 import StatusBadge from '../components/StatusBadge';
 import { Skeleton, SkeletonCard } from '../components/Skeleton';
 import { generateSrcSet, getImageSizes } from '../utils/imageOptimization';
+import { isUnpricedListing, publicPriceText } from '../utils/publicPrice';
 import { getUtmParams } from '../utils/utm';
 import { trackEvent } from '../utils/analytics';
 import { normalizeOptionalEmail } from '../utils/contactValidation';
@@ -27,6 +29,7 @@ import {
   isInventoryDetailPath,
   isPlanPath,
   isPreownedHome,
+  listingFloorplanImages,
   listingImageAlt,
   listingPagePhotos,
   listingPath,
@@ -36,6 +39,7 @@ import {
   stockId,
   usedHomeMayShowPhoto,
 } from '../utils/listingRoutes';
+import { staticLcpCoversHero, useStaticLcpCoversHero } from '../utils/staticLcp';
 import {
   BUSINESS_NAME,
   BUSINESS_PHONE,
@@ -53,6 +57,12 @@ import { describeFetchError, extractErrorMessage, responseErrorMessage, safeUser
 
 const MATTERPORT_BASE = "https://my.matterport.com/show/?m=";
 export const INVENTORY_PAGE_SIZE = 18;
+
+export function matterportTourUrl(home) {
+  const id = String(home?.matterport_id || '').trim();
+  if (!/^[A-Za-z0-9]+$/.test(id)) return '';
+  return `${MATTERPORT_BASE}${id}&play=1`;
+}
 
 export function getHomeIdentifier(home) {
   const explicitId = String(home?.home_id ?? '').trim();
@@ -113,7 +123,7 @@ const SORT_OPTIONS = [
 const PILL_BTN =
   'px-4 py-2.5 rounded-md text-sm font-medium transition border border-transparent';
 const CHIP_INPUT =
-  'px-3 py-2 rounded-md border border-[var(--cp-border)] text-sm bg-[var(--cp-bg-2)] text-[var(--cp-text)] focus:outline-none focus:border-[var(--cp-accent)] transition';
+  'px-3 py-2 rounded-md border border-[var(--cp-border)] text-sm bg-[var(--cp-bg-2)] text-[var(--cp-text)] focus:outline-none focus:border-[var(--cp-accent)] focus-visible:ring-2 focus-visible:ring-[var(--cp-accent)] transition';
 const FLOORPLAN_TOKENS = ['floorplan', 'floor-plan', 'floor_plan', 'floor-plans', 'floor_plans', 'floor plans'];
 const PHOTO_FILENAME_TOKENS = ['bath', 'bed', 'coffee', 'exterior', 'front', 'interior', 'island', 'kitchen', 'living', 'porch', 'room', 'utility'];
 const SHORT_PHOTO_FILENAME_TOKENS = ['3d', 'ext', 'int', 'kit'];
@@ -187,6 +197,26 @@ function photoFilename(url) {
   return decodeURIComponent(String(url).split('/').pop()?.split('?')[0] || '').toLowerCase();
 }
 
+function photoStem(filename) {
+  return filename.replace(/\.[^.]+$/i, '');
+}
+
+// Category labels still store the filename the feed originally published.
+// An exact filename wins. A different extension is accepted only when one
+// gallery photo has that stem, so 5.jpg can resolve to the repaired 5.png
+// and cannot land on 15.png, 10.jpg, or an ambiguous pair.
+export function matchCategoryPhoto(label, photos) {
+  const rewritten = rewriteMediaUrl(label);
+  const wantedFile = photoFilename(rewritten);
+  const wantedStem = photoStem(wantedFile);
+  const list = Array.isArray(photos) ? photos : [];
+  const exact = list.find((url) => photoFilename(url) === wantedFile);
+  if (exact) return exact;
+  if (!wantedStem) return '';
+  const stemMatches = list.filter((url) => photoStem(photoFilename(url)) === wantedStem);
+  return stemMatches.length === 1 ? stemMatches[0] : '';
+}
+
 function hasToken(filename, tokens) {
   const parts = filename.replace(/\.[a-z0-9]+$/i, '').split(/[^a-z0-9]+/).filter(Boolean);
   return tokens.some(token => parts.includes(token) || filename.includes(token));
@@ -237,13 +267,15 @@ function getListingPhotos(home, { ranked = false } = {}) {
 }
 
 function getHomeImage(home) {
-  return getListingPhotos(home)[0] || '';
+  return getListingPhotos(home)[0] || listingFloorplanImages(home)[0] || '';
+}
+
+function cardImageIsFloorplan(home) {
+  return !getListingPhotos(home)[0] && Boolean(listingFloorplanImages(home)[0]);
 }
 
 function displayPrice(home) {
-  return home?.display_price && home.display_price !== 'Call for Price'
-    ? home.display_price
-    : 'Call for Price';
+  return publicPriceText(home);
 }
 
 // Price per square foot, formatted as "$NN/sqft" (rounded to nearest dollar).
@@ -322,6 +354,10 @@ function InventoryMetric({ icon, label, value, tone = 'accent' }) {
   );
 }
 
+function hasStaticLcpImage() {
+  return staticLcpCoversHero();
+}
+
 function listingHref(home) {
   return listingPath(home) || '';
 }
@@ -347,7 +383,7 @@ function ListingSummary({ home, onApply, onGetPrice }) {
       aria-label="Price and next steps"
       className="tho-listing-summary mt-4 w-full min-w-0 max-w-xl rounded-lg border border-white/50 bg-[var(--cp-panel)] p-4 text-[var(--cp-text)] shadow-[0_18px_50px_rgba(0,0,0,0.32)] lg:hidden"
     >
-      <p className="text-3xl font-bold leading-tight text-[var(--cp-accent)]">{displayPrice(home)}</p>
+      <p className="text-3xl font-bold leading-tight text-[var(--cp-accent)]"><PublicPrice home={home} /></p>
       {facts.length > 0 && (
         <p className="mt-2 text-sm text-[var(--cp-text-secondary)]">{facts.join(' · ')}</p>
       )}
@@ -401,6 +437,7 @@ function ListingActions({ home, onApply, onGetPrice }) {
 function FeaturedHomeSpotlight({ home, onClick, onGetPrice, onApply }) {
   if (!home) return null;
   const specs = home.specs || {};
+  const staticLcp = hasStaticLcpImage();
   const image = getHomeImage(home);
   const href = listingHref(home);
   return (
@@ -414,25 +451,27 @@ function FeaturedHomeSpotlight({ home, onClick, onGetPrice, onApply }) {
         className="group block w-full text-left"
       >
         <div className="relative h-[260px] overflow-hidden bg-[var(--cp-bg-2)]">
-          {image ? (
-            <img
-              src={image}
-              srcSet={generateSrcSet(image)}
-              sizes={getImageSizes('featured-spotlight')}
-              alt={listingImageAlt(home, image, 1, 1)}
-              className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
-              width={1200}
-              height={800}
-              loading="eager"
-              fetchPriority="high"
-              decoding="async"
-            />
-          ) : (
-            <div className="flex flex-col h-full items-center justify-center gap-3 bg-[var(--cp-bg-2)]">
-              <Camera size={48} className="text-[var(--cp-faint)]" />
-              <span className="text-sm font-semibold text-[var(--cp-muted)] uppercase tracking-wider">Photos Coming Soon</span>
-            </div>
-          )}
+          <SinglePhoto
+            url={image}
+            alt={listingImageAlt(home, image, 1, 1, { floorplan: cardImageIsFloorplan(home) })}
+            className={cardImageIsFloorplan(home)
+              ? 'h-full w-full object-contain bg-white'
+              : 'h-full w-full object-cover transition duration-500 group-hover:scale-105'}
+            imgProps={{
+              width: 1200,
+              height: 800,
+              loading: staticLcp ? 'lazy' : 'eager',
+              fetchPriority: staticLcp ? 'low' : 'high',
+              decoding: 'async',
+              sizes: getImageSizes('featured-spotlight'),
+            }}
+            fallback={(
+              <div className="flex flex-col h-full items-center justify-center gap-3 bg-[var(--cp-bg-2)]">
+                <Camera size={48} className="text-[var(--cp-faint)]" />
+                <span className="text-sm font-semibold text-[var(--cp-muted)] uppercase tracking-wider">Photos Coming Soon</span>
+              </div>
+            )}
+          />
           <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent p-4">
             <div className="mb-2 inline-flex items-center gap-1.5 rounded-md bg-[var(--cp-accent)] px-2.5 py-1 text-[11px] font-bold uppercase text-[var(--cp-bg)]">
               <CheckCircle2 size={12} />
@@ -579,6 +618,9 @@ export default function InventoryBrowse({
   onBookAppointment,
   pathname,
 }) {
+  // False once the server hero errors or never loads, so the original
+  // photo can paint instead of leaving the page on a broken image.
+  const staticLcp = useStaticLcpCoversHero();
   const currentPath = pathname ?? (typeof window !== 'undefined' ? window.location.pathname : '/');
   const routeCategory = getInventoryCategoryRoute(currentPath);
   const cityLanding = getCityLanding(currentPath);
@@ -604,6 +646,7 @@ export default function InventoryBrowse({
     minPrice: '',
     maxPrice: '',
     classification: routeCategory?.classification || '',
+    hasTour: false,
   });
   const [showFilters, setShowFilters] = useState(false);
 
@@ -717,6 +760,7 @@ export default function InventoryBrowse({
     if (showFavoritesOnly && !favorites.has(home.id)) return false;
     if (searchQuery && !matchesSearch(home, searchQuery)) return false;
     if (filters.status && getAvailabilityKind(home) !== filters.status) return false;
+    if (filters.hasTour && !home.matterport_id) return false;
     if (filters.beds) {
       const beds = home.specs?.beds || 0;
       if (beds < parseInt(filters.beds)) return false;
@@ -790,6 +834,7 @@ export default function InventoryBrowse({
     filters.minPrice,
     filters.maxPrice,
     filters.classification,
+    filters.hasTour,
     showFavoritesOnly,
   ]);
 
@@ -801,6 +846,7 @@ export default function InventoryBrowse({
       minPrice: '',
       maxPrice: '',
       classification: routeCategory?.classification || '',
+      hasTour: false,
     });
     setSearchQuery('');
     setSortBy('default');
@@ -808,6 +854,7 @@ export default function InventoryBrowse({
 
   const activeFilterCount = Object.entries(filters).filter(([key, value]) => (
     value !== ''
+      && value !== false
       && !(key === 'classification' && routeCategory && value === routeCategory.classification)
   )).length + (searchQuery ? 1 : 0);
   const hasActiveFilters = activeFilterCount > 0;
@@ -833,11 +880,10 @@ export default function InventoryBrowse({
     const catFiles = home.image_categories[activeCategory] || [];
     if (catFiles.length === 0) return allPhotos;
 
-    return catFiles.map(f => {
+    return catFiles.map((f) => {
       const rewritten = rewriteMediaUrl(f);
       if (rewritten.startsWith('http')) return rewritten;
-      const match = allPhotos.find(url => url.includes(rewritten));
-      return match || rewritten;
+      return matchCategoryPhoto(rewritten, allPhotos) || rewritten;
     }).filter((url) => (
       url
       && usedHomeMayShowPhoto(url, home)
@@ -845,12 +891,14 @@ export default function InventoryBrowse({
     ));
   }, [activeCategory]);
 
-  const openDetail = useCallback((home) => {
+  const openDetail = useCallback((home, options = {}) => {
+    const tour = options.tour === true && !!home?.matterport_id;
     setSelectedHome(home);
     setActivePhotoIndex(0);
     setActiveCategory('all');
-    setShowTour(false);
+    setShowTour(tour);
     trackEvent('home_viewed', { home: home.model_name, home_id: getHomeIdentifier(home), status: home.status });
+    if (tour) trackEvent('tour_opened', { home: home.model_name, home_id: getHomeIdentifier(home) });
   }, []);
 
   const closeDetail = useCallback(() => {
@@ -927,6 +975,7 @@ export default function InventoryBrowse({
       specs.baths ? `${specs.baths} bath` : null,
       specs.dimensions,
       pathListingHome.manufacturer,
+      publicPriceText(pathListingHome),
     ].filter(Boolean).join(', ');
     const sharePhotos = listingPagePhotos(pathListingHome);
     const floorplan = pathListingHome.floorplan_url || pathListingHome.floor_plan_url || '';
@@ -935,7 +984,7 @@ export default function InventoryBrowse({
       title: `${pathListingHome.model_name || 'Manufactured Home'} — ${BUSINESS_NAME}, ${BUSINESS_CITY}, ${BUSINESS_STATE}`,
       description: `${pathListingHome.model_name || 'Manufactured home'}${descBits ? ` (${descBits})` : ''} at ${BUSINESS_NAME} in ${BUSINESS_CITY}, ${BUSINESS_STATE}. Call ${BUSINESS_PHONE}.`.slice(0, 300),
       canonicalPath: listingPath(pathListingHome) || currentPath,
-      image: shareImage || undefined,
+      image: shareImage || '/og-card.png',
     });
   }, [pathListingHome, currentPath]);
 
@@ -978,16 +1027,19 @@ export default function InventoryBrowse({
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[var(--cp-bg)]">
+      <div className={staticLcp ? 'min-h-screen' : 'min-h-screen bg-[var(--cp-bg)]'}>
         {/* Match the loaded hero's mobile/desktop footprint so the inventory
             response does not push the page down and create a large CLS.
             Unique listing URLs keep their H1 during the fetch so hydration
             never flashes the generic Huffman inventory title. */}
-        <section className="border-b border-[var(--cp-border)] bg-[var(--cp-bg-2)]">
+        <section className={`border-b border-[var(--cp-border)] ${staticLcp ? 'relative overflow-hidden' : 'bg-[var(--cp-bg-2)]'}`}>
+          {staticLcp ? (
+            <div className="pointer-events-none absolute inset-0 -z-10 bg-[linear-gradient(90deg,rgba(5,6,8,0.96),rgba(5,6,8,0.74),rgba(5,6,8,0.9))]" />
+          ) : null}
           <div className="mx-auto grid max-w-7xl gap-8 px-4 py-8 sm:px-6 lg:grid-cols-[1.1fr_0.9fr] lg:px-8 lg:py-10">
             <div className="flex min-h-0 flex-col justify-center lg:min-h-[520px]">
               {uniqueHeading ? (
-                <h1 className="mb-4 max-w-3xl text-4xl font-extrabold text-[var(--cp-text)]">
+                <h1 className={`mb-4 max-w-3xl text-4xl font-extrabold ${staticLcp ? 'text-white' : 'text-[var(--cp-text)]'}`}>
                   {uniqueHeading}
                 </h1>
               ) : (
@@ -1006,11 +1058,13 @@ export default function InventoryBrowse({
           </div>
         </section>
         {/* Skeleton cards */}
-        <div className="grid gap-6 p-6 max-w-7xl mx-auto"
-             style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))' }}>
-          {Array.from({ length: 6 }).map((_, i) => (
-            <SkeletonCard key={i} />
-          ))}
+        <div className={staticLcp ? 'bg-[var(--cp-bg)]' : undefined}>
+          <div className="grid gap-6 p-6 max-w-7xl mx-auto"
+               style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))' }}>
+            {Array.from({ length: 6 }).map((_, i) => (
+              <SkeletonCard key={i} />
+            ))}
+          </div>
         </div>
       </div>
     );
@@ -1071,22 +1125,27 @@ export default function InventoryBrowse({
   const heroImage = getHomeImage(heroHome);
 
   return (
-    <div className="min-h-screen bg-[var(--cp-bg)] text-[var(--cp-text)]">
+    <div className={`min-h-screen text-[var(--cp-text)] ${staticLcp ? '' : 'bg-[var(--cp-bg)]'}`}>
       {/* Hero Section */}
-      <section className="relative isolate overflow-hidden border-b border-[var(--cp-border)] bg-[var(--cp-bg)]">
-        {heroImage && (
-          <img
-            src={heroImage}
-            srcSet={generateSrcSet(heroImage)}
-            sizes={getImageSizes('hero-background')}
+      {/* #050608 matches the hero gradient. White type is measured against this
+          opaque base, not the photograph behind it. While the server-painted
+          hero is showing, leave the section transparent so that image stays
+          the first paint. */}
+      <section className={`relative isolate overflow-hidden border-b border-[var(--cp-border)] ${staticLcp ? '' : 'bg-[#050608]'}`}>
+        {heroImage && !staticLcp ? (
+          <SinglePhoto
+            url={heroImage}
             alt=""
-            aria-hidden="true"
             className="absolute inset-0 -z-10 h-full w-full object-cover opacity-35"
-            loading="eager"
-            decoding="async"
-            fetchPriority="high"
+            imgProps={{
+              'aria-hidden': 'true',
+              sizes: getImageSizes('hero-background'),
+              loading: 'eager',
+              decoding: 'async',
+              fetchPriority: 'high',
+            }}
           />
-        )}
+        ) : null}
         <div className="absolute inset-0 -z-10 bg-[linear-gradient(90deg,rgba(5,6,8,0.96),rgba(5,6,8,0.74),rgba(5,6,8,0.9))]" />
         <div className="mx-auto grid max-w-7xl gap-8 px-4 py-8 sm:px-6 lg:grid-cols-[1.1fr_0.9fr] lg:px-8 lg:py-10">
           <div className="flex min-h-0 min-w-0 flex-col justify-center lg:min-h-[520px]">
@@ -1149,11 +1208,11 @@ export default function InventoryBrowse({
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder="Search by model, manufacturer, beds, baths, type..."
-                  className="min-w-0 flex-1 bg-transparent text-base text-[var(--cp-text)] outline-none placeholder:text-[var(--cp-faint)]"
+                  className="min-w-0 flex-1 bg-transparent text-base text-[var(--cp-text)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--cp-accent)] placeholder:text-[var(--cp-muted)]"
                 />
                 {searchQuery && (
-                  <button onClick={() => setSearchQuery('')} className="flex-shrink-0 text-[var(--cp-muted)] hover:text-[var(--cp-accent)]">
-                    <X size={18} />
+                  <button type="button" onClick={() => setSearchQuery('')} aria-label="Clear search" className="flex-shrink-0 rounded-md text-[var(--cp-text)] hover:text-[var(--cp-accent)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--cp-accent)]">
+                    <X size={18} aria-hidden="true" />
                   </button>
                 )}
               </div>
@@ -1209,6 +1268,7 @@ export default function InventoryBrowse({
         </div>
       </section>
 
+      <div className={staticLcp ? 'bg-[var(--cp-bg)]' : undefined}>
       <AdminInventoryPanel enabled={adminAuthed} />
 
       {onHomeListing && !loading && !pathListingHome && (
@@ -1256,6 +1316,14 @@ export default function InventoryBrowse({
               onClick={() => setFilters(f => ({ ...f, status: 'pre_owned' }))}
               className={`${PILL_BTN} ${filters.status === 'pre_owned' ? 'bg-[var(--cp-accent)] text-[var(--cp-bg)]' : 'bg-[var(--cp-panel)] text-[var(--cp-muted)] hover:text-[var(--cp-text)] hover:border-[var(--cp-border-light)]'}`}
             >Pre-Owned ({preOwnedCount})</button>
+            <button
+              type="button"
+              aria-pressed={filters.hasTour}
+              onClick={() => setFilters(f => ({ ...f, hasTour: !f.hasTour }))}
+              className={`inline-flex items-center gap-1.5 ${PILL_BTN} ${filters.hasTour ? 'bg-[var(--cp-accent)] text-[var(--cp-bg)]' : 'bg-[var(--cp-panel)] text-[var(--cp-muted)] hover:text-[var(--cp-text)] hover:border-[var(--cp-border-light)]'}`}
+            >
+              <Box size={14} /> 3D tour ({tourCount})
+            </button>
             {favorites.size > 0 && (
               <button
                 onClick={() => setShowFavoritesOnly(v => !v)}
@@ -1285,6 +1353,7 @@ export default function InventoryBrowse({
           </div>
 
           <button
+            type="button"
             onClick={() => setShowFilters(!showFilters)}
             className={`inline-flex items-center gap-2 ${PILL_BTN} ${hasActiveFilters || showFilters ? 'bg-[var(--cp-secondary)] text-[var(--cp-bg)]' : 'bg-[var(--cp-panel)] text-[var(--cp-muted)] border-[var(--cp-border)] hover:border-[var(--cp-secondary)] hover:text-[var(--cp-secondary)]'}`}
           >
@@ -1297,7 +1366,7 @@ export default function InventoryBrowse({
             )}
           </button>
           {hasActiveFilters && (
-            <button onClick={clearFilters} className="rounded-md border border-[var(--cp-border)] bg-[var(--cp-panel)] px-4 py-2 text-sm text-[var(--cp-muted)] transition hover:text-[var(--cp-text)]">
+            <button type="button" onClick={clearFilters} className="rounded-md border border-[var(--cp-border)] bg-[var(--cp-panel)] px-4 py-2 text-sm text-[var(--cp-muted)] transition hover:text-[var(--cp-text)]">
               Clear All
             </button>
           )}
@@ -1311,10 +1380,10 @@ export default function InventoryBrowse({
             <div className="grid gap-4"
                  style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))' }}>
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-[var(--cp-muted)] uppercase tracking-wide flex items-center gap-1">
-                  <Bed size={14} /> Bedrooms
+                <label htmlFor="filter-beds" className="text-xs font-semibold text-[var(--cp-muted)] uppercase tracking-wide flex items-center gap-1">
+                  <Bed size={14} aria-hidden="true" /> Bedrooms
                 </label>
-                <select aria-label="Bedrooms" className={CHIP_INPUT} value={filters.beds} onChange={e => setFilters(f => ({ ...f, beds: e.target.value }))}>
+                <select id="filter-beds" className={CHIP_INPUT} value={filters.beds} onChange={e => setFilters(f => ({ ...f, beds: e.target.value }))}>
                   <option value="">Any</option>
                   <option value="1">1+</option>
                   <option value="2">2+</option>
@@ -1323,10 +1392,10 @@ export default function InventoryBrowse({
                 </select>
               </div>
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-[var(--cp-muted)] uppercase tracking-wide flex items-center gap-1">
-                  <Bath size={14} /> Bathrooms
+                <label htmlFor="filter-baths" className="text-xs font-semibold text-[var(--cp-muted)] uppercase tracking-wide flex items-center gap-1">
+                  <Bath size={14} aria-hidden="true" /> Bathrooms
                 </label>
-                <select aria-label="Bathrooms" className={CHIP_INPUT} value={filters.baths} onChange={e => setFilters(f => ({ ...f, baths: e.target.value }))}>
+                <select id="filter-baths" className={CHIP_INPUT} value={filters.baths} onChange={e => setFilters(f => ({ ...f, baths: e.target.value }))}>
                   <option value="">Any</option>
                   <option value="1">1+</option>
                   <option value="2">2+</option>
@@ -1334,28 +1403,30 @@ export default function InventoryBrowse({
                 </select>
               </div>
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-[var(--cp-muted)] uppercase tracking-wide flex items-center gap-1">
-                  <Home size={14} /> Type
+                <label htmlFor="filter-home-type" className="text-xs font-semibold text-[var(--cp-muted)] uppercase tracking-wide flex items-center gap-1">
+                  <Home size={14} aria-hidden="true" /> Type
                 </label>
-                <select aria-label="Home type" className={CHIP_INPUT} value={filters.classification} disabled={Boolean(routeCategory)} onChange={e => setFilters(f => ({ ...f, classification: e.target.value }))}>
+                <select id="filter-home-type" aria-label="Home type" className={CHIP_INPUT} value={filters.classification} disabled={Boolean(routeCategory)} onChange={e => setFilters(f => ({ ...f, classification: e.target.value }))}>
                   <option value="">Any</option>
                   <option value="Single Wide">Single Wide</option>
                   <option value="Double Wide">Double Wide</option>
                 </select>
               </div>
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-[var(--cp-muted)] uppercase tracking-wide">Min Price</label>
+                <label htmlFor="filter-min-price" className="text-xs font-semibold text-[var(--cp-muted)] uppercase tracking-wide">Min Price</label>
                 <input
+                  id="filter-min-price"
                   className={CHIP_INPUT}
                   type="number"
-                  placeholder="$0"
+                  placeholder="No min"
                   value={filters.minPrice}
                   onChange={e => setFilters(f => ({ ...f, minPrice: e.target.value }))}
                 />
               </div>
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-[var(--cp-muted)] uppercase tracking-wide">Max Price</label>
+                <label htmlFor="filter-max-price" className="text-xs font-semibold text-[var(--cp-muted)] uppercase tracking-wide">Max Price</label>
                 <input
+                  id="filter-max-price"
                   className={CHIP_INPUT}
                   type="number"
                   placeholder="No max"
@@ -1375,6 +1446,7 @@ export default function InventoryBrowse({
             key={home.id || idx}
             home={home}
             onClick={() => openDetail(home)}
+            onWatchTour={() => openDetail(home, { tour: true })}
             onGetPrice={() => openLeadForm(home, 'price')}
             onApply={() => openLeadForm(home, 'apply')}
             isFavorite={favorites.has(home.id)}
@@ -1456,27 +1528,32 @@ export default function InventoryBrowse({
           onBookAppointment={onBookAppointment}
         />
       )}
+      </div>
     </div>
   );
 }
 
 
-function ListingPhoto({ url, alt, caption, priority = false }) {
+function ListingPhoto({ url, alt, caption, priority = false, onFailed, fit = 'cover' }) {
   const [failed, setFailed] = useState(false);
   if (!url || failed) return null;
+  const fitClass = fit === 'contain' ? 'object-contain bg-white' : 'object-cover';
   return (
     <figure className="overflow-hidden rounded-lg border border-[var(--cp-border)] bg-[var(--cp-panel)]">
       <img
         src={url}
         alt={alt}
-        className="h-56 w-full object-cover sm:h-64"
+        className={`h-56 w-full sm:h-64 ${fitClass}`}
         width={960}
         height={640}
         sizes={getImageSizes('listing-page')}
         loading={priority ? 'eager' : 'lazy'}
-        fetchPriority={priority ? 'high' : 'auto'}
+        fetchPriority={priority ? 'high' : 'low'}
         decoding="async"
-        onError={() => setFailed(true)}
+        onError={() => {
+          setFailed(true);
+          onFailed?.();
+        }}
       />
       {caption ? (
         <figcaption className="px-3 py-2 text-sm text-[var(--cp-muted)]">{caption}</figcaption>
@@ -1485,17 +1562,63 @@ function ListingPhoto({ url, alt, caption, priority = false }) {
   );
 }
 
+function PhotosComingSoon({ className = 'flex h-64 items-center justify-center rounded-lg border border-dashed border-[var(--cp-border)] text-sm text-[var(--cp-muted)]' }) {
+  return (
+    <div className={className}>
+      Photos coming soon
+    </div>
+  );
+}
+
+// One curated URL. A 403 unmounts the image so shoppers never sit on a broken
+// icon. Featured, detail, hero, and similar surfaces stay on this photo
+// instead of walking to the next file.
+function SinglePhoto({ url, alt, className, imgProps = {}, fallback = null }) {
+  const [failed, setFailed] = useState(false);
+  const [seenUrl, setSeenUrl] = useState(url);
+  if (url !== seenUrl) {
+    setSeenUrl(url);
+    setFailed(false);
+  }
+  if (!url || failed) return fallback;
+  return (
+    <img
+      src={url}
+      alt={alt}
+      className={className}
+      onError={() => setFailed(true)}
+      {...imgProps}
+      srcSet={generateSrcSet(url)}
+    />
+  );
+}
+
 // ─── Home Card Component ───
 export function ListingArticle({ home, onGetPrice, onApply }) {
   const specs = home?.specs || {};
-  const photos = listingPagePhotos(home);
-  const planUrl = home.floorplan_url || home.floor_plan_url || '';
-  const onlyFloorplan = photos.length === 1 && planUrl && photos[0] === planUrl;
+  const pagePhotos = listingPagePhotos(home);
+  const planPhotos = listingFloorplanImages(home);
+  const planSet = new Set(planPhotos);
+  const realPhotos = pagePhotos.filter((url) => url && !planSet.has(url));
+  const galleryKey = `${realPhotos.join('\n')}\n--\n${planPhotos.join('\n')}`;
+  const [galleryState, setGalleryState] = useState({ galleryKey, failedReal: 0, failedPlan: 0 });
+  const [watchTour, setWatchTour] = useState(false);
+  if (galleryState.galleryKey !== galleryKey) {
+    setGalleryState({ galleryKey, failedReal: 0, failedPlan: 0 });
+  }
+  const failedReal = galleryState.galleryKey === galleryKey ? galleryState.failedReal : 0;
+  const failedPlan = galleryState.galleryKey === galleryKey ? galleryState.failedPlan : 0;
+  const usePlans = realPhotos.length === 0 || failedReal >= realPhotos.length;
+  const photos = usePlans ? planPhotos : realPhotos;
+  const failedCount = usePlans ? failedPlan : failedReal;
+  const onlyFloorplan = usePlans && photos.length > 0;
+  const allPhotosFailed = photos.length === 0 || failedCount >= photos.length;
+  const tourUrl = matterportTourUrl(home);
   return (
     <article className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
       <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
         <div className="order-2 min-w-0 lg:order-1">
-          {photos.length > 0 ? (
+          {photos.length > 0 && !allPhotosFailed ? (
             <div className="grid gap-3 sm:grid-cols-2">
               {photos.map((url, index) => (
                 <ListingPhoto
@@ -1503,20 +1626,29 @@ export function ListingArticle({ home, onGetPrice, onApply }) {
                   url={url}
                   alt={listingImageAlt(home, url, index + 1, photos.length, { floorplan: onlyFloorplan })}
                   caption={onlyFloorplan ? 'Floor plan' : ''}
-                  priority={index === 0}
+                  fit={onlyFloorplan ? 'contain' : 'cover'}
+                  priority={index === 0 && !hasStaticLcpImage()}
+                  onFailed={() => setGalleryState((state) => {
+                    if (state.galleryKey !== galleryKey) {
+                      return usePlans
+                        ? { galleryKey, failedReal: 0, failedPlan: 1 }
+                        : { galleryKey, failedReal: 1, failedPlan: 0 };
+                    }
+                    return usePlans
+                      ? { galleryKey, failedReal: state.failedReal, failedPlan: state.failedPlan + 1 }
+                      : { galleryKey, failedReal: state.failedReal + 1, failedPlan: state.failedPlan };
+                  })}
                 />
               ))}
             </div>
           ) : (
-            <div className="flex h-64 items-center justify-center rounded-lg border border-dashed border-[var(--cp-border)] text-sm text-[var(--cp-muted)]">
-              Photos coming soon
-            </div>
+            <PhotosComingSoon />
           )}
         </div>
         <div className="order-1 min-w-0 lg:order-2">
           <p className="text-sm text-[var(--cp-muted)]">{home.manufacturer || BUSINESS_NAME}</p>
           <p className="mt-3 hidden text-3xl font-bold text-[var(--cp-accent)] lg:block">
-            {home.display_price && home.display_price !== 'Call for Price' ? home.display_price : 'Call for Price'}
+            <PublicPrice home={home} className="hidden lg:block" />
           </p>
           <ul className="mt-4 space-y-1 text-[var(--cp-text-secondary)]">
             {specs.beds ? <li>Beds: {specs.beds}</li> : null}
@@ -1526,6 +1658,26 @@ export function ListingArticle({ home, onGetPrice, onApply }) {
             {home.stock_number || home.id ? <li>Stock #{home.stock_number || home.id}</li> : null}
           </ul>
           <div className="mt-6">
+            {tourUrl && (
+              <div className="mb-3">
+                <button
+                  type="button"
+                  aria-pressed={watchTour}
+                  onClick={() => setWatchTour((open) => !open)}
+                  className="inline-flex min-h-11 w-full items-center justify-center gap-1.5 rounded-md border border-[var(--cp-secondary)] bg-white py-2.5 text-sm font-semibold text-[var(--cp-secondary)]"
+                >
+                  <Box size={16} aria-hidden="true" /> {watchTour ? 'Hide 3D tour' : 'Watch 3D tour'}
+                </button>
+                {watchTour && (
+                  <iframe
+                    src={tourUrl}
+                    title={`${home.model_name} 3D Tour`}
+                    className="mt-3 h-72 w-full rounded-lg border border-[var(--cp-border)]"
+                    allowFullScreen
+                  />
+                )}
+              </div>
+            )}
             <div className="hidden lg:block">
               <ListingActions home={home} onApply={onApply} onGetPrice={onGetPrice} />
             </div>
@@ -1541,23 +1693,31 @@ export function ListingArticle({ home, onGetPrice, onApply }) {
 }
 
 
-export function HomeCard({ home, onClick, onGetPrice, onApply, isFavorite = false, onToggleFavorite }) {
-  // image_url is guaranteed non-floorplan after PR #43's classifier;
-  // real_photos[0] is also non-floorplan (exteriors are listed first).
-  // We deliberately do NOT fall back to floor_plan_url here — floorplans
-  // belong in the dedicated Floorplan tab, not as the card hero.
+export function HomeCard({ home, onClick, onGetPrice, onApply, isFavorite = false, onToggleFavorite, onWatchTour }) {
+  // Real photos stay the hero. When a listing has none — or every photo URL
+  // fails — the floor-plan drawing is the card image so the tile is never blank.
   const floorplanUrls = getFloorplanUrls(home);
+  const floorplanImages = listingFloorplanImages(home);
   const galleryPhotos = getListingPhotos(home, { ranked: true });
   const photoCount = galleryPhotos.length;
-  const galleryKey = JSON.stringify([home.id, galleryPhotos]);
-  const [heroAttempt, setHeroAttempt] = useState({ galleryKey, index: 0 });
+  const galleryKey = JSON.stringify([home.id, galleryPhotos, floorplanImages]);
+  const initialAttempt = {
+    galleryKey,
+    index: 0,
+    planIndex: 0,
+    usePlan: galleryPhotos.length === 0 && floorplanImages.length > 0,
+  };
+  const [heroAttempt, setHeroAttempt] = useState(initialAttempt);
   // Failures belong to this ordered gallery, not to a later home or refresh.
   // Reset before rendering children so a refreshed gallery starts at its hero.
   if (heroAttempt.galleryKey !== galleryKey) {
-    setHeroAttempt({ galleryKey, index: 0 });
+    setHeroAttempt(initialAttempt);
   }
-  const heroIndex = heroAttempt.galleryKey === galleryKey ? heroAttempt.index : 0;
-  const heroImage = galleryPhotos[heroIndex] || '';
+  const attempt = heroAttempt.galleryKey === galleryKey ? heroAttempt : initialAttempt;
+  const heroIndex = attempt.index;
+  const planIndex = attempt.planIndex;
+  const usePlan = attempt.usePlan;
+  const heroImage = usePlan ? (floorplanImages[planIndex] || '') : (galleryPhotos[heroIndex] || '');
   // 'loading' → 'loaded' | 'slow' | 'failed'.
   //
   // 'slow' and 'failed' are deliberately DIFFERENT states. 'failed' means the
@@ -1582,7 +1742,8 @@ export function HomeCard({ home, onClick, onGetPrice, onApply, isFavorite = fals
   const showOrderOnlyPlaceholder = isOrderOnly && (
     !heroImage || heroLoadState === 'failed'
   );
-  const hasTour = !!home.matterport_id;
+  const tourUrl = matterportTourUrl(home);
+  const hasTour = !!tourUrl;
   const specs = home.specs || {};
   const categories = home.image_categories || {};
 
@@ -1649,19 +1810,42 @@ export function HomeCard({ home, onClick, onGetPrice, onApply, isFavorite = fals
             src={heroImage}
             srcSet={generateSrcSet(heroImage)}
             sizes={getImageSizes('card-grid')}
-            alt={listingImageAlt(home, heroImage, heroIndex + 1, Math.max(photoCount, 1))}
-            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+            alt={listingImageAlt(
+              home,
+              heroImage,
+              usePlan ? 1 : heroIndex + 1,
+              usePlan ? 1 : Math.max(photoCount, 1),
+              { floorplan: usePlan },
+            )}
+            className={usePlan
+              ? 'w-full h-full object-contain bg-white'
+              : 'w-full h-full object-cover transition-transform duration-300 group-hover:scale-105'}
             loading="lazy"
             decoding="async"
             onLoad={() => setHeroLoadState('loaded')}
             onError={() => {
-              if (heroIndex + 1 < galleryPhotos.length) {
-                setHeroAttempt({ galleryKey, index: heroIndex + 1 });
-              } else {
-                setHeroLoadState('failed');
+              if (!usePlan && heroIndex + 1 < galleryPhotos.length) {
+                setHeroAttempt({ galleryKey, index: heroIndex + 1, planIndex: 0, usePlan: false });
+                return;
               }
+              if (!usePlan && floorplanImages.length > 0) {
+                setHeroAttempt({ galleryKey, index: heroIndex, planIndex: 0, usePlan: true });
+                setHeroLoadState('loading');
+                return;
+              }
+              if (usePlan && planIndex + 1 < floorplanImages.length) {
+                setHeroAttempt({ galleryKey, index: heroIndex, planIndex: planIndex + 1, usePlan: true });
+                setHeroLoadState('loading');
+                return;
+              }
+              setHeroLoadState('failed');
             }}
           />
+          {usePlan && (
+            <span className="pointer-events-none absolute bottom-3 left-3 z-[2] rounded-md bg-white/95 px-2 py-1 text-xs font-semibold text-slate-700 shadow">
+              Floor plan
+            </span>
+          )}
           {/* Slow, not broken: a quiet shimmer over the still-loading <img>.
               It clears itself the moment onLoad fires. */}
           {heroLoadState === 'slow' && (
@@ -1753,7 +1937,9 @@ export function HomeCard({ home, onClick, onGetPrice, onApply, isFavorite = fals
             <button type="button" className="text-left" onClick={onClick}>{home.model_name}</button>
           )}
         </h3>
-        <p className="text-sm text-[var(--cp-muted)] mt-1">{home.manufacturer || 'New Vision Manufacturing'}</p>
+        {home.manufacturer ? (
+          <p className="text-sm text-[var(--cp-text-secondary)] mt-1">{home.manufacturer}</p>
+        ) : null}
 
         <div className="flex gap-4 my-4 py-3 border-t border-b border-[var(--cp-border)] text-sm text-[var(--cp-text-secondary)]">
           {specs.beds && (
@@ -1789,11 +1975,11 @@ export function HomeCard({ home, onClick, onGetPrice, onApply, isFavorite = fals
         )}
 
         <div className="text-xl font-bold text-[var(--cp-accent)] mb-3">
-          {home.display_price && home.display_price !== 'Call for Price'
-            ? home.display_price
-            : <span className="text-[var(--cp-muted)] text-base font-medium">Call for Price</span>
+          {isUnpricedListing(home)
+            ? <PublicPrice home={home} className="text-[var(--cp-muted)] text-base font-medium" />
+            : displayPrice(home)
           }
-          {home.display_price && home.display_price !== 'Call for Price' && pricePerSqft(home.price_value, specs.sq_ft) && (
+          {!isUnpricedListing(home) && pricePerSqft(home.price_value, specs.sq_ft) && (
             <span className="block text-xs font-medium text-[var(--cp-muted)]">
               {pricePerSqft(home.price_value, specs.sq_ft)}
             </span>
@@ -1801,6 +1987,30 @@ export function HomeCard({ home, onClick, onGetPrice, onApply, isFavorite = fals
         </div>
 
         <div className="space-y-2">
+          {tourUrl && (
+            onWatchTour ? (
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  onWatchTour();
+                }}
+                className="inline-flex min-h-11 w-full items-center justify-center gap-1.5 rounded-md border border-[var(--cp-secondary)] bg-white py-2.5 text-sm font-semibold text-[var(--cp-secondary)]"
+              >
+                <Box size={16} aria-hidden="true" /> Watch 3D tour
+              </button>
+            ) : (
+              <a
+                href={tourUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex min-h-11 w-full items-center justify-center gap-1.5 rounded-md border border-[var(--cp-secondary)] bg-white py-2.5 text-sm font-semibold text-[var(--cp-secondary)] no-underline"
+              >
+                <Box size={16} aria-hidden="true" /> Watch 3D tour
+              </a>
+            )
+          )}
           {cardHref ? (
             <a
               href={cardHref}
@@ -1834,11 +2044,12 @@ function HomeDetailModal({
   const specs = home.specs || {};
   const categories = home.image_categories || {};
   const categoryKeys = Object.keys(categories);
-  const hasTour = !!home.matterport_id;
+  const tourUrl = matterportTourUrl(home);
+  const hasTour = !!tourUrl;
   // After PR #43 the canonical field is `floorplan_url`. Fall back to the
   // legacy `floor_plan_url` spelling for older Firestore docs.
-  const floorplan = home.floorplan_url || home.floor_plan_url || '';
-  const isCallForPrice = !home.display_price || home.display_price === 'Call for Price';
+  const floorplan = rewriteMediaUrl(home.floorplan_url || home.floor_plan_url || '');
+  const isCallForPrice = isUnpricedListing(home);
   const isOrderableFloorplan = getAvailabilityKind(home) === 'orderable_floorplan';
 
   const modalRef = useRef(null);
@@ -1929,7 +2140,7 @@ function HomeDetailModal({
           {showTour && hasTour ? (
             <div className="tho-listing-gallery">
               <iframe
-                src={`${MATTERPORT_BASE}${home.matterport_id}&play=1`}
+                src={tourUrl}
                 title={`${home.model_name} 3D Tour`}
                 className="w-full h-full border-0"
                 allowFullScreen
@@ -1939,15 +2150,21 @@ function HomeDetailModal({
             <div className="tho-listing-gallery relative flex items-center justify-center overflow-hidden bg-slate-50">
               {floorplan ? (
                 <>
-                  <img
-                    src={floorplan}
-                    srcSet={generateSrcSet(floorplan)}
-                    sizes={getImageSizes('modal')}
+                  <SinglePhoto
+                    url={floorplan}
                     alt={listingImageAlt(home, floorplan, 1, 1, { floorplan: true })}
                     className="max-w-full max-h-full object-contain bg-white"
-                    loading="lazy"
-                    decoding="async"
-                    onError={(e) => { e.target.classList.add('hidden'); }}
+                    imgProps={{
+                      sizes: getImageSizes('modal'),
+                      loading: 'lazy',
+                      decoding: 'async',
+                    }}
+                    fallback={(
+                      <div className="flex flex-col items-center justify-center gap-3 text-slate-400">
+                        <Grid3X3 size={48} className="text-slate-200" />
+                        <p>Floorplan unavailable</p>
+                      </div>
+                    )}
                   />
                   <a
                     href={floorplan}
@@ -1971,18 +2188,44 @@ function HomeDetailModal({
               onTouchStart={handleTouchStart}
               onTouchEnd={handleTouchEnd}
             >
-              <img
-                src={photos[activePhotoIndex]}
-                srcSet={generateSrcSet(photos[activePhotoIndex])}
-                sizes={getImageSizes('modal')}
+              <SinglePhoto
+                url={photos[activePhotoIndex]}
                 alt={listingImageAlt(home, photos[activePhotoIndex], activePhotoIndex + 1, photos.length)}
                 className="max-h-full max-w-full object-contain"
-                width={1200}
-                height={800}
-                loading="eager"
-                fetchPriority="high"
-                decoding="async"
-                onError={(e) => { e.target.classList.add('hidden'); }}
+                imgProps={{
+                  width: 1200,
+                  height: 800,
+                  sizes: getImageSizes('modal'),
+                  loading: 'eager',
+                  fetchPriority: 'high',
+                  decoding: 'async',
+                }}
+                fallback={floorplan ? (
+                  <div className="flex h-full w-full flex-col items-center justify-center bg-white">
+                    <SinglePhoto
+                      url={floorplan}
+                      alt={listingImageAlt(home, floorplan, 1, 1, { floorplan: true })}
+                      className="max-h-full max-w-full object-contain bg-white"
+                      imgProps={{
+                        sizes: getImageSizes('modal'),
+                        loading: 'eager',
+                        decoding: 'async',
+                      }}
+                      fallback={(
+                        <div className="flex flex-col items-center justify-center gap-3 text-slate-300">
+                          <Camera size={48} className="text-slate-500" />
+                          <p>Photo unavailable</p>
+                        </div>
+                      )}
+                    />
+                    <span className="mt-2 text-sm font-semibold text-slate-600">Floor plan</span>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center justify-center gap-3 text-slate-300">
+                    <Camera size={48} className="text-slate-500" />
+                    <p>Photo unavailable</p>
+                  </div>
+                )}
               />
               {photos.length > 1 && (
                 <>
@@ -2067,15 +2310,15 @@ function HomeDetailModal({
                     className={`flex-shrink-0 w-20 h-[60px] rounded-md overflow-hidden border-2 transition ${idx === activePhotoIndex ? 'border-blue-500 opacity-100' : 'border-transparent opacity-70 hover:opacity-100 hover:border-blue-500'}`}
                     onClick={() => onSetPhotoIndex(idx)}
                   >
-                    <img
-                      src={photo}
-                      srcSet={generateSrcSet(photo)}
-                      sizes={getImageSizes('modal-thumbnail')}
+                    <SinglePhoto
+                      url={photo}
                       alt={listingImageAlt(home, photo, idx + 1, photos.length)}
                       className="w-full h-full object-cover"
-                      loading="lazy"
-                      decoding="async"
-                      onError={(e) => { e.target.classList.add('hidden'); }}
+                      imgProps={{
+                        sizes: getImageSizes('modal-thumbnail'),
+                        loading: 'lazy',
+                        decoding: 'async',
+                      }}
                     />
                   </button>
                 ))}
@@ -2089,7 +2332,9 @@ function HomeDetailModal({
           <div className="flex items-start justify-between gap-4 mb-5">
             <div>
               <h2 className="text-2xl font-bold text-slate-800">{home.model_name}</h2>
-              <p className="text-sm text-gray-500 mt-0.5">{home.manufacturer || 'New Vision Manufacturing'}</p>
+              {home.manufacturer ? (
+                <p className="text-sm text-gray-700 mt-0.5">{home.manufacturer}</p>
+              ) : null}
             </div>
             <StatusBadge status={home.status} kind="home" size="md" />
           </div>
@@ -2129,8 +2374,8 @@ function HomeDetailModal({
           {/* Price */}
           <div className="flex items-center gap-4 mb-5 flex-wrap">
             <div className="flex flex-col">
-              <span className="text-3xl font-bold text-green-600">
-                {!isCallForPrice ? home.display_price : 'Call for Price'}
+              <span className="text-3xl font-bold text-green-900">
+                {isCallForPrice ? <PublicPrice home={home} /> : displayPrice(home)}
               </span>
               {!isCallForPrice && pricePerSqft(home.price_value, specs.sq_ft) && (
                 <span className="text-sm font-medium text-gray-500">
@@ -2141,7 +2386,7 @@ function HomeDetailModal({
             {isCallForPrice && (
               <button
                 type="button"
-                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg font-medium text-white bg-amber-500 hover:bg-amber-600 transition"
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg font-medium text-white bg-[var(--cp-secondary)] hover:bg-[var(--tho-primary-dark)] transition"
                 onClick={onGetPrice}
               >
                 <DollarSign size={16} /> Check Price
@@ -2152,7 +2397,7 @@ function HomeDetailModal({
           {/* Features */}
           {home.features && home.features.length > 0 && (
             <div className="mb-5">
-              <h4 className="text-base font-semibold text-slate-800 mb-3">Features</h4>
+              <h3 className="text-base font-semibold text-slate-800 mb-3">Features</h3>
               <ul className="grid gap-2 list-none"
                   style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))' }}>
                 {home.features.map((f, i) => (
@@ -2171,6 +2416,19 @@ function HomeDetailModal({
 
           {/* Action Buttons */}
           <div className="mb-4 flex flex-col gap-3 sm:flex-row">
+            {hasTour && (
+              <button
+                type="button"
+                aria-pressed={showTour}
+                className={`flex-1 inline-flex items-center justify-center gap-2 rounded-lg py-3.5 text-sm font-semibold transition ${showTour ? 'bg-blue-600 text-white' : 'border-2 border-blue-600 bg-white text-blue-700 hover:bg-blue-50'}`}
+                onClick={() => {
+                  setShowFloorplan(false);
+                  if (!showTour) onToggleTour();
+                }}
+              >
+                <Box size={18} aria-hidden="true" /> Watch 3D tour
+              </button>
+            )}
             <button
               className="flex-1 inline-flex items-center justify-center gap-2 py-3.5 rounded-lg font-semibold text-sm bg-blue-600 text-white hover:bg-blue-700 transition"
               onClick={() => {
@@ -2301,31 +2559,30 @@ function SimilarHomes({ currentHome, allHomes, onSelectHome }) {
 
   return (
     <div className="mt-6 pt-6 border-t border-gray-200">
-      <h4 className="flex items-center gap-2 text-base font-semibold text-slate-800 mb-4">
-        <Box size={16} /> Similar Homes
-      </h4>
+      <h3 className="flex items-center gap-2 text-base font-semibold text-slate-800 mb-4">
+        <Box size={16} aria-hidden="true" /> Similar Homes
+      </h3>
       <div className="grid gap-3"
            style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))' }}>
         {scored.map(({ home }) => {
           const image = getHomeImage(home);
+          const imageIsPlan = cardImageIsFloorplan(home);
           const href = listingPath(home);
           const className = 'flex flex-col p-3 bg-slate-50 border-2 border-transparent rounded-xl text-left transition hover:border-blue-500 hover:bg-white hover:shadow-md no-underline';
           const body = (
             <>
               <div className="h-[100px] rounded-lg overflow-hidden bg-slate-200 flex items-center justify-center mb-3">
-                {image ? (
-                  <img
-                    src={image}
-                    srcSet={generateSrcSet(image)}
-                    sizes={getImageSizes('similar-homes')}
-                    alt={listingImageAlt(home, image, 1, 1)}
-                    className="w-full h-full object-cover"
-                    loading="lazy"
-                    decoding="async"
-                  />
-                ) : (
-                  <Home size={24} className="text-gray-300" />
-                )}
+                <SinglePhoto
+                  url={image}
+                  alt={listingImageAlt(home, image, 1, 1, { floorplan: imageIsPlan })}
+                  className={imageIsPlan ? 'h-full w-full object-contain bg-white' : 'h-full w-full object-cover'}
+                  imgProps={{
+                    sizes: getImageSizes('similar-homes'),
+                    loading: 'lazy',
+                    decoding: 'async',
+                  }}
+                  fallback={<Home size={24} className="text-gray-300" />}
+                />
               </div>
               <div className="font-semibold text-slate-800 text-sm leading-tight mb-1">
                 {home.model_name}
@@ -2333,8 +2590,8 @@ function SimilarHomes({ currentHome, allHomes, onSelectHome }) {
               <div className="text-xs text-gray-500 mb-1">
                 {home.specs?.beds}BR · {home.specs?.baths}BA · {home.specs?.sq_ft?.toLocaleString()} sqft
               </div>
-              <div className="font-bold text-green-600 text-sm">
-                {home.display_price || 'Call for Price'}
+              <div className="font-bold text-green-900 text-sm">
+                <PublicPrice home={home} linkPhone={false} />
               </div>
             </>
           );
@@ -2457,7 +2714,7 @@ export function LeadCaptureForm({ home, type, onClose, onBookAppointment }) {
         <button
           onClick={onClose}
           aria-label="Close"
-          className="absolute top-3 right-3 w-8 h-8 rounded-full text-gray-400 hover:bg-slate-100 hover:text-gray-700 flex items-center justify-center transition"
+          className="absolute top-3 right-3 w-8 h-8 rounded-full text-gray-700 hover:bg-slate-100 hover:text-gray-900 flex items-center justify-center transition"
         >
           <X size={20} />
         </button>
@@ -2484,10 +2741,12 @@ export function LeadCaptureForm({ home, type, onClose, onBookAppointment }) {
 
             <form onSubmit={handleSubmit} className="flex flex-col gap-4">
               <div className="flex flex-col gap-1.5">
-                <label className="text-sm font-medium text-gray-700">Name *</label>
+                <label htmlFor="lead-name" className="text-sm font-medium text-gray-700">Name *</label>
                 <input
-                  className="px-3 py-2.5 rounded-lg border-2 border-gray-200 text-sm focus:outline-none focus:border-blue-500 transition"
+                  id="lead-name"
+                  className="px-3 py-2.5 rounded-lg border-2 border-gray-200 text-sm focus:border-blue-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--cp-accent)] transition"
                   type="text"
+                  autoComplete="name"
                   value={formData.name}
                   onChange={e => setFormData(f => ({ ...f, name: e.target.value }))}
                   placeholder="Your full name"
@@ -2495,10 +2754,12 @@ export function LeadCaptureForm({ home, type, onClose, onBookAppointment }) {
                 />
               </div>
               <div className="flex flex-col gap-1.5">
-                <label className="text-sm font-medium text-gray-700">Phone *</label>
+                <label htmlFor="lead-phone" className="text-sm font-medium text-gray-700">Phone *</label>
                 <input
-                  className="px-3 py-2.5 rounded-lg border-2 border-gray-200 text-sm focus:outline-none focus:border-blue-500 transition"
+                  id="lead-phone"
+                  className="px-3 py-2.5 rounded-lg border-2 border-gray-200 text-sm focus:border-blue-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--cp-accent)] transition"
                   type="tel"
+                  autoComplete="tel"
                   value={formData.phone}
                   onChange={e => setFormData(f => ({ ...f, phone: e.target.value }))}
                   placeholder="(281) 000-0000"
@@ -2506,9 +2767,10 @@ export function LeadCaptureForm({ home, type, onClose, onBookAppointment }) {
                 />
               </div>
               <div className="flex flex-col gap-1.5">
-                <label className="text-sm font-medium text-gray-700">Email</label>
+                <label htmlFor="lead-email" className="text-sm font-medium text-gray-700">Email</label>
                 <input
-                  className="px-3 py-2.5 rounded-lg border-2 border-gray-200 text-sm focus:outline-none focus:border-blue-500 transition"
+                  id="lead-email"
+                  className="px-3 py-2.5 rounded-lg border-2 border-gray-200 text-sm focus:border-blue-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--cp-accent)] transition"
                   type="text"
                   inputMode="email"
                   autoComplete="email"
@@ -2518,11 +2780,12 @@ export function LeadCaptureForm({ home, type, onClose, onBookAppointment }) {
                 />
               </div>
               <div className="flex flex-col gap-1.5">
-                <label className="text-sm font-medium text-gray-700">
+                <label htmlFor="lead-details" className="text-sm font-medium text-gray-700">
                   {type === 'tour' ? 'Preferred date/time' : 'Additional details'}
                 </label>
                 <textarea
-                  className="px-3 py-2.5 rounded-lg border-2 border-gray-200 text-sm focus:outline-none focus:border-blue-500 transition"
+                  id="lead-details"
+                  className="px-3 py-2.5 rounded-lg border-2 border-gray-200 text-sm focus:border-blue-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--cp-accent)] transition"
                   value={formData.message}
                   onChange={e => setFormData(f => ({ ...f, message: e.target.value }))}
                   placeholder={type === 'tour' ? 'e.g., Saturday morning, weekday after 5pm...' : 'Any questions or preferences...'}
@@ -2531,7 +2794,7 @@ export function LeadCaptureForm({ home, type, onClose, onBookAppointment }) {
               </div>
 
               {error && (
-                <div className="flex items-center gap-2 text-sm text-red-600 bg-red-50 px-3 py-2 rounded-lg">
+                <div role="alert" className="flex items-center gap-2 text-sm text-red-700 bg-red-50 px-3 py-2 rounded-lg">
                   <AlertCircle size={14} /> {error}
                 </div>
               )}

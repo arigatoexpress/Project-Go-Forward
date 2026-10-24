@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import StaffSignInPanel from '../components/StaffSignInPanel';
 
 function renderPanel(props = {}) {
@@ -45,6 +45,15 @@ describe('Staff sign-in panel', () => {
         expect.objectContaining({ credentials: 'same-origin' }),
       );
     });
+  });
+
+  it('tells staff that extra resend taps do not speed up the email', async () => {
+    renderPanel();
+    fireEvent.change(screen.getByLabelText('Work email'), { target: { value: 'pat@texashomeoutlet.com' } });
+    fireEvent.click(screen.getByRole('button', { name: /Email me a sign-in link/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /Type the 6-digit code instead/i }));
+    expect(screen.getByRole('button', { name: 'Resend code' })).toHaveAttribute('aria-describedby', 'resend-code-help');
+    expect(screen.getByText(/Extra taps will not make the email arrive faster/i)).toBeInTheDocument();
   });
 
   it('hides the passkey button on a browser that cannot use one, without an alarm', () => {

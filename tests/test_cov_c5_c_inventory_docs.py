@@ -394,7 +394,9 @@ class TestDocumentHistoryHelpers:
         _client_, main, _db = _client(monkeypatch)
         monkeypatch.delenv("DOCUMENT_HISTORY_MIN_CREATED_AT", raising=False)
 
-        assert main._document_history_min_created_at() == main._DOCUMENT_HISTORY_DEFAULT_MIN_CREATED_AT
+        assert (
+            main._document_history_min_created_at() == main._DOCUMENT_HISTORY_DEFAULT_MIN_CREATED_AT
+        )
 
     def test_min_created_at_configured_valid(self, monkeypatch):
         _client_, main, _db = _client(monkeypatch)
@@ -408,7 +410,9 @@ class TestDocumentHistoryHelpers:
         _client_, main, _db = _client(monkeypatch)
         monkeypatch.setenv("DOCUMENT_HISTORY_MIN_CREATED_AT", "not-a-timestamp")
 
-        assert main._document_history_min_created_at() == main._DOCUMENT_HISTORY_DEFAULT_MIN_CREATED_AT
+        assert (
+            main._document_history_min_created_at() == main._DOCUMENT_HISTORY_DEFAULT_MIN_CREATED_AT
+        )
 
     def test_is_legacy_unverified_document_branches(self, monkeypatch):
         _client_, main, _db = _client(monkeypatch)
@@ -692,42 +696,38 @@ class TestMarketingEndpoints:
 
 class TestSanitizeUrl:
     def test_scheme_less_url_short_circuit(self, monkeypatch, tmp_path):
-        _client_, main, _db = _client(monkeypatch)
+        client, main, _db = _client(monkeypatch)
         monkeypatch.setattr(main, "log_user_action", lambda **kwargs: None)
         # Redirect the feedback log into tmp so the repo stays clean.
         monkeypatch.setattr(main, "__file__", str(tmp_path / "main.py"))
 
-        result = _run(
-            main.submit_feedback(
-                _Req(
-                    {
-                        "description": "the floor plan page looks broken",
-                        "url": "not-a-real-url",
-                        "page": "/floorplans",
-                    }
-                )
-            )
+        response = client.post(
+            "/api/feedback",
+            json={
+                "description": "the floor plan page looks broken",
+                "url": "not-a-real-url",
+                "page": "/floorplans",
+            },
         )
 
-        assert result["success"] is True
+        assert response.status_code == 200
+        assert response.json()["success"] is True
 
     def test_full_url_strips_query(self, monkeypatch, tmp_path):
-        _client_, main, _db = _client(monkeypatch)
+        client, main, _db = _client(monkeypatch)
         monkeypatch.setattr(main, "log_user_action", lambda **kwargs: None)
         monkeypatch.setattr(main, "__file__", str(tmp_path / "main.py"))
 
-        result = _run(
-            main.submit_feedback(
-                _Req(
-                    {
-                        "description": "broken image",
-                        "url": "https://example.com/homes/1?tracking=abc&x=2",
-                    }
-                )
-            )
+        response = client.post(
+            "/api/feedback",
+            json={
+                "description": "broken image",
+                "url": "https://example.com/homes/1?tracking=abc&x=2",
+            },
         )
 
-        assert result["success"] is True
+        assert response.status_code == 200
+        assert response.json()["success"] is True
         feedback_file = tmp_path / "data" / "feedback.jsonl"
         line = json.loads(feedback_file.read_text().strip().splitlines()[-1])
         assert line["url"] == "https://example.com/homes/1"

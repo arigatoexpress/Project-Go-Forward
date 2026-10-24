@@ -91,12 +91,13 @@ const Contact = ({ onBack, onBookAppointment }) => {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
             <div className="mb-8 flex items-center justify-between">
                 <div>
-                    <h2 className="text-3xl font-bold text-blue-900">Contact Us</h2>
-                    <p className="text-gray-600">We're here to help you find your dream home.</p>
+                    <h1 className="text-3xl font-bold text-blue-900">Contact Us</h1>
+                    <p className="text-gray-700">We're here to help you find your dream home.</p>
                 </div>
                 <button
+                    type="button"
                     onClick={onBack}
-                    className="text-sm font-medium text-blue-600 hover:text-blue-800"
+                    className="rounded-md text-sm font-medium text-blue-600 hover:text-blue-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--cp-accent)]"
                 >
                     &larr; Back to Chat
                 </button>
@@ -111,7 +112,7 @@ const Contact = ({ onBack, onBookAppointment }) => {
                                 <MapPin className="h-6 w-6 text-blue-600" />
                             </div>
                             <div>
-                                <h3 className="text-lg font-bold text-gray-900">Visit Our Showroom</h3>
+                                <h2 className="text-lg font-bold text-gray-900">Visit Our Showroom</h2>
                                 <p className="text-gray-700 mt-1 font-medium">{BUSINESS_FULL_ADDRESS}</p>
                                 <a
                                     href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(BUSINESS_FULL_ADDRESS)}`}
@@ -131,7 +132,7 @@ const Contact = ({ onBack, onBookAppointment }) => {
                                 <Phone className="h-6 w-6 text-red-600" />
                             </div>
                             <div>
-                                <h3 className="text-lg font-bold text-gray-900">Call Us Directly</h3>
+                                <h2 className="text-lg font-bold text-gray-900">Call Us Directly</h2>
                                 <a href={`tel:${BUSINESS_PHONE_RAW}`} className="text-gray-600 mt-1 block hover:text-blue-600 transition-colors">{BUSINESS_PHONE}</a>
                                 <p className="text-xs text-gray-500 mt-1">{BUSINESS_HOURS}</p>
                             </div>
@@ -144,8 +145,8 @@ const Contact = ({ onBack, onBookAppointment }) => {
                                 <Mail className="h-6 w-6 text-green-600" />
                             </div>
                             <div>
-                                <h3 className="text-lg font-bold text-gray-900">Email Our Team</h3>
-                                <p className="text-gray-600 mt-1">sales@{BUSINESS_URL}</p>
+                                <h2 className="text-lg font-bold text-gray-900">Email Our Team</h2>
+                                <a href={`mailto:sales@${BUSINESS_URL}`} className="text-gray-700 mt-1 block hover:text-blue-600">sales@{BUSINESS_URL}</a>
                             </div>
                         </div>
                     </div>
@@ -153,7 +154,7 @@ const Contact = ({ onBack, onBookAppointment }) => {
 
                 {/* Contact Form */}
                 <div className="bg-white p-8 rounded-2xl shadow-xl border border-gray-100">
-                    <h3 className="text-xl font-bold text-gray-900 mb-6">Send a Message</h3>
+                    <h2 className="text-xl font-bold text-gray-900 mb-6">Send a Message</h2>
                     <fieldset disabled={submitting}>
                     <form onSubmit={handleSubmit} className="space-y-4">
                         <div>

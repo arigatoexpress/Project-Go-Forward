@@ -121,4 +121,74 @@ describe('PropertyCard', () => {
       expect(screen.queryByText(/build-to-order|order-only model/i)).toBeNull();
     });
   });
+
+  it('skips a photo that fails to load and shows the next one', () => {
+    const property = {
+      ...sampleProperty,
+      image_url: 'https://cdn.example/dead.jpg',
+      real_photos: ['https://cdn.example/dead.jpg', 'https://cdn.example/live.jpg'],
+    };
+    const { container } = render(
+      <PropertyCard property={property} onToggleCompare={() => {}} isSelected={false} />,
+    );
+    fireEvent.error(container.querySelector('img'));
+    expect(container.querySelector('img').getAttribute('src')).toContain('live.jpg');
+    expect(screen.queryByText(/photos coming soon/i)).toBeNull();
+  });
+
+  it('drops the image and says photos are coming when every photo fails', () => {
+    const property = {
+      ...sampleProperty,
+      image_url: 'https://cdn.example/dead.jpg',
+      real_photos: ['https://cdn.example/dead.jpg'],
+      is_orderable: false,
+    };
+    const { container } = render(
+      <PropertyCard property={property} onToggleCompare={() => {}} isSelected={false} />,
+    );
+    fireEvent.error(container.querySelector('img'));
+    expect(container.querySelector('img')).toBeNull();
+    expect(screen.getByText(/photos coming soon/i)).toBeInTheDocument();
+  });
+
+  it('renders the floor plan when the listing has no real photo', () => {
+    const plan = 'https://cdn.example/2306P.png';
+    const { container } = render(
+      <PropertyCard
+        property={{
+          ...sampleProperty,
+          is_orderable: true,
+          image_url: '',
+          real_photos: [],
+          floorplan_url: plan,
+        }}
+        onToggleCompare={() => {}}
+        isSelected={false}
+      />,
+    );
+    const img = container.querySelector('img');
+    expect(img).not.toBeNull();
+    expect(img.getAttribute('src')).toBe(plan);
+    expect(img.className).toContain('object-contain');
+    expect(screen.getByText('Floor plan')).toBeInTheDocument();
+    expect(screen.queryByText(/build-to-order/i)).toBeNull();
+  });
+
+  it('links Watch 3D tour to the home’s Matterport tour', () => {
+    render(
+      <PropertyCard
+        property={{
+          ...sampleProperty,
+          image_url: 'https://cdn.example/exterior-front.jpg',
+          matterport_id: 'SvVRKXdXUQq',
+        }}
+        onToggleCompare={() => {}}
+        isSelected={false}
+      />,
+    );
+    expect(screen.getByRole('link', { name: /watch 3d tour/i })).toHaveAttribute(
+      'href',
+      'https://my.matterport.com/show/?m=SvVRKXdXUQq&play=1',
+    );
+  });
 });

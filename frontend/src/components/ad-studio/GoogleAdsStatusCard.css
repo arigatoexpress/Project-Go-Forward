@@ -109,6 +109,34 @@
   line-height: 1.65;
 }
 
+.google-ads-campaign-details dd {
+  font-family: inherit;
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+
+.google-ads-copy-block {
+  margin-top: 1rem;
+}
+
+.google-ads-copy-block h3 {
+  margin: 0 0 0.35rem;
+  font-size: 0.95rem;
+}
+
+.google-ads-copy-block ul {
+  margin: 0.2rem 0 0.7rem;
+  padding-left: 1.15rem;
+}
+
+.google-ads-copy-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  margin: 0.35rem 0 0.6rem;
+}
+
 .google-ads-status-note {
   margin: 0.8rem 0 0;
   font-size: 0.85rem;

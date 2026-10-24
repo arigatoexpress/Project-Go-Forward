@@ -18,10 +18,11 @@ Bookmark the staff page on your phone and on the office computer.
 | [Add a passkey (optional)](passkey-setup-guide.md) | Save an optional passkey after the email link, and see your own keys. |
 | [Turn on email sign-in (owner only)](owner-setup-email-sign-in.md) | One-time setup steps for the owner. Most staff can skip this. |
 | [Things that trip up staff](staff-gotchas.md) | Check the mistakes that come up on prices, photos, sign-in, Ad Studio, and contracts, and the step to take for each. |
+| [Weekly note for the team](weekly-staff-note.md) | Copy this each week, fill in the blanks, and send it to the team. |
 
 ## Coming soon
 
-These guides are not written yet. Until they are, ask the owner.
+These guides are not written yet. Until they are, ask your manager.
 
 | Guide | What it will cover |
 |---|---|
@@ -48,4 +49,4 @@ You do not set up Google, and you do not edit code.
 
 See [Things that trip up staff](staff-gotchas.md) for the usual mistakes and the one step to try.
 
-If something does not work, take a screenshot and send it to the owner.
+If something does not work, take a screenshot and ask your manager.

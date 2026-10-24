@@ -47,6 +47,7 @@ from config_loader import (
 )
 from inventory_classification import normalize_inventory_classification
 from tools.inventory_dedupe import is_preowned
+from tools.lcp_image import LCP_IMAGE_PATH, hero_url_is_resizable
 from tools.listing_urls import (
     attach_listing_urls,
     listing_lastmod,
@@ -119,8 +120,8 @@ PUBLIC_ROUTES = {
     ),
     "/financing": (
         f"Manufactured Home Financing in {_CITY_STATE} | {business_name()}",
-        f"Manufactured home financing options at {business_name()} in {_CITY_STATE}: "
-        f"chattel loans, land-and-home loans, FHA/VA/USDA, and lender partners.",
+        f"Chattel, land-and-home, and FHA, VA, or USDA loans at {business_name()} in "
+        f"{_CITY_STATE}. Ask our team for current lender options.",
     ),
     "/faq": (
         f"Frequently Asked Questions | {business_name()}",
@@ -566,6 +567,20 @@ def _first_image(home: dict) -> str | None:
     return None
 
 
+def _inventory_lcp_href() -> str | None:
+    """URL to preload for the hero that React paints full-bleed.
+
+    A resizable hero is served from this app as one small JPEG. Other heroes
+    keep their original URL. A width query is never invented for the CDN.
+    """
+    hero = _inventory_hero_image()
+    if not hero:
+        return None
+    if hero_url_is_resizable(hero):
+        return LCP_IMAGE_PATH
+    return hero
+
+
 def _inventory_hero_image() -> str | None:
     """Return the image React will prioritize on the public inventory hero."""
     homes = _safe_homes()
@@ -736,6 +751,26 @@ _DESC_RE = re.compile(r'<meta\s+name="description"[^>]*/?>')
 _shell_cache: tuple[float, str] | None = None
 
 
+def _without_shell_verification(shell: str) -> str:
+    """Drop verification tags and placeholder comments baked into the SPA shell.
+
+    Real tokens are added per request by _site_verification_meta_tags(). A
+    leftover TODO token in dist/index.html must not reach a crawler.
+    """
+    kept = []
+    for line in shell.splitlines(keepends=True):
+        lowered = line.lower()
+        if (
+            "google-site-verification" in lowered
+            or "msvalidate.01" in lowered
+            or "todo_google_search_console_token" in lowered
+            or "todo_bing_webmaster_token" in lowered
+        ):
+            continue
+        kept.append(line)
+    return "".join(kept)
+
+
 def _shell() -> str:
     """dist/index.html, cached on mtime so deploys pick up new bundles."""
     global _shell_cache
@@ -744,7 +779,7 @@ def _shell() -> str:
         if _shell_cache and _shell_cache[0] == mtime:
             return _shell_cache[1]
         with open(_index_html_path, encoding="utf-8") as f:
-            content = f.read()
+            content = _without_shell_verification(f.read())
         _shell_cache = (mtime, content)
         return content
     except OSError as e:
@@ -927,6 +962,40 @@ def _default_og_image() -> str | None:
     return _base() + raw if raw.startswith("/") else raw
 
 
+# HTML-tag verification is runtime configuration. Do not hardcode or invent a
+# token. GOOGLE_SITE_VERIFICATION fills google-site-verification;
+# BING_SITE_VERIFICATION fills msvalidate.01. Unset, blank, placeholder, and
+# unsafe values emit no tag.
+_SITE_VERIFICATION_METAS = (
+    ("GOOGLE_SITE_VERIFICATION", "google-site-verification"),
+    ("BING_SITE_VERIFICATION", "msvalidate.01"),
+)
+_VERIFICATION_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]{8,200}$")
+_VERIFICATION_PLACEHOLDER_RE = re.compile(
+    r"TODO|PLACEHOLDER|CHANGEME|REPLACE_ME",
+    re.IGNORECASE,
+)
+
+
+def _site_verification_token(env_name: str) -> str | None:
+    raw = (os.environ.get(env_name) or "").strip()
+    if not raw or _VERIFICATION_PLACEHOLDER_RE.search(raw):
+        return None
+    if not _VERIFICATION_TOKEN_RE.fullmatch(raw):
+        return None
+    return raw
+
+
+def _site_verification_meta_tags() -> list[str]:
+    tags = []
+    for env_name, meta_name in _SITE_VERIFICATION_METAS:
+        token = _site_verification_token(env_name)
+        if not token:
+            continue
+        tags.append(f'<meta name="{meta_name}" content="{html.escape(token, quote=True)}" />')
+    return tags
+
+
 def _head_block(
     title,
     description,
@@ -941,6 +1010,7 @@ def _head_block(
     parts = [
         f"<title>{e(title)}</title>",
         f'<meta name="description" content="{e(description)}" />',
+        *_site_verification_meta_tags(),
     ]
     if noindex:
         parts.append('<meta name="robots" content="noindex" />')
@@ -1183,7 +1253,7 @@ def _crawlable_detail_block(home: dict) -> str:
             rows.append(f"<li>{label}: {e(str(specs[key]))}</li>")
     if home.get("manufacturer"):
         rows.append(f"<li>Manufacturer: {e(str(home['manufacturer']))}</li>")
-    rows.append(f"<li>Price: {e(_listing_display_price(home))}</li>")
+    rows.append(_price_list_item(home))
     description = home.get("description") or ""
     return (
         f"<h1>{e(home.get('model_name') or 'Manufactured Home')}</h1>"
@@ -1216,8 +1286,33 @@ def _listing_image_alt(
 
 
 def _listing_display_price(home: dict) -> str:
-    price = str(home.get("display_price") or "").strip()
-    return price if price else "Call for Price"
+    """Public price label. Blank and $0 stay Call for Price.
+
+    The visible display_price field decides this. A hidden price_value is
+    never promoted into the label.
+    """
+    visible = str(home.get("display_price") or "").strip()
+    if _is_call_for_price_label(visible):
+        return "Call for Price"
+    shown = _visible_dollar_amount(visible)
+    if shown is not None and not _is_finite_positive(shown):
+        return "Call for Price"
+    compact = re.sub(r"[\s$,]", "", visible)
+    if re.fullmatch(r"0+(?:\.0+)?", compact):
+        return "Call for Price"
+    return visible
+
+
+def _price_list_item(home: dict) -> str:
+    """Crawlable price line. Unpriced homes include the showroom phone."""
+    e = html.escape
+    label = _listing_display_price(home)
+    if label == "Call for Price":
+        return (
+            "<li>Price: Call for Price. "
+            f'<a href="{e(_tel_href())}">Call {e(business_phone())}</a>.</li>'
+        )
+    return f"<li>Price: {e(label)}</li>"
 
 
 def _listing_product_jsonld(home: dict, canonical_url: str) -> dict | None:
@@ -1254,7 +1349,7 @@ def _crawlable_home_listing_block(home: dict) -> str:
             rows.append(f"<li>{label}: {e(str(specs[key]))}</li>")
     if home.get("manufacturer"):
         rows.append(f"<li>Manufacturer: {e(str(home['manufacturer']))}</li>")
-    rows.append(f"<li>Price: {e(_listing_display_price(home))}</li>")
+    rows.append(_price_list_item(home))
     images = listing_page_images(home)
     plan_urls = {
         str(home.get("floorplan_url") or "").strip(),
@@ -1267,13 +1362,16 @@ def _crawlable_home_listing_block(home: dict) -> str:
             len(images) == 1 and not any(item not in plan_urls for item in images)
         )
         alt = _listing_image_alt(home, url, index, len(images), floorplan=is_plan)
+        # Gallery files are not the LCP element. Low priority keeps them from
+        # sharing the phone's first bytes with the hero preload.
+        img = (
+            f'<img src="{e(url)}" alt="{e(alt)}" loading="lazy" '
+            'fetchpriority="low" decoding="async" width="640" height="480" />'
+        )
         if is_plan:
-            figures.append(
-                f'<figure><img src="{e(url)}" alt="{e(alt)}" />'
-                f"<figcaption>Floor plan</figcaption></figure>"
-            )
+            figures.append(f"<figure>{img}<figcaption>Floor plan</figcaption></figure>")
         else:
-            figures.append(f'<img src="{e(url)}" alt="{e(alt)}" />')
+            figures.append(img)
     description = home.get("description") or (
         f"{home.get('model_name') or 'Manufactured home'} at {business_name()} in {_CITY_STATE}."
     )
@@ -1368,7 +1466,8 @@ def _crawlable_financing_block() -> str:
         "<li>Chattel (home-only) loans</li>"
         "<li>Land-and-home / mortgage loans</li>"
         "<li>Some buyers qualify for FHA, VA, or USDA loans through approved lenders.</li>"
-        "<li>Loans through lenders that finance manufactured homes</li>"
+        "<li>Loans through lenders that finance manufactured homes. "
+        "Ask our team for current lender options.</li>"
         "</ul>"
         f'<p>Call <a href="tel:{e(business_phone())}">{e(business_phone())}</a> or '
         '<a href="/appointments">book a showroom visit</a> to discuss your options.</p>'
@@ -1679,15 +1778,31 @@ def _inventory_itemlist_jsonld(limit: int = 25, classification: str | None = Non
     }
 
 
-def _inject(shell: str, head_block: str, body_block: str | None) -> str:
+# Fixed by img#tho-lcp in the public stylesheet (CSP blocks style attributes).
+# Out of flow, so React can replace the crawlable copy without moving it.
+_LCP_IMG = (
+    '<img id="tho-lcp" class="tho-lcp" alt="" aria-hidden="true" '
+    f'src="{LCP_IMAGE_PATH}" fetchpriority="high" '
+    'width="720" height="480" />'
+)
+
+
+def _inject(
+    shell: str,
+    head_block: str,
+    body_block: str | None,
+    *,
+    paint_lcp: bool = False,
+) -> str:
     out = _TITLE_RE.sub("", shell, count=1)
     out = _DESC_RE.sub("", out, count=1)
     out = out.replace("</head>", f"    {head_block}\n  </head>", 1)
-    if body_block:
-        out = out.replace('<div id="root">', f'<div id="root">{body_block}', 1)
+    block = ((_LCP_IMG if paint_lcp else "") + (body_block or "")) or None
+    if block:
+        out = out.replace('<div id="root">', f'<div id="root">{block}', 1)
         # vite shells emit `<div id="root"></div>`; handle both spellings
-        if body_block not in out:
-            out = out.replace('<div id="root"></div>', f'<div id="root">{body_block}</div>', 1)
+        if block not in out:
+            out = out.replace('<div id="root"></div>', f'<div id="root">{block}</div>', 1)
     return out
 
 
@@ -2094,6 +2209,7 @@ def _render_spa_response(full_path: str) -> Response | None:
         )[:300]
         images = listing_page_images(home)
         image_alt = _listing_image_alt(home, images[0], 1, len(images)) if images else None
+        lcp_href = _inventory_lcp_href()
         head = _head_block(
             title,
             description,
@@ -2110,9 +2226,16 @@ def _render_spa_response(full_path: str) -> Response | None:
                 )
                 if x
             ],
+            preload_image=lcp_href,
         )
         return HTMLResponse(
-            _inject(_shell(), head, _crawlable_home_listing_block(home)), headers=no_cache
+            _inject(
+                _shell(),
+                head,
+                _crawlable_home_listing_block(home),
+                paint_lcp=lcp_href == LCP_IMAGE_PATH,
+            ),
+            headers=no_cache,
         )
 
     # 4. Live legacy detail/plan URLs: 200 + per-home head + crawlable body.
@@ -2174,6 +2297,7 @@ def _render_spa_response(full_path: str) -> Response | None:
                 f"{specs.get('baths')} bath" if specs.get("baths") else None,
                 specs.get("dimensions"),
                 home.get("manufacturer"),
+                _listing_display_price(home),
             )
             if x
         )
@@ -2181,6 +2305,7 @@ def _render_spa_response(full_path: str) -> Response | None:
             f"{home.get('model_name', 'Manufactured home')} ({desc_bits}) for sale at "
             f"{business_name()} in {_CITY_STATE}. Call {business_phone()}."
         )[:300]
+        lcp_href = _inventory_lcp_href()
         head = _head_block(
             title,
             description,
@@ -2188,9 +2313,16 @@ def _render_spa_response(full_path: str) -> Response | None:
             og_image=_first_image(home),
             jsonld=[x for x in (_product_jsonld(home, canonical_url),) if x]
             + [_breadcrumb_jsonld(home.get("model_name") or "Manufactured Home", canonical_url)],
+            preload_image=lcp_href,
         )
         return HTMLResponse(
-            _inject(_shell(), head, _crawlable_detail_block(home)), headers=no_cache
+            _inject(
+                _shell(),
+                head,
+                _crawlable_detail_block(home),
+                paint_lcp=lcp_href == LCP_IMAGE_PATH,
+            ),
+            headers=no_cache,
         )
 
     # 5. Known public static routes: 200 + route meta (+ crawlable body block).
@@ -2242,12 +2374,13 @@ def _render_spa_response(full_path: str) -> Response | None:
             jsonld.append(_locations_itemlist())
         if path == "/faq":
             jsonld.append(_faqpage_jsonld())
+        lcp_href = _inventory_lcp_href() if path in ("/", "/inventory") else None
         head = _head_block(
             title,
             description,
             base + (path if path != "/" else "/"),
             jsonld=jsonld,
-            preload_image=_inventory_hero_image() if path in ("/", "/inventory") else None,
+            preload_image=lcp_href,
         )
         if path in ("/", "/inventory"):
             body = _crawlable_inventory_block(hub=path == "/inventory")
@@ -2271,7 +2404,15 @@ def _render_spa_response(full_path: str) -> Response | None:
             body = _crawlable_legal_block(path.lstrip("/"))
         else:
             body = None
-        return HTMLResponse(_inject(_shell(), head, body), headers=no_cache)
+        return HTMLResponse(
+            _inject(
+                _shell(),
+                head,
+                body,
+                paint_lcp=path in ("/", "/inventory") and lcp_href == LCP_IMAGE_PATH,
+            ),
+            headers=no_cache,
+        )
 
     # 6. Operator/admin routes: 200, noindex.
     if any(path.startswith(p) or path == p.rstrip("/") for p in NOINDEX_PREFIXES):

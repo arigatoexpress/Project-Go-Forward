@@ -282,7 +282,17 @@ class ErrorBoundary extends React.Component {
       );
     }
 
-    return <main id="main-content">{this.props.children}</main>;
+    // The root boundary must not add a second <main>. Each page owns that
+    // landmark so the header and footer stay outside it. A per-route boundary
+    // still wraps just the page body, which is the only main on that screen.
+    if (!this.props.scope) {
+      return this.props.children;
+    }
+    return (
+      <main id="main-content" tabIndex={-1} className="focus:outline-none">
+        {this.props.children}
+      </main>
+    );
   }
 }
 

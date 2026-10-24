@@ -66,8 +66,8 @@ export const PUBLIC_DESCRIPTIONS = {
     `Learn about ${BUSINESS_NAME}, a licensed manufactured and mobile home dealership in `
     + `${BUSINESS_CITY}, ${BUSINESS_STATE} serving the Houston area.`,
   financing:
-    `Manufactured home financing options at ${BUSINESS_NAME} in ${BUSINESS_CITY}, ${BUSINESS_STATE}: `
-    + 'chattel loans, land-and-home loans, FHA/VA/USDA, and lender partners.',
+    `Chattel, land-and-home, and FHA, VA, or USDA loans at ${BUSINESS_NAME} in `
+    + `${BUSINESS_CITY}, ${BUSINESS_STATE}. Ask our team for current lender options.`,
   faq:
     `Answers about manufactured homes, financing, delivery, warranty, and buying from `
     + `${BUSINESS_NAME} in ${BUSINESS_CITY}, ${BUSINESS_STATE}.`,

@@ -30,7 +30,15 @@ import {
     readinessMetric,
     themeLabel,
 } from '../components/ad-studio/adStudioStaffCopy';
-import { readStaffDrafts, writeStaffDrafts } from '../components/ad-studio/staffDraftStorage';
+import { emptyComposerDraft, isComposerStarted, toComposerDraft } from '../components/ad-studio/composerDraft';
+import {
+    clearComposerDraft,
+    readComposerDraft,
+    readStaffDrafts,
+    readStaffSessionScope,
+    writeComposerDraft,
+    writeStaffDrafts,
+} from '../components/ad-studio/staffDraftStorage';
 import {
     describeFetchError,
     extractErrorMessage,
@@ -238,25 +246,34 @@ export default function AdStudio({ onBack, initialTab = 'create' }) {
         TABS.some(tab => tab.id === initialTab) ? initialTab : 'create',
     );
     useEffect(() => {
-        if (initialTab === 'paid-search') setActiveTab('paid-search');
+        // /ad-studio and /studio share this screen. Follow the address when
+        // staff move between Ads and Create Ad. An in-page tab click does
+        // not change initialTab, so it stays put.
+        if (initialTab === 'paid-search' || initialTab === 'create') {
+            setActiveTab(initialTab);
+        }
     }, [initialTab]);
 
-    // Create tab state
-    const [platform, setPlatform] = useState('tiktok');
-    const [theme, setTheme] = useState('home_tour');
-    const [homeName, setHomeName] = useState('');
-    const [homePrice, setHomePrice] = useState('');
-    const [homeSpecs, setHomeSpecs] = useState(null);
-    const [customHook, setCustomHook] = useState('');
-    const [language, setLanguage] = useState('en');
-    const [avatar, setAvatar] = useState('tex_classic');
-    const [customAvatarPrompt, setCustomAvatarPrompt] = useState('');
+    const [composerSeed] = useState(() => readComposerDraft() || emptyComposerDraft());
+    const [showRestoredNote, setShowRestoredNote] = useState(() => isComposerStarted(composerSeed));
+
+    // Create tab state. An in-progress ad is restored for this staff sign-in.
+    const [platform, setPlatform] = useState(composerSeed.platform);
+    const [theme, setTheme] = useState(composerSeed.theme);
+    const [homeName, setHomeName] = useState(composerSeed.homeName);
+    const [homePrice, setHomePrice] = useState(composerSeed.homePrice);
+    const [homeSpecs, setHomeSpecs] = useState(composerSeed.homeSpecs);
+    const [customHook, setCustomHook] = useState(composerSeed.customHook);
+    const [language, setLanguage] = useState(composerSeed.language);
+    const [avatar, setAvatar] = useState(composerSeed.avatar);
+    const [customAvatarPrompt, setCustomAvatarPrompt] = useState(composerSeed.customAvatarPrompt);
     const [showPreview, setShowPreview] = useState(false);
     const [generating, setGenerating] = useState(false);
-    const [script, setScript] = useState(null);
+    const [script, setScript] = useState(composerSeed.script);
     const [copied, setCopied] = useState(false);
-    const [variations, setVariations] = useState(1);
-    const [activeVariation, setActiveVariation] = useState(0);
+    const [variations, setVariations] = useState(composerSeed.variations);
+    const [activeVariation, setActiveVariation] = useState(composerSeed.activeVariation);
+    const [selectedHome, setSelectedHome] = useState(composerSeed.selectedHome);
 
     // Inventory picker
     const [inventoryHomes, setInventoryHomes] = useState([]);
@@ -264,7 +281,6 @@ export default function AdStudio({ onBack, initialTab = 'create' }) {
     const [inventoryError, setInventoryError] = useState(null);
     const [inventoryQuery, setInventoryQuery] = useState('');
     const [showInventoryPicker, setShowInventoryPicker] = useState(false);
-    const [selectedHome, setSelectedHome] = useState(null);
 
     // Real property photos & Matterport
     const [realPhotos, setRealPhotos] = useState([]);
@@ -323,6 +339,42 @@ export default function AdStudio({ onBack, initialTab = 'create' }) {
     useEffect(() => {
         writeStaffDrafts(preparedDrafts);
     }, [preparedDrafts]);
+
+    const composerDraft = useMemo(() => toComposerDraft({
+        platform,
+        theme,
+        homeName,
+        homePrice,
+        homeSpecs,
+        customHook,
+        language,
+        avatar,
+        customAvatarPrompt,
+        variations,
+        activeVariation,
+        script,
+        selectedHome,
+    }), [
+        activeVariation,
+        avatar,
+        customAvatarPrompt,
+        customHook,
+        homeName,
+        homePrice,
+        homeSpecs,
+        language,
+        platform,
+        script,
+        selectedHome,
+        theme,
+        variations,
+    ]);
+    const composerStarted = isComposerStarted(composerDraft);
+
+    useEffect(() => {
+        if (composerStarted) writeComposerDraft(composerDraft);
+        else clearComposerDraft();
+    }, [composerDraft, composerStarted]);
 
     // Analytics tab
     const [analytics, setAnalytics] = useState(null);
@@ -396,6 +448,55 @@ export default function AdStudio({ onBack, initialTab = 'create' }) {
     const visibleInventoryHomes = filteredInventoryHomes.slice(0, INVENTORY_PICKER_LIMIT);
 
     /* ─── handlers ─── */
+    const handleCancelAd = () => {
+        if (!composerStarted) return;
+        const confirmed = globalThis.confirm(
+            'Cancel this ad? The choices and script on this screen will be cleared. Nothing is posted.',
+        );
+        if (!confirmed) return;
+        setPlatform('tiktok');
+        setTheme('home_tour');
+        setHomeName('');
+        setHomePrice('');
+        setHomeSpecs(null);
+        setCustomHook('');
+        setLanguage('en');
+        setAvatar('tex_classic');
+        setCustomAvatarPrompt('');
+        setShowPreview(false);
+        setGenerating(false);
+        setScript(null);
+        setCopied(false);
+        setCopyNotice('');
+        setVariations(1);
+        setActiveVariation(0);
+        setSelectedHome(null);
+        setShowInventoryPicker(false);
+        setInventoryQuery('');
+        setRealPhotos([]);
+        setImageCategories({});
+        setActiveCategory('all');
+        setMatterportUrl(null);
+        setMatterportId(null);
+        setShowMatterport(false);
+        setSelectedPhotoIdx(0);
+        setImageMode('real');
+        setFailedPhotoUrls(new Set());
+        setImagePrompt('');
+        setGeneratedImages([]);
+        setGeneratedFlyers([]);
+        setImageError(null);
+        setFlyerError(null);
+        setDraftError(null);
+        setVoiceover(null);
+        setVoiceoverError(null);
+        setGeneratedVideo(null);
+        setGeneratedGenAIClip(null);
+        setVideoError(null);
+        setShowRestoredNote(false);
+        clearComposerDraft();
+    };
+
     const handleGenerate = async () => {
         setGenerating(true);
         setScript(null);
@@ -827,9 +928,14 @@ export default function AdStudio({ onBack, initialTab = 'create' }) {
         <div className="tho-preview-layer animate-in fade-in zoom-in duration-300">
             <div className="tho-preview-header">
                 <h3 className="tho-preview-title">Ad Content Preview</h3>
-                <button className="tho-close-preview" onClick={() => setShowPreview(false)} aria-label="Close preview">
-                    <X size={20} />
-                </button>
+                <div className="tho-preview-header-actions">
+                    <button type="button" className="tho-btn tho-btn-secondary" onClick={handleCancelAd}>
+                        Cancel
+                    </button>
+                    <button className="tho-close-preview" onClick={() => setShowPreview(false)} aria-label="Close preview">
+                        <X size={20} />
+                    </button>
+                </div>
             </div>
 
             <div className="tho-preview-body">
@@ -1368,7 +1474,10 @@ export default function AdStudio({ onBack, initialTab = 'create' }) {
                             {`This adds a reviewed ${selectedPlatform?.name || 'social'} draft to the list on this screen. Nothing is sent to a social platform.`}
                         </div>
                         {draftError && (
-                            <p className="tho-image-error" role="alert">{draftError}</p>
+                            <>
+                                <p className="tho-image-error" role="alert">{draftError}</p>
+                                <p className="tho-preview-hint">The preview stays open, so your words are still here. Press Prepare Draft one more time.</p>
+                            </>
                         )}
                         <button
                             className="tho-btn tho-btn-primary w-full flex items-center justify-center gap-2"
@@ -1542,6 +1651,23 @@ export default function AdStudio({ onBack, initialTab = 'create' }) {
                     Write a social post for TikTok, Instagram, or Facebook, then review it.
                     Nothing is posted from this screen. Public prices stay Call for Price unless the owner approved a number.
                 </p>
+                {composerStarted && (
+                    <div className="tho-cancel-row">
+                        <button type="button" className="tho-btn tho-btn-secondary" onClick={handleCancelAd}>
+                            Cancel
+                        </button>
+                        <p className="tho-preview-hint">
+                            {readStaffSessionScope()
+                                ? 'Saved on this browser for this sign-in. Cancel clears it and stays on this page. Nothing is posted.'
+                                : 'Cancel clears this ad and stays on this page. Sign in to keep it after a refresh. Nothing is posted.'}
+                        </p>
+                        {showRestoredNote && (
+                            <p className="tho-preview-hint" role="status">
+                                This ad was still here from your last visit on this browser.
+                            </p>
+                        )}
+                    </div>
+                )}
                 {/* Step 0: Avatar & Language */}
                 <div className="flex gap-4 mb-6">
                     <div className="tho-card flex-1">
@@ -1829,6 +1955,13 @@ export default function AdStudio({ onBack, initialTab = 'create' }) {
                     </div>
                 </div>
 
+                {composerStarted && (
+                    <div className="tho-cancel-row">
+                        <button type="button" className="tho-btn tho-btn-secondary" onClick={handleCancelAd}>
+                            Cancel
+                        </button>
+                    </div>
+                )}
                 {/* Generate button */}
                 <button
                     className="tho-generate-btn"

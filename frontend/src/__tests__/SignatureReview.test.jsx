@@ -53,6 +53,14 @@ describe('SignatureReview', () => {
     vi.restoreAllMocks();
   });
 
+  it('says the review button only opens a preview', () => {
+    route({});
+    render(<SignatureReview deal={DEAL} />);
+    expect(screen.getByRole('button', { name: /review & send for signature/i })).toHaveAttribute('aria-describedby', 'signature-review-help-deal-1');
+    expect(screen.getByText(/This only opens a preview/i)).toBeInTheDocument();
+    expect(screen.getByText(/Ask the owner before you send anything/i)).toBeInTheDocument();
+  });
+
   it('shows plain-English blockers and offers no send button when money lines are blank', async () => {
     route({
       'POST /api/deals/deal-1/esign/preview': () => jsonResponse({

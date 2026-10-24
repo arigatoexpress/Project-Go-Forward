@@ -201,6 +201,59 @@ def test_inventory_routes_preload_the_responsive_hero_image(monkeypatch):
     assert '<link rel="preload" as="image"' not in client.get("/contact").text
 
 
+def test_resizable_hero_preloads_the_same_origin_lcp_image(monkeypatch):
+    """Staff and catalog heroes preload one small same-origin JPEG.
+
+    The original file stays out of the head so a phone does not spend its
+    first bytes on a full-size photo. Category pages keep their own hero.
+    """
+    import seo_routes
+    from tools.lcp_image import LCP_IMAGE_PATH
+
+    staff = "/api/inventory/photos/43372/lot.jpg"
+    home = {
+        **FAKE_HOMES[0],
+        "classification": "Single Wide",
+        "hero_image": staff,
+    }
+    client, _ = seo_client(monkeypatch)
+    monkeypatch.setattr(seo_routes, "_get_homes", lambda: [home, FAKE_HOMES[2]])
+
+    for path in ("/", "/inventory"):
+        body = client.get(path).text
+        assert f'href="{LCP_IMAGE_PATH}"' in body
+        assert 'id="tho-lcp"' in body
+        assert 'class="tho-lcp"' in body
+        assert "style=" not in body.split('id="tho-lcp"', 1)[1].split(">", 1)[0]
+        assert staff not in body
+        assert "imagesrcset=" not in body
+        assert "?w=" not in body
+
+    contact = client.get("/contact").text
+    assert "tho-lcp" not in contact
+    assert '<link rel="preload" as="image"' not in contact
+
+    category = client.get("/single-wide").text
+    assert "tho-lcp" not in category
+    assert LCP_IMAGE_PATH not in category
+
+    listing = client.get("/homes/44490-pre-owned-big-blue").text
+    assert 'id="tho-lcp"' in listing
+    assert f'href="{LCP_IMAGE_PATH}"' in listing
+    assert 'loading="lazy"' in listing
+    assert 'fetchpriority="low"' in listing
+    assert "https://img.example.com/lot-44490.jpg" in listing
+
+    cdn = "https://d132mt2yijm03y.cloudfront.net/dealer/3522/inventory/43372/home-ext-1.jpg"
+    cdn_home = {**FAKE_HOMES[0], "hero_image": cdn}
+    monkeypatch.setattr(seo_routes, "_get_homes", lambda: [cdn_home])
+    monkeypatch.setattr(seo_routes, "_registry_cache", None)
+    cdn_page = client.get("/inventory").text
+    assert f'href="{LCP_IMAGE_PATH}"' in cdn_page
+    assert 'id="tho-lcp"' in cdn_page
+    assert f'href="{cdn}"' not in cdn_page
+
+
 def test_inventory_hero_preload_prefers_an_available_home(monkeypatch):
     import seo_routes
 
@@ -1277,30 +1330,28 @@ def test_inventory_page_emits_itemlist_jsonld(monkeypatch):
     assert all("offers" not in i and "price" not in i for i in items)
 
 
-def test_legal_routes_render_shared_copy_on_each_host(monkeypatch):
+def test_legal_routes_render_shared_copy_on_canonical_host(monkeypatch):
     import html
 
     import seo_routes
 
     client, _ = seo_client(monkeypatch)
-    for host in ("www.texashomeoutlet.com", "texashomeoutlet.com", "tho.sapphirealpha.xyz"):
-        for page, content in seo_routes.LEGAL_PAGES.items():
-            path = f"/{page}"
-            response = client.get(path, headers={"Host": host}, follow_redirects=False)
-            assert response.status_code == 200
-            body = response.text
-            assert f"<title>{content['title']} | Texas Home Outlet</title>" in body
-            assert (
-                f'<meta name="description" content="{html.escape(content["description"])}"' in body
-            )
-            assert f'href="https://www.texashomeoutlet.com{path}"' in body
-            assert 'name="robots" content="noindex"' not in body
-            assert f"<h1>{content['title']}</h1>" in body
-            assert "Effective date: October 7, 2026." in body
-            assert "[EFFECTIVE DATE]" not in body
-            for heading, text in content["sections"]:
-                assert html.escape(heading) in body
-                assert html.escape(text) in body
+    host = {"Host": "www.texashomeoutlet.com"}
+    for page, content in seo_routes.LEGAL_PAGES.items():
+        path = f"/{page}"
+        response = client.get(path, headers=host, follow_redirects=False)
+        assert response.status_code == 200
+        body = response.text
+        assert f"<title>{content['title']} | Texas Home Outlet</title>" in body
+        assert f'<meta name="description" content="{html.escape(content["description"])}"' in body
+        assert f'href="https://www.texashomeoutlet.com{path}"' in body
+        assert 'name="robots" content="noindex"' not in body
+        assert f"<h1>{content['title']}</h1>" in body
+        assert "Effective date: October 7, 2026." in body
+        assert "[EFFECTIVE DATE]" not in body
+        for heading, text in content["sections"]:
+            assert html.escape(heading) in body
+            assert html.escape(text) in body
 
 
 def test_legal_routes_canonicalize_and_appear_in_sitemap(monkeypatch):
@@ -1872,3 +1923,145 @@ def test_service_area_cities_match_config():
     block = re.search(r"export const SERVICE_AREA_CITIES = \[(.*?)\];", text, re.DOTALL)
     cities = re.findall(r'"([^"]+)"', block.group(1))
     assert cities == list(get_business()["area_served"])
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["/", "/inventory", "/financing", "/faq", "/warranty", "/delivery", "/contact"],
+)
+def test_named_public_pages_have_canonical_social_and_verification_slots(monkeypatch, path):
+    monkeypatch.delenv("GOOGLE_SITE_VERIFICATION", raising=False)
+    monkeypatch.delenv("BING_SITE_VERIFICATION", raising=False)
+    client, _ = seo_client(monkeypatch)
+    sitemap = client.get("/sitemap.xml").text
+    assert f"https://www.texashomeoutlet.com{path}</loc>" in sitemap
+    body = client.get(path).text
+    assert f'<link rel="canonical" href="https://www.texashomeoutlet.com{path}"' in body
+    assert 'property="og:title"' in body
+    assert 'property="og:description"' in body
+    assert 'property="og:image"' in body
+    assert 'name="twitter:card" content="summary_large_image"' in body
+    assert 'name="twitter:title"' in body
+    assert 'name="twitter:description"' in body
+    assert "google-site-verification" not in body
+    assert "msvalidate.01" not in body
+    assert "TODO_GOOGLE_SEARCH_CONSOLE_TOKEN" not in body
+    assert "TODO_BING_WEBMASTER_TOKEN" not in body
+    assert "TODO(owner)" not in body
+    assert "abc123" not in body
+    if path == "/financing":
+        assert "Ask our team for current lender options." in body
+        assert "lender partners" not in body.lower()
+
+
+def test_site_verification_meta_absent_until_real_tokens_are_set(monkeypatch):
+    monkeypatch.delenv("GOOGLE_SITE_VERIFICATION", raising=False)
+    monkeypatch.setenv("BING_SITE_VERIFICATION", "TODO_BING_WEBMASTER_TOKEN")
+    client, _ = seo_client(monkeypatch)
+    body = client.get("/").text
+    assert "google-site-verification" not in body
+    assert "msvalidate.01" not in body
+    assert "TODO" not in body
+
+    monkeypatch.setenv("GOOGLE_SITE_VERIFICATION", '"><script>')
+    monkeypatch.setenv("BING_SITE_VERIFICATION", "short")
+    client, _ = seo_client(monkeypatch)
+    rejected = client.get("/contact").text
+    assert "google-site-verification" not in rejected
+    assert "msvalidate.01" not in rejected
+    assert '"><script>' not in rejected
+
+
+def test_site_verification_meta_present_when_tokens_are_configured(monkeypatch):
+    monkeypatch.setenv("GOOGLE_SITE_VERIFICATION", "googleToken1234abcd")
+    monkeypatch.setenv("BING_SITE_VERIFICATION", "bingToken1234abcd")
+    client, _ = seo_client(monkeypatch)
+    body = client.get("/financing").text
+    assert 'name="google-site-verification" content="googleToken1234abcd"' in body
+    assert 'name="msvalidate.01" content="bingToken1234abcd"' in body
+    assert "TODO_GOOGLE_SEARCH_CONSOLE_TOKEN" not in body
+    assert "TODO_BING_WEBMASTER_TOKEN" not in body
+
+
+def test_placeholder_verification_tags_in_the_shell_are_stripped(monkeypatch, tmp_path):
+    import seo_routes
+
+    shell = tmp_path / "index.html"
+    shell.write_text(
+        "<!doctype html><html><head>\n"
+        "<!-- TODO(owner): replace TODO_GOOGLE_SEARCH_CONSOLE_TOKEN -->\n"
+        '<meta name="google-site-verification" content="TODO_GOOGLE_SEARCH_CONSOLE_TOKEN" />\n'
+        '<meta name="msvalidate.01" content="TODO_BING_WEBMASTER_TOKEN" />\n'
+        '<title>Old</title></head><body><div id="root"></div></body></html>\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(seo_routes, "_index_html_path", str(shell))
+    monkeypatch.setattr(seo_routes, "_shell_cache", None)
+    monkeypatch.delenv("GOOGLE_SITE_VERIFICATION", raising=False)
+    monkeypatch.delenv("BING_SITE_VERIFICATION", raising=False)
+    client, _ = seo_client(monkeypatch)
+    body = client.get("/warranty").text
+    assert "google-site-verification" not in body
+    assert "msvalidate.01" not in body
+    assert "TODO" not in body
+
+
+def test_apex_host_301s_to_www_and_other_methods_stay(monkeypatch):
+    client, _ = seo_client(monkeypatch)
+    response = client.get(
+        "/contact?from=ad",
+        headers={"host": "texashomeoutlet.com"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 301
+    assert response.headers["location"] == "https://www.texashomeoutlet.com/contact?from=ad"
+
+    robots = client.get(
+        "/robots.txt",
+        headers={"host": "texashomeoutlet.com"},
+        follow_redirects=False,
+    )
+    assert robots.status_code == 301
+    assert robots.headers["location"] == "https://www.texashomeoutlet.com/robots.txt"
+
+    sitemap = client.get(
+        "/sitemap.xml",
+        headers={"host": "texashomeoutlet.com"},
+        follow_redirects=False,
+    )
+    assert sitemap.status_code == 301
+    assert sitemap.headers["location"] == "https://www.texashomeoutlet.com/sitemap.xml"
+
+    www = client.get(
+        "/contact",
+        headers={"host": "www.texashomeoutlet.com"},
+        follow_redirects=False,
+    )
+    assert www.status_code == 200
+    assert "location" not in www.headers
+
+    posted = client.post(
+        "/api/contact",
+        headers={"host": "texashomeoutlet.com"},
+        json={},
+        follow_redirects=False,
+    )
+    assert posted.status_code not in {301, 302, 307, 308}
+
+
+@pytest.mark.parametrize("display_price", ["", "$0", "0", "$0.00", "Call for price"])
+def test_blank_or_zero_display_price_is_call_for_price(monkeypatch, display_price):
+    import seo_routes
+
+    home = {**FAKE_HOMES[0], "display_price": display_price, "price_value": 129900}
+    client, _ = seo_client(monkeypatch)
+    monkeypatch.setattr(seo_routes, "_get_homes", lambda: [home])
+    monkeypatch.setattr(seo_routes, "_registry_cache", None)
+    monkeypatch.setattr(seo_routes, "_registry_built_at", 0.0)
+
+    body = client.get("/inventory-detail/43372/texas-home-outlet/huffman/premier/").text
+    assert "Price: $0" not in body
+    assert "$129,900" not in body
+    assert "Call for Price" in body
+    assert 'href="tel:+12813243020">Call (281) 324-3020</a>' in body
+    assert '"offers"' not in body

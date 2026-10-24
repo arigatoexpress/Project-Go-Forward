@@ -1,4 +1,7 @@
-"""Old staff URLs land on one sign-in page. Public pages stay put."""
+"""Old staff URLs land on one sign-in page.
+
+The bare apex 301s to www. Public pages do not go to the staff door.
+"""
 
 from __future__ import annotations
 
@@ -31,20 +34,26 @@ def test_old_staff_entries_redirect_and_public_pages_do_not(monkeypatch):
     assert location("/staff/", "texashomeoutlet.com") == (308, DOOR)
     assert location("/admin", "texashomeoutlet.com") == (308, DOOR)
     assert location("/login", "www.texashomeoutlet.com") == (308, DOOR)
-    assert location("/admin/login", "tho.sapphirealpha.xyz") == (308, DOOR)
-    assert location("/staff", "tho.sapphirealpha.xyz", "HEAD") == (308, DOOR)
+    assert location("/admin/login", "tho.sapphirealpha.xyz") == (
+        301,
+        "https://www.texashomeoutlet.com/admin/login",
+    )
+    assert location("/staff", "tho.sapphirealpha.xyz", "HEAD") == (
+        301,
+        "https://www.texashomeoutlet.com/staff",
+    )
 
     status, target = location("/staff", "www.texashomeoutlet.com")
     assert status == 200
     assert target is None
 
     status, target = location("/inventory", "texashomeoutlet.com")
-    assert status != 308
-    assert target != DOOR
+    assert status == 301
+    assert target == "https://www.texashomeoutlet.com/inventory"
 
     status, target = location("/contact", "tho.sapphirealpha.xyz")
-    assert status != 308
-    assert target != DOOR
+    assert status == 301
+    assert target == "https://www.texashomeoutlet.com/contact"
 
     status, target = location("/staff", "candidate---project-go-forward-example.a.run.app")
     assert status == 200

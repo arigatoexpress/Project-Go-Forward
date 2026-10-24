@@ -1217,6 +1217,88 @@ def test_my_credentials_list_rename_and_refuse_someone_elses_key(passkey_client)
     assert store.get(b"credential-2") is None
 
 
+def test_own_passkey_routes_require_an_authenticated_staff_session(passkey_client):
+    client, _routes = passkey_client
+    _manager, store = _fixture_dependencies(client, _routes)
+
+    listed = client.get("/api/admin/passkey/credentials/mine")
+    deleted = client.delete(
+        "/api/admin/passkey/credentials/mine/Y3JlZGVudGlhbC0y",
+        headers=_csrf_headers(client),
+    )
+    renamed = client.patch(
+        "/api/admin/passkey/credentials/mine/Y3JlZGVudGlhbC0y",
+        json={"label": "Not yours"},
+        headers=_csrf_headers(client),
+    )
+
+    assert listed.status_code == 401
+    assert deleted.status_code == 401
+    assert renamed.status_code == 401
+    assert store.get(b"credential-2") is not None
+    assert store.get(b"credential-2").label != "Not yours"
+
+
+def test_shared_pin_cannot_list_or_delete_another_persons_keys(passkey_client, monkeypatch):
+    client, routes = passkey_client
+    _manager, store = _fixture_dependencies(client, routes)
+    monkeypatch.setattr(routes, "_request_is_admin", lambda request, manager: True)
+
+    listed = client.get("/api/admin/passkey/credentials/mine")
+    deleted = client.delete(
+        "/api/admin/passkey/credentials/mine/Y3JlZGVudGlhbC0y",
+        headers=_csrf_headers(client),
+    )
+
+    assert listed.status_code == 400
+    assert "email link" in listed.json()["detail"]
+    assert "credentials" not in listed.json()
+    assert deleted.status_code == 400
+    assert store.get(b"credential-2") is not None
+    assert store.get(b"credential-1") is not None
+
+
+def test_deleting_the_last_staff_key_leaves_email_sign_in(passkey_client, monkeypatch):
+    client, routes = passkey_client
+    _manager, store = _fixture_dependencies(client, routes)
+    secret = "email-session-secret"
+    pin_hash = "email-pin-hash"
+    monkeypatch.setenv("ADMIN_SESSION_SECRET", secret)
+    monkeypatch.setenv("ADMIN_PIN_HASH", pin_hash)
+    client.cookies.set(
+        "tho_admin_token",
+        _email_admin_token("mark@texashomeoutlet.com", secret=secret, pin_hash=pin_hash),
+    )
+
+    removed = client.delete(
+        "/api/admin/passkey/credentials/mine/Y3JlZGVudGlhbC0y",
+        headers=_csrf_headers(client),
+    )
+
+    assert removed.status_code == 200, removed.text
+    assert store.get(b"credential-2") is None
+    assert store.get(b"credential-1") is not None
+
+    whoami = client.get("/api/admin/passkey/whoami")
+    assert whoami.status_code == 200
+    profile = whoami.json()
+    assert profile["email"] == "mark@texashomeoutlet.com"
+    assert profile["auth_method"] == "email"
+    assert profile["authed"] is True
+
+    replacement = client.post(
+        "/api/admin/passkey/register/begin",
+        json={},
+        headers=_csrf_headers(client),
+    )
+    assert replacement.status_code == 200, replacement.text
+    assert replacement.json()["user"]["name"] == "mark@texashomeoutlet.com"
+
+    listed = client.get("/api/admin/passkey/credentials/mine")
+    assert listed.status_code == 200
+    assert listed.json()["credentials"] == []
+
+
 def test_owner_cannot_delete_the_last_recovery_key_from_their_own_list(
     passkey_client,
 ):

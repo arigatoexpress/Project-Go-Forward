@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { Home, Bed, Bath, Maximize, Plus, Check, ChevronLeft, ChevronRight, X, Images } from 'lucide-react';
+import { Home, Bed, Bath, Maximize, Plus, Check, ChevronLeft, ChevronRight, X, Images, Box } from 'lucide-react';
 import { generateSrcSet, getImageSizes } from '../utils/imageOptimization';
-import { listingImageAlt, rewriteMediaUrl, usedHomeMayShowPhoto } from '../utils/listingRoutes';
+import PublicPrice from './PublicPrice';
+import { listingFloorplanImages, listingImageAlt, rewriteMediaUrl, usedHomeMayShowPhoto } from '../utils/listingRoutes';
 
 function GalleryModal({
     allImages,
@@ -44,15 +45,16 @@ function GalleryModal({
                     </button>
                 )}
 
-                <img
+                <HideablePhoto
                     src={allImages[currentImageIndex]}
-                    srcSet={generateSrcSet(allImages[currentImageIndex])}
-                    sizes={getImageSizes('modal')}
                     alt={`${modelName} - Photo ${currentImageIndex + 1} of ${allImages.length}`}
                     className="max-w-full max-h-[85vh] object-contain rounded-lg"
-                    loading="lazy"
-                    decoding="async"
-                    onError={(e) => { e.target.classList.add('hidden'); }}
+                    imgProps={{
+                        sizes: getImageSizes('modal'),
+                        loading: 'lazy',
+                        decoding: 'async',
+                    }}
+                    fallback={<p className="text-white/80 text-sm">Photo unavailable</p>}
                 />
 
                 {hasMultipleImages && (
@@ -76,15 +78,15 @@ function GalleryModal({
                                 aria-label={`View photo ${idx + 1} of ${allImages.length}`}
                                 aria-current={idx === currentImageIndex ? 'true' : undefined}
                             >
-                                <img
+                                <HideablePhoto
                                     src={img}
-                                    srcSet={generateSrcSet(img)}
-                                    sizes={getImageSizes('modal-thumbnail')}
                                     alt=""
                                     className="w-full h-full object-cover"
-                                    loading="lazy"
-                                    decoding="async"
-                                    onError={(e) => { e.target.classList.add('hidden'); }}
+                                    imgProps={{
+                                        sizes: getImageSizes('modal-thumbnail'),
+                                        loading: 'lazy',
+                                        decoding: 'async',
+                                    }}
                                 />
                             </button>
                         ))}
@@ -96,6 +98,26 @@ function GalleryModal({
                 </div>
             </div>
         </div>
+    );
+}
+
+function HideablePhoto({ src, alt, className, imgProps = {}, fallback = null }) {
+    const [failed, setFailed] = useState(false);
+    const [seen, setSeen] = useState(src);
+    if (src !== seen) {
+        setSeen(src);
+        setFailed(false);
+    }
+    if (!src || failed) return fallback;
+    return (
+        <img
+            src={src}
+            alt={alt}
+            className={className}
+            onError={() => setFailed(true)}
+            {...imgProps}
+            srcSet={generateSrcSet(src)}
+        />
     );
 }
 
@@ -159,8 +181,6 @@ const PropertyCard = ({ property, onToggleCompare, isSelected }) => {
         is_orderable = false,
     } = property;
 
-    const [imageError, setImageError] = useState(false);
-    const [currentImageIndex, setCurrentImageIndex] = useState(0);
     const [showGallery, setShowGallery] = useState(false);
 
     // Hero-first ordering for the card image.
@@ -188,27 +208,55 @@ const PropertyCard = ({ property, onToggleCompare, isSelected }) => {
             && !isFloorplanImage(img, floorplanUrls)
             && usedHomeMayShowPhoto(img, property)
         ));
-    const hasFloorplanOnly = !allImages.length && (
+    const galleryKey = allImages.join('\n');
+    const [attempt, setAttempt] = useState({ galleryKey, index: 0, failed: false });
+    if (attempt.galleryKey !== galleryKey) {
+        setAttempt({ galleryKey, index: 0, failed: false });
+    }
+    const currentImageIndex = attempt.galleryKey === galleryKey ? attempt.index : 0;
+    const imageError = attempt.galleryKey === galleryKey ? attempt.failed : false;
+    const photosExhausted = allImages.length === 0 || imageError;
+    const floorplanImages = listingFloorplanImages(property);
+    const floorplanKey = floorplanImages.join('\n');
+    const [planAttempt, setPlanAttempt] = useState({ floorplanKey, index: 0, failed: false });
+    if (planAttempt.floorplanKey !== floorplanKey) {
+        setPlanAttempt({ floorplanKey, index: 0, failed: false });
+    }
+    const planIndex = planAttempt.floorplanKey === floorplanKey ? planAttempt.index : 0;
+    const planFailed = planAttempt.floorplanKey === floorplanKey ? planAttempt.failed : false;
+    const showFloorplan = photosExhausted && floorplanImages.length > 0 && !planFailed;
+    const floorplanSrc = showFloorplan ? floorplanImages[planIndex] : '';
+    const hasFloorplanOnly = photosExhausted && !showFloorplan && (
         media_quality?.status === 'floorplan_only' || floorplanUrls.length > 0
     );
 
     // Order-only / build-to-order homes never carry stock photography — these
     // models are built to order, so the absence of a photo is by design, not a
-    // broken listing. When such a home has no real photo we render a BRANDED
-    // placeholder + badge so it reads as intentional (optics fix), instead of a
-    // bare "no image" state or a broken <img>.
-    const isOrderOnlyNoPhotos = !allImages.length && is_orderable === true;
+    // broken listing. When such a home has no working photo AND no floor plan
+    // we render a BRANDED placeholder + badge so it reads as intentional,
+    // instead of a bare "no image" state or a broken <img>.
+    const isOrderOnlyNoPhotos = photosExhausted && !showFloorplan && is_orderable === true;
+    const tourId = String(property.matterport_id || '').trim();
+    const tourUrl = /^[A-Za-z0-9]+$/.test(tourId)
+        ? `https://my.matterport.com/show/?m=${tourId}&play=1`
+        : '';
 
     const hasMultipleImages = allImages.length > 1;
 
     const nextImage = (e) => {
         e?.stopPropagation();
-        setCurrentImageIndex((prev) => (prev + 1) % allImages.length);
+        if (!allImages.length) return;
+        setAttempt({ galleryKey, index: (currentImageIndex + 1) % allImages.length, failed: false });
     };
 
     const prevImage = (e) => {
         e?.stopPropagation();
-        setCurrentImageIndex((prev) => (prev - 1 + allImages.length) % allImages.length);
+        if (!allImages.length) return;
+        setAttempt({
+            galleryKey,
+            index: (currentImageIndex - 1 + allImages.length) % allImages.length,
+            failed: false,
+        });
     };
 
     return (
@@ -235,7 +283,13 @@ const PropertyCard = ({ property, onToggleCompare, isSelected }) => {
                                 loading="lazy"
                                 decoding="async"
                                 className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
-                                onError={() => setImageError(true)}
+                                onError={() => {
+                                    if (currentImageIndex + 1 < allImages.length) {
+                                        setAttempt({ galleryKey, index: currentImageIndex + 1, failed: false });
+                                    } else {
+                                        setAttempt({ galleryKey, index: currentImageIndex, failed: true });
+                                    }
+                                }}
                             />
 
                             {/* Hover overlay */}
@@ -272,7 +326,7 @@ const PropertyCard = ({ property, onToggleCompare, isSelected }) => {
                                     {allImages.slice(0, 5).map((_, idx) => (
                                         <button
                                             key={idx}
-                                            onClick={(e) => { e.stopPropagation(); setCurrentImageIndex(idx); }}
+                                            onClick={(e) => { e.stopPropagation(); setAttempt({ galleryKey, index: idx, failed: false }); }}
                                             className={`w-2 h-2 rounded-full transition-all ${idx === currentImageIndex ? 'bg-white w-4' : 'bg-white/60 hover:bg-white/80'
                                                 }`}
                                             aria-label={`Photo ${idx + 1} of ${allImages.length}`}
@@ -285,6 +339,23 @@ const PropertyCard = ({ property, onToggleCompare, isSelected }) => {
                                 </div>
                             )}
                         </>
+                    ) : showFloorplan ? (
+                        <img
+                            src={floorplanSrc}
+                            srcSet={generateSrcSet(floorplanSrc)}
+                            sizes={getImageSizes('card-hero')}
+                            alt={listingImageAlt({ model_name }, floorplanSrc, 1, 1, { floorplan: true })}
+                            loading="lazy"
+                            decoding="async"
+                            className="w-full h-full object-contain bg-white"
+                            onError={() => {
+                                if (planIndex + 1 < floorplanImages.length) {
+                                    setPlanAttempt({ floorplanKey, index: planIndex + 1, failed: false });
+                                } else {
+                                    setPlanAttempt({ floorplanKey, index: planIndex, failed: true });
+                                }
+                            }}
+                        />
                     ) : isOrderOnlyNoPhotos ? (
                         /* Branded build-to-order placeholder. role="img" + alt-style
                            label keeps it accessible without rendering a broken <img>. */
@@ -302,6 +373,7 @@ const PropertyCard = ({ property, onToggleCompare, isSelected }) => {
                     ) : (
                         <div className="flex flex-col items-center gap-2 text-gray-400">
                             <Home size={48} className="text-gray-300" aria-hidden="true" />
+                            <span className="text-sm font-medium text-gray-500">Photos coming soon</span>
                             {hasFloorplanOnly && (
                                 <span className="text-xs font-medium">Floorplan available</span>
                             )}
@@ -334,7 +406,7 @@ const PropertyCard = ({ property, onToggleCompare, isSelected }) => {
                         </div>
                         <div className="text-right flex-shrink-0">
                             <div className="font-bold text-blue-600 text-base whitespace-nowrap">
-                                {pricing?.display_price || 'Call for Price'}
+                                <PublicPrice home={{ ...property, display_price: pricing?.display_price }} />
                             </div>
                         </div>
                     </div>
@@ -388,6 +460,21 @@ const PropertyCard = ({ property, onToggleCompare, isSelected }) => {
                         );
                     })()}
 
+                    {showFloorplan && (
+                        <p className="mt-3 text-xs font-semibold text-gray-500">Floor plan</p>
+                    )}
+
+                    {tourUrl && (
+                        <a
+                            href={tourUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="mt-3 flex items-center justify-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 py-2 text-sm font-medium text-blue-700 no-underline hover:bg-blue-100"
+                        >
+                            <Box size={14} aria-hidden="true" /> Watch 3D tour
+                        </a>
+                    )}
+
                     {/* Action Buttons */}
                     <div className="mt-3 flex gap-2">
                         <button
@@ -430,7 +517,7 @@ const PropertyCard = ({ property, onToggleCompare, isSelected }) => {
                     onClose={() => setShowGallery(false)}
                     onNext={nextImage}
                     onPrev={prevImage}
-                    onSelectImage={setCurrentImageIndex}
+                    onSelectImage={(idx) => setAttempt({ galleryKey, index: idx, failed: false })}
                 />
             )}
         </>

@@ -125,7 +125,7 @@ describe('InventoryBrowse HomeCard — order-only / build-to-order homes', () =>
     expect(container.innerHTML).not.toContain('99999');
   });
 
-  it('shows the photo placeholder and floorplan when a used home has only disallowed photos', () => {
+  it('shows that used home’s floor plan when it has only disallowed photos', () => {
     const { container } = renderCard({
       ...baseHome,
       id: '28527',
@@ -143,12 +143,96 @@ describe('InventoryBrowse HomeCard — order-only / build-to-order homes', () =>
       media_quality: { status: 'floorplan_only' },
     });
 
-    expect(container.querySelector('img')).toBeNull();
-    expect(screen.getByText(/photos coming soon/i)).toBeInTheDocument();
-    expect(screen.getByText(/floorplan available/i)).toBeInTheDocument();
+    const img = container.querySelector('img');
+    expect(img).not.toBeNull();
+    expect(img.getAttribute('src')).toBe('https://lot.example/plan.jpg');
+    expect(img.className).toContain('object-contain');
+    expect(screen.getByText('Floor plan')).toBeInTheDocument();
+    expect(screen.queryByText(/photos coming soon/i)).toBeNull();
     expect(container.innerHTML).not.toContain('unsplash');
     expect(container.innerHTML).not.toContain('99999');
     expect(container.innerHTML).not.toContain('showroom.jpg');
+  });
+
+  it('shows the floor-plan drawing when an orderable home has no photo', () => {
+    const plan = 'https://cdn.example/2306P.png';
+    const { container } = renderCard({
+      ...baseHome,
+      model_name: 'Compass / Ocampo 2306P',
+      is_orderable: true,
+      image_url: '',
+      real_photos: [],
+      gallery_images: [],
+      floorplan_url: plan,
+    });
+
+    const img = container.querySelector('img');
+    expect(img).not.toBeNull();
+    expect(img.getAttribute('src')).toBe(plan);
+    expect(img.className).toContain('object-contain');
+    expect(screen.getByText('Floor plan')).toBeInTheDocument();
+    expect(screen.queryByText(/build-to-order/i)).toBeNull();
+  });
+
+  it('uses the floor plan after a manufacturer photo fails to load', () => {
+    const dead = 'https://cdn.example/absolute-value-1.jpg';
+    const plan = 'https://cdn.example/floor-plans-small.jpg';
+    const { container } = renderCard({
+      ...baseHome,
+      model_name: 'Solution / The Absolute Value SLC28764A',
+      is_orderable: true,
+      image_url: dead,
+      real_photos: [dead],
+      gallery_images: [],
+      floorplan_url: plan,
+    });
+
+    fireEvent.error(container.querySelector('img'));
+
+    const img = container.querySelector('img');
+    expect(img).not.toBeNull();
+    expect(img.getAttribute('src')).toBe(plan);
+    expect(screen.getByText('Floor plan')).toBeInTheDocument();
+  });
+
+  it('removes a floor plan that fails to load instead of leaving a broken image', () => {
+    const plan = 'https://cdn.example/broken-plan.jpg';
+    const { container } = renderCard({
+      ...baseHome,
+      is_orderable: true,
+      image_url: '',
+      real_photos: [],
+      gallery_images: [],
+      floorplan_url: plan,
+    });
+
+    fireEvent.error(container.querySelector('img'));
+
+    expect(container.querySelector('img')).toBeNull();
+    expect(screen.getByRole('img', { name: /build-to-order|built to order/i })).toBeInTheDocument();
+  });
+
+  it('puts a Watch 3D tour button on the card when the home has a tour', () => {
+    const onWatchTour = vi.fn();
+    renderCard({
+      ...baseHome,
+      matterport_id: 'SvVRKXdXUQq',
+      image_url: 'https://cdn.example.com/homes/nassau/exterior-front.jpg',
+      real_photos: ['https://cdn.example.com/homes/nassau/exterior-front.jpg'],
+    }, { onWatchTour });
+
+    fireEvent.click(screen.getByRole('button', { name: /watch 3d tour/i }));
+    expect(onWatchTour).toHaveBeenCalledTimes(1);
+  });
+
+  it('hides the tour button when the home has no Matterport id', () => {
+    renderCard({
+      ...baseHome,
+      image_url: 'https://cdn.example.com/homes/nassau/exterior-front.jpg',
+      real_photos: ['https://cdn.example.com/homes/nassau/exterior-front.jpg'],
+    });
+    expect(screen.queryByRole('button', { name: /watch 3d tour/i })).toBeNull();
+    expect(screen.queryByRole('link', { name: /watch 3d tour/i })).toBeNull();
   });
 
   it('opens the first-party quote form instead of navigating to a legacy quote URL', () => {

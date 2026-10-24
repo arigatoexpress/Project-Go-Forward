@@ -9,6 +9,18 @@ a one-byte GET only when HEAD is rejected) is opt-in via
 probe requires an explicit opt-in flag. Rejection probes expect validation
 or authentication to block writes; a server regression could allow side effects.
 
+Transient gateway responses
+---------------------------
+A single non-JSON body is not treated as a final verdict. Google's frontend
+occasionally replaces one response with its stock HTML 502 (the body starts
+with a newline, so ``json.loads`` reports line 2 column 1) while the app
+itself is still returning JSON for that path. Transport errors and HTTP 5xx
+are retried with a short backoff. A connection reset or truncated body during
+``response.read()`` counts as a transport error. A 5xx whose body is JSON but
+not an object (for example ``[]``) is still a server error and is retried;
+only a non-object body with a non-5xx status fails immediately. A path that
+is still non-JSON or 5xx after those attempts fails the run.
+
 Smoke-deal id convention
 ------------------------
 The opt-in ``--check-empty-doc-rejection`` flag exercises a single live
@@ -29,6 +41,7 @@ this script (or a related smoke harness) and is safe to delete.
 from __future__ import annotations
 
 import argparse
+import http.client
 import json
 import re
 import sys
@@ -119,6 +132,40 @@ SMOKE_RUN_MESSAGE = "Hello, are any homes available?"
 # path are alive without authenticating.
 SMOKE_WRONG_PIN = "0000-smoke-not-a-real-pin"
 
+# One immediate try plus two retries. The pauses stay short so a path that is
+# actually down still fails the deploy step, while a one-off gateway page can
+# clear. Index 0 is the pause after the first failure.
+TRANSIENT_ATTEMPTS = 3
+TRANSIENT_BACKOFF_SECONDS = (0.5, 1.5)
+_BODY_PREFIX_BYTES = 120
+
+
+def _pause(seconds: float) -> None:
+    time.sleep(seconds)
+
+
+def _body_prefix(body: bytes) -> str:
+    """Repr of the first response bytes, safe to print in a CI log."""
+    return repr(body[:_BODY_PREFIX_BYTES])
+
+
+def _response_detail(path: str, status: int | None, content_type: str, body: bytes) -> str:
+    return (
+        f"{path} status={status} content_type={content_type!r} " f"body_prefix={_body_prefix(body)}"
+    )
+
+
+def _log_transient(attempt: int, detail: str) -> None:
+    print(
+        f"smoke transient attempt {attempt}/{TRANSIENT_ATTEMPTS}: {detail}",
+        file=sys.stderr,
+    )
+
+
+def _backoff_after(attempt: int) -> float:
+    index = min(attempt - 1, len(TRANSIENT_BACKOFF_SECONDS) - 1)
+    return TRANSIENT_BACKOFF_SECONDS[index]
+
 
 @dataclass(frozen=True)
 class Probe:
@@ -129,25 +176,96 @@ class Probe:
     elapsed_ms: int
 
 
-def _read_url(base_url: str, path: str, *, timeout: float) -> tuple[int, bytes, str, int]:
+def _get_request(base_url: str, path: str) -> Request:
     url = urljoin(base_url.rstrip("/") + "/", path.lstrip("/"))
+    return Request(url, headers={"User-Agent": "tho-production-smoke/1.0"})
+
+
+def _content_type_of(headers: Any) -> str:
+    if headers is None:
+        return ""
+    return headers.get("content-type", "") or ""
+
+
+def _open_once(request: Request, path: str, timeout: float) -> tuple[int, bytes, str, int]:
+    """One HTTP round trip. Timeouts and network errors become RuntimeError.
+
+    ``urlopen`` can succeed and then raise ``ConnectionResetError`` or
+    ``http.client.IncompleteRead`` while the body is read. Those are the same
+    class of transient transport fault as ``URLError`` and are retried.
+    """
     started = time.perf_counter()
-    request = Request(url, headers={"User-Agent": "tho-production-smoke/1.0"})
     try:
-        with urlopen(request, timeout=timeout) as response:  # nosec B310 - operator-provided HTTPS URL.
-            body = response.read(8 * 1024 * 1024)
-            elapsed_ms = int((time.perf_counter() - started) * 1000)
-            return response.status, body, response.headers.get("content-type", ""), elapsed_ms
-    except HTTPError as exc:
-        body = exc.read(1024 * 1024)
-        elapsed_ms = int((time.perf_counter() - started) * 1000)
-        return exc.code, body, exc.headers.get("content-type", ""), elapsed_ms
+        try:
+            with urlopen(request, timeout=timeout) as response:  # nosec B310 - operator-provided HTTPS URL.
+                body = response.read(8 * 1024 * 1024)
+                status = response.status
+                content_type = _content_type_of(response.headers)
+        except HTTPError as exc:
+            body = exc.read(1024 * 1024)
+            status = exc.code
+            content_type = _content_type_of(exc.headers)
     except TimeoutError as exc:
-        elapsed_ms = int((time.perf_counter() - started) * 1000)
         raise RuntimeError(f"{path} timed out after {timeout:g}s") from exc
     except URLError as exc:
-        elapsed_ms = int((time.perf_counter() - started) * 1000)
         raise RuntimeError(f"{path} network error: {exc}") from exc
+    except (ConnectionResetError, http.client.IncompleteRead) as exc:
+        raise RuntimeError(f"{path} network error: {exc}") from exc
+    elapsed_ms = int((time.perf_counter() - started) * 1000)
+    return status, body, content_type, elapsed_ms
+
+
+def _retry_server_error(status: int, body: bytes, content_type: str) -> bool:
+    """HTTP 5xx is worth one more try. 4xx is the probe's answer."""
+    del body, content_type
+    return status >= 500
+
+
+def _fetch_with_retry(
+    request_factory: Callable[[], Request],
+    path: str,
+    *,
+    timeout: float,
+    retry_response: Callable[[int, bytes, str], bool],
+) -> tuple[int, bytes, str, int]:
+    """Retry transport failures and responses ``retry_response`` rejects.
+
+    The last HTTP response is returned even when it is still unacceptable, so
+    callers can record a real status. A transport error on the final attempt
+    is raised.
+    """
+    for attempt in range(1, TRANSIENT_ATTEMPTS + 1):
+        try:
+            status, body, content_type, elapsed_ms = _open_once(request_factory(), path, timeout)
+        except RuntimeError as exc:
+            if attempt >= TRANSIENT_ATTEMPTS:
+                raise
+            _log_transient(attempt, str(exc))
+            _pause(_backoff_after(attempt))
+            continue
+        if not retry_response(status, body, content_type):
+            if attempt > 1:
+                print(
+                    f"smoke recovered {path} status={status} after {attempt} attempts",
+                    file=sys.stderr,
+                )
+            return status, body, content_type, elapsed_ms
+        detail = _response_detail(path, status, content_type, body)
+        if attempt >= TRANSIENT_ATTEMPTS:
+            print(f"smoke persistent failure: {detail}", file=sys.stderr)
+            return status, body, content_type, elapsed_ms
+        _log_transient(attempt, detail)
+        _pause(_backoff_after(attempt))
+    raise RuntimeError(f"{path} failed with no response")
+
+
+def _read_url(base_url: str, path: str, *, timeout: float) -> tuple[int, bytes, str, int]:
+    return _fetch_with_retry(
+        lambda: _get_request(base_url, path),
+        path,
+        timeout=timeout,
+        retry_response=_retry_server_error,
+    )
 
 
 def _post_json(
@@ -159,41 +277,62 @@ def _post_json(
     admin_token: str | None,
 ) -> tuple[int, bytes, str, int]:
     """POST JSON to ``path``. Used only by opt-in checks."""
-    url = urljoin(base_url.rstrip("/") + "/", path.lstrip("/"))
-    body_bytes = json.dumps(payload).encode("utf-8")
-    headers = {
-        "User-Agent": "tho-production-smoke/1.0",
-        "Content-Type": "application/json",
-    }
-    if admin_token:
-        headers["X-Admin-Token"] = admin_token
-    request = Request(url, data=body_bytes, headers=headers, method="POST")
-    started = time.perf_counter()
+
+    def build() -> Request:
+        url = urljoin(base_url.rstrip("/") + "/", path.lstrip("/"))
+        body_bytes = json.dumps(payload).encode("utf-8")
+        headers = {
+            "User-Agent": "tho-production-smoke/1.0",
+            "Content-Type": "application/json",
+        }
+        if admin_token:
+            headers["X-Admin-Token"] = admin_token
+        return Request(url, data=body_bytes, headers=headers, method="POST")
+
+    return _fetch_with_retry(
+        build,
+        path,
+        timeout=timeout,
+        retry_response=_retry_server_error,
+    )
+
+
+def _decode_json_object(body: bytes) -> tuple[dict[str, Any] | None, str | None]:
+    """Return ``(object, None)``, or ``(None, "not-json"|"not-object")``."""
     try:
-        with urlopen(request, timeout=timeout) as response:  # nosec B310 - operator-provided HTTPS URL.
-            body = response.read(8 * 1024 * 1024)
-            elapsed_ms = int((time.perf_counter() - started) * 1000)
-            return response.status, body, response.headers.get("content-type", ""), elapsed_ms
-    except HTTPError as exc:
-        body = exc.read(1024 * 1024)
-        elapsed_ms = int((time.perf_counter() - started) * 1000)
-        return exc.code, body, exc.headers.get("content-type", ""), elapsed_ms
-    except TimeoutError as exc:
-        elapsed_ms = int((time.perf_counter() - started) * 1000)
-        raise RuntimeError(f"{path} timed out after {timeout:g}s") from exc
-    except URLError as exc:
-        elapsed_ms = int((time.perf_counter() - started) * 1000)
-        raise RuntimeError(f"{path} network error: {exc}") from exc
+        payload = json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return None, "not-json"
+    if not isinstance(payload, dict):
+        return None, "not-object"
+    return payload, None
 
 
 def _json_probe(base_url: str, path: str, *, timeout: float) -> tuple[int, dict[str, Any], int]:
-    status, body, _content_type, elapsed_ms = _read_url(base_url, path, timeout=timeout)
-    try:
-        payload = json.loads(body.decode("utf-8"))
-    except json.JSONDecodeError as exc:
-        raise RuntimeError(f"{path} did not return JSON") from exc
-    if not isinstance(payload, dict):
-        raise RuntimeError(f"{path} returned non-object JSON")
+    def retry_response(status: int, body: bytes, content_type: str) -> bool:
+        del content_type
+        _payload, problem = _decode_json_object(body)
+        # A non-object body is a final schema failure only for a non-5xx status.
+        # A transient 5xx can carry valid JSON that is not an object (``[]``);
+        # that still has to reach the status check below and be retried.
+        if problem == "not-object" and status < 500:
+            raise RuntimeError(f"{path} returned non-object JSON")
+        # A JSON 4xx (including 429) is the server's answer. A JSON 5xx, or
+        # any non-JSON body, is the gateway blip this probe is allowed to retry.
+        return problem == "not-json" or status >= 500
+
+    status, body, content_type, elapsed_ms = _fetch_with_retry(
+        lambda: _get_request(base_url, path),
+        path,
+        timeout=timeout,
+        retry_response=retry_response,
+    )
+    payload, problem = _decode_json_object(body)
+    if problem is not None or payload is None:
+        detail = _response_detail(path, status, content_type, body)
+        raise RuntimeError(
+            f"{path} did not return JSON after {TRANSIENT_ATTEMPTS} attempts: {detail}"
+        )
     return status, payload, elapsed_ms
 
 
@@ -640,12 +779,20 @@ def check_spa_routes(base_url: str, *, timeout: float) -> list[Probe]:
         text = body.decode("utf-8", errors="replace").lower()
         has_root = 'id="root"' in text
         ok = status == 200 and "text/html" in content_type and has_root
+        evidence = f"content_type={content_type}; root={'yes' if has_root else 'no'}"
+        # Record GET / timing for the deploy log. This client follows
+        # redirects, so on a candidate host the number includes the public
+        # site. It is not a pass/fail limit.
+        if path == "/":
+            evidence += f"; latency_ms={elapsed_ms}"
+        if not ok:
+            evidence += f"; body_prefix={_body_prefix(body)}"
         probes.append(
             Probe(
                 name=path,
                 ok=ok,
                 status=status,
-                evidence=f"content_type={content_type}; root={'yes' if has_root else 'no'}",
+                evidence=evidence,
                 elapsed_ms=elapsed_ms,
             )
         )
@@ -933,11 +1080,13 @@ def run_smoke(
         probes.append(_run_reply_probe(base_url, timeout=timeout))
     if check_admin_auth:
         probes.append(_admin_auth_probe(base_url, timeout=timeout))
+    root_probe = next((probe for probe in probes if probe.name == "/"), None)
     return {
         "ok": all(probe.ok for probe in probes),
         "base_url": base_url.rstrip("/"),
         "probe_count": len(probes),
         "probes": [probe.__dict__ for probe in probes],
+        "root_latency_ms": None if root_probe is None else root_probe.elapsed_ms,
     }
 
 
@@ -1053,6 +1202,9 @@ def main(argv: list[str] | None = None) -> int:
         max_dead_heroes=args.max_dead_heroes,
         check_hero_reachability=args.check_hero_reachability,
     )
+    root_latency_ms = result.get("root_latency_ms")
+    if root_latency_ms is not None:
+        print(f"GET / latency_ms={root_latency_ms}", file=sys.stderr)
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0 if result["ok"] else 1
 

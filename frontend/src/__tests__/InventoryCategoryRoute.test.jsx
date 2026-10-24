@@ -77,8 +77,9 @@ describe('indexable inventory category routes', () => {
         name: 'Single Wide Manufactured Homes in Huffman, TX',
         level: 1,
       })).toBeInTheDocument();
+      // The category H1 is also in the loading skeleton, so wait for a home.
+      expect(screen.getByRole('heading', { name: 'The Narrow Star', level: 3 })).toBeInTheDocument();
     });
-    expect(screen.getByRole('heading', { name: 'The Narrow Star', level: 3 })).toBeInTheDocument();
     expect(screen.queryByText('The Wide Horizon')).not.toBeInTheDocument();
     expect(screen.getByText('1 home')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Filters' }));
@@ -95,8 +96,9 @@ describe('indexable inventory category routes', () => {
         name: 'Double Wide Manufactured Homes in Huffman, TX',
         level: 1,
       })).toBeInTheDocument();
+      // The category H1 is painted while inventory is still loading.
+      expect(screen.getAllByText('The Wide Horizon').length).toBeGreaterThan(0);
     });
-    expect(screen.getAllByText('The Wide Horizon').length).toBeGreaterThan(0);
     expect(screen.queryByText('The Narrow Star')).not.toBeInTheDocument();
   });
 

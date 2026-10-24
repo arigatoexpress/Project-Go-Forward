@@ -435,9 +435,75 @@ def test_rewrite_media_url_points_rosewood_numbered_jpg_at_working_jpg():
     assert rewrite_media_url(ROSEWOOD_DEAD) == ROSEWOOD_LIVE
     assert rewrite_media_url(ROSEWOOD_DEAD_2) == ROSEWOOD_LIVE_2
     assert rewrite_media_url(ROSEWOOD_LIVE) == ROSEWOOD_LIVE
+    assert rewrite_media_url(f"{ROSEWOOD_DEAD}?v=1") == f"{ROSEWOOD_LIVE}?v=1"
     assert rewrite_media_url(EXTERIOR_URL) == EXTERIOR_URL
     assert rewrite_media_url("") == ""
     assert rewrite_media_url(None) == ""
+
+
+def test_rewrite_media_url_repairs_extension_siblings_only():
+    """Dead CDN keys with a confirmed sibling change extension. Live .jpg stays."""
+    png_dead = "https://d132mt2yijm03y.cloudfront.net/manufacturer/3335/floorplan/227079/5.jpg"
+    png_live = "https://d132mt2yijm03y.cloudfront.net/manufacturer/3335/floorplan/227079/5.png"
+    jpeg_dead = "https://d132mt2yijm03y.cloudfront.net/manufacturer/3373/floorplan/233569/1.jpg"
+    webp_dead = (
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/3373/floorplan/236155/"
+        "Toledo%20Living%20Room%20%287%29rfw.jpg"
+    )
+    webp_live = (
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/3373/floorplan/236155/"
+        "Toledo%20Living%20Room%20%287%29rfw.webp"
+    )
+    # anderson-1.jpg is HTTP 200. 232175/1.jpg is HTTP 403 with no sibling.
+    live_jpg = (
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/3335/floorplan/232844/anderson-1.jpg"
+    )
+    still_dead = "https://d132mt2yijm03y.cloudfront.net/manufacturer/3335/floorplan/232175/1.jpg"
+
+    assert rewrite_media_url(png_dead) == png_live
+    assert rewrite_media_url(jpeg_dead).endswith("/1.jpeg")
+    assert rewrite_media_url(webp_dead) == webp_live
+    assert rewrite_media_url(live_jpg) == live_jpg
+    assert rewrite_media_url(still_dead) == still_dead
+    # Probed 2026-10-22: these orderable photos 403 and have no live sibling.
+    absolute_value = (
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/2025/floorplan/226545/"
+        "Absolute%20Value-1.jpg"
+    )
+    dogwood = (
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/2007/floorplan/236876/"
+        "TRT14602DH_Dogwood_Exterior%20%281%29.jpg"
+    )
+    assert rewrite_media_url(absolute_value) == absolute_value
+    assert rewrite_media_url(dogwood) == dogwood
+    assert rewrite_media_url("https://storage.googleapis.com/tho/inventory/1.jpg") == (
+        "https://storage.googleapis.com/tho/inventory/1.jpg"
+    )
+
+
+def test_cdn_extension_repairs_keep_the_same_filename_stem():
+    repairs = photo_classifier._WORKING_CDN_FILENAMES
+    assert len(repairs) == 34
+    for key, filename in repairs.items():
+        old = key.rsplit("/", 1)[-1]
+        assert old.rsplit(".", 1)[0] == filename.rsplit(".", 1)[0]
+        assert old != filename
+
+
+def test_apply_classifier_rewrites_photos_field_to_working_sibling():
+    dead = "https://d132mt2yijm03y.cloudfront.net/manufacturer/3373/floorplan/233569/1.jpg"
+    home = {
+        "image_url": dead,
+        "real_photos": [dead],
+        "photos": [dead, dead.replace(".jpg", ".jpeg")],
+        "floorplan_url": "https://d132mt2yijm03y.cloudfront.net/manufacturer/2045/floorplan/232095/9707%20floor-plans-SMALL.jpg",
+    }
+    apply_classifier_to_home(home)
+    assert home["image_url"].endswith("/1.jpeg")
+    assert home["real_photos"] == [home["image_url"]]
+    assert home["photos"] == [home["image_url"]]
+    assert home["floorplan_url"].endswith("/9707%20floor-plans-SMALL.png")
+    assert home["floor_plan_url"] == home["floorplan_url"]
 
 
 def test_apply_classifier_rewrites_dead_rosewood_url_and_dedupes_sibling():

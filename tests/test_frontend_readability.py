@@ -125,6 +125,9 @@ def test_inventory_browse_exposes_orderable_floorplan_filter():
     # "Orderable Plans" hero label is intentionally gone.)
     assert "Orderable ({orderableCount})" in source
     assert "orderable floorplans visible" in source
+    assert "Watch 3D tour" in source
+    assert "3D tour ({tourCount})" in source
+    assert "filters.hasTour" in source
 
 
 def test_document_center_inactive_navigation_remains_readable():
