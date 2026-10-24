@@ -25,6 +25,14 @@ const PRICE_NEGATIVE = 'The price cannot be less than zero. Leave it blank if cu
 const PRICE_CENTS = 'Use dollars and cents only, like 89900 or 89900.50.';
 const LOAD_ERROR = 'The home list did not load. Check the internet connection and try again.';
 const SAVE_ERROR = 'This home was not saved. Check the connection and try again.';
+const SAVED_WITH_PRICE = 'Saved. Customers will see this update on the website.';
+const SAVED_CALL_FOR_PRICE = 'Saved. Customers will see Call for Price until a price is saved here.';
+
+function websitePriceLabel(home) {
+  const amount = Number(home?.public_sale_price);
+  if (!Number.isFinite(amount) || amount <= 0) return 'Call for Price';
+  return amount.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+}
 
 function toPayload(form) {
   const num = (v) => (v === '' || v === null ? undefined : Number(v));
@@ -117,11 +125,12 @@ export default function InventoryManager({ onBack, onNavigate }) {
       if (data.success) {
         const savedId = data.id || data.inventory?.id || editing;
         if (isNew && savedId && savedId !== 'new') setEditing(savedId);
+        const priceNote = publicPrice > 0 ? SAVED_WITH_PRICE : SAVED_CALL_FOR_PRICE;
         setMessage({
           type: 'ok',
           text: isNew
-            ? 'Saved. Now add photos of the real home below. Customers will not see floor plans from this box.'
-            : 'Saved. Customers will see this update on the website.',
+            ? `${priceNote} Now add photos of the real home below. Customers will not see floor plans from this box.`
+            : priceNote,
         });
         await load();
       } else {
@@ -208,6 +217,7 @@ export default function InventoryManager({ onBack, onNavigate }) {
           <h1 className="text-2xl font-semibold flex items-center gap-2"><ClipboardList size={24} /> Homes on the website</h1>
           <p className="mt-1 text-base leading-relaxed text-[var(--cp-muted)]">
             Add a home or change one. Photos of the real home go on the same screen.
+            A blank price shows Call for Price. Each home in the list says so until a price is saved.
           </p>
         </div>
         <button type="button" onClick={startNew} className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg bg-[var(--cp-accent)] px-4 text-base font-semibold text-white">
@@ -296,7 +306,11 @@ export default function InventoryManager({ onBack, onNavigate }) {
             </div>
           )}
 
-          <RealPhotoUploader homeId={photoHomeId} homeName={photoHomeName === 'Unnamed home' ? 'this home' : photoHomeName} />
+          <RealPhotoUploader
+            homeId={photoHomeId}
+            homeName={photoHomeName === 'Unnamed home' ? 'this home' : photoHomeName}
+            preowned={form.is_new === false}
+          />
 
           <div className="mt-4 flex flex-col gap-2 sm:flex-row">
             <button type="button" disabled={saving} onClick={save}
@@ -325,13 +339,13 @@ export default function InventoryManager({ onBack, onNavigate }) {
       )}
 
       {loading ? (
-        <div className="flex items-center gap-2 text-base text-[var(--cp-muted)]"><Loader2 size={18} className="animate-spin" /> Loading homes…</div>
+        <div role="status" className="flex items-center gap-2 text-base text-[var(--cp-muted)]"><Loader2 size={18} className="animate-spin" aria-hidden="true" /> Loading homes…</div>
       ) : error ? (
         <div role="alert" className="rounded-lg bg-red-700/20 px-4 py-3 text-base text-red-200">{error}</div>
       ) : homes.length === 0 ? (
-        <div className="text-base text-[var(--cp-muted)]">No homes yet. Tap “Add a home” to put the first one on the website.</div>
+        <div role="status" className="text-base text-[var(--cp-muted)]">No homes yet. Tap “Add a home” to put the first one on the website.</div>
       ) : shownHomes.length === 0 ? (
-        <div className="text-base text-[var(--cp-muted)]">No homes for sale right now. Tick “Show sold homes too” to see the rest.</div>
+        <div role="status" className="text-base text-[var(--cp-muted)]">No homes for sale right now. Tick “Show sold homes too” to see the rest.</div>
       ) : (
         <ul className="flex flex-col gap-3">
           {shownHomes.map((h) => {
@@ -341,6 +355,7 @@ export default function InventoryManager({ onBack, onNavigate }) {
             return (
               <li key={h.id} className="rounded-xl border border-[var(--cp-border)] p-4">
                 <h2 className="text-xl font-semibold break-words">{friendlyModelName(h.model_name)}</h2>
+                <p className="mt-1 text-base font-semibold">{websitePriceLabel(h)}</p>
                 <p className="mt-1 text-base text-[var(--cp-muted)]">
                   {[h.manufacturer, h.status ? statusLabel(h.status) : '', stock, `${h.beds ?? h.bedrooms ?? '—'} bed / ${h.baths ?? h.bathrooms ?? '—'} bath`].filter(Boolean).join(' · ')}
                 </p>

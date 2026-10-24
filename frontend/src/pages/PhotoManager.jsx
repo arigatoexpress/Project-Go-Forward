@@ -5,39 +5,31 @@ import {
 } from 'lucide-react';
 import adminFetch from '../adminFetch';
 import ConfirmDialog from '../components/ConfirmDialog';
+import { isPreOwned } from '../utils/inventoryDisplay';
 import {
-  friendlyModelName, isActiveHome, staffVisibleHomes, statusLabel, stockLabel,
-} from '../utils/inventoryDisplay';
+  PHOTO_GAP_HINTS,
+  checkCustomerPhotos,
+  mergeStaffAndPublicHomes,
+  blockedPhotoMessage,
+  isUploadablePhotoFile,
+  photoGapReason,
+  photoHomeListMessage,
+  photoUrlsToCheck,
+  staffPhotoHomeDetails,
+  staffPhotoHomeLabel,
+  staffPhotoHomeName,
+  visiblePhotoHomes,
+} from '../utils/photoGap';
 
-// Staff photo uploader. Deliberately simple: pick a home, drop in photos, done.
-// Photos are stored server-side and appear on the public Inventory page.
-// The home list is the same one Manage Homes shows (staff inventory, one row
-// per home, homes for sale only unless "Include sold/archived" is ticked).
+// Staff photo uploader. The first screen is the homes that still need a
+// picture. Pick one and the phone upload is the next thing on the page.
 
 const ACCEPT = 'image/jpeg,image/png,image/webp,image/gif';
+const LOAD_ERROR = 'Could not load the list of homes. Please refresh.';
 
-// A home "needs photos" when it has no real (non-floorplan) listing photos.
-// The staff inventory API classifies floorplans out of real_photos and (with
-// include_staff_photos) folds in staff uploads, so this is the honest signal.
-function needsPhotos(home) {
-  return !(Array.isArray(home.real_photos) && home.real_photos.length > 0);
-}
-
-function homeName(home) {
-  return friendlyModelName(home.model_name || home.name);
-}
-
-function homeDetails(home) {
-  return [
-    stockLabel(home),
-    isActiveHome(home) ? '' : statusLabel(home.status),
-    needsPhotos(home) ? 'Needs photos' : '',
-  ].filter(Boolean).join(' · ');
-}
-
-function homeLabel(home) {
-  const details = homeDetails(home);
-  return details ? `${homeName(home)} (${details})` : homeName(home);
+function readJson(response) {
+  if (!response || typeof response.json !== 'function') return Promise.resolve(null);
+  return response.json().catch(() => null);
 }
 
 function StaffPhotoPreview({ url, alt }) {
@@ -73,53 +65,129 @@ export default function PhotoManager({ onBack }) {
   const [uploading, setUploading] = useState(false);
   const [message, setMessage] = useState(null); // { type: 'ok'|'error', text }
   const [dragOver, setDragOver] = useState(false);
-  const [onlyNeedsPhotos, setOnlyNeedsPhotos] = useState(false);
+  const [onlyNeedsPhotos, setOnlyNeedsPhotos] = useState(true);
   const [includeInactive, setIncludeInactive] = useState(false);
   const [pendingDelete, setPendingDelete] = useState(null);
   const [deleting, setDeleting] = useState(false);
+  const [failedUrls, setFailedUrls] = useState(() => new Set());
+  const [checkingPhotos, setCheckingPhotos] = useState(false);
   const fileInputRef = useRef(null);
+  const cameraInputRef = useRef(null);
+  const uploadSectionRef = useRef(null);
+  const messageRef = useRef(null);
+  const failedRef = useRef(new Set());
+  const okRef = useRef(new Set());
 
   const selectedHome = homes.find(h => String(h.id) === String(selectedId));
 
-  // --- Load the list of homes (same staff list as Manage Homes) ---
-  const fetchHomes = useCallback(() => {
-    setLoadingHomes(true);
-    setLoadError('');
-    adminFetch('/api/inventory?status=&limit=500&include_staff_photos=true')
-      .then(r => r.json())
-      .then(data => {
-        if (data?.success === false) throw new Error('inventory unavailable');
-        setHomes(Array.isArray(data?.inventory) ? data.inventory : []);
+  const fetchHomes = useCallback((silent = false) => {
+    if (!silent) {
+      setLoadingHomes(true);
+      setLoadError('');
+    }
+    Promise.all([
+      adminFetch('/api/marketing/inventory-context').then(readJson).catch(() => null),
+      adminFetch('/api/inventory?status=&limit=500&include_staff_photos=true').then(readJson).catch(() => null),
+    ])
+      .then(([publicData, staffData]) => {
+        const publicHomes = Array.isArray(publicData?.homes) ? publicData.homes : [];
+        const staffFailed = !staffData || staffData.success === false;
+        const staffHomes = Array.isArray(staffData?.inventory) ? staffData.inventory : [];
+        const failed = publicHomes.length === 0 && (staffFailed || !Array.isArray(staffData?.inventory));
+        if (failed) {
+          if (!silent) {
+            setLoadError(LOAD_ERROR);
+            setHomes([]);
+          }
+          return;
+        }
+        setLoadError('');
+        setHomes(mergeStaffAndPublicHomes(publicHomes, staffHomes));
       })
-      .catch(() => setLoadError('Could not load the list of homes. Please refresh.'))
-      .finally(() => setLoadingHomes(false));
+      .catch(() => {
+        if (!silent) {
+          setLoadError(LOAD_ERROR);
+          setHomes([]);
+        }
+      })
+      .finally(() => {
+        if (!silent) setLoadingHomes(false);
+      });
   }, []);
 
   useEffect(() => { fetchHomes(); }, [fetchHomes]);
 
-  // --- Load existing staff photos for the selected home ---
+  useEffect(() => {
+    const needsCheck = homes.some((home) => (
+      photoUrlsToCheck(home, failedRef.current, okRef.current, new Set()).length > 0
+    ));
+    if (!needsCheck) return undefined;
+    const controller = new AbortController();
+    let cancelled = false;
+    setCheckingPhotos(true);
+    checkCustomerPhotos(homes, {
+      failedUrls: failedRef.current,
+      okUrls: okRef.current,
+      signal: controller.signal,
+      isCancelled: () => cancelled,
+      onFailed: () => {
+        if (!cancelled) setFailedUrls(new Set(failedRef.current));
+      },
+    }).finally(() => {
+      if (!cancelled) setCheckingPhotos(false);
+    });
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [homes]);
+
   const fetchPhotos = useCallback((homeId) => {
-    if (!homeId) { setPhotos([]); return; }
+    if (!homeId) { setPhotos([]); return Promise.resolve([]); }
     setLoadingPhotos(true);
-    adminFetch(`/api/inventory/${encodeURIComponent(homeId)}/photos`)
+    return adminFetch(`/api/inventory/${encodeURIComponent(homeId)}/photos`)
       .then(r => r.json())
-      .then(data => setPhotos(Array.isArray(data?.photos) ? data.photos : []))
-      .catch(() => setPhotos([]))
+      .then(data => {
+        const next = Array.isArray(data?.photos) ? data.photos : [];
+        setPhotos(next);
+        return next;
+      })
+      .catch(() => {
+        setPhotos([]);
+        return null;
+      })
       .finally(() => setLoadingPhotos(false));
   }, []);
 
   useEffect(() => { fetchPhotos(selectedId); }, [selectedId, fetchPhotos]);
 
-  // --- Upload ---
+  useEffect(() => {
+    if (!selectedId) return;
+    const node = uploadSectionRef.current;
+    if (node && typeof node.scrollIntoView === 'function') {
+      node.scrollIntoView({ block: 'start' });
+    }
+  }, [selectedId]);
+
+  useEffect(() => {
+    if (!message) return;
+    const node = messageRef.current;
+    if (node && typeof node.scrollIntoView === 'function') {
+      node.scrollIntoView({ block: 'nearest' });
+    }
+  }, [message]);
+
   const uploadFiles = useCallback(async (fileList) => {
-    const files = Array.from(fileList || []).filter(f => f && f.type.startsWith('image/'));
+    const picked = Array.from(fileList || []).filter(Boolean);
+    const files = picked.filter(isUploadablePhotoFile);
     if (uploading) return;
     if (!selectedId) {
       setMessage({ type: 'error', text: 'Pick a home first, then add photos.' });
       return;
     }
+    if (picked.length === 0) return;
     if (files.length === 0) {
-      setMessage({ type: 'error', text: 'Those files were not photos. Use JPG, PNG, WebP, or GIF.' });
+      setMessage({ type: 'error', text: blockedPhotoMessage(picked) });
       return;
     }
     setUploading(true);
@@ -157,6 +225,11 @@ export default function PhotoManager({ onBack }) {
         } else {
           setMessage({ type: 'error', text: 'No photos were added. Make sure they are JPG, PNG, WebP, or GIF under 15 MB.' });
         }
+        if (okCount > 0) {
+          setHomes((current) => current.map((home) => (
+            String(home.id) === String(selectedId) ? { ...home, has_staff_photos: true } : home
+          )));
+        }
         fetchPhotos(selectedId);
       }
     } catch {
@@ -164,6 +237,7 @@ export default function PhotoManager({ onBack }) {
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
+      if (cameraInputRef.current) cameraInputRef.current.value = '';
     }
   }, [selectedId, fetchPhotos, uploading]);
 
@@ -172,8 +246,6 @@ export default function PhotoManager({ onBack }) {
     setDragOver(false);
     if (selectedId && !uploading && e.dataTransfer?.files?.length) uploadFiles(e.dataTransfer.files);
   };
-
-  const uploadDisabled = !selectedId || uploading;
 
   const handleDelete = async () => {
     const filename = pendingDelete;
@@ -186,7 +258,16 @@ export default function PhotoManager({ onBack }) {
       );
       if (res.ok) {
         setMessage({ type: 'ok', text: 'Photo removed. Customers will no longer see it.' });
-        fetchPhotos(selectedId);
+        const remaining = await fetchPhotos(selectedId);
+        if (Array.isArray(remaining) && remaining.length === 0) {
+          setHomes((current) => current.map((home) => {
+            if (String(home.id) !== String(selectedId)) return home;
+            const real = (Array.isArray(home.real_photos) ? home.real_photos : [])
+              .filter((url) => !/\/api\/inventory\/photos\//i.test(String(url)));
+            const image = /\/api\/inventory\/photos\//i.test(String(home.image_url || '')) ? (real[0] || '') : home.image_url;
+            return { ...home, has_staff_photos: false, real_photos: real, image_url: image };
+          }));
+        }
       } else {
         setMessage({ type: 'error', text: 'Could not remove that photo.' });
       }
@@ -198,8 +279,6 @@ export default function PhotoManager({ onBack }) {
     }
   };
 
-  // Persist a new photo order (first = main). Shared by "make main" and the
-  // move-earlier/later arrows.
   const applyOrder = async (order, okText) => {
     try {
       const res = await adminFetch(
@@ -227,7 +306,6 @@ export default function PhotoManager({ onBack }) {
     return applyOrder(order, 'Main photo updated. The website will show it shortly.');
   };
 
-  // Move a photo one slot earlier (toward the front) or later (toward the back).
   const handleMove = (idx, delta) => {
     const target = idx + delta;
     if (target < 0 || target >= photos.length) return;
@@ -236,20 +314,39 @@ export default function PhotoManager({ onBack }) {
     return applyOrder(order, 'Photo order updated.');
   };
 
-  const listedHomes = staffVisibleHomes(homes, { includeInactive });
-  const filteredHomes = listedHomes.filter(h =>
-    (!query || homeLabel(h).toLowerCase().includes(query.toLowerCase())
-      || String(h.model_name || '').toLowerCase().includes(query.toLowerCase())) &&
-    (!onlyNeedsPhotos || needsPhotos(h))
-  );
-  const needsCount = listedHomes.filter(needsPhotos).length;
+  const selectHome = (homeId) => {
+    setSelectedId(String(homeId));
+    setMessage(null);
+  };
+
+  const listedHomes = visiblePhotoHomes(homes, { includeInactive, failedUrls });
+  const filteredHomes = visiblePhotoHomes(homes, {
+    query,
+    onlyNeedsPhotos,
+    includeInactive,
+    failedUrls,
+  });
+  const needsCount = listedHomes.filter((home) => photoGapReason(home, failedUrls)).length;
+  const selectedGap = selectedHome ? photoGapReason(selectedHome, failedUrls) : null;
+  const listMessage = photoHomeListMessage({
+    listedCount: listedHomes.length,
+    visibleCount: filteredHomes.length,
+    onlyNeedsPhotos,
+    checkingPhotos,
+    query,
+    loadError,
+  });
+
+  const uploadButtonClass = `flex flex-col items-center justify-center gap-1 min-h-24 rounded-xl border-2 border-dashed px-4 py-4 text-center cursor-pointer ${
+    dragOver ? 'border-blue-500 bg-blue-50' : 'border-gray-300 bg-white hover:border-blue-400 hover:bg-gray-50'
+  } ${uploading ? 'opacity-50 pointer-events-none' : ''}`;
 
   return (
     <div className="min-h-screen bg-gray-50 font-sans">
-      <header className="bg-slate-800 text-white px-6 py-4 flex items-center gap-3 sticky top-0 z-30">
+      <header className="bg-slate-800 text-white px-4 py-4 flex items-center gap-3 sticky top-0 z-30">
         <button
           onClick={onBack}
-          className="bg-white/10 hover:bg-white/20 text-white p-2 rounded-lg flex items-center"
+          className="bg-white/10 hover:bg-white/20 text-white p-2 rounded-lg flex items-center min-h-11 min-w-11 justify-center"
           aria-label="Go back"
         >
           <ArrowLeft size={20} />
@@ -259,183 +356,232 @@ export default function PhotoManager({ onBack }) {
       </header>
 
       <div className="max-w-3xl mx-auto px-4 py-6">
-        {/* Plain-language intro */}
         <p className="text-gray-700 text-lg leading-relaxed mb-5">
-          Add pictures of the actual home. Floor plans and brochure pictures do not belong here.
-          The photos you add show up on the public website.
+          Add a real photo of the home. Customers will see it on the website.
+          Use a picture you took. Do not use a floor plan or a picture from the internet.
         </p>
 
-        {/* Step 1 — pick a home */}
         <section className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5 mb-5">
           <h2 className="text-base font-bold text-slate-800 mb-1 flex items-center gap-2">
             <span className="bg-slate-800 text-white rounded-full w-6 h-6 inline-flex items-center justify-center text-sm">1</span>
             Pick the home
           </h2>
-          <p className="text-sm text-gray-500 mb-3 ml-8">Type part of the name or stock number to find it.</p>
 
-          {loadError && (
-            <div className="flex items-center gap-2 text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-sm mb-3">
-              <AlertCircle size={16} /> {loadError}
+          {selectedHome ? (
+            <div className="mt-3">
+              <p className="text-lg font-semibold text-slate-800 break-words">{staffPhotoHomeName(selectedHome)}</p>
+              {staffPhotoHomeDetails(selectedHome, failedUrls) && (
+                <p className="text-sm text-gray-500 mt-1 break-words">{staffPhotoHomeDetails(selectedHome, failedUrls)}</p>
+              )}
+              {selectedGap && (
+                <p className="text-base text-slate-700 mt-3 leading-relaxed">{PHOTO_GAP_HINTS[selectedGap]}</p>
+              )}
+              <button
+                type="button"
+                onClick={() => { setSelectedId(''); setMessage(null); }}
+                className="mt-4 min-h-12 px-4 rounded-lg border border-gray-300 text-slate-800 font-semibold"
+              >
+                Choose a different home
+              </button>
             </div>
-          )}
-
-          <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 mb-3">
-            <Search size={18} className="text-gray-500" />
-            <input
-              type="text"
-              value={query}
-              onChange={e => setQuery(e.target.value)}
-              placeholder="Search homes…"
-              aria-label="Search for a home"
-              className="bg-transparent outline-none w-full min-w-0 text-[15px]"
-            />
-          </div>
-
-          {!loadingHomes && (
-            <div className="flex flex-col gap-2 mb-3 ml-8 text-sm text-slate-700">
-              <label className="flex items-center gap-2 cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={onlyNeedsPhotos}
-                  onChange={e => setOnlyNeedsPhotos(e.target.checked)}
-                  className="w-6 h-6 shrink-0"
-                />
-                Show only homes that still need photos
-                {needsCount > 0 && (
-                  <span className="bg-amber-100 text-amber-800 rounded-full px-2 py-0.5 text-xs font-semibold">
-                    {needsCount} need photos
-                  </span>
-                )}
-              </label>
-              <label className="flex items-center gap-2 cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={includeInactive}
-                  onChange={e => setIncludeInactive(e.target.checked)}
-                  className="w-6 h-6 shrink-0"
-                />
-                Include sold/archived homes
-              </label>
-            </div>
-          )}
-
-          {loadingHomes ? (
-            <div className="flex items-center gap-2 text-gray-500 text-sm py-3">
-              <Loader2 className="animate-spin" size={18} /> Loading homes…
-            </div>
-          ) : filteredHomes.length === 0 ? (
-            <p className="text-sm text-gray-500 py-3">
-              {listedHomes.length === 0 && !loadError
-                ? 'No homes for sale right now. Tick “Include sold/archived homes” to see the rest.'
-                : 'No homes match. Try fewer letters.'}
-            </p>
           ) : (
-            <div
-              role="radiogroup"
-              aria-label="Choose a home"
-              className="max-h-80 overflow-y-auto rounded-lg border border-gray-300 divide-y divide-gray-100 bg-white"
-            >
-              {filteredHomes.map(h => {
-                const checked = String(h.id) === String(selectedId);
-                const details = homeDetails(h);
-                return (
-                  <label
-                    key={h.id}
-                    className={`flex items-start gap-3 px-3 py-4 min-h-14 cursor-pointer ${checked ? 'bg-blue-50' : 'hover:bg-gray-50'}`}
-                  >
+            <>
+              <p className="text-sm text-gray-500 mb-3 ml-8">
+                {onlyNeedsPhotos
+                  ? 'These homes show a floor plan, or their picture did not load. Pick one and add a photo.'
+                  : 'Pick a home, then add a photo you took.'}
+              </p>
+
+              {loadError && (
+                <div className="flex items-center gap-2 text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-sm mb-3">
+                  <AlertCircle size={16} /> {loadError}
+                </div>
+              )}
+
+              <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-3 py-3 mb-3">
+                <Search size={18} className="text-gray-500" />
+                <input
+                  type="text"
+                  value={query}
+                  onChange={e => setQuery(e.target.value)}
+                  placeholder="Search homes…"
+                  aria-label="Search for a home"
+                  className="bg-transparent outline-none w-full min-w-0 text-base"
+                />
+              </div>
+
+              {!loadingHomes && (
+                <>
+                  <div role="radiogroup" aria-label="Which homes to show" className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-3">
+                    <button
+                      type="button"
+                      role="radio"
+                      aria-checked={onlyNeedsPhotos}
+                      onClick={() => setOnlyNeedsPhotos(true)}
+                      className={`min-h-12 rounded-lg px-3 py-3 font-semibold text-base flex items-center justify-center gap-2 ${
+                        onlyNeedsPhotos ? 'bg-slate-800 text-white' : 'bg-white border border-gray-300 text-slate-800'
+                      }`}
+                    >
+                      Needs photos
+                      <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${
+                        onlyNeedsPhotos ? 'bg-amber-200 text-amber-950' : 'bg-amber-100 text-amber-800'
+                      }`}>
+                        {needsCount}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      role="radio"
+                      aria-checked={!onlyNeedsPhotos}
+                      onClick={() => setOnlyNeedsPhotos(false)}
+                      className={`min-h-12 rounded-lg px-3 py-3 font-semibold text-base ${
+                        !onlyNeedsPhotos ? 'bg-slate-800 text-white' : 'bg-white border border-gray-300 text-slate-800'
+                      }`}
+                    >
+                      All homes
+                    </button>
+                  </div>
+                  <label className="flex items-center gap-2 cursor-pointer select-none text-sm text-slate-700 mb-3">
                     <input
-                      type="radio"
-                      name="photo-home"
-                      value={h.id}
-                      checked={checked}
-                      onChange={() => { setSelectedId(String(h.id)); setMessage(null); }}
-                      aria-label={homeLabel(h)}
-                      className="mt-1 w-6 h-6 shrink-0"
+                      type="checkbox"
+                      checked={includeInactive}
+                      onChange={e => setIncludeInactive(e.target.checked)}
+                      className="w-6 h-6 shrink-0"
                     />
-                    <span className="min-w-0 flex-1">
-                      <span className="block font-semibold text-slate-800 text-[15px] break-words">{homeName(h)}</span>
-                      {details && <span className="block text-xs text-gray-500 break-words">{details}</span>}
-                    </span>
+                    Include sold/archived homes
                   </label>
-                );
-              })}
-            </div>
+                </>
+              )}
+
+              {checkingPhotos && onlyNeedsPhotos && !loadingHomes && (
+                <p role="status" className="text-sm text-gray-500 mb-3">Checking a few website pictures…</p>
+              )}
+
+              {loadingHomes ? (
+                <div className="flex items-center gap-2 text-gray-500 text-sm py-3">
+                  <Loader2 className="animate-spin" size={18} /> Loading homes…
+                </div>
+              ) : filteredHomes.length === 0 ? (
+                listMessage ? <p role="status" className="text-sm text-gray-500 py-3">{listMessage}</p> : null
+              ) : (
+                <div
+                  role="radiogroup"
+                  aria-label="Choose a home"
+                  className="max-h-96 overflow-y-auto rounded-lg border border-gray-300 divide-y divide-gray-100 bg-white"
+                >
+                  {filteredHomes.map(h => {
+                    const checked = String(h.id) === String(selectedId);
+                    const details = staffPhotoHomeDetails(h, failedUrls);
+                    return (
+                      <label
+                        key={h.id}
+                        className={`flex items-start gap-3 px-3 py-4 min-h-14 cursor-pointer ${checked ? 'bg-blue-50' : 'hover:bg-gray-50'}`}
+                      >
+                        <input
+                          type="radio"
+                          name="photo-home"
+                          value={h.id}
+                          checked={checked}
+                          onChange={() => selectHome(h.id)}
+                          aria-label={staffPhotoHomeLabel(h, failedUrls)}
+                          className="mt-1 w-6 h-6 shrink-0"
+                        />
+                        <span className="min-w-0 flex-1">
+                          <span className="block font-semibold text-slate-800 text-base break-words">{staffPhotoHomeName(h)}</span>
+                          {details && <span className="block text-sm text-gray-500 break-words">{details}</span>}
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
+            </>
           )}
         </section>
 
-        {/* Step 2 — add photos */}
-        <section className={`bg-white rounded-2xl shadow-sm border border-gray-200 p-5 mb-5 ${!selectedId ? 'opacity-50' : ''}`}>
-          <h2 className="text-base font-bold text-slate-800 mb-1 flex items-center gap-2">
-            <span className="bg-slate-800 text-white rounded-full w-6 h-6 inline-flex items-center justify-center text-sm">2</span>
-            Add the photos
-          </h2>
-          <p className="text-sm text-gray-500 mb-3 ml-8">
-            {selectedHome ? `For: ${homeName(selectedHome)}${stockLabel(selectedHome) ? ` (${stockLabel(selectedHome)})` : ''}` : 'Pick a home above first.'}
-          </p>
-
-          <div
-            role="button"
-            tabIndex={uploadDisabled ? -1 : 0}
-            aria-label="Choose listing photos"
-            aria-disabled={uploadDisabled}
-            onDragOver={e => { e.preventDefault(); if (!uploadDisabled) setDragOver(true); }}
-            onDragLeave={() => setDragOver(false)}
-            onDrop={handleDrop}
-            onClick={() => { if (!uploadDisabled) fileInputRef.current?.click(); }}
-            onKeyDown={e => {
-              if (!uploadDisabled && (e.key === 'Enter' || e.key === ' ')) {
-                e.preventDefault();
-                fileInputRef.current?.click();
-              }
-            }}
-            className={`cursor-pointer border-2 border-dashed rounded-xl p-8 text-center transition-colors ${
-              dragOver ? 'border-blue-500 bg-blue-50' : 'border-gray-300 hover:border-blue-400 hover:bg-gray-50'
-            }`}
-          >
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept={ACCEPT}
-              multiple
-              disabled={uploadDisabled}
-              className="hidden"
-              onChange={e => uploadFiles(e.target.files)}
-            />
-            {uploading ? (
-              <div className="flex flex-col items-center gap-2 text-blue-700">
-                <Loader2 className="animate-spin" size={36} />
-                <span className="font-semibold">Uploading… please wait</span>
-              </div>
-            ) : (
-              <div className="flex flex-col items-center gap-2 text-gray-600">
-                <UploadCloud size={40} className="text-blue-500" />
-                <span className="font-semibold text-slate-800 text-[15px]">
-                  Tap here to choose photos
-                </span>
-                <span className="text-sm text-gray-500">or drag pictures into this box</span>
-                <span className="text-xs text-gray-500 mt-1">JPG, PNG, WebP or GIF · up to 15 MB each</span>
-              </div>
+        {selectedHome && (
+          <section ref={uploadSectionRef} className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5 mb-5">
+            <h2 className="text-base font-bold text-slate-800 mb-1 flex items-center gap-2">
+              <span className="bg-slate-800 text-white rounded-full w-6 h-6 inline-flex items-center justify-center text-sm">2</span>
+              Add the photos
+            </h2>
+            <p className="text-sm text-gray-500 mb-3 ml-8">
+              {`For: ${staffPhotoHomeName(selectedHome)}${staffPhotoHomeDetails(selectedHome, failedUrls) ? ` (${staffPhotoHomeDetails(selectedHome, failedUrls)})` : ''}`}
+            </p>
+            {isPreOwned(selectedHome) && (
+              <p className="text-sm text-slate-700 mb-3 ml-8 leading-relaxed">
+                This is a pre-owned home. Add pictures of this home, taken on the lot.
+              </p>
             )}
-          </div>
-        </section>
 
-        {/* Status message */}
+            <div
+              onDragOver={e => { e.preventDefault(); if (!uploading) setDragOver(true); }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={handleDrop}
+            >
+              {uploading ? (
+                <div className="flex flex-col items-center gap-2 text-blue-700 py-8" role="status">
+                  <Loader2 className="animate-spin" size={36} />
+                  <span className="font-semibold">Uploading… please wait</span>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <label className={uploadButtonClass}>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept={ACCEPT}
+                      multiple
+                      aria-label="Choose photos"
+                      className="sr-only"
+                      onChange={e => uploadFiles(e.target.files)}
+                    />
+                    <UploadCloud size={32} className="text-blue-500" />
+                    <span className="font-semibold text-slate-800 text-base">Choose photos</span>
+                    <span className="text-sm text-gray-500">From this phone or computer</span>
+                  </label>
+                  <label className={uploadButtonClass}>
+                    <input
+                      ref={cameraInputRef}
+                      type="file"
+                      accept="image/*"
+                      capture="environment"
+                      aria-label="Take a photo"
+                      className="sr-only"
+                      onChange={e => uploadFiles(e.target.files)}
+                    />
+                    <Camera size={32} className="text-blue-500" />
+                    <span className="font-semibold text-slate-800 text-base">Take a photo</span>
+                    <span className="text-sm text-gray-500">Opens the camera</span>
+                  </label>
+                </div>
+              )}
+              <p className="text-center text-sm text-gray-500 mt-3">
+                or drop photos here · up to 20 at a time · JPG, PNG, WebP, or GIF · up to 15 MB each
+              </p>
+              <p className="text-center text-sm text-slate-700 mt-2 leading-relaxed">
+                Use a photo you took. Do not use a picture from the internet.
+              </p>
+            </div>
+          </section>
+        )}
+
         {message && (
           <div
+            ref={messageRef}
             role={message.type === 'error' ? 'alert' : 'status'}
             aria-live="polite"
-            className={`flex items-center gap-2 rounded-lg px-4 py-3 text-sm mb-5 ${
+            className={`flex items-start gap-2 rounded-lg px-4 py-4 text-base mb-5 ${
               message.type === 'ok'
                 ? 'bg-green-50 border border-green-200 text-green-800'
                 : 'bg-red-50 border border-red-200 text-red-800'
             }`}
           >
-            {message.type === 'ok' ? <CheckCircle size={18} /> : <AlertCircle size={18} />}
-            {message.text}
+            {message.type === 'ok' ? <CheckCircle size={22} className="shrink-0 mt-0.5" /> : <AlertCircle size={22} className="shrink-0 mt-0.5" />}
+            <span className="font-semibold">{message.text}</span>
           </div>
         )}
 
-        {/* Step 3 — current photos */}
         {selectedId && (
           <section className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5">
             <h2 className="text-base font-bold text-slate-800 mb-3 flex items-center gap-2">
@@ -454,9 +600,9 @@ export default function PhotoManager({ onBack }) {
                 <Loader2 className="animate-spin" size={18} /> Loading…
               </div>
             ) : photos.length === 0 ? (
-              <div className="flex flex-col items-center gap-2 text-gray-500 py-6">
-                <ImageOff size={32} />
-                <span className="text-sm">No photos added yet. Add some above.</span>
+              <div role="status" className="flex flex-col items-center gap-2 text-gray-500 py-6">
+                <ImageOff size={32} aria-hidden="true" />
+                <span className="text-sm text-center">No photos added yet. Add a picture you took of this home.</span>
               </div>
             ) : (
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
@@ -464,7 +610,7 @@ export default function PhotoManager({ onBack }) {
                   <div key={p.filename} className={`relative group rounded-lg overflow-hidden border bg-gray-100 ${idx === 0 ? 'border-blue-500 ring-2 ring-blue-200' : 'border-gray-200'}`}>
                     <StaffPhotoPreview
                       url={p.url}
-                      alt={`${selectedHome ? homeName(selectedHome) : 'Home'} photo ${idx + 1}`}
+                      alt={`${selectedHome ? staffPhotoHomeName(selectedHome) : 'Home'} photo ${idx + 1}`}
                     />
                     {idx === 0 ? (
                       <span className="absolute top-1.5 left-1.5 inline-flex items-center gap-1 bg-blue-600 text-white text-xs font-semibold rounded-full px-2 py-0.5 shadow">
@@ -473,7 +619,7 @@ export default function PhotoManager({ onBack }) {
                     ) : (
                       <button
                         onClick={() => handleMakeMain(p.filename)}
-                        className="absolute bottom-1.5 left-1.5 inline-flex items-center gap-1 bg-white/90 hover:bg-blue-600 hover:text-white text-blue-700 text-xs font-semibold rounded-full px-2 py-1 shadow"
+                        className="absolute bottom-1.5 left-1.5 inline-flex items-center gap-1 bg-white/90 hover:bg-blue-600 hover:text-white text-blue-700 text-xs font-semibold rounded-full px-2 py-1 shadow min-h-11"
                         title="Make this the main photo"
                       >
                         <Star size={12} /> Make main
@@ -492,7 +638,7 @@ export default function PhotoManager({ onBack }) {
                         <button
                           onClick={() => handleMove(idx, -1)}
                           disabled={idx === 0}
-                          className="bg-white/90 hover:bg-slate-700 hover:text-white text-slate-700 rounded-full p-1 shadow disabled:opacity-30 disabled:cursor-not-allowed"
+                          className="bg-white/90 hover:bg-slate-700 hover:text-white text-slate-700 rounded-full p-1 shadow disabled:opacity-30 disabled:cursor-not-allowed min-h-11 min-w-11 flex items-center justify-center"
                           aria-label="Move photo earlier"
                           title="Move earlier"
                         >
@@ -501,7 +647,7 @@ export default function PhotoManager({ onBack }) {
                         <button
                           onClick={() => handleMove(idx, 1)}
                           disabled={idx === photos.length - 1}
-                          className="bg-white/90 hover:bg-slate-700 hover:text-white text-slate-700 rounded-full p-1 shadow disabled:opacity-30 disabled:cursor-not-allowed"
+                          className="bg-white/90 hover:bg-slate-700 hover:text-white text-slate-700 rounded-full p-1 shadow disabled:opacity-30 disabled:cursor-not-allowed min-h-11 min-w-11 flex items-center justify-center"
                           aria-label="Move photo later"
                           title="Move later"
                         >

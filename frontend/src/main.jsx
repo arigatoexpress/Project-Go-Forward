@@ -1,5 +1,6 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
+import { staticLcpElement, watchStaticLcp } from './utils/staticLcp.js'
 import './index.css'
 import './App.css'
 import App from './App.jsx'
@@ -47,6 +48,15 @@ const rootTree = (
     </ToastProvider>
   </ErrorBoundary>
 )
+
+// Keep the server-painted hero in the document. createRoot replaces #root,
+// and this image has to stay so its paint time remains Largest Contentful Paint.
+// Watch it before React paints so a 404 is hidden instead of left broken.
+const staticLcpImage = staticLcpElement();
+if (staticLcpImage) {
+  document.body.insertBefore(staticLcpImage, document.body.firstChild);
+  watchStaticLcp(staticLcpImage);
+}
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>

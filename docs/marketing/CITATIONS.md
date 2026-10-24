@@ -1,7 +1,7 @@
 # Local-SEO Citation Plan — Texas Home Outlet
 
-> **Owner:** Mira (research/ops lane) · **Status:** Draft for Ari review
-> **Last updated:** 2026-06-15
+> **Author:** Mira (research/ops lane) · **Status:** Name, address, and hours below are copied from `config.yaml` `business`. The rest of this plan is not a completed review.
+> **Last updated:** 2026-10-23
 
 ## Why Citations Matter
 
@@ -16,15 +16,15 @@ Local citations (name + address + phone across the web) are a **top-3 local rank
 | Field | Value |
 |-------|-------|
 | **Business Name** | Texas Home Outlet |
-| **Street Address** | [Ari: confirm exact street address] |
+| **Street Address** | 10685 FM 1960 East |
 | **City** | Huffman |
 | **State** | TX |
-| **ZIP** | [Ari: confirm] |
-| **Phone** | [Ari: confirm primary phone] |
+| **ZIP** | 77336 |
+| **Phone** | (281) 324-3020 |
 | **Website** | https://www.texashomeoutlet.com/ |
 | **Primary Category** | Manufactured Home Dealer |
 | **Secondary Categories** | Mobile Home Dealer, Modular Home Dealer |
-| **Hours** | [Ari: confirm exact days/hours] |
+| **Hours** | Mon-Fri 9:00 AM - 6:00 PM, Sat 10:00 AM - 3:00 PM, Sun Closed |
 
 ---
 
@@ -126,8 +126,8 @@ Lower impact but easy wins for NAP consistency.
 After claiming all listings, audit for consistency:
 
 - [ ] Business name is **exactly** "Texas Home Outlet" everywhere (no "THO", no "Texas Home Outlets")
-- [ ] Street address format matches (e.g., "FM 2100" vs "Farm-to-Market 2100" — pick one)
-- [ ] Phone number format is consistent (e.g., (281) 555-1234 vs 281-555-1234 — pick one)
+- [ ] Street address format matches the NAP row above (10685 FM 1960 East — do not swap in a different road)
+- [ ] Phone number format matches the NAP row above ((281) 324-3020 — use that same format everywhere)
 - [ ] Website URL uses **www.texashomeoutlet.com** (not non-www, not http)
 - [ ] Category is "Manufactured Home Dealer" (not just "Home Dealer" or "Real Estate")
 - [ ] Hours match across all platforms

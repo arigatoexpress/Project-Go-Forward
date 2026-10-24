@@ -1,6 +1,6 @@
 # Store hours and the search listing
 
-This note is for the Texas Home Outlet team. Ask the owner when the hours need to change. You do not edit the website files yourself.
+This note is for the Texas Home Outlet team. Ask your manager when the hours need to change. You do not edit the website files yourself.
 
 ## Where the hours live
 
@@ -25,18 +25,18 @@ An hours change has to update four files in the same change. A test fails if any
 
 ## Who to ask
 
-Ask the owner. Tell them the new weekday hours, Saturday hours, and Sunday hours in plain words. They update all four files in one change.
+Ask your manager. Tell them the new weekday hours, Saturday hours, and Sunday hours in plain words. They update all four files in one change.
 
 ## After hours or page wording change
 
-The sitemap has a last updated date for pages (after #423 merges). Search engines use that date to notice a page changed. After the hours change, or after the words on a page change, the owner bumps that date by hand for the pages that changed (after #423 merges). Ask for this in the same request.
+The sitemap has a last updated date for pages (after #423 merges). Search engines use that date to notice a page changed. After the hours change, or after the words on a page change, your manager bumps that date by hand for the pages that changed (after #423 merges). Ask for this in the same request.
 
 ## Steps
 
 1. Write down the new hours for weekdays, Saturday, and Sunday.
-2. Ask the owner to update these four files together: `config.yaml`, the `BUSINESS_HOURS` line in `frontend/src/constants.js`, `docs/content/FAQ.md`, and `tests/test_public_hours.py` (its fixed hours and the FAQ test pin them).
-3. Ask the owner to bump the sitemap last updated date for every page whose hours or wording changed (after #423 merges).
-4. Wait until the owner says the update is on the website.
+2. Ask your manager to update these four files together: `config.yaml`, the `BUSINESS_HOURS` line in `frontend/src/constants.js`, `docs/content/FAQ.md`, and `tests/test_public_hours.py` (its fixed hours and the FAQ test pin them).
+3. Ask your manager to bump the sitemap last updated date for every page whose hours or wording changed (after #423 merges).
+4. Wait until your manager says the update is on the website.
 
 ## How to check it worked
 
