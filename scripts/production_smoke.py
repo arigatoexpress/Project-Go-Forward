@@ -780,8 +780,9 @@ def check_spa_routes(base_url: str, *, timeout: float) -> list[Probe]:
         has_root = 'id="root"' in text
         ok = status == 200 and "text/html" in content_type and has_root
         evidence = f"content_type={content_type}; root={'yes' if has_root else 'no'}"
-        # Surface GET / on its own. Cold candidates make this number noisy;
-        # the deploy warm-up runs first so a healthy candidate stays under 1.5s.
+        # Record GET / timing for the deploy log. This client follows
+        # redirects, so on a candidate host the number includes the public
+        # site. It is not a pass/fail limit.
         if path == "/":
             evidence += f"; latency_ms={elapsed_ms}"
         if not ok:
