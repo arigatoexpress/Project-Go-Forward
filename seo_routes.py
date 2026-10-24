@@ -88,10 +88,10 @@ def _base() -> str:
 _CITY_STATE = f"{business_city()}, {business_state()}"
 PUBLIC_ROUTES = {
     "/": (
-        f"Manufactured Homes for Sale in {_CITY_STATE} | {business_name()}",
+        f"Manufactured Homes for Sale in {business_city()} | {business_name()}",
         f"Browse manufactured and mobile homes for sale at {business_name()} in "
         f"{_CITY_STATE}. Call or text {business_phone()} to confirm price, financing, "
-        f"and availability.",
+        f"availability.",
     ),
     "/inventory": (
         f"Home Inventory in {_CITY_STATE} | {business_name()}",
@@ -100,7 +100,7 @@ PUBLIC_ROUTES = {
     ),
     "/contact": (
         f"Contact {business_name()} — {_CITY_STATE}",
-        f"Visit {business_name()} at {business_address()}. Call {business_phone()}. "
+        f"Visit {business_name()}, {business_address()}. Call {business_phone()}. "
         f"Hours: {business_hours()}.",
     ),
     "/appointments": (
@@ -119,7 +119,7 @@ PUBLIC_ROUTES = {
         f"dealership in {_CITY_STATE} serving the Houston area.",
     ),
     "/financing": (
-        f"Manufactured Home Financing in {_CITY_STATE} | {business_name()}",
+        f"Manufactured Home Financing in {business_city()} | {business_name()}",
         f"Chattel, land-and-home, and FHA, VA, or USDA loans at {business_name()} in "
         f"{_CITY_STATE}. Ask our team for current lender options.",
     ),
@@ -1015,6 +1015,7 @@ def _head_block(
     if noindex:
         parts.append('<meta name="robots" content="noindex" />')
     else:
+        parts.append('<meta name="robots" content="index,follow" />')
         parts.append(f'<link rel="canonical" href="{e(canonical_url)}" />')
         if preload_image:
             # Preload the file once. Width query params are not honored by the

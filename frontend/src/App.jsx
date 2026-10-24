@@ -89,6 +89,7 @@ const StaffHome = lazy(() => import('./pages/StaffHome'));
 // (see scripts/generate_admin_pin_hash.py).
 const ADMIN_PIN_MAXLEN = 64;
 const ADMIN_PAGE_KEYS = new Set(['staff-home', 'analytics', 'crm', 'chat-history', 'documents', 'adstudio', 'system', 'getting-started', 'photos', 'manage-inventory', 'copilot', 'health', 'team']);
+const NOINDEX_PAGE_KEYS = new Set([...ADMIN_PAGE_KEYS, 'staff-sign-in', 'hub', 'not-found']);
 
 // Page loading fallback with skeleton
 const PageLoader = () => (
@@ -1115,13 +1116,15 @@ function App() {
       privacy: `Privacy Policy | ${BUSINESS_NAME}`,
       terms: `Terms of Use | ${BUSINESS_NAME}`,
       about: `About Us | ${BUSINESS_NAME}`,
-      financing: `Manufactured Home Financing in ${BUSINESS_CITY}, ${BUSINESS_STATE} | ${BUSINESS_NAME}`,
+      financing: `Manufactured Home Financing in ${BUSINESS_CITY} | ${BUSINESS_NAME}`,
       faq: `Frequently Asked Questions | ${BUSINESS_NAME}`,
       warranty: `Warranty & Service | ${BUSINESS_NAME}`,
       delivery: `Delivery & Setup | ${BUSINESS_NAME}`,
       locations: LOCATIONS_TITLE,
       'not-found': `Page not found | ${BUSINESS_NAME}`,
     };
+    const noindex = NOINDEX_PAGE_KEYS.has(activePage);
+    const robots = noindex ? 'noindex' : 'index,follow';
     const shortTitles = {
       documents: 'Documents',
       adstudio: pathname.toLowerCase().startsWith('/ad-studio') ? 'Google Ads' : 'Ad Studio',
@@ -1144,6 +1147,7 @@ function App() {
         description: cityLanding.description,
         canonicalPath: cityLanding.path,
         image: '/og-card.png',
+        robots: 'index,follow',
       });
       return;
     }
@@ -1156,6 +1160,7 @@ function App() {
         description: inventoryCategory.description,
         canonicalPath: inventoryCategory.path,
         image: '/og-card.png',
+        robots: 'index,follow',
       });
       return;
     }
@@ -1171,6 +1176,7 @@ function App() {
         description: HOME_DESCRIPTION,
         canonicalPath: '/',
         image: '/og-card.png',
+        robots: 'index,follow',
       });
       return;
     }
@@ -1180,6 +1186,7 @@ function App() {
         description: INVENTORY_DESCRIPTION,
         canonicalPath: '/inventory',
         image: '/og-card.png',
+        robots: 'index,follow',
       });
       return;
     }
@@ -1188,8 +1195,9 @@ function App() {
     applyDocumentHead({
       title: nextTitle,
       description: PUBLIC_DESCRIPTIONS[activePage] || `${BUSINESS_NAME} staff tools.`,
-      canonicalPath: pathname === '/' ? '/' : pathname.replace(/\/+$/, '') || '/',
-      image: fullTitles[activePage] ? '/og-card.png' : undefined,
+      canonicalPath: noindex ? undefined : (pathname === '/' ? '/' : pathname.replace(/\/+$/, '') || '/'),
+      image: !noindex && fullTitles[activePage] ? '/og-card.png' : undefined,
+      robots,
     });
   }, [activePage, pathname]);
 

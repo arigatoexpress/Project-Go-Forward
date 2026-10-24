@@ -81,7 +81,8 @@ describe('App pathname-aware routing', () => {
     window.history.replaceState({}, '', '/');
     const first = render(<ToastProvider><App /></ToastProvider>);
     expect(await screen.findByRole('heading', { level: 1, name: 'Manufactured and Mobile Homes for Sale in Huffman, TX' })).toBeVisible();
-    expect(document.title).toContain('Manufactured Homes for Sale in Huffman, TX');
+    expect(document.title).toBe('Manufactured Homes for Sale in Huffman | Texas Home Outlet');
+    expect(document.querySelector('meta[name="robots"]').getAttribute('content')).toBe('index,follow');
     expect(document.title).not.toContain('Home Inventory');
     first.unmount();
 
@@ -103,7 +104,9 @@ describe('App pathname-aware routing', () => {
       level: 1,
       name: 'Manufactured Home Financing in Huffman, TX',
     })).toBeVisible();
-    expect(document.title).toBe('Manufactured Home Financing in Huffman, TX | Texas Home Outlet');
+    expect(document.title).toBe('Manufactured Home Financing in Huffman | Texas Home Outlet');
+    expect(document.querySelector('meta[name="robots"]').getAttribute('content')).toBe('index,follow');
+    expect(document.querySelector('link[rel="canonical"]').getAttribute('href')).toMatch(/\/financing$/);
   });
 
   it('opens staff sign-in for /ad-studio instead of a 404', async () => {
@@ -113,7 +116,20 @@ describe('App pathname-aware routing', () => {
     expect(await screen.findByRole('heading', { name: 'Staff sign-in' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: /wandered off the lot/i })).not.toBeInTheDocument();
     expect(document.title).toContain('Google Ads');
+    expect(document.querySelector('meta[name="robots"]').getAttribute('content')).toBe('noindex');
+    expect(document.querySelector('link[rel="canonical"]')).toBeNull();
   });
+
+  it.each(['/cart', '/checkout', '/search', '/search-results', '/test'])(
+    'marks %s noindex without a canonical',
+    async (path) => {
+      window.history.replaceState({}, '', path);
+      render(<ToastProvider><App /></ToastProvider>);
+      expect(await screen.findByRole('heading', { name: /wandered off the lot/i })).toBeInTheDocument();
+      expect(document.querySelector('meta[name="robots"]').getAttribute('content')).toBe('noindex');
+      expect(document.querySelector('link[rel="canonical"]')).toBeNull();
+    },
+  );
 
   it('gives a way out when Cancel is pressed on signed-out /ad-studio', async () => {
     window.history.replaceState({}, '', '/ad-studio');
