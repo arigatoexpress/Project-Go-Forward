@@ -39,6 +39,7 @@ import {
   stockId,
   usedHomeMayShowPhoto,
 } from '../utils/listingRoutes';
+import { staticLcpCoversHero, useStaticLcpCoversHero } from '../utils/staticLcp';
 import {
   BUSINESS_NAME,
   BUSINESS_PHONE,
@@ -353,6 +354,10 @@ function InventoryMetric({ icon, label, value, tone = 'accent' }) {
   );
 }
 
+function hasStaticLcpImage() {
+  return staticLcpCoversHero();
+}
+
 function listingHref(home) {
   return listingPath(home) || '';
 }
@@ -432,6 +437,7 @@ function ListingActions({ home, onApply, onGetPrice }) {
 function FeaturedHomeSpotlight({ home, onClick, onGetPrice, onApply }) {
   if (!home) return null;
   const specs = home.specs || {};
+  const staticLcp = hasStaticLcpImage();
   const image = getHomeImage(home);
   const href = listingHref(home);
   return (
@@ -454,8 +460,8 @@ function FeaturedHomeSpotlight({ home, onClick, onGetPrice, onApply }) {
             imgProps={{
               width: 1200,
               height: 800,
-              loading: 'eager',
-              fetchPriority: 'high',
+              loading: staticLcp ? 'lazy' : 'eager',
+              fetchPriority: staticLcp ? 'low' : 'high',
               decoding: 'async',
               sizes: getImageSizes('featured-spotlight'),
             }}
@@ -612,6 +618,9 @@ export default function InventoryBrowse({
   onBookAppointment,
   pathname,
 }) {
+  // False once the server hero errors or never loads, so the original
+  // photo can paint instead of leaving the page on a broken image.
+  const staticLcp = useStaticLcpCoversHero();
   const currentPath = pathname ?? (typeof window !== 'undefined' ? window.location.pathname : '/');
   const routeCategory = getInventoryCategoryRoute(currentPath);
   const cityLanding = getCityLanding(currentPath);
@@ -1018,16 +1027,19 @@ export default function InventoryBrowse({
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[var(--cp-bg)]">
+      <div className={staticLcp ? 'min-h-screen' : 'min-h-screen bg-[var(--cp-bg)]'}>
         {/* Match the loaded hero's mobile/desktop footprint so the inventory
             response does not push the page down and create a large CLS.
             Unique listing URLs keep their H1 during the fetch so hydration
             never flashes the generic Huffman inventory title. */}
-        <section className="border-b border-[var(--cp-border)] bg-[var(--cp-bg-2)]">
+        <section className={`border-b border-[var(--cp-border)] ${staticLcp ? 'relative overflow-hidden' : 'bg-[var(--cp-bg-2)]'}`}>
+          {staticLcp ? (
+            <div className="pointer-events-none absolute inset-0 -z-10 bg-[linear-gradient(90deg,rgba(5,6,8,0.96),rgba(5,6,8,0.74),rgba(5,6,8,0.9))]" />
+          ) : null}
           <div className="mx-auto grid max-w-7xl gap-8 px-4 py-8 sm:px-6 lg:grid-cols-[1.1fr_0.9fr] lg:px-8 lg:py-10">
             <div className="flex min-h-0 flex-col justify-center lg:min-h-[520px]">
               {uniqueHeading ? (
-                <h1 className="mb-4 max-w-3xl text-4xl font-extrabold text-[var(--cp-text)]">
+                <h1 className={`mb-4 max-w-3xl text-4xl font-extrabold ${staticLcp ? 'text-white' : 'text-[var(--cp-text)]'}`}>
                   {uniqueHeading}
                 </h1>
               ) : (
@@ -1046,11 +1058,13 @@ export default function InventoryBrowse({
           </div>
         </section>
         {/* Skeleton cards */}
-        <div className="grid gap-6 p-6 max-w-7xl mx-auto"
-             style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))' }}>
-          {Array.from({ length: 6 }).map((_, i) => (
-            <SkeletonCard key={i} />
-          ))}
+        <div className={staticLcp ? 'bg-[var(--cp-bg)]' : undefined}>
+          <div className="grid gap-6 p-6 max-w-7xl mx-auto"
+               style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))' }}>
+            {Array.from({ length: 6 }).map((_, i) => (
+              <SkeletonCard key={i} />
+            ))}
+          </div>
         </div>
       </div>
     );
@@ -1111,10 +1125,10 @@ export default function InventoryBrowse({
   const heroImage = getHomeImage(heroHome);
 
   return (
-    <div className="min-h-screen bg-[var(--cp-bg)] text-[var(--cp-text)]">
+    <div className={`min-h-screen text-[var(--cp-text)] ${staticLcp ? '' : 'bg-[var(--cp-bg)]'}`}>
       {/* Hero Section */}
-      <section className="relative isolate overflow-hidden border-b border-[var(--cp-border)] bg-[var(--cp-bg)]">
-        {heroImage ? (
+      <section className={`relative isolate overflow-hidden border-b border-[var(--cp-border)] ${staticLcp ? '' : 'bg-[var(--cp-bg)]'}`}>
+        {heroImage && !staticLcp ? (
           <SinglePhoto
             url={heroImage}
             alt=""
@@ -1250,6 +1264,7 @@ export default function InventoryBrowse({
         </div>
       </section>
 
+      <div className={staticLcp ? 'bg-[var(--cp-bg)]' : undefined}>
       <AdminInventoryPanel enabled={adminAuthed} />
 
       {onHomeListing && !loading && !pathListingHome && (
@@ -1509,6 +1524,7 @@ export default function InventoryBrowse({
           onBookAppointment={onBookAppointment}
         />
       )}
+      </div>
     </div>
   );
 }
@@ -1528,7 +1544,7 @@ function ListingPhoto({ url, alt, caption, priority = false, onFailed, fit = 'co
         height={640}
         sizes={getImageSizes('listing-page')}
         loading={priority ? 'eager' : 'lazy'}
-        fetchPriority={priority ? 'high' : 'auto'}
+        fetchPriority={priority ? 'high' : 'low'}
         decoding="async"
         onError={() => {
           setFailed(true);
@@ -1607,7 +1623,7 @@ export function ListingArticle({ home, onGetPrice, onApply }) {
                   alt={listingImageAlt(home, url, index + 1, photos.length, { floorplan: onlyFloorplan })}
                   caption={onlyFloorplan ? 'Floor plan' : ''}
                   fit={onlyFloorplan ? 'contain' : 'cover'}
-                  priority={index === 0}
+                  priority={index === 0 && !hasStaticLcpImage()}
                   onFailed={() => setGalleryState((state) => {
                     if (state.galleryKey !== galleryKey) {
                       return usePlans
