@@ -1,0 +1,105 @@
+name: Candidate gauntlet
+
+# Manual only. This file is not called by Deploy to Cloud Run, so a red run
+# cannot block a candidate deploy. It does not deploy, shift traffic, change
+# IAM, or read a repository secret. The default URL is the stable candidate tag host.
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: Candidate tag origin. Leave blank for the default candidate tag URL.
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: candidate-gauntlet
+  cancel-in-progress: false
+
+jobs:
+  gauntlet:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Resolve candidate origin
+        env:
+          BASE_URL: ${{ inputs.base_url }}
+        run: |
+          set -euo pipefail
+          python3 - << 'PY'
+          import os
+          from scripts.candidate_load_sanity import candidate_origin
+          origin = candidate_origin(os.environ.get("BASE_URL", ""))
+          print(f"Candidate origin: {origin}")
+          path = os.environ["GITHUB_ENV"]
+          with open(path, "a", encoding="utf-8") as handle:
+              handle.write(f"CANDIDATE_ORIGIN={origin}\n")
+          PY
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: e2e/package-lock.json
+
+      - name: Install browser gauntlet dependencies
+        working-directory: e2e
+        run: npm ci
+
+      - name: Install Chromium
+        working-directory: e2e
+        run: npx --no-install playwright install --with-deps chromium
+
+      - name: Run candidate browser gauntlet
+        working-directory: e2e
+        env:
+          BASE_URL: ${{ env.CANDIDATE_ORIGIN }}
+        run: npx --no-install playwright test --config playwright.gauntlet.config.js
+
+      - name: Run candidate load sanity
+        env:
+          BASE_URL: ${{ env.CANDIDATE_ORIGIN }}
+        run: |
+          set -euo pipefail
+          python3 scripts/candidate_load_sanity.py \
+            --base-url "$BASE_URL" \
+            --output gauntlet-load.json
+
+      - name: Publish measured load summary
+        if: always()
+        run: |
+          {
+            echo '## Candidate load sanity'
+            echo
+            echo 'Measured against the candidate tag URL by scripts/candidate_load_sanity.py.'
+            echo 'Thresholds: p95 under 1000 ms, unrecovered 5xx = 0.'
+            echo
+            echo '```json'
+            if [ -f gauntlet-load.json ]; then
+              cat gauntlet-load.json
+            else
+              echo '{"verdict":"not-run"}'
+            fi
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload gauntlet reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: candidate-gauntlet
+          path: |
+            gauntlet-load.json
+            e2e/playwright-report/
+          if-no-files-found: ignore
+          retention-days: 7
