@@ -293,13 +293,28 @@ def _round(value: float) -> float:
     return round(value, 2)
 
 
+def _percentile_latencies(samples: list[Sample]) -> list[float]:
+    """Successful attempts, excluding ones that recovered from an HTTP 5xx.
+
+    ``attempt_get`` leaves ``sample.ok`` true after a 5xx that later returns
+    200. Those samples stay in ``recovered_5xx_count`` and
+    ``recovered_gateway_html_count`` and out of p50/p95. See
+    docs/CANDIDATE_GAUNTLET.md.
+    """
+    return sorted(
+        sample.elapsed_ms
+        for sample in samples
+        if sample.ok and not sample.recovered_5xx and not sample.recovered_gateway_html
+    )
+
+
 def _path_stats(samples: list[Sample]) -> dict[str, dict[str, float | int]]:
     grouped: dict[str, list[Sample]] = {}
     for sample in samples:
         grouped.setdefault(sample.path, []).append(sample)
     stats: dict[str, dict[str, float | int]] = {}
     for path, group in grouped.items():
-        latencies = sorted(sample.elapsed_ms for sample in group if sample.ok)
+        latencies = _percentile_latencies(group)
         stats[path] = {
             "count": len(group),
             "success_count": len(latencies),
@@ -335,7 +350,7 @@ def summarize(
     slots_date: str,
     warmup_failed: bool,
 ) -> dict[str, object]:
-    latencies = sorted(sample.elapsed_ms for sample in samples if sample.ok)
+    latencies = _percentile_latencies(samples)
     p50 = percentile(latencies, 50)
     p95 = percentile(latencies, 95)
     status_5xx = sum(1 for sample in samples if sample.unrecovered_5xx)
@@ -344,13 +359,17 @@ def summarize(
     unexpected = sum(1 for sample in samples if sample.unexpected_status)
     recovered_gateway = sum(1 for sample in samples if sample.recovered_gateway_html)
     recovered_5xx = sum(1 for sample in samples if sample.recovered_5xx)
+    # A recovered 5xx is still a success. Fail closed only when nothing
+    # succeeded, not when the percentile sample is empty because every
+    # success had to recover.
+    succeeded = any(sample.ok for sample in samples)
     failed = (
         warmup_failed
         or status_5xx > MAX_UNRECOVERED_5XX
         or transport_errors > 0
         or redirects > 0
         or unexpected > 0
-        or not latencies
+        or not succeeded
         or p95 >= P95_BUDGET_MS
     )
     return {

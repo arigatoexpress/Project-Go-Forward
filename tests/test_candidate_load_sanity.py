@@ -22,6 +22,7 @@ from scripts.candidate_load_sanity import (
     MAX_UNRECOVERED_5XX,
     P95_BUDGET_MS,
     Response,
+    Sample,
     TargetRejected,
     TransportError,
     attempt_get,
@@ -32,6 +33,7 @@ from scripts.candidate_load_sanity import (
     read_paths,
     run_load,
     slots_query_date,
+    summarize,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -278,6 +280,115 @@ def test_p95_at_the_budget_fails():
     assert report["p95_ms"] == P95_BUDGET_MS
     assert report["verdict"] == "FAIL"
     assert report["measured_against"] == "loopback"
+
+
+def _recovered_5xx(
+    status: int, body: bytes, content_type: str, success_ms: float, *, path: str
+) -> Sample:
+    """One transient 5xx, then a 200 whose latency is the counted attempt."""
+    calls = {"n": 0}
+
+    def fetch(origin, request_path, timeout):
+        assert origin == CANDIDATE
+        assert request_path == path
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return Response(status, body, content_type, "", 11)
+        return Response(200, b"ok", "text/plain", "", success_ms)
+
+    sample = attempt_get(CANDIDATE, path, fetch=fetch, sleep=lambda _seconds: None, timeout=1)
+    assert calls["n"] == 2
+    assert sample.ok
+    assert sample.elapsed_ms == success_ms
+    assert sample.unrecovered_5xx is False
+    return sample
+
+
+def test_recovered_5xx_is_excluded_from_p95_and_still_counted():
+    """A slow successful retry must not pull an otherwise passing p95 over budget.
+
+    ``attempt_get`` keeps ``sample.ok`` true after the recovery. The percentile
+    filter has to drop that sample itself. Gateway HTML and a plain HTTP 500
+    are both recovered 5xx.
+    """
+    gateway = _recovered_5xx(502, GFE_HTML, "text/html; charset=UTF-8", 2500, path="/staff")
+    plain = _recovered_5xx(500, b'{"error":"nope"}', "application/json", 1800, path="/healthz/")
+    assert gateway.recovered_gateway_html and gateway.recovered_5xx
+    assert plain.recovered_5xx and not plain.recovered_gateway_html
+    assert gateway.elapsed_ms > P95_BUDGET_MS
+    assert plain.elapsed_ms > P95_BUDGET_MS
+
+    clean = [40.0, 50.0, 60.0, 70.0]
+    samples = [
+        Sample("/staff", 200, clean[0]),
+        Sample("/staff", 200, clean[1]),
+        Sample("/healthz/", 200, clean[2]),
+        Sample("/healthz/", 200, clean[3]),
+        gateway,
+        plain,
+    ]
+    report = summarize(
+        CANDIDATE,
+        samples,
+        [Sample("/staff", 200, 10), Sample("/healthz/", 200, 10)],
+        duration_s=30,
+        concurrency=2,
+        target_rps=2,
+        slots_date="2026-10-26",
+        warmup_failed=False,
+    )
+
+    assert report["verdict"] == "PASS"
+    assert report["failed"] is False
+    assert report["status_5xx_count"] == 0
+    assert report["recovered_5xx_count"] == 2
+    assert report["recovered_gateway_html_count"] == 1
+    assert report["total_requests"] == 6
+    assert report["success_count"] == 4
+    assert report["p50_ms"] == round(percentile(clean, 50), 2)
+    assert report["p95_ms"] == round(percentile(clean, 95), 2)
+    assert report["p95_ms"] < P95_BUDGET_MS
+    assert report["max_ms"] == 70
+
+    staff = report["per_path"]["/staff"]
+    assert staff["count"] == 3
+    assert staff["success_count"] == 2
+    assert staff["status_5xx_count"] == 0
+    assert staff["p95_ms"] == round(percentile([40.0, 50.0], 95), 2)
+    assert staff["max_ms"] == 50
+
+    healthz = report["per_path"]["/healthz/"]
+    assert healthz["count"] == 3
+    assert healthz["success_count"] == 2
+    assert healthz["status_5xx_count"] == 0
+    assert healthz["p95_ms"] == round(percentile([60.0, 70.0], 95), 2)
+    assert healthz["max_ms"] == 70
+
+
+def test_only_recovered_samples_do_not_fail_the_latency_budget():
+    recovered = _recovered_5xx(502, GFE_HTML, "text/html; charset=UTF-8", 5000, path="/staff")
+    report = summarize(
+        CANDIDATE,
+        [recovered],
+        [Sample("/staff", 200, 10)],
+        duration_s=30,
+        concurrency=1,
+        target_rps=1,
+        slots_date="2026-10-26",
+        warmup_failed=False,
+    )
+
+    assert recovered.ok
+    assert report["verdict"] == "PASS"
+    assert report["status_5xx_count"] == 0
+    assert report["recovered_5xx_count"] == 1
+    assert report["recovered_gateway_html_count"] == 1
+    assert report["success_count"] == 0
+    assert report["p95_ms"] == 0
+    assert report["max_ms"] == 0
+    assert report["per_path"]["/staff"]["count"] == 1
+    assert report["per_path"]["/staff"]["success_count"] == 0
+    assert report["per_path"]["/staff"]["p95_ms"] == 0
 
 
 class _StopAfter:
