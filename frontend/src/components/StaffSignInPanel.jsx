@@ -193,7 +193,7 @@ export default function StaffSignInPanel({
           <Lock size={24} className="text-[var(--cp-accent)]" />
         </div>
       </div>
-      <h2 className="text-3xl font-bold text-center text-[var(--cp-text)] mb-3">Staff sign-in</h2>
+      <h1 className="text-3xl font-bold text-center text-[var(--cp-text)] mb-3">Staff sign-in</h1>
       <ol className="text-lg text-[var(--cp-text)] mb-6 leading-relaxed list-decimal pl-6 space-y-1">
         <li>Type your work email.</li>
         <li>Open that email on this phone or computer.</li>

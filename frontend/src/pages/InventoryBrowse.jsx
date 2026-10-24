@@ -1127,7 +1127,11 @@ export default function InventoryBrowse({
   return (
     <div className={`min-h-screen text-[var(--cp-text)] ${staticLcp ? '' : 'bg-[var(--cp-bg)]'}`}>
       {/* Hero Section */}
-      <section className={`relative isolate overflow-hidden border-b border-[var(--cp-border)] ${staticLcp ? '' : 'bg-[var(--cp-bg)]'}`}>
+      {/* #050608 matches the hero gradient. White type is measured against this
+          opaque base, not the photograph behind it. While the server-painted
+          hero is showing, leave the section transparent so that image stays
+          the first paint. */}
+      <section className={`relative isolate overflow-hidden border-b border-[var(--cp-border)] ${staticLcp ? '' : 'bg-[#050608]'}`}>
         {heroImage && !staticLcp ? (
           <SinglePhoto
             url={heroImage}
