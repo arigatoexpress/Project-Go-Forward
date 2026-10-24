@@ -36,6 +36,13 @@ function paintLcp({ src = '/api/inventory/lcp-image', complete = false, naturalW
   return painted;
 }
 
+// The inventory H1 is also painted by the loading skeleton, before homes
+// arrive. The background hero and the featured photo exist only after that
+// fetch, so wait for a control the skeleton does not render.
+async function whenInventoryLoaded() {
+  await screen.findByRole('textbox', { name: 'Search homes' });
+}
+
 describe('inventory hero when the server already painted LCP', () => {
   beforeEach(() => {
     window.localStorage.clear();
@@ -61,7 +68,8 @@ describe('inventory hero when the server already painted LCP', () => {
     document.body.appendChild(painted);
     render(<InventoryBrowse pathname="/inventory" />);
 
-    expect(await screen.findByRole('heading', { name: /Home Inventory in / })).toBeTruthy();
+    await whenInventoryLoaded();
+    expect(screen.getByRole('heading', { name: /Home Inventory in / })).toBeTruthy();
     expect(document.getElementById('tho-lcp')).not.toBeNull();
     const competing = [...document.querySelectorAll('img[fetchpriority="high"]')]
       .filter((img) => img.id !== 'tho-lcp');
@@ -78,7 +86,7 @@ describe('inventory hero when the server already painted LCP', () => {
     const painted = paintLcp();
     render(<InventoryBrowse pathname="/inventory" />);
 
-    expect(await screen.findByRole('heading', { name: /Home Inventory in / })).toBeTruthy();
+    await whenInventoryLoaded();
     expect(backgroundHero()).toBeNull();
     fireEvent.load(painted);
     expect(backgroundHero()).toBeNull();
@@ -91,7 +99,7 @@ describe('inventory hero when the server already painted LCP', () => {
     const painted = paintLcp();
     render(<InventoryBrowse pathname="/inventory" />);
 
-    expect(await screen.findByRole('heading', { name: /Home Inventory in / })).toBeTruthy();
+    await whenInventoryLoaded();
     expect(backgroundHero()).toBeNull();
     fireEvent.error(painted);
 
@@ -107,7 +115,7 @@ describe('inventory hero when the server already painted LCP', () => {
     const painted = paintLcp({ complete: true, naturalWidth: 0 });
     render(<InventoryBrowse pathname="/inventory" />);
 
-    expect(await screen.findByRole('heading', { name: /Home Inventory in / })).toBeTruthy();
+    await whenInventoryLoaded();
     const hero = backgroundHero();
     expect(hero).not.toBeNull();
     expect(hero.getAttribute('src')).toBe(HERO);
@@ -124,6 +132,14 @@ describe('inventory hero when the server already painted LCP', () => {
       await vi.advanceTimersByTimeAsync(1);
     });
     expect(screen.getByRole('heading', { name: /Home Inventory in / })).toBeTruthy();
+    expect(backgroundHero()).toBeNull();
+    expect(painted.hidden).toBe(false);
+
+    await act(async () => {
+      // Stay inside the stall window, but let a slow inventory response land.
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    expect(screen.getByRole('textbox', { name: 'Search homes' })).toBeTruthy();
     expect(backgroundHero()).toBeNull();
     expect(painted.hidden).toBe(false);
 
@@ -148,9 +164,16 @@ describe('inventory hero when the server already painted LCP', () => {
     });
     fireEvent.load(painted);
     await act(async () => {
+      // Stay inside the stall window, but let a slow inventory response land.
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+    expect(screen.getByRole('textbox', { name: 'Search homes' })).toBeTruthy();
+    expect(backgroundHero()).toBeNull();
+    await act(async () => {
       await vi.advanceTimersByTimeAsync(STATIC_LCP_STALL_MS);
     });
 
+    expect(screen.getByRole('textbox', { name: 'Search homes' })).toBeTruthy();
     expect(backgroundHero()).toBeNull();
     expect(painted.hidden).toBe(false);
     expect(painted.getAttribute('data-lcp-failed')).toBeNull();
@@ -165,6 +188,7 @@ describe('inventory hero when the server already painted LCP', () => {
     const painted = paintLcp();
     render(<InventoryBrowse pathname={path} />);
 
+    // Skeleton H1 is the slug ("Tru Dogwood"), not the loaded model name.
     expect(await screen.findByRole('heading', { level: 1, name: 'Tru / Dogwood' })).toBeTruthy();
     expect(backgroundHero()).toBeNull();
     const articlePhoto = document.querySelector('article img');
