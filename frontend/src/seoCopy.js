@@ -51,6 +51,90 @@ export function categoryDescription(classification) {
   );
 }
 
+// Per-home listing titles. Keep in step with seo_routes._listing_document_title.
+// City and state drop first, then a trailing stock code, then a long series
+// banner. A model name that still does not fit is cut on a word boundary.
+const LISTING_TITLE_LIMIT = 60;
+const LISTING_DESCRIPTION_LIMIT = 155;
+const ELLIPSIS = '…';
+
+function collapseWs(value) {
+  return String(value || '').split(/\s+/).filter(Boolean).join(' ');
+}
+
+function clipOnWord(value, limit) {
+  const text = collapseWs(value);
+  if (limit <= 0) return '';
+  if (text.length <= limit) return text;
+  if (limit === 1) return ELLIPSIS;
+  const budget = limit - ELLIPSIS.length;
+  let cut = text.slice(0, budget).trimEnd();
+  const space = cut.lastIndexOf(' ');
+  if (space >= Math.max(8, Math.floor(budget / 2))) {
+    cut = cut.slice(0, space);
+  }
+  cut = cut.replace(/[\s\-–—/|,;:]+$/u, '');
+  if (!cut) {
+    cut = text.slice(0, budget).replace(/[\s\-–—/|,;:]+$/u, '') || text.slice(0, budget);
+  }
+  return `${cut}${ELLIPSIS}`;
+}
+
+function withoutTrailingCodes(text) {
+  const words = collapseWs(text).split(' ');
+  let changed = false;
+  while (words.length > 1 && /\d/.test(words[words.length - 1])) {
+    words.pop();
+    changed = true;
+  }
+  if (!changed) return '';
+  return words.join(' ').replace(/[\s\-–—/|,;:]+$/u, '');
+}
+
+function fitListingName(name, limit) {
+  const clean = collapseWs(name);
+  if (clean.length <= limit) return clean;
+  const trimmed = withoutTrailingCodes(clean);
+  if (trimmed && trimmed.length <= limit) return trimmed;
+  const source = trimmed || clean;
+  if (source.includes('/')) {
+    const segment = source.split('/').pop().trim().replace(/[\s\-–—/|,;:]+$/u, '');
+    if (segment && segment.length <= limit) return segment;
+  }
+  return clipOnWord(source, limit);
+}
+
+export function listingDocumentTitle(modelName) {
+  const name = collapseWs(modelName) || 'Manufactured Home';
+  const brand = BUSINESS_NAME;
+  const withPlace = `${name} — ${brand}, ${BUSINESS_CITY}, ${BUSINESS_STATE}`;
+  if (withPlace.length <= LISTING_TITLE_LIMIT) return withPlace;
+  const suffix = ` — ${brand}`;
+  if (suffix.length < LISTING_TITLE_LIMIT && name.length + suffix.length <= LISTING_TITLE_LIMIT) {
+    return `${name}${suffix}`;
+  }
+  if (suffix.length >= LISTING_TITLE_LIMIT) return clipOnWord(`${name}${suffix}`, LISTING_TITLE_LIMIT);
+  return `${fitListingName(name, LISTING_TITLE_LIMIT - suffix.length)}${suffix}`;
+}
+
+export function listingMetaDescription(modelName, bits) {
+  const name = collapseWs(modelName) || 'Manufactured home';
+  const tail = `at ${BUSINESS_NAME} in ${BUSINESS_CITY}, ${BUSINESS_STATE}. Call ${BUSINESS_PHONE}.`;
+  const kept = (Array.isArray(bits) ? bits : [])
+    .map((bit) => String(bit || '').trim())
+    .filter(Boolean);
+  while (kept.length) {
+    const description = `${name} (${kept.join(', ')}) ${tail}`;
+    if (description.length <= LISTING_DESCRIPTION_LIMIT) return description;
+    kept.pop();
+  }
+  const bare = `${name} ${tail}`;
+  if (bare.length <= LISTING_DESCRIPTION_LIMIT) return bare;
+  const room = LISTING_DESCRIPTION_LIMIT - tail.length - 1;
+  if (room < 1) return clipOnWord(bare, LISTING_DESCRIPTION_LIMIT);
+  return `${clipOnWord(name, room)} ${tail}`;
+}
+
 export const PUBLIC_DESCRIPTIONS = {
   contact:
     `Visit ${BUSINESS_NAME}, ${BUSINESS_FULL_ADDRESS}. Call ${BUSINESS_PHONE}. `
