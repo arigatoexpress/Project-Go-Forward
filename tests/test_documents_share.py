@@ -15,11 +15,16 @@ import sys
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import pytest
 from fastapi.testclient import TestClient
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
+
+# Every test here except the static AST guard stubs google.cloud.storage.Client;
+# skip the whole file in dependency-minimal environments (no google-cloud-storage).
+pytest.importorskip("google.cloud.storage")
 
 
 # Reuse the heavyweight stub harness from test_api_v1 to load main.py

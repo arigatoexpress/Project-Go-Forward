@@ -13,12 +13,13 @@ import os
 import sys
 import types
 
-import pandas as pd
 import pytest
+
+pd = pytest.importorskip("pandas")
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from tools.inventory_master_catalog import (
+from tools.inventory_master_catalog import (  # noqa: E402
     CatalogRow,
     _clean_text,
     _parse_size,

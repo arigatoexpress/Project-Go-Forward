@@ -17,6 +17,7 @@ All Google seams are faked in-process (no network):
 
 from __future__ import annotations
 
+import importlib.util
 import logging
 import re
 import runpy
@@ -27,8 +28,16 @@ from unittest.mock import MagicMock
 
 import pytest
 
-import tools.drive_floorplan_sync as sync
-import tools.drive_service as drive
+# The Drive seams under test resolve googleapiclient.discovery / .http at call
+# time (real package patched in-test), so these tests need google-api-python-client
+# installed; skip them in dependency-minimal environments instead of failing.
+_HAS_GOOGLEAPICLIENT = importlib.util.find_spec("googleapiclient") is not None
+requires_googleapiclient = pytest.mark.skipif(
+    not _HAS_GOOGLEAPICLIENT, reason="google-api-python-client is not installed"
+)
+
+import tools.drive_floorplan_sync as sync  # noqa: E402
+import tools.drive_service as drive  # noqa: E402
 
 SCRIPT = Path(sync.__file__)
 
@@ -163,6 +172,7 @@ def test_upload_to_drive_kill_switch_skips_everything(monkeypatch, flag):
         ("photo.png", "image/png"),
     ],
 )
+@requires_googleapiclient
 def test_upload_to_drive_success_mimetypes(monkeypatch, tmp_path, filename, expected_mime):
     monkeypatch.delenv("THO_DISABLE_DRIVE_MIRRORING", raising=False)
     svc = MagicMock()
@@ -264,6 +274,7 @@ def test_ensure_deal_folder_api_error_returns_none(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
+@requires_googleapiclient
 def test_drive_service_constructs_with_readonly_scope(monkeypatch):
     import google.auth
     import googleapiclient.discovery
@@ -347,6 +358,7 @@ def test_walk_skips_non_manufacturer_folder_and_non_floorplan_mime(monkeypatch):
     assert list(sync.walk_tho_folder(object(), "root")) == []
 
 
+@requires_googleapiclient
 def test_download_to_cache_fresh_download(monkeypatch, tmp_path):
     monkeypatch.setattr(sync, "LOCAL_CACHE", tmp_path)
     monkeypatch.setattr("googleapiclient.http.MediaIoBaseDownload", _FakeDownloader)
@@ -360,6 +372,7 @@ def test_download_to_cache_fresh_download(monkeypatch, tmp_path):
     svc.files.return_value.get_media.assert_called_once_with(fileId="drive-1")
 
 
+@requires_googleapiclient
 def test_download_to_cache_hit_skips_download(monkeypatch, tmp_path):
     file = _drive_file(size_bytes=4)
     target = _write_cached(file, b"data", monkeypatch, tmp_path)
@@ -374,6 +387,7 @@ def test_download_to_cache_hit_skips_download(monkeypatch, tmp_path):
     assert target.read_bytes() == b"data"
 
 
+@requires_googleapiclient
 def test_download_to_cache_size_mismatch_redownloads(monkeypatch, tmp_path):
     file = _drive_file(size_bytes=4)
     target = _write_cached(file, b"stale-content", monkeypatch, tmp_path)
@@ -426,6 +440,7 @@ def _sync_fixture(monkeypatch, tmp_path, file):
     monkeypatch.setattr("googleapiclient.http.MediaIoBaseDownload", _FakeDownloader)
 
 
+@requires_googleapiclient
 def test_run_sync_apply_uploads_new_blob(monkeypatch, tmp_path):
     file = _drive_file()
     _sync_fixture(monkeypatch, tmp_path, file)
@@ -450,6 +465,7 @@ def test_run_sync_apply_uploads_new_blob(monkeypatch, tmp_path):
     blob.upload_from_filename.assert_called_once()
 
 
+@requires_googleapiclient
 def test_run_sync_apply_skips_upload_on_md5_match(monkeypatch, tmp_path):
     import base64
     import hashlib
@@ -473,6 +489,7 @@ def test_run_sync_apply_skips_upload_on_md5_match(monkeypatch, tmp_path):
     blob.upload_from_filename.assert_not_called()
 
 
+@requires_googleapiclient
 def test_run_sync_captures_upload_errors(monkeypatch, tmp_path):
     file = _drive_file()
     _sync_fixture(monkeypatch, tmp_path, file)
@@ -493,6 +510,7 @@ def test_run_sync_captures_upload_errors(monkeypatch, tmp_path):
     assert stats["errors"][0]["file"] == file.gcs_object_key
 
 
+@requires_googleapiclient
 def test_run_sync_apply_without_gcs_bucket_skips_upload(monkeypatch, tmp_path):
     file = _drive_file()
     _sync_fixture(monkeypatch, tmp_path, file)
@@ -571,6 +589,7 @@ def _run_main(monkeypatch, tmp_path, argv):
     return exc_info.value.code, svc
 
 
+@requires_googleapiclient
 def test_main_dry_run_lists_files(monkeypatch, tmp_path, capsys):
     code, _svc = _run_main(monkeypatch, tmp_path, ["--folder-id", "root", "--dry-run"])
 
@@ -582,6 +601,7 @@ def test_main_dry_run_lists_files(monkeypatch, tmp_path, capsys):
     assert "2048 B" in out
 
 
+@requires_googleapiclient
 def test_main_apply_downloads_and_uploads(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr("googleapiclient.http.MediaIoBaseDownload", _FakeDownloader)
     blob = MagicMock()
@@ -602,6 +622,7 @@ def test_main_apply_downloads_and_uploads(monkeypatch, tmp_path, capsys):
     assert cached.read_bytes() == b"%PDF-fake"
 
 
+@requires_googleapiclient
 def test_main_apply_exits_nonzero_on_errors(monkeypatch, tmp_path, capsys):
     monkeypatch.setattr("googleapiclient.http.MediaIoBaseDownload", _BoomDownloader)
     _patch_gcs_client(monkeypatch, MagicMock(name="bucket"))
@@ -614,6 +635,7 @@ def test_main_apply_exits_nonzero_on_errors(monkeypatch, tmp_path, capsys):
     assert "download" in out
 
 
+@requires_googleapiclient
 def test_main_requires_dry_run_or_apply(monkeypatch, tmp_path):
     code, _svc = _run_main(monkeypatch, tmp_path, ["--folder-id", "root"])
     assert code == 2  # argparse parser.error
