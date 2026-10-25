@@ -1304,6 +1304,122 @@ def _listing_display_price(home: dict) -> str:
     return visible
 
 
+# Same caps as PUBLIC_ROUTES. City and state drop first, then a trailing stock
+# code, then a long series banner. A name that still does not fit is cut on a
+# word boundary so the brand stays whole.
+_LISTING_TITLE_LIMIT = 60
+_LISTING_DESCRIPTION_LIMIT = 155
+_ELLIPSIS = "…"
+_CLIP_TRAILING = " -–—/|,;:"
+
+
+def _collapse_ws(value: object) -> str:
+    return " ".join(str(value or "").split())
+
+
+def _clip_on_word(value: object, limit: int) -> str:
+    """Fit text to limit. A cut keeps a whole word and ends with an ellipsis."""
+    text = _collapse_ws(value)
+    if limit <= 0:
+        return ""
+    if len(text) <= limit:
+        return text
+    if limit == 1:
+        return _ELLIPSIS
+    budget = limit - len(_ELLIPSIS)
+    cut = text[:budget].rstrip()
+    space = cut.rfind(" ")
+    if space >= max(8, budget // 2):
+        cut = cut[:space]
+    cut = cut.rstrip(_CLIP_TRAILING)
+    if not cut:
+        cut = text[:budget].rstrip(_CLIP_TRAILING) or text[:budget]
+    return cut + _ELLIPSIS
+
+
+def _listing_model_label(model_name: object, *, fallback: str) -> str:
+    return _collapse_ws(model_name) or fallback
+
+
+def _without_trailing_codes(text: str) -> str | None:
+    """Drop a trailing stock/serial token. Leave the name alone when there is none."""
+    words = _collapse_ws(text).split()
+    changed = False
+    while len(words) > 1 and any(ch.isdigit() for ch in words[-1]):
+        words.pop()
+        changed = True
+    if not changed:
+        return None
+    return " ".join(words).rstrip(_CLIP_TRAILING)
+
+
+def _fit_listing_name(name: str, limit: int) -> str:
+    """Shorten a model name that does not fit beside the brand.
+
+    A trailing stock code goes first, then a long series banner. What is left
+    is cut on a word boundary.
+    """
+    name = _collapse_ws(name)
+    if len(name) <= limit:
+        return name
+    trimmed = _without_trailing_codes(name)
+    if trimmed and len(trimmed) <= limit:
+        return trimmed
+    source = trimmed or name
+    if "/" in source:
+        segment = source.split("/")[-1].strip().rstrip(_CLIP_TRAILING)
+        if segment and len(segment) <= limit:
+            return segment
+    return _clip_on_word(source, limit)
+
+
+def _listing_document_title(model_name: object) -> str:
+    """Title for one home: model name, then brand, then city."""
+    name = _listing_model_label(model_name, fallback="Manufactured Home")
+    brand = business_name()
+    with_place = f"{name} — {brand}, {_CITY_STATE}"
+    if len(with_place) <= _LISTING_TITLE_LIMIT:
+        return with_place
+    suffix = f" — {brand}"
+    if len(suffix) < _LISTING_TITLE_LIMIT and len(name) + len(suffix) <= _LISTING_TITLE_LIMIT:
+        return name + suffix
+    if len(suffix) >= _LISTING_TITLE_LIMIT:
+        return _clip_on_word(name + suffix, _LISTING_TITLE_LIMIT)
+    return _fit_listing_name(name, _LISTING_TITLE_LIMIT - len(suffix)) + suffix
+
+
+def _listing_spec_bits(home: dict) -> list[str]:
+    specs = home.get("specs") or {}
+    candidates = (
+        f"{specs.get('beds')} bed" if specs.get("beds") else None,
+        f"{specs.get('baths')} bath" if specs.get("baths") else None,
+        specs.get("dimensions"),
+        home.get("manufacturer"),
+        _listing_display_price(home),
+    )
+    return [str(bit).strip() for bit in candidates if bit and str(bit).strip()]
+
+
+def _listing_meta_description(model_name: object, bits, *, for_sale: bool = False) -> str:
+    """Existing listing sentence, with spec bits dropped from the end to fit."""
+    name = _listing_model_label(model_name, fallback="Manufactured home")
+    relation = "for sale at" if for_sale else "at"
+    tail = f"{relation} {business_name()} in {_CITY_STATE}. Call {business_phone()}."
+    kept = [str(bit).strip() for bit in bits if bit and str(bit).strip()]
+    while kept:
+        description = f"{name} ({', '.join(kept)}) {tail}"
+        if len(description) <= _LISTING_DESCRIPTION_LIMIT:
+            return description
+        kept.pop()
+    bare = f"{name} {tail}"
+    if len(bare) <= _LISTING_DESCRIPTION_LIMIT:
+        return bare
+    room = _LISTING_DESCRIPTION_LIMIT - len(tail) - 1
+    if room < 1:
+        return _clip_on_word(bare, _LISTING_DESCRIPTION_LIMIT)
+    return f"{_clip_on_word(name, room)} {tail}"
+
+
 def _price_list_item(home: dict) -> str:
     """Crawlable price line. Unpriced homes include the showroom phone."""
     e = html.escape
@@ -2189,25 +2305,11 @@ def _render_spa_response(full_path: str) -> Response | None:
         if canonical_path and unquote(path) != unquote(canonical_path):
             return RedirectResponse(canonical_path, status_code=301)
         canonical_url = base + (canonical_path or path)
-        title = (
-            f"{home.get('model_name') or 'Manufactured Home'} — {business_name()}, {_CITY_STATE}"
+        title = _listing_document_title(home.get("model_name"))
+        description = _listing_meta_description(
+            home.get("model_name"),
+            _listing_spec_bits(home),
         )
-        specs = home.get("specs") or {}
-        desc_bits = ", ".join(
-            str(x)
-            for x in (
-                f"{specs.get('beds')} bed" if specs.get("beds") else None,
-                f"{specs.get('baths')} bath" if specs.get("baths") else None,
-                specs.get("dimensions"),
-                home.get("manufacturer"),
-                _listing_display_price(home),
-            )
-            if x
-        )
-        description = (
-            f"{home.get('model_name', 'Manufactured home')} ({desc_bits}) at "
-            f"{business_name()} in {_CITY_STATE}. Call {business_phone()}."
-        )[:300]
         images = listing_page_images(home)
         image_alt = _listing_image_alt(home, images[0], 1, len(images)) if images else None
         lcp_href = _inventory_lcp_href()
@@ -2287,25 +2389,12 @@ def _render_spa_response(full_path: str) -> Response | None:
         if unquote(raw_path) != unquote(canonical_path):
             return RedirectResponse(canonical_path, status_code=301)
         canonical_url = base + canonical_path
-        title = (
-            f"{home.get('model_name') or 'Manufactured Home'} — {business_name()}, {_CITY_STATE}"
+        title = _listing_document_title(home.get("model_name"))
+        description = _listing_meta_description(
+            home.get("model_name"),
+            _listing_spec_bits(home),
+            for_sale=True,
         )
-        specs = home.get("specs") or {}
-        desc_bits = ", ".join(
-            str(x)
-            for x in (
-                f"{specs.get('beds')} bed" if specs.get("beds") else None,
-                f"{specs.get('baths')} bath" if specs.get("baths") else None,
-                specs.get("dimensions"),
-                home.get("manufacturer"),
-                _listing_display_price(home),
-            )
-            if x
-        )
-        description = (
-            f"{home.get('model_name', 'Manufactured home')} ({desc_bits}) for sale at "
-            f"{business_name()} in {_CITY_STATE}. Call {business_phone()}."
-        )[:300]
         lcp_href = _inventory_lcp_href()
         head = _head_block(
             title,

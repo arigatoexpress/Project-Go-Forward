@@ -1901,6 +1901,114 @@ def test_storefront_pages_link_home_inventory_listings_and_locations(monkeypatch
     assert 'href="/manufactured-homes-in-huffman-tx"' in listing
 
 
+_LONG_LISTING_MODEL = (
+    "The Promotional Series / The Exceptionally Long Model Name "
+    "That Should Never Fit In A Browser Title FAC99999XYZ"
+)
+
+
+def test_listing_titles_stay_within_60_characters(monkeypatch):
+    """Per-home titles stay <= 60, including a pathologically long model name.
+
+    City and state drop first, then a trailing stock code, then a long series
+    banner. A name that still does not fit is cut on a word boundary. The
+    brand stays intact. Descriptions from the same sentence stay <= 155.
+    """
+    import seo_routes
+
+    assert seo_routes._listing_document_title("PRE-OWNED / Big Blue") == (
+        "PRE-OWNED / Big Blue — Texas Home Outlet, Huffman, TX"
+    )
+    creole = seo_routes._listing_document_title("Premier / Creole 3256H32447")
+    assert creole == "Premier / Creole 3256H32447 — Texas Home Outlet, Huffman, TX"
+    assert len(creole) == 60
+    assert seo_routes._listing_document_title("Premier / The Dauphine 3260-H-32005") == (
+        "Premier / The Dauphine 3260-H-32005 — Texas Home Outlet"
+    )
+    assert (
+        seo_routes._listing_document_title("The Promotional Series / The Rosewood FAC28644A")
+        == "The Promotional Series / The Rosewood — Texas Home Outlet"
+    )
+    assert (
+        seo_routes._listing_document_title("The Elite Series / The Eisenhower ELT32603A")
+        == "The Elite Series / The Eisenhower — Texas Home Outlet"
+    )
+    assert (
+        seo_routes._listing_document_title("NEW YEAR CLEARANCE SALE / TRU Single Section Delight")
+        == "TRU Single Section Delight — Texas Home Outlet"
+    )
+    monster = seo_routes._listing_document_title("X" * 80)
+    assert monster == ("X" * 39) + "… — Texas Home Outlet"
+    assert len(monster) <= 60
+
+    long_title = seo_routes._listing_document_title(_LONG_LISTING_MODEL)
+    assert long_title == "The Promotional Series / The… — Texas Home Outlet"
+    assert len(long_title) <= 60
+    assert long_title.endswith("Texas Home Outlet")
+
+    long_description = seo_routes._listing_meta_description(
+        _LONG_LISTING_MODEL,
+        ["4 bed", "2 bath", "32x80", "Champion Homes", "$189,900"],
+        for_sale=True,
+    )
+    assert len(long_description) <= 155
+    assert "Texas Home Outlet" in long_description
+    assert long_description.endswith("Call (281) 324-3020.")
+
+    trimmed_description = seo_routes._listing_meta_description(
+        "The Elite Series / The Lincoln ELS16763B",
+        ["3 bed", "2.0 bath", "16'0\" x 76'0\"", "Jessup Housing", "Call for Price"],
+        for_sale=True,
+    )
+    assert trimmed_description == (
+        "The Elite Series / The Lincoln ELS16763B (3 bed, 2.0 bath, 16'0\" x 76'0\") "
+        "for sale at Texas Home Outlet in Huffman, TX. Call (281) 324-3020."
+    )
+    assert len(trimmed_description) <= 155
+
+    fitting = seo_routes._listing_meta_description(
+        "PRE-OWNED / Big Blue",
+        ["3 bed", "2 bath", "Pre-Owned", "Call for Price"],
+    )
+    assert fitting == (
+        "PRE-OWNED / Big Blue (3 bed, 2 bath, Pre-Owned, Call for Price) "
+        "at Texas Home Outlet in Huffman, TX. Call (281) 324-3020."
+    )
+    assert len(fitting) <= 155
+
+    homes = [{**FAKE_HOMES[0], "model_name": _LONG_LISTING_MODEL}, *FAKE_HOMES[1:]]
+    client, _ = seo_client(monkeypatch)
+    monkeypatch.setattr(seo_routes, "_get_homes", lambda: homes)
+    monkeypatch.setattr(seo_routes, "_registry_cache", None)
+    monkeypatch.setattr(seo_routes, "_registry_built_at", 0.0)
+
+    for path in (
+        "/inventory-detail/43372/texas-home-outlet/huffman/premier/",
+        "/plan/223034/skyliner/4732b/",
+        "/homes/44490-pre-owned-big-blue",
+    ):
+        body = client.get(path).text
+        title = html.unescape(re.search(r"<title>(.*?)</title>", body, re.DOTALL).group(1))
+        description = html.unescape(
+            re.search(r'<meta name="description" content="([^"]*)"', body).group(1)
+        )
+        assert len(title) <= 60, (path, len(title), title)
+        assert "Texas Home Outlet" in title, title
+        assert len(description) <= 155, (path, len(description), description)
+        og_title = html.unescape(
+            re.search(r'<meta property="og:title" content="([^"]*)"', body).group(1)
+        )
+        assert og_title == title, path
+
+    detail = client.get("/inventory-detail/43372/texas-home-outlet/huffman/premier/").text
+    detail_title = html.unescape(re.search(r"<title>(.*?)</title>", detail, re.DOTALL).group(1))
+    assert detail_title == long_title
+    big_blue = client.get("/homes/44490-pre-owned-big-blue").text
+    assert "<title>PRE-OWNED / Big Blue — Texas Home Outlet, Huffman, TX</title>" in big_blue
+    plan = client.get("/plan/223034/skyliner/4732b/").text
+    assert "<title>Skyliner 4732B — Texas Home Outlet, Huffman, TX</title>" in plan
+
+
 def test_public_titles_and_descriptions_fit_and_stay_unique(monkeypatch):
     client, _ = seo_client(monkeypatch)
     pages = (

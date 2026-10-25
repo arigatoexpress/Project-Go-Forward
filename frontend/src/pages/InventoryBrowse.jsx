@@ -51,7 +51,7 @@ import {
 } from '../constants';
 import StorefrontLinks from '../components/StorefrontLinks';
 import CityLanding from './CityLanding';
-import { HOME_H1, INVENTORY_H1 } from '../seoCopy';
+import { HOME_H1, INVENTORY_H1, listingDocumentTitle, listingMetaDescription } from '../seoCopy';
 import AppointmentHandoffCard from '../components/AppointmentHandoffCard';
 import { describeFetchError, extractErrorMessage, responseErrorMessage, safeUserMessage } from '../utils/apiError';
 
@@ -976,13 +976,13 @@ export default function InventoryBrowse({
       specs.dimensions,
       pathListingHome.manufacturer,
       publicPriceText(pathListingHome),
-    ].filter(Boolean).join(', ');
+    ].filter(Boolean);
     const sharePhotos = listingPagePhotos(pathListingHome);
     const floorplan = pathListingHome.floorplan_url || pathListingHome.floor_plan_url || '';
     const shareImage = sharePhotos.find((url) => url && url !== floorplan) || '';
     applyDocumentHead({
-      title: `${pathListingHome.model_name || 'Manufactured Home'} — ${BUSINESS_NAME}, ${BUSINESS_CITY}, ${BUSINESS_STATE}`,
-      description: `${pathListingHome.model_name || 'Manufactured home'}${descBits ? ` (${descBits})` : ''} at ${BUSINESS_NAME} in ${BUSINESS_CITY}, ${BUSINESS_STATE}. Call ${BUSINESS_PHONE}.`.slice(0, 300),
+      title: listingDocumentTitle(pathListingHome.model_name),
+      description: listingMetaDescription(pathListingHome.model_name, descBits),
       canonicalPath: listingPath(pathListingHome) || currentPath,
       image: shareImage || '/og-card.png',
       robots: 'index,follow',
