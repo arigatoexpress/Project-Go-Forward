@@ -21,7 +21,7 @@ Run: python -m pytest tests/test_cov_c11_c_marketing_audit.py -q
 from __future__ import annotations
 
 import asyncio
-import importlib
+import importlib.util
 import json
 import logging
 import sys
@@ -55,6 +55,13 @@ from tests.test_ops_copilot import (  # noqa: E402
     _FakeApptManager,
     _FakeDB,
     _FakeLeadManager,
+)
+
+# This test reloads marketing_tools with google.adk.tools broken and then asserts
+# the real ADK ToolContext is restored — it needs google-adk installed.
+_HAS_GOOGLE_ADK = importlib.util.find_spec("google.adk") is not None
+requires_google_adk = pytest.mark.skipif(
+    not _HAS_GOOGLE_ADK, reason="google-adk is not installed"
 )
 
 
@@ -97,6 +104,7 @@ def _wire_snapshot_fakes(monkeypatch, leads=(), appts=(), collections=None):
 # =========================================================================== #
 
 
+@requires_google_adk
 def test_tool_context_import_error_fallback_sets_none(monkeypatch):
     """L23-24: when google.adk.tools cannot provide ToolContext, fall back to None.
 

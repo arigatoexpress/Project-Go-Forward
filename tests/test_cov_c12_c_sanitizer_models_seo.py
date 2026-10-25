@@ -19,9 +19,10 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
-import pandas as pd
 import pytest
 from pydantic import ValidationError
+
+pd = pytest.importorskip("pandas")
 
 sys.path.insert(0, str(Path(__file__).parent))
 
