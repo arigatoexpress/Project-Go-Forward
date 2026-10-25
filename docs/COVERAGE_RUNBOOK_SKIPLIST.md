@@ -1,9 +1,10 @@
 # Coverage Campaign — Runbook Skip List & Measurement Notes
 
-Status after swarm cycles c7–c13 (PRs #414–#421). Every production request-path
-module is at ~99–100% honest coverage (Python 3.11 measurement venv, targeted
-`--cov=<module>` runs). What remains uncovered is listed here deliberately, so
-future coverage work does not re-investigate it.
+Status after swarm cycles c7–c15 (coverage PRs #414–#422 plus the c15
+reliability cycle). Every production request-path module is at ~99–100% honest
+coverage (Python 3.11 measurement venv, targeted `--cov=<module>` runs). What
+remains uncovered is listed here deliberately, so future coverage work does not
+re-investigate it.
 
 ## 1. Intentionally uncovered: standalone operator runbook scripts
 
@@ -23,7 +24,7 @@ value.
 | tools/data_audit.py | 106 | one-off data audit |
 | tools/social_live_publishers.py | 74 | standalone social publisher |
 | tools/merge_inventory.py | 74 | one-off inventory merge |
-| tools/social_publish_assets.py | 56 | standalone social asset publisher |
+| tools/social_publish_assets.py | 22 | standalone social asset publisher; PR #411 added faked storage/IAM tests (73% measured 2026-10-25) |
 | tools/firebase_import.py | 55 | one-off Firebase import |
 | tools/service_tools.py | 47 | standalone service-tool script |
 
@@ -58,11 +59,14 @@ The periodic full-repo measurement uses a partial Python-3.12 venv
 (`/tmp/sysmon-venv312`) without heavy optional deps (webauthn, google.adk,
 googleapiclient, pandas, google.cloud.storage). Consequences, all expected:
 
-- 55 tests fail there (18 long-standing + 37 added by c10–c12 campaign files
-  that hard-require those deps). They pass in the main venv and CI.
-- `auth/routes.py`, `auth/google_ads_step_up*.py`, `root_agent.py` show large
-  "missing" numbers in that venv's JSON — a webauthn/adk-absent artifact; the
-  honest main-venv numbers are 99–100%.
+- As of c15, tests that hard-require those deps use module-level
+  `pytest.importorskip` or targeted `skipif` guards, so dependency-minimal runs
+  skip them instead of failing. The main venv and CI still execute them.
+- The former 55-failure accounting (18 long-standing + 37 added by c10–c12
+  campaign files) is superseded by those guards.
+- `auth/routes.py`, `auth/google_ads_step_up*.py`, `root_agent.py` can still show
+  large "missing" numbers in that venv's JSON — a webauthn/adk-absent artifact;
+  the honest main-venv numbers are 99–100%.
 - Ranking for campaign purposes should consult the per-module main-venv
   targeted runs, not the 3.12 JSON, for those modules.
 
@@ -70,4 +74,5 @@ googleapiclient, pandas, google.cloud.storage). Consequences, all expected:
 
 628 (2026-06-10) → 1791 → 2609 (2026-10-12) → 3344 (PR #409) → 3596 (PR #413)
 → 3599 (PR #414) → 3709 (PR #415) → 3894 (PR #417) → 3959 (PR #418)
-→ 4152 (PR #419) → 4402 (PR #420) → current (PR #421, c13: +74 tests).
+→ 4152 (PR #419) → 4402 (PR #420) → 4476 (PR #421, c13: +74 tests)
+→ 4545 (PR #422, c14: +69 tests) → 4571 (c15 baseline; #411/#416 added 26).
