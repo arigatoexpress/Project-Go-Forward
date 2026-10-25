@@ -8,7 +8,9 @@ the validation rules and success contract without writing to disk.
 
 import pytest
 
-from tools import crm_tools
+pytest.importorskip("google.adk")
+
+from tools import crm_tools  # noqa: E402
 
 
 @pytest.fixture(autouse=True)

@@ -1,5 +1,6 @@
 """Tests for the prompt template system (prompt_loader.py + prompts/*.md)."""
 
+import importlib.util
 import sys
 from pathlib import Path
 
@@ -7,8 +8,15 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-import prompt_loader
-from prompt_loader import available_prompts, build_context, render_prompt
+# root_agent hard-requires google-adk; only the agent-construction test below
+# needs it, so skip just that test in dependency-minimal environments.
+_HAS_GOOGLE_ADK = importlib.util.find_spec("google.adk") is not None
+requires_google_adk = pytest.mark.skipif(
+    not _HAS_GOOGLE_ADK, reason="google-adk is not installed"
+)
+
+import prompt_loader  # noqa: E402
+from prompt_loader import available_prompts, build_context, render_prompt  # noqa: E402
 
 
 def test_all_templates_render_without_unresolved_variables():
@@ -74,6 +82,7 @@ def test_prompt_dir_override_and_extra_variables(tmp_path, monkeypatch):
         prompt_loader._template_cache.clear()
 
 
+@requires_google_adk
 def test_root_agent_builds_with_template_prompts(monkeypatch):
     """The ADK agents must construct with rendered instructions."""
     import root_agent as ra
