@@ -269,6 +269,41 @@ class TestEnrichDealsWithHome:
         assert "home_label" not in enriched[0]
 
 
+class TestDealPayloadError:
+    @pytest.mark.parametrize(
+        ("field_names", "expected_detail"),
+        [
+            (
+                ["sales_price"],
+                "Could not save this deal. Check the field: sales_price.",
+            ),
+            (
+                ["sales_price", "buyer_email"],
+                "Could not save this deal. Check the fields: sales_price, buyer_email.",
+            ),
+        ],
+    )
+    def test_invalid_fields_are_named_in_422(self, monkeypatch, field_names, expected_detail):
+        _c, main, _db, _log = _client(monkeypatch)
+
+        error = main._deal_payload_error(
+            "update", main.DealPayloadError(field_names, kind="invalid")
+        )
+
+        assert isinstance(error, HTTPException)
+        assert error.status_code == 422
+        assert error.detail == expected_detail
+
+    def test_shape_error_uses_json_object_fallback(self, monkeypatch):
+        _c, main, _db, _log = _client(monkeypatch)
+
+        error = main._deal_payload_error("create", main.DealPayloadError([], kind="shape"))
+
+        assert isinstance(error, HTTPException)
+        assert error.status_code == 422
+        assert error.detail == "Could not save this deal. Send the deal fields as a JSON object."
+
+
 # ─── list_deals / create_deal / update_deal ────────────────────────────────
 
 
@@ -375,6 +410,20 @@ class TestUpdateDeal:
         result = _run(main.update_deal("deal-1", _Req({"salesrep": "Sam"})))
 
         assert result == {"success": False, "error": "Failed to update deal. Please try again."}
+
+    def test_unreadable_body_envelope_without_writing(self, monkeypatch):
+        _c, main, _db, _log = _client(monkeypatch)
+        writes = []
+
+        def record_write(deal_id, data):
+            writes.append((deal_id, data))
+
+        monkeypatch.setattr(main._deal_db, "update_deal", record_write, raising=False)
+
+        result = _run(main.update_deal("deal-1", _Req(RuntimeError("body unreadable"))))
+
+        assert result == {"success": False, "error": "Failed to update deal. Please try again."}
+        assert writes == []
 
 
 # ─── Customers: search / stats / count / create ────────────────────────────

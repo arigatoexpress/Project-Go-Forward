@@ -127,6 +127,21 @@ def test_https_requests_upgrade_insecure_content(monkeypatch):
     )
 
 
+def test_direct_https_requests_upgrade_insecure_content(monkeypatch):
+    for var in _ANALYTICS_ENV:
+        monkeypatch.delenv(var, raising=False)
+    client, *_ = create_client(monkeypatch)
+    response = client.get(
+        "https://testserver/healthz/",
+        # The direct HTTPS URL takes precedence over a contradictory proxy header.
+        headers={"X-Forwarded-Proto": "http"},
+    )
+    assert response.request.url.scheme == "https"
+    assert response.headers["content-security-policy"] == (
+        _BASELINE_CSP + "; upgrade-insecure-requests"
+    )
+
+
 def test_security_middleware_strips_server_disclosure(monkeypatch):
     import asyncio
 

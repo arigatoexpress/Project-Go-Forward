@@ -220,19 +220,41 @@ windows. The 50 remaining misses reconcile as follows:
 | 286–338 (28 lines) | Sentry subprocess-only initialization, covered separately by `tests/test_sentry_init_smoke.py` but not by the in-process coverage data |
 | 2827–2829 (3 lines) | Proven-dead `get_chat_analytics` defensive exception handler |
 | 10259, 10262 (2 lines) | Manual `python main.py` / uvicorn entrypoint; ASGI tests import `app` instead |
-| 17 lines | Actionable test gaps: 422; 1226–1227 and 1252; 1371 and 1396–1399; 4562–4564 and 4566; 4772–4774; 6335 |
+| 17 lines | Candidates for focused tests: 422; 1226–1227 and 1252; 1371 and 1396–1399; 4562–4564 and 4566; 4772–4774; 6335 |
+
+Before c22, inspection of the five local-startup lines (1371 and 1396–1399)
+found that `tests/test_import_time_env_branches.py` already exercises them in
+fresh subprocesses. They were in-process measurement gaps, not missing test
+coverage, so duplicating them in-process would not improve the suite.
+
+## Focused actionable-line closure (2026-10-26, c22)
+
+Eight focused regression cases covered the other 12 lines: direct-HTTPS
+detection, both non-ASCII request-target fallbacks, deal-payload error variants,
+malformed deal-update JSON, and failed LCP image conversion. The complete
+Python 3.12.8 coverage/`sysmon` suite finished with **4789 passed, 24 skipped**
+in **244.39 s**. `main.py` now measures **4,744 statements, 38 missed, 99.20%
+coverage**. A JSON diff confirmed exactly these 12 newly covered lines and no
+new misses: 422; 1226–1227 and 1252; 4562–4564 and 4566; 4772–4774; 6335.
+
+The remaining 38 in-process misses reconcile as follows:
+
+| Lines | Classification |
+|---|---|
+| 286–338 (28 lines) | Sentry initialization covered separately by `tests/test_sentry_init_smoke.py` |
+| 1371, 1396–1399 (5 lines) | Local missing-PIN and derived-session-secret startup branches covered separately by `tests/test_import_time_env_branches.py` |
+| 2827–2829 (3 lines) | Proven-dead `get_chat_analytics` defensive exception handler |
+| 10259, 10262 (2 lines) | Manual `python main.py` / uvicorn entrypoint covered separately by the subprocess entrypoint test in `tests/test_import_time_env_branches.py` |
 
 ## Next steps
 
-1. Add focused tests for the 17 actionable lines: direct-HTTPS detection,
-   non-ASCII request-target fallbacks, local startup configuration fallbacks,
-   deal-payload error variants, malformed deal-update JSON, and failed LCP
-   image conversion. With only the 33 intentionally uncovered lines remaining,
-   `main.py` would measure **99.30%** without forcing dead or subprocess-only
-   code into the in-process report.
-2. Preserve the separate Sentry subprocess tests and the documented dead-line
-   proofs when refreshing this report; do not treat their absence from the
-   in-process JSON as new regressions.
+1. There are no known actionable in-process `main.py` gaps from this
+   measurement. Future cycles should investigate only newly introduced misses
+   rather than forcing the documented dead or subprocess-only lines into the
+   in-process report.
+2. Preserve the separate Sentry, local-startup, and uvicorn subprocess tests
+   and the documented dead-line proofs when refreshing this report. Their
+   absence from the in-process JSON is not a regression.
 3. Before any future Python 3.13+ migration, re-check the conditional
    storage-vs-aiplatform requirements described above. No runtime requirements
    change was needed for the verified Python 3.12.8 environment.

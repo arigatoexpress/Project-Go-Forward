@@ -112,6 +112,34 @@ def test_redirect_target_preserves_empty_raw_query(monkeypatch):
     assert loaded._original_target_parts(request) == ("/foo%3Fbar", "")
 
 
+def test_redirect_target_falls_back_to_decoded_path_for_non_ascii_raw_path(monkeypatch):
+    _http, loaded, _db, _logger = create_client(monkeypatch)
+    request = _request(
+        "/café/naïve",
+        "/café/naïve".encode(),
+        b"q=oak",
+        "tho.sapphirealpha.xyz",
+    )
+
+    assert loaded._ascii_scope_bytes(request.scope["raw_path"]) is None
+    assert request.url.path == "/café/naïve"
+    assert loaded._original_target_parts(request) == ("/café/naïve", "q=oak")
+
+
+def test_redirect_target_falls_back_to_url_query_for_non_ascii_query(monkeypatch):
+    _http, loaded, _db, _logger = create_client(monkeypatch)
+    request = _request(
+        "/search",
+        b"/search",
+        "q=caña".encode(),
+        "tho.sapphirealpha.xyz",
+    )
+
+    assert loaded._ascii_scope_bytes(request.scope["query_string"]) is None
+    assert request.url.query == "q=caña"
+    assert loaded._original_target_parts(request) == ("/search", "q=caña")
+
+
 def test_legacy_host_preserves_percent_encoded_path(client):
     # scope["path"] is decoded. Rebuilding from request.url.path turns
     # %2F into a separator and can turn %3F into a query. The Location
