@@ -207,3 +207,22 @@ def test_lcp_endpoint_ignores_a_visitor_supplied_url(monkeypatch):
     missing = client.get(LCP_IMAGE_PATH)
     assert missing.status_code == 404
     assert seen == [STAFF]
+
+
+def test_lcp_endpoint_returns_404_when_conversion_fails(monkeypatch):
+    from test_api_v1 import create_client
+
+    client, app_main, _db, _logger = create_client(monkeypatch)
+    seen = []
+
+    def derive(url):
+        seen.append(url)
+        return None
+
+    monkeypatch.setattr(app_main.seo_routes, "_inventory_hero_image", lambda: STAFF)
+    monkeypatch.setattr(app_main, "lcp_jpeg_for_url", derive)
+
+    response = client.get(LCP_IMAGE_PATH)
+
+    assert response.status_code == 404
+    assert seen == [STAFF]
