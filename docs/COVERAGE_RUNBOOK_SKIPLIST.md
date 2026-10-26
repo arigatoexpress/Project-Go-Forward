@@ -41,7 +41,8 @@ a separate, human-reviewed decision.
 |---|---|
 | main.py 2827–2829 | `get_chat_analytics` except — try body only returns a literal dict |
 | main.py 286–338 | Sentry subprocess-only init (28 lines), covered separately by `tests/test_sentry_init_smoke.py`, not by in-process coverage data |
-| main.py 10259, 10262 | Manual `python main.py` / uvicorn entrypoint; ASGI tests import `app` instead |
+| main.py 1371, 1396–1399 | Local missing-PIN and derived-session-secret startup branches (5 lines), covered separately by `tests/test_import_time_env_branches.py`, not by in-process coverage data |
+| main.py 10259, 10262 | Manual `python main.py` / uvicorn entrypoint; covered separately by the subprocess entrypoint test in `tests/test_import_time_env_branches.py` |
 | database/google_ads_authority.py 402 | model validator enforces the identity coupling this double-checks |
 | database/models.py 633 | `Field(ge=0)` fires before the field validator's custom raise |
 | tools/inventory_sync.py 523–524 | `replace("the ", "")` can never match keys that all contain "the " |
@@ -71,10 +72,16 @@ partial measurement venv. Direct verification produced:
   missing-heavy-dependency accounting no longer applies to this venv.
 - A second complete run under coverage's `sysmon` core finished with **4781
   passed, 24 skipped** in **253.14 s** and measured `main.py` at **98.95%**
-  (4,744 statements, 50 missed). The misses are 28 Sentry subprocess-only
-  lines, 3 proven-dead defensive lines, 2 manual-entrypoint lines, and 17
-  actionable test gaps; see `docs/MAIN_COVERAGE_INVESTIGATION.md` for the exact
-  ranges and reproduction command.
+  (4,744 statements, 50 missed). At that checkpoint, 17 lines were candidates
+  for focused tests; c22 review confirmed that five local-startup lines were
+  already covered by `tests/test_import_time_env_branches.py` in subprocesses.
+- The c22 focused-test cycle added eight regression cases and completed with
+  **4789 passed, 24 skipped** in **244.39 s**. `main.py` now measures **99.20%**
+  (4,744 statements, 38 missed): exactly 12 targeted lines were newly covered,
+  with no new misses. The remaining lines are 35 subprocess-covered
+  startup/Sentry/entrypoint lines and 3 proven-dead defensive lines. See
+  `docs/MAIN_COVERAGE_INVESTIGATION.md` for the exact ranges and reproduction
+  command.
 - Dependency-minimal `pytest.importorskip` / `skipif` guards remain useful for
   deliberately minimal environments, but they do not make this full 3.12
   environment a reduced suite.

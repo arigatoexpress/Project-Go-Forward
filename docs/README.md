@@ -29,6 +29,7 @@ guides such as staff sign-in and adding home photos.
 - [RELEASE-CHECKLIST.md](RELEASE-CHECKLIST.md) — after a green Deploy, promote the 0% candidate and verify https://www.texashomeoutlet.com
 - [RUNBOOK.md](RUNBOOK.md) — incidents, rollback, operator safety, open flips
 - [ON_CALL.md](ON_CALL.md) — severity, first-five-minutes, escalation
+- [ZAP_BASELINE.md](ZAP_BASELINE.md) — weekly passive OWASP ZAP baseline of the public site (report only)
 - [DNS_CUTOVER_RUNBOOK.md](DNS_CUTOVER_RUNBOOK.md) — completed 2026-06-14 cutover; rollback / re-cutover reference
 - [runbooks/dns-rollback.md](runbooks/dns-rollback.md) — two-record DNS revert (owner / Mark only)
 - [runbooks/leads-bigquery-sync.md](runbooks/leads-bigquery-sync.md) — daily leads → BigQuery job
