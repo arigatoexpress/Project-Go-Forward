@@ -237,3 +237,50 @@ notion:
     collections: "34e6688d-bec6-81c8-8430-ec5b1d2efd6d"        # 💰 Collections
     insurance: "34e6688d-bec6-8196-84a6-fc3c64ac2768"          # Insurance / KIP
     lead_pipeline: "34e6688d-bec6-81b3-b3a3-d176c0f7ce44"      # 👤 Lead Pipeline ("up log")
+
+# Data retention purge (security item R13). See docs/DATA_RETENTION_PURGE.md.
+# PROPOSED, owner to confirm. These periods are not an approved policy.
+# enabled stays false until the owner confirms every period below.
+# The purge is dry-run by default and, while disabled, reads and deletes nothing.
+# retention_days are 24-hour days. timestamp_field is the only age field allowed.
+data_retention:
+  enabled: false
+  # Max documents deleted per collection per run (oldest expired first). Hard cap 500.
+  batch_size: 100
+  collections:
+    chat_sessions: # PROPOSED, owner to confirm
+      retention_days: 90
+      timestamp_field: updated_at
+    conversation_contexts: # PROPOSED, owner to confirm
+      retention_days: 90
+      timestamp_field: updated_at
+    leads: # PROPOSED, owner to confirm
+      retention_days: 730
+      timestamp_field: created_at
+    appointments: # PROPOSED, owner to confirm
+      retention_days: 730
+      timestamp_field: created_at
+    feedback: # PROPOSED, owner to confirm
+      retention_days: 730
+      timestamp_field: created_at
+    tho_admin_login_codes: # PROPOSED, owner to confirm
+      retention_days: 7
+      timestamp_field: created_at
+    google_ads_owner_step_up_nonces: # PROPOSED, owner to confirm
+      retention_days: 7
+      timestamp_field: issued_at
+    user_activity_log: # PROPOSED, owner to confirm
+      retention_days: 90
+      timestamp_field: timestamp
+    analytics_events: # PROPOSED, owner to confirm
+      retention_days: 180
+      timestamp_field: created_at
+    email_log: # PROPOSED, owner to confirm
+      retention_days: 365
+      timestamp_field: sent_at
+    email_reply_drafts: # PROPOSED, owner to confirm
+      retention_days: 90
+      timestamp_field: created_at
+    nurture_log: # PROPOSED, owner to confirm
+      retention_days: 365
+      timestamp_field: sent_at

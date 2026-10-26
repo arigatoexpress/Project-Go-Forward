@@ -271,3 +271,11 @@ to the socket peer without selecting an earlier untrusted token.
 Distributed failed logins emit `admin_pin_global_failures` for operator alerting.
 They do not globally deny authentication. Per-IP lockout, SlowAPI limits, and
 email-code expiry, attempt limits, and single-use checks remain enforced.
+
+## 9. Data retention purge (R13)
+
+Chat sessions, lead and contact submissions, auth leftovers, and similar
+personal or transient Firestore data have a manual purge. It ships disabled.
+Periods in `config.yaml` are proposed until the owner confirms them. Business
+records, registered passkeys, and the audit trail are not in this purge.
+See [DATA_RETENTION_PURGE.md](DATA_RETENTION_PURGE.md).
