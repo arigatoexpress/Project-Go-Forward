@@ -1216,8 +1216,10 @@ def _ascii_scope_bytes(value: object) -> str | None:
 
     Percent-encoded request targets are ASCII. Non-ASCII bytes fall back to
     Starlette's decoded URL so a raw UTF-8 path is not latin-1-mangled.
+    Empty bytes are significant: an empty ``query_string`` means the request
+    had no query, not that the ASGI key was absent.
     """
-    if not isinstance(value, bytes | bytearray) or not value:
+    if not isinstance(value, bytes | bytearray):
         return None
     try:
         return bytes(value).decode("ascii")

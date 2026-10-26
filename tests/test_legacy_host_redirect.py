@@ -95,6 +95,23 @@ def test_redirect_target_keeps_raw_path_when_scope_path_is_decoded(monkeypatch):
     )
 
 
+def test_redirect_target_preserves_empty_raw_query(monkeypatch):
+    """An empty ASGI query string is explicit, not a missing-scope fallback."""
+    from types import SimpleNamespace
+
+    from starlette.datastructures import URL
+
+    _http, loaded, _db, _logger = create_client(monkeypatch)
+    request = SimpleNamespace(
+        scope={"raw_path": b"/foo%3Fbar", "query_string": b""},
+        # The decoded URL can reinterpret an encoded %3F as a query delimiter.
+        # The raw empty query must take precedence over this fallback.
+        url=URL("https://tho.sapphirealpha.xyz/foo?bar"),
+    )
+
+    assert loaded._original_target_parts(request) == ("/foo%3Fbar", "")
+
+
 def test_legacy_host_preserves_percent_encoded_path(client):
     # scope["path"] is decoded. Rebuilding from request.url.path turns
     # %2F into a separator and can turn %3F into a query. The Location
