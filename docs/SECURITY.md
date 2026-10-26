@@ -271,3 +271,21 @@ to the socket peer without selecting an earlier untrusted token.
 Distributed failed logins emit `admin_pin_global_failures` for operator alerting.
 They do not globally deny authentication. Per-IP lockout, SlowAPI limits, and
 email-code expiry, attempt limits, and single-use checks remain enforced.
+
+## 9. Passive production baseline (OWASP ZAP)
+
+`.github/workflows/zap-baseline.yml` (COD-132) runs the free OWASP ZAP baseline
+weekly and from a manual dispatch. The baseline spiders the public production
+origin for one minute and applies passive rules only. It does not run an active
+attack scan, does not use repository secrets, and does not target the candidate
+tag or any other host.
+
+The origin is the `--canonical-origin` already passed by deploy verification.
+The job refuses to start unless that value matches `DEFAULT_BASE_URL` in
+`scripts/production_smoke.py` and `business.website` in `config.yaml`.
+
+The HTML, Markdown, and JSON reports are uploaded as the `zap-baseline-report`
+artifact. The job fails when a high-severity alert is still present. Medium,
+low, and informational alerts stay in the report and do not fail the job.
+`.zap/rules.tsv` ignores known false positives, with a comment on each one.
+This workflow does not run on pull requests and is not a required PR check.

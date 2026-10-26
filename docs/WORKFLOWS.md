@@ -145,6 +145,8 @@ A green **Deploy to Cloud Run** run builds a candidate with
 routes. Customer traffic stays on the current revision. The promote commands
 and the live-site checks are in [RELEASE-CHECKLIST.md](RELEASE-CHECKLIST.md).
 The canonical site is https://www.texashomeoutlet.com.
+A weekly passive OWASP ZAP baseline of that public origin is in
+[SECURITY.md](SECURITY.md). It is not a pull request check.
 
 ```mermaid
 flowchart LR

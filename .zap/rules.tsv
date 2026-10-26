@@ -1,0 +1,29 @@
+# ZAP baseline overrides for the public Texas Home Outlet storefront.
+# Format: plugin-id<TAB>IGNORE<TAB>(rule name)
+# A '#' line above each rule says why it is a false positive here.
+# IGNORE removes the rule from the baseline warning count. The HTML report
+# still lists the alert. High-severity alerts that are not listed here fail
+# the job. Do not IGNORE a high-risk rule without a comment that names the
+# evidence.
+
+# Informational. Public pages and assets are cacheable on purpose.
+# Private staff responses set their own cache headers, and this scan has no staff session.
+10015	IGNORE	(Re-examine Cache-control Directives)
+
+# Informational beta notes (non-storable, non-cacheable, or cacheable).
+# Public responses are supposed to be cacheable. This scan never sees a staff session.
+10049	IGNORE	(Content Cacheability)
+
+# Low. Public JavaScript contains Unix-epoch integers from build stamps and libraries.
+# Those numbers are not credentials or customer data.
+10096	IGNORE	(Timestamp Disclosure - Unix)
+
+# Informational. ZAP is noting that the storefront is a JavaScript application.
+# That is not a vulnerability.
+10109	IGNORE	(Modern Web Application)
+
+# Medium. ZAP looks for a hidden synchronizer token in HTML forms.
+# Staff state changes use a cookie and X-CSRF-Token double-submit (auth/csrf.py),
+# which this passive check cannot see. This unauthenticated scan has no staff session.
+# Public contact and appointment forms do not protect a logged-in session.
+10202	IGNORE	(Absence of Anti-CSRF Tokens)
