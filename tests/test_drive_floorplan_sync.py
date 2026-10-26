@@ -2,11 +2,19 @@
 
 import base64
 import hashlib
+import importlib.util
 from unittest.mock import MagicMock
 
 import pytest
 
-import tools.drive_floorplan_sync as sync
+# This test patches google.cloud.storage.Client on the real package, so it
+# needs google-cloud-storage installed; skip it in dependency-minimal environments.
+_HAS_GCS = importlib.util.find_spec("google.cloud.storage") is not None
+requires_gcs = pytest.mark.skipif(
+    not _HAS_GCS, reason="google-cloud-storage is not installed"
+)
+
+import tools.drive_floorplan_sync as sync  # noqa: E402
 
 
 def _patch_children(monkeypatch, children_by_parent):
@@ -196,6 +204,7 @@ def test_run_scheduled_returns_stats_dict(monkeypatch, tmp_path):
     assert stats["manufacturer_counts"] == {"cavco": 1}
 
 
+@requires_gcs
 def test_run_scheduled_captures_per_file_errors(monkeypatch):
     """download/upload failures are captured in stats['errors'] and don't crash."""
     monkeypatch.setenv("DRIVE_FOLDER_ID", "fake-folder-id")

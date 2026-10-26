@@ -30,6 +30,7 @@ sys.modules (plus parent-package attribute patches where the import is
 from __future__ import annotations
 
 import builtins
+import importlib.util
 import json
 import os
 import runpy
@@ -40,10 +41,19 @@ from pathlib import Path
 
 import pytest
 
-from tools import house_orders_sync as hos
-from tools import lead_name_backfill as lnb
-from tools import lead_nurture
-from tools import listing_urls as lnu
+# pandas is needed by the House Orders xlsx fixtures and google-cloud-storage by
+# the GCS loader test; skip just those tests in dependency-minimal environments.
+_HAS_PANDAS = importlib.util.find_spec("pandas") is not None
+requires_pandas = pytest.mark.skipif(not _HAS_PANDAS, reason="pandas is not installed")
+_HAS_GCS = importlib.util.find_spec("google.cloud.storage") is not None
+requires_gcs = pytest.mark.skipif(
+    not _HAS_GCS, reason="google-cloud-storage is not installed"
+)
+
+from tools import house_orders_sync as hos  # noqa: E402
+from tools import lead_name_backfill as lnb  # noqa: E402
+from tools import lead_nurture  # noqa: E402
+from tools import listing_urls as lnu  # noqa: E402
 
 REPO_ROOT = Path(__file__).parent.parent
 
@@ -928,6 +938,7 @@ def _write_house_orders_xlsx(path: Path, rows: list[dict], sheet: str = "Everybo
     return path
 
 
+@requires_pandas
 def test_parse_house_orders_reads_real_xlsx(tmp_path):
     xlsx = _write_house_orders_xlsx(
         tmp_path / "House Orders.xlsx",
@@ -962,6 +973,7 @@ def test_parse_house_orders_reads_real_xlsx(tmp_path):
     assert "mercado" not in blob and "invoice" not in blob and "60187" not in blob
 
 
+@requires_pandas
 def test_parse_house_orders_missing_sheet_raises(tmp_path):
     import pandas as pd
 
@@ -971,6 +983,7 @@ def test_parse_house_orders_missing_sheet_raises(tmp_path):
         hos.parse_house_orders(str(empty))
 
 
+@requires_gcs
 def test_load_from_gcs_cleans_up_even_when_unlink_fails(monkeypatch):
     """The finally-block OSError swallow (line ~236) fires when unlink fails."""
     captured = {}
@@ -1012,6 +1025,7 @@ def test_load_from_gcs_cleans_up_even_when_unlink_fails(monkeypatch):
     assert captured["path"].endswith(".xlsx")
 
 
+@requires_pandas
 def test_main_dry_run_prints_plan(tmp_path, capsys):
     rows = [
         {
@@ -1034,6 +1048,7 @@ def test_main_dry_run_prints_plan(tmp_path, capsys):
     assert "re-run with --apply" in out
 
 
+@requires_pandas
 def test_main_dry_run_truncates_long_plan(tmp_path, capsys):
     rows = [
         {
@@ -1055,6 +1070,7 @@ def test_main_dry_run_truncates_long_plan(tmp_path, capsys):
     assert "... and 5 more" in out
 
 
+@requires_pandas
 def test_main_apply_writes_approved_serials(tmp_path, capsys, monkeypatch):
     rows = [
         {

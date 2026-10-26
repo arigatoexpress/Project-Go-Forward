@@ -29,7 +29,11 @@ from scripts.google_ads_paused_worker_job import main, run_paused_create_job
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACT = json.loads((ROOT / "config" / "google_ads_launch_draft.json").read_text())
 SOURCE_REVISION = "a" * 40
-NOW = datetime.now(UTC)
+# Pin the anchor like the sibling google_ads suites do: the access evidence
+# below expires 5 minutes after NOW, and the job validates freshness against
+# its clock — a real wall-clock anchor would flake if collection-to-execution
+# latency ever exceeded that TTL.
+NOW = datetime(2026, 8, 12, 12, 0, tzinfo=UTC)
 
 
 class _Provider:
@@ -134,6 +138,7 @@ def test_unapproved_authority_is_inert_and_never_touches_provider():
         contract_loader=lambda: CONTRACT,
         provider_factory=lambda **_kwargs: called.append(True),
         environ=_environ(),
+        clock=lambda: NOW,
     )
 
     assert result.state is DeploymentState.SERVER_VALIDATED
@@ -154,6 +159,7 @@ def test_direct_worker_invocation_is_inert_while_outbox_is_pending():
         contract_loader=lambda: CONTRACT,
         provider_factory=lambda **_kwargs: called.append(True),
         environ=_environ(),
+        clock=lambda: NOW,
     )
 
     assert result.state is DeploymentState.PAUSED_CREATE_APPROVED
@@ -254,6 +260,7 @@ def test_invalid_fixed_runtime_configuration_fails_before_provider(changed):
             contract_loader=lambda: CONTRACT,
             provider_factory=lambda **_kwargs: called.append(True),
             environ=environment,
+            clock=lambda: NOW,
         )
 
     assert called == []
@@ -277,6 +284,7 @@ def test_job_rejects_corrupt_authority_identity_before_provider(corrupt):
             contract_loader=lambda: CONTRACT,
             provider_factory=lambda **_kwargs: called.append(True),
             environ=_environ(),
+            clock=lambda: NOW,
         )
 
     assert called == []

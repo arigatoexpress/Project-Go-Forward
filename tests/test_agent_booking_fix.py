@@ -6,16 +6,27 @@ from falsely confirming appointments that are never actually written to the
 calendar. This test verifies the fix is in place.
 """
 
+import importlib.util
 import sys
 from pathlib import Path
 
+import pytest
+
 # Ensure root_agent can be imported
 sys.path.insert(0, str(Path(__file__).parent.parent))
+
+# root_agent and tools.crm_tools hard-require google-adk; skip the affected
+# tests in dependency-minimal environments instead of failing at import time.
+_HAS_GOOGLE_ADK = importlib.util.find_spec("google.adk") is not None
+requires_google_adk = pytest.mark.skipif(
+    not _HAS_GOOGLE_ADK, reason="google-adk is not installed"
+)
 
 
 class TestBookingFix:
     """Verify the AI chat agent no longer has broken booking tools."""
 
+    @requires_google_adk
     def test_sales_agent_does_not_have_book_appointment_tool(self):
         """The sales agent must NOT have the no-op book_appointment tool."""
         from root_agent import _create_sales_agent
@@ -27,6 +38,7 @@ class TestBookingFix:
             "It must be removed from the sales agent's tools."
         )
 
+    @requires_google_adk
     def test_sales_agent_does_not_have_cancel_appointment_tool(self):
         """The sales agent must NOT have the no-op cancel_appointment tool."""
         from root_agent import _create_sales_agent
@@ -56,6 +68,7 @@ class TestBookingFix:
             "to prevent false confirmations from the no-op booking tool."
         )
 
+    @requires_google_adk
     def test_crm_tools_no_op_functions_still_exist_for_backwards_compat(self):
         """The no-op functions remain in crm_tools.py for backwards compatibility
         but are NOT wired into the agent."""
@@ -71,6 +84,7 @@ class TestBookingFix:
         # The "confirmation" is fake — no actual booking occurred
         assert "confirmed" in result["message"].lower()
 
+    @requires_google_adk
     def test_sales_agent_has_remaining_tools(self):
         """The sales agent still has the useful tools after the removal."""
         from root_agent import _create_sales_agent
