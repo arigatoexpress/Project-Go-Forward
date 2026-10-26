@@ -55,20 +55,27 @@ a separate, human-reviewed decision.
 
 ## 3. Measurement-venv accounting
 
-The periodic full-repo measurement uses a partial Python-3.12 venv
-(`/tmp/sysmon-venv312`) without heavy optional deps (webauthn, google.adk,
-googleapiclient, pandas, google.cloud.storage). Consequences, all expected:
+As of 2026-10-26, `/tmp/sysmon-venv312` is a **full** Python 3.12.8 environment
+built from `requirements.txt` plus `requirements-dev.txt`, not the former
+partial measurement venv. Direct verification produced:
 
-- As of c15, tests that hard-require those deps use module-level
-  `pytest.importorskip` or targeted `skipif` guards, so dependency-minimal runs
-  skip them instead of failing. The main venv and CI still execute them.
+- Fresh installation completed and `pip check` reported
+  `No broken requirements found.` The environment includes webauthn,
+  google.adk, googleapiclient, pandas, and google.cloud.storage.
+- The complete suite finished with **4781 passed, 24 skipped** in **220.65 s**.
+  The pass/skip totals match the Python 3.11 baseline; the old
+  missing-heavy-dependency accounting no longer applies to this venv.
+- Dependency-minimal `pytest.importorskip` / `skipif` guards remain useful for
+  deliberately minimal environments, but they do not make this full 3.12
+  environment a reduced suite.
 - The former 55-failure accounting (18 long-standing + 37 added by c10–c12
-  campaign files) is superseded by those guards.
-- `auth/routes.py`, `auth/google_ads_step_up*.py`, `root_agent.py` can still show
-  large "missing" numbers in that venv's JSON — a webauthn/adk-absent artifact;
-  the honest main-venv numbers are 99–100%.
-- Ranking for campaign purposes should consult the per-module main-venv
-  targeted runs, not the 3.12 JSON, for those modules.
+  campaign files) remains superseded. Likewise, do not attribute new 3.12
+  coverage JSON gaps in `auth/routes.py`, `auth/google_ads_step_up*.py`, or
+  `root_agent.py` to absent webauthn/ADK dependencies; that caveat described
+  only the former partial venv.
+- Use this full 3.12 environment for future coverage measurement rather than
+  the 3.11 venv, whose CTracer line-event defect is documented in
+  `docs/MAIN_COVERAGE_INVESTIGATION.md`.
 
 ## 4. Suite count history (gauntlet evidence)
 
