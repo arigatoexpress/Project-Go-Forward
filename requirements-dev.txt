@@ -9,3 +9,8 @@ httpx>=0.28.0
 # Keep httpx for scripts and external-HTTP tests that import it directly.
 httpx2>=2.7.0
 google-cloud-bigquery>=3.25.0  # scripts/sync_leads_to_bigquery.py (PII-free lead analytics warehouse)
+
+# Security floor for dev/build-only dependencies (pip-audit 2026-08).
+filelock>=4.2.1
+setuptools>=84.1.0
+virtualenv>=21.14.9
