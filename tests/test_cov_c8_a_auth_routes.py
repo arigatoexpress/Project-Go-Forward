@@ -63,7 +63,11 @@ def _owner_cookie(client, routes, email="aribspector@gmail.com"):
     )
 
 
-def _pin_token(secret="cov-admin-secret", pin_hash="cov-pin-hash", expires_in=3600):
+def _pin_token(
+    secret="cov-admin-secret",  # pragma: allowlist secret
+    pin_hash="cov-pin-hash",
+    expires_in=3600,
+):
     key = hmac.new(
         secret.encode(),
         f"tho-pin-session-v2:{pin_hash}".encode(),
@@ -245,7 +249,9 @@ def test_cookie_secure_tracks_request_origin_scheme(monkeypatch):
 
 def test_admin_token_from_request_reads_cookie_header_and_bearer():
     routes = passkey_routes
-    assert routes._admin_token_from_request(_fake_request(cookies={"tho_admin_token": " c "})) == "c"
+    assert (
+        routes._admin_token_from_request(_fake_request(cookies={"tho_admin_token": " c "})) == "c"
+    )
     assert routes._admin_token_from_request(_fake_request({"X-Admin-Token": " h "})) == "h"
     assert routes._admin_token_from_request(_fake_request({"Authorization": "Bearer  b "})) == "b"
     assert routes._admin_token_from_request(_fake_request({"Authorization": "Basic xyz"})) == ""
@@ -621,6 +627,9 @@ def test_login_complete_wraps_verify_failure_and_identity_mismatch(cov_client, m
     assert failed.status_code == 400
     assert failed.json()["detail"] == "Authentication verification failed"
 
+    # The failed attempt burned the challenge. The mismatch check needs a new one.
+    challenge = manager.new_challenge_bytes()
+    client.cookies.set("tho_passkey_login", manager.wrap_challenge(challenge, flow="login"))
     monkeypatch.setattr(
         routes,
         "verify_authentication_response",
@@ -814,9 +823,11 @@ def test_passkey_logout_clears_session_cookies(cov_client):
 
     assert response.status_code == 200
     assert response.json() == {"success": True}
-    set_cookies = response.headers.get_list("set-cookie") if hasattr(
-        response.headers, "get_list"
-    ) else [response.headers["set-cookie"]]
+    set_cookies = (
+        response.headers.get_list("set-cookie")
+        if hasattr(response.headers, "get_list")
+        else [response.headers["set-cookie"]]
+    )
     assert any(PASSKEY_COOKIE_NAME in cookie for cookie in set_cookies)
     assert any("tho_admin_session" in cookie for cookie in set_cookies)
 

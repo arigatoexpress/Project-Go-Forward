@@ -497,6 +497,22 @@ class AdminPasskeyCredential(BaseModel):
         return cls.model_validate(payload)
 
 
+class AdminPasskeyAuthChallenge(BaseModel):
+    """One outstanding WebAuthn authentication (login) challenge.
+
+    Collection: ``tho_admin_passkey_auth_challenges``.
+    The document id is the SHA-256 hex of the raw challenge. The raw
+    challenge is not stored. The document is deleted on the first
+    verification attempt, success or failure, and when ``expires_at``
+    (epoch seconds) has passed. The login window is five minutes.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    challenge_id: str = Field(pattern=r"^[0-9a-f]{64}$")
+    expires_at: float
+
+
 class CustomerStatus(str, Enum):
     ENROLLED = "ENROLLED"
     NON_ENROLLED = "NON_ENROLLED"

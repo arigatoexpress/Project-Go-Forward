@@ -33,6 +33,7 @@ from typing import Any
 from fastapi import APIRouter, Body, Cookie, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 
+from .authentication_challenges import AuthenticationChallengeStoreUnavailable
 from .csrf import create_csrf_token, require_cookie_csrf, require_request_csrf, set_csrf_cookie
 from .session import (
     PASSKEY_COOKIE_NAME,
@@ -287,6 +288,8 @@ def _require_passkey_user(
 
 
 def _user_verification() -> UserVerificationRequirement:
+    # TODO(owner): fingerprint/face user verification stays preferred.
+    # Requiring it is an owner decision; do not change this here.
     return UserVerificationRequirement.PREFERRED
 
 
@@ -639,6 +642,8 @@ def register_begin(
             # by conditional UI. Attachment is left unset so a phone or
             # security key can still be used.
             resident_key=ResidentKeyRequirement.REQUIRED,
+            # TODO(owner): fingerprint/face user verification stays preferred.
+            # Requiring it is an owner decision; do not change this here.
             user_verification=UserVerificationRequirement.PREFERRED,
         ),
         exclude_credentials=exclude_credentials,
@@ -758,7 +763,11 @@ def login_begin(
         raise HTTPException(status_code=503, detail="WebAuthn library not available")
 
     challenge = manager.new_challenge_bytes()
-    challenge_handle = manager.wrap_challenge(challenge, flow="login")
+    try:
+        challenge_handle = manager.wrap_challenge(challenge, flow="login")
+    except AuthenticationChallengeStoreUnavailable:
+        log.warning("passkey authentication challenge store unavailable")
+        raise HTTPException(status_code=503, detail="Passkey challenge store unavailable") from None
 
     allow_credentials = _credential_descriptors(store, allowed_only=True)
     _, rp_id = _webauthn_context(request)
@@ -766,6 +775,8 @@ def login_begin(
     option_kwargs = {
         "rp_id": rp_id,
         "challenge": challenge,
+        # TODO(owner): fingerprint/face user verification stays preferred.
+        # Requiring it is an owner decision; do not change this here.
         "user_verification": UserVerificationRequirement.PREFERRED,
     }
     if not _discoverable_login_enabled():
@@ -776,7 +787,7 @@ def login_begin(
     result.set_cookie(
         key="tho_passkey_login",
         value=challenge_handle,
-        max_age=300,
+        max_age=manager.challenge_ttl,
         httponly=True,
         secure=_cookie_secure(request),
         samesite="Strict",
@@ -797,7 +808,15 @@ def login_complete(
     if not _HAS_WEBAUTHN:
         raise HTTPException(status_code=503, detail="WebAuthn library not available")
 
-    expected_challenge = manager.unwrap_challenge(challenge_cookie, flow="login")
+    # Burn the challenge before credential lookup or assertion checks so a
+    # failed attempt cannot be replayed. Expiry deletes the server record too.
+    try:
+        expected_challenge = manager.consume_authentication_challenge(
+            challenge_cookie, flow="login"
+        )
+    except AuthenticationChallengeStoreUnavailable:
+        log.warning("passkey authentication challenge store unavailable")
+        raise HTTPException(status_code=503, detail="Passkey challenge store unavailable") from None
     if expected_challenge is None:
         raise HTTPException(status_code=400, detail="Challenge expired or invalid")
 
@@ -1016,9 +1035,7 @@ def list_my_credentials(
     email = _require_named_staff(request, manager)
     try:
         records = [
-            rec
-            for rec in store.list_for_user(email)
-            if _normalize_email(rec.user_id) == email
+            rec for rec in store.list_for_user(email) if _normalize_email(rec.user_id) == email
         ]
     except Exception as exc:
         log.warning("passkey credential list failed: %s", exc)

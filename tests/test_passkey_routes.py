@@ -992,6 +992,115 @@ def test_successful_passkey_login_issues_csrf_cookie_and_response_token(
     assert PASSKEY_COOKIE_NAME in response.cookies
 
 
+def test_failed_login_burns_the_challenge_so_a_replay_is_rejected(passkey_client, monkeypatch):
+    client, routes = passkey_client
+    manager, _store = _fixture_dependencies(client, routes)
+    challenge = manager.new_challenge_bytes()
+    handle = manager.wrap_challenge(challenge, flow="login")
+    client.cookies.set("tho_passkey_login", handle)
+    calls = {"n": 0}
+
+    def verify(**kwargs):
+        calls["n"] += 1
+        raise ValueError("bad signature")
+
+    monkeypatch.setattr(routes, "parse_authentication_credential_json", lambda value: value)
+    monkeypatch.setattr(routes, "verify_authentication_response", verify)
+
+    failed = client.post(
+        "/api/admin/passkey/login/complete",
+        json={"id": "Y3JlZGVudGlhbC0y"},
+    )
+    assert failed.status_code == 400
+    assert failed.json()["detail"] == "Authentication verification failed"
+    assert calls["n"] == 1
+
+    client.cookies.set("tho_passkey_login", handle)
+    replay = client.post(
+        "/api/admin/passkey/login/complete",
+        json={"id": "Y3JlZGVudGlhbC0y"},
+    )
+    assert replay.status_code == 400
+    assert replay.json()["detail"] == "Challenge expired or invalid"
+    assert calls["n"] == 1
+
+
+def test_successful_login_burns_the_challenge_so_a_replay_is_rejected(passkey_client, monkeypatch):
+    client, routes = passkey_client
+    manager, _store = _fixture_dependencies(client, routes)
+    challenge = manager.new_challenge_bytes()
+    handle = manager.wrap_challenge(challenge, flow="login")
+    client.cookies.set("tho_passkey_login", handle)
+    calls = {"n": 0}
+
+    def verify(**kwargs):
+        calls["n"] += 1
+        return SimpleNamespace(credential_id=b"credential-2", new_sign_count=1)
+
+    monkeypatch.setattr(routes, "parse_authentication_credential_json", lambda value: value)
+    monkeypatch.setattr(routes, "verify_authentication_response", verify)
+
+    first = client.post(
+        "/api/admin/passkey/login/complete",
+        json={"id": "Y3JlZGVudGlhbC0y"},
+    )
+    assert first.status_code == 200, first.text
+    assert calls["n"] == 1
+
+    client.cookies.set("tho_passkey_login", handle)
+    replay = client.post(
+        "/api/admin/passkey/login/complete",
+        json={"id": "Y3JlZGVudGlhbC0y"},
+    )
+    assert replay.status_code == 400
+    assert replay.json()["detail"] == "Challenge expired or invalid"
+    assert calls["n"] == 1
+
+
+def test_expired_login_challenge_is_rejected_even_if_the_cookie_window_is_widened(
+    passkey_client,
+):
+    """Server expiry stands on its own. A later, longer cookie TTL cannot revive it."""
+    client, routes = passkey_client
+    manager = SessionManager(secret_key="expiry-secret", challenge_ttl=1)
+    client.app.dependency_overrides[routes.get_session_manager] = lambda: manager
+    challenge = manager.new_challenge_bytes()
+    handle = manager.wrap_challenge(challenge, flow="login")
+    time.sleep(3)
+    manager.challenge_ttl = 300
+    client.cookies.set("tho_passkey_login", handle)
+
+    expired = client.post(
+        "/api/admin/passkey/login/complete",
+        json={"id": "Y3JlZGVudGlhbC0y"},
+    )
+    assert expired.status_code == 400
+    assert expired.json()["detail"] == "Challenge expired or invalid"
+
+    client.cookies.set("tho_passkey_login", handle)
+    replay = client.post(
+        "/api/admin/passkey/login/complete",
+        json={"id": "Y3JlZGVudGlhbC0y"},
+    )
+    assert replay.status_code == 400
+    assert replay.json()["detail"] == "Challenge expired or invalid"
+
+
+def test_login_begin_fails_closed_when_the_challenge_store_is_down(passkey_client, monkeypatch):
+    client, routes = passkey_client
+    manager, _store = _fixture_dependencies(client, routes)
+
+    def boom(_challenge):
+        raise routes.AuthenticationChallengeStoreUnavailable("down")
+
+    monkeypatch.setattr(manager, "issue_authentication_challenge", boom)
+    response = client.post("/api/admin/passkey/login/begin")
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Passkey challenge store unavailable"
+    assert "tho_passkey_login=" not in response.headers.get("set-cookie", "")
+
+
 def test_delayed_login_counter_cannot_regress_newer_step_up_counter(passkey_client, monkeypatch):
     client, routes = passkey_client
     manager, store = _fixture_dependencies(client, routes)

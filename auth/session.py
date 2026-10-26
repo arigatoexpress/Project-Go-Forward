@@ -8,10 +8,18 @@ from __future__ import annotations
 import hashlib
 import os
 import secrets
+import time
 from base64 import urlsafe_b64decode, urlsafe_b64encode
 from typing import Any
 
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
+
+from .authentication_challenges import (
+    AuthenticationChallengeLedger,
+    AuthenticationChallengeStoreUnavailable,
+    authentication_challenge_id,
+    default_authentication_challenge_ledger,
+)
 
 DEFAULT_SESSION_TTL = 24 * 60 * 60  # 24 hours
 DEFAULT_CHALLENGE_TTL = 5 * 60  # 5 minutes
@@ -63,6 +71,7 @@ class SessionManager:
         session_ttl: int = DEFAULT_SESSION_TTL,
         challenge_ttl: int = DEFAULT_CHALLENGE_TTL,
         salt: str = "tho-admin-session-v1",
+        challenge_ledger: AuthenticationChallengeLedger | None = None,
     ) -> None:
         secret = secret_key or os.environ.get("ADMIN_SESSION_SECRET")
         if os.environ.get("K_SERVICE"):
@@ -75,6 +84,7 @@ class SessionManager:
             secret = secrets.token_urlsafe(32)
         self._serializer = URLSafeTimedSerializer(secret, salt=salt)
         self._challenge_serializer = URLSafeTimedSerializer(secret, salt=f"{salt}-challenge")
+        self._challenge_ledger = challenge_ledger
         self.session_ttl = session_ttl
         self.challenge_ttl = challenge_ttl
 
@@ -102,9 +112,86 @@ class SessionManager:
         return secrets.token_bytes(32)
 
     def wrap_challenge(self, challenge: bytes, *, flow: str, **extra: Any) -> str:
-        return self._challenge_serializer.dumps(
+        token = self._challenge_serializer.dumps(
             {"challenge_b64": _b64url_encode(challenge), "flow": flow, **extra}
         )
+        # Login challenges are single-use. Recording happens here so every
+        # caller that mints a login cookie also mints the server record.
+        if flow == "login":
+            self.issue_authentication_challenge(challenge)
+        return token
+
+    def _authentication_ledger(self) -> AuthenticationChallengeLedger:
+        if self._challenge_ledger is not None:
+            return self._challenge_ledger
+        return default_authentication_challenge_ledger()
+
+    def issue_authentication_challenge(self, challenge: bytes) -> None:
+        """Remember a login challenge until the five-minute window ends."""
+        try:
+            self._authentication_ledger().issue(
+                authentication_challenge_id(challenge),
+                expires_at=time.time() + self.challenge_ttl,
+            )
+        except AuthenticationChallengeStoreUnavailable:
+            raise
+        except Exception as exc:
+            raise AuthenticationChallengeStoreUnavailable(
+                "authentication challenge could not be recorded"
+            ) from exc
+
+    def consume_authentication_challenge(self, handle: str | None, *, flow: str) -> bytes | None:
+        """Return a login challenge on its first in-window use, else None.
+
+        The server record is deleted on this call, including when the cookie
+        is expired or the WebAuthn check that follows fails.
+        """
+        challenge, unexpired = self._peek_challenge(handle, flow=flow)
+        if challenge is None:
+            return None
+        try:
+            consumed = self._authentication_ledger().consume(
+                authentication_challenge_id(challenge),
+                now=time.time(),
+            )
+        except AuthenticationChallengeStoreUnavailable:
+            raise
+        except Exception as exc:
+            raise AuthenticationChallengeStoreUnavailable(
+                "authentication challenge could not be consumed"
+            ) from exc
+        if not unexpired or not consumed:
+            return None
+        return challenge
+
+    def _peek_challenge(self, handle: str | None, *, flow: str) -> tuple[bytes | None, bool]:
+        """Return ``(challenge, unexpired)``. A bad signature yields ``(None, False)``.
+
+        An expired but well-signed cookie still returns the challenge bytes so
+        the caller can delete the server record.
+        """
+        if not handle:
+            return None, False
+        try:
+            payload = self._challenge_serializer.loads(handle)
+        except BadSignature:
+            return None, False
+        if not isinstance(payload, dict) or payload.get("flow") != flow:
+            return None, False
+        encoded = payload.get("challenge_b64")
+        if not isinstance(encoded, str):
+            return None, False
+        try:
+            challenge = _b64url_decode(encoded)
+        except Exception:
+            return None, False
+        try:
+            self._challenge_serializer.loads(handle, max_age=self.challenge_ttl)
+        except SignatureExpired:
+            return challenge, False
+        except BadSignature:
+            return None, False
+        return challenge, True
 
     def unwrap_challenge_payload(self, handle: str | None, *, flow: str) -> dict | None:
         if not handle:
