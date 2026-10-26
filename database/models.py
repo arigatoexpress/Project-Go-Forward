@@ -503,8 +503,10 @@ class AdminPasskeyAuthChallenge(BaseModel):
     Collection: ``tho_admin_passkey_auth_challenges``.
     The document id is the SHA-256 hex of the raw challenge. The raw
     challenge is not stored. The document is deleted on the first
-    verification attempt, success or failure, and when ``expires_at``
-    (epoch seconds) has passed. The login window is five minutes.
+    verification attempt, success or failure. Expired documents are also
+    deleted in a bounded sweep when a new challenge is issued, so an
+    abandoned sign-in does not have to call ``/login/complete``.
+    ``expires_at`` is epoch seconds. The login window is five minutes.
     """
 
     model_config = ConfigDict(extra="ignore")

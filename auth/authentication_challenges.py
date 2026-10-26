@@ -5,6 +5,12 @@ A login challenge is valid for five minutes and for one verification attempt.
 or fails. An expired record is deleted and rejected, including when the
 caller presents it after the deadline.
 
+Opening the staff sign-in page mints a challenge even when the visitor later
+uses email or leaves. Each ``issue`` also deletes already-expired challenges
+so those abandoned rows do not accumulate until ``/login/complete``. The
+Firestore sweep is a bounded batch: one range read and one commit. If that
+sweep fails, the new challenge is still recorded.
+
 Cloud Run stores the outstanding id in Firestore so every instance sees the
 same burn. Local development and tests use a process-local ledger. The raw
 challenge is never stored; the id is its SHA-256 hex digest.
@@ -19,6 +25,7 @@ import time
 from threading import Lock
 from typing import Protocol
 
+from google.cloud.firestore_v1.base_query import FieldFilter
 from pydantic import ValidationError
 
 from database.models import AdminPasskeyAuthChallenge
@@ -87,9 +94,18 @@ class FirestoreAuthenticationChallengeLedger:
     Collection: ``tho_admin_passkey_auth_challenges``
     Document id: ``sha256(challenge).hexdigest()``
     Fields: ``challenge_id``, ``expires_at`` (epoch seconds).
+
+    Expired rows are removed when a new challenge is issued, at most
+    ``EXPIRED_PURGE_LIMIT`` per call, oldest first. The range is a single
+    field (``expires_at``), so it uses Firestore's automatic index. A sweep
+    error is logged and does not fail sign-in.
     """
 
     COLLECTION = "tho_admin_passkey_auth_challenges"
+    # One indexed range read plus one batch commit on the login/begin path.
+    # Large enough to drain abandoned conditional-UI challenges, small enough
+    # that a busy sign-in does not scan the collection.
+    EXPIRED_PURGE_LIMIT = 20
     backend_name = "firestore"
     persistent = True
 
@@ -105,6 +121,9 @@ class FirestoreAuthenticationChallengeLedger:
 
     def issue(self, challenge_id: str, *, expires_at: float) -> None:
         record = _validated(challenge_id, expires_at)
+        # Sweep before the write. A brand-new row is not a deletion candidate,
+        # including when its own deadline is already in the past.
+        self._delete_expired(time.time(), exclude_id=record.challenge_id)
         try:
             self._collection.document(record.challenge_id).set(
                 record.model_dump(),
@@ -114,6 +133,42 @@ class FirestoreAuthenticationChallengeLedger:
             raise AuthenticationChallengeStoreUnavailable(
                 "authentication challenge could not be recorded"
             ) from exc
+
+    def _delete_expired(self, now: float, *, exclude_id: str) -> None:
+        """Best-effort bounded delete. Never turns a sweep fault into a lockout."""
+        try:
+            self._delete_expired_bounded(now, exclude_id=exclude_id)
+        except Exception as exc:
+            log.warning("expired authentication challenge cleanup skipped: %s", exc)
+
+    def _delete_expired_bounded(self, now: float, *, exclude_id: str) -> None:
+        query = (
+            self._collection.where(filter=FieldFilter("expires_at", "<", now))
+            .order_by("expires_at")
+            .limit(self.EXPIRED_PURGE_LIMIT)
+        )
+        doomed: list[str] = []
+        for snapshot in query.stream(timeout=FIRESTORE_RPC_TIMEOUT):
+            doc_id = getattr(snapshot, "id", None)
+            if not isinstance(doc_id, str) or not doc_id or doc_id == exclude_id:
+                continue
+            data = snapshot.to_dict() or {}
+            expires_at = data.get("expires_at")
+            # ``consume`` treats ``now <= expires_at`` as still valid. Only
+            # strictly earlier numeric deadlines are abandoned.
+            if isinstance(expires_at, bool) or not isinstance(expires_at, int | float):
+                continue
+            if expires_at >= now:
+                continue
+            doomed.append(doc_id)
+            if len(doomed) >= self.EXPIRED_PURGE_LIMIT:
+                break
+        if not doomed:
+            return
+        batch = self._client.batch()
+        for doc_id in doomed:
+            batch.delete(self._collection.document(doc_id))
+        batch.commit(timeout=FIRESTORE_RPC_TIMEOUT)
 
     def consume(self, challenge_id: str, *, now: float) -> bool:
         """Atomically delete the challenge. True only for the first in-window use."""

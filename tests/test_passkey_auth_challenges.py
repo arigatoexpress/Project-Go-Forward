@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from concurrent.futures import ThreadPoolExecutor
 
@@ -15,6 +16,7 @@ from auth.authentication_challenges import (
 )
 from auth.session import DEFAULT_CHALLENGE_TTL, SessionManager
 from database.models import AdminPasskeyAuthChallenge
+from database.rpc_timeout import FIRESTORE_RPC_TIMEOUT
 
 _CHALLENGE_ID = "ab" * 32
 
@@ -91,10 +93,15 @@ def test_session_consume_invalidates_an_expired_cookie_and_blocks_revival():
     assert manager.consume_authentication_challenge(handle, flow="login") is None
 
 
+def _filter_field(field) -> str:
+    return field if isinstance(field, str) else str(field)
+
+
 class _Snapshot:
-    def __init__(self, data):
+    def __init__(self, data, doc_id=None):
         self.exists = data is not None
         self._data = data
+        self.id = doc_id
 
     def to_dict(self):
         return dict(self._data) if self._data is not None else {}
@@ -122,27 +129,122 @@ class _Reference:
         self._rows[self.doc_id] = dict(data)
 
     def get(self, transaction=None, timeout=None):
-        return _Snapshot(self._rows.get(self.doc_id))
+        return _Snapshot(self._rows.get(self.doc_id), self.doc_id)
+
+
+class _Query:
+    def __init__(self, client, filters, limit, order):
+        self._client = client
+        self._filters = filters
+        self._limit = limit
+        self._order = order
+
+    def where(self, field=None, op=None, value=None, *, filter=None):
+        return _Query(
+            self._client,
+            self._filters + [_filter_parts(field, op, value, filter)],
+            self._limit,
+            self._order,
+        )
+
+    def order_by(self, field, direction="ASCENDING"):
+        return _Query(self._client, self._filters, self._limit, (_filter_field(field), direction))
+
+    def limit(self, count):
+        return _Query(self._client, self._filters, count, self._order)
+
+    def stream(self, timeout=None):
+        self._client.query_timeouts.append(timeout)
+        self._client.query_limits.append(self._limit)
+        self._client.query_filters.append(list(self._filters))
+        matched = [
+            (doc_id, data)
+            for doc_id, data in self._client.rows.items()
+            if _row_matches(data, self._filters)
+        ]
+        if self._order:
+            field, direction = self._order
+            reverse = str(direction).upper().endswith("DESCENDING")
+            matched.sort(key=lambda item: item[1].get(field, 0), reverse=reverse)
+        if self._limit is not None:
+            matched = matched[: self._limit]
+        for doc_id, data in matched:
+            yield _Snapshot(data, doc_id)
+
+
+def _filter_parts(field, op, value, filter_obj):
+    if filter_obj is not None:
+        field = filter_obj.field_path
+        op = filter_obj.op_string
+        value = filter_obj.value
+    return _filter_field(field), op, value
+
+
+def _row_matches(data, filters) -> bool:
+    for field, op, value in filters:
+        actual = data.get(field)
+        if isinstance(actual, bool) or not isinstance(actual, int | float):
+            return False
+        if op == "<":
+            if not actual < value:
+                return False
+            continue
+        raise AssertionError(op)
+    return True
+
+
+class _Batch:
+    def __init__(self, client):
+        self._client = client
+        self._deletes: list[str] = []
+
+    def delete(self, ref):
+        self._deletes.append(ref.doc_id)
+
+    def commit(self, timeout=None):
+        self._client.commit_timeouts.append(timeout)
+        self._client.deleted_ids.extend(self._deletes)
+        for doc_id in self._deletes:
+            self._client.rows.pop(doc_id, None)
 
 
 class _Collection:
-    def __init__(self, rows):
-        self._rows = rows
+    def __init__(self, client):
+        self._client = client
 
     def document(self, doc_id):
-        return _Reference(self._rows, doc_id)
+        return _Reference(self._client.rows, doc_id)
+
+    def where(self, field=None, op=None, value=None, *, filter=None):
+        if self._client.fail_expired_cleanup:
+            raise RuntimeError("cleanup query failed")
+        return _Query(
+            self._client,
+            [_filter_parts(field, op, value, filter)],
+            None,
+            None,
+        )
 
 
 class _Client:
     def __init__(self):
         self.rows: dict[str, dict] = {}
+        self.query_timeouts: list = []
+        self.query_limits: list = []
+        self.query_filters: list = []
+        self.commit_timeouts: list = []
+        self.deleted_ids: list[str] = []
+        self.fail_expired_cleanup = False
 
     def collection(self, _name):
-        return _Collection(self.rows)
+        return _Collection(self)
 
     def transaction(self, max_attempts):
         assert max_attempts == 5
         return _Transaction(self.rows)
+
+    def batch(self):
+        return _Batch(self)
 
 
 def test_firestore_consume_rejects_replay_and_expired_records(monkeypatch):
@@ -170,3 +272,112 @@ def test_firestore_consume_rejects_replay_and_expired_records(monkeypatch):
     assert ledger.consume(expired_id, now=101.0) is False
     assert expired_id not in client.rows
     assert ledger.consume(expired_id, now=50.0) is False
+
+
+_NOW = 1_700_000_000.0
+
+
+def _doc_id(n: int) -> str:
+    return f"{n:064x}"
+
+
+def _row(doc_id: str, expires_at) -> dict:
+    return {"challenge_id": doc_id, "expires_at": expires_at}
+
+
+def test_memory_issue_drops_expired_abandoned_challenges_and_keeps_live_ones(monkeypatch):
+    ledger = InMemoryAuthenticationChallengeLedger()
+    monkeypatch.setattr("auth.authentication_challenges.time.time", lambda: _NOW)
+    expired_id = _doc_id(1)
+    boundary_id = _doc_id(2)
+    live_id = _doc_id(3)
+    ledger._rows[expired_id] = _NOW - 1
+    ledger._rows[boundary_id] = _NOW
+    ledger._rows[live_id] = _NOW + 10
+
+    fresh_id = _doc_id(4)
+    ledger.issue(fresh_id, expires_at=_NOW + 300)
+
+    assert expired_id not in ledger._rows
+    assert ledger._rows[boundary_id] == _NOW
+    assert ledger._rows[live_id] == _NOW + 10
+    assert ledger._rows[fresh_id] == _NOW + 300
+
+
+def test_firestore_issue_removes_an_expired_abandoned_challenge_and_keeps_a_live_one(
+    monkeypatch,
+):
+    pytest.importorskip("google.cloud.firestore_v1")
+    monkeypatch.setattr("auth.authentication_challenges.time.time", lambda: _NOW)
+    client = _Client()
+    expired_id = _doc_id(1)
+    boundary_id = _doc_id(2)
+    live_id = _doc_id(3)
+    untyped_id = _doc_id(4)
+    client.rows[live_id] = _row(live_id, _NOW + 10)
+    client.rows[expired_id] = _row(expired_id, _NOW - 1)
+    client.rows[boundary_id] = _row(boundary_id, _NOW)
+    client.rows[untyped_id] = _row(untyped_id, "still-here")
+
+    ledger = FirestoreAuthenticationChallengeLedger(client=client)
+    fresh_id = _doc_id(5)
+    ledger.issue(fresh_id, expires_at=_NOW + 300)
+
+    assert expired_id not in client.rows
+    assert client.deleted_ids == [expired_id]
+    assert client.rows[boundary_id]["expires_at"] == _NOW
+    assert client.rows[live_id]["expires_at"] == _NOW + 10
+    assert client.rows[untyped_id]["expires_at"] == "still-here"
+    assert client.rows[fresh_id] == _row(fresh_id, _NOW + 300)
+    assert client.query_limits == [FirestoreAuthenticationChallengeLedger.EXPIRED_PURGE_LIMIT]
+    assert client.query_filters == [[("expires_at", "<", _NOW)]]
+    assert client.query_timeouts == [FIRESTORE_RPC_TIMEOUT]
+    assert client.commit_timeouts == [FIRESTORE_RPC_TIMEOUT]
+
+
+def test_firestore_expired_cleanup_stops_at_the_batch_limit(monkeypatch):
+    pytest.importorskip("google.cloud.firestore_v1")
+    monkeypatch.setattr("auth.authentication_challenges.time.time", lambda: _NOW)
+    client = _Client()
+    limit = FirestoreAuthenticationChallengeLedger.EXPIRED_PURGE_LIMIT
+    live_id = _doc_id(1)
+    client.rows[live_id] = _row(live_id, _NOW + 50)
+    expired_ids = []
+    for offset in range(limit + 2):
+        doc_id = _doc_id(100 + offset)
+        expired_ids.append(doc_id)
+        # Smaller expires_at is older. Ascending order deletes those first.
+        client.rows[doc_id] = _row(doc_id, _NOW - (limit + 2 - offset))
+
+    ledger = FirestoreAuthenticationChallengeLedger(client=client)
+    fresh_id = _doc_id(9)
+    ledger.issue(fresh_id, expires_at=_NOW + 300)
+
+    assert client.deleted_ids == expired_ids[:limit]
+    assert len(client.deleted_ids) == limit
+    assert client.query_limits == [limit]
+    for doc_id in expired_ids[limit:]:
+        assert doc_id in client.rows
+    assert live_id in client.rows
+    assert fresh_id in client.rows
+    assert client.rows[live_id]["expires_at"] == _NOW + 50
+
+
+def test_firestore_issue_still_records_a_challenge_when_expired_cleanup_fails(monkeypatch, caplog):
+    pytest.importorskip("google.cloud.firestore_v1")
+    monkeypatch.setattr("auth.authentication_challenges.time.time", lambda: _NOW)
+    client = _Client()
+    client.fail_expired_cleanup = True
+    expired_id = _doc_id(1)
+    client.rows[expired_id] = _row(expired_id, _NOW - 30)
+
+    ledger = FirestoreAuthenticationChallengeLedger(client=client)
+    fresh_id = _doc_id(2)
+    with caplog.at_level(logging.WARNING, logger="auth.authentication_challenges"):
+        ledger.issue(fresh_id, expires_at=_NOW + 300)
+
+    assert expired_id in client.rows
+    assert client.deleted_ids == []
+    assert client.rows[fresh_id] == _row(fresh_id, _NOW + 300)
+    assert "expired authentication challenge cleanup skipped" in caplog.text
+    assert "cleanup query failed" in caplog.text
