@@ -171,13 +171,18 @@ just don't measure on 3.11.
 
 Recommendations:
 - Any coverage measurement where the number matters (launch-readiness
-  evidence, gap analysis) should run under Python ≥ 3.12. Moving the dev venv
-  is a bigger job: the full suite (3003 tests) has only been validated on
-  3.11, so validate on 3.12+ before switching. Note also that a FRESH env
-  install currently fails dependency resolution: `google-cloud-aiplatform
-  ==1.161.0` requires `google-cloud-storage>=3.10` while requirements.txt pins
-  `google-cloud-storage==2.18.0` (the existing .venv predates the conflict).
-  Both must be resolved before CI can move to a newer Python.
+  evidence, gap analysis) should run under Python ≥ 3.12. Full-suite validation
+  is no longer a blocker to using 3.12 for that measurement: on 2026-10-26 a
+  fresh Python 3.12.8 venv installed both `requirements.txt` and
+  `requirements-dev.txt`, `pip check` reported `No broken requirements found.`,
+  and `pytest tests/ -x --tb=short` completed with **4781 passed, 24 skipped**
+  in **220.65 s**.
+- The formerly reported fresh-install storage conflict does not apply to
+  Python 3.12. `google-cloud-aiplatform==1.161.0` declares
+  `google-cloud-storage>=1.32.0,<4.0.0` for Python < 3.13 and
+  `google-cloud-storage>=3.10.0,<4.0.0` only for Python ≥ 3.13. The pinned
+  `google-cloud-storage==2.18.0` therefore resolves on 3.12; a future 3.13+
+  migration still needs its own dependency-resolution review.
 - Keep the fake managers' `asyncio.to_thread` mirroring (committed cycle 3):
   it faithfully mirrors the real managers' suspension behavior, is harmless
   under 3.12+, and remains correct if measurement ever runs on 3.11 again.
@@ -197,11 +202,12 @@ Recommendations:
 1. Coverage re-measured after the to_thread fake fix: 1,893 → 1,804 missed
    (59% → 61%). **Re-measure under Python ≥ 3.12 to get the honest number** —
    expect a further jump for portal-thread handler spans; the remaining misses
-   after that are REAL gaps worth writing tests for.
+   after that are REAL gaps worth writing tests for. The verified full 3.12
+   environment above removes the former test-suite and installation blockers.
 2. If other endpoint groups still under-attribute on 3.11, check their fake
    managers' async methods for the same missing-suspension pattern
    (`grep -rn "async def" tests/ | grep -v to_thread`) — under 3.12+
    measurement this becomes moot.
-3. Long-term: validate the full suite under Python 3.12/3.13 and resolve the
-   requirements.txt storage-vs-aiplatform pin conflict so the measurement
-   venv can move off 3.11.
+3. Before any future Python 3.13+ migration, re-check the conditional
+   storage-vs-aiplatform requirements described above. No requirements change
+   was needed for the verified Python 3.12.8 environment.
