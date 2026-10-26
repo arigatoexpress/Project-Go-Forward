@@ -39,7 +39,9 @@ a separate, human-reviewed decision.
 
 | Location | Why unreachable |
 |---|---|
-| main.py 2658–2660 | `get_chat_analytics` except — try body only returns a literal dict |
+| main.py 2827–2829 | `get_chat_analytics` except — try body only returns a literal dict |
+| main.py 286–338 | Sentry subprocess-only init (28 lines), covered separately by `tests/test_sentry_init_smoke.py`, not by in-process coverage data |
+| main.py 10259, 10262 | Manual `python main.py` / uvicorn entrypoint; ASGI tests import `app` instead |
 | database/google_ads_authority.py 402 | model validator enforces the identity coupling this double-checks |
 | database/models.py 633 | `Field(ge=0)` fires before the field validator's custom raise |
 | tools/inventory_sync.py 523–524 | `replace("the ", "")` can never match keys that all contain "the " |
@@ -61,10 +63,18 @@ partial measurement venv. Direct verification produced:
 
 - Fresh installation completed and `pip check` reported
   `No broken requirements found.` The environment includes webauthn,
-  google.adk, googleapiclient, pandas, and google.cloud.storage.
+  google.adk, googleapiclient, pandas, and google.cloud.storage. The dev
+  requirements now also pin coverage 7.16.2 and pytest-cov 7.1.0 so a fresh
+  measurement environment does not silently lack the coverage tooling.
 - The complete suite finished with **4781 passed, 24 skipped** in **220.65 s**.
   The pass/skip totals match the Python 3.11 baseline; the old
   missing-heavy-dependency accounting no longer applies to this venv.
+- A second complete run under coverage's `sysmon` core finished with **4781
+  passed, 24 skipped** in **253.14 s** and measured `main.py` at **98.95%**
+  (4,744 statements, 50 missed). The misses are 28 Sentry subprocess-only
+  lines, 3 proven-dead defensive lines, 2 manual-entrypoint lines, and 17
+  actionable test gaps; see `docs/MAIN_COVERAGE_INVESTIGATION.md` for the exact
+  ranges and reproduction command.
 - Dependency-minimal `pytest.importorskip` / `skipif` guards remain useful for
   deliberately minimal environments, but they do not make this full 3.12
   environment a reduced suite.

@@ -197,17 +197,42 @@ Recommendations:
   coverage 7.16.2 + TestClient portal + handler with code between
   `request.json()` and a second suspension.
 
+## Full-suite Python 3.12 result (2026-10-26)
+
+The full suite was measured with coverage 7.16.2 under Python 3.12.8 using the
+lower-overhead `sysmon` core:
+
+```bash
+COVERAGE_CORE=sysmon COVERAGE_FILE=/tmp/main-coverage-312 \
+  /tmp/sysmon-venv312/bin/python -m coverage run --source=main \
+  -m pytest tests/ -x --tb=short -q --no-header
+COVERAGE_FILE=/tmp/main-coverage-312 \
+  /tmp/sysmon-venv312/bin/python -m coverage report --precision=2
+```
+
+Result: **4781 passed, 24 skipped** in **253.14 s**; `main.py` has **4,744
+statements, 50 missed, 98.95% coverage**. This supersedes the historical
+3.11 result of 1,804 missed lines / 61%, which included the CTracer blind
+windows. The 50 remaining misses reconcile as follows:
+
+| Lines | Classification |
+|---|---|
+| 286–338 (28 lines) | Sentry subprocess-only initialization, covered separately by `tests/test_sentry_init_smoke.py` but not by the in-process coverage data |
+| 2827–2829 (3 lines) | Proven-dead `get_chat_analytics` defensive exception handler |
+| 10259, 10262 (2 lines) | Manual `python main.py` / uvicorn entrypoint; ASGI tests import `app` instead |
+| 17 lines | Actionable test gaps: 422; 1226–1227 and 1252; 1371 and 1396–1399; 4562–4564 and 4566; 4772–4774; 6335 |
+
 ## Next steps
 
-1. Coverage re-measured after the to_thread fake fix: 1,893 → 1,804 missed
-   (59% → 61%). **Re-measure under Python ≥ 3.12 to get the honest number** —
-   expect a further jump for portal-thread handler spans; the remaining misses
-   after that are REAL gaps worth writing tests for. The verified full 3.12
-   environment above removes the former test-suite and installation blockers.
-2. If other endpoint groups still under-attribute on 3.11, check their fake
-   managers' async methods for the same missing-suspension pattern
-   (`grep -rn "async def" tests/ | grep -v to_thread`) — under 3.12+
-   measurement this becomes moot.
+1. Add focused tests for the 17 actionable lines: direct-HTTPS detection,
+   non-ASCII request-target fallbacks, local startup configuration fallbacks,
+   deal-payload error variants, malformed deal-update JSON, and failed LCP
+   image conversion. With only the 33 intentionally uncovered lines remaining,
+   `main.py` would measure **99.30%** without forcing dead or subprocess-only
+   code into the in-process report.
+2. Preserve the separate Sentry subprocess tests and the documented dead-line
+   proofs when refreshing this report; do not treat their absence from the
+   in-process JSON as new regressions.
 3. Before any future Python 3.13+ migration, re-check the conditional
-   storage-vs-aiplatform requirements described above. No requirements change
-   was needed for the verified Python 3.12.8 environment.
+   storage-vs-aiplatform requirements described above. No runtime requirements
+   change was needed for the verified Python 3.12.8 environment.
