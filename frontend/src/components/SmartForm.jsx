@@ -134,6 +134,33 @@ const SmartForm = ({ templateName, title, sessionId, onSubmit, onCancel, initial
       locked ? 'bg-gray-50 cursor-not-allowed' : ''
     } ${computed ? 'bg-gray-50' : ''}`;
 
+    if (type === 'select') {
+      const options = Array.isArray(field.options) ? field.options : [];
+      return (
+        <div key={field_name}>
+          <label className="block text-sm font-medium text-gray-700" htmlFor={field_name}>
+            {label} {required && <span className="text-red-500">*</span>}
+          </label>
+          <select
+            id={field_name}
+            name={field_name}
+            value={value || field.default || ''}
+            onChange={(e) => handleChange(field_name, e.target.value)}
+            disabled={locked}
+            className={inputClass}
+          >
+            {options.map((option) => {
+              const optionValue = typeof option === 'string' ? option : option.value;
+              const optionLabel = typeof option === 'string' ? option : option.label;
+              return (
+                <option key={optionValue} value={optionValue}>{optionLabel}</option>
+              );
+            })}
+          </select>
+        </div>
+      );
+    }
+
     if (type === 'checkbox') {
       return (
         <div key={field_name} className="flex items-center">

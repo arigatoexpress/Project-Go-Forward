@@ -28,7 +28,13 @@ from tools.document_quality import (
 )
 
 # Local imports
-from tools.document_tools import DOCUMENTS_DIR, OUTPUT_DIR, fill_pdf_form, upload_to_gcs
+from tools.document_tools import (
+    DOCUMENTS_DIR,
+    OUTPUT_DIR,
+    attach_tmha_overlay_fields,
+    fill_pdf_form,
+    upload_to_gcs,
+)
 from tools.drive_service import ensure_deal_folder, upload_to_drive
 from tools.form_set import dedupe_packet_templates
 
@@ -694,6 +700,7 @@ class DocumentEngineV2:
                     pdf_data[k] = v
 
         _apply_pdf_field_polish(template_name, pdf_data)
+        attach_tmha_overlay_fields(template_name, pdf_data, data)
 
         # 5. Output Filename
         if not output_filename:
@@ -941,14 +948,17 @@ class DocumentEngineV2:
         for domain_name, domain_cfg in self.schema["domains"].items():
             sections[domain_name] = []
             for field_name, field_cfg in domain_cfg["fields"].items():
-                sections[domain_name].append(
-                    {
-                        "field_name": field_name,
-                        "label": field_cfg.get("label", field_name),
-                        "type": field_cfg.get("type", "string"),
-                        "required": field_cfg.get("required", False),
-                    }
-                )
+                entry = {
+                "field_name": field_name,
+                "label": field_cfg.get("label", field_name),
+                "type": field_cfg.get("type", "string"),
+                "required": field_cfg.get("required", False),
+            }
+            if field_cfg.get("options"):
+                entry["options"] = field_cfg["options"]
+            if "default" in field_cfg:
+                entry["default"] = field_cfg["default"]
+            sections[domain_name].append(entry)
 
         return {
             "template_name": template_name,

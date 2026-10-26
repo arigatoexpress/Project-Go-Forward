@@ -26,11 +26,18 @@ BUSINESS_ZIP = "77336"
 BUSINESS_CITY_STATE_ZIP = "Huffman, TX 77336"
 BUSINESS_RBI = "35248"
 
-# Owner decision pending. TILA / Reg Z reading: "Total of Payments" is amount
+# Needs Mark's own yes/no. TILA / Reg Z reading: "Total of Payments" is amount
 # financed + finance charge, so tax and insurance escrow stay out of it (and out
-# of Total Sale Price). Flip to True to print escrow x term in both instead.
-# The monthly payment amount includes escrow either way; finance charge never does.
+# of Total Sale Price). Celeste said escrow is a pass-through and is not part of
+# Total of Payments. Mark's 2026-10-26 note only requires the page-2 payment to
+# include escrow. Leave this False until Mark answers. The monthly payment
+# includes escrow either way; finance charge never does.
 TOTAL_OF_PAYMENTS_INCLUDES_ESCROW = False
+
+# Deal-entry values for who paid the first year of required insurance.
+INSURANCE_PAID_BY_CUSTOMER = "customer"
+INSURANCE_PAID_BY_FINANCED = "financed"
+INSURANCE_FURNISH_TERM_MONTHS = "12"
 
 
 IDENTITY_FIELDS = {
@@ -380,6 +387,99 @@ def _normalize_new_used(data: dict[str, Any]) -> None:
         data["new_used_text"] = "New" if resolved_new else "Used"
 
 
+def normalize_insurance_paid_by(value: Any) -> str:
+    """Return ``customer`` or ``financed``. Blank and unknown values are customer."""
+    text = _clean(value).lower()
+    if text in {INSURANCE_PAID_BY_CUSTOMER, INSURANCE_PAID_BY_FINANCED}:
+        return text
+    return INSURANCE_PAID_BY_CUSTOMER
+
+
+def first_year_premium_amount(data: dict[str, Any]) -> Decimal | None:
+    """One year's insurance cost.
+
+    ``insurance_annual_premium`` is the current deal-entry field.
+    ``annual_insurance`` is the existing escrow input and is used when the new
+    field is blank, so older deals keep their monthly escrow. The printed
+    "you have paid" amount (``insurance_premium``) is a separate fact.
+    """
+    for key in ("insurance_annual_premium", "annual_insurance"):
+        amount = _decimal(data.get(key))
+        if amount is not None:
+            return amount
+    return None
+
+
+def home_price_for_tax(data: dict[str, Any]) -> Decimal | None:
+    """Tax default is the home price, not a cash price that includes financed insurance."""
+    if data.get("sales_price_includes_financed_insurance") is True:
+        home = _decimal(data.get("home_sales_price"))
+        if home is not None:
+            return home
+    return _decimal(data.get("sales_price"))
+
+
+def apply_contract_insurance(data: dict[str, Any]) -> None:
+    """Apply the 2026-10-26 insurance terms to a document payload.
+
+    Customer-paid is the default: page 1 is unchanged, and the year's premium
+    prints on the page-3 "you have paid" line with that box checked. Financed
+    adds the year's premium to the cash price once (and therefore to the amount
+    financed) and leaves the "you have paid" line blank. A year's premium also
+    marks page 3 IX.B as furnished for 12 months at that premium.
+    """
+    paid_by = normalize_insurance_paid_by(data.get("insurance_first_year_paid_by"))
+    data["insurance_first_year_paid_by"] = paid_by
+    premium = first_year_premium_amount(data)
+
+    if premium is not None and not _is_blank(data.get("insurance_annual_premium")):
+        annual = _decimal(data.get("annual_insurance"))
+        if annual is None or annual != premium:
+            data["annual_insurance"] = _money(premium)
+    elif premium is not None and _is_blank(data.get("insurance_annual_premium")):
+        data["insurance_annual_premium"] = _money(premium)
+
+    if (
+        paid_by == INSURANCE_PAID_BY_FINANCED
+        and premium is not None
+        and premium > 0
+        and data.get("sales_price_includes_financed_insurance") is not True
+    ):
+        base = _decimal(data.get("sales_price"))
+        if base is not None:
+            data["home_sales_price"] = _money(_round_money(base))
+            data["sales_price"] = _money(_round_money(base + premium))
+            data["sales_price_includes_financed_insurance"] = True
+
+    if paid_by == INSURANCE_PAID_BY_FINANCED:
+        # The premium is in the cash price. The "you have paid" line stays blank.
+        data["insurance_premium"] = ""
+        data["insurance_included"] = False
+    elif premium is not None and premium > 0:
+        if _is_blank(data.get("insurance_premium")):
+            data["insurance_premium"] = _money(premium)
+        paid_amount = _decimal(data.get("insurance_premium"))
+        if (
+            _is_blank(data.get("insurance_included"))
+            and paid_amount is not None
+            and paid_amount > 0
+        ):
+            data["insurance_included"] = True
+    elif not _is_blank(data.get("insurance_premium")):
+        paid_amount = _decimal(data.get("insurance_premium"))
+        if (
+            _is_blank(data.get("insurance_included"))
+            and paid_amount is not None
+            and paid_amount > 0
+        ):
+            data["insurance_included"] = True
+
+    if premium is not None and premium > 0:
+        data["insurance_furnish_term"] = INSURANCE_FURNISH_TERM_MONTHS
+        data["insurance_furnish_premium"] = _money(premium)
+        data["insurance_furnish_yes"] = True
+
+
 def enrich_document_data(data: dict[str, Any]) -> dict[str, Any]:
     """Return data with safe seller and computed aliases filled.
 
@@ -671,7 +771,9 @@ def enrich_document_data(data: dict[str, Any]) -> dict[str, Any]:
         if manufacturer_full_address:
             enriched["manufacturer_full_address"] = manufacturer_full_address
 
+    apply_contract_insurance(enriched)
     sales_price = _decimal(enriched.get("sales_price"))
+    tax_base = home_price_for_tax(enriched)
     down_payment = _decimal(enriched.get("down_payment")) or Decimal("0")
     loan_amount = None
     if sales_price is not None:
@@ -724,7 +826,9 @@ def enrich_document_data(data: dict[str, Any]) -> dict[str, Any]:
     if tax_rate is not None:
         escrow_value = _decimal(enriched.get("taxable_value"))
         if escrow_value is None:
-            escrow_value = sales_price  # may be None if neither was provided
+            # Financed insurance raises the contract cash price. Property tax
+            # stays on the home price unless staff entered a taxable value.
+            escrow_value = tax_base
         if escrow_value is not None:
             if _is_blank(enriched.get("escrow_value")):
                 enriched["escrow_value"] = _money(escrow_value)
@@ -763,11 +867,11 @@ def enrich_document_data(data: dict[str, Any]) -> dict[str, Any]:
             enriched["payment_breakdown"] = f"{loan_term} monthly payments of ${_money(payer)}"
     if tax_part > 0 and _is_blank(enriched.get("tax_escrow_included")):
         enriched["tax_escrow_included"] = True
-    # Contract page 3, IX.D Insurance Escrow Option: mirror the tax escrow box.
-    # The "YES, You agree" box is the Insurance_Yes widget (insurance_required).
-    # Insurance_Included_Yes is the "You have paid $... for the first year's
-    # premium" sub-box, a fact staff must enter, so it is left alone.
-    # A staff-entered value (including an explicit False) is never overridden.
+    # Contract page 3, IX.D. Insurance_Yes is the escrow-option YES box.
+    # Insurance_Included_Yes (the "you have paid" box) is set by
+    # apply_contract_insurance from insurance_first_year_paid_by. A
+    # staff-entered insurance_required value, including an explicit False,
+    # is never overridden.
     insurance_part = _decimal(enriched.get("insurance_premium_monthly")) or Decimal("0")
     if insurance_part > 0 and _is_blank(enriched.get("insurance_required")):
         enriched["insurance_required"] = True

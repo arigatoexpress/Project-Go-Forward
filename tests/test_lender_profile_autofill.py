@@ -67,6 +67,41 @@ def test_other_lenders_are_untouched(stand_in_profile):
     assert "creditor_address" not in out
 
 
+def test_prosperity_profile_fills_in_house_creditor_block():
+    """Address is the lot address already used for the seller. Mark has not confirmed it."""
+    out = enrich_document_data(
+        {"creditor_name": "Prosperity Acquisitions, Inc. dba Texas Home Outlet"}
+    )
+    assert out["creditor_address"] == "10685 FM 1960 East"
+    assert out["creditor_city_state_zip"] == "Huffman, TX 77336"
+    assert out["creditor_phone"] == "281-324-3020"
+
+
+def test_prosperity_profile_matches_the_trade_name():
+    out = enrich_document_data({"creditor_name": "Texas Home Outlet"})
+    assert out["creditor_address"] == "10685 FM 1960 East"
+
+
+def test_prosperity_staff_address_wins():
+    out = enrich_document_data(
+        {
+            "creditor_name": "Prosperity Acquisitions, Inc. dba Texas Home Outlet",
+            "creditor_address": "Branch Office Rd",
+        }
+    )
+    assert out["creditor_address"] == "Branch Office Rd"
+    assert out["creditor_city_state_zip"] == "Huffman, TX 77336"
+
+
+def test_21st_mortgage_address_stays_blank_in_config():
+    profile = config_loader.get_lender_profiles()["21st_mortgage"]
+    out = enrich_document_data({"creditor_name": "21st Mortgage"})
+    assert profile["creditor_address"] == ""
+    assert profile["creditor_city_state_zip"] == ""
+    assert profile["creditor_phone"] == ""
+    assert "creditor_address" not in out
+
+
 def test_blank_config_values_leave_fields_blank(monkeypatch):
     blank = {"21st_mortgage": {**STAND_IN["21st_mortgage"], "creditor_address": ""}}
     monkeypatch.setattr(config_loader, "get_lender_profiles", lambda: blank)

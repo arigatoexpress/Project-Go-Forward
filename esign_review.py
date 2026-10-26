@@ -76,6 +76,7 @@ MONEY_INPUT_KEYS = (
     "tax_rate",
     "taxable_value",
     "annual_insurance",
+    "insurance_annual_premium",
 )
 
 
@@ -179,7 +180,9 @@ def money_problems(doc_data: dict[str, Any]) -> list[dict[str, Any]]:
                 "Property tax rate is blank or 0%. Enter the tax rate on the deal.",
             )
         )
-    insurance_ok = _positive(doc_data.get("annual_insurance"))
+    insurance_ok = _positive(doc_data.get("annual_insurance")) or _positive(
+        doc_data.get("insurance_annual_premium")
+    )
     if not insurance_ok:
         problems.append(
             _problem(

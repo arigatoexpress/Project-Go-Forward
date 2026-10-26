@@ -100,6 +100,15 @@ lenders:
     creditor_address: ""
     creditor_city_state_zip: ""
     creditor_phone: ""
+  prosperity:
+    # In-house creditor. Same lot address already printed for the seller.
+    # Mark has not confirmed this is the creditor address he means.
+    match_names:
+      - "Prosperity Acquisitions"
+      - "Texas Home Outlet"
+    creditor_address: "10685 FM 1960 East"
+    creditor_city_state_zip: "Huffman, TX 77336"
+    creditor_phone: "281-324-3020"
 
 agent:
   # The name your AI assistant goes by
