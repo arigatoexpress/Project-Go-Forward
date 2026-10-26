@@ -949,16 +949,16 @@ class DocumentEngineV2:
             sections[domain_name] = []
             for field_name, field_cfg in domain_cfg["fields"].items():
                 entry = {
-                "field_name": field_name,
-                "label": field_cfg.get("label", field_name),
-                "type": field_cfg.get("type", "string"),
-                "required": field_cfg.get("required", False),
-            }
-            if field_cfg.get("options"):
-                entry["options"] = field_cfg["options"]
-            if "default" in field_cfg:
-                entry["default"] = field_cfg["default"]
-            sections[domain_name].append(entry)
+                    "field_name": field_name,
+                    "label": field_cfg.get("label", field_name),
+                    "type": field_cfg.get("type", "string"),
+                    "required": field_cfg.get("required", False),
+                }
+                if field_cfg.get("options"):
+                    entry["options"] = field_cfg["options"]
+                if "default" in field_cfg:
+                    entry["default"] = field_cfg["default"]
+                sections[domain_name].append(entry)
 
         return {
             "template_name": template_name,

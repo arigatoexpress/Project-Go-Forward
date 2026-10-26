@@ -905,6 +905,10 @@ def _apply_lender_profile(enriched: dict[str, Any]) -> None:
         names = [_normalized_lender_name(name) for name in profile.get("match_names") or []]
         if not any(name and lender.startswith(name) for name in names):
             continue
+        # Explicit false keeps a matched profile from printing. Missing means on,
+        # so profiles that predate the flag (21st Mortgage) still fill blanks.
+        if profile.get("autofill_enabled") is False:
+            return
         for key in ("creditor_address", "creditor_city_state_zip", "creditor_phone"):
             if _has_value(profile.get(key)):
                 _set_if_blank(enriched, key, _clean(profile.get(key)))

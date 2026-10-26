@@ -103,6 +103,9 @@ lenders:
   prosperity:
     # In-house creditor. Same lot address already printed for the seller.
     # Mark has not confirmed this is the creditor address he means.
+    # Leave false until he confirms. True prints these lines on a real contract
+    # when the creditor name matches and the creditor block is still blank.
+    autofill_enabled: false
     match_names:
       - "Prosperity Acquisitions"
       - "Texas Home Outlet"

@@ -10,8 +10,8 @@ Writes two PDFs under data/generated_docs/mark-1026-sample/:
 
   mark-1026-financed-prosperity.pdf
       Same home and price, first year financed, in-house Prosperity creditor.
-      Cash price on the contract is $89,400. The creditor block uses the lot
-      address, which Mark has not confirmed.
+      Cash price on the contract is $89,400. The creditor address stays blank
+      because lenders.prosperity.autofill_enabled is false until Mark confirms it.
 
 Buyer, home, and serials are fictional. Do not put real customer data here.
 The regulatory template in tho_documents/ is not modified.

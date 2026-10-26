@@ -52,6 +52,9 @@ PHONE_FIELDS = tuple(
 
 # Template checkbox measured from "56.88 536.52 -10.98 -10.98 re".
 FURNISH_BOX = (45.90, 525.54, 56.88, 536.52)
+# Printed square on "The first year's premium is included in the Amount Financed."
+# No AcroForm widget covers it. Insurance_Included_Yes is the line above.
+AMOUNT_FINANCED_BOX = (103.50, 197.46, 108.78, 202.74)
 
 MARK_NUMBERS = {
     "sales_price": "87000",
@@ -357,11 +360,24 @@ def test_financed_contract_prints_cash_price_and_blank_prepaid_line(rendered):
     assert states[_short_field(INSURANCE_YES)] == "/1"
     assert values[TAX_BOX] == "/1"
     assert states[_short_field(TAX_BOX)] == "/1"
-    assert values[CREDITOR_ADDRESS] == "10685 FM 1960 East"
-    assert values[CREDITOR_CITY] == "Huffman, TX 77336"
-    digits = "".join(values[field] or "" for field in PHONE_FIELDS)
-    assert digits == "2813243020"
+    # Autofill is off until Mark confirms the lot address, so the block stays blank.
+    assert values[CREDITOR_ADDRESS] is None
+    assert values[CREDITOR_CITY] is None
+    assert "".join(values[field] or "" for field in PHONE_FIELDS) == ""
     _assert_furnish_checkmark(rendered["financed"])
+    # "The first year's premium is included in the Amount Financed." has a
+    # printed square and no AcroForm field. Leave it unmarked for Mark.
+    _assert_no_mark_in_box(rendered["financed"], AMOUNT_FINANCED_BOX)
+
+
+def _assert_no_mark_in_box(reader: PdfReader, box: tuple[float, float, float, float]) -> None:
+    contents = reader.pages[2].get_contents().get_data()
+    left, bottom, right, top = box
+    moves = re.findall(rb"([\d.]+) ([\d.]+) m\n([\d.]+) ([\d.]+) l", contents)
+    for x1, y1, x2, y2 in moves:
+        points = ((float(x1), float(y1)), (float(x2), float(y2)))
+        if all(left <= x <= right and bottom <= y <= top for x, y in points):
+            raise AssertionError(f"unexpected mark inside {box}")
 
 
 def _assert_furnish_checkmark(reader: PdfReader):

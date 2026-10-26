@@ -666,6 +666,22 @@ class TestV2TemplateFields:
             first = fields["sections"][domain][0]
             assert {"field_name", "label", "type", "required"} <= set(first)
 
+    def test_get_template_fields_returns_every_field_in_each_domain(self):
+        """Options/default must not drop every field except the last in a domain."""
+        fields = ev2.get_template_fields("TMHA_SalesContract.pdf")
+        assert fields is not None
+        for domain_name, domain_cfg in ev2._engine.schema["domains"].items():
+            returned = [entry["field_name"] for entry in fields["sections"][domain_name]]
+            assert returned == list(domain_cfg["fields"])
+        paid_by = next(
+            entry
+            for entry in fields["sections"]["insurance"]
+            if entry["field_name"] == "insurance_first_year_paid_by"
+        )
+        assert paid_by["type"] == "select"
+        assert paid_by["default"] == "customer"
+        assert [option["value"] for option in paid_by["options"]] == ["customer", "financed"]
+
     def test_get_template_fields_unknown_returns_none(self):
         assert ev2.get_template_fields("zzz-no-such-template.pdf") is None
 

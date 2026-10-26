@@ -67,8 +67,45 @@ def test_other_lenders_are_untouched(stand_in_profile):
     assert "creditor_address" not in out
 
 
-def test_prosperity_profile_fills_in_house_creditor_block():
-    """Address is the lot address already used for the seller. Mark has not confirmed it."""
+def _prosperity_profiles(*, enabled: bool) -> dict:
+    profiles = config_loader.get_lender_profiles()
+    prosperity = {**profiles["prosperity"], "autofill_enabled": enabled}
+    return {**profiles, "prosperity": prosperity}
+
+
+def test_prosperity_autofill_stays_off_until_mark_confirms():
+    """The lot address is stored, and it does not print while the flag is false."""
+    profile = config_loader.get_lender_profiles()["prosperity"]
+    assert profile["autofill_enabled"] is False
+    assert profile["creditor_address"] == "10685 FM 1960 East"
+    out = enrich_document_data(
+        {"creditor_name": "Prosperity Acquisitions, Inc. dba Texas Home Outlet"}
+    )
+    assert "creditor_address" not in out
+    assert "creditor_city_state_zip" not in out
+    assert "creditor_phone" not in out
+
+
+def test_prosperity_trade_name_stays_blank_while_autofill_is_off():
+    out = enrich_document_data({"creditor_name": "Texas Home Outlet"})
+    assert "creditor_address" not in out
+
+
+def test_prosperity_staff_address_is_kept_while_autofill_is_off():
+    out = enrich_document_data(
+        {
+            "creditor_name": "Prosperity Acquisitions, Inc. dba Texas Home Outlet",
+            "creditor_address": "Branch Office Rd",
+        }
+    )
+    assert out["creditor_address"] == "Branch Office Rd"
+    assert "creditor_city_state_zip" not in out
+    assert "creditor_phone" not in out
+
+
+def test_prosperity_autofill_fills_blank_block_when_enabled(monkeypatch):
+    enabled = _prosperity_profiles(enabled=True)
+    monkeypatch.setattr(config_loader, "get_lender_profiles", lambda: enabled)
     out = enrich_document_data(
         {"creditor_name": "Prosperity Acquisitions, Inc. dba Texas Home Outlet"}
     )
@@ -77,12 +114,16 @@ def test_prosperity_profile_fills_in_house_creditor_block():
     assert out["creditor_phone"] == "281-324-3020"
 
 
-def test_prosperity_profile_matches_the_trade_name():
+def test_prosperity_enabled_profile_matches_the_trade_name(monkeypatch):
+    enabled = _prosperity_profiles(enabled=True)
+    monkeypatch.setattr(config_loader, "get_lender_profiles", lambda: enabled)
     out = enrich_document_data({"creditor_name": "Texas Home Outlet"})
     assert out["creditor_address"] == "10685 FM 1960 East"
 
 
-def test_prosperity_staff_address_wins():
+def test_prosperity_staff_address_wins_when_autofill_is_enabled(monkeypatch):
+    enabled = _prosperity_profiles(enabled=True)
+    monkeypatch.setattr(config_loader, "get_lender_profiles", lambda: enabled)
     out = enrich_document_data(
         {
             "creditor_name": "Prosperity Acquisitions, Inc. dba Texas Home Outlet",
