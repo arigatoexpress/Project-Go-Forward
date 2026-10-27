@@ -82,7 +82,8 @@ const INITIAL_FORM = {
   sales_price: '', down_payment: '',
   // Escrow inputs (Mark Willcott spec, 2026-06-24): annual insurance premium,
   // tax rate (%), and optional taxable value (defaults to sales price).
-  annual_insurance: '', tax_rate: '', taxable_value: '',
+  annual_insurance: '', insurance_annual_premium: '', insurance_first_year_paid_by: 'customer',
+  tax_rate: '', taxable_value: '',
   creditor_name: '', creditor_phone: '', creditor_address: '', creditor_city_state_zip: '',
   loan_term: '', apr: '', finance_charge: '', max_financed: '',
   monthly_payment: '', total_payments: '', payment_start_date: '', insurance_premium: '',
@@ -273,9 +274,14 @@ const moneyString = value => (
 // Property Tax" form (Internal_ImportantNoticeTax.pdf) will carry. These feed
 // the EXISTING field_map keys: insurance_premium_monthly, escrow_value,
 // tax_escrow_pct, tax_escrow_yearly, tax_escrow_payment.
-// Monthly INS escrow (insurance_premium_monthly) = annual_insurance / 12.
+// Monthly INS escrow = one year's premium / 12. insurance_annual_premium is the
+// current input. annual_insurance is the older name and still fills the math
+// when the new field is blank.
+export const enteredAnnualPremium = f => (
+  hasValue(f.insurance_annual_premium) ? f.insurance_annual_premium : f.annual_insurance
+);
 export const insuranceEscrowMonthly = f => {
-  const annual = numericMoney(f.annual_insurance);
+  const annual = numericMoney(enteredAnnualPremium(f));
   return Number.isFinite(annual) ? (annual / 12).toFixed(2) : '';
 };
 // The taxable value the tax escrow is computed against: explicit taxable_value,
@@ -714,6 +720,9 @@ function toDocumentData(f) {
     // setdefault if absent, so these stay consistent either way. Raw inputs
     // (annual_insurance / tax_rate / taxable_value) are forwarded by the spread
     // above so the backend can re-derive if these are stripped.
+    insurance_annual_premium: enteredAnnualPremium(f) || undefined,
+    annual_insurance: enteredAnnualPremium(f) || undefined,
+    insurance_first_year_paid_by: f.insurance_first_year_paid_by || 'customer',
     insurance_premium_monthly: hasValue(f.insurance_premium_monthly)
       ? f.insurance_premium_monthly
       : (insuranceEscrowMonthly(f) || undefined),
@@ -2465,17 +2474,30 @@ function Step2({ data, onChange, resetKey, inventory, inventoryLoading, onNext, 
             icon={DollarSign}
             error={errOf('sales_price')}
             autoFilled={isAutoFilled('sales_price')}
-            helperText={selectedHome && !isAutoFilled('sales_price') ? 'Enter manually — not in inventory feed' : undefined}
+            helperText={
+              data.insurance_first_year_paid_by === 'financed' && numericMoney(enteredAnnualPremium(data))
+                ? 'Financed insurance is added to this price on the contract.'
+                : (selectedHome && !isAutoFilled('sales_price') ? 'Enter manually — not in inventory feed' : undefined)
+            }
           />
           <Field label="Down Payment" name="down_payment" value={data.down_payment} onChange={c} resetKey={resetKey} third type="currency" icon={DollarSign} />
           <Field
             label="Unpaid Balance"
             name="_ub"
-            value={data.sales_price ? (parseFloat(data.sales_price) - parseFloat(data.down_payment || 0)).toFixed(2) : ''}
+            value={(() => {
+              const price = numericMoney(data.sales_price);
+              if (!Number.isFinite(price)) return '';
+              const premium = data.insurance_first_year_paid_by === 'financed'
+                ? (numericMoney(enteredAnnualPremium(data)) || 0)
+                : 0;
+              const down = numericMoney(data.down_payment) || 0;
+              return (price + premium - down).toFixed(2);
+            })()}
             onChange={() => { }}
             third
             readOnly
             icon={DollarSign}
+            helperText={data.insurance_first_year_paid_by === 'financed' ? 'Includes the financed insurance premium.' : undefined}
           />
         </Row>
         {/* Escrow (Mark Willcott spec, 2026-06-24). Staff enters the annual
@@ -2486,14 +2508,30 @@ function Step2({ data, onChange, resetKey, inventory, inventoryLoading, onNext, 
         <Row>
           <Field
             label="Annual Insurance Premium"
-            name="annual_insurance"
-            value={data.annual_insurance}
-            onChange={c}
+            name="insurance_annual_premium"
+            value={enteredAnnualPremium(data)}
+            onChange={(name, value) => {
+              c('insurance_annual_premium', value);
+              c('annual_insurance', value);
+            }}
             resetKey={resetKey}
             third
             type="currency"
             icon={DollarSign}
-            helperText="Annual premium. Divided by 12 for the monthly INS escrow."
+            helperText="One year's premium. Divided by 12 for the monthly insurance escrow."
+          />
+          <SelectField
+            label="First year paid by"
+            name="insurance_first_year_paid_by"
+            value={data.insurance_first_year_paid_by || 'customer'}
+            onChange={c}
+            resetKey={resetKey}
+            third
+            options={[
+              { value: 'customer', label: 'Customer paid' },
+              { value: 'financed', label: 'Financed' },
+            ]}
+            helperText="Customer paid fills the you have paid line. Financed adds this premium to the cash price and marks included in the Amount Financed."
           />
           <Field
             label="Tax Rate (%)"
@@ -2505,6 +2543,8 @@ function Step2({ data, onChange, resetKey, inventory, inventoryLoading, onNext, 
             icon={Hash}
             helperText="Applied to taxable value, then divided by 12 for monthly tax escrow."
           />
+        </Row>
+        <Row>
           <Field
             label="Taxable Value"
             name="taxable_value"
@@ -2514,7 +2554,7 @@ function Step2({ data, onChange, resetKey, inventory, inventoryLoading, onNext, 
             third
             type="currency"
             icon={DollarSign}
-            helperText="Optional — defaults to sales price if left blank."
+            helperText="Optional. Defaults to the home price. Financed insurance is not added."
           />
         </Row>
         <Row>
@@ -2542,7 +2582,7 @@ function Step2({ data, onChange, resetKey, inventory, inventoryLoading, onNext, 
       {/* Financing */}
       <Section title="Financing Details (Optional)" icon={CreditCard} open={false}>
         <Row>
-          <Field label="Creditor Name" name="creditor_name" value={data.creditor_name} onChange={c} resetKey={resetKey} half icon={Building2} />
+          <Field label="Creditor Name" name="creditor_name" value={data.creditor_name} onChange={c} resetKey={resetKey} half icon={Building2} helperText="In-house Prosperity fills a blank creditor address from the lot profile." />
           <Field label="Creditor Phone" name="creditor_phone" value={data.creditor_phone} onChange={c} resetKey={resetKey} half type="phone" icon={Phone} format={formatPhoneMask} maxLength={12} placeholder="111-222-3333" />
         </Row>
         <Row>

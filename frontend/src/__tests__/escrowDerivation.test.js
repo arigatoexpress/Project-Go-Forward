@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  enteredAnnualPremium,
   insuranceEscrowMonthly,
   taxEscrowMonthly,
   taxEscrowYearly,
@@ -35,6 +36,20 @@ describe('insuranceEscrowMonthly', () => {
   it('returns empty string when no premium entered', () => {
     expect(insuranceEscrowMonthly({})).toBe('');
     expect(insuranceEscrowMonthly({ annual_insurance: '' })).toBe('');
+  });
+
+  it('uses insurance_annual_premium when an older annual_insurance is also present', () => {
+    expect(insuranceEscrowMonthly({
+      insurance_annual_premium: '2400',
+      annual_insurance: '1200',
+    })).toBe('200.00');
+  });
+});
+
+describe('enteredAnnualPremium', () => {
+  it('falls back to annual_insurance for deals saved before the new field', () => {
+    expect(enteredAnnualPremium({ annual_insurance: '1200' })).toBe('1200');
+    expect(enteredAnnualPremium({})).toBeUndefined();
   });
 });
 

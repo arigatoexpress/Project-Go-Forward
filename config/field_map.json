@@ -2167,8 +2167,21 @@
       "section": "insurance",
       "required": false
     },
+    "insurance_annual_premium": {
+      "label": "One-year insurance premium",
+      "type": "currency",
+      "section": "insurance",
+      "required": false
+    },
+    "insurance_first_year_paid_by": {
+      "label": "First year insurance paid by",
+      "type": "string",
+      "section": "insurance",
+      "required": false,
+      "default": "customer"
+    },
     "insurance_premium": {
-      "label": "Insurance Premium",
+      "label": "First-year premium already paid",
       "type": "currency",
       "section": "insurance",
       "required": false

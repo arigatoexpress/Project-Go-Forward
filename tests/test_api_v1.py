@@ -816,6 +816,7 @@ def load_app(monkeypatch, tho_api_key: str | None = "tho-secret", rate_limit_rpm
     document_tools_module.list_gcs_documents = lambda *args, **kwargs: []
     document_tools_module.fill_pdf_form = lambda *args, **kwargs: {"success": True}
     document_tools_module.upload_to_gcs = lambda *args, **kwargs: True
+    document_tools_module.attach_tmha_overlay_fields = lambda *args, **kwargs: None
     monkeypatch.setitem(sys.modules, "tools.document_tools", document_tools_module)
 
     document_engine_module = types.ModuleType("tools.document_engine")

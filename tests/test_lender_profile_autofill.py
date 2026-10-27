@@ -1,8 +1,8 @@
-"""21st Mortgage creditor/lender block auto-fill from config.yaml ``lenders``.
+"""Creditor/lender block auto-fill from config.yaml ``lenders``.
 
-No verified 21st Mortgage address exists in the repo, so config ships blank
-values for the owner to fill in. These tests pin the wiring with a stand-in
-profile and confirm blank config never invents an address.
+21st Mortgage prints 620 Market St, Suite 1000, Knoxville, TN 37902 and
+leaves the phone blank. Prosperity prints the confirmed Huffman lot address
+and phone. Stand-in profiles still pin the wiring.
 """
 
 from __future__ import annotations
@@ -35,8 +35,16 @@ def stand_in_profile(monkeypatch):
 def test_config_declares_21st_mortgage_address_slots():
     profile = config_loader.get_lender_profiles()["21st_mortgage"]
     assert "21st Mortgage" in profile["match_names"]
-    for key in ("creditor_address", "creditor_city_state_zip", "creditor_phone"):
-        assert key in profile
+    assert profile["creditor_address"] == "620 Market St, Suite 1000"
+    assert profile["creditor_city_state_zip"] == "Knoxville, TN 37902"
+    assert profile["creditor_phone"] == ""
+
+
+def test_21st_mortgage_real_profile_leaves_the_phone_blank():
+    out = enrich_document_data({"creditor_name": "21st Mortgage Corporation"})
+    assert out["creditor_address"] == "620 Market St, Suite 1000"
+    assert out["creditor_city_state_zip"] == "Knoxville, TN 37902"
+    assert out.get("creditor_phone", "") == ""
 
 
 @pytest.mark.parametrize(
@@ -65,6 +73,71 @@ def test_staff_entered_creditor_values_win(stand_in_profile):
 def test_other_lenders_are_untouched(stand_in_profile):
     out = enrich_document_data({"creditor_name": "Vanderbilt Mortgage"})
     assert "creditor_address" not in out
+
+
+def _prosperity_profiles(*, enabled: bool) -> dict:
+    profiles = config_loader.get_lender_profiles()
+    prosperity = {**profiles["prosperity"], "autofill_enabled": enabled}
+    return {**profiles, "prosperity": prosperity}
+
+
+def test_prosperity_confirmed_address_fills_blank_block():
+    """Mark confirmed the lot address and phone on 2026-10-26."""
+    profile = config_loader.get_lender_profiles()["prosperity"]
+    assert profile["autofill_enabled"] is True
+    assert profile["creditor_address"] == "10685 FM 1960 East"
+    out = enrich_document_data(
+        {"creditor_name": "Prosperity Acquisitions, Inc. dba Texas Home Outlet"}
+    )
+    assert out["creditor_address"] == "10685 FM 1960 East"
+    assert out["creditor_city_state_zip"] == "Huffman, TX 77336"
+    assert out["creditor_phone"] == "281-324-3020"
+
+
+def test_prosperity_trade_name_fills_confirmed_address():
+    out = enrich_document_data({"creditor_name": "Texas Home Outlet"})
+    assert out["creditor_address"] == "10685 FM 1960 East"
+
+
+def test_prosperity_staff_address_wins():
+    out = enrich_document_data(
+        {
+            "creditor_name": "Prosperity Acquisitions, Inc. dba Texas Home Outlet",
+            "creditor_address": "Branch Office Rd",
+        }
+    )
+    assert out["creditor_address"] == "Branch Office Rd"
+    assert out["creditor_city_state_zip"] == "Huffman, TX 77336"
+    assert out["creditor_phone"] == "281-324-3020"
+
+
+def test_prosperity_autofill_stays_blank_when_the_flag_is_off(monkeypatch):
+    disabled = _prosperity_profiles(enabled=False)
+    monkeypatch.setattr(config_loader, "get_lender_profiles", lambda: disabled)
+    out = enrich_document_data(
+        {
+            "creditor_name": "Prosperity Acquisitions, Inc. dba Texas Home Outlet",
+            "creditor_address": "Branch Office Rd",
+        }
+    )
+    assert out["creditor_address"] == "Branch Office Rd"
+    assert "creditor_city_state_zip" not in out
+    blank = enrich_document_data(
+        {"creditor_name": "Prosperity Acquisitions, Inc. dba Texas Home Outlet"}
+    )
+    assert "creditor_address" not in blank
+
+
+def test_21st_mortgage_address_fills_from_config():
+    """Mark gave the Knoxville office on 2026-10-26. No phone was given."""
+    profile = config_loader.get_lender_profiles()["21st_mortgage"]
+    assert profile["creditor_address"] == "620 Market St, Suite 1000"
+    assert profile["creditor_city_state_zip"] == "Knoxville, TN 37902"
+    assert profile["creditor_phone"] == ""
+    out = enrich_document_data({"creditor_name": "21st Mortgage"})
+    assert out["creditor_address"] == "620 Market St, Suite 1000"
+    assert out["creditor_city_state_zip"] == "Knoxville, TN 37902"
+    assert "creditor_phone" not in out
 
 
 def test_blank_config_values_leave_fields_blank(monkeypatch):

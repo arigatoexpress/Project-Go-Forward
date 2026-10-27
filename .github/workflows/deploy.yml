@@ -83,6 +83,19 @@ jobs:
           PYTHONPATH: .
           ADMIN_PIN_HASH: 2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae
 
+      - name: Render sample sales contract (fake buyer)
+        run: python scripts/render_mark_contract_sample.py
+        env:
+          PYTHONPATH: .
+          THO_DISABLE_GCS_UPLOADS: "1"
+
+      - name: Upload sample sales contract for review
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: mark-1026-sample-sales-contract
+          path: data/generated_docs/mark-1026-sample/*.pdf
+          if-no-files-found: error
+
   build-and-deploy:
     needs: test
     if: github.event_name != 'pull_request'
