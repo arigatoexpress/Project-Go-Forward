@@ -96,6 +96,7 @@ describe('staff header at laptop widths', () => {
     render(<ToastProvider><App /></ToastProvider>);
     expect(await screen.findByRole('heading', { name: 'Staff Home' })).toBeInTheDocument();
     expect(screen.queryAllByRole('button', { name: 'Save sign-in on this phone' })).toHaveLength(0);
+    expect(screen.queryAllByRole('button', { name: 'Add a passkey' })).toHaveLength(0);
     expect(screen.getAllByRole('button', { name: /Add Photos/ }).length).toBeGreaterThan(0);
     expect(screen.getAllByRole('button', { name: /Manage Homes/ }).length).toBeGreaterThan(0);
     expect(screen.getAllByRole('button', { name: /Documents/ }).length).toBeGreaterThan(0);

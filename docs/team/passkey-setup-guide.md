@@ -1,80 +1,71 @@
-# Staff sign-in and passkey setup
+# Add a passkey
 
-Sign in with email. The short instructions are in
+Sign in with the email link first. The short instructions are in
 [staff-sign-in.md](staff-sign-in.md). Bookmark
 **https://www.texashomeoutlet.com/staff**.
 
-Passkeys are optional and are not on the staff sign-in page. A passkey saved
-on the old temporary site will not work on www.texashomeoutlet.com. You do not
-need one to get into the admin tools. Daily sign-in is the email link in
-[staff-sign-in.md](staff-sign-in.md).
+A passkey is optional. It is a faster way back in on a phone or computer that
+can save one. You do not need one to use the staff tools. If a passkey does
+not work, use the email link on the sign-in page.
 
-The owner keeps **Sign in with Passkey** off. It appears only as a small link
-under **Use backup PIN** when `STAFF_PASSKEY_SIGN_IN` is turned on
-(`feature_flags` in `config.yaml`, or env `FF_STAFF_PASSKEY_SIGN_IN=1`).
-That switch does not turn off the passkey APIs used after someone is already
-signed in.
+**Sign in with a passkey** shows under the email button when this browser can
+use a passkey. **Use backup PIN** stays the small link under that, and only
+for when email is down.
 
-If none works, contact your THO site administrator through the established
-support channel. Do not send your PIN, email code, recovery codes, or passkey
-secrets in a support message. Access or recovery cannot be guaranteed until
-an appropriate method is tested.
+## Add a passkey
 
-## Register a staff passkey
+1. Sign in at **www.texashomeoutlet.com/staff** with the email link.
+2. If this phone or computer can save a passkey, you may see **Add a passkey
+   for faster sign-in next time?** Choose **Add a passkey**, **Not now**, or
+   **Don’t ask again**.
+3. You can also choose **Add a passkey** in the top bar, or open **Your
+   passkeys** from the More menu.
+4. The email is already filled in and locked to the address you signed in
+   with. Follow the browser prompt. Use the fingerprint, face, or screen lock
+   it offers. A phone or security key can be used too.
+5. Stay on the page you were on. The confirmation says the passkey was saved.
+   **Try signing in with it now** checks that it works. You are not sent to
+   System Hub.
 
-1. Sign in on **www.texashomeoutlet.com** using a working method above.
-2. Click the key button labeled **Register this device passkey** in the top
-   navigation, or **Register passkey** in the mobile menu.
-3. Enter your approved **@texashomeoutlet.com** staff address.
-4. Click **Register passkey** and follow your browser or password manager's
-   prompt. Use the offered fingerprint, face, screen-lock PIN, or password.
-5. Wait for **Passkey registered for this staff email.**
-6. Keep a recovery method available. Sign out, reopen the canonical site, and
-   sign back in with the email link. Saving a key alone is not a verified
-   sign-in. Do not look for **Sign in with Passkey** on `/staff` unless the
-   owner setting above is on.
+If this device cannot save a passkey, the Add button is hidden and the page
+says: **This device can’t save a passkey. Use the email link.**
 
-Owner credentials have additional protections. Registering or revoking an owner
-credential requires the same owner's existing passkey session; a shared PIN or
-email-code session cannot bypass that restriction.
+The owner can add a passkey for more than one of their own addresses. That
+choice stays in the add dialog. A shared PIN cannot add a staff passkey, and
+it cannot add the first owner passkey.
 
-## If you already registered
+## Sign in with a passkey
 
-Sign in with the email link. Do not repeat enrollment merely because somebody's
-checklist has not been updated. If the owner has turned the passkey link on
-and that key works on the canonical site, report that successful sign-in and
-whether your recovery method also works.
+On **/staff**, type your email if the browser asks, or tap **Sign in with a
+passkey**. Some browsers offer a saved passkey in the email box by themselves.
 
-A key saved for the old temporary site may not appear on the canonical site.
-Sign in on the canonical site with the email link or backup PIN. Register a
-canonical-site key only if an owner still needs one for a tool that asks for
-it. **Keep working legacy credentials and legacy-domain support until
-canonical sign-in and recovery are confirmed.**
+## If it does not work
 
-If the provider says a THO key already exists, try using it or choose another
-provider/device. Do not delete a working key just to clear a registration error.
+Use the email link. The message on the page says which case it was:
 
-## Lost device or unusable key
+- The prompt was closed or dismissed.
+- The prompt timed out.
+- This passkey is already saved for Texas Home Outlet. Try signing in with it.
+- **Passkeys from the old site don’t carry over. Sign in by email and add a new one.**
 
-1. Sign in using another working method.
-2. Open **System Hub → Passkey Recovery**.
-3. Identify the exact lost or unusable credential before selecting **Revoke**.
-   If you cannot identify it confidently, ask the site administrator for help.
-4. Register and test a replacement. Preserve another working sign-in method.
+Do not start with the backup PIN. The email link is the way back in.
 
-For additional resilience, register a second trusted device or provider and
-test it. Sync behavior depends on your selected device/password manager; do not
-assume a key is available everywhere until you have tested it.
+## Your passkeys
 
-## What to confirm to the site administrator
+Open **Your passkeys** from the More menu after you are signed in. That page
+lists the name, where it is saved when the browser tells us, when it was
+added, and when it was last used. You can rename a passkey or remove one of
+your own.
 
-- You signed in successfully at **www.texashomeoutlet.com**.
-- Which method worked: passkey, PIN, or email code. Do not include the secret.
-- Whether a second sign-in/recovery method worked.
-- Any failing step and the visible error, with secrets removed.
+**System Hub → Passkey Recovery** is for the owner only. It still shows the
+raw credential ids used to revoke a lost key. The owner’s last recovery key
+cannot be removed until a replacement is saved.
 
-These confirmations establish staff access only. They do not approve inventory
-accuracy, outbound email delivery, or the overall client handoff. See
-[client acceptance](../CLIENT_HANDOFF_ACCEPTANCE.md).
+## What to tell the owner
 
-Updated October 6, 2026. Email is the staff sign-in. Passkey sign-in stays off unless the owner flag is on.
+- You signed in at **www.texashomeoutlet.com**.
+- Whether the email link worked, and whether the new passkey worked.
+- The words of any error, with codes and secrets left out.
+
+Updated October 22, 2026. Email is the sign-in and the fallback. A passkey is
+optional on devices that can save one.

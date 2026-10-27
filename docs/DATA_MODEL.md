@@ -18,6 +18,22 @@ All persistent data lives in **Firestore** inside the `tho-ai-agent` project. Th
 | `tasks/` | Task (PM) | UUIDv4 | `database/models.py:553` |
 | `cycles/` | Sprint/cycle (PM) | UUIDv4 | `database/models.py:617` |
 | `activities/` | Audit-log entry | UUIDv4 | `database/models.py:646` |
+| `tho_admin_credentials/` | AdminPasskeyCredential (staff passkey) | urlsafe-base64 credential id | `database/models.py` (`AdminPasskeyCredential`) |
+
+## Staff passkeys — `tho_admin_credentials/`
+
+One document per registered staff passkey. `label` is the name shown on Your passkeys. Documents saved before names existed omit `label` and still load with an empty string. The rename API stores at most 60 characters.
+
+| Field | Type | Notes |
+|-----|-----|-----|
+| `credential_id` | string | urlsafe-base64, also the document id |
+| `public_key` | string | urlsafe-base64 public key |
+| `sign_count` | int | authenticator counter |
+| `user_id` | string | owning staff email |
+| `aaguid` | string | authenticator id, may be blank |
+| `created_at` | datetime | UTC |
+| `last_used_at` | datetime? | blank until the key is used |
+| `label` | string | optional; missing on older documents |
 
 ## Core business entities
 

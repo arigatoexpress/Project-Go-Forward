@@ -1,6 +1,7 @@
 # Database Package
 from .firestore_client import THODatabase, get_database
 from .models import (
+    AdminPasskeyCredential,
     Customer,
     CustomerStatus,
     Inventory,
@@ -15,6 +16,7 @@ from .models import (
 
 __all__ = [
     # Models
+    "AdminPasskeyCredential",
     "Customer",
     "CustomerStatus",
     "Property",

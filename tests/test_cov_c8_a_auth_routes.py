@@ -55,7 +55,19 @@ def _deps(client, routes):
     return overrides[routes.get_session_manager](), overrides[routes.get_credential_store]()
 
 
-def _pin_token(secret="cov-admin-secret", pin_hash="cov-pin-hash", expires_in=3600):
+def _owner_cookie(client, routes, email="aribspector@gmail.com"):
+    manager, _store = _deps(client, routes)
+    client.cookies.set(
+        PASSKEY_COOKIE_NAME,
+        manager.issue_session("admin", email=email, auth_method="passkey"),
+    )
+
+
+def _pin_token(
+    secret="cov-admin-secret",  # pragma: allowlist secret
+    pin_hash="cov-pin-hash",
+    expires_in=3600,
+):
     key = hmac.new(
         secret.encode(),
         f"tho-pin-session-v2:{pin_hash}".encode(),
@@ -237,7 +249,9 @@ def test_cookie_secure_tracks_request_origin_scheme(monkeypatch):
 
 def test_admin_token_from_request_reads_cookie_header_and_bearer():
     routes = passkey_routes
-    assert routes._admin_token_from_request(_fake_request(cookies={"tho_admin_token": " c "})) == "c"
+    assert (
+        routes._admin_token_from_request(_fake_request(cookies={"tho_admin_token": " c "})) == "c"
+    )
     assert routes._admin_token_from_request(_fake_request({"X-Admin-Token": " h "})) == "h"
     assert routes._admin_token_from_request(_fake_request({"Authorization": "Bearer  b "})) == "b"
     assert routes._admin_token_from_request(_fake_request({"Authorization": "Basic xyz"})) == ""
@@ -613,6 +627,9 @@ def test_login_complete_wraps_verify_failure_and_identity_mismatch(cov_client, m
     assert failed.status_code == 400
     assert failed.json()["detail"] == "Authentication verification failed"
 
+    # The failed attempt burned the challenge. The mismatch check needs a new one.
+    challenge = manager.new_challenge_bytes()
+    client.cookies.set("tho_passkey_login", manager.wrap_challenge(challenge, flow="login"))
     monkeypatch.setattr(
         routes,
         "verify_authentication_response",
@@ -678,6 +695,7 @@ def test_list_credentials_surfaces_store_failure(cov_client, monkeypatch):
     _manager, store = _deps(client, routes)
     broken = _BrokenListStore(list(store.list_all()))
     client.app.dependency_overrides[routes.get_credential_store] = lambda: broken
+    _owner_cookie(client, routes)
     monkeypatch.setattr(routes, "_request_is_admin", lambda request, manager: True)
 
     response = client.get("/api/admin/passkey/credentials", headers=_csrf_headers(client))
@@ -688,6 +706,7 @@ def test_list_credentials_surfaces_store_failure(cov_client, monkeypatch):
 
 def test_delete_credential_returns_404_for_missing_target(cov_client, monkeypatch):
     client, routes = cov_client
+    _owner_cookie(client, routes)
     monkeypatch.setattr(routes, "_request_is_admin", lambda request, manager: True)
 
     response = client.delete(
@@ -704,6 +723,7 @@ def test_delete_credential_surfaces_store_failure(cov_client, monkeypatch):
     _manager, store = _deps(client, routes)
     broken = _BrokenListStore(list(store.list_all()))
     client.app.dependency_overrides[routes.get_credential_store] = lambda: broken
+    _owner_cookie(client, routes)
     monkeypatch.setattr(routes, "_request_is_admin", lambda request, manager: True)
 
     response = client.delete(
@@ -720,6 +740,7 @@ def test_delete_credential_reports_missing_when_delete_is_noop(cov_client, monke
     _manager, store = _deps(client, routes)
     noop = _NoopDeleteStore(list(store.list_all()))
     client.app.dependency_overrides[routes.get_credential_store] = lambda: noop
+    _owner_cookie(client, routes)
     monkeypatch.setattr(routes, "_request_is_admin", lambda request, manager: True)
 
     response = client.delete(
@@ -733,6 +754,7 @@ def test_delete_credential_reports_missing_when_delete_is_noop(cov_client, monke
 
 def test_delete_credential_rejects_invalid_credential_id(cov_client, monkeypatch):
     client, routes = cov_client
+    _owner_cookie(client, routes)
     monkeypatch.setattr(routes, "_request_is_admin", lambda request, manager: True)
 
     response = client.delete(
@@ -776,7 +798,14 @@ def test_whoami_returns_authenticated_payload_for_passkey_session(cov_client):
 
     assert response.status_code == 200
     body = response.json()
-    assert body == {"user_id": "admin", "email": "mark@texashomeoutlet.com", "authed": True}
+    assert body == {
+        "user_id": "admin",
+        "email": "mark@texashomeoutlet.com",
+        "authed": True,
+        "owner": False,
+        "auth_method": "passkey",
+    }
+    assert "owner_emails" not in body
 
 
 def test_whoami_rejects_missing_session(cov_client):
@@ -794,14 +823,16 @@ def test_passkey_logout_clears_session_cookies(cov_client):
 
     assert response.status_code == 200
     assert response.json() == {"success": True}
-    set_cookies = response.headers.get_list("set-cookie") if hasattr(
-        response.headers, "get_list"
-    ) else [response.headers["set-cookie"]]
+    set_cookies = (
+        response.headers.get_list("set-cookie")
+        if hasattr(response.headers, "get_list")
+        else [response.headers["set-cookie"]]
+    )
     assert any(PASSKEY_COOKIE_NAME in cookie for cookie in set_cookies)
     assert any("tho_admin_session" in cookie for cookie in set_cookies)
 
 
-def test_admin_pin_token_authorizes_credentials_listing_end_to_end(cov_client, monkeypatch):
+def test_shared_pin_cannot_list_passkey_recovery(cov_client, monkeypatch):
     client, _routes = cov_client
     monkeypatch.setenv("ADMIN_SESSION_SECRET", "cov-admin-secret")
     monkeypatch.setenv("ADMIN_PIN_HASH", "cov-pin-hash")
@@ -811,7 +842,5 @@ def test_admin_pin_token_authorizes_credentials_listing_end_to_end(cov_client, m
         headers={"Authorization": f"Bearer {_pin_token()}"},
     )
 
-    assert response.status_code == 200, response.text
-    body = response.json()
-    assert body["success"] is True
-    assert body["total_registered_keys"] == 2
+    assert response.status_code == 403, response.text
+    assert response.json()["detail"] == "Passkey recovery is limited to the owner."

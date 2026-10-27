@@ -351,6 +351,7 @@ export default function SystemHub({ onBack }) {
   const [passkeyCredentials, setPasskeyCredentials] = useState([]);
   const [passkeyError, setPasskeyError] = useState('');
   const [passkeyAction, setPasskeyAction] = useState('');
+  const [isOwner, setIsOwner] = useState(false);
   const [health, setHealth] = useState(null);
   const [metrics, setMetrics] = useState(null);
   const [detailedHealth, setDetailedHealth] = useState(null);
@@ -375,6 +376,10 @@ export default function SystemHub({ onBack }) {
     try {
       const status = await fetch('/api/admin/passkey/status', { credentials: 'same-origin' });
       if (status.ok) setPasskeyStatus(await status.json());
+      if (!isOwner) {
+        setPasskeyCredentials([]);
+        return;
+      }
       const credentials = await adminFetch('/api/admin/passkey/credentials', { credentials: 'same-origin' });
       if (credentials.ok) {
         const data = await credentials.json();
@@ -383,6 +388,22 @@ export default function SystemHub({ onBack }) {
     } catch (err) {
       setPasskeyError(describeFetchError(err, 'load passkey status'));
     }
+  }, [isOwner]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/admin/passkey/whoami', {
+      credentials: 'same-origin',
+      headers: { Accept: 'application/json' },
+    })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data) => {
+        if (!cancelled) setIsOwner(Boolean(data?.owner));
+      })
+      .catch(() => {
+        if (!cancelled) setIsOwner(false);
+      });
+    return () => { cancelled = true; };
   }, []);
 
   useEffect(() => {
@@ -519,7 +540,7 @@ export default function SystemHub({ onBack }) {
               </ul>
             </div>
 
-            <div className="cp-panel p-5">
+            {isOwner && <div className="cp-panel p-5">
               <div className="flex items-center justify-between gap-3 mb-3">
                 <h3 className="font-mono font-semibold text-[var(--cp-text)] flex items-center gap-2">
                   <Fingerprint size={16} className="text-[var(--cp-secondary)]" />
@@ -534,7 +555,7 @@ export default function SystemHub({ onBack }) {
                 </button>
               </div>
               <p className="text-xs text-[var(--cp-muted)] leading-relaxed mb-3">
-                Keep another working sign-in method before revoking a key. Identify the lost or unusable credential below; register a replacement staff passkey from the key button in the top navigation. Owner credentials require that owner's existing passkey sign-in.
+                Owner only. Staff rename and remove their own keys on Your passkeys. Keep another working sign-in method before revoking a key. Owner credentials require that owner’s existing passkey sign-in, and the last owner recovery key cannot be removed.
               </p>
               {passkeyError && (
                 <div className="text-xs text-[var(--cp-danger)] border border-[var(--cp-danger)]/25 bg-[var(--cp-danger-dim)] rounded-md px-3 py-2 mb-3">
@@ -586,7 +607,7 @@ export default function SystemHub({ onBack }) {
                   </div>
                 ))}
               </div>
-            </div>
+            </div>}
 
             <div className="cp-panel p-5">
               <h3 className="font-mono font-semibold text-[var(--cp-text)] mb-3">
