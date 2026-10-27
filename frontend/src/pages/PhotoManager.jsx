@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   ArrowLeft, Camera, UploadCloud, Trash2, CheckCircle, AlertCircle,
-  Loader2, Search, ImageOff, Star, ChevronLeft, ChevronRight,
+  Loader2, Search, ImageOff, Star, ChevronLeft, ChevronRight, Box,
 } from 'lucide-react';
 import adminFetch from '../adminFetch';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { isPreOwned } from '../utils/inventoryDisplay';
+import { canonicalMatterportId, canonicalMatterportUrl } from '../utils/matterportLink';
 import {
   PHOTO_GAP_HINTS,
   checkCustomerPhotos,
@@ -71,6 +72,14 @@ export default function PhotoManager({ onBack }) {
   const [deleting, setDeleting] = useState(false);
   const [failedUrls, setFailedUrls] = useState(() => new Set());
   const [checkingPhotos, setCheckingPhotos] = useState(false);
+  const [tourInput, setTourInput] = useState('');
+  const [staffTourId, setStaffTourId] = useState('');
+  const [loadingTour, setLoadingTour] = useState(false);
+  const [savingTour, setSavingTour] = useState(false);
+  const [removingTour, setRemovingTour] = useState(false);
+  const [confirmRemoveTour, setConfirmRemoveTour] = useState(false);
+  const [tourMessage, setTourMessage] = useState(null);
+  const [tourLoadFailed, setTourLoadFailed] = useState(false);
   const fileInputRef = useRef(null);
   const cameraInputRef = useRef(null);
   const uploadSectionRef = useRef(null);
@@ -160,6 +169,54 @@ export default function PhotoManager({ onBack }) {
   }, []);
 
   useEffect(() => { fetchPhotos(selectedId); }, [selectedId, fetchPhotos]);
+
+  useEffect(() => {
+    let active = true;
+    if (!selectedId) {
+      setStaffTourId('');
+      setTourInput('');
+      setLoadingTour(false);
+      return undefined;
+    }
+    setLoadingTour(true);
+    setTourLoadFailed(false);
+    adminFetch(`/api/inventory/${encodeURIComponent(selectedId)}/tour`)
+      .then(async (response) => {
+        if (!active) return;
+        if (!response.ok) {
+          setStaffTourId('');
+          setTourInput('');
+          setTourLoadFailed(true);
+          setTourMessage({
+            type: 'error',
+            text: response.status === 401
+              ? 'Please sign in again to see the 3D tour.'
+              : 'Could not load the 3D tour. Refresh and try again.',
+          });
+          return;
+        }
+        const data = await readJson(response);
+        if (!active) return;
+        const id = canonicalMatterportId(data?.matterport_id);
+        setStaffTourId(id);
+        setTourInput(id ? canonicalMatterportUrl(id) : '');
+        setTourLoadFailed(false);
+      })
+      .catch(() => {
+        if (!active) return;
+        setStaffTourId('');
+        setTourInput('');
+        setTourLoadFailed(true);
+        setTourMessage({
+          type: 'error',
+          text: 'Could not load the 3D tour. Refresh and try again.',
+        });
+      })
+      .finally(() => {
+        if (active) setLoadingTour(false);
+      });
+    return () => { active = false; };
+  }, [selectedId]);
 
   useEffect(() => {
     if (!selectedId) return;
@@ -317,6 +374,90 @@ export default function PhotoManager({ onBack }) {
   const selectHome = (homeId) => {
     setSelectedId(String(homeId));
     setMessage(null);
+    setTourMessage(null);
+    setStaffTourId('');
+    setTourInput('');
+    setTourLoadFailed(false);
+    setConfirmRemoveTour(false);
+  };
+
+  const saveTour = async () => {
+    const value = tourInput.trim();
+    if (!selectedId || savingTour || removingTour) return;
+    if (!value) {
+      setTourMessage({ type: 'error', text: 'Paste a Matterport link or the tour ID first.' });
+      return;
+    }
+    setSavingTour(true);
+    setTourMessage(null);
+    try {
+      const response = await adminFetch(`/api/inventory/${encodeURIComponent(selectedId)}/tour`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ matterport: value }),
+      });
+      const data = await readJson(response);
+      if (response.status === 401) {
+        setTourMessage({ type: 'error', text: 'Please sign in again, then save the 3D tour.' });
+        return;
+      }
+      const id = canonicalMatterportId(data?.matterport_id);
+      if (!response.ok || !id) {
+        setTourMessage({
+          type: 'error',
+          text: response.status === 503
+            ? 'The 3D tour could not be saved. Please try again.'
+            : 'That is not a Matterport tour link. Paste the link from my.matterport.com, or the tour ID.',
+        });
+        return;
+      }
+      setStaffTourId(id);
+      setTourInput(canonicalMatterportUrl(id));
+      setTourMessage({
+        type: 'ok',
+        text: '3D tour saved. Customers will see it on the website shortly.',
+      });
+    } catch {
+      setTourMessage({
+        type: 'error',
+        text: 'The 3D tour was not saved. Check your connection and try again.',
+      });
+    } finally {
+      setSavingTour(false);
+    }
+  };
+
+  const removeTour = async () => {
+    if (!selectedId || removingTour) return;
+    setRemovingTour(true);
+    setTourMessage(null);
+    try {
+      const response = await adminFetch(`/api/inventory/${encodeURIComponent(selectedId)}/tour`, {
+        method: 'DELETE',
+      });
+      if (response.status === 401) {
+        setTourMessage({ type: 'error', text: 'Please sign in again, then remove the 3D tour.' });
+        return;
+      }
+      if (!response.ok) {
+        setTourMessage({
+          type: 'error',
+          text: 'The 3D tour link is still saved. Check your connection and try again.',
+        });
+        return;
+      }
+      setStaffTourId('');
+      setTourInput('');
+      setTourMessage({ type: 'ok', text: '3D tour link removed.' });
+    } catch {
+      setTourMessage({
+        type: 'error',
+        text: 'The 3D tour link is still saved. Check your connection and try again.',
+      });
+    } finally {
+      setRemovingTour(false);
+      setConfirmRemoveTour(false);
+    }
   };
 
   const listedHomes = visiblePhotoHomes(homes, { includeInactive, failedUrls });
@@ -358,6 +499,7 @@ export default function PhotoManager({ onBack }) {
       <div className="max-w-3xl mx-auto px-4 py-6">
         <p className="text-gray-700 text-lg leading-relaxed mb-5">
           Add a real photo of the home. Customers will see it on the website.
+          You can also paste a 3D tour link.
           Use a picture you took. Do not use a floor plan or a picture from the internet.
         </p>
 
@@ -378,7 +520,12 @@ export default function PhotoManager({ onBack }) {
               )}
               <button
                 type="button"
-                onClick={() => { setSelectedId(''); setMessage(null); }}
+                onClick={() => {
+                  setSelectedId('');
+                  setMessage(null);
+                  setTourMessage(null);
+                  setConfirmRemoveTour(false);
+                }}
                 className="mt-4 min-h-12 px-4 rounded-lg border border-gray-300 text-slate-800 font-semibold"
               >
                 Choose a different home
@@ -661,6 +808,113 @@ export default function PhotoManager({ onBack }) {
             )}
           </section>
         )}
+
+        {selectedHome && (
+          <section aria-label="3D tour link" className="bg-white rounded-2xl shadow-sm border border-gray-200 p-5 mt-5">
+            <h2 className="text-base font-bold text-slate-800 mb-1 flex items-center gap-2">
+              <Box size={18} aria-hidden="true" />
+              3D tour link
+            </h2>
+            <p className="text-sm text-gray-600 mb-3 leading-relaxed">
+              Paste the Matterport link for this home, or just the tour ID.
+              Customers will see a 3D tour on the website.
+            </p>
+            {loadingTour ? (
+              <p className="flex items-center gap-2 text-gray-500 text-sm" role="status">
+                <Loader2 className="animate-spin" size={18} /> Loading 3D tour…
+              </p>
+            ) : (
+              <>
+                {!tourLoadFailed && (staffTourId ? (
+                  <p className="text-sm text-slate-700 mb-3 break-words">
+                    Saved.{' '}
+                    <a
+                      href={canonicalMatterportUrl(staffTourId)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-semibold text-blue-700 underline"
+                    >
+                      Open 3D tour
+                    </a>
+                  </p>
+                ) : canonicalMatterportUrl(selectedHome.matterport_id) ? (
+                  <p className="text-sm text-slate-700 mb-3 leading-relaxed break-words">
+                    This home already has a 3D tour. Paste a new link only if you need to replace it.{' '}
+                    <a
+                      href={canonicalMatterportUrl(selectedHome.matterport_id)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-semibold text-blue-700 underline"
+                    >
+                      Open the current 3D tour
+                    </a>
+                  </p>
+                ) : (
+                  <p className="text-sm text-gray-500 mb-3">No 3D tour saved for this home yet.</p>
+                ))}
+                <label htmlFor="matterport-tour" className="block text-base font-semibold text-slate-800 mb-2">
+                  Matterport link
+                </label>
+                <input
+                  id="matterport-tour"
+                  type="text"
+                  inputMode="url"
+                  autoCapitalize="off"
+                  autoCorrect="off"
+                  autoComplete="off"
+                  spellCheck={false}
+                  value={tourInput}
+                  onChange={(event) => setTourInput(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault();
+                      saveTour();
+                    }
+                  }}
+                  placeholder="https://my.matterport.com/show/?m=..."
+                  aria-label="Matterport link"
+                  disabled={savingTour || removingTour}
+                  className="w-full min-h-12 max-w-full rounded-lg border border-gray-300 px-3 py-2 text-base"
+                />
+                <div className="flex flex-col sm:flex-row gap-2 mt-3">
+                  <button
+                    type="button"
+                    onClick={saveTour}
+                    disabled={savingTour || removingTour}
+                    className="min-h-12 rounded-lg bg-slate-800 text-white font-semibold px-4 disabled:opacity-50"
+                  >
+                    {savingTour ? 'Saving…' : 'Save 3D tour'}
+                  </button>
+                  {staffTourId && (
+                    <button
+                      type="button"
+                      onClick={() => setConfirmRemoveTour(true)}
+                      disabled={savingTour || removingTour}
+                      className="min-h-12 rounded-lg border border-gray-300 text-slate-800 font-semibold px-4 disabled:opacity-50"
+                    >
+                      Remove 3D tour
+                    </button>
+                  )}
+                </div>
+              </>
+            )}
+            {tourMessage && (
+              <div
+                role={tourMessage.type === 'error' ? 'alert' : 'status'}
+                className={`flex items-start gap-2 rounded-lg px-4 py-4 text-base mt-4 ${
+                  tourMessage.type === 'ok'
+                    ? 'bg-green-50 border border-green-200 text-green-800'
+                    : 'bg-red-50 border border-red-200 text-red-800'
+                }`}
+              >
+                {tourMessage.type === 'ok'
+                  ? <CheckCircle size={22} className="shrink-0 mt-0.5" />
+                  : <AlertCircle size={22} className="shrink-0 mt-0.5" />}
+                <span className="font-semibold break-words">{tourMessage.text}</span>
+              </div>
+            )}
+          </section>
+        )}
       </div>
       <ConfirmDialog
         open={!!pendingDelete}
@@ -672,6 +926,17 @@ export default function PhotoManager({ onBack }) {
         busy={deleting}
         onConfirm={handleDelete}
         onCancel={() => { if (!deleting) setPendingDelete(null); }}
+      />
+      <ConfirmDialog
+        open={confirmRemoveTour}
+        title="Remove this 3D tour link?"
+        message="Customers will stop seeing the tour you added. The home stays listed."
+        confirmLabel="Yes, remove the tour"
+        cancelLabel="No, keep the tour"
+        danger
+        busy={removingTour}
+        onConfirm={removeTour}
+        onCancel={() => { if (!removingTour) setConfirmRemoveTour(false); }}
       />
     </div>
   );

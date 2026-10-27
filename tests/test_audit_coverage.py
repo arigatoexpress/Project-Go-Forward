@@ -67,6 +67,8 @@ def test_new_actions_in_allowlist():
         "inventory.photos_upload",
         "inventory.photos_reorder",
         "inventory.photo_delete",
+        "inventory.tour_set",
+        "inventory.tour_clear",
         "lead.update",
         "lead.lifecycle_transition",
         "crm_task.create",
@@ -85,9 +87,11 @@ def test_new_actions_in_allowlist():
 def test_email_send_emits_audit_without_recipient_or_body(monkeypatch):
     client, _main, headers, store = _make_admin_client(monkeypatch)
 
-    secret_recipient = "private.buyer@example.com"
-    secret_body = "Your SSN 123-45-6789 was approved, call 555-867-5309."
-    secret_subject = "Confidential closing details for 123 Main St"
+    secret_recipient = "private.buyer@example.com"  # pragma: allowlist secret
+    secret_body = (
+        "Your SSN 123-45-6789 was approved, call 555-867-5309."  # pragma: allowlist secret
+    )
+    secret_subject = "Confidential closing details for 123 Main St"  # pragma: allowlist secret
 
     resp = client.post(
         "/api/email/send",
