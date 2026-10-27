@@ -1,10 +1,8 @@
 """Mark Willcott's 2026-10-26 TMHA sales-contract changes.
 
-Fake buyer only (Jordan Brooks). Three items stay open and are not decided here:
-
-* whether "or 5% of the payment, whichever is less" stays when $20 becomes $25
-* whether escrow belongs in Total of Payments (flag stays False)
-* whether 10685 FM 1960 East, Huffman, TX 77336 is the Prosperity address
+Fake buyer only (Jordan Brooks). Escrow stays out of Total of Payments.
+The flat $25 late charge stays off until Celeste confirms TDHCA allows it
+in place of "$20.00 or 5% of the payment, whichever is less."
 """
 
 from __future__ import annotations
@@ -32,6 +30,7 @@ from database.models import (  # noqa: E402
 from tools.document_engine import _compute_fields  # noqa: E402
 from tools.document_engine_v2 import FinancialModel  # noqa: E402
 from tools.document_quality import (  # noqa: E402
+    FLAT_LATE_FEE_25,
     TOTAL_OF_PAYMENTS_INCLUDES_ESCROW,
     enrich_document_data,
     monthly_escrow_amount,
@@ -137,8 +136,12 @@ def rendered(tmp_path_factory):
     return {
         "customer_path": by_name["mark-1026-customer-paid.pdf"],
         "financed_path": by_name["mark-1026-financed-prosperity.pdf"],
+        "customer_notice_path": by_name["mark-1026-customer-paid-tax-notice.pdf"],
+        "financed_notice_path": by_name["mark-1026-financed-prosperity-tax-notice.pdf"],
         "customer": PdfReader(str(by_name["mark-1026-customer-paid.pdf"])),
         "financed": PdfReader(str(by_name["mark-1026-financed-prosperity.pdf"])),
+        "customer_notice": PdfReader(str(by_name["mark-1026-customer-paid-tax-notice.pdf"])),
+        "financed_notice": PdfReader(str(by_name["mark-1026-financed-prosperity-tax-notice.pdf"])),
     }
 
 
@@ -174,6 +177,7 @@ def test_customer_paid_leaves_page1_cash_price_unchanged():
     assert enriched["insurance_furnish_term"] == "12"
     assert enriched["insurance_furnish_premium"] == "2,400.00"
     assert enriched["insurance_furnish_yes"] is True
+    assert enriched["insurance_amount_financed"] is False
     assert enriched["tax_escrow_payment"] == "181.25"
     assert "property_insurance_amount" not in enriched
 
@@ -194,6 +198,10 @@ def test_financed_premium_is_added_to_cash_price_once():
     assert once["tax_escrow_payment"] == "181.25"
     assert once["insurance_premium_monthly"] == "200.00"
     assert once["property_insurance_amount"] == "2,400.00"
+    assert once["insurance_amount_financed"] is True
+    assert once["insurance_furnish_yes"] is True
+    assert once["insurance_furnish_term"] == "12"
+    assert once["insurance_furnish_premium"] == "2,400.00"
     # Shown on the Property Insurance underline, not added a second time here.
     assert "total_paid_to_others" not in once
 
@@ -341,8 +349,8 @@ def test_customer_paid_contract_prints_marks_sample(rendered):
     assert "276 monthly payments of $1,251.26" in page2
     assert "163,122.76" in page2
     assert "240,122.76" in page2
-    assert "$25.00 or 5% of the payment, whichever is less." in page2
-    assert "$20.00" not in page2
+    assert "$20.00 or 5% of the payment, whichever is less." in page2
+    assert "$25.00" not in page2
     assert re.search(
         r"You will furnish the required insurance for a term of\s+12\s+"
         r"months at an estimated premium of \$\s*2,400\.00",
@@ -361,6 +369,8 @@ def test_customer_paid_contract_prints_marks_sample(rendered):
     assert values[CREDITOR_CITY] == "Knoxville, TN 37902"
     assert "".join(values[field] or "" for field in PHONE_FIELDS) == ""
     _assert_furnish_checkmark(rendered["customer"])
+    _assert_no_mark_in_box(rendered["customer"], AMOUNT_FINANCED_BOX)
+    _assert_tax_widget_is_the_second_box(rendered["customer"])
 
 
 def test_financed_contract_prints_cash_price_and_blank_prepaid_line(rendered):
@@ -386,7 +396,8 @@ def test_financed_contract_prints_cash_price_and_blank_prepaid_line(rendered):
     escrow_total = (fin.total_monthly_payment * Decimal(fin.loan_term)).quantize(Decimal("0.01"))
     assert _money(escrow_total) not in page2
     assert fin.total_of_payments == fin.monthly_payment * Decimal(fin.loan_term)
-    assert "$25.00 or 5% of the payment, whichever is less." in page2
+    assert "$20.00 or 5% of the payment, whichever is less." in page2
+    assert "$25.00" not in page2
     values = _field_values(rendered["financed"])
     states = _box_states(rendered["financed"])
     assert values[INSURANCE_PREMIUM] is None
@@ -400,9 +411,9 @@ def test_financed_contract_prints_cash_price_and_blank_prepaid_line(rendered):
     assert values[CREDITOR_CITY] == "Huffman, TX 77336"
     assert "".join(values[field] or "" for field in PHONE_FIELDS) == "2813243020"
     _assert_furnish_checkmark(rendered["financed"])
-    # "The first year's premium is included in the Amount Financed." has a
-    # printed square and no AcroForm field. Leave it unmarked for Mark.
-    _assert_no_mark_in_box(rendered["financed"], AMOUNT_FINANCED_BOX)
+    # Financed premium checks the square with no widget:
+    # "The first year's premium is included in the Amount Financed."
+    _assert_mark_in_box(rendered["financed"], AMOUNT_FINANCED_BOX)
 
 
 def _assert_no_mark_in_box(reader: PdfReader, box: tuple[float, float, float, float]) -> None:
@@ -415,14 +426,167 @@ def _assert_no_mark_in_box(reader: PdfReader, box: tuple[float, float, float, fl
             raise AssertionError(f"unexpected mark inside {box}")
 
 
-def _assert_furnish_checkmark(reader: PdfReader):
-    """The IX.B box has no widget. The drawn check must land inside that box."""
+def _assert_mark_in_box(reader: PdfReader, box: tuple[float, float, float, float]) -> None:
     contents = reader.pages[2].get_contents().get_data()
-    left, bottom, right, top = FURNISH_BOX
+    left, bottom, right, top = box
     moves = re.findall(rb"([\d.]+) ([\d.]+) m\n([\d.]+) ([\d.]+) l", contents)
     inside = []
     for x1, y1, x2, y2 in moves:
         points = ((float(x1), float(y1)), (float(x2), float(y2)))
         if all(left <= x <= right and bottom <= y <= top for x, y in points):
             inside.append(points)
-    assert len(inside) >= 2
+    assert len(inside) >= 2, f"expected a check inside {box}"
+
+
+def _assert_furnish_checkmark(reader: PdfReader):
+    """The IX.B box has no widget. The drawn check must land inside that box."""
+    _assert_mark_in_box(reader, FURNISH_BOX)
+
+
+# Page 4 printed squares, from the template content stream.
+# First: "You have paid $ for the first year's estimated taxes."
+# Second: "divided by 12 and included in the monthly installment."
+_FIRST_TAX_SQUARE = (91.08, 664.56, 96.36, 669.84)
+_SECOND_TAX_SQUARE = (91.08, 646.20, 96.36, 651.48)
+
+
+def _assert_tax_widget_is_the_second_box(reader: PdfReader) -> None:
+    """Tax_Escrow_Included_Yes sits on the divided-by-12 square, not the paid square."""
+    found = None
+    for annot in reader.pages[3].get("/Annots") or []:
+        widget = annot.get_object()
+        name = widget.get("/T")
+        if name is None and widget.get("/Parent") is not None:
+            name = widget["/Parent"].get_object().get("/T")
+        if str(name) == "Tax_Escrow_Included_Yes[0]":
+            found = [float(v) for v in widget.get("/Rect")]
+            break
+    assert found is not None
+    left, bottom, right, top = found
+
+    def overlaps(box: tuple[float, float, float, float]) -> bool:
+        bleft, bbottom, bright, btop = box
+        return left < bright and right > bleft and bottom < btop and top > bbottom
+
+    assert overlaps(_SECOND_TAX_SQUARE)
+    assert not overlaps(_FIRST_TAX_SQUARE)
+
+
+NOTICE_TAX = "topmostSubform[0].Page1[0].Tax_Escrow_Pmt[1]"
+NOTICE_TOTAL = "topmostSubform[0].Page1[0].Total_Payment[0]"
+
+
+def test_flat_late_fee_stays_off_until_celeste_confirms():
+    assert FLAT_LATE_FEE_25 is False
+
+
+def test_flat_late_fee_flag_replaces_the_five_percent_clause(tmp_path, monkeypatch):
+    monkeypatch.setattr(document_tools.document_quality, "FLAT_LATE_FEE_25", True)
+    directory = tmp_path / "flat-late"
+    previous = document_tools.OUTPUT_DIR
+    document_tools.OUTPUT_DIR = str(directory)
+    os.environ["THO_DISABLE_GCS_UPLOADS"] = "1"
+    try:
+        path = _sample_module().write_review_pdfs(directory)[0]
+    finally:
+        document_tools.OUTPUT_DIR = previous
+    page2 = _page_text(path, 2)
+    assert "If a payment is late, you will be charged $25.00." in page2
+    assert "or 5% of the payment, whichever is less" not in page2
+    assert "$20.00" not in page2
+
+
+def test_zero_insurance_keeps_tax_and_drops_insurance_from_the_payment():
+    enriched = enrich_document_data({**MARK_NUMBERS, "insurance_annual_premium": "0"})
+    assert enriched["monthly_payment"] == "870.01"
+    assert enriched["tax_escrow_payment"] == "181.25"
+    assert enriched["insurance_premium_monthly"] == "0.00"
+    assert enriched["total_monthly_payment"] == "1,051.26"
+    assert enriched["total_payments"] == "240,122.76"
+    assert enriched["finance_charge"] == "163,122.76"
+    assert enriched.get("insurance_furnish_yes") is not True
+    assert enriched.get("insurance_included") is not True
+    assert enriched["insurance_amount_financed"] is False
+
+    omitted = enrich_document_data(
+        {key: value for key, value in MARK_NUMBERS.items() if key != "insurance_annual_premium"}
+    )
+    assert omitted["total_monthly_payment"] == "1,051.26"
+    assert omitted["total_payments"] == "240,122.76"
+    assert "insurance_premium_monthly" not in omitted
+
+
+def test_zero_down_finances_the_full_home_price():
+    enriched = enrich_document_data({**MARK_NUMBERS, "down_payment": "0"})
+    assert enriched["unpaid_balance"] == "87,000.00"
+    assert enriched["monthly_payment"] == "983.00"
+    assert enriched["tax_escrow_payment"] == "181.25"
+    assert enriched["insurance_premium_monthly"] == "200.00"
+    assert enriched["total_monthly_payment"] == "1,364.25"
+    assert enriched["total_payments"] == "271,308.00"
+    assert enriched["finance_charge"] == "184,308.00"
+    escrow_times_term = Decimal("1364.25") * Decimal("276")
+    assert enriched["total_payments"] != _money(escrow_times_term)
+
+
+@pytest.mark.parametrize(
+    ("apr", "term", "principal_and_interest", "total_of_payments"),
+    [
+        ("0", "276", "278.99", "77,001.24"),
+        ("9.875", "276", "707.31", "195,217.56"),
+        ("18.9", "276", "1,229.21", "339,261.96"),
+        ("0.125", "276", "283.03", "78,116.28"),
+        ("13.333", "84", "1,414.76", "118,839.84"),
+        ("7.125", "360", "518.76", "186,753.60"),
+    ],
+)
+def test_odd_rates_keep_escrow_out_of_total_of_payments(
+    apr, term, principal_and_interest, total_of_payments
+):
+    enriched = enrich_document_data({**MARK_NUMBERS, "apr": apr, "loan_term": term})
+    assert enriched["monthly_payment"] == principal_and_interest
+    assert enriched["tax_escrow_payment"] == "181.25"
+    assert enriched["insurance_premium_monthly"] == "200.00"
+    payer = Decimal(principal_and_interest.replace(",", "")) + Decimal("381.25")
+    assert enriched["total_monthly_payment"] == _money(payer)
+    assert enriched["total_payments"] == total_of_payments
+    assert enriched["finance_charge"] == _money(
+        Decimal(total_of_payments.replace(",", "")) - Decimal("77000")
+    )
+    assert enriched["total_payments"] != _money(payer * Decimal(term))
+
+
+def test_financed_odd_rate_still_taxes_the_home_price():
+    enriched = enrich_document_data(
+        {
+            **MARK_NUMBERS,
+            "insurance_first_year_paid_by": "financed",
+            "apr": "9.875",
+            "down_payment": "0",
+        }
+    )
+    assert enriched["sales_price"] == "89,400.00"
+    assert enriched["home_sales_price"] == "87,000.00"
+    assert enriched["tax_escrow_payment"] == "181.25"
+    assert enriched["unpaid_balance"] == "89,400.00"
+    # 89,400 at 9.875% for 276 months. Escrow stays out of Total of Payments.
+    assert enriched["monthly_payment"] == "821.21"
+    assert enriched["total_payments"] == "226,653.96"
+    payer = Decimal("821.21") + Decimal("381.25")
+    assert enriched["total_monthly_payment"] == _money(payer)
+
+
+def test_tax_notice_prints_estimated_personal_property_tax(rendered):
+    """0.025 x 87,000 / 12 = 181.25, including when insurance is financed."""
+    for reader, path in (
+        (rendered["customer_notice"], rendered["customer_notice_path"]),
+        (rendered["financed_notice"], rendered["financed_notice_path"]),
+    ):
+        values = _field_values(reader)
+        assert values[NOTICE_TAX] == "181.25"
+        text = _page_text(path, 1)
+        assert "181.25" in text
+        assert "Estimated Personal Property Tax" in text
+        assert "186.25" not in text
+    assert _field_values(rendered["customer_notice"])[NOTICE_TOTAL] == "1,251.26"
+    assert _field_values(rendered["financed_notice"])[NOTICE_TOTAL] == "1,278.38"

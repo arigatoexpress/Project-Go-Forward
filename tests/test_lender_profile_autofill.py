@@ -1,8 +1,8 @@
-"""21st Mortgage creditor/lender block auto-fill from config.yaml ``lenders``.
+"""Creditor/lender block auto-fill from config.yaml ``lenders``.
 
-No verified 21st Mortgage address exists in the repo, so config ships blank
-values for the owner to fill in. These tests pin the wiring with a stand-in
-profile and confirm blank config never invents an address.
+21st Mortgage prints 620 Market St, Suite 1000, Knoxville, TN 37902 and
+leaves the phone blank. Prosperity prints the confirmed Huffman lot address
+and phone. Stand-in profiles still pin the wiring.
 """
 
 from __future__ import annotations
@@ -35,8 +35,16 @@ def stand_in_profile(monkeypatch):
 def test_config_declares_21st_mortgage_address_slots():
     profile = config_loader.get_lender_profiles()["21st_mortgage"]
     assert "21st Mortgage" in profile["match_names"]
-    for key in ("creditor_address", "creditor_city_state_zip", "creditor_phone"):
-        assert key in profile
+    assert profile["creditor_address"] == "620 Market St, Suite 1000"
+    assert profile["creditor_city_state_zip"] == "Knoxville, TN 37902"
+    assert profile["creditor_phone"] == ""
+
+
+def test_21st_mortgage_real_profile_leaves_the_phone_blank():
+    out = enrich_document_data({"creditor_name": "21st Mortgage Corporation"})
+    assert out["creditor_address"] == "620 Market St, Suite 1000"
+    assert out["creditor_city_state_zip"] == "Knoxville, TN 37902"
+    assert out.get("creditor_phone", "") == ""
 
 
 @pytest.mark.parametrize(
@@ -74,7 +82,7 @@ def _prosperity_profiles(*, enabled: bool) -> dict:
 
 
 def test_prosperity_confirmed_address_fills_blank_block():
-    """Mark confirmed the lot address on 2026-10-26."""
+    """Mark confirmed the lot address and phone on 2026-10-26."""
     profile = config_loader.get_lender_profiles()["prosperity"]
     assert profile["autofill_enabled"] is True
     assert profile["creditor_address"] == "10685 FM 1960 East"

@@ -1,18 +1,25 @@
 #!/usr/bin/env python3
 """Render fake-buyer TMHA sales contracts for the 2026-10-26 review.
 
-Writes two PDFs under data/generated_docs/mark-1026-sample/:
+Writes review PDFs under data/generated_docs/mark-1026-sample/:
 
   mark-1026-customer-paid.pdf
-      Jordan Brooks, 21st Mortgage (620 Market St, Suite 1000, Knoxville).
-      Annual premium $2,400 paid by the customer. Page 1 cash price stays
-      $87,000. Page 2 payment is Mark's sample $1,251.26. Page 3 fills the
-      "you have paid" line.
+      Jordan Brooks, 21st Mortgage (620 Market St, Suite 1000, Knoxville,
+      no phone). Annual premium $2,400 paid by the customer. Page 1 cash
+      price stays $87,000. Page 2 payment is Mark's sample $1,251.26.
+      Page 3 fills the "you have paid" line. The late charge stays the
+      template sentence unless FLAT_LATE_FEE_25 is on.
 
   mark-1026-financed-prosperity.pdf
       Same home and price, first year financed, in-house Prosperity creditor
-      at the confirmed lot address. Cash price on the contract is $89,400.
-      The page-1 Property Insurance line shows $2,400.00.
+      at 10685 FM 1960 East, Huffman, TX 77336, phone 281-324-3020.
+      Cash price on the contract is $89,400. The page-1 Property Insurance
+      line shows $2,400.00. Monthly tax stays $181.25.
+
+  mark-1026-customer-paid-tax-notice.pdf
+  mark-1026-financed-prosperity-tax-notice.pdf
+      Important Notice - Property Tax. Estimated Personal Property Tax is
+      0.025 x 87,000 / 12 = 181.25 on both.
 
 Buyer, home, and serials are fictional. Do not put real customer data here.
 The regulatory template in tho_documents/ is not modified.
@@ -29,6 +36,7 @@ import tools.document_tools as document_tools  # noqa: E402
 from tools.document_engine_v2 import generate_document  # noqa: E402
 
 CONTRACT = "TMHA_SalesContract.pdf"
+TAX_NOTICE = "Internal_ImportantNoticeTax.pdf"
 SAMPLE_DIR = Path("data/generated_docs/mark-1026-sample")
 
 # Fictional buyer already used by tests/test_escrow_printed_payment.py.
@@ -89,11 +97,17 @@ def write_review_pdfs(directory: Path | None = None) -> list[Path]:
     document_tools.OUTPUT_DIR = str(target)
     written: list[Path] = []
     samples = (
-        ("mark-1026-customer-paid.pdf", customer_paid_sample()),
-        ("mark-1026-financed-prosperity.pdf", financed_prosperity_sample()),
+        ("mark-1026-customer-paid.pdf", CONTRACT, customer_paid_sample()),
+        ("mark-1026-financed-prosperity.pdf", CONTRACT, financed_prosperity_sample()),
+        ("mark-1026-customer-paid-tax-notice.pdf", TAX_NOTICE, customer_paid_sample()),
+        (
+            "mark-1026-financed-prosperity-tax-notice.pdf",
+            TAX_NOTICE,
+            financed_prosperity_sample(),
+        ),
     )
-    for filename, data in samples:
-        result = generate_document(CONTRACT, dict(data), output_filename=filename)
+    for filename, template_name, data in samples:
+        result = generate_document(template_name, dict(data), output_filename=filename)
         if not result.get("success"):
             raise RuntimeError(result.get("message") or f"failed to generate {filename}")
         written.append(Path(result["file_path"]))

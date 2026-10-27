@@ -2531,7 +2531,7 @@ function Step2({ data, onChange, resetKey, inventory, inventoryLoading, onNext, 
               { value: 'customer', label: 'Customer paid' },
               { value: 'financed', label: 'Financed' },
             ]}
-            helperText="Customer paid fills the “you have paid” line. Financed adds this premium to the contract cash price."
+            helperText="Customer paid fills the you have paid line. Financed adds this premium to the cash price and marks included in the Amount Financed."
           />
           <Field
             label="Tax Rate (%)"

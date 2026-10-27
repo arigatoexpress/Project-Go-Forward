@@ -30,6 +30,7 @@ from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 
 from schemas.document_schemas import SalesContractForm
+from tools import document_quality
 
 DOCUMENTS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "tho_documents")
 _DEFAULT_OUTPUT_DIR = os.path.join(
@@ -371,21 +372,22 @@ PDF_TEXT_OVERLAYS = {
                 "clear_background": True,
                 "clear_width": 372,
             },
-            # Fallback when the static "$20.00" token cannot be swapped in place.
-            # Covers only that amount. The "or 5% ..." clause is not covered.
-            # "2" and "5" are the same width in Times, matching the printed "$20.00".
+            # Fallback when the flat-$25 stream edit cannot find the clause.
+            # Whites out "$20.00 or 5% of the payment, whichever is less."
+            # (x 271.3-463.7, y 351.5-360.5) and prints "$25.00."
+            # Used only when FLAT_LATE_FEE_25 is on.
             {
                 "field": "THO_Late_Charge_Amount",
-                "x": 271.3,
+                "x": 271.0,
                 "y": 353.6,
-                "max_width": 27.6,
+                "max_width": 80,
                 "font_size": 10,
                 "font_name": "Times-Roman",
                 "align": "left",
                 "clear_background": True,
-                "clear_width": 27.6,
-                "clear_pad_x": 0.3,
-                "clear_pad_y": 1.0,
+                "clear_width": 194.0,
+                "clear_pad_x": 0.4,
+                "clear_pad_y": 1.2,
             },
         ),
         # Page 3 IX.B has no AcroForm widgets. The checkbox and the two blanks
@@ -416,6 +418,17 @@ PDF_TEXT_OVERLAYS = {
                 "max_width": 90,
                 "font_size": 9,
                 "font_name": "Times-Roman",
+            },
+            # "The first year's premium is included in the Amount Financed."
+            # Printed square "108.78 202.74 -5.28 -5.28 re" (lower-left 103.50, 197.46).
+            # No AcroForm widget. Drawn only when the year's premium is financed.
+            {
+                "kind": "checkmark",
+                "field": "THO_Insurance_Amount_Financed_Yes",
+                "x": 103.85,
+                "y": 197.85,
+                "size": 4.3,
+                "line_width": 0.7,
             },
         ),
     },
@@ -666,10 +679,16 @@ def _draw_fit_text(
     pdf_canvas.drawString(draw_x, y, text)
 
 
-def _draw_checkmark(pdf_canvas: canvas.Canvas, x: float, y: float, size: float) -> None:
+def _draw_checkmark(
+    pdf_canvas: canvas.Canvas,
+    x: float,
+    y: float,
+    size: float,
+    line_width: float | None = None,
+) -> None:
     """Draw a check inside a box whose lower-left corner is ``(x, y)``."""
     pdf_canvas.setStrokeColorRGB(0, 0, 0)
-    pdf_canvas.setLineWidth(max(1.1, size * 0.16))
+    pdf_canvas.setLineWidth(max(0.6, size * 0.16) if line_width is None else line_width)
     pdf_canvas.setLineCap(1)
     pdf_canvas.setLineJoin(1)
     start_x = x + size * 0.16
@@ -686,19 +705,25 @@ def _overlay_value_is_on(value: Any) -> bool:
     return str(value or "").strip().lower() in {"1", "true", "yes", "y", "x", "on"}
 
 
-_LATE_CHARGE_TOKEN = b"(20.00)"
-_LATE_CHARGE_REPLACEMENT = b"(25.00)"
+# The page-2 late-charge sentence is one TJ array. The heading "Late Charge"
+# is the previous array. This array is the clause Mark asked to replace.
+_LATE_CHARGE_CLAUSE = (
+    b"[(: )6(If a p)-4(a)-1(ym)10(en)-4(t is late, yo)-4(u will )6(b)-4(e)-1( ch)"
+    b"-4(arg)-4(e)5(d)-4( )6($)-4(20.00)-4( )6(o)-4(r)2( 5)-4(%)5( of t)7(h)2(e p)"
+    b"-4(a)-1(ym)10(en)-4(t, wh)-4(i)7(c)-1(h)-4(e)-1(v)-4(e)5(r is less. )]TJ"
+)
+_LATE_CHARGE_FLAT = (
+    b"[(: )6(If a p)-4(a)-1(ym)10(en)-4(t is late, yo)-4(u will )6(b)-4(e)-1( ch)"
+    b"-4(arg)-4(e)5(d)-4( )6($25.00.)]TJ"
+)
 
 
-def _swap_printed_late_charge(writer: PdfWriter) -> bool:
-    """Print $25.00 in place of the static $20.00 on the generated copy.
+def _apply_flat_late_fee(writer: PdfWriter) -> bool:
+    """Replace the 5% late-charge clause with a flat $25.00 on the copy.
 
-    ``tho_documents/TMHA_SalesContract.pdf`` is not modified. In the form's
-    Times font, "2" and "5" are the same width, so the rest of the sentence
-    stays put, including "or 5% of the payment, whichever is less". Whether
-    that clause stays is an open question for Mark; only the dollar amount
-    changes. Returns False when the token is missing, so the caller can
-    white-box and reprint instead.
+    Called only when ``document_quality.FLAT_LATE_FEE_25`` is true.
+    ``tho_documents/TMHA_SalesContract.pdf`` is not modified. Returns False
+    when the clause is missing so the caller can white-box it instead.
     """
     if len(writer.pages) < 2:
         return False
@@ -707,17 +732,10 @@ def _swap_printed_late_charge(writer: PdfWriter) -> bool:
     if contents is None:
         return False
     data = contents.get_data()
-    # The heading is split across TJ glyphs ("(L)5(a)-1(te Ch)..."), so a
-    # literal "Late" is not in the stream. The amount is the single "(20.00)"
-    # inside the "is late ... or 5%" sentence.
-    token_at = data.find(_LATE_CHARGE_TOKEN)
-    if data.count(_LATE_CHARGE_TOKEN) != 1 or token_at < 0:
-        return False
-    window = data[max(0, token_at - 220) : token_at + 80]
-    if b"is late" not in window and b"Late" not in window:
+    if data.count(_LATE_CHARGE_CLAUSE) != 1:
         return False
     stream = DecodedStreamObject()
-    stream.set_data(data.replace(_LATE_CHARGE_TOKEN, _LATE_CHARGE_REPLACEMENT, 1))
+    stream.set_data(data.replace(_LATE_CHARGE_CLAUSE, _LATE_CHARGE_FLAT, 1))
     page.replace_contents(stream)
     return True
 
@@ -734,8 +752,10 @@ def attach_tmha_overlay_fields(
         ("insurance_furnish_term", "THO_Insurance_Furnish_Term"),
         ("insurance_furnish_premium", "THO_Insurance_Furnish_Premium"),
         ("insurance_furnish_yes", "THO_Insurance_Furnish_Yes"),
+        ("insurance_amount_financed", "THO_Insurance_Amount_Financed_Yes"),
         ("property_insurance_amount", "THO_Property_Insurance"),
     )
+    yes_keys = {"insurance_furnish_yes", "insurance_amount_financed"}
     for source_key, overlay_key in mapping:
         value = source.get(source_key)
         if value is None or value is False:
@@ -743,7 +763,7 @@ def attach_tmha_overlay_fields(
         text = str(value).strip()
         if not text or text.lower() in {"false", "off", "none"}:
             continue
-        pdf_data[overlay_key] = "Yes" if source_key == "insurance_furnish_yes" else text
+        pdf_data[overlay_key] = "Yes" if source_key in yes_keys else text
 
 
 def _apply_pdf_text_overlays(
@@ -773,6 +793,7 @@ def _apply_pdf_text_overlays(
                     overlay["x"],
                     overlay["y"],
                     float(overlay.get("size") or 10),
+                    line_width=overlay.get("line_width"),
                 )
                 drew_overlay = True
                 continue
@@ -829,9 +850,9 @@ def fill_pdf_form(template_path: str, data_dict: dict[str, Any], output_filename
         writer = PdfWriter()
         writer.append(reader)
         _apply_pdf_widget_rect_overrides(template_name, writer)
-        late_charge_swapped = (
-            template_name == "TMHA_SalesContract.pdf" and _swap_printed_late_charge(writer)
-        )
+        late_charge_swapped = False
+        if template_name == "TMHA_SalesContract.pdf" and document_quality.FLAT_LATE_FEE_25:
+            late_charge_swapped = _apply_flat_late_fee(writer)
 
         root = reader.trailer.get("/Root", {})
         acroform = root.get("/AcroForm") if root else None
@@ -867,10 +888,14 @@ def fill_pdf_form(template_path: str, data_dict: dict[str, Any], output_filename
             _force_helvetica_field_appearance(writer)
             for page in writer.pages:
                 writer.update_page_form_field_values(page, appearance_data, auto_regenerate=False)
-            if template_name == "TMHA_SalesContract.pdf" and not late_charge_swapped:
-                # White-box the printed "$20.00" and draw "$25.00" when the
-                # static token cannot be replaced in place.
-                fill_data["THO_Late_Charge_Amount"] = "$25.00"
+            if (
+                template_name == "TMHA_SalesContract.pdf"
+                and document_quality.FLAT_LATE_FEE_25
+                and not late_charge_swapped
+            ):
+                # White-box the 5% clause and draw "$25.00." when the stream
+                # edit cannot find it.
+                fill_data["THO_Late_Charge_Amount"] = "$25.00."
             _apply_pdf_text_overlays(template_name, writer, fill_data)
             acroform_filled = True
         except Exception as e:

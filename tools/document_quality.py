@@ -32,6 +32,12 @@ BUSINESS_RBI = "35248"
 # The monthly payment includes escrow either way; finance charge never does.
 TOTAL_OF_PAYMENTS_INCLUDES_ESCROW = False
 
+# Mark wants a flat $25 late charge instead of the TMHA sentence
+# "$20.00 or 5% of the payment, whichever is less." Celeste has not confirmed
+# that TDHCA allows that change. Leave this False. Generated contracts keep
+# the template sentence until it is True. tho_documents/ is never edited.
+FLAT_LATE_FEE_25 = False
+
 # Deal-entry values for who paid the first year of required insurance.
 INSURANCE_PAID_BY_CUSTOMER = "customer"
 INSURANCE_PAID_BY_FINANCED = "financed"
@@ -423,8 +429,9 @@ def apply_contract_insurance(data: dict[str, Any]) -> None:
     Customer-paid is the default: page 1 is unchanged, and the year's premium
     prints on the page-3 "you have paid" line with that box checked. Financed
     adds the year's premium to the cash price once (and therefore to the amount
-    financed) and leaves the "you have paid" line blank. A year's premium also
-    marks page 3 IX.B as furnished for 12 months at that premium.
+    financed), leaves the "you have paid" line blank, and checks "included in
+    the Amount Financed." A year's premium also marks page 3 IX.B as furnished
+    for 12 months at that premium.
     """
     paid_by = normalize_insurance_paid_by(data.get("insurance_first_year_paid_by"))
     data["insurance_first_year_paid_by"] = paid_by
@@ -454,8 +461,12 @@ def apply_contract_insurance(data: dict[str, Any]) -> None:
         # Show the premium there. Amount financed already includes it via cash
         # price, so it is not added again on Total Paid to Others.
         data["property_insurance_amount"] = _money(premium)
+        # Page 3 alternative under the insurance escrow YES box. The printed
+        # square has no widget. "You have paid" stays blank in this case.
+        data["insurance_amount_financed"] = True
     else:
         data.pop("property_insurance_amount", None)
+        data["insurance_amount_financed"] = False
 
     if paid_by == INSURANCE_PAID_BY_FINANCED:
         # The premium is in the cash price. The "you have paid" line stays blank.
@@ -794,7 +805,9 @@ def enrich_document_data(data: dict[str, Any]) -> dict[str, Any]:
     monthly_payment = _decimal(enriched.get("monthly_payment"))
     loan_term = _int(enriched.get("loan_term")) or 240
     if monthly_payment is None and loan_amount is not None:
-        monthly_payment = _compute_monthly_payment(loan_amount, loan_term, apr or Decimal("7.5"))
+        # A blank rate still uses 7.5%. A typed 0% is a real rate, not a blank.
+        rate = Decimal("7.5") if apr is None else apr
+        monthly_payment = _compute_monthly_payment(loan_amount, loan_term, rate)
 
     if monthly_payment is not None:
         enriched["total_monthly_payment"] = _money(monthly_payment)

@@ -101,7 +101,7 @@ lenders:
     creditor_city_state_zip: "Knoxville, TN 37902"
     creditor_phone: ""
   prosperity:
-    # In-house creditor. Mark confirmed this lot address on 2026-10-26.
+    # In-house creditor. Mark confirmed this lot address and phone on 2026-10-26.
     # True prints these lines when the creditor name matches and the block is blank.
     autofill_enabled: true
     match_names:
