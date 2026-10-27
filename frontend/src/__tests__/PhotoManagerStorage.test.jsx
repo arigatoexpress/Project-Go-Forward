@@ -27,6 +27,7 @@ function inventoryThenPhotos() {
 
 async function pickStarterHome() {
   fireEvent.click(await screen.findByRole('radio', { name: /Starter Home/i }));
+  await waitFor(() => expect(screen.queryByText('Loading…')).not.toBeInTheDocument());
 }
 
 beforeEach(() => {
@@ -35,18 +36,27 @@ beforeEach(() => {
 });
 
 describe('Photo Manager storage safety', () => {
-  it('makes the home picker and upload target keyboard-accessible', async () => {
+  it('makes the home picker and phone upload targets keyboard-accessible', async () => {
     render(<PhotoManager onBack={vi.fn()} />);
 
     await screen.findByRole('radio', { name: /Starter Home/i });
     expect(screen.getByRole('radiogroup', { name: /Choose a home/i })).toBeInTheDocument();
-    const uploadTarget = screen.getByRole('button', { name: /Choose listing photos/i });
-    expect(uploadTarget).toHaveAttribute('aria-disabled', 'true');
-    expect(uploadTarget).toHaveAttribute('tabindex', '-1');
+    expect(screen.queryByLabelText('Choose photos')).toBeNull();
+    expect(screen.queryByLabelText('Take a photo')).toBeNull();
 
     await pickStarterHome();
-    expect(uploadTarget).toHaveAttribute('aria-disabled', 'false');
-    expect(uploadTarget).toHaveAttribute('tabindex', '0');
+    const choose = screen.getByLabelText('Choose photos');
+    const camera = screen.getByLabelText('Take a photo');
+    expect(choose).toBeEnabled();
+    expect(choose).toHaveAttribute('multiple');
+    expect(choose).not.toHaveAttribute('capture');
+    expect(camera).toHaveAttribute('capture', 'environment');
+    expect(camera).not.toHaveAttribute('multiple');
+    expect(screen.getByText('Use a photo you took. Do not use a picture from the internet.')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Choose a different home' }));
+    expect(screen.getByRole('radiogroup', { name: /Choose a home/i })).toBeInTheDocument();
+    expect(screen.queryByLabelText('Choose photos')).toBeNull();
   });
 
   it('reports a partial durable write as an outage, not an invalid-image success', async () => {

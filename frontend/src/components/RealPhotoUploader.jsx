@@ -46,7 +46,7 @@ function photoMessage(data, resOk) {
   };
 }
 
-export default function RealPhotoUploader({ homeId, homeName = 'this home' }) {
+export default function RealPhotoUploader({ homeId, homeName = 'this home', preowned = false }) {
   const [photos, setPhotos] = useState([]);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -152,6 +152,11 @@ export default function RealPhotoUploader({ homeId, homeName = 'this home' }) {
         Add pictures taken of {homeName} on the lot. Floor plans and brochure pictures are not used here.
         The first photo is the one customers see first.
       </p>
+      {preowned && (
+        <p className="mt-2 text-base leading-relaxed">
+          This is a pre-owned home. Upload real photos taken on the lot. A floor plan shows as a floor plan, not as a photo of the home. If a photo does not show on the website, tell the owner. Photo upload on a pre-owned home has not been checked on the live site yet.
+        </p>
+      )}
 
       {!homeId ? (
         <p className="mt-3 text-base leading-relaxed">Save the home first. You will stay on this page to add the photos.</p>
@@ -178,8 +183,8 @@ export default function RealPhotoUploader({ homeId, homeName = 'this home' }) {
           )}
 
           {!loading && photos.length === 0 && (
-            <p className="mt-3 flex items-center gap-2 text-base text-[var(--cp-muted)]">
-              <ImageOff size={18} aria-hidden="true" /> No real photos yet.
+            <p role="status" className="mt-3 flex items-center gap-2 text-base text-[var(--cp-muted)]">
+              <ImageOff size={18} aria-hidden="true" /> No real photos yet. Choose photos of the home on the lot.
             </p>
           )}
 

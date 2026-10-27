@@ -86,7 +86,7 @@ Humble is rounded to 'west' at the WSW/W boundary (bearing 258.70 deg; WSW ends 
 
 Kingwood's handbook place record lists Harris County and Montgomery County. Atascocita, Crosby, Huffman, and New Caney are marked "Is Incorporated: No" on their handbook pages. Humble is marked incorporated.
 
-## Held for the owner (PGF-33)
+## Not recorded (PGF-33)
 
 The old "delivers manufactured and mobile homes to {city}" sentence is no longer on the page. Each town page now says the Huffman showroom lists homes for shoppers in that town, then "Delivery available, ask for details." The call-for-price close stays.
 

@@ -28,7 +28,7 @@ it('saves an existing home with null optional strings without losing its specifi
   fireEvent.change(screen.getByLabelText('Home name'), { target: { value: 'Updated Double' } });
   fireEvent.click(screen.getByRole('button', { name: 'Save this home' }));
 
-  await screen.findByText(/Saved\. Customers will see this update/);
+  await screen.findByText(/Saved\. Customers will see Call for Price/);
   const save = adminFetch.mock.calls.find(([, options]) => options?.method === 'PUT');
   expect(save[0]).toBe('/api/inventory/existing-home');
   expect(JSON.parse(save[1].body)).toEqual({
@@ -71,7 +71,7 @@ it('loads, saves, reloads and clears the approved public sale price', async () =
   expect(screen.getByLabelText('Price on the website ($)').value).toBe('89900');
   fireEvent.change(screen.getByLabelText('Price on the website ($)'), { target: { value: '' } });
   fireEvent.click(screen.getByRole('button', { name: 'Save this home' }));
-  await screen.findByText(/Saved\. Customers will see this update/);
+  await screen.findByText(/Saved\. Customers will see Call for Price/);
   expect(stored.public_sale_price).toBe(0);
   fireEvent.click(await screen.findByRole('button', { name: 'Change this home' }));
   expect(screen.getByLabelText('Price on the website ($)').value).toBe('');

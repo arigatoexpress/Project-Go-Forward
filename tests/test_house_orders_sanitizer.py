@@ -1,9 +1,11 @@
 import json
 from datetime import date
 
-import pandas as pd
+import pytest
 
-from tools.house_orders_sanitizer import (
+pd = pytest.importorskip("pandas")
+
+from tools.house_orders_sanitizer import (  # noqa: E402
     _detect_header_index,
     apply_firestore_patch_plan,
     build_firestore_patch_plan,

@@ -175,7 +175,7 @@ def test_homepage_head_is_injected(monkeypatch):
     response = client.get("/")
     assert response.status_code == 200
     body = response.text
-    assert "Manufactured Homes for Sale in Huffman, TX" in body
+    assert "<title>Manufactured Homes for Sale in Huffman | Texas Home Outlet</title>" in body
     assert 'rel="canonical"' in body
     assert '<link rel="canonical" href="https://www.texashomeoutlet.com/"' in body
     assert "sapphirealpha.xyz" not in body
@@ -198,6 +198,59 @@ def test_inventory_routes_preload_the_responsive_hero_image(monkeypatch):
         assert 'property="og:locale" content="en_US"' in body
 
     assert '<link rel="preload" as="image"' not in client.get("/contact").text
+
+
+def test_resizable_hero_preloads_the_same_origin_lcp_image(monkeypatch):
+    """Staff and catalog heroes preload one small same-origin JPEG.
+
+    The original file stays out of the head so a phone does not spend its
+    first bytes on a full-size photo. Category pages keep their own hero.
+    """
+    import seo_routes
+    from tools.lcp_image import LCP_IMAGE_PATH
+
+    staff = "/api/inventory/photos/43372/lot.jpg"
+    home = {
+        **FAKE_HOMES[0],
+        "classification": "Single Wide",
+        "hero_image": staff,
+    }
+    client, _ = seo_client(monkeypatch)
+    monkeypatch.setattr(seo_routes, "_get_homes", lambda: [home, FAKE_HOMES[2]])
+
+    for path in ("/", "/inventory"):
+        body = client.get(path).text
+        assert f'href="{LCP_IMAGE_PATH}"' in body
+        assert 'id="tho-lcp"' in body
+        assert 'class="tho-lcp"' in body
+        assert "style=" not in body.split('id="tho-lcp"', 1)[1].split(">", 1)[0]
+        assert staff not in body
+        assert "imagesrcset=" not in body
+        assert "?w=" not in body
+
+    contact = client.get("/contact").text
+    assert "tho-lcp" not in contact
+    assert '<link rel="preload" as="image"' not in contact
+
+    category = client.get("/single-wide").text
+    assert "tho-lcp" not in category
+    assert LCP_IMAGE_PATH not in category
+
+    listing = client.get("/homes/44490-pre-owned-big-blue").text
+    assert 'id="tho-lcp"' in listing
+    assert f'href="{LCP_IMAGE_PATH}"' in listing
+    assert 'loading="lazy"' in listing
+    assert 'fetchpriority="low"' in listing
+    assert "https://img.example.com/lot-44490.jpg" in listing
+
+    cdn = "https://d132mt2yijm03y.cloudfront.net/dealer/3522/inventory/43372/home-ext-1.jpg"
+    cdn_home = {**FAKE_HOMES[0], "hero_image": cdn}
+    monkeypatch.setattr(seo_routes, "_get_homes", lambda: [cdn_home])
+    monkeypatch.setattr(seo_routes, "_registry_cache", None)
+    cdn_page = client.get("/inventory").text
+    assert f'href="{LCP_IMAGE_PATH}"' in cdn_page
+    assert 'id="tho-lcp"' in cdn_page
+    assert f'href="{cdn}"' not in cdn_page
 
 
 def test_inventory_hero_preload_prefers_an_available_home(monkeypatch):
@@ -479,6 +532,20 @@ def test_unknown_route_returns_real_404_not_soft_404(monkeypatch):
     assert "noindex" in response.text
 
 
+@pytest.mark.parametrize(
+    "path",
+    ["/cart", "/checkout", "/search", "/search-results", "/test"],
+)
+def test_cart_checkout_search_and_test_paths_404_with_noindex(monkeypatch, path):
+    """These are not public pages. A full load stays a real 404 with noindex."""
+    client, _ = seo_client(monkeypatch)
+    response = client.get(path)
+    assert response.status_code == 404, path
+    assert '<meta name="robots" content="noindex" />' in response.text, path
+    assert 'content="index,follow"' not in response.text, path
+    assert 'rel="canonical"' not in response.text, path
+
+
 def test_ad_studio_alias_is_the_google_ads_staff_route(monkeypatch):
     """Staff type /ad-studio. It must open the noindex staff app, not a 404."""
     client, _ = seo_client(monkeypatch)
@@ -500,23 +567,39 @@ def test_admin_routes_are_noindex_but_200(monkeypatch):
 def test_public_routes_have_unique_titles_and_canonicals(monkeypatch):
     client, _ = seo_client(monkeypatch)
     titles = {}
+    descriptions = {}
     for path in (
         "/",
         "/inventory",
         "/contact",
         "/appointments",
+        "/chat",
         "/about",
         "/financing",
         "/faq",
         "/warranty",
         "/delivery",
+        "/locations",
+        "/privacy",
+        "/terms",
+        "/single-wide",
+        "/double-wide",
     ):
         body = client.get(path).text
-        title = re.search(r"<title>(.*?)</title>", body, re.DOTALL).group(1)
+        title = html.unescape(re.search(r"<title>(.*?)</title>", body, re.DOTALL).group(1))
+        description = html.unescape(
+            re.search(r'<meta name="description" content="([^"]*)"', body).group(1)
+        )
         titles[path] = title
+        descriptions[path] = description
+        assert 1 <= len(title) <= 60, (path, len(title), title)
+        assert 1 <= len(description) <= 155, (path, len(description), description)
+        assert '<meta name="robots" content="index,follow" />' in body, path
+        assert "noindex" not in body, path
         canonical = re.search(r'rel="canonical" href="([^"]+)"', body).group(1)
         assert canonical.endswith(path if path != "/" else "/"), path
     assert len(set(titles.values())) == len(titles), "titles must be unique per route"
+    assert len(set(descriptions.values())) == len(descriptions), "descriptions must be unique"
 
 
 def test_trust_content_pages_have_crawlable_blocks(monkeypatch):
@@ -1277,30 +1360,28 @@ def test_inventory_page_emits_itemlist_jsonld(monkeypatch):
     assert all("offers" not in i and "price" not in i for i in items)
 
 
-def test_legal_routes_render_shared_copy_on_each_host(monkeypatch):
+def test_legal_routes_render_shared_copy_on_canonical_host(monkeypatch):
     import html
 
     import seo_routes
 
     client, _ = seo_client(monkeypatch)
-    for host in ("www.texashomeoutlet.com", "tho.sapphirealpha.xyz"):
-        for page, content in seo_routes.LEGAL_PAGES.items():
-            path = f"/{page}"
-            response = client.get(path, headers={"Host": host}, follow_redirects=False)
-            assert response.status_code == 200
-            body = response.text
-            assert f"<title>{content['title']} | Texas Home Outlet</title>" in body
-            assert (
-                f'<meta name="description" content="{html.escape(content["description"])}"' in body
-            )
-            assert f'href="https://www.texashomeoutlet.com{path}"' in body
-            assert 'name="robots" content="noindex"' not in body
-            assert f"<h1>{content['title']}</h1>" in body
-            assert "Effective date: October 7, 2026." in body
-            assert "[EFFECTIVE DATE]" not in body
-            for heading, text in content["sections"]:
-                assert html.escape(heading) in body
-                assert html.escape(text) in body
+    host = {"Host": "www.texashomeoutlet.com"}
+    for page, content in seo_routes.LEGAL_PAGES.items():
+        path = f"/{page}"
+        response = client.get(path, headers=host, follow_redirects=False)
+        assert response.status_code == 200
+        body = response.text
+        assert f"<title>{content['title']} | Texas Home Outlet</title>" in body
+        assert f'<meta name="description" content="{html.escape(content["description"])}"' in body
+        assert f'href="https://www.texashomeoutlet.com{path}"' in body
+        assert 'name="robots" content="noindex"' not in body
+        assert f"<h1>{content['title']}</h1>" in body
+        assert "Effective date: October 7, 2026." in body
+        assert "[EFFECTIVE DATE]" not in body
+        for heading, text in content["sections"]:
+            assert html.escape(heading) in body
+            assert html.escape(text) in body
 
 
 def test_legal_routes_canonicalize_and_appear_in_sitemap(monkeypatch):
@@ -1364,9 +1445,10 @@ def test_city_floorplan_and_home_pages_have_unique_title_h1_canonical(monkeypatc
     assert len({city_t, plan_t, home_t}) == 3
     assert len({city_h, plan_h, home_h}) == 3
     assert len({city_c, plan_c, home_c}) == 3
-    assert "Manufactured Homes for Sale in Huffman, TX" not in city_t
-    assert "Manufactured Homes for Sale in Huffman, TX" not in plan_t
-    assert "Manufactured Homes for Sale in Huffman, TX" not in home_t
+    homepage_title = "Manufactured Homes for Sale in Huffman | Texas Home Outlet"
+    assert homepage_title not in city_t
+    assert homepage_title not in plan_t
+    assert homepage_title not in home_t
 
 
 def test_inventory_hub_heading_differs_from_homepage(monkeypatch):
@@ -1379,7 +1461,7 @@ def test_inventory_hub_heading_differs_from_homepage(monkeypatch):
     assert "Current manufactured and mobile home inventory" in inventory
     assert 'href="/plan/223034/skyliner/4732b/"' in home
     assert 'href="/plan/223034/skyliner/4732b/"' in inventory
-    assert "<title>Manufactured Home Financing in Huffman, TX | Texas Home Outlet</title>" in (
+    assert "<title>Manufactured Home Financing in Huffman | Texas Home Outlet</title>" in (
         client.get("/financing").text
     )
 
@@ -1819,6 +1901,114 @@ def test_storefront_pages_link_home_inventory_listings_and_locations(monkeypatch
     assert 'href="/manufactured-homes-in-huffman-tx"' in listing
 
 
+_LONG_LISTING_MODEL = (
+    "The Promotional Series / The Exceptionally Long Model Name "
+    "That Should Never Fit In A Browser Title FAC99999XYZ"
+)
+
+
+def test_listing_titles_stay_within_60_characters(monkeypatch):
+    """Per-home titles stay <= 60, including a pathologically long model name.
+
+    City and state drop first, then a trailing stock code, then a long series
+    banner. A name that still does not fit is cut on a word boundary. The
+    brand stays intact. Descriptions from the same sentence stay <= 155.
+    """
+    import seo_routes
+
+    assert seo_routes._listing_document_title("PRE-OWNED / Big Blue") == (
+        "PRE-OWNED / Big Blue — Texas Home Outlet, Huffman, TX"
+    )
+    creole = seo_routes._listing_document_title("Premier / Creole 3256H32447")
+    assert creole == "Premier / Creole 3256H32447 — Texas Home Outlet, Huffman, TX"
+    assert len(creole) == 60
+    assert seo_routes._listing_document_title("Premier / The Dauphine 3260-H-32005") == (
+        "Premier / The Dauphine 3260-H-32005 — Texas Home Outlet"
+    )
+    assert (
+        seo_routes._listing_document_title("The Promotional Series / The Rosewood FAC28644A")
+        == "The Promotional Series / The Rosewood — Texas Home Outlet"
+    )
+    assert (
+        seo_routes._listing_document_title("The Elite Series / The Eisenhower ELT32603A")
+        == "The Elite Series / The Eisenhower — Texas Home Outlet"
+    )
+    assert (
+        seo_routes._listing_document_title("NEW YEAR CLEARANCE SALE / TRU Single Section Delight")
+        == "TRU Single Section Delight — Texas Home Outlet"
+    )
+    monster = seo_routes._listing_document_title("X" * 80)
+    assert monster == ("X" * 39) + "… — Texas Home Outlet"
+    assert len(monster) <= 60
+
+    long_title = seo_routes._listing_document_title(_LONG_LISTING_MODEL)
+    assert long_title == "The Promotional Series / The… — Texas Home Outlet"
+    assert len(long_title) <= 60
+    assert long_title.endswith("Texas Home Outlet")
+
+    long_description = seo_routes._listing_meta_description(
+        _LONG_LISTING_MODEL,
+        ["4 bed", "2 bath", "32x80", "Champion Homes", "$189,900"],
+        for_sale=True,
+    )
+    assert len(long_description) <= 155
+    assert "Texas Home Outlet" in long_description
+    assert long_description.endswith("Call (281) 324-3020.")
+
+    trimmed_description = seo_routes._listing_meta_description(
+        "The Elite Series / The Lincoln ELS16763B",
+        ["3 bed", "2.0 bath", "16'0\" x 76'0\"", "Jessup Housing", "Call for Price"],
+        for_sale=True,
+    )
+    assert trimmed_description == (
+        "The Elite Series / The Lincoln ELS16763B (3 bed, 2.0 bath, 16'0\" x 76'0\") "
+        "for sale at Texas Home Outlet in Huffman, TX. Call (281) 324-3020."
+    )
+    assert len(trimmed_description) <= 155
+
+    fitting = seo_routes._listing_meta_description(
+        "PRE-OWNED / Big Blue",
+        ["3 bed", "2 bath", "Pre-Owned", "Call for Price"],
+    )
+    assert fitting == (
+        "PRE-OWNED / Big Blue (3 bed, 2 bath, Pre-Owned, Call for Price) "
+        "at Texas Home Outlet in Huffman, TX. Call (281) 324-3020."
+    )
+    assert len(fitting) <= 155
+
+    homes = [{**FAKE_HOMES[0], "model_name": _LONG_LISTING_MODEL}, *FAKE_HOMES[1:]]
+    client, _ = seo_client(monkeypatch)
+    monkeypatch.setattr(seo_routes, "_get_homes", lambda: homes)
+    monkeypatch.setattr(seo_routes, "_registry_cache", None)
+    monkeypatch.setattr(seo_routes, "_registry_built_at", 0.0)
+
+    for path in (
+        "/inventory-detail/43372/texas-home-outlet/huffman/premier/",
+        "/plan/223034/skyliner/4732b/",
+        "/homes/44490-pre-owned-big-blue",
+    ):
+        body = client.get(path).text
+        title = html.unescape(re.search(r"<title>(.*?)</title>", body, re.DOTALL).group(1))
+        description = html.unescape(
+            re.search(r'<meta name="description" content="([^"]*)"', body).group(1)
+        )
+        assert len(title) <= 60, (path, len(title), title)
+        assert "Texas Home Outlet" in title, title
+        assert len(description) <= 155, (path, len(description), description)
+        og_title = html.unescape(
+            re.search(r'<meta property="og:title" content="([^"]*)"', body).group(1)
+        )
+        assert og_title == title, path
+
+    detail = client.get("/inventory-detail/43372/texas-home-outlet/huffman/premier/").text
+    detail_title = html.unescape(re.search(r"<title>(.*?)</title>", detail, re.DOTALL).group(1))
+    assert detail_title == long_title
+    big_blue = client.get("/homes/44490-pre-owned-big-blue").text
+    assert "<title>PRE-OWNED / Big Blue — Texas Home Outlet, Huffman, TX</title>" in big_blue
+    plan = client.get("/plan/223034/skyliner/4732b/").text
+    assert "<title>Skyliner 4732B — Texas Home Outlet, Huffman, TX</title>" in plan
+
+
 def test_public_titles_and_descriptions_fit_and_stay_unique(monkeypatch):
     client, _ = seo_client(monkeypatch)
     pages = (
@@ -1839,10 +2029,13 @@ def test_public_titles_and_descriptions_fit_and_stay_unique(monkeypatch):
     descriptions = []
     for path in pages:
         body = client.get(path).text
-        title = re.search(r"<title>(.*?)</title>", body, re.DOTALL).group(1)
-        description = re.search(r'<meta name="description" content="([^"]*)"', body).group(1)
-        assert 25 <= len(title) <= 65, (path, len(title), title)
-        assert 70 <= len(description) <= 165, (path, len(description), description)
+        title = html.unescape(re.search(r"<title>(.*?)</title>", body, re.DOTALL).group(1))
+        description = html.unescape(
+            re.search(r'<meta name="description" content="([^"]*)"', body).group(1)
+        )
+        assert '<meta name="robots" content="index,follow" />' in body, path
+        assert 25 <= len(title) <= 60, (path, len(title), title)
+        assert 70 <= len(description) <= 155, (path, len(description), description)
         titles.append(title)
         descriptions.append(description)
     assert len(set(titles)) == len(titles)
@@ -1862,7 +2055,7 @@ def test_contact_description_contains_configured_hours(monkeypatch):
         client.get("/contact").text,
     ).group(1)
     assert configured in description
-    assert len(description) <= 165
+    assert len(description) <= 155
 
 
 def test_service_area_cities_match_config():
@@ -1941,7 +2134,7 @@ def test_placeholder_verification_tags_in_the_shell_are_stripped(monkeypatch, tm
         "<!-- TODO(owner): replace TODO_GOOGLE_SEARCH_CONSOLE_TOKEN -->\n"
         '<meta name="google-site-verification" content="TODO_GOOGLE_SEARCH_CONSOLE_TOKEN" />\n'
         '<meta name="msvalidate.01" content="TODO_BING_WEBMASTER_TOKEN" />\n'
-        "<title>Old</title></head><body><div id=\"root\"></div></body></html>\n",
+        '<title>Old</title></head><body><div id="root"></div></body></html>\n',
         encoding="utf-8",
     )
     monkeypatch.setattr(seo_routes, "_index_html_path", str(shell))

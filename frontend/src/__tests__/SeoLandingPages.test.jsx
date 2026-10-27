@@ -160,6 +160,31 @@ describe('unique city, floorplan, and home pages after hydration', () => {
     expect(shownAt(articlePrice, 'mobile')).toBe(false);
     expect(shownAt(articlePrice, 'desktop')).toBe(true);
   });
+
+  it('keeps a pathologically long listing title within 60 characters', async () => {
+    const model = (
+      'The Promotional Series / The Exceptionally Long Model Name '
+      + 'That Should Never Fit In A Browser Title FAC99999XYZ'
+    );
+    vi.stubGlobal('fetch', vi.fn((url) => {
+      if (String(url) === '/api/marketing/inventory-context') {
+        return response({ success: true, homes: [{ ...homes[0], model_name: model }] });
+      }
+      return response({ success: true });
+    }));
+    window.history.replaceState({}, '', '/homes/44490-pre-owned-big-blue');
+    render(<InventoryBrowse pathname="/homes/44490-pre-owned-big-blue" />);
+    expect(await screen.findByRole('heading', { level: 1, name: model })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(document.title).toBe('The Promotional Series / The… — Texas Home Outlet');
+    });
+    expect(document.title.length).toBeLessThanOrEqual(60);
+    expect(document.title).toContain('Texas Home Outlet');
+    const description = document.querySelector('meta[name="description"]')?.getAttribute('content') || '';
+    expect(description.length).toBeLessThanOrEqual(155);
+    expect(description).toContain('Texas Home Outlet');
+    expect(description.endsWith('Call (281) 324-3020.')).toBe(true);
+  });
 });
 
 const LG_SHOW_CLASSES = ['lg:block', 'lg:flex', 'lg:grid', 'lg:inline', 'lg:inline-block', 'lg:inline-flex'];

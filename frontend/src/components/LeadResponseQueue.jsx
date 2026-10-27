@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { ArchiveRestore, CalendarClock, Check, Mail, Phone, TimerReset } from 'lucide-react';
+import { leadInterestLine } from '../utils/leadInterest';
 
 const RESPONSE_TARGET_MINUTES = 15;
 const OVERDUE_MINUTES = 60;
@@ -161,6 +162,7 @@ function LeadRow({
             )}
           </div>
           <p className="mt-1 mb-0 text-base text-slate-700">{intentLabel(lead)}</p>
+          <p className="mt-1 mb-0 text-base font-semibold text-slate-800">{leadInterestLine(lead)}</p>
         </div>
 
         <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">

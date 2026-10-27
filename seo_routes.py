@@ -49,6 +49,7 @@ from config_loader import (
 )
 from inventory_classification import normalize_inventory_classification
 from tools.inventory_dedupe import is_preowned
+from tools.lcp_image import LCP_IMAGE_PATH, hero_url_is_resizable
 from tools.listing_urls import (
     attach_listing_urls,
     listing_lastmod,
@@ -96,10 +97,10 @@ _DELIVERY_LINE = "Delivery available, ask for details."
 _WARRANTY_LINE = "Warranty coverage varies by manufacturer, ask a manager."
 PUBLIC_ROUTES = {
     "/": (
-        f"Manufactured Homes for Sale in {_CITY_STATE} | {business_name()}",
+        f"Manufactured Homes for Sale in {business_city()} | {business_name()}",
         f"Browse manufactured and mobile homes for sale at {business_name()} in "
         f"{_CITY_STATE}. Call or text {business_phone()} to confirm price, financing, "
-        f"and availability.",
+        f"availability.",
     ),
     "/inventory": (
         f"Home Inventory in {_CITY_STATE} | {business_name()}",
@@ -108,7 +109,7 @@ PUBLIC_ROUTES = {
     ),
     "/contact": (
         f"Contact {business_name()} — {_CITY_STATE}",
-        f"Visit {business_name()} at {business_address()}. Call {business_phone()}. "
+        f"Visit {business_name()}, {business_address()}. Call {business_phone()}. "
         f"Hours: {business_hours()}.",
     ),
     "/appointments": (
@@ -127,7 +128,7 @@ PUBLIC_ROUTES = {
         f"dealership in {_CITY_STATE} serving the Houston area.",
     ),
     "/financing": (
-        f"Manufactured Home Financing in {_CITY_STATE} | {business_name()}",
+        f"Manufactured Home Financing in {business_city()} | {business_name()}",
         _FINANCING_LINE,
     ),
     "/faq": (
@@ -572,6 +573,20 @@ def _first_image(home: dict) -> str | None:
     return None
 
 
+def _inventory_lcp_href() -> str | None:
+    """URL to preload for the hero that React paints full-bleed.
+
+    A resizable hero is served from this app as one small JPEG. Other heroes
+    keep their original URL. A width query is never invented for the CDN.
+    """
+    hero = _inventory_hero_image()
+    if not hero:
+        return None
+    if hero_url_is_resizable(hero):
+        return LCP_IMAGE_PATH
+    return hero
+
+
 def _inventory_hero_image() -> str | None:
     """Return the image React will prioritize on the public inventory hero."""
     homes = _safe_homes()
@@ -983,9 +998,7 @@ def _site_verification_meta_tags() -> list[str]:
         token = _site_verification_token(env_name)
         if not token:
             continue
-        tags.append(
-            f'<meta name="{meta_name}" content="{html.escape(token, quote=True)}" />'
-        )
+        tags.append(f'<meta name="{meta_name}" content="{html.escape(token, quote=True)}" />')
     return tags
 
 
@@ -1008,6 +1021,7 @@ def _head_block(
     if noindex:
         parts.append('<meta name="robots" content="noindex" />')
     else:
+        parts.append('<meta name="robots" content="index,follow" />')
         parts.append(f'<link rel="canonical" href="{e(canonical_url)}" />')
         if preload_image:
             # Preload the file once. Width query params are not honored by the
@@ -1296,6 +1310,122 @@ def _listing_display_price(home: dict) -> str:
     return visible
 
 
+# Same caps as PUBLIC_ROUTES. City and state drop first, then a trailing stock
+# code, then a long series banner. A name that still does not fit is cut on a
+# word boundary so the brand stays whole.
+_LISTING_TITLE_LIMIT = 60
+_LISTING_DESCRIPTION_LIMIT = 155
+_ELLIPSIS = "…"
+_CLIP_TRAILING = " -–—/|,;:"
+
+
+def _collapse_ws(value: object) -> str:
+    return " ".join(str(value or "").split())
+
+
+def _clip_on_word(value: object, limit: int) -> str:
+    """Fit text to limit. A cut keeps a whole word and ends with an ellipsis."""
+    text = _collapse_ws(value)
+    if limit <= 0:
+        return ""
+    if len(text) <= limit:
+        return text
+    if limit == 1:
+        return _ELLIPSIS
+    budget = limit - len(_ELLIPSIS)
+    cut = text[:budget].rstrip()
+    space = cut.rfind(" ")
+    if space >= max(8, budget // 2):
+        cut = cut[:space]
+    cut = cut.rstrip(_CLIP_TRAILING)
+    if not cut:
+        cut = text[:budget].rstrip(_CLIP_TRAILING) or text[:budget]
+    return cut + _ELLIPSIS
+
+
+def _listing_model_label(model_name: object, *, fallback: str) -> str:
+    return _collapse_ws(model_name) or fallback
+
+
+def _without_trailing_codes(text: str) -> str | None:
+    """Drop a trailing stock/serial token. Leave the name alone when there is none."""
+    words = _collapse_ws(text).split()
+    changed = False
+    while len(words) > 1 and any(ch.isdigit() for ch in words[-1]):
+        words.pop()
+        changed = True
+    if not changed:
+        return None
+    return " ".join(words).rstrip(_CLIP_TRAILING)
+
+
+def _fit_listing_name(name: str, limit: int) -> str:
+    """Shorten a model name that does not fit beside the brand.
+
+    A trailing stock code goes first, then a long series banner. What is left
+    is cut on a word boundary.
+    """
+    name = _collapse_ws(name)
+    if len(name) <= limit:
+        return name
+    trimmed = _without_trailing_codes(name)
+    if trimmed and len(trimmed) <= limit:
+        return trimmed
+    source = trimmed or name
+    if "/" in source:
+        segment = source.split("/")[-1].strip().rstrip(_CLIP_TRAILING)
+        if segment and len(segment) <= limit:
+            return segment
+    return _clip_on_word(source, limit)
+
+
+def _listing_document_title(model_name: object) -> str:
+    """Title for one home: model name, then brand, then city."""
+    name = _listing_model_label(model_name, fallback="Manufactured Home")
+    brand = business_name()
+    with_place = f"{name} — {brand}, {_CITY_STATE}"
+    if len(with_place) <= _LISTING_TITLE_LIMIT:
+        return with_place
+    suffix = f" — {brand}"
+    if len(suffix) < _LISTING_TITLE_LIMIT and len(name) + len(suffix) <= _LISTING_TITLE_LIMIT:
+        return name + suffix
+    if len(suffix) >= _LISTING_TITLE_LIMIT:
+        return _clip_on_word(name + suffix, _LISTING_TITLE_LIMIT)
+    return _fit_listing_name(name, _LISTING_TITLE_LIMIT - len(suffix)) + suffix
+
+
+def _listing_spec_bits(home: dict) -> list[str]:
+    specs = home.get("specs") or {}
+    candidates = (
+        f"{specs.get('beds')} bed" if specs.get("beds") else None,
+        f"{specs.get('baths')} bath" if specs.get("baths") else None,
+        specs.get("dimensions"),
+        home.get("manufacturer"),
+        _listing_display_price(home),
+    )
+    return [str(bit).strip() for bit in candidates if bit and str(bit).strip()]
+
+
+def _listing_meta_description(model_name: object, bits, *, for_sale: bool = False) -> str:
+    """Existing listing sentence, with spec bits dropped from the end to fit."""
+    name = _listing_model_label(model_name, fallback="Manufactured home")
+    relation = "for sale at" if for_sale else "at"
+    tail = f"{relation} {business_name()} in {_CITY_STATE}. Call {business_phone()}."
+    kept = [str(bit).strip() for bit in bits if bit and str(bit).strip()]
+    while kept:
+        description = f"{name} ({', '.join(kept)}) {tail}"
+        if len(description) <= _LISTING_DESCRIPTION_LIMIT:
+            return description
+        kept.pop()
+    bare = f"{name} {tail}"
+    if len(bare) <= _LISTING_DESCRIPTION_LIMIT:
+        return bare
+    room = _LISTING_DESCRIPTION_LIMIT - len(tail) - 1
+    if room < 1:
+        return _clip_on_word(bare, _LISTING_DESCRIPTION_LIMIT)
+    return f"{_clip_on_word(name, room)} {tail}"
+
+
 def _price_list_item(home: dict) -> str:
     """Crawlable price line. Unpriced homes include the showroom phone."""
     e = html.escape
@@ -1355,13 +1485,16 @@ def _crawlable_home_listing_block(home: dict) -> str:
             len(images) == 1 and not any(item not in plan_urls for item in images)
         )
         alt = _listing_image_alt(home, url, index, len(images), floorplan=is_plan)
+        # Gallery files are not the LCP element. Low priority keeps them from
+        # sharing the phone's first bytes with the hero preload.
+        img = (
+            f'<img src="{e(url)}" alt="{e(alt)}" loading="lazy" '
+            'fetchpriority="low" decoding="async" width="640" height="480" />'
+        )
         if is_plan:
-            figures.append(
-                f'<figure><img src="{e(url)}" alt="{e(alt)}" />'
-                f"<figcaption>Floor plan</figcaption></figure>"
-            )
+            figures.append(f"<figure>{img}<figcaption>Floor plan</figcaption></figure>")
         else:
-            figures.append(f'<img src="{e(url)}" alt="{e(alt)}" />')
+            figures.append(img)
     description = home.get("description") or (
         f"{home.get('model_name') or 'Manufactured home'} at {business_name()} in {_CITY_STATE}."
     )
@@ -1654,15 +1787,31 @@ def _inventory_itemlist_jsonld(limit: int = 25, classification: str | None = Non
     }
 
 
-def _inject(shell: str, head_block: str, body_block: str | None) -> str:
+# Fixed by img#tho-lcp in the public stylesheet (CSP blocks style attributes).
+# Out of flow, so React can replace the crawlable copy without moving it.
+_LCP_IMG = (
+    '<img id="tho-lcp" class="tho-lcp" alt="" aria-hidden="true" '
+    f'src="{LCP_IMAGE_PATH}" fetchpriority="high" '
+    'width="720" height="480" />'
+)
+
+
+def _inject(
+    shell: str,
+    head_block: str,
+    body_block: str | None,
+    *,
+    paint_lcp: bool = False,
+) -> str:
     out = _TITLE_RE.sub("", shell, count=1)
     out = _DESC_RE.sub("", out, count=1)
     out = out.replace("</head>", f"    {head_block}\n  </head>", 1)
-    if body_block:
-        out = out.replace('<div id="root">', f'<div id="root">{body_block}', 1)
+    block = ((_LCP_IMG if paint_lcp else "") + (body_block or "")) or None
+    if block:
+        out = out.replace('<div id="root">', f'<div id="root">{block}', 1)
         # vite shells emit `<div id="root"></div>`; handle both spellings
-        if body_block not in out:
-            out = out.replace('<div id="root"></div>', f'<div id="root">{body_block}</div>', 1)
+        if block not in out:
+            out = out.replace('<div id="root"></div>', f'<div id="root">{block}</div>', 1)
     return out
 
 
@@ -2051,27 +2200,14 @@ def _render_spa_response(full_path: str) -> Response | None:
         if canonical_path and unquote(path) != unquote(canonical_path):
             return RedirectResponse(canonical_path, status_code=301)
         canonical_url = base + (canonical_path or path)
-        title = (
-            f"{home.get('model_name') or 'Manufactured Home'} — {business_name()}, {_CITY_STATE}"
+        title = _listing_document_title(home.get("model_name"))
+        description = _listing_meta_description(
+            home.get("model_name"),
+            _listing_spec_bits(home),
         )
-        specs = home.get("specs") or {}
-        desc_bits = ", ".join(
-            str(x)
-            for x in (
-                f"{specs.get('beds')} bed" if specs.get("beds") else None,
-                f"{specs.get('baths')} bath" if specs.get("baths") else None,
-                specs.get("dimensions"),
-                home.get("manufacturer"),
-                _listing_display_price(home),
-            )
-            if x
-        )
-        description = (
-            f"{home.get('model_name', 'Manufactured home')} ({desc_bits}) at "
-            f"{business_name()} in {_CITY_STATE}. Call {business_phone()}."
-        )[:300]
         images = listing_page_images(home)
         image_alt = _listing_image_alt(home, images[0], 1, len(images)) if images else None
+        lcp_href = _inventory_lcp_href()
         head = _head_block(
             title,
             description,
@@ -2088,9 +2224,16 @@ def _render_spa_response(full_path: str) -> Response | None:
                 )
                 if x
             ],
+            preload_image=lcp_href,
         )
         return HTMLResponse(
-            _inject(_shell(), head, _crawlable_home_listing_block(home)), headers=no_cache
+            _inject(
+                _shell(),
+                head,
+                _crawlable_home_listing_block(home),
+                paint_lcp=lcp_href == LCP_IMAGE_PATH,
+            ),
+            headers=no_cache,
         )
 
     # 4. Live legacy detail/plan URLs: 200 + per-home head + crawlable body.
@@ -2141,25 +2284,13 @@ def _render_spa_response(full_path: str) -> Response | None:
         if unquote(raw_path) != unquote(canonical_path):
             return RedirectResponse(canonical_path, status_code=301)
         canonical_url = base + canonical_path
-        title = (
-            f"{home.get('model_name') or 'Manufactured Home'} — {business_name()}, {_CITY_STATE}"
+        title = _listing_document_title(home.get("model_name"))
+        description = _listing_meta_description(
+            home.get("model_name"),
+            _listing_spec_bits(home),
+            for_sale=True,
         )
-        specs = home.get("specs") or {}
-        desc_bits = ", ".join(
-            str(x)
-            for x in (
-                f"{specs.get('beds')} bed" if specs.get("beds") else None,
-                f"{specs.get('baths')} bath" if specs.get("baths") else None,
-                specs.get("dimensions"),
-                home.get("manufacturer"),
-                _listing_display_price(home),
-            )
-            if x
-        )
-        description = (
-            f"{home.get('model_name', 'Manufactured home')} ({desc_bits}) for sale at "
-            f"{business_name()} in {_CITY_STATE}. Call {business_phone()}."
-        )[:300]
+        lcp_href = _inventory_lcp_href()
         head = _head_block(
             title,
             description,
@@ -2167,9 +2298,16 @@ def _render_spa_response(full_path: str) -> Response | None:
             og_image=_first_image(home),
             jsonld=[x for x in (_product_jsonld(home, canonical_url),) if x]
             + [_breadcrumb_jsonld(home.get("model_name") or "Manufactured Home", canonical_url)],
+            preload_image=lcp_href,
         )
         return HTMLResponse(
-            _inject(_shell(), head, _crawlable_detail_block(home)), headers=no_cache
+            _inject(
+                _shell(),
+                head,
+                _crawlable_detail_block(home),
+                paint_lcp=lcp_href == LCP_IMAGE_PATH,
+            ),
+            headers=no_cache,
         )
 
     # 5. Known public static routes: 200 + route meta (+ crawlable body block).
@@ -2221,12 +2359,13 @@ def _render_spa_response(full_path: str) -> Response | None:
             jsonld.append(_locations_itemlist())
         if path == "/faq":
             jsonld.append(_faqpage_jsonld())
+        lcp_href = _inventory_lcp_href() if path in ("/", "/inventory") else None
         head = _head_block(
             title,
             description,
             base + (path if path != "/" else "/"),
             jsonld=jsonld,
-            preload_image=_inventory_hero_image() if path in ("/", "/inventory") else None,
+            preload_image=lcp_href,
         )
         if path in ("/", "/inventory"):
             body = _crawlable_inventory_block(hub=path == "/inventory")
@@ -2250,7 +2389,15 @@ def _render_spa_response(full_path: str) -> Response | None:
             body = _crawlable_legal_block(path.lstrip("/"))
         else:
             body = None
-        return HTMLResponse(_inject(_shell(), head, body), headers=no_cache)
+        return HTMLResponse(
+            _inject(
+                _shell(),
+                head,
+                body,
+                paint_lcp=path in ("/", "/inventory") and lcp_href == LCP_IMAGE_PATH,
+            ),
+            headers=no_cache,
+        )
 
     # 6. Operator/admin routes: 200, noindex.
     if any(path.startswith(p) or path == p.rstrip("/") for p in NOINDEX_PREFIXES):

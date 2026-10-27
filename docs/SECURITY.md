@@ -5,7 +5,7 @@
 ### Admin session (internal users)
 
 - **Mechanism**: stateless HMAC-SHA256 JWT ([main.py:217](../main.py)–254).
-- **Token**: 24 bytes = 8-byte big-endian uint64 expiry + 16-byte HMAC tag. Base64 → ~32-char string.
+- **Token**: a shared PIN session is 24 bytes = 8-byte big-endian uint64 expiry + 16-byte HMAC tag. Email sign-in is version 2 and embeds the staff address. The passkey router accepts that cookie and locks a new passkey to it. Owner passkey enrollment still requires that owner’s existing passkey session.
 - **Secret derivation**: `HMAC-SHA256(ADMIN_SESSION_SECRET, "tho-pin-session-v2:" + ADMIN_PIN_HASH)` — needs the server-only session secret, and rotating either value revokes PIN sessions. `main.py` and `auth/routes.py` use this same key.
 - **TTL**: staff PIN and email sessions last 30 days and slide forward on later visits (`ADMIN_TOKEN_TTL`, default 2592000 seconds). Blocking an email ends that email session on the next check. A shared PIN session has no email on it.
 - **Header**: `X-Admin-Token`. `require_admin()` dependency on protected routes.
@@ -114,15 +114,22 @@ gcloud run services update project-go-forward \
 ## 4. Transport security
 
 - **HTTPS-only**: Cloud Run enforces TLS; HTTP redirects to HTTPS (301).
-- **HSTS**: 1-year enforcement header.
-- **CSP**: self + inline styles (Tailwind) + Matterport 3D iframe + CDN image hosts.
+- **HSTS**: `max-age=63072000; includeSubDomains; preload` (two years). The preload token does not submit the domain to the HSTS preload list.
+- **CSP**: `'self'` for scripts and styles (no `'unsafe-inline'`), Google Fonts stylesheets, Matterport `frame-src`, CDN images, `frame-ancestors 'none'`, `object-src 'none'`, `base-uri 'self'`, `form-action 'self'`. `upgrade-insecure-requests` on HTTPS and on Cloud Run.
 - **X-Frame-Options**: `DENY` (no embedding).
 - **X-Content-Type-Options**: `nosniff`.
+- **X-XSS-Protection**: `0` (legacy auditor disabled).
+- **Referrer-Policy**: `strict-origin-when-cross-origin`.
+- **Permissions-Policy**: camera, microphone, geolocation, and other unused features disabled. First-party passkeys and `navigator.share` stay allowed.
+- **Server disclosure**: uvicorn `server_header=False`. App responses drop `Server` and `X-Powered-By`.
 
 ## 5. Rate limiting
 
-- Per-IP in-memory counter, default 60 RPM (`RATE_LIMIT_RPM`).
+- Per-IP in-memory counter, default 60 RPM (`RATE_LIMIT_RPM`), plus slowapi's default.
 - `/health` and `/healthz` exempt.
+- Public contact, appointments, feedback, and appointment cancel: 10/minute.
+- Unauthenticated ADK session create: 30/minute.
+- Chat sends: 10/minute.
 - 429 on exceed.
 - Max request body: 1 MB (`MAX_REQUEST_BODY_BYTES`).
 
@@ -264,3 +271,11 @@ to the socket peer without selecting an earlier untrusted token.
 Distributed failed logins emit `admin_pin_global_failures` for operator alerting.
 They do not globally deny authentication. Per-IP lockout, SlowAPI limits, and
 email-code expiry, attempt limits, and single-use checks remain enforced.
+
+## 9. Data retention purge (R13)
+
+Chat sessions, lead and contact submissions, auth leftovers, and similar
+personal or transient Firestore data have a manual purge. It ships disabled.
+Periods in `config.yaml` are proposed until the owner confirms them. Business
+records, registered passkeys, and the audit trail are not in this purge.
+See [DATA_RETENTION_PURGE.md](DATA_RETENTION_PURGE.md).

@@ -72,6 +72,8 @@ describe('inventory 3D tour filter and card button', () => {
 
     const frame = await screen.findByTitle('Nexus / Leo 9156 3D Tour');
     expect(frame).toHaveAttribute('src', 'https://my.matterport.com/show/?m=cDQrpPT5waQ&play=1');
+    const tourLink = screen.getByRole('link', { name: /open 3d tour for nexus/i });
+    expect(tourLink).toHaveAttribute('href', 'https://my.matterport.com/show/?m=cDQrpPT5waQ&play=1');
     expect(screen.getAllByRole('button', { name: /watch 3d tour/i }).length).toBeGreaterThan(0);
   });
 

@@ -8,7 +8,8 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:a11y": "playwright test -c playwright.a11y.config.js"
   },
   "dependencies": {
     "@sentry/react": "^10.51.0",
@@ -27,6 +28,7 @@
     "uuid": "^14.0.0"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.11.0",
     "@eslint/js": "^9.39.1",
     "@testing-library/jest-dom": "6.9.1",
     "@testing-library/react": "16.3.2",
@@ -38,9 +40,10 @@
     "eslint-plugin-react-refresh": "^0.4.24",
     "globals": "^16.5.0",
     "jsdom": "29.1.1",
-    "vite": "^7.2.4",
+    "playwright": "^1.64.1",
+    "vite": "^7.3.7",
     "vite-plugin-pwa": "^1.2.0",
-    "vitest": "4.1.11",
+    "vitest": "4.1.12",
     "workbox-build": "^7.4.0",
     "workbox-window": "^7.4.0"
   },
@@ -50,6 +53,6 @@
   },
   "overrides": {
     "esbuild": "^0.28.1",
-    "undici": "^7.30.0"
+    "undici": "^7.30.1"
   }
 }

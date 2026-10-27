@@ -113,6 +113,11 @@ body {
   border-radius: 4px;
 }
 
+/* The phone link sits on the burgundy strip, so the default accent outline disappears. */
+.tho-contact-strip :focus-visible {
+  outline-color: var(--cp-bg);
+}
+
 button:focus:not(:focus-visible), a:focus:not(:focus-visible) { outline: none; }
 
 /* ─── Reduced motion ─── */

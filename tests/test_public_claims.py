@@ -71,7 +71,6 @@ FORBIDDEN = [
     r"dream home",
     r"\bTBD\b",
     r"Apply for financing",
-    r"modular home retailer",
     r"budget-friendly",
     r"lender partners",
 ]
@@ -150,7 +149,7 @@ def test_legal_pages_use_the_recorded_identity(monkeypatch):
     client, _ = seo_client(monkeypatch)
     for path in ("/privacy", "/terms"):
         visible = _visible(client.get(path).text)
-        assert "manufactured and mobile home retailer" in visible
+        assert "manufactured and modular home retailer" in visible
         assert "Prosperity Acquisitions, Inc. dba Texas Home Outlet" in visible
         assert "(281) 324-3020" in visible
         assert "10685 FM 1960 East, Huffman, TX 77336" in visible

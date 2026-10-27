@@ -38,17 +38,21 @@ import sys
 import types
 from pathlib import Path
 
-import pandas as pd
 import pytest
 
-import tools.floorplan_image_scan as floorplan_image_scan
-import tools.image_storage as image_storage
-import tools.image_url_backfill as image_url_backfill
-import tools.inventory_master_catalog as inventory_master_catalog
-import tools.inventory_seed as inventory_seed
-import tools.inventory_sync as inventory_sync
-from database.models import InventoryStatus
-from tools.inventory_master_catalog import CatalogRow
+# tools.inventory_master_catalog hard-requires pandas at import time
+# (SystemExit without it), so the whole file is skipped in dependency-minimal
+# environments rather than failing at collection.
+pd = pytest.importorskip("pandas")
+
+import tools.floorplan_image_scan as floorplan_image_scan  # noqa: E402
+import tools.image_storage as image_storage  # noqa: E402
+import tools.image_url_backfill as image_url_backfill  # noqa: E402
+import tools.inventory_master_catalog as inventory_master_catalog  # noqa: E402
+import tools.inventory_seed as inventory_seed  # noqa: E402
+import tools.inventory_sync as inventory_sync  # noqa: E402
+from database.models import InventoryStatus  # noqa: E402
+from tools.inventory_master_catalog import CatalogRow  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 

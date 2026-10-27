@@ -21,12 +21,21 @@ Hardening (post adversarial review), all covered below:
 """
 
 import asyncio
+import importlib.util
 import re
 import time
 
+import pytest
+
 from lead_management import Lead, normalize_phone
-from tools import crm_tools
 from tools.contact_capture import apply_utm, capture_contact_from_message, extract_contact
+
+# tools.crm_tools hard-requires google-adk; only the save_lead alert tests use it.
+# Import it lazily there and skip them in dependency-minimal environments.
+_HAS_GOOGLE_ADK = importlib.util.find_spec("google.adk") is not None
+requires_google_adk = pytest.mark.skipif(
+    not _HAS_GOOGLE_ADK, reason="google-adk is not installed"
+)
 
 
 def _digits(s):
@@ -352,7 +361,10 @@ def _fake_firestore(fail=False):
     return _LM()
 
 
+@requires_google_adk
 def test_save_lead_alerts_staff_on_successful_persist(monkeypatch):
+    from tools import crm_tools
+
     calls = []
     monkeypatch.setattr(crm_tools, "_get_lead_manager", lambda: _fake_firestore(fail=False))
     monkeypatch.setattr(
@@ -365,7 +377,10 @@ def test_save_lead_alerts_staff_on_successful_persist(monkeypatch):
     assert _digits(calls[0]["phone"]) == "2813243020"
 
 
+@requires_google_adk
 def test_save_lead_does_not_alert_when_persist_fails(monkeypatch):
+    from tools import crm_tools
+
     calls = []
     monkeypatch.setattr(crm_tools, "_get_lead_manager", lambda: _fake_firestore(fail=True))
     monkeypatch.setattr(crm_tools, "notify_new_lead", lambda **k: calls.append(k))

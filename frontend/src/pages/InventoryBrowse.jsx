@@ -39,6 +39,7 @@ import {
   stockId,
   usedHomeMayShowPhoto,
 } from '../utils/listingRoutes';
+import { staticLcpCoversHero, useStaticLcpCoversHero } from '../utils/staticLcp';
 import {
   BUSINESS_NAME,
   BUSINESS_PHONE,
@@ -50,7 +51,13 @@ import {
 } from '../constants';
 import StorefrontLinks from '../components/StorefrontLinks';
 import CityLanding from './CityLanding';
-import { HOME_H1, INVENTORY_H1, cityShopperSentence } from '../seoCopy';
+import {
+  HOME_H1,
+  INVENTORY_H1,
+  cityShopperSentence,
+  listingDocumentTitle,
+  listingMetaDescription,
+} from '../seoCopy';
 import AppointmentHandoffCard from '../components/AppointmentHandoffCard';
 import { describeFetchError, extractErrorMessage, responseErrorMessage, safeUserMessage } from '../utils/apiError';
 
@@ -353,6 +360,10 @@ function InventoryMetric({ icon, label, value, tone = 'accent' }) {
   );
 }
 
+function hasStaticLcpImage() {
+  return staticLcpCoversHero();
+}
+
 function listingHref(home) {
   return listingPath(home) || '';
 }
@@ -432,6 +443,7 @@ function ListingActions({ home, onApply, onGetPrice }) {
 function FeaturedHomeSpotlight({ home, onClick, onGetPrice, onApply }) {
   if (!home) return null;
   const specs = home.specs || {};
+  const staticLcp = hasStaticLcpImage();
   const image = getHomeImage(home);
   const href = listingHref(home);
   return (
@@ -454,8 +466,8 @@ function FeaturedHomeSpotlight({ home, onClick, onGetPrice, onApply }) {
             imgProps={{
               width: 1200,
               height: 800,
-              loading: 'eager',
-              fetchPriority: 'high',
+              loading: staticLcp ? 'lazy' : 'eager',
+              fetchPriority: staticLcp ? 'low' : 'high',
               decoding: 'async',
               sizes: getImageSizes('featured-spotlight'),
             }}
@@ -612,6 +624,9 @@ export default function InventoryBrowse({
   onBookAppointment,
   pathname,
 }) {
+  // False once the server hero errors or never loads, so the original
+  // photo can paint instead of leaving the page on a broken image.
+  const staticLcp = useStaticLcpCoversHero();
   const currentPath = pathname ?? (typeof window !== 'undefined' ? window.location.pathname : '/');
   const routeCategory = getInventoryCategoryRoute(currentPath);
   const cityLanding = getCityLanding(currentPath);
@@ -967,15 +982,16 @@ export default function InventoryBrowse({
       specs.dimensions,
       pathListingHome.manufacturer,
       publicPriceText(pathListingHome),
-    ].filter(Boolean).join(', ');
+    ].filter(Boolean);
     const sharePhotos = listingPagePhotos(pathListingHome);
     const floorplan = pathListingHome.floorplan_url || pathListingHome.floor_plan_url || '';
     const shareImage = sharePhotos.find((url) => url && url !== floorplan) || '';
     applyDocumentHead({
-      title: `${pathListingHome.model_name || 'Manufactured Home'} — ${BUSINESS_NAME}, ${BUSINESS_CITY}, ${BUSINESS_STATE}`,
-      description: `${pathListingHome.model_name || 'Manufactured home'}${descBits ? ` (${descBits})` : ''} at ${BUSINESS_NAME} in ${BUSINESS_CITY}, ${BUSINESS_STATE}. Call ${BUSINESS_PHONE}.`.slice(0, 300),
+      title: listingDocumentTitle(pathListingHome.model_name),
+      description: listingMetaDescription(pathListingHome.model_name, descBits),
       canonicalPath: listingPath(pathListingHome) || currentPath,
       image: shareImage || '/og-card.png',
+      robots: 'index,follow',
     });
   }, [pathListingHome, currentPath]);
 
@@ -985,6 +1001,7 @@ export default function InventoryBrowse({
       title: cityLanding.title,
       description: cityLanding.description,
       canonicalPath: cityLanding.path,
+      robots: 'index,follow',
     });
   }, [cityLanding]);
 
@@ -1018,16 +1035,19 @@ export default function InventoryBrowse({
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[var(--cp-bg)]">
+      <div className={staticLcp ? 'min-h-screen' : 'min-h-screen bg-[var(--cp-bg)]'}>
         {/* Match the loaded hero's mobile/desktop footprint so the inventory
             response does not push the page down and create a large CLS.
             Unique listing URLs keep their H1 during the fetch so hydration
             never flashes the generic Huffman inventory title. */}
-        <section className="border-b border-[var(--cp-border)] bg-[var(--cp-bg-2)]">
+        <section className={`border-b border-[var(--cp-border)] ${staticLcp ? 'relative overflow-hidden' : 'bg-[var(--cp-bg-2)]'}`}>
+          {staticLcp ? (
+            <div className="pointer-events-none absolute inset-0 -z-10 bg-[linear-gradient(90deg,rgba(5,6,8,0.96),rgba(5,6,8,0.74),rgba(5,6,8,0.9))]" />
+          ) : null}
           <div className="mx-auto grid max-w-7xl gap-8 px-4 py-8 sm:px-6 lg:grid-cols-[1.1fr_0.9fr] lg:px-8 lg:py-10">
             <div className="flex min-h-0 flex-col justify-center lg:min-h-[520px]">
               {uniqueHeading ? (
-                <h1 className="mb-4 max-w-3xl text-4xl font-extrabold text-[var(--cp-text)]">
+                <h1 className={`mb-4 max-w-3xl text-4xl font-extrabold ${staticLcp ? 'text-white' : 'text-[var(--cp-text)]'}`}>
                   {uniqueHeading}
                 </h1>
               ) : (
@@ -1046,11 +1066,13 @@ export default function InventoryBrowse({
           </div>
         </section>
         {/* Skeleton cards */}
-        <div className="grid gap-6 p-6 max-w-7xl mx-auto"
-             style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))' }}>
-          {Array.from({ length: 6 }).map((_, i) => (
-            <SkeletonCard key={i} />
-          ))}
+        <div className={staticLcp ? 'bg-[var(--cp-bg)]' : undefined}>
+          <div className="grid gap-6 p-6 max-w-7xl mx-auto"
+               style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))' }}>
+            {Array.from({ length: 6 }).map((_, i) => (
+              <SkeletonCard key={i} />
+            ))}
+          </div>
         </div>
       </div>
     );
@@ -1111,10 +1133,14 @@ export default function InventoryBrowse({
   const heroImage = getHomeImage(heroHome);
 
   return (
-    <div className="min-h-screen bg-[var(--cp-bg)] text-[var(--cp-text)]">
+    <div className={`min-h-screen text-[var(--cp-text)] ${staticLcp ? '' : 'bg-[var(--cp-bg)]'}`}>
       {/* Hero Section */}
-      <section className="relative isolate overflow-hidden border-b border-[var(--cp-border)] bg-[var(--cp-bg)]">
-        {heroImage ? (
+      {/* #050608 matches the hero gradient. White type is measured against this
+          opaque base, not the photograph behind it. While the server-painted
+          hero is showing, leave the section transparent so that image stays
+          the first paint. */}
+      <section className={`relative isolate overflow-hidden border-b border-[var(--cp-border)] ${staticLcp ? '' : 'bg-[#050608]'}`}>
+        {heroImage && !staticLcp ? (
           <SinglePhoto
             url={heroImage}
             alt=""
@@ -1250,6 +1276,7 @@ export default function InventoryBrowse({
         </div>
       </section>
 
+      <div className={staticLcp ? 'bg-[var(--cp-bg)]' : undefined}>
       <AdminInventoryPanel enabled={adminAuthed} />
 
       {onHomeListing && !loading && !pathListingHome && (
@@ -1509,6 +1536,7 @@ export default function InventoryBrowse({
           onBookAppointment={onBookAppointment}
         />
       )}
+      </div>
     </div>
   );
 }
@@ -1528,7 +1556,7 @@ function ListingPhoto({ url, alt, caption, priority = false, onFailed, fit = 'co
         height={640}
         sizes={getImageSizes('listing-page')}
         loading={priority ? 'eager' : 'lazy'}
-        fetchPriority={priority ? 'high' : 'auto'}
+        fetchPriority={priority ? 'high' : 'low'}
         decoding="async"
         onError={() => {
           setFailed(true);
@@ -1607,7 +1635,7 @@ export function ListingArticle({ home, onGetPrice, onApply }) {
                   alt={listingImageAlt(home, url, index + 1, photos.length, { floorplan: onlyFloorplan })}
                   caption={onlyFloorplan ? 'Floor plan' : ''}
                   fit={onlyFloorplan ? 'contain' : 'cover'}
-                  priority={index === 0}
+                  priority={index === 0 && !hasStaticLcpImage()}
                   onFailed={() => setGalleryState((state) => {
                     if (state.galleryKey !== galleryKey) {
                       return usePlans
@@ -1640,11 +1668,19 @@ export function ListingArticle({ home, onGetPrice, onApply }) {
           <div className="mt-6">
             {tourUrl && (
               <div className="mb-3">
+                <a
+                  href={tourUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mb-2 inline-flex min-h-11 w-full items-center justify-center gap-1.5 rounded-md border border-[var(--cp-secondary)] bg-white py-2.5 text-sm font-semibold text-[var(--cp-secondary)] no-underline"
+                >
+                  <Box size={16} aria-hidden="true" /> Open 3D tour
+                </a>
                 <button
                   type="button"
                   aria-pressed={watchTour}
                   onClick={() => setWatchTour((open) => !open)}
-                  className="inline-flex min-h-11 w-full items-center justify-center gap-1.5 rounded-md border border-[var(--cp-secondary)] bg-white py-2.5 text-sm font-semibold text-[var(--cp-secondary)]"
+                  className="inline-flex min-h-11 w-full items-center justify-center gap-1.5 rounded-md border border-[var(--cp-border)] bg-[var(--cp-bg-2)] py-2.5 text-sm font-semibold text-[var(--cp-text-secondary)]"
                 >
                   <Box size={16} aria-hidden="true" /> {watchTour ? 'Hide 3D tour' : 'Watch 3D tour'}
                 </button>
@@ -1893,17 +1929,25 @@ export function HomeCard({ home, onClick, onGetPrice, onApply, isFavorite = fals
           </button>
         )}
 
-        {/* Bottom-right badges */}
-        <div className="absolute bottom-3 right-3 flex gap-2">
+        {/* Bottom-right badges. The tour chip sits above the card link so
+            the label opens the Matterport tour instead of the listing page. */}
+        <div className="absolute bottom-3 right-3 z-[2] flex gap-2">
           {photoCount > 1 && (
             <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs text-white bg-black/60">
               <Camera size={12} /> {photoCount}
             </span>
           )}
           {hasTour && (
-            <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs text-white bg-black/70 font-semibold">
-              <Box size={12} /> 3D Tour
-            </span>
+            <a
+              href={tourUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label={`Open 3D tour for ${home.model_name}`}
+              onClick={(event) => event.stopPropagation()}
+              className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs text-white bg-black/70 font-semibold no-underline"
+            >
+              <Box size={12} aria-hidden="true" /> 3D Tour
+            </a>
           )}
         </div>
       </div>
@@ -2118,14 +2162,24 @@ function HomeDetailModal({
         {/* Photo Gallery Section */}
         <div className="bg-slate-800 relative">
           {showTour && hasTour ? (
-            <div className="tho-listing-gallery">
-              <iframe
-                src={tourUrl}
-                title={`${home.model_name} 3D Tour`}
-                className="w-full h-full border-0"
-                allowFullScreen
-              />
-            </div>
+            <>
+              <div className="tho-listing-gallery">
+                <iframe
+                  src={tourUrl}
+                  title={`${home.model_name} 3D Tour`}
+                  className="w-full h-full border-0"
+                  allowFullScreen
+                />
+              </div>
+              <a
+                href={tourUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex w-full items-center justify-center gap-1.5 bg-slate-900 px-3 py-2 text-sm font-semibold text-white no-underline"
+              >
+                Open 3D tour
+              </a>
+            </>
           ) : showFloorplan ? (
             <div className="tho-listing-gallery relative flex items-center justify-center overflow-hidden bg-slate-50">
               {floorplan ? (

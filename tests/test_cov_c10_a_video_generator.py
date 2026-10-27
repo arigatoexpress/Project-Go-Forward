@@ -3,7 +3,7 @@
 All heavy media deps are faked — no real video processing, no network:
 - moviepy is replaced by fake modules injected into sys.modules
 - google.genai is replaced by a fake module injected into sys.modules
-- requests.get is monkeypatched to return canned bytes
+- the public photo fetch is monkeypatched to return canned bytes
 - vg.GENERATED_VIDEOS_DIR is redirected to tmp_path (no repo writes)
 """
 
@@ -113,14 +113,19 @@ class FakeResponse:
 
 
 def _install_fake_requests(monkeypatch, fail_urls=()):
-    import requests as real_requests
+    import tools.outbound_url as outbound_url
 
     def fake_get(url, timeout=None):
         if url in fail_urls:
             raise RuntimeError(f"download failed: {url}")
         return FakeResponse(content=b"jpeg-bytes")
 
-    monkeypatch.setattr(real_requests, "get", fake_get)
+    def fake_resolve(host, port, *args, **kwargs):
+        return [(2, 1, 6, "", ("93.184.216.34", 0))]
+
+    monkeypatch.setattr(outbound_url, "_http_get", fake_get)
+    # Fake photo hosts must not touch the network. The SSRF guard still runs.
+    monkeypatch.setattr(outbound_url.socket, "getaddrinfo", fake_resolve)
 
 
 def _redirect_output_dir(monkeypatch, tmp_path):
@@ -133,6 +138,31 @@ def _redirect_output_dir(monkeypatch, tmp_path):
 # ---------------------------------------------------------------------------
 # generate_ad_video
 # ---------------------------------------------------------------------------
+
+
+def test_generate_ad_video_refuses_link_local_photo(monkeypatch, tmp_path):
+    """A metadata address is not downloaded, even when requests.get is stubbed."""
+    _install_fake_moviepy(monkeypatch)
+    calls = []
+    import tools.outbound_url as outbound_url
+
+    def tracking_get(url, timeout=None):
+        calls.append(url)
+        return FakeResponse(content=b"jpeg-bytes")
+
+    monkeypatch.setattr(outbound_url, "_http_get", tracking_get)
+    _redirect_output_dir(monkeypatch, tmp_path)
+    monkeypatch.setattr(vg, "resize_clip_to_fill", lambda clip, w, h: clip)
+
+    result = vg.generate_ad_video(
+        photos=["http://169.254.169.254/latest/meta-data/"],
+        voiceover_base64=base64.b64encode(b"fake mp3").decode(),
+        script_text="script",
+        home_name="Casa Grande",
+    )
+
+    assert result["success"] is False
+    assert calls == []
 
 
 def test_generate_ad_video_success_loops_slideshow_to_match_audio(monkeypatch, tmp_path):
@@ -246,13 +276,18 @@ def test_save_source_image_prefers_base64(tmp_path):
 
 
 def test_save_source_image_fetches_url(monkeypatch, tmp_path):
-    import requests as real_requests
+    import tools.outbound_url as outbound_url
 
     def fake_get(url, timeout=None):
         assert timeout == 20
         return FakeResponse(content=b"jpg-bytes")
 
-    monkeypatch.setattr(real_requests, "get", fake_get)
+    monkeypatch.setattr(outbound_url, "_http_get", fake_get)
+    monkeypatch.setattr(
+        outbound_url.socket,
+        "getaddrinfo",
+        lambda *args, **kwargs: [(2, 1, 6, "", ("93.184.216.34", 0))],
+    )
 
     path = vg._save_source_image("https://x/y.jpg", None, str(tmp_path))
     assert path == str(tmp_path / "source.jpg")
@@ -381,9 +416,7 @@ def test_generate_genai_ad_clip_success_with_polling_and_presenter(monkeypatch, 
         done=False, name="op-1", error=None, response=None
     )
     blob = FakeVideoBlob()
-    bucket["next_operation"] = _done_operation(
-        videos=[SimpleNamespace(video=blob)]
-    )
+    bucket["next_operation"] = _done_operation(videos=[SimpleNamespace(video=blob)])
     _install_fake_genai(monkeypatch, _make_client_class(bucket))
     fake_time = FakeTime([1000.0, 1000.0, 1000.0])
     monkeypatch.setattr(vg, "time", fake_time)
@@ -456,24 +489,18 @@ def test_generate_genai_ad_clip_times_out_while_processing(monkeypatch, tmp_path
     # clock read pushes past it so the polling loop exits.
     monkeypatch.setattr(vg, "time", FakeTime([1000.0, 1000.0, 2000.0]))
 
-    result = vg.generate_genai_ad_clip(
-        prompt="p", home_name="h", wait_seconds=999
-    )
+    result = vg.generate_genai_ad_clip(prompt="p", home_name="h", wait_seconds=999)
 
     assert result["success"] is False
     assert "still being made" in result["error"]
     assert result["operation_name"] == "op-timeout"
-    assert result["model_used"] == os.environ.get(
-        "THO_VEO_MODEL", "veo-3.0-fast-generate-001"
-    )
+    assert result["model_used"] == os.environ.get("THO_VEO_MODEL", "veo-3.0-fast-generate-001")
 
 
 def test_generate_genai_ad_clip_returns_operation_error_message(monkeypatch, tmp_path):
     _redirect_output_dir(monkeypatch, tmp_path)
     bucket = {}
-    bucket["initial_operation"] = _done_operation(
-        name="op-err", error={"message": "render failed"}
-    )
+    bucket["initial_operation"] = _done_operation(name="op-err", error={"message": "render failed"})
     _install_fake_genai(monkeypatch, _make_client_class(bucket))
     monkeypatch.setattr(vg, "time", FakeTime([1000.0]))
 
@@ -517,9 +544,7 @@ def test_generate_genai_ad_clip_download_failure_is_ignored(monkeypatch, tmp_pat
     """files.download raising must not fail the otherwise-successful job."""
     _redirect_output_dir(monkeypatch, tmp_path)
     bucket = {"download_raises": True}
-    bucket["initial_operation"] = _done_operation(
-        videos=[SimpleNamespace(video=FakeVideoBlob())]
-    )
+    bucket["initial_operation"] = _done_operation(videos=[SimpleNamespace(video=FakeVideoBlob())])
     _install_fake_genai(monkeypatch, _make_client_class(bucket))
     monkeypatch.setattr(vg, "time", FakeTime([1000.0]))
 

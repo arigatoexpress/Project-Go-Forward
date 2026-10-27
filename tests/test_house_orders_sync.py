@@ -7,11 +7,19 @@ persists a customer name or invoice cost would push private data onto the public
 website.
 """
 
+import importlib.util
 import os
 
 import pytest
 
 from tools import house_orders_sync as hos
+
+# The GCS loader test patches google.cloud.storage.Client on the real package,
+# so it needs google-cloud-storage installed; skip it in dependency-minimal envs.
+_HAS_GCS = importlib.util.find_spec("google.cloud.storage") is not None
+requires_gcs = pytest.mark.skipif(
+    not _HAS_GCS, reason="google-cloud-storage is not installed"
+)
 
 
 def _row(**overrides):
@@ -209,6 +217,7 @@ def _sheet_rec(serial, customer=None):
     return record
 
 
+@requires_gcs
 def test_load_house_orders_from_gcs_downloads_parses_and_cleans_up(monkeypatch, tmp_path):
     """The GCS loader downloads the xlsx, parses it, and removes the temp file."""
     captured = {}

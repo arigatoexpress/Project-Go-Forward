@@ -15,8 +15,15 @@ _BASELINE_CSP = (
     "frame-src https://my.matterport.com; "
     "connect-src 'self'; "
     "font-src 'self' https://fonts.gstatic.com data:; "
-    "frame-ancestors 'none'"
+    "frame-ancestors 'none'; "
+    "object-src 'none'; "
+    "base-uri 'self'; "
+    "form-action 'self'; "
+    "script-src-attr 'none'; "
+    "worker-src 'self'; "
+    "manifest-src 'self'"
 )
+_HSTS = "max-age=63072000; includeSubDomains; preload"
 
 _ANALYTICS_ENV = ("GA4_MEASUREMENT_ID", "GTM_CONTAINER_ID", "META_PIXEL_ID", "TIKTOK_PIXEL_ID")
 
@@ -82,6 +89,91 @@ def test_style_src_omits_unsafe_inline(monkeypatch):
     assert "'unsafe-inline'" not in style_src
     assert "nonce-" not in style_src
     assert "'sha" not in style_src
+
+
+def test_baseline_headers_are_strict(monkeypatch):
+    """Locked response headers for an HTTP test request (no upgrade directive)."""
+    for var in _ANALYTICS_ENV:
+        monkeypatch.delenv(var, raising=False)
+    client, *_ = create_client(monkeypatch)
+    headers = client.get("/healthz/").headers
+    assert headers["x-content-type-options"] == "nosniff"
+    assert headers["x-frame-options"] == "DENY"
+    assert headers["x-xss-protection"] == "0"
+    assert headers["referrer-policy"] == "strict-origin-when-cross-origin"
+    assert headers["strict-transport-security"] == _HSTS
+    assert headers["cross-origin-opener-policy"] == "same-origin-allow-popups"
+    assert headers["x-permitted-cross-domain-policies"] == "none"
+    assert headers["x-dns-prefetch-control"] == "off"
+    policy = headers["permissions-policy"]
+    assert "camera=()" in policy
+    assert "microphone=()" in policy
+    assert "geolocation=()" in policy
+    assert "publickey-credentials-get=(self)" in policy
+    assert "web-share=(self)" in policy
+    assert "payment=()" in policy
+    assert "server" not in headers
+    assert "x-powered-by" not in headers
+    assert "upgrade-insecure-requests" not in headers["content-security-policy"]
+
+
+def test_https_requests_upgrade_insecure_content(monkeypatch):
+    for var in _ANALYTICS_ENV:
+        monkeypatch.delenv(var, raising=False)
+    client, *_ = create_client(monkeypatch)
+    response = client.get("/healthz/", headers={"X-Forwarded-Proto": "https"})
+    assert response.headers["content-security-policy"] == (
+        _BASELINE_CSP + "; upgrade-insecure-requests"
+    )
+
+
+def test_direct_https_requests_upgrade_insecure_content(monkeypatch):
+    for var in _ANALYTICS_ENV:
+        monkeypatch.delenv(var, raising=False)
+    client, *_ = create_client(monkeypatch)
+    response = client.get(
+        "https://testserver/healthz/",
+        # The direct HTTPS URL takes precedence over a contradictory proxy header.
+        headers={"X-Forwarded-Proto": "http"},
+    )
+    assert response.request.url.scheme == "https"
+    assert response.headers["content-security-policy"] == (
+        _BASELINE_CSP + "; upgrade-insecure-requests"
+    )
+
+
+def test_security_middleware_strips_server_disclosure(monkeypatch):
+    import asyncio
+
+    from starlette.requests import Request
+    from starlette.responses import Response
+
+    client, main, *_ = create_client(monkeypatch)
+    del client
+    middleware = main.SecurityHeadersMiddleware(app=None)
+    request = Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/healthz/",
+            "headers": [],
+            "query_string": b"",
+            "scheme": "http",
+            "server": ("test", 80),
+            "client": ("127.0.0.1", 123),
+        }
+    )
+
+    async def call_next(_request):
+        response = Response("ok")
+        response.headers["Server"] = "uvicorn/0.34.0"
+        response.headers["X-Powered-By"] = "Express"
+        return response
+
+    response = asyncio.run(middleware.dispatch(request, call_next))
+    assert "server" not in response.headers
+    assert "x-powered-by" not in response.headers
+    assert response.headers["x-content-type-options"] == "nosniff"
 
 
 def test_style_src_unchanged_when_analytics_widens_script_src(monkeypatch):

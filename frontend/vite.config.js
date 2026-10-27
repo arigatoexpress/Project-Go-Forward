@@ -101,14 +101,16 @@ export default defineConfig({
               cacheableResponse: { statuses: [0, 200] },
             },
           },
-          // Listing photos are immutable bytes. Cache-first avoids re-downloading
-          // the same JPEG on every card and listing visit.
+          // Same-origin staff uploads only. Cross-origin CDN images stay on
+          // the <img> request: the worker cannot fetch them under connect-src
+          // 'self', and intercepting them blanks the picture. The CDN already
+          // sends a year-long cache header, so the browser cache covers repeats.
+          //
+          // This predicate is copied verbatim into sw.js. vite-plugin-pwa does
+          // not bundle imports or closures, so the check has to stand alone.
+          // `self` is the worker global, not a binding from this module.
           {
-            urlPattern: ({ url, request }) => request.destination === 'image' && (
-              url.hostname.endsWith('cloudfront.net')
-              || url.hostname === 'storage.googleapis.com'
-              || url.pathname.startsWith('/api/inventory/photos/')
-            ),
+            urlPattern: ({ url, request }) => request.destination === 'image' && url.origin === self.location.origin && url.pathname.startsWith('/api/inventory/photos/'),
             handler: 'CacheFirst',
             options: {
               cacheName: 'listing-images',
@@ -156,7 +158,7 @@ export default defineConfig({
           if (id.includes('node_modules/recharts') || id.includes('node_modules/d3-') || id.includes('node_modules/victory-vendor')) {
             return 'vendor-recharts';
           }
-          // Markdown renderer used by SafeMarkdown (eagerly imported in main)
+          // Markdown renderer used by SafeMarkdown (loaded with the chat route)
           if (id.includes('node_modules/react-markdown') || id.includes('node_modules/remark') || id.includes('node_modules/rehype') || id.includes('node_modules/unified') || id.includes('node_modules/micromark') || id.includes('node_modules/mdast') || id.includes('node_modules/hast') || id.includes('node_modules/vfile')) {
             return 'vendor-markdown';
           }

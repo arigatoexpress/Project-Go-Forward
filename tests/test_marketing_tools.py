@@ -929,7 +929,11 @@ class TestFlyerImageHelpers:
             def raise_for_status(self):
                 return None
 
-        monkeypatch.setattr("requests.get", lambda url, timeout: _Resp())
+        monkeypatch.setattr("tools.outbound_url._http_get", lambda url, timeout: _Resp())
+        monkeypatch.setattr(
+            "tools.outbound_url.socket.getaddrinfo",
+            lambda *args, **kwargs: [(2, 1, 6, "", ("93.184.216.34", 0))],
+        )
         image, source = marketing_tools._load_source_photo(
             home_photo_url="https://img.example/x.png"
         )

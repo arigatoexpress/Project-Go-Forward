@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
+import struct
+import time
+from base64 import urlsafe_b64encode
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from dataclasses import asdict
@@ -40,12 +45,13 @@ class _CredentialSnapshot:
             return {}
         return {
             "credential_id": self._record.credential_id_b64,
-            "public_key": "cHVibGlj",
+            "public_key": urlsafe_b64encode(self._record.public_key).rstrip(b"=").decode("ascii"),
             "sign_count": self._record.sign_count,
             "user_id": self._record.user_id,
             "aaguid": self._record.aaguid,
             "created_at": self._record.created_at,
             "last_used_at": self._record.last_used_at,
+            "label": self._record.label,
         }
 
 
@@ -77,6 +83,13 @@ class _CredentialDocument:
             raise AlreadyExists("credential already exists")
         record = FirestoreCredentialStore._to_record(self.credential_id_b64, data)
         self.store.rows[record.credential_id] = record
+
+    def update(self, data, timeout=None):
+        del timeout
+        record = self.snapshot()._record
+        if record is None or "label" not in data:
+            return
+        record.label = data["label"]
 
 
 class _CredentialQuery:
@@ -162,6 +175,31 @@ def _fixture_dependencies(client, routes):
     return overrides[routes.get_session_manager](), overrides[routes.get_credential_store]()
 
 
+def _sign_in_as(client, routes, email, *, auth_method="passkey"):
+    manager, _store = _fixture_dependencies(client, routes)
+    client.cookies.set(
+        PASSKEY_COOKIE_NAME,
+        manager.issue_session("admin", email=email, auth_method=auth_method),
+    )
+
+
+def _email_admin_token(email, *, secret, pin_hash, expires_in=3600):
+    key = hmac.new(
+        secret.encode(),
+        f"tho-pin-session-v2:{pin_hash}".encode(),
+        hashlib.sha256,
+    ).digest()
+    email_bytes = email.encode("utf-8")
+    payload = (
+        bytes([2])
+        + struct.pack(">Q", int(time.time()) + expires_in)
+        + struct.pack(">H", len(email_bytes))
+        + email_bytes
+    )
+    sig = hmac.new(key, payload, hashlib.sha256).digest()[:16]
+    return urlsafe_b64encode(payload + sig).decode().rstrip("=")
+
+
 def test_memory_store_create_only_rejects_collision_without_mutating_owner_record():
     owner = CredentialRecord(
         credential_id=b"shared-id",
@@ -211,6 +249,44 @@ def test_memory_store_concurrent_same_id_registration_has_exactly_one_winner():
     assert outcomes.count("created") == 1
     assert outcomes.count("duplicate") == 1
     assert store.count() == 1
+
+
+def test_firestore_store_persists_label_and_loads_credentials_without_one():
+    created = datetime(2026, 10, 1, 15, 0, tzinfo=UTC)
+    record = CredentialRecord(
+        credential_id=b"credential-label",
+        public_key=b"public-key-bytes",
+        sign_count=3,
+        user_id="mark@texashomeoutlet.com",
+        aaguid="fbfc3007-154e-4ecc-8c0a-6ef5e7a3e3c4",
+        created_at=created,
+        label="Front desk iPhone",
+    )
+    store = FirestoreCredentialStore(client=_FakeCredentialFirestore({}))
+
+    store.add(record)
+
+    stored = store.get(record.credential_id)
+    assert stored is not None
+    assert stored.label == "Front desk iPhone"
+    assert stored.public_key == b"public-key-bytes"
+    assert stored.user_id == "mark@texashomeoutlet.com"
+    assert stored.sign_count == 3
+    assert stored.created_at == created
+
+    legacy = {
+        "public_key": b"legacy-public-key",
+        "sign_count": 1,
+        "user_id": "owner@texashomeoutlet.com",
+        "aaguid": "",
+        "created_at": created,
+        "last_used_at": None,
+    }
+    loaded = FirestoreCredentialStore._to_record(record.credential_id_b64, legacy)
+    assert loaded.label == ""
+    assert loaded.credential_id == record.credential_id
+    assert loaded.public_key == b"legacy-public-key"
+    assert loaded.user_id == "owner@texashomeoutlet.com"
 
 
 def test_firestore_store_create_only_maps_collision_without_mutating_owner_record():
@@ -502,9 +578,9 @@ def test_register_begin_requires_existing_admin_session(passkey_client):
     assert response.status_code == 401
 
 
-def test_register_begin_returns_browser_json_after_admin_auth(passkey_client, monkeypatch):
+def test_register_begin_returns_browser_json_after_admin_auth(passkey_client):
     client, routes = passkey_client
-    monkeypatch.setattr(routes, "_request_is_admin", lambda request, manager: True)
+    _sign_in_as(client, routes, "mark@texashomeoutlet.com")
 
     response = client.post(
         "/api/admin/passkey/register/begin",
@@ -518,6 +594,10 @@ def test_register_begin_returns_browser_json_after_admin_auth(passkey_client, mo
     assert body["user"]["name"] == "mark@texashomeoutlet.com"
     assert body["user"]["displayName"] == "mark@texashomeoutlet.com"
     assert len(body["user"]["id"]) > 20
+    selection = body["authenticatorSelection"]
+    assert selection["residentKey"] == "required"
+    assert selection["requireResidentKey"] is True
+    assert "authenticatorAttachment" not in selection
     assert {cred["id"] for cred in body["excludeCredentials"]} == {
         "Y3JlZGVudGlhbC0x",
         "Y3JlZGVudGlhbC0y",
@@ -591,9 +671,9 @@ def test_register_begin_rejects_owner_email_from_shared_admin_or_staff_session(
     assert staff.status_code == 403
 
 
-def test_register_begin_uses_sapphire_xyz_cutover_context(passkey_client, monkeypatch):
+def test_register_begin_uses_sapphire_xyz_cutover_context(passkey_client):
     client, routes = passkey_client
-    monkeypatch.setattr(routes, "_request_is_admin", lambda request, manager: True)
+    _sign_in_as(client, routes, "mark@texashomeoutlet.com")
 
     response = client.post(
         "/api/admin/passkey/register/begin",
@@ -649,9 +729,9 @@ def test_credentials_management_requires_admin(passkey_client):
     assert response.status_code == 401
 
 
-def test_credentials_management_lists_and_deletes_deprecated_key(passkey_client, monkeypatch):
+def test_credentials_management_lists_and_deletes_deprecated_key(passkey_client):
     client, routes = passkey_client
-    monkeypatch.setattr(routes, "_request_is_admin", lambda request, manager: True)
+    _sign_in_as(client, routes, "aribspector@gmail.com")
 
     listed = client.get("/api/admin/passkey/credentials")
 
@@ -912,6 +992,115 @@ def test_successful_passkey_login_issues_csrf_cookie_and_response_token(
     assert PASSKEY_COOKIE_NAME in response.cookies
 
 
+def test_failed_login_burns_the_challenge_so_a_replay_is_rejected(passkey_client, monkeypatch):
+    client, routes = passkey_client
+    manager, _store = _fixture_dependencies(client, routes)
+    challenge = manager.new_challenge_bytes()
+    handle = manager.wrap_challenge(challenge, flow="login")
+    client.cookies.set("tho_passkey_login", handle)
+    calls = {"n": 0}
+
+    def verify(**kwargs):
+        calls["n"] += 1
+        raise ValueError("bad signature")
+
+    monkeypatch.setattr(routes, "parse_authentication_credential_json", lambda value: value)
+    monkeypatch.setattr(routes, "verify_authentication_response", verify)
+
+    failed = client.post(
+        "/api/admin/passkey/login/complete",
+        json={"id": "Y3JlZGVudGlhbC0y"},
+    )
+    assert failed.status_code == 400
+    assert failed.json()["detail"] == "Authentication verification failed"
+    assert calls["n"] == 1
+
+    client.cookies.set("tho_passkey_login", handle)
+    replay = client.post(
+        "/api/admin/passkey/login/complete",
+        json={"id": "Y3JlZGVudGlhbC0y"},
+    )
+    assert replay.status_code == 400
+    assert replay.json()["detail"] == "Challenge expired or invalid"
+    assert calls["n"] == 1
+
+
+def test_successful_login_burns_the_challenge_so_a_replay_is_rejected(passkey_client, monkeypatch):
+    client, routes = passkey_client
+    manager, _store = _fixture_dependencies(client, routes)
+    challenge = manager.new_challenge_bytes()
+    handle = manager.wrap_challenge(challenge, flow="login")
+    client.cookies.set("tho_passkey_login", handle)
+    calls = {"n": 0}
+
+    def verify(**kwargs):
+        calls["n"] += 1
+        return SimpleNamespace(credential_id=b"credential-2", new_sign_count=1)
+
+    monkeypatch.setattr(routes, "parse_authentication_credential_json", lambda value: value)
+    monkeypatch.setattr(routes, "verify_authentication_response", verify)
+
+    first = client.post(
+        "/api/admin/passkey/login/complete",
+        json={"id": "Y3JlZGVudGlhbC0y"},
+    )
+    assert first.status_code == 200, first.text
+    assert calls["n"] == 1
+
+    client.cookies.set("tho_passkey_login", handle)
+    replay = client.post(
+        "/api/admin/passkey/login/complete",
+        json={"id": "Y3JlZGVudGlhbC0y"},
+    )
+    assert replay.status_code == 400
+    assert replay.json()["detail"] == "Challenge expired or invalid"
+    assert calls["n"] == 1
+
+
+def test_expired_login_challenge_is_rejected_even_if_the_cookie_window_is_widened(
+    passkey_client,
+):
+    """Server expiry stands on its own. A later, longer cookie TTL cannot revive it."""
+    client, routes = passkey_client
+    manager = SessionManager(secret_key="expiry-secret", challenge_ttl=1)
+    client.app.dependency_overrides[routes.get_session_manager] = lambda: manager
+    challenge = manager.new_challenge_bytes()
+    handle = manager.wrap_challenge(challenge, flow="login")
+    time.sleep(3)
+    manager.challenge_ttl = 300
+    client.cookies.set("tho_passkey_login", handle)
+
+    expired = client.post(
+        "/api/admin/passkey/login/complete",
+        json={"id": "Y3JlZGVudGlhbC0y"},
+    )
+    assert expired.status_code == 400
+    assert expired.json()["detail"] == "Challenge expired or invalid"
+
+    client.cookies.set("tho_passkey_login", handle)
+    replay = client.post(
+        "/api/admin/passkey/login/complete",
+        json={"id": "Y3JlZGVudGlhbC0y"},
+    )
+    assert replay.status_code == 400
+    assert replay.json()["detail"] == "Challenge expired or invalid"
+
+
+def test_login_begin_fails_closed_when_the_challenge_store_is_down(passkey_client, monkeypatch):
+    client, routes = passkey_client
+    manager, _store = _fixture_dependencies(client, routes)
+
+    def boom(_challenge):
+        raise routes.AuthenticationChallengeStoreUnavailable("down")
+
+    monkeypatch.setattr(manager, "issue_authentication_challenge", boom)
+    response = client.post("/api/admin/passkey/login/begin")
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Passkey challenge store unavailable"
+    assert "tho_passkey_login=" not in response.headers.get("set-cookie", "")
+
+
 def test_delayed_login_counter_cannot_regress_newer_step_up_counter(passkey_client, monkeypatch):
     client, routes = passkey_client
     manager, store = _fixture_dependencies(client, routes)
@@ -1064,3 +1253,227 @@ def test_register_complete_rejects_owner_challenge_from_shared_admin_before_veri
 
     assert response.status_code == 403
     assert verifier.called is False
+
+
+def test_register_begin_requires_an_email_session_for_staff(passkey_client, monkeypatch):
+    client, routes = passkey_client
+    monkeypatch.setattr(routes, "_request_is_admin", lambda request, manager: True)
+
+    response = client.post(
+        "/api/admin/passkey/register/begin",
+        json={"email": "mark@texashomeoutlet.com"},
+        headers=_csrf_headers(client),
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Sign in with the email link before adding a passkey."
+
+
+def test_register_begin_rejects_a_different_email_than_the_session(passkey_client):
+    client, routes = passkey_client
+    _sign_in_as(client, routes, "mark@texashomeoutlet.com")
+
+    response = client.post(
+        "/api/admin/passkey/register/begin",
+        json={"email": "other@texashomeoutlet.com"},
+        headers=_csrf_headers(client),
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "This passkey is saved for the signed-in email."
+
+
+def test_register_begin_accepts_email_sign_in_and_requests_a_resident_key(
+    passkey_client, monkeypatch
+):
+    client, _routes = passkey_client
+    secret = "email-session-secret"
+    pin_hash = "email-pin-hash"
+    monkeypatch.setenv("ADMIN_SESSION_SECRET", secret)
+    monkeypatch.setenv("ADMIN_PIN_HASH", pin_hash)
+    client.cookies.set(
+        "tho_admin_token",
+        _email_admin_token("mark@texashomeoutlet.com", secret=secret, pin_hash=pin_hash),
+    )
+
+    response = client.post(
+        "/api/admin/passkey/register/begin",
+        json={},
+        headers=_csrf_headers(client),
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["user"]["name"] == "mark@texashomeoutlet.com"
+    assert body["authenticatorSelection"]["residentKey"] == "required"
+    assert body["authenticatorSelection"]["requireResidentKey"] is True
+    assert "authenticatorAttachment" not in body["authenticatorSelection"]
+
+    whoami = client.get("/api/admin/passkey/whoami")
+    assert whoami.status_code == 200
+    profile = whoami.json()
+    assert profile["email"] == "mark@texashomeoutlet.com"
+    assert profile["owner"] is False
+    assert profile["auth_method"] == "email"
+    assert "owner_emails" not in profile
+
+
+def test_staff_cannot_open_the_owner_recovery_list(passkey_client):
+    client, routes = passkey_client
+    _sign_in_as(client, routes, "mark@texashomeoutlet.com")
+
+    response = client.get("/api/admin/passkey/credentials")
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Passkey recovery is limited to the owner."
+
+
+def test_my_credentials_list_rename_and_refuse_someone_elses_key(passkey_client):
+    client, routes = passkey_client
+    _manager, store = _fixture_dependencies(client, routes)
+    _sign_in_as(client, routes, "mark@texashomeoutlet.com")
+
+    listed = client.get("/api/admin/passkey/credentials/mine")
+
+    assert listed.status_code == 200, listed.text
+    body = listed.json()
+    assert body["email"] == "mark@texashomeoutlet.com"
+    assert [row["credential_id"] for row in body["credentials"]] == ["Y3JlZGVudGlhbC0y"]
+    assert body["credentials"][0]["provider"] == "Passkey"
+
+    renamed = client.patch(
+        "/api/admin/passkey/credentials/mine/Y3JlZGVudGlhbC0y",
+        json={"label": "Front desk phone"},
+        headers=_csrf_headers(client),
+    )
+    assert renamed.status_code == 200, renamed.text
+    assert renamed.json()["credential"]["label"] == "Front desk phone"
+    assert store.get(b"credential-2").label == "Front desk phone"
+
+    blank = client.patch(
+        "/api/admin/passkey/credentials/mine/Y3JlZGVudGlhbC0y",
+        json={"label": "   "},
+        headers=_csrf_headers(client),
+    )
+    assert blank.status_code == 400
+
+    other = client.delete(
+        "/api/admin/passkey/credentials/mine/Y3JlZGVudGlhbC0x",
+        headers=_csrf_headers(client),
+    )
+    assert other.status_code == 404
+    assert store.get(b"credential-1") is not None
+
+    removed = client.delete(
+        "/api/admin/passkey/credentials/mine/Y3JlZGVudGlhbC0y",
+        headers=_csrf_headers(client),
+    )
+    assert removed.status_code == 200, removed.text
+    assert store.get(b"credential-2") is None
+
+
+def test_own_passkey_routes_require_an_authenticated_staff_session(passkey_client):
+    client, _routes = passkey_client
+    _manager, store = _fixture_dependencies(client, _routes)
+
+    listed = client.get("/api/admin/passkey/credentials/mine")
+    deleted = client.delete(
+        "/api/admin/passkey/credentials/mine/Y3JlZGVudGlhbC0y",
+        headers=_csrf_headers(client),
+    )
+    renamed = client.patch(
+        "/api/admin/passkey/credentials/mine/Y3JlZGVudGlhbC0y",
+        json={"label": "Not yours"},
+        headers=_csrf_headers(client),
+    )
+
+    assert listed.status_code == 401
+    assert deleted.status_code == 401
+    assert renamed.status_code == 401
+    assert store.get(b"credential-2") is not None
+    assert store.get(b"credential-2").label != "Not yours"
+
+
+def test_shared_pin_cannot_list_or_delete_another_persons_keys(passkey_client, monkeypatch):
+    client, routes = passkey_client
+    _manager, store = _fixture_dependencies(client, routes)
+    monkeypatch.setattr(routes, "_request_is_admin", lambda request, manager: True)
+
+    listed = client.get("/api/admin/passkey/credentials/mine")
+    deleted = client.delete(
+        "/api/admin/passkey/credentials/mine/Y3JlZGVudGlhbC0y",
+        headers=_csrf_headers(client),
+    )
+
+    assert listed.status_code == 400
+    assert "email link" in listed.json()["detail"]
+    assert "credentials" not in listed.json()
+    assert deleted.status_code == 400
+    assert store.get(b"credential-2") is not None
+    assert store.get(b"credential-1") is not None
+
+
+def test_deleting_the_last_staff_key_leaves_email_sign_in(passkey_client, monkeypatch):
+    client, routes = passkey_client
+    _manager, store = _fixture_dependencies(client, routes)
+    secret = "email-session-secret"
+    pin_hash = "email-pin-hash"
+    monkeypatch.setenv("ADMIN_SESSION_SECRET", secret)
+    monkeypatch.setenv("ADMIN_PIN_HASH", pin_hash)
+    client.cookies.set(
+        "tho_admin_token",
+        _email_admin_token("mark@texashomeoutlet.com", secret=secret, pin_hash=pin_hash),
+    )
+
+    removed = client.delete(
+        "/api/admin/passkey/credentials/mine/Y3JlZGVudGlhbC0y",
+        headers=_csrf_headers(client),
+    )
+
+    assert removed.status_code == 200, removed.text
+    assert store.get(b"credential-2") is None
+    assert store.get(b"credential-1") is not None
+
+    whoami = client.get("/api/admin/passkey/whoami")
+    assert whoami.status_code == 200
+    profile = whoami.json()
+    assert profile["email"] == "mark@texashomeoutlet.com"
+    assert profile["auth_method"] == "email"
+    assert profile["authed"] is True
+
+    replacement = client.post(
+        "/api/admin/passkey/register/begin",
+        json={},
+        headers=_csrf_headers(client),
+    )
+    assert replacement.status_code == 200, replacement.text
+    assert replacement.json()["user"]["name"] == "mark@texashomeoutlet.com"
+
+    listed = client.get("/api/admin/passkey/credentials/mine")
+    assert listed.status_code == 200
+    assert listed.json()["credentials"] == []
+
+
+def test_owner_cannot_delete_the_last_recovery_key_from_their_own_list(
+    passkey_client,
+):
+    client, routes = passkey_client
+    _manager, store = _fixture_dependencies(client, routes)
+    owner = "aribspector@gmail.com"
+    record = CredentialRecord(
+        credential_id=b"owner-only",
+        public_key=b"owner-only-public",
+        sign_count=0,
+        user_id=owner,
+    )
+    store.add(record)
+    _sign_in_as(client, routes, owner)
+
+    response = client.delete(
+        f"/api/admin/passkey/credentials/mine/{record.credential_id_b64}",
+        headers=_csrf_headers(client),
+    )
+
+    assert response.status_code == 409
+    assert "replacement owner passkey" in response.json()["detail"]
+    assert store.get(record.credential_id) is not None

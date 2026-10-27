@@ -34,6 +34,7 @@ Target 2 — schemas/output_schemas.py (0% covered, never imported by any test):
     and bad types.
 """
 
+import importlib.util
 import subprocess
 import sys
 import types as pytypes
@@ -41,6 +42,13 @@ from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
+
+# root_agent hard-requires google-adk; the fallback tests below execute its
+# source, so skip them in dependency-minimal environments.
+_HAS_GOOGLE_ADK = importlib.util.find_spec("google.adk") is not None
+requires_google_adk = pytest.mark.skipif(
+    not _HAS_GOOGLE_ADK, reason="google-adk is not installed"
+)
 
 # Ensure repo root is importable (same pattern as tests/test_agent_booking_fix.py)
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -81,6 +89,7 @@ def _exec_root_agent_under_fake_package() -> pytypes.ModuleType:
 class TestRootAgentImportFallback:
     """In-process coverage of the except-ImportError relative-import fallbacks."""
 
+    @requires_google_adk
     def test_fallback_branches_execute_on_reload(self):
         import root_agent  # noqa: F401 - ensures the real module is imported first
         import tools as real_tools
@@ -128,6 +137,7 @@ class TestRootAgentImportFallback:
             sys.modules.pop(f"{_FAKE_PKG}.tools", None)
             sys.modules.pop(f"{_FAKE_PKG}.root_agent", None)
 
+    @requires_google_adk
     def test_planner_kwargs_branch(self, monkeypatch):
         """Line 187: kwargs['planner'] is set only when _build_planner() is truthy."""
         from google.adk.planners import BuiltInPlanner
@@ -184,6 +194,7 @@ print("FALLBACK_OK")
 """
 
 
+@requires_google_adk
 def test_import_fallback_behavior_in_subprocess():
     """Behavioral check that the relative-import fallback yields a working agent."""
     script = _FALLBACK_SUBPROCESS % str(REPO_ROOT)

@@ -55,7 +55,9 @@ def test_cli_forwards_expected_commit(monkeypatch, capsys):
 
     assert exit_code == 0
     assert seen["expect_commit"] == EXPECTED
-    assert '"ok": true' in capsys.readouterr().out
+    captured = capsys.readouterr()
+    assert '"ok": true' in captured.out
+    assert "GET / latency_ms=" not in captured.err
 
 
 def test_check_served_commit_reads_public_health_version(monkeypatch):

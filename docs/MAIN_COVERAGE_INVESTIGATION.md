@@ -171,13 +171,18 @@ just don't measure on 3.11.
 
 Recommendations:
 - Any coverage measurement where the number matters (launch-readiness
-  evidence, gap analysis) should run under Python ≥ 3.12. Moving the dev venv
-  is a bigger job: the full suite (3003 tests) has only been validated on
-  3.11, so validate on 3.12+ before switching. Note also that a FRESH env
-  install currently fails dependency resolution: `google-cloud-aiplatform
-  ==1.161.0` requires `google-cloud-storage>=3.10` while requirements.txt pins
-  `google-cloud-storage==2.18.0` (the existing .venv predates the conflict).
-  Both must be resolved before CI can move to a newer Python.
+  evidence, gap analysis) should run under Python ≥ 3.12. Full-suite validation
+  is no longer a blocker to using 3.12 for that measurement: on 2026-10-26 a
+  fresh Python 3.12.8 venv installed both `requirements.txt` and
+  `requirements-dev.txt`, `pip check` reported `No broken requirements found.`,
+  and `pytest tests/ -x --tb=short` completed with **4781 passed, 24 skipped**
+  in **220.65 s**.
+- The formerly reported fresh-install storage conflict does not apply to
+  Python 3.12. `google-cloud-aiplatform==1.161.0` declares
+  `google-cloud-storage>=1.32.0,<4.0.0` for Python < 3.13 and
+  `google-cloud-storage>=3.10.0,<4.0.0` only for Python ≥ 3.13. The pinned
+  `google-cloud-storage==2.18.0` therefore resolves on 3.12; a future 3.13+
+  migration still needs its own dependency-resolution review.
 - Keep the fake managers' `asyncio.to_thread` mirroring (committed cycle 3):
   it faithfully mirrors the real managers' suspension behavior, is harmless
   under 3.12+, and remains correct if measurement ever runs on 3.11 again.
@@ -192,16 +197,64 @@ Recommendations:
   coverage 7.16.2 + TestClient portal + handler with code between
   `request.json()` and a second suspension.
 
+## Full-suite Python 3.12 result (2026-10-26)
+
+The full suite was measured with coverage 7.16.2 under Python 3.12.8 using the
+lower-overhead `sysmon` core:
+
+```bash
+COVERAGE_CORE=sysmon COVERAGE_FILE=/tmp/main-coverage-312 \
+  /tmp/sysmon-venv312/bin/python -m coverage run --source=main \
+  -m pytest tests/ -x --tb=short -q --no-header
+COVERAGE_FILE=/tmp/main-coverage-312 \
+  /tmp/sysmon-venv312/bin/python -m coverage report --precision=2
+```
+
+Result: **4781 passed, 24 skipped** in **253.14 s**; `main.py` has **4,744
+statements, 50 missed, 98.95% coverage**. This supersedes the historical
+3.11 result of 1,804 missed lines / 61%, which included the CTracer blind
+windows. The 50 remaining misses reconcile as follows:
+
+| Lines | Classification |
+|---|---|
+| 286–338 (28 lines) | Sentry subprocess-only initialization, covered separately by `tests/test_sentry_init_smoke.py` but not by the in-process coverage data |
+| 2827–2829 (3 lines) | Proven-dead `get_chat_analytics` defensive exception handler |
+| 10259, 10262 (2 lines) | Manual `python main.py` / uvicorn entrypoint; ASGI tests import `app` instead |
+| 17 lines | Candidates for focused tests: 422; 1226–1227 and 1252; 1371 and 1396–1399; 4562–4564 and 4566; 4772–4774; 6335 |
+
+Before c22, inspection of the five local-startup lines (1371 and 1396–1399)
+found that `tests/test_import_time_env_branches.py` already exercises them in
+fresh subprocesses. They were in-process measurement gaps, not missing test
+coverage, so duplicating them in-process would not improve the suite.
+
+## Focused actionable-line closure (2026-10-26, c22)
+
+Eight focused regression cases covered the other 12 lines: direct-HTTPS
+detection, both non-ASCII request-target fallbacks, deal-payload error variants,
+malformed deal-update JSON, and failed LCP image conversion. The complete
+Python 3.12.8 coverage/`sysmon` suite finished with **4789 passed, 24 skipped**
+in **244.39 s**. `main.py` now measures **4,744 statements, 38 missed, 99.20%
+coverage**. A JSON diff confirmed exactly these 12 newly covered lines and no
+new misses: 422; 1226–1227 and 1252; 4562–4564 and 4566; 4772–4774; 6335.
+
+The remaining 38 in-process misses reconcile as follows:
+
+| Lines | Classification |
+|---|---|
+| 286–338 (28 lines) | Sentry initialization covered separately by `tests/test_sentry_init_smoke.py` |
+| 1371, 1396–1399 (5 lines) | Local missing-PIN and derived-session-secret startup branches covered separately by `tests/test_import_time_env_branches.py` |
+| 2827–2829 (3 lines) | Proven-dead `get_chat_analytics` defensive exception handler |
+| 10259, 10262 (2 lines) | Manual `python main.py` / uvicorn entrypoint covered separately by the subprocess entrypoint test in `tests/test_import_time_env_branches.py` |
+
 ## Next steps
 
-1. Coverage re-measured after the to_thread fake fix: 1,893 → 1,804 missed
-   (59% → 61%). **Re-measure under Python ≥ 3.12 to get the honest number** —
-   expect a further jump for portal-thread handler spans; the remaining misses
-   after that are REAL gaps worth writing tests for.
-2. If other endpoint groups still under-attribute on 3.11, check their fake
-   managers' async methods for the same missing-suspension pattern
-   (`grep -rn "async def" tests/ | grep -v to_thread`) — under 3.12+
-   measurement this becomes moot.
-3. Long-term: validate the full suite under Python 3.12/3.13 and resolve the
-   requirements.txt storage-vs-aiplatform pin conflict so the measurement
-   venv can move off 3.11.
+1. There are no known actionable in-process `main.py` gaps from this
+   measurement. Future cycles should investigate only newly introduced misses
+   rather than forcing the documented dead or subprocess-only lines into the
+   in-process report.
+2. Preserve the separate Sentry, local-startup, and uvicorn subprocess tests
+   and the documented dead-line proofs when refreshing this report. Their
+   absence from the in-process JSON is not a regression.
+3. Before any future Python 3.13+ migration, re-check the conditional
+   storage-vs-aiplatform requirements described above. No runtime requirements
+   change was needed for the verified Python 3.12.8 environment.

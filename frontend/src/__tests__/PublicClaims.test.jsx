@@ -46,7 +46,6 @@ const FORBIDDEN = [
   /dream home/i,
   /\bTBD\b/,
   /Apply for financing/i,
-  /modular home retailer/i,
   /budget-friendly/i,
   /lender partners/i,
 ];
@@ -196,7 +195,7 @@ describe('public pages omit unverified claims', () => {
   it('keeps recorded identity facts on the legal pages', () => {
     render(<LegalPage page="privacy" />);
     const privacy = document.body.textContent || '';
-    expect(privacy).toMatch(/manufactured and mobile home retailer/);
+    expect(privacy).toMatch(/manufactured and modular home retailer/);
     expect(privacy).toContain(BUSINESS_LEGAL_NAME);
     expect(privacy).toContain(BUSINESS_PHONE);
     assertClean('privacy');
@@ -204,7 +203,7 @@ describe('public pages omit unverified claims', () => {
     cleanup();
 
     render(<LegalPage page="terms" />);
-    expect(screen.getByText(/manufactured and mobile home retailer/)).toBeInTheDocument();
+    expect(screen.getByText(/manufactured and modular home retailer/)).toBeInTheDocument();
     expect(screen.getByText(/not loan approvals or guaranteed rates or terms/)).toBeInTheDocument();
     assertClean('terms');
     assertNoNewEmDash('terms');
