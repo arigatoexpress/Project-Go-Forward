@@ -63,6 +63,8 @@ ALLOWED_ACTIONS: tuple[str, ...] = (
     "inventory.photos_upload",
     "inventory.photos_reorder",
     "inventory.photo_delete",
+    "inventory.tour_set",
+    "inventory.tour_clear",
     "lead.update",
     "lead.lifecycle_transition",
     "crm_task.create",

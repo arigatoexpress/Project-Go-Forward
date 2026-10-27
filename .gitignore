@@ -10,6 +10,7 @@ data/scraped_inventory.json
 data/scraped_fresh.json
 data/*.xlsx
 data/generated_docs/
+data/listing_tours/
 # Local-only raw business data (PII) — see docs/LOCAL_DATA.md
 data/local_private/
 # data/rag_index/ IS committed — it's the canonical pre-built index the

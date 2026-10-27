@@ -167,6 +167,7 @@ from email_service import (
 )
 from lead_management import Lead, LeadManager
 from structured_logging import logger as struct_logger
+from tools import tour_storage
 from tools.client_ip import get_client_ip
 from tools.contact_capture import (
     apply_utm,
@@ -4143,6 +4144,7 @@ async def list_inventory(
 
         if include_staff_photos:
             _overlay_staff_photos(results)
+            _overlay_staff_tours(results)
             for result in results:
                 if result.get("has_staff_photos"):
                     result.pop("image_placeholder", None)
@@ -6020,6 +6022,39 @@ def _overlay_staff_photos(homes: list[dict]) -> None:
         home["has_staff_photos"] = True
 
 
+def _overlay_staff_tours(homes: list[dict]) -> None:
+    """Attach staff-entered Matterport tours onto matching homes (by `id`).
+
+    A stored tour replaces the catalog tour for display. Clearing the stored
+    tour leaves the catalog tour in place, because this overlay only writes
+    homes that still have a staff record. The public URL is rebuilt from the
+    id, so a pasted link cannot become an arbitrary address on the site.
+    """
+    if not homes:
+        return
+    try:
+        grouped = tour_storage.list_all()
+    except Exception as exc:  # pragma: no cover - storage backend optional
+        struct_logger.warning("Staff tour overlay unavailable", error_type=type(exc).__name__)
+        return
+    if not grouped:
+        return
+    for home in homes:
+        raw_id = str(home.get("id") or "").strip()
+        if not raw_id:
+            continue
+        try:
+            key = tour_storage.listing_home_id(raw_id)
+        except tour_storage.TourValidationError:
+            continue
+        model_id = grouped.get(key)
+        if not model_id:
+            continue
+        home["matterport_id"] = model_id
+        home["matterport_url"] = tour_storage.canonical_matterport_url(model_id)
+        home["has_staff_tour"] = True
+
+
 def _inventory_source_pref() -> str:
     """How the public inventory endpoint chooses its source.
 
@@ -6063,6 +6098,7 @@ def _legacy_inventory_context() -> dict | None:
             else None,
         )
         _overlay_staff_photos(merged.get("homes", []))
+        _overlay_staff_tours(merged.get("homes", []))
         return merged
     if legacy_result.get("error"):
         struct_logger.warning(
@@ -6169,6 +6205,7 @@ def _firestore_inventory_context(preloaded: dict | None = None) -> dict:
         result.pop("error", None)
     result["website_homes"] = len(website_homes)
     _overlay_staff_photos(result.get("homes", []))
+    _overlay_staff_tours(result.get("homes", []))
     return result
 
 
@@ -6565,6 +6602,103 @@ async def reorder_listing_photos(request: Request, home_id: str):
             {"filename": p.filename, "url": p.url, "size_bytes": p.size_bytes} for p in photos
         ],
     }
+
+
+_MAX_TOUR_BODY_BYTES = 2048
+
+
+def _tour_response(home_id: str, matterport_id: str | None) -> dict:
+    """Staff tour payload. The URL is rebuilt from the id."""
+    return {
+        "success": True,
+        "home_id": home_id,
+        "matterport_id": matterport_id,
+        "matterport_url": (
+            tour_storage.canonical_matterport_url(matterport_id) if matterport_id else None
+        ),
+    }
+
+
+def _tour_http_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, tour_storage.TourValidationError):
+        return HTTPException(status_code=400, detail=str(exc))
+    if isinstance(exc, tour_storage.TourStorageError):
+        message = str(exc)
+        if message not in {tour_storage.TOUR_STORAGE_MESSAGE, tour_storage.TOUR_READ_MESSAGE}:
+            message = tour_storage.TOUR_STORAGE_MESSAGE
+        return HTTPException(status_code=503, detail=message)
+    raise exc
+
+
+@app.get("/api/inventory/{home_id}/tour", dependencies=[Depends(require_admin)])
+@limiter.limit("60/minute")
+async def get_listing_tour(request: Request, home_id: str):
+    """Staff: read the Matterport tour saved for a home."""
+    try:
+        home = tour_storage.listing_home_id(home_id)
+        stored = tour_storage.get_tour(home)
+    except (tour_storage.TourValidationError, tour_storage.TourStorageError) as exc:
+        raise _tour_http_error(exc) from exc
+    return _tour_response(home, stored.matterport_id if stored else None)
+
+
+@app.post("/api/inventory/{home_id}/tour", dependencies=[Depends(require_admin)])
+@limiter.limit("30/minute")
+async def set_listing_tour(request: Request, home_id: str):
+    """Staff: save a Matterport id or my.matterport.com show link for a home."""
+    raw_body = await request.body()
+    if len(raw_body) > _MAX_TOUR_BODY_BYTES:
+        raise HTTPException(status_code=400, detail=tour_storage.INVALID_TOUR_MESSAGE)
+    try:
+        body = json.loads(raw_body)
+    except JSONDecodeError:
+        raise HTTPException(status_code=400, detail=tour_storage.INVALID_TOUR_MESSAGE) from None
+    if not isinstance(body, dict) or not isinstance(body.get("matterport"), str):
+        raise HTTPException(status_code=400, detail=tour_storage.INVALID_TOUR_MESSAGE)
+    try:
+        model_id = tour_storage.normalize_matterport_input(body.get("matterport"))
+        stored = tour_storage.set_tour(home_id, model_id)
+    except (tour_storage.TourValidationError, tour_storage.TourStorageError) as exc:
+        raise _tour_http_error(exc) from exc
+    struct_logger.info(
+        "Listing tour saved",
+        home_id=stored.home_id,
+        actor=_audit_actor(request),
+    )
+    log_admin_action(
+        actor=_audit_actor(request),
+        action="inventory.tour_set",
+        target_type="inventory",
+        target_id=stored.home_id,
+        details={"matterport_id": stored.matterport_id},
+        request=request,
+    )
+    return _tour_response(stored.home_id, stored.matterport_id)
+
+
+@app.delete("/api/inventory/{home_id}/tour", dependencies=[Depends(require_admin)])
+@limiter.limit("30/minute")
+async def clear_listing_tour(request: Request, home_id: str):
+    """Staff: remove the Matterport tour saved for a home."""
+    try:
+        home = tour_storage.listing_home_id(home_id)
+        tour_storage.clear_tour(home)
+    except (tour_storage.TourValidationError, tour_storage.TourStorageError) as exc:
+        raise _tour_http_error(exc) from exc
+    struct_logger.info(
+        "Listing tour cleared",
+        home_id=home,
+        actor=_audit_actor(request),
+    )
+    log_admin_action(
+        actor=_audit_actor(request),
+        action="inventory.tour_clear",
+        target_type="inventory",
+        target_id=home,
+        details={"cleared": True},
+        request=request,
+    )
+    return _tour_response(home, None)
 
 
 # ─── Contact Form API ───
