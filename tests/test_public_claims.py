@@ -108,16 +108,18 @@ def _json_text(blocks) -> str:
 
 def _assert_clean(label: str, text: str):
     for pattern in FORBIDDEN:
-        assert not re.search(pattern, text, flags=re.IGNORECASE), (
-            f"{label} still contains {pattern}"
-        )
+        assert not re.search(
+            pattern, text, flags=re.IGNORECASE
+        ), f"{label} still contains {pattern}"
 
 
 def test_recorded_license_matches_the_public_footer():
     assert business_license() == "35248"
     assert business_phone() == "(281) 324-3020"
     constants = Path("frontend/src/constants.js").read_text(encoding="utf-8")
-    assert 'BUSINESS_LEGAL_NAME = "Prosperity Acquisitions, Inc. dba Texas Home Outlet"' in constants
+    assert (
+        'BUSINESS_LEGAL_NAME = "Prosperity Acquisitions, Inc. dba Texas Home Outlet"' in constants
+    )
     assert business_legal_name() == "Prosperity Acquisitions, Inc. dba Texas Home Outlet"
 
 
@@ -195,9 +197,7 @@ def test_city_jsonld_description_matches_the_visible_sentence(monkeypatch):
     visible = _visible(page)
     assert sentence in visible
     assert "delivers manufactured" not in visible.lower()
-    webpage = next(
-        block for block in _jsonld_blocks(page) if block.get("@type") == "WebPage"
-    )
+    webpage = next(block for block in _jsonld_blocks(page) if block.get("@type") == "WebPage")
     assert webpage["description"] == sentence
     service = next(block for block in _jsonld_blocks(page) if block.get("@type") == "Service")
     assert service["name"] == "Manufactured and mobile homes in Humble, TX"
@@ -216,7 +216,7 @@ def test_home_detail_keeps_call_for_price(monkeypatch):
     assert "Apply for financing" not in visible
 
 
-def test_default_work_order_has_no_placeholder_contractor():
+def test_work_order_has_no_placeholder_contractor():
     from tools import document_tools
 
     result = document_tools.generate_work_order_pdf(
@@ -224,6 +224,7 @@ def test_default_work_order_has_no_placeholder_contractor():
         customer_address="1 Main St",
         customer_phone="281-555-0100",
         work_description="Check the roof",
+        is_warranty=False,
     )
     html_content = result["html_content"]
     assert "(281) 555-0199" not in html_content
@@ -233,6 +234,21 @@ def test_default_work_order_has_no_placeholder_contractor():
     assert "Veteran Owned" not in html_content
     assert "Since 2010" not in html_content
     assert result["next_steps"] == "Warranty coverage varies by manufacturer, ask a manager."
+
+
+def test_service_invoice_requires_explicit_warranty_classification():
+    from tools import service_tools
+
+    result = service_tools.generate_invoice_pdf(
+        customer_name="Jane Doe",
+        customer_address="1 Main St",
+        issue_description="Check the roof",
+    )
+
+    assert result["success"] is False
+    assert result["coverage_type"] == "unconfirmed"
+    assert "ask a manager" in result["error"].lower()
+    assert "work_order" not in result
 
 
 def test_customer_emails_do_not_state_unconfirmed_warranty_terms():

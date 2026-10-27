@@ -960,7 +960,7 @@ def generate_work_order_pdf(
     contractor_name: str = "",
     contractor_email: str = "",
     contractor_phone: str = "",
-    is_warranty: bool = True,
+    is_warranty: bool | None = None,
     estimated_cost: float | None = None,
     tool_context: ToolContext = None,
 ) -> dict:
@@ -976,13 +976,24 @@ def generate_work_order_pdf(
         contractor_name: Assigned contractor
         contractor_email: Contractor email
         contractor_phone: Contractor phone
-        is_warranty: Whether this is a warranty claim
+        is_warranty: Manager-confirmed billing classification; required
         estimated_cost: Estimated cost for non-warranty work
         tool_context: ADK tool context
 
     Returns:
         Dictionary with document details and HTML content
     """
+    if is_warranty is None:
+        return {
+            "success": False,
+            "error": (
+                "Warranty coverage is unconfirmed. Ask a manager to confirm "
+                "the billing classification before generating a work order."
+            ),
+            "coverage_type": "unconfirmed",
+            "next_steps": "Warranty coverage varies by manufacturer, ask a manager.",
+        }
+
     doc_id = f"WO-{datetime.now().strftime('%Y%m%d')}-{uuid.uuid4().hex[:4].upper()}"
 
     # Determine billing type and styling
@@ -1005,6 +1016,17 @@ def generate_work_order_pdf(
             else ""
         )
 
+    has_contractor_details = any(
+        value.strip() for value in (contractor_name, contractor_email, contractor_phone)
+    )
+    contractor_display_name = contractor_name if has_contractor_details else "Assignment pending"
+    if contractor_email.strip():
+        contractor_action = f"Ready to send to {contractor_email}"
+    elif has_contractor_details:
+        contractor_action = "Contractor email is not available"
+    else:
+        contractor_action = "Assignment pending; no contractor recipient is available"
+
     # Generate HTML
     html_content = WORK_ORDER_TEMPLATE.format(
         doc_type="WORK ORDER",
@@ -1013,7 +1035,7 @@ def generate_work_order_pdf(
         customer_name=html.escape(customer_name),
         customer_address=html.escape(customer_address),
         customer_phone=html.escape(customer_phone),
-        contractor_name=html.escape(contractor_name),
+        contractor_name=html.escape(contractor_display_name),
         contractor_email=html.escape(contractor_email),
         contractor_phone=html.escape(contractor_phone),
         work_description=html.escape(work_description),
@@ -1030,7 +1052,7 @@ def generate_work_order_pdf(
         "html_content": html_content,
         "message": f"Work order {doc_id} has been generated.",
         "actions": {
-            "email_contractor": f"Ready to send to {contractor_email}",
+            "email_contractor": contractor_action,
             "email_customer": "Customer copy ready",
             "print": "PDF ready for printing",
         },

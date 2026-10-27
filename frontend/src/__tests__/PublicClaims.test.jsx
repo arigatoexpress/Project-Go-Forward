@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
-import InventoryBrowse from '../pages/InventoryBrowse';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import InventoryBrowse, { LeadCaptureForm } from '../pages/InventoryBrowse';
 import Financing from '../pages/Financing';
 import Contact from '../pages/Contact';
 import About from '../pages/About';
@@ -119,6 +119,24 @@ describe('public pages omit unverified claims', () => {
     expect(screen.getAllByText('Call for Price').length).toBeGreaterThan(0);
     expect(screen.getAllByRole('button', { name: /Ask about financing/i }).length).toBeGreaterThan(0);
     assertClean('home detail');
+  });
+
+  it('keeps financing inquiry wording throughout the lead modal', async () => {
+    render(<LeadCaptureForm home={home} type="apply" onClose={() => {}} />);
+    expect(screen.getByRole('heading', { name: 'Ask about Financing' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Send Financing Question' })).toBeInTheDocument();
+    assertClean('financing inquiry modal');
+
+    fireEvent.change(screen.getByLabelText('Name *'), { target: { value: 'Jane Doe' } });
+    fireEvent.change(screen.getByLabelText('Phone *'), { target: { value: '2815550100' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send Financing Question' }));
+
+    expect(await screen.findByText('Thank You!')).toBeInTheDocument();
+    const contactCall = fetch.mock.calls.find(([url]) => String(url) === '/api/contact');
+    expect(contactCall).toBeDefined();
+    const payload = JSON.parse(contactCall[1].body);
+    expect(payload.message).toContain('Financing Inquiry');
+    expect(payload.message).not.toContain('Financing Application');
   });
 
   it('uses the neutral financing line', () => {

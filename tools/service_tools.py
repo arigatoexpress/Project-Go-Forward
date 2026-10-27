@@ -120,7 +120,7 @@ def generate_invoice_pdf(
     contractor_name: str | None = None,
     contractor_email: str | None = None,
     estimated_cost: float | None = None,
-    is_warranty_claim: bool = True,
+    is_warranty_claim: bool | None = None,
     tool_context: ToolContext = None,
 ) -> dict:
     """
@@ -136,12 +136,23 @@ def generate_invoice_pdf(
         contractor_name: Assigned contractor's name
         contractor_email: Contractor's email for notification
         estimated_cost: Estimated repair cost (for non-warranty)
-        is_warranty_claim: Whether this is a warranty claim
+        is_warranty_claim: Manager-confirmed billing classification; required
         tool_context: ADK tool context
 
     Returns:
         Dictionary with invoice details and confirmation
     """
+    if is_warranty_claim is None:
+        return {
+            "success": False,
+            "error": (
+                "Warranty coverage is unconfirmed. Ask a manager to confirm "
+                "the billing classification before creating a work order."
+            ),
+            "coverage_type": "unconfirmed",
+            "next_steps": WARRANTY_CUSTOMER_MESSAGE,
+        }
+
     invoice_id = f"WO-{datetime.now().strftime('%Y%m%d')}-{uuid.uuid4().hex[:4].upper()}"
 
     work_order = {

@@ -2621,7 +2621,7 @@ export function LeadCaptureForm({ home, type, onClose, onBookAppointment }) {
     const requestLabel = type === 'tour'
       ? 'Tour Request'
       : type === 'apply'
-        ? 'Financing Application'
+        ? 'Financing Inquiry'
         : 'Price Quote Request';
     try {
       const resp = await fetch('/api/contact', {
@@ -2710,7 +2710,7 @@ export function LeadCaptureForm({ home, type, onClose, onBookAppointment }) {
           <>
             <div className="text-center mb-6">
               <h3 className="text-xl font-bold text-slate-800 mb-2">
-                {type === 'tour' ? 'Schedule a Tour' : type === 'apply' ? 'Apply for Financing' : 'Get a Price Quote'}
+                {type === 'tour' ? 'Schedule a Tour' : type === 'apply' ? 'Ask about Financing' : 'Get a Price Quote'}
               </h3>
               <p className="text-sm text-gray-500">
                 {type === 'tour' ? 'Visit' : type === 'apply' ? 'Ask about financing for' : 'Get pricing for'} the <strong>{home.model_name}</strong>
@@ -2789,7 +2789,7 @@ export function LeadCaptureForm({ home, type, onClose, onBookAppointment }) {
                 ) : type === 'tour' ? (
                   <><Calendar size={16} /> Request Tour</>
                 ) : type === 'apply' ? (
-                  <><DollarSign size={16} /> Submit Application</>
+                  <><DollarSign size={16} /> Send Financing Question</>
                 ) : (
                   <><DollarSign size={16} /> Get Quote</>
                 )}
