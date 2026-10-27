@@ -2,19 +2,26 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import time
+from base64 import urlsafe_b64decode
 from concurrent.futures import ThreadPoolExecutor
+from threading import Event
 
 import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
+from auth import routes as passkey_routes
 from auth.authentication_challenges import (
     FirestoreAuthenticationChallengeLedger,
     InMemoryAuthenticationChallengeLedger,
     authentication_challenge_id,
 )
 from auth.session import DEFAULT_CHALLENGE_TTL, SessionManager
+from auth.store import InMemoryCredentialStore
 from database.models import AdminPasskeyAuthChallenge
 from database.rpc_timeout import FIRESTORE_RPC_TIMEOUT
 
@@ -247,6 +254,19 @@ class _Client:
         return _Batch(self)
 
 
+def _await_expired_sweep(
+    ledger: FirestoreAuthenticationChallengeLedger,
+    timeout: float = 5,
+) -> None:
+    """Block until the ledger's background sweep has finished, if it started."""
+    with ledger._sweep_guard:
+        thread = ledger._sweep_thread
+    if thread is None:
+        return
+    thread.join(timeout=timeout)
+    assert not thread.is_alive()
+
+
 def test_firestore_consume_rejects_replay_and_expired_records(monkeypatch):
     pytest.importorskip("google.cloud.firestore")
 
@@ -262,6 +282,7 @@ def test_firestore_consume_rejects_replay_and_expired_records(monkeypatch):
     client = _Client()
     ledger = FirestoreAuthenticationChallengeLedger(client=client)
     ledger.issue(_CHALLENGE_ID, expires_at=1_000.0)
+    _await_expired_sweep(ledger)
 
     assert ledger.consume(_CHALLENGE_ID, now=500.0) is True
     assert ledger.consume(_CHALLENGE_ID, now=500.0) is False
@@ -269,6 +290,7 @@ def test_firestore_consume_rejects_replay_and_expired_records(monkeypatch):
 
     expired_id = "cd" * 32
     ledger.issue(expired_id, expires_at=100.0)
+    _await_expired_sweep(ledger)
     assert ledger.consume(expired_id, now=101.0) is False
     assert expired_id not in client.rows
     assert ledger.consume(expired_id, now=50.0) is False
@@ -322,6 +344,7 @@ def test_firestore_issue_removes_an_expired_abandoned_challenge_and_keeps_a_live
     ledger = FirestoreAuthenticationChallengeLedger(client=client)
     fresh_id = _doc_id(5)
     ledger.issue(fresh_id, expires_at=_NOW + 300)
+    _await_expired_sweep(ledger)
 
     assert expired_id not in client.rows
     assert client.deleted_ids == [expired_id]
@@ -352,6 +375,7 @@ def test_firestore_expired_cleanup_stops_at_the_batch_limit(monkeypatch):
     ledger = FirestoreAuthenticationChallengeLedger(client=client)
     fresh_id = _doc_id(9)
     ledger.issue(fresh_id, expires_at=_NOW + 300)
+    _await_expired_sweep(ledger)
 
     assert client.deleted_ids == expired_ids[:limit]
     assert len(client.deleted_ids) == limit
@@ -375,9 +399,191 @@ def test_firestore_issue_still_records_a_challenge_when_expired_cleanup_fails(mo
     fresh_id = _doc_id(2)
     with caplog.at_level(logging.WARNING, logger="auth.authentication_challenges"):
         ledger.issue(fresh_id, expires_at=_NOW + 300)
+        _await_expired_sweep(ledger)
 
     assert expired_id in client.rows
     assert client.deleted_ids == []
     assert client.rows[fresh_id] == _row(fresh_id, _NOW + 300)
+    assert "expired authentication challenge cleanup skipped" in caplog.text
+    assert "cleanup query failed" in caplog.text
+
+
+def test_firestore_issue_keeps_a_new_challenge_that_is_already_expired(monkeypatch):
+    """The sweep that follows a write must not delete the row it just stored."""
+    pytest.importorskip("google.cloud.firestore_v1")
+    monkeypatch.setattr("auth.authentication_challenges.time.time", lambda: _NOW)
+    client = _Client()
+    abandoned_id = _doc_id(1)
+    client.rows[abandoned_id] = _row(abandoned_id, _NOW - 10)
+    ledger = FirestoreAuthenticationChallengeLedger(client=client)
+    fresh_id = _doc_id(2)
+
+    ledger.issue(fresh_id, expires_at=_NOW - 1)
+    _await_expired_sweep(ledger)
+
+    assert abandoned_id not in client.rows
+    assert fresh_id in client.rows
+    assert fresh_id not in client.deleted_ids
+
+
+def test_firestore_later_issue_sweeps_again_after_the_previous_cleanup(monkeypatch):
+    pytest.importorskip("google.cloud.firestore_v1")
+    monkeypatch.setattr("auth.authentication_challenges.time.time", lambda: _NOW)
+    client = _Client()
+    ledger = FirestoreAuthenticationChallengeLedger(client=client)
+    first_id = _doc_id(1)
+    second_id = _doc_id(2)
+    abandoned_id = _doc_id(3)
+
+    ledger.issue(first_id, expires_at=_NOW + 300)
+    _await_expired_sweep(ledger)
+    client.rows[abandoned_id] = _row(abandoned_id, _NOW - 5)
+    ledger.issue(second_id, expires_at=_NOW + 300)
+    _await_expired_sweep(ledger)
+
+    assert abandoned_id not in client.rows
+    assert client.rows[first_id]["expires_at"] == _NOW + 300
+    assert client.rows[second_id]["expires_at"] == _NOW + 300
+
+
+def test_in_flight_sweep_does_not_delete_a_challenge_issued_while_it_runs(monkeypatch):
+    pytest.importorskip("google.cloud.firestore_v1")
+    monkeypatch.setattr("auth.authentication_challenges.time.time", lambda: _NOW)
+    client = _Client()
+    abandoned_id = _doc_id(1)
+    client.rows[abandoned_id] = _row(abandoned_id, _NOW - 30)
+    ledger = FirestoreAuthenticationChallengeLedger(client=client)
+    entered = Event()
+    release = Event()
+    original = FirestoreAuthenticationChallengeLedger._delete_expired_bounded
+
+    def blocked(self, now, *, exclude_id):
+        entered.set()
+        release.wait(timeout=5)
+        original(self, now, exclude_id=exclude_id)
+
+    monkeypatch.setattr(
+        FirestoreAuthenticationChallengeLedger,
+        "_delete_expired_bounded",
+        blocked,
+    )
+    first_id = _doc_id(2)
+    spawned_id = _doc_id(3)
+    try:
+        ledger.issue(first_id, expires_at=_NOW + 300)
+        assert entered.wait(timeout=1)
+        ledger.issue(spawned_id, expires_at=_NOW - 1)
+        assert spawned_id in client.rows
+        release.set()
+        _await_expired_sweep(ledger)
+    finally:
+        release.set()
+        _await_expired_sweep(ledger)
+
+    assert abandoned_id not in client.rows
+    assert first_id in client.rows
+    assert spawned_id in client.rows
+    assert spawned_id not in client.deleted_ids
+
+
+def _browser_challenge_id(challenge: str) -> str:
+    padding = "=" * (-len(challenge) % 4)
+    raw = urlsafe_b64decode((challenge + padding).encode("ascii"))
+    return hashlib.sha256(raw).hexdigest()
+
+
+def _passkey_login_client(ledger: FirestoreAuthenticationChallengeLedger) -> TestClient:
+    manager = SessionManager(secret_key="sweep-latency-secret", challenge_ledger=ledger)
+    app = FastAPI()
+    app.dependency_overrides[passkey_routes.get_session_manager] = lambda: manager
+    app.dependency_overrides[passkey_routes.get_credential_store] = (
+        lambda: InMemoryCredentialStore()
+    )
+    app.include_router(passkey_routes.router)
+    return TestClient(app)
+
+
+def test_login_begin_returns_its_challenge_while_the_expired_sweep_is_blocked(monkeypatch):
+    """POST login/begin must answer before a slow expired-challenge sweep finishes."""
+    pytest.importorskip("webauthn")
+    pytest.importorskip("google.cloud.firestore_v1")
+    client_db = _Client()
+    abandoned_id = _doc_id(1)
+    client_db.rows[abandoned_id] = _row(abandoned_id, time.time() - 60)
+    ledger = FirestoreAuthenticationChallengeLedger(client=client_db)
+    entered = Event()
+    release = Event()
+    finished = Event()
+    original = FirestoreAuthenticationChallengeLedger._delete_expired_bounded
+
+    def blocked(self, now, *, exclude_id):
+        entered.set()
+        release.wait(timeout=5)
+        original(self, now, exclude_id=exclude_id)
+        finished.set()
+
+    monkeypatch.setattr(
+        FirestoreAuthenticationChallengeLedger,
+        "_delete_expired_bounded",
+        blocked,
+    )
+    http = _passkey_login_client(ledger)
+    challenge_id = ""
+    started = time.perf_counter()
+    try:
+        response = http.post("/api/admin/passkey/login/begin")
+        elapsed = time.perf_counter() - started
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert isinstance(body.get("challenge"), str) and body["challenge"]
+        assert "tho_passkey_login=" in response.headers["set-cookie"]
+        # The sweep stays blocked for 5s. login/begin must not sit behind it.
+        assert elapsed < 2.0
+        assert entered.wait(timeout=1.0)
+        assert not finished.is_set()
+        challenge_id = _browser_challenge_id(body["challenge"])
+        assert challenge_id in client_db.rows
+        assert abandoned_id in client_db.rows
+        release.set()
+        assert finished.wait(timeout=2.0)
+    finally:
+        release.set()
+        _await_expired_sweep(ledger)
+
+    assert abandoned_id not in client_db.rows
+    assert challenge_id in client_db.rows
+
+
+def test_login_begin_returns_its_challenge_when_the_expired_sweep_fails(monkeypatch, caplog):
+    pytest.importorskip("webauthn")
+    pytest.importorskip("google.cloud.firestore_v1")
+
+    def boom(self, now, *, exclude_id):
+        raise RuntimeError("cleanup query failed")
+
+    monkeypatch.setattr(
+        FirestoreAuthenticationChallengeLedger,
+        "_delete_expired_bounded",
+        boom,
+    )
+    client_db = _Client()
+    abandoned_id = _doc_id(7)
+    client_db.rows[abandoned_id] = _row(abandoned_id, time.time() - 60)
+    ledger = FirestoreAuthenticationChallengeLedger(client=client_db)
+    http = _passkey_login_client(ledger)
+    with caplog.at_level(logging.WARNING, logger="auth.authentication_challenges"):
+        started = time.perf_counter()
+        response = http.post("/api/admin/passkey/login/begin")
+        elapsed = time.perf_counter() - started
+        _await_expired_sweep(ledger)
+
+    assert response.status_code == 200, response.text
+    assert elapsed < 2.0
+    assert isinstance(response.json().get("challenge"), str)
+    assert "tho_passkey_login=" in response.headers["set-cookie"]
+    challenge_id = _browser_challenge_id(response.json()["challenge"])
+    assert challenge_id in client_db.rows
+    assert abandoned_id in client_db.rows
+    assert client_db.deleted_ids == []
     assert "expired authentication challenge cleanup skipped" in caplog.text
     assert "cleanup query failed" in caplog.text
