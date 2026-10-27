@@ -3,7 +3,6 @@ import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 import { resolve } from 'path'
 import { sentryVitePlugin } from '@sentry/vite-plugin'
-import { shouldCacheListingImage } from './listingImageCache.js'
 
 // https://vite.dev/config/
 export default defineConfig({
@@ -106,8 +105,12 @@ export default defineConfig({
           // the <img> request: the worker cannot fetch them under connect-src
           // 'self', and intercepting them blanks the picture. The CDN already
           // sends a year-long cache header, so the browser cache covers repeats.
+          //
+          // This predicate is copied verbatim into sw.js. vite-plugin-pwa does
+          // not bundle imports or closures, so the check has to stand alone.
+          // `self` is the worker global, not a binding from this module.
           {
-            urlPattern: ({ url, request }) => shouldCacheListingImage(url, request),
+            urlPattern: ({ url, request }) => request.destination === 'image' && url.origin === self.location.origin && url.pathname.startsWith('/api/inventory/photos/'),
             handler: 'CacheFirst',
             options: {
               cacheName: 'listing-images',
