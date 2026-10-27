@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 import { resolve } from 'path'
 import { sentryVitePlugin } from '@sentry/vite-plugin'
+import { shouldCacheListingImage } from './listingImageCache.js'
 
 // https://vite.dev/config/
 export default defineConfig({
@@ -101,14 +102,12 @@ export default defineConfig({
               cacheableResponse: { statuses: [0, 200] },
             },
           },
-          // Listing photos are immutable bytes. Cache-first avoids re-downloading
-          // the same JPEG on every card and listing visit.
+          // Same-origin staff uploads only. Cross-origin CDN images stay on
+          // the <img> request: the worker cannot fetch them under connect-src
+          // 'self', and intercepting them blanks the picture. The CDN already
+          // sends a year-long cache header, so the browser cache covers repeats.
           {
-            urlPattern: ({ url, request }) => request.destination === 'image' && (
-              url.hostname.endsWith('cloudfront.net')
-              || url.hostname === 'storage.googleapis.com'
-              || url.pathname.startsWith('/api/inventory/photos/')
-            ),
+            urlPattern: ({ url, request }) => shouldCacheListingImage(url, request),
             handler: 'CacheFirst',
             options: {
               cacheName: 'listing-images',
