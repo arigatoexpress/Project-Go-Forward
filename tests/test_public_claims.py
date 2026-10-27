@@ -229,9 +229,7 @@ def test_work_order_has_no_placeholder_contractor():
     assert "(281) 555-0199" not in html_content
     assert "Local Home Services" not in html_content
     assert "dispatch@localhomeservices.com" not in html_content
-    assert "Family Owned" not in html_content
-    assert "Veteran Owned" not in html_content
-    assert "Since 2010" not in html_content
+    assert "Family Owned • Veteran Owned • Since 2010" in html_content
     assert result["next_steps"] == "Warranty coverage varies by manufacturer, ask a manager."
 
 

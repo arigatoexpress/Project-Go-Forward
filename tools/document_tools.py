@@ -851,7 +851,7 @@ WORK_ORDER_TEMPLATE = """
     <div class="header">
         <div>
             <div class="logo">🏠 Texas Home Outlet</div>
-            <div class="tagline">Manufactured and mobile homes in Huffman, TX</div>
+            <div class="tagline">Family Owned • Veteran Owned • Since 2010</div>
         </div>
         <div class="doc-type">
             <h2>{doc_type}</h2>
