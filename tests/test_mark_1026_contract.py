@@ -148,8 +148,8 @@ def test_template_file_still_prints_twenty_dollars():
     assert b"(25.00)" not in data
 
 
-def test_total_of_payments_excludes_escrow_until_mark_answers():
-    """Needs Mark's own yes/no. Celeste said escrow is not in Total of Payments."""
+def test_total_of_payments_excludes_escrow():
+    """Mark confirmed on 2026-10-26 that escrow stays out of Total of Payments."""
     assert TOTAL_OF_PAYMENTS_INCLUDES_ESCROW is False
     enriched = enrich_document_data(dict(MARK_NUMBERS))
     assert enriched["total_monthly_payment"] == "1,251.26"
@@ -175,6 +175,7 @@ def test_customer_paid_leaves_page1_cash_price_unchanged():
     assert enriched["insurance_furnish_premium"] == "2,400.00"
     assert enriched["insurance_furnish_yes"] is True
     assert enriched["tax_escrow_payment"] == "181.25"
+    assert "property_insurance_amount" not in enriched
 
 
 def test_financed_premium_is_added_to_cash_price_once():
@@ -192,7 +193,8 @@ def test_financed_premium_is_added_to_cash_price_once():
     assert once["insurance_included"] is False
     assert once["tax_escrow_payment"] == "181.25"
     assert once["insurance_premium_monthly"] == "200.00"
-    # The year's premium is not a separate "paid to others" line.
+    assert once["property_insurance_amount"] == "2,400.00"
+    # Shown on the Property Insurance underline, not added a second time here.
     assert "total_paid_to_others" not in once
 
 
@@ -247,6 +249,37 @@ def test_monthly_only_deal_does_not_check_you_have_paid():
     assert "insurance_included" not in enriched
     assert "insurance_premium" not in enriched
     assert enriched["total_monthly_payment"] == "1,251.26"
+
+
+def test_monthly_property_tax_is_two_and_a_half_percent_of_home_price():
+    """Monthly tax is 0.025 x house price / 12.
+
+    The house price is the home price. Financed insurance raises the contract
+    cash price and is not part of this base. An explicit taxable value replaces
+    the house price.
+    """
+    home = Decimal("87000")
+    monthly = (Decimal("0.025") * home / Decimal("12")).quantize(Decimal("0.01"))
+    assert monthly == Decimal("181.25")
+    inflated = (Decimal("0.025") * Decimal("89400") / Decimal("12")).quantize(Decimal("0.01"))
+    assert inflated == Decimal("186.25")
+
+    financed = enrich_document_data(
+        {**MARK_NUMBERS, "insurance_first_year_paid_by": "financed"}
+    )
+    assert financed["sales_price"] == "89,400.00"
+    assert financed["home_sales_price"] == "87,000.00"
+    assert financed["tax_escrow_payment"] == "181.25"
+    assert financed["tax_escrow_yearly"] == "2,175.00"
+
+    customer = enrich_document_data(dict(MARK_NUMBERS))
+    assert customer["tax_escrow_payment"] == "181.25"
+
+    override = enrich_document_data({**MARK_NUMBERS, "taxable_value": "80000"})
+    override_monthly = (Decimal("0.025") * Decimal("80000") / Decimal("12")).quantize(
+        Decimal("0.01")
+    )
+    assert override["tax_escrow_payment"] == f"{override_monthly:,.2f}"
 
 
 def test_legacy_engine_taxes_the_home_price_when_insurance_is_financed():
@@ -324,7 +357,9 @@ def test_customer_paid_contract_prints_marks_sample(rendered):
     assert states[_short_field(INSURANCE_INCLUDED)] == "/1"
     assert values[TAX_BOX] == "/1"
     assert states[_short_field(TAX_BOX)] == "/1"
-    assert values[CREDITOR_ADDRESS] is None
+    assert values[CREDITOR_ADDRESS] == "620 Market St, Suite 1000"
+    assert values[CREDITOR_CITY] == "Knoxville, TN 37902"
+    assert "".join(values[field] or "" for field in PHONE_FIELDS) == ""
     _assert_furnish_checkmark(rendered["customer"])
 
 
@@ -343,7 +378,8 @@ def test_financed_contract_prints_cash_price_and_blank_prepaid_line(rendered):
     assert "89,400.00" in page1
     assert "79,400.00" in page1
     assert "87,000.00" not in page1
-    assert "2,400.00" not in page1
+    assert "2,400.00" in page1
+    assert enriched["property_insurance_amount"] == "2,400.00"
     assert _money(fin.total_monthly_payment) in page2
     assert _money(fin.total_of_payments) in page2
     assert _money(fin.finance_charge) in page2
@@ -360,10 +396,9 @@ def test_financed_contract_prints_cash_price_and_blank_prepaid_line(rendered):
     assert states[_short_field(INSURANCE_YES)] == "/1"
     assert values[TAX_BOX] == "/1"
     assert states[_short_field(TAX_BOX)] == "/1"
-    # Autofill is off until Mark confirms the lot address, so the block stays blank.
-    assert values[CREDITOR_ADDRESS] is None
-    assert values[CREDITOR_CITY] is None
-    assert "".join(values[field] or "" for field in PHONE_FIELDS) == ""
+    assert values[CREDITOR_ADDRESS] == "10685 FM 1960 East"
+    assert values[CREDITOR_CITY] == "Huffman, TX 77336"
+    assert "".join(values[field] or "" for field in PHONE_FIELDS) == "2813243020"
     _assert_furnish_checkmark(rendered["financed"])
     # "The first year's premium is included in the Amount Financed." has a
     # printed square and no AcroForm field. Leave it unmarked for Mark.

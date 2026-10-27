@@ -261,6 +261,16 @@ PDF_TEXT_OVERLAYS = {
                 "clear_background": True,
                 "clear_width": 64,
             },
+            # "To Insurance Companies: Property Insurance" underline. No widget.
+            # Measured on the page-1 artwork: x 146.1–202.6, line y 266.5.
+            {
+                "field": "THO_Property_Insurance",
+                "x": 146.1,
+                "y": 269.5,
+                "max_width": 56.5,
+                "font_size": 9,
+                "align": "right",
+            },
         ),
         2: (
             {
@@ -724,6 +734,7 @@ def attach_tmha_overlay_fields(
         ("insurance_furnish_term", "THO_Insurance_Furnish_Term"),
         ("insurance_furnish_premium", "THO_Insurance_Furnish_Premium"),
         ("insurance_furnish_yes", "THO_Insurance_Furnish_Yes"),
+        ("property_insurance_amount", "THO_Property_Insurance"),
     )
     for source_key, overlay_key in mapping:
         value = source.get(source_key)

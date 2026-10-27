@@ -26,12 +26,10 @@ BUSINESS_ZIP = "77336"
 BUSINESS_CITY_STATE_ZIP = "Huffman, TX 77336"
 BUSINESS_RBI = "35248"
 
-# Needs Mark's own yes/no. TILA / Reg Z reading: "Total of Payments" is amount
-# financed + finance charge, so tax and insurance escrow stay out of it (and out
-# of Total Sale Price). Celeste said escrow is a pass-through and is not part of
-# Total of Payments. Mark's 2026-10-26 note only requires the page-2 payment to
-# include escrow. Leave this False until Mark answers. The monthly payment
-# includes escrow either way; finance charge never does.
+# Mark confirmed on 2026-10-26 that escrow stays out of Total of Payments.
+# TILA / Reg Z reading: "Total of Payments" is amount financed + finance charge,
+# so tax and insurance escrow stay out of it (and out of Total Sale Price).
+# The monthly payment includes escrow either way; finance charge never does.
 TOTAL_OF_PAYMENTS_INCLUDES_ESCROW = False
 
 # Deal-entry values for who paid the first year of required insurance.
@@ -450,6 +448,14 @@ def apply_contract_insurance(data: dict[str, Any]) -> None:
             data["home_sales_price"] = _money(_round_money(base))
             data["sales_price"] = _money(_round_money(base + premium))
             data["sales_price_includes_financed_insurance"] = True
+
+    if paid_by == INSURANCE_PAID_BY_FINANCED and premium is not None and premium > 0:
+        # Page 1 "Property Insurance" is a printed underline with no widget.
+        # Show the premium there. Amount financed already includes it via cash
+        # price, so it is not added again on Total Paid to Others.
+        data["property_insurance_amount"] = _money(premium)
+    else:
+        data.pop("property_insurance_amount", None)
 
     if paid_by == INSURANCE_PAID_BY_FINANCED:
         # The premium is in the cash price. The "you have paid" line stays blank.

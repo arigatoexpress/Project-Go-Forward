@@ -4,14 +4,15 @@
 Writes two PDFs under data/generated_docs/mark-1026-sample/:
 
   mark-1026-customer-paid.pdf
-      Jordan Brooks, 21st Mortgage. Annual premium $2,400 paid by the customer.
-      Page 1 cash price stays $87,000. Page 2 payment is Mark's sample
-      $1,251.26. Page 3 fills the "you have paid" line.
+      Jordan Brooks, 21st Mortgage (620 Market St, Suite 1000, Knoxville).
+      Annual premium $2,400 paid by the customer. Page 1 cash price stays
+      $87,000. Page 2 payment is Mark's sample $1,251.26. Page 3 fills the
+      "you have paid" line.
 
   mark-1026-financed-prosperity.pdf
-      Same home and price, first year financed, in-house Prosperity creditor.
-      Cash price on the contract is $89,400. The creditor address stays blank
-      because lenders.prosperity.autofill_enabled is false until Mark confirms it.
+      Same home and price, first year financed, in-house Prosperity creditor
+      at the confirmed lot address. Cash price on the contract is $89,400.
+      The page-1 Property Insurance line shows $2,400.00.
 
 Buyer, home, and serials are fictional. Do not put real customer data here.
 The regulatory template in tho_documents/ is not modified.

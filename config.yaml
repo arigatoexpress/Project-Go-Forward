@@ -96,16 +96,14 @@ business:
 lenders:
   21st_mortgage:
     match_names: ["21st Mortgage"]
-    # OWNER TO FILL IN from 21st Mortgage's own paperwork (not found in repo).
-    creditor_address: ""
-    creditor_city_state_zip: ""
+    # Confirmed by Mark, 2026-10-26. No phone was given.
+    creditor_address: "620 Market St, Suite 1000"
+    creditor_city_state_zip: "Knoxville, TN 37902"
     creditor_phone: ""
   prosperity:
-    # In-house creditor. Same lot address already printed for the seller.
-    # Mark has not confirmed this is the creditor address he means.
-    # Leave false until he confirms. True prints these lines on a real contract
-    # when the creditor name matches and the creditor block is still blank.
-    autofill_enabled: false
+    # In-house creditor. Mark confirmed this lot address on 2026-10-26.
+    # True prints these lines when the creditor name matches and the block is blank.
+    autofill_enabled: true
     match_names:
       - "Prosperity Acquisitions"
       - "Texas Home Outlet"
