@@ -408,6 +408,47 @@ def test_firestore_issue_still_records_a_challenge_when_expired_cleanup_fails(mo
     assert "cleanup query failed" in caplog.text
 
 
+def test_firestore_issue_still_records_a_challenge_when_cleanup_cannot_start(
+    monkeypatch, caplog
+):
+    """A cleanup scheduling fault must not reject an already-durable challenge."""
+    pytest.importorskip("google.cloud.firestore_v1")
+    monkeypatch.setattr("auth.authentication_challenges.time.time", lambda: _NOW)
+    client = _Client()
+    expired_id = _doc_id(1)
+    client.rows[expired_id] = _row(expired_id, _NOW - 30)
+
+    from auth import authentication_challenges
+
+    original_start = authentication_challenges.Thread.start
+
+    def fail_start(self):
+        raise RuntimeError("cleanup thread could not start")
+
+    monkeypatch.setattr(authentication_challenges.Thread, "start", fail_start)
+    ledger = FirestoreAuthenticationChallengeLedger(client=client)
+    fresh_id = _doc_id(2)
+    with caplog.at_level(logging.WARNING, logger="auth.authentication_challenges"):
+        ledger.issue(fresh_id, expires_at=_NOW + 300)
+
+    assert client.rows[fresh_id] == _row(fresh_id, _NOW + 300)
+    assert expired_id in client.rows
+    assert client.deleted_ids == []
+    assert ledger._sweep_thread is None
+    assert not ledger._sweep_protected
+    assert "expired authentication challenge cleanup skipped" in caplog.text
+    assert "cleanup thread could not start" in caplog.text
+
+    # A transient scheduling fault must not suppress every later cleanup.
+    monkeypatch.setattr(authentication_challenges.Thread, "start", original_start)
+    later_id = _doc_id(3)
+    ledger.issue(later_id, expires_at=_NOW + 300)
+    _await_expired_sweep(ledger)
+
+    assert expired_id not in client.rows
+    assert client.rows[later_id] == _row(later_id, _NOW + 300)
+
+
 def test_firestore_issue_keeps_a_new_challenge_that_is_already_expired(monkeypatch):
     """The sweep that follows a write must not delete the row it just stored."""
     pytest.importorskip("google.cloud.firestore_v1")

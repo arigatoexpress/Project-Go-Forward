@@ -182,7 +182,14 @@ class FirestoreAuthenticationChallengeLedger:
                 daemon=True,
             )
             self._sweep_thread = worker
-            worker.start()
+            try:
+                worker.start()
+            except Exception as exc:
+                # Cleanup is best-effort, including scheduling it. Keep the
+                # durable challenge and let a later issue retry the sweep.
+                self._sweep_thread = None
+                self._sweep_protected.clear()
+                log.warning("expired authentication challenge cleanup skipped: %s", exc)
 
     def _delete_expired(self, now: float, *, exclude_id: str) -> None:
         """Best-effort bounded delete. Never turns a sweep fault into a lockout."""
