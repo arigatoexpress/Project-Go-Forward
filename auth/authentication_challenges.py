@@ -8,8 +8,9 @@ caller presents it after the deadline.
 Opening the staff sign-in page mints a challenge even when the visitor later
 uses email or leaves. Each ``issue`` also deletes already-expired challenges
 so those abandoned rows do not accumulate until ``/login/complete``. The
-Firestore sweep is a bounded batch: one range read and one commit. If that
-sweep fails, the new challenge is still recorded.
+Firestore sweep is a bounded batch: one range read and one commit, started
+after the new challenge is stored. Sign-in does not wait for that sweep.
+If the sweep fails, the new challenge stays recorded.
 
 Cloud Run stores the outstanding id in Firestore so every instance sees the
 same burn. Local development and tests use a process-local ledger. The raw
@@ -22,7 +23,7 @@ import hashlib
 import logging
 import os
 import time
-from threading import Lock
+from threading import Lock, Thread
 from typing import Protocol
 
 from google.cloud.firestore_v1.base_query import FieldFilter
@@ -95,16 +96,17 @@ class FirestoreAuthenticationChallengeLedger:
     Document id: ``sha256(challenge).hexdigest()``
     Fields: ``challenge_id``, ``expires_at`` (epoch seconds).
 
-    Expired rows are removed when a new challenge is issued, at most
-    ``EXPIRED_PURGE_LIMIT`` per call, oldest first. The range is a single
-    field (``expires_at``), so it uses Firestore's automatic index. A sweep
-    error is logged and does not fail sign-in.
+    Expired rows are removed after a new challenge is stored, at most
+    ``EXPIRED_PURGE_LIMIT`` per sweep, oldest first. The range is a single
+    field (``expires_at``), so it uses Firestore's automatic index. The sweep
+    runs after the write and off the ``issue`` caller, so a slow or failed
+    cleanup cannot delay or reject sign-in.
     """
 
     COLLECTION = "tho_admin_passkey_auth_challenges"
-    # One indexed range read plus one batch commit on the login/begin path.
-    # Large enough to drain abandoned conditional-UI challenges, small enough
-    # that a busy sign-in does not scan the collection.
+    # One indexed range read plus one batch commit. Large enough to drain
+    # abandoned conditional-UI challenges, small enough that a sweep does
+    # not scan the collection. This work is not on the login/begin path.
     EXPIRED_PURGE_LIMIT = 20
     backend_name = "firestore"
     persistent = True
@@ -118,21 +120,69 @@ class FirestoreAuthenticationChallengeLedger:
             client = firestore.Client(project=project) if project else firestore.Client()
         self._client = client
         self._collection = client.collection(self.COLLECTION)
+        self._sweep_guard = Lock()
+        self._sweep_thread: Thread | None = None
+        # Ids issued since the current sweep started. The sweep skips them,
+        # including a brand-new row whose deadline is already past.
+        self._sweep_protected: set[str] = set()
 
     def issue(self, challenge_id: str, *, expires_at: float) -> None:
         record = _validated(challenge_id, expires_at)
-        # Sweep before the write. A brand-new row is not a deletion candidate,
-        # including when its own deadline is already in the past.
-        self._delete_expired(time.time(), exclude_id=record.challenge_id)
+        self._protect_from_sweep(record.challenge_id)
         try:
             self._collection.document(record.challenge_id).set(
                 record.model_dump(),
                 timeout=FIRESTORE_RPC_TIMEOUT,
             )
         except Exception as exc:
+            self._unprotect_from_sweep(record.challenge_id)
             raise AuthenticationChallengeStoreUnavailable(
                 "authentication challenge could not be recorded"
             ) from exc
+        # The row is durable before cleanup starts. Sign-in does not wait.
+        self._sweep_expired_after_write(time.time(), exclude_id=record.challenge_id)
+
+    def _protect_from_sweep(self, challenge_id: str) -> None:
+        with self._sweep_guard:
+            self._sweep_protected.add(challenge_id)
+
+    def _unprotect_from_sweep(self, challenge_id: str) -> None:
+        with self._sweep_guard:
+            self._sweep_protected.discard(challenge_id)
+
+    def _sweep_excludes(self, doc_id: str, exclude_id: str) -> bool:
+        if doc_id == exclude_id:
+            return True
+        with self._sweep_guard:
+            return doc_id in self._sweep_protected
+
+    def _sweep_expired_after_write(self, now: float, *, exclude_id: str) -> None:
+        """Start a bounded cleanup and return without waiting for it.
+
+        One sweep runs at a time. Ids protected above stay out of that sweep,
+        so a challenge recorded while cleanup is already in flight is not
+        deleted by it.
+        """
+
+        def run() -> None:
+            try:
+                self._delete_expired(now, exclude_id=exclude_id)
+            finally:
+                with self._sweep_guard:
+                    self._sweep_thread = None
+                    self._sweep_protected.clear()
+
+        with self._sweep_guard:
+            active = self._sweep_thread
+            if active is not None and active.is_alive():
+                return
+            worker = Thread(
+                target=run,
+                name="passkey-auth-challenge-sweep",
+                daemon=True,
+            )
+            self._sweep_thread = worker
+            worker.start()
 
     def _delete_expired(self, now: float, *, exclude_id: str) -> None:
         """Best-effort bounded delete. Never turns a sweep fault into a lockout."""
@@ -150,7 +200,11 @@ class FirestoreAuthenticationChallengeLedger:
         doomed: list[str] = []
         for snapshot in query.stream(timeout=FIRESTORE_RPC_TIMEOUT):
             doc_id = getattr(snapshot, "id", None)
-            if not isinstance(doc_id, str) or not doc_id or doc_id == exclude_id:
+            if (
+                not isinstance(doc_id, str)
+                or not doc_id
+                or self._sweep_excludes(doc_id, exclude_id)
+            ):
                 continue
             data = snapshot.to_dict() or {}
             expires_at = data.get("expires_at")
