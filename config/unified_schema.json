@@ -125,6 +125,22 @@
         "insurance_carrier":  {"type": "string", "required": false, "pdf_aliases": ["Carrier", "Insurance_Co", "Insurer"]},
         "insurance_policy_number": {"type": "string", "required": false, "pdf_aliases": ["Policy_Num", "Policy_Number"]},
         "insurance_premium":  {"type": "decimal", "scale": 2, "required": false, "pdf_aliases": ["Premium", "Ins_Premium"]},
+        "insurance_annual_premium": {
+          "type": "currency",
+          "required": false,
+          "label": "One-year insurance premium",
+          "pdf_aliases": ["Annual_Insurance"]
+        },
+        "insurance_first_year_paid_by": {
+          "type": "select",
+          "required": false,
+          "label": "First year insurance paid by",
+          "default": "customer",
+          "options": [
+            {"value": "customer", "label": "Customer paid"},
+            {"value": "financed", "label": "Financed"}
+          ]
+        },
         "insurance_deductible":{"type": "decimal", "scale": 2, "required": false, "pdf_aliases": ["Deductible", "Ins_Deductible"]}
       }
     },

@@ -30,6 +30,7 @@ from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 
 from schemas.document_schemas import SalesContractForm
+from tools import document_quality
 
 DOCUMENTS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "tho_documents")
 _DEFAULT_OUTPUT_DIR = os.path.join(
@@ -261,6 +262,16 @@ PDF_TEXT_OVERLAYS = {
                 "clear_background": True,
                 "clear_width": 64,
             },
+            # "To Insurance Companies: Property Insurance" underline. No widget.
+            # Measured on the page-1 artwork: x 146.1–202.6, line y 266.5.
+            {
+                "field": "THO_Property_Insurance",
+                "x": 146.1,
+                "y": 269.5,
+                "max_width": 56.5,
+                "font_size": 9,
+                "align": "right",
+            },
         ),
         2: (
             {
@@ -360,6 +371,64 @@ PDF_TEXT_OVERLAYS = {
                 "font_size": 8.5,
                 "clear_background": True,
                 "clear_width": 372,
+            },
+            # Fallback when the flat-$25 stream edit cannot find the clause.
+            # Whites out "$20.00 or 5% of the payment, whichever is less."
+            # (x 271.3-463.7, y 351.5-360.5) and prints "$25.00."
+            # Used only when FLAT_LATE_FEE_25 is on.
+            {
+                "field": "THO_Late_Charge_Amount",
+                "x": 271.0,
+                "y": 353.6,
+                "max_width": 80,
+                "font_size": 10,
+                "font_name": "Times-Roman",
+                "align": "left",
+                "clear_background": True,
+                "clear_width": 194.0,
+                "clear_pad_x": 0.4,
+                "clear_pad_y": 1.2,
+            },
+        ),
+        # Page 3 IX.B has no AcroForm widgets. The checkbox and the two blanks
+        # are drawn here. Box measured from the template path
+        # "56.88 536.52 -10.98 -10.98 re" (lower-left 45.90, 525.54).
+        # Term underline is "256.02 524.16 50.76 0.72 re". Baseline is 526.98.
+        3: (
+            {
+                "kind": "checkmark",
+                "field": "THO_Insurance_Furnish_Yes",
+                "x": 46.5,
+                "y": 526.2,
+                "size": 9.2,
+            },
+            {
+                "field": "THO_Insurance_Furnish_Term",
+                "x": 256.02,
+                "y": 526.98,
+                "max_width": 50.76,
+                "font_size": 9,
+                "font_name": "Times-Roman",
+                "align": "center",
+            },
+            {
+                "field": "THO_Insurance_Furnish_Premium",
+                "x": 446.0,
+                "y": 526.98,
+                "max_width": 90,
+                "font_size": 9,
+                "font_name": "Times-Roman",
+            },
+            # "The first year's premium is included in the Amount Financed."
+            # Printed square "108.78 202.74 -5.28 -5.28 re" (lower-left 103.50, 197.46).
+            # No AcroForm widget. Drawn only when the year's premium is financed.
+            {
+                "kind": "checkmark",
+                "field": "THO_Insurance_Amount_Financed_Yes",
+                "x": 103.85,
+                "y": 197.85,
+                "size": 4.3,
+                "line_width": 0.7,
             },
         ),
     },
@@ -572,12 +641,14 @@ def _draw_fit_text(
     clear_background: bool = False,
     clear_width: float | None = None,
     align: str = "left",
+    font_name: str = "Helvetica",
+    clear_pad_x: float = 1,
+    clear_pad_y: float = 2,
 ) -> None:
     text = str(value or "").strip()
     if not text:
         return
 
-    font_name = "Helvetica"
     size = float(font_size)
     while size > 6 and pdf_canvas.stringWidth(text, font_name, size) > max_width:
         size -= 0.5
@@ -595,10 +666,10 @@ def _draw_fit_text(
         background_x = x if clear_width is not None else draw_x
         pdf_canvas.setFillColorRGB(1, 1, 1)
         pdf_canvas.rect(
-            background_x - 1,
-            y - 2,
-            background_width + 2,
-            size + 4,
+            background_x - clear_pad_x,
+            y - clear_pad_y,
+            background_width + (clear_pad_x * 2),
+            size + (clear_pad_y * 2),
             fill=1,
             stroke=0,
         )
@@ -606,6 +677,93 @@ def _draw_fit_text(
 
     pdf_canvas.setFont(font_name, size)
     pdf_canvas.drawString(draw_x, y, text)
+
+
+def _draw_checkmark(
+    pdf_canvas: canvas.Canvas,
+    x: float,
+    y: float,
+    size: float,
+    line_width: float | None = None,
+) -> None:
+    """Draw a check inside a box whose lower-left corner is ``(x, y)``."""
+    pdf_canvas.setStrokeColorRGB(0, 0, 0)
+    pdf_canvas.setLineWidth(max(0.6, size * 0.16) if line_width is None else line_width)
+    pdf_canvas.setLineCap(1)
+    pdf_canvas.setLineJoin(1)
+    start_x = x + size * 0.16
+    start_y = y + size * 0.46
+    mid_x = x + size * 0.40
+    mid_y = y + size * 0.16
+    end_x = x + size * 0.86
+    end_y = y + size * 0.80
+    pdf_canvas.line(start_x, start_y, mid_x, mid_y)
+    pdf_canvas.line(mid_x, mid_y, end_x, end_y)
+
+
+def _overlay_value_is_on(value: Any) -> bool:
+    return str(value or "").strip().lower() in {"1", "true", "yes", "y", "x", "on"}
+
+
+# The page-2 late-charge sentence is one TJ array. The heading "Late Charge"
+# is the previous array. This array is the clause Mark asked to replace.
+_LATE_CHARGE_CLAUSE = (
+    b"[(: )6(If a p)-4(a)-1(ym)10(en)-4(t is late, yo)-4(u will )6(b)-4(e)-1( ch)"
+    b"-4(arg)-4(e)5(d)-4( )6($)-4(20.00)-4( )6(o)-4(r)2( 5)-4(%)5( of t)7(h)2(e p)"
+    b"-4(a)-1(ym)10(en)-4(t, wh)-4(i)7(c)-1(h)-4(e)-1(v)-4(e)5(r is less. )]TJ"
+)
+_LATE_CHARGE_FLAT = (
+    b"[(: )6(If a p)-4(a)-1(ym)10(en)-4(t is late, yo)-4(u will )6(b)-4(e)-1( ch)"
+    b"-4(arg)-4(e)5(d)-4( )6($25.00.)]TJ"
+)
+
+
+def _apply_flat_late_fee(writer: PdfWriter) -> bool:
+    """Replace the 5% late-charge clause with a flat $25.00 on the copy.
+
+    Called only when ``document_quality.FLAT_LATE_FEE_25`` is true.
+    ``tho_documents/TMHA_SalesContract.pdf`` is not modified. Returns False
+    when the clause is missing so the caller can white-box it instead.
+    """
+    if len(writer.pages) < 2:
+        return False
+    page = writer.pages[1]
+    contents = page.get_contents()
+    if contents is None:
+        return False
+    data = contents.get_data()
+    if data.count(_LATE_CHARGE_CLAUSE) != 1:
+        return False
+    stream = DecodedStreamObject()
+    stream.set_data(data.replace(_LATE_CHARGE_CLAUSE, _LATE_CHARGE_FLAT, 1))
+    page.replace_contents(stream)
+    return True
+
+
+def attach_tmha_overlay_fields(
+    template_name: str,
+    pdf_data: dict[str, Any],
+    source: dict[str, Any],
+) -> None:
+    """Copy page-3 insurance overlay values onto the PDF fill dict."""
+    if template_name != "TMHA_SalesContract.pdf":
+        return
+    mapping = (
+        ("insurance_furnish_term", "THO_Insurance_Furnish_Term"),
+        ("insurance_furnish_premium", "THO_Insurance_Furnish_Premium"),
+        ("insurance_furnish_yes", "THO_Insurance_Furnish_Yes"),
+        ("insurance_amount_financed", "THO_Insurance_Amount_Financed_Yes"),
+        ("property_insurance_amount", "THO_Property_Insurance"),
+    )
+    yes_keys = {"insurance_furnish_yes", "insurance_amount_financed"}
+    for source_key, overlay_key in mapping:
+        value = source.get(source_key)
+        if value is None or value is False:
+            continue
+        text = str(value).strip()
+        if not text or text.lower() in {"false", "off", "none"}:
+            continue
+        pdf_data[overlay_key] = "Yes" if source_key in yes_keys else text
 
 
 def _apply_pdf_text_overlays(
@@ -627,6 +785,18 @@ def _apply_pdf_text_overlays(
 
         for overlay in overlays:
             value = data_dict.get(overlay["field"])
+            if overlay.get("kind") == "checkmark":
+                if not _overlay_value_is_on(value):
+                    continue
+                _draw_checkmark(
+                    overlay_canvas,
+                    overlay["x"],
+                    overlay["y"],
+                    float(overlay.get("size") or 10),
+                    line_width=overlay.get("line_width"),
+                )
+                drew_overlay = True
+                continue
             if value is None or not str(value).strip():
                 continue
             _draw_fit_text(
@@ -639,6 +809,9 @@ def _apply_pdf_text_overlays(
                 clear_background=overlay.get("clear_background", False),
                 clear_width=overlay.get("clear_width"),
                 align=overlay.get("align", "left"),
+                font_name=overlay.get("font_name", "Helvetica"),
+                clear_pad_x=float(overlay.get("clear_pad_x", 1)),
+                clear_pad_y=float(overlay.get("clear_pad_y", 2)),
             )
             drew_overlay = True
 
@@ -677,6 +850,9 @@ def fill_pdf_form(template_path: str, data_dict: dict[str, Any], output_filename
         writer = PdfWriter()
         writer.append(reader)
         _apply_pdf_widget_rect_overrides(template_name, writer)
+        late_charge_swapped = False
+        if template_name == "TMHA_SalesContract.pdf" and document_quality.FLAT_LATE_FEE_25:
+            late_charge_swapped = _apply_flat_late_fee(writer)
 
         root = reader.trailer.get("/Root", {})
         acroform = root.get("/AcroForm") if root else None
@@ -712,6 +888,14 @@ def fill_pdf_form(template_path: str, data_dict: dict[str, Any], output_filename
             _force_helvetica_field_appearance(writer)
             for page in writer.pages:
                 writer.update_page_form_field_values(page, appearance_data, auto_regenerate=False)
+            if (
+                template_name == "TMHA_SalesContract.pdf"
+                and document_quality.FLAT_LATE_FEE_25
+                and not late_charge_swapped
+            ):
+                # White-box the 5% clause and draw "$25.00." when the stream
+                # edit cannot find it.
+                fill_data["THO_Late_Charge_Amount"] = "$25.00."
             _apply_pdf_text_overlays(template_name, writer, fill_data)
             acroform_filled = True
         except Exception as e:
@@ -957,10 +1141,10 @@ def generate_work_order_pdf(
     customer_phone: str,
     work_description: str,
     issue_type: str = "General",
-    contractor_name: str = "Local Home Services",
-    contractor_email: str = "dispatch@localhomeservices.com",
-    contractor_phone: str = "(281) 555-0199",
-    is_warranty: bool = True,
+    contractor_name: str = "",
+    contractor_email: str = "",
+    contractor_phone: str = "",
+    is_warranty: bool | None = None,
     estimated_cost: float | None = None,
     tool_context: ToolContext = None,
 ) -> dict:
@@ -976,13 +1160,24 @@ def generate_work_order_pdf(
         contractor_name: Assigned contractor
         contractor_email: Contractor email
         contractor_phone: Contractor phone
-        is_warranty: Whether this is a warranty claim
+        is_warranty: Manager-confirmed billing classification; required
         estimated_cost: Estimated cost for non-warranty work
         tool_context: ADK tool context
 
     Returns:
         Dictionary with document details and HTML content
     """
+    if is_warranty is None:
+        return {
+            "success": False,
+            "error": (
+                "Warranty coverage is unconfirmed. Ask a manager to confirm "
+                "the billing classification before generating a work order."
+            ),
+            "coverage_type": "unconfirmed",
+            "next_steps": "Warranty coverage varies by manufacturer, ask a manager.",
+        }
+
     doc_id = f"WO-{datetime.now().strftime('%Y%m%d')}-{uuid.uuid4().hex[:4].upper()}"
 
     # Determine billing type and styling
@@ -1005,6 +1200,17 @@ def generate_work_order_pdf(
             else ""
         )
 
+    has_contractor_details = any(
+        value.strip() for value in (contractor_name, contractor_email, contractor_phone)
+    )
+    contractor_display_name = contractor_name if has_contractor_details else "Assignment pending"
+    if contractor_email.strip():
+        contractor_action = f"Ready to send to {contractor_email}"
+    elif has_contractor_details:
+        contractor_action = "Contractor email is not available"
+    else:
+        contractor_action = "Assignment pending; no contractor recipient is available"
+
     # Generate HTML
     html_content = WORK_ORDER_TEMPLATE.format(
         doc_type="WORK ORDER",
@@ -1013,7 +1219,7 @@ def generate_work_order_pdf(
         customer_name=html.escape(customer_name),
         customer_address=html.escape(customer_address),
         customer_phone=html.escape(customer_phone),
-        contractor_name=html.escape(contractor_name),
+        contractor_name=html.escape(contractor_display_name),
         contractor_email=html.escape(contractor_email),
         contractor_phone=html.escape(contractor_phone),
         work_description=html.escape(work_description),
@@ -1030,11 +1236,11 @@ def generate_work_order_pdf(
         "html_content": html_content,
         "message": f"Work order {doc_id} has been generated.",
         "actions": {
-            "email_contractor": f"Ready to send to {contractor_email}",
+            "email_contractor": contractor_action,
             "email_customer": "Customer copy ready",
             "print": "PDF ready for printing",
         },
-        "next_steps": "Contractor will contact customer within 24-48 hours to schedule service.",
+        "next_steps": "Warranty coverage varies by manufacturer, ask a manager.",
     }
 
 
@@ -1133,29 +1339,33 @@ def generate_customer_email(
     """
     first_name = customer_name.split()[0] if customer_name else "Valued Customer"
 
+    visit_date = appointment_details.get("date") if appointment_details else None
+    visit_time = appointment_details.get("time") if appointment_details else None
+    if visit_date and visit_time:
+        schedule = f"Date: {visit_date}\nTime: {visit_time}\n"
+        appointment_subject = "Your Texas Home Outlet appointment is Confirmed"
+    else:
+        schedule = "Our team will confirm the date and time.\n"
+        appointment_subject = "Your Texas Home Outlet showroom visit"
+
     templates = {
         "appointment_confirmation": {
-            "subject": "Your Texas Home Outlet Appointment is Confirmed! 🏠",
+            "subject": appointment_subject,
             "body": f"""
 Hi {first_name},
 
-Great news! Your appointment at Texas Home Outlet is confirmed.
+{schedule}Location: 10685 FM 1960 East, Huffman, TX 77336
 
-📅 Date: {appointment_details.get('date', 'TBD') if appointment_details else 'TBD'}
-🕐 Time: {appointment_details.get('time', 'TBD') if appointment_details else 'TBD'}
-📍 Location: 10685 FM 1960 East, Huffman, TX 77336
-
-When you arrive, ask for Ben or Mark - they're excited to meet you!
+Our team will meet you at the showroom.
 
 What to bring:
-• Valid ID
-• Proof of land ownership (if applicable)
-• Any financing pre-approval letters
+- Valid ID
+- Proof of land ownership, if you have it
+- Any financing paperwork a lender already gave you
 
-We can't wait to help you find your dream home!
+Call (281) 324-3020 if you need to change the time.
 
-Warm regards,
-The Texas Home Outlet Family
+Texas Home Outlet
 (281) 324-3020
 """,
         },
@@ -1166,59 +1376,40 @@ Hi {first_name},
 
 We wanted to update you on your service request{f' ({ticket_id})' if ticket_id else ''}.
 
-{custom_content or 'Your request is being processed. A contractor will reach out within 24-48 hours to schedule your service visit.'}
+{custom_content or 'Your request is with our team. Warranty coverage varies by manufacturer, ask a manager.'}
 
-If you have any questions, don't hesitate to reach out!
+Call (281) 324-3020 if you have questions.
 
-Best regards,
-Texas Home Outlet Service Team
+Texas Home Outlet
 (281) 324-3020
 """,
         },
         "welcome": {
-            "subject": "Welcome to the Texas Home Outlet Family! 🎉",
+            "subject": "Welcome to Texas Home Outlet",
             "body": f"""
 Hi {first_name},
 
-Congratulations on your new home! Welcome to the Texas Home Outlet family.
+Welcome to Texas Home Outlet.
 
-Here are some important things to know:
+Warranty coverage varies by manufacturer, ask a manager.
 
-📋 YOUR WARRANTY COVERAGE:
-• Structural (HUD): 1 year from delivery
-• Cosmetic: 30 days from delivery
-• Appliances: Contact manufacturer directly
+For service questions, call (281) 324-3020.
 
-🔧 NEED SERVICE?
-Chat with our AI assistant anytime, or call us at (281) 324-3020
-
-📚 HOME CARE TIPS:
-• Keep your home's skirting ventilated
-• Check caulking around windows seasonally
-• Test smoke detectors monthly
-
-Thank you for choosing Texas Home Outlet. We're honored to be part of your journey!
-
-God bless,
-The Texas Home Outlet Family
+Texas Home Outlet
+(281) 324-3020
 """,
         },
         "follow_up": {
-            "subject": "How's Everything Going? 🏠",
+            "subject": "How's Everything Going?",
             "body": f"""
 Hi {first_name},
 
 We wanted to check in and see how everything is going{' since your recent service visit' if ticket_id else ''}.
 
-{custom_content or 'Is there anything else we can help you with?'}
+{custom_content or 'Call (281) 324-3020 if you have questions.'}
 
-Your satisfaction is our top priority. If you have any concerns or just want to say hi, we're always here!
-
-Warm regards,
 Texas Home Outlet
 (281) 324-3020
-
-P.S. If you're happy with your experience, we'd love a Google review! ⭐
 """,
         },
     }

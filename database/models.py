@@ -960,7 +960,14 @@ class Deal(BaseModel):
 
     # ─── Escrow inputs (Mark Willcott spec, 2026-06-24) ───
     # Staff enters the ANNUAL insurance premium; monthly INS escrow = annual / 12.
+    # insurance_annual_premium is the current name. annual_insurance remains so
+    # deals saved before that field existed still load and still compute escrow.
     annual_insurance: float | None = Field(default=None, ge=0)
+    insurance_annual_premium: float | None = Field(default=None, ge=0)
+    # "customer" prints the premium on the "you have paid" line. "financed"
+    # adds it to the contract cash price. Default customer keeps older deals
+    # from changing page 1.
+    insurance_first_year_paid_by: Literal["customer", "financed"] = "customer"
     # Tax rate as a percent (e.g. 2.5 for 2.5%); taxable_value defaults to
     # sales_price when omitted. annual tax = (tax_rate/100) * taxable_value;
     # monthly tax escrow = annual tax / 12. Escrow amounts are derived onto the
@@ -984,7 +991,22 @@ class Deal(BaseModel):
     max_financed: float | None = Field(default=None, ge=0)
     total_payments: float | None = Field(default=None, ge=0)
     payment_start_date: str | None = None
+    # Printed on the contract's "you have paid $" line. Distinct from the
+    # year's cost in insurance_annual_premium / annual_insurance.
     insurance_premium: float | None = Field(default=None, ge=0)
+
+    @field_validator("insurance_first_year_paid_by", mode="before")
+    @classmethod
+    def blank_insurance_paid_by_is_customer(cls, value: object) -> object:
+        if value is None:
+            return "customer"
+        if isinstance(value, str):
+            text = value.strip().lower()
+            if not text:
+                return "customer"
+            if text in {"customer", "financed"}:
+                return text
+        return value
 
     # ─── Notes ───
     notes: str | None = None
@@ -1173,6 +1195,8 @@ class Deal(BaseModel):
             "total_unpaid_balance": unpaid_balance,
             # ─── Escrow inputs (monthly escrow derived in document_engine) ───
             "annual_insurance": self.annual_insurance,
+            "insurance_annual_premium": self.insurance_annual_premium,
+            "insurance_first_year_paid_by": self.insurance_first_year_paid_by,
             "tax_rate": self.tax_rate,
             "taxable_value": self.taxable_value,
             # ─── Financing ───

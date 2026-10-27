@@ -912,7 +912,8 @@ def generate_ad_flyer(
             width=max(3, width // 360),
         )
         draw.text((margin + 28, footer_top + 22), cta_text, font=cta_font, fill=cream)
-        # TODO(owner): confirm the correct business phone; config.yaml and the old flyer footer disagree
+        # Footer phone is business_phone() from config.yaml: the same number as
+        # the public footer, contact page, legal pages, and LocalBusiness telephone.
         draw.text(
             (margin + 28, footer_top + 22 + int(cta_font.size * 1.25)),
             f"{business_phone()}  |  texashomeoutlet.com",

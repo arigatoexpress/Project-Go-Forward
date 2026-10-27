@@ -37,8 +37,16 @@ from tools.document_quality import (
     BUSINESS_RBI,
     BUSINESS_STATE,
     BUSINESS_ZIP,
+    apply_contract_insurance,
+    home_price_for_tax,
 )
-from tools.document_tools import DOCUMENTS_DIR, OUTPUT_DIR, fill_pdf_form, upload_to_gcs
+from tools.document_tools import (
+    DOCUMENTS_DIR,
+    OUTPUT_DIR,
+    attach_tmha_overlay_fields,
+    fill_pdf_form,
+    upload_to_gcs,
+)
 from tools.drive_service import ensure_deal_folder, upload_to_drive
 from tools.form_set import dedupe_packet_templates
 
@@ -369,6 +377,7 @@ def generate_document(
     # Static values (overwrite any data-driven values)
     static = get_template_static_values(template_name)
     pdf_data.update(static)
+    attach_tmha_overlay_fields(template_name, pdf_data, data)
 
     # Generate output filename (sanitized to prevent path traversal)
     if not output_filename:
@@ -717,8 +726,11 @@ def get_all_field_definitions() -> dict[str, Any]:
 
 def _compute_fields(data: dict[str, Any]):
     """Compute derived field values in-place."""
+    apply_contract_insurance(data)
     # unpaid_balance = sales_price - down_payment
     sales_price = _to_float(data.get("sales_price"))
+    tax_base = home_price_for_tax(data)
+    tax_base_amount = float(tax_base) if tax_base is not None else None
     down_payment = _to_float(data.get("down_payment"))
     if sales_price is not None:
         if down_payment is None:
@@ -745,7 +757,7 @@ def _compute_fields(data: dict[str, Any]):
     if tax_rate is not None:
         escrow_value = _to_float(data.get("taxable_value"))
         if escrow_value is None:
-            escrow_value = sales_price  # may be None if neither was provided
+            escrow_value = tax_base_amount  # home price; financed insurance is not taxed
         if escrow_value is not None:
             data.setdefault("escrow_value", f"{escrow_value:,.2f}")
             # Render the percent as the staff typed it (drop a trailing ".0").

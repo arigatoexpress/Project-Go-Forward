@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import adminFetch from '../adminFetch';
 import { clearStaffDrafts, readStaffDrafts, writeStaffDrafts } from '../components/ad-studio/staffDraftStorage';
@@ -233,7 +233,9 @@ describe('Ad Studio prepare draft', () => {
     await generateAndOpenPreview();
     fireEvent.click(screen.getByRole('button', { name: 'Prepare Draft' }));
     expect(await screen.findByText('TikTok draft')).toBeInTheDocument();
-    expect(readStaffDrafts()).toHaveLength(1);
+    await waitFor(() => {
+      expect(readStaffDrafts()).toHaveLength(1);
+    });
 
     cleanup();
     installFetch({ schedule: jsonResponse(preparedDraft) });

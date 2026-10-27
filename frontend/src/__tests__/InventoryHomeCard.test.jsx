@@ -117,7 +117,7 @@ describe('InventoryBrowse HomeCard — order-only / build-to-order homes', () =>
     expect(screen.getByRole('link', { name: /Text \(281\) 324-3020/i }).getAttribute('href')).toMatch(
       /^sms:\+12813243020/,
     );
-    expect(screen.getByRole('button', { name: /Apply for financing/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Ask about financing/i })).toBeInTheDocument();
     const img = container.querySelector('img');
     expect(img).not.toBeNull();
     expect(img.getAttribute('src')).toContain('/inventory/43945/hero.jpg');

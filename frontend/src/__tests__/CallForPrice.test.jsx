@@ -67,9 +67,9 @@ describe('call for price and public page headings', () => {
   it('keeps financing headings in order and shows neutral lender copy', () => {
     render(<Financing onBack={() => {}} />);
     expect(screen.getByRole('heading', { level: 1, name: /Manufactured Home Financing/ })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { level: 2, name: 'Chattel (Home-Only) Loan' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: 'What a lender may ask for' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { level: 3 })).not.toBeInTheDocument();
-    expect(screen.getByText('Ask our team for current lender options.')).toBeInTheDocument();
+    expect(screen.getAllByText(/Ask our team about financing options/).length).toBeGreaterThan(0);
     expect(document.body.textContent).not.toMatch(/TODO\(owner\)|TODO_/);
     cleanup();
 

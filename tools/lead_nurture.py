@@ -254,12 +254,12 @@ def render_nurture_email(customer: dict) -> tuple[str, str]:
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff;">
       <div style="background: #1e3a5f; padding: 24px; text-align: center;">
         <h1 style="color: #ffffff; margin: 0; font-size: 24px;">Texas Home Outlet</h1>
-        <p style="color: #93c5fd; margin: 4px 0 0; font-size: 13px;">Your Dream Home Starts Here</p>
+        <p style="color: #93c5fd; margin: 4px 0 0; font-size: 13px;">Manufactured and mobile homes in Huffman, TX</p>
       </div>
       <div style="padding: 32px 24px;">
         <h2 style="color: #1e3a5f; margin-top: 0;">Still thinking about it, {first_name}?</h2>
         <p>Hi {first_name},</p>
-        <p>{days_phrase}, and we wanted to make sure you didn't miss anything. New homes come on the lot every week — including some great pre-owned options under $50k.</p>
+        <p>{days_phrase}. Call the showroom for the current price on any home. Delivery available, ask for details.</p>
 
         <div style="background: #eff6ff; border-left: 4px solid #3b82f6; padding: 16px; margin: 20px 0; border-radius: 0 8px 8px 0;">
           <p style="margin: 0 0 8px; font-weight: 600; color: #1e3a5f;">A few easy ways to take the next step</p>
@@ -427,9 +427,8 @@ def _nurture_plaintext(customer: dict) -> str:
     )
     cta_url = _utm_url(NURTURE_CTA_BASE)
     return (
-        f"{days_phrase}, and we wanted to make sure you didn't miss anything. "
-        "New homes come on the lot every week — including some great pre-owned "
-        "options under $50k.\n\n"
+        f"{days_phrase}. Call the showroom for the current price on any home. "
+        "Delivery available, ask for details.\n\n"
         "A few easy ways to take the next step:\n"
         "- Browse our latest inventory online\n"
         "- Reply to this email with what you're looking for\n"
