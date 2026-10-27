@@ -66,7 +66,8 @@ describe('unique city, floorplan, and home pages after hydration', () => {
     expect(document.title).toContain('Humble, TX');
     expect(document.title).not.toContain('Homes for Sale in Huffman, TX');
     expect(document.querySelector('link[rel="canonical"]')?.getAttribute('href')).toContain('/manufactured-homes-in-humble-tx');
-    expect(screen.getByText(/delivers manufactured and mobile homes to Humble, TX/i)).toBeInTheDocument();
+    expect(screen.getByText(/Delivery available, ask for details/i)).toBeInTheDocument();
+    expect(screen.queryByText(/delivers manufactured/i)).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Home' })).toHaveAttribute('href', '/');
     expect(screen.getByRole('link', { name: 'All homes' })).toHaveAttribute('href', '/inventory');
   });
@@ -100,7 +101,7 @@ describe('unique city, floorplan, and home pages after hydration', () => {
     const text = within(summary).getByRole('link', { name: /Text \(281\) 324-3020/i });
     expect(call).toHaveAttribute('href', 'tel:+12813243020');
     expect(text.getAttribute('href')).toMatch(/^sms:\+12813243020/);
-    expect(within(summary).getByRole('button', { name: /Apply for financing/i })).toBeInTheDocument();
+    expect(within(summary).getByRole('button', { name: /Ask about financing/i })).toBeInTheDocument();
     expect(within(summary).getByText('Call for Price')).toBeInTheDocument();
     const search = screen.getByRole('textbox', { name: 'Search homes' });
     expect(summary.compareDocumentPosition(search) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -124,7 +125,7 @@ describe('unique city, floorplan, and home pages after hydration', () => {
         actions,
         call: within(actions).getByRole('link', { name: /Call \(281\) 324-3020/i }),
         text: within(actions).getByRole('link', { name: /Text \(281\) 324-3020/i }),
-        apply: within(actions).getByRole('button', { name: /Apply for financing/i }),
+        apply: within(actions).getByRole('button', { name: /Ask about financing/i }),
       };
     });
     expect(sets).toHaveLength(2);

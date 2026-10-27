@@ -1,5 +1,5 @@
 import React from 'react';
-import { MapPin, Phone, ShieldCheck, Users, Home } from 'lucide-react';
+import { MapPin, Phone, ShieldCheck } from 'lucide-react';
 import ContentPage from '../components/ContentPage';
 import {
   BUSINESS_NAME,
@@ -12,67 +12,49 @@ import {
   BUSINESS_CITY,
   BUSINESS_STATE,
 } from '../constants';
+import { DELIVERY_LINE, FINANCING_LINE, WARRANTY_LINE } from '../seoCopy';
 
 const About = ({ onBack }) => (
   <ContentPage
     title="About Us"
-    subtitle={`Your local manufactured home specialist in ${BUSINESS_CITY}, ${BUSINESS_STATE}.`}
+    subtitle={`Manufactured and mobile homes in ${BUSINESS_CITY}, ${BUSINESS_STATE}.`}
     onBack={onBack}
   >
     <div className="space-y-8 text-gray-700 leading-relaxed">
       <section>
-        <h2 className="text-xl font-bold text-gray-900 mb-3 flex items-center gap-2">
-          <Home size={22} className="text-blue-600" />
-          Who We Are
-        </h2>
+        <h2 className="text-xl font-bold text-gray-900 mb-3">Who We Are</h2>
         <p>
-          {BUSINESS_NAME} is a family-focused manufactured and mobile home dealership
-          headquartered in {BUSINESS_CITY}, {BUSINESS_STATE}. We help Texans find quality
-          factory-built homes — from budget-friendly pre-owned units to brand-new
-          single-section and multi-section floorplans — without the pressure of a
-          traditional sales floor.
+          {BUSINESS_NAME} is a manufactured and mobile home dealership in {BUSINESS_CITY}, {BUSINESS_STATE}.
+          The showroom is at {BUSINESS_FULL_ADDRESS}. Hours: {BUSINESS_HOURS}.
         </p>
         <p className="mt-3">
-          Operating as {BUSINESS_LEGAL_NAME}, we combine on-lot inventory you can tour
-          today with orderable factory floorplans for buyers who want a home built to
-          their specifications.
+          The legal name is {BUSINESS_LEGAL_NAME}. The lot has listed homes you can tour
+          and orderable floorplans you can ask the team about.
         </p>
-      </section>
-
-      <section>
-        <h2 className="text-xl font-bold text-gray-900 mb-3 flex items-center gap-2">
-          <Users size={22} className="text-blue-600" />
-          Our Approach
-        </h2>
-        <ul className="list-disc pl-6 space-y-2">
-          <li>
-            <strong>Honest, itemized quotes.</strong> Manufactured-home pricing depends
-            on options, delivery distance, site prep, and current factory incentives. We
-            walk you through the real numbers instead of hiding behind a sticker price.
-          </li>
-          <li>
-            <strong>Local expertise.</strong> We know the Houston-area communities,
-            land-lease options, and financing paths that matter to buyers in Southeast
-            Texas.
-          </li>
-          <li>
-            <strong>Showroom-first, low-pressure service.</strong> Tour homes in person,
-            compare floorplans side-by-side, and ask questions before you make any
-            commitment.
-          </li>
-        </ul>
       </section>
 
       <section>
         <h2 className="text-xl font-bold text-gray-900 mb-3 flex items-center gap-2">
           <ShieldCheck size={22} className="text-blue-600" />
-          Licensed & Regulated
+          Licensed Retailer
         </h2>
         <p>
           {BUSINESS_NAME} is a licensed Texas retailer (License #{BUSINESS_LICENSE}).
           Manufactured housing in Texas is regulated by the Texas Department of Housing
-          and Community Affairs (TDHCA), and every new home we sell meets or exceeds
-          federal HUD Code construction and safety standards.
+          and Community Affairs (TDHCA).
+        </p>
+      </section>
+
+      <section>
+        <h2 className="text-xl font-bold text-gray-900 mb-3">What to ask our team</h2>
+        <ul className="list-disc pl-6 space-y-2">
+          <li>{FINANCING_LINE}</li>
+          <li>{DELIVERY_LINE}</li>
+          <li>{WARRANTY_LINE}</li>
+        </ul>
+        <p className="mt-3">
+          Prices on this website stay Call for Price until you confirm the total with the team.
+          The total depends on the options, delivery distance, and site setup for that home.
         </p>
       </section>
 

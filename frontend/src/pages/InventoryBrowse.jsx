@@ -51,7 +51,13 @@ import {
 } from '../constants';
 import StorefrontLinks from '../components/StorefrontLinks';
 import CityLanding from './CityLanding';
-import { HOME_H1, INVENTORY_H1, listingDocumentTitle, listingMetaDescription } from '../seoCopy';
+import {
+  HOME_H1,
+  INVENTORY_H1,
+  cityShopperSentence,
+  listingDocumentTitle,
+  listingMetaDescription,
+} from '../seoCopy';
 import AppointmentHandoffCard from '../components/AppointmentHandoffCard';
 import { describeFetchError, extractErrorMessage, responseErrorMessage, safeUserMessage } from '../utils/apiError';
 
@@ -416,9 +422,9 @@ function ListingActions({ home, onApply, onGetPrice }) {
           type="button"
           onClick={(event) => { event.stopPropagation(); onApply?.(); }}
           className={`${LISTING_CTA} bg-[var(--cp-cta-green)] text-white`}
-          aria-label="Apply for financing"
+          aria-label="Ask about financing"
         >
-          <DollarSign size={16} aria-hidden="true" /> Apply
+          <DollarSign size={16} aria-hidden="true" /> Ask
         </button>
       </div>
       {onGetPrice && (
@@ -1153,7 +1159,7 @@ export default function InventoryBrowse({
           <div className="flex min-h-0 min-w-0 flex-col justify-center lg:min-h-[520px]">
             <div className="mb-4 inline-flex w-fit items-center gap-2 rounded-md border border-white/30 bg-black/45 px-3 py-1.5 font-mono text-xs font-semibold uppercase text-white shadow-sm">
               <span className="cp-blink h-2 w-2 rounded-full bg-white" />
-              Inventory changes daily
+              Confirm availability with our team
             </div>
             <h1 className="max-w-3xl text-3xl font-extrabold leading-tight tracking-normal text-white break-words sm:text-5xl">
               {pathListingHome?.model_name
@@ -1175,7 +1181,7 @@ export default function InventoryBrowse({
               {pathListingHome
                 ? `${pathListingHome.model_name} at ${BUSINESS_NAME} in ${BUSINESS_CITY}, ${BUSINESS_STATE}. Confirm current price and availability with our team.`
                 : cityLanding
-                  ? `${BUSINESS_NAME} delivers manufactured and mobile homes to ${cityLanding.city}, TX from the ${BUSINESS_CITY} showroom at ${BUSINESS_FULL_ADDRESS}. Call ${BUSINESS_PHONE} for the current price.`
+                  ? cityShopperSentence(cityLanding.city)
                   : onInventoryHub
                     ? `Current manufactured and mobile home inventory at ${BUSINESS_NAME} in ${BUSINESS_CITY}, ${BUSINESS_STATE}. Compare listed homes, pre-owned homes, and orderable floorplans, then call or text to confirm price and availability.`
                     : routeCategory?.description || 'Browse current listed homes plus manufacturer floorplans Texas Home Outlet can custom order. Confirm price and availability with our team before planning a visit.'}
@@ -1247,7 +1253,7 @@ export default function InventoryBrowse({
                 href="/financing"
                 className="col-span-2 inline-flex min-h-11 items-center justify-center gap-2 rounded-md bg-[var(--cp-cta-green)] px-4 py-3 text-sm font-semibold text-white no-underline sm:col-span-1"
               >
-                <DollarSign size={18} /> Apply for financing
+                <DollarSign size={18} /> Ask about financing
               </a>
             </div>
             <div className="mt-6 flex flex-wrap items-center gap-3 text-xs font-medium text-white/80">
@@ -2669,7 +2675,7 @@ export function LeadCaptureForm({ home, type, onClose, onBookAppointment }) {
     const requestLabel = type === 'tour'
       ? 'Tour Request'
       : type === 'apply'
-        ? 'Financing Application'
+        ? 'Financing Inquiry'
         : 'Price Quote Request';
     try {
       const resp = await fetch('/api/contact', {
@@ -2750,7 +2756,7 @@ export function LeadCaptureForm({ home, type, onClose, onBookAppointment }) {
         {submitted ? (
           <AppointmentHandoffCard
             title="Thank You!"
-            description={`We received your ${type === 'tour' ? 'tour request' : type === 'apply' ? 'financing application' : 'price quote request'} for the ${home.model_name}. Reserve a showroom time now or keep browsing.`}
+            description={`We received your ${type === 'tour' ? 'tour request' : type === 'apply' ? 'question about financing' : 'price quote request'} for the ${home.model_name}. Reserve a showroom time now or keep browsing.`}
             onStart={handleBookAppointment}
             onContinue={onClose}
           />
@@ -2758,10 +2764,10 @@ export function LeadCaptureForm({ home, type, onClose, onBookAppointment }) {
           <>
             <div className="text-center mb-6">
               <h3 className="text-xl font-bold text-slate-800 mb-2">
-                {type === 'tour' ? 'Schedule a Tour' : type === 'apply' ? 'Apply for Financing' : 'Get a Price Quote'}
+                {type === 'tour' ? 'Schedule a Tour' : type === 'apply' ? 'Ask about Financing' : 'Get a Price Quote'}
               </h3>
               <p className="text-sm text-gray-500">
-                {type === 'tour' ? 'Visit' : type === 'apply' ? 'Start financing for' : 'Get pricing for'} the <strong>{home.model_name}</strong>
+                {type === 'tour' ? 'Visit' : type === 'apply' ? 'Ask about financing for' : 'Get pricing for'} the <strong>{home.model_name}</strong>
                 {home.specs?.beds && ` — ${home.specs.beds} Bed, ${home.specs.baths} Bath`}
                 {home.specs?.sq_ft && `, ${home.specs.sq_ft.toLocaleString()} sqft`}
               </p>
@@ -2837,7 +2843,7 @@ export function LeadCaptureForm({ home, type, onClose, onBookAppointment }) {
                 ) : type === 'tour' ? (
                   <><Calendar size={16} /> Request Tour</>
                 ) : type === 'apply' ? (
-                  <><DollarSign size={16} /> Submit Application</>
+                  <><DollarSign size={16} /> Send Financing Question</>
                 ) : (
                   <><DollarSign size={16} /> Get Quote</>
                 )}

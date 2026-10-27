@@ -173,6 +173,34 @@ class TestGcsList:
 
 
 class TestGenerateWorkOrderPdf:
+    def test_unconfirmed_warranty_requires_manager_classification(self):
+        result = dt.generate_work_order_pdf(
+            customer_name="Jane",
+            customer_address="1 Main St",
+            customer_phone="281",
+            work_description="Repair",
+        )
+
+        assert result["success"] is False
+        assert result["coverage_type"] == "unconfirmed"
+        assert "ask a manager" in result["error"].lower()
+        assert "html_content" not in result
+
+    def test_unassigned_contractor_is_not_dispatch_ready(self):
+        result = dt.generate_work_order_pdf(
+            customer_name="Jane",
+            customer_address="1 Main St",
+            customer_phone="281",
+            work_description="Repair",
+            is_warranty=False,
+        )
+
+        assert result["success"] is True
+        assert "Assignment pending" in result["html_content"]
+        assert result["actions"]["email_contractor"] == (
+            "Assignment pending; no contractor recipient is available"
+        )
+
     def test_warranty_claim_has_no_cost_section(self):
         result = dt.generate_work_order_pdf(
             customer_name="Jane <Doe>",
