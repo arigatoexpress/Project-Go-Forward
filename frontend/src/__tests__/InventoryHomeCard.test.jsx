@@ -223,6 +223,9 @@ describe('InventoryBrowse HomeCard — order-only / build-to-order homes', () =>
 
     fireEvent.click(screen.getByRole('button', { name: /watch 3d tour/i }));
     expect(onWatchTour).toHaveBeenCalledTimes(1);
+    const tour = screen.getByRole('link', { name: /open 3d tour for the nassau/i });
+    expect(tour).toHaveAttribute('href', 'https://my.matterport.com/show/?m=SvVRKXdXUQq&play=1');
+    expect(tour).toHaveAttribute('target', '_blank');
   });
 
   it('hides the tour button when the home has no Matterport id', () => {
@@ -233,6 +236,7 @@ describe('InventoryBrowse HomeCard — order-only / build-to-order homes', () =>
     });
     expect(screen.queryByRole('button', { name: /watch 3d tour/i })).toBeNull();
     expect(screen.queryByRole('link', { name: /watch 3d tour/i })).toBeNull();
+    expect(screen.queryByRole('link', { name: /open 3d tour/i })).toBeNull();
   });
 
   it('opens the first-party quote form instead of navigating to a legacy quote URL', () => {

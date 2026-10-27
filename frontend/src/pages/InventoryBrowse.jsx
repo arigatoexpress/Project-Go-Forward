@@ -1662,11 +1662,19 @@ export function ListingArticle({ home, onGetPrice, onApply }) {
           <div className="mt-6">
             {tourUrl && (
               <div className="mb-3">
+                <a
+                  href={tourUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mb-2 inline-flex min-h-11 w-full items-center justify-center gap-1.5 rounded-md border border-[var(--cp-secondary)] bg-white py-2.5 text-sm font-semibold text-[var(--cp-secondary)] no-underline"
+                >
+                  <Box size={16} aria-hidden="true" /> Open 3D tour
+                </a>
                 <button
                   type="button"
                   aria-pressed={watchTour}
                   onClick={() => setWatchTour((open) => !open)}
-                  className="inline-flex min-h-11 w-full items-center justify-center gap-1.5 rounded-md border border-[var(--cp-secondary)] bg-white py-2.5 text-sm font-semibold text-[var(--cp-secondary)]"
+                  className="inline-flex min-h-11 w-full items-center justify-center gap-1.5 rounded-md border border-[var(--cp-border)] bg-[var(--cp-bg-2)] py-2.5 text-sm font-semibold text-[var(--cp-text-secondary)]"
                 >
                   <Box size={16} aria-hidden="true" /> {watchTour ? 'Hide 3D tour' : 'Watch 3D tour'}
                 </button>
@@ -1915,17 +1923,25 @@ export function HomeCard({ home, onClick, onGetPrice, onApply, isFavorite = fals
           </button>
         )}
 
-        {/* Bottom-right badges */}
-        <div className="absolute bottom-3 right-3 flex gap-2">
+        {/* Bottom-right badges. The tour chip sits above the card link so
+            the label opens the Matterport tour instead of the listing page. */}
+        <div className="absolute bottom-3 right-3 z-[2] flex gap-2">
           {photoCount > 1 && (
             <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs text-white bg-black/60">
               <Camera size={12} /> {photoCount}
             </span>
           )}
           {hasTour && (
-            <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs text-white bg-black/70 font-semibold">
-              <Box size={12} /> 3D Tour
-            </span>
+            <a
+              href={tourUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label={`Open 3D tour for ${home.model_name}`}
+              onClick={(event) => event.stopPropagation()}
+              className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs text-white bg-black/70 font-semibold no-underline"
+            >
+              <Box size={12} aria-hidden="true" /> 3D Tour
+            </a>
           )}
         </div>
       </div>
@@ -2140,14 +2156,24 @@ function HomeDetailModal({
         {/* Photo Gallery Section */}
         <div className="bg-slate-800 relative">
           {showTour && hasTour ? (
-            <div className="tho-listing-gallery">
-              <iframe
-                src={tourUrl}
-                title={`${home.model_name} 3D Tour`}
-                className="w-full h-full border-0"
-                allowFullScreen
-              />
-            </div>
+            <>
+              <div className="tho-listing-gallery">
+                <iframe
+                  src={tourUrl}
+                  title={`${home.model_name} 3D Tour`}
+                  className="w-full h-full border-0"
+                  allowFullScreen
+                />
+              </div>
+              <a
+                href={tourUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex w-full items-center justify-center gap-1.5 bg-slate-900 px-3 py-2 text-sm font-semibold text-white no-underline"
+              >
+                Open 3D tour
+              </a>
+            </>
           ) : showFloorplan ? (
             <div className="tho-listing-gallery relative flex items-center justify-center overflow-hidden bg-slate-50">
               {floorplan ? (

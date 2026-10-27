@@ -96,6 +96,9 @@ describe('ListingArticle photo fallback', () => {
         onApply={() => {}}
       />,
     );
+    const openTour = screen.getByRole('link', { name: /open 3d tour/i });
+    expect(openTour).toHaveAttribute('href', 'https://my.matterport.com/show/?m=SvVRKXdXUQq&play=1');
+    expect(openTour).toHaveAttribute('target', '_blank');
     expect(document.querySelector('iframe')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: /watch 3d tour/i }));
     const frame = document.querySelector('iframe');
