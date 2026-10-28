@@ -73,7 +73,9 @@ export default function StaffSignInPanel({
     onSuccess?.({ method });
   };
   const onSuccessRef = useRef(onSuccess);
-  onSuccessRef.current = onSuccess;
+  useEffect(() => {
+    onSuccessRef.current = onSuccess;
+  }, [onSuccess]);
 
   const requestEmail = async (event) => {
     event?.preventDefault();
