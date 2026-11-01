@@ -52,6 +52,7 @@ import sys
 import threading
 import time
 import types
+from datetime import UTC, datetime
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -586,7 +587,10 @@ class TestGetEventAnalytics:
     def test_outer_failure_envelope(self, monkeypatch):
         _client_, main, fake_db = _client(monkeypatch)
         fake_db.collections["analytics_events"] = {
-            "e1": {"event": "home_viewed", "created_at": "2026-10-01T00:00:00"}
+            "e1": {
+                "event": "home_viewed",
+                "created_at": datetime.now(UTC).isoformat(),
+            }
         }
 
         def boom(value, *, public=False):

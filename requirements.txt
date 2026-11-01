@@ -17,7 +17,7 @@ python-multipart==0.0.31
 uvicorn==0.34.0
 redis==5.2.1
 dnspython==2.9.0  # GHSA-45c3-73f7-pv4m
-pypdf==6.21.2
+pypdf==6.21.4  # GHSA-62m5-6wh8-28x7, GHSA-42gh-23hr-vphw, GHSA-x3rh-gjgm-fmqc, GHSA-4vqv-7265-gm2w, GHSA-5849-834g-hvw5, GHSA-mfr5-77xh-9j7h, GHSA-cggf-277g-3q54
 resend==2.5.1
 slowapi>=0.1.9
 PyYAML>=6.0
