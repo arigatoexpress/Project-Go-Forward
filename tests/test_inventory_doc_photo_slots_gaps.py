@@ -31,6 +31,7 @@ from __future__ import annotations
 import asyncio
 import sys
 import types
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -160,12 +161,16 @@ class TestAdminInventoryAnalytics:
     def test_full_breakdown_with_edge_statuses_and_bad_price(self, monkeypatch):
         _client_, main, fake_db = _client(monkeypatch)
         _patch_cache(monkeypatch, hit=None, calls=[])
+        # Window-relative fixture dates: ``sold_last_30d`` counts SOLD rows
+        # whose ``updated_at`` is within 30 days of *request* time, so fixed
+        # dates age out of the window and silently flip the assertion.
+        now = datetime.now(UTC)
         fake_db.collections["inventory"] = {
             "a1": {
                 "status": "AVAILABLE",
                 "sale_price": 80000,
                 "manufacturer": "Champion",
-                "date_added": "2026-10-01T00:00:00",
+                "date_added": (now - timedelta(days=10)).isoformat(),
             },
             "p1": {"status": "PENDING", "sale_price": 70000, "manufacturer": "Clayton"},
             "r1": {"status": "RESERVED", "sale_price": 65000, "manufacturer": "Clayton"},
@@ -173,8 +178,8 @@ class TestAdminInventoryAnalytics:
                 "status": "SOLD",
                 "msrp": 90000,  # sale_price absent → msrp fallback
                 "manufacturer": "Champion",
-                "created_at": "2026-09-01T00:00:00",
-                "updated_at": "2026-10-10T00:00:00",
+                "created_at": (now - timedelta(days=45)).isoformat(),
+                "updated_at": (now - timedelta(days=5)).isoformat(),
             },
             "b1": {"status": "AVAILABLE", "sale_price": "oops", "manufacturer": ""},
         }
