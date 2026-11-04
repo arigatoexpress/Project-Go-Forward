@@ -1,5 +1,7 @@
 # Shippable Audit — 2026-10-07
 
+> Status note (2026-11-04): `/privacy` and `/terms` are live public pages. The bullet below is the October 7 scope note, when those pages were still a separate draft tracked as PR #368.
+
 Scope: Texas Home Outlet storefront + API in this repository (`www.texashomeoutlet.com` on Cloud Run).
 
 Out of scope by request:
