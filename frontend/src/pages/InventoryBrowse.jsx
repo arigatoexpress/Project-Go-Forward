@@ -40,6 +40,7 @@ import {
   usedHomeMayShowPhoto,
 } from '../utils/listingRoutes';
 import { staticLcpCoversHero, useStaticLcpCoversHero } from '../utils/staticLcp';
+import { catalogKind, countCatalog, formatCatalogCounts } from '../utils/catalogCounts';
 import {
   BUSINESS_NAME,
   BUSINESS_PHONE,
@@ -49,7 +50,7 @@ import {
   BUSINESS_CITY,
   BUSINESS_STATE,
 } from '../constants';
-import StorefrontLinks from '../components/StorefrontLinks';
+import StorefrontLinks, { AreasWeServe } from '../components/StorefrontLinks';
 import CityLanding from './CityLanding';
 import {
   HOME_H1,
@@ -295,10 +296,7 @@ export function pricePerSqft(priceValue, sqft) {
 }
 
 function getAvailabilityKind(home) {
-  if (home?.inventory_kind) return home.inventory_kind;
-  if (home?.status === 'Orderable') return 'orderable_floorplan';
-  if (home?.status === 'Pre-Owned') return 'pre_owned';
-  return 'available_now';
+  return catalogKind(home);
 }
 
 const LEGACY_INVENTORY_ALIASES = {
@@ -338,7 +336,7 @@ function resolveLegacyHome(homes, legacyId) {
   });
 }
 
-function InventoryMetric({ icon, label, value, tone = 'accent' }) {
+function InventoryMetric({ icon, label, value, detail, tone = 'accent' }) {
   const toneMap = {
     accent: 'text-[var(--cp-accent)] bg-[var(--cp-accent-dim)]',
     blue: 'text-[var(--cp-secondary)] bg-[var(--cp-secondary-dim)]',
@@ -348,14 +346,103 @@ function InventoryMetric({ icon, label, value, tone = 'accent' }) {
   return (
     <div className="rounded-md border border-[var(--cp-border)] bg-[var(--cp-panel)] px-4 py-3">
       <div className="flex items-center gap-2">
-        <span className={`inline-flex h-8 w-8 items-center justify-center rounded-md ${toneMap[tone]}`}>
-          <Icon size={16} />
+        <span className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${toneMap[tone]}`}>
+          <Icon size={16} aria-hidden="true" />
         </span>
-        <div>
+        <div className="min-w-0">
           <div className="font-mono text-xl font-bold text-[var(--cp-text)]">{value}</div>
-          <div className="text-[11px] uppercase text-[var(--cp-muted)]">{label}</div>
+          <div className="text-xs font-semibold leading-snug text-[var(--cp-text)]">{label}</div>
+          {detail ? <div className="text-xs leading-snug text-[var(--cp-text-secondary)]">{detail}</div> : null}
         </div>
       </div>
+    </div>
+  );
+}
+
+function CatalogSearch({ searchQuery, setSearchQuery }) {
+  return (
+    <div className="mt-5 max-w-2xl rounded-lg border border-[var(--cp-border-light)] bg-[var(--cp-panel)] p-2 shadow-[0_18px_50px_rgba(0,0,0,0.32)]">
+      <div className="flex items-center gap-2 rounded-md bg-[var(--cp-bg-2)] px-4 py-3">
+        <Search size={20} className="flex-shrink-0 text-[var(--cp-accent)]" aria-hidden="true" />
+        <input
+          type="text"
+          aria-label="Search homes"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder="Search by model, manufacturer, beds, baths, type..."
+          className="min-h-11 min-w-0 flex-1 bg-transparent text-base text-[var(--cp-text)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--cp-accent)] placeholder:text-[var(--cp-muted)]"
+        />
+        {searchQuery && (
+          <button type="button" onClick={() => setSearchQuery('')} aria-label="Clear search" className="inline-flex min-h-11 min-w-11 flex-shrink-0 items-center justify-center rounded-md text-[var(--cp-text)] hover:text-[var(--cp-accent)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--cp-accent)]">
+            <X size={18} aria-hidden="true" />
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const HERO_ACTION =
+  'inline-flex min-h-11 items-center justify-center gap-2 rounded-md px-4 py-3 text-sm font-semibold no-underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--cp-bg)]';
+
+function CatalogActions({ onAskTex, variant = 'all' }) {
+  const talk = onAskTex ? (
+    <button
+      type="button"
+      onClick={() => onAskTex("I'm looking for a new home. What do you recommend?")}
+      className={`${HERO_ACTION} bg-[var(--cp-accent)] font-bold text-[var(--cp-bg)] transition hover:bg-[var(--cp-accent-hot)] ${variant === 'all' ? 'col-span-2 sm:col-span-1' : ''}`}
+    >
+      <MessageCircle size={18} aria-hidden="true" /> Talk to Tex
+    </button>
+  ) : null;
+  const call = (
+    <a
+      href={`tel:${BUSINESS_PHONE_RAW}`}
+      className={`${HERO_ACTION} border border-[var(--cp-border-light)] bg-[var(--cp-panel)] text-[var(--cp-text)] transition hover:border-[var(--cp-secondary)] hover:text-[var(--cp-secondary)]`}
+      aria-label={`Call ${BUSINESS_PHONE}`}
+    >
+      <Phone size={18} aria-hidden="true" /> Call
+    </a>
+  );
+  const text = (
+    <a
+      href={smsHref(null)}
+      className={`${HERO_ACTION} border border-[var(--cp-border-light)] bg-[var(--cp-panel)] text-[var(--cp-text)] transition hover:border-[var(--cp-secondary)] hover:text-[var(--cp-secondary)]`}
+      aria-label={`Text ${BUSINESS_PHONE}`}
+    >
+      <MessageCircle size={18} aria-hidden="true" /> Text
+    </a>
+  );
+  const financing = (
+    <a
+      href="/financing"
+      className={`${HERO_ACTION} bg-[var(--cp-cta-green)] text-white focus-visible:outline-white ${variant === 'all' ? 'col-span-2 sm:col-span-1' : ''}`}
+    >
+      <DollarSign size={18} aria-hidden="true" /> Ask about financing
+    </a>
+  );
+  if (variant === 'lead') {
+    return (
+      <div className="mt-5 grid grid-cols-1 gap-2 sm:grid-cols-2">
+        {call}
+        {talk}
+      </div>
+    );
+  }
+  if (variant === 'more') {
+    return (
+      <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
+        {text}
+        {financing}
+      </div>
+    );
+  }
+  return (
+    <div className="mt-5 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:gap-3">
+      {talk}
+      {call}
+      {text}
+      {financing}
     </div>
   );
 }
@@ -1022,6 +1109,7 @@ export default function InventoryBrowse({
 
   // --- RENDER ---
 
+  const onStorefrontHome = currentPath === '/' || currentPath === '';
   const onInventoryHub = /^\/inventory\/?$/i.test(currentPath);
   const inventoryHubHeading = INVENTORY_H1;
   const uniqueHeading = cityLanding?.heading
@@ -1054,13 +1142,21 @@ export default function InventoryBrowse({
                 <Skeleton className="mb-4" width="45%" height={28} />
               )}
               <Skeleton className="mb-4" width="88%" height={52} />
-              <Skeleton className="mb-6" width="75%" height={44} />
-              <div className="mb-6 grid grid-cols-3 gap-3">
-                {Array.from({ length: 3 }).map((_, i) => (
+              {onStorefrontHome ? (
+                <>
+                  <Skeleton className="mb-2 rounded-md" width="100%" height={44} />
+                  <Skeleton className="mb-4 rounded-md" width="100%" height={44} />
+                  <Skeleton className="mb-6 rounded-xl" width="100%" height={56} />
+                </>
+              ) : (
+                <Skeleton className="mb-6" width="75%" height={44} />
+              )}
+              <div className={`mb-6 grid gap-3 ${onStorefrontHome ? 'grid-cols-2' : 'grid-cols-3'}`}>
+                {Array.from({ length: onStorefrontHome ? 4 : 3 }).map((_, i) => (
                   <Skeleton key={i} className="rounded-lg" width="100%" height={72} />
                 ))}
               </div>
-              <Skeleton className="rounded-xl" width="100%" height={56} />
+              {!onStorefrontHome && <Skeleton className="rounded-xl" width="100%" height={56} />}
             </div>
             <Skeleton className="min-h-[380px] rounded-xl lg:min-h-0" width="100%" height="100%" />
           </div>
@@ -1121,14 +1217,11 @@ export default function InventoryBrowse({
     );
   }
 
-  // Stats for hero
-  const newCount = routeHomes.filter(h => getAvailabilityKind(h) === 'available_now').length;
-  const preOwnedCount = routeHomes.filter(h => getAvailabilityKind(h) === 'pre_owned').length;
-  const orderableCount = routeHomes.filter(h => getAvailabilityKind(h) === 'orderable_floorplan').length;
-  const tourCount = routeHomes.filter(h => h.matterport_id).length;
-  // Total houses the customer can get = on-lot homes + orderable floorplans.
-  // The on-lot homes (lot models) use the label "On the Lot".
-  const housesCount = newCount + orderableCount;
+  // One count per catalog bucket. "On the lot" is available_now only.
+  // Pre-owned stays separate. Orderable floorplans are not homes on the lot.
+  // There is no combined "houses" total.
+  const counts = countCatalog(routeHomes);
+  const countLine = formatCatalogCounts(counts, { scope: routeCategory ? 'group' : 'catalog' });
   const heroHome = routeHomes.find(home => getHomeImage(home) && getAvailabilityKind(home) !== 'orderable_floorplan') || routeHomes.find(home => getHomeImage(home)) || routeHomes[0];
   const heroImage = getHomeImage(heroHome);
 
@@ -1186,82 +1279,43 @@ export default function InventoryBrowse({
                     ? `Current manufactured and mobile home inventory at ${BUSINESS_NAME} in ${BUSINESS_CITY}, ${BUSINESS_STATE}. Compare listed homes, pre-owned homes, and orderable floorplans, then call or text to confirm price and availability.`
                     : routeCategory?.description || 'Browse current listed homes plus manufacturer floorplans Texas Home Outlet can custom order. Confirm price and availability with our team before planning a visit.'}
             </p>
+            {onStorefrontHome && (
+              <>
+                <CatalogActions onAskTex={onAskTex} variant="lead" />
+                <CatalogSearch searchQuery={searchQuery} setSearchQuery={setSearchQuery} />
+              </>
+            )}
             <nav className="mt-4 flex flex-wrap gap-2" aria-label="Browse by home type">
               {Object.values(INVENTORY_CATEGORY_ROUTES).map(category => (
                 <a
                   key={category.path}
                   href={category.path}
                   aria-current={routeCategory?.path === category.path ? 'page' : undefined}
-                  className="rounded-md border border-white/35 bg-black/35 px-3 py-2 text-sm font-semibold text-white transition hover:border-white/70 hover:bg-black/55"
+                  className="inline-flex min-h-11 items-center rounded-md border border-white/35 bg-black/35 px-3 text-sm font-semibold text-white transition hover:border-white/70 hover:bg-black/55 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
                 >
                   {category.classification} Homes
                 </a>
               ))}
             </nav>
-            {!pathListingHome && <StorefrontLinks currentPath={currentPath} />}
+            {!pathListingHome && !onStorefrontHome && <StorefrontLinks currentPath={currentPath} />}
 
-            <div className="mt-6 grid gap-3 sm:grid-cols-3">
-              <InventoryMetric icon={Home} label="Houses" value={housesCount} tone="blue" />
-              <InventoryMetric icon={Tag} label="On the Lot" value={newCount} />
-              <InventoryMetric icon={Box} label="3D Tours" value={tourCount} tone="warn" />
+            <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4" role="group" aria-label="Catalog counts">
+              <InventoryMetric icon={Home} label="On the lot" value={counts.availableNow} tone="blue" />
+              <InventoryMetric icon={Tag} label="Pre-owned" value={counts.preOwned} />
+              <InventoryMetric icon={Box} label="Orderable plans" detail="Not on the lot" value={counts.orderable} />
+              <InventoryMetric icon={Box} label="3D tours" value={counts.tours} tone="warn" />
             </div>
 
-            {/* Search Bar */}
-            <div className="mt-6 max-w-2xl rounded-lg border border-[var(--cp-border-light)] bg-[var(--cp-panel)] p-2 shadow-[0_18px_50px_rgba(0,0,0,0.32)]">
-              <div className="flex items-center gap-2 rounded-md bg-[var(--cp-bg-2)] px-4 py-3">
-                <Search size={20} className="flex-shrink-0 text-[var(--cp-accent)]" />
-                <input
-                  type="text"
-                  aria-label="Search homes"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search by model, manufacturer, beds, baths, type..."
-                  className="min-w-0 flex-1 bg-transparent text-base text-[var(--cp-text)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--cp-accent)] placeholder:text-[var(--cp-muted)]"
-                />
-                {searchQuery && (
-                  <button type="button" onClick={() => setSearchQuery('')} aria-label="Clear search" className="flex-shrink-0 rounded-md text-[var(--cp-text)] hover:text-[var(--cp-accent)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--cp-accent)]">
-                    <X size={18} aria-hidden="true" />
-                  </button>
-                )}
-              </div>
-            </div>
-
-            <div className="mt-5 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:gap-3">
-              {onAskTex && (
-                <button
-                  onClick={() => onAskTex("I'm looking for a new home. What do you recommend?")}
-                  className="col-span-2 inline-flex min-h-11 items-center justify-center gap-2 rounded-md bg-[var(--cp-accent)] px-5 py-3 text-sm font-bold text-[var(--cp-bg)] transition hover:bg-[var(--cp-accent-hot)] sm:col-span-1"
-                >
-                  <MessageCircle size={18} /> Talk to Tex
-                </button>
-              )}
-              <a
-                href={`tel:${BUSINESS_PHONE_RAW}`}
-                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md border border-[var(--cp-border-light)] bg-[var(--cp-panel)] px-4 py-3 text-sm font-semibold text-[var(--cp-text)] no-underline transition hover:border-[var(--cp-secondary)] hover:text-[var(--cp-secondary)]"
-                aria-label={`Call ${BUSINESS_PHONE}`}
-              >
-                <Phone size={18} /> Call
-              </a>
-              <a
-                href={smsHref(null)}
-                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md border border-[var(--cp-border-light)] bg-[var(--cp-panel)] px-4 py-3 text-sm font-semibold text-[var(--cp-text)] no-underline transition hover:border-[var(--cp-secondary)] hover:text-[var(--cp-secondary)]"
-                aria-label={`Text ${BUSINESS_PHONE}`}
-              >
-                <MessageCircle size={18} /> Text
-              </a>
-              <a
-                href="/financing"
-                className="col-span-2 inline-flex min-h-11 items-center justify-center gap-2 rounded-md bg-[var(--cp-cta-green)] px-4 py-3 text-sm font-semibold text-white no-underline sm:col-span-1"
-              >
-                <DollarSign size={18} /> Ask about financing
-              </a>
-            </div>
-            <div className="mt-6 flex flex-wrap items-center gap-3 text-xs font-medium text-white/80">
-              <span className="inline-flex items-center gap-1.5"><MapPin size={14} /> {BUSINESS_FULL_ADDRESS}</span>
+            {!onStorefrontHome && (
+              <CatalogSearch searchQuery={searchQuery} setSearchQuery={setSearchQuery} />
+            )}
+            <CatalogActions onAskTex={onAskTex} variant={onStorefrontHome ? 'more' : 'all'} />
+            <div className="mt-6 flex flex-wrap items-center gap-3 text-sm font-medium text-white">
+              <span className="inline-flex items-center gap-1.5"><MapPin size={14} aria-hidden="true" /> {BUSINESS_FULL_ADDRESS}</span>
               <span className="hidden h-1 w-1 rounded-full bg-white/55 sm:inline-block" />
               <span>{BUSINESS_HOURS}</span>
               <span className="hidden h-1 w-1 rounded-full bg-white/55 sm:inline-block" />
-              <span>{preOwnedCount} pre-owned homes and {orderableCount} orderable floorplans visible</span>
+              <span>{countLine}</span>
             </div>
           </div>
 
@@ -1275,6 +1329,8 @@ export default function InventoryBrowse({
           </div>
         </div>
       </section>
+
+      {onStorefrontHome && <AreasWeServe />}
 
       <div className={staticLcp ? 'bg-[var(--cp-bg)]' : undefined}>
       <AdminInventoryPanel enabled={adminAuthed} />
@@ -1315,22 +1371,22 @@ export default function InventoryBrowse({
             <button
               onClick={() => setFilters(f => ({ ...f, status: 'available_now' }))}
               className={`${PILL_BTN} ${filters.status === 'available_now' ? 'bg-[var(--cp-accent)] text-[var(--cp-bg)]' : 'bg-[var(--cp-panel)] text-[var(--cp-muted)] hover:text-[var(--cp-text)] hover:border-[var(--cp-border-light)]'}`}
-            >On the Lot ({newCount})</button>
+            >On the Lot ({counts.availableNow})</button>
             <button
               onClick={() => setFilters(f => ({ ...f, status: 'orderable_floorplan' }))}
               className={`${PILL_BTN} ${filters.status === 'orderable_floorplan' ? 'bg-[var(--cp-accent)] text-[var(--cp-bg)]' : 'bg-[var(--cp-panel)] text-[var(--cp-muted)] hover:text-[var(--cp-text)] hover:border-[var(--cp-border-light)]'}`}
-            >Orderable ({orderableCount})</button>
+            >Orderable ({counts.orderable})</button>
             <button
               onClick={() => setFilters(f => ({ ...f, status: 'pre_owned' }))}
               className={`${PILL_BTN} ${filters.status === 'pre_owned' ? 'bg-[var(--cp-accent)] text-[var(--cp-bg)]' : 'bg-[var(--cp-panel)] text-[var(--cp-muted)] hover:text-[var(--cp-text)] hover:border-[var(--cp-border-light)]'}`}
-            >Pre-Owned ({preOwnedCount})</button>
+            >Pre-Owned ({counts.preOwned})</button>
             <button
               type="button"
               aria-pressed={filters.hasTour}
               onClick={() => setFilters(f => ({ ...f, hasTour: !f.hasTour }))}
               className={`inline-flex items-center gap-1.5 ${PILL_BTN} ${filters.hasTour ? 'bg-[var(--cp-accent)] text-[var(--cp-bg)]' : 'bg-[var(--cp-panel)] text-[var(--cp-muted)] hover:text-[var(--cp-text)] hover:border-[var(--cp-border-light)]'}`}
             >
-              <Box size={14} /> 3D tour ({tourCount})
+              <Box size={14} /> 3D tour ({counts.tours})
             </button>
             {favorites.size > 0 && (
               <button

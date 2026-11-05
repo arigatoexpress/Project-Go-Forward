@@ -1681,8 +1681,7 @@ def _faqpage_jsonld() -> dict:
 def _crawlable_faq_block() -> str:
     e = html.escape
     items = "".join(
-        f"<li><h3>{e(question)}</h3><p>{e(answer)}</p></li>"
-        for question, answer in _faq_pairs()
+        f"<li><h3>{e(question)}</h3><p>{e(answer)}</p></li>" for question, answer in _faq_pairs()
     )
     return (
         f"<h1>Frequently Asked Questions</h1>"
@@ -1796,6 +1795,25 @@ _LCP_IMG = (
 )
 
 
+def _crawlable_site_footer() -> str:
+    """Telephone and legal links in the initial HTML, on every page.
+
+    The React footer renders the same links after JavaScript runs. Crawlers
+    that do not execute JavaScript only see this block.
+    """
+    e = html.escape
+    return (
+        "<footer>"
+        f'<p><a href="{e(_tel_href())}">Call {e(business_phone())}</a></p>'
+        '<nav aria-label="Privacy and terms">'
+        '<a href="/privacy">Privacy Policy</a>'
+        " · "
+        '<a href="/terms">Terms of Use</a>'
+        "</nav>"
+        "</footer>"
+    )
+
+
 def _inject(
     shell: str,
     head_block: str,
@@ -1806,12 +1824,11 @@ def _inject(
     out = _TITLE_RE.sub("", shell, count=1)
     out = _DESC_RE.sub("", out, count=1)
     out = out.replace("</head>", f"    {head_block}\n  </head>", 1)
-    block = ((_LCP_IMG if paint_lcp else "") + (body_block or "")) or None
-    if block:
-        out = out.replace('<div id="root">', f'<div id="root">{block}', 1)
-        # vite shells emit `<div id="root"></div>`; handle both spellings
-        if block not in out:
-            out = out.replace('<div id="root"></div>', f'<div id="root">{block}</div>', 1)
+    block = (_LCP_IMG if paint_lcp else "") + (body_block or "") + _crawlable_site_footer()
+    out = out.replace('<div id="root">', f'<div id="root">{block}', 1)
+    # vite shells emit `<div id="root"></div>`; handle both spellings
+    if block not in out:
+        out = out.replace('<div id="root"></div>', f'<div id="root">{block}</div>', 1)
     return out
 
 

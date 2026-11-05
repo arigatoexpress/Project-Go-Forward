@@ -4,6 +4,7 @@ ROOT = Path(__file__).resolve().parents[1]
 APP = ROOT / "frontend/src/App.jsx"
 STAFF_SIGN_IN = ROOT / "frontend/src/components/StaffSignInPanel.jsx"
 INVENTORY_BROWSE = ROOT / "frontend/src/pages/InventoryBrowse.jsx"
+CATALOG_COUNTS = ROOT / "frontend/src/utils/catalogCounts.js"
 DOCUMENT_CENTER = ROOT / "frontend/src/pages/DocumentCenter.jsx"
 AD_STUDIO = ROOT / "frontend/src/pages/AdStudio.jsx"
 AD_STUDIO_COPY = ROOT / "frontend/src/components/ad-studio/adStudioStaffCopy.js"
@@ -54,7 +55,9 @@ def test_inventory_hero_uses_readable_text_on_dark_photo_overlay():
     assert (
         "text-[var(--cp-text-secondary)]"
         not in source[
-            source.index("Confirm availability with our team") : source.index("FeaturedHomeSpotlight")
+            source.index("Confirm availability with our team") : source.index(
+                "FeaturedHomeSpotlight"
+            )
         ]
     )
 
@@ -116,17 +119,19 @@ def test_home_status_badges_avoid_white_on_mid_tone_green_or_amber():
 
 def test_inventory_browse_exposes_orderable_floorplan_filter():
     source = INVENTORY_BROWSE.read_text()
+    counts = CATALOG_COUNTS.read_text()
 
     assert "function getAvailabilityKind(home)" in source
     assert "orderable_floorplan" in source
-    # The orderable affordance is the FILTER chip + the "orderable floorplans
-    # visible" subtext. (The hero stat card was relabeled "Houses" per client
-    # feedback. On-lot lot models use the label "On the Lot", so the old
-    # "Orderable Plans" hero label is intentionally gone.)
-    assert "Orderable ({orderableCount})" in source
-    assert "orderable floorplans visible" in source
+    # The filter chip, the hero tile, and the sentence share countCatalog.
+    # There is no mixed "Houses" total.
+    assert "Orderable ({counts.orderable})" in source
+    assert 'label="Orderable plans"' in source
+    assert 'label="Houses"' not in source
+    assert "formatCatalogCounts(counts" in source
+    assert "orderable floorplans" in counts
     assert "Watch 3D tour" in source
-    assert "3D tour ({tourCount})" in source
+    assert "3D tour ({counts.tours})" in source
     assert "filters.hasTour" in source
 
 

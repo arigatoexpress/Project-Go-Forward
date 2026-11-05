@@ -2207,3 +2207,41 @@ def test_blank_or_zero_display_price_is_call_for_price(monkeypatch, display_pric
     assert "Call for Price" in body
     assert 'href="tel:+12813243020">Call (281) 324-3020</a>' in body
     assert '"offers"' not in body
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/",
+        "/inventory",
+        "/contact",
+        "/about",
+        "/financing",
+        "/faq",
+        "/warranty",
+        "/delivery",
+        "/appointments",
+        "/chat",
+        "/privacy",
+        "/terms",
+        "/locations",
+        "/single-wide",
+        "/manufactured-homes-in-humble-tx",
+        "/crm",
+    ],
+)
+def test_server_html_has_tel_and_legal_links_on_every_page(monkeypatch, path):
+    client, _ = seo_client(monkeypatch)
+    body = client.get(path).text
+    assert 'href="tel:+12813243020"' in body
+    assert 'href="/privacy">Privacy Policy</a>' in body
+    assert 'href="/terms">Terms of Use</a>' in body
+
+
+def test_unknown_page_server_html_has_tel_and_legal_links(monkeypatch):
+    client, _ = seo_client(monkeypatch)
+    response = client.get("/not-a-real-storefront-page")
+    assert response.status_code == 404
+    assert 'href="tel:+12813243020"' in response.text
+    assert 'href="/privacy">Privacy Policy</a>' in response.text
+    assert 'href="/terms">Terms of Use</a>' in response.text
