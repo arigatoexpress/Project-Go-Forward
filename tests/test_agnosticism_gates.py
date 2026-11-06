@@ -20,6 +20,7 @@ SOURCE_GLOBS = ("*.py", "*.js", "*.jsx", "*.ts", "*.tsx")
 EXCLUDED_PARTS = {
     ".git",
     ".venv",
+    ".venv-py312",  # secondary Python 3.12 verification venv (third-party code, never shipped)
     "node_modules",
     "dist",
     ".claude",

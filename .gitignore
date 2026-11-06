@@ -23,6 +23,7 @@ __pycache__/
 *.pyo
 *.pyd
 .venv/
+.venv-py312/
 venv/
 
 # Node
