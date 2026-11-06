@@ -1,4 +1,5 @@
 """Mira Notification Webhook — Forward system events to Telegram."""
+
 from __future__ import annotations
 
 import json
@@ -29,7 +30,10 @@ def send_mira_notification(payload: NotifyPayload) -> dict:
     """Send a notification to the configured Mira Telegram group."""
     chat_id = _GROUP or _FALLBACK
     if not chat_id:
-        return {"ok": False, "error": "MIRA_GROUP_ID not configured — set env var or KIMI_RELAY_CHAT_ID"}
+        return {
+            "ok": False,
+            "error": "MIRA_GROUP_ID not configured — set env var or KIMI_RELAY_CHAT_ID",
+        }
     if not _TOKEN:
         return {"ok": False, "error": "TELEGRAM_BOT_TOKEN not configured"}
     text = f"*THO Alert — {payload.source.upper()}*\n\n{payload.message}"

@@ -77,7 +77,14 @@ def captured_telegram(monkeypatch):
     calls = []
 
     def _fake_send(payload):
-        calls.append({"message": payload.message, "level": payload.level, "source": payload.source, "action_url": payload.action_url})
+        calls.append(
+            {
+                "message": payload.message,
+                "level": payload.level,
+                "source": payload.source,
+                "action_url": payload.action_url,
+            }
+        )
         return {"ok": True, "telegram": {"message_id": 42}}
 
     monkeypatch.setattr(mira_notify, "send_mira_notification", _fake_send)
@@ -125,7 +132,7 @@ def test_invalid_signature_returns_401(client, monkeypatch):
 
 def test_missing_signature_returns_401(client, monkeypatch):
     monkeypatch.setattr(github_mira_trigger, "_GITHUB_WEBHOOK_SECRET", "test-github-secret")
-    body = b'{}'
+    body = b"{}"
 
     response = client.post(
         "/api/github/mira/webhook",
@@ -138,7 +145,7 @@ def test_missing_signature_returns_401(client, monkeypatch):
 
 def test_unconfigured_secret_returns_ignored(client, monkeypatch):
     monkeypatch.setattr(github_mira_trigger, "_GITHUB_WEBHOOK_SECRET", "")
-    body = b'{}'
+    body = b"{}"
 
     response = client.post(
         "/api/github/mira/webhook",
@@ -151,7 +158,9 @@ def test_unconfigured_secret_returns_ignored(client, monkeypatch):
     assert response.json()["reason"] == "github_webhook_secret_not_configured"
 
 
-def test_non_notable_event_is_ignored(client, monkeypatch, fake_db, captured_telegram, captured_partner_dispatch):
+def test_non_notable_event_is_ignored(
+    client, monkeypatch, fake_db, captured_telegram, captured_partner_dispatch
+):
     monkeypatch.setattr(github_mira_trigger, "_GITHUB_WEBHOOK_SECRET", "test-github-secret")
     payload = {"action": "labeled", "pull_request": {"number": 1}}
     body = json.dumps(payload).encode("utf-8")
@@ -174,7 +183,9 @@ def test_non_notable_event_is_ignored(client, monkeypatch, fake_db, captured_tel
     assert fake_db.activities == {}
 
 
-def test_pull_request_open_forwards_to_telegram_and_partner(client, monkeypatch, fake_db, captured_telegram, captured_partner_dispatch):
+def test_pull_request_open_forwards_to_telegram_and_partner(
+    client, monkeypatch, fake_db, captured_telegram, captured_partner_dispatch
+):
     monkeypatch.setattr(github_mira_trigger, "_GITHUB_WEBHOOK_SECRET", "test-github-secret")
     payload = {
         "action": "opened",
@@ -232,7 +243,9 @@ def test_pull_request_open_forwards_to_telegram_and_partner(client, monkeypatch,
     assert activity["metadata"]["partner_ids"] == ["mira"]
 
 
-def test_cutover_pr_gets_special_formatting(client, monkeypatch, fake_db, captured_telegram, captured_partner_dispatch):
+def test_cutover_pr_gets_special_formatting(
+    client, monkeypatch, fake_db, captured_telegram, captured_partner_dispatch
+):
     monkeypatch.setattr(github_mira_trigger, "_GITHUB_WEBHOOK_SECRET", "test-github-secret")
     payload = {
         "action": "closed",
@@ -267,7 +280,9 @@ def test_cutover_pr_gets_special_formatting(client, monkeypatch, fake_db, captur
     assert dispatch["payload"]["is_cutover_pr"] is True
 
 
-def test_workflow_run_failure_formats_red_icon(client, monkeypatch, fake_db, captured_telegram, captured_partner_dispatch):
+def test_workflow_run_failure_formats_red_icon(
+    client, monkeypatch, fake_db, captured_telegram, captured_partner_dispatch
+):
     monkeypatch.setattr(github_mira_trigger, "_GITHUB_WEBHOOK_SECRET", "test-github-secret")
     payload = {
         "action": "completed",
@@ -303,7 +318,9 @@ def test_workflow_run_failure_formats_red_icon(client, monkeypatch, fake_db, cap
     assert dispatch["payload"]["workflow_conclusion"] == "failure"
 
 
-def test_push_to_main_is_notable(client, monkeypatch, fake_db, captured_telegram, captured_partner_dispatch):
+def test_push_to_main_is_notable(
+    client, monkeypatch, fake_db, captured_telegram, captured_partner_dispatch
+):
     monkeypatch.setattr(github_mira_trigger, "_GITHUB_WEBHOOK_SECRET", "test-github-secret")
     payload = {
         "ref": "refs/heads/main",
@@ -331,7 +348,9 @@ def test_push_to_main_is_notable(client, monkeypatch, fake_db, captured_telegram
     assert "1 commit(s)" in telegram["message"]
 
 
-def test_push_to_feature_branch_is_ignored(client, monkeypatch, fake_db, captured_telegram, captured_partner_dispatch):
+def test_push_to_feature_branch_is_ignored(
+    client, monkeypatch, fake_db, captured_telegram, captured_partner_dispatch
+):
     monkeypatch.setattr(github_mira_trigger, "_GITHUB_WEBHOOK_SECRET", "test-github-secret")
     payload = {
         "ref": "refs/heads/feat/x",
@@ -397,14 +416,32 @@ class TestFormatGithubEvent:
         assert url == "https://example.com/i/7"
 
     def test_workflow_job_icons(self):
-        base = {**self._repo(), "workflow_job": {"name": "build", "html_url": "https://example.com/j"}}
+        base = {
+            **self._repo(),
+            "workflow_job": {"name": "build", "html_url": "https://example.com/j"},
+        }
         ok_msg, _ = github_mira_trigger._format_github_event(
-            "workflow_job", {**base, "workflow_job": {**base["workflow_job"], "status": "completed", "conclusion": "success"}}
+            "workflow_job",
+            {
+                **base,
+                "workflow_job": {
+                    **base["workflow_job"],
+                    "status": "completed",
+                    "conclusion": "success",
+                },
+            },
         )
         assert ok_msg.startswith("🟢")
         fail_msg, _ = github_mira_trigger._format_github_event(
             "workflow_job",
-            {**base, "workflow_job": {**base["workflow_job"], "status": "completed", "conclusion": "failure"}},
+            {
+                **base,
+                "workflow_job": {
+                    **base["workflow_job"],
+                    "status": "completed",
+                    "conclusion": "failure",
+                },
+            },
         )
         assert fail_msg.startswith("🔴")
         neutral_msg, _ = github_mira_trigger._format_github_event(
@@ -456,7 +493,9 @@ class TestIsNotable:
         assert github_mira_trigger._is_notable("push", {"ref": "refs/heads/dev"}) is False
 
     def test_pr_without_action_is_notable(self):
-        assert github_mira_trigger._is_notable("pull_request", {"pull_request": {"number": 1}}) is True
+        assert (
+            github_mira_trigger._is_notable("pull_request", {"pull_request": {"number": 1}}) is True
+        )
 
 
 class TestPartnerPayloadBranches:
@@ -468,7 +507,10 @@ class TestPartnerPayloadBranches:
         }
 
     def test_issues(self):
-        payload = {**self._base(), "issue": {"number": 9, "title": "T", "html_url": "u", "state": "open"}}
+        payload = {
+            **self._base(),
+            "issue": {"number": 9, "title": "T", "html_url": "u", "state": "open"},
+        }
         result = github_mira_trigger._build_partner_payload("issues", payload)
         assert result["issue_number"] == 9
         assert result["issue_state"] == "open"
@@ -517,7 +559,9 @@ class TestLogActivityFailure:
 
         monkeypatch.setattr(github_mira_trigger, "get_database", boom)
         # Must not raise.
-        github_mira_trigger._log_activity("push", {"repository": {"full_name": "tho/site"}}, True, [])
+        github_mira_trigger._log_activity(
+            "push", {"repository": {"full_name": "tho/site"}}, True, []
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -525,7 +569,12 @@ class TestLogActivityFailure:
 # ---------------------------------------------------------------------------
 
 
-def _post_signed(client, event_type, body: bytes, secret="test-github-secret"):
+def _post_signed(
+    client,
+    event_type,
+    body: bytes,
+    secret="test-github-secret",  # pragma: allowlist secret
+):
     return client.post(
         "/api/github/mira/webhook",
         content=body,

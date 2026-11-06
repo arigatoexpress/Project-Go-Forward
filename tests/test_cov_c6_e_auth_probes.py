@@ -283,9 +283,7 @@ class TestReadyzChecks:
     def test_unavailable_firestore_client_raises(self, monkeypatch):
         _client_, main, _db = _client(monkeypatch)
         fs_module = sys.modules["database.firestore_client"]
-        monkeypatch.setattr(
-            fs_module, "get_database", lambda: types.SimpleNamespace(db=None)
-        )
+        monkeypatch.setattr(fs_module, "get_database", lambda: types.SimpleNamespace(db=None))
 
         with pytest.raises(RuntimeError, match="firestore client unavailable"):
             main._readyz_check_firestore()

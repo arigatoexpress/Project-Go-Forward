@@ -19,8 +19,8 @@ logger = logging.getLogger(__name__)
 
 CUTOVER_DOMAIN = (os.environ.get("CUTOVER_DOMAIN") or "texashomeoutlet.com").strip().lower()
 CUTOVER_WWW_DOMAIN = (
-    os.environ.get("CUTOVER_WWW_DOMAIN") or f"www.{CUTOVER_DOMAIN}"
-).strip().lower()
+    (os.environ.get("CUTOVER_WWW_DOMAIN") or f"www.{CUTOVER_DOMAIN}").strip().lower()
+)
 
 # Google Cloud Run apex A-record targets for a custom domain mapping.
 EXPECTED_APEX_A_IPS = frozenset(

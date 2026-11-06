@@ -11,9 +11,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 # root_agent hard-requires google-adk; only the agent-construction test below
 # needs it, so skip just that test in dependency-minimal environments.
 _HAS_GOOGLE_ADK = importlib.util.find_spec("google.adk") is not None
-requires_google_adk = pytest.mark.skipif(
-    not _HAS_GOOGLE_ADK, reason="google-adk is not installed"
-)
+requires_google_adk = pytest.mark.skipif(not _HAS_GOOGLE_ADK, reason="google-adk is not installed")
 
 import prompt_loader  # noqa: E402
 from prompt_loader import available_prompts, build_context, render_prompt  # noqa: E402

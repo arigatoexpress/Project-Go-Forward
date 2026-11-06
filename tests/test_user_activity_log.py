@@ -399,9 +399,7 @@ def test_get_db_lazy_loads_real_client(monkeypatch):
     monkeypatch.setattr(ua, "_firestore_client", None, raising=False)
     monkeypatch.delitem(sys.modules, "pytest", raising=False)
     monkeypatch.delenv("GOOGLE_CLOUD_PROJECT", raising=False)
-    fake_module = SimpleNamespace(
-        Client=lambda project: ("client", project)
-    )
+    fake_module = SimpleNamespace(Client=lambda project: ("client", project))
     monkeypatch.setitem(sys.modules, "google.cloud.firestore", fake_module)
     import google.cloud
 
@@ -487,9 +485,7 @@ def test_sanitize_details_rejects_non_dict():
 
     assert _sanitize_details(None) == {}
     assert _sanitize_details({}) == {}
-    assert _sanitize_details(["not", "a", "dict"]) == {
-        "_invalid": "details must be a dict"
-    }
+    assert _sanitize_details(["not", "a", "dict"]) == {"_invalid": "details must be a dict"}
 
 
 def test_sanitize_details_skips_non_string_keys():

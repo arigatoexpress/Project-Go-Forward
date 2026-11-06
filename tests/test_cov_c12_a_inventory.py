@@ -73,9 +73,7 @@ def _jpeg_bytes(size=(64, 64), mode="RGB") -> bytes:
 def _gif_bytes(frames: int = 2, size=(20, 20)) -> bytes:
     from PIL import Image
 
-    pil_frames = [
-        Image.effect_noise(size, 100 + index).convert("P") for index in range(frames)
-    ]
+    pil_frames = [Image.effect_noise(size, 100 + index).convert("P") for index in range(frames)]
     buffer = io.BytesIO()
     pil_frames[0].save(
         buffer, format="GIF", save_all=True, append_images=pil_frames[1:], loop=0, duration=100
@@ -103,9 +101,7 @@ class TestResolveCandidateUrlCatalogEntryWithoutImages:
         assert url == image_url_backfill.build_new_home_url("3335", "225053")
 
     def test_catalog_entry_without_images_and_no_ids_falls_through(self, monkeypatch):
-        monkeypatch.setattr(
-            image_url_backfill, "get_assets_for_home", lambda model: {"images": []}
-        )
+        monkeypatch.setattr(image_url_backfill, "get_assets_for_home", lambda model: {"images": []})
         url = image_url_backfill.resolve_candidate_url(
             {"id": "12345", "model_name": "Whatever", "is_new": False}
         )
@@ -117,7 +113,9 @@ class TestProbeUrlGenericException:
 
     def test_unexpected_exception_is_reported(self, monkeypatch):
         monkeypatch.setattr(
-            image_url_backfill.requests, "head", lambda *a, **k: (_ for _ in ()).throw(ValueError("boom"))
+            image_url_backfill.requests,
+            "head",
+            lambda *a, **k: (_ for _ in ()).throw(ValueError("boom")),
         )
         result = image_url_backfill.probe_url("https://example.com/x.jpg")
         assert "error:boom" in str(result["head_status"])
@@ -215,7 +213,11 @@ class TestApplyVerified:
                 "candidate_url": "https://cdn.example.com/1.jpg",
                 "head_status": 200,
             },
-            {"inventory_id": "not-200", "candidate_url": "https://cdn.example.com/2.jpg", "head_status": 404},
+            {
+                "inventory_id": "not-200",
+                "candidate_url": "https://cdn.example.com/2.jpg",
+                "head_status": 404,
+            },
             {"inventory_id": "no-url", "candidate_url": None, "head_status": "skipped_no_ids"},
         ]
 
@@ -261,7 +263,9 @@ class TestRunOrchestrationGaps:
             return real_process(row)
 
         monkeypatch.setattr(
-            image_url_backfill, "load_inventory_missing_image", lambda: [{"id": "bad"}, {"id": "worse"}]
+            image_url_backfill,
+            "load_inventory_missing_image",
+            lambda: [{"id": "bad"}, {"id": "worse"}],
         )
         monkeypatch.setattr(image_url_backfill, "process_row", _flaky)
 
@@ -713,9 +717,7 @@ class TestFloorplanMainCli:
         self._patch_io(monkeypatch, [{"image_url": "https://cdn.example.com/a.jpg"}])
         out = tmp_path / "manifest.json"
 
-        rc = floorplan_image_scan.main(
-            ["--source", "whatever", "--out", str(out), "--dry-run"]
-        )
+        rc = floorplan_image_scan.main(["--source", "whatever", "--out", str(out), "--dry-run"])
 
         assert rc == 0
         captured = capsys.readouterr().out
@@ -841,7 +843,10 @@ class TestExtractCardGaps:
             """
         )
         home = self._sync()._extract_card_data(card)
-        assert home["image_url"] == "https://www.texashomeoutlet.com/dealer/3522/inventory/28102/card.jpg"
+        assert (
+            home["image_url"]
+            == "https://www.texashomeoutlet.com/dealer/3522/inventory/28102/card.jpg"
+        )
 
     def test_price_and_year_extracted(self):
         card = self._card(
@@ -941,7 +946,9 @@ class TestSyncGaps:
         monkeypatch.chdir(tmp_path)
         sync = inventory_sync.InventorySync(dry_run=True)
         monkeypatch.setattr(
-            sync, "scrape_website_inventory", lambda: [{"specs": {}}]  # no model_name -> KeyError
+            sync,
+            "scrape_website_inventory",
+            lambda: [{"specs": {}}],  # no model_name -> KeyError
         )
         with caplog.at_level("ERROR"):
             stats = sync.run_sync()
@@ -1055,9 +1062,7 @@ class TestValidateImageBytesGaps:
             image_storage.validate_image_bytes(_gif_bytes(frames=1), "image/gif")
 
     def test_detected_type_must_match_declared(self):
-        with pytest.raises(
-            image_storage.PhotoValidationError, match="does not match its content"
-        ):
+        with pytest.raises(image_storage.PhotoValidationError, match="does not match its content"):
             image_storage.validate_image_bytes(_jpeg_bytes(), "image/png")
 
 
@@ -1119,7 +1124,9 @@ class TestGetBucket:
         assert image_storage._get_bucket() is sentinel_bucket
         assert len(calls) == 1
 
-    def test_init_failure_latches_unavailable_outside_cloud_run(self, monkeypatch, caplog, tmp_path):
+    def test_init_failure_latches_unavailable_outside_cloud_run(
+        self, monkeypatch, caplog, tmp_path
+    ):
         monkeypatch.setattr(image_storage, "_LOCAL_DIR", str(tmp_path))
         _reset_gcs_state(monkeypatch)
 
@@ -1180,16 +1187,16 @@ class TestReadOrderGaps:
 
     def test_gcs_schema_invalid_returns_empty(self, monkeypatch, tmp_path):
         monkeypatch.setattr(image_storage, "_LOCAL_DIR", str(tmp_path))
-        bucket = _FakeGcsBucket(blobs={"listing_photos/43372/_order.json": _FakeGcsBlob(b'{"a": 1}')})
+        bucket = _FakeGcsBucket(
+            blobs={"listing_photos/43372/_order.json": _FakeGcsBlob(b'{"a": 1}')}
+        )
         _enable_fake_gcs(monkeypatch, bucket)
 
         assert image_storage._read_order("43372") == []
 
     def test_gcs_read_error_falls_back_to_local(self, monkeypatch, tmp_path):
         monkeypatch.setattr(image_storage, "_LOCAL_DIR", str(tmp_path))
-        bucket = _FakeGcsBucket(
-            blobs={"listing_photos/43372/_order.json": _FakeGcsBlob(None)}
-        )
+        bucket = _FakeGcsBucket(blobs={"listing_photos/43372/_order.json": _FakeGcsBlob(None)})
         _enable_fake_gcs(monkeypatch, bucket)
         home_dir = tmp_path / "43372"
         home_dir.mkdir()
@@ -1274,9 +1281,7 @@ class TestGetPhotoGcsPaths:
     def test_gcs_hit_returns_bytes_and_sniffed_type(self, monkeypatch, tmp_path):
         monkeypatch.setattr(image_storage, "_LOCAL_DIR", str(tmp_path))
         payload = b"\xff\xd8\xff" + b"jpeg-bytes"
-        bucket = _FakeGcsBucket(
-            blobs={"listing_photos/43372/photo.jpg": _FakeGcsBlob(payload)}
-        )
+        bucket = _FakeGcsBucket(blobs={"listing_photos/43372/photo.jpg": _FakeGcsBlob(payload)})
         bucket.blob("listing_photos/43372/photo.jpg").content_type = None
         _enable_fake_gcs(monkeypatch, bucket)
 
@@ -1286,9 +1291,7 @@ class TestGetPhotoGcsPaths:
 
     def test_gcs_error_falls_back_to_local_file(self, monkeypatch, tmp_path):
         monkeypatch.setattr(image_storage, "_LOCAL_DIR", str(tmp_path))
-        bucket = _FakeGcsBucket(
-            blobs={"listing_photos/43372/photo.png": _FakeGcsBlob(None)}
-        )
+        bucket = _FakeGcsBucket(blobs={"listing_photos/43372/photo.png": _FakeGcsBlob(None)})
         _enable_fake_gcs(monkeypatch, bucket)
         home_dir = tmp_path / "43372"
         home_dir.mkdir()
@@ -1385,8 +1388,14 @@ class TestIsNewTagsOnly:
     """L76: marketing tags alone can flag pre-owned."""
 
     def test_tags_only_marks_preowned(self):
-        assert inventory_seed._is_new({"status": "Available", "marketing_tags": ["Pre-Owned"]}) is False
-        assert inventory_seed._is_new({"status": "Available", "marketing_tags": ["Used Lot Model"]}) is False
+        assert (
+            inventory_seed._is_new({"status": "Available", "marketing_tags": ["Pre-Owned"]})
+            is False
+        )
+        assert (
+            inventory_seed._is_new({"status": "Available", "marketing_tags": ["Used Lot Model"]})
+            is False
+        )
         assert inventory_seed._is_new({"status": "Available", "marketing_tags": []}) is True
 
 

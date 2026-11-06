@@ -615,9 +615,7 @@ async def test_update_lead_triage_not_found(lead_manager):
 
 
 @pytest.mark.asyncio
-async def test_update_lead_triage_dispatches_partner_event(
-    lead_manager, monkeypatch, patch_db
-):
+async def test_update_lead_triage_dispatches_partner_event(lead_manager, monkeypatch, patch_db):
     old_lead = FakeLead("L1", status="new")
     FakeLeadManager._class_by_id["L1"] = old_lead
     FakeLeadManager._class_triage_result = FakeLead(
@@ -632,7 +630,9 @@ async def test_update_lead_triage_dispatches_partner_event(
 
     dispatched = []
     monkeypatch.setattr(
-        mr, "dispatch_partner_event", lambda event, payload, db=None: dispatched.append((event, payload))
+        mr,
+        "dispatch_partner_event",
+        lambda event, payload, db=None: dispatched.append((event, payload)),
     )
 
     result = await mr.mira_update_lead_triage(
@@ -778,6 +778,7 @@ async def test_count_backed_endpoints_degrade_to_zero_on_internal_error(monkeypa
     """inventory/deals summaries count via _count_collection_by_status, which
     already swallows the exception: the endpoint stays healthy and reports the
     UNKNOWN bucket as zero rather than 500ing the partner poll."""
+
     def boom():
         raise RuntimeError("db credentials secret-stuff")
 
@@ -798,6 +799,7 @@ async def test_count_backed_endpoints_degrade_to_zero_on_internal_error(monkeypa
 async def test_firestore_backed_endpoints_fail_closed_on_internal_error(endpoint, monkeypatch):
     """Endpoints without an internal swallow must return the generic
     internal_error code — never the raw exception — when Firestore blows up."""
+
     def boom():
         raise RuntimeError("db credentials secret-stuff")
 

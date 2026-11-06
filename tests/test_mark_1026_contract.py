@@ -166,9 +166,7 @@ def test_total_of_payments_excludes_escrow():
 
 
 def test_customer_paid_leaves_page1_cash_price_unchanged():
-    enriched = enrich_document_data(
-        {**MARK_NUMBERS, "insurance_first_year_paid_by": "customer"}
-    )
+    enriched = enrich_document_data({**MARK_NUMBERS, "insurance_first_year_paid_by": "customer"})
     assert enriched["sales_price"] == "87000"
     assert enriched.get("sales_price_includes_financed_insurance") is not True
     assert enriched["unpaid_balance"] == "77,000.00"
@@ -272,9 +270,7 @@ def test_monthly_property_tax_is_two_and_a_half_percent_of_home_price():
     inflated = (Decimal("0.025") * Decimal("89400") / Decimal("12")).quantize(Decimal("0.01"))
     assert inflated == Decimal("186.25")
 
-    financed = enrich_document_data(
-        {**MARK_NUMBERS, "insurance_first_year_paid_by": "financed"}
-    )
+    financed = enrich_document_data({**MARK_NUMBERS, "insurance_first_year_paid_by": "financed"})
     assert financed["sales_price"] == "89,400.00"
     assert financed["home_sales_price"] == "87,000.00"
     assert financed["tax_escrow_payment"] == "181.25"
@@ -315,9 +311,7 @@ def test_old_deal_without_the_new_fields_still_loads():
     assert deal.insurance_first_year_paid_by == "customer"
     assert deal.annual_insurance == 2400
     assert deal.insurance_premium == 50
-    loaded = Deal.model_validate(
-        {"sales_price": 87000, "creditor_name": "21st Mortgage"}
-    )
+    loaded = Deal.model_validate({"sales_price": 87000, "creditor_name": "21st Mortgage"})
     assert loaded.insurance_first_year_paid_by == "customer"
     assert loaded.insurance_annual_premium is None
     blank = parse_deal_create({"insurance_first_year_paid_by": "  "})

@@ -66,9 +66,7 @@ def _stub_google_storage(monkeypatch) -> dict:
             self.blob_name = blob_name
 
         def generate_signed_url(self, version=None, expiration=None, method=None):
-            calls["signed"].append(
-                {"version": version, "expiration": expiration, "method": method}
-            )
+            calls["signed"].append({"version": version, "expiration": expiration, "method": method})
             return f"https://storage.example.com/{self.bucket_name}/{self.blob_name}?sig=xyz"
 
     class _Bucket:

@@ -34,18 +34,21 @@ log = logging.getLogger(__name__)
 
 # EXACT live Lead Pipeline property names. "Email " has a real trailing space;
 # we write only the clean phone_number column and skip the dirty duplicates.
-_P_NAME = "Customer Name"   # title
-_P_EMAIL = "Email "         # email  — trailing space is intentional (live schema)
-_P_PHONE = "Phone Number"   # phone_number (NOT "Phone number " / "phone number ")
+_P_NAME = "Customer Name"  # title
+_P_EMAIL = "Email "  # email  — trailing space is intentional (live schema)
+_P_PHONE = "Phone Number"  # phone_number (NOT "Phone number " / "phone number ")
 _P_STAGE = "Pipeline Stage"  # select
-_P_NOTES = "Notes"          # rich_text — holds the source/date stamp + message
+_P_NOTES = "Notes"  # rich_text — holds the source/date stamp + message
 _NEW_LEAD_STAGE = "New Lead"
 
 
 def is_lead_sync_enabled() -> bool:
     """True only when NOTION_LEAD_SYNC is on AND token + Lead Pipeline db id exist."""
     flag = (os.getenv("NOTION_LEAD_SYNC", "off") or "off").strip().lower() in {
-        "on", "true", "1", "yes",
+        "on",
+        "true",
+        "1",
+        "yes",
     }
     return flag and bool(_token() and _db_id("lead_pipeline"))
 
@@ -72,7 +75,9 @@ def build_lead_properties(
     return props
 
 
-def write_lead(name, *, email=None, phone=None, message=None, source="website", lead_id=None) -> bool:
+def write_lead(
+    name, *, email=None, phone=None, message=None, source="website", lead_id=None
+) -> bool:
     """Create a Lead Pipeline row for a website lead. Never raises.
 
     Returns True on a 2xx create, False if disabled or on any error (logged as

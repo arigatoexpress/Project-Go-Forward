@@ -165,9 +165,7 @@ class TestCreateSalesContract:
         return main
 
     def test_success_returns_download_url(self, monkeypatch):
-        main = self._client(
-            monkeypatch, result={"success": True, "filename": "contract-1.pdf"}
-        )
+        main = self._client(monkeypatch, result={"success": True, "filename": "contract-1.pdf"})
         body = types.SimpleNamespace()
 
         result = asyncio.run(main.create_sales_contract(body, None))
@@ -258,9 +256,7 @@ class TestUpdateCrmTask:
     def test_invalid_status_returns_400(self, monkeypatch):
         client, _main, store, headers = _crm_client(monkeypatch, tasks={"task-1": dict(_TASK)})
 
-        resp = client.put(
-            "/api/crm/tasks/task-1", json={"status": "in-progress"}, headers=headers
-        )
+        resp = client.put("/api/crm/tasks/task-1", json={"status": "in-progress"}, headers=headers)
 
         assert resp.status_code == 400
         assert resp.json() == {

@@ -99,9 +99,7 @@ def _parse_timestamp(value: Any) -> datetime | None:
                 dt = dt.replace(tzinfo=UTC)
             return dt.astimezone(UTC)
         except Exception as e:
-            struct_logger.warning(
-                "mira timestamp parse failed", value=value, error=str(e)
-            )
+            struct_logger.warning("mira timestamp parse failed", value=value, error=str(e))
             return None
     return None
 

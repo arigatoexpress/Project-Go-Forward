@@ -131,9 +131,9 @@ def test_public_inventory_shape(client):
             or home.get("floor_plan_url")
             or home.get("matterport_url")
         )
-        assert media is not None or home.get("image_categories"), (
-            "expected some media on inventory item"
-        )
+        assert media is not None or home.get(
+            "image_categories"
+        ), "expected some media on inventory item"
 
 
 @needs_staging
@@ -251,20 +251,17 @@ def test_admin_lockout(client, admin_token):
         for i in range(1, 12):
             r = c.post("/api/admin/verify", json={"pin": wrong_pin})
             if i <= 10:
-                assert r.status_code == 401, (
-                    f"attempt {i} expected 401, got {r.status_code}"
-                )
+                assert r.status_code == 401, f"attempt {i} expected 401, got {r.status_code}"
                 data = r.json()
                 assert data.get("success") is False
                 assert "incorrect" in data.get("error", "").lower()
             else:
-                assert r.status_code == 429, (
-                    f"attempt {i} expected 429, got {r.status_code}"
-                )
+                assert r.status_code == 429, f"attempt {i} expected 429, got {r.status_code}"
                 data = r.json()
-                assert "wait" in data.get("error", "").lower() or "too many" in data.get(
-                    "error", ""
-                ).lower()
+                assert (
+                    "wait" in data.get("error", "").lower()
+                    or "too many" in data.get("error", "").lower()
+                )
                 retry = r.headers.get("retry-after")
                 assert retry is not None, "expected Retry-After header on 429"
                 assert int(retry) > 0
@@ -328,13 +325,9 @@ def test_customer_create_and_search(client, admin_token):
             "notes": "Synthetic E2E smoke record. No live customer data.",
         },
     )
-    assert create_resp.status_code in (200, 201), (
-        f"customer create failed: {create_resp.text}"
-    )
+    assert create_resp.status_code in (200, 201), f"customer create failed: {create_resp.text}"
     body = create_resp.json()
-    assert body.get("success") is True or "id" in body, (
-        f"customer create unexpected: {body}"
-    )
+    assert body.get("success") is True or "id" in body, f"customer create unexpected: {body}"
 
     search_resp = client.get(
         "/api/customers/search",
@@ -343,14 +336,10 @@ def test_customer_create_and_search(client, admin_token):
     )
     assert search_resp.status_code == 200
     search_body = search_resp.json()
-    results = (
-        search_body.get("results", [])
-        or search_body.get("customers", [])
-        or []
-    )
-    assert any(smoke_name in str(r) for r in results), (
-        f"expected to find synthetic customer in search results: {search_body}"
-    )
+    results = search_body.get("results", []) or search_body.get("customers", []) or []
+    assert any(
+        smoke_name in str(r) for r in results
+    ), f"expected to find synthetic customer in search results: {search_body}"
 
 
 @needs_staging
@@ -396,9 +385,8 @@ def test_document_download(client, admin_token):
     )
     assert dl.status_code == 200, f"download failed: {dl.status_code}"
     content_type = dl.headers.get("content-type", "").lower()
-    assert (
-        content_type in ("application/pdf", "application/octet-stream")
-        or dl.content.startswith(b"%PDF")
+    assert content_type in ("application/pdf", "application/octet-stream") or dl.content.startswith(
+        b"%PDF"
     ), f"expected PDF content, got {content_type}"
     assert len(dl.content) > 1000, "expected non-trivial PDF content"
 
@@ -417,6 +405,7 @@ def test_passkey_status(client):
 def test_partner_api_unauthorized(client):
     """Smoke: partner API requires auth (401 or 503 when unconfigured)."""
     r = client.get("/api/v1/inventory")
-    assert r.status_code in (401, 503), (
-        f"expected 401 or 503 for unauthenticated partner API, got {r.status_code}"
-    )
+    assert r.status_code in (
+        401,
+        503,
+    ), f"expected 401 or 503 for unauthenticated partner API, got {r.status_code}"

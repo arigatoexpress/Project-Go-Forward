@@ -408,9 +408,7 @@ def test_firestore_issue_still_records_a_challenge_when_expired_cleanup_fails(mo
     assert "cleanup query failed" in caplog.text
 
 
-def test_firestore_issue_still_records_a_challenge_when_cleanup_cannot_start(
-    monkeypatch, caplog
-):
+def test_firestore_issue_still_records_a_challenge_when_cleanup_cannot_start(monkeypatch, caplog):
     """A cleanup scheduling fault must not reject an already-durable challenge."""
     pytest.importorskip("google.cloud.firestore_v1")
     monkeypatch.setattr("auth.authentication_challenges.time.time", lambda: _NOW)

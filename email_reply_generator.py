@@ -86,8 +86,10 @@ def render_ack(subject) -> dict:
         html_clause = ""
         text_clause = ""
     return {
-        "subject": reply_subject[:_MAX_SUBJECT_CHARS + 20],
-        "html": _ACK_HTML_TEMPLATE.format(business=_html.escape(business), subject_clause=html_clause),
+        "subject": reply_subject[: _MAX_SUBJECT_CHARS + 20],
+        "html": _ACK_HTML_TEMPLATE.format(
+            business=_html.escape(business), subject_clause=html_clause
+        ),
         "text": _ACK_TEXT_TEMPLATE.format(business=business, subject_clause=text_clause),
     }
 

@@ -221,9 +221,7 @@ class TestCreateAppointmentGaps:
         client, main, _db = _intake_client(monkeypatch)
         _stub_appointment_storage(monkeypatch, main)
 
-        resp = client.post(
-            "/api/appointments", json=_appointment_payload(phone="555-1234")
-        )
+        resp = client.post("/api/appointments", json=_appointment_payload(phone="555-1234"))
 
         assert resp.json() == {
             "success": False,
@@ -348,9 +346,7 @@ class TestSearchChatConversations:
         async def fake_search(query):
             return [{"id": "conv-1"}, {"id": "conv-2"}]
 
-        monkeypatch.setattr(
-            main.chat_history, "search_conversations", fake_search, raising=False
-        )
+        monkeypatch.setattr(main.chat_history, "search_conversations", fake_search, raising=False)
 
         resp = client.post("/api/chat/search", json={"query": "financing"}, headers=headers)
 
@@ -366,9 +362,7 @@ class TestSearchChatConversations:
         async def boom(query):
             raise RuntimeError("synthetic search detail")
 
-        monkeypatch.setattr(
-            main.chat_history, "search_conversations", boom, raising=False
-        )
+        monkeypatch.setattr(main.chat_history, "search_conversations", boom, raising=False)
 
         resp = client.post("/api/chat/search", json={"query": "financing"}, headers=headers)
 

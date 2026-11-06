@@ -38,7 +38,7 @@ import email_reply_drafts as drafts  # noqa: E402
 import email_reply_sender as sender  # noqa: E402
 import telegram_gate as gate  # noqa: E402
 
-_SECRET = "whsec_" + base64.b64encode(b"pipeline-secret-key").decode()
+_SECRET = "whsec_" + base64.b64encode(b"pipeline-secret-key").decode()  # pragma: allowlist secret
 _SENDER = "customer@example.com"
 
 
@@ -65,7 +65,12 @@ def env(monkeypatch):
     """Webhook enabled + sender allowlisted; ALL pipeline flags default off."""
     monkeypatch.setenv("RESEND_WEBHOOK_SECRET", _SECRET)
     monkeypatch.setenv("INBOUND_EMAIL_ALLOWLIST", _SENDER)
-    for flag in ("FF_EMAIL_REPLY_SEND", "FF_EMAIL_AUTO_ACK", "FF_EMAIL_DRAFT_PIPELINE", "FF_EMAIL_TG_GATE"):
+    for flag in (
+        "FF_EMAIL_REPLY_SEND",
+        "FF_EMAIL_AUTO_ACK",
+        "FF_EMAIL_DRAFT_PIPELINE",
+        "FF_EMAIL_TG_GATE",
+    ):
         monkeypatch.delenv(flag, raising=False)
     monkeypatch.delenv("THO_TG_BOT_TOKEN", raising=False)
     monkeypatch.delenv("THO_TG_CHAT_ID", raising=False)
@@ -95,7 +100,9 @@ def sent_emails(monkeypatch):
 def tg_calls(monkeypatch):
     calls: list[dict] = []
     monkeypatch.setattr(
-        gate, "_post_telegram", lambda method, payload: calls.append({"method": method}) or {"ok": True}
+        gate,
+        "_post_telegram",
+        lambda method, payload: calls.append({"method": method}) or {"ok": True},
     )
     return calls
 
@@ -136,7 +143,12 @@ def tc(env, fake_db, sent_emails, tg_calls, fake_leads):
     return TestClient(main.app, raise_server_exceptions=False)
 
 
-def _post(tc, subject="Question about pricing", text="How much does the Bluebonnet cost?", email_id="email-001"):
+def _post(
+    tc,
+    subject="Question about pricing",
+    text="How much does the Bluebonnet cost?",
+    email_id="email-001",
+):
     body = _event(subject, text, email_id=email_id)
     return tc.post("/api/email/inbound", content=body, headers=_signed_headers(body))
 

@@ -126,7 +126,9 @@ def snapshot_home_to_inventory_doc(home: dict) -> dict:
     }
 
 
-def load_snapshot_homes(loader: Callable[..., dict] | None = None, *, limit: int = 1000) -> list[dict]:
+def load_snapshot_homes(
+    loader: Callable[..., dict] | None = None, *, limit: int = 1000
+) -> list[dict]:
     """Load homes from the legacy snapshot via the crawler's cached loader."""
     if loader is None:
         from tools.legacy_site_crawler import load_legacy_inventory_context
@@ -156,7 +158,9 @@ def seed_inventory_from_snapshot(
         doc_id = _legacy_id(home)
         if not doc_id:
             stats["skipped_no_id"] += 1
-            log.warning("Skipping snapshot home with no legacy id: model=%s", home.get("model_name"))
+            log.warning(
+                "Skipping snapshot home with no legacy id: model=%s", home.get("model_name")
+            )
             continue
         doc = snapshot_home_to_inventory_doc(home)
         stats["planned"].append((doc_id, doc["model_name"]))
@@ -168,8 +172,12 @@ def seed_inventory_from_snapshot(
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Seed Firestore inventory from the legacy snapshot.")
-    parser.add_argument("--apply", action="store_true", help="Write to Firestore (default: dry run).")
+    parser = argparse.ArgumentParser(
+        description="Seed Firestore inventory from the legacy snapshot."
+    )
+    parser.add_argument(
+        "--apply", action="store_true", help="Write to Firestore (default: dry run)."
+    )
     parser.add_argument("--limit", type=int, default=None, help="Only process the first N homes.")
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO)
@@ -183,8 +191,10 @@ def main(argv: list[str] | None = None) -> int:
 
     stats = seed_inventory_from_snapshot(db, homes, dry_run=not args.apply, limit=args.limit)
     mode = "APPLIED" if args.apply else "DRY-RUN"
-    print(f"[{mode}] snapshot homes: {stats['total']} | written: {stats['written']} "
-          f"| skipped (no id): {stats['skipped_no_id']}")
+    print(
+        f"[{mode}] snapshot homes: {stats['total']} | written: {stats['written']} "
+        f"| skipped (no id): {stats['skipped_no_id']}"
+    )
     if not args.apply:
         for doc_id, model in stats["planned"][:25]:
             print(f"  would upsert {doc_id}: {model}")

@@ -61,9 +61,7 @@ def hermetic(monkeypatch):
 
     manager = SimpleNamespace(db=_FakeDB())
     monkeypatch.setattr(crm_tools, "_get_lead_manager", lambda: manager)
-    monkeypatch.setattr(
-        crm_tools, "notify_new_lead", lambda **kwargs: None
-    )
+    monkeypatch.setattr(crm_tools, "notify_new_lead", lambda **kwargs: None)
     return manager
 
 
@@ -101,9 +99,7 @@ def test_get_lead_manager_lazy_loads_and_caches(monkeypatch):
 # ─── save_lead durable persist + alert paths ────────────────────────────────
 
 
-def test_save_lead_truthful_failure_when_persist_raises(
-    hermetic, monkeypatch, caplog
-):
+def test_save_lead_truthful_failure_when_persist_raises(hermetic, monkeypatch, caplog):
     """Firestore failure must NOT produce a false 'saved' confirmation."""
 
     def _boom():
@@ -163,9 +159,7 @@ def test_save_lead_persists_structured_lead_document(hermetic):
 # ─── save_lead local-file fallback branches ─────────────────────────────────
 
 
-def test_save_lead_uses_plain_data_dir_when_repo_dir_missing(
-    hermetic, monkeypatch
-):
+def test_save_lead_uses_plain_data_dir_when_repo_dir_missing(hermetic, monkeypatch):
     monkeypatch.setattr(crm_tools.os.path, "exists", lambda p: False)
     result = crm_tools.save_lead(
         user_name="Pat Doe",
@@ -221,8 +215,7 @@ def test_save_lead_warns_when_file_write_raises(hermetic, monkeypatch, caplog):
             interest_notes="test",
         )
     assert result["success"] is True  # file failure is non-fatal
-    assert any("could not write to local file" in r.message.lower()
-               for r in caplog.records)
+    assert any("could not write to local file" in r.message.lower() for r in caplog.records)
 
 
 # ─── get_current_datetime / get_business_hours ──────────────────────────────
@@ -258,16 +251,12 @@ def test_check_slots_rejects_invalid_date():
 
 
 def test_check_slots_rejects_past_date():
-    out = crm_tools.check_available_slots(
-        (_today() - timedelta(days=1)).isoformat()
-    )
+    out = crm_tools.check_available_slots((_today() - timedelta(days=1)).isoformat())
     assert "past" in out["error"]
 
 
 def test_check_slots_rejects_too_far_out():
-    out = crm_tools.check_available_slots(
-        (_today() + timedelta(days=31)).isoformat()
-    )
+    out = crm_tools.check_available_slots((_today() + timedelta(days=31)).isoformat())
     assert "30 days" in out["error"]
 
 
@@ -317,16 +306,20 @@ def test_check_slots_today_filters_past_hours():
 
 def test_book_appointment_rejects_missing_fields():
     out = crm_tools.book_appointment(
-        user_name="", phone_number="555-123-4567",
-        appointment_date=_future_date(2), time_slot="10:00 AM",
+        user_name="",
+        phone_number="555-123-4567",
+        appointment_date=_future_date(2),
+        time_slot="10:00 AM",
     )
     assert out["success"] is False
 
 
 def test_book_appointment_rejects_short_phone():
     out = crm_tools.book_appointment(
-        user_name="Pat", phone_number="12",
-        appointment_date=_future_date(2), time_slot="10:00 AM",
+        user_name="Pat",
+        phone_number="12",
+        appointment_date=_future_date(2),
+        time_slot="10:00 AM",
     )
     assert out["success"] is False
     assert "10" in out["message"]
@@ -334,8 +327,10 @@ def test_book_appointment_rejects_short_phone():
 
 def test_book_appointment_rejects_invalid_date():
     out = crm_tools.book_appointment(
-        user_name="Pat", phone_number="555-123-4567",
-        appointment_date="02/15/2026", time_slot="10:00 AM",
+        user_name="Pat",
+        phone_number="555-123-4567",
+        appointment_date="02/15/2026",
+        time_slot="10:00 AM",
     )
     assert out["success"] is False
     assert "YYYY-MM-DD" in out["message"]
@@ -343,7 +338,8 @@ def test_book_appointment_rejects_invalid_date():
 
 def test_book_appointment_rejects_past_date():
     out = crm_tools.book_appointment(
-        user_name="Pat", phone_number="555-123-4567",
+        user_name="Pat",
+        phone_number="555-123-4567",
         appointment_date=(_today() - timedelta(days=1)).isoformat(),
         time_slot="10:00 AM",
     )
@@ -392,9 +388,7 @@ def test_cancel_appointment_requires_both_fields():
 
 
 def test_cancel_appointment_submits_request():
-    out = crm_tools.cancel_appointment(
-        appointment_id="appt-123", phone_number="555-123-4567"
-    )
+    out = crm_tools.cancel_appointment(appointment_id="appt-123", phone_number="555-123-4567")
     assert out["success"] is True
     assert "appt-123" in out["message"]
     assert "confirm" in out["message"].lower()

@@ -10,9 +10,7 @@ import pytest
 # This test patches google.cloud.storage.Client on the real package, so it
 # needs google-cloud-storage installed; skip it in dependency-minimal environments.
 _HAS_GCS = importlib.util.find_spec("google.cloud.storage") is not None
-requires_gcs = pytest.mark.skipif(
-    not _HAS_GCS, reason="google-cloud-storage is not installed"
-)
+requires_gcs = pytest.mark.skipif(not _HAS_GCS, reason="google-cloud-storage is not installed")
 
 import tools.drive_floorplan_sync as sync  # noqa: E402
 

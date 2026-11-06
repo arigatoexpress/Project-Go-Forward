@@ -41,9 +41,7 @@ class TestMaybeEmailDocument:
     def test_skips_without_customer_email(self, monkeypatch):
         client, main, *_ = create_client(monkeypatch)
         sent: list[dict] = []
-        monkeypatch.setattr(
-            main, "send_document_email", lambda **kwargs: sent.append(kwargs)
-        )
+        monkeypatch.setattr(main, "send_document_email", lambda **kwargs: sent.append(kwargs))
         audits: list[tuple] = []
         monkeypatch.setattr(main, "_safe_audit", lambda a, d: audits.append((a, d)))
 
@@ -225,9 +223,7 @@ class TestDocumentAnalytics:
         # the most-popular bucket still resolves to a real category.
         assert body["most_popular"]["count"] == 1
         assert len(body["recent"]) == 5
-        assert {"template_name", "buyer_name", "created_at"} == set(
-            body["recent"][0].keys()
-        )
+        assert {"template_name", "buyer_name", "created_at"} == set(body["recent"][0].keys())
 
     def test_analytics_missing_dir_returns_zeros(self, monkeypatch, tmp_path):
         client, main, *_ = create_client(monkeypatch)

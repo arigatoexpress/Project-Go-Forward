@@ -135,9 +135,7 @@ def test_does_not_clobber_existing_unpaid_balance_logic():
 
 def test_existing_escrow_values_not_overwritten():
     # If a caller already supplied a computed value, respect it (setdefault).
-    data = _compute(
-        {"annual_insurance": 1200, "insurance_premium_monthly": "999.99"}
-    )
+    data = _compute({"annual_insurance": 1200, "insurance_premium_monthly": "999.99"})
     assert data["insurance_premium_monthly"] == "999.99"
 
 

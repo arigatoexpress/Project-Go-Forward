@@ -260,7 +260,9 @@ class TestEnrichDealsWithHome:
         _c, main, _db, _log = _client(monkeypatch)
         deals = [{"id": "d9", "serial_number_1": "SN9"}]
         db = types.SimpleNamespace(
-            get_inventory_by_serials=lambda serials: (_ for _ in ()).throw(RuntimeError("batch down"))
+            get_inventory_by_serials=lambda serials: (_ for _ in ()).throw(
+                RuntimeError("batch down")
+            )
         )
 
         enriched = main._enrich_deals_with_home(deals, db)
@@ -356,9 +358,7 @@ class TestCreateDeal:
         monkeypatch.setattr(main._deal_db, "create_deal", fake_create_deal, raising=False)
         fake_db.collections["deals"]["deal-new"] = {"id": "deal-new", "status": "pending"}
 
-        result = _run(
-            main.create_deal(_Req({"buyer_first_name": "Bob", "created_at": created_at}))
-        )
+        result = _run(main.create_deal(_Req({"buyer_first_name": "Bob", "created_at": created_at})))
 
         assert result["success"] is True
         assert result["deal_id"] == "deal-new"
@@ -393,7 +393,11 @@ class TestUpdateDeal:
             main._deal_db, "update_deal", lambda deal_id, data: seen.update(data), raising=False
         )
 
-        result = _run(main.update_deal("deal-1", _Req({"id": "forged", "salesrep": "Sam", "status": "approved"})))
+        result = _run(
+            main.update_deal(
+                "deal-1", _Req({"id": "forged", "salesrep": "Sam", "status": "approved"})
+            )
+        )
 
         assert result == {"success": True, "message": "Deal updated successfully"}
         assert "id" not in seen  # id stripped before persistence

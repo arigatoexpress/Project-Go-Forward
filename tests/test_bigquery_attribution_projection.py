@@ -52,9 +52,10 @@ def test_lead_and_event_share_only_a_hashed_journey_key():
 
 def test_unknown_or_malformed_event_is_not_projected():
     assert project_event({"event": "scanner_noise", "journey_id": JOURNEY_ID}) is None
-    assert project_event({"event": "lead_captured", "journey_id": "buyer@example.com"})[
-        "journey_key"
-    ] is None
+    assert (
+        project_event({"event": "lead_captured", "journey_id": "buyer@example.com"})["journey_key"]
+        is None
+    )
 
 
 def test_conversion_views_use_distinct_journeys_and_safe_rates():

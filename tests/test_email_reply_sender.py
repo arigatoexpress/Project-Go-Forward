@@ -57,8 +57,14 @@ def sent_emails(monkeypatch):
 
     def fake_send_email(to, subject, html, email_type="general", related_id=None, text=None):
         calls.append(
-            {"to": to, "subject": subject, "html": html, "email_type": email_type,
-             "related_id": related_id, "text": text}
+            {
+                "to": to,
+                "subject": subject,
+                "html": html,
+                "email_type": email_type,
+                "related_id": related_id,
+                "text": text,
+            }
         )
         return {"success": True, "message_id": f"resend-{len(calls)}"}
 
@@ -72,9 +78,7 @@ def audit_calls(monkeypatch):
     client (slow network retries locally, and a risk of writing to the prod
     audit_log collection when gcloud creds are present)."""
     calls: list[dict] = []
-    monkeypatch.setattr(
-        sender, "log_admin_action", lambda **kw: calls.append(kw)
-    )
+    monkeypatch.setattr(sender, "log_admin_action", lambda **kw: calls.append(kw))
     return calls
 
 
@@ -117,9 +121,7 @@ class TestDefaultInert:
         assert sent_emails == []
         assert get_draft(draft.draft_id).status == STATUS_APPROVED
 
-    def test_auto_ack_does_not_send_with_flags_off(
-        self, fake_db, sent_emails, monkeypatch
-    ):
+    def test_auto_ack_does_not_send_with_flags_off(self, fake_db, sent_emails, monkeypatch):
         _flags(monkeypatch, master=False, auto_ack=False)
         result = sender.send_auto_ack(
             message_id="msg-1", to="customer@example.com", subject="Hours?"
@@ -127,9 +129,7 @@ class TestDefaultInert:
         assert result["success"] is False
         assert sent_emails == []
 
-    def test_auto_ack_needs_both_master_and_auto_ack_flag(
-        self, fake_db, sent_emails, monkeypatch
-    ):
+    def test_auto_ack_needs_both_master_and_auto_ack_flag(self, fake_db, sent_emails, monkeypatch):
         _flags(monkeypatch, master=True, auto_ack=False)
         result = sender.send_auto_ack(
             message_id="msg-1", to="customer@example.com", subject="Hours?"
@@ -168,9 +168,7 @@ class TestApprovedDraftPath:
         assert len(sent_emails) == 1
 
     @pytest.mark.parametrize("status_path", [[], [STATUS_REJECTED]])
-    def test_non_approved_draft_never_sends(
-        self, fake_db, sent_emails, monkeypatch, status_path
-    ):
+    def test_non_approved_draft_never_sends(self, fake_db, sent_emails, monkeypatch, status_path):
         _flags(monkeypatch, master=True)
         draft, _ = create_draft(
             message_id="msg-x", sender="c@e.com", subject="s", triage_label="substantive"
@@ -199,17 +197,13 @@ class TestApprovedDraftPath:
 
     def test_send_failure_leaves_draft_approved(self, fake_db, monkeypatch, audit_calls):
         _flags(monkeypatch, master=True)
-        monkeypatch.setattr(
-            sender, "send_email", lambda **kw: {"success": False, "error": "boom"}
-        )
+        monkeypatch.setattr(sender, "send_email", lambda **kw: {"success": False, "error": "boom"})
         draft = _approved_draft()
         result = sender.send_approved_reply(draft.draft_id, actor="ari")
         assert result["success"] is False
         assert get_draft(draft.draft_id).status == STATUS_APPROVED  # retryable
 
-    def test_audit_record_written_on_send(
-        self, fake_db, sent_emails, audit_calls, monkeypatch
-    ):
+    def test_audit_record_written_on_send(self, fake_db, sent_emails, audit_calls, monkeypatch):
         _flags(monkeypatch, master=True)
         draft = _approved_draft()
         sender.send_approved_reply(draft.draft_id, actor="ari")
@@ -294,7 +288,8 @@ class TestChokepointInvariant:
         for module in ("email_triage.py", "email_reply_drafts.py", "email_reply_generator.py"):
             source = (root / module).read_text()
             import_lines = [
-                line for line in source.splitlines()
+                line
+                for line in source.splitlines()
                 if line.strip().startswith(("import ", "from "))
             ]
             assert not any("email_service" in line for line in import_lines), module

@@ -152,9 +152,7 @@ class TestCachingRedisBackedOps:
         _install_fake_redis(monkeypatch, client)
         assert caching.cache_get("k") == {"a": 1}
 
-    def test_cache_get_redis_error_falls_back_to_local(
-        self, caching_clean, monkeypatch
-    ):
+    def test_cache_get_redis_error_falls_back_to_local(self, caching_clean, monkeypatch):
         """Lines 74-75: Redis get raising → warn, fall through to local."""
         client = _FakeRedis(fail_ops={"get"})
         _install_fake_redis(monkeypatch, client)
@@ -169,9 +167,7 @@ class TestCachingRedisBackedOps:
         assert json.loads(client.store["k"]) == {"v": 2}
         assert caching.cache_get("k") == {"v": 2}
 
-    def test_cache_set_redis_error_still_updates_local(
-        self, caching_clean, monkeypatch
-    ):
+    def test_cache_set_redis_error_still_updates_local(self, caching_clean, monkeypatch):
         """Lines 99-100: setex raising → warn, local backup still written."""
         client = _FakeRedis(fail_ops={"setex"})
         _install_fake_redis(monkeypatch, client)
@@ -189,9 +185,7 @@ class TestCachingRedisBackedOps:
         assert "k" not in client.store
         assert caching.cache_get("k") is None
 
-    def test_cache_delete_redis_error_still_clears_local(
-        self, caching_clean, monkeypatch
-    ):
+    def test_cache_delete_redis_error_still_clears_local(self, caching_clean, monkeypatch):
         """Lines 117-118: redis delete raising → warn, local still cleared.
 
         The surviving Redis copy is served afterwards — that is the intended
@@ -218,30 +212,22 @@ class TestValidateCloudRunSessionSecret:
 
     def test_short_secret_rejected(self):
         with pytest.raises(RuntimeError, match="Cloud Run security"):
-            auth_session.validate_cloud_run_session_secret(
-                "too-short", admin_pin_hash="abc"
-            )
+            auth_session.validate_cloud_run_session_secret("too-short", admin_pin_hash="abc")
 
     def test_secret_equal_to_admin_pin_hash_rejected(self):
         pin_hash = "a" * 64
         with pytest.raises(RuntimeError, match="Cloud Run security"):
-            auth_session.validate_cloud_run_session_secret(
-                pin_hash, admin_pin_hash=pin_hash
-            )
+            auth_session.validate_cloud_run_session_secret(pin_hash, admin_pin_hash=pin_hash)
 
     def test_legacy_derived_secret_rejected(self):
         pin_hash = "b" * 64
         legacy = hashlib.sha256(f"tho-session-v2-{pin_hash}".encode()).hexdigest()
         with pytest.raises(RuntimeError, match="Cloud Run security"):
-            auth_session.validate_cloud_run_session_secret(
-                legacy, admin_pin_hash=pin_hash
-            )
+            auth_session.validate_cloud_run_session_secret(legacy, admin_pin_hash=pin_hash)
 
     def test_independent_secret_accepted(self):
         assert (
-            auth_session.validate_cloud_run_session_secret(
-                GOOD_SECRET, admin_pin_hash="c" * 64
-            )
+            auth_session.validate_cloud_run_session_secret(GOOD_SECRET, admin_pin_hash="c" * 64)
             == GOOD_SECRET
         )
 
@@ -438,9 +424,7 @@ class TestHandleUpdateGaps:
         result = gate.handle_update(_callback(_pending_draft(), "approve"))
         assert result["status"] == "already_decided"
 
-    def test_unexpected_exception_becomes_error_status(
-        self, fake_db, configured, monkeypatch
-    ):
+    def test_unexpected_exception_becomes_error_status(self, fake_db, configured, monkeypatch):
         """Lines 196-198: the catch-all keeps the webhook from ever 500ing."""
 
         def boom(draft_id):
@@ -480,18 +464,14 @@ class TestSendMiraNotification:
     def test_no_chat_id_refused(self, monkeypatch):
         """Lines 30-32: neither MIRA_GROUP_ID nor fallback → refusal."""
         _configure_notify(monkeypatch, group="", fallback="")
-        result = mira_notify.send_mira_notification(
-            mira_notify.NotifyPayload(message="hi")
-        )
+        result = mira_notify.send_mira_notification(mira_notify.NotifyPayload(message="hi"))
         assert result["ok"] is False
         assert "MIRA_GROUP_ID" in result["error"]
 
     def test_no_token_refused(self, monkeypatch):
         """Lines 33-34: chat id present but token missing → refusal."""
         _configure_notify(monkeypatch, token="")
-        result = mira_notify.send_mira_notification(
-            mira_notify.NotifyPayload(message="hi")
-        )
+        result = mira_notify.send_mira_notification(mira_notify.NotifyPayload(message="hi"))
         assert result == {"ok": False, "error": "TELEGRAM_BOT_TOKEN not configured"}
 
     def test_posts_markdown_to_group(self, monkeypatch):
@@ -528,9 +508,7 @@ class TestSendMiraNotification:
             return _FakeUrlopenResponse({"ok": True})
 
         monkeypatch.setattr(mira_notify.request, "urlopen", fake_urlopen)
-        result = mira_notify.send_mira_notification(
-            mira_notify.NotifyPayload(message="hi")
-        )
+        result = mira_notify.send_mira_notification(mira_notify.NotifyPayload(message="hi"))
         assert result["ok"] is True
         assert seen == ["-999"]
 
@@ -542,9 +520,7 @@ class TestSendMiraNotification:
 
         _configure_notify(monkeypatch)
         monkeypatch.setattr(mira_notify.request, "urlopen", boom)
-        result = mira_notify.send_mira_notification(
-            mira_notify.NotifyPayload(message="hi")
-        )
+        result = mira_notify.send_mira_notification(mira_notify.NotifyPayload(message="hi"))
         assert result == {"ok": False, "error": "send_failed"}
 
 

@@ -61,15 +61,21 @@ _SUBSTANTIVE_TRIGGERS: dict[str, re.Pattern] = {
         r"defect\w*|problem|problems|issue|issues|wrong|failed|failure)\b",
         re.IGNORECASE,
     ),
-    "urgency": re.compile(r"\b(urgent|urgently|asap|immediately|emergency|right\s+away)\b", re.IGNORECASE),
+    "urgency": re.compile(
+        r"\b(urgent|urgently|asap|immediately|emergency|right\s+away)\b", re.IGNORECASE
+    ),
     "order": re.compile(
         r"\b(order|orders|delivery|deliver|delivered|install|installation|installed|"
         r"status|tracking|schedule|scheduled|appointment|cancel|cancellation|"
         r"purchase|purchased|bought|my\s+home|our\s+home)\b",
         re.IGNORECASE,
     ),
-    "attachment": re.compile(r"\b(attach|attached|attachment|attachments|enclosed|see\s+the\s+file)\b", re.IGNORECASE),
-    "pii_ish": re.compile(r"\b(ssn|social\s+security|passport|driver'?s?\s+license|bank\s+account)\b", re.IGNORECASE),
+    "attachment": re.compile(
+        r"\b(attach|attached|attachment|attachments|enclosed|see\s+the\s+file)\b", re.IGNORECASE
+    ),
+    "pii_ish": re.compile(
+        r"\b(ssn|social\s+security|passport|driver'?s?\s+license|bank\s+account)\b", re.IGNORECASE
+    ),
 }
 
 # ── Prompt-injection markers ────────────────────────────────────────────────
@@ -167,11 +173,15 @@ def _evaluate_rules(subject: str, body: str) -> TriageResult:
         )
 
     # 4. Safe subset requires a positive match — unknown intent stays gated.
-    safe_hits = [f"safe:{name}" for name, pattern in _SAFE_PATTERNS.items() if pattern.search(plain)]
+    safe_hits = [
+        f"safe:{name}" for name, pattern in _SAFE_PATTERNS.items() if pattern.search(plain)
+    ]
     if safe_hits:
         return TriageResult(LABEL_SAFE_ACK, "simple inquiry matched safe subset", safe_hits)
 
-    return TriageResult(LABEL_SUBSTANTIVE, "no safe pattern matched (fail-closed)", ["no_safe_match"])
+    return TriageResult(
+        LABEL_SUBSTANTIVE, "no safe pattern matched (fail-closed)", ["no_safe_match"]
+    )
 
 
 def classify(subject, body, sender=None) -> TriageResult:

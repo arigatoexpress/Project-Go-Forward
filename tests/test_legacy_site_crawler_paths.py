@@ -142,17 +142,9 @@ def test_parse_detail_info_label_without_value():
 
 def test_dealer_inventory_url_requires_marker():
     assert lsc._is_dealer_inventory_url(f"{CDN}/dealer/9999/inventory/1/x.jpg") is False
-    assert (
-        lsc._is_dealer_inventory_url(f"{CDN}/dealer/3522/inventory/1/x.jpg") is True
-    )
-    assert (
-        lsc._is_dealer_inventory_url(f"{CDN}/dealer/3522/inventory/1/x.jpg", "1")
-        is True
-    )
-    assert (
-        lsc._is_dealer_inventory_url(f"{CDN}/dealer/3522/inventory/1/x.jpg", "2")
-        is False
-    )
+    assert lsc._is_dealer_inventory_url(f"{CDN}/dealer/3522/inventory/1/x.jpg") is True
+    assert lsc._is_dealer_inventory_url(f"{CDN}/dealer/3522/inventory/1/x.jpg", "1") is True
+    assert lsc._is_dealer_inventory_url(f"{CDN}/dealer/3522/inventory/1/x.jpg", "2") is False
 
 
 def test_extract_plan_id_quote_form():
@@ -174,9 +166,7 @@ def test_categorize_photo_url_branches():
 
 
 def test_extract_inventory_card_requires_title_link():
-    card = BeautifulSoup(
-        '<div class="fp-card-container"><p>no link</p></div>', "html.parser"
-    )
+    card = BeautifulSoup('<div class="fp-card-container"><p>no link</p></div>', "html.parser")
     assert lsc.extract_inventory_card(card) is None
 
 
@@ -191,9 +181,7 @@ def test_extract_inventory_card_requires_numeric_listing_id():
 
 
 def test_extract_floorplan_card_requires_title_link():
-    card = BeautifulSoup(
-        '<div class="fp-card-container"><p>nothing</p></div>', "html.parser"
-    )
+    card = BeautifulSoup('<div class="fp-card-container"><p>nothing</p></div>', "html.parser")
     assert lsc.extract_floorplan_card(card) is None
 
 
@@ -301,9 +289,7 @@ def _card_page(*cards: str) -> str:
 def test_scrape_inventory_paginates_dedupes_and_enriches(monkeypatch):
     detail_url = f"{BASE}/inventory-detail/43372/texas-home-outlet/huffman/premier/"
     pages = {
-        lsc.LEGACY_INVENTORY_URL: _FakeResponse(
-            _card_page(CARD_HTML), lsc.LEGACY_INVENTORY_URL
-        ),
+        lsc.LEGACY_INVENTORY_URL: _FakeResponse(_card_page(CARD_HTML), lsc.LEGACY_INVENTORY_URL),
         f"{lsc.LEGACY_INVENTORY_URL}?pg=2": _FakeResponse(
             _card_page(CARD_HTML), f"{lsc.LEGACY_INVENTORY_URL}?pg=2"
         ),
@@ -324,9 +310,7 @@ def test_scrape_inventory_paginates_dedupes_and_enriches(monkeypatch):
 def test_scrape_inventory_detail_failure_still_merges(monkeypatch, caplog):
     detail_url = f"{BASE}/inventory-detail/43372/texas-home-outlet/huffman/premier/"
     pages = {
-        lsc.LEGACY_INVENTORY_URL: _FakeResponse(
-            _card_page(CARD_HTML), lsc.LEGACY_INVENTORY_URL
-        ),
+        lsc.LEGACY_INVENTORY_URL: _FakeResponse(_card_page(CARD_HTML), lsc.LEGACY_INVENTORY_URL),
         f"{lsc.LEGACY_INVENTORY_URL}?pg=2": _FakeResponse(
             "<html></html>", f"{lsc.LEGACY_INVENTORY_URL}?pg=2"
         ),
@@ -345,9 +329,7 @@ def test_scrape_inventory_detail_failure_still_merges(monkeypatch, caplog):
 
 def test_scrape_inventory_without_details_skips_detail_fetches(monkeypatch):
     pages = {
-        lsc.LEGACY_INVENTORY_URL: _FakeResponse(
-            _card_page(CARD_HTML), lsc.LEGACY_INVENTORY_URL
-        ),
+        lsc.LEGACY_INVENTORY_URL: _FakeResponse(_card_page(CARD_HTML), lsc.LEGACY_INVENTORY_URL),
         f"{lsc.LEGACY_INVENTORY_URL}?pg=2": _FakeResponse(
             "<html></html>", f"{lsc.LEGACY_INVENTORY_URL}?pg=2"
         ),
@@ -506,8 +488,7 @@ def test_load_snapshot_context_missing_and_corrupt(tmp_path, monkeypatch, caplog
     monkeypatch.setattr(lsc, "SNAPSHOT_PATH", corrupt)
     with caplog.at_level(logging.WARNING):
         assert lsc._load_snapshot_context() is None
-    assert any("failed to load legacy inventory snapshot" in r.message
-               for r in caplog.records)
+    assert any("failed to load legacy inventory snapshot" in r.message for r in caplog.records)
 
 
 def test_load_floorplan_snapshot_context_branches(tmp_path, monkeypatch, caplog):
@@ -520,8 +501,7 @@ def test_load_floorplan_snapshot_context_branches(tmp_path, monkeypatch, caplog)
     monkeypatch.setattr(lsc, "FLOORPLAN_SNAPSHOT_PATH", corrupt)
     with caplog.at_level(logging.WARNING):
         assert lsc._load_floorplan_snapshot_context() is None
-    assert any("failed to load floorplan catalog snapshot" in r.message
-               for r in caplog.records)
+    assert any("failed to load floorplan catalog snapshot" in r.message for r in caplog.records)
 
     valid = tmp_path / "valid.json"
     valid.write_text(json.dumps({"homes": [{"id": "floorplan-1"}]}))
@@ -551,9 +531,7 @@ def test_load_inventory_context_live_success_sets_cache(monkeypatch):
     monkeypatch.setattr(lsc, "cache_get", lambda key: None)
     monkeypatch.setattr(lsc, "_load_snapshot_context", lambda: None)
     built = {"success": True, "homes": [{"id": "1"}], "total_inventory": 1}
-    monkeypatch.setattr(
-        lsc, "build_legacy_inventory_context", lambda limit=100: built
-    )
+    monkeypatch.setattr(lsc, "build_legacy_inventory_context", lambda limit=100: built)
     cache_calls = []
     monkeypatch.setattr(
         lsc, "cache_set", lambda key, value, ttl_seconds=None: cache_calls.append(key)
@@ -566,13 +544,9 @@ def test_load_inventory_context_live_success_sets_cache(monkeypatch):
 
 def test_load_inventory_context_snapshot_without_homes_falls_to_live(monkeypatch):
     monkeypatch.setattr(lsc, "cache_get", lambda key: None)
-    monkeypatch.setattr(
-        lsc, "_load_snapshot_context", lambda: {"success": True, "homes": []}
-    )
+    monkeypatch.setattr(lsc, "_load_snapshot_context", lambda: {"success": True, "homes": []})
     built = {"success": True, "homes": [{"id": "live"}], "total_inventory": 1}
-    monkeypatch.setattr(
-        lsc, "build_legacy_inventory_context", lambda limit=100: built
-    )
+    monkeypatch.setattr(lsc, "build_legacy_inventory_context", lambda limit=100: built)
     monkeypatch.setattr(lsc, "cache_set", lambda *a, **k: None)
     assert lsc.load_legacy_inventory_context()["homes"][0]["id"] == "live"
 
@@ -625,9 +599,7 @@ def test_load_floorplan_context_returns_cached(monkeypatch):
         "build_legacy_floorplan_catalog_context",
         lambda limit=500: (_ for _ in ()).throw(AssertionError("no live crawl")),
     )
-    assert lsc.load_legacy_floorplan_catalog_context()["homes"][0]["id"] == (
-        "floorplan-cached"
-    )
+    assert lsc.load_legacy_floorplan_catalog_context()["homes"][0]["id"] == ("floorplan-cached")
 
 
 def test_load_floorplan_context_live_success_sets_cache(monkeypatch):
@@ -638,9 +610,7 @@ def test_load_floorplan_context_live_success_sets_cache(monkeypatch):
         "homes": [{"id": "floorplan-live"}],
         "total_inventory": 1,
     }
-    monkeypatch.setattr(
-        lsc, "build_legacy_floorplan_catalog_context", lambda limit=500: built
-    )
+    monkeypatch.setattr(lsc, "build_legacy_floorplan_catalog_context", lambda limit=500: built)
     cache_calls = []
     monkeypatch.setattr(
         lsc, "cache_set", lambda key, value, ttl_seconds=None: cache_calls.append(key)
@@ -696,12 +666,8 @@ def test_log_snapshot_staleness_edge_inputs():
 
 
 def test_build_floorplan_catalog_context_counts_and_limits(monkeypatch):
-    homes = [
-        {"id": f"floorplan-{i}", "status": "Orderable"} for i in range(3)
-    ]
-    monkeypatch.setattr(
-        lsc, "scrape_legacy_floorplan_catalog", lambda max_pages=40: homes
-    )
+    homes = [{"id": f"floorplan-{i}", "status": "Orderable"} for i in range(3)]
+    monkeypatch.setattr(lsc, "scrape_legacy_floorplan_catalog", lambda max_pages=40: homes)
     context = lsc.build_legacy_floorplan_catalog_context(limit=2)
     assert context["source"] == "legacy_floorplan_catalog_live"
     assert context["total_inventory"] == 3
@@ -819,8 +785,7 @@ def test_main_default_mode_dispatches(monkeypatch, capsys, tmp_path):
     monkeypatch.setattr(lsc, "build_legacy_inventory_context", _fake_build)
     monkeypatch.setattr(lsc, "write_manifest", _fake_write)
     monkeypatch.setattr(
-        sys, "argv", ["prog", "--output-dir", str(tmp_path), "--max-pages", "3",
-                      "--limit", "50"]
+        sys, "argv", ["prog", "--output-dir", str(tmp_path), "--max-pages", "3", "--limit", "50"]
     )
 
     assert lsc.main() == 0
@@ -842,12 +807,8 @@ def test_main_no_details_flag(monkeypatch, capsys, tmp_path):
         )
         or {"total_inventory": 0},
     )
-    monkeypatch.setattr(
-        lsc, "write_manifest", lambda context, output_dir: {"json": "j"}
-    )
-    monkeypatch.setattr(
-        sys, "argv", ["prog", "--no-details", "--output-dir", str(tmp_path)]
-    )
+    monkeypatch.setattr(lsc, "write_manifest", lambda context, output_dir: {"json": "j"})
+    monkeypatch.setattr(sys, "argv", ["prog", "--no-details", "--output-dir", str(tmp_path)])
     assert lsc.main() == 0
     assert calls["include_details"] is False
 
@@ -857,8 +818,7 @@ def test_main_floorplans_mode_dispatches(monkeypatch, capsys, tmp_path):
     monkeypatch.setattr(
         lsc,
         "build_legacy_floorplan_catalog_context",
-        lambda limit=500, max_pages=40: calls.update(limit=limit)
-        or {"total_inventory": 2},
+        lambda limit=500, max_pages=40: calls.update(limit=limit) or {"total_inventory": 2},
     )
     monkeypatch.setattr(
         lsc,
@@ -866,9 +826,7 @@ def test_main_floorplans_mode_dispatches(monkeypatch, capsys, tmp_path):
         lambda context, output_dir: calls.update(written=True)
         or {"json": "j", "csv": "c", "report": "r"},
     )
-    monkeypatch.setattr(
-        sys, "argv", ["prog", "--floorplans", "--output-dir", str(tmp_path)]
-    )
+    monkeypatch.setattr(sys, "argv", ["prog", "--floorplans", "--output-dir", str(tmp_path)])
     assert lsc.main() == 0
     # main()'s --limit default is 100 and is passed straight through
     assert calls == {"limit": 100, "written": True}

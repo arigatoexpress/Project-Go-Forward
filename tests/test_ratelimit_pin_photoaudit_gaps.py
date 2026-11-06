@@ -284,9 +284,7 @@ class TestGetTemplateFields:
     def test_unknown_template_returns_not_found(self, monkeypatch):
         client, main = self._client(monkeypatch, fields=None)
 
-        resp = client.get(
-            "/api/documents/templates/NOPE.pdf/fields", headers=_admin_headers(main)
-        )
+        resp = client.get("/api/documents/templates/NOPE.pdf/fields", headers=_admin_headers(main))
 
         assert resp.status_code == 200
         assert resp.json() == {"error": "Template 'NOPE.pdf' not found"}

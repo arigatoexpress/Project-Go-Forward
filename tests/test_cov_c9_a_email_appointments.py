@@ -701,9 +701,7 @@ class TestDocumentEmailPublicUrl:
         )
 
         assert "https://www.texashomeoutlet.com/api/documents/download/doc.pdf" in captured["html"]
-        assert (
-            "https://www.texashomeoutlet.com/api/documents/download/doc.pdf" in captured["text"]
-        )
+        assert "https://www.texashomeoutlet.com/api/documents/download/doc.pdf" in captured["text"]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -721,10 +719,7 @@ class TestLeadHomeInterest:
 
     def test_label_only(self):
         es = _fresh_email_service()
-        assert (
-            es.format_lead_home_interest({"label": "Model X"})
-            == "Interested in: Model X"
-        )
+        assert es.format_lead_home_interest({"label": "Model X"}) == "Interested in: Model X"
 
     def test_stock_only_uses_fallback_label(self):
         es = _fresh_email_service()
@@ -883,7 +878,9 @@ class _Query:
             docs = [d for d in docs if d.get(field) == value]
         if self._order:
             field, direction = self._order
-            docs.sort(key=lambda d: str(d.get(field, "")), reverse=direction == firestore.Query.DESCENDING)
+            docs.sort(
+                key=lambda d: str(d.get(field, "")), reverse=direction == firestore.Query.DESCENDING
+            )
         if self._limit is not None:
             docs = docs[: self._limit]
         return docs

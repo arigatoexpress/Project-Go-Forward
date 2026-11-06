@@ -137,9 +137,7 @@ class TestGenerateDocumentSignedUrl:
         _client, main, _db, _logger = create_client(monkeypatch)
         blob = _FakeBlob("bucket", "obj", url="https://signed/local")
 
-        url = main._generate_document_signed_url(
-            blob, expiration="EXP", method="GET"
-        )
+        url = main._generate_document_signed_url(blob, expiration="EXP", method="GET")
 
         assert url == "https://signed/local"
         assert blob.calls == [{"version": "v4", "expiration": "EXP", "method": "GET"}]
@@ -151,9 +149,7 @@ class TestGenerateDocumentSignedUrl:
         blob = _FakeBlob("bucket", "obj", url="https://signed/adc")
         blob.error = AttributeError("could not serialize the private key")
 
-        url = main._generate_document_signed_url(
-            blob, expiration="EXP", method="GET"
-        )
+        url = main._generate_document_signed_url(blob, expiration="EXP", method="GET")
 
         assert url == "https://signed/adc"
         assert credentials.refreshed is True

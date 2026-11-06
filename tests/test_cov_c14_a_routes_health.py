@@ -325,17 +325,13 @@ class _Resp:
 
 
 def test_check_endpoint_get_ok(monkeypatch):
-    monkeypatch.setattr(
-        health_check.requests, "get", lambda url, timeout=None: _Resp(200)
-    )
+    monkeypatch.setattr(health_check.requests, "get", lambda url, timeout=None: _Resp(200))
     result = health_check.check_endpoint("GET", "/health")
     assert result == {"ok": True, "status": 200, "error": None}
 
 
 def test_check_endpoint_status_mismatch_reports_error(monkeypatch):
-    monkeypatch.setattr(
-        health_check.requests, "get", lambda url, timeout=None: _Resp(500)
-    )
+    monkeypatch.setattr(health_check.requests, "get", lambda url, timeout=None: _Resp(500))
     result = health_check.check_endpoint("GET", "/health", expected_status=200)
     assert result["ok"] is False
     assert result["status"] == 500

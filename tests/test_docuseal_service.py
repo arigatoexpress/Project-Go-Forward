@@ -60,7 +60,9 @@ class FakeAsyncClient:
         return False
 
     async def post(self, url, headers=None, json=None):
-        FakeAsyncClient.calls.append({"method": "post", "url": url, "headers": headers, "json": json})
+        FakeAsyncClient.calls.append(
+            {"method": "post", "url": url, "headers": headers, "json": json}
+        )
         if isinstance(FakeAsyncClient.next_response, Exception):
             raise FakeAsyncClient.next_response
         return FakeAsyncClient.next_response
@@ -216,7 +218,11 @@ class TestSendForSignature:
             status_code=422, text="validation: email alice@example.com invalid for 281-324-3020"
         )
         result = await ds.send_for_signature(
-            email="a@b.com", name="Jane", template_name="contract.pdf", deal_id="deal-1", values=VALUES
+            email="a@b.com",
+            name="Jane",
+            template_name="contract.pdf",
+            deal_id="deal-1",
+            values=VALUES,
         )
         assert result["success"] is False
         assert result["status_code"] == 422

@@ -154,9 +154,10 @@ def test_docuseal_webhook_endpoint_liveness(client):
         content=b'{"event_type": "form.completed", "data": {}}',
         headers={"Content-Type": "application/json", "X-Docuseal-Signature": "bogus"},
     )
-    assert r.status_code in (200, 401), (
-        f"webhook must be a 200 no-op or a 401 rejection, got {r.status_code}"
-    )
+    assert r.status_code in (
+        200,
+        401,
+    ), f"webhook must be a 200 no-op or a 401 rejection, got {r.status_code}"
     if r.status_code == 200:
         body = r.json()
         assert body.get("status") == "ignored", f"unexpected webhook body: {body}"
@@ -178,9 +179,9 @@ def test_docuseal_webhook_valid_hmac_roundtrip(client):
         content=payload,
         headers={"Content-Type": "application/json", "X-Docuseal-Signature": sig},
     )
-    assert r.status_code == 200, (
-        f"valid HMAC was rejected ({r.status_code}) — DOCUSEAL_WEBHOOK_SECRET mismatch?"
-    )
+    assert (
+        r.status_code == 200
+    ), f"valid HMAC was rejected ({r.status_code}) — DOCUSEAL_WEBHOOK_SECRET mismatch?"
     body = r.json()
     assert body.get("status") == "ignored", f"expected ignored, got: {body}"
 
@@ -212,6 +213,6 @@ def test_esign_send_flow(client, admin_token):
     assert r.status_code == 200, f"e-sign send failed: {r.status_code} {r.text[:300]}"
     body = r.json()
     assert body.get("success") is True, f"e-sign send unsuccessful: {body}"
-    assert body.get("submission_id") or body.get("signing_url"), (
-        f"e-sign response lacks submission handle: {body}"
-    )
+    assert body.get("submission_id") or body.get(
+        "signing_url"
+    ), f"e-sign response lacks submission handle: {body}"

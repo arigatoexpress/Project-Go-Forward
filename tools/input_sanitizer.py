@@ -1,4 +1,5 @@
 """Input sanitization utilities — strips HTML, control chars, and truncates long strings."""
+
 import re
 from typing import Any
 
@@ -46,7 +47,7 @@ def sanitize_query_params(params: dict[str, Any], max_len: int = 500) -> dict[st
 
 
 _FILENAME_DISALLOWED_RE = re.compile(r'[<>:"/\\|?*\x00-\x1f\x7f-\x9f]')
-_PATH_TRAVERSAL_RE = re.compile(r'\.{2,}|[/\\]')
+_PATH_TRAVERSAL_RE = re.compile(r"\.{2,}|[/\\]")
 
 
 def sanitize_filename(name: str | None, max_len: int = 128) -> str | None:
@@ -67,8 +68,8 @@ def sanitize_filename(name: str | None, max_len: int = 128) -> str | None:
     name = _PATH_TRAVERSAL_RE.sub("_", name)
     name = _FILENAME_DISALLOWED_RE.sub("", name)
     # Collapse multiple spaces/underscores
-    name = re.sub(r'[\s_]+', '_', name)
-    name = name.strip('._')
+    name = re.sub(r"[\s_]+", "_", name)
+    name = name.strip("._")
     if not name:
         return None
     return name[:max_len]

@@ -121,12 +121,12 @@ class TestRequestAdminEmailCode:
         monkeypatch.setattr(main, "default_code_store", lambda: store)
         sent: list = []
         monkeypatch.setattr(
-            main, "send_admin_login_code", lambda *args, **kwargs: sent.append(kwargs) or {"success": True}
+            main,
+            "send_admin_login_code",
+            lambda *args, **kwargs: sent.append(kwargs) or {"success": True},
         )
 
-        resp = client.post(
-            "/api/admin/email-code/request", json={"email": "stranger@example.com"}
-        )
+        resp = client.post("/api/admin/email-code/request", json={"email": "stranger@example.com"})
 
         assert resp.status_code == 200
         assert resp.json() == {"success": True}
@@ -158,7 +158,9 @@ class TestRequestAdminEmailCode:
         monkeypatch.setattr(main, "default_code_store", lambda: store)
         sent: list = []
         monkeypatch.setattr(
-            main, "send_admin_login_code", lambda *args, **kwargs: sent.append(kwargs) or {"success": True}
+            main,
+            "send_admin_login_code",
+            lambda *args, **kwargs: sent.append(kwargs) or {"success": True},
         )
 
         resp = client.post(
@@ -226,10 +228,10 @@ class TestRequestAdminEmailCode:
         monkeypatch.setattr(main, "hash_code", lambda value: f"hashed:{value}")
         sent: list = []
         monkeypatch.setattr(
-            main, "send_admin_login_code", lambda email, code, **kwargs: sent.append(
-                {"email": email, "code": code, **kwargs}
-            )
-            or {"success": True}
+            main,
+            "send_admin_login_code",
+            lambda email, code, **kwargs: sent.append({"email": email, "code": code, **kwargs})
+            or {"success": True},
         )
         audited: list = []
         monkeypatch.setattr(main, "log_admin_action", lambda **kwargs: audited.append(kwargs))
@@ -244,9 +246,10 @@ class TestRequestAdminEmailCode:
         record = store.records["owner@texashomeoutlet.com"]
         assert record["code_hash"] == "hashed:654321"
         assert record["link_hash"] == "hashed:tok-xyz"
-        assert record["expires_at"] == time.time() + ttl or abs(
-            record["expires_at"] - (time.time() + ttl)
-        ) < 5
+        assert (
+            record["expires_at"] == time.time() + ttl
+            or abs(record["expires_at"] - (time.time() + ttl)) < 5
+        )
         assert sent[0]["email"] == "owner@texashomeoutlet.com"
         assert sent[0]["code"] == "654321"
         assert "#" in sent[0]["link"] and "tok-xyz" in sent[0]["link"]
@@ -377,9 +380,7 @@ class TestCheckChatRateLimit:
         redis = _FakeRedis()
         now = time.time()
         key = "tho:chat_ratelimit:9.9.9.9"
-        redis.store[key] = json.dumps(
-            [now - i for i in range(main.CHAT_RATE_LIMIT_MAX_REQUESTS)]
-        )
+        redis.store[key] = json.dumps([now - i for i in range(main.CHAT_RATE_LIMIT_MAX_REQUESTS)])
         monkeypatch.setattr(caching, "get_redis_client", lambda: redis)
 
         assert main._check_chat_rate_limit("9.9.9.9") is False

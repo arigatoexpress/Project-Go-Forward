@@ -138,7 +138,12 @@ class TestAdminLeadSources:
             # No id → skipped by the dedup/id guard.
             "d2": {"status": "funded", "buyer_email": "bob@example.com", "sale_price": 5},
             # Id present but revenue is non-numeric → deal counted, revenue skipped.
-            "d3": {"id": "d3", "status": "funded", "buyer_email": "bob@example.com", "sale_price": "n/a"},
+            "d3": {
+                "id": "d3",
+                "status": "funded",
+                "buyer_email": "bob@example.com",
+                "sale_price": "n/a",
+            },
             # Non-revenue status → never indexed.
             "d4": {"id": "d4", "status": "pending", "buyer_email": "bob@example.com"},
         }
@@ -280,13 +285,20 @@ class TestGeneratePacketFromDeal:
         assert result == {"success": False, "error": "Deal not found"}
 
     def test_success_without_esign_dispatch(self, monkeypatch):
-        main = _packet_client(monkeypatch, deal_data={"id": "d1"}, engine_result=dict(_PACKET_FIELDS))
+        main = _packet_client(
+            monkeypatch, deal_data={"id": "d1"}, engine_result=dict(_PACKET_FIELDS)
+        )
         monkeypatch.setattr(main.esign_review, "auto_send_enabled", lambda: False, raising=False)
 
         result = _run(
             main.generate_packet_from_deal(
                 "d1",
-                _Req({"packet_name": "standard_closing", "overrides": {"buyer_email": "bob@example.com"}}),
+                _Req(
+                    {
+                        "packet_name": "standard_closing",
+                        "overrides": {"buyer_email": "bob@example.com"},
+                    }
+                ),
             )
         )
 
@@ -296,7 +308,9 @@ class TestGeneratePacketFromDeal:
         assert "esign_error" not in result
 
     def test_esign_dispatch_exception_reports_error(self, monkeypatch):
-        main = _packet_client(monkeypatch, deal_data={"id": "d1"}, engine_result=dict(_PACKET_FIELDS))
+        main = _packet_client(
+            monkeypatch, deal_data={"id": "d1"}, engine_result=dict(_PACKET_FIELDS)
+        )
         monkeypatch.setattr(main.esign_review, "auto_send_enabled", lambda: True, raising=False)
         monkeypatch.setattr(main.esign_review, "money_problems", lambda data: [], raising=False)
 

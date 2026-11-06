@@ -176,7 +176,9 @@ class TestCustomerAnalytics:
         assert body["by_month"] == {"2026-03": 2, "2026-04": 1}
         # Recent leads are LEAD-status only.
         assert len(body["recent_leads"]) == 2
-        assert all(lead["name"] in {"Alice Example", "Cara Customer"} for lead in body["recent_leads"])
+        assert all(
+            lead["name"] in {"Alice Example", "Cara Customer"} for lead in body["recent_leads"]
+        )
 
     def test_analytics_failure_returns_error(self, monkeypatch):
         client, main, *_ = create_client(monkeypatch)

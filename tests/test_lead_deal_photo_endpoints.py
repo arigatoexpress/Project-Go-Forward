@@ -448,7 +448,9 @@ def _stub_image_storage(monkeypatch) -> dict:
     def set_photo_order(home_id, order):
         calls["orders"].append((home_id, list(order)))
         return [
-            types.SimpleNamespace(filename=name, url=f"https://cdn.example.com/{name}", size_bytes=100)
+            types.SimpleNamespace(
+                filename=name, url=f"https://cdn.example.com/{name}", size_bytes=100
+            )
             for name in order
         ]
 

@@ -61,9 +61,7 @@ from tests.test_ops_copilot import (  # noqa: E402
 # This test reloads marketing_tools with google.adk.tools broken and then asserts
 # the real ADK ToolContext is restored — it needs google-adk installed.
 _HAS_GOOGLE_ADK = importlib.util.find_spec("google.adk") is not None
-requires_google_adk = pytest.mark.skipif(
-    not _HAS_GOOGLE_ADK, reason="google-adk is not installed"
-)
+requires_google_adk = pytest.mark.skipif(not _HAS_GOOGLE_ADK, reason="google-adk is not installed")
 
 
 # --------------------------------------------------------------------------- #
@@ -309,9 +307,7 @@ def test_get_inventory_for_ads_staff_publication_sets_retrieved_at(monkeypatch):
     """L452: a successful live staff read stamps retrieved_at."""
     import tools.inventory_tools as inv_mod
 
-    monkeypatch.setattr(
-        inv_mod, "_load_inventory_for_publication", lambda: [_ad_home()]
-    )
+    monkeypatch.setattr(inv_mod, "_load_inventory_for_publication", lambda: [_ad_home()])
     _stub_asset_scraper(monkeypatch)
     result = marketing_tools.get_inventory_for_ads(staff_publication=True)
     assert result["success"] is True
@@ -321,9 +317,7 @@ def test_get_inventory_for_ads_staff_publication_sets_retrieved_at(monkeypatch):
 
 def test_get_inventory_for_ads_asset_import_failure_propagates(monkeypatch):
     """L365-367: both asset_scraper import attempts failing -> ImportError."""
-    monkeypatch.setattr(
-        marketing_tools, "_load_inventory_for_marketing", lambda: [_ad_home()]
-    )
+    monkeypatch.setattr(marketing_tools, "_load_inventory_for_marketing", lambda: [_ad_home()])
     monkeypatch.setitem(
         sys.modules,
         "tools.asset_scraper",
@@ -336,9 +330,7 @@ def test_get_inventory_for_ads_asset_import_failure_propagates(monkeypatch):
 def test_get_inventory_for_ads_classifier_fallback_raises_after_scraper_ok(monkeypatch):
     """L367: the scraper half of the fallback succeeds, so the classifier line
     (367) executes before its own relative import raises."""
-    monkeypatch.setattr(
-        marketing_tools, "_load_inventory_for_marketing", lambda: [_ad_home()]
-    )
+    monkeypatch.setattr(marketing_tools, "_load_inventory_for_marketing", lambda: [_ad_home()])
     monkeypatch.setitem(
         sys.modules,
         "tools.photo_classifier",
@@ -359,9 +351,7 @@ def test_get_inventory_for_ads_gates_unapproved_prices(monkeypatch):
 
     approved = _ad_home()
     approved["pricing"]["owner_approved_ad_price"] = True
-    monkeypatch.setattr(
-        marketing_tools, "_load_inventory_for_marketing", lambda: [approved]
-    )
+    monkeypatch.setattr(marketing_tools, "_load_inventory_for_marketing", lambda: [approved])
     shown = marketing_tools.get_inventory_for_ads()
     assert shown["homes"][0]["display_price"] == "$89,900"
     assert shown["homes"][0]["price_value"] == 89900
@@ -369,9 +359,7 @@ def test_get_inventory_for_ads_gates_unapproved_prices(monkeypatch):
 
 def test_staff_publication_keeps_published_sale_price(monkeypatch):
     """The storefront read keeps the sale price the editor published."""
-    monkeypatch.setattr(
-        inventory_tools, "_load_inventory_for_publication", lambda: [_ad_home()]
-    )
+    monkeypatch.setattr(inventory_tools, "_load_inventory_for_publication", lambda: [_ad_home()])
     _stub_asset_scraper(monkeypatch)
     result = marketing_tools.get_inventory_for_ads(staff_publication=True)
     assert result["homes"][0]["display_price"] == "$89,900"
@@ -483,9 +471,7 @@ def _scorable(**overrides) -> dict:
 
 def test_scorer_flags_overlong_hook():
     """L1093-1095: hooks over 20 words are penalized and flagged."""
-    result = marketing_tools._score_script_quality(
-        _scorable(hook="word " * 25), platform="tiktok"
-    )
+    result = marketing_tools._score_script_quality(_scorable(hook="word " * 25), platform="tiktok")
     assert any("Hook too long" in issue for issue in result["issues"])
 
 
@@ -514,9 +500,7 @@ def test_scorer_matches_bedroom_bathroom_and_br_ba_forms():
     sq_ft = marketing_tools._score_script_quality(
         _scorable(hook="1,200 sq ft ready"), platform="tiktok"
     )
-    brand = marketing_tools._score_script_quality(
-        _scorable(hook="2 brand new"), platform="tiktok"
-    )
+    brand = marketing_tools._score_script_quality(_scorable(hook="2 brand new"), platform="tiktok")
     assert bedroom["scores"]["hook_strength"] == 9
     assert compact["scores"]["hook_strength"] == 9
     assert sq_ft["scores"]["hook_strength"] == 9
@@ -696,8 +680,16 @@ def test_generate_content_script_auto_loads_inventory_context(monkeypatch):
         marketing_tools,
         "_load_inventory_for_marketing",
         lambda: [
-            _ad_home("a", model_name="The Mansion", pricing={"display_price": "$150,000", "price_value": 150000}),
-            _ad_home("b", model_name="The Starter", pricing={"display_price": "$29,900", "price_value": 29900}),
+            _ad_home(
+                "a",
+                model_name="The Mansion",
+                pricing={"display_price": "$150,000", "price_value": 150000},
+            ),
+            _ad_home(
+                "b",
+                model_name="The Starter",
+                pricing={"display_price": "$29,900", "price_value": 29900},
+            ),
         ],
     )
 
@@ -756,9 +748,7 @@ def test_generate_content_script_gates_featured_home_price(monkeypatch):
 
     approved = _ad_home(model_name="The Delight")
     approved["pricing"]["owner_approved_ad_price"] = True
-    monkeypatch.setattr(
-        marketing_tools, "_load_inventory_for_marketing", lambda: [approved]
-    )
+    monkeypatch.setattr(marketing_tools, "_load_inventory_for_marketing", lambda: [approved])
     marketing_tools.generate_content_script(
         home_name="The Delight", home_price="$89,900", platform="tiktok"
     )
@@ -1284,9 +1274,7 @@ def _patch_fake_genai(monkeypatch):
 
     fake_types = types.ModuleType("google.genai.types")
     captured: dict = {}
-    fake_types.GenerateContentConfig = lambda **kw: captured.update(kw) or SimpleNamespace(
-        **kw
-    )
+    fake_types.GenerateContentConfig = lambda **kw: captured.update(kw) or SimpleNamespace(**kw)
 
     fake_genai = types.ModuleType("google.genai")
     fake_genai.__path__ = []

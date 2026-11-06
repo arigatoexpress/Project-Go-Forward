@@ -136,9 +136,7 @@ def test_mx_resend_ready_when_amazonses_present():
         a=lambda _domain: [],
         cname=lambda _domain: None,
         mx=lambda domain: (
-            [(10, "feedback-smtp.us-east-1.amazonses.com")]
-            if "send." in domain
-            else []
+            [(10, "feedback-smtp.us-east-1.amazonses.com")] if "send." in domain else []
         ),
         txt=lambda _domain: [],
     )
@@ -422,11 +420,7 @@ def test_email_auth_endpoint_returns_expected_shape(client):
         a=lambda _domain: [],
         cname=lambda _domain: None,
         mx=lambda _domain: [],
-        txt=lambda domain: (
-            ["v=spf1 include:amazonses.com ~all"]
-            if "send." in domain
-            else []
-        ),
+        txt=lambda domain: (["v=spf1 include:amazonses.com ~all"] if "send." in domain else []),
     )
 
     response = client.get("/api/v1/cutover/email-auth-status")

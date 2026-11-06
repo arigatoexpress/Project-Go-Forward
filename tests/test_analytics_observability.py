@@ -123,7 +123,9 @@ def test_appointment_surfaces_lead_storage_warning(monkeypatch):
 
     # The harness's FakeAppointment/FakeAppointmentManager can't model a booking,
     # so stub Appointment + create_appointment to reach the CRM-lead failure path.
-    monkeypatch.setattr(main, "Appointment", lambda **kw: types.SimpleNamespace(**kw), raising=False)
+    monkeypatch.setattr(
+        main, "Appointment", lambda **kw: types.SimpleNamespace(**kw), raising=False
+    )
 
     async def ok_create(_appt):
         return types.SimpleNamespace(to_dict=lambda: {"appointment_id": "appt_test"})
@@ -136,7 +138,12 @@ def test_appointment_surfaces_lead_storage_warning(monkeypatch):
 
     r = client.post(
         "/api/appointments",
-        json={"name": "Al Buyer", "phone": "2813243020", "date": "2026-07-01", "time_slot": "10:00 AM"},
+        json={
+            "name": "Al Buyer",
+            "phone": "2813243020",
+            "date": "2026-07-01",
+            "time_slot": "10:00 AM",
+        },
     )
     body = r.json()
     assert body["success"] is True  # appointment still booked

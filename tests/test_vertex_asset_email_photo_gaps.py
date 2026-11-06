@@ -232,9 +232,7 @@ class TestAssetMediaForInventoryItem:
         }
         _stub_asset_scraper(monkeypatch, assets={"Creole 3256": asset})
         classified: list = []
-        monkeypatch.setattr(
-            main, "apply_classifier_to_home", classified.append, raising=False
-        )
+        monkeypatch.setattr(main, "apply_classifier_to_home", classified.append, raising=False)
 
         result = main._asset_media_for_inventory_item(
             {"model_name": "Creole 3256"}, {"model": "ignored"}
@@ -270,7 +268,13 @@ class TestAssetMediaForInventoryItem:
 # ─── POST /api/email/inbound ───────────────────────────────────────────────
 
 
-def _inbound_client(monkeypatch, *, secret="whsec-test", signature_ok=True, sender_allowed=True):
+def _inbound_client(
+    monkeypatch,
+    *,
+    secret="whsec-test",  # pragma: allowlist secret
+    signature_ok=True,
+    sender_allowed=True,
+):
     client, main, fake_db, _logger = create_client(monkeypatch)
     monkeypatch.setattr(main.limiter, "enabled", False)
     monkeypatch.setattr(main, "log_admin_action", lambda **kwargs: None)
@@ -279,9 +283,7 @@ def _inbound_client(monkeypatch, *, secret="whsec-test", signature_ok=True, send
         monkeypatch.delenv("RESEND_WEBHOOK_SECRET", raising=False)
     else:
         monkeypatch.setenv("RESEND_WEBHOOK_SECRET", secret)
-    monkeypatch.setattr(
-        main, "_verify_svix_signature", lambda secret, headers, body: signature_ok
-    )
+    monkeypatch.setattr(main, "_verify_svix_signature", lambda secret, headers, body: signature_ok)
     monkeypatch.setattr(main, "_inbound_sender_allowed", lambda sender: sender_allowed)
     monkeypatch.setattr(main, "notify_new_lead", lambda **kwargs: {"success": True})
     return client, main

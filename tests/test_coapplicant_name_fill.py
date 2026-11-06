@@ -52,8 +52,10 @@ def _generate(template: str, data: dict, tmp_path, monkeypatch) -> dict:
 # Forms whose plural "Buyer(s)" line is remapped to buyers_combined. Each tuple is
 # (template, widget that should now carry BOTH names).
 COMBINED_BUYER_FORMS = [
-    ("Internal_Consumer_Home_Acceptance_Acknowledgement.pdf",
-     "topmostSubform[0].Page1[0].Contract_Name[0]"),
+    (
+        "Internal_Consumer_Home_Acceptance_Acknowledgement.pdf",
+        "topmostSubform[0].Page1[0].Contract_Name[0]",
+    ),
     ("approval.pdf", "topmostSubform[0].Page1[0].Contract_Name[0]"),
     ("TDHCA_HUDDisclosure.pdf", "topmostSubform[0].Page2[0].Contract_Name[0]"),
 ]
@@ -71,9 +73,9 @@ def test_two_buyer_deal_renders_both_names(tmp_path, monkeypatch):
     for template, widget in COMBINED_BUYER_FORMS:
         result = _generate(template, data, tmp_path, monkeypatch)
         actual = _read_acroform_values(result["file_path"])
-        assert actual.get(widget) == expected, (
-            f"{template}: {widget} = {actual.get(widget)!r}, expected {expected!r}"
-        )
+        assert (
+            actual.get(widget) == expected
+        ), f"{template}: {widget} = {actual.get(widget)!r}, expected {expected!r}"
 
 
 def test_single_buyer_deal_has_no_trailing_ampersand(tmp_path, monkeypatch):
@@ -91,9 +93,7 @@ def test_single_buyer_deal_has_no_trailing_ampersand(tmp_path, monkeypatch):
         result = _generate(template, data, tmp_path, monkeypatch)
         actual = _read_acroform_values(result["file_path"])
         value = actual.get(widget)
-        assert value == buyer, (
-            f"{template}: {widget} = {value!r}, expected exactly {buyer!r}"
-        )
+        assert value == buyer, f"{template}: {widget} = {value!r}, expected exactly {buyer!r}"
         assert value is not None
         assert "&" not in value, f"{template}: trailing ampersand artifact in {value!r}"
         assert value.strip() == value, f"{template}: stray whitespace in {value!r}"
@@ -109,9 +109,7 @@ def test_1023_remapped_widgets_fill(tmp_path, monkeypatch):
     data["portfolio"] = "21st Mortgage"
     data["has_lien"] = True
 
-    result = _generate(
-        "TDHCA_1023-Statement-Ownership.pdf", data, tmp_path, monkeypatch
-    )
+    result = _generate("TDHCA_1023-Statement-Ownership.pdf", data, tmp_path, monkeypatch)
     actual = _read_acroform_values(result["file_path"])
 
     # date_of_sale -> Contract_Start_Date (page 1)

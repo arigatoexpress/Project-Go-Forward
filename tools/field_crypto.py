@@ -92,7 +92,7 @@ def decrypt_field(stored: str | None) -> str | None:
     key = _kms_key()
     if not key:
         return stored  # cannot decrypt without the key; never raise on read
-    ciphertext = base64.b64decode(stored[len(_PREFIX):])
+    ciphertext = base64.b64decode(stored[len(_PREFIX) :])
     resp = _client().decrypt(request={"name": key, "ciphertext": ciphertext})
     return resp.plaintext.decode("utf-8")
 

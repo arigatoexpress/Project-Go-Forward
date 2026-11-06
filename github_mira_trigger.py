@@ -12,6 +12,7 @@ Receives GitHub webhook events at ``/api/github/mira/webhook``, validates the
 Partner-facing status/config endpoint lives at ``/api/v1/github/mira/status``
 and uses the standard partner API key auth.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -290,7 +291,9 @@ def _log_activity(
             },
             "created_at": datetime.now(UTC).isoformat(),
         }
-        db.db.collection("activities").document(activity["id"]).set(activity, timeout=FIRESTORE_RPC_TIMEOUT)
+        db.db.collection("activities").document(activity["id"]).set(
+            activity, timeout=FIRESTORE_RPC_TIMEOUT
+        )
     except Exception as e:
         struct_logger.warning("github_mira_trigger activity log failed", error=str(e))
 

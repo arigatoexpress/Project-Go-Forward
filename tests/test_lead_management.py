@@ -475,7 +475,6 @@ class _LMClient:
         return self._coll
 
 
-
 def _manager(docs=None) -> LeadManager:
     lm = LeadManager("test-project")  # lazy db: no ADC needed at construction
     lm.db = _LMClient(docs)
@@ -535,7 +534,9 @@ class TestLazyDbProperty:
 
         calls = []
         monkeypatch.setattr(
-            lead_management.firestore, "Client", lambda project=None: calls.append(project) or _LMClient()
+            lead_management.firestore,
+            "Client",
+            lambda project=None: calls.append(project) or _LMClient(),
         )
         lm = LeadManager("my-project")
         assert lm._db is None  # nothing constructed yet

@@ -203,7 +203,9 @@ def get_draft(draft_id: str) -> ReplyDraft | None:
     if db is None or not draft_id:
         return None
     try:
-        snap = db.collection(DRAFTS_COLLECTION).document(draft_id).get(timeout=FIRESTORE_RPC_TIMEOUT)
+        snap = (
+            db.collection(DRAFTS_COLLECTION).document(draft_id).get(timeout=FIRESTORE_RPC_TIMEOUT)
+        )
         if not snap.exists:
             return None
         return _from_doc(draft_id, snap.to_dict() or {})

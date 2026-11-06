@@ -123,7 +123,9 @@ class FakeLeadManager:
         now = datetime.now(UTC)
         return [
             FakeLead(lead_id="l1", status="new", created_at=(now - timedelta(hours=1)).isoformat()),
-            FakeLead(lead_id="l2", status="contacted", created_at=(now - timedelta(hours=25)).isoformat()),
+            FakeLead(
+                lead_id="l2", status="contacted", created_at=(now - timedelta(hours=25)).isoformat()
+            ),
             FakeLead(lead_id="l3", status="new", created_at=now.isoformat()),
         ]
 
@@ -287,7 +289,9 @@ class TestNotifyWebhook:
         calls = []
 
         def _fake_post(url, data=None, headers=None, timeout=None):
-            calls.append({"url": url, "body": data, "headers": dict(headers or {}), "timeout": timeout})
+            calls.append(
+                {"url": url, "body": data, "headers": dict(headers or {}), "timeout": timeout}
+            )
 
             class Resp:
                 status_code = 200
@@ -302,7 +306,12 @@ class TestNotifyWebhook:
         resp = tc.post(
             "/api/v1/obsidian/notify",
             headers=_auth_headers(),
-            json={"message": "deal funded", "level": "warn", "source": "tho", "action_url": "https://tho.example.com/d1"},
+            json={
+                "message": "deal funded",
+                "level": "warn",
+                "source": "tho",
+                "action_url": "https://tho.example.com/d1",
+            },
         )
         assert resp.status_code == 200
         data = resp.json()
