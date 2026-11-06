@@ -8,7 +8,7 @@ import json
 import logging
 import re
 from dataclasses import asdict, dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from google.cloud import firestore
 
@@ -109,9 +109,9 @@ class Lead:
         if self.homes_viewed is None:
             self.homes_viewed = []
         if self.created_at is None:
-            self.created_at = datetime.utcnow().isoformat()
+            self.created_at = datetime.now(UTC).replace(tzinfo=None).isoformat()
         if self.updated_at is None:
-            self.updated_at = datetime.utcnow().isoformat()
+            self.updated_at = datetime.now(UTC).replace(tzinfo=None).isoformat()
 
     def to_dict(self) -> dict:
         """Validate against the canonical Firestore schema before storage."""
@@ -167,7 +167,7 @@ def apply_lead_status_transition(
     if lead.status == new_status:
         return False
 
-    timestamp = now or datetime.utcnow().isoformat()
+    timestamp = now or datetime.now(UTC).replace(tzinfo=None).isoformat()
     lead.status = new_status
     lead.status_changed_at = timestamp
     lead.status_changed_by = actor
@@ -215,7 +215,7 @@ class LeadManager:
     async def update_lead(self, lead: Lead) -> Lead:
         """Update existing lead"""
         lead.phone = normalize_phone(lead.phone)
-        lead.updated_at = datetime.utcnow().isoformat()
+        lead.updated_at = datetime.now(UTC).replace(tzinfo=None).isoformat()
         doc_ref = self.db.collection(self.collection_name).document(lead.lead_id)
 
         def _update():
@@ -249,7 +249,7 @@ class LeadManager:
             previous_status = lead.status
             changed = apply_lead_status_transition(lead, new_status, actor=actor)
             if changed:
-                lead.updated_at = datetime.utcnow().isoformat()
+                lead.updated_at = datetime.now(UTC).replace(tzinfo=None).isoformat()
                 txn.set(doc_ref, lead.to_dict(), merge=True)
             return lead, previous_status, changed
 
@@ -346,7 +346,7 @@ class LeadManager:
         if min_age_hours is None:
             return leads
 
-        cutoff = datetime.utcnow() - timedelta(hours=min_age_hours)
+        cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=min_age_hours)
         result: list[Lead] = []
         for lead in leads:
             created = lead.created_at
@@ -378,7 +378,7 @@ class LeadManager:
         if lead is None:
             return None
 
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(UTC).replace(tzinfo=None).isoformat()
         if "status" in update:
             # Validate before applying any other field so a malformed status
             # cannot produce a partial triage write.

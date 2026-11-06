@@ -5,7 +5,7 @@ Handles all database operations for the AI agents
 
 import os
 import re
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from google.cloud import firestore
@@ -38,14 +38,19 @@ class THODatabase:
     def get_customer(self, customer_id: str) -> dict | None:
         """Get customer by document ID or legacy_id."""
         # Try direct document lookup first
-        doc = self.db.collection("customers").document(customer_id).get(timeout=FIRESTORE_RPC_TIMEOUT)
+        doc = (
+            self.db.collection("customers").document(customer_id).get(timeout=FIRESTORE_RPC_TIMEOUT)
+        )
         if doc.exists:
             data = doc.to_dict()
             data["id"] = doc.id
             return data
         # Fall back to legacy_id search
         docs = (
-            self.db.collection("customers").where("legacy_id", "==", customer_id).limit(1).stream(timeout=FIRESTORE_RPC_TIMEOUT)
+            self.db.collection("customers")
+            .where("legacy_id", "==", customer_id)
+            .limit(1)
+            .stream(timeout=FIRESTORE_RPC_TIMEOUT)
         )
         for doc in docs:
             data = doc.to_dict()
@@ -122,8 +127,8 @@ class THODatabase:
 
     def create_customer(self, data: dict, doc_id: str | None = None) -> str:
         """Create new customer. Use doc_id to set a specific document ID (e.g. for migration)."""
-        data["created_at"] = data.get("created_at") or datetime.utcnow()
-        data["updated_at"] = data.get("updated_at") or datetime.utcnow()
+        data["created_at"] = data.get("created_at") or datetime.now(UTC).replace(tzinfo=None)
+        data["updated_at"] = data.get("updated_at") or datetime.now(UTC).replace(tzinfo=None)
         # Indexed field for fast prefix search
         if data.get("full_name"):
             data["_name_lower"] = data["full_name"].lower().strip()
@@ -136,8 +141,10 @@ class THODatabase:
 
     def update_customer(self, customer_id: str, data: dict) -> bool:
         """Update customer record."""
-        data["updated_at"] = datetime.utcnow()
-        self.db.collection("customers").document(customer_id).update(data, timeout=FIRESTORE_RPC_TIMEOUT)
+        data["updated_at"] = datetime.now(UTC).replace(tzinfo=None)
+        self.db.collection("customers").document(customer_id).update(
+            data, timeout=FIRESTORE_RPC_TIMEOUT
+        )
         return True
 
     def delete_customer(self, customer_id: str) -> bool:
@@ -188,7 +195,11 @@ class THODatabase:
 
     def get_inventory(self, inventory_id: str) -> dict | None:
         """Get inventory item by ID"""
-        doc = self.db.collection("inventory").document(inventory_id).get(timeout=FIRESTORE_RPC_TIMEOUT)
+        doc = (
+            self.db.collection("inventory")
+            .document(inventory_id)
+            .get(timeout=FIRESTORE_RPC_TIMEOUT)
+        )
         return doc.to_dict() if doc.exists else None
 
     def get_inventory_by_id(self, inventory_id: str) -> dict | None:
@@ -228,7 +239,11 @@ class THODatabase:
         chunk_size = 30
         for i in range(0, len(unique), chunk_size):
             chunk = unique[i : i + chunk_size]
-            docs = self.db.collection("inventory").where("serial_number", "in", chunk).stream(timeout=FIRESTORE_RPC_TIMEOUT)
+            docs = (
+                self.db.collection("inventory")
+                .where("serial_number", "in", chunk)
+                .stream(timeout=FIRESTORE_RPC_TIMEOUT)
+            )
             for doc in docs:
                 data = doc.to_dict()
                 data["id"] = doc.id
@@ -295,7 +310,9 @@ class THODatabase:
 
     def update_inventory(self, inventory_id: str, data: dict) -> bool:
         """Update inventory record"""
-        self.db.collection("inventory").document(inventory_id).update(data, timeout=FIRESTORE_RPC_TIMEOUT)
+        self.db.collection("inventory").document(inventory_id).update(
+            data, timeout=FIRESTORE_RPC_TIMEOUT
+        )
         return True
 
     def upsert_inventory(self, inventory_id: str, data: dict) -> str:
@@ -318,13 +335,19 @@ class THODatabase:
 
     def get_property(self, property_id: str) -> dict | None:
         """Get property by ID"""
-        doc = self.db.collection("properties").document(property_id).get(timeout=FIRESTORE_RPC_TIMEOUT)
+        doc = (
+            self.db.collection("properties")
+            .document(property_id)
+            .get(timeout=FIRESTORE_RPC_TIMEOUT)
+        )
         return doc.to_dict() if doc.exists else None
 
     def search_properties_by_address(self, address: str) -> list[dict]:
         """Search properties by address (partial match)"""
         results = []
-        for doc in self.db.collection("properties").limit(100).stream(timeout=FIRESTORE_RPC_TIMEOUT):
+        for doc in (
+            self.db.collection("properties").limit(100).stream(timeout=FIRESTORE_RPC_TIMEOUT)
+        ):
             data = doc.to_dict()
             data["id"] = doc.id
             if address.lower() in data.get("address", "").lower():
@@ -334,7 +357,11 @@ class THODatabase:
     def get_properties_by_customer(self, customer_id: str) -> list[dict]:
         """Get all properties owned by a customer"""
         results = []
-        docs = self.db.collection("properties").where("customer_id", "==", customer_id).stream(timeout=FIRESTORE_RPC_TIMEOUT)
+        docs = (
+            self.db.collection("properties")
+            .where("customer_id", "==", customer_id)
+            .stream(timeout=FIRESTORE_RPC_TIMEOUT)
+        )
 
         for doc in docs:
             data = doc.to_dict()
@@ -380,8 +407,8 @@ class THODatabase:
 
     def create_service_request(self, data: dict) -> str:
         """Create new service request"""
-        data["created_at"] = datetime.utcnow()
-        data["updated_at"] = datetime.utcnow()
+        data["created_at"] = datetime.now(UTC).replace(tzinfo=None)
+        data["updated_at"] = datetime.now(UTC).replace(tzinfo=None)
         data["status"] = data.get("status", "open")
         doc_ref = self.db.collection("service_requests").document()
         doc_ref.set(data, timeout=FIRESTORE_RPC_TIMEOUT)
@@ -400,7 +427,9 @@ class THODatabase:
 
         results = []
         for doc in (
-            query.order_by("created_at", direction=firestore.Query.DESCENDING).limit(limit).stream(timeout=FIRESTORE_RPC_TIMEOUT)
+            query.order_by("created_at", direction=firestore.Query.DESCENDING)
+            .limit(limit)
+            .stream(timeout=FIRESTORE_RPC_TIMEOUT)
         ):
             data = doc.to_dict()
             data["id"] = doc.id
@@ -410,16 +439,18 @@ class THODatabase:
 
     def update_service_request(self, request_id: str, data: dict) -> bool:
         """Update service request"""
-        data["updated_at"] = datetime.utcnow()
-        self.db.collection("service_requests").document(request_id).update(data, timeout=FIRESTORE_RPC_TIMEOUT)
+        data["updated_at"] = datetime.now(UTC).replace(tzinfo=None)
+        self.db.collection("service_requests").document(request_id).update(
+            data, timeout=FIRESTORE_RPC_TIMEOUT
+        )
         return True
 
     # ============ DEALS (replaces fastcontractdocs.com) ============
 
     def create_deal(self, data: dict) -> str:
         """Create new deal/application, returns deal ID"""
-        data["created_at"] = datetime.utcnow()
-        data["updated_at"] = datetime.utcnow()
+        data["created_at"] = datetime.now(UTC).replace(tzinfo=None)
+        data["updated_at"] = datetime.now(UTC).replace(tzinfo=None)
         data.setdefault("status", "pending")
         encrypt_ssn_fields(data)  # SSN envelope encryption (inert until SSN_KMS_KEY set)
         deal_id = data.pop("id", None)
@@ -444,7 +475,7 @@ class THODatabase:
 
     def update_deal(self, deal_id: str, data: dict) -> bool:
         """Update deal record"""
-        data["updated_at"] = datetime.utcnow()
+        data["updated_at"] = datetime.now(UTC).replace(tzinfo=None)
         encrypt_ssn_fields(data)  # SSN envelope encryption (inert until SSN_KMS_KEY set)
         self.db.collection("deals").document(deal_id).update(data, timeout=FIRESTORE_RPC_TIMEOUT)
         return True
@@ -494,7 +525,7 @@ class THODatabase:
     def archive_deal(self, deal_id: str) -> bool:
         """Archive a deal (soft delete — sets status to archived)"""
         self.db.collection("deals").document(deal_id).update(
-            {"status": "archived", "updated_at": datetime.utcnow()},
+            {"status": "archived", "updated_at": datetime.now(UTC).replace(tzinfo=None)},
             timeout=FIRESTORE_RPC_TIMEOUT,
         )
         return True
