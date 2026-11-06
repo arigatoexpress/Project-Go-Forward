@@ -225,9 +225,7 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Asyncio load tester for THO")
     parser.add_argument("--base-url", default="", help="Base URL to target")
     parser.add_argument("--rps", type=int, default=20, help="Target requests per second")
-    parser.add_argument(
-        "--duration", type=int, default=300, help="Test duration in seconds"
-    )
+    parser.add_argument("--duration", type=int, default=300, help="Test duration in seconds")
     parser.add_argument("--admin-token", default=None, help="Optional admin bearer token")
     parser.add_argument(
         "--staging",
