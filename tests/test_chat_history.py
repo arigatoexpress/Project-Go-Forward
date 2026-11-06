@@ -33,6 +33,11 @@ class FixedDatetime(datetime):
     def utcnow(cls):
         return cls(2026, 6, 13, 12, 0, 0)
 
+    @classmethod
+    def now(cls, tz=None):
+        base = cls(2026, 6, 13, 12, 0, 0)
+        return base.replace(tzinfo=tz) if tz is not None else base
+
 
 # ─── Firestore stand-in ────────────────────────────────────────────────────
 
@@ -149,10 +154,12 @@ FakeFirestoreModule = types.SimpleNamespace(
 
 @pytest.fixture(autouse=True)
 def fixed_time(monkeypatch):
-    """Freeze utcnow() so every timestamp is deterministic."""
+    """Freeze utcnow()/now() so every timestamp is deterministic."""
     import chat_history
+
     monkeypatch.setattr(chat_history, "datetime", FixedDatetime)
     import conversation_memory
+
     monkeypatch.setattr(conversation_memory, "datetime", FixedDatetime)
 
 
@@ -160,6 +167,7 @@ def fixed_time(monkeypatch):
 def fake_chat_db(monkeypatch):
     """Swap chat_history's Firestore client for an in-memory fake."""
     import chat_history
+
     fake = FakeFirestore()
 
     class FakeClient:

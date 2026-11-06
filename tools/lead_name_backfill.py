@@ -22,7 +22,7 @@ import json
 import os
 import re
 import sys
-from datetime import datetime
+from datetime import UTC, datetime
 
 from pydantic import BaseModel, Field
 
@@ -48,7 +48,9 @@ class LeadNamePatch(BaseModel):
     source_session_id: str
     source_message_excerpt: str
     confidence: float = Field(ge=0.0, le=1.0)
-    extracted_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
+    extracted_at: str = Field(
+        default_factory=lambda: datetime.now(UTC).replace(tzinfo=None).isoformat()
+    )
 
 
 # ──────────────────────────────────────────────────────────────────────────────
