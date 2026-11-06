@@ -421,7 +421,9 @@ class TestUploadListingPhotos:
         def store_photo(home_id, data, original_name=None, declared_content_type=None):
             if original_name == "bad.exe":
                 raise fake.PhotoValidationError("Unsupported file type.")
-            return types.SimpleNamespace(filename=original_name, url=f"https://cdn/{original_name}", size_bytes=len(data))
+            return types.SimpleNamespace(
+                filename=original_name, url=f"https://cdn/{original_name}", size_bytes=len(data)
+            )
 
         fake.store_photo = store_photo
 

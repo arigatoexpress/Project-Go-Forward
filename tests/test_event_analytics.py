@@ -13,9 +13,7 @@ from test_api_v1 import create_client
 
 
 def _seed_events(main, events):
-    main._db.db.collections["analytics_events"] = {
-        f"e{i}": e for i, e in enumerate(events)
-    }
+    main._db.db.collections["analytics_events"] = {f"e{i}": e for i, e in enumerate(events)}
 
 
 def test_event_analytics_requires_admin(monkeypatch):
@@ -35,9 +33,7 @@ def test_event_analytics_aggregates_real_events(monkeypatch):
             {"event": "tour_click", "props": {"home": "Premier"}, "created_at": now},
         ],
     )
-    body = client.get(
-        "/api/analytics/events?range=30d", headers={"X-Admin-Token": token}
-    ).json()
+    body = client.get("/api/analytics/events?range=30d", headers={"X-Admin-Token": token}).json()
     assert body["total_events"] == 3
     assert {"event": "lead_captured", "count": 2} in body["by_type"]
     assert body["top_homes"][0] == {"home": "Nassau", "count": 2}
@@ -57,9 +53,7 @@ def test_event_analytics_respects_range_window(monkeypatch):
         ],
     )
     # 30-day window excludes the 60-day-old event.
-    body = client.get(
-        "/api/analytics/events?range=30d", headers={"X-Admin-Token": token}
-    ).json()
+    body = client.get("/api/analytics/events?range=30d", headers={"X-Admin-Token": token}).json()
     assert body["total_events"] == 1
     assert body["top_homes"][0]["home"] == "Recent"
 
@@ -77,9 +71,7 @@ def test_event_analytics_all_range_includes_old_events(monkeypatch):
             {"event": "home_view", "props": {"home": "Recent"}, "created_at": recent},
         ],
     )
-    body = client.get(
-        "/api/analytics/events?range=all", headers={"X-Admin-Token": token}
-    ).json()
+    body = client.get("/api/analytics/events?range=all", headers={"X-Admin-Token": token}).json()
     assert body["total_events"] == 2  # both, including the 400-day-old event
     assert {h["home"] for h in body["top_homes"]} == {"Ancient", "Recent"}
 
@@ -87,9 +79,7 @@ def test_event_analytics_all_range_includes_old_events(monkeypatch):
 def test_event_analytics_never_500s_on_empty(monkeypatch):
     client, main, *_ = create_client(monkeypatch)
     token = main._create_admin_token()
-    body = client.get(
-        "/api/analytics/events", headers={"X-Admin-Token": token}
-    ).json()
+    body = client.get("/api/analytics/events", headers={"X-Admin-Token": token}).json()
     assert body["total_events"] == 0 and body["by_type"] == []
 
 
@@ -112,9 +102,7 @@ def test_event_analytics_reports_anonymous_journey_funnel(monkeypatch):
         ],
     )
 
-    body = client.get(
-        "/api/analytics/events?range=30d", headers={"X-Admin-Token": token}
-    ).json()
+    body = client.get("/api/analytics/events?range=30d", headers={"X-Admin-Token": token}).json()
 
     assert body["total_events"] == 6
     assert body["discarded_events"] == 1

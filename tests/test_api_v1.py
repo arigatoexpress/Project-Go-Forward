@@ -549,7 +549,9 @@ class FakeLeadManager:
 
     async def get_lead_by_phone(self, phone: str | None):
         def _get():
-            wanted = "".join(character for character in str(phone or "") if character.isdigit())[-10:]
+            wanted = "".join(character for character in str(phone or "") if character.isdigit())[
+                -10:
+            ]
             for lead in self.leads:
                 current = "".join(
                     character for character in str(lead.phone or "") if character.isdigit()

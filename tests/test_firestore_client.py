@@ -129,9 +129,7 @@ class FakeQuery:
     def stream(self, timeout=None):
         _require_timeout(timeout)
         rows = [
-            (doc_id, data)
-            for doc_id, data in self._collection._docs.items()
-            if self._matches(data)
+            (doc_id, data) for doc_id, data in self._collection._docs.items() if self._matches(data)
         ]
         rows = self._sorted(rows)
         if self._limit is not None:
@@ -401,7 +399,9 @@ class TestInventory:
         assert fake.collection("inventory").document(doc_id).get().exists
 
         assert database.update_inventory(doc_id, {"model_name": "Renamed"}) is True
-        assert fake.collection("inventory").document(doc_id).get().to_dict()["model_name"] == "Renamed"
+        assert (
+            fake.collection("inventory").document(doc_id).get().to_dict()["model_name"] == "Renamed"
+        )
 
         # Upsert merges: staff-edited fields not in the payload survive.
         database.update_inventory(doc_id, {"staff_note": "keep me"})
@@ -473,7 +473,10 @@ class TestServiceRequests:
     def test_create_service_request_respects_explicit_status(self, db):
         database, fake = db
         doc_id = database.create_service_request({"issue": "x", "status": "in_progress"})
-        assert fake.collection("service_requests").document(doc_id).get().to_dict()["status"] == "in_progress"
+        assert (
+            fake.collection("service_requests").document(doc_id).get().to_dict()["status"]
+            == "in_progress"
+        )
 
     def test_get_service_requests_ordered_newest_first(self, db):
         database, fake = db

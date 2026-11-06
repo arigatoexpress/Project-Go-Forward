@@ -76,7 +76,10 @@ class TestGenerateVoiceover:
             headers=_admin_headers(main),
         )
 
-        assert resp.json() == {"success": False, "error": "Write the words first. Nothing was posted."}
+        assert resp.json() == {
+            "success": False,
+            "error": "Write the words first. Nothing was posted.",
+        }
 
     def test_success_passes_args_and_result(self, monkeypatch):
         client, main, _db, _logger = create_client(monkeypatch)
@@ -98,7 +101,9 @@ class TestGenerateVoiceover:
         )
 
         assert resp.json() == {"success": True, "audio_base64": "QUJD"}
-        assert calls == [{"script_text": "Hi there", "voice": "en-US-Studio-Q", "speaking_rate": 1.2}]
+        assert calls == [
+            {"script_text": "Hi there", "voice": "en-US-Studio-Q", "speaking_rate": 1.2}
+        ]
 
     def test_generation_failure_returns_generic_error(self, monkeypatch):
         client, main, _db, _logger = create_client(monkeypatch)
@@ -181,7 +186,8 @@ class TestGenerateImage:
         monkeypatch.setattr(
             main,
             "generate_ad_image",
-            lambda **kwargs: calls.append(kwargs) or {"success": True, "image_url": "https://cdn/x.png"},
+            lambda **kwargs: calls.append(kwargs)
+            or {"success": True, "image_url": "https://cdn/x.png"},
         )
 
         resp = client.post(

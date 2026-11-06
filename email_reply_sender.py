@@ -106,9 +106,7 @@ def send_approved_reply(draft_id: str, actor: str) -> dict:
     if _cap_reached():
         return _refuse(f"daily reply cap reached ({_daily_cap()})", draft_id=draft_id)
 
-    html_body = "<br>\n".join(
-        line for line in (draft.draft_body.replace("\r", "").split("\n"))
-    )
+    html_body = "<br>\n".join(line for line in (draft.draft_body.replace("\r", "").split("\n")))
     result = send_email(
         to=draft.sender,
         subject=f"Re: {draft.subject}"[:220] if draft.subject else "Re: your message",

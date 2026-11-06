@@ -46,9 +46,7 @@ from pydantic import ValidationError
 # root_agent hard-requires google-adk; the fallback tests below execute its
 # source, so skip them in dependency-minimal environments.
 _HAS_GOOGLE_ADK = importlib.util.find_spec("google.adk") is not None
-requires_google_adk = pytest.mark.skipif(
-    not _HAS_GOOGLE_ADK, reason="google-adk is not installed"
-)
+requires_google_adk = pytest.mark.skipif(not _HAS_GOOGLE_ADK, reason="google-adk is not installed")
 
 # Ensure repo root is importable (same pattern as tests/test_agent_booking_fix.py)
 REPO_ROOT = Path(__file__).resolve().parent.parent

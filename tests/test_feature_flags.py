@@ -38,12 +38,16 @@ def _hash_bucket(name: str, user_id: str) -> int:
 
 
 class TestIsEnabled:
-    @pytest.mark.parametrize("token", ["1", "true", "TRUE", "yes", "YES", "on", "ON", "enabled", "ENABLED"])
+    @pytest.mark.parametrize(
+        "token", ["1", "true", "TRUE", "yes", "YES", "on", "ON", "enabled", "ENABLED"]
+    )
     def test_truthy_tokens(self, token, monkeypatch):
         monkeypatch.setenv("FF_FOO", token)
         assert ff.is_enabled("FOO") is True
 
-    @pytest.mark.parametrize("token", ["0", "false", "FALSE", "no", "NO", "off", "OFF", "disabled", "DISABLED", "maybe"])
+    @pytest.mark.parametrize(
+        "token", ["0", "false", "FALSE", "no", "NO", "off", "OFF", "disabled", "DISABLED", "maybe"]
+    )
     def test_falsy_or_unknown_tokens(self, token, monkeypatch):
         monkeypatch.setenv("FF_FOO", token)
         assert ff.is_enabled("FOO") is False
@@ -70,7 +74,9 @@ class TestIsEnabled:
 
 
 class TestIsDisabled:
-    @pytest.mark.parametrize("token", ["0", "false", "FALSE", "no", "NO", "off", "OFF", "disabled", "DISABLED"])
+    @pytest.mark.parametrize(
+        "token", ["0", "false", "FALSE", "no", "NO", "off", "OFF", "disabled", "DISABLED"]
+    )
     def test_falsy_tokens(self, token, monkeypatch):
         monkeypatch.setenv("FF_FOO", token)
         assert ff.is_disabled("FOO") is True
@@ -227,8 +233,10 @@ class TestAllFlags:
                 monkeypatch.delenv(key, raising=False)
         # all_flags() reads config_loader.get_config directly (not _read_config),
         # and config.yaml now ships real flags (GOOGLE_REVIEW_LINK) — silence both.
-        with patch("tools.feature_flags._read_config", return_value=None), \
-                patch("config_loader.get_config", return_value={}):
+        with (
+            patch("tools.feature_flags._read_config", return_value=None),
+            patch("config_loader.get_config", return_value={}),
+        ):
             assert ff.all_flags() == {}
 
     def test_picks_up_env_vars(self, monkeypatch):

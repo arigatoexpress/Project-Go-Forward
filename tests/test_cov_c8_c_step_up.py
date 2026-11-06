@@ -437,9 +437,7 @@ def test_consume_rejects_mismatched_credential_store():
             envelope=envelope,
             access_evidence=_owner_access_evidence(context),
             credential_store=memory_credentials,
-            credential_usage=memory_credentials.prepare_usage_cas(
-                memory_record, new_sign_count=1
-            ),
+            credential_usage=memory_credentials.prepare_usage_cas(memory_record, new_sign_count=1),
         )
     store.close()
 
@@ -611,13 +609,13 @@ def _post_complete(client, credential_id):
 
 
 def _patch_verified(monkeypatch, credential_id=b"owner-credential"):
-    monkeypatch.setattr(routes.passkey_routes, "parse_authentication_credential_json", lambda raw: raw)
+    monkeypatch.setattr(
+        routes.passkey_routes, "parse_authentication_credential_json", lambda raw: raw
+    )
     monkeypatch.setattr(
         routes.passkey_routes,
         "verify_authentication_response",
-        lambda **kwargs: types.SimpleNamespace(
-            credential_id=credential_id, new_sign_count=1
-        ),
+        lambda **kwargs: types.SimpleNamespace(credential_id=credential_id, new_sign_count=1),
     )
 
 
@@ -625,15 +623,11 @@ def test_provider_seams_delegate_to_passkey_routes(monkeypatch):
     assert routes._utc_now().tzinfo is not None
 
     session_sentinel = object()
-    monkeypatch.setattr(
-        routes.passkey_routes, "get_session_manager", lambda: session_sentinel
-    )
+    monkeypatch.setattr(routes.passkey_routes, "get_session_manager", lambda: session_sentinel)
     assert routes.get_session_manager() is session_sentinel
 
     credential_sentinel = object()
-    monkeypatch.setattr(
-        routes.passkey_routes, "get_credential_store", lambda: credential_sentinel
-    )
+    monkeypatch.setattr(routes.passkey_routes, "get_credential_store", lambda: credential_sentinel)
     assert routes.get_credential_store() is credential_sentinel
 
     ledger_sentinel = object()
@@ -718,9 +712,7 @@ def test_begin_and_complete_fail_closed_when_webauthn_unavailable(
     assert completed.json()["message"] == "WebAuthn is unavailable."
 
 
-def test_begin_maps_nonce_persistence_failure_to_503(
-    step_up_envelope_client, monkeypatch
-):
+def test_begin_maps_nonce_persistence_failure_to_503(step_up_envelope_client, monkeypatch):
     client, manager, _credentials, evidence_store, _access = step_up_envelope_client
     _authenticate(client, manager)
 
@@ -738,9 +730,7 @@ def test_begin_maps_nonce_persistence_failure_to_503(
     assert evidence_store._nonces == {}
 
 
-def test_complete_rejects_challenge_context_digest_mismatch(
-    step_up_envelope_client, monkeypatch
-):
+def test_complete_rejects_challenge_context_digest_mismatch(step_up_envelope_client, monkeypatch):
     client, manager, _credentials, _evidence_store, _access = step_up_envelope_client
     _authenticate(client, manager)
     assert _begin(client).status_code == 200
@@ -762,9 +752,7 @@ def test_complete_rejects_challenge_context_digest_mismatch(
     }
 
 
-def test_complete_maps_credential_read_failure_to_503(
-    step_up_envelope_client, monkeypatch
-):
+def test_complete_maps_credential_read_failure_to_503(step_up_envelope_client, monkeypatch):
     client, manager, credential_store, _evidence_store, _access = step_up_envelope_client
     _authenticate(client, manager)
     assert _begin(client).status_code == 200

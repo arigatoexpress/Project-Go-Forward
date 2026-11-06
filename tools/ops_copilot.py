@@ -165,9 +165,7 @@ def _notion_status_counts(db_key: str) -> dict[str, int]:
 def _firestore_feedback() -> dict[str, Any]:
     """The Firestore feedback count — the default/fallback feedback section."""
     try:
-        feedback_docs = list(
-            _get_db().collection("feedback").stream(timeout=FIRESTORE_RPC_TIMEOUT)
-        )
+        feedback_docs = list(_get_db().collection("feedback").stream(timeout=FIRESTORE_RPC_TIMEOUT))
         return {"total": len(feedback_docs)}
     except Exception as exc:
         logger.error("ops_copilot feedback snapshot failed", error=str(exc))
@@ -242,7 +240,17 @@ async def get_business_snapshot() -> dict[str, Any]:
 HELP_TOPICS: list[dict[str, Any]] = [
     {
         "title": "Logging into the back office",
-        "keywords": ["login", "log in", "sign in", "back office", "admin", "pin", "passkey", "lock", "access"],
+        "keywords": [
+            "login",
+            "log in",
+            "sign in",
+            "back office",
+            "admin",
+            "pin",
+            "passkey",
+            "lock",
+            "access",
+        ],
         "body": (
             "Open https://www.texashomeoutlet.com/staff, type your work email, and use "
             "the email link. If this device can use a passkey, Sign in with a passkey "
@@ -253,7 +261,16 @@ HELP_TOPICS: list[dict[str, Any]] = [
     },
     {
         "title": "Finding and managing leads (CRM)",
-        "keywords": ["lead", "leads", "crm", "customer", "contact", "inquiry", "new lead", "follow up"],
+        "keywords": [
+            "lead",
+            "leads",
+            "crm",
+            "customer",
+            "contact",
+            "inquiry",
+            "new lead",
+            "follow up",
+        ],
         "body": (
             "Leads are people who contacted us through the site. Open the CRM from the "
             "admin menu to see every lead, their status (new, contacted, qualified, "
@@ -264,7 +281,15 @@ HELP_TOPICS: list[dict[str, Any]] = [
     },
     {
         "title": "Appointments and tours",
-        "keywords": ["appointment", "appointments", "tour", "schedule", "calendar", "booking", "visit"],
+        "keywords": [
+            "appointment",
+            "appointments",
+            "tour",
+            "schedule",
+            "calendar",
+            "booking",
+            "visit",
+        ],
         "body": (
             "The Appointments page lists tours and meetings customers have requested, "
             "with their status. Use it to see what's coming up and to confirm or follow "
@@ -273,7 +298,16 @@ HELP_TOPICS: list[dict[str, Any]] = [
     },
     {
         "title": "Uploading home photos",
-        "keywords": ["photo", "photos", "picture", "image", "upload", "home", "listing", "inventory photo"],
+        "keywords": [
+            "photo",
+            "photos",
+            "picture",
+            "image",
+            "upload",
+            "home",
+            "listing",
+            "inventory photo",
+        ],
         "body": (
             "Open the home in the admin tools and use the photo uploader. You can drag "
             "photos in or pick them from your phone or computer. Use clear, well-lit "
@@ -292,7 +326,16 @@ HELP_TOPICS: list[dict[str, Any]] = [
     },
     {
         "title": "Generating documents and closing packets",
-        "keywords": ["document", "documents", "packet", "closing", "contract", "paperwork", "pdf", "sign"],
+        "keywords": [
+            "document",
+            "documents",
+            "packet",
+            "closing",
+            "contract",
+            "paperwork",
+            "pdf",
+            "sign",
+        ],
         "body": (
             "Open the Document Center from the admin menu to create and manage customer "
             "paperwork, including closing packets. Fill in the customer's details and the "
@@ -301,7 +344,17 @@ HELP_TOPICS: list[dict[str, Any]] = [
     },
     {
         "title": "Viewing analytics and how the business is doing",
-        "keywords": ["analytics", "report", "reports", "numbers", "stats", "dashboard", "metrics", "traffic", "how many"],
+        "keywords": [
+            "analytics",
+            "report",
+            "reports",
+            "numbers",
+            "stats",
+            "dashboard",
+            "metrics",
+            "traffic",
+            "how many",
+        ],
         "body": (
             "The Analytics page shows how the site is performing: home views, quote and "
             "tour clicks, and how many leads are coming in. Use the time-range tabs "
@@ -319,8 +372,19 @@ HELP_TOPICS: list[dict[str, Any]] = [
     },
     {
         "title": "Where is my delivery / installation status",
-        "keywords": ["delivery", "deliver", "install", "installation", "set", "tied down",
-                     "trim", "white glove", "where is", "status of", "phase"],
+        "keywords": [
+            "delivery",
+            "deliver",
+            "install",
+            "installation",
+            "set",
+            "tied down",
+            "trim",
+            "white glove",
+            "where is",
+            "status of",
+            "phase",
+        ],
         "body": (
             "Installation progress lives in the Notion Delivery Tracker, and the Copilot "
             "reads it directly — ask 'how many homes are in trim-out?' or 'what's pending "
@@ -330,8 +394,19 @@ HELP_TOPICS: list[dict[str, Any]] = [
     },
     {
         "title": "Title, collections, insurance, and service status",
-        "keywords": ["title", "tdhca", "collections", "payment", "past due", "insurance",
-                     "escrow", "renewal", "service", "warranty", "bill back"],
+        "keywords": [
+            "title",
+            "tdhca",
+            "collections",
+            "payment",
+            "past due",
+            "insurance",
+            "escrow",
+            "renewal",
+            "service",
+            "warranty",
+            "bill back",
+        ],
         "body": (
             "Title processing, collections, insurance/KIP, and service & warranty are "
             "tracked in Notion. The Copilot can give a live count by status for any of them "
@@ -342,7 +417,17 @@ HELP_TOPICS: list[dict[str, Any]] = [
     },
     {
         "title": "What changed: the website's new name",
-        "keywords": ["website", "url", "address", "name", "moved", "domain", "email", "secure", "changed"],
+        "keywords": [
+            "website",
+            "url",
+            "address",
+            "name",
+            "moved",
+            "domain",
+            "email",
+            "secure",
+            "changed",
+        ],
         "body": (
             "The website now lives at its real name, https://www.texashomeoutlet.com — "
             "it is live and secure. Your email address did NOT change. Old links still "
@@ -351,7 +436,17 @@ HELP_TOPICS: list[dict[str, Any]] = [
     },
     {
         "title": "Who to contact if something looks wrong",
-        "keywords": ["help", "broken", "problem", "wrong", "support", "issue", "error", "stuck", "contact"],
+        "keywords": [
+            "help",
+            "broken",
+            "problem",
+            "wrong",
+            "support",
+            "issue",
+            "error",
+            "stuck",
+            "contact",
+        ],
         "body": (
             "If something looks wrong — the site won't load, a customer reports an error, "
             "or a number looks off — don't worry and don't try to fix infrastructure "
@@ -361,7 +456,19 @@ HELP_TOPICS: list[dict[str, Any]] = [
     },
     {
         "title": "Are the home listings up to date?",
-        "keywords": ["up to date", "current", "fresh", "stale", "outdated", "old", "refresh", "listings", "inventory updated", "new homes", "last updated"],
+        "keywords": [
+            "up to date",
+            "current",
+            "fresh",
+            "stale",
+            "outdated",
+            "old",
+            "refresh",
+            "listings",
+            "inventory updated",
+            "new homes",
+            "last updated",
+        ],
         "body": (
             "The homes shown on the site come from our listing feed. Ask me "
             "'is our inventory up to date?' and I'll tell you when it last "
@@ -485,9 +592,7 @@ def _generate_sync(system_instruction: str, contents: list[dict[str, Any]]) -> s
         temperature=0.3,
         max_output_tokens=1024,
     )
-    response = client.models.generate_content(
-        model=_model_name(), contents=contents, config=config
-    )
+    response = client.models.generate_content(model=_model_name(), contents=contents, config=config)
     return (getattr(response, "text", "") or "").strip()
 
 

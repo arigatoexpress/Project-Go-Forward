@@ -118,9 +118,7 @@ def test_no_tax_escrow_when_rate_but_no_value():
 
 def test_explicit_escrow_values_not_overwritten():
     # A caller-supplied value wins (the form may carry a manual override).
-    out = enrich_document_data(
-        {"annual_insurance": 1200, "insurance_premium_monthly": "999.99"}
-    )
+    out = enrich_document_data({"annual_insurance": 1200, "insurance_premium_monthly": "999.99"})
     assert out["insurance_premium_monthly"] == "999.99"
 
 
@@ -156,11 +154,7 @@ def test_total_monthly_payment_includes_escrow_finance_charge_does_not():
 def test_sales_contract_payment_box_uses_the_escrow_inclusive_total():
     cfg = get_template_config("TMHA_SalesContract.pdf")
     field_map = cfg.get("field_map", {})
-    payment = [
-        src
-        for widget, src in field_map.items()
-        if widget.endswith("Total_Payment[0]")
-    ]
+    payment = [src for widget, src in field_map.items() if widget.endswith("Total_Payment[0]")]
     assert payment == ["total_monthly_payment"]
 
     """Guard the wiring: these human keys must map to the real PDF widgets.

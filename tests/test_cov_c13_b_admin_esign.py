@@ -110,9 +110,7 @@ class TestFieldMapLoader:
         assert field_map_loader.get_template_checkbox_fields(name) == config.get(
             "checkbox_fields", {}
         )
-        assert field_map_loader.get_template_static_values(name) == config.get(
-            "static_values", {}
-        )
+        assert field_map_loader.get_template_static_values(name) == config.get("static_values", {})
         assert field_map_loader.get_template_required_fields(name) == config.get(
             "required_fields", []
         )
@@ -143,7 +141,9 @@ class TestFieldMapLoader:
         listed = field_map_loader.list_templates()
         assert len(listed) == len(field_map["templates"])
         sample = next(item for item in listed if item["template_name"] == "TMHA_SalesContract.pdf")
-        assert sample["field_count"] == len(field_map["templates"][sample["template_name"]]["field_map"])
+        assert sample["field_count"] == len(
+            field_map["templates"][sample["template_name"]]["field_map"]
+        )
         contracts = field_map_loader.get_templates_by_category(sample["category"])
         assert sample in contracts
         assert all(item["category"] == sample["category"] for item in contracts)
@@ -151,9 +151,10 @@ class TestFieldMapLoader:
         packets = field_map_loader.list_packets()
         assert packets
         by_name = {p["packet_name"]: p for p in packets}
-        assert by_name["standard_closing"]["templates"] == field_map["packets"][
-            "standard_closing"
-        ]["templates"]
+        assert (
+            by_name["standard_closing"]["templates"]
+            == field_map["packets"]["standard_closing"]["templates"]
+        )
 
     def test_reload_refreshes_cache(self):
         before = field_map_loader.get_field_map()
@@ -213,7 +214,9 @@ class TestStatusTails:
     def test_projection_rejects_record_from_another_contract(self):
         contract = _contract()
         ledger = InMemoryAuthorityLedger(clock=lambda: NOW)
-        record = DraftReviewControlPlane(ledger, StaticContractSource(contract)).ensure_internal_draft()
+        record = DraftReviewControlPlane(
+            ledger, StaticContractSource(contract)
+        ).ensure_internal_draft()
         foreign = replace(record, deployment_id=f"{record.deployment_key}--{'c' * 64}")
         # The mismatch is detected before any event projection happens.
         with pytest.raises(ValueError, match="durable Google Ads record"):
@@ -242,12 +245,14 @@ class TestStatusTails:
     def test_projection_rejects_outbox_state_before_approval(self):
         contract = _contract()
         ledger = InMemoryAuthorityLedger(clock=lambda: NOW)
-        record = DraftReviewControlPlane(ledger, StaticContractSource(contract)).ensure_internal_draft()
+        record = DraftReviewControlPlane(
+            ledger, StaticContractSource(contract)
+        ).ensure_internal_draft()
         with pytest.raises(ValueError, match="pre-approval deployment cannot have an outbox"):
             build_deployment_readiness(record, self._events(record, [1]), outbox_state="PENDING")
-        validated = DraftReviewControlPlane(
-            ledger, StaticContractSource(contract)
-        ).server_validate(record.deployment_id, expected_version=1)
+        validated = DraftReviewControlPlane(ledger, StaticContractSource(contract)).server_validate(
+            record.deployment_id, expected_version=1
+        )
         with pytest.raises(ValueError, match="pre-approval deployment cannot have an outbox"):
             build_deployment_readiness(
                 validated,
@@ -289,7 +294,9 @@ class TestReviewRouteTails:
         client = _admin_client(monkeypatch, ledger)
         ledger.fail_next_write()
 
-        response = client.post("/api/admin/google-ads/draft", headers={"X-Admin-Token": "t"}, json={})
+        response = client.post(
+            "/api/admin/google-ads/draft", headers={"X-Admin-Token": "t"}, json={}
+        )
 
         assert response.status_code == 503
         assert response.json()["message"] == "Paid Search deployment draft is unavailable."
@@ -315,7 +322,7 @@ def _approval_env(monkeypatch):
 
 
 def _proof_manager():
-    return SessionManager(secret_key="cov-c13-b-approval-secret")
+    return SessionManager(secret_key="cov-c13-b-approval-secret")  # pragma: allowlist secret
 
 
 def _envelope(*, contract_hash=None):
@@ -418,9 +425,7 @@ class TestApprovalRouteTails:
 
         class Ledger:
             def get(self, _deployment_id):
-                return SimpleNamespace(
-                    state=SimpleNamespace(value="INTERNAL_DRAFT"), version=1
-                )
+                return SimpleNamespace(state=SimpleNamespace(value="INTERNAL_DRAFT"), version=1)
 
             def get_access_evidence(self, *_args):
                 raise RuntimeError("no evidence yet")
@@ -439,9 +444,7 @@ class TestApprovalRouteTails:
             OWNER,
         )
         app = FastAPI()
-        app.dependency_overrides[approval_routes.get_approval_ledger] = (
-            lambda: BrokenLedger()
-        )
+        app.dependency_overrides[approval_routes.get_approval_ledger] = lambda: BrokenLedger()
         app.dependency_overrides[approval_routes.require_owner_step_up] = lambda: OWNER
         app.include_router(approval_routes.router)
         client = TestClient(app, base_url="https://www.texashomeoutlet.com")
@@ -702,9 +705,7 @@ class TestEsignTails:
             def get_data(self):
                 return b"<x/>"
 
-        reader = SimpleNamespace(
-            trailer={"/Root": {"/AcroForm": {"/XFA": ["config", _Stream()]}}}
-        )
+        reader = SimpleNamespace(trailer={"/Root": {"/AcroForm": {"/XFA": ["config", _Stream()]}}})
         assert esign_review._read_xfa_values(reader) == {}
 
 

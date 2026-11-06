@@ -186,16 +186,11 @@ def test_quality_enrichment_composes_compliance_borrowers_from_names():
             "co_buyer_name": "Wife Customer061526",
         }
     )
-    assert (
-        enriched["compliance_borrowers"]
-        == "Test Customer061526 & Wife Customer061526"
-    )
+    assert enriched["compliance_borrowers"] == "Test Customer061526 & Wife Customer061526"
 
 
 def test_quality_enrichment_preserves_explicit_compliance_borrowers():
-    enriched = enrich_document_data(
-        {**BASE_DATA, "compliance_borrowers": "Custom Borrower Line"}
-    )
+    enriched = enrich_document_data({**BASE_DATA, "compliance_borrowers": "Custom Borrower Line"})
     assert enriched["compliance_borrowers"] == "Custom Borrower Line"
 
 
@@ -222,6 +217,7 @@ def test_credit_application_fills_new_history_and_reference_fields():
             "previous_occupation": "Clerk",
         }
     )
+
     def filled_values(template_name):
         result = generate_document_v1(template_name, data)
         assert result["success"], result.get("message")

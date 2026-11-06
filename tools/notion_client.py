@@ -110,7 +110,10 @@ def is_command_center_enabled() -> bool:
     reverts with no redeploy — same pattern as INVENTORY_SOURCE.
     """
     return (os.getenv("NOTION_COMMAND_CENTER", "off") or "off").strip().lower() in {
-        "on", "true", "1", "yes",
+        "on",
+        "true",
+        "1",
+        "yes",
     }
 
 
@@ -364,9 +367,9 @@ _STATUS_ALIASES = (
 # string would otherwise become a count key and ride the "counts-only" channel
 # into the Gemini prompt. Defense-in-depth: collapse such values to "OTHER".
 _PII_IN_LABEL = re.compile(
-    r"\d{3}-\d{2}-\d{4}"                      # SSN
-    r"|[\w.+-]+@[\w-]+\.\w{2,}"               # email
-    r"|(?:\+?\d[\s.\-()]?){9,}\d"             # long digit run (phone)
+    r"\d{3}-\d{2}-\d{4}"  # SSN
+    r"|[\w.+-]+@[\w-]+\.\w{2,}"  # email
+    r"|(?:\+?\d[\s.\-()]?){9,}\d"  # long digit run (phone)
 )
 
 

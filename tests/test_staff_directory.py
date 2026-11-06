@@ -39,7 +39,9 @@ class TestInMemoryStaffDirectory:
         from auth.staff_directory import STATUS_ALLOWED
 
         directory = self._directory(
-            seed=[type("Row", (), {"email": "Staff@TexasHomeOutlet.com", "status": STATUS_ALLOWED})()]
+            seed=[
+                type("Row", (), {"email": "Staff@TexasHomeOutlet.com", "status": STATUS_ALLOWED})()
+            ]
         )
         row = directory.get("staff@texashomeoutlet.com")
         assert row is not None
@@ -246,7 +248,9 @@ def clear_directory_cache():
 
 
 class TestDefaultDirectory:
-    def test_explicit_memory_choice_wins_even_on_cloud_run(self, monkeypatch, clear_directory_cache):
+    def test_explicit_memory_choice_wins_even_on_cloud_run(
+        self, monkeypatch, clear_directory_cache
+    ):
         import auth.staff_directory
 
         monkeypatch.setenv("K_SERVICE", "project-go-forward")
@@ -326,9 +330,7 @@ class TestOverrideStatusOutageBehavior:
 
 
 class TestAdminMutators:
-    def test_set_list_clear_roundtrip_via_memory_backend(
-        self, monkeypatch, clear_directory_cache
-    ):
+    def test_set_list_clear_roundtrip_via_memory_backend(self, monkeypatch, clear_directory_cache):
         import auth.staff_directory
 
         monkeypatch.setenv("THO_STAFF_DIRECTORY_STORE", "memory")

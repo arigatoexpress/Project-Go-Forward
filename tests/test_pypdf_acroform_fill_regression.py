@@ -133,9 +133,7 @@ def test_fill_pdf_form_populates_sales_contract_acroform(tmp_path, monkeypatch):
     # The fill must have produced a real AcroForm (summary fallback has none).
     assert actual, "no AcroForm values written — summary fallback fired (regression)"
 
-    missing = {
-        w: v for w, v in expected_widget_values.items() if actual.get(w) != v
-    }
+    missing = {w: v for w, v in expected_widget_values.items() if actual.get(w) != v}
     assert not missing, f"sales-contract fields not populated: {missing}"
 
 

@@ -38,7 +38,9 @@ from config_loader import (
 
 # Canonical status file. Operators can edit this by hand or via the API;
 # it is the single source of truth for "which citations are claimed?".
-DEFAULT_STATUS_PATH = Path(__file__).resolve().parent.parent / "data" / "local_seo_citations_status.json"
+DEFAULT_STATUS_PATH = (
+    Path(__file__).resolve().parent.parent / "data" / "local_seo_citations_status.json"
+)
 
 
 @dataclass(frozen=True)
@@ -89,7 +91,17 @@ def default_citation_sites() -> list[CitationSite]:
             priority=1,
             kind="aggregator",
             notes="Biggest local-SEO unlock. Verify Huffman location, add photos/hours.",
-            supported_fields=("name", "address", "phone", "website", "email", "hours", "categories", "geo", "photos"),
+            supported_fields=(
+                "name",
+                "address",
+                "phone",
+                "website",
+                "email",
+                "hours",
+                "categories",
+                "geo",
+                "photos",
+            ),
         ),
         CitationSite(
             name="Bing Places for Business",
@@ -98,7 +110,15 @@ def default_citation_sites() -> list[CitationSite]:
             priority=1,
             kind="aggregator",
             notes="Feeds Bing Maps and ChatGPT search (Bing index).",
-            supported_fields=("name", "address", "phone", "website", "email", "hours", "categories"),
+            supported_fields=(
+                "name",
+                "address",
+                "phone",
+                "website",
+                "email",
+                "hours",
+                "categories",
+            ),
         ),
         CitationSite(
             name="Apple Business Connect",
@@ -116,7 +136,15 @@ def default_citation_sites() -> list[CitationSite]:
             priority=1,
             kind="general",
             notes="High-domain-authority; strong for local pack co-citation signals.",
-            supported_fields=("name", "address", "phone", "website", "hours", "categories", "photos"),
+            supported_fields=(
+                "name",
+                "address",
+                "phone",
+                "website",
+                "hours",
+                "categories",
+                "photos",
+            ),
         ),
         CitationSite(
             name="Facebook Business Page",
@@ -125,7 +153,16 @@ def default_citation_sites() -> list[CitationSite]:
             priority=1,
             kind="social",
             notes="Also feeds sameAs / knowledge-graph signals.",
-            supported_fields=("name", "address", "phone", "website", "email", "hours", "categories", "photos"),
+            supported_fields=(
+                "name",
+                "address",
+                "phone",
+                "website",
+                "email",
+                "hours",
+                "categories",
+                "photos",
+            ),
         ),
         CitationSite(
             name="Better Business Bureau",
@@ -508,9 +545,12 @@ def generate_markdown_checklist(
     ]
     for site in sorted(sites, key=lambda s: (s.priority, s.name)):
         status = _status_for_site(site, statuses)
-        icon = {"verified": "✅", "claimed": "🟡", "needs_update": "🔧", "not_applicable": "➖"}.get(
-            status.status, "⬜"
-        )
+        icon = {
+            "verified": "✅",
+            "claimed": "🟡",
+            "needs_update": "🔧",
+            "not_applicable": "➖",
+        }.get(status.status, "⬜")
         lines.append(f"{icon} **[P{site.priority}] {site.name}** ({site.domain})")
         lines.append(f"   - Submit/claim: {site.submission_url}")
         if status.profile_url:
@@ -571,7 +611,9 @@ def main() -> None:
     print(f"Wrote CSV: {csv_path}")
 
     md_path = out_dir / "local_seo_citations_checklist.md"
-    md_path.write_text(generate_markdown_checklist(payload=payload, statuses=statuses), encoding="utf-8")
+    md_path.write_text(
+        generate_markdown_checklist(payload=payload, statuses=statuses), encoding="utf-8"
+    )
     print(f"Wrote checklist: {md_path}")
 
 

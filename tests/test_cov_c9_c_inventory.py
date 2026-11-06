@@ -228,9 +228,7 @@ def test_load_inventory_for_publication_merges_and_skips_managed_ids(monkeypatch
         {"id": "web-1", "model_name": "Web One Duplicate", "status": "Available"},
         {"id": "web-2", "model_name": "Web Two", "status": "Available"},
     ]
-    monkeypatch.setattr(
-        inventory_tools, "_load_inventory_from_firestore", lambda **kw: managed
-    )
+    monkeypatch.setattr(inventory_tools, "_load_inventory_from_firestore", lambda **kw: managed)
     monkeypatch.setattr(inventory_tools, "_load_website_homes", lambda: website)
 
     result = inventory_tools._load_inventory_for_publication()
@@ -346,9 +344,7 @@ def test_load_inventory_healthy_result_is_cached_and_merges_website(monkeypatch)
     monkeypatch.setattr(
         inventory_tools,
         "cache_set",
-        lambda key, value, ttl_seconds=None: captured.update(
-            key=key, value=value, ttl=ttl_seconds
-        ),
+        lambda key, value, ttl_seconds=None: captured.update(key=key, value=value, ttl=ttl_seconds),
     )
     firestore_homes = [{"id": "f1", "model_name": "Alpha"}]
     website_homes = [
@@ -370,9 +366,7 @@ def test_load_inventory_healthy_result_is_cached_and_merges_website(monkeypatch)
 def test_load_inventory_falls_back_to_json_then_sample_and_skips_cache(monkeypatch, tmp_path):
     captured = {}
     monkeypatch.setattr(inventory_tools, "cache_get", lambda key: None)
-    monkeypatch.setattr(
-        inventory_tools, "cache_set", lambda *a, **k: captured.update(called=True)
-    )
+    monkeypatch.setattr(inventory_tools, "cache_set", lambda *a, **k: captured.update(called=True))
     monkeypatch.setattr(inventory_tools, "_load_inventory_from_firestore", lambda **kw: None)
     monkeypatch.setattr(inventory_tools, "_load_website_homes", lambda: [])
 
@@ -711,9 +705,7 @@ def test_select_detail_media_legacy_inventory_id_and_no_match():
     legacy_detail = ime.DetailMedia(listing_id="44490", detail_url="https://x/")
     detail_media = {"44490": legacy_detail}
 
-    selected = ime._select_detail_media(
-        "doc-1", {"legacy_inventory_id": "44490"}, detail_media, {}
-    )
+    selected = ime._select_detail_media("doc-1", {"legacy_inventory_id": "44490"}, detail_media, {})
     assert selected is legacy_detail
 
     assert ime._select_detail_media("doc-2", {"model_name": "Nope"}, detail_media, {}) is None
@@ -1119,6 +1111,7 @@ def test_main_rejects_malformed_detail_url(fake_run):
 # --------------------------------------------------------------------------
 # inventory_media_enrichment: __main__ entrypoint + sys.path bootstrap
 # --------------------------------------------------------------------------
+
 
 def test_main_module_entrypoint_executes_via_runpy(monkeypatch, tmp_path):
     """`raise SystemExit(main())` (L656): execute the script with

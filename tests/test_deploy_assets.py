@@ -52,9 +52,7 @@ def _is_ignored(ignore_text: str, rel_path: str, tmp_path: Path) -> bool:
     target.parent.mkdir(parents=True, exist_ok=True)
     target.touch()
     # check-ignore exits 0 when the path IS ignored, 1 when it is not.
-    result = subprocess.run(
-        ["git", "check-ignore", "-q", rel_path], cwd=work
-    )
+    result = subprocess.run(["git", "check-ignore", "-q", rel_path], cwd=work)
     return result.returncode == 0
 
 
@@ -65,9 +63,7 @@ def test_runtime_prompts_not_stripped_by_deploy_ignore(ignore_file, tmp_path):
     assert ignore_path.is_file(), f"{ignore_file} missing"
     ignore_text = ignore_path.read_text(encoding="utf-8")
 
-    excluded = [
-        p for p in _runtime_prompt_paths() if _is_ignored(ignore_text, p, tmp_path)
-    ]
+    excluded = [p for p in _runtime_prompt_paths() if _is_ignored(ignore_text, p, tmp_path)]
     assert not excluded, (
         f"{ignore_file} would strip runtime prompt(s) from the deploy image: {excluded}. "
         f"The blanket `*.md` rule must be followed by `!prompts/*.md` (see the chat-outage "
@@ -110,9 +106,7 @@ FRONTEND_BUILD_OUTPUT_DIR = "frontend/dist"
 def _manifest_files(pattern: str) -> list[str]:
     """Expand a manifest glob to repo-relative POSIX paths that exist on disk."""
     if any(ch in pattern for ch in "*?["):
-        matches = sorted(
-            p.relative_to(REPO_ROOT).as_posix() for p in REPO_ROOT.glob(pattern)
-        )
+        matches = sorted(p.relative_to(REPO_ROOT).as_posix() for p in REPO_ROOT.glob(pattern))
         assert matches, f"manifest pattern {pattern!r} matched no files on disk"
         return matches
     target = REPO_ROOT / pattern
@@ -134,11 +128,7 @@ def test_runtime_asset_manifest_not_stripped_by_deploy_ignore(ignore_file, patte
     assert ignore_path.is_file(), f"{ignore_file} missing"
     ignore_text = ignore_path.read_text(encoding="utf-8")
 
-    excluded = [
-        rel
-        for rel in _manifest_files(pattern)
-        if _is_ignored(ignore_text, rel, tmp_path)
-    ]
+    excluded = [rel for rel in _manifest_files(pattern) if _is_ignored(ignore_text, rel, tmp_path)]
     assert not excluded, (
         f"{ignore_file} would strip runtime asset(s) from the deploy image: {excluded} "
         f"(manifest pattern {pattern!r}). A blanket exclude must be followed by a `!` "
@@ -164,6 +154,6 @@ def test_frontend_build_output_dir_not_stripped_by_deploy_ignore(ignore_file, tm
         f"{FRONTEND_BUILD_OUTPUT_DIR}/assets/index.js",
     ]
     excluded = [p for p in rep_paths if _is_ignored(ignore_text, p, tmp_path)]
-    assert not excluded, (
-        f"{ignore_file} would strip the SPA build output {excluded} from the deploy image."
-    )
+    assert (
+        not excluded
+    ), f"{ignore_file} would strip the SPA build output {excluded} from the deploy image."

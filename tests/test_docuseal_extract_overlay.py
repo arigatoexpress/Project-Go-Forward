@@ -43,7 +43,7 @@ def _admin_headers(main) -> dict:
 
 
 _WEBHOOK_ROUTE = "/api/docuseal/webhook"
-_TEST_SECRET = "test-webhook-secret"
+_TEST_SECRET = "test-webhook-secret"  # pragma: allowlist secret
 
 
 def _sign(body: bytes, secret: str = _TEST_SECRET) -> str:
@@ -74,9 +74,9 @@ def _base_setup(monkeypatch, fake_db=None):
     )
     marked: list = []
     monkeypatch.setattr(
-        main, "_mark_esign_request", lambda deal_id, submission_id, status: marked.append(
-            (deal_id, submission_id, status)
-        )
+        main,
+        "_mark_esign_request",
+        lambda deal_id, submission_id, status: marked.append((deal_id, submission_id, status)),
     )
     if fake_db is not None:
         monkeypatch.setattr(
@@ -160,10 +160,13 @@ def _stub_gcs_upload(monkeypatch, calls: dict, fail=False):
 
 def _stub_drive(monkeypatch, calls: dict, folder="folder-1", link="drive-link"):
     module = types.ModuleType("tools.drive_service")
-    module.ensure_deal_folder = lambda deal_id: calls.setdefault("folders", []).append(deal_id) or folder
-    module.upload_to_drive = lambda path, name, folder_id: calls.setdefault("drive", []).append(
-        (path, name, folder_id)
-    ) or link
+    module.ensure_deal_folder = (
+        lambda deal_id: calls.setdefault("folders", []).append(deal_id) or folder
+    )
+    module.upload_to_drive = (
+        lambda path, name, folder_id: calls.setdefault("drive", []).append((path, name, folder_id))
+        or link
+    )
     monkeypatch.setitem(sys.modules, "tools.drive_service", module)
     import tools
 
@@ -363,9 +366,7 @@ class TestDocusealWebhook:
         def _boom(name):
             raise RuntimeError("firestore down")
 
-        monkeypatch.setattr(
-            main, "get_database", lambda: types.SimpleNamespace(collection=_boom)
-        )
+        monkeypatch.setattr(main, "get_database", lambda: types.SimpleNamespace(collection=_boom))
         _stub_httpx(monkeypatch, calls)
         _stub_gcs_upload(monkeypatch, calls)
         _stub_drive(monkeypatch, calls)

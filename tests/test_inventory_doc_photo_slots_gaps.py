@@ -253,7 +253,9 @@ class TestGeneratePacketEndpoint:
         assert result is sentinel
 
     def test_engine_failure_envelope(self, monkeypatch):
-        main, body = self._setup(monkeypatch, engine_result={"success": False, "message": "no template"})
+        main, body = self._setup(
+            monkeypatch, engine_result={"success": False, "message": "no template"}
+        )
         monkeypatch.setattr(main, "_is_document_quality_failure", lambda result: False)
 
         result = _run(main.generate_packet_endpoint(body, _Req({})))
@@ -280,9 +282,7 @@ class TestGenerateBatchEndpoint:
     def test_success_returns_engine_result(self, monkeypatch):
         _client_, main, _db = _client(monkeypatch)
         engine_result = {"success": True, "filename": "batch.pdf", "merged": True}
-        monkeypatch.setattr(
-            main, "engine_generate_batch", lambda **kwargs: engine_result
-        )
+        monkeypatch.setattr(main, "engine_generate_batch", lambda **kwargs: engine_result)
         monkeypatch.setattr(main, "_is_document_quality_failure", lambda result: False)
 
         result = _run(
@@ -477,9 +477,7 @@ class TestValidatePublicContactPayload:
 
     def test_phone_too_long(self, monkeypatch):
         _client_, main, _db = _client(monkeypatch)
-        data, resp = main._validate_public_contact_payload(
-            {"name": "Bob", "phone": "5" * 41}
-        )
+        data, resp = main._validate_public_contact_payload({"name": "Bob", "phone": "5" * 41})
         status, body = _err(resp)
         assert status == 400
         assert body == {"success": False, "error": "Please enter a valid 10-digit phone number."}
@@ -518,9 +516,7 @@ class TestGetAvailableSlots:
         async def boom(date):
             raise RuntimeError("calendar down")
 
-        monkeypatch.setattr(
-            main.appointment_manager, "get_available_slots", boom, raising=False
-        )
+        monkeypatch.setattr(main.appointment_manager, "get_available_slots", boom, raising=False)
 
         result = _run(main.get_available_slots(date="2026-10-20"))
 

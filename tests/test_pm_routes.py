@@ -78,9 +78,7 @@ class TestProjects:
     @pytest.mark.asyncio
     async def test_create_logs_activity(self):
         created = await pm_routes.create_project(_project())
-        events = [
-            a for a in pm_routes.activities_db.values() if a.project_id == created.id
-        ]
+        events = [a for a in pm_routes.activities_db.values() if a.project_id == created.id]
         assert any(a.activity_type == "project_created" for a in events)
 
     @pytest.mark.asyncio
@@ -128,9 +126,7 @@ class TestTasks:
     @pytest.mark.asyncio
     async def test_create_task_updates_project_stats(self):
         project = await pm_routes.create_project(_project())
-        task = await pm_routes.create_task(
-            _task(project.id, priority=3, labels=["bug"])
-        )
+        task = await pm_routes.create_task(_task(project.id, priority=3, labels=["bug"]))
 
         assert task.project_id == project.id
         assert pm_routes.projects_db[project.id].total_tasks == 1
@@ -186,19 +182,14 @@ class TestTasks:
         project = await pm_routes.create_project(_project())
         task = await pm_routes.create_task(_task(project.id))
 
-        updated = await pm_routes.update_task(
-            task.id, {"state": "in_progress"}, actor="ari"
-        )
+        updated = await pm_routes.update_task(task.id, {"state": "in_progress"}, actor="ari")
         assert updated.state == WorkflowState.IN_PROGRESS
         assert updated.started_at is not None
         assert updated.state_history[-1]["from"] == "backlog"
         assert updated.state_history[-1]["to"] == "in_progress"
         assert updated.state_history[-1]["by"] == "ari"
 
-        assert any(
-            a.activity_type == "state_changed"
-            for a in pm_routes.activities_db.values()
-        )
+        assert any(a.activity_type == "state_changed" for a in pm_routes.activities_db.values())
 
     @pytest.mark.asyncio
     async def test_update_task_other_fields_no_state_event(self):
@@ -207,18 +198,14 @@ class TestTasks:
         updated = await pm_routes.update_task(task.id, {"title": "Renamed"})
         assert updated.title == "Renamed"
         assert updated.state == WorkflowState.BACKLOG  # unchanged
-        assert not any(
-            a.activity_type == "state_changed" for a in pm_routes.activities_db.values()
-        )
+        assert not any(a.activity_type == "state_changed" for a in pm_routes.activities_db.values())
 
     @pytest.mark.asyncio
     async def test_transition_task_done_increments_completed(self):
         project = await pm_routes.create_project(_project())
         task = await pm_routes.create_task(_task(project.id))
 
-        result = await pm_routes.transition_task(
-            task.id, WorkflowState.DONE, actor="ari"
-        )
+        result = await pm_routes.transition_task(task.id, WorkflowState.DONE, actor="ari")
         assert result["success"] is True
         done_task = result["task"]
         assert done_task.state == WorkflowState.DONE
@@ -257,9 +244,7 @@ class TestCycles:
     @pytest.mark.asyncio
     async def test_current_cycle(self):
         await pm_routes.create_cycle(self._cycle(name="Active"))
-        await pm_routes.create_cycle(
-            self._cycle(name="Future", start_date=datetime(2999, 1, 1))
-        )
+        await pm_routes.create_cycle(self._cycle(name="Future", start_date=datetime(2999, 1, 1)))
 
         current = await pm_routes.get_current_cycle()
         assert current is not None
@@ -293,12 +278,8 @@ class TestActivityFeed:
 class TestViews:
     @pytest.mark.asyncio
     async def test_create_and_list_views(self):
-        await pm_routes.create_view(
-            View(name="My bugs", owner_id="ari", filter_labels=["bug"])
-        )
-        await pm_routes.create_view(
-            View(name="Shared board", owner_id="sam", is_shared=True)
-        )
+        await pm_routes.create_view(View(name="My bugs", owner_id="ari", filter_labels=["bug"]))
+        await pm_routes.create_view(View(name="Shared board", owner_id="sam", is_shared=True))
 
         assert (await pm_routes.list_views())["total"] == 2
 

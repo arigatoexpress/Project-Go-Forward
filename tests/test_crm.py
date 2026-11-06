@@ -37,9 +37,7 @@ def _no_external_writes(monkeypatch):
         def collection(self, name):
             return _FakeColl()
 
-    monkeypatch.setattr(
-        crm_tools, "_get_lead_manager", lambda: type("M", (), {"db": _FakeDB()})()
-    )
+    monkeypatch.setattr(crm_tools, "_get_lead_manager", lambda: type("M", (), {"db": _FakeDB()})())
 
 
 def test_save_lead_valid_returns_success():
@@ -64,23 +62,17 @@ def test_save_lead_accepts_formatted_phone():
 
 
 def test_save_lead_rejects_missing_name():
-    result = crm_tools.save_lead(
-        user_name="", phone_number="555-123-4567", interest_notes="test"
-    )
+    result = crm_tools.save_lead(user_name="", phone_number="555-123-4567", interest_notes="test")
     assert result["success"] is False
     assert "name" in result["message"].lower()
 
 
 def test_save_lead_rejects_missing_phone():
-    result = crm_tools.save_lead(
-        user_name="No Phone", phone_number="", interest_notes="test"
-    )
+    result = crm_tools.save_lead(user_name="No Phone", phone_number="", interest_notes="test")
     assert result["success"] is False
 
 
 def test_save_lead_rejects_short_phone():
-    result = crm_tools.save_lead(
-        user_name="Short Phone", phone_number="123", interest_notes="test"
-    )
+    result = crm_tools.save_lead(user_name="Short Phone", phone_number="123", interest_notes="test")
     assert result["success"] is False
     assert "invalid" in result["message"].lower() or "10" in result["message"]

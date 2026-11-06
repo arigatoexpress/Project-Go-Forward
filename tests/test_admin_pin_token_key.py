@@ -10,7 +10,9 @@ import pytest
 
 from auth import routes
 
-SCRYPT_VERIFIER = "scrypt$16384$8$1$c2FsdHNhbHRzYWx0c2FsdA==$ZGtkZGtkZGtkZGtkZGtkZGtkZGtkZGtkZGtkZGtkZGs="
+SCRYPT_VERIFIER = (
+    "scrypt$16384$8$1$c2FsdHNhbHRzYWx0c2FsdA==$ZGtkZGtkZGtkZGtkZGtkZGtkZGtkZGtkZGtkZGtkZGs="
+)
 SESSION_SECRET = "s" * 48
 
 
@@ -22,7 +24,9 @@ def _token(key: bytes, expires: int) -> str:
 
 def _server_key(pin_hash: str) -> bytes:
     # Mirrors main._JWT_SECRET.
-    return hmac.new(SESSION_SECRET.encode(), f"tho-pin-session-v2:{pin_hash}".encode(), hashlib.sha256).digest()
+    return hmac.new(
+        SESSION_SECRET.encode(), f"tho-pin-session-v2:{pin_hash}".encode(), hashlib.sha256
+    ).digest()
 
 
 @pytest.fixture(autouse=True)
@@ -62,7 +66,12 @@ def test_rotating_pin_hash_revokes_tokens(monkeypatch):
 def test_email_session_tokens_are_not_pin_admin():
     key = _server_key(SCRYPT_VERIFIER)
     email = b"staff@example.com"
-    payload = bytes([2]) + struct.pack(">Q", int(time.time()) + 3600) + struct.pack(">H", len(email)) + email
+    payload = (
+        bytes([2])
+        + struct.pack(">Q", int(time.time()) + 3600)
+        + struct.pack(">H", len(email))
+        + email
+    )
     sig = hmac.new(key, payload, hashlib.sha256).digest()[:16]
     token = base64.urlsafe_b64encode(payload + sig).decode().rstrip("=")
     assert routes._verify_admin_pin_token(token) is False

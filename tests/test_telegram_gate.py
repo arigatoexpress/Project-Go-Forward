@@ -149,8 +149,7 @@ class TestNotify:
         """The gate module must not import the email service at all."""
         source = Path(gate.__file__).read_text()
         import_lines = [
-            line for line in source.splitlines()
-            if line.strip().startswith(("import ", "from "))
+            line for line in source.splitlines() if line.strip().startswith(("import ", "from "))
         ]
         assert not any("email_service" in line for line in import_lines)
 

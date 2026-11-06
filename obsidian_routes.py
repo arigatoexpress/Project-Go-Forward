@@ -4,6 +4,7 @@ All endpoints under /api/v1/obsidian/* follow the same partner-API contract as
 /api/v1/mira/*: protected by require_partner_api_key, PII-redacted by default,
 and wired into the existing partner-webhook dispatcher for outbound events.
 """
+
 from __future__ import annotations
 
 import os
@@ -102,7 +103,8 @@ async def obsidian_system(request: Request) -> dict:
         "environment": os.environ.get("K_SERVICE") or "local",
         "platform": "cloud_run" if os.environ.get("K_SERVICE") else "local",
         "rate_limit_rpm": int(os.environ.get("RATE_LIMIT_RPM", "60")),
-        "project_id": os.environ.get("GOOGLE_CLOUD_PROJECT") or deploy_cfg.get("project_id", "tho-ai-agent"),
+        "project_id": os.environ.get("GOOGLE_CLOUD_PROJECT")
+        or deploy_cfg.get("project_id", "tho-ai-agent"),
         "env_status": env_status,
         "timestamp": _now_iso(),
     }
@@ -124,7 +126,12 @@ async def obsidian_leads_summary(request: Request) -> dict:
         lm = LeadManager(project_id=project_id)
         leads = await lm.list_leads(limit=10000)
         by_status = Counter(getattr(lead, "status", "unknown") for lead in leads)
-        return {"status": "healthy", "timestamp": _now_iso(), "total": len(leads), "by_status": dict(by_status)}
+        return {
+            "status": "healthy",
+            "timestamp": _now_iso(),
+            "total": len(leads),
+            "by_status": dict(by_status),
+        }
     except Exception as e:
         return {"status": "error", "timestamp": _now_iso(), "error": str(e)}
 
@@ -137,12 +144,24 @@ async def obsidian_leads_recent(request: Request, hours: int = 24, limit: int = 
         leads = await lm.list_leads(limit=10000)
         cutoff = datetime.now(UTC) - timedelta(hours=hours)
         recent = [
-            {"lead_id": lead.lead_id, "status": lead.status, "source": lead.source, "created_at": lead.created_at}
+            {
+                "lead_id": lead.lead_id,
+                "status": lead.status,
+                "source": lead.source,
+                "created_at": lead.created_at,
+            }
             for lead in leads
-            if lead.created_at and datetime.fromisoformat(str(lead.created_at).replace("Z", "+00:00")) >= cutoff
+            if lead.created_at
+            and datetime.fromisoformat(str(lead.created_at).replace("Z", "+00:00")) >= cutoff
         ]
         recent.sort(key=lambda x: x["created_at"], reverse=True)
-        return {"status": "healthy", "timestamp": _now_iso(), "hours": hours, "count": len(recent), "leads": recent[:limit]}
+        return {
+            "status": "healthy",
+            "timestamp": _now_iso(),
+            "hours": hours,
+            "count": len(recent),
+            "leads": recent[:limit],
+        }
     except Exception as e:
         return {"status": "error", "timestamp": _now_iso(), "error": str(e)}
 
@@ -154,7 +173,12 @@ async def obsidian_appointments_summary(request: Request) -> dict:
         am = AppointmentManager(project_id=project_id)
         appts = await am.list_appointments(limit=10000)
         by_status = Counter(getattr(appt, "status", "unknown") for appt in appts)
-        return {"status": "healthy", "timestamp": _now_iso(), "total": len(appts), "by_status": dict(by_status)}
+        return {
+            "status": "healthy",
+            "timestamp": _now_iso(),
+            "total": len(appts),
+            "by_status": dict(by_status),
+        }
     except Exception as e:
         return {"status": "error", "timestamp": _now_iso(), "error": str(e)}
 
@@ -163,7 +187,12 @@ async def obsidian_appointments_summary(request: Request) -> dict:
 async def obsidian_inventory_summary(request: Request) -> dict:
     try:
         by_status = _count_collection_by_status("inventory", "status")
-        return {"status": "healthy", "timestamp": _now_iso(), "total": sum(by_status.values()), "by_status": by_status}
+        return {
+            "status": "healthy",
+            "timestamp": _now_iso(),
+            "total": sum(by_status.values()),
+            "by_status": by_status,
+        }
     except Exception as e:
         return {"status": "error", "timestamp": _now_iso(), "error": str(e)}
 
@@ -172,7 +201,12 @@ async def obsidian_inventory_summary(request: Request) -> dict:
 async def obsidian_deals_summary(request: Request) -> dict:
     try:
         by_status = _count_collection_by_status("deals", "status")
-        return {"status": "healthy", "timestamp": _now_iso(), "total": sum(by_status.values()), "by_status": by_status}
+        return {
+            "status": "healthy",
+            "timestamp": _now_iso(),
+            "total": sum(by_status.values()),
+            "by_status": by_status,
+        }
     except Exception as e:
         return {"status": "error", "timestamp": _now_iso(), "error": str(e)}
 
@@ -223,14 +257,20 @@ async def obsidian_firestore_collections(request: Request, limit: int = 1000) ->
                 result.append({"collection": col.id, "count": count})
             except Exception:
                 result.append({"collection": col.id, "count": None})
-        return {"status": "healthy", "timestamp": _now_iso(), "collections": sorted(result, key=lambda x: x["collection"])}
+        return {
+            "status": "healthy",
+            "timestamp": _now_iso(),
+            "collections": sorted(result, key=lambda x: x["collection"]),
+        }
     except Exception as e:
         return {"status": "error", "timestamp": _now_iso(), "error": str(e)}
 
 
 class ObsidianNotifyPayload(BaseModel):
     message: str = Field(..., description="Alert text (supports Markdown)")
-    level: str = Field(default="info", pattern=r"^(info|warn|error|critical)$", description="Severity level")
+    level: str = Field(
+        default="info", pattern=r"^(info|warn|error|critical)$", description="Severity level"
+    )
     source: str = Field(default="tho", description="Source system")
     action_url: str | None = Field(default=None, description="Optional action link")
     event: str = Field(default="obsidian.notify", description="Partner webhook event name")
@@ -239,14 +279,25 @@ class ObsidianNotifyPayload(BaseModel):
 @router.post("/notify")
 async def obsidian_notify(payload: ObsidianNotifyPayload, request: Request) -> dict:
     from tools.partner_webhooks import dispatch_partner_event
+
     try:
         partners = dispatch_partner_event(
             payload.event,
-            {"message": payload.message, "level": payload.level, "source": payload.source, "action_url": payload.action_url},
+            {
+                "message": payload.message,
+                "level": payload.level,
+                "source": payload.source,
+                "action_url": payload.action_url,
+            },
             db=get_database(),
             blocking=True,
             partner_ids=["obsidian"],
         )
-        return {"ok": bool(partners), "timestamp": _now_iso(), "delivered_to": partners, "event": payload.event}
+        return {
+            "ok": bool(partners),
+            "timestamp": _now_iso(),
+            "delivered_to": partners,
+            "event": payload.event,
+        }
     except Exception as e:
         return {"ok": False, "timestamp": _now_iso(), "error": str(e), "event": payload.event}

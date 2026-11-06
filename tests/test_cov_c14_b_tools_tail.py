@@ -74,9 +74,7 @@ def test_get_all_assets_returns_full_catalog_with_totals():
     assert result["success"] is True
     assert result["properties"] is PROPERTY_ASSETS
     assert result["total"] == len(PROPERTY_ASSETS)
-    assert result["total_images"] == sum(
-        len(p.get("images", [])) for p in PROPERTY_ASSETS.values()
-    )
+    assert result["total_images"] == sum(len(p.get("images", [])) for p in PROPERTY_ASSETS.values())
     assert result["with_matterport"] == sum(
         1 for p in PROPERTY_ASSETS.values() if p.get("matterport_id")
     )

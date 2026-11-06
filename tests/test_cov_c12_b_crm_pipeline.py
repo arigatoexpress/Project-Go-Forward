@@ -46,9 +46,7 @@ import pytest
 _HAS_PANDAS = importlib.util.find_spec("pandas") is not None
 requires_pandas = pytest.mark.skipif(not _HAS_PANDAS, reason="pandas is not installed")
 _HAS_GCS = importlib.util.find_spec("google.cloud.storage") is not None
-requires_gcs = pytest.mark.skipif(
-    not _HAS_GCS, reason="google-cloud-storage is not installed"
-)
+requires_gcs = pytest.mark.skipif(not _HAS_GCS, reason="google-cloud-storage is not installed")
 
 from tools import house_orders_sync as hos  # noqa: E402
 from tools import lead_name_backfill as lnb  # noqa: E402
@@ -130,9 +128,18 @@ class TestCollectPatches:
     @pytest.mark.asyncio
     async def test_collects_patch_from_session_on_lead(self, monkeypatch):
         lead = _FakeLead("L1", name="Unknown", session_id="S1", user_id="U1")
-        _install_crm_fakes(monkeypatch, [lead], sessions={"S1": _FakeSession("S1", [
-            {"role": "user", "text": "Hi, my name is Jane Doe"},
-        ])})
+        _install_crm_fakes(
+            monkeypatch,
+            [lead],
+            sessions={
+                "S1": _FakeSession(
+                    "S1",
+                    [
+                        {"role": "user", "text": "Hi, my name is Jane Doe"},
+                    ],
+                )
+            },
+        )
 
         patches = await lnb.collect_patches()
 
@@ -204,9 +211,7 @@ class TestCollectPatches:
     @pytest.mark.asyncio
     async def test_session_with_no_messages_is_skipped(self, monkeypatch):
         lead = _FakeLead("L5", name="Unknown", session_id="S-empty", user_id=None)
-        _install_crm_fakes(
-            monkeypatch, [lead], sessions={"S-empty": _FakeSession("S-empty", [])}
-        )
+        _install_crm_fakes(monkeypatch, [lead], sessions={"S-empty": _FakeSession("S-empty", [])})
         assert await lnb.collect_patches() == []
 
     @pytest.mark.asyncio
@@ -215,7 +220,7 @@ class TestCollectPatches:
         _install_crm_fakes(
             monkeypatch,
             [lead],
-            sessions={"S6": _FakeSession("S6", [{"role": "user", "text": "just looking" }])},
+            sessions={"S6": _FakeSession("S6", [{"role": "user", "text": "just looking"}])},
         )
 
         async def _fake_llm(messages):
@@ -310,21 +315,15 @@ class TestExtractNameWithLlm:
     @pytest.mark.asyncio
     async def test_untolerated_null_or_too_short_name_returns_none(self, monkeypatch):
         self._fake_genai(monkeypatch, text='{"name": null, "excerpt": null}')
-        assert (
-            await lnb.extract_name_with_llm([{"role": "user", "text": "hi"}]) is None
-        )
+        assert await lnb.extract_name_with_llm([{"role": "user", "text": "hi"}]) is None
 
         self._fake_genai(monkeypatch, text='{"name": "J", "excerpt": "x"}')
-        assert (
-            await lnb.extract_name_with_llm([{"role": "user", "text": "hi"}]) is None
-        )
+        assert await lnb.extract_name_with_llm([{"role": "user", "text": "hi"}]) is None
 
     @pytest.mark.asyncio
     async def test_client_exception_is_logged_and_returns_none(self, monkeypatch):
         self._fake_genai(monkeypatch, exc=RuntimeError("genai down"))
-        assert (
-            await lnb.extract_name_with_llm([{"role": "user", "text": "hi"}]) is None
-        )
+        assert await lnb.extract_name_with_llm([{"role": "user", "text": "hi"}]) is None
 
     @pytest.mark.asyncio
     async def test_import_error_is_tolerated(self, monkeypatch):
@@ -365,9 +364,7 @@ class TestApplyPatches:
         assert "Aborted" in capsys.readouterr().out
 
     @pytest.mark.asyncio
-    async def test_confirmed_apply_updates_missing_and_failing_leads(
-        self, monkeypatch, capsys
-    ):
+    async def test_confirmed_apply_updates_missing_and_failing_leads(self, monkeypatch, capsys):
         _, LM = _install_crm_fakes(monkeypatch, [])
         ok_lead = _FakeLead("L1", name="Unknown")
         failing = _FakeLead("L3", name="Unknown")
@@ -432,9 +429,7 @@ class TestBackfillCli:
         )
 
     @pytest.mark.asyncio
-    async def test_main_dry_run_prints_jsonl_and_writes_report(
-        self, monkeypatch, tmp_path, capsys
-    ):
+    async def test_main_dry_run_prints_jsonl_and_writes_report(self, monkeypatch, tmp_path, capsys):
         patch = self._patch()
 
         async def _fake_collect(use_llm=False, limit=None):
@@ -450,9 +445,7 @@ class TestBackfillCli:
         assert patch.model_dump_json() in captured.out
         assert out.read_text().strip() == patch.model_dump_json()
         summary = json.loads(captured.err.strip().splitlines()[-1])
-        assert summary == {
-            "summary": {"total_patches": 1, "high_confidence": 1, "dry_run": True}
-        }
+        assert summary == {"summary": {"total_patches": 1, "high_confidence": 1, "dry_run": True}}
 
     @pytest.mark.asyncio
     async def test_main_summary_counts_high_confidence(self, monkeypatch, capsys):
@@ -654,9 +647,7 @@ class _Query:
     def limit(self, n):
         if self._limit_raises:
             return _LegacyQuery(self._docs, self._filters, self._stream_exc)
-        q = _Query(
-            self._docs, stream_exc=self._stream_exc
-        )
+        q = _Query(self._docs, stream_exc=self._stream_exc)
         q._filters = list(self._filters)
         q._limit = n
         return q
@@ -930,7 +921,14 @@ def _write_house_orders_xlsx(path: Path, rows: list[dict], sheet: str = "Everybo
     """Build a tiny House Orders workbook with the real two-row header layout."""
     import pandas as pd
 
-    columns = ["Serial #", "Model", "Manufacturing Plant", "Customer", "Customer #", "Invoice Amount"]
+    columns = [
+        "Serial #",
+        "Model",
+        "Manufacturing Plant",
+        "Customer",
+        "Customer #",
+        "Invoice Amount",
+    ]
     frame = pd.DataFrame(rows, columns=columns)
     # header=1 in parse_house_orders means the SECOND row holds the column names,
     # so leave a blank title row above the header.
@@ -1123,14 +1121,19 @@ class TestExtractNameFromMessagesBranches:
     """Zero-cost regex extractor branches not hit elsewhere."""
 
     def test_non_user_messages_are_skipped(self):
-        assert lnb.extract_name_from_messages([{"role": "model", "text": "my name is Jane"}]) is None
+        assert (
+            lnb.extract_name_from_messages([{"role": "model", "text": "my name is Jane"}]) is None
+        )
 
     def test_stop_word_tokens_are_rejected(self):
         # "The" is in _STOP_NAMES — no patch should be proposed.
-        assert lnb.extract_name_from_messages([{"role": "user", "text": "my name is The Best"}]) is None
+        assert (
+            lnb.extract_name_from_messages([{"role": "user", "text": "my name is The Best"}])
+            is None
+        )
 
     def test_single_character_short_token_is_rejected(self):
-        assert lnb.extract_name_from_messages([{"role": "user", "text": "my name is Al" }]) is None
+        assert lnb.extract_name_from_messages([{"role": "user", "text": "my name is Al"}]) is None
         # ...but a longer single name is fine.
         result = lnb.extract_name_from_messages([{"role": "user", "text": "my name is Alex"}])
         assert result is not None and result[0] == "Alex"

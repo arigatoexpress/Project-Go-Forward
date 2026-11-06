@@ -97,11 +97,14 @@ def test_pii_field_definitions_are_stripped_from_llm_prompt():
     # LLM returns only safe, validated fields.
     response_json = '{"buyer_name": "John Doe", "employer_name": "Acme Corp"}'
 
-    with _install_fake_genai(captured, response_json), patch.object(
-        form_extraction,
-        "_get_conversation_text",
-        return_value=CONVERSATION,
-    ) as _mock_convo:
+    with (
+        _install_fake_genai(captured, response_json),
+        patch.object(
+            form_extraction,
+            "_get_conversation_text",
+            return_value=CONVERSATION,
+        ) as _mock_convo,
+    ):
         # Make the patched _get_conversation_text awaitable.
         async def _fake_convo(session_id, runner=None):
             return CONVERSATION
@@ -145,9 +148,10 @@ def test_non_pii_fields_pass_through_to_prompt_and_result():
     captured: dict = {}
     response_json = '{"buyer_name": "John Doe", "employer_name": "Acme Corp"}'
 
-    with _install_fake_genai(captured, response_json), patch.object(
-        form_extraction, "_get_conversation_text"
-    ) as mock_convo:
+    with (
+        _install_fake_genai(captured, response_json),
+        patch.object(form_extraction, "_get_conversation_text") as mock_convo,
+    ):
 
         async def _fake_convo(session_id, runner=None):
             return CONVERSATION
@@ -179,13 +183,13 @@ def test_llm_returned_pii_keys_are_dropped_from_result():
     captured: dict = {}
     # Adversarial: model tries to return an SSN/DOB value.
     response_json = (
-        '{"buyer_name": "John Doe", "buyer_ssn": "123-45-6789", '
-        '"buyer_dob": "01/02/1980"}'
+        '{"buyer_name": "John Doe", "buyer_ssn": "123-45-6789", ' '"buyer_dob": "01/02/1980"}'
     )
 
-    with _install_fake_genai(captured, response_json), patch.object(
-        form_extraction, "_get_conversation_text"
-    ) as mock_convo:
+    with (
+        _install_fake_genai(captured, response_json),
+        patch.object(form_extraction, "_get_conversation_text") as mock_convo,
+    ):
 
         async def _fake_convo(session_id, runner=None):
             return CONVERSATION
@@ -211,16 +215,12 @@ def test_template_safe_fields_exclude_all_pii_definitions():
     for this template is excluded from the safe (LLM-bound) field set, mirroring
     the filter inside extract_form_data_from_session."""
     template_fields = get_fields_for_template(TEMPLATE)
-    pii_in_template = {
-        name for name, defn in template_fields.items() if defn.get("pii", False)
-    }
+    pii_in_template = {name for name, defn in template_fields.items() if defn.get("pii", False)}
     # Template must actually contain PII fields, else the test proves nothing.
     assert pii_in_template, "Expected creditapp.pdf to define PII fields"
 
     safe_fields = {
-        name: defn
-        for name, defn in template_fields.items()
-        if not defn.get("pii", False)
+        name: defn for name, defn in template_fields.items() if not defn.get("pii", False)
     }
     # No PII field name survives into the safe set.
     assert pii_in_template.isdisjoint(safe_fields.keys())

@@ -117,7 +117,9 @@ class _FakeHistory:
     async def add_message(self, session_id, user_id, role, text):
         if self.fail:
             raise RuntimeError("history down")
-        self.messages.append({"session_id": session_id, "user_id": user_id, "role": role, "text": text})
+        self.messages.append(
+            {"session_id": session_id, "user_id": user_id, "role": role, "text": text}
+        )
 
 
 class _SessionService:
@@ -166,9 +168,7 @@ def _setup(monkeypatch, runner=None, memory=None, history=None):
     captured: dict = {}
 
     async def _capture(text, session_id, user_id, lead_manager=None, notify=None, utm=None):
-        captured.update(
-            {"text": text, "session_id": session_id, "user_id": user_id, "utm": utm}
-        )
+        captured.update({"text": text, "session_id": session_id, "user_id": user_id, "utm": utm})
 
     monkeypatch.setattr(main, "capture_contact_from_message", _capture)
     monkeypatch.setattr(main, "apply_utm", lambda lead, utm: None)
@@ -205,7 +205,7 @@ class TestExecuteAgentRun:
         events = [
             types.SimpleNamespace(content=_Content("user", [_Part("ignored")])),
             types.SimpleNamespace(content=_Content("model", [_Part("Hello "), _Part(None)])),
-            types.SimpleNamespace(content=_Content("assistant", [_Part("world")])) ,
+            types.SimpleNamespace(content=_Content("assistant", [_Part("world")])),
             types.SimpleNamespace(content=None),
             types.SimpleNamespace(),
         ]
@@ -300,7 +300,10 @@ class TestRunAgent:
             ]
         )
         client, _main, _db, _c = _setup(
-            monkeypatch, runner=runner, memory=_FakeMemory(context=_Context()), history=_FakeHistory()
+            monkeypatch,
+            runner=runner,
+            memory=_FakeMemory(context=_Context()),
+            history=_FakeHistory(),
         )
 
         first = client.post("/run", json=_chat_payload("first")).json()
@@ -336,7 +339,10 @@ class TestRunAgent:
             delay=1.0,
         )
         client, main, _db, _c = _setup(
-            monkeypatch, runner=runner, memory=_FakeMemory(context=_Context()), history=_FakeHistory()
+            monkeypatch,
+            runner=runner,
+            memory=_FakeMemory(context=_Context()),
+            history=_FakeHistory(),
         )
         monkeypatch.setattr(main, "AI_RUN_TIMEOUT", 0.05)
 
@@ -348,7 +354,10 @@ class TestRunAgent:
     def test_unexpected_agent_error_returns_brain_message(self, monkeypatch):
         runner = _FakeRunner(error=RuntimeError("genai exploded"))
         client, _main, _db, _c = _setup(
-            monkeypatch, runner=runner, memory=_FakeMemory(context=_Context()), history=_FakeHistory()
+            monkeypatch,
+            runner=runner,
+            memory=_FakeMemory(context=_Context()),
+            history=_FakeHistory(),
         )
 
         resp = client.post("/run", json=_chat_payload())

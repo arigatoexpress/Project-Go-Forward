@@ -20,7 +20,7 @@ from fastapi.testclient import TestClient
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-_SECRET = "whsec_" + base64.b64encode(b"super-secret-key").decode()
+_SECRET = "whsec_" + base64.b64encode(b"super-secret-key").decode()  # pragma: allowlist secret
 
 
 def _sig(svix_id: str, ts: str, body: bytes) -> str:
@@ -50,14 +50,19 @@ def test_verify_svix_signature_valid_and_invalid():
     # tampered body
     assert main._verify_svix_signature(_SECRET, h, b'{"hello":"evil"}') is False
     # bad signature
-    assert main._verify_svix_signature(
-        _SECRET, {**h, "svix-signature": "v1,deadbeef"}, body
-    ) is False
+    assert (
+        main._verify_svix_signature(_SECRET, {**h, "svix-signature": "v1,deadbeef"}, body) is False
+    )
     # stale timestamp (replay)
     old = str(int(time.time()) - 9999)
-    assert main._verify_svix_signature(
-        _SECRET, {"svix-id": "m", "svix-timestamp": old, "svix-signature": _sig("m", old, body)}, body
-    ) is False
+    assert (
+        main._verify_svix_signature(
+            _SECRET,
+            {"svix-id": "m", "svix-timestamp": old, "svix-signature": _sig("m", old, body)},
+            body,
+        )
+        is False
+    )
 
 
 def test_inbound_sender_allowlist(monkeypatch):
@@ -88,7 +93,11 @@ def test_inbound_rejects_bad_signature(tc, monkeypatch):
     r = client.post(
         "/api/email/inbound",
         content=b"{}",
-        headers={"svix-id": "x", "svix-timestamp": str(int(time.time())), "svix-signature": "v1,bad"},
+        headers={
+            "svix-id": "x",
+            "svix-timestamp": str(int(time.time())),
+            "svix-signature": "v1,bad",
+        },
     )
     assert r.status_code == 401
 
@@ -122,10 +131,15 @@ def test_inbound_processes_allowlisted(tc, monkeypatch):
 
     notified = {}
     monkeypatch.setattr(main.lead_manager, "create_lead", fake_create)
-    monkeypatch.setattr(main, "notify_new_lead", lambda **k: notified.update(k) or {"success": True})
+    monkeypatch.setattr(
+        main, "notify_new_lead", lambda **k: notified.update(k) or {"success": True}
+    )
 
     body = json.dumps(
-        {"type": "email.received", "data": {"from": "VIP <vip@example.com>", "subject": "Need a quote"}}
+        {
+            "type": "email.received",
+            "data": {"from": "VIP <vip@example.com>", "subject": "Need a quote"},
+        }
     ).encode()
     ts, sid = str(int(time.time())), "msg_ok"
     r = client.post(

@@ -77,7 +77,11 @@ def _post_telegram(method: str, payload: dict) -> dict:
         import httpx
 
         resp = httpx.post(f"{_TELEGRAM_API}/bot{token}/{method}", json=payload, timeout=10)
-        return resp.json() if resp.status_code == 200 else {"ok": False, "error": f"HTTP {resp.status_code}"}
+        return (
+            resp.json()
+            if resp.status_code == 200
+            else {"ok": False, "error": f"HTTP {resp.status_code}"}
+        )
     except Exception as exc:
         logger.warning("Telegram API call failed method=%s error=%s", method, exc)
         return {"ok": False, "error": str(exc)}
@@ -139,7 +143,9 @@ def verify_webhook_secret(header_value: str) -> bool:
 
 def _answer_callback(callback_id: str, text: str) -> None:
     if callback_id:
-        _post_telegram("answerCallbackQuery", {"callback_query_id": callback_id, "text": text[:190]})
+        _post_telegram(
+            "answerCallbackQuery", {"callback_query_id": callback_id, "text": text[:190]}
+        )
 
 
 def handle_update(update) -> dict:
@@ -158,7 +164,7 @@ def handle_update(update) -> dict:
             return {"status": "ignored"}
         verdict, draft_id = parts[1], parts[2]
 
-        chat = ((cbq.get("message") or {}).get("chat") or {})
+        chat = (cbq.get("message") or {}).get("chat") or {}
         if str(chat.get("id", "")) != _chat_id() or not _chat_id():
             logger.warning("Telegram callback from unauthorized chat id=%s", chat.get("id"))
             return {"status": "unauthorized"}
@@ -184,8 +190,9 @@ def handle_update(update) -> dict:
                 send_result = send_approved_reply(draft_id, actor=actor)
                 _answer_callback(
                     callback_id,
-                    "Approved — sent" if send_result.get("success") else
-                    f"Approved — not sent: {send_result.get('error', '')}",
+                    "Approved — sent"
+                    if send_result.get("success")
+                    else f"Approved — not sent: {send_result.get('error', '')}",
                 )
                 return {"status": "approved", "send": send_result}
             transition(draft_id, STATUS_REJECTED, actor=actor)

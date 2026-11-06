@@ -80,7 +80,9 @@ def test_mapper_produces_firestore_read_shape():
 
 
 def test_mapper_preserves_half_baths():
-    doc = inventory_seed.snapshot_home_to_inventory_doc(_snapshot_home(specs={"beds": 4, "baths": 2.5}))
+    doc = inventory_seed.snapshot_home_to_inventory_doc(
+        _snapshot_home(specs={"beds": 4, "baths": 2.5})
+    )
     assert doc["bathrooms"] == 2.5
 
 
@@ -93,7 +95,10 @@ def test_mapper_marks_preowned_homes():
 
 def test_seed_dry_run_writes_nothing_but_plans_everything():
     db = FakeDatabase()
-    homes = [_snapshot_home(), _snapshot_home(id="44490", legacy_inventory_id="44490", model_name="Big Blue")]
+    homes = [
+        _snapshot_home(),
+        _snapshot_home(id="44490", legacy_inventory_id="44490", model_name="Big Blue"),
+    ]
 
     stats = inventory_seed.seed_inventory_from_snapshot(db, homes, dry_run=True)
 

@@ -69,9 +69,7 @@ class _FakeDB:
 
 
 def _wire_fake_data(monkeypatch, *, leads=None, appts=None, collections=None):
-    monkeypatch.setattr(
-        ops_copilot, "_lead_manager", lambda pid: _FakeLeadManager(leads or [])
-    )
+    monkeypatch.setattr(ops_copilot, "_lead_manager", lambda pid: _FakeLeadManager(leads or []))
     monkeypatch.setattr(
         ops_copilot, "_appointment_manager", lambda pid: _FakeApptManager(appts or [])
     )
@@ -137,9 +135,7 @@ def test_snapshot_fault_isolation(monkeypatch):
         raise RuntimeError("firestore down")
 
     monkeypatch.setattr(ops_copilot, "_lead_manager", _boom)
-    monkeypatch.setattr(
-        ops_copilot, "_appointment_manager", lambda pid: _FakeApptManager([])
-    )
+    monkeypatch.setattr(ops_copilot, "_appointment_manager", lambda pid: _FakeApptManager([]))
     monkeypatch.setattr(
         ops_copilot,
         "_get_db",
@@ -329,25 +325,34 @@ def _fake_notion_counts(monkeypatch, mapping):
 
 def test_snapshot_sources_from_notion_when_command_center_on(monkeypatch):
     monkeypatch.setenv("NOTION_COMMAND_CENTER", "on")
-    _fake_notion_counts(monkeypatch, {
-        "delivery_tracker": {"Delivered to Site": 3, "Trim-Out": 2},
-        "cs_survey": {"Contacted-Positive": 4, "Do Not Contact": 1},
-        "service_warranty": {"Repair In Progress": 2},
-        "title": {"Title Issued": 5, "MCO Received from Factory": 1},
-        "collections": {"Current": 10, "Default": 1},
-        "insurance": {"Policy Active": 7},
-    })
-    _wire_fake_data(monkeypatch, collections={
-        "service_requests": [_FakeDoc({"status": "pending"})],   # Firestore — should be IGNORED
-        "feedback": [_FakeDoc({"rating": 5})],
-    })
+    _fake_notion_counts(
+        monkeypatch,
+        {
+            "delivery_tracker": {"Delivered to Site": 3, "Trim-Out": 2},
+            "cs_survey": {"Contacted-Positive": 4, "Do Not Contact": 1},
+            "service_warranty": {"Repair In Progress": 2},
+            "title": {"Title Issued": 5, "MCO Received from Factory": 1},
+            "collections": {"Current": 10, "Default": 1},
+            "insurance": {"Policy Active": 7},
+        },
+    )
+    _wire_fake_data(
+        monkeypatch,
+        collections={
+            "service_requests": [_FakeDoc({"status": "pending"})],  # Firestore — should be IGNORED
+            "feedback": [_FakeDoc({"rating": 5})],
+        },
+    )
 
     snap = asyncio.run(ops_copilot.get_business_snapshot())
 
     # Installations now come from the Notion Delivery Tracker, not Firestore.
     assert snap["installations"]["by_status"] == {"Delivered to Site": 3, "Trim-Out": 2}
     # Feedback total derived from the CS-survey counts.
-    assert snap["feedback"] == {"total": 5, "by_status": {"Contacted-Positive": 4, "Do Not Contact": 1}}
+    assert snap["feedback"] == {
+        "total": 5,
+        "by_status": {"Contacted-Positive": 4, "Do Not Contact": 1},
+    }
     # Post-funding ops surface as count-by-status only.
     ops = snap["operations"]
     assert ops["title"]["by_status"] == {"Title Issued": 5, "MCO Received from Factory": 1}
@@ -361,10 +366,13 @@ def test_snapshot_sources_from_notion_when_command_center_on(monkeypatch):
 def test_snapshot_firestore_only_when_command_center_off(monkeypatch):
     """Regression lock: flag off => Firestore feedback count, no 'operations' key."""
     monkeypatch.delenv("NOTION_COMMAND_CENTER", raising=False)
-    _wire_fake_data(monkeypatch, collections={
-        "service_requests": [_FakeDoc({"status": "pending"})],
-        "feedback": [_FakeDoc({"rating": 5}), _FakeDoc({"rating": 4})],
-    })
+    _wire_fake_data(
+        monkeypatch,
+        collections={
+            "service_requests": [_FakeDoc({"status": "pending"})],
+            "feedback": [_FakeDoc({"rating": 5}), _FakeDoc({"rating": 4})],
+        },
+    )
     snap = asyncio.run(ops_copilot.get_business_snapshot())
     assert snap["installations"]["by_status"] == {"pending": 1}
     assert snap["feedback"] == {"total": 2}
@@ -379,10 +387,13 @@ def test_snapshot_degrades_when_notion_reader_raises(monkeypatch):
         raise RuntimeError("notion down")
 
     monkeypatch.setattr(notion_client, "fetch_status_counts", _boom)
-    _wire_fake_data(monkeypatch, collections={
-        "service_requests": [_FakeDoc({"status": "pending"})],
-        "feedback": [_FakeDoc({"rating": 5})],
-    })
+    _wire_fake_data(
+        monkeypatch,
+        collections={
+            "service_requests": [_FakeDoc({"status": "pending"})],
+            "feedback": [_FakeDoc({"rating": 5})],
+        },
+    )
     snap = asyncio.run(ops_copilot.get_business_snapshot())
     # Notion raised -> falls back to Firestore for installations + feedback, ops degrade to {}.
     assert snap["installations"]["by_status"] == {"pending": 1}

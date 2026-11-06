@@ -91,9 +91,7 @@ class TestClientPassesTimeout:
         db, mock = _db_with_mock_client()
         mock.collection.return_value.stream.return_value = iter([])
         db.count_customers()
-        mock.collection.return_value.stream.assert_called_once_with(
-            timeout=FIRESTORE_RPC_TIMEOUT
-        )
+        mock.collection.return_value.stream.assert_called_once_with(timeout=FIRESTORE_RPC_TIMEOUT)
 
     def test_document_set(self):
         from database.rpc_timeout import FIRESTORE_RPC_TIMEOUT
@@ -127,9 +125,7 @@ class TestClientPassesTimeout:
 
         db, mock = _db_with_mock_client()
         db.batch_create_customers([{"id": "cust-1", "full_name": "Alice"}])
-        mock.batch.return_value.commit.assert_called_once_with(
-            timeout=FIRESTORE_RPC_TIMEOUT
-        )
+        mock.batch.return_value.commit.assert_called_once_with(timeout=FIRESTORE_RPC_TIMEOUT)
 
 
 class TestTransactionWallClockBound:

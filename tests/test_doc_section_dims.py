@@ -10,25 +10,19 @@ from tools.document_quality import enrich_document_data
 
 
 def test_single_section_fills_section1_dims():
-    out = enrich_document_data(
-        {"no_of_sections": "1", "width": "16", "length": "76"}
-    )
+    out = enrich_document_data({"no_of_sections": "1", "width": "16", "length": "76"})
     assert out["section_1_width"] == "16"
     assert out["section_1_length"] == "76"
 
 
 def test_single_section_word_form_also_fills():
-    out = enrich_document_data(
-        {"no_of_sections": "single", "width": "14", "length": "60"}
-    )
+    out = enrich_document_data({"no_of_sections": "single", "width": "14", "length": "60"})
     assert out["section_1_width"] == "14"
     assert out["section_1_length"] == "60"
 
 
 def test_multi_section_leaves_section1_blank():
-    out = enrich_document_data(
-        {"no_of_sections": "2", "width": "28", "length": "56"}
-    )
+    out = enrich_document_data({"no_of_sections": "2", "width": "28", "length": "56"})
     # A double-wide's overall 28' width is NOT section 1's width — leave blank.
     assert not out.get("section_1_width")
     assert not out.get("section_1_length")

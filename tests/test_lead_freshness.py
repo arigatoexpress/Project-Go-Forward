@@ -48,6 +48,8 @@ def test_naive_timestamp_parsed_as_utc():
 
 
 def test_garbage_timestamp_ignored_not_raised():
-    f = sync.check_lead_freshness([{"created_at": "not-a-date"}, {"created_at": None}], window_days=3)
+    f = sync.check_lead_freshness(
+        [{"created_at": "not-a-date"}, {"created_at": None}], window_days=3
+    )
     assert f["alert"] is True
     assert f["last_lead_at"] is None

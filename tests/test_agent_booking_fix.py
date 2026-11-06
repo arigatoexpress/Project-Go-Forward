@@ -18,9 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 # root_agent and tools.crm_tools hard-require google-adk; skip the affected
 # tests in dependency-minimal environments instead of failing at import time.
 _HAS_GOOGLE_ADK = importlib.util.find_spec("google.adk") is not None
-requires_google_adk = pytest.mark.skipif(
-    not _HAS_GOOGLE_ADK, reason="google-adk is not installed"
-)
+requires_google_adk = pytest.mark.skipif(not _HAS_GOOGLE_ADK, reason="google-adk is not installed")
 
 
 class TestBookingFix:
@@ -77,9 +75,7 @@ class TestBookingFix:
         assert hasattr(crm_tools, "book_appointment")
         assert hasattr(crm_tools, "cancel_appointment")
         # Verify they are still no-ops (don't write to Firestore)
-        result = crm_tools.book_appointment(
-            "Test User", "555-010-0000", "2099-01-01", "10:00 AM"
-        )
+        result = crm_tools.book_appointment("Test User", "555-010-0000", "2099-01-01", "10:00 AM")
         assert result["success"] is True
         # The "confirmation" is fake — no actual booking occurred
         assert "confirmed" in result["message"].lower()
@@ -98,6 +94,6 @@ class TestBookingFix:
             "get_business_hours",
             "save_lead",
         }
-        assert expected <= tool_names, (
-            f"Expected tools {expected} missing from agent. Got: {tool_names}"
-        )
+        assert (
+            expected <= tool_names
+        ), f"Expected tools {expected} missing from agent. Got: {tool_names}"

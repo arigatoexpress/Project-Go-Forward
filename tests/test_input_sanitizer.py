@@ -95,6 +95,7 @@ class TestInputSanitizationMiddleware:
     @pytest.fixture
     def client(self, monkeypatch):
         from tests.test_api_v1 import create_client
+
         client, _main, _db, _logger = create_client(monkeypatch)
         return client
 
@@ -159,11 +160,7 @@ class TestSanitizeEdgeCases:
     def test_deeply_nested_html(self):
         data = {
             "level1": {
-                "level2": {
-                    "level3": {
-                        "html": "<div><span><script>alert(1)</script></span></div>"
-                    }
-                }
+                "level2": {"level3": {"html": "<div><span><script>alert(1)</script></span></div>"}}
             }
         }
         result = sanitize_value(data)
@@ -205,7 +202,9 @@ class TestInputSanitizationMiddlewareDirect:
 
         middleware = InputSanitizationMiddleware(app=None)
 
-        raw_body = json.dumps({"name": "<script>alert(1)</script>Alice", "email": "alice@example.com"}).encode("utf-8")
+        raw_body = json.dumps(
+            {"name": "<script>alert(1)</script>Alice", "email": "alice@example.com"}
+        ).encode("utf-8")
         request = SimpleNamespace(
             method="POST",
             url=SimpleNamespace(path="/api/contact"),
@@ -219,7 +218,9 @@ class TestInputSanitizationMiddlewareDirect:
         await middleware.dispatch(request, call_next)
 
         # Verify body was rewritten to sanitized JSON
-        expected = json.dumps({"name": "alert(1)Alice", "email": "alice@example.com"}).encode("utf-8")
+        expected = json.dumps({"name": "alert(1)Alice", "email": "alice@example.com"}).encode(
+            "utf-8"
+        )
         assert request._body == expected
         call_next.assert_awaited_once()
 
@@ -428,7 +429,7 @@ class TestQueryParamSanitizationMiddleware:
             url=SimpleNamespace(path="/api/contact"),
             query_params={"utm_source": "<script>bad</script>ig"},
             headers={"content-type": "application/json"},
-            body=AsyncMock(return_value=b'{}'),
+            body=AsyncMock(return_value=b"{}"),
             state=SimpleNamespace(),
         )
 
@@ -446,6 +447,7 @@ class TestInputSanitizationEndToEnd:
     @pytest.fixture
     def client(self, monkeypatch):
         from tests.test_api_v1 import create_client
+
         client, _main, _db, _logger = create_client(monkeypatch)
         return client
 

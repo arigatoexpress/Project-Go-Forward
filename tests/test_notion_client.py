@@ -280,11 +280,16 @@ def test_db_id_resolves_config_then_env(monkeypatch):
 def test_fetch_status_counts_counts_by_status_and_is_pii_free(monkeypatch):
     monkeypatch.setenv("NOTION_TOKEN", "secret_test")
     monkeypatch.setenv("NOTION_TITLE_DB_ID", "db-title")
-    _patch_post(monkeypatch, payload={"results": [
-        _ops_page("Title Issued"),
-        _ops_page("Title Issued"),
-        _ops_page("MCO Received from Factory"),
-    ]})
+    _patch_post(
+        monkeypatch,
+        payload={
+            "results": [
+                _ops_page("Title Issued"),
+                _ops_page("Title Issued"),
+                _ops_page("MCO Received from Factory"),
+            ]
+        },
+    )
     counts = nc.fetch_status_counts("title")
     assert counts == {"Title Issued": 2, "MCO Received from Factory": 1}
     # The PII columns on every page must not have leaked into the result.
@@ -295,11 +300,16 @@ def test_fetch_status_counts_counts_by_status_and_is_pii_free(monkeypatch):
 def test_fetch_status_counts_tolerates_dirty_and_aliased_status_columns(monkeypatch):
     monkeypatch.setenv("NOTION_TOKEN", "secret_test")
     monkeypatch.setenv("NOTION_DELIVERY_TRACKER_DB_ID", "db-delivery")
-    _patch_post(monkeypatch, payload={"results": [
-        _ops_page("Delivered to Site", prop_name="Current Phase"),     # alias, not "Status"
-        _ops_page("Delivered to Site", prop_name="Status "),            # trailing-space column
-        _ops_page("Unknown one", prop_name="No Status Column At All"),  # -> UNKNOWN
-    ]})
+    _patch_post(
+        monkeypatch,
+        payload={
+            "results": [
+                _ops_page("Delivered to Site", prop_name="Current Phase"),  # alias, not "Status"
+                _ops_page("Delivered to Site", prop_name="Status "),  # trailing-space column
+                _ops_page("Unknown one", prop_name="No Status Column At All"),  # -> UNKNOWN
+            ]
+        },
+    )
     counts = nc.fetch_status_counts("delivery_tracker")
     assert counts == {"Delivered to Site": 2, "UNKNOWN": 1}
 
@@ -331,12 +341,12 @@ def test_query_database_paginates_across_has_more(monkeypatch):
 
     monkeypatch.setattr(nc.httpx, "post", fake_post)
     counts = nc.fetch_status_counts("title")  # db id from config.yaml
-    assert counts == {"A": 3, "B": 1}          # summed across both pages
-    assert state["cursors"] == [None, "cur2"]   # page 2 used next_cursor
+    assert counts == {"A": 3, "B": 1}  # summed across both pages
+    assert state["cursors"] == [None, "cur2"]  # page 2 used next_cursor
 
 
 def test_status_label_guard_collapses_pii_like_values():
-    assert nc._safe_status_label("Title Issued") == "Title Issued"          # enum-like: kept
+    assert nc._safe_status_label("Title Issued") == "Title Issued"  # enum-like: kept
     assert nc._safe_status_label("Call John Smith 555-123-4567") == "OTHER"  # phone -> OTHER
-    assert nc._safe_status_label("email me at j@x.com") == "OTHER"           # email -> OTHER
-    assert nc._safe_status_label("x" * 80) == "OTHER"                        # overlong -> OTHER
+    assert nc._safe_status_label("email me at j@x.com") == "OTHER"  # email -> OTHER
+    assert nc._safe_status_label("x" * 80) == "OTHER"  # overlong -> OTHER

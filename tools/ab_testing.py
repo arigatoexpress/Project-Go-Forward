@@ -124,9 +124,7 @@ class Experiment:
         if not self.name or not isinstance(self.name, str):
             raise ValueError("Experiment name must be a non-empty string")
         if self.status not in {"draft", "running", "paused", "ended"}:
-            raise ValueError(
-                f"Invalid experiment status: {self.status!r}"
-            )
+            raise ValueError(f"Invalid experiment status: {self.status!r}")
         if not self.variants:
             raise ValueError("Experiment must have at least one variant")
         seen = set()
@@ -413,9 +411,7 @@ class ABTestEngine:
                 best_variant = v.name
 
         if best_variant and control_rate > 0:
-            results["relative_uplift"] = round(
-                (best_rate - control_rate) / control_rate, 6
-            )
+            results["relative_uplift"] = round((best_rate - control_rate) / control_rate, 6)
         else:
             results["relative_uplift"] = None
 
@@ -431,9 +427,7 @@ class ABTestEngine:
                 best_impressions,
             )
             results["p_value"] = round(p_value, 6) if p_value is not None else None
-            results["significant"] = (
-                p_value is not None and p_value < 0.05
-            )
+            results["significant"] = p_value is not None and p_value < 0.05
         else:
             results["p_value"] = None
             results["significant"] = False
@@ -446,11 +440,7 @@ class ABTestEngine:
         Redis writes are fire-and-forget (best-effort backup) and are not
         merged back here to avoid double-counting in the same engine instance.
         """
-        return (
-            self._events.get(experiment_id, {})
-            .get(variant_name, {})
-            .get(event_type, 0.0)
-        )
+        return self._events.get(experiment_id, {}).get(variant_name, {}).get(event_type, 0.0)
 
     # ------------------------------------------------------------------
     # Admin helpers
@@ -464,10 +454,7 @@ class ABTestEngine:
         self._events.pop(experiment_id, None)
         # Clear assignment cache for this experiment so impressions are
         # re-counted after a reset.
-        self._assigned = {
-            k for k in self._assigned
-            if not k.startswith(f"{experiment_id}:")
-        }
+        self._assigned = {k for k in self._assigned if not k.startswith(f"{experiment_id}:")}
         struct_logger.info(
             "ab_experiment_reset",
             experiment_id=experiment_id,

@@ -33,9 +33,7 @@ from tools.contact_capture import apply_utm, capture_contact_from_message, extra
 # tools.crm_tools hard-requires google-adk; only the save_lead alert tests use it.
 # Import it lazily there and skip them in dependency-minimal environments.
 _HAS_GOOGLE_ADK = importlib.util.find_spec("google.adk") is not None
-requires_google_adk = pytest.mark.skipif(
-    not _HAS_GOOGLE_ADK, reason="google-adk is not installed"
-)
+requires_google_adk = pytest.mark.skipif(not _HAS_GOOGLE_ADK, reason="google-adk is not installed")
 
 
 def _digits(s):
@@ -176,8 +174,11 @@ def test_backstop_dedups_against_an_existing_phone_lead():
     calls = []
     result = asyncio.run(
         capture_contact_from_message(
-            "yes, call me at 281-324-3020", "sess_new", "u",
-            lead_manager=lm, notify=lambda **k: calls.append(k),
+            "yes, call me at 281-324-3020",
+            "sess_new",
+            "u",
+            lead_manager=lm,
+            notify=lambda **k: calls.append(k),
         )
     )
     assert len(lm.leads) == 1  # no duplicate
@@ -203,8 +204,11 @@ def test_backstop_dedup_still_merges_a_newly_volunteered_email():
     calls = []
     asyncio.run(
         capture_contact_from_message(
-            "call me at 281-324-3020, my email is jane@example.com", "sess_new", "u",
-            lead_manager=lm, notify=lambda **k: calls.append(k),
+            "call me at 281-324-3020, my email is jane@example.com",
+            "sess_new",
+            "u",
+            lead_manager=lm,
+            notify=lambda **k: calls.append(k),
         )
     )
     assert len(lm.leads) == 1  # no duplicate
@@ -220,8 +224,11 @@ def test_backstop_still_fires_when_no_matching_phone_lead_exists():
     calls = []
     asyncio.run(
         capture_contact_from_message(
-            "call me at 281-324-3020", "s1", "u",
-            lead_manager=lm, notify=lambda **k: calls.append(k) or {"success": True},
+            "call me at 281-324-3020",
+            "s1",
+            "u",
+            lead_manager=lm,
+            notify=lambda **k: calls.append(k) or {"success": True},
         )
     )
     assert len(lm.leads) == 1
@@ -233,7 +240,11 @@ def test_backstop_noop_when_no_contact_present():
     calls = []
     result = asyncio.run(
         capture_contact_from_message(
-            "just looking around, thanks", "s", "u", lead_manager=lm, notify=lambda **k: calls.append(k)
+            "just looking around, thanks",
+            "s",
+            "u",
+            lead_manager=lm,
+            notify=lambda **k: calls.append(k),
         )
     )
     assert result is None
@@ -253,8 +264,12 @@ def test_backstop_notify_is_offloaded_and_bounded_when_send_is_slow():
 
     async def _run():
         await capture_contact_from_message(
-            "call me at 281-324-3020", "s1", "u1",
-            lead_manager=lm, notify=slow_notify, notify_timeout=0.1,
+            "call me at 281-324-3020",
+            "s1",
+            "u1",
+            lead_manager=lm,
+            notify=slow_notify,
+            notify_timeout=0.1,
         )
         # Right after capture returns, the slow notify should still be running.
         return notify_done["v"]
@@ -293,8 +308,12 @@ def test_backstop_tags_a_new_lead_with_utm():
     lm = _FakeLeadManager()
     lead = asyncio.run(
         capture_contact_from_message(
-            "call me at 281-324-3020", "s1", "u",
-            lead_manager=lm, notify=lambda **k: None, utm=_UTM,
+            "call me at 281-324-3020",
+            "s1",
+            "u",
+            lead_manager=lm,
+            notify=lambda **k: None,
+            utm=_UTM,
         )
     )
     assert lead.utm_source == "google"
@@ -309,15 +328,23 @@ def test_backstop_backfills_utm_onto_a_deduped_save_lead_lead():
     lm = _FakeLeadManager()
     lm.leads.append(
         Lead(
-            lead_id="chat_x", user_id="chat", session_id="",
-            name="Jane", phone=normalize_phone("281-324-3020"), source="chat",
+            lead_id="chat_x",
+            user_id="chat",
+            session_id="",
+            name="Jane",
+            phone=normalize_phone("281-324-3020"),
+            source="chat",
         )
     )
     utm = {**_UTM, "utm_source": "facebook", "utm_medium": "paid_social"}
     dup = asyncio.run(
         capture_contact_from_message(
-            "yes, call me at 281-324-3020", "s2", "u",
-            lead_manager=lm, notify=lambda **k: None, utm=utm,
+            "yes, call me at 281-324-3020",
+            "s2",
+            "u",
+            lead_manager=lm,
+            notify=lambda **k: None,
+            utm=utm,
         )
     )
     assert len(lm.leads) == 1  # still no duplicate
@@ -330,8 +357,11 @@ def test_backstop_without_utm_leaves_utm_unset_and_still_alerts():
     calls = []
     lead = asyncio.run(
         capture_contact_from_message(
-            "call me at 281-324-3020", "s1", "u",
-            lead_manager=lm, notify=lambda **k: calls.append(k),
+            "call me at 281-324-3020",
+            "s1",
+            "u",
+            lead_manager=lm,
+            notify=lambda **k: calls.append(k),
         )
     )
     assert lead.utm_source is None

@@ -132,8 +132,8 @@ class TestDecodeAdminToken:
     def test_zero_email_length_returns_none(self, monkeypatch):
         _client_, main, _db = _client(monkeypatch)
         expires = int(time.time()) + 3600
-        payload = bytes([main._EMAIL_TOKEN_VERSION]) + struct.pack(">Q", expires) + struct.pack(
-            ">H", 0
+        payload = (
+            bytes([main._EMAIL_TOKEN_VERSION]) + struct.pack(">Q", expires) + struct.pack(">H", 0)
         )
         assert main._decode_admin_token(_mint_token(main, payload)) is None
 
@@ -192,7 +192,11 @@ class TestVerifySvixSignature:
 
     def test_missing_secret_rejected(self, monkeypatch):
         _client_, main, _db = _client(monkeypatch)
-        headers = {"svix-id": "msg_1", "svix-timestamp": str(int(time.time())), "svix-signature": "v1,x"}
+        headers = {
+            "svix-id": "msg_1",
+            "svix-timestamp": str(int(time.time())),
+            "svix-signature": "v1,x",
+        }
         assert main._verify_svix_signature("", headers, b"{}") is False
 
     def test_non_numeric_timestamp_rejected(self, monkeypatch):
@@ -228,7 +232,7 @@ class TestVerifySvixSignature:
         import base64 as _b64
 
         key = b"k" * 16
-        secret = "whsec_" + _b64.b64encode(key).decode()
+        secret = "whsec_" + _b64.b64encode(key).decode()  # pragma: allowlist secret
         svix_id, ts = "msg_1", str(int(time.time()))
         signed = f"{svix_id}.{ts}.".encode() + b"{}"
         expected = _b64.b64encode(hmac.new(key, signed, hashlib.sha256).digest()).decode()
@@ -275,24 +279,18 @@ class TestCachedEmailLiveness:
 
     def test_stale_cache_calls_live_provider(self, monkeypatch):
         _client_, main, _db = _client(monkeypatch)
-        monkeypatch.setattr(
-            main, "_EMAIL_LIVENESS_CACHE", {"checked_at": 0.0, "status": None}
-        )
+        monkeypatch.setattr(main, "_EMAIL_LIVENESS_CACHE", {"checked_at": 0.0, "status": None})
         monkeypatch.setattr(main, "_EMAIL_LIVENESS_LOCK", threading.Lock())
         email_mod = sys.modules["email_service"]
         live = {"ok": True, "state": "live"}
-        monkeypatch.setattr(
-            email_mod, "check_email_liveness", lambda: live, raising=False
-        )
+        monkeypatch.setattr(email_mod, "check_email_liveness", lambda: live, raising=False)
 
         assert main._cached_email_liveness() == live
         assert main._EMAIL_LIVENESS_CACHE["status"] is live
 
     def test_unreachable_provider_degrades_gracefully(self, monkeypatch):
         _client_, main, _db = _client(monkeypatch)
-        monkeypatch.setattr(
-            main, "_EMAIL_LIVENESS_CACHE", {"checked_at": 0.0, "status": None}
-        )
+        monkeypatch.setattr(main, "_EMAIL_LIVENESS_CACHE", {"checked_at": 0.0, "status": None})
         monkeypatch.setattr(main, "_EMAIL_LIVENESS_LOCK", threading.Lock())
         # The stub email_service module has no check_email_liveness, so the
         # from-import raises and the health check degrades to unreachable.
@@ -412,7 +410,10 @@ class TestListAppointmentsApi:
 
         result = _run(main.list_appointments_api())
 
-        assert result == {"success": False, "error": "Failed to load appointments. Please try again."}
+        assert result == {
+            "success": False,
+            "error": "Failed to load appointments. Please try again.",
+        }
 
 
 # ─── send_email_api / get_email_log_api ─────────────────────────────────────
@@ -484,7 +485,9 @@ def _fake_session(**overrides):
         "status": "active",
         "created_at": "2026-10-01T00:00:00",
         "updated_at": "2026-10-01T01:00:00",
-        "messages": [types.SimpleNamespace(role="user", text="hello", timestamp="2026-10-01T00:05:00")],
+        "messages": [
+            types.SimpleNamespace(role="user", text="hello", timestamp="2026-10-01T00:05:00")
+        ],
         "lead_id": "lead-1",
     }
     data.update(overrides)
@@ -541,9 +544,7 @@ class TestGetChatSessions:
         async def fake_recent(hours=24, limit=50):
             return [_fake_session()]
 
-        monkeypatch.setattr(
-            main.chat_history, "get_recent_sessions", fake_recent, raising=False
-        )
+        monkeypatch.setattr(main.chat_history, "get_recent_sessions", fake_recent, raising=False)
 
         result = _run(main.get_chat_sessions(hours=48, limit=5))
 
@@ -558,9 +559,7 @@ class TestGetChatSessions:
         async def boom(hours=24, limit=50):
             raise RuntimeError("sessions store down")
 
-        monkeypatch.setattr(
-            main.chat_history, "get_recent_sessions", boom, raising=False
-        )
+        monkeypatch.setattr(main.chat_history, "get_recent_sessions", boom, raising=False)
 
         result = _run(main.get_chat_sessions())
 
@@ -751,7 +750,11 @@ class TestGetReviewsConfig:
 
         result = _run(main.get_reviews_config())
 
-        assert result == {"success": True, "enabled": True, "review_link": "https://review.example/link"}
+        assert result == {
+            "success": True,
+            "enabled": True,
+            "review_link": "https://review.example/link",
+        }
 
     def test_failure_envelope(self, monkeypatch):
         _client_, main, _db = _client(monkeypatch)

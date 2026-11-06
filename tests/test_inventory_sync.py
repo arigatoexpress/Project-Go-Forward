@@ -257,7 +257,10 @@ class TestBuildCdnUrls:
         sync = InventorySync(dry_run=True)
         urls = sync._build_cdn_urls("2007", "222250")
         assert len(urls) == 21
-        assert urls[0] == "https://d132mt2yijm03y.cloudfront.net/manufacturer/2007/floorplan/222250/1.jpg"
+        assert (
+            urls[0]
+            == "https://d132mt2yijm03y.cloudfront.net/manufacturer/2007/floorplan/222250/1.jpg"
+        )
         assert urls[-1].endswith("/floor-plans.jpg")
 
 

@@ -39,6 +39,7 @@ def kms_off(monkeypatch):
 
 # ─── Inert (no key configured) ───────────────────────────────────────────────
 
+
 def test_inert_encrypt_is_passthrough(kms_off):
     assert field_crypto.encrypt_field("123-45-6789") == "123-45-6789"
 
@@ -53,6 +54,7 @@ def test_inert_ssn_fields_unchanged(kms_off):
 
 
 # ─── Active (key configured, KMS mocked) ─────────────────────────────────────
+
 
 def test_encrypt_adds_prefix_and_changes_value(kms_on):
     out = field_crypto.encrypt_field("123-45-6789")

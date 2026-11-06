@@ -55,6 +55,7 @@ def enabled(monkeypatch):
 
 # --- gating -------------------------------------------------------------------
 
+
 def test_disabled_by_default(monkeypatch):
     monkeypatch.delenv("NOTION_LEAD_SYNC", raising=False)
     monkeypatch.setenv("NOTION_TOKEN", "secret_test")
@@ -66,7 +67,7 @@ def test_enabled_requires_flag_and_token(monkeypatch):
     monkeypatch.delenv("NOTION_TOKEN", raising=False)
     assert nlw.is_lead_sync_enabled() is False  # flag on but no token
     monkeypatch.setenv("NOTION_TOKEN", "secret_test")
-    assert nlw.is_lead_sync_enabled() is True   # config.yaml supplies the db id
+    assert nlw.is_lead_sync_enabled() is True  # config.yaml supplies the db id
 
 
 def test_write_lead_is_noop_when_disabled(monkeypatch):
@@ -78,10 +79,14 @@ def test_write_lead_is_noop_when_disabled(monkeypatch):
 
 # --- schema-exact, PII-safe payload ------------------------------------------
 
+
 def test_payload_targets_exact_live_columns():
     props = nlw.build_lead_properties(
-        "Jane Buyer", email="jane@example.com", phone="555-111-2222",
-        message="Interested in the Oak 28x56", source="contact_form",
+        "Jane Buyer",
+        email="jane@example.com",
+        phone="555-111-2222",
+        message="Interested in the Oak 28x56",
+        source="contact_form",
     )
     assert props["Customer Name"]["title"][0]["text"]["content"] == "Jane Buyer"
     # "Email " has a trailing space in the live schema — must match exactly.
@@ -96,10 +101,10 @@ def test_payload_targets_exact_live_columns():
 def test_payload_avoids_dirty_and_sensitive_columns():
     props = nlw.build_lead_properties("Jane", email="j@x.com", phone="5551112222")
     # The two dirty duplicate phone columns and SSN must NEVER be written.
-    assert "Phone number " not in props      # text duplicate
-    assert "phone number " not in props      # date-typed duplicate
+    assert "Phone number " not in props  # text duplicate
+    assert "phone number " not in props  # date-typed duplicate
     assert "SSN / Tax ID" not in props
-    assert "Email" not in props              # only the trailing-space "Email " exists
+    assert "Email" not in props  # only the trailing-space "Email " exists
 
 
 def test_omits_email_and_phone_when_absent():
@@ -109,6 +114,7 @@ def test_omits_email_and_phone_when_absent():
 
 
 # --- write + fire-and-forget --------------------------------------------------
+
 
 def test_write_lead_posts_to_pages_and_returns_true(enabled, monkeypatch):
     captured = _capture_post(monkeypatch, status=200)

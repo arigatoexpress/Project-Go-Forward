@@ -129,13 +129,9 @@ def test_secure_hub_download_requires_phone(tc, monkeypatch):
     deal = _Doc(True, {"buyer_phone": "512-555-0123"})
     monkeypatch.setattr(main, "get_database", lambda: _FakeDB(deal))
     # Wrong/no phone must be rejected BEFORE any GCS signed-URL work.
+    assert client.get("/api/v1/customer/deal/abc/download/note1").status_code == 403
     assert (
-        client.get("/api/v1/customer/deal/abc/download/note1").status_code == 403
-    )
-    assert (
-        client.get(
-            "/api/v1/customer/deal/abc/download/note1", params={"phone": "9999"}
-        ).status_code
+        client.get("/api/v1/customer/deal/abc/download/note1", params={"phone": "9999"}).status_code
         == 403
     )
 

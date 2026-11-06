@@ -140,7 +140,9 @@ def test_lead_without_a_home_says_general_inquiry(monkeypatch):
 
 def test_build_to_order_plan_shows_plan_number_and_plan_link(monkeypatch):
     client, _, calls = _client(monkeypatch)
-    _post(client, source="inventory_quote", home_id="floorplan-223034", home_model="Skyliner / 4732B")
+    _post(
+        client, source="inventory_quote", home_id="floorplan-223034", home_model="Skyliner / 4732B"
+    )
     first = _staff_email(calls)["text"].splitlines()[0]
     assert first == (
         "Interested in: Skyline Homes Skyliner / 4732B — Plan #223034 (build-to-order) — "

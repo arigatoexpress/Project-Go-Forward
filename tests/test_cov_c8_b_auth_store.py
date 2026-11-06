@@ -299,7 +299,9 @@ def test_memory_delete_preserving_user_minimum_all_branches():
         store.delete_preserving_user_minimum(b"cred-1", user_id="owner@example.com")
     # minimum_remaining=0 permits deleting the final credential.
     assert (
-        store.delete_preserving_user_minimum(b"cred-1", user_id="owner@example.com", minimum_remaining=0)
+        store.delete_preserving_user_minimum(
+            b"cred-1", user_id="owner@example.com", minimum_remaining=0
+        )
         is True
     )
     assert store.count() == 1
@@ -487,9 +489,7 @@ def test_firestore_delete_preserving_user_minimum_all_branches(monkeypatch):
     # Removing the owner's last credential -> MinimumCredentialError.
     store.delete_preserving_user_minimum(owner_second.credential_id, user_id="OWNER@example.com")
     with pytest.raises(MinimumCredentialError, match="owner_recovery_credential_required"):
-        store.delete_preserving_user_minimum(
-            owner_first.credential_id, user_id="owner@example.com"
-        )
+        store.delete_preserving_user_minimum(owner_first.credential_id, user_id="owner@example.com")
     assert store.count() == 2  # nothing was deleted by the failed transaction
     # minimum_remaining=0 permits deleting the final credential.
     assert (
@@ -540,9 +540,7 @@ def test_default_store_memory_backend_when_fallback_allowed(monkeypatch, clear_d
     assert store.backend_name == "memory"
 
 
-def test_default_store_memory_backend_disabled_on_cloud_run(
-    monkeypatch, clear_default_store_cache
-):
+def test_default_store_memory_backend_disabled_on_cloud_run(monkeypatch, clear_default_store_cache):
     monkeypatch.setenv("THO_PASSKEY_STORE", "memory")
     monkeypatch.setenv("K_SERVICE", "tho-api")
     with pytest.raises(CredentialStoreUnavailable, match="memory passkey store is disabled"):
@@ -556,9 +554,7 @@ class _StubFirestoreStore:
         self.project = project
 
 
-def test_default_store_firestore_backend_passes_project(
-    monkeypatch, clear_default_store_cache
-):
+def test_default_store_firestore_backend_passes_project(monkeypatch, clear_default_store_cache):
     monkeypatch.setenv("THO_PASSKEY_STORE", "firestore")
     monkeypatch.delenv("K_SERVICE", raising=False)
     monkeypatch.setattr(auth_store, "FirestoreCredentialStore", _StubFirestoreStore)
