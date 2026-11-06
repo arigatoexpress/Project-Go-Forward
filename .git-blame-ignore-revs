@@ -1,0 +1,6 @@
+# Commits git blame should skip (mechanical, no semantic change).
+# GitHub's blame view honors this file automatically; for local blame run:
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+
+# PR #485 — repo-wide ruff-format normalization (101 files, format-only)
+82bbd5c315a9bcf320d441e32555900e8c67aa0f

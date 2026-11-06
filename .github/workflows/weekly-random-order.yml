@@ -1,0 +1,40 @@
+name: Weekly randomized-order probe
+
+# The backend suite runs in fixed collection order in PR CI. PR #487 proved
+# that order is not load-bearing anymore (per-test isolation of
+# process-global rate-limit/cache state in tests/conftest.py); this weekly
+# lane keeps it that way by running the full suite in a shuffled order.
+# The seed derives from year+week so it rotates weekly and is reproducible
+# from the run date: pytest tests/ -x --tb=short --randomly-seed=<seed>.
+
+on:
+  schedule:
+    - cron: '17 9 * * 1'  # Mondays 09:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  random-order:
+    name: Full suite, shuffled order (seeded)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt -r requirements-dev.txt pytest-randomly==3.16.0
+      - name: Install poppler-utils (pdftotext for document render QA)
+        run: sudo apt-get update && sudo apt-get install -y poppler-utils
+      - name: Run full suite in shuffled order
+        env:
+          PYTHONPATH: .
+          ADMIN_PIN_HASH: 2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae
+        run: |
+          SEED=$(date -u +%Y%U)
+          echo "randomly-seed for this run: $SEED (reproduce: python -m pytest tests/ -x --tb=short --randomly-seed=$SEED)"
+          python -m pytest tests/ -x --tb=short --randomly-seed="$SEED"
