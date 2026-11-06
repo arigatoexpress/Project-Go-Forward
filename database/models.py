@@ -1374,17 +1374,17 @@ class Task(BaseModel):
             {
                 "from": self.state,
                 "to": new_state,
-                "at": datetime.utcnow().isoformat(),
+                "at": datetime.now(UTC).replace(tzinfo=None).isoformat(),
                 "by": changed_by or "system",
             }
         )
         self.state = new_state
-        self.updated_at = datetime.utcnow()
+        self.updated_at = datetime.now(UTC).replace(tzinfo=None)
 
         if new_state == WorkflowState.IN_PROGRESS and not self.started_at:
-            self.started_at = datetime.utcnow()
+            self.started_at = datetime.now(UTC).replace(tzinfo=None)
         if new_state == WorkflowState.DONE and not self.completed_at:
-            self.completed_at = datetime.utcnow()
+            self.completed_at = datetime.now(UTC).replace(tzinfo=None)
 
 
 class Cycle(BaseModel):
@@ -1417,7 +1417,7 @@ class Cycle(BaseModel):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
     def is_active(self) -> bool:
-        now = datetime.utcnow()
+        now = datetime.now(UTC).replace(tzinfo=None)
         return self.start_date <= now <= self.end_date and self.status == "active"
 
 

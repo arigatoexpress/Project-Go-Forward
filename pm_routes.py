@@ -4,7 +4,7 @@ Manages tasks, projects, and cycles across all repos
 """
 
 import uuid
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, HTTPException, Query
 
@@ -38,7 +38,7 @@ views_db = {}
 async def create_project(project: Project):
     """Create a new project (software repo, business initiative, etc.)"""
     project.id = str(uuid.uuid4())
-    project.created_at = datetime.utcnow()
+    project.created_at = datetime.now(UTC).replace(tzinfo=None)
     projects_db[project.id] = project
 
     # Log activity
@@ -83,7 +83,7 @@ async def update_project(project_id: str, updates: dict):
         if hasattr(project, key):
             setattr(project, key, value)
 
-    project.updated_at = datetime.utcnow()
+    project.updated_at = datetime.now(UTC).replace(tzinfo=None)
     projects_db[project_id] = project
     return project
 
@@ -97,14 +97,14 @@ async def update_project(project_id: str, updates: dict):
 async def create_task(task: Task):
     """Create a new task"""
     task.id = str(uuid.uuid4())
-    task.created_at = datetime.utcnow()
+    task.created_at = datetime.now(UTC).replace(tzinfo=None)
     tasks_db[task.id] = task
 
     # Update project stats
     if task.project_id in projects_db:
         project = projects_db[task.project_id]
         project.total_tasks += 1
-        project.updated_at = datetime.utcnow()
+        project.updated_at = datetime.now(UTC).replace(tzinfo=None)
 
     # Log activity
     _log_activity(
@@ -170,7 +170,7 @@ async def update_task(task_id: str, updates: dict, actor: str | None = None):
         elif hasattr(task, key):
             setattr(task, key, value)
 
-    task.updated_at = datetime.utcnow()
+    task.updated_at = datetime.now(UTC).replace(tzinfo=None)
     tasks_db[task_id] = task
 
     # Log state change if applicable
@@ -336,7 +336,8 @@ async def get_dashboard():
                 [
                     t
                     for t in tasks_db.values()
-                    if t.completed_at and t.completed_at > datetime.utcnow() - timedelta(days=7)
+                    if t.completed_at
+                    and t.completed_at > datetime.now(UTC).replace(tzinfo=None) - timedelta(days=7)
                 ]
             ),
         },

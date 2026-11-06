@@ -2105,8 +2105,7 @@ async def run_agent(request: Request, response: Response):
         except TimeoutError:
             struct_logger.warning("Agent run timed out", request_id=request_id)
             final_text = (
-                "I apologize, but the request timed out. "
-                "Please try again with a shorter message."
+                "I apologize, but the request timed out. Please try again with a shorter message."
             )
 
         # Save to chat history (full conversation persistence)
@@ -8919,7 +8918,7 @@ async def submit_feedback(request: Request):
         return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", ""))[:200]
 
     feedback = {
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(UTC).replace(tzinfo=None).isoformat(),
         "description": sanitize(description, max_len=2000),
         "page": sanitize(data.get("page") or "", max_len=100),
         "url": sanitize_url(data.get("url") or ""),
@@ -9035,8 +9034,7 @@ async def share_document(
         return JSONResponse(
             {
                 "error": (
-                    f"ttl_hours must be an integer between 1 and "
-                    f"{_DOCUMENTS_SHARE_MAX_TTL_HOURS}."
+                    f"ttl_hours must be an integer between 1 and {_DOCUMENTS_SHARE_MAX_TTL_HOURS}."
                 )
             },
             status_code=400,
