@@ -519,9 +519,7 @@ def main() -> int:
     bq.load_table_from_json(
         event_rows,
         event_table_id,
-        job_config=bigquery.LoadJobConfig(
-            schema=EVENT_SCHEMA, write_disposition="WRITE_TRUNCATE"
-        ),
+        job_config=bigquery.LoadJobConfig(schema=EVENT_SCHEMA, write_disposition="WRITE_TRUNCATE"),
     ).result()
     print(f"loaded {len(event_rows)} rows -> {event_table_id} (WRITE_TRUNCATE)")
 
