@@ -11,7 +11,7 @@ Provides full conversation persistence with:
 import asyncio
 import logging
 from dataclasses import asdict, dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from google.cloud import firestore
@@ -32,9 +32,9 @@ class ChatMessage:
 
     def __post_init__(self):
         if self.message_id is None:
-            self.message_id = f"msg_{datetime.utcnow().timestamp()}"
+            self.message_id = f"msg_{datetime.now(UTC).replace(tzinfo=None).timestamp()}"
         if self.timestamp is None:
-            self.timestamp = datetime.utcnow().isoformat()
+            self.timestamp = datetime.now(UTC).replace(tzinfo=None).isoformat()
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -59,9 +59,9 @@ class ChatSession:
 
     def __post_init__(self):
         if self.created_at is None:
-            self.created_at = datetime.utcnow().isoformat()
+            self.created_at = datetime.now(UTC).replace(tzinfo=None).isoformat()
         if self.updated_at is None:
-            self.updated_at = datetime.utcnow().isoformat()
+            self.updated_at = datetime.now(UTC).replace(tzinfo=None).isoformat()
         if self.messages is None:
             self.messages = []
         if self.metadata is None:
@@ -71,9 +71,11 @@ class ChatSession:
 
     def add_message(self, role: str, text: str) -> ChatMessage:
         """Add a new message to the session"""
-        message = ChatMessage(role=role, text=text, timestamp=datetime.utcnow().isoformat())
+        message = ChatMessage(
+            role=role, text=text, timestamp=datetime.now(UTC).replace(tzinfo=None).isoformat()
+        )
         self.messages.append(message)
-        self.updated_at = datetime.utcnow().isoformat()
+        self.updated_at = datetime.now(UTC).replace(tzinfo=None).isoformat()
         return message
 
     def to_dict(self) -> dict:
@@ -143,8 +145,8 @@ class ChatHistory:
                 session_id=session_id,
                 user_id=user_id,
                 messages=[],
-                created_at=datetime.utcnow().isoformat(),
-                updated_at=datetime.utcnow().isoformat(),
+                created_at=datetime.now(UTC).replace(tzinfo=None).isoformat(),
+                updated_at=datetime.now(UTC).replace(tzinfo=None).isoformat(),
                 metadata=metadata or {},
                 status="active",
             )
@@ -200,13 +202,16 @@ class ChatHistory:
         query = query.order_by("updated_at", direction=firestore.Query.DESCENDING).limit(limit)
 
         def _stream():
-            return [ChatSession.from_dict(d.to_dict()) for d in query.stream(timeout=FIRESTORE_RPC_TIMEOUT)]
+            return [
+                ChatSession.from_dict(d.to_dict())
+                for d in query.stream(timeout=FIRESTORE_RPC_TIMEOUT)
+            ]
 
         return await asyncio.to_thread(_stream)
 
     async def get_recent_sessions(self, hours: int = 24, limit: int = 100) -> list[ChatSession]:
         """Get recent chat sessions (for admin review)"""
-        since = datetime.utcnow() - timedelta(hours=hours)
+        since = datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=hours)
 
         query = (
             self.db.collection(self.collection_name)
@@ -216,14 +221,20 @@ class ChatHistory:
         )
 
         def _stream():
-            return [ChatSession.from_dict(d.to_dict()) for d in query.stream(timeout=FIRESTORE_RPC_TIMEOUT)]
+            return [
+                ChatSession.from_dict(d.to_dict())
+                for d in query.stream(timeout=FIRESTORE_RPC_TIMEOUT)
+            ]
 
         return await asyncio.to_thread(_stream)
 
     async def update_session_status(self, session_id: str, status: str, lead_id: str = None):
         """Update session status (e.g., when converted to lead)"""
         doc_ref = self.db.collection(self.collection_name).document(session_id)
-        updates = {"status": status, "updated_at": datetime.utcnow().isoformat()}
+        updates = {
+            "status": status,
+            "updated_at": datetime.now(UTC).replace(tzinfo=None).isoformat(),
+        }
         if lead_id:
             updates["lead_id"] = lead_id
 
@@ -259,7 +270,11 @@ class ChatHistory:
 
         def _search():
             sessions = []
-            docs = self.db.collection(self.collection_name).limit(100).stream(timeout=FIRESTORE_RPC_TIMEOUT)
+            docs = (
+                self.db.collection(self.collection_name)
+                .limit(100)
+                .stream(timeout=FIRESTORE_RPC_TIMEOUT)
+            )
 
             for doc in docs:
                 data = doc.to_dict()

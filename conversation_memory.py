@@ -6,7 +6,7 @@ Tracks user preferences and conversation context within a session
 import asyncio
 import logging
 from dataclasses import asdict, dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 
 from google.cloud import firestore
 
@@ -77,8 +77,8 @@ class ConversationContext:
         if self.homes_discussed is None:
             self.homes_discussed = []
         if self.created_at is None:
-            self.created_at = datetime.utcnow().isoformat()
-        self.updated_at = datetime.utcnow().isoformat()
+            self.created_at = datetime.now(UTC).replace(tzinfo=None).isoformat()
+        self.updated_at = datetime.now(UTC).replace(tzinfo=None).isoformat()
 
     def update_from_message(self, message: str, search_results: list[dict] | None = None):
         """Update context based on user message and any search results"""
@@ -150,7 +150,7 @@ class ConversationContext:
                 if model and model not in self.homes_discussed:
                     self.homes_discussed.append(model)
 
-        self.updated_at = datetime.utcnow().isoformat()
+        self.updated_at = datetime.now(UTC).replace(tzinfo=None).isoformat()
 
     def _number_word_to_int(self, text: str) -> int | None:
         """Convert number words to integers"""

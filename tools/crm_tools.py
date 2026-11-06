@@ -10,7 +10,7 @@ import logging
 import os
 import re
 import uuid
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from google.adk.tools import ToolContext
@@ -70,7 +70,7 @@ def save_lead(
         }
 
     # 2. Structure the lead data
-    timestamp = datetime.utcnow().isoformat()
+    timestamp = datetime.now(UTC).replace(tzinfo=None).isoformat()
     lead_data = {
         "event_type": "LEAD_CAPTURE",
         "timestamp": timestamp,

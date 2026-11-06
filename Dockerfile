@@ -1,5 +1,5 @@
 # ── Stage 1: Build Python dependencies ──
-FROM python:3.11-slim AS python-builder
+FROM python:3.12-slim AS python-builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
@@ -30,7 +30,7 @@ COPY frontend/ ./
 RUN npm run build
 
 # ── Stage 3: Production image ──
-FROM python:3.11-slim
+FROM python:3.12-slim
 
 # Install runtime dependencies for moviepy/opencv
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -48,7 +48,7 @@ WORKDIR /app
 # Copy installed Python packages from builder
 COPY --from=python-builder /root/.local /home/appuser/.local
 ENV PATH=/home/appuser/.local/bin:$PATH
-ENV PYTHONPATH=/home/appuser/.local/lib/python3.11/site-packages
+ENV PYTHONPATH=/home/appuser/.local/lib/python3.12/site-packages
 
 # Copy application code
 COPY . .
