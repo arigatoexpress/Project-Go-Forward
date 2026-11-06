@@ -32,6 +32,11 @@ class FixedDatetime(datetime):
     def utcnow(cls):
         return cls(2026, 6, 13, 12, 0, 0)
 
+    @classmethod
+    def now(cls, tz=None):
+        base = cls(2026, 6, 13, 12, 0, 0)
+        return base.replace(tzinfo=tz) if tz is not None else base
+
 
 # ─── Firestore stand-in ────────────────────────────────────────────────────
 
@@ -91,10 +96,12 @@ FakeFirestoreModule = types.SimpleNamespace(
 
 @pytest.fixture(autouse=True)
 def fixed_time(monkeypatch):
-    """Freeze utcnow() so every timestamp is deterministic."""
+    """Freeze utcnow()/now() so every timestamp is deterministic."""
     import chat_history
+
     monkeypatch.setattr(chat_history, "datetime", FixedDatetime)
     import conversation_memory
+
     monkeypatch.setattr(conversation_memory, "datetime", FixedDatetime)
 
 
@@ -102,6 +109,7 @@ def fixed_time(monkeypatch):
 def fake_memory_db(monkeypatch):
     """Swap conversation_memory's Firestore client for an in-memory fake."""
     import conversation_memory
+
     fake = FakeFirestore()
 
     class FakeClient:
@@ -161,13 +169,10 @@ def test_user_preferences_to_prompt_context():
     """to_prompt_context builds a human-readable summary."""
     from conversation_memory import UserPreferences
 
-    pref = UserPreferences(
-        bedrooms=3, bathrooms=2, max_budget=120000, home_type="Double Wide"
-    )
+    pref = UserPreferences(bedrooms=3, bathrooms=2, max_budget=120000, home_type="Double Wide")
     ctx = pref.to_prompt_context()
     assert ctx == (
-        "User is looking for: 3 bedrooms, 2 bathrooms, "
-        "budget up to $120,000, Double Wide homes"
+        "User is looking for: 3 bedrooms, 2 bathrooms, " "budget up to $120,000, Double Wide homes"
     )
 
 
@@ -238,9 +243,7 @@ def test_update_from_message_extracts_bedrooms():
     """update_from_message extracts bedroom count from text."""
     from conversation_memory import ConversationContext, UserPreferences
 
-    ctx = ConversationContext(
-        session_id="s1", user_id="u1", preferences=UserPreferences()
-    )
+    ctx = ConversationContext(session_id="s1", user_id="u1", preferences=UserPreferences())
     ctx.update_from_message("I'm looking for a 3 bedroom home")
     assert ctx.preferences.bedrooms == 3
 
@@ -249,9 +252,7 @@ def test_update_from_message_extracts_bedrooms_word():
     """update_from_message extracts bedroom count from number words."""
     from conversation_memory import ConversationContext, UserPreferences
 
-    ctx = ConversationContext(
-        session_id="s1", user_id="u1", preferences=UserPreferences()
-    )
+    ctx = ConversationContext(session_id="s1", user_id="u1", preferences=UserPreferences())
     ctx.update_from_message("I need a four bedroom house")
     assert ctx.preferences.bedrooms == 4
 
@@ -260,9 +261,7 @@ def test_update_from_message_extracts_bathrooms():
     """update_from_message extracts bathroom count from text."""
     from conversation_memory import ConversationContext, UserPreferences
 
-    ctx = ConversationContext(
-        session_id="s1", user_id="u1", preferences=UserPreferences()
-    )
+    ctx = ConversationContext(session_id="s1", user_id="u1", preferences=UserPreferences())
     ctx.update_from_message("Must have 2 bathrooms")
     assert ctx.preferences.bathrooms == 2
 
@@ -271,9 +270,7 @@ def test_update_from_message_extracts_budget():
     """update_from_message extracts budget from dollar amounts."""
     from conversation_memory import ConversationContext, UserPreferences
 
-    ctx = ConversationContext(
-        session_id="s1", user_id="u1", preferences=UserPreferences()
-    )
+    ctx = ConversationContext(session_id="s1", user_id="u1", preferences=UserPreferences())
     ctx.update_from_message("My budget is under $80k")
     assert ctx.preferences.max_budget == 80000.0
 
@@ -282,9 +279,7 @@ def test_update_from_message_extracts_min_budget():
     """update_from_message extracts min budget when 'over' is used."""
     from conversation_memory import ConversationContext, UserPreferences
 
-    ctx = ConversationContext(
-        session_id="s1", user_id="u1", preferences=UserPreferences()
-    )
+    ctx = ConversationContext(session_id="s1", user_id="u1", preferences=UserPreferences())
     ctx.update_from_message("I need something over $60k")
     assert ctx.preferences.min_budget == 60000.0
 
@@ -293,9 +288,7 @@ def test_update_from_message_extracts_home_type_single_wide():
     """update_from_message extracts 'Single Wide' from text."""
     from conversation_memory import ConversationContext, UserPreferences
 
-    ctx = ConversationContext(
-        session_id="s1", user_id="u1", preferences=UserPreferences()
-    )
+    ctx = ConversationContext(session_id="s1", user_id="u1", preferences=UserPreferences())
     ctx.update_from_message("Do you have any single wide homes?")
     assert ctx.preferences.home_type == "Single Wide"
 
@@ -304,9 +297,7 @@ def test_update_from_message_extracts_home_type_double_wide():
     """update_from_message extracts 'Double Wide' from text."""
     from conversation_memory import ConversationContext, UserPreferences
 
-    ctx = ConversationContext(
-        session_id="s1", user_id="u1", preferences=UserPreferences()
-    )
+    ctx = ConversationContext(session_id="s1", user_id="u1", preferences=UserPreferences())
     ctx.update_from_message("Show me double wide options")
     assert ctx.preferences.home_type == "Double Wide"
 
@@ -315,9 +306,7 @@ def test_update_from_message_extracts_home_type_modular():
     """update_from_message extracts 'Modular' from text."""
     from conversation_memory import ConversationContext, UserPreferences
 
-    ctx = ConversationContext(
-        session_id="s1", user_id="u1", preferences=UserPreferences()
-    )
+    ctx = ConversationContext(session_id="s1", user_id="u1", preferences=UserPreferences())
     ctx.update_from_message("I prefer modular homes")
     assert ctx.preferences.home_type == "Modular"
 
@@ -326,9 +315,7 @@ def test_update_from_message_extracts_appointment_intent():
     """update_from_message sets appointment_intent when scheduling words appear."""
     from conversation_memory import ConversationContext, UserPreferences
 
-    ctx = ConversationContext(
-        session_id="s1", user_id="u1", preferences=UserPreferences()
-    )
+    ctx = ConversationContext(session_id="s1", user_id="u1", preferences=UserPreferences())
     ctx.update_from_message("Can I schedule a tour?")
     assert ctx.appointment_intent is True
 
@@ -337,9 +324,7 @@ def test_update_from_message_extracts_financing():
     """update_from_message increments financing_questions for finance words."""
     from conversation_memory import ConversationContext, UserPreferences
 
-    ctx = ConversationContext(
-        session_id="s1", user_id="u1", preferences=UserPreferences()
-    )
+    ctx = ConversationContext(session_id="s1", user_id="u1", preferences=UserPreferences())
     ctx.update_from_message("What are the monthly payments?")
     assert ctx.financing_questions == 1
     ctx.update_from_message("What is the interest rate?")
@@ -350,9 +335,7 @@ def test_update_from_message_tracks_search_results():
     """update_from_message adds home models from search_results."""
     from conversation_memory import ConversationContext, UserPreferences
 
-    ctx = ConversationContext(
-        session_id="s1", user_id="u1", preferences=UserPreferences()
-    )
+    ctx = ConversationContext(session_id="s1", user_id="u1", preferences=UserPreferences())
     ctx.update_from_message(
         "I like this one",
         search_results=[{"model": "Home A"}, {"model": "Home B"}, {"model": "Home C"}],
@@ -364,9 +347,7 @@ def test_update_from_message_dedupes_search_results():
     """Duplicate models are not added twice."""
     from conversation_memory import ConversationContext, UserPreferences
 
-    ctx = ConversationContext(
-        session_id="s1", user_id="u1", preferences=UserPreferences()
-    )
+    ctx = ConversationContext(session_id="s1", user_id="u1", preferences=UserPreferences())
     ctx.update_from_message("I like this one", search_results=[{"model": "Home A"}])
     ctx.update_from_message("I still like it", search_results=[{"model": "Home A"}])
     assert ctx.homes_discussed == ["Home A"]
@@ -376,9 +357,7 @@ def test_update_from_message_limits_search_results():
     """Only top 3 search results are tracked."""
     from conversation_memory import ConversationContext, UserPreferences
 
-    ctx = ConversationContext(
-        session_id="s1", user_id="u1", preferences=UserPreferences()
-    )
+    ctx = ConversationContext(session_id="s1", user_id="u1", preferences=UserPreferences())
     ctx.update_from_message(
         "I like these",
         search_results=[
@@ -395,9 +374,7 @@ def test_update_from_message_no_match():
     """Messages without keywords do not mutate preferences."""
     from conversation_memory import ConversationContext, UserPreferences
 
-    ctx = ConversationContext(
-        session_id="s1", user_id="u1", preferences=UserPreferences()
-    )
+    ctx = ConversationContext(session_id="s1", user_id="u1", preferences=UserPreferences())
     ctx.update_from_message("Hello")
     assert ctx.preferences.bedrooms is None
     assert ctx.preferences.bathrooms is None

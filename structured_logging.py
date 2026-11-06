@@ -6,7 +6,7 @@ Provides JSON-formatted logging with request context
 import json
 import logging
 import sys
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 
@@ -28,7 +28,7 @@ class StructuredLogger:
     def _log(self, level: str, message: str, **kwargs):
         """Internal log method with structured data"""
         log_data = {
-            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "timestamp": datetime.now(UTC).replace(tzinfo=None).isoformat() + "Z",
             "severity": level.upper(),
             "message": message,
             **kwargs,
