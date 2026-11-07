@@ -155,13 +155,13 @@ def listing_page_images(home: dict | None) -> list[str]:
     if own_photos:
         return own_photos
     for key in ("floorplan_url", "floor_plan_url"):
-        plan = str(home.get(key) or "").strip()
+        plan = rewrite_media_url(str(home.get(key) or "").strip())
         if plan:
             return [plan]
     plans = home.get("floorplan_urls")
     if isinstance(plans, list):
         for plan in plans:
-            value = str(plan or "").strip()
+            value = rewrite_media_url(str(plan or "").strip())
             if value:
                 return [value]
     return []

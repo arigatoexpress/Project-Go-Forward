@@ -110,6 +110,26 @@ def test_listing_page_images_rewrites_dead_rosewood_jpg():
     assert listing_page_images(home) == ["/api/inventory/photos/41976/lot.jpg", live]
 
 
+def test_listing_page_images_skips_unreachable_cdn_objects():
+    dead = "https://d132mt2yijm03y.cloudfront.net/manufacturer/3335/floorplan/227079/1.jpg"
+    live = "https://d132mt2yijm03y.cloudfront.net/manufacturer/3335/floorplan/227079/10.jpg"
+    floorplan = (
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/3335/floorplan/227079/"
+        "Whitehaven%20floor-plans.jpg"
+    )
+    home = {
+        "id": "the-whitehaven",
+        "model_name": "The Whitehaven",
+        "status": "Available",
+        "inventory_kind": "available_now",
+        "image_url": dead,
+        "real_photos": [dead, live],
+        "floorplan_url": floorplan,
+    }
+    assert listing_page_images(home) == [live]
+    assert listing_page_images({"floorplan_url": floorplan, "floorplan_urls": [floorplan]}) == []
+
+
 def test_match_instock_home_accepts_stock_id_prefix():
     home = {
         "id": "44490",

@@ -60,6 +60,7 @@ from tools.listing_urls import (
     parse_home_path,
     stock_id,
 )
+from tools.photo_classifier import rewrite_media_url
 
 router = APIRouter()
 
@@ -563,13 +564,21 @@ def _first_image(home: dict) -> str | None:
     if is_preowned(home):
         images = listing_page_images(home)
         return images[0] if images else None
+    candidates: list[str] = []
     for key in ("hero_image", "image_url"):
         if home.get(key):
-            return str(home[key])
+            candidates.append(str(home[key]))
     photos = home.get("real_photos") or home.get("photos") or home.get("gallery_images")
-    if photos:
-        first = photos[0]
-        return str(first.get("url") if isinstance(first, dict) else first)
+    if isinstance(photos, list):
+        for item in photos:
+            if isinstance(item, dict):
+                candidates.append(str(item.get("url") or ""))
+            else:
+                candidates.append(str(item or ""))
+    for raw in candidates:
+        rewritten = rewrite_media_url(raw)
+        if rewritten:
+            return rewritten
     return None
 
 

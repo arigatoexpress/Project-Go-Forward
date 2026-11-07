@@ -133,14 +133,30 @@ describe('listingRoutes', () => {
     })).toEqual([live, png]);
   });
 
-  it('does not invent a sibling for a manufacturer photo that still returns 403', () => {
+  it('omits a manufacturer object that returns 403 and has no extension sibling', () => {
     const dead = 'https://d132mt2yijm03y.cloudfront.net/manufacturer/2025/floorplan/226545/Absolute%20Value-1.jpg';
-    expect(rewriteMediaUrl(dead)).toBe(dead);
+    const live = 'https://d132mt2yijm03y.cloudfront.net/manufacturer/3335/floorplan/227079/10.jpg';
+    expect(rewriteMediaUrl(dead)).toBe('');
     expect(rewriteMediaUrl(
       'https://d132mt2yijm03y.cloudfront.net/manufacturer/2007/floorplan/236876/TRT14602DH_Dogwood_Exterior%20%281%29.jpg',
-    )).toBe(
-      'https://d132mt2yijm03y.cloudfront.net/manufacturer/2007/floorplan/236876/TRT14602DH_Dogwood_Exterior%20%281%29.jpg',
-    );
+    )).toBe('');
+    expect(listingPagePhotos({
+      id: 'the-whitehaven',
+      status: 'Available',
+      inventory_kind: 'available_now',
+      image_url: 'https://d132mt2yijm03y.cloudfront.net/manufacturer/3335/floorplan/227079/1.jpg',
+      real_photos: [
+        'https://d132mt2yijm03y.cloudfront.net/manufacturer/3335/floorplan/227079/1.jpg',
+        live,
+      ],
+    })).toEqual([live]);
+    expect(listingFloorplanImages({
+      floorplan_url: 'https://d132mt2yijm03y.cloudfront.net/manufacturer/3335/floorplan/227079/Whitehaven%20floor-plans.jpg',
+      floorplan_urls: [
+        'https://d132mt2yijm03y.cloudfront.net/manufacturer/3335/floorplan/227079/Whitehaven%20floor-plans.jpg',
+        'https://cdn.example/plan.png',
+      ],
+    })).toEqual(['https://cdn.example/plan.png']);
   });
 
   it('repairs a confirmed extension sibling and leaves a live jpg alone', () => {
@@ -150,7 +166,7 @@ describe('listingRoutes', () => {
     const noSibling = 'https://d132mt2yijm03y.cloudfront.net/manufacturer/3335/floorplan/232175/1.jpg';
     expect(rewriteMediaUrl(dead)).toBe(live);
     expect(rewriteMediaUrl(alreadyLive)).toBe(alreadyLive);
-    expect(rewriteMediaUrl(noSibling)).toBe(noSibling);
+    expect(rewriteMediaUrl(noSibling)).toBe('');
     expect(rewriteMediaUrl(
       'https://d132mt2yijm03y.cloudfront.net/manufacturer/3373/floorplan/236155/Toledo%20Living%20Room%20%287%29rfw.jpg',
     )).toBe(

@@ -705,6 +705,10 @@ def test_seo_first_image_preowned_and_photo_dict_branches(monkeypatch):
     home = {"real_photos": ["https://img.example.com/plain-photo.jpg"]}
     assert seo_routes._first_image(home) == "https://img.example.com/plain-photo.jpg"
 
+    dead = "https://d132mt2yijm03y.cloudfront.net/manufacturer/3335/floorplan/227079/1.jpg"
+    live = "https://d132mt2yijm03y.cloudfront.net/manufacturer/3335/floorplan/227079/10.jpg"
+    assert seo_routes._first_image({"hero_image": dead, "real_photos": [dead, live]}) == live
+
 
 def test_seo_inventory_hero_image_falls_back_to_orderable(monkeypatch):
     import seo_routes

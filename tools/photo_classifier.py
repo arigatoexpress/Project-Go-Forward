@@ -307,6 +307,13 @@ _MANUFACTURER_CDN_HOST = "d132mt2yijm03y.cloudfront.net"
 _CDN_REPAIRS_PATH = (
     Path(__file__).resolve().parent.parent / "data" / "manufacturer_cdn_extension_repairs.json"
 )
+# Object keys that returned S3 AccessDenied on the public inventory feed
+# (2026-11-07) and have no same-stem extension sibling. Same-folder photos
+# that still return HTTP 200 stay in the feed. These keys are omitted so a
+# browser never requests them.
+_CDN_UNREACHABLE_PATH = (
+    Path(__file__).resolve().parent.parent / "data" / "manufacturer_cdn_unreachable.json"
+)
 
 
 def _load_cdn_extension_repairs() -> dict[str, str]:
@@ -316,7 +323,15 @@ def _load_cdn_extension_repairs() -> dict[str, str]:
     return {str(key): str(value) for key, value in raw.items() if key and value}
 
 
+def _load_unreachable_cdn_keys() -> frozenset[str]:
+    raw = json.loads(_CDN_UNREACHABLE_PATH.read_text(encoding="utf-8"))
+    if not isinstance(raw, list):
+        return frozenset()
+    return frozenset(str(key) for key in raw if key)
+
+
 _WORKING_CDN_FILENAMES = _load_cdn_extension_repairs()
+_UNREACHABLE_CDN_KEYS = _load_unreachable_cdn_keys()
 
 
 def _manufacturer_object_key(url: str) -> str:
@@ -331,13 +346,17 @@ def rewrite_media_url(url: str | None) -> str:
 
     Rewrites only object keys whose same-stem extension sibling was
     confirmed live (HTTP 200) while the stored key returns HTTP 403.
-    Every other URL, including lowercase ``.jpg`` files that already
-    load, is returned unchanged.
+    Keys confirmed AccessDenied with no such sibling are returned as
+    ``""`` so callers drop them and keep any other live photo already
+    on the listing. Every other URL, including lowercase ``.jpg`` files
+    that already load, is returned unchanged.
     """
     if not url or not isinstance(url, str):
         return ""
     value = url.strip()
     key = _manufacturer_object_key(value)
+    if key and key in _UNREACHABLE_CDN_KEYS:
+        return ""
     filename = _WORKING_CDN_FILENAMES.get(key)
     if not key or not filename:
         return value
