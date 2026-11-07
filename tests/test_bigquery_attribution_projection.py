@@ -96,6 +96,36 @@ def test_conversion_views_use_distinct_journeys_and_safe_rates():
     assert "lead_captured" in campaign_sql and "appointment_booked" in campaign_sql
 
 
+def test_chat_events_project_without_message_text():
+    projected = project_event(
+        {
+            "event": "chat_message_sent",
+            "schema_version": 2,
+            "journey_id": JOURNEY_ID,
+            "created_at": "2026-11-07T18:00:00+00:00",
+            "props": {
+                "source": "typed",
+                "placement": "mobile_prompt",
+                "page_path": "/",
+                "message": "buyer@example.com please call 2813243020",
+                "message_length": "42",
+            },
+        }
+    )
+    assert projected["event"] == "chat_message_sent"
+    assert projected["source"] == "typed"
+    assert projected["placement"] == "mobile_prompt"
+    assert projected["page_path"] == "/"
+    assert projected["journey_key"]
+    blob = json.dumps(projected)
+    assert "buyer@example.com" not in blob
+    assert "2813243020" not in blob
+    assert "journey_id" not in projected
+    assert (
+        project_event({"event": "chat_prompt_shown", "props": {}})["event"] == "chat_prompt_shown"
+    )
+
+
 def test_lead_response_projection_is_measurable_and_pii_free():
     projected = project_lead(
         {

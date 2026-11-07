@@ -1737,8 +1737,73 @@ _ANALYTICS_ALLOWED_PROPS = {
     | _UTM_EVENT_PROPS
     | _CLICK_EVENT_PROPS,
     "review_redirect": {"src"},
+    "chat_prompt_shown": {
+        "page_path",
+        "path",
+        "placement",
+        "source",
+        "viewport",
+        "kind",
+        "message_length",
+    },
+    "chat_prompt_dismissed": {
+        "page_path",
+        "path",
+        "placement",
+        "source",
+        "viewport",
+        "kind",
+        "message_length",
+    },
+    "chat_opened": {
+        "page_path",
+        "path",
+        "placement",
+        "source",
+        "viewport",
+        "kind",
+        "message_length",
+    },
+    "chat_started": {
+        "page_path",
+        "path",
+        "placement",
+        "source",
+        "viewport",
+        "kind",
+        "message_length",
+    },
+    "chat_message_sent": {
+        "page_path",
+        "path",
+        "placement",
+        "source",
+        "viewport",
+        "kind",
+        "message_length",
+    },
+    "chat_closed": {
+        "page_path",
+        "path",
+        "placement",
+        "source",
+        "viewport",
+        "kind",
+        "message_length",
+    },
 }
 _SERVER_ONLY_ANALYTICS_EVENTS = {"lead_captured", "appointment_booked"}
+_CHAT_ANALYTICS_EVENTS = {
+    "chat_prompt_shown": "storefront.chat.prompt_shown",
+    "chat_prompt_dismissed": "storefront.chat.prompt_dismissed",
+    "chat_opened": "storefront.chat.opened",
+    "chat_started": "storefront.chat.started",
+    "chat_message_sent": "storefront.chat.message_sent",
+    "chat_closed": "storefront.chat.closed",
+}
+_CHAT_TOKEN_RE = re.compile(r"^[a-z0-9_]{1,40}$")
+_CHAT_PATH_RE = re.compile(r"^/[\w./-]*$")
+_CHAT_TOKEN_PROPS = {"placement", "source", "viewport", "kind"}
 
 
 def _normalize_journey_id(value) -> str | None:
@@ -1767,6 +1832,66 @@ def _backfill_lead_attribution(lead, data: dict) -> None:
             setattr(lead, field, value)
 
 
+def _sanitize_analytics_props(event: str, props: dict | None) -> dict:
+    """Keep allowlisted analytics fields. Chat events also reject free text.
+
+    Message bodies, emails, and phone numbers are not allowlisted. A chat
+    ``message_length`` must be a small integer so a body cannot ride along
+    in that field. Token fields are dotted-verb metadata, not customer text.
+    """
+    allowed = _ANALYTICS_ALLOWED_PROPS[event]
+    clean: dict[str, str] = {}
+    for key, value in (props or {}).items():
+        if key not in allowed or value is None:
+            continue
+        if event in _CHAT_ANALYTICS_EVENTS:
+            if key == "message_length":
+                if isinstance(value, bool):
+                    continue
+                raw = str(value).strip()
+                if not raw.isdigit():
+                    continue
+                number = int(raw)
+                if number > 8000:
+                    continue
+                clean[key] = str(number)
+                continue
+            text = str(value).strip()
+            if key in {"page_path", "path"}:
+                if _CHAT_PATH_RE.fullmatch(text):
+                    clean[key] = text[:200]
+                continue
+            if key in _CHAT_TOKEN_PROPS and _CHAT_TOKEN_RE.fullmatch(text):
+                clean[key] = text
+            continue
+        text = str(value).strip()
+        if text:
+            clean[str(key)] = text[:200]
+    return clean
+
+
+def _log_storefront_chat_event(event: str, props: dict, journey_id: str | None) -> None:
+    """Cloud Logging line for a customer chat event. No message body."""
+    dotted = _CHAT_ANALYTICS_EVENTS.get(event)
+    if not dotted:
+        return
+    fields = dict(props)
+    if "message_length" in fields:
+        fields["message_length"] = int(fields["message_length"])
+    if journey_id:
+        fields["journey_id"] = journey_id
+    try:
+        struct_logger.info(
+            "storefront chat event",
+            event=dotted,
+            lane="pgf",
+            service="pgf",
+            **fields,
+        )
+    except Exception:
+        return
+
+
 def _canonical_analytics_event(value, *, public: bool = False) -> str | None:
     event = str(value or "").strip()[:64]
     event = _ANALYTICS_EVENT_ALIASES.get(event, event)
@@ -1793,12 +1918,9 @@ def _store_analytics_event(
     canonical = _canonical_analytics_event(event, public=public)
     if not canonical:
         return False
-    allowed = _ANALYTICS_ALLOWED_PROPS[canonical]
-    clean_props = {
-        str(key): str(value)[:200]
-        for key, value in (props or {}).items()
-        if key in allowed and value is not None and str(value).strip()
-    }
+    clean_props = _sanitize_analytics_props(canonical, props)
+    if canonical in _CHAT_ANALYTICS_EVENTS:
+        _log_storefront_chat_event(canonical, clean_props, _normalize_journey_id(journey_id))
     record = {
         "event": canonical,
         "schema_version": 2,
@@ -2745,6 +2867,21 @@ async def get_event_analytics(range: str = "30d"):
             for e in attributed
             if e["event"] == "phone_clicked"
         }
+        chat_prompt_journeys = {
+            _normalize_journey_id(e.get("journey_id"))
+            for e in attributed
+            if e["event"] == "chat_prompt_shown"
+        }
+        chat_opened_journeys = {
+            _normalize_journey_id(e.get("journey_id"))
+            for e in attributed
+            if e["event"] == "chat_opened"
+        }
+        chat_started_journeys = {
+            _normalize_journey_id(e.get("journey_id"))
+            for e in attributed
+            if e["event"] == "chat_started"
+        }
 
         def percentage(numerator: int, denominator: int) -> float:
             return round(100 * numerator / denominator, 1) if denominator else 0.0
@@ -2762,6 +2899,9 @@ async def get_event_analytics(range: str = "30d"):
                 "lead_journeys": len(lead_journeys),
                 "appointment_journeys": len(appointment_journeys),
                 "phone_journeys": len(phone_journeys),
+                "chat_prompt_journeys": len(chat_prompt_journeys),
+                "chat_opened_journeys": len(chat_opened_journeys),
+                "chat_started_journeys": len(chat_started_journeys),
                 "lead_conversion_rate": percentage(len(lead_journeys), len(journeys)),
                 "appointment_conversion_rate": percentage(len(appointment_journeys), len(journeys)),
                 "attribution_coverage_pct": percentage(len(attributed), len(canonical_events)),

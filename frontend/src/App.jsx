@@ -11,6 +11,15 @@ import ErrorBoundary from './components/ErrorBoundary';
 import ClosureBanner from './components/ClosureBanner';
 import SkipLink from './components/SkipLink';
 import ChatCallbackCard from './components/ChatCallbackCard';
+import MobileChatPrompt from './components/MobileChatPrompt';
+import {
+  consumeChatEntry,
+  currentChatViewport,
+  markChatEntry,
+  markChatStarted,
+  recordChatSend,
+  trackChatEvent,
+} from './chatAnalytics';
 import InventoryBrowse from './pages/InventoryBrowse';
 import LegalPage from './pages/LegalPage';
 import { CHAT_SESSION_STORAGE_KEY, adoptRunSessionId, resolveChatSession } from './chatSession';
@@ -182,6 +191,7 @@ function NavBar({
   const allItems = [...publicItems, ...staffPrimary, ...staffMore];
   const go = (key) => {
     setMoreOpen(false);
+    if (key === 'chat') markChatEntry('nav');
     navigateTo(key);
   };
   const desktopBtn = (isActive) =>
@@ -355,7 +365,7 @@ function NavBar({
               return (
                 <button
                   key={item.key}
-                  onClick={() => navigateTo(item.key)}
+                  onClick={() => go(item.key)}
                   className={`flex items-center w-full min-h-12 py-3 px-2 rounded-lg transition-colors text-base ${
                     isActive
                       ? 'bg-[var(--cp-accent-dim)] text-[var(--cp-accent)]'
@@ -397,6 +407,7 @@ function NavBar({
           </nav>
         )}
       </div>
+      <MobileChatPrompt activePage={activePage} onOpenChat={() => navigateTo('chat')} />
     </header>
   );
 }
@@ -664,6 +675,7 @@ function App() {
       .then((result) => {
         if (cancelled) return;
         if (result.sessionId) setSessionId(result.sessionId);
+        if (result.messages.some((msg) => msg.role === 'user')) markChatStarted();
         if (!result.messages.length) return;
         setMessages((prev) => {
           if (prev.length > 1) return prev;
@@ -716,6 +728,29 @@ function App() {
       trackEvent('page_viewed', { page: activePage, page_path: pathname });
     }
   }, [activePage, pathname]);
+
+  useEffect(() => {
+    if (activePage !== 'chat') return undefined;
+    const source = consumeChatEntry();
+    const viewport = currentChatViewport();
+    trackChatEvent('chat_opened', {
+      source,
+      placement: source,
+      viewport,
+      page_path: '/chat',
+    });
+    let closed = false;
+    const close = () => {
+      if (closed) return;
+      closed = true;
+      trackChatEvent('chat_closed', { source, viewport, page_path: '/chat' });
+    };
+    window.addEventListener('pagehide', close);
+    return () => {
+      window.removeEventListener('pagehide', close);
+      close();
+    };
+  }, [activePage]);
 
   // The hero image is painted by the server and lives outside #root. Hide it
   // on routes that do not use the inventory hero so it cannot cover them.
@@ -1247,6 +1282,7 @@ function App() {
       const activeSessionId = await ensureSessionId();
       if (!activeSessionId) throw new Error('Chat session unavailable');
       const botText = acceptRunResult(await sendToAgent(activeSessionId, userMessage.text));
+      recordChatSend({ kind: 'typed', text: userMessage.text });
       setMessages(prev => [...prev, { role: 'model', text: botText }]);
     } catch (error) {
       console.error('Error sending message:', error);
@@ -1272,6 +1308,7 @@ function App() {
       const activeSessionId = await ensureSessionId();
       if (!activeSessionId) throw new Error('Chat session unavailable');
       const botText = acceptRunResult(await sendToAgent(activeSessionId, originalMessage));
+      recordChatSend({ kind: 'retry', text: originalMessage });
       setMessages(prev => [...prev, { role: 'model', text: botText }]);
       addToast('Message sent successfully!', 'success');
     } catch {
@@ -1292,6 +1329,7 @@ function App() {
       const activeSessionId = await ensureSessionId();
       if (!activeSessionId) throw new Error('Chat session unavailable');
       const botText = acceptRunResult(await sendToAgent(activeSessionId, message));
+      recordChatSend({ kind: 'quick_action', text: message });
       setMessages(prev => [...prev, { role: 'model', text: botText }]);
     } catch (error) {
       console.error('Error sending quick action:', error);
@@ -1914,7 +1952,10 @@ function App() {
                 Browse Homes
               </button>
               <button
-                onClick={() => navigateTo('chat')}
+                onClick={() => {
+                  markChatEntry('not_found');
+                  navigateTo('chat');
+                }}
                 className="rounded-md border border-[var(--cp-border-light)] bg-[var(--cp-panel)] px-5 py-3 text-sm font-semibold text-[var(--cp-text)] transition hover:border-[var(--cp-secondary)]"
               >
                 Ask Tex
@@ -1947,6 +1988,7 @@ function App() {
               pathname={pathname}
               adminAuthed={adminAuthed}
               onAskTex={(message) => {
+                markChatEntry('inventory_hero');
                 navigateTo('chat');
                 setMessages(prev => [...prev, { role: 'user', text: message }]);
                 handleQuickAction(message);
@@ -1962,8 +2004,11 @@ function App() {
 
         {/* Floating Chat Bubble */}
         <button
-          onClick={() => navigateTo('chat')}
-          className="fixed bottom-6 right-6 z-50 hidden rounded-full bg-[var(--cp-accent)] p-4 text-[var(--cp-bg)] transition-all duration-200 hover:scale-105 hover:bg-[var(--cp-accent-hot)] active:scale-95 sm:inline-flex cp-glow-accent"
+          onClick={() => {
+            markChatEntry('inventory_fab');
+            navigateTo('chat');
+          }}
+          className="tho-desktop-chat-fab fixed bottom-6 right-6 z-50 hidden rounded-full bg-[var(--cp-accent)] p-4 text-[var(--cp-bg)] transition-all duration-200 hover:scale-105 hover:bg-[var(--cp-accent-hot)] active:scale-95 sm:inline-flex cp-glow-accent"
           aria-label="Chat with Tex"
           title="Chat with Tex"
         >

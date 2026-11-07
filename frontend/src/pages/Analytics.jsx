@@ -543,6 +543,9 @@ export default function Analytics() {
                                                 ['Opened a form', eventStats.journey_funnel?.lead_form_journeys || 0],
                                                 ['Became a lead', `${eventStats.journey_funnel?.lead_conversion_rate || 0}%`],
                                                 ['Booked a visit', `${eventStats.journey_funnel?.appointment_conversion_rate || 0}%`],
+                                                ['Saw chat prompt', eventStats.journey_funnel?.chat_prompt_journeys || 0],
+                                                ['Opened chat', eventStats.journey_funnel?.chat_opened_journeys || 0],
+                                                ['Started a chat', eventStats.journey_funnel?.chat_started_journeys || 0],
                                             ].map(([label, value]) => (
                                                 <div key={label} className="rounded-lg border border-blue-100 bg-white px-3 py-3">
                                                     <p className="m-0 text-lg font-bold text-slate-900">{value}</p>
