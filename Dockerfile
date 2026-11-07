@@ -19,12 +19,15 @@ WORKDIR /frontend
 COPY frontend/package*.json ./
 RUN npm ci
 
-# listingRoutes.js imports the repo-root CDN repair table with a relative
-# path that leaves frontend/ (../../../data/...). From this WORKDIR that
-# resolves to /data/. The test job builds against a full checkout, so CI
-# never hits the missing file; the image build only copies frontend/
-# unless the table is placed where that import looks.
-COPY data/manufacturer_cdn_extension_repairs.json /data/manufacturer_cdn_extension_repairs.json
+# listingRoutes.js imports repo-root CDN tables with a relative path that
+# leaves frontend/ (../../../data/...). From this WORKDIR that resolves to
+# /data/. The test job builds against a full checkout, so CI never hits a
+# missing file; this stage only has frontend/ unless those tables are
+# placed where the import looks. Copy every manufacturer CDN JSON, not one
+# filename, so a new sibling (the unreachable-key list) does not fail the
+# image build. tests/test_frontend_docker_data_imports.py fails CI when an
+# import is not covered by this COPY.
+COPY data/manufacturer_cdn_*.json /data/
 
 COPY frontend/ ./
 RUN npm run build
