@@ -1267,6 +1267,38 @@ def _canonical_redirect_url(request: Request) -> str:
     )
 
 
+def _forwarded_proto(request: Request) -> str:
+    return request.headers.get("x-forwarded-proto", "").split(",")[0].strip().lower()
+
+
+def _public_http_redirect_target(request: Request) -> str | None:
+    """301 a public host that arrived as HTTP straight to https://www.
+
+    Cloud Run domain mappings for texashomeoutlet.com and www sit behind
+    Google Frontend (apex A records 216.239.32.21 and the www CNAME
+    ghs.googlehosted.com). That frontend answers HTTP with its own 302 to
+    the same host on HTTPS before this app sees the request. That 302 is
+    not set in this repo, and it is not configurable from application code.
+
+    This hop runs only when the app itself is given X-Forwarded-Proto: http
+    on www or the apex. The Location is the canonical https www URL, so the
+    app does not answer HTTP on the apex and then 301 the host in a second
+    hop. A direct https URL wins over a contradictory proto header. A test
+    client that omits the header is left alone.
+    """
+    if request.method.upper() not in {"GET", "HEAD"}:
+        return None
+    if _forwarded_proto(request) != "http":
+        return None
+    if _request_is_https(request):
+        return None
+    host = _request_hostname(request)
+    apex = _CANONICAL_PUBLIC_HOST[4:] if _CANONICAL_PUBLIC_HOST.startswith("www.") else ""
+    if host not in {_CANONICAL_PUBLIC_HOST, apex}:
+        return None
+    return _canonical_redirect_url(request)
+
+
 def _alternate_public_host_target(request: Request) -> str | None:
     """301 the non-canonical twin of the public host onto CANONICAL_PUBLIC_URL.
 
@@ -1339,6 +1371,9 @@ class CanonicalHostMiddleware(BaseHTTPMiddleware):
         staff_target = staff_front_door_target(request)
         if staff_target:
             return RedirectResponse(staff_target, status_code=308)
+        http_target = _public_http_redirect_target(request)
+        if http_target:
+            return RedirectResponse(http_target, status_code=301)
         alternate_target = _alternate_public_host_target(request)
         if alternate_target:
             return RedirectResponse(alternate_target, status_code=301)

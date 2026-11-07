@@ -1272,7 +1272,9 @@ export default function InventoryBrowse({
             )}
             <p className="mt-4 max-w-2xl text-base leading-relaxed text-white/90">
               {pathListingHome
-                ? `${pathListingHome.model_name} at ${BUSINESS_NAME} in ${BUSINESS_CITY}, ${BUSINESS_STATE}. Confirm current price and availability with our team.`
+                ? (isUnpricedListing(pathListingHome)
+                  ? `${pathListingHome.model_name} at ${BUSINESS_NAME} in ${BUSINESS_CITY}, ${BUSINESS_STATE}. No dollar amount is posted. The total depends on the options, delivery distance, and site setup. Call ${BUSINESS_PHONE}, visit the showroom, or book an appointment.`
+                  : `${pathListingHome.model_name} at ${BUSINESS_NAME} in ${BUSINESS_CITY}, ${BUSINESS_STATE}. Confirm current price and availability with our team.`)
                 : cityLanding
                   ? cityShopperSentence(cityLanding.city)
                   : onInventoryHub

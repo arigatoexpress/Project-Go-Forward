@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { applyDocumentHead } from '../utils/listingRoutes';
+import { applyDocumentHead, PUBLIC_CANONICAL_ORIGIN } from '../utils/listingRoutes';
 
 describe('applyDocumentHead', () => {
   afterEach(() => {
@@ -42,6 +42,33 @@ describe('applyDocumentHead', () => {
     expect(document.querySelector('meta[name="robots"]').getAttribute('content')).toBe(
       'index,follow',
     );
+  });
+
+  it('makes a relative share photo absolute and drops a 403 catalog image', () => {
+    applyDocumentHead({
+      title: 'TRU Magnolia',
+      description: 'Call for the price.',
+      canonicalPath: '/homes/30643-tru-single-section-magnolia',
+      image: '/api/inventory/photos/30643/front.jpg',
+      robots: 'index,follow',
+    });
+    const origin = window.location.origin;
+    expect(document.querySelector('meta[property="og:image"]').getAttribute('content')).toBe(
+      `${origin}/api/inventory/photos/30643/front.jpg`,
+    );
+
+    applyDocumentHead({
+      title: 'The Absolute Value',
+      description: 'Call for the price.',
+      canonicalPath: '/plan/226545/solution/the-absolute-value-slc28764a/',
+      image: 'https://d132mt2yijm03y.cloudfront.net/manufacturer/2025/floorplan/226545/Absolute%20Value-1.jpg',
+      robots: 'index,follow',
+    });
+    const denied = document.querySelector('meta[property="og:image"]').getAttribute('content');
+    expect(denied).toBe(`${origin}/og-card.png`);
+    expect(denied).not.toContain('cloudfront.net');
+    expect(denied.startsWith('https://') || denied.startsWith(origin)).toBe(true);
+    expect(PUBLIC_CANONICAL_ORIGIN).toBe('https://www.texashomeoutlet.com');
   });
 
   it('removes canonical and og:url when robots is noindex', () => {

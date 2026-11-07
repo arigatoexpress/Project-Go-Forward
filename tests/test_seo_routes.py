@@ -818,6 +818,97 @@ def test_detail_page_prefers_home_photo_for_og_image(monkeypatch):
     assert "og-card.png" not in m.group(1)  # used the home photo, not the default
 
 
+_DENIED_CDN_IMAGE = (
+    "https://d132mt2yijm03y.cloudfront.net/manufacturer/2025/floorplan/"
+    "226545/Absolute%20Value-1.jpg"
+)
+
+
+def test_share_image_drops_403_cdn_keys_and_absolutizes_relative_paths(monkeypatch):
+    """og:image is an absolute https URL and never a known 403 CDN key."""
+    import seo_routes
+
+    assert seo_routes._public_share_image(_DENIED_CDN_IMAGE) is None
+    assert seo_routes._public_share_image("/api/inventory/photos/30643/front.jpg") == (
+        "https://www.texashomeoutlet.com/api/inventory/photos/30643/front.jpg"
+    )
+    client, _ = seo_client(monkeypatch)
+    denied_plan = {
+        **FAKE_HOMES[1],
+        "hero_image": _DENIED_CDN_IMAGE,
+        "image_url": _DENIED_CDN_IMAGE,
+        "display_price": "Call for Price",
+    }
+    relative_home = {
+        **FAKE_HOMES[2],
+        "image_url": "/api/inventory/photos/44490/front.jpg",
+        "real_photos": ["/api/inventory/photos/44490/front.jpg"],
+    }
+    monkeypatch.setattr(
+        seo_routes, "_get_homes", lambda: [FAKE_HOMES[0], denied_plan, relative_home]
+    )
+    monkeypatch.setattr(seo_routes, "_registry_cache", None)
+    monkeypatch.setattr(seo_routes, "_registry_built_at", 0.0)
+
+    plan = client.get("/plan/223034/skyliner/4732b/").text
+    assert "Absolute%20Value-1.jpg" not in plan
+    assert "Absolute Value-1.jpg" not in plan
+    assert 'property="og:image" content="https://www.texashomeoutlet.com/og-card.png"' in plan
+    assert '"@type": "ItemPage"' in plan
+    assert '"@type": "FloorPlan"' in plan
+    assert '"offers"' not in plan
+    assert "No dollar amount is posted" in plan
+    assert 'href="/appointments">book an appointment</a>' in plan
+    assert "$" not in re.search(r"<title>.*?</title>", plan, re.DOTALL).group(0)
+
+    home = client.get("/homes/44490-pre-owned-big-blue").text
+    assert (
+        'property="og:image" content="https://www.texashomeoutlet.com'
+        '/api/inventory/photos/44490/front.jpg"' in home
+    )
+    assert '"@type": "ItemPage"' in home
+    assert '"offers"' not in home
+
+
+def test_chat_page_has_a_visible_h1(monkeypatch):
+    client, _ = seo_client(monkeypatch)
+    body = client.get("/chat").text
+    assert "<h1>Chat with Tex</h1>" in body
+    assert body.count("<h1>") == 1
+    assert "(281) 324-3020" in body
+    assert 'href="/appointments"' in body
+
+
+def test_houston_city_page_is_indexable(monkeypatch):
+    client, _ = seo_client(monkeypatch)
+    page = client.get("/manufactured-homes-in-houston-tx")
+    assert page.status_code == 200
+    assert "<h1>Manufactured &amp; Mobile Homes in Houston, TX</h1>" in page.text
+    assert "<h2>Houston, seat of Harris County</h2>" in page.text
+    assert "southwest of the showroom" in page.text
+    assert (
+        'rel="canonical" href="https://www.texashomeoutlet.com/manufactured-homes-in-houston-tx"'
+        in page.text
+    )
+    sitemap = client.get("/sitemap.xml").text
+    assert "https://www.texashomeoutlet.com/manufactured-homes-in-houston-tx</loc>" in sitemap
+    assert client.get("/manufactured-homes-in-not-a-city-tx").status_code == 404
+
+
+def test_faq_explains_pricing_without_inventing_a_number(monkeypatch):
+    client, _ = seo_client(monkeypatch)
+    body = client.get("/faq").text
+    assert "book an appointment" in body
+    assert "(281) 324-3020" in body
+    assert "10685 FM 1960 East" in body
+    assert "does not fill in a guessed price" in body
+    assert "Mon-Fri 9:00 AM - 6:00 PM, Sat 10:00 AM - 3:00 PM, Sun Closed" in body
+    faq = next(block for block in _jsonld_blocks(body) if block.get("@type") == "FAQPage")
+    pricing = next(item for item in faq["mainEntity"] if "Call for Price" in item["name"])
+    assert "book an appointment" in pricing["acceptedAnswer"]["text"]
+    assert not re.search(r"\$\s*\d", pricing["acceptedAnswer"]["text"])
+
+
 def _jsonld_blocks(body):
     return [
         json.loads(b)
@@ -2125,9 +2216,12 @@ def test_listing_titles_stay_within_60_characters(monkeypatch):
         for_sale=True,
     )
     assert trimmed_description == (
-        "The Elite Series / The Lincoln ELS16763B (3 bed, 2.0 bath, 16'0\" x 76'0\") "
-        "for sale at Texas Home Outlet in Huffman, TX. Call (281) 324-3020."
+        "The Elite Series / The Lincoln ELS16763B (3 bed, 2.0 bath). "
+        "Price by phone, a showroom visit, or an appointment at Texas Home Outlet. "
+        "Call (281) 324-3020."
     )
+    assert "Jessup Housing" not in trimmed_description
+    assert "$" not in trimmed_description
     assert len(trimmed_description) <= 155
 
     fitting = seo_routes._listing_meta_description(
@@ -2135,9 +2229,11 @@ def test_listing_titles_stay_within_60_characters(monkeypatch):
         ["3 bed", "2 bath", "Pre-Owned", "Call for Price"],
     )
     assert fitting == (
-        "PRE-OWNED / Big Blue (3 bed, 2 bath, Pre-Owned, Call for Price) "
-        "at Texas Home Outlet in Huffman, TX. Call (281) 324-3020."
+        "PRE-OWNED / Big Blue (3 bed, 2 bath, Pre-Owned). "
+        "Price by phone, a showroom visit, or an appointment at Texas Home Outlet. "
+        "Call (281) 324-3020."
     )
+    assert "$" not in fitting
     assert len(fitting) <= 155
 
     homes = [{**FAKE_HOMES[0], "model_name": _LONG_LISTING_MODEL}, *FAKE_HOMES[1:]]

@@ -100,6 +100,15 @@ describe('city pages and the locations index', () => {
     );
   });
 
+  it('renders the Houston city page with local facts', () => {
+    window.history.replaceState({}, '', '/manufactured-homes-in-houston-tx');
+    render(<InventoryBrowse pathname="/manufactured-homes-in-houston-tx" />);
+    expect(screen.getByRole('heading', { level: 1, name: 'Manufactured & Mobile Homes in Houston, TX' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: 'Houston, seat of Harris County' })).toBeInTheDocument();
+    expect(screen.getByText(/southwest of the showroom/)).toBeInTheDocument();
+    expect(screen.getByText(/Buffalo Bayou/)).toBeInTheDocument();
+  });
+
   it('links every served town from the locations page', async () => {
     render(<Locations />);
     expect(screen.getByRole('heading', { level: 1, name: 'Locations' })).toBeInTheDocument();

@@ -274,6 +274,13 @@ describe('legal pages and site-wide footer', () => {
     await waitFor(() => expect(window.location.pathname).toBe('/privacy'));
   });
 
+  it('gives /chat a visible h1', async () => {
+    window.history.replaceState({}, '', '/chat');
+    render(<ToastProvider><App /></ToastProvider>);
+    expect(await screen.findByRole('heading', { level: 1, name: 'Chat with Tex' })).toBeVisible();
+    expect(screen.getByRole('main').textContent).toMatch(/book an appointment/i);
+  });
+
   it.each(['/', '/single-wide', '/double-wide', '/chat', '/contact', '/appointments', '/about', '/financing', '/faq', '/warranty', '/delivery', '/staff', '/missing-page'])('shows legal footer links on %s', async (path) => {
     window.history.replaceState({}, '', path);
     render(<ToastProvider><App /></ToastProvider>);

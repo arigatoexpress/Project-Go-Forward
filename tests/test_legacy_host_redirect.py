@@ -221,3 +221,41 @@ def test_healthz_on_non_legacy_hosts_is_unchanged(client):
     apex = _send(client, "GET", "/healthz/", "texashomeoutlet.com")
     assert apex.status_code == 301
     assert apex.headers["location"] == f"{CANONICAL}/healthz/"
+
+
+def test_forwarded_http_on_public_hosts_is_a_single_301(client):
+    """An HTTP public request the app actually sees is one 301 to https www.
+
+    Google Frontend issues the live http→https 302 before Cloud Run. This
+    covers the hop the app can still make when X-Forwarded-Proto is http.
+    """
+    www = client.get(
+        "/",
+        headers={"host": "www.texashomeoutlet.com", "x-forwarded-proto": "http"},
+        follow_redirects=False,
+    )
+    assert www.status_code == 301
+    assert www.headers["location"] == f"{CANONICAL}/"
+
+    apex = client.get(
+        "/inventory?q=1",
+        headers={"host": "texashomeoutlet.com", "x-forwarded-proto": "http"},
+        follow_redirects=False,
+    )
+    assert apex.status_code == 301
+    assert apex.headers["location"] == f"{CANONICAL}/inventory?q=1"
+
+    secure = client.get(
+        "/contact",
+        headers={"host": "www.texashomeoutlet.com", "x-forwarded-proto": "https"},
+        follow_redirects=False,
+    )
+    assert secure.status_code == 200
+    assert "location" not in secure.headers
+
+    posted = client.post(
+        "/api/contact",
+        headers={"host": "www.texashomeoutlet.com", "x-forwarded-proto": "http"},
+        follow_redirects=False,
+    )
+    assert posted.status_code not in {301, 302, 307, 308}

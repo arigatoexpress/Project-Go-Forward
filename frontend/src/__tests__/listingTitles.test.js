@@ -57,9 +57,11 @@ describe('listing document titles', () => {
       'Call for Price',
     ]);
     expect(fitting).toBe(
-      'PRE-OWNED / Big Blue (3 bed, 2 bath, Pre-Owned, Call for Price) '
-      + 'at Texas Home Outlet in Huffman, TX. Call (281) 324-3020.',
+      'PRE-OWNED / Big Blue (3 bed, 2 bath, Pre-Owned). '
+      + 'Price by phone, a showroom visit, or an appointment at Texas Home Outlet. '
+      + 'Call (281) 324-3020.',
     );
+    expect(fitting).not.toMatch(/\$/);
     expect(fitting.length).toBeLessThanOrEqual(155);
   });
 });

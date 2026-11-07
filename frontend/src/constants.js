@@ -31,6 +31,7 @@ export const SERVICE_AREA_CITIES = [
   "Cleveland",
   "Conroe",
   "Livingston",
+  "Houston",
 ];
 export const NOTION_WORKSPACE_URL = "https://www.notion.so/Texas-Home-Outlet-34d6688dbec680f19371f6af10d1da15";
 
