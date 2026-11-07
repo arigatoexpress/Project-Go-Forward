@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { ShieldCheck } from 'lucide-react';
-import { isPublicAnalyticsPath } from '../utils/analytics';
+import { isPublicAnalyticsPath, reportConsentedPageView } from '../utils/analytics';
 
 const CONSENT_KEY = 'tho_analytics_consent_v1';
 
@@ -36,7 +36,7 @@ export default function AnalyticsConsent() {
       // The initial React page-view happened before consent and was correctly
       // suppressed. Record the current public page once after the grant.
       if (isPublicAnalyticsPath(window.location.pathname)) {
-        window.gtag?.('event', 'page_view', { page_path: window.location.pathname });
+        reportConsentedPageView(window.location.pathname);
       }
     } else {
       window.__THO_DISABLE_ANALYTICS__?.();

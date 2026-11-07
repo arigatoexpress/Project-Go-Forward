@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { LeadCaptureForm } from '../pages/InventoryBrowse';
+import { getJourneyAttribution } from '../utils/attribution';
 
 const { analyticsTrackEvent } = vi.hoisted(() => ({ analyticsTrackEvent: vi.fn() }));
 vi.mock('../utils/analytics', () => ({ trackEvent: analyticsTrackEvent }));
@@ -28,6 +29,8 @@ describe('LeadCaptureForm', () => {
   });
   afterEach(() => {
     vi.restoreAllMocks();
+    sessionStorage.clear();
+    window.history.replaceState({}, '', '/');
   });
 
   it('shows an error and NOT a success screen when the backend returns {success:false}', async () => {
@@ -59,6 +62,41 @@ describe('LeadCaptureForm', () => {
       message: expect.stringContaining('Price Quote Request — Sapphire 3-Bed'),
     });
     expect(payload.journey_id).toMatch(/^j_[0-9a-f]{32}$/);
+  });
+
+  it('keeps the paid landing campaign on the lead after the query string is gone', async () => {
+    sessionStorage.clear();
+    window.history.replaceState({}, '', (
+      '/inventory?utm_source=google&utm_medium=cpc'
+      + '&utm_campaign=tho_search_high_intent_huffman&utm_content=rsa'
+      + '&utm_term=manufactured%20homes&gclid=test-gclid-123456'
+      + '&wbraid=WBRAID_valid1&gbraid=GBRAID_valid1&email=buyer@example.com'
+    ));
+    const landing = getJourneyAttribution();
+    window.history.pushState({}, '', '/appointments');
+    global.fetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ success: true, lead_id: 'contact_1_ab12' }),
+    });
+
+    render(<LeadCaptureForm home={home} type="quote" onClose={() => {}} />);
+    fillValidAndSubmit();
+
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(1));
+    const payload = JSON.parse(global.fetch.mock.calls[0][1].body);
+    expect(payload).toMatchObject({
+      utm_source: 'google',
+      utm_medium: 'cpc',
+      utm_campaign: 'tho_search_high_intent_huffman',
+      utm_content: 'rsa',
+      utm_term: 'manufactured homes',
+      gclid: 'test-gclid-123456',
+      wbraid: 'WBRAID_valid1',
+      gbraid: 'GBRAID_valid1',
+      journey_id: landing.journey_id,
+    });
+    expect(payload).not.toHaveProperty('email');
+    expect(JSON.stringify(payload)).not.toContain('buyer@example.com');
   });
 
   it('sends the home stock number and listing link so staff see which home the lead wants', async () => {

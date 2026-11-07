@@ -869,13 +869,30 @@ def _clean_id(env_name: str, pattern: re.Pattern) -> str | None:
     return raw if raw and pattern.match(raw) else None
 
 
+_logged_dual_google_loader = False
+
+
 def _analytics_ids() -> dict:
-    """Validated analytics IDs that are currently active (empty when none)."""
+    """Validated analytics IDs that are currently active (empty when none).
+
+    Google gets exactly one loader. When both ``GA4_MEASUREMENT_ID`` and
+    ``GTM_CONTAINER_ID`` are valid, only the GA4 id is emitted so the same
+    page view is not collected twice. Meta and TikTok stay independent.
+    """
+    global _logged_dual_google_loader
     out = {}
     for env_name, pattern in _ANALYTICS_IDS:
         val = _clean_id(env_name, pattern)
         if val:
             out[env_name] = val
+    if "GA4_MEASUREMENT_ID" in out and "GTM_CONTAINER_ID" in out:
+        if not _logged_dual_google_loader:
+            logger.warning(
+                "Both GA4_MEASUREMENT_ID and GTM_CONTAINER_ID are valid; "
+                "loading only GA4_MEASUREMENT_ID"
+            )
+            _logged_dual_google_loader = True
+        del out["GTM_CONTAINER_ID"]
     return out
 
 
@@ -903,6 +920,10 @@ var c;try{c=JSON.parse(el.textContent||'{}')}catch(e){return;}
 if(!c||typeof c!=='object')return;
 
 var KEY='tho_analytics_consent_v1',loaded=false;
+var UTM_KEY='tho_utm';
+var UTM_FIELDS=['utm_source','utm_medium','utm_campaign','utm_content','utm_term'];
+var CLICK_FIELDS=['gclid','gbraid','wbraid'];
+var CLICK_RE=/^[A-Za-z0-9._~-]{6,200}$/;
 w.__THO_ANALYTICS_CONFIGURED__=true;
 w.dataLayer=w.dataLayer||[];
 w.gtag=w.gtag||function(){w.dataLayer.push(arguments);};
@@ -910,10 +931,36 @@ var denied={analytics_storage:'denied',ad_storage:'denied',ad_user_data:'denied'
 // Measurement consent never implies permission for personalized advertising.
 var granted={analytics_storage:'granted',ad_storage:'granted',ad_user_data:'granted',ad_personalization:'denied'};
 w.gtag('consent','default',denied);
+function persistCampaign(){
+ try{
+  if(w.sessionStorage.getItem(UTM_KEY))return;
+  var p=new URLSearchParams(w.location.search),out={},i,v;
+  for(i=0;i<UTM_FIELDS.length;i++){v=p.get(UTM_FIELDS[i]);if(v)out[UTM_FIELDS[i]]=v.slice(0,200);}
+  for(i=0;i<CLICK_FIELDS.length;i++){v=p.get(CLICK_FIELDS[i]);if(v&&CLICK_RE.test(v))out[CLICK_FIELDS[i]]=v;}
+  if(d.referrer)out.referrer=String(d.referrer).slice(0,200);
+  if(Object.keys(out).length)w.sessionStorage.setItem(UTM_KEY,JSON.stringify(out));
+ }catch(e){}
+}
+function restoreCampaignQuery(){
+ try{
+  var stored=JSON.parse(w.sessionStorage.getItem(UTM_KEY)||'null');
+  if(!stored||typeof stored!=='object')return;
+  var url=new URL(w.location.href),changed=false,i,key,val,fields=UTM_FIELDS.concat(CLICK_FIELDS);
+  for(i=0;i<fields.length;i++){
+   key=fields[i];val=stored[key];
+   if(typeof val!=='string'||!val)continue;
+   if(CLICK_FIELDS.indexOf(key)>=0&&!CLICK_RE.test(val))continue;
+   if(val.length>200)val=val.slice(0,200);
+   if(url.searchParams.get(key)!==val){url.searchParams.set(key,val);changed=true;}
+  }
+  if(changed)w.history.replaceState(w.history.state,'',url.pathname+url.search+url.hash);
+ }catch(e){}
+}
+persistCampaign();
 function add(src){var s=d.createElement('script');s.async=true;s.src=src;(d.head||d.documentElement).appendChild(s);}
 function loadGoogle(){
  var ga=c.GA4_MEASUREMENT_ID,gtm=c.GTM_CONTAINER_ID;
- if(ga){add('https://www.googletagmanager.com/gtag/js?id='+ga);w.gtag('js',new Date());w.gtag('config',ga,{send_page_view:false});}
+ if(ga){add('https://www.googletagmanager.com/gtag/js?id='+ga);w.gtag('js',new Date());w.gtag('config',ga,{send_page_view:false,page_location:w.location.href});}
  if(gtm){w.dataLayer.push({'gtm.start':new Date().getTime(),event:'gtm.js'});add('https://www.googletagmanager.com/gtm.js?id='+gtm);}
 }
 function loadMeta(){var id=c.META_PIXEL_ID;if(!id)return;
@@ -929,7 +976,7 @@ function loadTikTok(){var id=c.TIKTOK_PIXEL_ID;if(!id)return;
  var o=d.createElement('script');o.type='text/javascript';o.async=true;o.src=i+'?sdkid='+e+'&lib='+t;(d.head||d.documentElement).appendChild(o)};
  ttq.load(id);ttq.enableCookie();ttq.page()}(w,d,'ttq');
 }
-w.__THO_ENABLE_ANALYTICS__=function(){w.__THO_ANALYTICS_CONSENT__='granted';w.gtag('consent','update',granted);if(loaded)return;loaded=true;loadGoogle();loadMeta();loadTikTok();};
+w.__THO_ENABLE_ANALYTICS__=function(){w.__THO_ANALYTICS_CONSENT__='granted';w.gtag('consent','update',granted);if(loaded)return;loaded=true;restoreCampaignQuery();loadGoogle();loadMeta();loadTikTok();};
 w.__THO_DISABLE_ANALYTICS__=function(){w.__THO_ANALYTICS_CONSENT__='denied';w.gtag('consent','update',denied);if(w.fbq)w.fbq('consent','revoke');if(w.ttq&&w.ttq.disableCookie)w.ttq.disableCookie();};
 var pref=null;try{pref=w.localStorage.getItem(KEY)}catch(e){}
 w.__THO_ANALYTICS_CONSENT__=pref==='granted'?'granted':pref==='denied'?'denied':null;
@@ -941,6 +988,12 @@ if(pref==='granted')w.__THO_ENABLE_ANALYTICS__();
 def _analytics_head() -> str:
     """Consent-gated loader for whichever analytics IDs are validly set.
 
+    Operators set exactly one Cloud Run runtime env var:
+    ``GA4_MEASUREMENT_ID`` (``G-`` plus 4–15 uppercase letters or digits) or
+    ``GTM_CONTAINER_ID`` (``GTM-`` plus 4–10 uppercase letters or digits).
+    Unset, blank, and malformed values emit no tag and no measurement ID.
+    Do not hardcode an ID.
+
     Emits an inert JSON config block plus a first-party external bootstrap
     (``/tho-analytics.js``); no inline executable script. The bootstrap
     defaults Google's consent signals to denied and does not fetch Google,
@@ -949,6 +1002,7 @@ def _analytics_head() -> str:
     """
     ids = _analytics_ids()
     if not ids:
+        # No GA4_MEASUREMENT_ID or GTM_CONTAINER_ID (and no other valid pixel).
         return ""
     # Values have already passed strict alphanumeric ID regexes. JSON encoding
     # with "<" escaped means the data block can never break out of <script>.

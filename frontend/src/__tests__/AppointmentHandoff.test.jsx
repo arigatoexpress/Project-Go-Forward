@@ -1,10 +1,16 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import Contact from '../pages/Contact';
 import Appointments from '../pages/Appointments';
 
+beforeEach(() => {
+  sessionStorage.clear();
+  window.history.replaceState({}, '', '/');
+});
+
 afterEach(() => {
   vi.restoreAllMocks();
+  sessionStorage.clear();
   delete window.gtag;
   delete window.__THO_ANALYTICS_CONSENT__;
 });

@@ -33,15 +33,29 @@ and budgets.
 
 - Consent is first-party and defaults to denied. Third-party JavaScript is not
   downloaded before an explicit grant.
-- GA4/GTM is runtime-gated by `GA4_MEASUREMENT_ID` or `GTM_CONTAINER_ID`.
+- GA4/GTM is runtime-gated by exactly one of `GA4_MEASUREMENT_ID` or
+  `GTM_CONTAINER_ID`. The public homepage, `/inventory`, and `/appointments`
+  emit the consent-gated loader only when that value matches the format below.
+  If neither variable is set, or the value is blank or malformed, the HTML
+  contains no Google tag, no `gtag` snippet, and no `tho-analytics-config`
+  block. Do not invent or hardcode an ID.
+  - `GA4_MEASUREMENT_ID`: `G-` plus 4 to 15 uppercase letters or digits.
+  - `GTM_CONTAINER_ID`: `GTM-` plus 4 to 10 uppercase letters or digits.
+  - If both are valid, the page loads only `GA4_MEASUREMENT_ID`. Readiness
+    still expects exactly one of the two names on the service.
 - Public SPA navigation emits `page_view`; contact/quote/tour capture emits
-  `generate_lead`; completed booking emits `schedule_appointment`.
-- Analytics forwarding strips name, email, phone, address, message, notes, and
-  lead/session identifiers. The first-party Firestore event sink remains the
-  durable source even when analytics is declined or unavailable.
-- `gclid`, `gbraid`, and `wbraid` use strict formats and are retained only when
-  the visitor actively submits a lead. They remain in Firestore for later
-  deterministic offline-conversion upload.
+  `generate_lead`; completed booking emits `schedule_appointment`. After
+  consent, those Google events include the landing `utm_*` values and click
+  IDs. `page_location` keeps the landing query when a later in-app navigation
+  has dropped it.
+- Analytics forwarding strips name, email, phone, address, message, notes,
+  referrer, and lead/session identifiers. The first-party Firestore event sink
+  remains the durable source even when analytics is declined or unavailable.
+- `gclid`, `gbraid`, and `wbraid` use strict formats. They are stored with the
+  journey on the lead and on the `lead_captured` / `appointment_booked` events
+  when the visitor submits. Contact PII is not copied onto those events. The
+  BigQuery export keeps UTM fields and leaves click IDs in Firestore for
+  offline-conversion upload.
 
 ## Read-only audit
 
@@ -349,9 +363,12 @@ itself.
 
 1. Review the in-product privacy copy and the account's GA4 data-retention and
    ad-personalization settings.
-2. Choose one primary loader: direct `GA4_MEASUREMENT_ID`, or a
-   `GTM_CONTAINER_ID` whose published container owns GA4. Do not configure both
-   to send the same property or page views will duplicate.
+2. Choose one primary loader and set that Cloud Run runtime env var:
+   `GA4_MEASUREMENT_ID`, or `GTM_CONTAINER_ID` whose published container owns
+   GA4. Do not configure both. Unset and malformed values leave the public
+   homepage, `/inventory`, and `/appointments` without a Google loader. The
+   formats are `G-` plus 4–15 uppercase letters or digits, and `GTM-` plus
+   4–10 uppercase letters or digits. Do not paste a guessed ID into source.
 3. Deploy the ID to a zero-traffic candidate, accept analytics in a clean
    browser profile, and verify exactly one each of:
    - `page_view`

@@ -1649,8 +1649,16 @@ _JOURNEY_ID_RE = re.compile(r"^j_[0-9a-f]{32}$")
 _ANALYTICS_EVENT_ALIASES = {
     "tour_click": "tour_opened",
 }
+_UTM_EVENT_PROPS = {
+    "utm_source",
+    "utm_medium",
+    "utm_campaign",
+    "utm_content",
+    "utm_term",
+}
+_CLICK_EVENT_PROPS = {"gclid", "gbraid", "wbraid"}
 _ANALYTICS_ALLOWED_PROPS = {
-    "page_viewed": {"page", "page_path", "path"},
+    "page_viewed": {"page", "page_path", "path"} | _UTM_EVENT_PROPS,
     "home_view": {"home", "home_id", "status", "page_path", "path"},
     "home_viewed": {"home", "home_id", "status", "page_path", "path"},
     "lead_form_opened": {"home", "home_id", "type", "source", "page_path", "path"},
@@ -1674,8 +1682,25 @@ _ANALYTICS_ALLOWED_PROPS = {
         "path",
     },
     "phone_clicked": {"page_path", "placement", "path"},
-    "lead_captured": {"source", "type", "home", "home_id", "intent", "path"},
-    "appointment_booked": {"source", "home", "home_id", "intent", "path"},
+    "lead_captured": {
+        "source",
+        "type",
+        "home",
+        "home_id",
+        "intent",
+        "path",
+    }
+    | _UTM_EVENT_PROPS
+    | _CLICK_EVENT_PROPS,
+    "appointment_booked": {
+        "source",
+        "home",
+        "home_id",
+        "intent",
+        "path",
+    }
+    | _UTM_EVENT_PROPS
+    | _CLICK_EVENT_PROPS,
     "review_redirect": {"src"},
 }
 _SERVER_ONLY_ANALYTICS_EVENTS = {"lead_captured", "appointment_booked"}
@@ -1691,6 +1716,20 @@ def _extract_attribution(data: dict) -> dict:
         **_extract_utm(data),
         "journey_id": _normalize_journey_id(data.get("journey_id")),
     }
+
+
+def _campaign_event_props(data: dict) -> dict:
+    """Campaign fields safe to attach to a conversion event. No contact PII."""
+    extracted = _extract_utm(data)
+    fields = (*_UTM_EVENT_PROPS, *_CLICK_EVENT_PROPS)
+    return {key: extracted[key] for key in fields if extracted.get(key)}
+
+
+def _backfill_lead_attribution(lead, data: dict) -> None:
+    """Fill blank first-touch fields. Never overwrite a campaign already stored."""
+    for field, value in _extract_attribution(data).items():
+        if value and not getattr(lead, field, None):
+            setattr(lead, field, value)
 
 
 def _canonical_analytics_event(value, *, public: bool = False) -> str | None:
@@ -6979,7 +7018,7 @@ async def submit_chat_callback(request: Request):
     )
     _store_analytics_event(
         "lead_captured",
-        {"source": "chat_callback", "type": "callback"},
+        {"source": "chat_callback", "type": "callback", **_campaign_event_props(data)},
         journey_id=data.get("journey_id"),
     )
     return {"success": True, "lead_id": lead.lead_id}
@@ -7066,6 +7105,7 @@ async def submit_contact_form(request: Request):
                     "type": lead_type,
                     "home": home_model,
                     "home_id": home_id,
+                    **_campaign_event_props(data),
                 },
                 journey_id=data.get("journey_id"),
             )
@@ -7459,6 +7499,7 @@ async def create_appointment(request: Request):
                 "intent": str(data.get("intent") or "showroom_visit")[:100],
                 "home": home_model,
                 "home_id": home_id,
+                **_campaign_event_props(data),
             },
             journey_id=data.get("journey_id"),
         )
@@ -7535,9 +7576,7 @@ async def create_appointment(request: Request):
                 if existing_lead and existing_digits[-10:] == submitted_digits:
                     existing_lead.appointment_requested = True
                     existing_lead.status = "qualified"
-                    existing_lead.journey_id = existing_lead.journey_id or _normalize_journey_id(
-                        data.get("journey_id")
-                    )
+                    _backfill_lead_attribution(existing_lead, data)
                     existing_lead.home_id = existing_lead.home_id or home_id
                     existing_lead.home_model = existing_lead.home_model or home_model
                     await lead_manager.update_lead(existing_lead)

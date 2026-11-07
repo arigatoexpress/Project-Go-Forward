@@ -162,8 +162,22 @@ def project_event(doc: dict) -> dict | None:
         "intent": props.get("intent") or props.get("type"),
         "placement": props.get("placement"),
         "page_path": props.get("page_path") or props.get("path"),
+        "utm_source": _campaign_prop(props, "utm_source"),
+        "utm_medium": _campaign_prop(props, "utm_medium"),
+        "utm_campaign": _campaign_prop(props, "utm_campaign"),
+        "utm_content": _campaign_prop(props, "utm_content"),
+        "utm_term": _campaign_prop(props, "utm_term"),
         "created_at": _iso(doc.get("created_at")),
     }
+
+
+def _campaign_prop(props: dict, field: str) -> str | None:
+    """Copy one campaign value. Click IDs stay in Firestore, not this export."""
+    value = props.get(field)
+    if not isinstance(value, str):
+        return None
+    cleaned = value.strip()[:200]
+    return cleaned or None
 
 
 _APPT_DATE_FIELDS = (
@@ -331,6 +345,11 @@ EVENT_SCHEMA = [
     bigquery.SchemaField("intent", "STRING"),
     bigquery.SchemaField("placement", "STRING"),
     bigquery.SchemaField("page_path", "STRING"),
+    bigquery.SchemaField("utm_source", "STRING"),
+    bigquery.SchemaField("utm_medium", "STRING"),
+    bigquery.SchemaField("utm_campaign", "STRING"),
+    bigquery.SchemaField("utm_content", "STRING"),
+    bigquery.SchemaField("utm_term", "STRING"),
     bigquery.SchemaField("created_at", "TIMESTAMP"),
 ]
 
@@ -415,6 +434,15 @@ VIEWS = {
         "COUNT(DISTINCT IF(event='appointment_booked',journey_key,NULL)) appointment_journeys "
         "FROM `{d}.events` WHERE journey_key IS NOT NULL GROUP BY 1 "
         "ORDER BY lead_journeys DESC, appointment_journeys DESC"
+    ),
+    "v_conversions_by_campaign": (
+        "SELECT COALESCE(utm_source,'(direct/none)') utm_source, "
+        "COALESCE(utm_medium,'(none)') utm_medium, "
+        "COALESCE(utm_campaign,'(none)') utm_campaign, "
+        "COUNTIF(event='lead_captured') leads, "
+        "COUNTIF(event='appointment_booked') appointments "
+        "FROM `{d}.events` GROUP BY 1,2,3 "
+        "ORDER BY leads DESC, appointments DESC"
     ),
 }
 

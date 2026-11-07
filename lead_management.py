@@ -98,9 +98,9 @@ class Lead:
     utm_content: str | None = None
     utm_term: str | None = None
     referrer: str | None = None
-    # Google Ads click IDs retained only when a visitor actively submits a
-    # lead. They enable deterministic offline conversion attribution without
-    # placing contact PII in analytics events.
+    # Google Ads click IDs retained when a visitor submits a lead or books a
+    # visit. Offline conversion upload reads them from the lead. The same
+    # sanitized ids are copied onto the conversion event, without contact PII.
     gclid: str | None = None
     gbraid: str | None = None
     wbraid: str | None = None
