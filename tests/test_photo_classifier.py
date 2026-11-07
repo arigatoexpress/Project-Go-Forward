@@ -285,7 +285,9 @@ def test_reorder_all_floorplans_returns_none_image_url():
 
 def test_reorder_explicit_floorplan_hint_handles_ambiguous_filename():
     """A URL in a floorplan field remains a floorplan even without a token."""
-    ambiguous = "https://d132mt2yijm03y.cloudfront.net/manufacturer/3335/floorplan/225061/Aspen.jpg"
+    # Numbered names are photos unless a floorplan field says otherwise.
+    # 10.jpg is a live object, so this stays a classification case.
+    ambiguous = "https://d132mt2yijm03y.cloudfront.net/manufacturer/3335/floorplan/227079/10.jpg"
     result = reorder_for_listing(
         [ambiguous],
         current_image_url=ambiguous,
@@ -464,8 +466,9 @@ def test_rewrite_media_url_repairs_extension_siblings_only():
     assert rewrite_media_url(jpeg_dead).endswith("/1.jpeg")
     assert rewrite_media_url(webp_dead) == webp_live
     assert rewrite_media_url(live_jpg) == live_jpg
-    assert rewrite_media_url(still_dead) == still_dead
-    # Probed 2026-10-22: these orderable photos 403 and have no live sibling.
+    # Probed 2026-11-07: these keys return AccessDenied and have no
+    # same-stem sibling, so they are omitted rather than requested.
+    assert rewrite_media_url(still_dead) == ""
     absolute_value = (
         "https://d132mt2yijm03y.cloudfront.net/manufacturer/2025/floorplan/226545/"
         "Absolute%20Value-1.jpg"
@@ -474,11 +477,34 @@ def test_rewrite_media_url_repairs_extension_siblings_only():
         "https://d132mt2yijm03y.cloudfront.net/manufacturer/2007/floorplan/236876/"
         "TRT14602DH_Dogwood_Exterior%20%281%29.jpg"
     )
-    assert rewrite_media_url(absolute_value) == absolute_value
-    assert rewrite_media_url(dogwood) == dogwood
+    assert rewrite_media_url(absolute_value) == ""
+    assert rewrite_media_url(dogwood) == ""
+    assert rewrite_media_url(f"{still_dead}?v=1") == ""
     assert rewrite_media_url("https://storage.googleapis.com/tho/inventory/1.jpg") == (
         "https://storage.googleapis.com/tho/inventory/1.jpg"
     )
+
+
+def test_unreachable_cdn_keys_are_omitted_without_replacing_a_live_photo():
+    dead = "https://d132mt2yijm03y.cloudfront.net/manufacturer/3335/floorplan/227079/1.jpg"
+    live = "https://d132mt2yijm03y.cloudfront.net/manufacturer/3335/floorplan/227079/10.jpg"
+    floorplan = (
+        "https://d132mt2yijm03y.cloudfront.net/manufacturer/3335/floorplan/227079/"
+        "Whitehaven%20floor-plans.jpg"
+    )
+    assert len(photo_classifier._UNREACHABLE_CDN_KEYS) == 47
+    assert "manufacturer/3335/floorplan/227079/10.jpg" not in photo_classifier._UNREACHABLE_CDN_KEYS
+    home = {
+        "image_url": dead,
+        "real_photos": [dead, live],
+        "floorplan_url": floorplan,
+        "floorplan_urls": [floorplan],
+    }
+    apply_classifier_to_home(home)
+    assert home["image_url"] == live
+    assert home["real_photos"] == [live]
+    assert home["floorplan_url"] == ""
+    assert home["floorplan_urls"] == []
 
 
 def test_cdn_extension_repairs_keep_the_same_filename_stem():

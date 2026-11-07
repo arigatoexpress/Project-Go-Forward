@@ -1,6 +1,7 @@
 import { BUSINESS_CITY, BUSINESS_NAME, BUSINESS_STATE } from '../constants';
 import { cityDescription, cityTitle } from '../seoCopy';
 import cdnExtensionRepairs from '../../../data/manufacturer_cdn_extension_repairs.json';
+import unreachableCdnKeys from '../../../data/manufacturer_cdn_unreachable.json';
 
 const SLUG_RE = /[^a-z0-9]+/g;
 export const PUBLIC_CANONICAL_ORIGIN = 'https://www.texashomeoutlet.com';
@@ -231,6 +232,10 @@ export function usedHomeMayShowPhoto(url, home) {
 // and `.webp` as different objects. This table is every dead key that
 // has a working sibling — not one listing.
 const MANUFACTURER_CDN_HOST = 'd132mt2yijm03y.cloudfront.net';
+// Keys probed on the public feed (2026-11-07) that return S3 AccessDenied
+// and have no same-stem extension sibling. Omit them so the next live
+// photo already on the listing is what the browser requests.
+const UNREACHABLE_CDN_KEYS = new Set(unreachableCdnKeys);
 
 function encodeCdnFilename(filename) {
   // Match Python urllib.parse.quote(filename, safe=""): encode the
@@ -256,6 +261,7 @@ export function rewriteMediaUrl(url) {
   } catch {
     return value;
   }
+  if (UNREACHABLE_CDN_KEYS.has(key)) return '';
   const filename = cdnExtensionRepairs[key];
   if (!filename) return value;
   const folder = key.slice(0, key.lastIndexOf('/'));
