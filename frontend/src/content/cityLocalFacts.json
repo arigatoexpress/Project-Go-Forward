@@ -1,6 +1,6 @@
 {
   "listing_limit": 8,
-  "content_lastmod": "2026-10-20",
+  "content_lastmod": "2026-11-07",
   "index": {
     "heading": "Locations",
     "intro": "These pages are the towns around the Texas Home Outlet showroom in Huffman, Harris County. The lot is on FM 1960 East. A town page names the county, the compass direction from that lot, and the highways named in the Handbook of Texas entry. The houses themselves are on the home inventory.",
@@ -141,6 +141,20 @@
       ],
       "sources": [
         "https://www.tshaonline.org/handbook/entries/livingston-tx"
+      ]
+    },
+    "houston": {
+      "city": "Houston",
+      "heading": "Houston, seat of Harris County",
+      "index_blurb": "Harris County seat to the southwest, on Buffalo Bayou.",
+      "paragraphs": [
+        "Houston is the county seat of Harris County. The Handbook of Texas places the original townsite on the Coastal Plain along Buffalo Bayou and says Augustus Chapman Allen and John Kirby Allen named the town for Sam Houston in 1836. The coordinates printed on that handbook page sit southwest of the showroom point in the site config. The Huffman handbook entry places Huffman about thirty miles northeast of Houston, which is this lot's place in that pair.",
+        "Houses and floorplans offered from the Huffman lot are on the [inventory](/inventory). Houston is one stop on the [locations index](/locations). Width categories are the [single wide page](/single-wide) and the [double wide page](/double-wide)."
+      ],
+      "sources": [
+        "https://www.tshaonline.org/handbook/entries/houston-tx",
+        "https://www.tshaonline.org/handbook/entries/huffman-tx",
+        "config.yaml business.geo compared with the handbook coordinates"
       ]
     }
   }

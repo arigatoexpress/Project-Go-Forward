@@ -25,8 +25,11 @@ const FAQ_ITEMS = [
   {
     question: 'Why do the listings say "Call for Price"?',
     answer:
-      'If a home\'s price is Call for Price, the price is not posted online because the total depends on the options, delivery distance, and site setup for that home. '
-      + `Call ${BUSINESS_PHONE} or request a quote on any home.`,
+      'Listings say Call for Price when no dollar amount is posted online. '
+      + 'The total depends on the options, delivery distance, and site setup for that home. '
+      + `Call or text ${BUSINESS_PHONE}, visit the showroom at ${BUSINESS_FULL_ADDRESS} `
+      + 'during posted showroom hours (Mon-Fri 9:00 AM - 6:00 PM, Sat 10:00 AM - 3:00 PM, Sun Closed), '
+      + 'or book an appointment. The website does not fill in a guessed price.',
   },
   {
     question: 'How does financing work for a manufactured home?',

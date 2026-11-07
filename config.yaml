@@ -59,6 +59,7 @@ business:
     - "Cleveland"
     - "Conroe"
     - "Livingston"
+    - "Houston"
   # Social / Google Business Profile URLs — FILL IN to strengthen local SEO + map
   # placement (schema.org sameAs): Facebook, Instagram, Google Business Profile, etc.
   same_as:

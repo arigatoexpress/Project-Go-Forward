@@ -415,7 +415,16 @@ export function applyDocumentHead({ title, description, canonicalPath, image, ro
   if (title) upsertMeta('name', 'twitter:title', title);
   if (description) upsertMeta('name', 'twitter:description', description);
   if (image) {
-    const absolute = String(image).startsWith('http') ? image : `${origin}${image}`;
+    // rewriteMediaUrl returns '' for a manufacturer CDN key that answers
+    // HTTP 403 (the shared unreachable set). Fall back to the brand card
+    // so the page never advertises that URL. Relative paths become absolute.
+    const rewritten = rewriteMediaUrl(String(image));
+    const usable = rewritten || '/og-card.png';
+    const absolute = usable.startsWith('http://')
+      ? `https://${usable.slice('http://'.length)}`
+      : usable.startsWith('http')
+        ? usable
+        : `${origin}${usable.startsWith('/') ? usable : `/${usable}`}`;
     upsertMeta('property', 'og:image', absolute);
     upsertMeta('name', 'twitter:image', absolute);
   }

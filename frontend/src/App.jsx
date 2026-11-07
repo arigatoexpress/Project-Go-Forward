@@ -2004,6 +2004,12 @@ function App() {
 
       {/* Main Chat Area */}
       <main id="main-content" tabIndex={-1} className="flex-1 overflow-hidden flex flex-col max-w-4xl mx-auto w-full bg-[var(--cp-panel)] shadow-xl md:my-4 md:rounded-lg relative border border-[var(--cp-border)] focus:outline-none">
+        <header className="border-b border-[var(--cp-border)] px-4 py-3">
+          <h1 className="text-xl font-bold text-[var(--cp-text)]">Chat with Tex</h1>
+          <p className="mt-1 text-sm text-[var(--cp-text-dim)]">
+            Ask about manufactured homes, pricing, and showroom visits. Call {BUSINESS_PHONE} or book an appointment for a price.
+          </p>
+        </header>
 
         {/* Messages List */}
         <div className="flex-1 overflow-y-auto p-4 space-y-6 scrollbar-thin pb-20">

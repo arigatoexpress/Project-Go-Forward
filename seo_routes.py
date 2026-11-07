@@ -29,7 +29,7 @@ import threading
 import time
 from datetime import date
 from pathlib import Path
-from urllib.parse import quote_plus, unquote, urlparse
+from urllib.parse import quote_plus, unquote, urlparse, urlsplit, urlunsplit
 
 from fastapi import APIRouter
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, Response
@@ -977,6 +977,33 @@ def _default_og_image() -> str | None:
     return _base() + raw if raw.startswith("/") else raw
 
 
+def _public_share_image(url: str | None) -> str | None:
+    """Absolute https URL for og:image, or None when it must not be advertised.
+
+    Relative paths such as ``/api/inventory/photos/...`` become
+    ``https://www.texashomeoutlet.com/...``. Manufacturer CDN keys that
+    ``rewrite_media_url`` drops (HTTP 403 with no live sibling, the set in
+    ``data/manufacturer_cdn_unreachable.json``) are omitted instead of
+    being published. An ``http://`` image is upgraded to ``https://``.
+    """
+    raw = str(url or "").strip()
+    if not raw:
+        return None
+    rewritten = rewrite_media_url(raw)
+    if not rewritten:
+        return None
+    if rewritten.startswith("//"):
+        rewritten = "https:" + rewritten
+    elif rewritten.startswith("/"):
+        rewritten = _base() + rewritten
+    elif rewritten.startswith("http://"):
+        parts = urlsplit(rewritten)
+        rewritten = urlunsplit(("https", parts.netloc, parts.path, parts.query, parts.fragment))
+    if not rewritten.startswith("https://"):
+        return None
+    return rewritten
+
+
 # HTML-tag verification is runtime configuration. Do not hardcode or invent a
 # token. GOOGLE_SITE_VERIFICATION fills google-site-verification;
 # BING_SITE_VERIFICATION fills msvalidate.01. Unset, blank, placeholder, and
@@ -1052,6 +1079,8 @@ def _head_block(
                 f'<meta name="twitter:description" content="{e(description)}" />',
             ]
         )
+        if og_image is not None:
+            og_image = _public_share_image(og_image)
         if og_image is None:
             og_image = _default_og_image()
         if og_image:
@@ -1415,12 +1444,42 @@ def _listing_spec_bits(home: dict) -> list[str]:
     return [str(bit).strip() for bit in candidates if bit and str(bit).strip()]
 
 
+def _unpriced_meta_description(name: str, bits: list[str]) -> str:
+    """Meta description for a listing with no posted dollar amount.
+
+    Specs stay only when they still fit beside the call, visit, or
+    appointment sentence. The sentence does not invent a price.
+    """
+    specs = [bit for bit in bits if not _is_call_for_price_label(bit)]
+    tail = (
+        f"Price by phone, a showroom visit, or an appointment at {business_name()}. "
+        f"Call {business_phone()}."
+    )
+    while True:
+        spec = f" ({', '.join(specs)})" if specs else ""
+        description = f"{name}{spec}. {tail}"
+        if len(description) <= _LISTING_DESCRIPTION_LIMIT:
+            return description
+        if not specs:
+            break
+        specs.pop()
+    bare = f"{name}. {tail}"
+    if len(bare) <= _LISTING_DESCRIPTION_LIMIT:
+        return bare
+    room = _LISTING_DESCRIPTION_LIMIT - len(tail) - 2
+    if room < 1:
+        return _clip_on_word(bare, _LISTING_DESCRIPTION_LIMIT)
+    return f"{_clip_on_word(name, room)}. {tail}"
+
+
 def _listing_meta_description(model_name: object, bits, *, for_sale: bool = False) -> str:
     """Existing listing sentence, with spec bits dropped from the end to fit."""
     name = _listing_model_label(model_name, fallback="Manufactured home")
+    kept = [str(bit).strip() for bit in bits if bit and str(bit).strip()]
+    if any(_is_call_for_price_label(bit) for bit in kept):
+        return _unpriced_meta_description(name, kept)
     relation = "for sale at" if for_sale else "at"
     tail = f"{relation} {business_name()} in {_CITY_STATE}. Call {business_phone()}."
-    kept = [str(bit).strip() for bit in bits if bit and str(bit).strip()]
     while kept:
         description = f"{name} ({', '.join(kept)}) {tail}"
         if len(description) <= _LISTING_DESCRIPTION_LIMIT:
@@ -1436,15 +1495,101 @@ def _listing_meta_description(model_name: object, bits, *, for_sale: bool = Fals
 
 
 def _price_list_item(home: dict) -> str:
-    """Crawlable price line. Unpriced homes include the showroom phone."""
+    """Crawlable price line. Unpriced homes say how to get the price.
+
+    The line names the real showroom phone, the showroom address, and an
+    appointment. It does not invent a dollar amount.
+    """
     e = html.escape
     label = _listing_display_price(home)
     if label == "Call for Price":
         return (
-            "<li>Price: Call for Price. "
-            f'<a href="{e(_tel_href())}">Call {e(business_phone())}</a>.</li>'
+            "<li>Price: Call for Price. No dollar amount is posted for this home. "
+            "The total depends on the options, delivery distance, and site setup. "
+            f'<a href="{e(_tel_href())}">Call {e(business_phone())}</a>, '
+            f'<a href="{e(_sms_href(home))}">text {e(business_phone())}</a>, '
+            f"visit the showroom at {e(business_address())}, or "
+            '<a href="/appointments">book an appointment</a>.</li>'
         )
     return f"<li>Price: {e(label)}</li>"
+
+
+def _positive_spec_number(value: object) -> int | float | None:
+    """A finite spec count, or None when the field is blank or not numeric."""
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, int | float):
+        number = float(value)
+    else:
+        match = re.search(r"\d+(?:\.\d+)?", str(value))
+        if not match:
+            return None
+        number = float(match.group(0))
+    if not math.isfinite(number) or number <= 0:
+        return None
+    if number.is_integer():
+        return int(number)
+    return number
+
+
+def _unpriced_listing_jsonld(home: dict, canonical_url: str) -> dict | None:
+    """ItemPage for a listing that has no public price.
+
+    Product rich results require an Offer, and an Offer requires a real
+    price. This describes the floor plan and how to ask for the price.
+    It never includes an Offer or a dollar amount.
+    """
+    if _shown_offer_price(home) is not None:
+        return None
+    specs = home.get("specs") or {}
+    name = str(home.get("model_name") or "Manufactured Home")
+    explanation = (
+        "No dollar amount is posted for this home. The total depends on the options, "
+        "delivery distance, and site setup. Call, visit the showroom, or book an appointment."
+    )
+    about: dict = {
+        "@type": "FloorPlan",
+        "name": name,
+        "description": explanation,
+        "url": canonical_url,
+    }
+    beds = _positive_spec_number(specs.get("beds"))
+    baths = _positive_spec_number(specs.get("baths"))
+    sqft_raw = specs.get("sqft") if specs.get("sqft") is not None else specs.get("sq_ft")
+    sqft = _positive_spec_number(sqft_raw)
+    if beds is not None:
+        about["numberOfBedrooms"] = beds
+    if baths is not None:
+        about["numberOfBathroomsTotal"] = baths
+    if sqft is not None:
+        about["floorSize"] = {
+            "@type": "QuantitativeValue",
+            "value": sqft,
+            "unitCode": "FTK",
+            "unitText": "sq ft",
+        }
+    image = _public_share_image(_first_image(home))
+    if image:
+        about["image"] = image
+    return {
+        "@context": "https://schema.org",
+        "@type": "ItemPage",
+        "name": name,
+        "description": explanation,
+        "url": canonical_url,
+        "about": about,
+        "mainEntity": {
+            "@type": "ContactPoint",
+            "telephone": business_phone(),
+            "contactType": "sales",
+            "url": _base() + "/contact",
+        },
+        "potentialAction": {
+            "@type": "ReserveAction",
+            "name": "Book a showroom visit",
+            "target": _base() + "/appointments",
+        },
+    }
 
 
 def _listing_product_jsonld(home: dict, canonical_url: str) -> dict | None:
@@ -1627,9 +1772,11 @@ def _faq_pairs() -> list[tuple[str, str]]:
         ),
         (
             'Why do the listings say "Call for Price"?',
-            "If a home's price is Call for Price, the price is not posted online because the total depends "
-            "on the options, delivery distance, and site setup for that home. "
-            f"Call {business_phone()} or request a quote on any home.",
+            "Listings say Call for Price when no dollar amount is posted online. "
+            "The total depends on the options, delivery distance, and site setup for that home. "
+            f"Call or text {business_phone()}, visit the showroom at {business_address()} "
+            f"during posted showroom hours ({business_hours()}), or book an appointment. "
+            "The website does not fill in a guessed price.",
         ),
         (
             "How does financing work for a manufactured home?",
@@ -1685,6 +1832,20 @@ def _faqpage_jsonld() -> dict:
             for question, answer in _faq_pairs()
         ],
     }
+
+
+def _crawlable_chat_block() -> str:
+    """Visible heading for /chat. The React page repeats the same h1."""
+    e = html.escape
+    return (
+        "<h1>Chat with Tex</h1>"
+        f"<p>Ask Tex, the {e(business_name())} assistant, about manufactured homes, "
+        f"pricing, and availability in {e(_CITY_STATE)}. "
+        "Prices on this site stay Call for Price until the team confirms the total. "
+        f'Call <a href="{e(_tel_href())}">{e(business_phone())}</a>, '
+        f"visit the showroom at {e(business_address())}, or "
+        '<a href="/appointments">book an appointment</a>.</p>'
+    )
 
 
 def _crawlable_faq_block() -> str:
@@ -2244,6 +2405,7 @@ def _render_spa_response(full_path: str) -> Response | None:
                 x
                 for x in (
                     _listing_product_jsonld(home, canonical_url),
+                    _unpriced_listing_jsonld(home, canonical_url),
                     _breadcrumb_jsonld(
                         home.get("model_name") or "Manufactured Home", canonical_url
                     ),
@@ -2322,7 +2484,14 @@ def _render_spa_response(full_path: str) -> Response | None:
             description,
             canonical_url,
             og_image=_first_image(home),
-            jsonld=[x for x in (_product_jsonld(home, canonical_url),) if x]
+            jsonld=[
+                x
+                for x in (
+                    _product_jsonld(home, canonical_url),
+                    _unpriced_listing_jsonld(home, canonical_url),
+                )
+                if x
+            ]
             + [_breadcrumb_jsonld(home.get("model_name") or "Manufactured Home", canonical_url)],
             preload_image=lcp_href,
         )
@@ -2411,6 +2580,8 @@ def _render_spa_response(full_path: str) -> Response | None:
             body = _crawlable_warranty_block()
         elif path == "/delivery":
             body = _crawlable_delivery_block()
+        elif path == "/chat":
+            body = _crawlable_chat_block()
         elif path in ("/privacy", "/terms"):
             body = _crawlable_legal_block(path.lstrip("/"))
         else:

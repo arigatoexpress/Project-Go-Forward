@@ -188,6 +188,10 @@ describe('public pages omit unverified claims', () => {
     expect(screen.getByText(DELIVERY_LINE)).toBeInTheDocument();
     expect(screen.getByText(WARRANTY_LINE)).toBeInTheDocument();
     expect(screen.getAllByText(/Call for Price/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/book an appointment/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/10685 FM 1960 East/).length).toBeGreaterThan(0);
+    expect(screen.getByText(/does not fill in a guessed price/)).toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/\$\s*\d/);
     assertClean('faq');
     assertNoNewEmDash('faq');
   });

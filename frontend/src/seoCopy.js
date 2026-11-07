@@ -126,12 +126,36 @@ export function listingDocumentTitle(modelName) {
   return `${fitListingName(name, LISTING_TITLE_LIMIT - suffix.length)}${suffix}`;
 }
 
+function isCallForPriceBit(bit) {
+  return /^call\s+for\s+pric(?:e|ing)$/i.test(String(bit || '').trim());
+}
+
+function unpricedMetaDescription(name, specs) {
+  const tail = `Price by phone, a showroom visit, or an appointment at ${BUSINESS_NAME}. Call ${BUSINESS_PHONE}.`;
+  const remaining = [...specs];
+  while (true) {
+    const spec = remaining.length ? ` (${remaining.join(', ')})` : '';
+    const description = `${name}${spec}. ${tail}`;
+    if (description.length <= LISTING_DESCRIPTION_LIMIT) return description;
+    if (!remaining.length) break;
+    remaining.pop();
+  }
+  const bare = `${name}. ${tail}`;
+  if (bare.length <= LISTING_DESCRIPTION_LIMIT) return bare;
+  const room = LISTING_DESCRIPTION_LIMIT - tail.length - 2;
+  if (room < 1) return clipOnWord(bare, LISTING_DESCRIPTION_LIMIT);
+  return `${clipOnWord(name, room)}. ${tail}`;
+}
+
 export function listingMetaDescription(modelName, bits) {
   const name = collapseWs(modelName) || 'Manufactured home';
-  const tail = `at ${BUSINESS_NAME} in ${BUSINESS_CITY}, ${BUSINESS_STATE}. Call ${BUSINESS_PHONE}.`;
   const kept = (Array.isArray(bits) ? bits : [])
     .map((bit) => String(bit || '').trim())
     .filter(Boolean);
+  if (kept.some(isCallForPriceBit)) {
+    return unpricedMetaDescription(name, kept.filter((bit) => !isCallForPriceBit(bit)));
+  }
+  const tail = `at ${BUSINESS_NAME} in ${BUSINESS_CITY}, ${BUSINESS_STATE}. Call ${BUSINESS_PHONE}.`;
   while (kept.length) {
     const description = `${name} (${kept.join(', ')}) ${tail}`;
     if (description.length <= LISTING_DESCRIPTION_LIMIT) return description;
