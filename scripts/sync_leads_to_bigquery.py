@@ -74,6 +74,12 @@ _EVENT_ALLOWLIST = {
     "lead_captured",
     "appointment_booked",
     "review_redirect",
+    "chat_prompt_shown",
+    "chat_prompt_dismissed",
+    "chat_opened",
+    "chat_started",
+    "chat_message_sent",
+    "chat_closed",
 }
 
 
