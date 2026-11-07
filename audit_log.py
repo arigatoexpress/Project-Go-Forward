@@ -25,6 +25,9 @@ Design notes:
     admin action because the audit write blew up.
   * ``details`` is sanitized server-side: any PII-shaped keys are dropped to
     avoid accidental leakage even if a caller passes them.
+  * After the record is sanitized, ``staff_feature_log`` may write one stdout
+    JSON line for Cloud Logging. Sign-in, sign-out, and passkey ceremonies are
+    not emitted here; those lines belong to the staff-admin logger.
 """
 
 from __future__ import annotations
@@ -32,10 +35,12 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import re
 from datetime import UTC, datetime
 from typing import Any
 
 from database.rpc_timeout import FIRESTORE_RPC_TIMEOUT
+from staff_feature_log import emit_staff_feature_event
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +59,8 @@ ALLOWED_ACTIONS: tuple[str, ...] = (
     "document.generate",
     "document.esign_send",
     "document.esign_complete",
+    "document.esign_cancel",
+    "document.email_delivery",
     "documents.share",
     "inventory.create",
     "inventory.update",
@@ -117,6 +124,23 @@ _PII_KEYS_DENYLIST = frozenset(
         "password",
         "pin",
         "token",
+        "to",
+        "recipient",
+        "subject",
+        "message",
+        "error",
+        "exception",
+        "traceback",
+        "body",
+        "request_body",
+        "raw_body",
+        "code",
+        "link_token",
+        "public_key",
+        "credential_id",
+        "cookie",
+        "authorization",
+        "passkey",
     }
 )
 
@@ -126,12 +150,21 @@ _PII_KEY_SUBSTRINGS = ("email", "phone", "ssn", "address", "dob")
 # These exact operational fields identify artifacts, not people. Unknown name
 # fields remain denied, including camelCase and nested customer-name variants.
 _OPERATIONAL_NAME_KEYS = frozenset({"template_name", "packet_name", "model_name"})
+# email_type is a template/kind token ("custom", "reply_draft"), not an address.
+_OPERATIONAL_EXACT_KEYS = _OPERATIONAL_NAME_KEYS | {"email_type"}
+
+
+def _is_filename_key(key: str) -> bool:
+    lowered = key.lower()
+    return lowered == "filename" or lowered.endswith("_filename")
 
 
 def _is_denied_pii_key(key: str) -> bool:
     lowered = key.lower()
     if lowered in _PII_KEYS_DENYLIST:
         return True
+    if lowered in _OPERATIONAL_EXACT_KEYS:
+        return False
     if lowered.startswith("co_buyer_"):
         return True
     if "name" in lowered and lowered not in _OPERATIONAL_NAME_KEYS:
@@ -142,6 +175,20 @@ def _is_denied_pii_key(key: str) -> bool:
 # Maximum length of the details JSON — prevents a buggy caller from filling
 # Firestore with megabyte-sized payloads.
 _MAX_DETAILS_BYTES = 4096
+
+# Values, not just keys. A safe key must not become a carrier for an address,
+# a phone number, or an SSN.
+_CONTACT_VALUE = re.compile(
+    r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"
+    r"|\b\d{3}-\d{2}-\d{4}\b"
+    r"|(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}"
+)
+
+
+def _redact_text(value: str) -> str:
+    if _CONTACT_VALUE.search(value) or "traceback" in value.lower():
+        return "<omitted>"
+    return value[:500]
 
 
 # ── Lazy Firestore client (mirrors email_service.py) ───────────────────────
@@ -210,7 +257,7 @@ def _sanitize_details(details: dict[str, Any] | None) -> dict[str, Any]:
     for key, value in details.items():
         if not isinstance(key, str):
             continue
-        if key.lower() == "filename":
+        if _is_filename_key(key):
             # Upload stems may contain names/phones; retain only a stable digest.
             if isinstance(value, str):
                 cleaned["filename_sha256"] = hashlib.sha256(value.encode("utf-8")).hexdigest()
@@ -234,9 +281,11 @@ def _coerce_safe(value: Any, _depth: int = 0) -> Any:
         return "<truncated>"
     if value is None or isinstance(value, bool | int | float):
         return value
+    if isinstance(value, BaseException):
+        return "<omitted>"
     if isinstance(value, str):
         # Cap individual string length so a bug can't blow up the doc.
-        return value[:500]
+        return _redact_text(value)
     if isinstance(value, list | tuple):
         return [_coerce_safe(v, _depth + 1) for v in list(value)[:50]]
     if isinstance(value, dict):
@@ -244,7 +293,7 @@ def _coerce_safe(value: Any, _depth: int = 0) -> Any:
         for k, v in value.items():
             if not isinstance(k, str):
                 continue
-            if k.lower() == "filename":
+            if _is_filename_key(k):
                 if isinstance(v, str):
                     out["filename_sha256"] = hashlib.sha256(v.encode("utf-8")).hexdigest()
                 continue
@@ -252,11 +301,9 @@ def _coerce_safe(value: Any, _depth: int = 0) -> Any:
                 continue
             out[k] = _coerce_safe(v, _depth + 1)
         return out
-    # Fallback: stringify unknown types.
-    try:
-        return str(value)[:500]
-    except Exception:
-        return "<unprintable>"
+    # Unknown objects can be request models or exception wrappers. Do not
+    # stringify them; that would copy a body or a traceback into the record.
+    return "<omitted>"
 
 
 # ── Public API ─────────────────────────────────────────────────────────────
@@ -269,6 +316,7 @@ def log_admin_action(
     target_id: str,
     details: dict[str, Any] | None = None,
     request: Any = None,
+    outcome: str = "ok",
 ) -> None:
     """Persist an audit-log entry for an admin mutation.
 
@@ -283,6 +331,8 @@ def log_admin_action(
         details: Optional metadata. IDs and field-name deltas only — PII keys
             are stripped before write.
         request: FastAPI ``Request`` for IP / user-agent extraction.
+        outcome: ``ok`` or ``error`` for the Cloud Logging feature line.
+            Firestore still stores the same sanitized record either way.
 
     Logging failures are warned and swallowed: we never block the originating
     request because the audit write failed.
@@ -311,6 +361,17 @@ def log_admin_action(
             "user_agent": _user_agent_from_request(request),
             "details": _sanitize_details(details),
         }
+        try:
+            emit_staff_feature_event(
+                action=entry["action"],
+                actor=entry["actor"],
+                target_type=entry["target_type"],
+                target_id=entry["target_id"],
+                details=entry["details"],
+                outcome=outcome,
+            )
+        except Exception:
+            pass
 
         db = _get_db()
         if db is None:
@@ -323,11 +384,10 @@ def log_admin_action(
         # blows up. Surface the failure in structured logs so operators see
         # it in Cloud Logging.
         logger.warning(
-            "Audit log write failed action=%s target_type=%s target_id=%s error=%s",
+            "Audit log write failed action=%s target_type=%s error_type=%s",
             action,
             target_type,
-            target_id,
-            exc,
+            type(exc).__name__,
         )
 
 
