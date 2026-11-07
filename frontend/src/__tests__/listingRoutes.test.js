@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import unreachableCdnKeys from '../../../data/manufacturer_cdn_unreachable.json';
 import {
   fallbackListingHeading,
   getCityLanding,
@@ -131,6 +132,18 @@ describe('listingRoutes', () => {
       floor_plan_url: dead,
       floorplan_urls: [dead, png, 'https://cdn.example/plan.pdf'],
     })).toEqual([live, png]);
+  });
+
+  it('imports the shared unreachable CDN list and omits every key in it', () => {
+    expect(Array.isArray(unreachableCdnKeys)).toBe(true);
+    expect(unreachableCdnKeys.length).toBeGreaterThan(0);
+    expect(new Set(unreachableCdnKeys).size).toBe(unreachableCdnKeys.length);
+    // 10.jpg on this floor plan still returns HTTP 200. It must stay off the list.
+    expect(unreachableCdnKeys).not.toContain('manufacturer/3335/floorplan/227079/10.jpg');
+    for (const key of unreachableCdnKeys) {
+      const encoded = key.split('/').map((part) => encodeURIComponent(part)).join('/');
+      expect(rewriteMediaUrl(`https://d132mt2yijm03y.cloudfront.net/${encoded}`)).toBe('');
+    }
   });
 
   it('omits a manufacturer object that returns 403 and has no extension sibling', () => {
