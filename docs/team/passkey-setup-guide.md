@@ -31,8 +31,11 @@ If this device cannot save a passkey, the Add button is hidden and the page
 says: **This device can’t save a passkey. Use the email link.**
 
 The owner can add a passkey for more than one of their own addresses. That
-choice stays in the add dialog. A shared PIN cannot add a staff passkey, and
-it cannot add the first owner passkey.
+choice stays in the add dialog. A shared PIN cannot add a staff passkey. The
+owner can add their own passkey after the email link. The backup PIN can add
+an owner passkey only until a newly saved owner passkey has been used to sign
+in. After that, another owner passkey requires that passkey sign-in. Older
+owner passkeys stay in place. This step does not remove them.
 
 ## Sign in with a passkey
 
@@ -67,5 +70,7 @@ cannot be removed until a replacement is saved.
 - Whether the email link worked, and whether the new passkey worked.
 - The words of any error, with codes and secrets left out.
 
-Updated October 22, 2026. Email is the sign-in and the fallback. A passkey is
-optional on devices that can save one.
+Updated November 7, 2026. Email is the sign-in and the fallback. A passkey is
+optional on devices that can save one. The owner can save a new passkey from
+that email sign-in, or from the backup PIN, until the new passkey has been
+used to sign in.

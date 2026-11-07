@@ -820,10 +820,27 @@ function App() {
       profile = null;
     }
     const email = String(profile?.email || '').trim().toLowerCase();
+    const recoveryEmails = profile?.owner_passkey_recovery && Array.isArray(profile?.owner_emails)
+      ? profile.owner_emails
+      : [];
+    if (!email && profile?.auth_method === 'pin' && recoveryEmails.length > 0) {
+      setPasskeyDialog({
+        phase: 'confirm',
+        email: recoveryEmails[0],
+        emailChoices: recoveryEmails,
+        recovery: true,
+        otherOwnerEmails: [],
+        error: '',
+        tried: false,
+      });
+      return;
+    }
     if (!email) {
       setPasskeyDialog({
         phase: 'error',
-        error: 'Use the email link on this page. Sign in with it before adding a passkey.',
+        error: profile?.auth_method === 'pin'
+          ? 'A shared PIN cannot add a staff passkey. Sign in with the email link. The backup PIN can add an owner passkey only until that new passkey has been used to sign in.'
+          : 'Use the email link on this page. Sign in with it before adding a passkey.',
         tried: false,
       });
       return;
@@ -1364,11 +1381,13 @@ function App() {
       open={Boolean(passkeyDialog)}
       phase={passkeyDialog?.phase}
       email={passkeyDialog?.email || ''}
+      emailChoices={passkeyDialog?.emailChoices || []}
+      recovery={Boolean(passkeyDialog?.recovery)}
       otherOwnerEmails={passkeyDialog?.otherOwnerEmails || []}
       error={passkeyDialog?.error || ''}
       tried={Boolean(passkeyDialog?.tried)}
       loading={passkeyLoading}
-      onAdd={() => runPasskeyRegister(passkeyDialog?.email)}
+      onAdd={(chosen) => runPasskeyRegister(chosen || passkeyDialog?.email)}
       onTry={trySavedPasskey}
       onClose={() => { if (passkeyDialog?.phase !== 'working') setPasskeyDialog(null); }}
     />

@@ -28,6 +28,7 @@ import struct
 import time
 from base64 import urlsafe_b64decode
 from datetime import UTC, datetime
+from threading import Lock
 from typing import Any
 
 from fastapi import APIRouter, Body, Cookie, Depends, HTTPException, Request
@@ -40,6 +41,7 @@ from .session import (
     SESSION_COOKIE_NAME,
     SessionManager,
 )
+from .staff_audit import log_staff_action
 from .staff_directory import override_status
 from .store import (
     CredentialAlreadyExists,
@@ -394,26 +396,140 @@ def _require_admin_request(request: Request, manager: SessionManager) -> None:
     require_request_csrf(request)
 
 
+# Email or backup-PIN proof can enroll one new owner passkey while no
+# current-RP owner credential has completed a passkey login. Historical
+# credentials (no rp_id, including user_id "admin") do not close that door
+# and are never rewritten. After a newly registered owner key is used at
+# /login/complete, enrollment goes back to the same owner's passkey session.
+# WebAuthn attestation on the new key is unchanged. Deletion never uses this
+# exception.
+_OWNER_PASSKEY_SESSION_REQUIRED = (
+    "Owner passkeys can only be added from the same owner's passkey session."
+)
+_OWNER_RECOVERY_LIMIT = 5
+_OWNER_RECOVERY_WINDOW_SECONDS = 10 * 60
+_recovery_hits: dict[str, list[float]] = {}
+_recovery_lock = Lock()
+
+
+def reset_owner_passkey_recovery_limits() -> None:
+    """Clear the in-process owner-recovery limiter. Tests only."""
+    with _recovery_lock:
+        _recovery_hits.clear()
+
+
+def _same_owner_passkey_session(request: Request, manager: SessionManager, email: str) -> bool:
+    payload = manager.verify_session(request.cookies.get(PASSKEY_COOKIE_NAME))
+    if not payload:
+        return False
+    session_email = _normalize_email(payload.get("email"))
+    return bool(
+        payload.get("user_id") == "admin"
+        and payload.get("auth_method") == "passkey"
+        and session_email == email
+    )
+
+
+def _owner_recovery_proof(request: Request, manager: SessionManager, email: str) -> str | None:
+    """Return ``email_code`` or ``pin`` when this request proved that owner."""
+    if email not in _protected_owner_emails():
+        return None
+    profile = _session_profile(request, manager)
+    if not profile:
+        return None
+    method = str(profile.get("auth_method") or "")
+    session_email = _normalize_email(profile.get("email"))
+    if method == "passkey":
+        return None
+    if method == "email" and session_email == email:
+        return "email_code"
+    if method == "pin" and not session_email:
+        return "pin"
+    return None
+
+
+def _records_seal_owner_recovery(records: list[Any]) -> bool:
+    """True once a current-RP owner credential has been used to sign in."""
+    owners = _protected_owner_emails()
+    for rec in records:
+        user_id = _normalize_email(getattr(rec, "user_id", ""))
+        rp_id = str(getattr(rec, "rp_id", "") or "").strip()
+        if user_id in owners and rp_id and getattr(rec, "last_used_at", None) is not None:
+            return True
+    return False
+
+
+def _owner_recovery_sealed(store: CredentialStore) -> bool:
+    return _records_seal_owner_recovery(_credential_records(store))
+
+
+def _recovery_client_ip(request: Request) -> str:
+    """Rightmost X-Forwarded-For hop, else the socket host. Not logged."""
+    forwarded = ""
+    try:
+        forwarded = request.headers.get("x-forwarded-for", "") or ""
+    except Exception:
+        forwarded = ""
+    for part in reversed([item.strip() for item in str(forwarded).split(",")]):
+        if part:
+            return part[:80]
+    client = getattr(request, "client", None)
+    host = getattr(client, "host", None) if client is not None else None
+    return str(host or "unknown")[:80]
+
+
+def _enforce_owner_recovery_rate_limit(request: Request, email: str) -> None:
+    now = time.monotonic()
+    digest = hashlib.sha256(email.encode("utf-8")).hexdigest()[:12]
+    key = f"{_recovery_client_ip(request)}:{digest}"
+    with _recovery_lock:
+        hits = [
+            stamp
+            for stamp in _recovery_hits.get(key, [])
+            if now - stamp < _OWNER_RECOVERY_WINDOW_SECONDS
+        ]
+        if len(hits) >= _OWNER_RECOVERY_LIMIT:
+            _recovery_hits[key] = hits
+            raise HTTPException(
+                status_code=429,
+                detail="Too many owner passkey enrollment attempts. Wait and try again.",
+            )
+        hits.append(now)
+        _recovery_hits[key] = hits
+        if len(_recovery_hits) > 1024:
+            stale = [item for item, window in _recovery_hits.items() if not window]
+            for item in stale:
+                _recovery_hits.pop(item, None)
+            while len(_recovery_hits) > 1024:
+                _recovery_hits.pop(next(iter(_recovery_hits)))
+
+
 def _require_same_owner_passkey_for_registration(
     request: Request,
     manager: SessionManager,
     email: str,
-) -> None:
+    *,
+    store: CredentialStore | None = None,
+    allow_owner_recovery: bool = False,
+    limit_recovery: bool = False,
+) -> str:
+    """Authorize owner enrollment. Returns ``passkey``, ``email_code``, ``pin``, or ``staff``.
+
+    Non-owner staff keep the email-session rule applied before this runs.
+    Owner deletion stays on the passkey session. Recovery is registration
+    only, and only until a new owner key has completed a passkey login.
+    """
     if email not in _protected_owner_emails():
-        return
+        return "staff"
     require_cookie_csrf(request)
-    payload = manager.verify_session(request.cookies.get(PASSKEY_COOKIE_NAME))
-    session_email = _normalize_email((payload or {}).get("email"))
-    if (
-        not payload
-        or payload.get("user_id") != "admin"
-        or payload.get("auth_method") != "passkey"
-        or session_email != email
-    ):
-        raise HTTPException(
-            status_code=403,
-            detail="Owner passkeys can only be added from the same owner's passkey session.",
-        )
+    if _same_owner_passkey_session(request, manager, email):
+        return "passkey"
+    proof = _owner_recovery_proof(request, manager, email) if allow_owner_recovery else None
+    if proof is None or store is None or _owner_recovery_sealed(store):
+        raise HTTPException(status_code=403, detail=_OWNER_PASSKEY_SESSION_REQUIRED)
+    if limit_recovery:
+        _enforce_owner_recovery_rate_limit(request, email)
+    return proof
 
 
 def _session_profile(request: Request, manager: SessionManager) -> dict[str, Any] | None:
@@ -605,6 +721,92 @@ def _store_persistent(store: CredentialStore) -> bool:
     return bool(getattr(store, "persistent", False))
 
 
+def _passkey_deny_reason(exc: HTTPException) -> str:
+    detail = str(exc.detail or "")
+    if exc.status_code == 401:
+        return "unauthenticated"
+    if "CSRF" in detail:
+        return "csrf"
+    if exc.status_code == 429:
+        return "rate_limit"
+    if "passkey session" in detail:
+        return "passkey_session_required"
+    if exc.status_code == 403:
+        return "forbidden"
+    if exc.status_code == 503:
+        return "unavailable"
+    if exc.status_code == 409:
+        return "conflict"
+    return "rejected"
+
+
+def _role_for_user_id(user_id: str) -> tuple[str, str | None]:
+    normalized = _normalize_email(user_id)
+    if normalized in _protected_owner_emails() or normalized == "admin":
+        return "owner", normalized or "admin"
+    if normalized and _passkey_email_allowed(normalized):
+        return "staff", normalized
+    return "anonymous", None
+
+
+def _audit_subject(request: Request, manager: SessionManager) -> dict[str, str | None]:
+    profile = _session_profile(request, manager) or {}
+    session_email = _normalize_email(profile.get("email"))
+    method = str(profile.get("auth_method") or "")
+    if session_email and session_email in _protected_owner_emails():
+        return {"role": "owner", "staff_id": session_email, "method": method or None}
+    if session_email:
+        return {"role": "staff", "staff_id": session_email, "method": method or None}
+    if method == "pin":
+        return {"role": "shared_pin", "staff_id": "shared-pin", "method": "pin"}
+    return {"role": "anonymous", "staff_id": None, "method": None}
+
+
+def _enrollment_kind(lane: str) -> str:
+    if lane == "passkey":
+        return "passkey_session"
+    if lane == "email_code" or lane == "pin":
+        return "recovery"
+    if lane == "staff":
+        return "staff"
+    unknown: str = lane
+    raise RuntimeError(f"unknown registration lane: {unknown}")
+
+
+def _log_passkey(
+    event: str,
+    request: Request,
+    manager: SessionManager,
+    *,
+    outcome: str,
+    lane: str = "",
+    method: str = "",
+    status_code: int | None = None,
+    reason: str = "",
+    role: str | None = None,
+    staff_id: str | None = None,
+) -> None:
+    subject = _audit_subject(request, manager)
+    if not method:
+        method = (
+            lane if lane in {"email_code", "pin", "passkey"} else str(subject.get("method") or "")
+        )
+    if method == "email":
+        method = "email_code"
+    log_staff_action(
+        event,
+        severity="INFO" if outcome == "success" else "WARNING",
+        message="Staff passkey ceremony",
+        outcome=outcome,
+        method=method or None,
+        role=role or subject.get("role"),
+        staff_id=staff_id if staff_id is not None else subject.get("staff_id"),
+        enrollment=_enrollment_kind(lane) if lane else None,
+        status_code=status_code,
+        reason=reason or None,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Registration
 # ---------------------------------------------------------------------------
@@ -618,49 +820,86 @@ def register_begin(
     store: CredentialStore = Depends(get_credential_store),
 ) -> JSONResponse:
     """Begin passkey registration. Returns PublicKeyCredentialCreationOptions."""
-    if not _HAS_WEBAUTHN:
-        raise HTTPException(status_code=503, detail="WebAuthn library not available")
-    _require_admin_request(request, manager)
-    admin_email = _registration_email(request, manager, payload)
-    _require_same_owner_passkey_for_registration(request, manager, admin_email)
+    state: dict[str, Any] = {
+        "outcome": "failure",
+        "status": 500,
+        "reason": "error",
+        "lane": "",
+    }
+    try:
+        if not _HAS_WEBAUTHN:
+            raise HTTPException(status_code=503, detail="WebAuthn library not available")
+        _require_admin_request(request, manager)
+        admin_email = _registration_email(request, manager, payload)
+        lane = _require_same_owner_passkey_for_registration(
+            request,
+            manager,
+            admin_email,
+            store=store,
+            allow_owner_recovery=True,
+            limit_recovery=True,
+        )
+        state["lane"] = lane
 
-    challenge = manager.new_challenge_bytes()
-    challenge_handle = manager.wrap_challenge(challenge, flow="register", email=admin_email)
-    exclude_credentials = _credential_descriptors(store)
-    _, rp_id = _webauthn_context(request)
+        challenge = manager.new_challenge_bytes()
+        challenge_handle = manager.wrap_challenge(challenge, flow="register", email=admin_email)
+        exclude_credentials = _credential_descriptors(store)
+        _, rp_id = _webauthn_context(request)
 
-    options = generate_registration_options(
-        rp_name=RP_NAME,
-        rp_id=rp_id,
-        user_id=hashlib.sha256(f"tho-passkey:{admin_email}".encode()).digest(),
-        user_name=admin_email,
-        user_display_name=admin_email,
-        challenge=challenge,
-        attestation=AttestationConveyancePreference.NONE,
-        authenticator_selection=AuthenticatorSelectionCriteria(
-            # Required resident key so the passkey can sync and be offered
-            # by conditional UI. Attachment is left unset so a phone or
-            # security key can still be used.
-            resident_key=ResidentKeyRequirement.REQUIRED,
-            # TODO(owner): fingerprint/face user verification stays preferred.
-            # Requiring it is an owner decision; do not change this here.
-            user_verification=UserVerificationRequirement.PREFERRED,
-        ),
-        exclude_credentials=exclude_credentials,
-    )
-    # Stash challenge handle in a short-lived cookie so the client
-    # sends it back on the /complete call without needing to parse JSON.
-    result = JSONResponse(options_to_json_dict(options))
-    result.set_cookie(
-        key="tho_passkey_register",
-        value=challenge_handle,
-        max_age=300,
-        httponly=True,
-        secure=_cookie_secure(request),
-        samesite="Strict",
-        path="/api/admin/passkey/register/complete",
-    )
-    return result
+        options = generate_registration_options(
+            rp_name=RP_NAME,
+            rp_id=rp_id,
+            user_id=hashlib.sha256(f"tho-passkey:{admin_email}".encode()).digest(),
+            user_name=admin_email,
+            user_display_name=admin_email,
+            challenge=challenge,
+            attestation=AttestationConveyancePreference.NONE,
+            authenticator_selection=AuthenticatorSelectionCriteria(
+                # Required resident key so the passkey can sync and be offered
+                # by conditional UI. Attachment is left unset so a phone or
+                # security key can still be used.
+                resident_key=ResidentKeyRequirement.REQUIRED,
+                # TODO(owner): fingerprint/face user verification stays preferred.
+                # Requiring it is an owner decision; do not change this here.
+                user_verification=UserVerificationRequirement.PREFERRED,
+            ),
+            exclude_credentials=exclude_credentials,
+        )
+        # Stash challenge handle in a short-lived cookie so the client
+        # sends it back on the /complete call without needing to parse JSON.
+        result = JSONResponse(options_to_json_dict(options))
+        result.set_cookie(
+            key="tho_passkey_register",
+            value=challenge_handle,
+            max_age=300,
+            httponly=True,
+            secure=_cookie_secure(request),
+            samesite="Strict",
+            path="/api/admin/passkey/register/complete",
+        )
+        state["outcome"] = "success"
+        state["status"] = 200
+        state["reason"] = ""
+        return result
+    except HTTPException as exc:
+        state["status"] = exc.status_code
+        state["reason"] = _passkey_deny_reason(exc)
+        raise
+    finally:
+        event = (
+            "passkey.register.begin"
+            if state["outcome"] == "success"
+            else "passkey.register.begin_denied"
+        )
+        _log_passkey(
+            event,
+            request,
+            manager,
+            outcome=str(state["outcome"]),
+            lane=str(state["lane"]),
+            status_code=int(state["status"]),
+            reason=str(state["reason"]),
+        )
 
 
 @router.post("/register/complete")
@@ -672,79 +911,122 @@ def register_complete(
     store: CredentialStore = Depends(get_credential_store),
 ) -> JSONResponse:
     """Complete passkey registration. Stores the credential."""
-    if not _HAS_WEBAUTHN:
-        raise HTTPException(status_code=503, detail="WebAuthn library not available")
-    _require_admin_request(request, manager)
-
-    challenge_payload = manager.unwrap_challenge_payload(challenge_cookie, flow="register")
-    if challenge_payload is None:
-        raise HTTPException(status_code=400, detail="Challenge expired or invalid")
-    expected_challenge = challenge_payload["challenge"]
-    admin_email = _require_allowed_passkey_email(challenge_payload.get("email"))
-    _require_same_owner_passkey_for_registration(request, manager, admin_email)
-    expected_origin, expected_rp_id = _webauthn_context(request)
-
+    state: dict[str, Any] = {
+        "outcome": "failure",
+        "status": 500,
+        "reason": "error",
+        "lane": "",
+    }
     try:
-        reg_cred = parse_registration_credential_json(credential)
-        verified = verify_registration_response(
-            credential=reg_cred,
-            expected_challenge=expected_challenge,
-            expected_origin=expected_origin,
-            expected_rp_id=expected_rp_id,
+        if not _HAS_WEBAUTHN:
+            raise HTTPException(status_code=503, detail="WebAuthn library not available")
+        _require_admin_request(request, manager)
+
+        challenge_payload = manager.unwrap_challenge_payload(challenge_cookie, flow="register")
+        if challenge_payload is None:
+            raise HTTPException(status_code=400, detail="Challenge expired or invalid")
+        expected_challenge = challenge_payload["challenge"]
+        admin_email = _require_allowed_passkey_email(challenge_payload.get("email"))
+        lane = _require_same_owner_passkey_for_registration(
+            request,
+            manager,
+            admin_email,
+            store=store,
+            allow_owner_recovery=True,
         )
-    except Exception as exc:
-        log.warning("passkey register verify failed: %s", exc)
-        raise HTTPException(status_code=400, detail="Registration verification failed")
+        state["lane"] = lane
+        expected_origin, expected_rp_id = _webauthn_context(request)
 
-    aaguid = str(verified.aaguid) if verified.aaguid else ""
-    record = CredentialRecord(
-        credential_id=verified.credential_id,
-        public_key=verified.credential_public_key,
-        sign_count=verified.sign_count,
-        user_id=admin_email,
-        aaguid=aaguid,
-        label=_provider_name(aaguid),
-    )
-    try:
-        store.add(record)
-    except CredentialAlreadyExists:
-        log.warning("passkey credential registration rejected an existing id")
-        raise HTTPException(
-            status_code=409,
-            detail="Passkey credential is already registered.",
-        ) from None
-    except Exception as exc:
-        log.warning("passkey credential persist failed: %s", exc)
-        raise HTTPException(status_code=503, detail="Passkey credential store unavailable")
+        try:
+            reg_cred = parse_registration_credential_json(credential)
+            verified = verify_registration_response(
+                credential=reg_cred,
+                expected_challenge=expected_challenge,
+                expected_origin=expected_origin,
+                expected_rp_id=expected_rp_id,
+            )
+        except Exception as exc:
+            log.warning("passkey register verify failed")
+            raise HTTPException(status_code=400, detail="Registration verification failed") from exc
 
-    # Issue session immediately after registration
-    token = manager.issue_session("admin", email=admin_email, auth_method="passkey")
-    csrf_token = create_csrf_token()
-    result = JSONResponse(
-        {
-            "success": True,
-            "registered": True,
-            "email": admin_email,
-            "csrf_token": csrf_token,
-        }
-    )
-    result.delete_cookie(key="tho_passkey_register", path="/api/admin/passkey/register/complete")
-    result.set_cookie(
-        key=PASSKEY_COOKIE_NAME,
-        value=token,
-        max_age=manager.session_ttl,
-        httponly=True,
-        secure=_cookie_secure(request),
-        samesite="Strict",
-        path="/",
-    )
-    set_csrf_cookie(
-        result,
-        csrf_token,
-        secure=_cookie_secure(request),
-        max_age=manager.session_ttl,
-    )
-    return result
+        aaguid = str(verified.aaguid) if verified.aaguid else ""
+        record = CredentialRecord(
+            credential_id=verified.credential_id,
+            public_key=verified.credential_public_key,
+            sign_count=verified.sign_count,
+            user_id=admin_email,
+            aaguid=aaguid,
+            label=_provider_name(aaguid),
+            rp_id=expected_rp_id,
+        )
+        try:
+            store.add(record)
+        except CredentialAlreadyExists:
+            log.warning("passkey credential registration rejected an existing id")
+            raise HTTPException(
+                status_code=409,
+                detail="Passkey credential is already registered.",
+            ) from None
+        except Exception as exc:
+            log.warning("passkey credential persist failed: %s", type(exc).__name__)
+            raise HTTPException(
+                status_code=503, detail="Passkey credential store unavailable"
+            ) from exc
+
+        # Issue session immediately after registration. This session can add
+        # another owner key, but email/PIN recovery stays open until the new
+        # key completes /login/complete.
+        token = manager.issue_session("admin", email=admin_email, auth_method="passkey")
+        csrf_token = create_csrf_token()
+        result = JSONResponse(
+            {
+                "success": True,
+                "registered": True,
+                "email": admin_email,
+                "csrf_token": csrf_token,
+            }
+        )
+        result.delete_cookie(
+            key="tho_passkey_register", path="/api/admin/passkey/register/complete"
+        )
+        result.set_cookie(
+            key=PASSKEY_COOKIE_NAME,
+            value=token,
+            max_age=manager.session_ttl,
+            httponly=True,
+            secure=_cookie_secure(request),
+            samesite="Strict",
+            path="/",
+        )
+        set_csrf_cookie(
+            result,
+            csrf_token,
+            secure=_cookie_secure(request),
+            max_age=manager.session_ttl,
+        )
+        state["outcome"] = "success"
+        state["status"] = 200
+        state["reason"] = ""
+        return result
+    except HTTPException as exc:
+        state["status"] = exc.status_code
+        state["reason"] = _passkey_deny_reason(exc)
+        raise
+    finally:
+        event = (
+            "passkey.register.complete"
+            if state["outcome"] == "success"
+            else "passkey.register.complete_denied"
+        )
+        _log_passkey(
+            event,
+            request,
+            manager,
+            outcome=str(state["outcome"]),
+            lane=str(state["lane"]),
+            status_code=int(state["status"]),
+            reason=str(state["reason"]),
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -759,41 +1041,65 @@ def login_begin(
     store: CredentialStore = Depends(get_credential_store),
 ) -> JSONResponse:
     """Begin passkey login. Returns PublicKeyCredentialRequestOptions."""
-    if not _HAS_WEBAUTHN:
-        raise HTTPException(status_code=503, detail="WebAuthn library not available")
-
-    challenge = manager.new_challenge_bytes()
+    state: dict[str, Any] = {"outcome": "failure", "status": 500, "reason": "error"}
     try:
-        challenge_handle = manager.wrap_challenge(challenge, flow="login")
-    except AuthenticationChallengeStoreUnavailable:
-        log.warning("passkey authentication challenge store unavailable")
-        raise HTTPException(status_code=503, detail="Passkey challenge store unavailable") from None
+        if not _HAS_WEBAUTHN:
+            raise HTTPException(status_code=503, detail="WebAuthn library not available")
 
-    allow_credentials = _credential_descriptors(store, allowed_only=True)
-    _, rp_id = _webauthn_context(request)
+        challenge = manager.new_challenge_bytes()
+        try:
+            challenge_handle = manager.wrap_challenge(challenge, flow="login")
+        except AuthenticationChallengeStoreUnavailable:
+            log.warning("passkey authentication challenge store unavailable")
+            raise HTTPException(
+                status_code=503, detail="Passkey challenge store unavailable"
+            ) from None
 
-    option_kwargs = {
-        "rp_id": rp_id,
-        "challenge": challenge,
-        # TODO(owner): fingerprint/face user verification stays preferred.
-        # Requiring it is an owner decision; do not change this here.
-        "user_verification": UserVerificationRequirement.PREFERRED,
-    }
-    if not _discoverable_login_enabled():
-        option_kwargs["allow_credentials"] = allow_credentials
+        allow_credentials = _credential_descriptors(store, allowed_only=True)
+        _, rp_id = _webauthn_context(request)
 
-    options = generate_authentication_options(**option_kwargs)
-    result = JSONResponse(options_to_json_dict(options))
-    result.set_cookie(
-        key="tho_passkey_login",
-        value=challenge_handle,
-        max_age=manager.challenge_ttl,
-        httponly=True,
-        secure=_cookie_secure(request),
-        samesite="Strict",
-        path="/api/admin/passkey/login/complete",
-    )
-    return result
+        option_kwargs = {
+            "rp_id": rp_id,
+            "challenge": challenge,
+            # TODO(owner): fingerprint/face user verification stays preferred.
+            # Requiring it is an owner decision; do not change this here.
+            "user_verification": UserVerificationRequirement.PREFERRED,
+        }
+        if not _discoverable_login_enabled():
+            option_kwargs["allow_credentials"] = allow_credentials
+
+        options = generate_authentication_options(**option_kwargs)
+        result = JSONResponse(options_to_json_dict(options))
+        result.set_cookie(
+            key="tho_passkey_login",
+            value=challenge_handle,
+            max_age=manager.challenge_ttl,
+            httponly=True,
+            secure=_cookie_secure(request),
+            samesite="Strict",
+            path="/api/admin/passkey/login/complete",
+        )
+        state["outcome"] = "success"
+        state["status"] = 200
+        state["reason"] = ""
+        return result
+    except HTTPException as exc:
+        state["status"] = exc.status_code
+        state["reason"] = _passkey_deny_reason(exc)
+        raise
+    finally:
+        event = (
+            "passkey.login.begin" if state["outcome"] == "success" else "passkey.login.begin_denied"
+        )
+        _log_passkey(
+            event,
+            request,
+            manager,
+            outcome=str(state["outcome"]),
+            method="passkey",
+            status_code=int(state["status"]),
+            reason=str(state["reason"]),
+        )
 
 
 @router.post("/login/complete")
@@ -805,100 +1111,163 @@ def login_complete(
     store: CredentialStore = Depends(get_credential_store),
 ) -> JSONResponse:
     """Complete passkey login. Issues session cookie on success."""
-    if not _HAS_WEBAUTHN:
-        raise HTTPException(status_code=503, detail="WebAuthn library not available")
-
-    # Burn the challenge before credential lookup or assertion checks so a
-    # failed attempt cannot be replayed. Expiry deletes the server record too.
+    state: dict[str, Any] = {
+        "outcome": "failure",
+        "status": 500,
+        "reason": "error",
+        "role": None,
+        "staff_id": None,
+        "sealed": False,
+    }
     try:
-        expected_challenge = manager.consume_authentication_challenge(
-            challenge_cookie, flow="login"
+        if not _HAS_WEBAUTHN:
+            raise HTTPException(status_code=503, detail="WebAuthn library not available")
+
+        # Burn the challenge before credential lookup or assertion checks so a
+        # failed attempt cannot be replayed. Expiry deletes the server record too.
+        try:
+            expected_challenge = manager.consume_authentication_challenge(
+                challenge_cookie, flow="login"
+            )
+        except AuthenticationChallengeStoreUnavailable:
+            log.warning("passkey authentication challenge store unavailable")
+            raise HTTPException(
+                status_code=503, detail="Passkey challenge store unavailable"
+            ) from None
+        if expected_challenge is None:
+            raise HTTPException(status_code=400, detail="Challenge expired or invalid")
+
+        # The credential id stays out of the audit line. It is only used to
+        # load the stored record.
+        raw_id = _decode_credential_id(str(credential.get("id", "")))
+
+        try:
+            rec = store.get(raw_id)
+        except Exception as exc:
+            log.warning("passkey credential read failed: %s", type(exc).__name__)
+            raise HTTPException(
+                status_code=503, detail="Passkey credential store unavailable"
+            ) from exc
+        if rec is None:
+            raise HTTPException(status_code=400, detail="Unknown credential")
+        if not _credential_allowed(rec):
+            raise HTTPException(
+                status_code=403,
+                detail="This passkey is not tied to an approved THO admin email.",
+            )
+        role, staff_id = _role_for_user_id(str(rec.user_id))
+        state["role"] = role
+        state["staff_id"] = staff_id
+        previously_used = rec.last_used_at
+        registered_rp_id = str(getattr(rec, "rp_id", "") or "").strip()
+        expected_origin, expected_rp_id = _webauthn_context(request)
+
+        try:
+            auth_cred = parse_authentication_credential_json(credential)
+            verified = verify_authentication_response(
+                credential=auth_cred,
+                expected_challenge=expected_challenge,
+                expected_origin=expected_origin,
+                expected_rp_id=expected_rp_id,
+                credential_public_key=rec.public_key,
+                credential_current_sign_count=rec.sign_count,
+            )
+            if verified.credential_id != raw_id:
+                raise ValueError("credential identity mismatch")
+        except Exception as exc:
+            log.warning("passkey login verify failed: %s", type(exc).__name__)
+            raise HTTPException(
+                status_code=400, detail="Authentication verification failed"
+            ) from exc
+
+        try:
+            usage = store.prepare_usage_cas(rec, new_sign_count=verified.new_sign_count)
+        except (TypeError, ValueError):
+            raise HTTPException(
+                status_code=409,
+                detail="Passkey counter changed. Refresh and retry.",
+            ) from None
+        try:
+            updated = store.compare_and_set_usage(usage, used_at=datetime.now(UTC))
+        except Exception as exc:
+            log.warning("passkey credential usage update failed: %s", type(exc).__name__)
+            raise HTTPException(
+                status_code=503, detail="Passkey credential store unavailable"
+            ) from exc
+        if not updated:
+            raise HTTPException(
+                status_code=409,
+                detail="Passkey counter changed. Refresh and retry.",
+            )
+
+        token = manager.issue_session("admin", email=rec.user_id, auth_method="passkey")
+        csrf_token = create_csrf_token()
+        result = JSONResponse(
+            {
+                "success": True,
+                "authenticated": True,
+                "email": rec.user_id,
+                "csrf_token": csrf_token,
+            }
         )
-    except AuthenticationChallengeStoreUnavailable:
-        log.warning("passkey authentication challenge store unavailable")
-        raise HTTPException(status_code=503, detail="Passkey challenge store unavailable") from None
-    if expected_challenge is None:
-        raise HTTPException(status_code=400, detail="Challenge expired or invalid")
-
-    # Resolve credential from the id in the payload
-    cred_id_b64 = credential.get("id", "")
-    raw_id = _decode_credential_id(cred_id_b64)
-
-    try:
-        rec = store.get(raw_id)
-    except Exception as exc:
-        log.warning("passkey credential read failed: %s", exc)
-        raise HTTPException(status_code=503, detail="Passkey credential store unavailable")
-    if rec is None:
-        raise HTTPException(status_code=400, detail="Unknown credential")
-    if not _credential_allowed(rec):
-        raise HTTPException(
-            status_code=403,
-            detail="This passkey is not tied to an approved THO admin email.",
+        result.delete_cookie(key="tho_passkey_login", path="/api/admin/passkey/login/complete")
+        result.set_cookie(
+            key=PASSKEY_COOKIE_NAME,
+            value=token,
+            max_age=manager.session_ttl,
+            httponly=True,
+            secure=_cookie_secure(request),
+            samesite="Strict",
+            path="/",
         )
-    expected_origin, expected_rp_id = _webauthn_context(request)
-
-    try:
-        auth_cred = parse_authentication_credential_json(credential)
-        verified = verify_authentication_response(
-            credential=auth_cred,
-            expected_challenge=expected_challenge,
-            expected_origin=expected_origin,
-            expected_rp_id=expected_rp_id,
-            credential_public_key=rec.public_key,
-            credential_current_sign_count=rec.sign_count,
+        set_csrf_cookie(
+            result,
+            csrf_token,
+            secure=_cookie_secure(request),
+            max_age=manager.session_ttl,
         )
-        if verified.credential_id != raw_id:
-            raise ValueError("credential identity mismatch")
-    except Exception as exc:
-        log.warning("passkey login verify failed: %s", exc)
-        raise HTTPException(status_code=400, detail="Authentication verification failed")
-
-    try:
-        usage = store.prepare_usage_cas(rec, new_sign_count=verified.new_sign_count)
-    except (TypeError, ValueError):
-        raise HTTPException(
-            status_code=409,
-            detail="Passkey counter changed. Refresh and retry.",
-        ) from None
-    try:
-        updated = store.compare_and_set_usage(usage, used_at=datetime.now(UTC))
-    except Exception as exc:
-        log.warning("passkey credential usage update failed: %s", exc)
-        raise HTTPException(status_code=503, detail="Passkey credential store unavailable")
-    if not updated:
-        raise HTTPException(
-            status_code=409,
-            detail="Passkey counter changed. Refresh and retry.",
+        owner_email = _normalize_email(rec.user_id)
+        state["sealed"] = bool(
+            registered_rp_id
+            and previously_used is None
+            and owner_email in _protected_owner_emails()
         )
-
-    token = manager.issue_session("admin", email=rec.user_id, auth_method="passkey")
-    csrf_token = create_csrf_token()
-    result = JSONResponse(
-        {
-            "success": True,
-            "authenticated": True,
-            "email": rec.user_id,
-            "csrf_token": csrf_token,
-        }
-    )
-    result.delete_cookie(key="tho_passkey_login", path="/api/admin/passkey/login/complete")
-    result.set_cookie(
-        key=PASSKEY_COOKIE_NAME,
-        value=token,
-        max_age=manager.session_ttl,
-        httponly=True,
-        secure=_cookie_secure(request),
-        samesite="Strict",
-        path="/",
-    )
-    set_csrf_cookie(
-        result,
-        csrf_token,
-        secure=_cookie_secure(request),
-        max_age=manager.session_ttl,
-    )
-    return result
+        state["outcome"] = "success"
+        state["status"] = 200
+        state["reason"] = ""
+        return result
+    except HTTPException as exc:
+        state["status"] = exc.status_code
+        state["reason"] = _passkey_deny_reason(exc)
+        raise
+    finally:
+        event = (
+            "passkey.login.complete"
+            if state["outcome"] == "success"
+            else "passkey.login.complete_denied"
+        )
+        _log_passkey(
+            event,
+            request,
+            manager,
+            outcome=str(state["outcome"]),
+            method="passkey",
+            status_code=int(state["status"]),
+            reason=str(state["reason"]),
+            role=state["role"] if isinstance(state["role"], str) else None,
+            staff_id=state["staff_id"] if isinstance(state["staff_id"], str) else None,
+        )
+        if state["sealed"] and state["outcome"] == "success":
+            _log_passkey(
+                "passkey.recovery.sealed",
+                request,
+                manager,
+                outcome="success",
+                method="passkey",
+                status_code=200,
+                role=state["role"] if isinstance(state["role"], str) else None,
+                staff_id=state["staff_id"] if isinstance(state["staff_id"], str) else None,
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -1125,11 +1494,13 @@ def delete_my_credential(
 def whoami(
     request: Request,
     manager: SessionManager = Depends(get_session_manager),
+    store: CredentialStore = Depends(get_credential_store),
 ) -> JSONResponse:
     if not _request_is_admin(request, manager):
         raise HTTPException(status_code=401, detail="Unauthorized")
     profile = _session_profile(request, manager) or {}
     email = _normalize_email(profile.get("email"))
+    method = str(profile.get("auth_method") or "")
     owners = _passkey_allowed_owner_emails()
     is_owner = bool(email) and email in owners
     body: dict[str, Any] = {
@@ -1137,15 +1508,40 @@ def whoami(
         "email": email or None,
         "authed": True,
         "owner": is_owner,
-        "auth_method": profile.get("auth_method") or "",
+        "auth_method": method,
     }
     if is_owner:
         body["owner_emails"] = sorted(owners)
+    try:
+        sealed = _owner_recovery_sealed(store)
+    except HTTPException:
+        sealed = True
+    recovery_open = not sealed and ((is_owner and method == "email") or method == "pin")
+    if recovery_open:
+        body["owner_passkey_recovery"] = True
+        body.setdefault("owner_emails", sorted(owners))
     return JSONResponse(body)
 
 
 @router.post("/logout")
-def passkey_logout() -> JSONResponse:
+def passkey_logout(
+    request: Request,
+    manager: SessionManager = Depends(get_session_manager),
+) -> JSONResponse:
+    subject = _audit_subject(request, manager)
+    if subject.get("role") != "anonymous":
+        method = subject.get("method")
+        if method == "email":
+            method = "email_code"
+        log_staff_action(
+            "session.sign_out",
+            severity="INFO",
+            message="Staff sign-out",
+            outcome="success",
+            method=method,
+            role=subject.get("role"),
+            staff_id=subject.get("staff_id"),
+        )
     result = JSONResponse({"success": True})
     result.delete_cookie(key=PASSKEY_COOKIE_NAME, path="/")
     result.delete_cookie(key="tho_admin_session", path="/")

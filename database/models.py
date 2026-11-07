@@ -466,6 +466,11 @@ class AdminPasskeyCredential(BaseModel):
     ``label`` is the name staff see on Your passkeys. The rename API accepts
     at most 60 characters. Credentials saved before names existed omit
     ``label``; those documents still load with an empty label.
+
+    ``rp_id`` is set only when a new credential is registered against a known
+    WebAuthn relying party. Credentials already in Firestore omit it. Readers
+    treat a missing value as empty. Nothing in the recovery path writes this
+    field back onto those older documents.
     """
 
     model_config = ConfigDict(extra="ignore")
@@ -478,6 +483,7 @@ class AdminPasskeyCredential(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     last_used_at: datetime | None = None
     label: str = ""
+    rp_id: str = ""
 
     @field_validator("label", mode="before")
     @classmethod

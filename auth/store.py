@@ -44,6 +44,8 @@ class CredentialRecord:
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     last_used_at: datetime | None = None
     label: str = ""
+    # Empty on credentials saved before recovery enrollment. Never backfilled.
+    rp_id: str = ""
 
     @property
     def credential_id_b64(self) -> str:
@@ -291,6 +293,7 @@ class FirestoreCredentialStore:
             created_at=document.created_at,
             last_used_at=document.last_used_at,
             label=document.label,
+            rp_id=document.rp_id or "",
         )
 
     @staticmethod
@@ -304,6 +307,7 @@ class FirestoreCredentialStore:
             created_at=record.created_at,
             last_used_at=record.last_used_at,
             label=record.label or "",
+            rp_id=record.rp_id or "",
         )
         return document.model_dump()
 
