@@ -968,27 +968,30 @@ def test_coerce_safe_skips_non_string_dict_keys():
     assert audit_log._coerce_safe({1: "x", "ok": 1}) == {"ok": 1}
 
 
-def test_coerce_safe_stringifies_unknown_types():
-    """L254-255: unknown types fall back to str(value) capped at 500 chars."""
+def test_coerce_safe_omits_unknown_types():
+    """Unknown objects stay '<omitted>' so str() cannot copy a body or traceback.
+
+    Plain strings are still capped at 500 characters after contact redaction.
+    """
     import audit_log
 
     class Weird:
         def __str__(self):
             return "weird-value"
 
-    assert audit_log._coerce_safe(Weird()) == "weird-value"
+    assert audit_log._coerce_safe(Weird()) == "<omitted>"
     assert audit_log._coerce_safe("s" * 600) == "s" * 500
 
 
-def test_coerce_safe_unprintable_values_become_marker():
-    """L256-257: a __str__ that raises collapses to '<unprintable>'."""
+def test_coerce_safe_unprintable_values_are_omitted():
+    """A raising __str__ is never called; the value is '<omitted>'."""
     import audit_log
 
     class Evil:
         def __str__(self):
             raise RuntimeError("cannot print me")
 
-    assert audit_log._coerce_safe(Evil()) == "<unprintable>"
+    assert audit_log._coerce_safe(Evil()) == "<omitted>"
 
 
 # =========================================================================== #

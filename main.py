@@ -190,17 +190,24 @@ from tools.webhook_replay import ReplayGuard, docuseal_event_key
 
 def _safe_audit(action: str, details: dict) -> None:
     """Wrap audit_log to never raise into the request hot path."""
+    deal_ref = details.get("deal_id") if isinstance(details, dict) else None
+    target_id = deal_ref if isinstance(deal_ref, str) and "@" not in deal_ref else ""
     try:
         log_admin_action(
             actor="system",  # Background email actions are system-actor
             action=action,
             target_type="document",
+            target_id=target_id[:80],
             details=details,
             request=None,
         )
     except Exception as exc:  # noqa: BLE001
         try:
-            struct_logger.warning("Audit log write failed", action=action, error=str(exc))
+            struct_logger.warning(
+                "Audit log write failed",
+                action=action,
+                error_type=type(exc).__name__,
+            )
         except Exception:
             pass
 
@@ -8217,6 +8224,7 @@ async def send_email_api(request: Request):
             target_id=recipient_fp,
             details={
                 "recipient_fingerprint": recipient_fp,
+                "email_type": "custom",
                 "subject_len": len(subject),
                 "message_len": len(message),
                 "delivered": bool(result.get("success")) if isinstance(result, dict) else None,
