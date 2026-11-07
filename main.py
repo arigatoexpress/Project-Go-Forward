@@ -56,6 +56,7 @@ from auth.routes import allowed_owner_emails, allowed_staff_domains, is_allowed_
 from auth.routes import router as passkey_router
 from auth.session import SESSION_COOKIE_NAME as PASSKEY_COOKIE_NAME
 from auth.session import SessionManager, validate_cloud_run_session_secret
+from auth.staff_audit import log_staff_action, staff_request_event
 from config_loader import business_name, get_deployment_config
 from google_ads_admin.approval_routes import router as google_ads_approval_router
 from inventory_classification import normalize_inventory_classification
@@ -1601,6 +1602,89 @@ class StaffSessionSlideMiddleware(BaseHTTPMiddleware):
 
 
 app.add_middleware(StaffSessionSlideMiddleware)
+
+
+def _staff_actor(request: Request) -> dict[str, str | None]:
+    """Role and stable staff id for audit lines. Never returns a secret."""
+    try:
+        payload = _get_passkey_session_manager().verify_session(
+            request.cookies.get(PASSKEY_COOKIE_NAME)
+        )
+    except Exception:
+        payload = None
+    if payload and payload.get("user_id") == "admin":
+        email = str(payload.get("email") or "").strip().lower()
+        if email in allowed_owner_emails() or email == "admin" or not email:
+            return {"role": "owner", "staff_id": email or "admin", "method": "passkey"}
+        return {"role": "staff", "staff_id": email, "method": "passkey"}
+    token = request.cookies.get("tho_admin_token", "").strip()
+    decoded = _decode_admin_token(token) if token else None
+    if decoded is None or time.time() >= decoded[0]:
+        return {"role": "anonymous", "staff_id": None, "method": None}
+    email = decoded[1]
+    if email:
+        role = "owner" if email in allowed_owner_emails() else "staff"
+        return {"role": role, "staff_id": email, "method": "email_code"}
+    return {"role": "shared_pin", "staff_id": "shared-pin", "method": "pin"}
+
+
+def _audit_sign_in(
+    *,
+    method: str,
+    outcome: str,
+    role: str = "anonymous",
+    staff_id: str | None = None,
+    reason: str = "",
+) -> None:
+    if method == "email":
+        method = "email_code"
+    log_staff_action(
+        "session.sign_in",
+        severity="INFO" if outcome == "success" else "WARNING",
+        message="Staff sign-in",
+        outcome=outcome,
+        method=method,
+        role=role,
+        staff_id=staff_id,
+        reason=reason or None,
+    )
+
+
+def _maybe_log_staff_request(request: Request, status_code: int | None) -> None:
+    classified = staff_request_event(request.method, request.url.path)
+    if classified is None:
+        return
+    actor = _staff_actor(request)
+    if actor.get("role") == "anonymous":
+        return
+    event, path = classified
+    method = actor.get("method")
+    log_staff_action(
+        event,
+        severity="INFO" if status_code is not None and status_code < 400 else "WARNING",
+        message="Staff activity",
+        outcome="success" if status_code is not None and status_code < 400 else "failure",
+        method=method,
+        role=actor.get("role"),
+        staff_id=actor.get("staff_id"),
+        path=path,
+        status_code=status_code,
+    )
+
+
+class StaffAuditMiddleware(BaseHTTPMiddleware):
+    """Log staff page views and admin mutations. Auth ceremonies log themselves."""
+
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        try:
+            _maybe_log_staff_request(request, response.status_code)
+        except Exception:
+            pass
+        return response
+
+
+app.add_middleware(StaffAuditMiddleware)
 
 
 def _verify_admin_token(token: str) -> bool:
@@ -8372,6 +8456,7 @@ async def verify_admin_pin(request: Request):
     now = time.time()
     lockout = _pin_budget_lockout_response(client_ip)
     if lockout is not None:
+        _audit_sign_in(method="pin", outcome="failure", reason="lockout")
         return lockout
 
     try:
@@ -8401,6 +8486,7 @@ async def verify_admin_pin(request: Request):
         _add_pin_attempt(client_ip, now)
         remaining = PIN_MAX_ATTEMPTS - len(_get_pin_attempts(client_ip))
         struct_logger.warning("Admin login failed", client_ip=client_ip, remaining=remaining)
+        _audit_sign_in(method="pin", outcome="failure", reason="rejected")
         return JSONResponse({"success": False, "error": "Incorrect PIN."}, status_code=401)
     # Successful login — clear attempt history
     _clear_pin_attempts(client_ip)
@@ -8418,6 +8504,12 @@ async def verify_admin_pin(request: Request):
         target_id=token_actor,
         details={"client_ip": client_ip},
         request=request,
+    )
+    _audit_sign_in(
+        method="pin",
+        outcome="success",
+        role="shared_pin",
+        staff_id="shared-pin",
     )
     response = JSONResponse({"success": True, "csrf_token": csrf_token})
     _attach_staff_session_cookies(response, token, csrf_token)
@@ -8453,6 +8545,17 @@ async def check_admin_token(request: Request):
 @limiter.limit("30/minute")
 async def logout_admin(request: Request):
     """Clear the staff session on this device. No message is sent."""
+    actor = _staff_actor(request)
+    if actor.get("role") != "anonymous":
+        log_staff_action(
+            "session.sign_out",
+            severity="INFO",
+            message="Staff sign-out",
+            outcome="success",
+            method=actor.get("method"),
+            role=actor.get("role"),
+            staff_id=actor.get("staff_id"),
+        )
     response = JSONResponse({"success": True})
     _clear_staff_session_cookies(response)
     return response
@@ -10270,6 +10373,14 @@ async def request_admin_email_code(request: Request):
 
     if not is_allowed_admin_email(email):
         # No store write, no send, no log of the address — silent for unknowns.
+        log_staff_action(
+            "session.email_code.request",
+            severity="INFO",
+            message="Staff email sign-in request",
+            outcome="ignored",
+            method="email_code",
+            role="anonymous",
+        )
         return generic_ok
 
     try:
@@ -10310,6 +10421,15 @@ async def request_admin_email_code(request: Request):
         except Exception:
             struct_logger.warning("Could not discard an undelivered admin sign-in code")
         struct_logger.warning("Admin sign-in email was not delivered", client_ip=client_ip)
+        log_staff_action(
+            "session.email_code.request",
+            severity="WARNING",
+            message="Staff email sign-in request",
+            outcome="undelivered",
+            method="email_code",
+            role="owner" if email in allowed_owner_emails() else "staff",
+            staff_id=email,
+        )
         return generic_ok
     # Actor/target are a salted hash of the email so the audit trail correlates
     # request→login without ever persisting the address in cleartext.
@@ -10321,6 +10441,15 @@ async def request_admin_email_code(request: Request):
         target_id=email_actor,
         details={"method": "email_code", "client_ip": client_ip},
         request=request,
+    )
+    log_staff_action(
+        "session.email_code.request",
+        severity="INFO",
+        message="Staff email sign-in request",
+        outcome="sent",
+        method="email_code",
+        role="owner" if email in allowed_owner_emails() else "staff",
+        staff_id=email,
     )
     return generic_ok
 
@@ -10340,6 +10469,7 @@ async def verify_admin_email_code(request: Request):
     now = time.time()
     lockout = _pin_budget_lockout_response(client_ip)
     if lockout is not None:
+        _audit_sign_in(method="email_code", outcome="failure", reason="lockout")
         return lockout
 
     try:
@@ -10370,6 +10500,7 @@ async def verify_admin_email_code(request: Request):
     # store-seeding path could ever mint a session for a non-authorized email.
     if not is_allowed_admin_email(email):
         _add_pin_attempt(client_ip, now)
+        _audit_sign_in(method="email_code", outcome="failure", reason="rejected")
         return _email_login_invalid_response()
 
     try:
@@ -10384,6 +10515,13 @@ async def verify_admin_email_code(request: Request):
     rec = store.get(email)
     if rec is None:
         _add_pin_attempt(client_ip, now)
+        _audit_sign_in(
+            method="email_code",
+            outcome="failure",
+            role="owner" if email in allowed_owner_emails() else "staff",
+            staff_id=email,
+            reason="rejected",
+        )
         return _email_login_invalid_response()
 
     # Per-code attempt cap. Count this attempt; once it exceeds the cap, burn
@@ -10392,6 +10530,13 @@ async def verify_admin_email_code(request: Request):
     if code_attempts > MAX_CODE_ATTEMPTS:
         store.delete(email)
         _add_pin_attempt(client_ip, now)
+        _audit_sign_in(
+            method="email_code",
+            outcome="failure",
+            role="owner" if email in allowed_owner_emails() else "staff",
+            staff_id=email,
+            reason="rejected",
+        )
         return _email_login_invalid_response()
 
     if link_token:
@@ -10403,6 +10548,13 @@ async def verify_admin_email_code(request: Request):
         matched = False
     if not matched:
         _add_pin_attempt(client_ip, now)
+        _audit_sign_in(
+            method="email_code",
+            outcome="failure",
+            role="owner" if email in allowed_owner_emails() else "staff",
+            staff_id=email,
+            reason="rejected",
+        )
         return _email_login_invalid_response()
 
     # Success → single-use: consume the code and the link together.
@@ -10421,6 +10573,12 @@ async def verify_admin_email_code(request: Request):
         target_id=token_actor,
         details={"method": login_method, "client_ip": client_ip},
         request=request,
+    )
+    _audit_sign_in(
+        method="email_code",
+        outcome="success",
+        role="owner" if email in allowed_owner_emails() else "staff",
+        staff_id=email,
     )
     response = JSONResponse({"success": True, "csrf_token": csrf_token})
     _attach_staff_session_cookies(response, token, csrf_token)

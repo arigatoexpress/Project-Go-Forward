@@ -555,7 +555,7 @@ export default function SystemHub({ onBack }) {
                 </button>
               </div>
               <p className="text-xs text-[var(--cp-muted)] leading-relaxed mb-3">
-                Owner only. Staff rename and remove their own keys on Your passkeys. Keep another working sign-in method before revoking a key. Owner credentials require that owner’s existing passkey sign-in, and the last owner recovery key cannot be removed.
+                Owner only. Staff rename and remove their own keys on Your passkeys. Keep another working sign-in method before revoking a key. A new owner passkey can be saved after email sign-in, or with the backup PIN, until that new passkey has been used to sign in. After that, adding or revoking an owner passkey uses that passkey sign-in. The last owner recovery key cannot be removed.
               </p>
               {passkeyError && (
                 <div className="text-xs text-[var(--cp-danger)] border border-[var(--cp-danger)]/25 bg-[var(--cp-danger-dim)] rounded-md px-3 py-2 mb-3">
