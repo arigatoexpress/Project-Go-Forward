@@ -9,6 +9,7 @@ import html
 import json
 import logging
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -1621,6 +1622,169 @@ def test_no_analytics_markup_when_unconfigured(monkeypatch):
     body = client.get("/").text
     assert "tho-analytics-config" not in body
     assert "/tho-analytics.js" not in body
+
+
+def test_paid_landings_emit_one_consent_gated_loader_only_with_a_valid_id(monkeypatch):
+    """Homepage, inventory, and appointments share the public loader.
+
+    Missing or malformed IDs emit nothing. Two valid Google IDs still produce
+    one loader, the direct GA4 measurement ID.
+    """
+    for var in _ANALYTICS_ENV:
+        monkeypatch.delenv(var, raising=False)
+    client, _ = seo_client(monkeypatch)
+    landings = ("/", "/inventory", "/appointments")
+    for path in landings:
+        body = client.get(path).text
+        assert "tho-analytics-config" not in body, path
+        assert "googletagmanager.com" not in body, path
+        assert "__THO_ANALYTICS_CONFIGURED__" not in body, path
+
+    monkeypatch.setenv("GA4_MEASUREMENT_ID", "not-a-valid-id")
+    assert "tho-analytics-config" not in client.get("/").text
+
+    monkeypatch.setenv("GA4_MEASUREMENT_ID", "G-ABC1234XYZ")
+    for path in landings:
+        body = client.get(path).text
+        assert '"GA4_MEASUREMENT_ID":"G-ABC1234XYZ"' in body, path
+        assert '<script src="/tho-analytics.js"></script>' in body, path
+        assert "googletagmanager.com/gtag/js" not in body, path
+
+    monkeypatch.delenv("GA4_MEASUREMENT_ID")
+    monkeypatch.setenv("GTM_CONTAINER_ID", "GTM-ABC1234")
+    gtm_body = client.get("/").text
+    assert '"GTM_CONTAINER_ID":"GTM-ABC1234"' in gtm_body
+    assert "GA4_MEASUREMENT_ID" not in gtm_body
+
+    monkeypatch.setenv("GA4_MEASUREMENT_ID", "G-ABC1234XYZ")
+    both = re.search(
+        r'<script type="application/json" id="tho-analytics-config">(.*?)</script>',
+        client.get("/inventory").text,
+    )
+    assert both
+    assert json.loads(both.group(1)) == {"GA4_MEASUREMENT_ID": "G-ABC1234XYZ"}
+
+
+_BOOTSTRAP_PROBE = r"""
+const fs = require('fs');
+const source = fs.readFileSync(process.argv[2], 'utf8').trim();
+const factory = eval(source.replace(/\)\(window,document\);\s*$/, ')'));
+
+function run(options) {
+  const storage = new Map(Object.entries(options.storage || {}));
+  const local = new Map();
+  if (options.consent) local.set('tho_analytics_consent_v1', options.consent);
+  let current = options.href;
+  const vendor = [];
+  const window = {
+    location: {
+      get href() { return current; },
+      get search() { return new URL(current).search; },
+      get pathname() { return new URL(current).pathname; },
+      get hash() { return new URL(current).hash; },
+    },
+    sessionStorage: {
+      getItem(key) { return storage.has(key) ? storage.get(key) : null; },
+      setItem(key, value) { storage.set(key, value); },
+    },
+    localStorage: {
+      getItem(key) { return local.has(key) ? local.get(key) : null; },
+    },
+    history: {
+      state: null,
+      replaceState(_state, _title, next) {
+        current = new URL(next, current).toString();
+      },
+    },
+    dataLayer: [],
+  };
+  const document = {
+    referrer: '',
+    getElementById() {
+      return { textContent: JSON.stringify({ GA4_MEASUREMENT_ID: 'G-ABC1234XYZ' }) };
+    },
+    createElement() {
+      const element = {};
+      Object.defineProperty(element, 'src', {
+        set(value) { vendor.push({ src: String(value), href: current }); },
+      });
+      return element;
+    },
+    head: { appendChild() {} },
+    documentElement: { appendChild() {} },
+    getElementsByTagName() { return [{ parentNode: { insertBefore() {} } }]; },
+  };
+  factory(window, document);
+  return {
+    href: current,
+    stored: storage.has('tho_utm') ? JSON.parse(storage.get('tho_utm')) : null,
+    vendor,
+    consent: window.__THO_ANALYTICS_CONSENT__,
+  };
+}
+
+const denied = run({
+  href: 'https://www.texashomeoutlet.com/inventory?utm_source=google&utm_medium=cpc&utm_campaign=tho_search_high_intent_huffman&gclid=test-gclid-123456&email=buyer@example.com',
+});
+const granted = run({
+  href: 'https://www.texashomeoutlet.com/appointments',
+  consent: 'granted',
+  storage: {
+    tho_utm: JSON.stringify({
+      utm_source: 'google',
+      utm_medium: 'cpc',
+      utm_campaign: 'tho_search_high_intent_huffman',
+      gclid: 'test-gclid-123456',
+      referrer: 'https://ads.example/?email=buyer@example.com',
+    }),
+  },
+});
+process.stdout.write(JSON.stringify({
+  denied_vendor: denied.vendor,
+  stored: denied.stored,
+  denied_consent: denied.consent,
+  granted_href: granted.href,
+  granted_vendor: granted.vendor,
+}));
+"""
+
+
+def test_bootstrap_captures_campaign_before_consent_and_restores_it_on_grant(monkeypatch, tmp_path):
+    for var in _ANALYTICS_ENV:
+        monkeypatch.delenv(var, raising=False)
+    client, _ = seo_client(monkeypatch)
+    monkeypatch.setenv("GA4_MEASUREMENT_ID", "G-ABC1234XYZ")
+    js = client.get("/tho-analytics.js").text
+    enable = js.split("w.__THO_ENABLE_ANALYTICS__=function(){", 1)[1]
+    assert enable.index("restoreCampaignQuery()") < enable.index("loadGoogle()")
+    bootstrap = tmp_path / "tho-analytics.js"
+    probe = tmp_path / "probe.cjs"
+    bootstrap.write_text(js, encoding="utf-8")
+    probe.write_text(_BOOTSTRAP_PROBE, encoding="utf-8")
+
+    result = subprocess.run(
+        ["node", str(probe), str(bootstrap)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    report = json.loads(result.stdout)
+    assert report["denied_vendor"] == []
+    assert report["denied_consent"] is None
+    assert report["stored"]["utm_source"] == "google"
+    assert report["stored"]["utm_medium"] == "cpc"
+    assert report["stored"]["utm_campaign"] == "tho_search_high_intent_huffman"
+    assert report["stored"]["gclid"] == "test-gclid-123456"
+    assert "email" not in report["stored"]
+    assert "buyer@example.com" not in json.dumps(report["stored"])
+    assert "gclid=test-gclid-123456" in report["granted_href"]
+    assert "utm_campaign=tho_search_high_intent_huffman" in report["granted_href"]
+    assert report["granted_vendor"]
+    assert "buyer@example.com" not in report["granted_href"]
+    gtag = report["granted_vendor"][0]
+    assert gtag["src"] == "https://www.googletagmanager.com/gtag/js?id=G-ABC1234XYZ"
+    assert "gclid=test-gclid-123456" in gtag["href"]
 
 
 # ── COD-153: served HTML has no inline styles (CSP style-src without 'unsafe-inline')

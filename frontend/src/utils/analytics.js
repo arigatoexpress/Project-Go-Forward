@@ -1,5 +1,6 @@
-import { getJourneyId } from './attribution';
+import { campaignPageLocation, getJourneyAttribution, restoreCampaignQuery } from './attribution';
 import { isInventoryCategoryPath } from './inventoryCategoryRoutes';
+import { GOOGLE_CLICK_FIELDS, GOOGLE_CLICK_ID_RE } from './utm';
 
 // Fire-and-forget first-party funnel events. The same events are forwarded to
 // Google only after explicit consent, with PII-shaped fields stripped.
@@ -11,8 +12,11 @@ const GOOGLE_EVENT_NAMES = {
 
 const PII_KEYS = new Set([
   'name', 'email', 'phone', 'address', 'message', 'notes',
-  'lead_id', 'user_id', 'session_id', 'journey_id',
+  'lead_id', 'user_id', 'session_id', 'journey_id', 'referrer',
 ]);
+
+const CLICK_ID_KEYS = new Set(GOOGLE_CLICK_FIELDS);
+const PAGE_LOCATION_EVENTS = new Set(['page_viewed', 'lead_captured', 'appointment_booked']);
 
 const PUBLIC_EXACT_PATHS = new Set([
   '/', '/inventory', '/locations', '/chat', '/contact', '/appointments', '/about',
@@ -30,24 +34,50 @@ export function isPublicAnalyticsPath(pathname) {
     || path.startsWith('/manufactured-homes-in-');
 }
 
+function boundAnalyticsValue(key, value) {
+  if (typeof value !== 'string') return value;
+  if (key === 'page_location') return value.slice(0, 1000);
+  if (CLICK_ID_KEYS.has(key)) return value.slice(0, 200);
+  return value.slice(0, 100);
+}
+
+function campaignFields(attribution) {
+  const fields = {};
+  for (const [key, value] of Object.entries(attribution || {})) {
+    if (key === 'journey_id' || PII_KEYS.has(key)) continue;
+    if (typeof value === 'string' && value) fields[key] = value;
+  }
+  return fields;
+}
+
 function googleEventParams(event, data) {
   const params = {};
   for (const [key, value] of Object.entries(data || {})) {
     if (PII_KEYS.has(key.toLowerCase())) continue;
     if (!/^[a-zA-Z][a-zA-Z0-9_]{0,39}$/.test(key)) continue;
     if (!['string', 'number', 'boolean'].includes(typeof value)) continue;
-    params[key] = typeof value === 'string' ? value.slice(0, 100) : value;
+    if (CLICK_ID_KEYS.has(key) && (typeof value !== 'string' || !GOOGLE_CLICK_ID_RE.test(value))) {
+      continue;
+    }
+    params[key] = boundAnalyticsValue(key, value);
+  }
+  if (PAGE_LOCATION_EVENTS.has(event)) {
+    const pageLocation = campaignPageLocation();
+    if (pageLocation) params.page_location = pageLocation.slice(0, 1000);
   }
   params.tho_event = event;
   return params;
 }
 
 export function trackEvent(event, data = {}) {
+  const attribution = getJourneyAttribution();
+  const campaign = campaignFields(attribution);
   try {
     const payload = JSON.stringify({
       event,
       ...data,
-      journey_id: getJourneyId(),
+      ...campaign,
+      journey_id: attribution.journey_id,
       path: typeof window !== 'undefined' ? window.location.pathname : undefined,
     });
     if (typeof navigator !== 'undefined' && navigator.sendBeacon) {
@@ -74,11 +104,34 @@ export function trackEvent(event, data = {}) {
       window.gtag(
         'event',
         GOOGLE_EVENT_NAMES[event] || event,
-        googleEventParams(event, data),
+        googleEventParams(event, { ...data, ...campaign }),
       );
     }
   } catch {
     // Third-party attribution is strictly best-effort.
+  }
+}
+
+/**
+ * Record the current public page once, after the visitor grants analytics.
+ * The first React page view is correctly withheld until this runs.
+ */
+export function reportConsentedPageView(pathname) {
+  try {
+    if (typeof window === 'undefined') return;
+    if (window.__THO_ANALYTICS_CONSENT__ !== 'granted' || typeof window.gtag !== 'function') return;
+    if (!isPublicAnalyticsPath(pathname)) return;
+    const pendingLocation = campaignPageLocation();
+    restoreCampaignQuery();
+    const campaign = campaignFields(getJourneyAttribution());
+    const params = googleEventParams('page_viewed', {
+      page_path: pathname,
+      ...campaign,
+    });
+    if (pendingLocation) params.page_location = pendingLocation.slice(0, 1000);
+    window.gtag('event', 'page_view', params);
+  } catch {
+    // Consent reporting must not block the privacy choice.
   }
 }
 

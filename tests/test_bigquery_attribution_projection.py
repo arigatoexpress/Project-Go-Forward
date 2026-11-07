@@ -50,6 +50,32 @@ def test_lead_and_event_share_only_a_hashed_journey_key():
     assert "buyer@example.com" not in json.dumps(event)
 
 
+def test_event_projection_keeps_campaign_and_drops_click_ids_and_pii():
+    projected = project_event(
+        {
+            "event": "appointment_booked",
+            "journey_id": JOURNEY_ID,
+            "props": {
+                "utm_source": "google",
+                "utm_medium": "cpc",
+                "utm_campaign": "tho_search_high_intent_huffman",
+                "gclid": "test-gclid-123456",
+                "email": "buyer@example.com",
+                "phone": "2813243020",
+            },
+        }
+    )
+
+    assert projected["utm_source"] == "google"
+    assert projected["utm_medium"] == "cpc"
+    assert projected["utm_campaign"] == "tho_search_high_intent_huffman"
+    assert "gclid" not in projected
+    assert "email" not in projected
+    assert "phone" not in projected
+    assert "buyer@example.com" not in json.dumps(projected)
+    assert "test-gclid-123456" not in json.dumps(projected)
+
+
 def test_unknown_or_malformed_event_is_not_projected():
     assert project_event({"event": "scanner_noise", "journey_id": JOURNEY_ID}) is None
     assert (
@@ -65,6 +91,9 @@ def test_conversion_views_use_distinct_journeys_and_safe_rates():
     assert "SAFE_DIVIDE" in home_sql
     assert "lead_captured" in home_sql and "appointment_booked" in home_sql
     assert "GROUP BY journey_key" in funnel_sql
+    campaign_sql = VIEWS["v_conversions_by_campaign"]
+    assert "utm_campaign" in campaign_sql
+    assert "lead_captured" in campaign_sql and "appointment_booked" in campaign_sql
 
 
 def test_lead_response_projection_is_measurable_and_pii_free():
