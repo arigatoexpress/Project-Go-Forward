@@ -12,6 +12,7 @@ import StatusBadge from '../components/StatusBadge';
 import { Skeleton, SkeletonCard } from '../components/Skeleton';
 import { generateSrcSet, getImageSizes } from '../utils/imageOptimization';
 import { isUnpricedListing, publicPriceText } from '../utils/publicPrice';
+import { publicManufacturer, publicManufacturerLine } from '../utils/publicManufacturer';
 import { getUtmParams } from '../utils/utm';
 import { trackEvent } from '../utils/analytics';
 import { normalizeOptionalEmail } from '../utils/contactValidation';
@@ -530,6 +531,7 @@ function ListingActions({ home, onApply, onGetPrice }) {
 function FeaturedHomeSpotlight({ home, onClick, onGetPrice, onApply }) {
   if (!home) return null;
   const specs = home.specs || {};
+  const maker = publicManufacturerLine(home.manufacturer, 'Texas Home Outlet');
   const staticLcp = hasStaticLcpImage();
   const image = getHomeImage(home);
   const href = listingHref(home);
@@ -571,7 +573,9 @@ function FeaturedHomeSpotlight({ home, onClick, onGetPrice, onApply }) {
               Featured home
             </div>
             <h2 className="text-xl font-bold text-white">{home.model_name}</h2>
-            <p className="text-sm text-white/75">{home.manufacturer || 'Texas Home Outlet'}</p>
+            {maker ? (
+              <p className="text-sm text-white/75">{maker}</p>
+            ) : null}
           </div>
         </div>
       </a>
@@ -1662,6 +1666,7 @@ function SinglePhoto({ url, alt, className, imgProps = {}, fallback = null }) {
 // ─── Home Card Component ───
 export function ListingArticle({ home, onGetPrice, onApply }) {
   const specs = home?.specs || {};
+  const maker = publicManufacturerLine(home?.manufacturer, BUSINESS_NAME);
   const pagePhotos = listingPagePhotos(home);
   const planPhotos = listingFloorplanImages(home);
   const planSet = new Set(planPhotos);
@@ -1712,7 +1717,9 @@ export function ListingArticle({ home, onGetPrice, onApply }) {
           )}
         </div>
         <div className="order-1 min-w-0 lg:order-2">
-          <p className="text-sm text-[var(--cp-muted)]">{home.manufacturer || BUSINESS_NAME}</p>
+          {maker ? (
+            <p className="text-sm text-[var(--cp-muted)]">{maker}</p>
+          ) : null}
           <p className="mt-3 hidden text-3xl font-bold text-[var(--cp-accent)] lg:block">
             <PublicPrice home={home} className="hidden lg:block" />
           </p>
@@ -1819,6 +1826,7 @@ export function HomeCard({ home, onClick, onGetPrice, onApply, isFavorite = fals
   const tourUrl = matterportTourUrl(home);
   const hasTour = !!tourUrl;
   const specs = home.specs || {};
+  const maker = publicManufacturer(home.manufacturer);
   const categories = home.image_categories || {};
 
   // Hero watchdog.
@@ -2019,8 +2027,8 @@ export function HomeCard({ home, onClick, onGetPrice, onApply, isFavorite = fals
             <button type="button" className="text-left" onClick={onClick}>{home.model_name}</button>
           )}
         </h3>
-        {home.manufacturer ? (
-          <p className="text-sm text-[var(--cp-text-secondary)] mt-1">{home.manufacturer}</p>
+        {maker ? (
+          <p className="text-sm text-[var(--cp-text-secondary)] mt-1">{maker}</p>
         ) : null}
 
         <div className="flex gap-4 my-4 py-3 border-t border-b border-[var(--cp-border)] text-sm text-[var(--cp-text-secondary)]">
@@ -2124,6 +2132,7 @@ function HomeDetailModal({
   allHomes, onSelectSimilar
 }) {
   const specs = home.specs || {};
+  const maker = publicManufacturer(home.manufacturer);
   const categories = home.image_categories || {};
   const categoryKeys = Object.keys(categories);
   const tourUrl = matterportTourUrl(home);
@@ -2424,8 +2433,8 @@ function HomeDetailModal({
           <div className="flex items-start justify-between gap-4 mb-5">
             <div>
               <h2 className="text-2xl font-bold text-slate-800">{home.model_name}</h2>
-              {home.manufacturer ? (
-                <p className="text-sm text-gray-700 mt-0.5">{home.manufacturer}</p>
+              {maker ? (
+                <p className="text-sm text-gray-700 mt-0.5">{maker}</p>
               ) : null}
             </div>
             <StatusBadge status={home.status} kind="home" size="md" />
