@@ -224,10 +224,11 @@ def test_healthz_on_non_legacy_hosts_is_unchanged(client):
 
 
 def test_forwarded_http_on_public_hosts_is_a_single_301(client):
-    """An HTTP public request the app actually sees is one 301 to https www.
+    """An HTTP request the app actually sees is one 301 to https, same host.
 
     Google Frontend issues the live http→https 302 before Cloud Run. This
     covers the hop the app can still make when X-Forwarded-Proto is http.
+    Apex→www stays on the HTTPS request; the scheme hop does not rewrite it.
     """
     www = client.get(
         "/",
@@ -243,7 +244,7 @@ def test_forwarded_http_on_public_hosts_is_a_single_301(client):
         follow_redirects=False,
     )
     assert apex.status_code == 301
-    assert apex.headers["location"] == f"{CANONICAL}/inventory?q=1"
+    assert apex.headers["location"] == "https://texashomeoutlet.com/inventory?q=1"
 
     secure = client.get(
         "/contact",
