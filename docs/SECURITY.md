@@ -5,7 +5,7 @@
 ### Admin session (internal users)
 
 - **Mechanism**: stateless HMAC-SHA256 JWT ([main.py:217](../main.py)–254).
-- **Token**: a shared PIN session is 24 bytes = 8-byte big-endian uint64 expiry + 16-byte HMAC tag. Email sign-in is version 2 and embeds the staff address. The passkey router accepts that cookie and locks a new passkey to it. Owner passkey enrollment still requires that owner’s existing passkey session.
+- **Token**: a shared PIN session is 24 bytes = 8-byte big-endian uint64 expiry + 16-byte HMAC tag. Email sign-in is version 2 and embeds the staff address. The passkey router accepts that cookie and locks a new passkey to it. Owner passkey enrollment normally requires that owner’s passkey session. Until a passkey registered for the owner email on the current relying party has completed a passkey login, the same owner may register a new key from a fresh email-code session for that address, or from the backup PIN. That exception does not delete older keys, does not apply to staff addresses, and closes after the new key is used to sign in. WebAuthn attestation is still required. Cookie CSRF is still required. Revoking an owner key still requires the owner passkey session.
 - **Secret derivation**: `HMAC-SHA256(ADMIN_SESSION_SECRET, "tho-pin-session-v2:" + ADMIN_PIN_HASH)` — needs the server-only session secret, and rotating either value revokes PIN sessions. `main.py` and `auth/routes.py` use this same key.
 - **TTL**: staff PIN and email sessions last 30 days and slide forward on later visits (`ADMIN_TOKEN_TTL`, default 2592000 seconds). Blocking an email ends that email session on the next check. A shared PIN session has no email on it.
 - **Header**: `X-Admin-Token`. `require_admin()` dependency on protected routes.

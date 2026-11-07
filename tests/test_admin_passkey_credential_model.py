@@ -2,7 +2,7 @@
 
 from datetime import UTC, datetime
 
-from auth.store import CredentialRecord, FirestoreCredentialStore
+from auth.store import CredentialRecord, CredentialUsageCAS, FirestoreCredentialStore
 from database.models import AdminPasskeyCredential
 
 
@@ -46,11 +46,13 @@ def test_passkey_credential_without_label_still_loads():
     loaded = AdminPasskeyCredential.from_document("b2xkLWtleQ", legacy)
 
     assert loaded.label == ""
+    assert loaded.rp_id == ""
     assert loaded.credential_id == "b2xkLWtleQ"
     assert loaded.user_id == "owner@texashomeoutlet.com"
     assert loaded.sign_count == 2
     assert loaded.created_at == created
     assert "unrelated_legacy_field" not in loaded.model_dump()
+    assert "rp_id" not in legacy
 
 
 def test_passkey_credential_null_label_loads_blank():
@@ -95,3 +97,37 @@ def test_store_document_uses_the_canonical_model_for_label():
     assert legacy.label == ""
     assert legacy.credential_id == b"credential-2"
     assert legacy.public_key == b"public"
+
+
+def test_usage_update_does_not_rewrite_rp_id_or_older_documents():
+    created = datetime(2026, 6, 1, 12, 0, tzinfo=UTC)
+    record = CredentialRecord(
+        credential_id=b"historical-owner",
+        public_key=b"historical-public",
+        sign_count=4,
+        user_id="admin",
+        created_at=created,
+    )
+    usage = CredentialUsageCAS(
+        credential_id=record.credential_id,
+        credential_id_b64=record.credential_id_b64,
+        expected_user_id="admin",
+        expected_sign_count=4,
+        expected_last_used_at=None,
+        new_sign_count=5,
+    )
+
+    update = FirestoreCredentialStore.usage_update(usage, used_at=created)
+
+    assert set(update) == {"sign_count", "last_used_at"}
+    assert "rp_id" not in update
+    current = FirestoreCredentialStore._document_body(
+        CredentialRecord(
+            credential_id=b"new-owner",
+            public_key=b"new-public",
+            sign_count=0,
+            user_id="owner@example.com",
+            rp_id="texashomeoutlet.com",
+        )
+    )
+    assert current["rp_id"] == "texashomeoutlet.com"
