@@ -3,6 +3,7 @@ import { Home, Bed, Bath, Maximize, Plus, Check, ChevronLeft, ChevronRight, X, I
 import { generateSrcSet, getImageSizes } from '../utils/imageOptimization';
 import PublicPrice from './PublicPrice';
 import { listingFloorplanImages, listingImageAlt, rewriteMediaUrl, usedHomeMayShowPhoto } from '../utils/listingRoutes';
+import { publicManufacturer } from '../utils/publicManufacturer';
 
 function GalleryModal({
     allImages,
@@ -182,6 +183,7 @@ const PropertyCard = ({ property, onToggleCompare, isSelected }) => {
     } = property;
 
     const [showGallery, setShowGallery] = useState(false);
+    const maker = publicManufacturer(manufacturer);
 
     // Hero-first ordering for the card image.
     //
@@ -402,7 +404,9 @@ const PropertyCard = ({ property, onToggleCompare, isSelected }) => {
                             <h3 className="font-bold text-gray-900 text-base leading-tight truncate" title={model_name}>
                                 {model_name}
                             </h3>
-                            <p className="text-sm text-gray-500 truncate">{manufacturer}</p>
+                            {maker ? (
+                                <p className="text-sm text-gray-500 truncate">{maker}</p>
+                            ) : null}
                         </div>
                         <div className="text-right flex-shrink-0">
                             <div className="font-bold text-blue-600 text-base whitespace-nowrap">

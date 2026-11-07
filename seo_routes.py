@@ -643,6 +643,93 @@ def _is_call_for_price_label(value) -> bool:
     return not text or bool(_CALL_FOR_PRICE_RE.match(text))
 
 
+# Catalog rows sometimes store a missing factory as the word "Unknown".
+# That is not a manufacturer a shopper can call. Leave real names, including
+# "Pre-Owned", alone.
+_PLACEHOLDER_MANUFACTURERS = frozenset(
+    {
+        "unknown",
+        "n/a",
+        "na",
+        "n.a.",
+        "tbd",
+        "none",
+        "null",
+        "undefined",
+        "various",
+    }
+)
+
+
+def _public_manufacturer(value) -> str:
+    text = str(value or "").strip()
+    if not text or text.casefold() in _PLACEHOLDER_MANUFACTURERS:
+        return ""
+    return text
+
+
+def _public_count(value) -> str | None:
+    """Whole counts print as 2, not 2.0. Halves such as 2.5 stay. Zero is blank."""
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        try:
+            number = float(text)
+        except ValueError:
+            return text
+    else:
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return None
+    if not math.isfinite(number) or number <= 0:
+        return None
+    if number.is_integer():
+        return str(int(number))
+    return f"{number:g}"
+
+
+def _spec_count_phrase(value, noun: str) -> str | None:
+    rendered = _public_count(value)
+    if not rendered:
+        return None
+    return f"{rendered} {noun}"
+
+
+def _public_square_feet(specs: dict) -> str | None:
+    return _public_count(specs.get("sqft")) or _public_count(specs.get("sq_ft"))
+
+
+def _crawlable_link_extra(home: dict) -> str:
+    specs = home.get("specs") or {}
+    parts = (
+        _spec_count_phrase(specs.get("beds"), "bed"),
+        _spec_count_phrase(specs.get("baths"), "bath"),
+        _public_manufacturer(home.get("manufacturer")),
+    )
+    return " · ".join(part for part in parts if part)
+
+
+def _public_fact_rows(specs: dict) -> list[tuple[str, str]]:
+    rows: list[tuple[str, str]] = []
+    beds = _public_count(specs.get("beds"))
+    if beds:
+        rows.append(("Beds", beds))
+    baths = _public_count(specs.get("baths"))
+    if baths:
+        rows.append(("Baths", baths))
+    dimensions = str(specs.get("dimensions") or "").strip()
+    if dimensions:
+        rows.append(("Dimensions", dimensions))
+    square_feet = _public_square_feet(specs)
+    if square_feet:
+        rows.append(("Square feet", square_feet))
+    return rows
+
+
 def _visible_dollar_amount(display: str) -> float | None:
     match = _DOLLAR_AMOUNT_RE.search(str(display or ""))
     if not match:
@@ -719,10 +806,12 @@ def _product_jsonld(home: dict, canonical_url: str) -> dict | None:
 
     specs = home.get("specs") or {}
     bits = []
-    if specs.get("beds"):
-        bits.append(f"{specs['beds']} bed")
-    if specs.get("baths"):
-        bits.append(f"{specs['baths']} bath")
+    beds = _spec_count_phrase(specs.get("beds"), "bed")
+    if beds:
+        bits.append(beds)
+    baths = _spec_count_phrase(specs.get("baths"), "bath")
+    if baths:
+        bits.append(baths)
     if specs.get("dimensions"):
         bits.append(str(specs["dimensions"]))
     description = home.get("description") or (
@@ -736,8 +825,9 @@ def _product_jsonld(home: dict, canonical_url: str) -> dict | None:
         "description": str(description)[:300],
         "url": canonical_url,
     }
-    if home.get("manufacturer"):
-        data["brand"] = {"@type": "Brand", "name": home["manufacturer"]}
+    manufacturer = _public_manufacturer(home.get("manufacturer"))
+    if manufacturer:
+        data["brand"] = {"@type": "Brand", "name": manufacturer}
     image = _first_image(home)
     if image:
         data["image"] = image
@@ -1196,17 +1286,8 @@ def _crawlable_inventory_block(*, hub: bool = False) -> str:
     items = []
     for route_key, home in list(reg["detail_by_route"].items()):
         path = reg["detail_path_by_route"][route_key]
-        specs = home.get("specs") or {}
         label = home.get("model_name") or "Manufactured home"
-        extra = " · ".join(
-            str(x)
-            for x in (
-                f"{specs.get('beds')} bed" if specs.get("beds") else None,
-                f"{specs.get('baths')} bath" if specs.get("baths") else None,
-                home.get("manufacturer"),
-            )
-            if x
-        )
+        extra = _crawlable_link_extra(home)
         items.append(
             f'<li><a href="{e(path)}">{e(label)}</a>{" — " + e(extra) if extra else ""}</li>'
         )
@@ -1216,17 +1297,8 @@ def _crawlable_inventory_block(*, hub: bool = False) -> str:
         if not path or path in seen_listing_paths:
             continue
         seen_listing_paths.add(path)
-        specs = home.get("specs") or {}
         label = home.get("model_name") or "Manufactured home"
-        extra = " · ".join(
-            str(x)
-            for x in (
-                f"{specs.get('beds')} bed" if specs.get("beds") else None,
-                f"{specs.get('baths')} bath" if specs.get("baths") else None,
-                home.get("manufacturer"),
-            )
-            if x
-        )
+        extra = _crawlable_link_extra(home)
         items.append(
             f'<li><a href="{e(path)}">{e(label)}</a>{" — " + e(extra) if extra else ""}</li>'
         )
@@ -1300,17 +1372,8 @@ def _crawlable_category_block(category: dict) -> str:
             if route_key and reg["detail_by_route"].get(route_key) is home
             else listing_path(home)
         )
-        specs = home.get("specs") or {}
         label = home.get("model_name") or f"{classification} manufactured home"
-        extra = " · ".join(
-            str(x)
-            for x in (
-                f"{specs.get('beds')} bed" if specs.get("beds") else None,
-                f"{specs.get('baths')} bath" if specs.get("baths") else None,
-                home.get("manufacturer"),
-            )
-            if x
-        )
+        extra = _crawlable_link_extra(home)
         item_label = f'<a href="{e(path)}">{e(label)}</a>' if path else e(label)
         items.append(f'<li>{item_label}{" — " + e(extra) if extra else ""}</li>')
 
@@ -1341,17 +1404,10 @@ def _category_path(category: dict) -> str:
 def _crawlable_detail_block(home: dict) -> str:
     e = html.escape
     specs = home.get("specs") or {}
-    rows = []
-    for label, key in (
-        ("Beds", "beds"),
-        ("Baths", "baths"),
-        ("Dimensions", "dimensions"),
-        ("Square feet", "sqft"),
-    ):
-        if specs.get(key):
-            rows.append(f"<li>{label}: {e(str(specs[key]))}</li>")
-    if home.get("manufacturer"):
-        rows.append(f"<li>Manufacturer: {e(str(home['manufacturer']))}</li>")
+    rows = [f"<li>{label}: {e(value)}</li>" for label, value in _public_fact_rows(specs)]
+    manufacturer = _public_manufacturer(home.get("manufacturer"))
+    if manufacturer:
+        rows.append(f"<li>Manufacturer: {e(manufacturer)}</li>")
     rows.append(_price_list_item(home))
     description = home.get("description") or ""
     return (
@@ -1489,10 +1545,10 @@ def _listing_document_title(model_name: object) -> str:
 def _listing_spec_bits(home: dict) -> list[str]:
     specs = home.get("specs") or {}
     candidates = (
-        f"{specs.get('beds')} bed" if specs.get("beds") else None,
-        f"{specs.get('baths')} bath" if specs.get("baths") else None,
-        specs.get("dimensions"),
-        home.get("manufacturer"),
+        _spec_count_phrase(specs.get("beds"), "bed"),
+        _spec_count_phrase(specs.get("baths"), "bath"),
+        str(specs.get("dimensions") or "").strip() or None,
+        _public_manufacturer(home.get("manufacturer")) or None,
         _listing_display_price(home),
     )
     return [str(bit).strip() for bit in candidates if bit and str(bit).strip()]
@@ -1669,17 +1725,10 @@ def _crawlable_home_listing_block(home: dict) -> str:
     identifier = stock_id(home)
     if identifier:
         rows.append(f"<li>Stock #{e(identifier)}</li>")
-    for label, key in (
-        ("Beds", "beds"),
-        ("Baths", "baths"),
-        ("Dimensions", "dimensions"),
-        ("Square feet", "sqft"),
-        ("Square feet", "sq_ft"),
-    ):
-        if specs.get(key) and f"{label}:" not in "".join(rows):
-            rows.append(f"<li>{label}: {e(str(specs[key]))}</li>")
-    if home.get("manufacturer"):
-        rows.append(f"<li>Manufacturer: {e(str(home['manufacturer']))}</li>")
+    rows.extend(f"<li>{label}: {e(value)}</li>" for label, value in _public_fact_rows(specs))
+    manufacturer = _public_manufacturer(home.get("manufacturer"))
+    if manufacturer:
+        rows.append(f"<li>Manufacturer: {e(manufacturer)}</li>")
     rows.append(_price_list_item(home))
     images = listing_page_images(home)
     plan_urls = {

@@ -2505,3 +2505,87 @@ def test_unknown_page_server_html_has_tel_and_legal_links(monkeypatch):
     assert 'href="tel:+12813243020"' in response.text
     assert 'href="/privacy">Privacy Policy</a>' in response.text
     assert 'href="/terms">Terms of Use</a>' in response.text
+
+
+def test_public_listing_facts_hide_placeholder_makers_and_whole_decimals(monkeypatch):
+    """Plan pages keep square feet, whole baths print as 2, and Unknown is omitted.
+
+    Live catalog rows store square feet on specs.sq_ft and baths as 2.0.
+    A missing factory is sometimes the word Unknown. Shoppers should see the
+    count and the footage, and should not see a fake factory name.
+    """
+    import seo_routes
+
+    assert seo_routes._public_count(2.0) == "2"
+    assert seo_routes._public_count(2.5) == "2.5"
+    assert seo_routes._public_count(0) is None
+    assert seo_routes._public_count(float("nan")) is None
+    assert seo_routes._public_manufacturer("Unknown") == ""
+    assert seo_routes._public_manufacturer("Pre-Owned") == "Pre-Owned"
+
+    absolute = {
+        "id": "plan-226545",
+        "legacy_plan_id": "226545",
+        "model_name": "Solution / The Absolute Value SLC28764A",
+        "manufacturer": "Clayton Sulphur Springs",
+        "classification": "Double Wide",
+        "status": "Orderable",
+        "detail_url": "https://www.texashomeoutlet.com/plan/226545/solution/the-absolute-value-slc28764a/",
+        "display_price": "Call for Price",
+        "price_value": 0,
+        "specs": {
+            "beds": 4,
+            "baths": 2.0,
+            "sq_ft": 1934,
+            "dimensions": "28'0\" x 76'0\"",
+        },
+    }
+    big_deal = {
+        "id": "big-deal",
+        "stock_number": "90001",
+        "model_name": "The Big Deal",
+        "manufacturer": "Unknown",
+        "classification": "Single Wide",
+        "status": "Available",
+        "inventory_kind": "available_now",
+        "display_price": "Call for Price",
+        "price_value": 0,
+        "specs": {"beds": 1, "baths": 2.0, "sq_ft": 1454, "dimensions": "26x49"},
+    }
+    half = {
+        "id": "plan-half",
+        "legacy_plan_id": "300001",
+        "model_name": "Half Bath Cottage",
+        "manufacturer": "TRU Homes",
+        "classification": "Single Wide",
+        "status": "Orderable",
+        "detail_url": "https://www.texashomeoutlet.com/plan/300001/half-bath-cottage/",
+        "display_price": "Call for Price",
+        "specs": {"beds": 1, "baths": 2.5, "sq_ft": 800},
+    }
+    client, _ = seo_client(monkeypatch)
+    monkeypatch.setattr(seo_routes, "_get_homes", lambda: [absolute, big_deal, half])
+    monkeypatch.setattr(seo_routes, "_registry_cache", None)
+    monkeypatch.setattr(seo_routes, "_registry_built_at", 0.0)
+
+    plan = client.get("/plan/226545/solution/the-absolute-value-slc28764a/")
+    assert plan.status_code == 200
+    assert "<li>Beds: 4</li>" in plan.text
+    assert "<li>Baths: 2</li>" in plan.text
+    assert "Baths: 2.0" not in plan.text
+    assert "<li>Square feet: 1934</li>" in plan.text
+    assert "Manufacturer: Clayton Sulphur Springs" in plan.text
+
+    single = client.get("/single-wide")
+    assert single.status_code == 200
+    assert "The Big Deal</a> — 1 bed · 2 bath</li>" in single.text
+    assert "Unknown" not in single.text
+    assert "2.0 bath" not in single.text
+    assert "1 bed · 2.5 bath · TRU Homes" in single.text
+
+    listed = client.get("/homes/90001-the-big-deal")
+    assert listed.status_code == 200
+    assert "<li>Baths: 2</li>" in listed.text
+    assert "<li>Square feet: 1454</li>" in listed.text
+    assert "Manufacturer:" not in listed.text
+    assert "Unknown" not in listed.text
