@@ -1275,36 +1275,80 @@ def _canonical_redirect_url(request: Request) -> str:
     )
 
 
-def _forwarded_proto(request: Request) -> str:
-    return request.headers.get("x-forwarded-proto", "").split(",")[0].strip().lower()
+def _leftmost_header_token(value: str) -> str:
+    return value.split(",")[0].strip().strip('"').lower()
 
 
-def _public_http_redirect_target(request: Request) -> str | None:
-    """301 a public host that arrived as HTTP straight to https://www.
+def _x_forwarded_proto(request: Request) -> str:
+    """Leftmost ``X-Forwarded-Proto`` token. Cloud Run sets this one value."""
+    return _leftmost_header_token(request.headers.get("x-forwarded-proto", ""))
 
-    Cloud Run domain mappings for texashomeoutlet.com and www sit behind
-    Google Frontend (apex A records 216.239.32.21 and the www CNAME
-    ghs.googlehosted.com). That frontend answers HTTP with its own 302 to
-    the same host on HTTPS before this app sees the request. That 302 is
-    not set in this repo, and it is not configurable from application code.
 
-    This hop runs only when the app itself is given X-Forwarded-Proto: http
-    on www or the apex. The Location is the canonical https www URL, so the
-    app does not answer HTTP on the apex and then 301 the host in a second
-    hop. A direct https URL wins over a contradictory proto header. A test
-    client that omits the header is left alone.
+def _forwarded_header_proto(request: Request) -> str:
+    """Leftmost RFC 7239 ``Forwarded`` proto, or ``""`` when it is absent.
+
+    This is the standardized equivalent of ``X-Forwarded-Proto``. Only the
+    first forwarded-element is the original client; later hops are proxies.
+    """
+    raw = request.headers.get("forwarded", "")
+    if not raw:
+        return ""
+    first_element = raw.split(",", 1)[0]
+    for part in first_element.split(";"):
+        key, sep, token = part.strip().partition("=")
+        if sep and key.strip().lower() == "proto":
+            return token.strip().strip('"').lower()
+    return ""
+
+
+def _proxy_reported_scheme(request: Request) -> str:
+    """Client scheme from the trusted proxy headers Cloud Run sets.
+
+    ``X-Forwarded-Proto`` wins when it is ``http`` or ``https``. Otherwise
+    the RFC 7239 ``Forwarded`` proto is used. Any other value, including a
+    missing header, is not a scheme: local dev and direct probes omit it.
+    """
+    reported = _x_forwarded_proto(request)
+    if reported in {"http", "https"}:
+        return reported
+    forwarded = _forwarded_header_proto(request)
+    if forwarded in {"http", "https"}:
+        return forwarded
+    return ""
+
+
+def _same_host_https_url(request: Request) -> str | None:
+    """``https://`` URL of this request's host, raw path, and raw query."""
+    host = _request_hostname(request)
+    if not host or any(char in host for char in "/\\@ \t\r\n"):
+        return None
+    path, query = _original_target_parts(request)
+    return urlunsplit(("https", host, path, query, ""))
+
+
+def _insecure_scheme_redirect_target(request: Request) -> str | None:
+    """301 when a trusted proxy says the client used HTTP.
+
+    Google Frontend answers public HTTP with its own 302 before Cloud Run.
+    That 302 is not set in this repo. This is the hop the app can make when
+    the request actually arrives marked insecure.
+
+    Cloud Run terminates TLS and calls the container over cleartext HTTP
+    with ``X-Forwarded-Proto: https``. Those requests must not redirect, or
+    every HTTPS hit would loop. A direct https URL wins over a contradictory
+    ``http`` header. GET and HEAD only: a 301 on any other method would drop
+    the body and retry as GET.
+
+    The Location keeps this host, path, and query. Apex→www and the other
+    host rules still run on the HTTPS request that follows.
     """
     if request.method.upper() not in {"GET", "HEAD"}:
         return None
-    if _forwarded_proto(request) != "http":
+    if request.url.scheme == "https":
         return None
-    if _request_is_https(request):
+    if _proxy_reported_scheme(request) != "http":
         return None
-    host = _request_hostname(request)
-    apex = _CANONICAL_PUBLIC_HOST[4:] if _CANONICAL_PUBLIC_HOST.startswith("www.") else ""
-    if host not in {_CANONICAL_PUBLIC_HOST, apex}:
-        return None
-    return _canonical_redirect_url(request)
+    return _same_host_https_url(request)
 
 
 def _alternate_public_host_target(request: Request) -> str | None:
@@ -1371,6 +1415,11 @@ def staff_front_door_target(request: Request) -> str | None:
 
 class CanonicalHostMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
+        # Scheme upgrade first, and only to https on this same host. Host
+        # rules below still apply to the HTTPS follow-up, including apex→www.
+        insecure_target = _insecure_scheme_redirect_target(request)
+        if insecure_target:
+            return RedirectResponse(insecure_target, status_code=301)
         # Before the staff door, so /admin on the retired host keeps its path
         # instead of being rewritten to /staff on the first hop.
         legacy_target = _legacy_public_host_target(request)
@@ -1379,9 +1428,6 @@ class CanonicalHostMiddleware(BaseHTTPMiddleware):
         staff_target = staff_front_door_target(request)
         if staff_target:
             return RedirectResponse(staff_target, status_code=308)
-        http_target = _public_http_redirect_target(request)
-        if http_target:
-            return RedirectResponse(http_target, status_code=301)
         alternate_target = _alternate_public_host_target(request)
         if alternate_target:
             return RedirectResponse(alternate_target, status_code=301)

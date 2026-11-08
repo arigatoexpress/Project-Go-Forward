@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import adminFetch from '../adminFetch';
 import { clearStaffDrafts, readComposerDraft } from '../components/ad-studio/staffDraftStorage';
@@ -62,6 +62,17 @@ function clearStaffSession() {
 async function openCreateAd() {
   render(<AdStudio onBack={vi.fn()} />);
   expect(await screen.findByText('Not available yet')).toBeInTheDocument();
+}
+
+async function readSavedScriptDraft(hook) {
+  // The script is on screen as soon as React commits it. The browser copy
+  // is written in an effect, which can land a tick later.
+  let draft = null;
+  await waitFor(() => {
+    draft = readComposerDraft();
+    expect(draft?.script?.scripts?.[0]?.hook).toBe(hook);
+  });
+  return draft;
 }
 
 describe('Ad Studio in-progress ad', () => {
@@ -145,13 +156,14 @@ describe('Ad Studio in-progress ad', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: 'Generate Script' }));
     expect((await screen.findAllByText('Look at this home')).length).toBeGreaterThan(0);
-    expect(readComposerDraft()).toMatchObject({
+    const draft = await readSavedScriptDraft('Look at this home');
+    expect(draft).toMatchObject({
       homeName: 'The Nassau',
       homePrice: '',
       customHook: 'Come see the porch',
     });
-    expect(readComposerDraft().script.scripts[0].hook).toBe('Look at this home');
-    expect(JSON.stringify(readComposerDraft())).not.toContain('example.test');
+    expect(draft.script.scripts[0].hook).toBe('Look at this home');
+    expect(JSON.stringify(draft)).not.toContain('example.test');
     expect(screen.getByRole('textbox', { name: 'Price' })).toHaveValue('');
 
     cleanup();
