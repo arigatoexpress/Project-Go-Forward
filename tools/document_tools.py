@@ -975,9 +975,14 @@ def _fill_xfa(writer: PdfWriter, xfa: ArrayObject, data_dict: dict[str, Any]) ->
             if writer_xfa and isinstance(writer_xfa, ArrayObject):
                 for i in range(0, len(writer_xfa), 2):
                     if str(writer_xfa[i]) == "datasets":
+                        # A stream must be an indirect object. Putting the
+                        # datasets stream inline in the /XFA array makes the
+                        # xref unreadable: qpdf reports a broken object and
+                        # Windows Chrome refuses to open the file. The merged
+                        # packet still opened because add_page drops /XFA.
                         new_stream = DecodedStreamObject()
                         new_stream.set_data(new_xml.encode("utf-8"))
-                        writer_xfa[i + 1] = new_stream
+                        writer_xfa[i + 1] = writer._add_object(new_stream)
                         _logger.info(f"XFA datasets replaced with {len(data_dict)} fields")
                         return True
 
