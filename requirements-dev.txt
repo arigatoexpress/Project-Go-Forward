@@ -8,6 +8,9 @@ requests-mock==1.12.1
 detect-secrets==1.5.0
 pre-commit==3.8.0
 httpx>=0.28.0
+# Pdf.check_pdf_syntax is qpdf --check. Single-form regression tests use it
+# to reject the inline XFA datasets stream that strict viewers will not open.
+pikepdf==10.18.0
 # Starlette 1.3+ prefers httpx2 for its in-process TestClient transport.
 # Keep httpx for scripts and external-HTTP tests that import it directly.
 httpx2>=2.7.0
