@@ -65,6 +65,12 @@ const INITIAL_FORM = {
   serial_number_1: '', serial_number_2: '',
   label_number_1: '', label_number_2: '', no_of_sections: '',
   width: '', length: '', sq_ft: '',
+  // Per-section size (W x L, feet): printed on the warranty, ownership and
+  // deposit forms. Never derived from the overall width/length of a
+  // multi-section home.
+  section_1_width: '', section_1_length: '', section_2_width: '', section_2_length: '',
+  // Optional: TDHCA 1023 handling choice, homestead exemption lines.
+  ownership_handling: '', homestead_legal_description: '', appraisal_account_number: '',
   wind_zone: '', weight_sec_1: '', weight_sec_2: '', date_of_manufacture: '',
   manufacturer_address: '', manufacturer_city: '', manufacturer_state: '', manufacturer_zip: '',
   manufacturer_city_state_zip: '',
@@ -268,6 +274,32 @@ const moneyString = value => (
   Number.isFinite(value) ? value.toFixed(2) : undefined
 );
 
+// Distinct section IDs (serials or HUD labels) joined for a single-slot form.
+export const joinIds = (...values) => (
+  [...new Set(values.map(v => String(v ?? '').trim()).filter(Boolean))].join(', ')
+);
+
+// Per-section size labels still blank for the home's section count. Soft
+// warning only: generating forms is never blocked on sizes, but forms print a
+// blank size cell without them (Mark Willcott, 2026-11-12).
+export const missingSectionSizeLabels = f => {
+  const text = String(f?.no_of_sections ?? '').toLowerCase();
+  const word = { single: 1, one: 1, double: 2, two: 2, triple: 3, three: 3, quad: 4, four: 4 };
+  let sections = 1;
+  const digit = text.match(/\b([1-4])\b/);
+  const named = Object.keys(word).find(w => new RegExp(`\\b${w}\\b`).test(text));
+  if (named) sections = word[named];
+  else if (digit) sections = Number(digit[1]);
+  const labels = [];
+  for (let n = 1; n <= Math.min(sections, 2); n += 1) {
+    const single = sections === 1;
+    const w = hasValue(f?.[`section_${n}_width`]) || (single && hasValue(f?.width));
+    const l = hasValue(f?.[`section_${n}_length`]) || (single && hasValue(f?.length));
+    if (!w || !l) labels.push(`Section ${n} size (width x length)`);
+  }
+  return labels;
+};
+
 // ── Escrow derivations (Mark Willcott spec, 2026-06-24) ──
 // Mirror the backend math in tools/document_quality.py::enrich_document_data so
 // the staff sees the same escrow values the generated "Important Notice -
@@ -364,6 +396,10 @@ const REQUIRED_FIELD_LABELS = {
   serial_number_2: 'Serial # 2',
   label_number_1: 'HUD label # 1',
   label_number_2: 'HUD label # 2',
+  section_1_width: 'Section 1 width',
+  section_1_length: 'Section 1 length',
+  section_2_width: 'Section 2 width',
+  section_2_length: 'Section 2 length',
   date_of_manufacture: 'Date of manufacture',
   seller_phone: 'Seller phone',
   seller_city: 'Seller city',
@@ -696,13 +732,14 @@ function toDocumentData(f) {
     mailing_city_state_zip: mailingCityStateZip,
     mailing_full_address: fullAddress(f.mailing_address, mailingCityStateZip),
     manufacturer_model: joinNonEmpty([f.manufacturer, f.model], ' '),
+    // Both section IDs print on single-slot forms (Mark Willcott, 2026-11-12).
     manufacturer_model_hud: joinNonEmpty([
       joinNonEmpty([f.manufacturer, f.model], ' '),
-      f.label_number_1,
+      joinIds(f.label_number_1, f.label_number_2),
     ], ' / '),
     manufacturer_model_serial: joinNonEmpty([
       joinNonEmpty([f.manufacturer, f.model], ' '),
-      f.serial_number_1,
+      joinIds(f.serial_number_1, f.serial_number_2),
     ], ' / '),
     manufacturer_city_state_zip: manufacturerCityStateZip,
     manufacturer_full_address: fullAddress(f.manufacturer_address, manufacturerCityStateZip),
@@ -2002,6 +2039,10 @@ function Step2({ data, onChange, resetKey, inventory, inventoryLoading, onNext, 
       no_of_sections: '',
       width: '',
       length: '',
+      section_1_width: '',
+      section_1_length: '',
+      section_2_width: '',
+      section_2_length: '',
       sq_ft: '',
       wind_zone: '',
       weight_sec_1: '',
@@ -2333,6 +2374,14 @@ function Step2({ data, onChange, resetKey, inventory, inventoryLoading, onNext, 
           <Field label="Length (ft)" name="length" value={data.length} onChange={c} resetKey={resetKey} third autoFilled={isAutoFilled('length')} />
           <Field label="Total Sq Ft" name="sq_ft" value={data.sq_ft} onChange={c} resetKey={resetKey} third autoFilled={isAutoFilled('sq_ft')} />
         </Row>
+        <Row>
+          <Field label="Section 1 Width (ft)" name="section_1_width" value={data.section_1_width} onChange={c} resetKey={resetKey} third helperText="Each section, width x length (for example 14 x 56)" />
+          <Field label="Section 1 Length (ft)" name="section_1_length" value={data.section_1_length} onChange={c} resetKey={resetKey} third />
+        </Row>
+        <Row>
+          <Field label="Section 2 Width (ft)" name="section_2_width" value={data.section_2_width} onChange={c} resetKey={resetKey} third helperText="Leave blank for a single-section home" />
+          <Field label="Section 2 Length (ft)" name="section_2_length" value={data.section_2_length} onChange={c} resetKey={resetKey} third />
+        </Row>
       </Card>
 
       <Section
@@ -2383,6 +2432,23 @@ function Step2({ data, onChange, resetKey, inventory, inventoryLoading, onNext, 
             autoFilled={isAutoFilled('weight_sec_2')}
             helperText={selectedHome && !isAutoFilled('weight_sec_2') ? 'Enter for multi-section homes' : undefined}
           />
+        </Row>
+        <Row>
+          <SelectField
+            label="Ownership application handling (TDHCA 1023)"
+            name="ownership_handling"
+            value={data.ownership_handling}
+            onChange={c}
+            resetKey={resetKey}
+            third
+            options={[
+              { value: '', label: 'Not set (check by hand)' },
+              { value: 'regular', label: 'Regular, 15 working days ($55)' },
+              { value: 'expedite', label: 'Expedite, 5 working days (+$55)' },
+            ]}
+          />
+          <Field label="Legal Description (homestead, if known)" name="homestead_legal_description" value={data.homestead_legal_description} onChange={c} resetKey={resetKey} third />
+          <Field label="Appraisal District Account # (if known)" name="appraisal_account_number" value={data.appraisal_account_number} onChange={c} resetKey={resetKey} third />
         </Row>
         <Row>
           <Field
@@ -3664,9 +3730,12 @@ function getDocumentCompletenessState(form, templates, selected) {
 
   const recommended = creditOnly
     ? []
-    : DOCUMENT_RECOMMENDED_FIELDS
-        .filter(({ field }) => !hasValue(form[field]))
-        .map(({ label }) => label);
+    : [
+        ...missingSectionSizeLabels(form),
+        ...DOCUMENT_RECOMMENDED_FIELDS
+          .filter(({ field }) => !hasValue(form[field]))
+          .map(({ label }) => label),
+      ];
 
   return {
     errors: [...new Set(errors)],

@@ -27,6 +27,7 @@ from pypdf.generic import (
     TextStringObject,
 )
 from reportlab.lib.pagesizes import letter
+from reportlab.pdfbase.pdfmetrics import stringWidth
 from reportlab.pdfgen import canvas
 
 from schemas.document_schemas import SalesContractForm
@@ -432,6 +433,121 @@ PDF_TEXT_OVERLAYS = {
             },
         ),
     },
+    # Deposit agreement page 1: the template has widgets for the section size
+    # cells but none for the money block or the wheels boxes, so those are drawn
+    # as overlays (the regulatory PDF is never edited). Coordinates measured on
+    # the page artwork: price lines x 103-302 (TOTAL PRICE line y 391.6), down
+    # payment lines x 456.5-588 (line 5 y 423.5), "Balance Due $" underline
+    # starts x 383, YES box 417.5-423.7 / NO box 466.7-472.7 at y 169.2-175.5.
+    "TMHA-SalesContractDepositAgreement.pdf": {
+        1: (
+            {
+                "field": "THO_Deposit_Total_Price",
+                "x": 108,
+                "y": 394.2,
+                "max_width": 190,
+                "font_size": 10,
+                "align": "right",
+            },
+            {
+                "field": "THO_Deposit_Down_Payment",
+                "x": 462,
+                "y": 426.2,
+                "max_width": 123,
+                "font_size": 10,
+                "align": "right",
+            },
+            {
+                "field": "THO_Deposit_Balance_Due",
+                "x": 388,
+                "y": 390.2,
+                "max_width": 145,
+                "font_size": 10,
+            },
+            {
+                "kind": "checkmark",
+                "field": "THO_Deposit_Wheels_Yes",
+                "x": 417.8,
+                "y": 169.5,
+                "size": 5.6,
+                "line_width": 0.8,
+            },
+            {
+                "kind": "checkmark",
+                "field": "THO_Deposit_Wheels_No",
+                "x": 467.0,
+                "y": 169.5,
+                "size": 5.6,
+                "line_width": 0.8,
+            },
+        ),
+    },
+    # TDHCA 1023 "Type of Handling": the expedite box has no widget.
+    # Printed square (249.6, 562.3)-(256.3, 569.0).
+    "TDHCA_1023-Statement-Ownership.pdf": {
+        1: (
+            {
+                "kind": "checkmark",
+                "field": "THO_1023_Handling_Expedite",
+                "x": 249.9,
+                "y": 562.6,
+                "size": 6.1,
+                "line_width": 0.8,
+            },
+        ),
+    },
+    # Used-home habitability (1054) and used-home warranty size cells: the
+    # widget sits on top of the printed "X", so width draws left of the X and
+    # length right of it. Rows are 14.5pt apart (X glyph bbox bottom + 2.3).
+    "TDHCA_1054_Habitability_Warranty.pdf": {
+        1: tuple(
+            {
+                "field": f"THO_1054_Size_Sec{n}_{dim}",
+                "x": 426 if dim == "W" else 457,
+                "y": 535.0 - (n - 1) * 14.5,
+                "max_width": 20 if dim == "W" else 19,
+                "font_size": 9,
+                "align": "right" if dim == "W" else "left",
+            }
+            for n in (1, 2)
+            for dim in ("W", "L")
+        ),
+    },
+    "TDHCA_WarrantyUsedHome.pdf": {
+        1: tuple(
+            {
+                "field": f"THO_WarrantyUsed_Size_Sec{n}_{dim}",
+                "x": 426 if dim == "W" else 457,
+                "y": 485.5 - (n - 1) * 14.6,
+                "max_width": 20 if dim == "W" else 19,
+                "font_size": 9,
+                "align": "right" if dim == "W" else "left",
+            }
+            for n in (1, 2)
+            for dim in ("W", "L")
+        ),
+    },
+    # TMHA used-home limited warranty page 2: the MH and INSTALLATION ADDRESS
+    # lines have no widget. Underlines measured at x 132-386 (y 346.7) and
+    # x 229-579 (y 274.5).
+    "TMHA_LimitedWarrantyUsed.pdf": {
+        2: (
+            {
+                "field": "THO_LWU_Manufacturer",
+                "x": 134,
+                "y": 349.2,
+                "max_width": 250,
+                "font_size": 10,
+            },
+            {
+                "field": "THO_LWU_Install_Address",
+                "x": 232,
+                "y": 277.2,
+                "max_width": 344,
+                "font_size": 10,
+            },
+        ),
+    },
     "TDHCA_1124_Installation_Warranty.pdf": {
         1: (
             {
@@ -502,8 +618,38 @@ def _phone_digits(value: Any) -> str:
     return digits[:10]
 
 
+_TAX_NOTICE_TEMPLATE = "Internal_ImportantNoticeTax.pdf"
+_TAX_NOTICE_PAGE = "topmostSubform[0].Page1[0]."
+_TAX_NOTICE_MONEY_WIDGETS = (
+    "Escrow_Value[0]",
+    "Tax_Escrow_Yearly[0]",
+    "Tax_Escrow_Pmt[0]",
+    "Tax_Escrow_Pmt[1]",
+    "Calc_Pmt[0]",
+    "Insurance_Premium_Monthly[0]",
+    "Total_Payment[0]",
+)
+_NUMERIC_TEXT_RE = re.compile(r"^-?[\d,]*\.?\d+$")
+
+
+def _format_tax_notice_values(prepared: dict[str, Any]) -> None:
+    """Tax notice: dollar amounts print with a $ sign and the rate as a percent."""
+    for widget in _TAX_NOTICE_MONEY_WIDGETS:
+        key = _TAX_NOTICE_PAGE + widget
+        text = str(prepared.get(key) or "").strip()
+        if text and _NUMERIC_TEXT_RE.match(text):
+            prepared[key] = f"${text}"
+    rate_key = _TAX_NOTICE_PAGE + "Tax_Escrow_Pct[0]"
+    rate = str(prepared.get(rate_key) or "").strip()
+    if rate and _NUMERIC_TEXT_RE.match(rate):
+        prepared[rate_key] = f"{rate}%"
+
+
 def _prepare_pdf_fill_data(template_name: str, data_dict: dict[str, Any]) -> dict[str, Any]:
     prepared = dict(data_dict)
+
+    if template_name == _TAX_NOTICE_TEMPLATE:
+        _format_tax_notice_values(prepared)
 
     if template_name == "TMHA_SalesContract.pdf":
         existing = [str(prepared.get(field, "")).strip() for field in TMHA_CREDITOR_PHONE_FIELDS]
@@ -558,6 +704,114 @@ def _force_helvetica_field_appearance(writer: PdfWriter) -> None:
             widget[NameObject("/DA")] = TextStringObject(
                 _DA_FONT_RE.sub(r"/Helv\1", str(default_appearance), count=1)
             )
+
+
+# Templates whose text widgets use a fixed font size and a "do not scroll"
+# appearance, so a long value (two buyer names, two IDs, the full retailer name)
+# is clipped on the printed form. For these templates only, a value that would
+# overflow its widget is drawn at a smaller font size instead (never below
+# ``_AUTOSHRINK_MIN_SIZE``). Values that already fit are untouched.
+PDF_AUTOSHRINK_TEMPLATES = frozenset(
+    {
+        "TDHCA_1023-Statement-Ownership.pdf",
+        "TDHCA_1124_Installation_Warranty.pdf",
+        "TDHCA_1054_Habitability_Warranty.pdf",
+        "TDHCA_WarrantyUsedHome.pdf",
+        "TDHCA_1074_Vacate_If_No_Financing.pdf",
+        "TDHCA_1062_Install_Checklist.pdf",
+        "TDHCA_1055_Broker_Disclosure.pdf",
+        "TDHCA_Disclosure.pdf",
+        "TMHA-SalesContractDepositAgreement.pdf",
+        "TMHA_LimitedWarrantyUsed.pdf",
+        "TMHA_ConsumerInsulation.pdf",
+        "Internal_PropertyLocation.pdf",
+        "Internal_AoA.pdf",
+        "Internal_Homestead.pdf",
+        "Internal_AssignmentBySeller.pdf",
+        "Internal_Consumer_Home_Acceptance_Acknowledgement.pdf",
+        "Internal_ImportantNoticeTax.pdf",
+        "State_ImportantHealth.pdf",
+    }
+)
+_AUTOSHRINK_MIN_SIZE = 6.0
+_AUTOSHRINK_PADDING = 4.0
+_DA_SIZE_RE = re.compile(r"(/[^\s/]+\s+)(\d+(?:\.\d+)?)(\s+Tf)")
+_FF_MULTILINE = 1 << 12
+_FF_COMB = 1 << 24
+
+
+def _widget_qualified_name(widget: Any) -> str:
+    parts: list[str] = []
+    node: Any = widget
+    while node is not None:
+        node = node.get_object()
+        name = node.get("/T")
+        if name:
+            parts.append(str(name))
+        node = node.get("/Parent")
+    return ".".join(reversed(parts))
+
+
+def _inherited_widget_attr(widget: Any, key: str) -> Any:
+    node: Any = widget
+    while node is not None:
+        node = node.get_object()
+        if key in node:
+            return node[key]
+        node = node.get("/Parent")
+    return None
+
+
+def _shrink_overflowing_field_fonts(
+    template_name: str,
+    writer: PdfWriter,
+    values: dict[str, Any],
+) -> int:
+    """Shrink the font of text widgets whose value would be clipped.
+
+    Returns the number of widgets changed. Run after the widgets point at
+    ``/Helv`` so the width is measured with the font the appearance uses.
+    """
+    if template_name not in PDF_AUTOSHRINK_TEMPLATES:
+        return 0
+    changed = 0
+    for page in writer.pages:
+        annotations = page.get("/Annots")
+        if not annotations:
+            continue
+        for annotation in annotations.get_object():
+            widget = annotation.get_object()
+            if widget.get("/Subtype") != "/Widget":
+                continue
+            if _inherited_widget_attr(widget, "/FT") != "/Tx":
+                continue
+            flags = int(_inherited_widget_attr(widget, "/Ff") or 0)
+            if flags & (_FF_MULTILINE | _FF_COMB):
+                continue
+            value = values.get(_widget_qualified_name(widget))
+            text = "" if value is None else str(value)
+            if not text:
+                continue
+            default_appearance = str(widget.get("/DA") or "")
+            match = _DA_SIZE_RE.search(default_appearance)
+            if not match:
+                continue
+            rect = [float(v) for v in widget["/Rect"]]
+            available = abs(rect[2] - rect[0]) - _AUTOSHRINK_PADDING
+            base = float(match.group(2)) or 12.0
+            needed = stringWidth(text, "Helvetica", base)
+            if available <= 0 or needed <= available:
+                continue
+            fitted = max(_AUTOSHRINK_MIN_SIZE, int(base * available / needed * 4) / 4)
+            if fitted >= base:
+                continue
+            widget[NameObject("/DA")] = TextStringObject(
+                _DA_SIZE_RE.sub(
+                    lambda m: f"{m.group(1)}{fitted:g}{m.group(3)}", default_appearance, count=1
+                )
+            )
+            changed += 1
+    return changed
 
 
 def _apply_pdf_widget_rect_overrides(template_name: str, writer: PdfWriter) -> None:
@@ -886,6 +1140,7 @@ def fill_pdf_form(template_path: str, data_dict: dict[str, Any], output_filename
             # TrueType fonts these regulatory templates use; route field
             # appearances through the standard-14 /Helv font it can render.
             _force_helvetica_field_appearance(writer)
+            _shrink_overflowing_field_fonts(template_name, writer, appearance_data)
             for page in writer.pages:
                 writer.update_page_form_field_values(page, appearance_data, auto_regenerate=False)
             if (
