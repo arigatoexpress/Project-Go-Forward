@@ -227,8 +227,8 @@ def test_escrow_values_render_on_important_notice_tax_form(tmp_path, monkeypatch
     def widget(name: str) -> str:
         return f"topmostSubform[0].Page1[0].{name}"
 
-    assert actual.get(widget("Escrow_Value[0]")) == "100,000.00"
-    assert actual.get(widget("Tax_Escrow_Yearly[0]")) == "2,500.00"
-    assert actual.get(widget("Tax_Escrow_Pmt[0]")) == "208.33"
-    assert actual.get(widget("Insurance_Premium_Monthly[0]")) == "100.00"
-    assert actual.get(widget("Tax_Escrow_Pct[0]")) in ("2.5", "2.50")
+    assert actual.get(widget("Escrow_Value[0]")) == "$100,000.00"
+    assert actual.get(widget("Tax_Escrow_Yearly[0]")) == "$2,500.00"
+    assert actual.get(widget("Tax_Escrow_Pmt[0]")) == "$208.33"
+    assert actual.get(widget("Insurance_Premium_Monthly[0]")) == "$100.00"
+    assert actual.get(widget("Tax_Escrow_Pct[0]")) in ("2.5%", "2.50%")

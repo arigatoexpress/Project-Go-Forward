@@ -149,7 +149,8 @@ def test_v2_maps_full_packet_manufacturer_identity_fields(monkeypatch, tmp_path)
         captures["Internal_Homestead.pdf"][
             "topmostSubform[0].Page2[0].Manufacturer_Model_Serial[0]"
         ]
-        == "TRU Homes The Marvel / TRU-987654"
+        # Mark 2026-11-12: the 50-114 ID line prints the HUD label(s), serials only as a fallback.
+        == "TRU Homes The Marvel / TEX482913"
     )
     assert (
         captures["State_ImportantHealth.pdf"]["topmostSubform[0].Page1[0].Manufacturer_Address[0]"]

@@ -116,11 +116,11 @@ def test_contract_page2_keeps_principal_and_interest_without_escrow(tmp_path, mo
 def test_tax_notice_prints_escrow_total_and_tax_line(tmp_path, monkeypatch):
     values = _field_values(_render(TAX_NOTICE, DEAL, tmp_path, monkeypatch))
 
-    assert values[NOTICE + "Calc_Pmt[0]"] == PRINCIPAL_AND_INTEREST
-    assert values[NOTICE + "Tax_Escrow_Pmt[0]"] == TAX_MONTHLY
-    assert values[NOTICE + "Tax_Escrow_Pmt[1]"] == TAX_MONTHLY
-    assert values[NOTICE + "Insurance_Premium_Monthly[0]"] == "200.00"
-    assert values[NOTICE + "Total_Payment[0]"] == TOTAL_WITH_ESCROW
+    assert values[NOTICE + "Calc_Pmt[0]"] == f"${PRINCIPAL_AND_INTEREST}"
+    assert values[NOTICE + "Tax_Escrow_Pmt[0]"] == f"${TAX_MONTHLY}"
+    assert values[NOTICE + "Tax_Escrow_Pmt[1]"] == f"${TAX_MONTHLY}"
+    assert values[NOTICE + "Insurance_Premium_Monthly[0]"] == "$200.00"
+    assert values[NOTICE + "Total_Payment[0]"] == f"${TOTAL_WITH_ESCROW}"
 
 
 def test_tax_notice_estimated_property_tax_line_is_mapped():
