@@ -71,6 +71,7 @@ REQUIRED_FIELD_LABELS = {
     "manufacturer_model": "Manufacturer/model",
     "manufacturer_model_hud": "Manufacturer/model/HUD label",
     "manufacturer_model_serial": "Manufacturer/model/serial",
+    "manufacturer_model_home_id": "Manufacturer/model/HUD label or serial",
     "serial_number_1": "Serial # 1",
     "serial_number_2": "Serial # 2",
     "label_number_1": "HUD label # 1",
@@ -252,6 +253,16 @@ def normalize_section_count(value: Any) -> str:
 def _join_non_empty(values: list[Any], separator: str = " ") -> str:
     clean = [_clean(value) for value in values if _has_value(value)]
     return separator.join(clean)
+
+
+def _join_ids(*values: Any) -> str:
+    """Join distinct section IDs (serials or HUD labels) for a single-slot form."""
+    seen: list[str] = []
+    for value in values:
+        text = _clean(value)
+        if text and text not in seen:
+            seen.append(text)
+    return ", ".join(seen)
 
 
 def _city_state_zip(city: Any, state: Any, zip_code: Any) -> str:
@@ -497,6 +508,90 @@ def apply_contract_insurance(data: dict[str, Any]) -> None:
         data["insurance_furnish_yes"] = True
 
 
+def _size_dimension(value: Any) -> str:
+    """Return a size dimension as typed, minus whitespace (blank when empty)."""
+    return _clean(value)
+
+
+def _size_text(width: Any, length: Any) -> str:
+    """``14 x 56`` (width x length, the order printed on the TDHCA forms)."""
+    w, l_ = _size_dimension(width), _size_dimension(length)
+    if w and l_:
+        return f"{w} x {l_}"
+    return ""
+
+
+def _apply_section_sizes(enriched: dict[str, Any], section_count: str) -> None:
+    """Derive per-section ``W x L`` text and the one-line home-size text.
+
+    Per-section sizes are staff-entered (``section_N_width`` / ``section_N_length``).
+    A multi-section home's overall width/length is never split into sections here.
+    """
+    sizes: list[str] = []
+    for index in (1, 2):
+        text = _size_text(
+            enriched.get(f"section_{index}_width"), enriched.get(f"section_{index}_length")
+        )
+        if text:
+            _set_if_blank(enriched, f"section_{index}_size", text)
+            sizes.append(text)
+    if sizes:
+        _set_if_blank(enriched, "home_size_text", ", ".join(sizes))
+
+
+def missing_section_sizes(data: dict[str, Any]) -> list[str]:
+    """Labels of per-section sizes still missing for the home's section count.
+
+    Non-blocking: callers surface this as a warning before generating forms.
+    """
+    enriched = enrich_document_data(data)
+    count = normalize_section_count(enriched.get("no_of_sections"))
+    sections = int(count) if count.isdigit() else 1
+    missing: list[str] = []
+    for index in range(1, min(max(sections, 1), 2) + 1):
+        if _is_blank(enriched.get(f"section_{index}_width")) or _is_blank(
+            enriched.get(f"section_{index}_length")
+        ):
+            missing.append(f"Section {index} size (width x length)")
+    return missing
+
+
+def _apply_wheels_default(enriched: dict[str, Any]) -> None:
+    """Default "Wheels & axles included" to No on used or already-sited homes.
+
+    A used home that is already on a site keeps no wheels, axles or tires with
+    the sale (Mark Willcott 2026-11-12). Staff-entered Yes/No always wins.
+    """
+    if (
+        _coerce_bool(enriched.get("wheels_included_yes")) is True
+        or _coerce_bool(enriched.get("wheels_included_no")) is True
+    ):
+        return
+    sited = _coerce_bool(enriched.get("already_sited"))
+    used = _coerce_bool(enriched.get("is_used"))
+    if sited or used:
+        enriched["wheels_included_no"] = True
+        enriched["wheels_included_yes"] = False
+
+
+OWNERSHIP_HANDLING_EXPEDITE = {"expedite", "expedited", "rush", "5 day", "5-day", "5 days"}
+OWNERSHIP_HANDLING_REGULAR = {"regular", "normal", "standard", "15 day", "15-day", "15 days"}
+
+
+def _apply_ownership_handling(enriched: dict[str, Any]) -> None:
+    """TDHCA 1023 "Type of Handling": regular ($55) vs expedite (extra $55).
+
+    Left unset when staff has not chosen, so the box is never guessed.
+    """
+    choice = _clean(enriched.get("ownership_handling")).lower()
+    if choice in OWNERSHIP_HANDLING_EXPEDITE:
+        enriched["ownership_handling_expedite"] = True
+        enriched["ownership_handling_regular"] = False
+    elif choice in OWNERSHIP_HANDLING_REGULAR:
+        enriched["ownership_handling_regular"] = True
+        enriched["ownership_handling_expedite"] = False
+
+
 def enrich_document_data(data: dict[str, Any]) -> dict[str, Any]:
     """Return data with safe seller and computed aliases filled.
 
@@ -714,25 +809,44 @@ def enrich_document_data(data: dict[str, Any]) -> dict[str, Any]:
         if manufacturer_model:
             enriched["manufacturer_model"] = manufacturer_model
 
-    if _is_blank(enriched.get("manufacturer_model_hud")) and _all_have_values(
-        enriched, "manufacturer_model", "label_number_1"
-    ):
-        manufacturer_model_hud = _join_non_empty(
-            [enriched.get("manufacturer_model"), enriched.get("label_number_1")],
-            " / ",
-        )
-        if manufacturer_model_hud:
-            enriched["manufacturer_model_hud"] = manufacturer_model_hud
+    # Single-slot forms (one Serial line, one HUD line) must carry BOTH section
+    # IDs on a two-section home (Mark Willcott review 2026-11-12). The joined
+    # keys below are what those forms map; the one-ID manufacturer_model_*
+    # helpers are rebuilt with every ID too.
+    all_serials = _join_ids(enriched.get("serial_number_1"), enriched.get("serial_number_2"))
+    all_labels = _join_ids(enriched.get("label_number_1"), enriched.get("label_number_2"))
+    if all_serials:
+        _set_if_blank(enriched, "serial_numbers_all", all_serials)
+    if all_labels:
+        _set_if_blank(enriched, "label_numbers_all", all_labels)
 
-    if _is_blank(enriched.get("manufacturer_model_serial")) and _all_have_values(
-        enriched, "manufacturer_model", "serial_number_1"
+    manufacturer_model_text = _clean(enriched.get("manufacturer_model"))
+    for key, first_key, second_key, all_ids in (
+        ("manufacturer_model_hud", "label_number_1", "label_number_2", all_labels),
+        ("manufacturer_model_serial", "serial_number_1", "serial_number_2", all_serials),
     ):
-        manufacturer_model_serial = _join_non_empty(
-            [enriched.get("manufacturer_model"), enriched.get("serial_number_1")],
-            " / ",
+        if not manufacturer_model_text or not all_ids:
+            continue
+        wanted = _join_non_empty([manufacturer_model_text, all_ids], " / ")
+        current = _clean(enriched.get(key))
+        first_only = _join_non_empty(
+            [manufacturer_model_text, _clean(enriched.get(first_key))], " / "
         )
-        if manufacturer_model_serial:
-            enriched["manufacturer_model_serial"] = manufacturer_model_serial
+        second_id = _clean(enriched.get(second_key))
+        # Rebuild when blank, or when the caller (the Document Center derives the
+        # same helper client-side) sent the one-ID form on a two-ID home.
+        if not current or (second_id and second_id not in current and current == first_only):
+            enriched[key] = wanted
+
+    # Comptroller 50-114 asks for "make, model and identification number". Mark
+    # (2026-11-12): use the HUD label(s); fall back to the serial(s) when no HUD
+    # label was entered.
+    if manufacturer_model_text and (all_labels or all_serials):
+        _set_if_blank(
+            enriched,
+            "manufacturer_model_home_id",
+            _join_non_empty([manufacturer_model_text, all_labels or all_serials], " / "),
+        )
 
     if _is_blank(enriched.get("serial_label_combined")) and (
         _has_value(enriched.get("serial_number_1")) or _has_value(enriched.get("label_number_1"))
@@ -754,6 +868,22 @@ def enrich_document_data(data: dict[str, Any]) -> dict[str, Any]:
         serial_label_combined = _join_non_empty(serial_label_parts, " | ")
         if serial_label_combined:
             enriched["serial_label_combined"] = serial_label_combined
+
+    _apply_section_sizes(enriched, section_count)
+
+    # TMHA used-home limited warranty prints Single / Multi-Section boxes. Derive
+    # them from the section count unless staff set them explicitly.
+    if section_count.isdigit():
+        multi = int(section_count) >= 2
+        if not (
+            _coerce_bool(enriched.get("warranty_single")) is True
+            or _coerce_bool(enriched.get("warranty_double")) is True
+        ):
+            enriched["warranty_single"] = not multi
+            enriched["warranty_double"] = multi
+
+    _apply_wheels_default(enriched)
+    _apply_ownership_handling(enriched)
 
     if _is_blank(enriched.get("manufacturer_city_state_zip")) and _all_have_values(
         enriched, "manufacturer_city", "manufacturer_state", "manufacturer_zip"
@@ -965,6 +1095,10 @@ def _required_field_has_value(data: dict[str, Any], field: str) -> bool:
     if field == "manufacturer_model_serial":
         return _required_field_has_value(data, "manufacturer_model") and _has_value(
             data.get("serial_number_1")
+        )
+    if field == "manufacturer_model_home_id":
+        return _required_field_has_value(data, "manufacturer_model") and (
+            _has_value(data.get("label_number_1")) or _has_value(data.get("serial_number_1"))
         )
     if field == "manufacturer_city_state_zip":
         return _city_state_zip_has_value(

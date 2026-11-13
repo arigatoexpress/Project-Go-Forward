@@ -206,6 +206,17 @@ def _normalize_document_data(data: dict[str, Any]) -> dict[str, Any]:
             " / ",
         ),
     )
+    _set_if_missing(
+        normalized,
+        "manufacturer_model_home_id",
+        _join_nonempty(
+            [
+                normalized.get("manufacturer_model"),
+                normalized.get("label_number_1") or normalized.get("serial_number_1"),
+            ],
+            " / ",
+        ),
+    )
 
     _set_if_missing(normalized, "seller_name", BUSINESS_NAME)
     _set_if_missing(normalized, "seller_rbi", BUSINESS_RBI)
