@@ -577,10 +577,10 @@ def test_tax_notice_prints_estimated_personal_property_tax(rendered):
         (rendered["financed_notice"], rendered["financed_notice_path"]),
     ):
         values = _field_values(reader)
-        assert values[NOTICE_TAX] == "181.25"
+        assert values[NOTICE_TAX] == "$181.25"
         text = _page_text(path, 1)
         assert "181.25" in text
         assert "Estimated Personal Property Tax" in text
         assert "186.25" not in text
-    assert _field_values(rendered["customer_notice"])[NOTICE_TOTAL] == "1,251.26"
-    assert _field_values(rendered["financed_notice"])[NOTICE_TOTAL] == "1,278.38"
+    assert _field_values(rendered["customer_notice"])[NOTICE_TOTAL] == "$1,251.26"
+    assert _field_values(rendered["financed_notice"])[NOTICE_TOTAL] == "$1,278.38"
