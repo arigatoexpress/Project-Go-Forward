@@ -46,10 +46,7 @@ jobs:
         if: matrix.ecosystem == 'backend'
         run: |
           set +e
-          # ADK 2.13.0 still caps OpenTelemetry at 1.44; the fix requires 1.45.1.
-          # Remove this single exception when a compatible ADK release is available.
           python -m pip_audit -r requirements.txt -r requirements-dev.txt \
-            --ignore-vuln GHSA-xcq7-p3pf-p88h \
             > "$RUNNER_TEMP/dependency-audit.txt" 2>&1
           status=$?
           cat "$RUNNER_TEMP/dependency-audit.txt"
