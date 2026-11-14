@@ -1,7 +1,7 @@
-google-adk==2.5.0
+google-adk==2.14.1
 webauthn==2.7.1
 itsdangerous==2.2.0
-google-genai==2.12.1
+google-genai==2.34.0
 google-cloud-aiplatform==1.161.0
 google-cloud-firestore==2.22.0
 google-cloud-kms==3.13.0  # SSN envelope encryption at rest (inert until SSN_KMS_KEY set)
@@ -14,9 +14,9 @@ Pillow==13.0.0
 pydantic>=2.11.1,<3
 fastapi==0.136.3
 python-multipart==0.0.31
-uvicorn==0.34.0
+uvicorn==0.54.0
 redis==5.2.1
-dnspython==2.9.0  # GHSA-45c3-73f7-pv4m
+dnspython==2.9.2  # GHSA-45c3-73f7-pv4m, GHSA-vvf4-9x63-8xvv
 pypdf==6.21.4  # GHSA-62m5-6wh8-28x7, GHSA-42gh-23hr-vphw, GHSA-x3rh-gjgm-fmqc, GHSA-4vqv-7265-gm2w, GHSA-5849-834g-hvw5, GHSA-mfr5-77xh-9j7h, GHSA-cggf-277g-3q54
 resend==2.5.1
 slowapi>=0.1.9
@@ -58,3 +58,8 @@ urllib3>=2.7.0
 
 # Runtime Ad Studio MP4 generation (MoviePy 1.x API).
 moviepy==1.0.3
+
+# Explicit floor: GHSA-xcq7-p3pf-p88h (unbounded tracestate DoS) fixed in
+# 1.45.1; ceiling (<=1.45.2) comes from google-adk 2.14.1's own constraint.
+opentelemetry-api>=1.45.1
+opentelemetry-sdk>=1.45.1
