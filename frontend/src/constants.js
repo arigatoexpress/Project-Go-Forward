@@ -63,9 +63,10 @@ export const INSTALLER_OPTIONS = [
 //   end    — last closed day; banner hides once today is past this date
 //   reopen — first day open again (used in copy)
 //   message — the exact line shown to visitors
+// Thanksgiving 2026 schedule from L.A. (THO staff email, 2026-11-18).
 export const STORE_CLOSURE = {
-  start: '2026-07-02',
-  end: '2026-07-07',
-  reopen: '2026-07-08',
-  message: 'Closed July 2–7 for the Independence Day holiday. We reopen July 8.',
+  start: '2026-11-25',
+  end: '2026-11-28',
+  reopen: '2026-11-30',
+  message: 'Thanksgiving hours: Wed 11/25 open 9 AM–12 PM. Closed Thu 11/26–Sat 11/28. Normal hours resume Mon 11/30.',
 };
