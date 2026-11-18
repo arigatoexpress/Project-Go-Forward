@@ -2,3 +2,7 @@
 # Versions match the environment that ran the job on the ops laptop through 2026-10-07.
 google-cloud-bigquery==3.41.0
 google-cloud-firestore==2.22.0
+# Security floors for transitive deps (CVE sweep 2026-11-18):
+# certifi GHSA-6q48-6c7w-9gw2 (emSign roots with compromised intermediates), idna PYSEC-2026-215.
+certifi>=2026.10.18
+idna>=3.15
