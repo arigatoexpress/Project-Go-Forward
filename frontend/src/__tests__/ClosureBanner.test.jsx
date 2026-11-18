@@ -75,3 +75,18 @@ describe('ClosureBanner', () => {
     expect(screen.getByRole('status')).toBeInTheDocument();
   });
 });
+
+describe('ClosureBanner – Thanksgiving 2026 (STORE_CLOSURE)', () => {
+  it('shows the live Thanksgiving notice ahead of and through 11/28, then hides', async () => {
+    const { STORE_CLOSURE } = await import('../constants');
+    expect(STORE_CLOSURE.end).toBe('2026-11-28');
+    render(<ClosureBanner now={new Date('2026-11-20T10:00:00')} />);
+    expect(screen.getByText(/Thanksgiving hours: Wed 11\/25 open 9 AM–12 PM/)).toBeInTheDocument();
+    cleanup();
+    render(<ClosureBanner now={new Date('2026-11-28T17:00:00')} />);
+    expect(screen.getByRole('status')).toBeInTheDocument();
+    cleanup();
+    render(<ClosureBanner now={new Date('2026-11-29T00:00:01')} />);
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+});
