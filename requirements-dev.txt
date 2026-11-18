@@ -10,10 +10,12 @@ pre-commit==3.8.0
 httpx>=0.28.0
 # Starlette 1.3+ prefers httpx2 for its in-process TestClient transport.
 # Keep httpx for scripts and external-HTTP tests that import it directly.
-httpx2>=2.12.0  # PYSEC-2026-3845..3849 fixed by 2.10.0; matches runtime floor
+# Floor 2.12.0: PYSEC-2026-3845..3849 fixed in 2.10.0; matches the runtime floor.
+httpx2>=2.12.0
 google-cloud-bigquery>=3.25.0  # scripts/sync_leads_to_bigquery.py (PII-free lead analytics warehouse)
 
 # Security floor for dev/build-only dependencies (pip-audit 2026-08).
 filelock>=4.2.1
 setuptools>=84.1.0
-virtualenv>=21.14.13  # GHSA-cx6f-vjhg-g3cc (21.14.9 PS1 prompt regression)
+# virtualenv 21.14.13: GHSA-cx6f-vjhg-g3cc (21.14.9 PS1 prompt regression).
+virtualenv>=21.14.13
