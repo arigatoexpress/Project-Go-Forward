@@ -279,6 +279,20 @@ export const joinIds = (...values) => (
   [...new Set(values.map(v => String(v ?? '').trim()).filter(Boolean))].join(', ')
 );
 
+// Homestead (Comptroller 50-114) "make, model and identification number". Same
+// rule as the backend (tools/document_quality.py): HUD label(s), else serial(s).
+// Staff never type this; it is built from Manufacturer, Model and the IDs.
+export const manufacturerModelHomeId = f => {
+  const manufacturerModel = [f?.manufacturer, f?.model]
+    .map(v => String(v ?? '').trim())
+    .filter(Boolean)
+    .join(' ');
+  if (!manufacturerModel) return '';
+  const ids = joinIds(f?.label_number_1, f?.label_number_2)
+    || joinIds(f?.serial_number_1, f?.serial_number_2);
+  return ids ? `${manufacturerModel} / ${ids}` : '';
+};
+
 // Per-section size labels still blank for the home's section count. Soft
 // warning only: generating forms is never blocked on sizes, but forms print a
 // blank size cell without them (Mark Willcott, 2026-11-12).
@@ -392,6 +406,7 @@ const REQUIRED_FIELD_LABELS = {
   manufacturer_model: 'Manufacturer/model',
   manufacturer_model_hud: 'Manufacturer/model/HUD label',
   manufacturer_model_serial: 'Manufacturer/model/serial',
+  manufacturer_model_home_id: 'Manufacturer/model/HUD label or serial',
   serial_number_1: 'Serial # 1',
   serial_number_2: 'Serial # 2',
   label_number_1: 'HUD label # 1',
@@ -422,6 +437,7 @@ const REQUIRED_FIELD_INPUTS = {
   manufacturer_model: ['manufacturer', 'model'],
   manufacturer_model_hud: ['manufacturer', 'model', 'label_number_1'],
   manufacturer_model_serial: ['manufacturer', 'model', 'serial_number_1'],
+  manufacturer_model_home_id: ['manufacturer', 'model', 'serial_number_1'],
   manufacturer_address: ['manufacturer_address'],
   manufacturer_city_state_zip: ['manufacturer_city', 'manufacturer_state', 'manufacturer_zip'],
   manufacturer_full_address: ['manufacturer_address', 'manufacturer_city', 'manufacturer_state', 'manufacturer_zip'],
@@ -741,6 +757,7 @@ function toDocumentData(f) {
       joinNonEmpty([f.manufacturer, f.model], ' '),
       joinIds(f.serial_number_1, f.serial_number_2),
     ], ' / '),
+    manufacturer_model_home_id: f.manufacturer_model_home_id || manufacturerModelHomeId(f),
     manufacturer_city_state_zip: manufacturerCityStateZip,
     manufacturer_full_address: fullAddress(f.manufacturer_address, manufacturerCityStateZip),
     no_of_sections: normalizeSections(f.no_of_sections),
@@ -3653,7 +3670,7 @@ function getDocumentQualityState(form, selectedTemplates) {
   return { errors, missing, step: targetStep };
 }
 
-function getSelectedTemplateRequiredState(form, templates, selected) {
+export function getSelectedTemplateRequiredState(form, templates, selected) {
   const selectedSet = new Set(selected || []);
   const templateMap = new Map((templates || []).map(t => [t.template_name, t]));
   const docData = toDocumentData(form);
