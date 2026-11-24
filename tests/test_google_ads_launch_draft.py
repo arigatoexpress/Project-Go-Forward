@@ -93,7 +93,7 @@ def test_rejects_proportional_but_unreviewed_budget_and_bid_increases():
 
     errors = validate_draft(draft)
 
-    assert "budget.average_daily_usd must equal reviewed value 20" in errors
+    assert "budget.average_daily_usd must equal reviewed value 5" in errors
     assert "bidding.max_cpc_usd must equal reviewed value 5" in errors
 
 
@@ -158,7 +158,7 @@ def test_rejects_inflated_stop_loss_or_removed_hard_readiness_checks():
 
     errors = validate_draft(draft)
 
-    assert "stop_loss.zero_reachable_leads_spend_usd must equal reviewed value 200" in errors
+    assert "stop_loss.zero_reachable_leads_spend_usd must equal reviewed value 75" in errors
     assert "readiness.hard_checks must match the reviewed hard-check list" in errors
     assert "geo.radius_miles must equal reviewed value 50" in errors
 

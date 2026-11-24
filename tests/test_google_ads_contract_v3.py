@@ -17,7 +17,7 @@ from scripts.google_ads_launch_draft import (
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACT_PATH = ROOT / "config" / "google_ads_launch_draft.json"
 CUSTOMER_ID = "1234567890"
-REVIEWED_CONTRACT_SHA256 = "9a55b1e3b396efd383995642968c11c15d1d6af473a2a4e988a1ae0a08590192"  # pragma: allowlist secret - public contract digest
+REVIEWED_CONTRACT_SHA256 = "6c3a726ae4f62e4d7ca7f29e6bdbea11d68279ee6503d907612f9e8dcbe2173b"  # pragma: allowlist secret - public contract digest
 
 
 def _contract():
@@ -364,18 +364,18 @@ def test_contract_hash_changes_when_a_reviewed_cap_changes():
     [
         (
             ("campaign", "budget", "average_daily_usd"),
-            20.001,
-            "budget.average_daily_usd must equal reviewed value 20",
+            5.001,
+            "budget.average_daily_usd must equal reviewed value 5",
         ),
         (
             ("campaign", "budget", "max_single_day_charge_usd"),
-            40.001,
-            "budget.max_single_day_charge_usd must equal reviewed value 40",
+            10.001,
+            "budget.max_single_day_charge_usd must equal reviewed value 10",
         ),
         (
             ("campaign", "budget", "monthly_charge_limit_usd"),
-            608.001,
-            "budget.monthly_charge_limit_usd must equal reviewed value 608",
+            152.001,
+            "budget.monthly_charge_limit_usd must equal reviewed value 152",
         ),
         (
             ("campaign", "bidding", "max_cpc_usd"),
@@ -400,13 +400,13 @@ def test_builder_pins_v25_and_exact_budget_and_max_cpc_micros():
 
     assert GOOGLE_ADS_API_VERSION == "v25"
     assert contract["campaign"]["budget"] == {
-        "average_daily_usd": 20,
-        "max_single_day_charge_usd": 40,
-        "monthly_charge_limit_usd": 608,
+        "average_daily_usd": 5,
+        "max_single_day_charge_usd": 10,
+        "monthly_charge_limit_usd": 152,
     }
     budget = _creates(operations, "campaignBudgetOperation")[0]
     campaign = _creates(operations, "campaignOperation")[0]
-    assert budget["amountMicros"] == 20_000_000
+    assert budget["amountMicros"] == 5_000_000
     assert campaign["targetSpend"] == {"cpcBidCeilingMicros": 5_000_000}
     assert "targetSpendMicros" not in json.dumps(operations)
 
