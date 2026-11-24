@@ -85,6 +85,11 @@ def test_saturday_hours_match_staff_confirmed_schedule():
     assert (saturday["opens"], saturday["closes"]) == ("10:00", "15:00")
     today = _crm_tools().datetime.now(TIMEZONE).date()
     next_saturday = today + timedelta(days=(5 - today.weekday()) % 7 or 7)
+    # Skip Saturdays with a holiday override (config.yaml business.special_hours),
+    # e.g. the Thanksgiving 2026 weekend closure; this test checks the weekly schedule.
+    special_dates = {str(s.get("date")) for s in config["business"].get("special_hours") or []}
+    while next_saturday.isoformat() in special_dates:
+        next_saturday += timedelta(days=7)
     assert _get_hours_for_date(next_saturday) == (10, 15)
     slots = _crm_tools().check_available_slots(next_saturday.isoformat())
     assert slots["available_slots"] == ["10:00 AM", "11:00 AM", "12:00 PM", "1:00 PM", "2:00 PM"]
