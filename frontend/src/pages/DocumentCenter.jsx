@@ -24,6 +24,7 @@ import {
   INSTALLER_OPTIONS,
 } from '../constants';
 import { safeUserMessage } from '../utils/apiError';
+import { buildPrecheckBlockedReport, reportPrecheckBlocked } from '../utils/precheckBeacon';
 
 /* ─── Constants ──────────────────────────────────────────── */
 
@@ -4108,6 +4109,10 @@ export default function DocumentCenter() {
     });
   }, []);
 
+  const reportBlocked = (stage, missing) => {
+    reportPrecheckBlocked(buildPrecheckBlockedReport({ stage, selected: selDocs, packets, missing }));
+  };
+
   const generate = async () => {
     // Defense-in-depth: Step 3's Generate must not advance to backend if
     // Step 1 or Step 2 is missing data. Backend would reject with cryptic
@@ -4115,6 +4120,7 @@ export default function DocumentCenter() {
     // step with the same inline-highlight / scroll-to-error UX.
     const s1 = getValidationState(form, 1);
     if (s1.errors.length > 0) {
+      reportBlocked('step1', s1.missing);
       setValidationErrors(s1.errors);
       setMissingFields(s1.missing);
       setStep(1);
@@ -4123,6 +4129,7 @@ export default function DocumentCenter() {
     }
     const s2 = getValidationState(form, 2);
     if (s2.errors.length > 0) {
+      reportBlocked('step2', s2.missing);
       setValidationErrors(s2.errors);
       setMissingFields(s2.missing);
       setStep(2);
@@ -4145,6 +4152,7 @@ export default function DocumentCenter() {
     }
     const documentCompleteness = getDocumentCompletenessState(form, templates, selDocs);
     if (documentCompleteness.errors.length > 0) {
+      reportBlocked('completeness', documentCompleteness.missing);
       setValidationErrors(documentCompleteness.errors);
       setMissingFields(documentCompleteness.missing);
       setStep(documentCompleteness.step);
@@ -4153,6 +4161,7 @@ export default function DocumentCenter() {
     }
     const selectedRequired = getSelectedTemplateRequiredState(form, templates, selDocs);
     if (selectedRequired.errors.length > 0) {
+      reportBlocked('required', selectedRequired.missing);
       setValidationErrors(selectedRequired.errors);
       setMissingFields(selectedRequired.missing);
       setStep(selectedRequired.step);
@@ -4161,6 +4170,7 @@ export default function DocumentCenter() {
     }
     const qualityState = getDocumentQualityState(form, selDocs);
     if (qualityState.errors.length > 0) {
+      reportBlocked('quality', qualityState.missing);
       setValidationErrors(qualityState.errors);
       setMissingFields(qualityState.missing);
       setStep(qualityState.step);

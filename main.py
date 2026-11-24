@@ -41,7 +41,12 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.gzip import GZipMiddleware
 
 import caching
-from auth.csrf import create_csrf_token, require_request_csrf, set_csrf_cookie
+from auth.csrf import (
+    create_csrf_token,
+    require_request_csrf,
+    set_csrf_cookie,
+    verify_request_csrf,
+)
 from auth.email_code import (
     EMAIL_CODE_TTL_SECONDS,
     MAX_CODE_ATTEMPTS,
@@ -139,6 +144,7 @@ from chat_owner import (
     set_chat_owner_cookie,
 )
 from conversation_memory import ConversationMemory
+from document_precheck_telemetry import emit_precheck_blocked
 from docuseal_service import (
     archive_submission as docuseal_archive_submission,
 )
@@ -7705,6 +7711,43 @@ async def track_analytics_event(request: Request):
         journey_id=data.get("journey_id"),
         public=True,
     )
+    return {"ok": True}
+
+
+PRECHECK_BEACON_MAX_BYTES = 16_384
+
+
+def _is_staff_session_quiet(request: Request) -> bool:
+    """True when the request carries a valid staff session and CSRF pair. Never raises."""
+    try:
+        if _verify_passkey_cookie(request):
+            return verify_request_csrf(request)
+        token = _admin_token_from_request(request)
+        return bool(token) and _verify_admin_token(token) and verify_request_csrf(request)
+    except Exception:
+        return False
+
+
+@app.post("/api/documents/precheck-blocked")
+@limiter.limit("30/minute")
+async def document_precheck_blocked(request: Request):
+    """Beacon from the Document Center when its browser pre-check blocks generation.
+
+    Logs template names, packet, stage and missing field keys only (allowlisted
+    against config/field_map.json) at WARNING so tho-logwatch can see blocks that
+    never reach generate-batch. Best effort: always answers 200 and never raises.
+    """
+    try:
+        length = int(request.headers.get("content-length") or 0)
+    except ValueError:
+        length = 0
+    if length > PRECHECK_BEACON_MAX_BYTES:
+        return {"ok": True}
+    try:
+        data = await request.json()
+    except Exception:
+        return {"ok": True}
+    emit_precheck_blocked(data, authenticated=_is_staff_session_quiet(request))
     return {"ok": True}
 
 
