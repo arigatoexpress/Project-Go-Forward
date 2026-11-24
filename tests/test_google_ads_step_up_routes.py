@@ -38,9 +38,9 @@ def _request_context(**overrides):
         "deployment_id": f"{contract['deployment']['key']}--{digest}",
         "contract_hash": f"sha256:{digest}",
         "caps": {
-            "average_daily_usd": 20,
-            "max_single_day_charge_usd": 40,
-            "monthly_charge_limit_usd": 608,
+            "average_daily_usd": 5,
+            "max_single_day_charge_usd": 10,
+            "monthly_charge_limit_usd": 152,
             "max_cpc_usd": 5,
         },
     }

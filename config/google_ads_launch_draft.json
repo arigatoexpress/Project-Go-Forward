@@ -95,9 +95,9 @@
     "channel": "SEARCH",
     "currency_code": "USD",
     "budget": {
-      "average_daily_usd": 20,
-      "max_single_day_charge_usd": 40,
-      "monthly_charge_limit_usd": 608
+      "average_daily_usd": 5,
+      "max_single_day_charge_usd": 10,
+      "monthly_charge_limit_usd": 152
     },
     "bidding": {
       "strategy": "MAXIMIZE_CLICKS",
@@ -263,9 +263,9 @@
       "action": "PAUSE_CAMPAIGN",
       "decision_logic": "ANY",
       "evaluation_window_days": 7,
-      "zero_reachable_leads_spend_usd": 200,
-      "zero_reachable_leads_clicks": 100,
-      "max_reachable_lead_cpa_usd": 150,
+      "zero_reachable_leads_spend_usd": 75,
+      "zero_reachable_leads_clicks": 40,
+      "max_reachable_lead_cpa_usd": 100,
       "minimum_reachable_leads_for_cpa_rule": 3
     }
   }

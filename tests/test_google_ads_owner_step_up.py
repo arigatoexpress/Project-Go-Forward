@@ -161,9 +161,9 @@ def _context(**overrides):
         "deployment_id": DEPLOYMENT_ID,
         "contract_hash": f"sha256:{CONTRACT_DIGEST}",
         "caps": {
-            "average_daily_usd": 20,
-            "max_single_day_charge_usd": 40,
-            "monthly_charge_limit_usd": 608,
+            "average_daily_usd": 5,
+            "max_single_day_charge_usd": 10,
+            "monthly_charge_limit_usd": 152,
             "max_cpc_usd": 5,
         },
         "evidence_digest": access_evidence.evidence_digest,

@@ -108,9 +108,9 @@ function normalizeCampaignReview(value) {
     ])
     && stopLoss.action === 'PAUSE_CAMPAIGN' && stopLoss.decision_logic === 'ANY'
     && stopLoss.evaluation_window_days === 7
-    && stopLoss.zero_reachable_leads_spend_usd === 200
-    && stopLoss.zero_reachable_leads_clicks === 100
-    && stopLoss.max_reachable_lead_cpa_usd === 150
+    && stopLoss.zero_reachable_leads_spend_usd === 75
+    && stopLoss.zero_reachable_leads_clicks === 40
+    && stopLoss.max_reachable_lead_cpa_usd === 100
     && stopLoss.minimum_reachable_leads_for_cpa_rule === 3
     && value.activation_supported === false && value.spend_authorized === false;
   if (!safe) throw new Error(STATUS_UNAVAILABLE);
@@ -185,9 +185,9 @@ function normalizeStatus(payload) {
     && payload?.feature_enabled === false
     && payload?.ready === false
     && payload?.spend_enabled === false
-    && payload?.budget?.average_daily_usd === 20
-    && payload?.budget?.max_single_day_charge_usd === 40
-    && payload?.budget?.monthly_charge_limit_usd === 608
+    && payload?.budget?.average_daily_usd === 5
+    && payload?.budget?.max_single_day_charge_usd === 10
+    && payload?.budget?.monthly_charge_limit_usd === 152
     && payload?.budget?.max_cpc_usd === 5
     && payload?.campaign_review
     && Array.isArray(payload?.workflow)
@@ -329,9 +329,9 @@ function normalizeApprovalReadiness(payload) {
     && payload?.state === 'SERVER_VALIDATED'
     && utcTimestamp.test(payload?.evaluated_at)
     && payload?.expected_version === 2
-    && payload?.budget?.average_daily_usd === 20
-    && payload?.budget?.max_single_day_charge_usd === 40
-    && payload?.budget?.monthly_charge_limit_usd === 608
+    && payload?.budget?.average_daily_usd === 5
+    && payload?.budget?.max_single_day_charge_usd === 10
+    && payload?.budget?.monthly_charge_limit_usd === 152
     && payload?.budget?.max_cpc_usd === 5
     && isStrictBooleanMap(payload?.gates, gateKeys)
     && (payload?.access_evidence_id === null

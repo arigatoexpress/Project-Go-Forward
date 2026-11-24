@@ -203,8 +203,8 @@ The proposed test is one Search campaign with two high-intent ad groups:
 | Local Inventory | `/inventory` | Exact + phrase only |
 | Showroom Tours | `/appointments` | Exact + phrase only |
 
-The proposal is **not approved**. Its average daily budget is $20, its explicit
-single-day charging limit is $40, and its full-month charging limit is $608.
+The proposal is **not approved**. Its average daily budget is $5, its explicit
+single-day charging limit is $10, and its full-month charging limit is $152.
 Those larger limits are recorded because Google says most campaigns may spend
 up to 2× the average daily budget on a day and charge up to 30.4× it over a
 month. The package also proposes a $5 maximum CPC ceiling and a stop-loss that

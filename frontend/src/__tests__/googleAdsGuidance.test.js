@@ -76,9 +76,9 @@ describe('Google Ads staff guidance', () => {
     ]);
     expect(GATE_GUIDANCE.iam_verified.missing).toMatch(/permissions/i);
     expect(budgetPlain({
-      average_daily_usd: 20,
-      max_single_day_charge_usd: 40,
-      monthly_charge_limit_usd: 608,
+      average_daily_usd: 5,
+      max_single_day_charge_usd: 10,
+      monthly_charge_limit_usd: 152,
       max_cpc_usd: 5,
     })).toMatch(/leaves them off/);
     expect(locationPlain({
@@ -133,14 +133,14 @@ describe('Google Ads staff guidance', () => {
     expect(formatStaffDate('2026-08-12T12:00:00Z')).toBe('Aug 12, 2026 at 12:00 UTC');
     expect(formatStaffDate('not-a-date')).toBe('');
     expect(budgetFieldRows({
-      average_daily_usd: 20,
-      max_single_day_charge_usd: 40,
-      monthly_charge_limit_usd: 608,
+      average_daily_usd: 5,
+      max_single_day_charge_usd: 10,
+      monthly_charge_limit_usd: 152,
       max_cpc_usd: 5,
     })).toEqual([
-      ['Daily budget', '$20'],
-      ['Most in one day', '$40'],
-      ['Monthly limit', '$608'],
+      ['Daily budget', '$5'],
+      ['Most in one day', '$10'],
+      ['Monthly limit', '$152'],
       ['Most per click', '$5'],
     ]);
     expect(campaignStatusPlain({ state: 'INTERNAL_DRAFT' })).toBe(

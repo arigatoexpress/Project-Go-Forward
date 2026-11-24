@@ -25,9 +25,9 @@ CANONICAL_HOST = "www.texashomeoutlet.com"
 ALLOWED_LANDING_PATHS = {"/appointments", "/inventory"}
 ALLOWED_POSITIVE_MATCH_TYPES = {"EXACT", "PHRASE"}
 REVIEWED_BUDGET = {
-    "average_daily_usd": 20.0,
-    "max_single_day_charge_usd": 40.0,
-    "monthly_charge_limit_usd": 608.0,
+    "average_daily_usd": 5.0,
+    "max_single_day_charge_usd": 10.0,
+    "monthly_charge_limit_usd": 152.0,
 }
 REVIEWED_MAX_CPC_USD = 5.0
 REVIEWED_RADIUS_MILES = 50.0
@@ -35,9 +35,9 @@ REVIEWED_LATITUDE = 30.018056
 REVIEWED_LONGITUDE = -95.115729
 REVIEWED_STOP_LOSS = {
     "evaluation_window_days": 7.0,
-    "zero_reachable_leads_spend_usd": 200.0,
-    "zero_reachable_leads_clicks": 100.0,
-    "max_reachable_lead_cpa_usd": 150.0,
+    "zero_reachable_leads_spend_usd": 75.0,
+    "zero_reachable_leads_clicks": 40.0,
+    "max_reachable_lead_cpa_usd": 100.0,
     "minimum_reachable_leads_for_cpa_rule": 3.0,
 }
 REQUIRED_HARD_CHECKS = {
