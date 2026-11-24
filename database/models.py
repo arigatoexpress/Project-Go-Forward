@@ -958,7 +958,20 @@ class Deal(BaseModel):
     manufacturer_zip: str | None = None
     manufacturer_city_state_zip: str | None = None
     no_of_sections: str | None = None
+    # Per-section size (feet). Staff-entered; a multi-section home's overall
+    # width/length is never split across sections automatically.
+    section_1_width: str | None = None
+    section_1_length: str | None = None
+    section_2_width: str | None = None
+    section_2_length: str | None = None
     is_new: bool = True
+    # Used home already on its site: wheels & axles default to "No" on the forms.
+    already_sited: bool = False
+    # TDHCA 1023 "Type of Handling": "regular" or "expedite". Blank = staff checks it.
+    ownership_handling: str | None = None
+    # Comptroller 50-114 homestead exemption optional lines.
+    homestead_legal_description: str | None = None
+    appraisal_account_number: str | None = None
 
     # ─── Pricing ───
     sales_price: float | None = Field(default=None, ge=0)
@@ -1191,6 +1204,14 @@ class Deal(BaseModel):
             "manufacturer_full_address": manufacturer_full_address,
             "serial_label_combined": serial_label_combined,
             "no_of_sections": self.no_of_sections,
+            "section_1_width": self.section_1_width,
+            "section_1_length": self.section_1_length,
+            "section_2_width": self.section_2_width,
+            "section_2_length": self.section_2_length,
+            "already_sited": self.already_sited or None,
+            "ownership_handling": self.ownership_handling,
+            "homestead_legal_description": self.homestead_legal_description,
+            "appraisal_account_number": self.appraisal_account_number,
             "is_new": self.is_new,
             "is_used": not self.is_new,
             "new_used_text": new_used_text,

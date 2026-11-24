@@ -122,12 +122,12 @@ def test_escrow_inputs_reach_pdf_through_live_entrypoint(tmp_path, monkeypatch):
         return f"topmostSubform[0].Page1[0].{name}"
 
     # insurance_premium_monthly = 1200/12 = 100.00
-    assert actual.get(widget("Insurance_Premium_Monthly[0]")) == "100.00"
+    assert actual.get(widget("Insurance_Premium_Monthly[0]")) == "$100.00"
     # escrow_value = taxable_value = 100,000.00
-    assert actual.get(widget("Escrow_Value[0]")) == "100,000.00"
+    assert actual.get(widget("Escrow_Value[0]")) == "$100,000.00"
     # tax_escrow_yearly = 2.5% * 100000 = 2,500.00
-    assert actual.get(widget("Tax_Escrow_Yearly[0]")) == "2,500.00"
+    assert actual.get(widget("Tax_Escrow_Yearly[0]")) == "$2,500.00"
     # tax_escrow_payment = 2500/12 = 208.33
-    assert actual.get(widget("Tax_Escrow_Pmt[0]")) == "208.33"
+    assert actual.get(widget("Tax_Escrow_Pmt[0]")) == "$208.33"
     # tax_escrow_pct = the entered rate
-    assert actual.get(widget("Tax_Escrow_Pct[0]")) in ("2.5", "2.50")
+    assert actual.get(widget("Tax_Escrow_Pct[0]")) in ("2.5%", "2.50%")
