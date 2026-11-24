@@ -29,9 +29,9 @@ const SAFE_STATUS = {
   ready: false,
   spend_enabled: false,
   budget: {
-    average_daily_usd: 20,
-    max_single_day_charge_usd: 40,
-    monthly_charge_limit_usd: 608,
+    average_daily_usd: 5,
+    max_single_day_charge_usd: 10,
+    monthly_charge_limit_usd: 152,
     max_cpc_usd: 5,
   },
   campaign_review: {
@@ -131,9 +131,9 @@ const SAFE_STATUS = {
       action: 'PAUSE_CAMPAIGN',
       decision_logic: 'ANY',
       evaluation_window_days: 7,
-      zero_reachable_leads_spend_usd: 200,
-      zero_reachable_leads_clicks: 100,
-      max_reachable_lead_cpa_usd: 150,
+      zero_reachable_leads_spend_usd: 75,
+      zero_reachable_leads_clicks: 40,
+      max_reachable_lead_cpa_usd: 100,
       minimum_reachable_leads_for_cpa_rule: 3,
     },
     activation_supported: false,
@@ -914,13 +914,13 @@ describe('GoogleAdsStatusCard', () => {
 
     expect(await screen.findByRole('heading', { name: 'Campaign details' })).toBeInTheDocument();
     expect(screen.getByText('Daily budget')).toBeInTheDocument();
-    expect(screen.getByText('$20')).toBeInTheDocument();
+    // Daily budget and most per click are both $5 in the reviewed contract.
+    expect(screen.getAllByText('$5')).toHaveLength(2);
     expect(screen.getByText('Most in one day')).toBeInTheDocument();
-    expect(screen.getByText('$40')).toBeInTheDocument();
+    expect(screen.getByText('$10')).toBeInTheDocument();
     expect(screen.getByText('Monthly limit')).toBeInTheDocument();
-    expect(screen.getByText('$608')).toBeInTheDocument();
+    expect(screen.getByText('$152')).toBeInTheDocument();
     expect(screen.getByText('Most per click')).toBeInTheDocument();
-    expect(screen.getByText('$5')).toBeInTheDocument();
     expect(screen.getByText('Last updated')).toBeInTheDocument();
     expect(screen.getByText('Started')).toBeInTheDocument();
     expect(screen.getAllByText('Aug 12, 2026 at 12:00 UTC').length).toBeGreaterThan(0);

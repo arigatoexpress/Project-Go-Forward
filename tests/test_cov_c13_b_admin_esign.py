@@ -329,9 +329,9 @@ def _envelope(*, contract_hash=None):
     _contract, deployment_id, real_hash = _identity()
     evidence = _access_evidence()
     caps = StepUpCaps(
-        average_daily_usd=20,
-        max_single_day_charge_usd=40,
-        monthly_charge_limit_usd=608,
+        average_daily_usd=5,
+        max_single_day_charge_usd=10,
+        monthly_charge_limit_usd=152,
         max_cpc_usd=5,
     )
     context = StepUpContext(
@@ -471,9 +471,9 @@ class TestApprovalRouteTails:
                 deployment_id=f"tho-search-high-intent-huffman-v1--{'a' * 64}",
                 contract_hash=f"sha256:{'b' * 64}",
                 caps=StepUpCaps(
-                    average_daily_usd=20,
-                    max_single_day_charge_usd=40,
-                    monthly_charge_limit_usd=608,
+                    average_daily_usd=5,
+                    max_single_day_charge_usd=10,
+                    monthly_charge_limit_usd=152,
                     max_cpc_usd=5,
                 ),
                 evidence_digest=f"sha256:{'c' * 64}",
