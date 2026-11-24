@@ -77,8 +77,36 @@ class Appointment:
         return cls(**filtered)
 
 
+def _special_hours_for_date(d: date) -> tuple | None | bool:
+    """Holiday override from config.yaml ``business.special_hours``.
+
+    Returns (open_hour, close_hour), None when closed all day, or False when
+    the date has no override. Config errors fall back to the weekly schedule.
+    """
+    try:
+        from config_loader import get_business
+
+        specials = (get_business() or {}).get("special_hours") or []
+    except Exception:  # noqa: BLE001 - never block booking on config errors
+        logger.warning("special_hours unavailable; using weekly schedule", exc_info=True)
+        return False
+    iso = d.isoformat()
+    for spec in specials:
+        if str(spec.get("date")) != iso:
+            continue
+        opens = str(spec.get("opens") or "00:00")
+        closes = str(spec.get("closes") or "00:00")
+        if opens == closes:
+            return None
+        return int(opens.split(":")[0]), int(closes.split(":")[0])
+    return False
+
+
 def _get_hours_for_date(d: date) -> tuple | None:
     """Return (open_hour, close_hour) for a given date, or None if closed."""
+    special = _special_hours_for_date(d)
+    if special is not False:
+        return special
     return HOURS_BY_DAY.get(d.weekday())
 
 
