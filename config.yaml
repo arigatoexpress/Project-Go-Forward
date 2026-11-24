@@ -91,6 +91,24 @@ business:
       opens: "10:00"
       closes: "15:00"
 
+  # Holiday exceptions to `hours_structured`, emitted as schema.org
+  # specialOpeningHoursSpecification so Google shows the right hours.
+  # `opens`/`closes` "00:00" means closed all day. Keep in sync with
+  # STORE_CLOSURE in frontend/src/constants.js. Past dates are harmless.
+  special_hours:
+    - date: "2026-11-25"   # Wed before Thanksgiving (L.A., 2026-11-18)
+      opens: "09:00"
+      closes: "12:00"
+    - date: "2026-11-26"   # Thanksgiving
+      opens: "00:00"
+      closes: "00:00"
+    - date: "2026-11-27"
+      opens: "00:00"
+      closes: "00:00"
+    - date: "2026-11-28"
+      opens: "00:00"
+      closes: "00:00"
+
 # Creditor/lender contact blocks auto-filled on closing documents when the deal's
 # creditor name starts with one of `match_names`. Only blank creditor fields are
 # filled; blank values here leave the PDF line blank for manual entry.

@@ -462,6 +462,19 @@ def _local_business_jsonld() -> dict:
             }
             for spec in hours
         ]
+    special = (get_business() or {}).get("special_hours")
+    if special:
+        data["specialOpeningHoursSpecification"] = [
+            {
+                "@type": "OpeningHoursSpecification",
+                "validFrom": spec.get("date"),
+                "validThrough": spec.get("date"),
+                "opens": spec.get("opens"),
+                "closes": spec.get("closes"),
+            }
+            for spec in special
+            if spec.get("date")
+        ]
     biz = get_business() or {}
     geo = biz.get("geo")
     if geo and geo.get("latitude") and geo.get("longitude"):

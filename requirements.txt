@@ -60,6 +60,8 @@ urllib3>=2.7.0
 moviepy==1.0.3
 
 # Explicit floor: GHSA-xcq7-p3pf-p88h (unbounded tracestate DoS) fixed in
-# 1.45.1; ceiling (<=1.45.2) comes from google-adk 2.14.1's own constraint.
-opentelemetry-api>=1.45.1
-opentelemetry-sdk>=1.45.1
+# 1.45.1 and GHSA-mf5v-w3w3-f6cg / CVE-2026-126360 (quadratic traceparent
+# parsing DoS, 2026-11-13) fixed in 1.45.2; ceiling (<=1.45.2) comes from
+# google-adk 2.14.1's own constraint.
+opentelemetry-api>=1.45.2
+opentelemetry-sdk>=1.45.2

@@ -7,7 +7,7 @@ def test_starlette_testclient_transport_is_declared() -> None:
     requirements = (ROOT / "requirements-dev.txt").read_text(encoding="utf-8").splitlines()
 
     assert "httpx>=0.28.0" in requirements
-    assert "httpx2>=2.7.0" in requirements
+    assert "httpx2>=2.12.0" in requirements
 
 
 def test_raw_text_sanitizer_request_uses_content() -> None:
