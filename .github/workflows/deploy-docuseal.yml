@@ -52,6 +52,11 @@ env:
   SQL_DB: docuseal
   SQL_USER: docuseal
   SERVICE: docuseal
+  # workflow_dispatch inputs reach `run:` steps through env, never via inline
+  # ${{ }} expansion (semgrep run-shell-injection; CVE sweep 2026-11-18).
+  INPUT_REGION: ${{ github.event.inputs.region }}
+  INPUT_DB_TIER: ${{ github.event.inputs.db_tier }}
+  INPUT_ALLOW_UNAUTHENTICATED: ${{ github.event.inputs.allow_unauthenticated }}
 
 jobs:
   deploy-docuseal:
@@ -93,12 +98,12 @@ jobs:
       - name: Ensure Cloud SQL (Postgres) instance, database, and user
         run: |
           set -euo pipefail
-          REGION="${{ github.event.inputs.region }}"
+          REGION="$INPUT_REGION"
           if ! gcloud sql instances describe "$SQL_INSTANCE" --project="$PROJECT_ID" >/dev/null 2>&1; then
             echo "Creating Cloud SQL instance $SQL_INSTANCE (this can take ~10 min)..."
             gcloud sql instances create "$SQL_INSTANCE" \
               --project="$PROJECT_ID" --region="$REGION" \
-              --database-version=POSTGRES_15 --tier="${{ github.event.inputs.db_tier }}" \
+              --database-version=POSTGRES_15 --tier="$INPUT_DB_TIER" \
               --storage-size=10GB --storage-auto-increase
           else
             echo "Cloud SQL instance $SQL_INSTANCE already exists"
@@ -116,13 +121,13 @@ jobs:
         id: deploy
         run: |
           set -euo pipefail
-          REGION="${{ github.event.inputs.region }}"
+          REGION="$INPUT_REGION"
           CONN_NAME="$(gcloud sql instances describe "$SQL_INSTANCE" --project="$PROJECT_ID" --format='value(connectionName)')"
           DB_PW="$(gcloud secrets versions access latest --secret=docuseal-db-password --project="$PROJECT_ID")"
           # URL-encode nothing fancy — the password is hex so it is URL-safe.
           DATABASE_URL="postgresql://${SQL_USER}:${DB_PW}@/${SQL_DB}?host=/cloudsql/${CONN_NAME}"
           AUTH_FLAG="--allow-unauthenticated"
-          [ "${{ github.event.inputs.allow_unauthenticated }}" = "true" ] || AUTH_FLAG="--no-allow-unauthenticated"
+          [ "$INPUT_ALLOW_UNAUTHENTICATED" = "true" ] || AUTH_FLAG="--no-allow-unauthenticated"
           gcloud run deploy "$SERVICE" \
             --image=docuseal/docuseal:latest \
             --project="$PROJECT_ID" --region="$REGION" \
