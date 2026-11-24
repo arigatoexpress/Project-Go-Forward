@@ -1,4 +1,9 @@
-"""Dependency-audit workflows fail on new findings, with one scoped exception."""
+"""Dependency-audit workflows fail on new findings, with zero exceptions.
+
+The single historical exception (ADK-capped GHSA-xcq7-p3pf-p88h) was removed
+2026-11-13 when ADK 2.14.1 admitted the OpenTelemetry 1.45.1+ fix. These tests
+now pin the invariant that NO advisory is ignored in either workflow.
+"""
 
 import os
 import subprocess
@@ -9,7 +14,6 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 SCHEDULED_WORKFLOW = ROOT / ".github/workflows/dependency-audit.yml"
 PR_WORKFLOW = ROOT / ".github/workflows/pr-hardening.yml"
-ADK_CAPPED_ADVISORY = "GHSA-xcq7-p3pf-p88h"
 
 
 def _job(workflow_path: Path, name: str) -> dict:
@@ -59,7 +63,7 @@ def test_audit_jobs_are_not_continue_on_error_or_masked():
             assert "(informational)" not in script
 
 
-def test_backend_audits_share_one_explicit_advisory_exception():
+def test_backend_audits_run_without_advisory_exceptions():
     scripts = (
         _step(
             SCHEDULED_WORKFLOW,
@@ -71,8 +75,7 @@ def test_backend_audits_share_one_explicit_advisory_exception():
 
     for script in scripts:
         assert "-r requirements.txt -r requirements-dev.txt" in script
-        assert script.count("--ignore-vuln") == 1
-        assert f"--ignore-vuln {ADK_CAPPED_ADVISORY}" in script
+        assert "--ignore-vuln" not in script
 
 
 def test_pr_backend_audit_propagates_failure_and_records_arguments(tmp_path):
@@ -92,7 +95,7 @@ python() {
     calls = (tmp_path / "calls.txt").read_text().splitlines()
     assert len(calls) == 1
     assert calls[0].startswith("-m pip_audit -r requirements.txt")
-    assert f"--ignore-vuln {ADK_CAPPED_ADVISORY}" in calls[0]
+    assert "--ignore-vuln" not in calls[0]
 
 
 def test_pr_frontend_audit_propagates_failure(tmp_path):
@@ -142,7 +145,7 @@ pip-audit() {
     assert "mock scheduled backend audit" in (tmp_path / "summary.md").read_text()
     calls = (tmp_path / "calls.txt").read_text()
     assert "-r requirements.txt -r requirements-dev.txt" in calls
-    assert f"--ignore-vuln {ADK_CAPPED_ADVISORY}" in calls
+    assert "--ignore-vuln" not in calls
 
 
 def test_scheduled_npm_audit_checks_both_projects_and_propagates_failure(tmp_path):
