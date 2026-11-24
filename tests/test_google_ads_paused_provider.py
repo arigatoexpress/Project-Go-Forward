@@ -93,7 +93,7 @@ def _campaign_row():
         "campaignBudget": {
             "resourceName": BUDGET_RESOURCE,
             "name": f"{campaign['name']} | Budget",
-            "amountMicros": "20000000",
+            "amountMicros": "5000000",
             "deliveryMethod": "STANDARD",
             "explicitlyShared": False,
         },
@@ -298,7 +298,7 @@ def test_reviewed_graph_has_exact_caps_label_and_every_serving_resource_paused()
 
     assert request["partialFailure"] is False
     assert request["validateOnly"] is False
-    assert creates["campaignBudgetOperation"][0]["amountMicros"] == 20_000_000
+    assert creates["campaignBudgetOperation"][0]["amountMicros"] == 5_000_000
     assert creates["campaignOperation"][0]["targetSpend"] == {"cpcBidCeilingMicros": 5_000_000}
     assert creates["labelOperation"][0]["name"] == contract_label(CONTRACT)
     for operation_name in (
