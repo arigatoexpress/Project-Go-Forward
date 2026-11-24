@@ -1,0 +1,48 @@
+# Dependabot version updates. Config only: no code, no deploy change.
+# Weekly, grouped, small PR budget, so CVE floors arrive as reviewable PRs
+# instead of surprise failures in dependency-audit.yml. Monday 06:00 MT, before the
+# 07:17 MT audit. Security updates (repo setting) still open immediately.
+# Note: merging any PR to main triggers deploy.yml, so batch these with an approved deploy.
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: "/"
+    schedule: {interval: weekly, day: monday, time: "06:00", timezone: America/Denver}
+    open-pull-requests-limit: 3
+    labels: [dependencies, python]
+    groups:
+      python-minor-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: npm
+    directory: "/frontend"
+    schedule: {interval: weekly, day: monday, time: "06:00", timezone: America/Denver}
+    open-pull-requests-limit: 3
+    labels: [dependencies, javascript]
+    groups:
+      frontend-minor-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: npm
+    directory: "/e2e"
+    schedule: {interval: monthly, timezone: America/Denver}
+    open-pull-requests-limit: 1
+    labels: [dependencies, e2e]
+    groups:
+      e2e-all:
+        patterns: ["*"]
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule: {interval: monthly, timezone: America/Denver}
+    open-pull-requests-limit: 2
+    labels: [dependencies, ci]
+    groups:
+      actions-all:
+        patterns: ["*"]
+
+  - package-ecosystem: docker
+    directories: ["/", "/jobs/leads_bq_sync", "/services/docuseal"]
+    schedule: {interval: monthly, timezone: America/Denver}
+    open-pull-requests-limit: 2
+    labels: [dependencies, docker]
